@@ -1,0 +1,36 @@
+digraph ATN {
+rankdir=LR;
+s11[fontsize=11, label="11", shape=doublecircle, fixedsize=true, width=.6];
+s97[fontsize=11,label="97", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s98[fontsize=11,label="98", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s99[fontsize=11,label="99", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s100[fontsize=11,label="100", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s101[fontsize=11,label="101", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s102[fontsize=11,label="102", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s103[fontsize=11,label="103", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s104[fontsize=11,label="104", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s105[fontsize=11,label="105", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s10[fontsize=11,label="10", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s106[fontsize=11,label="{&rarr;\n106\nd=6|{<p0>|<p1>|<p2>|<p3>|<p4>|<p5>|<p6>|<p7>|<p8>}}", shape=record, fixedsize=false, peripheries=1];
+s107[fontsize=11,label="&larr;\n107", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s10 -> s106 [fontname="Times-Italic", label="&epsilon;"];
+s106:p0 -> s97 [fontname="Times-Italic", label="&epsilon;"];
+s106:p1 -> s98 [fontname="Times-Italic", label="&epsilon;"];
+s106:p2 -> s99 [fontname="Times-Italic", label="&epsilon;"];
+s106:p3 -> s100 [fontname="Times-Italic", label="&epsilon;"];
+s106:p4 -> s101 [fontname="Times-Italic", label="&epsilon;"];
+s106:p5 -> s102 [fontname="Times-Italic", label="&epsilon;"];
+s106:p6 -> s103 [fontname="Times-Italic", label="&epsilon;"];
+s106:p7 -> s104 [fontname="Times-Italic", label="&epsilon;"];
+s106:p8 -> s105 [fontname="Times-Italic", label="&epsilon;"];
+s97 -> s107 [fontsize=11, fontname="Courier", arrowsize=.7, label = "<boolean_term>", arrowhead = normal];
+s98 -> s107 [fontsize=11, fontname="Courier", arrowsize=.7, label = "<integer_term>", arrowhead = normal];
+s99 -> s107 [fontsize=11, fontname="Courier", arrowsize=.7, label = "<float_term>", arrowhead = normal];
+s100 -> s107 [fontsize=11, fontname="Courier", arrowsize=.7, label = "<string_term>", arrowhead = normal];
+s101 -> s107 [fontsize=11, fontname="Courier", arrowsize=.7, label = "<complex_term>", arrowhead = normal];
+s102 -> s107 [fontsize=11, fontname="Courier", arrowsize=.7, label = "<call_term>", arrowhead = normal];
+s103 -> s107 [fontsize=11, fontname="Courier", arrowsize=.7, label = "<separate_term>", arrowhead = normal];
+s104 -> s107 [fontsize=11, fontname="Courier", arrowsize=.7, label = "<lambda_term>", arrowhead = normal];
+s105 -> s107 [fontsize=11, fontname="Courier", arrowsize=.7, label = "<ref_call_term>", arrowhead = normal];
+s107 -> s11 [fontname="Times-Italic", label="&epsilon;"];
+}

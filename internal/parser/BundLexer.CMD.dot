@@ -1,0 +1,17 @@
+digraph ATN {
+rankdir=LR;
+s62[fontsize=11, label="62", shape=doublecircle, fixedsize=true, width=.6];
+s274[fontsize=11,label="274", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s275[fontsize=11,label="&rarr;\n275+", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s276[fontsize=11,label="&larr;\n276", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s277[fontsize=11,label="{277+\nd=9|{<p0>|<p1>}}", shape=record, fixedsize=false, peripheries=1];
+s278[fontsize=11,label="278", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s61[fontsize=11,label="61", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s61 -> s275 [fontname="Times-Italic", label="&epsilon;"];
+s275 -> s274 [fontname="Times-Italic", label="&epsilon;"];
+s274 -> s276 [fontsize=11, fontname="Courier", arrowsize=.7, label = "{'&', '*'..'+', '-', '<'..'>', '\\', '×', '÷', '↑'..'→', '∆'..'∉', '∏'..'∐', '√', '∩'..'∪', '≈'..'≉', '⊂'..'⊉'}", arrowhead = normal];
+s276 -> s277 [fontname="Times-Italic", label="&epsilon;"];
+s277:p0 -> s275 [fontname="Times-Italic", label="&epsilon;", style="dashed"];
+s277:p1 -> s278 [fontname="Times-Italic", label="&epsilon;"];
+s278 -> s62 [fontname="Times-Italic", label="&epsilon;"];
+}

@@ -1,0 +1,28 @@
+digraph ATN {
+rankdir=LR;
+s21[fontsize=11, label="21", shape=doublecircle, fixedsize=true, width=.6];
+s145[fontsize=11,label="145", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s146[fontsize=11,label="146", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s147[fontsize=11,label="{&rarr;\n147\nd=14|{<p0>|<p1>}}", shape=record, fixedsize=false, peripheries=1];
+s20[fontsize=11,label="20", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s148[fontsize=11,label="&larr;\n148", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s149[fontsize=11,label="149", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s150[fontsize=11,label="150", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s151[fontsize=11,label="151", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s152[fontsize=11,label="152", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s153[fontsize=11,label="{&rarr;\n153\nd=15|{<p0>|<p1>}}", shape=record, fixedsize=false, peripheries=1];
+s154[fontsize=11,label="&larr;\n154", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s20 -> s147 [fontname="Times-Italic", label="&epsilon;"];
+s147:p0 -> s145 [fontname="Times-Italic", label="&epsilon;"];
+s147:p1 -> s148 [fontname="Times-Italic", label="&epsilon;"];
+s145 -> s146 [fontsize=11, fontname="Courier", arrowsize=.7, label = "NAME", arrowhead = normal];
+s148 -> s149 [fontname="Times-Italic", label="&epsilon;"];
+s146 -> s148 [fontsize=11, fontname="Courier", arrowsize=.7, label = "'@'", arrowhead = normal];
+s149 -> s153 [fontsize=11, fontname="Courier", arrowsize=.7, label = "{'+Inf', 'NaN', '-Inf', 'Inf', FLOAT_NUMBER}", arrowhead = normal];
+s153:p0 -> s150 [fontname="Times-Italic", label="&epsilon;"];
+s153:p1 -> s154 [fontname="Times-Italic", label="&epsilon;"];
+s150 -> s151 [fontsize=11, fontname="Courier", arrowsize=.7, label = "':('", arrowhead = normal];
+s154 -> s21 [fontname="Times-Italic", label="&epsilon;"];
+s151 -> s152 [fontsize=11, fontname="Courier", arrowsize=.7, label = "{SYS, SYSF, NAME}", arrowhead = normal];
+s152 -> s154 [fontsize=11, fontname="Courier", arrowsize=.7, label = "')'", arrowhead = normal];
+}
