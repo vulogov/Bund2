@@ -55,7 +55,7 @@ call_term
   ;
 
 
-ref_call_term:     '`' VALUE=(SYS|SYSF|CMD|NAME) (':(' FUNCTOR=(SYS|SYSF|CMD|NAME) ')')? ;
+ref_call_term:     '`' (PRE=NAME '@')? VALUE=(SYS|SYSF|CMD|NAME) (':(' FUNCTOR=(SYS|SYSF|CMD|NAME) ')')? ;
 
 boolean_term: (PRE=NAME '@')? VALUE=(TRUE|FALSE)    (':(' FUNCTOR=(SYS|SYSF|CMD|NAME) ')')? ;
 integer_term: (PRE=NAME '@')? VALUE=INTEGER         (':(' FUNCTOR=(SYS|SYSF|CMD|NAME) ')')? ;

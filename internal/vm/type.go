@@ -8,4 +8,5 @@ func (vm *VM) RegisterTypes() {
 	RegisterBoolean(vm)
 	RegisterString(vm)
 	RegisterCpx(vm)
+	RegisterCALL(vm)
 }
