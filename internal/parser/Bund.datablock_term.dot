@@ -29,6 +29,6 @@ s190:p1 -> s191 [fontname="Times-Italic", label="&epsilon;"];
 s185 -> s183 [fontname="Times-Italic", label="&epsilon;", style="dashed"];
 s187 -> s188 [fontsize=11, fontname="Courier", arrowsize=.7, label = "':('", arrowhead = normal];
 s191 -> s31 [fontname="Times-Italic", label="&epsilon;"];
-s188 -> s189 [fontsize=11, fontname="Courier", arrowsize=.7, label = "{SYS, SYSF, NAME}", arrowhead = normal];
+s188 -> s189 [fontsize=11, fontname="Courier", arrowsize=.7, label = "{SYS, CMD, SYSF, NAME}", arrowhead = normal];
 s189 -> s191 [fontsize=11, fontname="Courier", arrowsize=.7, label = "')'", arrowhead = normal];
 }

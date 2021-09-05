@@ -23,6 +23,6 @@ s173:p0 -> s170 [fontname="Times-Italic", label="&epsilon;"];
 s173:p1 -> s174 [fontname="Times-Italic", label="&epsilon;"];
 s170 -> s171 [fontsize=11, fontname="Courier", arrowsize=.7, label = "':('", arrowhead = normal];
 s174 -> s25 [fontname="Times-Italic", label="&epsilon;"];
-s171 -> s172 [fontsize=11, fontname="Courier", arrowsize=.7, label = "{SYS, SYSF, NAME}", arrowhead = normal];
+s171 -> s172 [fontsize=11, fontname="Courier", arrowsize=.7, label = "{SYS, CMD, SYSF, NAME}", arrowhead = normal];
 s172 -> s174 [fontsize=11, fontname="Courier", arrowsize=.7, label = "')'", arrowhead = normal];
 }

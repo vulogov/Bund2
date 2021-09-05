@@ -51,24 +51,24 @@ data
   );
 
 call_term
-  : (PRE=NAME '@')? VALUE=(SYS|SYSF|NAME) (':(' FUNCTOR=(SYS|SYSF|NAME) ')')?
+  : (PRE=NAME '@')? VALUE=(SYS|SYSF|CMD|NAME) (':(' FUNCTOR=(SYS|SYSF|CMD|NAME) ')')?
   ;
 
 
-ref_call_term:     '`' VALUE=(SYS|SYSF|NAME) (':(' FUNCTOR=(SYS|SYSF|NAME) ')')? ;
+ref_call_term:     '`' VALUE=(SYS|SYSF|CMD|NAME) (':(' FUNCTOR=(SYS|SYSF|CMD|NAME) ')')? ;
 
-boolean_term: (PRE=NAME '@')? VALUE=(TRUE|FALSE)    (':(' FUNCTOR=(SYS|SYSF|NAME) ')')? ;
-integer_term: (PRE=NAME '@')? VALUE=INTEGER         (':(' FUNCTOR=(SYS|SYSF|NAME) ')')? ;
-float_term:   (PRE=NAME '@')? VALUE=(FLOAT_NUMBER|'+Inf'|'NaN'|'-Inf'|'Inf')(':(' FUNCTOR=(SYS|SYSF|NAME) ')')? ;
-string_term:  (PRE=NAME '@')? VALUE=STRING          (':(' FUNCTOR=(SYS|SYSF|NAME) ')')? ;
-complex_term: (PRE=NAME '@')? VALUE=COMPLEX_NUMBER  (':(' FUNCTOR=(SYS|SYSF|NAME) ')')? ;
+boolean_term: (PRE=NAME '@')? VALUE=(TRUE|FALSE)    (':(' FUNCTOR=(SYS|SYSF|CMD|NAME) ')')? ;
+integer_term: (PRE=NAME '@')? VALUE=INTEGER         (':(' FUNCTOR=(SYS|SYSF|CMD|NAME) ')')? ;
+float_term:   (PRE=NAME '@')? VALUE=(FLOAT_NUMBER|'+Inf'|'NaN'|'-Inf'|'Inf')(':(' FUNCTOR=(SYS|SYSF|CMD|NAME) ')')? ;
+string_term:  (PRE=NAME '@')? VALUE=STRING          (':(' FUNCTOR=(SYS|SYSF|CMD|NAME) ')')? ;
+complex_term: (PRE=NAME '@')? VALUE=COMPLEX_NUMBER  (':(' FUNCTOR=(SYS|SYSF|CMD|NAME) ')')? ;
 
 mode_term:    VALUE=(TOBEGIN|TOEND) ;
 
 separate_term: VALUE=SEPARATE ;
 
 datablock_term
-  : '(*' (body+=data)* ')'(':(' FUNCTOR=(SYS|SYSF|NAME) ')')?
+  : '(*' (body+=data)* ')'(':(' FUNCTOR=(SYS|SYSF|CMD|NAME) ')')?
   ;
 
 matchblock_term

@@ -24,6 +24,7 @@ func (vm *VM) RegisterOpcodes() {
 	InitOpcodeFloat(vm)
 	InitOpcodeBoolean(vm)
 	InitOpcodeString(vm)
+	InitOpcodeComplex(vm)
 	InitOpcodeCall(vm)
 }
 

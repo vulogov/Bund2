@@ -7,4 +7,5 @@ func (vm *VM) RegisterTypes() {
 	RegisterFloat(vm)
 	RegisterBoolean(vm)
 	RegisterString(vm)
+	RegisterCpx(vm)
 }
