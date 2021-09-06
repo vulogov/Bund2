@@ -25,8 +25,11 @@ func (vm *VM) RegisterOpcodes() {
 	InitOpcodeBoolean(vm)
 	InitOpcodeString(vm)
 	InitOpcodeComplex(vm)
+	InitOpcodeDBlock(vm)
 	InitOpcodeCall(vm)
 	InitOpcodeRCall(vm)
+	InitOpcodeSeparate(vm)
+
 }
 
 func (vm *VM) RegisterOpcode(t string, ip OpcodeParserFun, il OpcodeInLambdaFun, ef OpcodeEvalFun, ex OpcodeGenerationFun, im OpcodeExecFun) bool {
