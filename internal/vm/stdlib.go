@@ -5,4 +5,5 @@ func InitFUNCTIONS(vm *VM) {
 	InitPrintFunctions(vm)
 	InitSystemFunctions(vm)
 	InitRndFunctions(vm)
+	InitStringFunctions(vm)
 }
