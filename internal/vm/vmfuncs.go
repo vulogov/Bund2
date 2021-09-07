@@ -28,11 +28,11 @@ func (vm *VM) AddOperator(name string, fn OperatorFun) bool {
 
 func (vm *VM) AddGen(name string, fn GenFun) bool {
 	if _, ok := vm.Generators.Load(name); ok {
-		vm.Warning("System function %v already registered", name)
+		vm.Warning("Generator %v already registered", name)
 		return true
 	}
 	vm.Generators.Store(name, fn)
-	vm.Debug("Register BUND system function: %v", name)
+	vm.Debug("Register BUND generator: %v", name)
 	return true
 }
 

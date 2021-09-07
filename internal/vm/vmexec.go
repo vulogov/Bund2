@@ -60,5 +60,5 @@ func (vm *VM) Exec(e *Elem) (*Elem, error) {
 		vm.CurrentNS.CurrentLambdaName = ""
 		return res, err
 	}
-	return nil, fmt.Errorf("User or Embeded function/operator/generator not found: %v", e.Value.(string))
+	return nil, fmt.Errorf("User or Embedded function/operator/generator not found: %v", e.Value.(string))
 }

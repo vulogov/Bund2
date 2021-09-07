@@ -8,13 +8,16 @@ func (vm *VM) runop(t string, args ...interface{}) {
 		var functor string
 		var prefunction string
 		if len(args) >= 3 {
-			data := args[1].(string)
+			data := args[0].(string)
 			if len(args[1].(string)) > 0 {
 				prefunction = args[1].(string)
-				_, err = vm.GetType(prefunction)
+				eh, err := vm.GetType(prefunction)
 				if err == nil {
-					vm.runop(prefunction, data, "", "")
+					vm.Debug("PREFUNCTION: for datatype %v", prefunction)
+					res := eh.FromString(vm, data)
+					vm.Put(res)
 				} else {
+					vm.Debug("PREFUNCTION: for call %v", prefunction)
 					vm.Put(&Elem{Type: "str", Value: data})
 					vm.runop("CALL", prefunction, "", "")
 				}
