@@ -9,6 +9,7 @@ require (
 	github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751 // indirect
 	github.com/alecthomas/units v0.0.0-20210208195552-ff826a37aa15 // indirect
 	github.com/antlr/antlr4/runtime/Go/antlr v0.0.0-20210826220005-b48c857c3a0e
+	github.com/aws/aws-sdk-go v1.40.38 // indirect
 	github.com/c2fo/vfs/v5 v5.9.0
 	github.com/commander-cli/cmd v1.3.0
 	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be
