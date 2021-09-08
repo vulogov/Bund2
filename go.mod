@@ -6,9 +6,9 @@ require (
 	cloud.google.com/go v0.94.1 // indirect
 	github.com/Azure/go-autorest/autorest v0.11.20 // indirect
 	github.com/Azure/go-autorest/autorest/adal v0.9.15 // indirect
-	github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751 // indirect
+	github.com/Jeffail/gabs/v2 v2.6.1
 	github.com/alecthomas/units v0.0.0-20210208195552-ff826a37aa15 // indirect
-	github.com/antlr/antlr4/runtime/Go/antlr v0.0.0-20210826220005-b48c857c3a0e
+	github.com/antlr/antlr4/runtime/Go/antlr v0.0.0-20210907221601-4f80a5e09cd0
 	github.com/aws/aws-sdk-go v1.40.38 // indirect
 	github.com/c2fo/vfs/v5 v5.9.0
 	github.com/commander-cli/cmd v1.3.0
@@ -27,8 +27,11 @@ require (
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/stretchr/objx v0.3.0 // indirect
 	github.com/tomlazar/table v0.1.0
-	golang.org/x/sys v0.0.0-20210906170528-6f6e22806c34 // indirect
+	golang.org/x/exp v0.0.0-20210908151040-650492aaac73 // indirect
+	golang.org/x/net v0.0.0-20210907225631-ff17edfbf26d // indirect
+	golang.org/x/sys v0.0.0-20210908143011-c212e7322662 // indirect
 	golang.org/x/text v0.3.7 // indirect
+	gonum.org/v1/gonum v0.9.3
 	google.golang.org/genproto v0.0.0-20210903162649-d08c68adba83 // indirect
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect

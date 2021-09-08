@@ -12,7 +12,7 @@ func UnixFactory(vm *VM) *Elem {
 
 func UnixToString(vm *VM, e *Elem) string {
 	if e.Type == "unix" {
-		return fmt.Sprintf("unix@'%v'", e.Value.(string))
+		return fmt.Sprintf("%v", e.Value.(string))
 	}
 	vm.Error("trying to convert a unix and it is not a unix: %v %T", e.Type, e.Value)
 	return "<?>"

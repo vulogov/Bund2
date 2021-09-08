@@ -12,4 +12,7 @@ func (vm *VM) RegisterTypes() {
 	RegisterCALL(vm)
 	RegisterSep(vm)
 	RegisterUnix(vm)
+	RegisterJson(vm)
+	RegisterMatrix(vm)
+	RegisterInterval(vm)
 }

@@ -141,6 +141,10 @@ func NameFun(vm *VM) (*Elem, error) {
 	return &Elem{Type: "str", Value: vm.CurrentNS.Name}, nil
 }
 
+func LenFun(vm *VM) (*Elem, error) {
+	return &Elem{Type: "int", Value: big.NewInt(int64(vm.Current.Len()))}, nil
+}
+
 func TypeFun(vm *VM, e *Elem) (*Elem, error) {
 	vm.Put(e)
 	return &Elem{Type: "str", Value: e.Type}, nil
@@ -209,6 +213,7 @@ func InitSystemFunctions(vm *VM) {
 	vm.AddFunction("alias", GetAlias)
 	vm.AddFunction("sleep", SleepFun)
 	vm.AddGen("name", NameFun)
+	vm.AddGen("len", LenFun)
 	vm.AddFunction("type", TypeFun)
 	vm.AddFunction("seq", SeqFun)
 	vm.AddOperator("N", NFun)

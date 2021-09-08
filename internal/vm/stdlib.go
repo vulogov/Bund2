@@ -6,4 +6,8 @@ func InitFUNCTIONS(vm *VM) {
 	InitSystemFunctions(vm)
 	InitRndFunctions(vm)
 	InitStringFunctions(vm)
+	InitMathFunctions(vm)
+	InitJsonFunctions(vm)
+	InitMatFunctions(vm)
+	InitIntervalFunctions(vm)
 }
