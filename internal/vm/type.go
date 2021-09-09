@@ -15,4 +15,5 @@ func (vm *VM) RegisterTypes() {
 	RegisterJson(vm)
 	RegisterMatrix(vm)
 	RegisterInterval(vm)
+	RegisterGlob(vm)
 }

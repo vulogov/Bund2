@@ -10,4 +10,6 @@ func InitFUNCTIONS(vm *VM) {
 	InitJsonFunctions(vm)
 	InitMatFunctions(vm)
 	InitIntervalFunctions(vm)
+	InitGPMOperators(vm)
+	InitOpCmp(vm)
 }
