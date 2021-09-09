@@ -32,6 +32,7 @@ func (vm *VM) RegisterOpcodes() {
 	InitOpcodeUnixcmd(vm)
 	InitOpcodeJson(vm)
 	InitOpcodeGlob(vm)
+	InitOpcodeFile(vm)
 }
 
 func (vm *VM) RegisterOpcode(t string, ip OpcodeParserFun, il OpcodeInLambdaFun, ef OpcodeEvalFun, ex OpcodeGenerationFun, im OpcodeExecFun) bool {

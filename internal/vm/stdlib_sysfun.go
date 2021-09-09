@@ -82,6 +82,10 @@ func ExecuteElement(vm *VM, e *Elem) (*Elem, error) {
 		res, err := vm.Opcode("unix").InEval(vm, e.Value.(string), e.Prefun, e.Functor)
 		vm.OnError(err, "Error in executing on UNIX element")
 		return res, nil
+	case "file":
+		res, err := VfsFileReadElement(vm, e)
+		vm.OnError(err, "Error in executing FILE element")
+		return res, nil
 	}
 	return nil, fmt.Errorf("Request to EXECUTE on wrong context: %v", e.Type)
 }

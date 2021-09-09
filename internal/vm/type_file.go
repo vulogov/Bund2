@@ -14,7 +14,7 @@ func FileFactory(vm *VM) *Elem {
 func FileToString(vm *VM, e *Elem) string {
 	if e.Type == "file" {
 		f := e.Value.(vfs.File)
-		return fmt.Sprintf("f'%v'", f.URI())
+		return fmt.Sprintf("%v", f.URI())
 	}
 	vm.Error("trying to convert a file and it is not a file: %v %T", e.Type, e.Value)
 	return "<?>"

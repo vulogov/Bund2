@@ -16,4 +16,5 @@ func (vm *VM) RegisterTypes() {
 	RegisterMatrix(vm)
 	RegisterInterval(vm)
 	RegisterGlob(vm)
+	RegisterFile(vm)
 }

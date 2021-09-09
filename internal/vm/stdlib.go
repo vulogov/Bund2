@@ -12,4 +12,5 @@ func InitFUNCTIONS(vm *VM) {
 	InitIntervalFunctions(vm)
 	InitGPMOperators(vm)
 	InitOpCmp(vm)
+	InitVFSFunctions(vm)
 }
