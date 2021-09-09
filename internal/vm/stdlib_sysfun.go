@@ -29,9 +29,8 @@ func RotateBackElement(vm *VM, e *Elem) (*Elem, error) {
 	return nil, nil
 }
 
-func PrintStack(vm *VM, e *Elem) (*Elem, error) {
-	vm.Debug("PRINTSTACK: %v", e.Type)
-	vm.Put(e)
+func PrintStack(vm *VM) (*Elem, error) {
+	vm.Debug("PRINTSTACK")
 	res := fmt.Sprintf("(%v)[ ", vm.CurrentNS.Name)
 	for i := vm.Current.Len() - 1; i >= 0; i-- {
 		_e := vm.Current.At(i)
@@ -85,6 +84,10 @@ func ExecuteElement(vm *VM, e *Elem) (*Elem, error) {
 	case "file":
 		res, err := VfsFileReadElement(vm, e)
 		vm.OnError(err, "Error in executing FILE element")
+		return res, nil
+	case "http":
+		res, err := HttpGetElement(vm, e)
+		vm.OnError(err, "Error in executing HTTP element")
 		return res, nil
 	}
 	return nil, fmt.Errorf("Request to EXECUTE on wrong context: %v", e.Type)
@@ -205,7 +208,7 @@ func UseFun(v *VM, e1 *Elem) (*Elem, error) {
 func InitSystemFunctions(vm *VM) {
 	vm.Debug("[ BUND ] bund.InitSystemFunctions() reached")
 	vm.AddFunction("passthrough", PassthrougElement)
-	vm.AddFunction("dumpstack", PrintStack)
+	vm.AddGen("dumpstack", PrintStack)
 	vm.AddFunction(",", DropElement)
 	vm.AddFunction("_,", DropElement)
 	vm.AddFunction(",_", DropOppositeElement)

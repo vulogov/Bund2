@@ -13,4 +13,5 @@ func InitFUNCTIONS(vm *VM) {
 	InitGPMOperators(vm)
 	InitOpCmp(vm)
 	InitVFSFunctions(vm)
+	InitHttpFunctions(vm)
 }
