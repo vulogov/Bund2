@@ -74,6 +74,9 @@ type BundListener interface {
 	// EnterGenerator_term is called when entering the generator_term production.
 	EnterGenerator_term(c *Generator_termContext)
 
+	// EnterIndex_term is called when entering the index_term production.
+	EnterIndex_term(c *Index_termContext)
+
 	// ExitExpressions is called when exiting the expressions production.
 	ExitExpressions(c *ExpressionsContext)
 
@@ -139,4 +142,7 @@ type BundListener interface {
 
 	// ExitGenerator_term is called when exiting the generator_term production.
 	ExitGenerator_term(c *Generator_termContext)
+
+	// ExitIndex_term is called when exiting the index_term production.
+	ExitIndex_term(c *Index_termContext)
 }

@@ -152,3 +152,9 @@ func (s *BaseBundListener) EnterGenerator_term(ctx *Generator_termContext) {}
 
 // ExitGenerator_term is called when production generator_term is exited.
 func (s *BaseBundListener) ExitGenerator_term(ctx *Generator_termContext) {}
+
+// EnterIndex_term is called when production index_term is entered.
+func (s *BaseBundListener) EnterIndex_term(ctx *Index_termContext) {}
+
+// ExitIndex_term is called when production index_term is exited.
+func (s *BaseBundListener) ExitIndex_term(ctx *Index_termContext) {}

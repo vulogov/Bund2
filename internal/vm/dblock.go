@@ -117,6 +117,19 @@ func Block_At(d *Elem, n int64) (interface{}, error) {
 	return nil, fmt.Errorf("I do not know how to extract At value from %v", d.Type)
 }
 
+func AtBlock(d *Elem, n int64) (*Elem, error) {
+	if n >= BlockLen(d) {
+		return nil, fmt.Errorf("Index %v is out of bound", n)
+	}
+	switch d.Type {
+	case "dblock":
+		q := d.Value.(*deque.Deque)
+		v := q.At(int(n)).(*Elem)
+		return v, nil
+	}
+	return nil, fmt.Errorf("I do not know how to extract At value from %v", d.Type)
+}
+
 func Block2Dict(vm *VM, d *Elem) (*map[string]string, error) {
 	var res map[string]string
 	if d.Type == "dblock" {

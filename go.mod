@@ -8,6 +8,7 @@ require (
 	github.com/Azure/go-autorest/autorest/adal v0.9.15 // indirect
 	github.com/Jeffail/gabs/v2 v2.6.1
 	github.com/alecthomas/units v0.0.0-20210208195552-ff826a37aa15 // indirect
+	github.com/antchfx/htmlquery v1.2.3
 	github.com/antlr/antlr4/runtime/Go/antlr v0.0.0-20210907221601-4f80a5e09cd0
 	github.com/aws/aws-sdk-go v1.40.40 // indirect
 	github.com/c2fo/vfs/v5 v5.9.0
@@ -30,7 +31,7 @@ require (
 	github.com/stretchr/objx v0.3.0 // indirect
 	github.com/tomlazar/table v0.1.0
 	golang.org/x/exp v0.0.0-20210909165118-5314dedadbaa // indirect
-	golang.org/x/net v0.0.0-20210908191846-a5e095526f91 // indirect
+	golang.org/x/net v0.0.0-20210908191846-a5e095526f91
 	golang.org/x/sys v0.0.0-20210909193231-528a39cd75f3 // indirect
 	golang.org/x/text v0.3.7 // indirect
 	gonum.org/v1/gonum v0.9.3

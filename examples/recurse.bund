@@ -1,0 +1,10 @@
+[ main :
+   [ sum ]
+      1 + ^
+      10 <
+      (true
+         , sum
+      )
+    .
+   0 0 sum , println
+;;

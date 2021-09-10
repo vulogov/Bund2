@@ -2,14 +2,14 @@ digraph ATN {
 rankdir=LR;
 s3[fontsize=11, label="3", shape=doublecircle, fixedsize=true, width=.6];
 s2[fontsize=11,label="2", shape=circle, fixedsize=true, width=.55, peripheries=1];
-s50[fontsize=11,label="50", shape=circle, fixedsize=true, width=.55, peripheries=1];
-s51[fontsize=11,label="51", shape=circle, fixedsize=true, width=.55, peripheries=1];
-s52[fontsize=11,label="{&rarr;\n52\nd=1|{<p0>|<p1>}}", shape=record, fixedsize=false, peripheries=1];
-s53[fontsize=11,label="&larr;\n53", shape=circle, fixedsize=true, width=.55, peripheries=1];
-s2 -> s52 [fontname="Times-Italic", label="&epsilon;"];
-s52:p0 -> s50 [fontname="Times-Italic", label="&epsilon;"];
-s52:p1 -> s51 [fontname="Times-Italic", label="&epsilon;"];
-s50 -> s53 [fontsize=11, fontname="Courier", arrowsize=.7, label = "<ns>", arrowhead = normal];
-s51 -> s53 [fontsize=11, fontname="Courier", arrowsize=.7, label = "<block>", arrowhead = normal];
-s53 -> s3 [fontname="Times-Italic", label="&epsilon;"];
+s52[fontsize=11,label="52", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s53[fontsize=11,label="53", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s54[fontsize=11,label="{&rarr;\n54\nd=1|{<p0>|<p1>}}", shape=record, fixedsize=false, peripheries=1];
+s55[fontsize=11,label="&larr;\n55", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s2 -> s54 [fontname="Times-Italic", label="&epsilon;"];
+s54:p0 -> s52 [fontname="Times-Italic", label="&epsilon;"];
+s54:p1 -> s53 [fontname="Times-Italic", label="&epsilon;"];
+s52 -> s55 [fontsize=11, fontname="Courier", arrowsize=.7, label = "<ns>", arrowhead = normal];
+s53 -> s55 [fontsize=11, fontname="Courier", arrowsize=.7, label = "<block>", arrowhead = normal];
+s55 -> s3 [fontname="Times-Italic", label="&epsilon;"];
 }

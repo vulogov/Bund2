@@ -36,6 +36,7 @@ term
     | function_term
     | lambda_term
     | generator_term
+    | index_term
   );
 
 data
@@ -96,6 +97,10 @@ generator_term
   : '[[[' name=CMD ']]]' (body+=term)* '.'
   ;
 
+index_term
+  : '#' VALUE=INTEGER ('::' ENDVALUE=INTEGER)?
+  ;
+
 
 INTEGER
   :  (SIGN)? DECIMAL_INTEGER
@@ -149,7 +154,7 @@ CMD
   ;
 
 SYSF
-  : ('∧'|'∨'|'#'|','|'$'|'^'|'_'|'!'|'¬'|'∀'|'≡')+
+  : ('∧'|'∨'|','|'$'|'^'|'_'|'!'|'¬'|'∀'|'≡')+
   ;
 
 SLASH:   '/' ;

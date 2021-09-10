@@ -1,0 +1,16 @@
+##
+## This is demonstration of HTML parsing
+##
+
+(
+  'Query "html" tags in document' println ,
+  '//a/href/..'
+  '<html><a><href src="a"></a>Text<a><href src="b"> </a></html>'
+  html html/Query
+  println
+  'Now checking scripts on GOOGLE frontpage' println ,
+  '//script/..'
+  http@'https://www.google.com' !
+  html html/Query
+  println
+)

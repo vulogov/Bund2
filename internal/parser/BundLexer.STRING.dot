@@ -1,15 +1,15 @@
 digraph ATN {
 rankdir=LR;
-s52[fontsize=11, label="52", shape=doublecircle, fixedsize=true, width=.6];
-s210[fontsize=11,label="210", shape=circle, fixedsize=true, width=.55, peripheries=1];
-s51[fontsize=11,label="51", shape=circle, fixedsize=true, width=.55, peripheries=1];
-s211[fontsize=11,label="211", shape=circle, fixedsize=true, width=.55, peripheries=1];
-s212[fontsize=11,label="{&rarr;\n212\nd=5|{<p0>|<p1>}}", shape=record, fixedsize=false, peripheries=1];
-s213[fontsize=11,label="&larr;\n213", shape=circle, fixedsize=true, width=.55, peripheries=1];
-s51 -> s212 [fontname="Times-Italic", label="&epsilon;"];
-s212:p0 -> s210 [fontname="Times-Italic", label="&epsilon;"];
-s212:p1 -> s211 [fontname="Times-Italic", label="&epsilon;"];
-s210 -> s213 [fontsize=11, fontname="Courier", arrowsize=.7, label = "<SHORT_STRING>", arrowhead = normal];
-s211 -> s213 [fontsize=11, fontname="Courier", arrowsize=.7, label = "<LONG_STRING>", arrowhead = normal];
-s213 -> s52 [fontname="Times-Italic", label="&epsilon;"];
+s56[fontsize=11, label="56", shape=doublecircle, fixedsize=true, width=.6];
+s55[fontsize=11,label="55", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s219[fontsize=11,label="219", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s220[fontsize=11,label="220", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s221[fontsize=11,label="{&rarr;\n221\nd=5|{<p0>|<p1>}}", shape=record, fixedsize=false, peripheries=1];
+s222[fontsize=11,label="&larr;\n222", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s55 -> s221 [fontname="Times-Italic", label="&epsilon;"];
+s221:p0 -> s219 [fontname="Times-Italic", label="&epsilon;"];
+s221:p1 -> s220 [fontname="Times-Italic", label="&epsilon;"];
+s219 -> s222 [fontsize=11, fontname="Courier", arrowsize=.7, label = "<SHORT_STRING>", arrowhead = normal];
+s220 -> s222 [fontsize=11, fontname="Courier", arrowsize=.7, label = "<LONG_STRING>", arrowhead = normal];
+s222 -> s56 [fontname="Times-Italic", label="&epsilon;"];
 }

@@ -35,3 +35,5 @@ pre:
 	go get github.com/Jeffail/gabs/v2
 	go get github.com/cosiner/argv
 	go get github.com/levigross/grequests
+	go get golang.org/x/net/html
+	go get github.com/antchfx/htmlquery

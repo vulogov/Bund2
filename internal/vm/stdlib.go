@@ -14,4 +14,5 @@ func InitFUNCTIONS(vm *VM) {
 	InitOpCmp(vm)
 	InitVFSFunctions(vm)
 	InitHttpFunctions(vm)
+	InitHtmlFunctions(vm)
 }

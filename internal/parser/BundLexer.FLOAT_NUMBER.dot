@@ -1,10 +1,10 @@
 digraph ATN {
 rankdir=LR;
-s50[fontsize=11, label="50", shape=doublecircle, fixedsize=true, width=.6];
-s208[fontsize=11,label="208", shape=circle, fixedsize=true, width=.55, peripheries=1];
-s49[fontsize=11,label="49", shape=circle, fixedsize=true, width=.55, peripheries=1];
-s209[fontsize=11,label="209", shape=circle, fixedsize=true, width=.55, peripheries=1];
-s49 -> s208 [fontname="Times-Italic", label="&epsilon;"];
-s208 -> s209 [fontsize=11, fontname="Courier", arrowsize=.7, label = "<EXPONENT_OR_POINT_FLOAT>", arrowhead = normal];
-s209 -> s50 [fontname="Times-Italic", label="&epsilon;"];
+s54[fontsize=11, label="54", shape=doublecircle, fixedsize=true, width=.6];
+s53[fontsize=11,label="53", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s217[fontsize=11,label="217", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s218[fontsize=11,label="218", shape=circle, fixedsize=true, width=.55, peripheries=1];
+s53 -> s217 [fontname="Times-Italic", label="&epsilon;"];
+s217 -> s218 [fontsize=11, fontname="Courier", arrowsize=.7, label = "<EXPONENT_OR_POINT_FLOAT>", arrowhead = normal];
+s218 -> s54 [fontname="Times-Italic", label="&epsilon;"];
 }
