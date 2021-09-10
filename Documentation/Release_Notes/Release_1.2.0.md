@@ -7,6 +7,8 @@
 - Function 'use' to load dynamic compiled modules. Example: 'internal/dynmodules/example/example.so' use
 - Function I for generating interval, I/Add to add another intervals and I/StdDev and I/Coeff to test if number is within or outside of intervals.
 - "Execution" of "unix" and "http" types with "!" supported. String containing content of the output or document is placed on the stack.
+- New data type 'bund' containing raw bund code. Execution of this datatype proceed to evaluation of the code.
+- eval/* functions and operator. Evaluating bund code in current, unspecified and specified namespace.
 
 
 # Bugfixes
