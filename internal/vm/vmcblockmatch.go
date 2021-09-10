@@ -8,7 +8,7 @@ func (vm *VM) CblockMatch(q *deque.Deque, e *Elem) bool {
 	for i := 0; i < q.Len(); i++ {
 		val := q.At(i).(*Elem)
 		switch val.Type {
-		case "int", "str", "bool":
+		case "int", "str", "bool", "flt":
 			if val.Type != e.Type {
 				continue
 			}

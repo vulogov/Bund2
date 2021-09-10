@@ -4,8 +4,8 @@ go 1.16
 
 require (
 	cloud.google.com/go v0.94.1 // indirect
-	github.com/Azure/go-autorest/autorest v0.11.20 // indirect
-	github.com/Azure/go-autorest/autorest/adal v0.9.15 // indirect
+	github.com/Azure/go-autorest/autorest v0.11.21 // indirect
+	github.com/Azure/go-autorest/autorest/adal v0.9.16 // indirect
 	github.com/Jeffail/gabs/v2 v2.6.1
 	github.com/alecthomas/units v0.0.0-20210208195552-ff826a37aa15 // indirect
 	github.com/antchfx/htmlquery v1.2.3
