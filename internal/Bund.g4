@@ -11,7 +11,7 @@ root_term
 ;
 
 ns
-  : '[' name=NAME ':' (body+=term)* ';;'
+  : '[' name=(NAME|STRING) ':' (body+=term)* ';;'
   ;
 
 block

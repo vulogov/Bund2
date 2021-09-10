@@ -19,4 +19,5 @@ func (vm *VM) RegisterTypes() {
 	RegisterFile(vm)
 	RegisterHttp(vm)
 	RegisterHtml(vm)
+	RegisterBund(vm)
 }

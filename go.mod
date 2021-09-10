@@ -32,7 +32,7 @@ require (
 	github.com/tomlazar/table v0.1.0
 	golang.org/x/exp v0.0.0-20210909165118-5314dedadbaa // indirect
 	golang.org/x/net v0.0.0-20210908191846-a5e095526f91
-	golang.org/x/sys v0.0.0-20210909193231-528a39cd75f3 // indirect
+	golang.org/x/sys v0.0.0-20210910150752-751e447fb3d0 // indirect
 	golang.org/x/text v0.3.7 // indirect
 	gonum.org/v1/gonum v0.9.3
 	google.golang.org/genproto v0.0.0-20210909211513-a8c4777a87af // indirect

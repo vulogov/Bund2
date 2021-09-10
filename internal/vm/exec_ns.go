@@ -1,21 +1,99 @@
 package vm
 
 import (
+	"strings"
+
 	"github.com/vulogov/Bund2/internal/parser"
 )
 
 func (l *bundListener) EnterNs(c *parser.NsContext) {
-	l.VM.Opcode("NS").InParser(l.VM, c.GetName().GetText())
+	tstring := c.GetName().GetText()
+	if strings.HasPrefix(tstring, "\"\"\"") {
+		tstring = strings.TrimPrefix(tstring, "\"\"\"")
+	} else if strings.HasPrefix(tstring, "\"") {
+		tstring = strings.TrimPrefix(tstring, "\"")
+	} else if strings.HasPrefix(tstring, "'''") {
+		tstring = strings.TrimPrefix(tstring, "'''")
+	} else if strings.HasPrefix(tstring, "'") {
+		tstring = strings.TrimPrefix(tstring, "'")
+	}
+	if strings.HasSuffix(tstring, "\"\"\"") {
+		tstring = strings.TrimSuffix(tstring, "\"\"\"")
+	} else if strings.HasSuffix(tstring, "\"") {
+		tstring = strings.TrimSuffix(tstring, "\"")
+	} else if strings.HasSuffix(tstring, "'''") {
+		tstring = strings.TrimSuffix(tstring, "'''")
+	} else if strings.HasSuffix(tstring, "'") {
+		tstring = strings.TrimSuffix(tstring, "'")
+	}
+	l.VM.Opcode("NS").InParser(l.VM, tstring)
 }
 
 func (l *bundListener) ExitNs(c *parser.NsContext) {
-	l.VM.Opcode("exitNS").InParser(l.VM, c.GetName().GetText())
+	tstring := c.GetName().GetText()
+	if strings.HasPrefix(tstring, "\"\"\"") {
+		tstring = strings.TrimPrefix(tstring, "\"\"\"")
+	} else if strings.HasPrefix(tstring, "\"") {
+		tstring = strings.TrimPrefix(tstring, "\"")
+	} else if strings.HasPrefix(tstring, "'''") {
+		tstring = strings.TrimPrefix(tstring, "'''")
+	} else if strings.HasPrefix(tstring, "'") {
+		tstring = strings.TrimPrefix(tstring, "'")
+	}
+	if strings.HasSuffix(tstring, "\"\"\"") {
+		tstring = strings.TrimSuffix(tstring, "\"\"\"")
+	} else if strings.HasSuffix(tstring, "\"") {
+		tstring = strings.TrimSuffix(tstring, "\"")
+	} else if strings.HasSuffix(tstring, "'''") {
+		tstring = strings.TrimSuffix(tstring, "'''")
+	} else if strings.HasSuffix(tstring, "'") {
+		tstring = strings.TrimSuffix(tstring, "'")
+	}
+	l.VM.Opcode("exitNS").InParser(l.VM, tstring)
 }
 
 func (l *bundExecListener) EnterNs(c *parser.NsContext) {
-	l.VM.RunOp("NS", c.GetName().GetText(), "", "")
+	tstring := c.GetName().GetText()
+	if strings.HasPrefix(tstring, "\"\"\"") {
+		tstring = strings.TrimPrefix(tstring, "\"\"\"")
+	} else if strings.HasPrefix(tstring, "\"") {
+		tstring = strings.TrimPrefix(tstring, "\"")
+	} else if strings.HasPrefix(tstring, "'''") {
+		tstring = strings.TrimPrefix(tstring, "'''")
+	} else if strings.HasPrefix(tstring, "'") {
+		tstring = strings.TrimPrefix(tstring, "'")
+	}
+	if strings.HasSuffix(tstring, "\"\"\"") {
+		tstring = strings.TrimSuffix(tstring, "\"\"\"")
+	} else if strings.HasSuffix(tstring, "\"") {
+		tstring = strings.TrimSuffix(tstring, "\"")
+	} else if strings.HasSuffix(tstring, "'''") {
+		tstring = strings.TrimSuffix(tstring, "'''")
+	} else if strings.HasSuffix(tstring, "'") {
+		tstring = strings.TrimSuffix(tstring, "'")
+	}
+	l.VM.RunOp("NS", tstring, "", "")
 }
 
 func (l *bundExecListener) ExitNs(c *parser.NsContext) {
-	l.VM.RunOp("exitNS", c.GetName().GetText(), "", "")
+	tstring := c.GetName().GetText()
+	if strings.HasPrefix(tstring, "\"\"\"") {
+		tstring = strings.TrimPrefix(tstring, "\"\"\"")
+	} else if strings.HasPrefix(tstring, "\"") {
+		tstring = strings.TrimPrefix(tstring, "\"")
+	} else if strings.HasPrefix(tstring, "'''") {
+		tstring = strings.TrimPrefix(tstring, "'''")
+	} else if strings.HasPrefix(tstring, "'") {
+		tstring = strings.TrimPrefix(tstring, "'")
+	}
+	if strings.HasSuffix(tstring, "\"\"\"") {
+		tstring = strings.TrimSuffix(tstring, "\"\"\"")
+	} else if strings.HasSuffix(tstring, "\"") {
+		tstring = strings.TrimSuffix(tstring, "\"")
+	} else if strings.HasSuffix(tstring, "'''") {
+		tstring = strings.TrimSuffix(tstring, "'''")
+	} else if strings.HasSuffix(tstring, "'") {
+		tstring = strings.TrimSuffix(tstring, "'")
+	}
+	l.VM.RunOp("exitNS", tstring, "", "")
 }

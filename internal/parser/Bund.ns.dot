@@ -15,7 +15,7 @@ s62[fontsize=11,label="{62*\nd=2|{<p0>|<p1>}}", shape=record, fixedsize=false, p
 s63[fontsize=11,label="63", shape=circle, fixedsize=true, width=.55, peripheries=1];
 s4 -> s56 [fontname="Times-Italic", label="&epsilon;"];
 s56 -> s57 [fontsize=11, fontname="Courier", arrowsize=.7, label = "'['", arrowhead = normal];
-s57 -> s58 [fontsize=11, fontname="Courier", arrowsize=.7, label = "NAME", arrowhead = normal];
+s57 -> s58 [fontsize=11, fontname="Courier", arrowsize=.7, label = "{STRING, NAME}", arrowhead = normal];
 s58 -> s62 [fontsize=11, fontname="Courier", arrowsize=.7, label = "':'", arrowhead = normal];
 s62:p0 -> s60 [fontname="Times-Italic", label="&epsilon;"];
 s62:p1 -> s63 [fontname="Times-Italic", label="&epsilon;"];

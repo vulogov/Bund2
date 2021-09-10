@@ -15,4 +15,5 @@ func InitFUNCTIONS(vm *VM) {
 	InitVFSFunctions(vm)
 	InitHttpFunctions(vm)
 	InitHtmlFunctions(vm)
+	InitEvalFunctions(vm)
 }
