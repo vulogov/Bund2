@@ -28,4 +28,5 @@ func (vm *VM) RegisterTypes() {
 	RegisterHtml(vm)
 	RegisterBund(vm)
 	RegisterDf(vm)
+	RegisterPerceptron(vm)
 }

@@ -21,6 +21,7 @@ require (
 	github.com/ganbarodigital/go_glob v1.0.0
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/snappy v0.0.4 // indirect
+	github.com/goml/gobrain v0.0.0-20201212123421-2e2d98ca8249
 	github.com/google/uuid v1.3.0
 	github.com/guptarohit/asciigraph v0.5.2 // indirect
 	github.com/juju/errors v0.0.0-20210818161939-5560c4c073ff // indirect
