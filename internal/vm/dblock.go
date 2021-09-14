@@ -94,6 +94,9 @@ func BlockAt(d *Elem, t string, n int64) (interface{}, error) {
 		switch v.Type {
 		case "int":
 			return v.Value.(*big.Int).Int64(), nil
+		case "flt":
+			r, _ := v.Value.(*big.Float).Float64()
+			return r, nil
 		}
 		return v.Value, nil
 	}

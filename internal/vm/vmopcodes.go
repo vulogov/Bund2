@@ -37,6 +37,7 @@ func (vm *VM) RegisterOpcodes() {
 	InitOpcodeIndex(vm)
 	InitOpcodeMBlock(vm)
 	InitOpcodeBund(vm)
+	InitOpcodeLBlock(vm)
 }
 
 func (vm *VM) RegisterOpcode(t string, ip OpcodeParserFun, il OpcodeInLambdaFun, ef OpcodeEvalFun, ex OpcodeGenerationFun, im OpcodeExecFun) bool {
