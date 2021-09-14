@@ -18,4 +18,5 @@ func InitFUNCTIONS(vm *VM) {
 	InitEvalFunctions(vm)
 	InitOpMath(vm)
 	InitOpPercent(vm)
+	InitReturnFunctions(vm)
 }

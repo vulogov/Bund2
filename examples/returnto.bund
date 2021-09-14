@@ -1,6 +1,5 @@
 (
-   'main'
-   42 $_
+   'main' 42 $_
    [main:
       println
    ;;
