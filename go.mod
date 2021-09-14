@@ -10,7 +10,7 @@ require (
 	github.com/alecthomas/units v0.0.0-20210208195552-ff826a37aa15 // indirect
 	github.com/antchfx/htmlquery v1.2.3
 	github.com/antlr/antlr4/runtime/Go/antlr v0.0.0-20210907221601-4f80a5e09cd0
-	github.com/aws/aws-sdk-go v1.40.40 // indirect
+	github.com/aws/aws-sdk-go v1.40.42 // indirect
 	github.com/c2fo/vfs/v5 v5.9.0
 	github.com/commander-cli/cmd v1.3.0
 	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be
@@ -30,8 +30,8 @@ require (
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/stretchr/objx v0.3.0 // indirect
 	github.com/tomlazar/table v0.1.0
-	golang.org/x/exp v0.0.0-20210909165118-5314dedadbaa // indirect
-	golang.org/x/net v0.0.0-20210908191846-a5e095526f91
+	golang.org/x/exp v0.0.0-20210910231120-3d0173ecaa1e // indirect
+	golang.org/x/net v0.0.0-20210913180222-943fd674d43e
 	golang.org/x/sys v0.0.0-20210910150752-751e447fb3d0 // indirect
 	golang.org/x/text v0.3.7 // indirect
 	gonum.org/v1/gonum v0.9.3

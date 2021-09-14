@@ -1,6 +1,8 @@
 package vm
 
 import (
+	"fmt"
+
 	"github.com/gammazero/deque"
 )
 
@@ -54,6 +56,46 @@ func DblockDup(vm *VM, e *Elem) *Elem {
 	return res
 }
 
+func dblockMathOp(vm *VM, e1 *Elem, e2 *Elem, op int) (*Elem, error) {
+	if e1.Type == "dblock" && e2.Type == "dblock" {
+		return DblocksMathOperator(vm, e1, e2, op)
+	} else if e1.Type == "dblock" && (e2.Type == "int" || e2.Type == "flt") {
+		return DblocksMathOnOperator(vm, e1, e2, op)
+	}
+	return nil, fmt.Errorf("Unknown operand type for flt arithmetic operation ")
+}
+
+func DblockAdd(v *VM, e1 *Elem, e2 *Elem) (*Elem, error) {
+	return dblockMathOp(v, e1, e2, Add)
+}
+
+func DblockSub(v *VM, e1 *Elem, e2 *Elem) (*Elem, error) {
+	return dblockMathOp(v, e1, e2, Sub)
+}
+
+func DblockMul(v *VM, e1 *Elem, e2 *Elem) (*Elem, error) {
+	return dblockMathOp(v, e1, e2, Mul)
+}
+
+func DblockDiv(v *VM, e1 *Elem, e2 *Elem) (*Elem, error) {
+	return dblockMathOp(v, e1, e2, Div)
+}
+
+func DblockApply(v *VM, e1 *Elem, f func(interface{}) interface{}) (*Elem, error) {
+	res := f(e1.Value.(*deque.Deque))
+	switch res.(type) {
+	case *deque.Deque:
+		return &Elem{Type: "dblock", Value: res}, nil
+	}
+	return nil, fmt.Errorf("Return value for 'apply' function is not recognized")
+}
+
 func RegisterDblock(vm *VM) {
-	vm.RegisterType("dblock", DblockFactory, DblockToString, DblockFromString, DblockCompare, DblockDup)
+	c_type := vm.GenType("dblock", DblockFactory, DblockToString, DblockFromString, DblockCompare, DblockDup)
+	c_type.Add = DblockAdd
+	c_type.Sub = DblockSub
+	c_type.Mul = DblockMul
+	c_type.Div = DblockDiv
+	c_type.Apply = DblockApply
+	vm.SetType("dblock", c_type)
 }

@@ -16,4 +16,6 @@ func InitFUNCTIONS(vm *VM) {
 	InitHttpFunctions(vm)
 	InitHtmlFunctions(vm)
 	InitEvalFunctions(vm)
+	InitOpMath(vm)
+	InitOpPercent(vm)
 }

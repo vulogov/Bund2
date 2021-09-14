@@ -49,37 +49,54 @@ func BigDup(vm *VM, e *Elem) *Elem {
 	return BigFromString(vm, BigToString(vm, e))
 }
 
-func BigAdd(v *VM, e1 *Elem, e2 *Elem) (*Elem, error) {
-	o := big.NewInt(0)
-	switch e2.Type {
-	case "int":
-		o = e2.Value.(*big.Int)
-	case "flt":
-		e2.Value.(*big.Float).Int(o)
-	default:
-		return nil, fmt.Errorf("Invalid operand type for +")
+func bigMathOp(vm *VM, e1 *Elem, e2 *Elem, op int) (*Elem, error) {
+	if e1.Type != "int" {
+		return nil, fmt.Errorf("Invalid operand type for int arithmetic operation")
 	}
 	res := big.NewInt(0)
-	res = res.Add(e1.Value.(*big.Int), o)
-	return &Elem{Type: "int", Value: res}, nil
+	s := big.NewInt(0)
+	switch e2.Type {
+	case "int":
+		s = e2.Value.(*big.Int)
+	case "flt":
+		s, _ = e2.Value.(*big.Float).Int(s)
+	default:
+		return nil, fmt.Errorf("Unknown operand type for int arithmetic operation ")
+	}
+	if e2.Type == "int" || e2.Type == "flt" {
+		switch op {
+		case Add:
+			res.Add(e1.Value.(*big.Int), s)
+		case Sub:
+			res.Sub(e1.Value.(*big.Int), s)
+		case Mul:
+			res.Mul(e1.Value.(*big.Int), s)
+		case Div:
+			res.Div(e1.Value.(*big.Int), s)
+		default:
+			return nil, fmt.Errorf("Unknown operation type for int arithmetic operation ")
+		}
+		return &Elem{Type: "int", Value: res}, nil
+	} else if e2.Type == "dblock" {
+		return DblocksMathOp(vm, e1, e2, op)
+	}
+	return nil, fmt.Errorf("Unknown operand type for int arithmetic operation ")
+}
+
+func BigAdd(v *VM, e1 *Elem, e2 *Elem) (*Elem, error) {
+	return bigMathOp(v, e1, e2, Add)
 }
 
 func BigSub(v *VM, e1 *Elem, e2 *Elem) (*Elem, error) {
-	res := big.NewInt(0)
-	res = res.Sub(e1.Value.(*big.Int), e2.Value.(*big.Int))
-	return &Elem{Type: "int", Value: res}, nil
+	return bigMathOp(v, e1, e2, Sub)
 }
 
 func BigMul(v *VM, e1 *Elem, e2 *Elem) (*Elem, error) {
-	res := big.NewInt(0)
-	res = res.Mul(e1.Value.(*big.Int), e2.Value.(*big.Int))
-	return &Elem{Type: "int", Value: res}, nil
+	return bigMathOp(v, e1, e2, Mul)
 }
 
 func BigDiv(v *VM, e1 *Elem, e2 *Elem) (*Elem, error) {
-	res := big.NewInt(0)
-	res = res.Div(e1.Value.(*big.Int), e2.Value.(*big.Int))
-	return &Elem{Type: "int", Value: res}, nil
+	return bigMathOp(v, e1, e2, Div)
 }
 
 func BigApply(v *VM, e1 *Elem, f func(interface{}) interface{}) (*Elem, error) {
@@ -94,9 +111,9 @@ func BigApply(v *VM, e1 *Elem, f func(interface{}) interface{}) (*Elem, error) {
 func RegisterInt(vm *VM) {
 	int_type := vm.GenType("int", BigFactory, BigToString, BigFromString, BigCompare, BigDup)
 	int_type.Add = BigAdd
-	int_type.Add = BigSub
-	int_type.Add = BigMul
-	int_type.Add = BigDiv
+	int_type.Sub = BigSub
+	int_type.Mul = BigMul
+	int_type.Div = BigDiv
 	int_type.Apply = BigApply
 	vm.SetType("int", int_type)
 }

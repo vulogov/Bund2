@@ -1,5 +1,12 @@
 package vm
 
+const (
+	Add = 1
+	Sub = 2
+	Mul = 3
+	Div = 4
+)
+
 func (vm *VM) RegisterTypes() {
 	vm.Debug("BUND: registering dynamic types")
 	RegisterStack(vm)
