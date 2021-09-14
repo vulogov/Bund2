@@ -1,9 +1,38 @@
 package vm
 
 import (
+	"fmt"
 	"math"
 	"math/big"
 )
+
+func leibniz(iteration int64) *big.Float {
+	var n int64
+	n = 0
+	sum := big.NewFloat(0.0)
+	numerator := big.NewFloat(1.0)
+	denominator := big.NewFloat(1.0)
+	for {
+		toSum := big.NewFloat(0.0)
+		toSum.Quo(numerator, denominator)
+		sum.Add(sum, toSum)
+		numerator.Mul(numerator, big.NewFloat(-1.0))
+		denominator.Add(denominator, big.NewFloat(2.0))
+		n++
+		if n == iteration {
+			break
+		}
+	}
+	res := big.NewFloat(0.0)
+	return res.Mul(sum, big.NewFloat(4.0))
+}
+
+func MathPiElement(vm *VM, e *Elem) (*Elem, error) {
+	if e.Type == "int" {
+		return &Elem{Type: "flt", Value: leibniz(e.Value.(*big.Int).Int64())}, nil
+	}
+	return nil, fmt.Errorf("math/Pi expects number : %v", e.Type)
+}
 
 func MathSinElement(vm *VM, e *Elem) (*Elem, error) {
 	vm.Debug("SIN(): %v", e.Type)
@@ -126,4 +155,5 @@ func InitMathFunctions(vm *VM) {
 	vm.AddFunction("math/Exp", MathExpElement)
 	vm.AddFunction("math/Log", MathLogElement)
 	vm.AddFunction("math/Log10", MathLog10Element)
+	vm.AddFunction("math/Pi", MathPiElement)
 }

@@ -60,8 +60,6 @@ func floatMathOp(vm *VM, e1 *Elem, e2 *Elem, op int) (*Elem, error) {
 		s = s.SetInt(e2.Value.(*big.Int))
 	case "flt":
 		s = e2.Value.(*big.Float)
-	default:
-		return nil, fmt.Errorf("Unknown operand type for flt arithmetic operation ")
 	}
 	if e2.Type == "int" || e2.Type == "flt" {
 		switch op {
@@ -79,6 +77,8 @@ func floatMathOp(vm *VM, e1 *Elem, e2 *Elem, op int) (*Elem, error) {
 		return &Elem{Type: "flt", Value: res}, nil
 	} else if e2.Type == "dblock" {
 		return DblocksMathOp(vm, e1, e2, op)
+	} else if e2.Type == "MAT" {
+		return MatMathOperator(vm, e2, e1, op)
 	}
 	return nil, fmt.Errorf("Unknown operation type for int arithmetic operation ")
 }

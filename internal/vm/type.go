@@ -27,4 +27,5 @@ func (vm *VM) RegisterTypes() {
 	RegisterHttp(vm)
 	RegisterHtml(vm)
 	RegisterBund(vm)
+	RegisterDf(vm)
 }

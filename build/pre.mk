@@ -1,5 +1,6 @@
 pre:
 	@echo "=== BUND === [Preinstallation of some stuff]"
+	go mod download gotest.tools
 	go get gotest.tools/gotestsum
 	go get golang.org/x/tools/internal/gocommand@v0.1.5
 	go get golang.org/x/tools/internal/imports@v0.1.5
@@ -37,3 +38,4 @@ pre:
 	go get github.com/levigross/grequests
 	go get golang.org/x/net/html
 	go get github.com/antchfx/htmlquery
+	go get -u github.com/rocketlaunchr/dataframe-go/...
