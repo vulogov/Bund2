@@ -5,7 +5,7 @@ import (
 )
 
 func (ns *NS) HasGenerator(name string) bool {
-	if _, ok := ns.Fun.Load(name); ok {
+	if _, ok := ns.Gen.Load(name); ok {
 		return true
 	}
 	return false
@@ -13,20 +13,20 @@ func (ns *NS) HasGenerator(name string) bool {
 
 func (ns *NS) GetGenerator(name string) *deque.Deque {
 	var res *deque.Deque
-	if _res, ok := ns.Fun.Load(name); ok {
+	if _res, ok := ns.Gen.Load(name); ok {
 		ns.VM.Debug("Returning Generator from %v: %v", ns.Name, name)
 		res = _res.(*deque.Deque)
 	} else {
 		ns.VM.Debug("Creating Generator in %v: %v", ns.Name, name)
 		res = new(deque.Deque)
-		ns.Fun.Store(name, res)
+		ns.Gen.Store(name, res)
 	}
 	return res
 }
 
 func (ns *NS) HaveGenerator(name string) *deque.Deque {
 	var res *deque.Deque
-	if _res, ok := ns.Fun.Load(name); ok {
+	if _res, ok := ns.Gen.Load(name); ok {
 		ns.VM.Debug("Returning Generator from %v: %v", ns.Name, name)
 		res = _res.(*deque.Deque)
 		return res
@@ -35,9 +35,10 @@ func (ns *NS) HaveGenerator(name string) *deque.Deque {
 }
 
 func (ns *NS) InGenerator(name string) bool {
-	if _, ok := ns.Fun.Load(name); ok {
+	if _, ok := ns.Gen.Load(name); ok {
 		ns.LambdasStack.PushBack(name)
-		ns.VM.Debug("We are going in Lambda(%v)", name)
+		ns.LSMode.PushBack(Lgen)
+		ns.VM.Debug("We are going in Generator(%v)", name)
 		return true
 	}
 	ns.VM.Error("Attempt to go in Generator(%v) failed", name)
@@ -59,7 +60,7 @@ func (ns *NS) CurrentGenerator() *deque.Deque {
 		return nil
 	}
 	name := ns.LambdasStack.Back().(string)
-	if _res, ok := ns.Fun.Load(name); ok {
+	if _res, ok := ns.Gen.Load(name); ok {
 		ns.VM.Debug("Returning Generator from %v: %v", ns.Name, name)
 		res = _res.(*deque.Deque)
 		return res
@@ -74,6 +75,7 @@ func (ns *NS) CloseGenerator() bool {
 		return false
 	}
 	ln := ns.LambdasStack.PopBack().(string)
+	ns.LSMode.PopBack()
 	ns.VM.Debug("Closing Generator %v. Stack size: %v", ln, ns.LambdasStack.Len())
 	return true
 }

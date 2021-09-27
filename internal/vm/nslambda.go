@@ -5,7 +5,7 @@ import (
 )
 
 func (ns *NS) HasLambda(name string) bool {
-	if _, ok := ns.Fun.Load(name); ok {
+	if _, ok := ns.Gen.Load(name); ok {
 		return true
 	}
 	return false
@@ -13,20 +13,20 @@ func (ns *NS) HasLambda(name string) bool {
 
 func (ns *NS) GetLambda(name string) *deque.Deque {
 	var res *deque.Deque
-	if _res, ok := ns.Fun.Load(name); ok {
+	if _res, ok := ns.Gen.Load(name); ok {
 		ns.VM.Debug("Returning LAMBDA from %v: %v", ns.Name, name)
 		res = _res.(*deque.Deque)
 	} else {
 		ns.VM.Debug("Creating LAMBDA in %v: %v", ns.Name, name)
 		res = new(deque.Deque)
-		ns.Fun.Store(name, res)
+		ns.Gen.Store(name, res)
 	}
 	return res
 }
 
 func (ns *NS) HaveLambda(name string) *deque.Deque {
 	var res *deque.Deque
-	if _res, ok := ns.Fun.Load(name); ok {
+	if _res, ok := ns.Gen.Load(name); ok {
 		ns.VM.Debug("Returning LAMBDA from %v: %v", ns.Name, name)
 		res = _res.(*deque.Deque)
 		return res
@@ -35,8 +35,9 @@ func (ns *NS) HaveLambda(name string) *deque.Deque {
 }
 
 func (ns *NS) InLambda(name string) bool {
-	if _, ok := ns.Fun.Load(name); ok {
+	if _, ok := ns.Gen.Load(name); ok {
 		ns.LambdasStack.PushBack(name)
+		ns.LSMode.PushBack(Llam)
 		ns.VM.Debug("We are going in Lambda(%v)", name)
 		return true
 	}
@@ -59,7 +60,7 @@ func (ns *NS) CurrentLambda() *deque.Deque {
 		return nil
 	}
 	name := ns.LambdasStack.Back().(string)
-	if _res, ok := ns.Fun.Load(name); ok {
+	if _res, ok := ns.Gen.Load(name); ok {
 		ns.VM.Debug("Returning LAMBDA from %v: %v", ns.Name, name)
 		res = _res.(*deque.Deque)
 		return res
@@ -74,6 +75,7 @@ func (ns *NS) CloseLambda() bool {
 		return false
 	}
 	ln := ns.LambdasStack.PopBack().(string)
+	ns.LSMode.PopBack()
 	ns.VM.Debug("Closing lambda %v. Stack size: %v", ln, ns.LambdasStack.Len())
 	return true
 }

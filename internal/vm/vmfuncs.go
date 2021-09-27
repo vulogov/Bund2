@@ -41,7 +41,19 @@ func (vm *VM) HasUserFunction(name string) bool {
 		vm.Error("Attempt to HasUserFunction(%v) on empty context", name)
 		return false
 	}
-	return vm.CurrentNS.HasLambda(name)
+	if vm.CurrentNS.HasLambda(name) {
+		return true
+	}
+	if vm.CurrentNS.HasGenerator(name) {
+		return true
+	}
+	if vm.CurrentNS.HasFunction(name) {
+		return true
+	}
+	if vm.CurrentNS.HasOperator(name) {
+		return true
+	}
+	return false
 }
 
 func (vm *VM) HasUserFunctionInNS(name string, nsname string) bool {
@@ -54,7 +66,19 @@ func (vm *VM) HasUserFunctionInNS(name string, nsname string) bool {
 		vm.Error("Ns(%v) not exists", nsname)
 		return false
 	}
-	return ns.HasLambda(name)
+	if ns.HasLambda(name) {
+		return true
+	}
+	if ns.HasGenerator(name) {
+		return true
+	}
+	if ns.HasFunction(name) {
+		return true
+	}
+	if ns.HasOperator(name) {
+		return true
+	}
+	return false
 }
 
 func (vm *VM) SetUserFunctionInNS(nsname string, name string, c *deque.Deque) bool {

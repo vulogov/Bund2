@@ -23,6 +23,9 @@ type BundListener interface {
 	// EnterTerm is called when entering the term production.
 	EnterTerm(c *TermContext)
 
+	// EnterFterm is called when entering the fterm production.
+	EnterFterm(c *FtermContext)
+
 	// EnterData is called when entering the data production.
 	EnterData(c *DataContext)
 
@@ -68,8 +71,8 @@ type BundListener interface {
 	// EnterLambda_term is called when entering the lambda_term production.
 	EnterLambda_term(c *Lambda_termContext)
 
-	// EnterOperation_term is called when entering the operation_term production.
-	EnterOperation_term(c *Operation_termContext)
+	// EnterOperator_term is called when entering the operator_term production.
+	EnterOperator_term(c *Operator_termContext)
 
 	// EnterGenerator_term is called when entering the generator_term production.
 	EnterGenerator_term(c *Generator_termContext)
@@ -91,6 +94,9 @@ type BundListener interface {
 
 	// ExitTerm is called when exiting the term production.
 	ExitTerm(c *TermContext)
+
+	// ExitFterm is called when exiting the fterm production.
+	ExitFterm(c *FtermContext)
 
 	// ExitData is called when exiting the data production.
 	ExitData(c *DataContext)
@@ -137,8 +143,8 @@ type BundListener interface {
 	// ExitLambda_term is called when exiting the lambda_term production.
 	ExitLambda_term(c *Lambda_termContext)
 
-	// ExitOperation_term is called when exiting the operation_term production.
-	ExitOperation_term(c *Operation_termContext)
+	// ExitOperator_term is called when exiting the operator_term production.
+	ExitOperator_term(c *Operator_termContext)
 
 	// ExitGenerator_term is called when exiting the generator_term production.
 	ExitGenerator_term(c *Generator_termContext)

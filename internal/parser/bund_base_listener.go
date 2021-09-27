@@ -51,6 +51,12 @@ func (s *BaseBundListener) EnterTerm(ctx *TermContext) {}
 // ExitTerm is called when production term is exited.
 func (s *BaseBundListener) ExitTerm(ctx *TermContext) {}
 
+// EnterFterm is called when production fterm is entered.
+func (s *BaseBundListener) EnterFterm(ctx *FtermContext) {}
+
+// ExitFterm is called when production fterm is exited.
+func (s *BaseBundListener) ExitFterm(ctx *FtermContext) {}
+
 // EnterData is called when production data is entered.
 func (s *BaseBundListener) EnterData(ctx *DataContext) {}
 
@@ -141,11 +147,11 @@ func (s *BaseBundListener) EnterLambda_term(ctx *Lambda_termContext) {}
 // ExitLambda_term is called when production lambda_term is exited.
 func (s *BaseBundListener) ExitLambda_term(ctx *Lambda_termContext) {}
 
-// EnterOperation_term is called when production operation_term is entered.
-func (s *BaseBundListener) EnterOperation_term(ctx *Operation_termContext) {}
+// EnterOperator_term is called when production operator_term is entered.
+func (s *BaseBundListener) EnterOperator_term(ctx *Operator_termContext) {}
 
-// ExitOperation_term is called when production operation_term is exited.
-func (s *BaseBundListener) ExitOperation_term(ctx *Operation_termContext) {}
+// ExitOperator_term is called when production operator_term is exited.
+func (s *BaseBundListener) ExitOperator_term(ctx *Operator_termContext) {}
 
 // EnterGenerator_term is called when production generator_term is entered.
 func (s *BaseBundListener) EnterGenerator_term(ctx *Generator_termContext) {}

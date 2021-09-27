@@ -55,7 +55,7 @@ func ApplyInNS(name string, ns *NS, vm *VM) error {
 	}
 	if !ns.InLCache(name) {
 		vm.Debug("Adding lambda %v to lcache", name)
-		ls := ns.GetLambda(name)
+		ls := vm.GetCurrentLambda(name)
 		if ls == nil {
 			return fmt.Errorf("Lambda %v not exist in %v", name, vm.Name)
 		}

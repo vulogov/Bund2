@@ -5,6 +5,14 @@ import (
 	"github.com/lrita/cmap"
 )
 
+const (
+	Lidk = 0
+	Llam = 1
+	Lgen = 2
+	Lfun = 3
+	Lops = 4
+)
+
 type NS struct {
 	Name              string
 	VM                *VM
@@ -14,6 +22,7 @@ type NS struct {
 	Gen               *cmap.Cmap
 	Options           cmap.Cmap
 	LambdasStack      deque.Deque
+	LSMode            deque.Deque
 	Aliases           cmap.Cmap
 	CurrentLambdaName string
 	LCache            cmap.Cmap

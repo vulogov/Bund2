@@ -34,10 +34,30 @@ term
     | mode_term
     | separate_term
     | function_term
+    | generator_term
+    | operator_term
     | lambda_term
     | generator_term
     | index_term
   );
+
+  fterm
+    : ( ns
+      | block
+      | call_term
+      | ref_call_term
+      | boolean_term
+      | integer_term
+      | float_term
+      | string_term
+      | complex_term
+      | datablock_term
+      | matchblock_term
+      | logicblock_term
+      | mode_term
+      | separate_term
+      | index_term
+    );
 
 data
   : ( boolean_term
@@ -81,20 +101,20 @@ logicblock_term
   ;
 
 function_term
-  : '[' name=NAME ']' (body+=term)* '.'
+  : '[' name=(SYS|SYSF|CMD|NAME) ']' (body+=fterm)* '.'
   ;
 
 lambda_term
-  : '[]' (body+=term)* '.'
+  : '[]' (body+=fterm)* '.'
   ;
 
 
-operation_term
-  : '[[' name=CMD ']]' (body+=term)* '.'
+operator_term
+  : '[[' name=(SYS|SYSF|CMD|NAME) ']]' (body+=fterm)* '.'
   ;
 
 generator_term
-  : '[[[' name=CMD ']]]' (body+=term)* '.'
+  : '[[[' name=(SYS|SYSF|CMD|NAME) ']]]' (body+=fterm)* '.'
   ;
 
 index_term

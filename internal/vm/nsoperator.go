@@ -5,7 +5,7 @@ import (
 )
 
 func (ns *NS) HasOperator(name string) bool {
-	if _, ok := ns.Fun.Load(name); ok {
+	if _, ok := ns.Ops.Load(name); ok {
 		return true
 	}
 	return false
@@ -13,20 +13,20 @@ func (ns *NS) HasOperator(name string) bool {
 
 func (ns *NS) GetOperator(name string) *deque.Deque {
 	var res *deque.Deque
-	if _res, ok := ns.Fun.Load(name); ok {
+	if _res, ok := ns.Ops.Load(name); ok {
 		ns.VM.Debug("Returning Operator from %v: %v", ns.Name, name)
 		res = _res.(*deque.Deque)
 	} else {
 		ns.VM.Debug("Creating Operator in %v: %v", ns.Name, name)
 		res = new(deque.Deque)
-		ns.Fun.Store(name, res)
+		ns.Ops.Store(name, res)
 	}
 	return res
 }
 
 func (ns *NS) HaveOperator(name string) *deque.Deque {
 	var res *deque.Deque
-	if _res, ok := ns.Fun.Load(name); ok {
+	if _res, ok := ns.Ops.Load(name); ok {
 		ns.VM.Debug("Returning Operator from %v: %v", ns.Name, name)
 		res = _res.(*deque.Deque)
 		return res
@@ -35,8 +35,9 @@ func (ns *NS) HaveOperator(name string) *deque.Deque {
 }
 
 func (ns *NS) InOperator(name string) bool {
-	if _, ok := ns.Fun.Load(name); ok {
+	if _, ok := ns.Ops.Load(name); ok {
 		ns.LambdasStack.PushBack(name)
+		ns.LSMode.PushBack(Lops)
 		ns.VM.Debug("We are going in Operator(%v)", name)
 		return true
 	}
@@ -59,7 +60,7 @@ func (ns *NS) CurrentOperator() *deque.Deque {
 		return nil
 	}
 	name := ns.LambdasStack.Back().(string)
-	if _res, ok := ns.Fun.Load(name); ok {
+	if _res, ok := ns.Ops.Load(name); ok {
 		ns.VM.Debug("Returning Operator from %v: %v", ns.Name, name)
 		res = _res.(*deque.Deque)
 		return res
@@ -74,6 +75,7 @@ func (ns *NS) CloseOperator() bool {
 		return false
 	}
 	ln := ns.LambdasStack.PopBack().(string)
+	ns.LSMode.PopBack()
 	ns.VM.Debug("Closing Operator %v. Stack size: %v", ln, ns.LambdasStack.Len())
 	return true
 }
