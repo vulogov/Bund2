@@ -7,4 +7,5 @@ Cargo.lock.orig
 .claude/settings.local.json
 
 # Oracle build artifacts and scratch output
+/target/oracle/
 /tests/golden/.work/

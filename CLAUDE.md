@@ -28,8 +28,16 @@ If a claim cannot be grounded, do not soften it into prose. Add it to
 ## reference/ is read-only
 
 `reference/` holds pinned submodules of the existing implementation, for
-analysis only. Never edit it, never build inside it, never treat a file there
-as a target of work.
+analysis only. Never edit it and never treat a file there as a target of work.
+
+Building it is the one exception, and only to produce goldens: that is what the
+oracle is for. Always build it out-of-tree so the submodule stays clean —
+
+    cargo build --release --manifest-path reference/Bund/Cargo.toml \
+                --target-dir target/oracle
+
+`git status` inside `reference/` must stay empty. A dirty submodule means a
+`path:line` citation somewhere no longer resolves against the recorded SHA.
 
 ## tests/golden/ is sacred
 

@@ -1,5 +1,13 @@
 [workspace]
 resolver = "3"
+
+# The reference submodules are Cargo projects in their own right. Without this,
+# Cargo auto-discovers this manifest as their parent workspace and refuses to
+# build them. They must stay out: they are the conformance oracle, pinned by
+# SHA, and editing their manifests would break the citations RFCs make against
+# those SHAs.
+exclude = ["reference"]
+
 members = [
   "crates/bund2-value",
   "crates/bund2-api",
