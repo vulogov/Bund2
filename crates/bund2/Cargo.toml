@@ -1,0 +1,21 @@
+[package]
+name = "bund2"
+description = "Library facade. The embedding API."
+version.workspace      = true
+edition.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+rust-version.workspace = true
+
+[dependencies]
+bund2-runtime.workspace = true
+bund2-syntax.workspace = true
+bund2-ir.workspace = true
+bund2-stdlib.workspace = true
+bund2-async = { workspace = true, optional = true }
+
+[features]
+default = []
+aot   = ["bund2-runtime/aot"]
+jit   = ["bund2-runtime/jit"]
+async = ["dep:bund2-async"]

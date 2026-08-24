@@ -1,0 +1,18 @@
+[submodule "reference/Bund"]
+	path = reference/Bund
+	url = https://github.com/vulogov/Bund
+[submodule "reference/bund_language_parser"]
+	path = reference/bund_language_parser
+	url = https://github.com/vulogov/bund_language_parser
+[submodule "reference/bundcore"]
+	path = reference/bundcore
+	url = https://github.com/vulogov/bundcore
+[submodule "reference/rust_multistackvm"]
+	path = reference/rust_multistackvm
+	url = https://github.com/vulogov/rust_multistackvm
+[submodule "reference/rust_multistack"]
+	path = reference/rust_multistack
+	url = https://github.com/vulogov/rust_multistack
+[submodule "reference/rust_dynamic"]
+	path = reference/rust_dynamic
+	url = https://github.com/vulogov/rust_dynamic

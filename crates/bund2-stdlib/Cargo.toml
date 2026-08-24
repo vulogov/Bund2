@@ -1,0 +1,13 @@
+[package]
+name = "bund2-stdlib"
+description = "The standard library: native words, effects, and JIT lowerings."
+version.workspace      = true
+edition.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+rust-version.workspace = true
+
+[dependencies]
+bund2-value.workspace = true
+bund2-api.workspace = true
+bund2-ir.workspace = true

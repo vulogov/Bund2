@@ -1,0 +1,21 @@
+[package]
+name = "bund2-cli"
+description = "The bund2 command line compiler and REPL."
+version.workspace      = true
+edition.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+rust-version.workspace = true
+
+[[bin]]
+name = "bund2"
+path = "src/main.rs"
+
+[dependencies]
+bund2.workspace = true
+
+[features]
+default = []
+aot   = ["bund2/aot"]
+jit   = ["bund2/jit"]
+async = ["bund2/async"]

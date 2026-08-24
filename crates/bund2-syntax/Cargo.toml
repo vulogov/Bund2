@@ -1,0 +1,11 @@
+[package]
+name = "bund2-syntax"
+description = "Surface syntax: pest grammar to AST. See RFC-0003."
+version.workspace      = true
+edition.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+rust-version.workspace = true
+
+[dependencies]
+bund2-value.workspace = true

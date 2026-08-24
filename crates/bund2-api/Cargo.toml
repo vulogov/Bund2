@@ -1,0 +1,11 @@
+[package]
+name = "bund2-api"
+description = "Stable ABI for external Rust word packages. See RFC-0002."
+version.workspace      = true
+edition.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+rust-version.workspace = true
+
+[dependencies]
+bund2-value.workspace = true

@@ -1,0 +1,19 @@
+# cargo-deny: dependency discipline.
+#
+# This project prefers pure-Rust dependencies. Anything that pulls in a C or
+# C++ toolchain at build time should be a deliberate, reviewed decision rather
+# than something that arrives transitively.
+
+[licenses]
+allow = ["Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib"]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[advisories]
+yanked = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

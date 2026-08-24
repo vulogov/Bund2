@@ -1,0 +1,52 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/bund2-value",
+  "crates/bund2-api",
+  "crates/bund2-syntax",
+  "crates/bund2-ir",
+  "crates/bund2-interp",
+  "crates/bund2-stdlib",
+  "crates/bund2-jit",
+  "crates/bund2-runtime",
+  "crates/bund2-async",
+  "crates/bund2",
+  "crates/bund2-cli",
+  "xtask",
+]
+
+[workspace.package]
+edition      = "2024"
+version      = "0.0.0"
+license      = "Apache-2.0"
+repository   = "https://github.com/vulogov/Bund2"
+rust-version = "1.90.0"
+
+[workspace.dependencies]
+# Internal
+bund2-value    = { path = "crates/bund2-value", version = "0.0.0" }
+bund2-api      = { path = "crates/bund2-api", version = "0.0.0" }
+bund2-syntax   = { path = "crates/bund2-syntax", version = "0.0.0" }
+bund2-ir       = { path = "crates/bund2-ir", version = "0.0.0" }
+bund2-interp   = { path = "crates/bund2-interp", version = "0.0.0" }
+bund2-stdlib   = { path = "crates/bund2-stdlib", version = "0.0.0" }
+bund2-jit      = { path = "crates/bund2-jit", version = "0.0.0" }
+bund2-runtime  = { path = "crates/bund2-runtime", version = "0.0.0" }
+bund2-async    = { path = "crates/bund2-async", version = "0.0.0" }
+bund2          = { path = "crates/bund2", version = "0.0.0" }
+bund2-cli      = { path = "crates/bund2-cli", version = "0.0.0" }
+
+# Cranelift. Exact pins: cranelift-jit describes itself as experimental and
+# the workspace moves on a roughly monthly cadence. Upgrades are deliberate.
+cranelift-codegen  = "=0.135.0"
+cranelift-frontend = "=0.135.0"
+cranelift-module   = "=0.135.0"
+cranelift-jit      = "=0.135.0"
+cranelift-object   = "=0.135.0"
+
+[profile.release]
+lto           = "thin"
+codegen-units = 1
+
+[profile.bench]
+debug = true

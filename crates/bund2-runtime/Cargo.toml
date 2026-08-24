@@ -1,0 +1,22 @@
+[package]
+name = "bund2-runtime"
+description = "VM assembly: word slot table, tiering policy, execution context."
+version.workspace      = true
+edition.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+rust-version.workspace = true
+
+[dependencies]
+bund2-value.workspace = true
+bund2-api.workspace = true
+bund2-ir.workspace = true
+bund2-interp.workspace = true
+bund2-stdlib.workspace = true
+bund2-jit = { workspace = true, optional = true }
+
+[features]
+default = []
+# bund2-async depends on bund2-runtime, so it must NOT appear here.
+aot = ["dep:bund2-jit", "bund2-jit/aot"]
+jit = ["dep:bund2-jit", "bund2-jit/jit"]

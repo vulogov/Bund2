@@ -1,0 +1,11 @@
+[package]
+name = "bund2-async"
+description = "Executor integration and async native words. Feature-gated. See RFC-0007."
+version.workspace      = true
+edition.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+rust-version.workspace = true
+
+[dependencies]
+bund2-runtime.workspace = true

@@ -1,0 +1,6 @@
+ 21b40b0213a76f3f39bd6de0d2bdfdf0a53b0dca reference/Bund (0.18.0-35-g21b40b0)
+ 80377728f45be9b5fdd2e7baafd53b295227b280 reference/bund_language_parser (heads/main)
+ 3b0b8ba219a6b46ea2e363ab4873c55d9d0c994b reference/bundcore (heads/main)
+ ceb27c96fa10c4edb09106f3f904f22f94d63119 reference/rust_dynamic (heads/main)
+ 9a97675ee5d8b178093f82d25534d17f38fded83 reference/rust_multistack (heads/main)
+ 4605832678d4792c2b8e0564b7757d5aee1539a4 reference/rust_multistackvm (heads/main)
