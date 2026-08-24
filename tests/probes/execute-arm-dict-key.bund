@@ -1,0 +1,20 @@
+//
+// PROBE: `!` applied to a MAP/DICT, which takes a key from the stack.
+// Pins: reference/rust_multistackvm/src/stdlib/execute.rs:55-81 — the arm
+//       pulls the dictionary, THEN pulls a key from underneath it, gets that
+//       member, and recurses into execute for the result.
+// Why:  no corpus program reaches this. `tryexcept_demo.bund:22` looks close
+//       (`:associated get !`) but that is an explicit `get` followed by `!`
+//       on the fetched value — a different path.
+//
+// NOTE: the operand order below is the probe's hypothesis, not a claim. The
+//       pull order in execute.rs is dictionary-then-key, so the key must be
+//       pushed first. If the oracle disagrees, the probe is what changes —
+//       that is the whole point of capturing rather than asserting.
+//
+
+// Key first, then the dictionary, then execute.
+:run
+config
+  :run { "probe: dict-key arm reached the member" println } set
+!

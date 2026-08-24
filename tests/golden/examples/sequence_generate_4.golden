@@ -1,0 +1,12 @@
+# golden for reference/Bund/examples/sequence_generate_4.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+Generated sequence is: [ 3.14 ::  3.14 ::  3.14 :: ]
+╭╮
+╰╯
+╭╮
+╰╯

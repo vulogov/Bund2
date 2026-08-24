@@ -1,0 +1,39 @@
+//
+// PROBE: `!` applied to a CLASS.
+// Pins: reference/rust_multistackvm/src/stdlib/execute.rs:86-88 — the CLASS
+//       arm delegates to stdlib::bund_execute::execute_class.
+// Why:  the corpus executes OBJECTs (`:Value object !`,
+//       reference/Bund/examples/object_oriented_programming/value_demo.bund:19)
+//       but never a class value directly. Object and class are separate arms.
+//
+// STATUS: fails today. Recorded as F16, dispositioned FIX; the intended
+// behaviour is D23 (`<class> !` creates an object of that class, registered or
+// not) with D25 (an anonymous class takes its `.class_name` from itself).
+// This probe is the proof of that fix — when Bund2 implements it, the probe
+// must stop erroring.
+//
+// Two wrong turns on the way here, both worth keeping:
+//
+//   1. `:Probe class ... register` then `:Probe !` does not reach the CLASS
+//      arm at all. `:Probe` is an atom, so it pushes a STRING and `!` takes
+//      the PTR|STRING|CALL arm (execute.rs:26-33), trying to call a *word*
+//      named "Probe". `register` files a class in the class registry, not the
+//      word table, so the oracle answered:
+//        "i(Probe) for stack returned: Inline Probe not registered"
+//
+//   2. Executing the class value itself does reach the CLASS arm, and the arm
+//      is broken. `execute_class` pushes the CLASS value and calls
+//      `stdlib_object_inline` (bund_execute/execute_class.rs:8-11), which
+//      immediately cast_string()s its operand to get a class *name*
+//      (bund_object.rs:179). A CLASS is not a string, so the oracle answered:
+//        "OBJECT returns error: This Dynamic type is not string"
+//
+// The class below names itself, per D25 — the same thing every built-in class
+// does (base_classes.rs:96). That is what supplies `.class_name` for an
+// object built from a class that was never registered.
+//
+
+:Probe class
+  :.class_name "Probe" set
+  :greet { "probe: class arm reached the member" println } set
+!

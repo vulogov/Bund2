@@ -1,0 +1,14 @@
+# golden for reference/Bund/examples/bund_dynamic_demos/dynamic_demo_3.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+This is lambda function with name Function1
+This is lambda function with name Function2
+This is lambda function with name Function3
+╭╮
+╰╯
+╭╮
+╰╯

@@ -1,0 +1,15 @@
+# golden for reference/Bund/examples/bund_dynamic_demos/if_word.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+println is a WORD
+version is a WORD
+FourtyTwo is a WORD
+FourtyThree is not an ALIAS, or STDLIB FUNCTION OR NAMED LAMBDA. It is not a WORD
+╭╮
+╰╯
+╭╮
+╰╯

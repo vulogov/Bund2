@@ -1,0 +1,43 @@
+# golden for reference/Bund/examples/code_snippets/sorting_numbers_in_list.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+Before sorting
+N(unsorted) = 100.0
+N(unsorted) = 99.0
+N(unsorted) = 98.0
+N(unsorted) = 97.0
+N(unsorted) = 96.0
+N(unsorted) = 95.0
+N(unsorted) = 94.0
+N(unsorted) = 93.0
+N(unsorted) = 92.0
+N(unsorted) = 91.0
+N(unsorted) = 90.0
+N(unsorted) = 89.0
+N(unsorted) = 88.0
+N(unsorted) = 87.0
+N(unsorted) = 86.0
+After sorting
+N = 86.0
+N = 87.0
+N = 88.0
+N = 89.0
+N = 90.0
+N = 91.0
+N = 92.0
+N = 93.0
+N = 94.0
+N = 95.0
+N = 96.0
+N = 97.0
+N = 98.0
+N = 99.0
+N = 100.0
+╭╮
+╰╯
+╭╮
+╰╯

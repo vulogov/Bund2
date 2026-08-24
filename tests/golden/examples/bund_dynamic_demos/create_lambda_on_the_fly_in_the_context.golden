@@ -1,0 +1,14 @@
+# golden for reference/Bund/examples/bund_dynamic_demos/create_lambda_on_the_fly_in_the_context.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+Calling: HelloWorld
+Hello World!
+╭─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Value { id: "<id>", stamp: <stamp>, dt: 4, q: 100.0, data: String("HelloWorld"), attr: [], curr: -1, tags: {"stack": "main"} } │
+╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭╮
+╰╯

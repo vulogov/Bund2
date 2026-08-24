@@ -1,0 +1,41 @@
+# Programs that do not reproduce between runs of the oracle.
+#
+# Captured empirically: each hermetic-classified program was run twice against
+# reference/Bund (built out-of-tree into target/oracle) and the output diffed.
+# 18 of 77 differed.
+#
+# This cannot be derived statically. Every word these programs invoke is pure
+# or writes stdout; the non-determinism enters through Debug formatting and
+# through HashMap iteration order, neither of which is a word effect. Static
+# effect classification will never find them — only running the oracle does.
+#
+# Root causes, both recorded as defects:
+#   F14  error text and stack dumps embed a value's id and stamp
+#        (reference/Bund/src/stdlib/helpers/eval.rs:33)
+#   F15  dict and tag members print in HashMap iteration order
+#        (reference/rust_dynamic/src/value.rs:24)
+#
+# `cargo xtask corpus` excludes these from tests/golden/HERMETIC.txt. When F14
+# and F15 are dispositioned FIX, re-run the sweep: most of these should become
+# capturable and this list should shrink.
+#
+# One line per program, repo-relative, with the cause.
+
+reference/Bund/examples/ai/make_xy.bund                                  # F14  id/stamp in error text
+reference/Bund/examples/code_snippets/application_conditional_demos.bund # F15  map iteration order
+reference/Bund/examples/code_snippets/tryexcept_demo_with_error_execute.bund # F14  id/stamp in error text
+reference/Bund/examples/configuration_create.bund                        # F15  map iteration order
+reference/Bund/examples/graph_algorithms/simple_graph_allshortpath.bund  # F15  map iteration order
+reference/Bund/examples/graph_algorithms/simple_graph_dijkstra.bund      # F15  map iteration order
+reference/Bund/examples/graph_algorithms/simple_graph_transitiveclosure.bund # F15  map iteration order
+reference/Bund/examples/image/image_blur_and_save.bund                   # F14  id/stamp in error text
+reference/Bund/examples/image/image_export.bund                          # F14  id/stamp in error text
+reference/Bund/examples/image/image_print.bund                           # F14  id/stamp in error text
+reference/Bund/examples/image/image_print_blur.bund                      # F14  id/stamp in error text
+reference/Bund/examples/image/image_print_brighten.bund                  # F14  id/stamp in error text
+reference/Bund/examples/image/image_print_contrast.bund                  # F14  id/stamp in error text
+reference/Bund/examples/image/image_print_crop.bund                      # F14  id/stamp in error text
+reference/Bund/examples/image/image_print_grayscale.bund                 # F14  id/stamp in error text
+reference/Bund/examples/image/image_print_thumbnail.bund                 # F14  id/stamp in error text
+reference/Bund/examples/image/image_upscale_and_save.bund                # F14  id/stamp in error text
+reference/Bund/examples/json_answer.bund                                 # F14  id/stamp in error text

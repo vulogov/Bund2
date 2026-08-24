@@ -1,0 +1,19 @@
+# golden for reference/Bund/examples/code_snippets/tryexcept_demo_divide_to_0.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+╭──────────┬────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Error    ┆ Lambda content evaluation returned error: DIV returns error: Integer division to 0.0                                           │
+├╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ Location ┆ /Users/gandalf/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rust_multistackvm-0.38.0/src/stdlib/math/math_op.rs:111:29 │
+╰──────────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+[BUND]  Content of the stack
+╭╮
+╰╯
+╭╮
+╰╯
+╭╮
+╰╯

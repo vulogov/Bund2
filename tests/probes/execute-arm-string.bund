@@ -1,0 +1,15 @@
+//
+// PROBE: `!` applied to a bare STRING.
+// Pins: reference/rust_multistackvm/src/stdlib/execute.rs:26-33 — the
+//       PTR | STRING | CALL arm hands the string straight to vm.call().
+// Why:  the corpus always spells this `ptr !`. The STRING arm means `ptr` is
+//       not required at all: any string reaching the top of stack can become
+//       a call. D16 preserves this.
+//
+
+:Greet {
+  "probe: string arm reached the word" println
+} register
+
+// No `ptr` — a bare string on the stack, executed.
+"Greet" !

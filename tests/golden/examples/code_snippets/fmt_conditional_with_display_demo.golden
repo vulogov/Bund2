@@ -1,0 +1,45 @@
+# golden for reference/Bund/examples/code_snippets/fmt_conditional_with_display_demo.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+
+
+Hello World! greetings from :greeting fmt display of the BUND
+
+The display word of BUND language supports Markdown formatting
+┌────────────────────────────────────────────────────┬──────────────┐
+│Message                                             │Details       │
+│There is an example of the data from FMT conditional│Here is the 42│
+├────────────────────────────────────────────────────┼──────────────┤
+│And here is data from the stack                     │𝜋 is 3.14     │
+└────────────────────────────────────────────────────┴──────────────┘
+
+Here is an instructions
+
+                                    
+You place a variable between { and }
+                                    
+
+And how variable is resolved:
+• If variable with the same name exists in FMT conditional, it will be used
+• Otherwise data will be taken from the stack
+
+If you add locale name to the end of the message, like greeting.en-US
+this message will be used during display and locale will be detected according
+to the setting of yur OS
+
+//                                                 
+// You can insert the computer code to your display
+//                                                 
+'Hello world!' println                             
+//                                                 
+// Just do not forget to keep BUND parser happy!   
+//                                                 
+
+╭╮
+╰╯
+╭╮
+╰╯

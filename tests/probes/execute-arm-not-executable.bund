@@ -1,0 +1,14 @@
+//
+// PROBE: `!` applied to a value of non-executable type.
+// Pins: reference/rust_multistackvm/src/stdlib/execute.rs:95-97 — the
+//       fallthrough arm bails with "Received value is not of executable
+//       type".
+// Why:  no corpus program takes this path. Error text and exit status are
+//       part of the final state a golden records, so the failure mode is
+//       preserved behaviour like any other.
+//
+
+"probe: about to execute an integer" println
+
+// An INTEGER matches no executable arm.
+42 !

@@ -1,0 +1,30 @@
+# golden for reference/Bund/examples/code_snippets/application_logic_demos.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+Example 1: Your usual IF example
+Example 1: this code is executed because TRUE is on the stack
+Example 2: Your usual IF example where FALSE turned TRUE
+Example 2: this code is executed because FALSE turned into TRUE on the stack
+Example 3: Your usual IF/THEN/ELSE
+Example 3: this code is executed because of TRUE
+Example 4: Your usual IF/THEN/ELSE
+Example 4: this code is executed because of FALSE
+Example 5: Your first {} times loop
+Example 5: loop has been executed 42 times
+Example 6: Your {} while loop
+Example 6: loop has been executed 42 times
+Example 7: Your {} loop loop
+Example 7: loop makes Hello world !
+Example 9: Your {} map loop
+Generated sequence is: [ 0.0 ::  1.0 ::  2.0 ::  3.0 ::  4.0 ::  5.0 ::  6.0 ::  7.0 ::  8.0 ::  9.0 :: ]
+Example 9: Calculating SIN table for 10 generated values [ 0.0 ::  0.8414709848078965 ::  0.9092974268256817 ::  0.1411200080598672 ::  -0.7568024953079283 ::  -0.9589242746631385 ::  -0.27941549819892588 ::  0.6569865987187891 ::  0.9893582466233818 ::  0.4121184852417566 :: ]
+Example 10: Your default conditional
+Example 10: You simple conditional returns: Hello world!
+╭╮
+╰╯
+╭╮
+╰╯

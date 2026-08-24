@@ -1,0 +1,18 @@
+//
+// PROBE: `!` applied to a LIST.
+// Pins: reference/rust_multistackvm/src/stdlib/execute.rs:36-48 — the LIST
+//       arm pushes each element and recurses into execute for it.
+// Why:  no corpus program executes a list. This arm makes `!` a sequencer:
+//       one `!` can run several words.
+//
+
+:First {
+  "probe: list arm, first" println
+} register
+
+:Second {
+  "probe: list arm, second" println
+} register
+
+// A list of PTRs, executed as a sequence.
+[ `First `Second ] !

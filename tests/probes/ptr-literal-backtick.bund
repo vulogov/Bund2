@@ -1,0 +1,16 @@
+//
+// PROBE: the backtick PTR grammar term.
+// Pins: reference/bund_language_parser/bund.pest:29 (the `ptr` production),
+//       reference/bund_language_parser/src/vm/ptr.rs:7-10 (its handler).
+// Why:  `ptr` is one of the twelve alternatives in `value` (bund.pest:7-20)
+//       and `name` carries a negative lookahead !("`") at bund.pest:28 to
+//       reserve the character for it. Zero corpus programs use it — every
+//       backtick in the corpus sits inside a comment or a markdown literal.
+//
+
+:Greet {
+  "probe: backtick ptr reached the word" println
+} register
+
+// Push a PTR naming the word, without invoking it, then execute it.
+`Greet !

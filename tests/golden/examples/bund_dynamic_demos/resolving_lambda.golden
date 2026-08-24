@@ -1,0 +1,14 @@
+# golden for reference/Bund/examples/bund_dynamic_demos/resolving_lambda.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+Printing Hello World! by calling lambda directly.
+Printing Hello World! by resolving and calling lambda
+Unregistering HelloWorld
+╭╮
+╰╯
+╭╮
+╰╯

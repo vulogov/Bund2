@@ -1,0 +1,27 @@
+# golden for reference/Bund/examples/code_snippets/pull_demo.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+First value pushed to stack = 1
+Second value pushed to stack = 2
+Third value pushed to stack = 3
+
+┌────────────┬─────┐
+│Description │Value│
+├────────────┼─────┤
+│First value │3    │
+├────────────┼─────┤
+│Second value│2    │
+├────────────┼─────┤
+│Third value │1    │
+└────────────┴─────┘
+
+Hopefully you can see that pull is pulling data in reverse order from pushing
+
+╭╮
+╰╯
+╭╮
+╰╯

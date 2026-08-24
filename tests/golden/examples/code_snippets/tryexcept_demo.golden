@@ -1,0 +1,14 @@
+# golden for reference/Bund/examples/code_snippets/tryexcept_demo.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+I AM IN EXCEPT BLOCK: Lambda content evaluation returned error: I am raising an exception. Because I can (src/stdlib/functions/conditional/raise.rs:16:5)
+I am associated lambda
+I am a RECOVERY lambda
+╭╮
+╰╯
+╭╮
+╰╯
