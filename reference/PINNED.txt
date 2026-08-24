@@ -4,3 +4,4 @@
  ceb27c96fa10c4edb09106f3f904f22f94d63119 reference/rust_dynamic (heads/main)
  9a97675ee5d8b178093f82d25534d17f38fded83 reference/rust_multistack (heads/main)
  4605832678d4792c2b8e0564b7757d5aee1539a4 reference/rust_multistackvm (heads/main)
+bund 0.22.0, built 2026-08-24T04:06:35Z
