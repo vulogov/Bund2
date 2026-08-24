@@ -68,9 +68,20 @@ Tier 0 = the BundIR interpreter (mandatory, every target).
 Tier 1 = the Cranelift JIT (optional). AOT = the cranelift-object build.
 Word = a named callable. Slot = a word table entry. Workbench = the auxiliary
 stack. Effect = a word's stack arity. Conformance = passing goldens over total.
+Coverage = in-scope words with a test over in-scope words.
 
 ## Health metric
 
-`cargo xtask conform` prints N/M. That number is the project's status. The JIT
-and AOT milestones must move it by exactly zero: they change speed, not
-meaning, so any movement is a bug.
+Two numbers. Neither substitutes for the other, and a report that quotes one
+alone is misleading.
+
+`cargo xtask conform` prints N/M over the goldens. That is the regression
+number, and the JIT and AOT milestones must move it by exactly zero: they
+change speed, not meaning, so any movement is a bug. Never add words to that
+denominator — implementing a word would move the number and destroy the
+invariant that makes it worth having.
+
+`cargo xtask coverage` prints in-scope words with a test over in-scope words.
+That is the completeness number. The goldens reach only about a quarter of the
+in-scope words, so `conform` can read 100% with most of the language
+unimplemented and nothing else would say so.
