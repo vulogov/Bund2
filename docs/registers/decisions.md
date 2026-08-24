@@ -100,3 +100,12 @@ correct preservation.
 - Blocks: RFC-0001
 - Default: yes, `Rc::make_mut`
 - Status: OPEN
+
+## D14 — library scope
+Which of the 357 words are language core (100% preservation) and which are
+library (deferrable, re-implementable as out-of-tree word packages)?
+Preservation applies to Bund syntax and logic, not to the domain libraries.
+- Blocks: RFC-0002 (bund2-api shape), RFC-0004, the M6 target and denominator
+- Default: none — decide from corpus evidence
+- Evidence: cargo xtask corpus
+- Status: OPEN
