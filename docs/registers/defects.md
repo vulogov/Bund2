@@ -325,3 +325,31 @@ Two consequences:
 No corpus program hits any of these paths, so no golden covers them.
 - see the citations above
 - Behavioural. Disposition:
+
+## F19 — the stack layer's `functions` table is dead code
+`rust_multistack` keeps a fourth name-keyed table alongside the two inline
+tables: `functions: HashMap<String, AppFn>`
+(`reference/rust_multistack/src/ts.rs:21`), filled by `register_function`
+(`reference/rust_multistack/src/ts_functions.rs:6`) from **29 call sites**
+across `reference/rust_multistack/src/stdlib/`.
+
+Nothing reaches it. The map is read only by `get_function`
+(`reference/rust_multistack/src/ts_functions.rs:25`), which is called only by
+`TS::f` (`reference/rust_multistack/src/ts_functions.rs:36`), and `TS::f` is
+called from nowhere in any of the six crates. `i_direct` consults the two
+*inline* tables only
+(`reference/rust_multistackvm/src/multistackvm_inline.rs:42,52`), so no name
+registered here is reachable as a word, from Bund source or from Rust.
+
+This resolves the contradiction RFC-0000 recorded but did not settle — three
+dispatch tiers against four tables. The fourth is not an embedding API and not
+a second dispatch path; it is 29 registrations of an unused parallel table,
+most of them duplicating a name already registered as an inline word in the
+same file (`reference/rust_multistack/src/stdlib/drop.rs:70,71` registers
+`drop` both ways).
+
+Consequence for RFC-0002: **bund2 does not need a fourth `WordEntry` variant.**
+The slot table absorbs three tiers, not four. Porting the table because it
+exists would add a name space the language does not have.
+- `reference/rust_multistack/src/ts_functions.rs:6,25,36`
+- Dead code. Disposition:

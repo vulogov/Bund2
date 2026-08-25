@@ -6,10 +6,20 @@
 //! source, an "every X" that omitted one, and a defect number attributed to
 //! the wrong effect. Every one of those is mechanically detectable.
 //!
-//! Two checks are hard failures, because they are unambiguous:
+//! Three checks are hard failures, because they are unambiguous:
 //!
 //! 1. The cited file exists.
 //! 2. The cited line exists — a citation past end-of-file is always wrong.
+//! 3. **Exact match.** A fenced block whose info string carries a citation
+//!    must appear verbatim at that line:
+//!
+//!    ```` ```rust reference/path.rs:27 ````
+//!
+//!    The block's text is compared line for line against the file starting at
+//!    that line. No window, no tokens, no heuristic — so no false positives,
+//!    and an off-by-one is caught by construction. This is the check that
+//!    would have caught `execute.rs:28`, and it is the one to use whenever an
+//!    RFC quotes source rather than referring to it.
 //!
 //! A third is advisory only. Where the prose quotes a token near a citation,
 //! the token usually appears near the cited line; when it does not, the
@@ -158,6 +168,42 @@ fn quoted_tokens(line: &str) -> Vec<String> {
     out
 }
 
+/// Fenced blocks whose info string carries a `reference/...:N` citation,
+/// returned as (doc line of the fence, citation path, start line, body lines).
+fn quoted_blocks(text: &str) -> Vec<(usize, String, usize, Vec<String>)> {
+    let mut out = Vec::new();
+    let lines: Vec<&str> = text.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let l = lines[i].trim_start();
+        if !l.starts_with("```") {
+            i += 1;
+            continue;
+        }
+        let info = l.trim_start_matches('`');
+        let cites = citations_in(info);
+        // Only a fence naming exactly one file and one line makes a claim
+        // this check can verify.
+        let claim = cites
+            .iter()
+            .find(|(_, ns)| ns.len() == 1)
+            .map(|(p, ns)| (p.clone(), ns[0]));
+        let mut body = Vec::new();
+        let mut j = i + 1;
+        while j < lines.len() && !lines[j].trim_start().starts_with("```") {
+            body.push(lines[j].to_string());
+            j += 1;
+        }
+        if let Some((path, start)) = claim
+            && !body.is_empty()
+        {
+            out.push((i + 1, path, start, body));
+        }
+        i = j + 1;
+    }
+    out
+}
+
 pub fn run(_args: &[String]) -> Result<(), String> {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -178,6 +224,8 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     let mut findings: Vec<Finding> = Vec::new();
     let mut checked = 0usize;
     let mut corroborated = 0usize;
+    let mut exact_checked = 0usize;
+    let mut exact_ok = 0usize;
 
     for doc in &docs {
         // The review file records defects verbatim; checking it would report
@@ -193,6 +241,50 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             .unwrap_or(doc)
             .to_string_lossy()
             .to_string();
+
+        // Exact-match blocks first: the strongest check, and the only one
+        // that fails cleanly.
+        for (fence_line, path, start, body) in quoted_blocks(&text) {
+            let abs = repo.join(&path);
+            let Ok(raw) = std::fs::read_to_string(&abs) else {
+                findings.push(Finding {
+                    doc: doc_rel.clone(),
+                    doc_line: fence_line,
+                    citation: path.clone(),
+                    problem: "quoted block cites a file that does not exist".into(),
+                    hard: true,
+                });
+                continue;
+            };
+            let src: Vec<&str> = raw.lines().collect();
+            exact_checked += 1;
+            let mut mismatch = None;
+            for (k, want) in body.iter().enumerate() {
+                let at = start + k;
+                if at == 0 || at > src.len() {
+                    mismatch = Some(format!("block runs past end of file at line {at}"));
+                    break;
+                }
+                if src[at - 1].trim_end() != want.trim_end() {
+                    mismatch = Some(format!(
+                        "line {at} differs\n           quoted: {}\n           source: {}",
+                        want.trim(),
+                        src[at - 1].trim()
+                    ));
+                    break;
+                }
+            }
+            match mismatch {
+                Some(problem) => findings.push(Finding {
+                    doc: doc_rel.clone(),
+                    doc_line: fence_line,
+                    citation: format!("{path}:{start}"),
+                    problem,
+                    hard: true,
+                }),
+                None => exact_ok += 1,
+            }
+        }
 
         for (n, line) in text.lines().enumerate() {
             let all = citations_in(line);
@@ -284,6 +376,8 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         "resolve (file and line)",
         checked - hard.len()
     );
+    println!("  {:<32}{:>6}", "exact-match blocks", exact_checked);
+    println!("  {:<32}{:>6}", "exact matches verified", exact_ok);
     println!("  {:<32}{:>6}", "corroborated by a token", corroborated);
     println!("  {:<32}{:>6}", "DEFECTS (fail the run)", hard.len());
     println!("  {:<32}{:>6}", "advisories (do not fail)", soft.len());

@@ -111,13 +111,17 @@ that "resolution order is the contract" has to say which arm it means.
 resolution is a no-op on an already-resolved name, but it is on the dispatch
 path for every call. Recorded as F6.
 
-**There is a fourth registration table, and dispatch never reaches it.**
+**There is a fourth registration table, and it is dead code.**
 `register_function` (`reference/rust_multistack/src/ts_functions.rs:6`) fills a
-separate `functions` map with 29 call sites across
-`reference/rust_multistack/src/stdlib/`. `i_direct` consults only the two
-inline tables, so nothing registered there is callable as a word. Three
-*dispatch* tiers, four *tables* — a re-implementation that ports the table
-because it exists would add a name space the language does not have.
+separate `functions` map from 29 call sites across
+`reference/rust_multistack/src/stdlib/`. The map is read only by
+`get_function` (`:25`), called only by `TS::f` (`:36`), and `TS::f` is called
+from nowhere in any of the six crates. So it is neither a second dispatch path
+nor an embedding API. Recorded as F19.
+
+Three dispatch tiers, three live tables. **RFC-0002's slot table absorbs three,
+not four**, and porting the fourth because it exists would add a name space
+the language does not have.
 
 ### The world cannot be closed
 
@@ -127,8 +131,19 @@ because it exists would add a name space the language does not have.
 that name to `vm.call` (`reference/rust_multistackvm/src/stdlib/execute.rs:26-33`).
 `reference/Bund/examples/bund_dynamic_demos/dynamic_demo_2.bund:29-34` builds a
 word name by string concatenation and calls it, so a callee's name need not
-appear anywhere in the source. `execute` also accepts a bare STRING
-(`execute.rs:27`), so `ptr` is not even required. D16 preserves this.
+appear anywhere in the source. `execute` also accepts a bare STRING, so `ptr`
+is not even required:
+
+```rust reference/rust_multistackvm/src/stdlib/execute.rs:27
+                PTR | STRING | CALL => {
+```
+
+D16 preserves this.
+
+That block is verified verbatim by `cargo xtask cite`. Where an RFC quotes
+source rather than pointing at it, the quotation is checked line for line
+against the cited file — which is the check that catches an off-by-one, and
+the form to prefer for any claim that turns on exact text.
 
 ### Persistence
 
@@ -291,9 +306,23 @@ measured a binary Bund2 will never resemble.
    recorded in `tests/golden/CONFORMANCE.txt`. RFC-0000 changes no behaviour,
    so any movement means something else did.
 2. `cargo xtask coverage` reports **121/497** in-scope words covered.
-   The denominator moved from 586 when D28 deferred five more subsystems;
-   it moves again as D14 resolves, which is why criterion 1 and not this one
-   is the regression gate.
+
+**Both denominators move, and the provenance is pinned here** so a later RFC
+citing either can tell whether it has shifted. Each step is a decision, not
+drift:
+
+| Denominator | Was | Now | What moved it |
+|---|---|---|---|
+| registered names | 618 | **617** | `swap` is both an inline word and an alias; the deduped count is 617 |
+| hermetic programs | 82 | **80** | the effect audit caught `string.random.*` as a false hermetic (`reference/Bund/src/stdlib/functions/string/random.rs:7`) |
+| suite programs | 80 | **57** | −3 out of scope (D15), −18 not reproducible (F14, F15, F17), then −2 more when D28 deferred five subsystems |
+| conformance | 59 | **63** | the suite fell to 57, and six authored probes were captured (D21) |
+| coverage | 140/586 | **121/497** | D28 moved 120 words out of scope |
+
+The full narrowing is regenerated into `tests/golden/HERMETIC.txt` on every
+`cargo xtask corpus` run, so it cannot drift from the filters that produce it.
+Criterion 1 and not criterion 2 is the regression gate, because coverage moves
+whenever D14 rules on another word.
 3. **Not yet checkable, and stated as such.** No Bund2 crate declares an
    `ai`, `image`, `bus`, `forecast`, `statistics`, `internaldb` or `console`
    feature — the only features that exist today are `aot`, `jit` and `async`
