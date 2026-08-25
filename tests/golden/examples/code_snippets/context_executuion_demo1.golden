@@ -2,6 +2,7 @@
 # captured by `cargo xtask golden` from reference/Bund via target/oracle
 # normalised: id and stamp (F14), dict member order (F15), ANSI stripped
 # verified: two oracle runs produced identical output
+# regenerated with --accept, reason: capture epilogue now visits named stacks; see HERMETIC.txt funnel
 ## exit
 0
 ## output
@@ -9,6 +10,8 @@ I am in pre-condition
 I am in the main body of the call
 I am in postcondition
 In TEST we do have: Hello world !
+╭╮
+╰╯
 ╭╮
 ╰╯
 ╭╮

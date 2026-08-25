@@ -2,11 +2,17 @@
 # captured by `cargo xtask golden` from reference/Bund via target/oracle
 # normalised: id and stamp (F14), dict member order (F15), ANSI stripped
 # verified: two oracle runs produced identical output
+# regenerated with --accept, reason: capture epilogue now visits named stacks; see HERMETIC.txt funnel
 ## exit
 0
 ## output
 Calling: HelloWorld
 Hello World!
+╭─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Value { id: "<id>", stamp: <stamp>, dt: 4, q: 100.0, data: String("HelloWorld"), attr: [], curr: -1, tags: {"stack": "main"} } │
+╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭╮
+╰╯
 ╭─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │ Value { id: "<id>", stamp: <stamp>, dt: 4, q: 100.0, data: String("HelloWorld"), attr: [], curr: -1, tags: {"stack": "main"} } │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

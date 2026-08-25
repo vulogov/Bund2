@@ -28,9 +28,39 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 /// Appended to a copy of each program so the oracle reveals its final state.
-/// The oracle prints the stack only when a program fails, so a clean run would
-/// otherwise record nothing but stdout.
-pub(crate) const CAPTURE_EPILOGUE: &str = "\ndebug.display_stack\ndebug.display_workbench\n";
+///
+/// The oracle prints the stack only when a program fails, so a clean run
+/// would otherwise record nothing but stdout.
+///
+/// It has to be built per program, not fixed. Bund is multi-stack and the
+/// reference exposes no word that enumerates stacks — but a program can only
+/// use a stack it names, and `@name` is a grammar term
+/// (`reference/bund_language_parser/bund.pest:27`) the corpus lexer already
+/// extracts. So the epilogue visits exactly the stacks that program mentions.
+///
+/// Without this, `create_lambda_on_the_fly.bund` — the M4 target — built its
+/// lambda on `@lambdaCreator` and the golden pinned only `@main`.
+///
+/// Order: the current stack first, before any switch disturbs it, then each
+/// named stack in sorted order, then the workbench. Sorted so the capture is
+/// deterministic rather than dependent on where the names appear.
+pub(crate) fn capture_epilogue(src: &str) -> String {
+    use crate::corpus::lex::{self, Kind};
+
+    let named: BTreeSet<String> = lex::lex(src)
+        .tokens
+        .iter()
+        .filter(|t| t.kind == Kind::StackSel && !t.text.is_empty())
+        .map(|t| t.text.clone())
+        .collect();
+
+    let mut out = String::from("\ndebug.display_stack\n");
+    for n in &named {
+        out.push_str(&format!("@{n} debug.display_stack\n"));
+    }
+    out.push_str("debug.display_workbench\n");
+    out
+}
 
 /// A capture that could not be trusted, and why.
 struct Refusal {
@@ -331,18 +361,28 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // existing golden that would change is refused unless it is named here.
     let mut accept: Option<String> = None;
     let mut reason: Option<String> = None;
+    let mut accept_all = false;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--accept" => accept = it.next().cloned(),
             "--reason" => reason = it.next().cloned(),
+            "--accept-all" => accept_all = true,
             other => return Err(format!("unknown argument `{other}`")),
         }
     }
-    if accept.is_some() != reason.is_some() {
+    if accept.is_some() && reason.is_none() {
+        return Err("--accept needs --reason: a regenerated golden records why it changed".into());
+    }
+    // Wholesale regeneration is for when the *capture* changed, not when a
+    // program's behaviour did — a new epilogue, or a new reference SHA. It
+    // still demands a reason, which is written into every golden it rewrites,
+    // so a bulk change is never silent.
+    if accept_all && reason.is_none() {
         return Err(
-            "--accept and --reason must be given together: a regenerated \
-                    golden records why it changed"
+            "--accept-all needs --reason. Use it only when the capture itself \
+                    changed (epilogue or oracle SHA); a behaviour change goes through \
+                    --accept one golden at a time"
                 .into(),
         );
     }
@@ -364,6 +404,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     println!("# cargo xtask golden\n");
     println!("Capturing {} programs from the oracle.\n", suite.len());
+    println!(
+        "That {} is the suite, not the corpus. tests/golden/HERMETIC.txt",
+        suite.len()
+    );
+    println!("carries the funnel that produced it — most programs are dropped");
+    println!("there, upstream of any capture, so a `refused 0` below does NOT");
+    println!("mean every hermetic program was captured.\n");
     println!("Each is run twice and refused if the two runs differ — see");
     println!("tests/golden/UNSTABLE.txt for why that check exists. Output is");
     println!("normalised for F14 (id/stamp in error text) and F15 (dict member");
@@ -387,7 +434,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
         // Capture epilogue goes on a copy. `reference/` is never written to.
         let capture_file = work.join("capture.bund");
-        if let Err(e) = std::fs::write(&capture_file, format!("{src}{CAPTURE_EPILOGUE}")) {
+        if let Err(e) = std::fs::write(&capture_file, format!("{src}{}", capture_epilogue(&src))) {
             return Err(format!("writing capture copy: {e}"));
         }
 
@@ -432,7 +479,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
              ## exit\n{}\n## output\n{}\n",
             reason
                 .as_ref()
-                .filter(|_| accept.as_deref() == Some(name.as_str()))
+                .filter(|_| accept_all || accept.as_deref() == Some(name.as_str()))
                 .map(|r| format!("# regenerated with --accept, reason: {r}\n"))
                 .unwrap_or_default(),
             first.status,
@@ -451,7 +498,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             Ok(_) => {
                 // An existing golden would change. That is a conformance
                 // event, not a capture detail.
-                if accept.as_deref() == Some(name.as_str()) {
+                if accept_all || accept.as_deref() == Some(name.as_str()) {
                     std::fs::write(&dest, &body)
                         .map_err(|e| format!("writing {}: {e}", dest.display()))?;
                     written += 1;
@@ -499,32 +546,45 @@ pub fn run(args: &[String]) -> Result<(), String> {
         println!();
     }
 
-    // What the capture cannot see, said plainly rather than implied.
-    let named_stack_programs: BTreeSet<&str> = suite
+    // What the capture still cannot see, said plainly rather than implied.
+    // The epilogue visits every stack a program names literally, which is
+    // what `create_lambda_on_the_fly.bund` needed. It cannot see a stack
+    // whose name is computed: `to_stack` and `ensure_stack`
+    // (`reference/rust_multistack/src/stdlib/ensure_stack.rs`) take a name off
+    // the stack, so a program can create one the lexer never sees.
+    let computed_stack_words = ["to_stack", "ensure_stack", "ensure_stack_with_capacity"];
+    let computed: Vec<&String> = suite
         .iter()
         .filter(|p| {
             std::fs::read_to_string(repo.join(p))
                 .map(|s| {
                     s.lines()
                         .filter(|l| !l.trim_start().starts_with("//"))
-                        .any(|l| l.split_whitespace().any(|w| w.starts_with('@')))
+                        .any(|l| {
+                            l.split_whitespace()
+                                .any(|w| computed_stack_words.contains(&w))
+                        })
                 })
                 .unwrap_or(false)
         })
-        .map(String::as_str)
         .collect();
-    if !named_stack_programs.is_empty() {
-        println!("## limitation: named stacks are not captured\n");
-        println!("  The golden README promises every named stack's contents. The");
-        println!("  capture epilogue records the current stack and the workbench");
-        println!("  (`debug.display_stack`, `debug.display_workbench`), because");
-        println!("  the reference exposes no word that enumerates stacks. These");
+
+    println!("## what the capture pins\n");
+    println!("  Per program: the current stack, then every stack it names with");
+    println!("  a literal `@name`, then the workbench. Named stacks are visited");
+    println!("  in sorted order so the capture does not depend on where the");
+    println!("  names appear in the source.\n");
+    if computed.is_empty() {
+        println!("  No suite program builds a stack name at run time, so for this");
+        println!("  suite that is every stack there is.\n");
+    } else {
         println!(
-            "  {} suite programs use `@named` stacks, so their goldens pin",
-            named_stack_programs.len()
+            "  {} program(s) reach a stack by a name computed at run time",
+            computed.len()
         );
-        println!("  less than the README claims:\n");
-        for p in &named_stack_programs {
+        println!("  (`to_stack`/`ensure_stack`), which the lexer cannot see. Their");
+        println!("  goldens pin less than the whole state:\n");
+        for p in &computed {
             println!("  {p}");
         }
         println!();

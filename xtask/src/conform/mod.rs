@@ -124,8 +124,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
         let src = std::fs::read_to_string(repo.join(program))
             .map_err(|e| format!("reading {program}: {e}"))?;
         let case_file = work.join("case.bund");
-        std::fs::write(&case_file, format!("{src}{}", golden::CAPTURE_EPILOGUE))
-            .map_err(|e| format!("writing case copy: {e}"))?;
+        std::fs::write(
+            &case_file,
+            format!("{src}{}", golden::capture_epilogue(&src)),
+        )
+        .map_err(|e| format!("writing case copy: {e}"))?;
 
         match golden::run_once(&bund2, &case_file, &cwd) {
             Ok(got) => {
