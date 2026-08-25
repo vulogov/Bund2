@@ -50,3 +50,9 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   programs), `drop` (`stdlib/drop.rs:71`, 16 programs), `dup_one`, `swap_one`,
   `return`. A scan of only the two documented crates reports those as
   unregistered. RFC-0002's slot table has to absorb all three.
+
+- `04-consolidated-architecture.md` §2-§3 -> superseded by
+  `docs/rfc/RFC-0000-architecture.md` as the statement of record for crate
+  layout, boundaries and the tier model. §1.1 is deliberately not superseded:
+  it mixes layout with value, symbol and lambda claims belonging to RFC-0001,
+  RFC-0002 and RFC-0003, and RFC-0000 disclaims that scope.

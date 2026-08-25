@@ -400,7 +400,7 @@ What this forecloses:
    (`reference/rust_multistackvm/src/multistackvm_inline.rs:42,52`).
 4. **`execute`'s other input types are part of the same contract**: a bare
    `STRING` needs no `ptr` at all
-   (`reference/rust_multistackvm/src/stdlib/execute.rs:28`); a LIST recurses
+   (`reference/rust_multistackvm/src/stdlib/execute.rs:27`); a LIST recurses
    over its elements (`:36-48`); a `MAP | INFO | CONFIG | ASSOCIATION` pulls a
    key off the stack and dispatches on it (`:53+`).
 5. **`bund2-api` cannot assume a compile-time-fixed word set** (RFC-0002). The

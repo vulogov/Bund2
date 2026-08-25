@@ -239,7 +239,7 @@ Three properties follow, none of which involve `bund.eval`:
    `dynamic_demo_2.bund:29-34` the string `"Function1"` is assembled from an
    integer and a literal. No scan of the program text finds it.
 2. **`ptr` is not even required.** `execute` accepts a bare `STRING`
-   (`reference/rust_multistackvm/src/stdlib/execute.rs:28`), so any string that
+   (`reference/rust_multistackvm/src/stdlib/execute.rs:27`), so any string that
    reaches the top of the stack can become a call.
 3. **`execute` is a general dispatcher, not just "call this lambda."** On a
    LIST it recurses over every element

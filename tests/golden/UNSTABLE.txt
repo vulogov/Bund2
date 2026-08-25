@@ -14,6 +14,9 @@
 #        (reference/Bund/src/stdlib/helpers/eval.rs:33)
 #   F15  dict and tag members print in HashMap iteration order
 #        (reference/rust_dynamic/src/value.rs:24)
+#   F17  graph results come back in HashMap order from the algos dependency
+#        (~/.cargo/.../algos/src/cs/graph/dijkstra.rs:71). Distinct from F15:
+#        normalising F14 and F15 recovers 15 of these 18; these three remain.
 #
 # `cargo xtask corpus` excludes these from tests/golden/HERMETIC.txt. When F14
 # and F15 are dispositioned FIX, re-run the sweep: most of these should become
@@ -25,9 +28,9 @@ reference/Bund/examples/ai/make_xy.bund                                  # F14  
 reference/Bund/examples/code_snippets/application_conditional_demos.bund # F15  map iteration order
 reference/Bund/examples/code_snippets/tryexcept_demo_with_error_execute.bund # F14  id/stamp in error text
 reference/Bund/examples/configuration_create.bund                        # F15  map iteration order
-reference/Bund/examples/graph_algorithms/simple_graph_allshortpath.bund  # F15  map iteration order
-reference/Bund/examples/graph_algorithms/simple_graph_dijkstra.bund      # F15  map iteration order
-reference/Bund/examples/graph_algorithms/simple_graph_transitiveclosure.bund # F15  map iteration order
+reference/Bund/examples/graph_algorithms/simple_graph_allshortpath.bund  # F17  algos returns a HashMap
+reference/Bund/examples/graph_algorithms/simple_graph_dijkstra.bund      # F17  algos returns a HashMap
+reference/Bund/examples/graph_algorithms/simple_graph_transitiveclosure.bund # F17  algos returns a HashMap
 reference/Bund/examples/image/image_blur_and_save.bund                   # F14  id/stamp in error text
 reference/Bund/examples/image/image_export.bund                          # F14  id/stamp in error text
 reference/Bund/examples/image/image_print.bund                           # F14  id/stamp in error text

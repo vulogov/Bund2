@@ -6,9 +6,13 @@
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
   `80377728f45b`; `bundcore` `3b0b8ba219a6`; `rust_dynamic` `ceb27c96fa10`;
   `rust_multistack` `9a97675ee5d8`; `rust_multistackvm` `4605832678d4`
-- Supersedes: `docs/research/04-consolidated-architecture.md` §1-§3 as the
-  statement of record for layout and tiering. See `docs/research/ERRATA.md`
-  for three corrections that predate this RFC.
+- Supersedes: `docs/research/04-consolidated-architecture.md` §2-§3 as the
+  statement of record for layout and tiering. §1.1 is deliberately excluded:
+  it mixes layout with value, symbol and lambda claims that belong to
+  RFC-0001, RFC-0002 and RFC-0003, and superseding it here would take scope
+  this RFC disclaims. See `docs/research/ERRATA.md`,
+  which holds six corrections — two predating this session, three from the
+  corpus scan, and this RFC's own supersession entry.
 
 ## Summary
 
@@ -36,10 +40,16 @@ and VM; `Bund` on all of them (`reference/rust_multistack/Cargo.toml`,
 `reference/Bund/Cargo.toml`). No cycles. Bund2 should preserve that property
 deliberately rather than inherit it by luck.
 
-**The crates are pinned `">=0.*.*"` against each other.** Every internal
-dependency in `reference/Bund/Cargo.toml:13,23,24,43` is unbounded, so a
-change to `Value`'s layout propagates silently across five crates. This is
-recorded as F8, and the monorepo resolves it.
+**The internal version pins are almost all unbounded.** Six of the seven
+internal dependencies across the reference are `">=0.*.*"` — the five in
+`reference/Bund/Cargo.toml:13,14,23,24,43`, plus
+`reference/bund_language_parser/Cargo.toml:17`,
+`reference/bundcore/Cargo.toml:12,17,18` and
+`reference/rust_multistack/Cargo.toml:14`. The exception is
+`reference/rust_multistackvm/Cargo.toml:21`, pinned `">=0.33.*"`, which bounds
+the minor series but not the patch. So a `Value` layout change propagates to
+every dependent without a version bump in all but one edge. Recorded as F8,
+and the monorepo resolves it.
 
 **The binary is 381 MB, and about 9.6 ms of every run is spent loading it.**
 Measured by decomposition: a bare process spawn is 1.4 ms, `bund --version` —
@@ -69,7 +79,7 @@ Measured over `src/` at the pinned SHAs:
 | `Bund` | 18,996 | 200 | the CLI and the domain-library word set |
 
 The parser is 323 lines because the grammar does the work:
-`reference/bund_language_parser/bund.pest` is 55 lines defining twelve `value`
+`reference/bund_language_parser/bund.pest` is 54 lines defining twelve `value`
 alternatives, and each handler in `src/vm/` converts one token to a `Value`.
 
 ### Word registration is three tiers, not two
@@ -87,6 +97,28 @@ command, then a `$`-prefixed name forcing an internal word (`:33`), then alias
 (`:39`), then lambda (`:46`), then inline (`:59`) with the two-tier fallthrough
 above.
 
+**That chain is one arm of a branch, not the whole story.** `apply` first tests
+`self.autoadd` (`reference/rust_multistackvm/src/multistackvm_apply.rs:19`);
+when it is set, the name is *appended to the value on top of the stack*
+(`:20-27`) and no resolution happens at all. The chain above is the `else`
+arm. `autoadd` is toggled by the `:` and `;` commands, so a program can switch
+the interpreter between resolving names and collecting them. Any statement
+that "resolution order is the contract" has to say which arm it means.
+
+**Aliases resolve twice, and exactly twice.** `apply` resolves an alias at
+`:39`, then calls `i()`, which tests and resolves it again
+(`reference/rust_multistackvm/src/multistackvm_inline.rs:71-72`). The second
+resolution is a no-op on an already-resolved name, but it is on the dispatch
+path for every call. Recorded as F6.
+
+**There is a fourth registration table, and dispatch never reaches it.**
+`register_function` (`reference/rust_multistack/src/ts_functions.rs:6`) fills a
+separate `functions` map with 29 call sites across
+`reference/rust_multistack/src/stdlib/`. `i_direct` consults only the two
+inline tables, so nothing registered there is callable as a word. Three
+*dispatch* tiers, four *tables* — a re-implementation that ports the table
+because it exists would add a name space the language does not have.
+
 ### The world cannot be closed
 
 `ptr` casts a stack value to a string and pushes a PTR naming a word
@@ -96,7 +128,7 @@ that name to `vm.call` (`reference/rust_multistackvm/src/stdlib/execute.rs:26-33
 `reference/Bund/examples/bund_dynamic_demos/dynamic_demo_2.bund:29-34` builds a
 word name by string concatenation and calls it, so a callee's name need not
 appear anywhere in the source. `execute` also accepts a bare STRING
-(`execute.rs:28`), so `ptr` is not even required. D16 preserves this.
+(`execute.rs:27`), so `ptr` is not even required. D16 preserves this.
 
 ### Persistence
 
@@ -190,9 +222,10 @@ duplicate them:
 - `docs/registers/decisions.md` — 28 entries. Append-only; a status may
   change, an entry may not be deleted or renumbered.
 - `docs/registers/defects.md` — 18 entries. The roadmap's §5 listed eleven;
-  seven more were found by running the oracle rather than reading it, of which
-  F14, F15 and F17 are the reason 18 of 77 hermetic programs could not be
-  captured. An empty `disposition` blocks any work item touching that area.
+  seven more were found by running the oracle rather than reading it. F14 and
+  F15 are why 18 of 77 hermetic programs could not be captured — those are the
+  only two causes `tests/golden/UNSTABLE.txt` tags. F17 is why three of the
+  eighteen stayed unreproducible after F14 and F15 were normalised. An empty `disposition` blocks any work item touching that area.
 - `docs/registers/open-questions.md` — questions get disposed of, not
   annotated: grounded, promoted to a decision, or deleted.
 
@@ -213,10 +246,15 @@ resolved to the wrong one.
 around it rather than against it.
 
 **Feature gating is additive, not a deviation.** A word behind a disabled
-feature is absent, not different. Programs in the conformance suite invoke no
-gated word — that is what the scope filter in `cargo xtask corpus` enforces —
-so no golden changes. The M6 denominator narrows, which D14 and D28 both
-record.
+feature is absent, not different, and no *retained* behaviour changes.
+
+Both denominators moved, and the RFC should not report only one. D28 narrowed
+the suite from 59 programs to 57, orphaning two goldens which were removed;
+the conformance denominator is 63 because six probes were added at the same
+time. Coverage moved from 140/586 to 121/497. No golden's *content* changed —
+the scope filter in `cargo xtask corpus` guarantees a suite program invokes no
+gated word — but "no golden changes" would be the wrong claim: two stopped
+existing.
 
 **The world file container changes** from SQLite to redb (D27). The contained
 values do not: they remain bincode-serialised `Value`s, and D20's rule that
@@ -256,19 +294,32 @@ measured a binary Bund2 will never resemble.
    The denominator moved from 586 when D28 deferred five more subsystems;
    it moves again as D14 resolves, which is why criterion 1 and not this one
    is the regression gate.
-3. The workspace builds with `--no-default-features` and every gated
-   subsystem absent from the dependency graph, verifiable with
-   `cargo tree --no-default-features`.
-4. `bund2-value` does not appear in `bund2-interp`'s reverse dependencies, and
-   `bund2-jit` does not appear in `bund2-stdlib`'s, verifiable with
-   `cargo tree --invert`.
+3. **Not yet checkable, and stated as such.** No Bund2 crate declares an
+   `ai`, `image`, `bus`, `forecast`, `statistics`, `internaldb` or `console`
+   feature — the only features that exist today are `aot`, `jit` and `async`
+   (`crates/bund2/Cargo.toml`, `crates/bund2-jit/Cargo.toml`). So
+   `cargo tree --no-default-features` can produce no evidence either way, and
+   asserting it would be a criterion that passes by vacuity. It becomes
+   checkable when RFC-0002 declares the feature set; until then D28 is a
+   commitment, not a verified property.
+4. `cargo tree -p bund2-interp` does not list `bund2-value` as reaching back
+   into it, and `cargo tree -p bund2-stdlib` does not list `bund2-jit`. Note
+   the direction: the rule forbids *stdlib depending on jit*, so the check is
+   the forward graph, not `--invert`, which enumerates dependents. Also
+   vacuous today, because both crates are empty scaffolds — it becomes
+   meaningful with RFC-0002 and RFC-0003.
 5. `git status --porcelain` inside every `reference/` submodule is empty after
    a full `cargo xtask golden` run.
-6. Every `path:line` citation in this document resolves at the recorded SHAs.
+6. `cargo xtask cite` reports zero defects: every `reference/...:N` citation
+   in this RFC and in the registers names a file that exists and a line that
+   exists. Implemented in response to this RFC's review, which found five
+   citation defects by hand.
 
-Criteria 1 and 2 are the two health numbers. Criterion 5 is the one that
-catches an accidental edit to the oracle, which would invalidate every
-citation in every RFC.
+Criteria 1 and 2 are the two health numbers. Criterion 5 catches an accidental
+edit to the oracle, which would invalidate every citation in every RFC.
+Criteria 3 and 4 are recorded as **not yet checkable**: both would pass today
+against empty crates, and a criterion that cannot fail is not a criterion. They
+are carried so RFC-0002 inherits them rather than rediscovering them.
 
 ## Open questions
 

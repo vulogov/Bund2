@@ -32,6 +32,12 @@ Oracle
                 an empty work queue with 446 words unimplemented. Rank against
                 the coverage denominator instead.
 
+  cite          Verify every `reference/...:N` citation across the docs and
+                registers: file exists, line exists, and where the prose quotes
+                a token, that the token is near the cited line. Catches stale
+                line numbers; cannot check that a line means what the prose
+                says.
+
 Evidence
   corpus        Scan the example corpus for uses of .id, .timestamp, bund.eval,
                 load.lambdas, register, and post-construction LAMBDA mutation;
@@ -57,6 +63,7 @@ Evidence
 
 mod arity;
 mod bench;
+mod cite;
 mod conform;
 mod corpus;
 mod golden;
@@ -116,6 +123,13 @@ fn main() -> std::process::ExitCode {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
                 eprintln!("xtask bench: {err}");
+                std::process::ExitCode::FAILURE
+            }
+        },
+        "cite" => match cite::run(&args) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("xtask cite: {err}");
                 std::process::ExitCode::FAILURE
             }
         },
