@@ -62,6 +62,73 @@ pub(crate) fn capture_epilogue(src: &str) -> String {
     out
 }
 
+/// Every program to capture, as (source path, golden name, working dir),
+/// plus how many of them are probes.
+///
+/// Shared with `conform` on purpose. If the two enumerated goldens
+/// independently they would drift, and the first symptom would be a
+/// conformance denominator nobody could explain.
+///
+/// Suite programs run from the reference root, because that is where they were
+/// written to run. Probes are ours and depend on no file, so they run from the
+/// repo root — if a probe ever needs the reference tree it has stopped being
+/// hermetic.
+pub(crate) fn capture_jobs(repo: &Path) -> Result<(Vec<(String, String, PathBuf)>, usize), String> {
+    let suite = read_suite(repo)?;
+    let mut jobs: Vec<(String, String, PathBuf)> = suite
+        .iter()
+        .map(|p| (p.clone(), golden_name(p), repo.join("reference/Bund")))
+        .collect();
+
+    // D21: authored probes are captured the same way, into tests/golden/probes.
+    // Their expected output is never hand-written either; the oracle decides
+    // what they do, including the one that fails deliberately to pin F16.
+    let mut probe_files = Vec::new();
+    collect_probes(&repo.join("tests/probes"), &mut probe_files);
+    probe_files.sort();
+    let probe_count = probe_files.len();
+    for f in &probe_files {
+        let rel = f
+            .strip_prefix(repo)
+            .unwrap_or(f)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let stem = f.file_stem().unwrap_or_default().to_string_lossy();
+        jobs.push((rel, format!("probes/{stem}.golden"), repo.to_path_buf()));
+    }
+    Ok((jobs, probe_count))
+}
+
+/// Every `.golden` under `dir`, as a path relative to `root`.
+fn collect_goldens(root: &Path, dir: &Path, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            collect_goldens(root, &p, out);
+        } else if p.extension().is_some_and(|x| x == "golden")
+            && let Ok(rel) = p.strip_prefix(root)
+        {
+            out.push(rel.to_string_lossy().replace('\\', "/"));
+        }
+    }
+}
+
+/// Authored probes (D21), captured alongside the corpus.
+fn collect_probes(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.extension().is_some_and(|x| x == "bund") {
+            out.push(p);
+        }
+    }
+}
+
 /// A capture that could not be trusted, and why.
 struct Refusal {
     program: String,
@@ -403,7 +470,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
     std::fs::create_dir_all(&work).map_err(|e| format!("creating {}: {e}", work.display()))?;
 
     println!("# cargo xtask golden\n");
-    println!("Capturing {} programs from the oracle.\n", suite.len());
+    println!(
+        "Capturing {} suite programs from the oracle.\n",
+        suite.len()
+    );
     println!(
         "That {} is the suite, not the corpus. tests/golden/HERMETIC.txt",
         suite.len()
@@ -421,8 +491,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut unchanged = 0usize;
     let mut refused: Vec<Refusal> = Vec::new();
     let mut needs_accept: Vec<String> = Vec::new();
+    let mut regenerated: Vec<String> = Vec::new();
 
-    for program in &suite {
+    let (jobs, probe_count) = capture_jobs(&repo)?;
+
+    for (program, name, cwd) in &jobs {
         let src_path = repo.join(program);
         let Ok(src) = std::fs::read_to_string(&src_path) else {
             refused.push(Refusal {
@@ -438,9 +511,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             return Err(format!("writing capture copy: {e}"));
         }
 
-        // Programs are written to run from the reference root.
-        let cwd = repo.join("reference/Bund");
-        let first = match run_once(&oracle, &capture_file, &cwd) {
+        let first = match run_once(&oracle, &capture_file, cwd) {
             Ok(r) => r,
             Err(e) => {
                 refused.push(Refusal {
@@ -450,7 +521,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 continue;
             }
         };
-        let second = match run_once(&oracle, &capture_file, &cwd) {
+        let second = match run_once(&oracle, &capture_file, cwd) {
             Ok(r) => r,
             Err(e) => {
                 refused.push(Refusal {
@@ -469,24 +540,16 @@ pub fn run(args: &[String]) -> Result<(), String> {
             continue;
         }
 
-        let name = golden_name(program);
         let body = format!(
             "# golden for {program}\n\
              # captured by `cargo xtask golden` from reference/Bund via target/oracle\n\
              # normalised: id and stamp (F14), dict member order (F15), ANSI stripped\n\
              # verified: two oracle runs produced identical output\n\
-             {}\
              ## exit\n{}\n## output\n{}\n",
-            reason
-                .as_ref()
-                .filter(|_| accept_all || accept.as_deref() == Some(name.as_str()))
-                .map(|r| format!("# regenerated with --accept, reason: {r}\n"))
-                .unwrap_or_default(),
-            first.status,
-            first.output
+            first.status, first.output
         );
 
-        let dest = golden_dir.join(&name);
+        let dest = golden_dir.join(name);
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("creating {}: {e}", parent.display()))?;
@@ -502,8 +565,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     std::fs::write(&dest, &body)
                         .map_err(|e| format!("writing {}: {e}", dest.display()))?;
                     written += 1;
+                    regenerated.push(name.clone());
                 } else {
-                    needs_accept.push(name);
+                    needs_accept.push(name.clone());
                 }
             }
             Err(_) => {
@@ -514,6 +578,20 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
     }
 
+    // Goldens with no live source. A scope decision that narrows the suite
+    // leaves these behind, and a stale golden is worse than a missing one: it
+    // looks like a contract and pins nothing.
+    let expected: BTreeSet<String> = jobs.iter().map(|(_, n, _)| n.clone()).collect();
+    let mut orphans: Vec<String> = Vec::new();
+    collect_goldens(&golden_dir, &golden_dir, &mut orphans);
+    orphans.retain(|g| !expected.contains(g));
+    orphans.sort();
+
+    println!(
+        "  {:<34}{:>5}   ({probe_count} of them probes)",
+        "captured",
+        jobs.len()
+    );
     println!("  {:<34}{:>5}", "written", written);
     println!("  {:<34}{:>5}", "already current", unchanged);
     println!("  {:<34}{:>5}", "refused (not reproducible)", refused.len());
@@ -531,6 +609,47 @@ pub fn run(args: &[String]) -> Result<(), String> {
         println!("  the reader to ignore failures.\n");
         for r in &refused {
             println!("  {:<62} {}", r.program, r.reason);
+        }
+        println!();
+    }
+
+    // A deliberate regeneration is recorded in tests/golden/EXCEPTIONS.md,
+    // not inside the golden. Writing the reason into the body made capture
+    // non-idempotent: a golden regenerated with a reason could never again
+    // match one generated without, so every later run reported all of them as
+    // changed. EXCEPTIONS.md is where this project already keeps that record.
+    // Only a targeted --accept is an exception. A bulk --accept-all is a
+    // capture-format migration — a new epilogue, a new oracle SHA — and
+    // writing one row per golden would bury the real exceptions under
+    // dozens of identical lines. EXCEPTIONS.md is for "the reference has a
+    // defect Bund2 does not reproduce", which a format change is not; that
+    // reason belongs in the commit.
+    if !regenerated.is_empty()
+        && !accept_all
+        && let Some(why) = reason.as_ref()
+    {
+        let path = repo.join("tests/golden/EXCEPTIONS.md");
+        let mut doc = std::fs::read_to_string(&path).unwrap_or_default();
+        if !doc.ends_with('\n') {
+            doc.push('\n');
+        }
+        for name in &regenerated {
+            doc.push_str(&format!("| `{name}` | — | — | {why} |\n"));
+        }
+        std::fs::write(&path, doc).map_err(|e| format!("writing EXCEPTIONS.md: {e}"))?;
+        println!(
+            "  recorded {} regeneration(s) in tests/golden/EXCEPTIONS.md\n",
+            regenerated.len()
+        );
+    }
+
+    if !orphans.is_empty() {
+        println!("## orphaned goldens: {}\n", orphans.len());
+        println!("  These pin programs no longer in the suite — a scope decision");
+        println!("  narrowed it. Left in place: deleting a golden is not this");
+        println!("  command's call. Remove them deliberately, or widen the scope.\n");
+        for o in &orphans {
+            println!("  tests/golden/{o}");
         }
         println!();
     }

@@ -10,7 +10,7 @@ promote it to a decision, or delete the claim.
 
 | # | Question | Raised in |
 |---|----------|-----------|
-| Q14 | The Phase 0 baseline shows the corpus cannot measure interpretation: the fastest suite program takes 13.3 ms against a 14.3 ms mean, so roughly 93% of every run is process start and stdlib registration. A JIT that made interpretation free would move the corpus wall-clock by under 10%. How should RFC-0001 and RFC-0005 acceptance criteria be written so they measure the interpreter rather than the launcher? | `cargo xtask bench` |
+| Q14 | The Phase 0 baseline cannot measure interpretation: ~9.6 ms of every 14 ms run is loading a 381 MB binary before `main` starts, and 3-5 ms more is stdlib registration. **D28 removes most of that cause for Bund2**, so the question narrows: once the dependency set is cut, does the corpus resolve interpretation well enough to write RFC-0001 and RFC-0005 criteria against, or is in-process measurement still required? Re-run `cargo xtask bench --target bund2` when there is a bund2 to run. | `cargo xtask bench` |
 | Q15 | `cargo xtask unblock` is specified as "for each unimplemented word, count hermetic examples it alone gates". That ranking can only see the 140 in-scope words the goldens touch, so as written it reports an empty work queue with 446 words unimplemented. What replaces it, ranking against the coverage denominator? Residue of Q5. | Q5 |
 | Q16 | D21 settled that probes are captured from the oracle into `tests/golden/probes/`, but `cargo xtask golden` reads only `HERMETIC.txt` and never captures them — all six sit at `0/6`, asserting nothing. Decided but not implemented. Residue of Q9. | Q9 |
 

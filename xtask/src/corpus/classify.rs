@@ -437,6 +437,44 @@ const DEFERRED_PATHS: &[(&str, Deferral)] = &[
             reason: "embedded database layer, deferred",
         },
     ),
+    // D28: only essential features in the default build. These subsystems
+    // carry the dependencies that make the reference binary 381 MB, ~9.6 ms
+    // of which is paid before `main` runs. Feature-gated off, not deleted.
+    (
+        "Bund/src/stdlib/functions/ai",
+        Deferral {
+            decision: "D28",
+            reason: "language detection, classifiers, neural nets — not essential",
+        },
+    ),
+    (
+        "Bund/src/stdlib/functions/image",
+        Deferral {
+            decision: "D28",
+            reason: "image decode, resize, face detection — not essential",
+        },
+    ),
+    (
+        "Bund/src/stdlib/functions/bus",
+        Deferral {
+            decision: "D28",
+            reason: "zenoh distributed bus — not essential",
+        },
+    ),
+    (
+        "Bund/src/stdlib/functions/forecast",
+        Deferral {
+            decision: "D28",
+            reason: "augurs forecasting — not essential",
+        },
+    ),
+    (
+        "Bund/src/stdlib/functions/statistics",
+        Deferral {
+            decision: "D28",
+            reason: "42 registered names, zero corpus uses — not essential",
+        },
+    ),
 ];
 
 pub struct Classifier;

@@ -94,7 +94,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
     }
 
-    let suite = golden::read_suite(&repo)?;
+    // The same job list `golden` captures from, so the two cannot disagree
+    // about what is in the denominator.
+    let (jobs, probe_count) = golden::capture_jobs(&repo)?;
     let golden_dir = repo.join("tests/golden");
     let bund2 = bund2_binary(&repo)?;
     let work = repo.join("target/conform");
@@ -103,13 +105,15 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // Only programs that actually have a captured golden are in the
     // denominator. A program in HERMETIC.txt whose capture was refused is not
     // a conformance failure — there is nothing to conform to.
-    let mut cases: Vec<(String, i32, String)> = Vec::new();
+    let mut cases: Vec<(String, String, PathBuf, i32, String)> = Vec::new();
     let mut uncaptured = 0usize;
-    for program in &suite {
-        let gpath = golden_dir.join(golden::golden_name(program));
+    for (program, name, cwd) in &jobs {
+        let gpath = golden_dir.join(name);
         match std::fs::read_to_string(&gpath) {
             Ok(body) => match golden::parse_golden(&body) {
-                Some((status, output)) => cases.push((program.clone(), status, output)),
+                Some((status, output)) => {
+                    cases.push((program.clone(), name.clone(), cwd.clone(), status, output))
+                }
                 None => return Err(format!("{} is malformed", gpath.display())),
             },
             Err(_) => uncaptured += 1,
@@ -117,10 +121,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
 
     let mut outcomes: Vec<Outcome> = Vec::new();
-    let cwd = repo.join("reference/Bund");
     let mut not_implemented = 0usize;
 
-    for (program, want_status, want_output) in &cases {
+    for (program, _name, cwd, want_status, want_output) in &cases {
         let src = std::fs::read_to_string(repo.join(program))
             .map_err(|e| format!("reading {program}: {e}"))?;
         let case_file = work.join("case.bund");
@@ -130,7 +133,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         )
         .map_err(|e| format!("writing case copy: {e}"))?;
 
-        match golden::run_once(&bund2, &case_file, &cwd) {
+        match golden::run_once(&bund2, &case_file, cwd) {
             Ok(got) => {
                 // The scaffold exits 70 with a message. Distinguish that from
                 // a real mismatch so the report says "unimplemented", not
@@ -173,9 +176,15 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     println!("# cargo xtask conform\n");
     println!("  CONFORMANCE  {passed}/{total}\n");
+    println!(
+        "  Denominator is every captured golden: {} suite programs plus {probe_count}",
+        total.saturating_sub(probe_count)
+    );
+    println!("  authored probes (D21). Both are captured from the oracle, so a");
+    println!("  probe failing is a preservation failure like any other.\n");
 
     if uncaptured > 0 {
-        println!("  {uncaptured} program(s) in HERMETIC.txt have no golden and are excluded from");
+        println!("  {uncaptured} program(s) have no golden and are excluded from");
         println!("  the denominator — `cargo xtask golden` refused them as not");
         println!("  reproducible. There is nothing there to conform to.\n");
     }
@@ -226,7 +235,16 @@ pub fn run(args: &[String]) -> Result<(), String> {
             }
             Ok(())
         }
-        Some(_) => Ok(()),
+        Some(_) => {
+            // Unchanged pass count, but the denominator may have moved — a
+            // scope decision narrows the suite, or new probes are captured.
+            // Refresh so the file never claims a stale total.
+            if accept {
+                write_baseline(&repo, passed, total)?;
+                println!("  baseline refreshed at {passed}/{total}");
+            }
+            Ok(())
+        }
         None => {
             if accept {
                 write_baseline(&repo, passed, total)?;

@@ -24,15 +24,17 @@
 #    132  programs in the corpus
 #     52  non-hermetic, dropped by filter 1
 #     80  hermetic
-#      3  hermetic but out of scope, dropped by filter 2
+#      5  hermetic but out of scope, dropped by filter 2
 #     18  hermetic and in scope but not reproducible, dropped by filter 3
-#     59  in this file
+#     57  in this file
 #
 #
 # Hermetic but excluded by a scope decision:
 #   reference/Bund/examples/ai/ollama_api_demo.bund  [D15] console presentation: spinners, animation, colour
 #   reference/Bund/examples/code_snippets/string_wrap_demo.bund  [D15] console presentation: spinners, animation, colour
 #   reference/Bund/examples/console/typewriter_demo.bund  [D15] console presentation: spinners, animation, colour
+#   reference/Bund/examples/estimator_demo.bund  [D28] augurs forecasting — not essential
+#   reference/Bund/examples/forecast_mstl_demo.bund  [D28] augurs forecasting — not essential
 
 reference/Bund/examples/bund_dynamic_demos/compile_and_apply.bund
 reference/Bund/examples/bund_dynamic_demos/create_lambda_on_the_fly.bund
@@ -57,8 +59,6 @@ reference/Bund/examples/code_snippets/textexpression_demo.bund
 reference/Bund/examples/code_snippets/tryexcept_demo.bund
 reference/Bund/examples/code_snippets/tryexcept_demo_divide_to_0.bund
 reference/Bund/examples/conditional_move_to_workbench.bund
-reference/Bund/examples/estimator_demo.bund
-reference/Bund/examples/forecast_mstl_demo.bund
 reference/Bund/examples/graph_algorithms/more_complex_graph_shortpath.bund
 reference/Bund/examples/graph_algorithms/simple_graph_shortpath.bund
 reference/Bund/examples/helloworld.bund

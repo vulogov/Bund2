@@ -859,3 +859,50 @@ encoding is unchanged. Only the container changes.
 - Blocks: nothing; informs RFC-0003 and D10
 - Depends on: D11
 - Status: RESOLVED (conditional on D11)
+
+## D28 — only essential features in the default build
+Bund2's default build enables only what the language needs. The heavyweight
+subsystems are feature-gated and **off by default**; nothing is deleted, but
+nothing non-essential is linked unless asked for.
+
+Measured cause, `cargo xtask bench` plus a decomposition of the floor:
+
+| stage | best of 9 |
+|---|---|
+| process spawn floor | 1.4 ms |
+| `bund --version` — load and link only, before any stdlib init | **11.0 ms** |
+| plus stdlib registration (empty program) | 15.8 ms |
+| plus parse and run (hello world) | 14.0 ms |
+
+So roughly **9.6 ms of every run is spent before `main` does anything**,
+loading and linking a **381 MB** binary. Stdlib registration adds 3-5 ms.
+Interpretation is below the noise floor. The corpus baseline of ~14 ms per
+program is almost entirely the cost of the dependency set.
+
+That dependency set is what the decision targets. `reference/Bund/Cargo.toml`
+links, among others: `lingua` (language detection), `hyphenation` with
+`embed_all`, `duckdb` with `bundled`, `polars` and `polars-io`, `arrow`,
+`prqlc`, `charabia`, `neurons`, `augurs`, `rustface`, `imageproc`, `viuer`,
+`zenoh`, `dryoc`, `reqwest`, `deepseek-api`. Each embeds data or a large
+native library, and together they are the 381 MB.
+
+The subsystems they serve are the ones already being deferred or shown unused:
+`bund/ai` and the classifiers, `bund/internaldb` (D26), `bund/image`,
+`bund/bus`, `bund/forecast` and `bund/statistics` (42 registered names, zero
+corpus uses), `bund/console` (D15), and the random-string and hyphenation
+corners of `bund/string`.
+
+**Consequence for Q14, which this partly overturns.** The Phase 0 finding that
+"93% of every run is fixed cost" is a property of the *reference's*
+dependency set, not an intrinsic cost of running Bund. Bund2 does not inherit
+those dependencies, so its floor will be far lower and the corpus will resolve
+interpretation far better than the baseline suggests. Comparing Bund2's
+wall-clock against `docs/bench-baseline.md` compares two dependency sets, not
+two interpreters, and any performance criterion has to say which it means.
+
+- Decided by: repository owner
+- Blocks: nothing; constrains RFC-0002's crate and feature layout, and the
+  M6 denominator alongside D14
+- Status: RESOLVED
+- Not a deletion: a feature-gated word can be enabled. What this forbids is
+  linking it by default.
