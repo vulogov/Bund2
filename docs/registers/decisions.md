@@ -578,7 +578,17 @@ those write values meant to be read by another process.
 On the cross-run contract Q8 asked about — the id format and stamp precision
 are observable only to a reader *outside* Bund2, because round-tripping is
 self-consistent whatever is written (`bincode.rs:71` restores exactly what
-`:30` wrote). Whether such readers exist is **D11, still OPEN**. If D11
+`:30` wrote).
+
+**Corrected scope.** Both of those citations sit in the *non-JSON* branches:
+`:30` is inside the `} else {` at `reference/rust_dynamic/src/bincode.rs:29`,
+and `:71` inside the one at `:70`. For a JSON value the round trip is **not**
+self-consistent — `to_binary` converts to a string and re-wraps (`:9-28`) and
+`from_binary` re-parses through `serde_json` (`:54-69`), so the reconstructed
+value carries a fresh identity rather than the original's. D20's rule holds as
+stated for every other type; for JSON, identity is discarded by the round trip
+and RFC-0001 must decide whether to preserve that or fix it. This is the same
+asymmetry F13 records for `dup`. Whether such readers exist is **D11, still OPEN**. If D11
 resolves to its default of none, a further step becomes available: encode
 "unset" in the format so laziness survives serialisation entirely. Not adopted
 now — it diverges the wire format, and D20 deliberately does not prejudge D11.

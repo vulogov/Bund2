@@ -40,17 +40,23 @@ and VM; `Bund` on all of them (`reference/rust_multistack/Cargo.toml`,
 `reference/Bund/Cargo.toml`). No cycles. Bund2 should preserve that property
 deliberately rather than inherit it by luck.
 
-**Eleven of the twelve internal version pins are unbounded.** The edges are
+**All twelve internal version pins are unbounded.** The edges are
 `reference/Bund/Cargo.toml:13,14,23,24,43`,
 `reference/rust_multistackvm/Cargo.toml:21,22`,
 `reference/rust_multistack/Cargo.toml:14`,
 `reference/bundcore/Cargo.toml:12,17,18` and
-`reference/bund_language_parser/Cargo.toml:17`. All are `">=0.*.*"` except
-`reference/rust_multistackvm/Cargo.toml:21`, pinned `">=0.33.*"`, which bounds
-the minor series but not the patch. So a `Value` layout change propagates to
-every dependent without a version bump on all but one edge. Recorded as F8,
-and the monorepo resolves it — but see the Terminology note on the oracle,
-where the same mechanism is live inside this project's own methodology.
+`reference/bund_language_parser/Cargo.toml:17`.
+
+Two earlier drafts got this wrong in opposite directions, and the second error
+is worth naming because it weakened the argument it was fixing.
+`reference/rust_multistackvm/Cargo.toml:21` reads `">=0.33.*"`, which looks
+like a bounded minor series and is not: `>=` is a floor with no ceiling.
+`reference/Bund/Cargo.lock` resolves `rust_dynamic` **0.49.0** under exactly
+that spec. There is no exception edge — a `Value` layout change propagates to
+every dependent, across all twelve, without a version bump. Recorded as F8,
+and the monorepo resolves it for Bund2 — but see the Terminology note on the
+oracle, where the same mechanism is live inside this project's own
+methodology.
 
 **The binary is 381 MB, and about 9.6 ms of every run is spent loading it.**
 Measured by decomposition: a bare process spawn is 1.4 ms, `bund --version` —
@@ -98,11 +104,11 @@ command, then a `$`-prefixed name forcing an internal word (`:33`), then alias
 (`:39`), then lambda (`:46`), then inline (`:59`) with the two-tier fallthrough
 above.
 
-**That chain is one arm of a branch, not the whole story.** `apply` first tests
-`self.autoadd` (`reference/rust_multistackvm/src/multistackvm_apply.rs:19`);
-when it is set, the name is *appended to the value on top of the stack*
-(`:20-27`) and no resolution happens at all. The chain above is the `else`
-arm. `autoadd` is toggled by the `:` and `;` commands, so a program can switch
+**That chain is one arm of a branch, not the whole story.** `apply` tests
+`is_command` first (`reference/rust_multistackvm/src/multistackvm_apply.rs:16`)
+and only then `self.autoadd` (`:19`); when `autoadd` is set the name is
+*appended to the value on top of the stack* (`:20-27`) and no resolution
+happens at all. The chain above is the `else` arm of that second test. `autoadd` is toggled by the `:` and `;` commands, so a program can switch
 the interpreter between resolving names and collecting them. Any statement
 that "resolution order is the contract" has to say which arm it means.
 
@@ -226,9 +232,12 @@ are registry deps with no `[patch.crates-io]`
 (`reference/Bund/Cargo.toml:13,14,23,24,43`), so building it links published
 crates, not the sibling submodules — and three submodules currently declare
 newer versions than the lockfile resolves. The submodule sources and the
-linked crate sources are byte-identical today, which `cargo xtask cite`
-verifies on every run and in CI; but the oracle is built from crates.io, and
-calling it "the submodules built" would be false. Recorded as F21. **Suite** — the programs in `tests/golden/HERMETIC.txt`.
+linked crate sources are byte-identical today. `cargo xtask cite` compares
+them byte for byte **where the vendored crate source is present**, which means
+locally after an oracle build and *not* in CI — those five crates are not
+Bund2 workspace dependencies, so CI never downloads them and only the weaker
+version check runs there. Calling the oracle "the submodules built" would be
+false. Recorded as F21. **Suite** — the programs in `tests/golden/HERMETIC.txt`.
 **Probe** — an authored program testing behaviour the reference examples never
 reach (D21).
 
@@ -244,12 +253,12 @@ duplicate them:
 
 - `docs/registers/decisions.md` — 28 entries. Append-only; a status may
   change, an entry may not be deleted or renumbered.
-- `docs/registers/defects.md` — 22 entries. The roadmap's §5 listed eleven;
+- `docs/registers/defects.md` — 25 entries. The roadmap's §5 listed eleven;
   seven more were found by running the oracle rather than reading it. F14, F15 and
   F17 are why 18 of 77 hermetic programs could not be captured, and
-  `tests/golden/UNSTABLE.txt` tags each row with which: 15 F14, 3 F17 after
-  the graph programs were retagged, and F15 on the rest. Normalising F14 and
-  F15 recovered 15 of the 18; the three F17 rows are the remainder. An empty `disposition` blocks any work item touching that area.
+  `tests/golden/UNSTABLE.txt` tags each row with which: **13 F14, 2 F15, 3
+  F17**. Normalising F14 and F15 recovered those 15; the three F17 rows are
+  the remainder. An empty `disposition` blocks any work item touching that area.
 - `docs/registers/open-questions.md` — questions get disposed of, not
   annotated: grounded, promoted to a decision, or deleted.
 
@@ -363,7 +372,7 @@ drift:
 | hermetic programs | 82 | **80** | the effect audit caught `string.random.*` as a false hermetic (`reference/Bund/src/stdlib/functions/string/random.rs:7`) |
 | suite programs | 80 | **57** | −3 out of scope (D15), −18 not reproducible (F14, F15, F17), then −2 more when D28 deferred five subsystems |
 | conformance | 59 | **63** | the suite fell to 57, and six authored probes were captured (D21) |
-| coverage | 140/586 | **121/497** | D28 moved 120 words out of scope |
+| coverage | 140/586 | **121/497** | D26 and D28 together moved 89 words out of scope. The 120 now shown as out-of-scope is the running total, D15's 31 console words included — 617 − 586 = 31 was D15 alone |
 
 The full narrowing is regenerated into `tests/golden/HERMETIC.txt` on every
 `cargo xtask corpus` run, so it cannot drift from the filters that produce it.
@@ -383,25 +392,31 @@ whenever D14 rules on another word.
    (0 occurrences). `cargo tree -p bund2-stdlib` must not list `bund2-jit` —
    that is "Tier 1 stays optional", and it also holds.
 
-   An earlier draft wrote the first clause as `cargo tree -p bund2-interp`
-   and called both vacuous. Both were wrong: `bund2-interp` lists
-   `bund2-value` four times, because interp depending on value is the
-   *intended* direction, so that clause failed while appearing to test the
-   rule. Clause two passes for real. The rules are worth restating because
-   getting the direction backwards produces a check that fails when the
-   architecture is correct.
+   Two drafts got this wrong. The first wrote clause one as
+   `cargo tree -p bund2-interp`, which lists `bund2-value` four times because
+   that is the *intended* direction — so it failed while appearing to test the
+   rule. The second corrected the command but then claimed both clauses were
+   real. Clause one is **vacuous**: `cargo tree -p bund2-value` prints a
+   single line and lists no dependency at all, so nothing could fail it. It
+   passes today because the crate is empty, not because the rule is enforced.
+   Clause two is real. Both become meaningful with RFC-0002 and RFC-0003.
 5. `git status --porcelain` inside every `reference/` submodule is empty after
-   a full `cargo xtask golden` run.
+   a full `cargo xtask golden` run. Note what this does **not** guarantee:
+   since the oracle links crates.io rather than the submodules (F21), an edit
+   to a submodule cannot change the oracle, and this check cannot observe a
+   change to what the oracle actually runs. It guards the citation targets,
+   not the binary. Criterion 6's provenance check is what covers the binary.
 6. `cargo xtask cite` reports zero defects: every `reference/...:N` citation
    in this RFC and in the registers names a file that exists and a line that
    exists. Implemented in response to this RFC's review, which found five
    citation defects by hand.
 
 Criteria 1 and 2 are the two health numbers. Criterion 5 catches an accidental
-edit to the oracle, which would invalidate every citation in every RFC.
-Criteria 3 and 4 are recorded as **not yet checkable**: both would pass today
-against empty crates, and a criterion that cannot fail is not a criterion. They
-are carried so RFC-0002 inherits them rather than rediscovering them.
+edit to the code the citations point at — not to the oracle, which it cannot
+see. Criterion 3 and criterion 4's first clause are **not yet checkable**:
+both pass today against empty crates, and a criterion that cannot fail is not
+a criterion. They are carried so RFC-0002 inherits them rather than
+rediscovering them.
 
 ## Open questions
 

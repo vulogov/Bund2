@@ -421,3 +421,63 @@ which is a fix rather than a removal.
 - `reference/rust_multistack/src/stdlib/rotate.rs:93`,
   `reference/rust_multistackvm/src/stdlib/create_aliases.rs:22,23`
 - Behavioural. Disposition:
+
+## F23 — `rotate_stack_right` rotates left
+`stdlib_stacks_right_inline` ends by calling `stdlib_stack_left`
+(`reference/rust_multistack/src/stdlib/rotate.rs:88`), so the word registered
+as `stacks_right` (`:94`) performs the left rotation.
+
+Found in the same `init_stdlib` that F22 cites, which is worth noting: the
+`stacks_left` / `stacks_right` pair is broken in both directions at once —
+`stacks_left` is registered into the dead table and unreachable, and
+`stacks_right` is reachable but rotates the wrong way. Between them the
+language has no working stack rotation by name.
+
+No corpus program uses either (`->`, `<-`, `stacks_right`, `stacks_left` are
+all in the never-used set), so no golden covers it.
+- `reference/rust_multistack/src/stdlib/rotate.rs:88,94`
+- Behavioural. Disposition:
+
+## F24 — four names exist only in the dead table, and `push` is registered twice
+Comparing every `register_function` name against every `register_inline` name
+in `reference/rust_multistack/src` leaves six that are function-only: `dup`,
+`dup_in`, `from_workbench`, `push`, `push_to`, `stacks_left`.
+
+Two of those are reachable by another route. `dup` resolves through the alias
+to `dup_one` (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:18`),
+and `push` is registered inline by the Bund crate
+(`reference/Bund/src/stdlib/functions/values/push.rs:74`) — so the stack
+layer's `push` registration is a third instance of the F1/F20 pattern: the
+same name bound twice to different functions, one of them unreachable.
+
+That leaves **four genuinely dead words**: `dup_in`, `from_workbench`,
+`push_to`, `stacks_left`. F22 covers `stacks_left` and the two aliases into
+it; the other three have no aliases and no corpus uses.
+- `reference/rust_multistack/src/stdlib/dup.rs`, `workbench.rs`, `push.rs`,
+  `rotate.rs`; `reference/Bund/src/stdlib/functions/values/push.rs:74`
+- Behavioural. Disposition:
+
+## F25 — a dead dispatch cluster holds a second, divergent resolution order
+`apply_in`, `call_in` and `lambda_eval_in`
+(`reference/rust_multistackvm/src/multistackvm_apply_in.rs`,
+`multistackvm_call.rs:12`, `multistackvm_lambda_eval_in.rs`) form a
+self-referential cluster: each is called only by the others, and nothing
+outside calls any of them.
+
+It matters because it is not a copy of the live path. `apply_in` has **no
+`$`-prefix arm** and inverts the `autoadd` test relative to `apply`
+(`reference/rust_multistackvm/src/multistackvm_apply.rs:16-60`). So the
+reference contains two resolution orders that disagree, one of them
+unreachable.
+
+The live path is unaffected, which was worth confirming rather than assuming:
+`!` goes through `vm.call`, which uses `apply`, not `apply_in`
+(`reference/rust_multistackvm/src/stdlib/execute.rs:32`). Verified against the
+oracle with `1 2 "$drop" ptr !`, which takes the `$` arm — the arm `apply_in`
+does not have.
+
+Consequence for RFC-0002: the dispatch contract has one resolution order to
+specify, not two, and porting this cluster would import a second.
+- `reference/rust_multistackvm/src/multistackvm_apply_in.rs`,
+  `multistackvm_lambda_eval_in.rs`, `multistackvm_call.rs:12`
+- Dead code. Disposition:

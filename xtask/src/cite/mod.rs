@@ -248,6 +248,9 @@ fn check_oracle_provenance(repo: &Path, findings: &mut Vec<Finding>) -> (usize, 
         "bund_language_parser",
     ];
     let registry = dirs_registry();
+    // `agreed` counts crates whose bytes were actually compared. Counting a
+    // crate the byte tier skipped would print "byte-verified 5/5" having
+    // compared nothing — which is F21 again, one layer up.
     let (mut checked, mut agreed) = (0usize, 0usize);
 
     for c in crates {
@@ -303,8 +306,10 @@ fn check_oracle_provenance(repo: &Path, findings: &mut Vec<Finding>) -> (usize, 
                 });
                 continue;
             }
+            if vend.is_dir() && sub.is_dir() {
+                agreed += 1;
+            }
         }
-        agreed += 1;
     }
     (checked, agreed)
 }
@@ -529,8 +534,11 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         format!("{prov_agreed}/{prov_checked}")
     );
     if prov_agreed < prov_checked {
-        println!("      the rest carry a version advisory below; source still");
-        println!("      compared byte for byte where the vendored crate exists");
+        println!("      The remainder were NOT byte-compared: the vendored crate");
+        println!("      source is absent. That is the normal case in CI, where");
+        println!("      these five crates are not workspace dependencies and are");
+        println!("      never downloaded — so there, only the version tier runs.");
+        println!("      Build the oracle to make this check meaningful.");
     }
     println!("  {:<32}{:>6}", "citations checked", checked);
     println!(
