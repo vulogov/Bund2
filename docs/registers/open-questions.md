@@ -6,22 +6,36 @@ drafting that are not yet decisions.
 An entry here is a `[UNGROUNDED]` marker in some RFC. Either ground it, or
 promote it to a decision, or delete the claim.
 
-| # | Question | Raised in | Status |
-|---|----------|-----------|--------|
-| Q1 | The corpus never invokes `.id` or `.timestamp`, so it constrains neither D1 nor D2. Does the contract come from somewhere other than the example corpus? | `cargo xtask corpus` | **RESOLVED.** It does: `id` drives equality, ordering and hashing internally (`reference/rust_dynamic/src/eq.rs:53`, `ord.rs:199`, `hash.rs:6`), and `stamp` is read by metric iteration (`iter.rs:67`). D1 and D2 are both RESOLVED — lazy — with those constraints recorded. |
-| Q2 | `ptr !` builds a word name by string concatenation at run time and calls it (`reference/Bund/examples/bund_dynamic_demos/dynamic_demo_2.bund:29-34`). Does any closed-world assumption survive this, independently of D3? See the Q2 section below for the grounded mechanism. | `cargo xtask corpus` | **RESOLVED — see D16.** No. The behaviour is preserved as-is and the world is permanently open. |
-| Q9 | Forms with no corpus coverage and so no golden: the backtick PTR term (`reference/bund_language_parser/bund.pest:29`), and four of `execute`'s eight dispatch arms. `cargo xtask conform` cannot regress-test them. What hand-written tests cover them, and where do those live relative to `tests/golden/`? | D16 | **RESOLVED — see D21.** Authored probes in `tests/probes/`, goldens captured from the oracle into `tests/golden/probes/`. Expected output is never hand-written. Probes target behaviours, not words. |
-| Q3 | `format` is registered under `vm/string` but 13 otherwise-basic programs depend on it. Is "implementing subsystem" the right axis for D14 at all, or does D14 need a per-word answer? | `cargo xtask corpus` | **PARTIALLY RESOLVED — see D17.** `format` is core, decided per-word, which settles the instance and shows subsystem is not the partition. The workbench-variant half is settled by D18. Still open: whether the remaining subsystems are resolved per-word or wholesale. |
-| Q10 | D18 pairs a preserved word with its `.` workbench form. The `,` "keep" suffix is a second axis, giving four-way families like `forecast.markov` / `.` / `,` / `.,` (`reference/Bund/src/stdlib/functions/forecast/markov.rs:74-77`) — 16 base names carry `,` and 16 carry `.,`. Does D18's gap-filling extend to them? | D18 | **RESOLVED — see D22.** No. `,` carries two unrelated meanings (keep-operand vs in-place), so it fails the mechanical-determinism property D18 relies on. Existing forms preserved; none invented. |
-| Q14 | The Phase 0 baseline shows the corpus cannot measure interpretation: the fastest suite program takes 13.3 ms against a 14.3 ms mean, so roughly 93% of every run is process start and stdlib registration. A JIT could make interpretation free and move the corpus wall-clock by under 10%. How should RFC-0001 and RFC-0005 acceptance criteria be written so they measure the interpreter rather than the launcher? | `cargo xtask bench` | OPEN |
-| Q13 | D23 lets `<class> !` instantiate a class that was never registered. But object construction stamps `.class_name` from the name it was handed (`reference/rust_multistackvm/src/stdlib/bund_object.rs:36`), and a dynamically built class has none — `class` sets only `.super` (`reference/rust_multistackvm/src/stdlib/artefacts.rs:69-73`). An object from an anonymous class would lack `.class_name`, which `.str`/`.print`/`.println` all require (`reference/Bund/src/stdlib/functions/oop/base_classes.rs:36-38`). What is such an object's class name? | D23 | **RESOLVED — see D25.** The class value's own `.class_name`, which is what all 12 built-in classes already carry. Absent it, construction fails rather than improvising a name. |
-| Q12 | F16 is dispositioned FIX: `<class> !` creates an object of that class. But a CLASS value carries no name — `class` sets only `.super` (`reference/rust_multistackvm/src/stdlib/artefacts.rs:69-73`), `register` takes the name from beneath it on the stack (`reference/rust_multistackvm/src/stdlib/classes/registry.rs:9-20`), and `.super` holds parent *names* needing the registry (`reference/Bund/src/stdlib/functions/oop/base_classes.rs:95`). Must `<class> !` require the class to be registered first, or build from the stack value and resolve only parents through the registry? | F16 | **RESOLVED — see D23.** Both provenances work; `!` builds from the CLASS value, and the registry is consulted only for parents. |
-| Q11 | D18 fills missing `.` workbench forms, of which there are 262. Is that universal, or only where the form is semantically meaningful? Five are class constructors (`True`, `False`, `List`, `Floats`, `Intervals`) and six are binary operators (`==`, `!=`, `<`, `<=`, `>`, `>=`) — it is not obvious what `True.` or `==.` would do. | D18 | **RESOLVED — see D24.** Only operand-sourcing words get a `.` form; producers are covered by the existing `.` word. Application is blocked on `cargo xtask arity` — the `StackOps` proxy tried first turned out circular. |
-| Q4 | `display` (`reference/Bund/src/stdlib/functions/system/display.rs:88`) is a terminal renderer filed under `system/`. How many other words are mis-filed relative to what they do, and does that matter to the D14 partition? | `cargo xtask corpus` | **RESOLVED — approach A+D.** Subsystem grouping stays as a reporting aid; an implementation-reachability pass was added. Both implemented. The accompanying effect audit found one false hermetic (`string.random.*`), now fixed. See the Q4 section below. |
-| Q5 | 455 of 617 registered names are never exercised by the corpus. What is the conformance denominator for a word with no golden? | `cargo xtask corpus` | **RESOLVED — two numbers, neither substituting for the other.** `conform` stays goldens-only; `cargo xtask coverage` reports completeness. Implemented. See the Q5 section below. |
-| Q6 | `bund/console` words are stdout-only but the spinner is an animation and `console.text.rainbow`/`.matrix`/`.randomcolor` pick colours at random (`reference/Bund/src/stdlib/functions/console/spinner.rs:278,310`). Can a golden capture animated or coloured stdout at all? | `cargo xtask corpus` | **RESOLVED — see D15.** Only basic console output is in scope; the whole `bund/console` subsystem is deferred. |
-| Q7 | `display` renders markdown through `termimad::print_text` (`reference/Bund/src/stdlib/functions/system/display.rs:11`), which emits ANSI styling. D15 puts colour out of scope. Does `display` fall under D15, or is it in scope because it is not *chosen* colour? 12 programs depend on it. | D15 | **RESOLVED — in scope.** D15 defers the `bund/console` subsystem only; `display` is unaffected. |
-| Q8 | `Value` derives `Serialize`/`Deserialize` with `id` and `stamp` as fields (`reference/rust_dynamic/src/value.rs:15-18`), and `save.lambdas` persists whole Values as bincode BLOBs (`reference/Bund/src/stdlib/helpers/world/lambdas.rs:81-84`). Does that make the id format and stamp precision a cross-run contract, independently of what programs observe? Bears on D1, D2 and D11. | Q1 follow-up | **RESOLVED — see D20.** Serialisation materialises; the wire format stays byte-identical; `dup` stops serialising (F13, FIX). The cross-run contract exists only for readers outside Bund2, which is D11 — still open. |
+## Open
+
+| # | Question | Raised in |
+|---|----------|-----------|
+| Q14 | The Phase 0 baseline shows the corpus cannot measure interpretation: the fastest suite program takes 13.3 ms against a 14.3 ms mean, so roughly 93% of every run is process start and stdlib registration. A JIT that made interpretation free would move the corpus wall-clock by under 10%. How should RFC-0001 and RFC-0005 acceptance criteria be written so they measure the interpreter rather than the launcher? | `cargo xtask bench` |
+| Q15 | `cargo xtask unblock` is specified as "for each unimplemented word, count hermetic examples it alone gates". That ranking can only see the 140 in-scope words the goldens touch, so as written it reports an empty work queue with 446 words unimplemented. What replaces it, ranking against the coverage denominator? Residue of Q5. | Q5 |
+| Q16 | D21 settled that probes are captured from the oracle into `tests/golden/probes/`, but `cargo xtask golden` reads only `HERMETIC.txt` and never captures them — all six sit at `0/6`, asserting nothing. Decided but not implemented. Residue of Q9. | Q9 |
+
+## Triaged
+
+Disposed of per the rule above: grounded, promoted to a decision, or folded
+into one. Kept for the reasoning trail; the answer now lives where the second
+column says.
+
+| # | Disposition | Answer lives in |
+|---|---|---|
+| Q1 | grounded, then promoted | D1 and D2, plus "The `id` / `stamp` layout scan" below — the corpus could not settle it, an exhaustive field scan could |
+| Q2 | promoted | D16 — the world is permanently open |
+| Q3 | folded into D14 | The axis question is settled: D14 resolves per word, recorded on D14's Method line. Which words are core is not a separate question — it *is* D14's remaining work |
+| Q4 | grounded | The effect audit and reachability pass in `cargo xtask corpus`; approach A+D, and the section below |
+| Q5 | promoted | CLAUDE.md's health metric, now two numbers, and `cargo xtask coverage`. Residue carried as Q15 |
+| Q6 | promoted | D15 — console presentation deferred |
+| Q7 | promoted | D15's scope boundary — `display` is in scope |
+| Q8 | promoted | D20 — serialisation materialises lazy identity |
+| Q9 | promoted | D21 — authored probes, oracle-captured. Residue carried as Q16 |
+| Q10 | promoted | D22 — the `,` axis is not extended |
+| Q11 | promoted | D24 — `.` gap-filling for operand-sourcing words only |
+| Q12 | promoted | D23 — `<class> !` builds from the value, either provenance |
+| Q13 | promoted | D25 — an anonymous class must name itself |
+
 
 ---
 
@@ -728,7 +742,7 @@ worked example. It dispatches on eight arms
 D21's probes close the testing gap; they do not make the metric finer. Read
 the coverage number as an upper bound.
 
-### `unblock` needs redesigning
+### `unblock` needs redesigning (Q15)
 
 `cargo xtask unblock` is specified as "for each unimplemented word, count
 hermetic examples it alone gates; sort descending — this is the M6 work
@@ -738,8 +752,8 @@ unimplemented**: you would implement the covered set, watch `conform` reach
 77/77, and find nothing left to do.
 
 Whatever replaces it has to rank against the coverage denominator rather than
-the golden corpus. Recorded here rather than fixed, because the replacement
-ranking depends on how D14 settles the in-scope set. The command's help text
+the golden corpus. Carried as Q15 rather than fixed here, because the replacement ranking
+depends on how D14 settles the in-scope set. The command's help text
 in `xtask/src/main.rs` carries the warning so it cannot be implemented as
 written by accident.
 

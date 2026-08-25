@@ -26,7 +26,7 @@ Oracle
                 Needs the oracle built out-of-tree. An existing golden that
                 would change is left alone unless named:
                   --accept <name> --reason <F-number or decision>
-  unblock       NEEDS REDESIGN (Q5). Ranks unimplemented words by the hermetic
+  unblock       NEEDS REDESIGN (Q15). Ranks unimplemented words by the hermetic
                 examples each alone gates — which can only ever see the 140
                 in-scope words the goldens touch. As specified it would report
                 an empty work queue with 446 words unimplemented. Rank against
