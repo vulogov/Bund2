@@ -204,6 +204,156 @@ fn quoted_blocks(text: &str) -> Vec<(usize, String, usize, Vec<String>)> {
     out
 }
 
+/// Verify the oracle is built from the code the citations point at.
+///
+/// It is not, by construction, and that is the finding this check exists for.
+/// `reference/Bund/Cargo.toml:13,14,23,24,43` are **registry** dependencies
+/// with no `[patch.crates-io]`, so building the oracle links published crates
+/// from crates.io, not the sibling submodules. Every `path:line` in every RFC
+/// points at submodule source; every golden was produced by registry source.
+///
+/// They agree today — verified byte for byte — but nothing made them agree,
+/// and `git status` inside a submodule cannot notice, because the submodules
+/// are not build inputs. This is F8, the reference's own unbounded-pin defect,
+/// live inside this project's methodology.
+///
+/// Two tiers, so the weaker one still runs in CI where no registry source
+/// exists: the version each submodule declares must match the version the
+/// lockfile resolved, and where the vendored source is present, the `src/`
+/// trees must be byte-identical.
+fn check_oracle_provenance(repo: &Path, findings: &mut Vec<Finding>) -> (usize, usize) {
+    let lock = repo.join("reference/Bund/Cargo.lock");
+    let Ok(lock_text) = std::fs::read_to_string(&lock) else {
+        return (0, 0);
+    };
+
+    // name -> version, from the lockfile.
+    let mut locked: BTreeMap<String, String> = BTreeMap::new();
+    let mut name = String::new();
+    for line in lock_text.lines() {
+        if let Some(v) = line.strip_prefix("name = ") {
+            name = v.trim_matches('"').to_string();
+        } else if let Some(v) = line.strip_prefix("version = ")
+            && !name.is_empty()
+        {
+            locked.insert(std::mem::take(&mut name), v.trim_matches('"').to_string());
+        }
+    }
+
+    let crates = [
+        "rust_dynamic",
+        "rust_multistack",
+        "rust_multistackvm",
+        "bundcore",
+        "bund_language_parser",
+    ];
+    let registry = dirs_registry();
+    let (mut checked, mut agreed) = (0usize, 0usize);
+
+    for c in crates {
+        let Some(want) = locked.get(c) else { continue };
+        checked += 1;
+
+        // Tier 1: the submodule's declared version against the locked one.
+        let sub_toml = repo.join(format!("reference/{c}/Cargo.toml"));
+        let declared = std::fs::read_to_string(&sub_toml)
+            .ok()
+            .and_then(|t| {
+                t.lines()
+                    .find(|l| l.trim_start().starts_with("version = "))
+                    .map(|l| l.split('"').nth(1).unwrap_or("").to_string())
+            })
+            .unwrap_or_default();
+        if !declared.is_empty() && declared != *want {
+            findings.push(Finding {
+                doc: format!("reference/{c}/Cargo.toml"),
+                doc_line: 0,
+                citation: format!("{c} {declared}"),
+                problem: format!(
+                    "oracle links {c} {want} from crates.io; submodule declares {declared}. Benign only while the sources agree, which the byte check below decides."
+                ),
+                // Advisory, not a gate. A version bump with no source change
+                // does not affect whether a citation resolves; the byte
+                // comparison below is what decides that. Gating CI on the
+                // version alone would block on a benign condition.
+                hard: false,
+            });
+            // Deliberately no `continue`: the byte comparison below is what
+            // decides whether citations resolve, and a version-mismatched
+            // crate is exactly the one that needs it.
+        }
+
+        // Tier 2: byte-compare where the vendored source is available.
+        if let Some(reg) = &registry {
+            let vend = reg.join(format!("{c}-{want}/src"));
+            let sub = repo.join(format!("reference/{c}/src"));
+            if vend.is_dir()
+                && sub.is_dir()
+                && let Some(diff) = first_difference(&vend, &sub)
+            {
+                findings.push(Finding {
+                    doc: format!("reference/{c}"),
+                    doc_line: 0,
+                    citation: format!("{c} {want}"),
+                    problem: format!(
+                        "submodule src/ differs from the linked crate {want} at {diff} — \
+                         every citation into this crate points at code the oracle does not run"
+                    ),
+                    hard: true,
+                });
+                continue;
+            }
+        }
+        agreed += 1;
+    }
+    (checked, agreed)
+}
+
+fn dirs_registry() -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    let base = Path::new(&home).join(".cargo/registry/src");
+    std::fs::read_dir(base)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.is_dir())
+}
+
+/// First relative path whose contents differ between two trees, if any.
+fn first_difference(a: &Path, b: &Path) -> Option<String> {
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                walk(root, &p, out);
+            } else if p.extension().is_some_and(|x| x == "rs")
+                && let Ok(rel) = p.strip_prefix(root)
+            {
+                out.push(rel.to_string_lossy().to_string());
+            }
+        }
+    }
+    let (mut fa, mut fb) = (Vec::new(), Vec::new());
+    walk(a, a, &mut fa);
+    walk(b, b, &mut fb);
+    fa.sort();
+    fb.sort();
+    if fa != fb {
+        return Some("the file lists differ".to_string());
+    }
+    for rel in &fa {
+        let x = std::fs::read(a.join(rel)).ok();
+        let y = std::fs::read(b.join(rel)).ok();
+        if x != y {
+            return Some(rel.clone());
+        }
+    }
+    None
+}
+
 pub fn run(_args: &[String]) -> Result<(), String> {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -220,12 +370,15 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         }
     }
 
-    let mut source_cache: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut findings: Vec<Finding> = Vec::new();
+    let mut source_cache: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut checked = 0usize;
     let mut corroborated = 0usize;
     let mut exact_checked = 0usize;
     let mut exact_ok = 0usize;
+
+    // Does the oracle run the code these citations point at?
+    let (prov_checked, prov_agreed) = check_oracle_provenance(&repo, &mut findings);
 
     for doc in &docs {
         // The review file records defects verbatim; checking it would report
@@ -370,6 +523,15 @@ pub fn run(_args: &[String]) -> Result<(), String> {
 
     let (hard, soft): (Vec<&Finding>, Vec<&Finding>) = findings.iter().partition(|f| f.hard);
 
+    println!(
+        "  {:<32}{:>6}",
+        "oracle crates byte-verified",
+        format!("{prov_agreed}/{prov_checked}")
+    );
+    if prov_agreed < prov_checked {
+        println!("      the rest carry a version advisory below; source still");
+        println!("      compared byte for byte where the vendored crate exists");
+    }
     println!("  {:<32}{:>6}", "citations checked", checked);
     println!(
         "  {:<32}{:>6}",

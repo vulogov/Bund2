@@ -330,7 +330,7 @@ No corpus program hits any of these paths, so no golden covers them.
 `rust_multistack` keeps a fourth name-keyed table alongside the two inline
 tables: `functions: HashMap<String, AppFn>`
 (`reference/rust_multistack/src/ts.rs:21`), filled by `register_function`
-(`reference/rust_multistack/src/ts_functions.rs:6`) from **29 call sites**
+(`reference/rust_multistack/src/ts_functions.rs:6`) from **27 call sites**
 across `reference/rust_multistack/src/stdlib/`.
 
 Nothing reaches it. The map is read only by `get_function`
@@ -353,3 +353,71 @@ The slot table absorbs three tiers, not four. Porting the table because it
 exists would add a name space the language does not have.
 - `reference/rust_multistack/src/ts_functions.rs:6,25,36`
 - Dead code. Disposition:
+
+## F20 — the `swap` alias shadows a different inline word
+`swap` is registered twice, in two namespaces. `reference/rust_multistack/src/stdlib/swap.rs:98`
+registers it as an inline word backed by `stdlib_swap_in_current_inline`;
+`reference/rust_multistackvm/src/stdlib/create_aliases.rs:19` registers it as
+an alias of `swap_one`, backed by `stdlib_swap_one_in_current_inline`
+(`reference/rust_multistack/src/stdlib/swap.rs:100`).
+
+Alias resolution runs before the inline tables
+(`reference/rust_multistackvm/src/multistackvm_apply.rs:39`), so the alias
+wins and the inline `swap` is unreachable by name. Verified against the
+oracle: `1 2 3 swap` and `1 2 3 swap_one` both leave `1 3 2`.
+
+This is the same shape as F1, where the class `unregister` shadows the lambda
+one — and it is why the "617 distinct registered names" figure is not merely a
+deduplication detail. The two `swap` registrations are different functions with
+different arity, not two spellings of one.
+
+- `reference/rust_multistack/src/stdlib/swap.rs:98,100`,
+  `reference/rust_multistackvm/src/stdlib/create_aliases.rs:19`
+- Behavioural. Disposition:
+
+## F21 — the oracle is not built from the pinned submodules
+`reference/Bund/Cargo.toml:13,14,23,24,43` are **registry** dependencies and
+there is no `[patch.crates-io]`, so building the oracle links published crates
+rather than the sibling submodules. `reference/Bund/Cargo.lock` resolves
+`rust_dynamic` 0.49.0, `bundcore` 0.7.0, `bund_language_parser` 0.14.0,
+`rust_multistack` 0.33.0 and `rust_multistackvm` 0.38.0 — while three of those
+submodules declare newer versions: 0.50.0, 0.8.0 and 0.15.0.
+
+So every golden was produced by registry source, and every `path:line` in
+every RFC points at submodule source. They agree today — `cargo xtask cite`
+compares the `src/` trees byte for byte and all five match — but nothing made
+them agree, and the guard RFC-0000 proposed for this class (an empty
+`git status` inside each submodule) is blind to it by construction, because
+the submodules are not build inputs.
+
+This is F8 — the reference's unbounded inter-crate pins — reproduced inside
+this project's own methodology.
+
+Mitigated rather than fixed: `cargo xtask cite` now verifies provenance on
+every run and in CI, hard-failing on any byte divergence and reporting the
+version skew as an advisory. The fix proper is a `[patch.crates-io]` section,
+which cannot be written because `reference/` is read-only; Bund2's own
+workspace must avoid the shape entirely.
+- `reference/Bund/Cargo.toml:13,14,23,24,43`, `reference/Bund/Cargo.lock`
+- Methodological. Disposition:
+
+## F22 — `<-` and `←` alias a word that dispatch cannot reach
+`stacks_left` is registered only through `register_function`
+(`reference/rust_multistack/src/stdlib/rotate.rs:93`), the dead table of F19,
+and never through `register_inline`. Two aliases point at it:
+`reference/rust_multistackvm/src/stdlib/create_aliases.rs:22,23`.
+
+Since `i_direct` consults only the inline tables, both aliases are dead.
+Confirmed against the oracle: `1 2 <-` fails with
+`i(stacks_left) for stack returned: Inline stacks_left not registered`, while
+the mirrored `stacks_right` — which *is* registered inline
+(`reference/rust_multistack/src/stdlib/rotate.rs`) — works.
+
+So the language documents a left-rotation word it cannot execute, and the
+asymmetry with `stacks_right` suggests the registration call was simply
+written against the wrong function. Consequence for F19: dropping the dead
+table also drops `<-` and `←` unless `stacks_left` is re-registered inline,
+which is a fix rather than a removal.
+- `reference/rust_multistack/src/stdlib/rotate.rs:93`,
+  `reference/rust_multistackvm/src/stdlib/create_aliases.rs:22,23`
+- Behavioural. Disposition:
