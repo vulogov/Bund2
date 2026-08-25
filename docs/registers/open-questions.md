@@ -13,6 +13,7 @@ promote it to a decision, or delete the claim.
 | Q9 | Forms with no corpus coverage and so no golden: the backtick PTR term (`reference/bund_language_parser/bund.pest:29`), and four of `execute`'s eight dispatch arms. `cargo xtask conform` cannot regress-test them. What hand-written tests cover them, and where do those live relative to `tests/golden/`? | D16 | **RESOLVED — see D21.** Authored probes in `tests/probes/`, goldens captured from the oracle into `tests/golden/probes/`. Expected output is never hand-written. Probes target behaviours, not words. |
 | Q3 | `format` is registered under `vm/string` but 13 otherwise-basic programs depend on it. Is "implementing subsystem" the right axis for D14 at all, or does D14 need a per-word answer? | `cargo xtask corpus` | **PARTIALLY RESOLVED — see D17.** `format` is core, decided per-word, which settles the instance and shows subsystem is not the partition. The workbench-variant half is settled by D18. Still open: whether the remaining subsystems are resolved per-word or wholesale. |
 | Q10 | D18 pairs a preserved word with its `.` workbench form. The `,` "keep" suffix is a second axis, giving four-way families like `forecast.markov` / `.` / `,` / `.,` (`reference/Bund/src/stdlib/functions/forecast/markov.rs:74-77`) — 16 base names carry `,` and 16 carry `.,`. Does D18's gap-filling extend to them? | D18 | **RESOLVED — see D22.** No. `,` carries two unrelated meanings (keep-operand vs in-place), so it fails the mechanical-determinism property D18 relies on. Existing forms preserved; none invented. |
+| Q14 | The Phase 0 baseline shows the corpus cannot measure interpretation: the fastest suite program takes 13.3 ms against a 14.3 ms mean, so roughly 93% of every run is process start and stdlib registration. A JIT could make interpretation free and move the corpus wall-clock by under 10%. How should RFC-0001 and RFC-0005 acceptance criteria be written so they measure the interpreter rather than the launcher? | `cargo xtask bench` | OPEN |
 | Q13 | D23 lets `<class> !` instantiate a class that was never registered. But object construction stamps `.class_name` from the name it was handed (`reference/rust_multistackvm/src/stdlib/bund_object.rs:36`), and a dynamically built class has none — `class` sets only `.super` (`reference/rust_multistackvm/src/stdlib/artefacts.rs:69-73`). An object from an anonymous class would lack `.class_name`, which `.str`/`.print`/`.println` all require (`reference/Bund/src/stdlib/functions/oop/base_classes.rs:36-38`). What is such an object's class name? | D23 | **RESOLVED — see D25.** The class value's own `.class_name`, which is what all 12 built-in classes already carry. Absent it, construction fails rather than improvising a name. |
 | Q12 | F16 is dispositioned FIX: `<class> !` creates an object of that class. But a CLASS value carries no name — `class` sets only `.super` (`reference/rust_multistackvm/src/stdlib/artefacts.rs:69-73`), `register` takes the name from beneath it on the stack (`reference/rust_multistackvm/src/stdlib/classes/registry.rs:9-20`), and `.super` holds parent *names* needing the registry (`reference/Bund/src/stdlib/functions/oop/base_classes.rs:95`). Must `<class> !` require the class to be registered first, or build from the stack value and resolve only parents through the registry? | F16 | **RESOLVED — see D23.** Both provenances work; `!` builds from the CLASS value, and the registry is consulted only for parents. |
 | Q11 | D18 fills missing `.` workbench forms, of which there are 262. Is that universal, or only where the form is semantically meaningful? Five are class constructors (`True`, `False`, `List`, `Floats`, `Intervals`) and six are binary operators (`==`, `!=`, `<`, `<=`, `>`, `>=`) — it is not obvious what `True.` or `==.` would do. | D18 | **RESOLVED — see D24.** Only operand-sourcing words get a `.` form; producers are covered by the existing `.` word. Application is blocked on `cargo xtask arity` — the `StackOps` proxy tried first turned out circular. |
@@ -826,6 +827,44 @@ construction.
 The one thing this does not license: dropping identity from the *serialised*
 form. D20 settled that serialisation materialises, and the wire format keeps
 both fields.
+
+## Phase 0 baseline: the corpus cannot measure interpretation
+
+`cargo xtask bench` over the 59-program suite, oracle target, 5 runs each
+(`docs/bench-baseline.md`):
+
+| | |
+|---|---|
+| programs timed | 59 |
+| sum of per-program minima | 842.9 ms |
+| mean per program (min) | 14.3 ms |
+| fastest program | 13.3 ms |
+| slowest program | 19.6 ms |
+
+**The spread is the finding.** The fastest program in the suite —
+`helloworld.bund` territory, a handful of words — takes 13.3 ms, and the
+slowest takes 19.6 ms. That 13.3 ms is the floor for spawning the binary and
+registering its stdlib, so **roughly 93% of every measurement is fixed cost**
+and at most ~6 ms of any run is interpretation.
+
+Two consequences worth stating before any performance criterion is written:
+
+1. **A JIT that made interpretation instantaneous would move the corpus
+   wall-clock by under 10%.** An RFC-0005 acceptance criterion phrased as "X%
+   faster over the corpus" would be measuring process startup, and would
+   either fail a good JIT or pass a bad one.
+2. **The same applies to RFC-0001.** A 176-byte value shrinking to 16
+   (`cargo xtask layout`) should show up in allocation counts and in
+   interpretation time, neither of which this baseline isolates.
+
+What the baseline *is* good for: catching a regression that makes startup or
+registration dramatically worse, and giving `--target bund2` a like-for-like
+comparison through the same harness.
+
+What it is not good for: concluding anything about interpreter speed. That
+needs either much larger programs than the corpus contains, or in-process
+measurement — which is where Criterion becomes the right tool, in `benches/`,
+once Bund2 has an interpreter to call. Recorded as Q14.
 
 ## Lexer fidelity
 

@@ -40,19 +40,31 @@ Evidence
                 write the hermetic program list to tests/golden/HERMETIC.txt.
                 Reads .bund files only — it builds nothing. Gathers evidence
                 for D1, D2, D3, D5, D12 and D14; it resolves none of them.
-  layout        Print size_of::<Value>() and allocation counts per operation
+  layout        Phase 0: size_of and allocations per operation for CANDIDATE
+                value representations, since BundValue does not exist yet.
+                Makes RFC-0001's 16-byte claim checkable before it is written.
   arity         First-cut stack-effect table, written to docs/arity.md. Two
                 passes: the word's own `current_stack_len() < N` guard (static),
                 and consumed/produced observed by running it against the oracle.
                 Only hermetic, in-scope words are ever executed. --static-only
                 skips the oracle. Unblocks RFC-0004 and D24.
-  bench         Criterion baseline over the corpus (Phase 0)
+  bench         Phase 0: wall-clock baseline over the suite. Not Criterion —
+                this times a whole subprocess, where cost is dominated by
+                process start; Criterion measures in-process and would measure
+                the wrong thing precisely. --target oracle|bund2, --runs N,
+                --write to record docs/bench-baseline.md.
 ";
 
 mod arity;
+mod bench;
 mod conform;
 mod corpus;
 mod golden;
+mod layout;
+
+/// Counting allocator, so `layout` can report allocations per operation.
+#[global_allocator]
+static ALLOC: layout::Counting = layout::Counting;
 
 fn main() -> std::process::ExitCode {
     let args: Vec<String> = std::env::args().skip(2).collect();
@@ -93,7 +105,21 @@ fn main() -> std::process::ExitCode {
                 std::process::ExitCode::FAILURE
             }
         },
-        "unblock" | "layout" | "bench" => {
+        "layout" => match layout::run(&args) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("xtask layout: {err}");
+                std::process::ExitCode::FAILURE
+            }
+        },
+        "bench" => match bench::run(&args) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("xtask bench: {err}");
+                std::process::ExitCode::FAILURE
+            }
+        },
+        "unblock" => {
             eprintln!("xtask: `{cmd}` is not implemented yet");
             std::process::ExitCode::from(70)
         }

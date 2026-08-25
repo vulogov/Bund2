@@ -134,7 +134,19 @@ Is full `i64` required, or are 51-bit integers acceptable? The latter allows
 NaN-boxing and a smaller value.
 - Blocks: RFC-0001
 - Default: full `i64`
+- Evidence: `cargo xtask layout`
 - Status: OPEN
+
+Measurement narrows what NaN-boxing is worth. With identity in the heap
+header (D1, D2, and the layout scan), the candidate value is **already 16
+bytes at full `i64`** — one tag word plus one payload word. NaN-boxing would
+fold the tag into unused float bits to reach 8, so the question is whether
+halving 16 justifies capping integers at 51 bits.
+
+For contrast the same measurement puts the reference's `Value` replica at
+**176 bytes**, and identity carried inline at 32. The large win is already
+taken by moving identity off the value; NaN-boxing is a second, smaller step
+with a semantic cost attached.
 
 ## D5 — lambda body mutability
 Can a LAMBDA body be mutated after construction, or is it write-once? Write-once
