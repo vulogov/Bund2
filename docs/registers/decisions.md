@@ -55,6 +55,14 @@ Secondary consequence: if identity ends up counter-derived, the `Ord::cmp`
 fallback changes from "lexicographic on a random nanoid" to "creation order".
 Low risk given F12, but it is a behaviour change on a path the reference has.
 
+**Where identity lives, settled by scan** (see "The `id` / `stamp` layout
+scan" in `open-questions.md`): the heap header, not the inline value. The
+`==` fallback to `id` fires only when both operands are non-scalar — already
+heap-allocated, so the header read is free — or when their kinds differ, in
+which case the answer is provably always `false` and needs no identity at
+all. Scalars therefore carry no identity, and `BundValue` is 16 bytes rather
+than 24.
+
 ## D2 — `.timestamp` precision
 Is millisecond granularity the contract, or must two values constructed in
 sequence differ?
@@ -107,6 +115,12 @@ why it is recorded here rather than discovered later.
 `stamp` stays `f64` milliseconds (`reference/rust_dynamic/src/value.rs:7-9`).
 `set` and `push` continue to reset it (`set.rs:32,59,92`, `push.rs:166`),
 which under deferred sampling means resetting it back to unobserved.
+
+**Where the stamp lives, settled by scan** (see "The `id` / `stamp` layout
+scan" in `open-questions.md`): the heap header. Every read is cold — the
+`.timestamp` method, four METRICS-iteration sites, and two public functions
+(`get_timestamp`, `timestamp_diff`) that **no word in either crate reaches**.
+Nothing on a hot path touches it, so the move costs nothing.
 
 ## D3 — tier policy for `bund.eval` output
 JIT-eligible, or permanently Tier 0? Permanently Tier 0 removes a whole class

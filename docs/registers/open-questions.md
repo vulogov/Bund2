@@ -742,6 +742,91 @@ ranking depends on how D14 settles the in-scope set. The command's help text
 in `xtask/src/main.rs` carries the warning so it cannot be implemented as
 written by accident.
 
+## The `id` / `stamp` layout scan
+
+Run to settle whether `id` and `stamp` must live inline in Bund2's value or
+can move to a heap header — the largest number still undecided in the design.
+Feeds RFC-0001; D1 and D2 already fixed *when* they are computed (lazily),
+not *where* they live.
+
+### Scope: the field's blast radius is far smaller than a grep suggests
+
+A naive scan for `.id` across the crates returns 40 hits. **Only 23 are
+`Value.id`** — 22 in `rust_dynamic` and one in `Bund`. The rest are different
+structs entirely, and counting them would have overstated the problem:
+
+| Site | Field | What it actually is |
+|---|---|---|
+| `reference/rust_multistack/src/stack.rs:24,29,34` | `Stack<T>.id` | a stack's *name*, returned by `stack_id()` |
+| `reference/bundcore/src/bundcore.rs:12`, `bundvm.rs:20` | `BUND.id`, `BUNDVM.id` | per-instance nanoid, not per-value |
+| `reference/Bund/src/stdlib/functions/ai/classifiers_classify.rs:34`, `neuralnetworks_predict.rs:32`, `profanity.rs:42` | `nn.id` | an `NNType` enum discriminant |
+| `reference/Bund/src/stdlib/functions/generators/generator.rs:63,136` | `gen.id` | a `DType` enum discriminant |
+
+`rust_multistackvm` and `bund_language_parser` read `Value.id` **zero** times.
+
+### Every read of `Value.id`
+
+| Site | Purpose | Hot path? |
+|---|---|---|
+| `reference/rust_dynamic/src/eq.rs:15,26,34,42,53` | equality fallback | **yes** |
+| `reference/rust_dynamic/src/ord.rs:175,183,191,199` | ordering fallback | warm (F12: unreachable via `sort`) |
+| `reference/rust_dynamic/src/hash.rs:6` | `Hash` impl | **yes**, see below |
+| `reference/rust_dynamic/src/bincode.rs:101` | error text, "Unwrappable object {}" | no |
+| `reference/Bund/src/stdlib/functions/oop/base_classes.rs:16` | the `.id` method | no |
+
+Plus the derived `Serialize` and `Debug`, which are not field reads but do
+expose it — serialisation is settled by D20, `Debug` is F14.
+
+`Hash` is genuinely exercised: `Val::ValueMap` is `HashMap<Value, Value>`
+(`reference/rust_dynamic/src/types.rs:79`), so a Value is used as its own key.
+
+### Every read of `Value.stamp`
+
+| Site | Purpose | Hot path? |
+|---|---|---|
+| `reference/Bund/src/stdlib/functions/oop/base_classes.rs:25` | the `.timestamp` method | no |
+| `reference/rust_dynamic/src/iter.rs:67,82`, `carcdr.rs:127,203` | METRICS iteration materialises a `"ts"` field | no |
+| `reference/rust_dynamic/src/timestamp.rs:8` (`get_timestamp`) | public API | **dead — no word reaches it** |
+| `reference/rust_dynamic/src/timestamp.rs:22` (`timestamp_diff`) | public API | **dead — no word reaches it** |
+
+### Result: both fields can move to the heap header
+
+**`stamp`: unconditionally.** Every read is cold — one OOP method, four
+metric-iteration sites needing `metrics`/`sample` (both unused by the corpus),
+and two public functions no word in either crate calls. Nothing on any hot
+path touches it.
+
+**`id`: yes, and the reason is structural rather than a judgement call.** The
+`==` fallback to `id` fires in exactly two situations
+(`reference/rust_dynamic/src/eq.rs:6-57`):
+
+1. **Both operands non-scalar** — LIST, DICT, OBJECT, LAMBDA and friends.
+   These are heap-allocated already, so reading identity from their header
+   costs no extra dereference: you are already there.
+2. **Operands of mismatched kind** — `Val::I64` against a LIST, say. Here the
+   comparison is **provably always false** and needs no identity at all.
+   Distinct values always carry distinct ids, because every construction and
+   every mutation mints a fresh one
+   (`reference/rust_dynamic/src/set.rs:16,31,43,58,76,91`, `push.rs:165`,
+   `attr.rs:7,13,19`, `dup.rs:11`, `bincode.rs:95`). Two values can share an
+   id only by `Clone`, and a clone shares its operand's *type*, so it can
+   never reach this arm.
+
+So a Bund2 `==` that returns `false` on a kind mismatch without consulting
+identity preserves the reference exactly, and scalars need carry no identity
+at all. `ord.rs:167-204` has the same structure, and `Hash` is only reached
+through VALUEMAP, whose keys are Values that already have a header.
+
+**Consequence for RFC-0001: `BundValue` is 16 bytes, not 24.** The saving is
+available for both fields, and the constraint D1 records — that the lazy
+identity slot must be shared across clones and split where the reference
+regenerates the id — is a property of the header, which clones share by
+construction.
+
+The one thing this does not license: dropping identity from the *serialised*
+form. D20 settled that serialisation materialises, and the wire format keeps
+both fields.
+
 ## Lexer fidelity
 
 The `.bund` lexer in `xtask/src/corpus/lex.rs` mirrors
