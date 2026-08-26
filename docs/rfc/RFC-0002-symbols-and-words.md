@@ -6,7 +6,7 @@
   grounds independent of all six. See "Blocking decisions" and
   "Review history".
 - Depends on: RFC-0001
-- Decisions consumed: D9, D14, D16, D29
+- Decisions consumed: D9, D14, D16, D20, D27, D28, D29
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
   `80377728f45b`; `bundcore` `3b0b8ba219a6`; `rust_dynamic` `ceb27c96fa10`;
   `rust_multistack` `9a97675ee5d8`; `rust_multistackvm` `4605832678d4`
@@ -48,10 +48,27 @@ names RFC-0002 as the consumer of its consequence:
   Names registered both ways are unaffected, since the inline registration is
   what makes them callable; names registered only there are the dead words,
   and D29 already ruled on those.
+- **F26 — PRESERVE.** `$name` skips the lambda check and not alias
+  resolution; the source comment claims both and is wrong. This RFC's
+  preservation table takes that behaviour, and F26 carries a "Consequence for
+  RFC-0002" clause like the other three, so it gates this RFC in the same way.
+  Its disposition also supplies the alias-chain consequence: `$name` enters at
+  `i` and resolves one link where a plain name resolves two.
 - **F25 — OMIT the cluster.** `apply_in` is unreachable, so there is one
   resolution order to specify. The forward constraint is the part that binds:
   per-stack dispatch, when RFC-0007 needs it, is the single order with the
   stack as a parameter, not a second dispatcher.
+
+Three further decisions this RFC consumes were not listed by an earlier
+draft. **D20** — serialisation is a materialisation point — is what lets
+`Symbol` be internal while names cross the wire. **D28** is the whole basis of
+the D-1 handoff below. And **D27** rules the world file is **redb**, which
+criterion 7 rides on: a lambda saved in one process and reloaded in another
+crosses that format. D27 is RESOLVED but **gated on D11, which is OPEN** — if
+an external reader of the world file exists, redb is a breaking format change.
+So criterion 7 is checkable only once D11 rules, and the Design's description
+of the reference's world file as SQLite is a statement about the reference,
+not about Bund2's.
 
 Everything else here is groundable and drafted.
 
@@ -207,8 +224,7 @@ dispatcher taking a stack name, and it is **not** the same order:
   it, so a `$`-prefixed name dispatched through `apply_in` does not reach the
   internal word.
 
-This is F25, which records `apply_in` as a second resolution order and whose
-disposition is still empty. An earlier draft of this RFC specified dispatch
+This is F25, whose disposition is **OMIT** — see Blocking decisions. An earlier draft of this RFC specified dispatch
 against `apply` alone and said "three branches, not one" of a fact that holds
 of one of two functions.
 
@@ -219,7 +235,7 @@ of one of two functions.
 **nothing outside the three calls any of them**. The live path is
 `VM::call` → `apply` (`reference/rust_multistackvm/src/multistackvm_call.rs:8`),
 which is what `execute` reaches
-(`reference/rust_multistackvm/src/stdlib/execute.rs:32`).
+(`reference/rust_multistackvm/src/stdlib/execute.rs:30`).
 
 So there is nothing to unify. RFC-0002 specifies **one** resolution order
 because the reference has one that runs; the second is unreachable and is not
@@ -449,7 +465,31 @@ one case where "twice" and "to a fixed point" differ.
 
 ```rust
 pub enum WordKind { Sync, Blocking, Async }
+
+pub type NativeFn = fn(&mut Vm) -> Result<(), Error>;
 ```
+
+**The two tiers have different signatures, and merging them is a deviation an
+earlier draft left unstated.** The VM tier is
+`fn(&mut VM) -> Result<&mut VM, Error>`
+(`reference/rust_multistackvm/src/multistackvm.rs:8`); the stack tier is
+`fn(&mut TS) -> Result<&mut TS, Error>` (`reference/rust_multistack/src/ts.rs:9`).
+They are different types over different receivers, which is *why* the
+reference needs two tables and a fallthrough rather than one.
+
+`NativeFn` is the VM-receiver form, and it is one of the five types
+`bund2-api` guarantees. A stack-tier word becomes a `NativeFn` that reaches
+the stacks through the VM, which is what the fallthrough already achieves at
+`reference/rust_multistackvm/src/multistackvm_inline.rs:52` — the VM hands
+`&mut self.stack` to the stack-tier function. Merging removes a receiver
+distinction that no Bund program can observe, because dispatch reaches both
+through `i_direct`.
+
+It does remove one thing that *is* observable, and the preservation table now
+carries it: the stack tier's errors are wrapped —
+`i({}) for stack returned: {}` (`:64`) and
+`VM inline function returned error: {}` (`:59`) — where VM-tier errors are
+wrapped as `i({}) returned: {}` (`:48`). One tier means one wrapping.
 
 `StackEffect` is declared at registration for natives.
 `cargo xtask arity` already extracts the reference's guards mechanically and
@@ -478,11 +518,15 @@ Registration happens against a builder, which freezes into an immutable
 Runtime mutation — `register`, `alias` — writes through a per-VM overlay, so
 D16's open world survives without a process-wide lock.
 
-**`Arc` would be a lie, and an earlier draft told it.** A `Slot` holds a
-`BundValue` for its `lambda` and `class` bindings, and RFC-0001 defines
-`BundValue` as an `Rc<HeapValue>` whose `id`, `stamp` and `curr` are `Cell`s.
-`Rc` is neither `Send` nor `Sync` and `Cell` is not `Sync`, so a `Registry`
-containing one cannot cross a thread whatever pointer wraps it. `Arc` would
+**`Arc` would be a lie, and an earlier draft told it — on a misquoted
+premise.** A `Slot` holds a `BundValue` for its `lambda` and `class` bindings.
+RFC-0001 defines `BundValue` as an **enum** whose non-scalar arm is
+`Heap(Rc<HeapValue>)`, and it is `HeapValue` that carries `Cell` fields —
+`identity` and `stamp`, not `id`, and not `curr`, which is a plain field
+precisely so clones do not share a cursor. The conclusion survives the
+correction and the premise did not: an `Rc` is neither `Send` nor `Sync` and a
+`Cell` is not `Sync`, so a `Registry` reachable to one cannot cross a thread
+whatever pointer wraps it. `Arc` would
 buy nothing and would advertise a capability the contents forbid. This is the
 first real collision between RFC-0001 and RFC-0002, and neither cited the
 other until this review.
@@ -543,6 +587,9 @@ time. That is a deliberate deviation in both directions and is recorded there.
 | Open world — `register` / `alias` at runtime | **Preserved exactly.** D16. |
 | Alias resolved twice, and once under `$` | **Deliberately changed, and the divergence starts at two links, not three.** `apply` resolves one link (`:39`) and `i` resolves another (`multistackvm_inline.rs:71`), so a plain name follows two. `$name` reaches `i` directly through `call_internal_word` and follows **one**. Confirmed on the oracle: with `a2 → b2 → println`, plain `a2` succeeds and `$a2` fails with `Inline b2 not registered`. Fixed-point resolution makes both succeed, so it changes `$`-dispatch at two links and plain dispatch at three. No such chain exists in the reference's 70 registrations and none is constructible in the corpus — but D16 means a program can build one. |
 | `resolve` failing on stack-layer words (F31) | **Deliberately fixed.** No golden covers `resolve`, so conformance cannot move. |
+| Interning is a pure read on lookup | **Deliberately changed, and this is the largest gap an earlier draft left.** The reference's tables are read-only on lookup: a miss returns an error and allocates nothing. Interning at dispatch **adds a slot** for a name never seen before, so a program that repeatedly dispatches on a *computed* miss — which D16 makes expressible — grows memory without bound where the reference does not. Bund2 interns a miss into a lookup-only form that does not retain, and only a successful bind creates a slot. |
+| Stack-tier error wrapping | **Deliberately changed.** `i({}) for stack returned:` and `VM inline function returned error:` (`reference/rust_multistackvm/src/multistackvm_inline.rs:59,64`) disappear with the tier merge; one tier means one wrapping, `i({}) returned:` (`:48`). No golden captures either string. |
+| The VM/stack fallthrough | **Preserved in effect, and here is the measurement it rests on**, which an earlier draft asserted without: the stack tier registers 31 inline names, the VM tier 156, and **the intersection is empty**. So no name resolves differently depending on which table is consulted first, and one table produces the same answer for all 187. |
 | `BUND` held for the whole run | **Deliberately changed.** Observably identical for a single-threaded program, which is every program today. |
 
 ## Alternatives considered
@@ -616,6 +663,10 @@ them and one was vacuous without saying so. Each below names the tool.
 7. A lambda saved to the world file in one process reloads and runs in
    another, with the `CALL` names intact. **Tool:** a Bund2 integration test.
    This is the criterion that `Symbol`-in-the-payload would have failed.
+   **It rides on D27** — the world file is redb, not the reference's SQLite —
+   and D27 is gated on **D11**, which is OPEN. Until D11 rules on whether an
+   external reader exists, this criterion tests a format that may still
+   change.
 8. `cargo xtask cite` reports zero defects. Note what this does **not** check:
    that a cited line means what the prose says. Two reviews have now found
    citations that resolve and mislead, and both times `cite` passed.
@@ -635,9 +686,12 @@ is how a commitment quietly lapses.
 - **Q15** — `cargo xtask unblock` needs redesigning before it can order the
   work this RFC enables. It ranks against the goldens, which see about a
   quarter of the in-scope words.
-- Whether `methods_fun` and `vars` become slot-table discriminants or stay
-  separate tables is left to the implementation; both preserve the namespaces.
-  Recorded here so it is not read as settled.
+- `methods_fun` is **settled**, not open: it is a `method` binding in the
+  `Slot` struct, alongside the other five. An earlier draft declared it open
+  here while the Design had already placed it, which is the kind of
+  disagreement that survives because the two statements are pages apart.
+  `vars` stays a separate structure, for the reason the Design gives — it is
+  keyed twice.
 
 ## Review history
 
@@ -804,3 +858,58 @@ is how a commitment quietly lapses.
   Recorded separately: `cargo xtask lint` caught this session's own edit
   re-introducing a duplicate `## Design` — the very error it was built for,
   on the first real edit after it was built.
+
+- **2026-08-26, review 4** — `docs/rfc/reviews/RFC-0002-review-2026-08-26-4.md`.
+  Verdict: do not accept, **for the fourth time not for the reasons this RFC
+  lists as its blockers**. D9, D14 and D29 are used correctly and F18, F19 and
+  F25's dispositions are stated accurately. The thirteen allocation rows, the
+  eight hash lookups, the 119/110 lock split, the dead `apply_in` cluster and
+  criterion 2's 121/497 and 121/286 all verified.
+
+  **F26 was the fourth blocker and this RFC missed it.** Its disposition was
+  empty, it carries a "Consequence for RFC-0002" clause exactly like the three
+  the RFC cited, and the RFC leans on it three times — including a
+  preservation row that takes `$` skipping the lambda check as "preserved
+  exactly". The register's rule applies. F26 now carries **PRESERVE**, and its
+  disposition is also where the alias-chain consequence belongs: `$name`
+  enters at `i` and resolves one link where a plain name resolves two.
+
+  **F18's fix changes the residual stack, not only the error text.** `pair`
+  guards `< 1` and pulls `x` before failing on the second pull, so `1 pair`
+  errors today with an **empty** stack where a guard at 2 leaves the value —
+  and the error path prints the stack
+  (`reference/Bund/src/stdlib/helpers/print_error.rs:126-131`), which
+  `execute-arm-not-executable.golden` captures. The promised replacement
+  message is also three different messages: `complex` bails as `pair`
+  (now **F40**), and the ten string words bail without parentheses. F18's
+  disposition is corrected on both counts.
+
+  **The two inline tiers have different signatures** — `fn(&mut VM)` against
+  `fn(&mut TS)` — which is *why* the reference needs two tables and a
+  fallthrough. The Design merged them into `native: Option<NativeFn>` and
+  never defined `NativeFn`, one of the five types `bund2-api` guarantees. It
+  is defined now, with the merge stated as a deviation and the stack tier's
+  distinct error wrapping given a preservation row.
+
+  Citation defects: `execute.rs:32` is the failure arm, not the call —
+  `vm.call` is at `:30`. Inherited from F25, which cited it twice; corrected
+  in both. And the `Rc`/`Arc` paragraph misquoted RFC-0001: `BundValue` is an
+  enum whose non-scalar arm holds the `Rc`, and the `Cell` fields are
+  `identity` and `stamp` on `HeapValue`, not `id`, and not `curr`. The
+  conclusion survived; the premise did not.
+
+  Two internal contradictions, both of the kind that survives because the two
+  statements are pages apart: the RFC said F25's disposition "is still empty"
+  forty lines after its own header said OMIT, and `methods_fun` was settled in
+  the `Slot` struct and declared open in Open questions.
+
+  Four preservation gaps, the largest being that **interning at dispatch adds
+  a slot** — so repeated dispatch on a computed miss grows memory where the
+  reference's tables are pure reads. Also the stack tier's error wrapping,
+  `generation`'s missing overflow policy, and the fallthrough row, which
+  rested on an unstated measurement: 31 stack-layer names against 156 VM-layer
+  names with an **empty intersection**, now verified and stated.
+
+  And the decisions-consumed list was short by three: **D20**, **D28**, and
+  **D27** — which criterion 7 rides on, and which is itself gated on **D11**,
+  still OPEN.

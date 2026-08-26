@@ -351,10 +351,31 @@ No corpus program hits any of these paths, so no golden covers them.
   preserving the wrong number propagates the defect into two later RFCs in
   order to keep an error string on a path that fails either way.
 
-  What changes is observable and small: fourteen words, on inputs that error
-  under both implementations, with only the message differing. No corpus
-  program reaches any of them, so no golden covers it and `conform` cannot
-  move. Record the divergence in RFC-0002 alongside `StackEffect`.
+  **What changes is larger than an earlier version of this disposition said,
+  and it is not only the message.**
+
+  *The residual stack changes.* `pair` guards `< 1`, pulls `x`
+  (`reference/rust_multistackvm/src/stdlib/artefacts.rs:10`), then fails on
+  the second pull (`:19`) — so `1 pair` errors today with an **empty** stack,
+  where a guard at 2 fails before pulling and leaves the value. That is
+  observable, because the error path prints the stack:
+  `print_error` calls `debug_display_stack`
+  (`reference/Bund/src/stdlib/helpers/print_error.rs:126-131`), reached from
+  `reference/Bund/src/stdlib/helpers/run_snippet.rs:88`, and
+  `tests/golden/probes/execute-arm-not-executable.golden` captures that block.
+
+  *The replacement message is not uniform.* It is `"Stack is too shallow for
+  inline pair()"` for `pair`, but `complex` bails with the **same** string
+  (`reference/rust_multistackvm/src/stdlib/artefacts.rs:27`) — an unrecorded
+  copy-paste, now F40 — and the ten string words use
+  `"Stack is too shallow for inline {}"` with a prefix and no parentheses
+  (`reference/Bund/src/stdlib/functions/string/distance.rs:25`,
+  `reference/Bund/src/stdlib/functions/string/regex.rs:15`). So "the message
+  becomes the too-shallow one" is three different messages.
+
+  None of the fourteen is reached by a corpus program, so no golden covers
+  them and `conform` cannot move. But the deviation to record in RFC-0002 is
+  *residual stack and message*, not message alone.
 
 ## F19 — the stack layer's `functions` table is dead code
 `rust_multistack` keeps a fourth name-keyed table alongside the two inline
@@ -534,7 +555,7 @@ different things: `apply` pulls the top value and appends the name to it
 (`multistackvm_apply_in.rs:16`).
 
 The live path is unaffected — `!` reaches `vm.call`, which uses `apply`
-(`reference/rust_multistackvm/src/stdlib/execute.rs:32`). The first draft
+(`reference/rust_multistackvm/src/stdlib/execute.rs:30`). The first draft
 tried to demonstrate that with `1 2 "$drop" ptr !` and demonstrated nothing:
 `drop` has no alias, so both the `$` and plain spellings converge on the same
 inline word. See F26 for what a discriminating pair looks like, and for why
@@ -552,7 +573,7 @@ specify, not two, and porting this cluster would import a second.
      reference has one that runs: `VM::call` -> `apply`
      (`reference/rust_multistackvm/src/multistackvm_call.rs:8`), which is what
      `execute` reaches
-     (`reference/rust_multistackvm/src/stdlib/execute.rs:32`). `call_in` ->
+     (`reference/rust_multistackvm/src/stdlib/execute.rs:30`). `call_in` ->
      `apply_in` -> `lambda_eval_in` -> `apply_in` is closed, and nothing
      outside the three calls any of them.
 
@@ -610,7 +631,27 @@ selects *which* tables, and the alias table is not one it skips — so a
 distinct opcode premised on full bypass would be wrong.
 - `reference/rust_multistackvm/src/multistackvm_apply.rs:29-32`,
   `multistackvm_call_internal_word.rs:7-8`, `multistackvm_inline.rs:71-72`
-- Behavioural, and a wrong source comment. Disposition:
+- Behavioural, and a wrong source comment. Disposition: **PRESERVE the
+  behaviour; the comment is wrong, not the code.** `$name` skips the lambda
+  check and does **not** skip alias resolution, because `call_internal_word`
+  strips the sigil and calls `self.i`
+  (`reference/rust_multistackvm/src/multistackvm_call_internal_word.rs:7-8`),
+  and `i` resolves aliases
+  (`reference/rust_multistackvm/src/multistackvm_inline.rs:71`). The source
+  comment at `reference/rust_multistackvm/src/multistackvm_apply.rs:30-31`
+  claims both are skipped; only the first is.
+
+  Bund2 reproduces it exactly, including the surprise, because it is the only
+  way to reach a native that a lambda has shadowed and programs can depend on
+  that — confirmed by probe, `println` runs a lambda while `$println` runs the
+  native.
+
+  **One consequence RFC-0002 must carry**: because `$name` enters at `i` it
+  resolves *one* alias link where a plain name resolves two, so the two
+  spellings diverge on a chain two deep. Oracle: with `a2 -> b2 -> println`,
+  `a2` succeeds and `$a2` fails with `Inline b2 not registered`. RFC-0002
+  resolves to a fixed point, which is a deviation at two links rather than
+  three.
 
 ## F27 — FIFO stacks are documented but unreachable, and `peek` disagrees with `pull`
 `Introduction.typ:16` of the Library Guide states that BUND "offers you an
@@ -1004,3 +1045,22 @@ callers; `Val::Token` likewise.
   `rust_multistack`, `rust_multistackvm`. `cargo xtask corpus` scans three by
   design, because it is looking for *word registrations* and those live in
   three; a claim about a *constructor* has no such excuse.
+
+
+## F40 — `complex` reports itself as `pair`
+`stdlib_complex_inline` guards the stack and bails with
+`"Stack is too shallow for inline pair()"`
+(`reference/rust_multistackvm/src/stdlib/artefacts.rs:27`) — the message
+belongs to `stdlib_pair_inline` directly above it
+(`reference/rust_multistackvm/src/stdlib/artefacts.rs:8`), and was copied with
+the guard.
+
+So a program that under-feeds `complex` is told that `pair` failed. Both are
+in F18's fourteen, so both already report the wrong *kind* of error; this one
+additionally reports the wrong *word*.
+
+- Found by: RFC-0002 review 4, while checking what F18's fix replaces
+- Disposition: **FIX.** The message names the word that failed. It is covered
+  by F18's disposition — that fix rewrites these guards anyway — and is
+  recorded separately because it is a distinct defect that would survive a
+  fix addressing only the arity.
