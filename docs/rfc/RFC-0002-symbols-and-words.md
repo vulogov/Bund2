@@ -46,8 +46,8 @@ depends on all three:
 - **F19** — the stack layer's dead `functions` table. It is why `dup` at
   `reference/rust_multistack/src/stdlib/dup.rs:85` is not what makes `dup`
   callable, and it is the table D29 ruled on.
-- **F25** — `apply_in` as a second resolution order with no `$` arm. This RFC
-  unifies the two dispatchers, which is a deviation F25 has to sanction.
+- **F25** — `apply_in` as a second, unreachable resolution order with no `$`
+  arm. This RFC omits it, which is a deviation F25 has to sanction.
 
 Everything else here is groundable and drafted.
 
@@ -196,8 +196,9 @@ Everything above describes `VM::apply`. `VM::apply_in`
 dispatcher taking a stack name, and it is **not** the same order:
 
 - it has its own `CALL`, `CONTEXT` and catch-all arms with their own `autoadd`
-  tests (`:15`, `:45`, `:62`) — so `autoadd` has **six** live branches across
-  the two functions, not three;
+  tests (`:15`, `:45`, `:62`), and under `autoadd` it pushes the name onto the
+  named stack whole (`:16`) where `apply` pulls the top value and appends to
+  it (`multistackvm_apply.rs:20-27`);
 - and it has **no `$` arm at all**. `call_internal_word` appears nowhere in
   it, so a `$`-prefixed name dispatched through `apply_in` does not reach the
   internal word.
@@ -207,13 +208,26 @@ disposition is still empty. An earlier draft of this RFC specified dispatch
 against `apply` alone and said "three branches, not one" of a fact that holds
 of one of two functions.
 
-**RFC-0002 unifies them**: one slot table reached by one resolution order,
-with the stack name a parameter rather than a second code path. That is a
-deviation, and it is the right one — two dispatchers that disagree about `$`
-is a defect surface, not a feature — but it is a deviation and F25 has to rule
-on it before this RFC can be accepted.
+**But the cluster is dead.** `call_in` calls `apply_in`
+(`reference/rust_multistackvm/src/multistackvm_call.rs:12`), `apply_in` calls
+`lambda_eval_in` (`:25`), `lambda_eval_in` calls `apply_in` back
+(`reference/rust_multistackvm/src/multistackvm_lambda_eval_in.rs:14`), and
+**nothing outside the three calls any of them**. The live path is
+`VM::call` → `apply` (`reference/rust_multistackvm/src/multistackvm_call.rs:8`),
+which is what `execute` reaches
+(`reference/rust_multistackvm/src/stdlib/execute.rs:32`).
 
-### `autoadd` has three branches in `apply`, and three more in `apply_in`
+So there is nothing to unify. RFC-0002 specifies **one** resolution order
+because the reference has one that runs; the second is unreachable and is not
+ported. `autoadd` therefore has **three live branches**, in `apply` — an
+earlier note in this section said six, which counts the dead ones.
+
+What F25 must still rule is the omission itself: dropping a code path is a
+deviation even when nothing can observe it, and if a later RFC needs "dispatch
+onto a named stack" it should be built on the single order with the stack as a
+parameter rather than by reviving this one.
+
+### `autoadd` has three branches, all in `apply`
 
 `self.autoadd` is tested in three places, each doing something different:
 
@@ -226,7 +240,8 @@ on it before this RFC can be accepted.
 
 An earlier draft covered only the first. The mode is a global on the `VM`
 (`reference/rust_multistackvm/src/multistackvm.rs:22`), so all three are live
-whenever it is set — and so are `apply_in`'s three, above.
+whenever it is set. `apply_in` has three more, but nothing can reach them —
+see above.
 
 ### Alias resolution happens twice
 
