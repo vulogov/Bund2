@@ -258,8 +258,11 @@ the value nothing.
 2. Constructing and cloning a scalar allocate **0** times, measured by the
    counting allocator in `cargo xtask layout`.
 3. `cargo xtask conform` does not fall below the mark in
-   `tests/golden/CONFORMANCE.txt`. RFC-0001 implements a value, not a word, so
-   the number may rise; it may not fall.
+   `tests/golden/CONFORMANCE.txt`, now **0/64**. RFC-0001 implements a value,
+   not a word, so the number may rise; it may not fall. The grounding for this
+   RFC moved the denominator from 63 by adding one probe,
+   `tests/probes/valuemap-hash-eq.bund`, which pins F29; that move is recorded
+   in RFC-0000's provenance table.
 4. `cargo tree -p bund2-value` lists no `bund2-interp` — the value is usable
    without a VM. **This criterion is vacuous until `bund2-value` has
    dependencies at all**, exactly as RFC-0000's D-2 records; it becomes real
