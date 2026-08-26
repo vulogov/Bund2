@@ -362,9 +362,82 @@ Preservation applies to Bund syntax and logic, not to the domain libraries.
 - Blocks: RFC-0002 (bund2-api shape), RFC-0004, the M6 target and denominator
 - Default: none — decide from corpus evidence
 - Evidence: cargo xtask corpus
-- Status: OPEN — being resolved **per word**, not per subsystem. D17
-  (`format`) and D19 (`display`) are the rulings so far; D18 attaches the
-  workbench form to each.
+- Status: **RESOLVED — method B″.** Core 286, library 211, of 497 in scope.
+  The partition is generated into `docs/core-words.md` by
+  `cargo xtask scope --write`, so it is an artefact rather than a list in
+  prose. Decided by the repository owner. The per-word method survives for
+  overrides — D17 (`format`) and D19 (`display`) were made that way, and
+  anything B″ misfiles is corrected the same way.
+### Method B″, and why not the alternatives
+
+The core set is **computed**, in four steps, each re-derivable by re-running
+`cargo xtask scope`:
+
+1. **Seed** — the words the corpus invokes, plus the words the authored probes
+   invoke. Aliases seed their targets, since calling an alias calls the target.
+2. **Closure** — every word in a subsystem that a seed word's implementation
+   reaches into. This is what D19 established when preserving `display` also
+   preserved `conditional_fmt`.
+3. **File completion, in `vm/` and `stack/` only** — a file with any core word
+   is wholly core there, and never in `bund/`.
+4. **D18 workbench forms** — a core word's `.` sibling is core.
+
+Five partitions were priced before choosing:
+
+| variant | core | library | core % | closes by |
+|---|---|---|---|---|
+| B | 214 | 283 | 43.1% | closure + D18 only |
+| B+probes | 218 | 279 | 43.9% | probes seed too |
+| B' | 347 | 150 | 69.8% | then file completion everywhere |
+| **B″** | **286** | **211** | **57.5%** | **file completion in `vm/` and `stack/` only** |
+| C | 460 | 37 | 92.6% | subsystem completion |
+
+**B alone under-includes.** The 132-program corpus never invokes `<=`, `>=`,
+`and`, `or`, `?true` or `convert.to_int`, so B files comparison and boolean
+operators as library. That is B working as specified, not a tool defect.
+
+**B' over-includes.** Its 129 additions bring in the whole `string.distance.*`
+and `string.random.*` families, `fs.cp`, `fs.mv`, `url` and
+`sysinfo.hostname` — library by any reading.
+
+**Step 3's restriction is what separates them, and it is the reference
+author's own line rather than a judgement of ours.**
+`reference/Bund/Documentation/Bund_Library_Guide/Library_introduction.typ:15-19`
+divides the implementation into `rust_multistack` (stack operations),
+`rust_multistackvm` — "the core logic of the BUND language remains intact
+within this crate" — and the Bund runtime, which is where "all standard
+library functions" live. `cargo xtask guide` cross-checked that split against
+the registration paths and found **96 agreements and 0 disagreements**.
+
+So completing a file is right in `vm/` and `stack/`, where a partly-used file
+means a partly-used *language feature*, and wrong in `bund/`, where it means a
+partly-used *library*.
+
+**C is rejected** on two grounds: it takes 92.6% of the in-scope set as core,
+which makes the distinction meaningless, and it completes by subsystem, which
+Q4 already ruled a reporting aid rather than a decision axis.
+
+The 68 words B″ adds over B+probes are the check on it: stack operations
+(`drop_in`, `dup_many`, `swap_in`, `return_to`, `$`), the converters
+(`convert.to_*`, `matrix`), the logic operators (`<=`, `>=`, `and`, `or`,
+`?true`, `≠`, `⩽`, `⩾`), the constructors (`pair`, `lambda`, `match`, `λ`,
+`∅`) and the list primitives (`cdr`, `head`, `tail`). Every one is a language
+feature. And `math.ln` stays library, which is the tell — B″ is the widest
+variant that still calls natural log a library word.
+
+### Consequences
+
+- **RFC-0002's criterion 2 has its number.** Only the core 286 is a
+  preservation target; the library 211 is deferrable and re-implementable out
+  of tree.
+- **`bund2-api` is two surfaces**, which is what D14 gated: the core surface
+  carries the stability guarantee, and a second is what out-of-tree word
+  packages compile against.
+- **The M6 denominator is 286**, not 497.
+- `cargo xtask coverage` keeps reporting over the in-scope 497, because
+  CLAUDE.md defines coverage that way and the library half still needs tests.
+  The core figure is reported alongside it.
+
 - Method, settled under Q4: subsystem grouping is a reporting aid only. Each
   per-word ruling must state its **implementation closure** — what that word's
   implementation reaches into — which `cargo xtask corpus` now reports. D19 is

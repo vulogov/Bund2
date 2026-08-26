@@ -48,7 +48,8 @@ Oracle
                 closed over implementation reach, plus D18 workbench forms.
                 Computed rather than enumerated, so it cannot drift. Reports
                 where the method splits a subsystem — the words that sit beside
-                a core sibling and are still library. Resolves nothing.
+                a core sibling and are still library. D14 records B″; pass
+                --write to regenerate docs/core-words.md.
 
 Evidence
   corpus        Scan the example corpus for uses of .id, .timestamp, bund.eval,

@@ -257,7 +257,7 @@ so conformance can read 100% with three quarters of the language untested.
 Three files are the shared state between sessions, and this RFC does not
 duplicate them:
 
-- `docs/registers/decisions.md` — 30 entries. Append-only; a status may
+- `docs/registers/decisions.md` — 30 entries, of which 5 are OPEN. Append-only; a status may
   change, an entry may not be deleted or renumbered.
 - `docs/registers/defects.md` — 37 entries. The roadmap's §5 listed eleven;
   the rest were found by running the oracle rather than reading it. F14, F15 and
@@ -482,8 +482,9 @@ The full narrowing is regenerated into `tests/golden/HERMETIC.txt` on every
   work; as specified it can only see the words the goldens touch.
 - **D11** is OPEN and gates D27. If an external reader of the world file
   exists, the redb change is a breaking format change.
-- **D14** is OPEN and is the M6 denominator. It does not block this RFC, but
-  B2's figure moves as it resolves.
+- **D14 is RESOLVED** — method B″, core 286 of 497. B2 keeps reporting over
+  the in-scope 497, which is how CLAUDE.md defines coverage; the core figure,
+  **121/286**, is the M6 denominator and is printed beside it.
 - **D29** is OPEN: whether Bund2 revives or omits the four dead words
   (F19, F22, F24). Either choice deviates from the oracle, and it moves
   B2's denominator by four either way.
