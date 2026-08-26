@@ -67,11 +67,18 @@ This section is the preservation contract.
 
 | payload | `dt` tags written with it |
 |---|---|
-| `Val::Map` | `CLASS`, `CONDITIONAL`, `CONFIG`, `CURRY`, `INFO`, `MAP`, `OBJECT` |
+| `Val::Map` | `CLASS`, `CONDITIONAL`, `CONFIG`, `CURRY`, `INFO`, `MAP`, `MESSAGE`, `OBJECT` |
 | `Val::String` | `CALL`, `CONTEXT`, `JSON_WRAPPED`, `PTR`, `STRING`, `TEXTBUFFER` |
-| `Val::List` | `CFLOAT`, `CINTEGER`, `LIST`, `RESULT` |
+| `Val::List` | `CFLOAT`, `CINTEGER`, `LIST`, `PAIR`, `RESULT` |
 | `Val::Queue` | `FIFO`, `QUEUE` |
 | `Val::Binary` | `BIN`, `ENVELOPE` |
+| `Val::Null` | `NODATA`, `NONE` |
+
+`MESSAGE` and `PAIR` are written by assigning `dt` **after** construction —
+`from_pair` builds a list then sets `dt = PAIR`
+(`reference/rust_dynamic/src/create.rs:164-167`), and the message constructor
+builds a dict then sets `dt = MESSAGE` (`:186`). Two earlier drafts missed
+both, because a scan for the `dt:` field-initialiser pattern cannot see them.
 
 The distinction is behavioural, not cosmetic: `PTR` is a name that executes
 and `STRING` is text that does not, and both are `Val::String`. Dispatch is on
@@ -105,10 +112,16 @@ wearing a mutable signature. `dup` mints a fresh id explicitly
 boundary by casting (`:13`, `:24`), and a mismatched scalar pair falls back to
 `self.id == other.id` (`:15`, `:26`, `:34`, `:42`).
 
-**Every other payload kind reaches the catch-all at `:45`**, which tests `dt`
-for `CINTEGER` and `CFLOAT` and otherwise returns `self.id == other.id`
-(`:53`). That is sixteen kinds — including `Bool`, `List`, `Map`, `Lambda`,
-`ValueMap` and `Json`. For all of them **`==` *is* identity comparison**: two
+**The other sixteen arms reach the catch-all at `:45`**, which tests `dt` for
+`CINTEGER` and `CFLOAT` — both `Val::List` payloads, compared as complex
+numbers — and otherwise returns `self.id == other.id` (`:53`). So of the
+twenty arms: four compare by content, one (`Val::List`) compares by content
+when tagged `CINTEGER` or `CFLOAT` and by identity otherwise, and the
+remaining fifteen compare by identity always. Two earlier drafts quoted
+"sixteen" and "twelve" for the same partition; the precise statement is the
+one above, and it is used consistently below.
+
+For every identity-compared arm **`==` *is* identity comparison**: two
 structurally identical lists are unequal unless they share an id.
 
 This is what D1 already recorded, and an earlier draft of this RFC got it
@@ -315,31 +328,70 @@ reference's in-place write does not change the id either.
 
 Cycles stay impossible by construction, as they do today.
 
-### Scalars carry no identity, and three preservation rows depend on one
+### Scalars have no header at all, so they must be boxable
 
-`Bool`, `Nodata` and `None` are inline arms with no heap object, so they have
-nowhere to hold an identity. But the reference compares them **by identity**:
+An earlier draft repaired one field and missed five. `Bool`, `Nodata` and
+`None` were given content-equality because they have no identity slot — but
+they have no `tags`, `attr`, `curr` or `stamp` slot either, and the reference
+writes all of those on scalars.
+
+`TS::push` calls `value.set_tag("stack", …)` on **every** push with **no type
+test** (`reference/rust_multistack/src/ts_push.rs:25`) — which is the very
+fact criterion 3 uses to explain why a heap `dup` costs four allocations. So
+every scalar that reaches a stack carries a non-empty `tags`. And `attr` is
+drivable on a scalar too: `1 2 attribute` renders `dt: 2` — an integer — with
+a populated `attr`, which is this RFC's own probe and the evidence cited for
+`attr` being a field at all.
+
+The goldens say how often this matters. Of the 258 renderings, **27 have a
+scalar payload; 24 of those carry a non-empty `tags` and 3 a populated
+`attr`**. Criterion 6 asks the `Debug` rendering to reproduce the reference's
+text, and an inline scalar arm cannot reproduce any of those 24.
+
+So the scalar arms are the **unadorned** form, not the only form:
+
+```rust
+pub enum BundValue {
+    Int(i64), Float(f64), Bool(bool), Nodata, None,   // no header, 0 allocations
+    Heap(Rc<HeapValue>),                              // header, when one is needed
+}
+```
+
+A scalar is `Int(7)` until it acquires anything a header holds — an observed
+identity, a stamp, a tag, an attribute, a moved cursor — at which point it is
+represented as `Heap` with a scalar payload. The `dt` distinction is preserved
+either way, and equality, ordering and hashing read through both forms
+identically, so boxing is invisible to the language.
+
+**What this costs, stated plainly.** Because `push` tags unconditionally, a
+scalar pushed to a stack is boxed, so "a scalar never touches the heap" holds
+only *before* a push. Criteria 2 and 3 are restated against that.
+
+There is a way to keep the common case unboxed, and it belongs to RFC-0003
+rather than here: if a stack slot carries `(value, stack_tag)` rather than a
+bare value, the tag that `push` writes lives in the slot and a scalar sitting
+on a stack needs no header. The fossil case still needs one — a value
+collected into a list keeps the tag of the stack it *was* on, which is why the
+inner values of this RFC's `valuemap` probe render `tags: {"stack": "main"}`
+while sitting inside a map. RFC-0001 specifies the representation that is
+correct unconditionally; RFC-0003 may make the common case cheaper once it
+decides how stacks are represented.
+
+### Equality for scalars is content, and the reachability argument is narrower
+than an earlier draft claimed
+
 `Val::Bool` is not one of the four content-compared arms, so two `true`s reach
 the catch-all at `reference/rust_dynamic/src/eq.rs:45` and are equal only if
-they share an id (`:53`). Ordering is the same
-(`reference/rust_dynamic/src/ord.rs:199`).
+they share an id (`:53`). Bund2 compares them by content instead.
 
-So the design cannot reproduce identity-equality for scalars, and an earlier
-draft's criterion 4 — `A == A.dup()` false **for a bool** — was unsatisfiable
-by the structure defined two sections above it.
-
-**This is a deviation, not a redesign**, and the argument is reachability. The
-`==` word accepts only `INTEGER | FLOAT | CINTEGER | CFLOAT | TIME` on both
-operands (`reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:17-20`)
-and bails otherwise, so `PartialEq` on a bool is **not reachable through
-`==`**. The paths that do reach it are container membership and `ValueMap`
-keys — and under D30 a bool key hashes by content anyway, so identity-keyed
-bool lookup is already being changed deliberately.
-
-Bund2 therefore compares `Bool`, `Nodata` and `None` **by content**: `true`
-equals `true`. Stated here as a deviation with its reachability argument, and
-criterion 4 is restated to demand dup-unequality only where the design can
-deliver it — heap values.
+That remains a deviation, and the argument for it is reachability — but an
+earlier draft overstated the argument. It said the `==` word "accepts only
+`INTEGER | FLOAT | CINTEGER | CFLOAT | TIME`". **It also accepts `STRING`**
+(`reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:47`). The
+claim that survives is the one that matters: `==` has **no `BOOL` arm**, so it
+bails on a bool (`:67-69`), and scalar identity-equality is unreachable
+through it. The paths that do reach it are container membership and `ValueMap`
+keys, and under D30 a bool key hashes by content anyway.
 
 ### Mutation resets the header, it does not copy it (F34)
 
@@ -394,10 +446,14 @@ pinned in `tests/golden/probes/eq-asymmetry.golden`:
 
 - **Truncate both ways** is not transitive: on the oracle `42 == 42.5` is
   true and `42 == 42.9` is true, while `42.5 == 42.9` is false.
-- **Widen both ways** is not transitive above 2^53: on the oracle
-  `9007199254740993 == 9007199254740992.0` is **true**, because widening
-  `2^53+1` to `f64` loses the low bit — so two distinct integers are equal to
-  one float and therefore to each other.
+- **Widen both ways** is not transitive above 2^53. The orientation has to be
+  named, because the two disagree: with the **float on top** the receiver is
+  the `F64` and it widens, and the oracle answers **true** — widening `2^53+1`
+  to `f64` loses the low bit, so two distinct integers are equal to one float
+  and therefore to each other. With the **int on top** the receiver truncates
+  and the oracle answers **false**. An earlier draft claimed "both failures
+  are pinned" while the probe wrote only the truncating orientation and
+  labelled it as the widening one; the probe now writes both.
 
 So an integer and a float are equal **when they denote the same mathematical
 value**:
@@ -414,7 +470,7 @@ so the golden will disagree and its disposition is F33.
 ### Hashing mirrors equality (D30)
 
 The reference hashes the id alone, while equality compares content for four
-payload kinds and identity for sixteen. The two disagree, and `Val::ValueMap`
+payload arms and identity for the rest. The two disagree, and `Val::ValueMap`
 is keyed by the type whose contract is broken — F30.
 
 D30 settles it: **`hash` mirrors `eq`, kind by kind.** Content-compared kinds
@@ -488,14 +544,14 @@ it is stated here so it is not discovered by a golden failure.
 | **Clone-equal**: `A == A.clone()` true for non-scalars | **Preserved exactly.** `Clone` is an `Rc` bump, so the identity slot is shared. |
 | **Dup-unequal**: `A == A.dup()` false for non-scalars | **Preserved exactly.** `dup` clears the identity slot on a fresh header. This is the contract an earlier draft broke. |
 | `set_tag` mutating in place without minting | **Preserved exactly.** `make_mut` copies the id, which is what an in-place write does. |
-| Equality: content for four payload kinds, identity for twelve heap kinds | **Preserved exactly** for heap kinds. |
+| Equality: content for four arms, identity for fifteen, mixed for `Val::List` | **Preserved exactly** for every arm with a heap header. |
 | Equality by identity for `Bool`, `Nodata`, `None` | **Deliberately changed** — scalars have no identity to compare. Unreachable through `==`, which bails on non-numeric types. See the scalar section. |
 | Mutation resetting `attr`, `curr`, `tags` (F34) | **Preserved exactly.** The header is rebuilt, not copied — `make_mut` would copy it, which is the divergence this row exists to close. |
 | `push` on a `RESULT` yielding a `LIST` (F35) | **Deliberately fixed.** The `dt` is preserved, as `set` already does for maps. No golden covers it. |
 | `ASSOCIATION` readable but unwritable (F36) | **Deliberately omitted.** A `dt` constant with no constructor and therefore no values; omitting it removes no behaviour. |
 | `stamp` sampled per construction | **Preserved observably, changed mechanically.** Sampled on first observation (D2). Two never-observed values may share a stamp; nothing can distinguish them. |
-| Ordering falling back to `id.cmp` | **Preserved exactly**, including F12's inconsistency with `lt`. |
-| Hash by identity | **Deliberately changed, per D30.** `hash` mirrors `eq`: content for the four content-compared kinds, identity for the other sixteen. Unobservable before the `get` mirror exists, since F29 leaves no read path. |
+| Ordering falling back to `id.cmp` | **Deliberately fixed**, per F12's disposition, which is FIX. `Ord::cmp` and `PartialOrd::lt` disagree today — `lt` returns `true` for any type mismatch (`reference/rust_dynamic/src/ord.rs:16,24`) while `cmp` falls back to `id.cmp` (`:175,183,191,199`). An earlier draft's row said "preserved exactly", contradicting F12. |
+| Hash by identity | **Deliberately changed, per D30.** `hash` mirrors `eq` arm for arm, on the same partition. Unobservable before the `get` mirror exists, since F29 leaves no read path. |
 | `valuemap` unreadable (F29) | **Deliberately fixed, per D30.** The `get` word branches on the container's type before casting the key, mirroring `set`. |
 | `tags`, including the per-push stack tag | **Preserved exactly**, as a field. |
 | `attr`, drivable by the `attribute` word | **Preserved exactly**, as a field. |
@@ -533,10 +589,13 @@ the value nothing.
 1. `size_of::<BundValue>()` is **16** and `align_of` is **8**, asserted in a
    unit test in `bund2-value`, and `cargo xtask layout` reports the same for
    candidate D.
-2. Constructing and cloning a scalar allocate **0** times for **candidate D**,
-   measured by the counting allocator in `cargo xtask layout`. The table
-   carried rows for candidates A and B only until this RFC's review; D's rows
-   now exist, so this criterion is evaluable.
+2. Constructing and cloning an **unadorned** scalar allocate **0** times for
+   candidate D, measured by the counting allocator in `cargo xtask layout`.
+   The qualifier is load-bearing: `TS::push` tags unconditionally
+   (`reference/rust_multistack/src/ts_push.rs:25`), so a scalar pushed to a
+   stack is boxed and allocates. An earlier draft asserted this without the
+   qualifier, which the goldens contradict — 24 of the 27 scalar renderings
+   carry a non-empty `tags`.
 3. `dup` of a heap list on a stack allocates **4** times and **649** bytes,
    against the reference's full bincode serialise-and-deserialise, and `dup`
    of a scalar allocates **0**. Measured by `cargo xtask layout`, which now
@@ -544,7 +603,9 @@ the value nothing.
    claim of "1 allocation — one header" was both wrong and unmeasurable. It
    is more than one because `HeapValue` carries `tags` and `attr` by value and
    **`tags` is never empty on a stack value**: `TS::push` writes the stack tag
-   on every push (`reference/rust_multistack/src/ts_push.rs:25`).
+   on every push (`reference/rust_multistack/src/ts_push.rs:25`). The same
+   fact is why criterion 2 says *unadorned* — a scalar on a stack is a boxed
+   scalar.
 4. **`A == A.clone()` is true and `A == A.dup()` is false**, for a list, a
    map and a lambda — every kind that has a heap header to carry an identity.
    This is D1's contract, and it is listed because an earlier draft broke it.
@@ -562,12 +623,18 @@ the value nothing.
    recorded in RFC-0000's provenance table.
 6. The `Debug` rendering reproduces the reference's text for the **258**
    renderings across 29 goldens, including `q: 100.0` as a constant and
-   `attr`, `curr`, `tags` as real state. **255 of the 258 show `attr: []` and
-   3 do not** — the three come from this RFC's own probe, and they are the
-   reason `attr` is a field rather than a constant.
+   `attr`, `curr`, `tags` as real state. **255 show `attr: []` and 3 do not**;
+   the three come from this RFC's own probe and are the reason `attr` is a
+   field. **27 of the 258 have a scalar payload, 24 of them with a non-empty
+   `tags`** — those are the renderings an inline-only scalar arm could not
+   produce, which is why scalars are boxable.
 7. **The bincode wire format is byte-identical to the reference** for one
-   value of each of the 20 payload kinds, compared against bytes captured from
-   the oracle. D20 asserts this and no earlier criterion checked it.
+   value of each payload arm **that the reference can construct**, compared
+   against bytes captured from the oracle. That is **nineteen**, not twenty:
+   `Val::Token` appears nowhere in `rust_dynamic` outside its own declaration
+   (`reference/rust_dynamic/src/types.rs:69`), so no oracle run can produce
+   one and an earlier draft's "each of the 20" was unsatisfiable. Recorded as
+   F38.
 8. **`.id` returns a 21-character string** over the reference's nanoid
    alphabet, and two values minted in one VM never collide.
 9. `cargo tree -p bund2-value` lists no `bund2-interp`. Vacuous until
@@ -582,10 +649,13 @@ the value nothing.
     never-observed values may share a stamp — is asserted as the expected
     behaviour, not worked around.
 12. **Equality across int and float is exact, symmetric and transitive.**
-    `42 == 42.0` is true; `42 == 42.5` and `42.5 == 42` are both false;
-    `9007199254740993 == 9007199254740992.0` is false. And `42` and `42.0`
-    hash alike, `-0.0` and `0.0` hash alike, `NaN` equals nothing. This is
-    D30's amendment and it is what makes the content hash implementable.
+    `42 == 42.0` is true; `42 == 42.5` is false **in both operand
+    orientations**; and `2^53+1` versus `2^53.0` is false **in both
+    orientations**. The orientation matters: the reference already answers
+    false for the truncating one, so a criterion that asserts only that
+    tests nothing — it is the widening orientation, where the reference
+    answers true, that this criterion actually constrains. And `42` and `42.0`
+    hash alike, `-0.0` and `0.0` hash alike, `NaN` equals nothing.
 13. `cargo xtask cite` reports zero defects. Note what it does **not** check:
     that a cited line means what the prose says. Two reviews have found
     citations that resolve and mislead, and `cite` passed both times.
@@ -680,3 +750,47 @@ the value nothing.
   Note: the review was written against a tree predating commit `c7edd9a`, so
   its closing question — whether D30 should be appended — was already answered.
   D30, and F29/F30's dispositions, were recorded before it arrived.
+
+- **2026-08-26, review 3** — `docs/rfc/reviews/RFC-0001-review-2026-08-26-3.md`.
+  Verdict: do not accept. All 49 reference citations were opened and read;
+  review 1's A-class defects have not returned, every count reproduced, and
+  `cargo xtask layout` reproduced every figure including criterion 3's
+  `dup a list  4  649`.
+
+  **The scalar repair had been applied to one field of six.** Review 2 found
+  that a `Bool` has no identity slot; it has no `tags`, `attr`, `curr` or
+  `stamp` slot either, and `TS::push` tags unconditionally with no type test —
+  the same fact criterion 3 cites to explain why heap `dup` costs four
+  allocations. The goldens settle the scale: 27 of the 258 renderings have a
+  scalar payload, **24 with a non-empty `tags`** and 3 with a populated
+  `attr`, and those three are in this RFC's own probe, the one cited as the
+  reason `attr` is a field. Criterion 6 was unsatisfiable for 24 renderings
+  and criteria 2 and 3 contradicted it. Scalars are now the *unadorned* form
+  and box when they acquire a header; the cost is stated rather than elided,
+  and the stack-slot optimisation that would avoid it is handed to RFC-0003,
+  where stack representation is decided.
+
+  **The 2^53 evidence did not say what it was cited for.** The probe wrote the
+  truncating orientation and labelled it as the widening one, so the widening
+  failure — the one that motivates exactness — was **unpinned**, and "both
+  failures are pinned" was false. Both orientations are now written out and
+  captured; the golden reads `false` for truncating and `true` for widening.
+  Criterion 12 was consequently asserting an answer the reference already
+  agrees with, and now names the orientation that actually constrains.
+
+  Four more, each verified: the ordering row said "preserved exactly" while
+  F12's disposition is **FIX**; the equality and hash rows said "twelve" and
+  "sixteen" for one partition, which is now stated precisely rather than
+  counted loosely (four arms by content, `Val::List` mixed, fifteen by
+  identity); "the `==` word accepts only numeric types" was **false**, there
+  is a `STRING` arm at `logic_compare_fun.rs:47` — the claim that survives is
+  the narrower one, that there is no `BOOL` arm; and the payload table was
+  still missing `MESSAGE` (review 2's A3) and `PAIR`, both of which are set by
+  assigning `dt` *after* construction, which is why a scan for the field
+  initialiser could not see them.
+
+  Registers: **F38** records that `Val::Token` has no constructor anywhere,
+  which made criterion 7's "each of the 20 payload kinds, captured from the
+  oracle" unsatisfiable — it now asks for nineteen. **F36** is extended from
+  `ASSOCIATION` to all four `dt` constants with no writer: `LITERAL`,
+  `LARGE_FLOAT`, `ASSOCIATION`, `TOKEN`, leaving 38 live of 42 declared.

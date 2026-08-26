@@ -5,3 +5,4 @@ defect Bund2 does not reproduce.
 
 | Golden | Defect | Date | Reason |
 |--------|--------|------|--------|
+| `probes/eq-asymmetry.golden` | — | — | F33 |

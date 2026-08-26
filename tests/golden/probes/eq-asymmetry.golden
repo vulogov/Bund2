@@ -6,9 +6,9 @@
 0
 ## output
 probe: the asymmetry itself
-  42.eq(42.5) truncates the float ->
+  int on top -> I64.eq(F64), truncates the float ->
 true
-  42.5.eq(42) widens the int      ->
+  float on top -> F64.eq(I64), widens the int    ->
 false
 probe: truncation is not transitive
   42 == 42.5 ->
@@ -17,9 +17,11 @@ true
 true
   42.5 == 42.9 ->
 false
-probe: widening loses the bit above 2^53
-  (2^53+1) == 2^53.0 ->
+probe: above 2^53, both directions, so both are pinned
+  int on top, truncating  (2^53+1).eq(2^53.0) ->
 false
+  float on top, widening  (2^53.0).eq(2^53+1) ->
+true
 ╭╮
 ╰╯
 ╭╮

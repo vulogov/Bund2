@@ -822,7 +822,7 @@ value silently changes type.
   The asymmetry between `set` restoring the tag and `push` not is the defect.
   No corpus program pushes to a `RESULT`, so no golden covers it.
 
-## F36 — `ASSOCIATION` is readable but has no writer
+## F36 — four `dt` constants are readable but have no writer
 `ASSOCIATION` (`reference/rust_dynamic/src/types.rs:51`) appears in eight
 reader arms — `get` (`reference/rust_dynamic/src/get.rs:7`), `has_key`
 (`reference/rust_dynamic/src/has_key.rs:7,26`), `set`
@@ -830,13 +830,23 @@ reader arms — `get` (`reference/rust_dynamic/src/get.rs:7`), `has_key`
 (`reference/rust_dynamic/src/reduce.rs:19`) and `conv`
 (`reference/rust_dynamic/src/conv.rs:518,595,729`).
 
-No constructor writes it. Nothing in `create*.rs` or `conv*.rs` produces a
-value with `dt: ASSOCIATION`, so every one of those arms is unreachable.
+No constructor writes it. Nothing in `rust_dynamic` assigns `dt: ASSOCIATION`
+or `dt = ASSOCIATION`, so every one of those arms is unreachable.
 
-- Found by: RFC-0001 review 2
-- Disposition: Bund2 omits `ASSOCIATION` unless a writer is found. It is a
-  `dt` constant with no values, so omitting it removes no behaviour. Record
-  the omission in RFC-0001's tag table.
+**It is not alone.** Scanning all 42 `dt` constants for a write — either the
+`dt:` field initialiser or a post-construction `dt = ` assignment, the second
+of which is how `PAIR` and `MESSAGE` are set
+(`reference/rust_dynamic/src/create.rs:166,186`) — four have neither:
+
+    LITERAL   LARGE_FLOAT   ASSOCIATION   TOKEN
+
+`TOKEN` pairs with `Val::Token`, which has no constructor either — F38.
+
+- Found by: RFC-0001 review 2; extended to all four by review 3
+- Disposition: Bund2 omits all four unless a writer is found. A `dt` constant
+  with no values carries no behaviour. Record the omission in RFC-0001's tag
+  table, and note that it makes the tag count 38 live constants of 42
+  declared.
 
 ## F37 — `stdlib/classes/registry.rs` is source that is never compiled
 `reference/rust_multistackvm/src/stdlib/classes/registry.rs` defines
@@ -867,3 +877,20 @@ accidental, not constructed.
   attribution is currently wrong. Recorded so that a future disagreement
   between path order and init order is diagnosed rather than rediscovered.
   Bund2 does not carry the file.
+
+## F38 — `Val::Token` has no constructor, so one payload arm is unreachable
+`Val::Token(String)` is declared (`reference/rust_dynamic/src/types.rs:69`)
+and appears nowhere else in `rust_dynamic`: no constructor writes it, no
+conversion produces it, and `TOKEN` — the matching `dt` constant
+(`reference/rust_dynamic/src/types.rs:56`) — is never assigned either.
+
+So nineteen of the twenty payload arms can be produced by a running Bund and
+one cannot.
+
+- Found by: RFC-0001 review 3
+- Affects: RFC-0001's criterion 7, which asked for a byte-identical wire
+  format "for one value of each of the 20 payload kinds, captured from the
+  oracle". No oracle run can produce a `Token`, so the criterion was
+  unsatisfiable as written. It now asks for nineteen.
+- Disposition: Bund2 omits the arm unless a writer is found. An arm with no
+  constructor carries no behaviour.

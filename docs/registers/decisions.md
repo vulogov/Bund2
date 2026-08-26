@@ -1191,10 +1191,15 @@ obvious readings are both ruled out by probe:
 - **Truncate in both directions** — not transitive. `42 == 42.5` is true and
   `42 == 42.9` is true, but `42.5 == 42.9` is false. Confirmed against the
   oracle, `tests/probes/eq-asymmetry.bund`.
-- **Widen in both directions** — not transitive either, above 2^53.
-  `9007199254740993 == 9007199254740992.0` answers **true** on the oracle:
-  widening `2^53+1` to `f64` loses the low bit. Two distinct integers then
-  compare equal to one float, so they compare equal to each other.
+- **Widen in both directions** — not transitive either, above 2^53, and the
+  operand orientation has to be named because the two disagree. With the
+  **float on top** the receiver widens and the oracle answers **true**:
+  widening `2^53+1` to `f64` loses the low bit, so two distinct integers
+  compare equal to one float and therefore to each other. With the **int on
+  top** the receiver truncates and it answers **false**. Both are now pinned
+  in `tests/probes/eq-asymmetry.bund`; an earlier version of this amendment
+  claimed both were pinned when only the truncating one was, and the probe's
+  label had them the wrong way round.
 
 So bidirectional forces **exact numeric comparison**: an integer and a float
 are equal when they denote the same mathematical value, and not otherwise.
@@ -1203,7 +1208,8 @@ are equal when they denote the same mathematical value, and not otherwise.
 
 That is symmetric by construction, transitive, and hashable — which is the
 whole point, since D30 needs a bucket assignment. `42 == 42.0` is true,
-`42 == 42.5` is false, and `9007199254740993 == 9007199254740992.0` is false.
+`42 == 42.5` is false in both orientations, and `2^53+1` versus `2^53.0` is
+false in both.
 
 **Hashing follows from it**, which also settles the float-bearing arms the
 review flagged:
