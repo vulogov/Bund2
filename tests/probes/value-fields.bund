@@ -1,0 +1,15 @@
+//
+// Probe: which of q / attr / curr / tags are real state.
+//
+// RFC-0001 renders `q` as the constant 100.0 and carries `attr`, `curr` and
+// `tags` as fields. Both halves are load-bearing for its criterion 6, and the
+// goldens alone cannot separate them — every corpus rendering shows
+// q: 100.0, attr: [], curr: -1 because no corpus program drives them.
+//
+"probe: attribute drives attr off [] — so attr is state, not a constant" println
+1 2 attribute
+debug.display_stack
+
+"probe: nodata renders dt 97 with q 100.0, not Value::new's q 0.0" println
+nodata
+debug.display_stack

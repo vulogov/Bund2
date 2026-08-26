@@ -634,10 +634,18 @@ uses a valuemap gets a plausible-looking value back and no diagnostic.
 `impl Hash for Value` hashes **only the id**:
 `self.id.hash(hasher)` and nothing else (`reference/rust_dynamic/src/hash.rs:6`).
 
-`impl PartialEq for Value` compares **content** for like types — two strings
-by their text (`reference/rust_dynamic/src/eq.rs:32`), two integers by value
-(`:10`), two floats by value (`:21`) — and only falls back to
-`self.id == other.id` when the types differ (`:15`, `:26`, `:34`).
+`impl PartialEq for Value` compares **content** for exactly four of the twenty
+`Val` arms — `I64` (`reference/rust_dynamic/src/eq.rs:10`), `F64` (`:21`),
+`String` (`:32`) and `Time` (`:40`). A mismatched scalar pair falls back to
+`self.id == other.id` (`:15`, `:26`, `:34`, `:42`), and **every other payload
+kind** reaches the catch-all at `:45`, which returns `self.id == other.id`
+(`:53`).
+
+An earlier version of this entry said the fallback fires "only when the types
+differ", which is wrong and is where RFC-0001's first draft inherited the same
+error. For sixteen of twenty kinds — `Bool`, `List`, `Map`, `Lambda`,
+`ValueMap`, `Json` among them — equality *is* identity. D1 recorded this
+correctly from the start.
 
 Two structurally identical strings are therefore `==` but hash to different
 buckets, since every construction mints a fresh id

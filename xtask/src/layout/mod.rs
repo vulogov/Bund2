@@ -320,6 +320,25 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     let (n, b, _) = measure(|| heap.clone());
     println!("  {:<44}{n:>7}{b:>9}", "A: clone a list (Rc bump)");
 
+    // Candidate D is the shape RFC-0001 specifies, so its rows are the ones
+    // the acceptance criteria are written against. A and B remain for contrast.
+    let (n, b, tagged) = measure(|| CandidateTagged::Int(7));
+    println!("  {:<44}{n:>7}{b:>9}", "D: construct a scalar");
+    let (n, b, _) = measure(|| tagged.clone());
+    println!("  {:<44}{n:>7}{b:>9}", "D: clone a scalar");
+
+    let (n, b, dheap) = measure(|| {
+        CandidateTagged::Heap(Rc::new(HeapTagged {
+            id: std::cell::Cell::new(0),
+            stamp: std::cell::Cell::new(0.0),
+            dt: 9, // LIST
+            payload: HeapPayload::List(vec![CandidateHeader::Int(1)]),
+        }))
+    });
+    println!("  {:<44}{n:>7}{b:>9}", "D: construct a 1-element list");
+    let (n, b, _) = measure(|| dheap.clone());
+    println!("  {:<44}{n:>7}{b:>9}", "D: clone a list (Rc bump)");
+
     let (n, b, inline) = measure(|| CandidateInline {
         id: 0,
         stamp: 0.0,

@@ -11,117 +11,115 @@ A blank `consumed` means the word was not probed — either it is
 effectful, out of scope, or it rejected every sentinel type on type
 grounds. Those are listed with a reason rather than guessed at.
 
-**This run was static only — no oracle was available.**
-
 | word | declared | wb | consumed | produced | via | site | note |
 |---|---|---|---|---|---|---|---|
-| `!` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/execute.rs:124 |  |
-| `!!` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:124 |  |
-| `!.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/execute.rs:125 |  |
-| `!=` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:237 |  |
-| `#` |  |  |  |  |  | reference/Bund/src/stdlib/functions/oop/object_execute.rs:59 |  |
-| `#.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/oop/object_execute.rs:60 |  |
-| `$` |  |  |  |  |  | reference/rust_multistack/src/stdlib/workbench.rs:81 |  |
-| `*` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/mul.rs:23 |  |
-| `**` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/mul.rs:25 |  |
-| `**.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/mul.rs:26 |  |
-| `*+` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/add.rs:25 |  |
-| `*+.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/add.rs:26 |  |
-| `*-` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/sub.rs:25 |  |
-| `*-.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/sub.rs:26 |  |
-| `*.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/mul.rs:24 |  |
-| `*/` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/div.rs:25 |  |
-| `*/.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/div.rs:26 |  |
-| `*loop` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:122 |  |
-| `*loop.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:123 |  |
-| `+` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/add.rs:23 |  |
-| `++` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/values/merge.rs:123 |  |
-| `+++` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/values/push.rs:74 |  |
-| `+++.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/push.rs:75 |  |
-| `++.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/merge.rs:124 |  |
-| `+.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/add.rs:24 |  |
-| `,` | 3 |  |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_dict.rs:120 |  |
-| `-` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/sub.rs:23 |  |
-| `-->` |  |  |  |  |  | reference/rust_multistack/src/stdlib/rotate.rs:98 |  |
-| `-.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/sub.rs:24 |  |
-| `->` |  |  |  |  |  | reference/rust_multistack/src/stdlib/rotate.rs:94 |  |
-| `.` |  |  |  |  |  | reference/rust_multistack/src/stdlib/workbench.rs:75 |  |
-| `/` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/div.rs:23 |  |
-| `/.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/div.rs:24 |  |
-| `<` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:239 |  |
-| `<-` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/create_aliases.rs:22 |  |
-| `<--` |  |  |  |  |  | reference/rust_multistack/src/stdlib/rotate.rs:96 |  |
-| `<=` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:241 |  |
-| `==` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:236 |  |
-| `>` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:238 |  |
-| `>=` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:240 |  |
-| `?` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:141 |  |
-| `?.` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/stackop/conditional_move.rs:91 |  |
-| `?alias` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:212 |  |
-| `?class` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_class.rs:61 |  |
-| `?error` |  |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:38 |  |
-| `?false` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:147 |  |
-| `?false*` | 3 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:105 |  |
-| `?false*.` | 2 | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:106 |  |
-| `?false.` | 1 | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:148 |  |
+| `!` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/execute.rs:124 | type-constrained: list rejected |
+| `!!` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:124 | type-constrained: list rejected |
+| `!.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/execute.rs:125 | no sentinel type accepted |
+| `!=` | 2 |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:237 |  |
+| `#` |  |  |  |  |  | reference/Bund/src/stdlib/functions/oop/object_execute.rs:59 | type-constrained: list rejected |
+| `#.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/oop/object_execute.rs:60 | type-constrained: list rejected |
+| `$` |  |  |  |  |  | reference/rust_multistack/src/stdlib/workbench.rs:81 | type-constrained: list rejected |
+| `*` |  |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/math/mul.rs:23 |  |
+| `**` |  |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/math/mul.rs:25 |  |
+| `**.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/mul.rs:26 | no sentinel type accepted |
+| `*+` |  |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/math/add.rs:25 |  |
+| `*+.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/add.rs:26 | no sentinel type accepted |
+| `*-` |  |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/math/sub.rs:25 |  |
+| `*-.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/sub.rs:26 | no sentinel type accepted |
+| `*.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/mul.rs:24 | no sentinel type accepted |
+| `*/` |  |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/math/div.rs:25 |  |
+| `*/.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/div.rs:26 | no sentinel type accepted |
+| `*loop` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:122 | type-constrained: list rejected |
+| `*loop.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:123 | type-constrained: list rejected |
+| `+` |  |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/math/add.rs:23 |  |
+| `++` | 2 |  | 2 | 1 | int | reference/Bund/src/stdlib/functions/values/merge.rs:123 |  |
+| `+++` | 2 |  | 2 | 1 | int | reference/Bund/src/stdlib/functions/values/push.rs:74 |  |
+| `+++.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/push.rs:75 | no sentinel type accepted |
+| `++.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/merge.rs:124 | no sentinel type accepted |
+| `+.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/add.rs:24 | no sentinel type accepted |
+| `,` | 3 |  | 3 | 1 | string | reference/rust_multistackvm/src/stdlib/values/value_dict.rs:120 |  |
+| `-` |  |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/math/sub.rs:23 |  |
+| `-->` |  |  | 0 | 0 | int | reference/rust_multistack/src/stdlib/rotate.rs:98 |  |
+| `-.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/sub.rs:24 | no sentinel type accepted |
+| `->` |  |  | 0 | 0 | int | reference/rust_multistack/src/stdlib/rotate.rs:94 |  |
+| `.` |  |  |  |  |  | reference/rust_multistack/src/stdlib/workbench.rs:75 | type-constrained: list rejected |
+| `/` |  |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/math/div.rs:23 |  |
+| `/.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/div.rs:24 | no sentinel type accepted |
+| `<` | 2 |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:239 |  |
+| `<-` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/create_aliases.rs:22 | type-constrained: list rejected |
+| `<--` |  |  | 0 | 0 | int | reference/rust_multistack/src/stdlib/rotate.rs:96 |  |
+| `<=` | 2 |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:241 |  |
+| `==` | 2 |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:236 |  |
+| `>` | 2 |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:238 |  |
+| `>=` | 2 |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:240 |  |
+| `?` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:141 |  |
+| `?.` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/stackop/conditional_move.rs:91 | type-constrained: list rejected |
+| `?alias` | 1 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:212 |  |
+| `?class` | 1 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/bund/bund_class.rs:61 |  |
+| `?error` |  |  | 0 | 1 | int | reference/Bund/src/stdlib/functions/conditional/mod.rs:38 |  |
+| `?false` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:147 | type-constrained: list rejected |
+| `?false*` | 3 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:105 | type-constrained: list rejected |
+| `?false*.` | 2 | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:106 | no sentinel type accepted |
+| `?false.` | 1 | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:148 | type-constrained: list rejected |
 | `?global` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bus/globals.rs:111 | not probed: effectful, out of scope, or terminates |
-| `?ifthenelse` |  |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:36 |  |
-| `?key` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_dict.rs:122 |  |
-| `?lambda` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:213 |  |
-| `?move` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/stackop/conditional_move.rs:90 |  |
-| `?object` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_class.rs:62 |  |
-| `?stack` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:149 |  |
-| `?stdlib` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:214 |  |
-| `?true` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:145 |  |
-| `?true*` | 3 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:103 |  |
-| `?true*.` | 2 | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:104 |  |
-| `?true.` | 1 | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:146 |  |
-| `?try` |  |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:37 |  |
-| `?type` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_types.rs:67 |  |
-| `?word` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:215 |  |
-| `False` |  |  |  |  |  | reference/Bund/src/stdlib/functions/oop/bool_class.rs:74 |  |
-| `Floats` |  |  |  |  |  | reference/Bund/src/stdlib/functions/oop/floatlist_class.rs:105 |  |
-| `Intervals` |  |  |  |  |  | reference/Bund/src/stdlib/functions/oop/intervals_class.rs:238 |  |
-| `List` |  |  |  |  |  | reference/Bund/src/stdlib/functions/oop/list_class.rs:96 |  |
-| `Pi` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float.rs:34 |  |
-| `True` |  |  |  |  |  | reference/Bund/src/stdlib/functions/oop/bool_class.rs:73 |  |
-| `alias` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/alias.rs:72 |  |
-| `alias=` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:216 |  |
-| `and` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_ops_fun.rs:133 |  |
-| `apply` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_interpreter.rs:77 |  |
+| `?ifthenelse` |  |  | 0 | 1 | int | reference/Bund/src/stdlib/functions/conditional/mod.rs:36 |  |
+| `?key` | 2 |  | 2 | 2 | string | reference/rust_multistackvm/src/stdlib/values/value_dict.rs:122 |  |
+| `?lambda` | 1 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:213 |  |
+| `?move` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/stackop/conditional_move.rs:90 | type-constrained: list rejected |
+| `?object` | 1 |  | 1 | 2 | int | reference/Bund/src/stdlib/functions/bund/bund_class.rs:62 |  |
+| `?stack` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:149 | type-constrained: list rejected |
+| `?stdlib` | 1 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:214 |  |
+| `?true` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:145 | type-constrained: list rejected |
+| `?true*` | 3 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:103 | type-constrained: list rejected |
+| `?true*.` | 2 | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:104 | no sentinel type accepted |
+| `?true.` | 1 | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:146 | no sentinel type accepted |
+| `?try` |  |  | 0 | 1 | int | reference/Bund/src/stdlib/functions/conditional/mod.rs:37 |  |
+| `?type` | 2 |  | 2 | 2 | string | reference/rust_multistackvm/src/stdlib/values/value_types.rs:67 |  |
+| `?word` | 1 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:215 |  |
+| `False` |  |  | 0 | 1 | int | reference/Bund/src/stdlib/functions/oop/bool_class.rs:74 |  |
+| `Floats` |  |  | 0 | 1 | int | reference/Bund/src/stdlib/functions/oop/floatlist_class.rs:105 |  |
+| `Intervals` |  |  | 0 | 1 | int | reference/Bund/src/stdlib/functions/oop/intervals_class.rs:238 |  |
+| `List` |  |  | 0 | 1 | int | reference/Bund/src/stdlib/functions/oop/list_class.rs:96 |  |
+| `Pi` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/math/float.rs:34 |  |
+| `True` |  |  | 0 | 1 | int | reference/Bund/src/stdlib/functions/oop/bool_class.rs:73 |  |
+| `alias` | 2 |  | 2 | 0 | string | reference/rust_multistackvm/src/stdlib/alias.rs:72 |  |
+| `alias=` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:216 | type-constrained: list rejected |
+| `and` | 2 |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/logic/logic_ops_fun.rs:133 |  |
+| `apply` | 1 |  | 1 | 1 | int | reference/Bund/src/stdlib/functions/bund/bund_interpreter.rs:77 |  |
 | `args` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_args.rs:99 | not probed: effectful, out of scope, or terminates |
 | `args.parse` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_args.rs:100 | not probed: effectful, out of scope, or terminates |
-| `at` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:203 |  |
-| `at.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:204 |  |
-| `attribute` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_tag.rs:71 |  |
+| `at` | 1 |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:203 |  |
+| `at.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:204 | no sentinel type accepted |
+| `attribute` | 2 |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/values/value_tag.rs:71 |  |
 | `bootstrap` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_load.rs:203 | not probed: effectful, out of scope, or terminates |
-| `bund.eval` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:124 |  |
-| `bund.eval-file` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:126 |  |
-| `bund.eval-file.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:127 |  |
-| `bund.eval.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:125 |  |
+| `bund.eval` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:124 | type-constrained: list rejected |
+| `bund.eval-file` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:126 | type-constrained: list rejected |
+| `bund.eval-file.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:127 | no sentinel type accepted |
+| `bund.eval.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:125 | no sentinel type accepted |
 | `bund.exit` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_exit.rs:41 | not probed: effectful, out of scope, or terminates |
 | `bund.prompt` |  |  |  |  |  | reference/Bund/src/stdlib/functions/io/input.rs:145 | not probed: effectful, out of scope, or terminates |
 | `bus.data` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:225 | not probed: effectful, out of scope, or terminates |
 | `bus.data.current` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:224 | not probed: effectful, out of scope, or terminates |
-| `call,` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/values/make_call_value.rs:61 |  |
-| `car` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:195 |  |
-| `car.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:196 |  |
-| `cdr` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:197 |  |
-| `cdr.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:198 |  |
-| `class` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:146 |  |
+| `call,` | 1 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/values/make_call_value.rs:61 |  |
+| `car` | 1 |  | 1 | 1 | int | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:195 |  |
+| `car.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:196 | no sentinel type accepted |
+| `cdr` | 1 |  | 1 | 1 | int | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:197 |  |
+| `cdr.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:198 | no sentinel type accepted |
+| `class` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:146 |  |
 | `classifier` |  |  |  |  |  | reference/Bund/src/stdlib/functions/ai/mod.rs:61 | not probed: effectful, out of scope, or terminates |
 | `classifier.classify` |  |  |  |  |  | reference/Bund/src/stdlib/functions/ai/mod.rs:69 | not probed: effectful, out of scope, or terminates |
 | `classify` |  |  |  |  |  | reference/Bund/src/stdlib/functions/ai/mod.rs:69 | not probed: effectful, out of scope, or terminates |
-| `clear` |  |  |  |  |  | reference/rust_multistack/src/stdlib/clear.rs:58 |  |
-| `clear_in` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/clear.rs:60 |  |
-| `clear_stacks` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/stacks.rs:18 |  |
-| `clusters.detect` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/clustering.rs:57 |  |
-| `clusters.detect.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/clustering.rs:58 |  |
-| `compile` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_interpreter.rs:76 |  |
-| `complex` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:144 |  |
-| `concat_with_space` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/string/concat_with_space.rs:52 |  |
-| `conditional` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:141 |  |
-| `config` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:140 |  |
+| `clear` |  |  | 0 | 0 | int | reference/rust_multistack/src/stdlib/clear.rs:58 |  |
+| `clear_in` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/clear.rs:60 | type-constrained: list rejected |
+| `clear_stacks` |  |  | 0 | 0 | int | reference/rust_multistackvm/src/stdlib/stacks.rs:18 |  |
+| `clusters.detect` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/clustering.rs:57 | not probed: effectful, out of scope, or terminates |
+| `clusters.detect.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/clustering.rs:58 | not probed: effectful, out of scope, or terminates |
+| `compile` | 1 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/bund/bund_interpreter.rs:76 |  |
+| `complex` | 1 |  | 2 | 1 | float | reference/rust_multistackvm/src/stdlib/artefacts.rs:144 |  |
+| `concat_with_space` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/string/concat_with_space.rs:52 | type-constrained: list rejected |
+| `conditional` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:141 |  |
+| `config` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:140 |  |
 | `console.box` |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/terminal.rs:63 | not probed: effectful, out of scope, or terminates |
 | `console.clear` |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/terminal.rs:60 | not probed: effectful, out of scope, or terminates |
 | `console.spinner` |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:338 | not probed: effectful, out of scope, or terminates |
@@ -145,95 +143,95 @@ grounds. Those are listed with a reason rather than guessed at.
 | `console.text.yellow` |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:359 | not probed: effectful, out of scope, or terminates |
 | `console.title` |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/terminal.rs:61 | not probed: effectful, out of scope, or terminates |
 | `console.typewriter` |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/terminal.rs:62 | not probed: effectful, out of scope, or terminates |
-| `context` |  |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:39 |  |
-| `convert.from_html` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/convert/html.rs:66 |  |
-| `convert.from_html.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/convert/html.rs:67 |  |
-| `convert.to_bool` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:112 |  |
-| `convert.to_bool.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:118 |  |
-| `convert.to_dict` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:122 |  |
-| `convert.to_dict.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:123 |  |
-| `convert.to_float` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:111 |  |
-| `convert.to_float.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:117 |  |
-| `convert.to_int` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:110 |  |
-| `convert.to_int.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:116 |  |
-| `convert.to_list` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:113 |  |
-| `convert.to_list.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:119 |  |
-| `convert.to_matrix` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:120 |  |
-| `convert.to_matrix.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:121 |  |
-| `convert.to_string` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:108 |  |
-| `convert.to_string.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:114 |  |
-| `convert.to_textbuffer` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:109 |  |
-| `convert.to_textbuffer.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:115 |  |
+| `context` |  |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/conditional/mod.rs:39 |  |
+| `convert.from_html` | 1 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/convert/html.rs:66 |  |
+| `convert.from_html.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/convert/html.rs:67 | no sentinel type accepted |
+| `convert.to_bool` | 1 |  | 1 | 1 | int | reference/rust_multistackvm/src/stdlib/convert/internal.rs:112 |  |
+| `convert.to_bool.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:118 | no sentinel type accepted |
+| `convert.to_dict` | 1 |  | 1 | 1 | list | reference/rust_multistackvm/src/stdlib/convert/internal.rs:122 |  |
+| `convert.to_dict.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:123 | no sentinel type accepted |
+| `convert.to_float` | 1 |  | 1 | 1 | int | reference/rust_multistackvm/src/stdlib/convert/internal.rs:111 |  |
+| `convert.to_float.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:117 | no sentinel type accepted |
+| `convert.to_int` | 1 |  | 1 | 1 | int | reference/rust_multistackvm/src/stdlib/convert/internal.rs:110 |  |
+| `convert.to_int.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:116 | no sentinel type accepted |
+| `convert.to_list` | 1 |  | 1 | 1 | int | reference/rust_multistackvm/src/stdlib/convert/internal.rs:113 |  |
+| `convert.to_list.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:119 | no sentinel type accepted |
+| `convert.to_matrix` | 1 |  | 1 | 1 | list | reference/rust_multistackvm/src/stdlib/convert/internal.rs:120 |  |
+| `convert.to_matrix.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:121 | no sentinel type accepted |
+| `convert.to_string` | 1 |  | 1 | 1 | int | reference/rust_multistackvm/src/stdlib/convert/internal.rs:108 |  |
+| `convert.to_string.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:114 | no sentinel type accepted |
+| `convert.to_textbuffer` | 1 |  | 1 | 1 | int | reference/rust_multistackvm/src/stdlib/convert/internal.rs:109 |  |
+| `convert.to_textbuffer.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:115 | no sentinel type accepted |
 | `cp` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/cp.rs:150 | not probed: effectful, out of scope, or terminates |
-| `csv` |  |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:42 |  |
-| `current` |  |  |  |  |  | reference/rust_multistack/src/stdlib/current.rs:75 |  |
-| `curry` |  |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:40 |  |
+| `csv` |  |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:42 | type-constrained: list rejected |
+| `current` |  |  | 0 | 1 | int | reference/rust_multistack/src/stdlib/current.rs:75 |  |
+| `curry` |  |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/conditional/mod.rs:40 |  |
 | `cwd` |  |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/cwd.rs:37 | not probed: effectful, out of scope, or terminates |
-| `debug` |  |  |  |  |  | reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:155 |  |
+| `debug` |  |  |  |  |  | reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:155 | type-constrained: list rejected |
 | `debug.display_distributed_info` |  |  |  |  |  | reference/Bund/src/stdlib/functions/debug_fun/debug_display_distributed_info.rs:134 | not probed: effectful, out of scope, or terminates |
 | `debug.display_hostinfo` |  |  |  |  |  | reference/Bund/src/stdlib/functions/debug_fun/debug_display_hostinfo.rs:159 | not probed: effectful, out of scope, or terminates |
 | `debug.display_memstat` |  |  |  |  |  | reference/Bund/src/stdlib/functions/debug_fun/debug_display_memstats.rs:72 | not probed: effectful, out of scope, or terminates |
-| `debug.display_stack` |  |  |  |  |  | reference/Bund/src/stdlib/functions/debug_fun/debug_display_stack.rs:44 |  |
-| `debug.display_workbench` |  |  |  |  |  | reference/Bund/src/stdlib/functions/debug_fun/debug_display_workbench.rs:38 |  |
-| `debug.dump` |  |  |  |  |  | reference/Bund/src/stdlib/functions/debug_fun/debug_dump.rs:74 |  |
+| `debug.display_stack` |  |  | 0 | 0 | int | reference/Bund/src/stdlib/functions/debug_fun/debug_display_stack.rs:44 |  |
+| `debug.display_workbench` |  |  | 0 | 0 | int | reference/Bund/src/stdlib/functions/debug_fun/debug_display_workbench.rs:38 |  |
+| `debug.dump` |  |  | 1 | 1 | int | reference/Bund/src/stdlib/functions/debug_fun/debug_dump.rs:74 |  |
 | `debug.shell` |  |  |  |  |  | reference/Bund/src/stdlib/functions/debug_fun/debug_shell.rs:67 | not probed: effectful, out of scope, or terminates |
-| `decode.base64` |  |  |  |  |  | reference/Bund/src/stdlib/functions/encoding/base64.rs:123 |  |
-| `decode.base64.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/encoding/base64.rs:124 |  |
+| `decode.base64` |  |  |  |  |  | reference/Bund/src/stdlib/functions/encoding/base64.rs:123 | type-constrained: list rejected |
+| `decode.base64.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/encoding/base64.rs:124 | no sentinel type accepted |
 | `deepseek.token` |  |  |  |  |  | reference/Bund/src/stdlib/functions/ai/deepseek.rs:160 | not probed: effectful, out of scope, or terminates |
-| `dict` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:140 |  |
-| `display` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/system/display.rs:88 |  |
-| `do` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/do_fun.rs:67 |  |
-| `do.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/do_fun.rs:68 |  |
-| `drop` |  |  |  |  |  | reference/rust_multistack/src/stdlib/drop.rs:71 |  |
-| `drop_in` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/drop.rs:73 |  |
-| `drop_stack` |  |  |  |  |  | reference/rust_multistack/src/stdlib/drop.rs:75 |  |
-| `drop_stacks` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/stacks.rs:19 |  |
-| `dup` |  |  |  |  |  | reference/rust_multistack/src/stdlib/dup.rs:87 |  |
-| `dup_many` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/dup.rs:86 |  |
-| `dup_many_in` | 2 |  |  |  |  | reference/rust_multistack/src/stdlib/dup.rs:89 |  |
-| `dup_one` |  |  |  |  |  | reference/rust_multistack/src/stdlib/dup.rs:87 |  |
-| `dup_one_in` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/dup.rs:90 |  |
-| `encode.base64` |  |  |  |  |  | reference/Bund/src/stdlib/functions/encoding/base64.rs:121 |  |
-| `encode.base64.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/encoding/base64.rs:122 |  |
-| `endcontext` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/ctx.rs:31 |  |
-| `ensure_stack` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/ensure_stack.rs:95 |  |
-| `ensure_stack_with_capacity` | 2 |  |  |  |  | reference/rust_multistack/src/stdlib/ensure_stack.rs:96 |  |
-| `execute` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/execute.rs:124 |  |
-| `execute.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/execute.rs:125 |  |
+| `dict` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:140 |  |
+| `display` | 1 |  | 1 | 0 | int | reference/Bund/src/stdlib/functions/system/display.rs:88 |  |
+| `do` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/do_fun.rs:67 | type-constrained: list rejected |
+| `do.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/do_fun.rs:68 | no sentinel type accepted |
+| `drop` |  |  |  |  |  | reference/rust_multistack/src/stdlib/drop.rs:71 | type-constrained: list rejected |
+| `drop_in` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/drop.rs:73 | type-constrained: list rejected |
+| `drop_stack` |  |  | 0 | 0 | int | reference/rust_multistack/src/stdlib/drop.rs:75 |  |
+| `drop_stacks` |  |  | 0 | 0 | int | reference/rust_multistackvm/src/stdlib/stacks.rs:19 |  |
+| `dup` |  |  |  |  |  | reference/rust_multistack/src/stdlib/dup.rs:87 | type-constrained: list rejected |
+| `dup_many` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/dup.rs:86 | type-constrained: list rejected |
+| `dup_many_in` | 2 |  |  |  |  | reference/rust_multistack/src/stdlib/dup.rs:89 | type-constrained: list rejected |
+| `dup_one` |  |  |  |  |  | reference/rust_multistack/src/stdlib/dup.rs:87 | type-constrained: list rejected |
+| `dup_one_in` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/dup.rs:90 | type-constrained: list rejected |
+| `encode.base64` |  |  | 1 | 1 | int | reference/Bund/src/stdlib/functions/encoding/base64.rs:121 |  |
+| `encode.base64.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/encoding/base64.rs:122 | no sentinel type accepted |
+| `endcontext` |  |  | 0 | 0 | int | reference/rust_multistackvm/src/stdlib/ctx.rs:31 |  |
+| `ensure_stack` | 1 |  | 1 | 0 | string | reference/rust_multistack/src/stdlib/ensure_stack.rs:95 |  |
+| `ensure_stack_with_capacity` | 2 |  |  |  |  | reference/rust_multistack/src/stdlib/ensure_stack.rs:96 | type-constrained: list rejected |
+| `execute` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/execute.rs:124 | type-constrained: list rejected |
+| `execute.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/execute.rs:125 | no sentinel type accepted |
 | `exit` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_exit.rs:41 | not probed: effectful, out of scope, or terminates |
-| `false` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:138 |  |
+| `false` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:138 |  |
 | `file` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/file.rs:100 | not probed: effectful, out of scope, or terminates |
 | `file.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/filesystem/file.rs:101 | not probed: effectful, out of scope, or terminates |
 | `file.write` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/file_write.rs:89 | not probed: effectful, out of scope, or terminates |
 | `file.write.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/filesystem/file_write.rs:90 | not probed: effectful, out of scope, or terminates |
 | `filename` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/filepath.rs:81 | not probed: effectful, out of scope, or terminates |
 | `filename.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/filesystem/filepath.rs:82 | not probed: effectful, out of scope, or terminates |
-| `float.+Inf` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float.rs:32 |  |
-| `float.-Inf` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float.rs:33 |  |
-| `float.E` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float.rs:35 |  |
-| `float.NaN` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float.rs:31 |  |
-| `float.Pi` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float.rs:34 |  |
-| `fmt` |  |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:41 |  |
-| `fold` |  |  |  |  |  | reference/rust_multistack/src/stdlib/fold.rs:41 |  |
-| `fold_stack` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/fold.rs:43 |  |
-| `for` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/for_fun.rs:101 |  |
-| `for.` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/for_fun.rs:102 |  |
-| `forecast.estimate` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:167 |  |
-| `forecast.estimate!` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:171 |  |
-| `forecast.estimate!.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:172 |  |
-| `forecast.estimate.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:168 |  |
-| `forecast.estimate.uncertainty` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:169 |  |
-| `forecast.estimate.uncertainty.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:170 |  |
-| `forecast.markov` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/markov.rs:74 |  |
-| `forecast.markov,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/markov.rs:76 |  |
-| `forecast.markov.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/markov.rs:75 |  |
-| `forecast.markov.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/markov.rs:77 |  |
-| `forecast.mstl` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/mstl.rs:103 |  |
-| `forecast.mstl,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/mstl.rs:105 |  |
-| `forecast.mstl.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/mstl.rs:104 |  |
-| `forecast.mstl.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/mstl.rs:106 |  |
-| `format` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/string/format.rs:135 |  |
-| `format.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/string/format.rs:136 |  |
+| `float.+Inf` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/math/float.rs:32 |  |
+| `float.-Inf` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/math/float.rs:33 |  |
+| `float.E` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/math/float.rs:35 |  |
+| `float.NaN` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/math/float.rs:31 |  |
+| `float.Pi` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/math/float.rs:34 |  |
+| `fmt` |  |  | 0 | 1 | int | reference/Bund/src/stdlib/functions/conditional/mod.rs:41 |  |
+| `fold` |  |  | 0 | 1 | int | reference/rust_multistack/src/stdlib/fold.rs:41 |  |
+| `fold_stack` | 1 |  | 1 | 1 | string | reference/rust_multistack/src/stdlib/fold.rs:43 |  |
+| `for` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/for_fun.rs:101 | type-constrained: list rejected |
+| `for.` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/for_fun.rs:102 | type-constrained: list rejected |
+| `forecast.estimate` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:167 | not probed: effectful, out of scope, or terminates |
+| `forecast.estimate!` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:171 | not probed: effectful, out of scope, or terminates |
+| `forecast.estimate!.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:172 | not probed: effectful, out of scope, or terminates |
+| `forecast.estimate.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:168 | not probed: effectful, out of scope, or terminates |
+| `forecast.estimate.uncertainty` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:169 | not probed: effectful, out of scope, or terminates |
+| `forecast.estimate.uncertainty.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:170 | not probed: effectful, out of scope, or terminates |
+| `forecast.markov` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/markov.rs:74 | not probed: effectful, out of scope, or terminates |
+| `forecast.markov,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/markov.rs:76 | not probed: effectful, out of scope, or terminates |
+| `forecast.markov.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/markov.rs:75 | not probed: effectful, out of scope, or terminates |
+| `forecast.markov.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/markov.rs:77 | not probed: effectful, out of scope, or terminates |
+| `forecast.mstl` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/mstl.rs:103 | not probed: effectful, out of scope, or terminates |
+| `forecast.mstl,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/mstl.rs:105 | not probed: effectful, out of scope, or terminates |
+| `forecast.mstl.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/mstl.rs:104 | not probed: effectful, out of scope, or terminates |
+| `forecast.mstl.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/mstl.rs:106 | not probed: effectful, out of scope, or terminates |
+| `format` | 1 |  | 1 | 1 | string | reference/rust_multistackvm/src/stdlib/string/format.rs:135 |  |
+| `format.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/string/format.rs:136 | no sentinel type accepted |
 | `fs.cp` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/cp.rs:150 | not probed: effectful, out of scope, or terminates |
 | `fs.cwd` |  |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/cwd.rs:37 | not probed: effectful, out of scope, or terminates |
 | `fs.is_file` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/filesystem.rs:74 | not probed: effectful, out of scope, or terminates |
@@ -250,30 +248,30 @@ grounds. Those are listed with a reason rather than guessed at.
 | `generator` |  |  |  |  |  | reference/Bund/src/stdlib/functions/generators/mod.rs:68 | not probed: effectful, out of scope, or terminates |
 | `generator.sample` |  |  |  |  |  | reference/Bund/src/stdlib/functions/generators/mod.rs:69 | not probed: effectful, out of scope, or terminates |
 | `generator.sample*` |  |  |  |  |  | reference/Bund/src/stdlib/functions/generators/mod.rs:70 | not probed: effectful, out of scope, or terminates |
-| `get` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_dict.rs:121 |  |
-| `get,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/values/getsetinplace.rs:125 |  |
-| `get.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/values/getsetinplace.rs:126 |  |
+| `get` | 2 |  | 2 | 1 | string | reference/rust_multistackvm/src/stdlib/values/value_dict.rs:121 |  |
+| `get,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/values/getsetinplace.rs:125 | type-constrained: list rejected |
+| `get.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/values/getsetinplace.rs:126 | no sentinel type accepted |
 | `global` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/bus/globals.rs:109 | not probed: effectful, out of scope, or terminates |
 | `global*` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bus/globals.rs:110 | not probed: effectful, out of scope, or terminates |
-| `graph` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/graph/mod.rs:113 |  |
-| `graph!` |  |  |  |  |  | reference/Bund/src/stdlib/functions/graph/mod.rs:115 |  |
-| `graph.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/graph/mod.rs:114 |  |
-| `graph.allpath` |  |  |  |  |  | reference/Bund/src/stdlib/functions/graph/allshortpath.rs:95 |  |
-| `graph.path` |  |  |  |  |  | reference/Bund/src/stdlib/functions/graph/getpath.rs:106 |  |
-| `graph.paths` |  |  |  |  |  | reference/Bund/src/stdlib/functions/graph/dijkstra.rs:95 |  |
-| `graph.transitiveclosure` |  |  |  |  |  | reference/Bund/src/stdlib/functions/graph/transitiveclosure.rs:84 |  |
-| `head` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:199 |  |
-| `head.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:200 |  |
-| `id.ulid` |  |  |  |  |  | reference/Bund/src/stdlib/functions/string/any_id.rs:36 |  |
-| `id.uuid` |  |  |  |  |  | reference/Bund/src/stdlib/functions/string/any_id.rs:35 |  |
-| `if` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:145 |  |
-| `if.` | 1 | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:146 |  |
-| `if.false` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:147 |  |
-| `if.false.in_workbench` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:148 |  |
-| `if.in_workbench` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:146 |  |
-| `if.stack` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:149 |  |
-| `ifthenelse` | 3 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:103 |  |
-| `ifthenelse.` | 2 | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:104 |  |
+| `graph` | 1 |  | 1 | 1 | list | reference/Bund/src/stdlib/functions/graph/mod.rs:113 |  |
+| `graph!` |  |  | 0 | 1 | int | reference/Bund/src/stdlib/functions/graph/mod.rs:115 |  |
+| `graph.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/graph/mod.rs:114 | no sentinel type accepted |
+| `graph.allpath` |  |  |  |  |  | reference/Bund/src/stdlib/functions/graph/allshortpath.rs:95 | type-constrained: list rejected |
+| `graph.path` |  |  |  |  |  | reference/Bund/src/stdlib/functions/graph/getpath.rs:106 | type-constrained: list rejected |
+| `graph.paths` |  |  |  |  |  | reference/Bund/src/stdlib/functions/graph/dijkstra.rs:95 | type-constrained: list rejected |
+| `graph.transitiveclosure` |  |  |  |  |  | reference/Bund/src/stdlib/functions/graph/transitiveclosure.rs:84 | type-constrained: list rejected |
+| `head` | 1 |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:199 |  |
+| `head.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:200 | no sentinel type accepted |
+| `id.ulid` |  |  | 0 | 1 | int | reference/Bund/src/stdlib/functions/string/any_id.rs:36 |  |
+| `id.uuid` |  |  | 0 | 1 | int | reference/Bund/src/stdlib/functions/string/any_id.rs:35 |  |
+| `if` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:145 | type-constrained: list rejected |
+| `if.` | 1 | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:146 | no sentinel type accepted |
+| `if.false` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:147 | type-constrained: list rejected |
+| `if.false.in_workbench` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:148 | type-constrained: list rejected |
+| `if.in_workbench` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:146 | no sentinel type accepted |
+| `if.stack` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:149 | type-constrained: list rejected |
+| `ifthenelse` | 3 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:103 | type-constrained: list rejected |
+| `ifthenelse.` | 2 | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:104 | no sentinel type accepted |
 | `image.print` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/image/print_image.rs:46 | not probed: effectful, out of scope, or terminates |
 | `input` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/io/input.rs:142 | not probed: effectful, out of scope, or terminates |
 | `input*` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/io/input.rs:144 | not probed: effectful, out of scope, or terminates |
@@ -281,143 +279,143 @@ grounds. Those are listed with a reason rather than guessed at.
 | `internaldb.prql` |  |  |  |  |  | reference/Bund/src/stdlib/functions/internaldb/mod.rs:67 | not probed: effectful, out of scope, or terminates |
 | `internaldb.sql` |  |  |  |  |  | reference/Bund/src/stdlib/functions/internaldb/mod.rs:65 | not probed: effectful, out of scope, or terminates |
 | `internaldb.version` |  |  |  |  |  | reference/Bund/src/stdlib/functions/internaldb/mod.rs:64 | not probed: effectful, out of scope, or terminates |
-| `io.banner` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/io/banner.rs:86 |  |
-| `io.banner.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/io/banner.rs:87 |  |
-| `io.graph` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/io/graph.rs:80 |  |
-| `io.graph.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/io/graph.rs:81 |  |
+| `io.banner` | 1 |  | 1 | 1 | int | reference/Bund/src/stdlib/functions/io/banner.rs:86 |  |
+| `io.banner.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/io/banner.rs:87 | no sentinel type accepted |
+| `io.graph` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/io/graph.rs:80 | type-constrained: list rejected |
+| `io.graph.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/io/graph.rs:81 | no sentinel type accepted |
 | `io.textfile` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/io/textfile.rs:102 | not probed: effectful, out of scope, or terminates |
 | `io.textfile.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/io/textfile.rs:103 | not probed: effectful, out of scope, or terminates |
-| `is` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/oop/value_class.rs:170 |  |
-| `json` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts_json.rs:37 |  |
-| `json.from_value` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/json/conversion.rs:59 |  |
-| `json.path` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/json/json_path.rs:68 |  |
-| `json.to_value` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/json/conversion.rs:60 |  |
-| `lambda` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:135 |  |
-| `lambda!` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:218 |  |
-| `lambda*` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:219 |  |
-| `lambda=` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:217 |  |
-| `len` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_len.rs:24 |  |
-| `lines` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/string/tokenize.rs:129 |  |
-| `lines.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/tokenize.rs:130 |  |
-| `list` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:134 |  |
+| `is` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/oop/value_class.rs:170 | type-constrained: list rejected |
+| `json` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts_json.rs:37 | type-constrained: list rejected |
+| `json.from_value` | 1 |  | 1 | 1 | int | reference/rust_multistackvm/src/stdlib/json/conversion.rs:59 |  |
+| `json.path` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/json/json_path.rs:68 | type-constrained: list rejected |
+| `json.to_value` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/json/conversion.rs:60 | type-constrained: list rejected |
+| `lambda` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:135 |  |
+| `lambda!` | 1 |  | 1 | 1 | list | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:218 |  |
+| `lambda*` |  |  | 0 | 1 | int | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:219 |  |
+| `lambda=` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:217 | type-constrained: list rejected |
+| `len` | 1 |  | 1 | 2 | int | reference/rust_multistackvm/src/stdlib/values/value_len.rs:24 |  |
+| `lines` | 1 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/string/tokenize.rs:129 |  |
+| `lines.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/tokenize.rs:130 | no sentinel type accepted |
+| `list` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:134 |  |
 | `load` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_load.rs:199 | not probed: effectful, out of scope, or terminates |
 | `load.aliases` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_load.rs:200 | not probed: effectful, out of scope, or terminates |
 | `load.lambdas` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_load.rs:201 | not probed: effectful, out of scope, or terminates |
 | `load.model` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_models.rs:145 | not probed: effectful, out of scope, or terminates |
 | `load.script` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_world_bootstrap.rs:150 | not probed: effectful, out of scope, or terminates |
 | `load.stacks` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_load.rs:202 | not probed: effectful, out of scope, or terminates |
-| `log.debug` |  |  |  |  |  | reference/Bund/src/stdlib/functions/debug_fun/debug_trace.rs:64 |  |
-| `log.error` |  |  |  |  |  | reference/Bund/src/stdlib/functions/debug_fun/debug_trace.rs:63 |  |
-| `log.info` |  |  |  |  |  | reference/Bund/src/stdlib/functions/debug_fun/debug_trace.rs:61 |  |
-| `log.trace` |  |  |  |  |  | reference/Bund/src/stdlib/functions/debug_fun/debug_trace.rs:65 |  |
-| `log.warning` |  |  |  |  |  | reference/Bund/src/stdlib/functions/debug_fun/debug_trace.rs:62 |  |
-| `loop` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:120 |  |
-| `loop.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:121 |  |
+| `log.debug` |  |  | 1 | 0 | string | reference/Bund/src/stdlib/functions/debug_fun/debug_trace.rs:64 |  |
+| `log.error` |  |  | 1 | 0 | string | reference/Bund/src/stdlib/functions/debug_fun/debug_trace.rs:63 |  |
+| `log.info` |  |  | 1 | 0 | string | reference/Bund/src/stdlib/functions/debug_fun/debug_trace.rs:61 |  |
+| `log.trace` |  |  | 1 | 0 | string | reference/Bund/src/stdlib/functions/debug_fun/debug_trace.rs:65 |  |
+| `log.warning` |  |  | 1 | 0 | string | reference/Bund/src/stdlib/functions/debug_fun/debug_trace.rs:62 |  |
+| `loop` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:120 | type-constrained: list rejected |
+| `loop.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:121 | type-constrained: list rejected |
 | `ls` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/ls.rs:114 | not probed: effectful, out of scope, or terminates |
 | `ls.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/filesystem/ls.rs:115 | not probed: effectful, out of scope, or terminates |
-| `make.call` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/values/make_call_value.rs:61 |  |
-| `make.call.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/make_call_value.rs:62 |  |
-| `map` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/map_fun.rs:118 |  |
-| `map.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/map_fun.rs:119 |  |
-| `match` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:147 |  |
-| `math.abs` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float_math.rs:172 |  |
-| `math.acos` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float_math.rs:183 |  |
-| `math.asin` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float_math.rs:182 |  |
-| `math.atan` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float_math.rs:184 |  |
-| `math.cbrt` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float_math.rs:174 |  |
-| `math.ceil` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float_math.rs:175 |  |
-| `math.cos` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float_math.rs:180 |  |
-| `math.cosecant` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/math.rs:153 |  |
-| `math.cosh` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float_math.rs:186 |  |
-| `math.exp` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/math.rs:154 |  |
-| `math.factorial` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/math.rs:155 |  |
-| `math.floor` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float_math.rs:171 |  |
-| `math.fract` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float_math.rs:177 |  |
-| `math.interpolation` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/math/interp.rs:48 |  |
-| `math.ln` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/math.rs:156 |  |
-| `math.log10` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/math.rs:157 |  |
-| `math.max` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/minmax.rs:81 |  |
-| `math.max,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/minmax.rs:85 |  |
-| `math.max.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/minmax.rs:83 |  |
-| `math.max.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/minmax.rs:87 |  |
-| `math.min` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/minmax.rs:80 |  |
-| `math.min,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/minmax.rs:84 |  |
-| `math.min.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/minmax.rs:82 |  |
-| `math.min.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/minmax.rs:86 |  |
-| `math.normalize` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/normalize.rs:68 |  |
-| `math.normalize,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/normalize.rs:70 |  |
-| `math.normalize.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/normalize.rs:69 |  |
-| `math.normalize.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/normalize.rs:71 |  |
-| `math.nroot` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/math.rs:158 |  |
-| `math.perimeter` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/math.rs:159 |  |
-| `math.power` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/math.rs:160 |  |
+| `make.call` | 1 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/values/make_call_value.rs:61 |  |
+| `make.call.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/make_call_value.rs:62 | no sentinel type accepted |
+| `map` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/map_fun.rs:118 | type-constrained: list rejected |
+| `map.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/map_fun.rs:119 | type-constrained: list rejected |
+| `match` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:147 |  |
+| `math.abs` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:172 |  |
+| `math.acos` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:183 |  |
+| `math.asin` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:182 |  |
+| `math.atan` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:184 |  |
+| `math.cbrt` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:174 |  |
+| `math.ceil` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:175 |  |
+| `math.cos` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:180 |  |
+| `math.cosecant` |  |  | 1 | 1 | float | reference/Bund/src/stdlib/functions/math/math.rs:153 |  |
+| `math.cosh` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:186 |  |
+| `math.exp` |  |  | 1 | 1 | float | reference/Bund/src/stdlib/functions/math/math.rs:154 |  |
+| `math.factorial` |  |  | 1 | 1 | float | reference/Bund/src/stdlib/functions/math/math.rs:155 |  |
+| `math.floor` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:171 |  |
+| `math.fract` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:177 |  |
+| `math.interpolation` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/math/interp.rs:48 | type-constrained: list rejected |
+| `math.ln` |  |  | 1 | 1 | float | reference/Bund/src/stdlib/functions/math/math.rs:156 |  |
+| `math.log10` |  |  | 1 | 1 | float | reference/Bund/src/stdlib/functions/math/math.rs:157 |  |
+| `math.max` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/minmax.rs:81 | not probed: effectful, out of scope, or terminates |
+| `math.max,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/minmax.rs:85 | not probed: effectful, out of scope, or terminates |
+| `math.max.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/minmax.rs:83 | not probed: effectful, out of scope, or terminates |
+| `math.max.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/minmax.rs:87 | not probed: effectful, out of scope, or terminates |
+| `math.min` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/minmax.rs:80 | not probed: effectful, out of scope, or terminates |
+| `math.min,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/minmax.rs:84 | not probed: effectful, out of scope, or terminates |
+| `math.min.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/minmax.rs:82 | not probed: effectful, out of scope, or terminates |
+| `math.min.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/minmax.rs:86 | not probed: effectful, out of scope, or terminates |
+| `math.normalize` |  |  | 1 | 1 | int | reference/Bund/src/stdlib/functions/math/normalize.rs:68 |  |
+| `math.normalize,` |  |  | 1 | 1 | int | reference/Bund/src/stdlib/functions/math/normalize.rs:70 |  |
+| `math.normalize.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/normalize.rs:69 | no sentinel type accepted |
+| `math.normalize.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/normalize.rs:71 | no sentinel type accepted |
+| `math.nroot` |  |  | 2 | 1 | float | reference/Bund/src/stdlib/functions/math/math.rs:158 |  |
+| `math.perimeter` |  |  | 2 | 1 | float | reference/Bund/src/stdlib/functions/math/math.rs:159 |  |
+| `math.power` |  |  | 2 | 1 | float | reference/Bund/src/stdlib/functions/math/math.rs:160 |  |
 | `math.random.int` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/rand.rs:60 | not probed: effectful, out of scope, or terminates |
-| `math.round` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float_math.rs:176 |  |
+| `math.round` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:176 |  |
 | `math.securerandom.int` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/rand.rs:61 | not probed: effectful, out of scope, or terminates |
-| `math.signum` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float_math.rs:173 |  |
-| `math.sin` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float_math.rs:179 |  |
-| `math.sinh` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float_math.rs:185 |  |
-| `math.smoothing` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/smoothing.rs:63 |  |
-| `math.smoothing,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/smoothing.rs:65 |  |
-| `math.smoothing.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/smoothing.rs:64 |  |
-| `math.smoothing.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/smoothing.rs:66 |  |
-| `math.sqrt` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float_math.rs:178 |  |
-| `math.tan` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float_math.rs:181 |  |
-| `math.tanh` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float_math.rs:187 |  |
-| `matrix` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:120 |  |
-| `matrix.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:121 |  |
-| `merge` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/values/merge.rs:123 |  |
-| `merge.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/merge.rs:124 |  |
-| `metrics` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:145 |  |
-| `move` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/stack_move.rs:78 |  |
-| `move_from` | 2 |  |  |  |  | reference/rust_multistack/src/stdlib/stack_move.rs:79 |  |
+| `math.signum` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:173 |  |
+| `math.sin` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:179 |  |
+| `math.sinh` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:185 |  |
+| `math.smoothing` |  |  | 1 | 1 | int | reference/Bund/src/stdlib/functions/math/smoothing.rs:63 |  |
+| `math.smoothing,` |  |  | 1 | 1 | int | reference/Bund/src/stdlib/functions/math/smoothing.rs:65 |  |
+| `math.smoothing.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/smoothing.rs:64 | no sentinel type accepted |
+| `math.smoothing.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/smoothing.rs:66 | no sentinel type accepted |
+| `math.sqrt` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:178 |  |
+| `math.tan` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:181 |  |
+| `math.tanh` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:187 |  |
+| `matrix` | 1 |  | 1 | 1 | list | reference/rust_multistackvm/src/stdlib/convert/internal.rs:120 |  |
+| `matrix.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/convert/internal.rs:121 | no sentinel type accepted |
+| `merge` | 2 |  | 2 | 1 | int | reference/Bund/src/stdlib/functions/values/merge.rs:123 |  |
+| `merge.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/merge.rs:124 | no sentinel type accepted |
+| `metrics` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:145 |  |
+| `move` | 1 |  | 1 | 0 | string | reference/rust_multistack/src/stdlib/stack_move.rs:78 |  |
+| `move_from` | 2 |  | 2 | 0 | string | reference/rust_multistack/src/stdlib/stack_move.rs:79 |  |
 | `mv` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/cp.rs:151 | not probed: effectful, out of scope, or terminates |
 | `neuralnetwork` |  |  |  |  |  | reference/Bund/src/stdlib/functions/ai/mod.rs:57 | not probed: effectful, out of scope, or terminates |
 | `neuralnetwork.predict` |  |  |  |  |  | reference/Bund/src/stdlib/functions/ai/mod.rs:65 | not probed: effectful, out of scope, or terminates |
-| `nl` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/print.rs:68 |  |
-| `nodata` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:139 |  |
-| `not` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_ops_fun.rs:132 |  |
-| `notifthenelse` | 3 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:105 |  |
-| `notifthenelse.` | 2 | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:106 |  |
-| `object` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/bund_object.rs:192 |  |
-| `or` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_ops_fun.rs:134 |  |
-| `outlier.detect` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/outliers.rs:57 |  |
-| `outlier.detect.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/outliers.rs:58 |  |
-| `outlier.detect.dbscan` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/outliers_dbscan.rs:57 |  |
-| `outlier.detect.dbscan.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/outliers_dbscan.rs:58 |  |
-| `pair` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:143 |  |
+| `nl` |  |  | 0 | 0 | int | reference/rust_multistackvm/src/stdlib/print.rs:68 |  |
+| `nodata` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:139 |  |
+| `not` | 1 |  | 1 | 1 | int | reference/rust_multistackvm/src/stdlib/logic/logic_ops_fun.rs:132 |  |
+| `notifthenelse` | 3 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:105 | type-constrained: list rejected |
+| `notifthenelse.` | 2 | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:106 | no sentinel type accepted |
+| `object` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/bund_object.rs:192 | type-constrained: list rejected |
+| `or` | 2 |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/logic/logic_ops_fun.rs:134 |  |
+| `outlier.detect` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/outliers.rs:57 | not probed: effectful, out of scope, or terminates |
+| `outlier.detect.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/outliers.rs:58 | not probed: effectful, out of scope, or terminates |
+| `outlier.detect.dbscan` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/outliers_dbscan.rs:57 | not probed: effectful, out of scope, or terminates |
+| `outlier.detect.dbscan.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/outliers_dbscan.rs:58 | not probed: effectful, out of scope, or terminates |
+| `pair` | 1 |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:143 |  |
 | `password` |  |  |  |  |  | reference/Bund/src/stdlib/functions/io/input.rs:143 | not probed: effectful, out of scope, or terminates |
-| `periodic.detect` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/periodic_detector.rs:69 |  |
-| `periodic.detect.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/periodic_detector.rs:70 |  |
+| `periodic.detect` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/periodic_detector.rs:69 | not probed: effectful, out of scope, or terminates |
+| `periodic.detect.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/periodic_detector.rs:70 | not probed: effectful, out of scope, or terminates |
 | `predict` |  |  |  |  |  | reference/Bund/src/stdlib/functions/ai/mod.rs:65 | not probed: effectful, out of scope, or terminates |
-| `print` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/print.rs:63 |  |
-| `print.` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/print.rs:64 |  |
-| `println` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/print.rs:65 |  |
-| `println.` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/print.rs:66 |  |
-| `ptr` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:136 |  |
-| `pull` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/values/pull.rs:121 |  |
-| `pull.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/pull.rs:122 |  |
-| `pull.workbench` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/values/pull.rs:123 |  |
-| `pull.workbench.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/pull.rs:124 |  |
-| `push` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/values/push.rs:74 |  |
-| `push.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/push.rs:75 |  |
-| `raise` |  |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:44 |  |
+| `print` |  |  | 1 | 0 | int | reference/rust_multistackvm/src/stdlib/print.rs:63 |  |
+| `print.` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/print.rs:64 | no sentinel type accepted |
+| `println` |  |  | 1 | 0 | int | reference/rust_multistackvm/src/stdlib/print.rs:65 |  |
+| `println.` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/print.rs:66 | no sentinel type accepted |
+| `ptr` | 1 |  | 1 | 1 | string | reference/rust_multistackvm/src/stdlib/artefacts.rs:136 |  |
+| `pull` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/values/pull.rs:121 | type-constrained: list rejected |
+| `pull.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/pull.rs:122 | no sentinel type accepted |
+| `pull.workbench` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/values/pull.rs:123 | type-constrained: list rejected |
+| `pull.workbench.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/pull.rs:124 | no sentinel type accepted |
+| `push` | 2 |  | 2 | 1 | int | reference/Bund/src/stdlib/functions/values/push.rs:74 |  |
+| `push.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/push.rs:75 | no sentinel type accepted |
+| `raise` |  |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:44 | type-constrained: list rejected |
 | `recv` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:222 | not probed: effectful, out of scope, or terminates |
 | `recv.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:223 | not probed: effectful, out of scope, or terminates |
-| `register` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/lambdas/registry.rs:88 |  |
-| `resolve` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/lambdas/resolve.rs:70 |  |
-| `resolve.class` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/lambdas/resolve.rs:71 |  |
-| `return` |  |  |  |  |  | reference/rust_multistack/src/stdlib/workbench.rs:75 |  |
-| `return_from` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/workbench.rs:77 |  |
-| `return_to` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/workbench.rs:80 |  |
+| `register` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/lambdas/registry.rs:88 | type-constrained: list rejected |
+| `resolve` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/lambdas/resolve.rs:70 | type-constrained: list rejected |
+| `resolve.class` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/lambdas/resolve.rs:71 | type-constrained: list rejected |
+| `return` |  |  |  |  |  | reference/rust_multistack/src/stdlib/workbench.rs:75 | type-constrained: list rejected |
+| `return_from` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/workbench.rs:77 | type-constrained: list rejected |
+| `return_to` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/workbench.rs:80 | type-constrained: list rejected |
 | `rm` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/cp.rs:152 | not probed: effectful, out of scope, or terminates |
-| `rotate_current_left` |  |  |  |  |  | reference/rust_multistack/src/stdlib/rotate.rs:96 |  |
-| `rotate_current_right` |  |  |  |  |  | reference/rust_multistack/src/stdlib/rotate.rs:98 |  |
-| `rotate_stack_left` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/rotate.rs:100 |  |
-| `rotate_stack_right` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/rotate.rs:102 |  |
-| `sample` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:145 |  |
-| `sample.analysis` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:171 |  |
-| `sample.analysis.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:172 |  |
+| `rotate_current_left` |  |  | 0 | 0 | int | reference/rust_multistack/src/stdlib/rotate.rs:96 |  |
+| `rotate_current_right` |  |  | 0 | 0 | int | reference/rust_multistack/src/stdlib/rotate.rs:98 |  |
+| `rotate_stack_left` | 1 |  | 1 | 0 | string | reference/rust_multistack/src/stdlib/rotate.rs:100 |  |
+| `rotate_stack_right` | 1 |  | 1 | 0 | string | reference/rust_multistack/src/stdlib/rotate.rs:102 |  |
+| `sample` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:145 |  |
+| `sample.analysis` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:171 | not probed: effectful, out of scope, or terminates |
+| `sample.analysis.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:172 | not probed: effectful, out of scope, or terminates |
 | `save` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_save.rs:147 | not probed: effectful, out of scope, or terminates |
 | `save.aliases` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_save.rs:148 | not probed: effectful, out of scope, or terminates |
 | `save.lambdas` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_save.rs:149 | not probed: effectful, out of scope, or terminates |
@@ -428,20 +426,20 @@ grounds. Those are listed with a reason rather than guessed at.
 | `send.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:220 | not probed: effectful, out of scope, or terminates |
 | `send.quick` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:219 | not probed: effectful, out of scope, or terminates |
 | `send.quick.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:221 | not probed: effectful, out of scope, or terminates |
-| `seq` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/math/seq.rs:155 |  |
-| `seq.asc` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/seq.rs:156 |  |
-| `seq.desc` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/seq.rs:157 |  |
-| `set` | 3 |  |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_dict.rs:120 |  |
-| `set,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/values/getsetinplace.rs:127 |  |
-| `set.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/values/getsetinplace.rs:128 |  |
+| `seq` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/math/seq.rs:155 | timed out at depth 1 (int) |
+| `seq.asc` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/seq.rs:156 | type-constrained: list rejected |
+| `seq.desc` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/seq.rs:157 | type-constrained: list rejected |
+| `set` | 3 |  | 3 | 1 | string | reference/rust_multistackvm/src/stdlib/values/value_dict.rs:120 |  |
+| `set,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/values/getsetinplace.rs:127 | type-constrained: list rejected |
+| `set.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/values/getsetinplace.rs:128 | no sentinel type accepted |
 | `sh` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/system/shell.rs:81 | not probed: effectful, out of scope, or terminates |
 | `sh.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/system/shell.rs:82 | not probed: effectful, out of scope, or terminates |
 | `sleep` |  |  |  |  |  | reference/Bund/src/stdlib/functions/system/sleep.rs:32 | not probed: effectful, out of scope, or terminates |
 | `sleep.seconds` |  |  |  |  |  | reference/Bund/src/stdlib/functions/system/sleep.rs:32 | not probed: effectful, out of scope, or terminates |
-| `sort` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/values/sort_lists.rs:62 |  |
-| `sort.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/sort_lists.rs:63 |  |
-| `sp` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/string/concat_with_space.rs:52 |  |
-| `space` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/print.rs:67 |  |
+| `sort` | 1 |  | 1 | 1 | list | reference/Bund/src/stdlib/functions/values/sort_lists.rs:62 |  |
+| `sort.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/sort_lists.rs:63 | no sentinel type accepted |
+| `sp` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/string/concat_with_space.rs:52 | type-constrained: list rejected |
+| `space` |  |  | 0 | 0 | int | reference/rust_multistackvm/src/stdlib/print.rs:67 |  |
 | `spinner.text` |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:344 | not probed: effectful, out of scope, or terminates |
 | `spinner.text.blue` |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:347 | not probed: effectful, out of scope, or terminates |
 | `spinner.text.cyan` |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:349 | not probed: effectful, out of scope, or terminates |
@@ -450,70 +448,70 @@ grounds. Those are listed with a reason rather than guessed at.
 | `spinner.text.randomcolor` |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:351 | not probed: effectful, out of scope, or terminates |
 | `spinner.text.red` |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:345 | not probed: effectful, out of scope, or terminates |
 | `spinner.text.yellow` |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:350 | not probed: effectful, out of scope, or terminates |
-| `sqlite` |  |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:43 |  |
-| `stack` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/ensure_stack.rs:95 |  |
-| `stack_exists` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/ensure_stack.rs:97 |  |
-| `stacks_right` |  |  |  |  |  | reference/rust_multistack/src/stdlib/rotate.rs:94 |  |
-| `stat.count` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/count.rs:52 |  |
-| `stat.count,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/count.rs:54 |  |
-| `stat.count.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/count.rs:53 |  |
-| `stat.count.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/count.rs:55 |  |
-| `stat.mean` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:185 |  |
-| `stat.mean.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:186 |  |
-| `stat.mean.arithmetic` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:185 |  |
-| `stat.mean.arithmetic,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:187 |  |
-| `stat.mean.arithmetic.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:186 |  |
-| `stat.mean.arithmetic.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:188 |  |
-| `stat.mean.arithmeticweighted` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:190 |  |
-| `stat.mean.arithmeticweighted,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:192 |  |
-| `stat.mean.arithmeticweighted.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:191 |  |
-| `stat.mean.arithmeticweighted.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:193 |  |
-| `stat.mean.geometric` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:200 |  |
-| `stat.mean.geometric,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:202 |  |
-| `stat.mean.geometric.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:201 |  |
-| `stat.mean.geometric.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:203 |  |
-| `stat.mean.geometricweighted` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:205 |  |
-| `stat.mean.geometricweighted,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:207 |  |
-| `stat.mean.geometricweighted.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:206 |  |
-| `stat.mean.geometricweighted.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:208 |  |
-| `stat.mean.harmonic` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:195 |  |
-| `stat.mean.harmonic,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:197 |  |
-| `stat.mean.harmonic.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:196 |  |
-| `stat.mean.harmonic.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:198 |  |
-| `stat.mean.harmonicspread` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:215 |  |
-| `stat.mean.harmonicspread,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:217 |  |
-| `stat.mean.harmonicspread.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:216 |  |
-| `stat.mean.harmonicspread.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:218 |  |
-| `stat.mean.harmonicweighted` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:210 |  |
-| `stat.mean.harmonicweighted,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:212 |  |
-| `stat.mean.harmonicweighted.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:211 |  |
-| `stat.mean.harmonicweighted.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:213 |  |
+| `sqlite` |  |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:43 | type-constrained: list rejected |
+| `stack` | 1 |  | 1 | 0 | string | reference/rust_multistack/src/stdlib/ensure_stack.rs:95 |  |
+| `stack_exists` | 1 |  | 1 | 1 | string | reference/rust_multistack/src/stdlib/ensure_stack.rs:97 |  |
+| `stacks_right` |  |  | 0 | 0 | int | reference/rust_multistack/src/stdlib/rotate.rs:94 |  |
+| `stat.count` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/count.rs:52 | not probed: effectful, out of scope, or terminates |
+| `stat.count,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/count.rs:54 | not probed: effectful, out of scope, or terminates |
+| `stat.count.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/count.rs:53 | not probed: effectful, out of scope, or terminates |
+| `stat.count.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/count.rs:55 | not probed: effectful, out of scope, or terminates |
+| `stat.mean` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:185 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:186 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.arithmetic` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:185 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.arithmetic,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:187 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.arithmetic.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:186 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.arithmetic.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:188 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.arithmeticweighted` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:190 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.arithmeticweighted,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:192 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.arithmeticweighted.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:191 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.arithmeticweighted.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:193 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.geometric` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:200 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.geometric,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:202 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.geometric.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:201 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.geometric.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:203 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.geometricweighted` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:205 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.geometricweighted,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:207 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.geometricweighted.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:206 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.geometricweighted.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:208 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.harmonic` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:195 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.harmonic,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:197 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.harmonic.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:196 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.harmonic.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:198 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.harmonicspread` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:215 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.harmonicspread,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:217 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.harmonicspread.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:216 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.harmonicspread.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:218 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.harmonicweighted` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:210 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.harmonicweighted,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:212 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.harmonicweighted.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:211 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.harmonicweighted.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:213 | not probed: effectful, out of scope, or terminates |
 | `stdin` |  |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/file.rs:95 | not probed: effectful, out of scope, or terminates |
 | `stdin.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/file.rs:96 | not probed: effectful, out of scope, or terminates |
-| `string.camel` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/string/case.rs:152 |  |
-| `string.deunicode` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/string/unicode.rs:74 |  |
-| `string.deunicode.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/unicode.rs:75 |  |
-| `string.distance` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/string/distance.rs:139 |  |
-| `string.distance.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/distance.rs:140 |  |
-| `string.distance.dameraulevenshtein` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/string/distance.rs:141 |  |
-| `string.distance.dameraulevenshtein.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/distance.rs:142 |  |
-| `string.distance.hamming` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/string/distance.rs:143 |  |
-| `string.distance.hamming.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/distance.rs:144 |  |
-| `string.distance.jarowinkler` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/string/distance.rs:147 |  |
-| `string.distance.jarowinkler.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/distance.rs:148 |  |
-| `string.distance.levenshtein` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/string/distance.rs:139 |  |
-| `string.distance.levenshtein.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/distance.rs:140 |  |
-| `string.distance.sift3` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/string/distance.rs:145 |  |
-| `string.distance.sift3.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/distance.rs:146 |  |
-| `string.expressionmatch` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/string/textexpr_match.rs:91 |  |
-| `string.expressionmatch.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/textexpr_match.rs:92 |  |
-| `string.fuzzymatch` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/string/fuzzy_match.rs:92 |  |
-| `string.fuzzymatch.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/fuzzy_match.rs:93 |  |
-| `string.grok` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/string/grok.rs:106 |  |
-| `string.grok.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/grok.rs:107 |  |
-| `string.lower` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/string/case.rs:149 |  |
-| `string.prefix` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/string/prefix_suffix.rs:101 |  |
-| `string.prefix.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/prefix_suffix.rs:102 |  |
+| `string.camel` | 1 |  | 1 | 1 | int | reference/rust_multistackvm/src/stdlib/string/case.rs:152 |  |
+| `string.deunicode` | 1 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/string/unicode.rs:74 |  |
+| `string.deunicode.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/unicode.rs:75 | no sentinel type accepted |
+| `string.distance` | 1 |  | 2 | 1 | string | reference/Bund/src/stdlib/functions/string/distance.rs:139 |  |
+| `string.distance.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/distance.rs:140 | no sentinel type accepted |
+| `string.distance.dameraulevenshtein` | 1 |  | 2 | 1 | string | reference/Bund/src/stdlib/functions/string/distance.rs:141 |  |
+| `string.distance.dameraulevenshtein.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/distance.rs:142 | no sentinel type accepted |
+| `string.distance.hamming` | 1 |  | 2 | 1 | string | reference/Bund/src/stdlib/functions/string/distance.rs:143 |  |
+| `string.distance.hamming.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/distance.rs:144 | no sentinel type accepted |
+| `string.distance.jarowinkler` | 1 |  | 2 | 1 | string | reference/Bund/src/stdlib/functions/string/distance.rs:147 |  |
+| `string.distance.jarowinkler.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/distance.rs:148 | no sentinel type accepted |
+| `string.distance.levenshtein` | 1 |  | 2 | 1 | string | reference/Bund/src/stdlib/functions/string/distance.rs:139 |  |
+| `string.distance.levenshtein.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/distance.rs:140 | no sentinel type accepted |
+| `string.distance.sift3` | 1 |  | 2 | 1 | string | reference/Bund/src/stdlib/functions/string/distance.rs:145 |  |
+| `string.distance.sift3.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/distance.rs:146 | no sentinel type accepted |
+| `string.expressionmatch` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/string/textexpr_match.rs:91 | type-constrained: list rejected |
+| `string.expressionmatch.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/textexpr_match.rs:92 | no sentinel type accepted |
+| `string.fuzzymatch` | 2 |  | 2 | 1 | string | reference/Bund/src/stdlib/functions/string/fuzzy_match.rs:92 |  |
+| `string.fuzzymatch.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/fuzzy_match.rs:93 | no sentinel type accepted |
+| `string.grok` | 2 |  | 2 | 1 | string | reference/Bund/src/stdlib/functions/string/grok.rs:106 |  |
+| `string.grok.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/grok.rs:107 | no sentinel type accepted |
+| `string.lower` | 1 |  | 1 | 1 | int | reference/rust_multistackvm/src/stdlib/string/case.rs:149 |  |
+| `string.prefix` | 2 |  | 2 | 1 | string | reference/Bund/src/stdlib/functions/string/prefix_suffix.rs:101 |  |
+| `string.prefix.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/prefix_suffix.rs:102 | no sentinel type accepted |
 | `string.random.fullname` |  |  |  |  |  | reference/Bund/src/stdlib/functions/string/random.rs:159 | not probed: effectful, out of scope, or terminates |
 | `string.random.fullname.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/string/random.rs:160 | not probed: effectful, out of scope, or terminates |
 | `string.random.ipv4` |  |  |  |  |  | reference/Bund/src/stdlib/functions/string/random.rs:165 | not probed: effectful, out of scope, or terminates |
@@ -530,32 +528,32 @@ grounds. Those are listed with a reason rather than guessed at.
 | `string.random.phone.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/string/random.rs:164 | not probed: effectful, out of scope, or terminates |
 | `string.random.word` |  |  |  |  |  | reference/Bund/src/stdlib/functions/string/random.rs:167 | not probed: effectful, out of scope, or terminates |
 | `string.random.word.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/string/random.rs:168 | not probed: effectful, out of scope, or terminates |
-| `string.regex` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/string/regex.rs:99 |  |
-| `string.regex.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/regex.rs:100 |  |
-| `string.regex.matches` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/string/regex_matches.rs:104 |  |
-| `string.regex.matches.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/regex_matches.rs:105 |  |
-| `string.regex.split` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/string/regex_split.rs:97 |  |
-| `string.regex.split.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/regex_split.rs:98 |  |
-| `string.snake` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/string/case.rs:150 |  |
-| `string.suffix` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/string/prefix_suffix.rs:103 |  |
-| `string.suffix.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/prefix_suffix.rs:104 |  |
-| `string.title` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/string/case.rs:151 |  |
-| `string.tokenize` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/string/tokenize.rs:123 |  |
-| `string.tokenize.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/tokenize.rs:124 |  |
-| `string.tokenize.lines` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/string/tokenize.rs:129 |  |
-| `string.tokenize.lines.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/tokenize.rs:130 |  |
-| `string.tokenize.stemmed` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/string/tokenize.rs:127 |  |
-| `string.tokenize.stemmed.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/tokenize.rs:128 |  |
-| `string.tokenize.unique` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/string/tokenize.rs:125 |  |
-| `string.tokenize.unique.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/tokenize.rs:126 |  |
-| `string.upper` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/string/case.rs:148 |  |
-| `string.wildcard` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/string/wildmatch.rs:89 |  |
-| `string.wildcard.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/wildmatch.rs:90 |  |
-| `string.wrap.english` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/string/textwrap.rs:102 |  |
-| `string.wrap.english.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/textwrap.rs:103 |  |
-| `swap` | 2 |  |  |  |  | reference/rust_multistack/src/stdlib/swap.rs:100 |  |
-| `swap_in` | 2 |  |  |  |  | reference/rust_multistack/src/stdlib/swap.rs:99 |  |
-| `swap_one` | 2 |  |  |  |  | reference/rust_multistack/src/stdlib/swap.rs:100 |  |
+| `string.regex` | 1 |  | 2 | 1 | string | reference/Bund/src/stdlib/functions/string/regex.rs:99 |  |
+| `string.regex.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/regex.rs:100 | no sentinel type accepted |
+| `string.regex.matches` | 1 |  | 2 | 1 | string | reference/Bund/src/stdlib/functions/string/regex_matches.rs:104 |  |
+| `string.regex.matches.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/regex_matches.rs:105 | no sentinel type accepted |
+| `string.regex.split` | 2 |  | 2 | 1 | string | reference/Bund/src/stdlib/functions/string/regex_split.rs:97 |  |
+| `string.regex.split.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/regex_split.rs:98 | no sentinel type accepted |
+| `string.snake` | 1 |  | 1 | 1 | int | reference/rust_multistackvm/src/stdlib/string/case.rs:150 |  |
+| `string.suffix` | 2 |  | 2 | 1 | string | reference/Bund/src/stdlib/functions/string/prefix_suffix.rs:103 |  |
+| `string.suffix.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/prefix_suffix.rs:104 | no sentinel type accepted |
+| `string.title` | 1 |  | 1 | 1 | int | reference/rust_multistackvm/src/stdlib/string/case.rs:151 |  |
+| `string.tokenize` | 1 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/string/tokenize.rs:123 |  |
+| `string.tokenize.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/tokenize.rs:124 | no sentinel type accepted |
+| `string.tokenize.lines` | 1 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/string/tokenize.rs:129 |  |
+| `string.tokenize.lines.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/tokenize.rs:130 | no sentinel type accepted |
+| `string.tokenize.stemmed` | 1 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/string/tokenize.rs:127 |  |
+| `string.tokenize.stemmed.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/tokenize.rs:128 | no sentinel type accepted |
+| `string.tokenize.unique` | 1 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/string/tokenize.rs:125 |  |
+| `string.tokenize.unique.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/tokenize.rs:126 | no sentinel type accepted |
+| `string.upper` | 1 |  | 1 | 1 | int | reference/rust_multistackvm/src/stdlib/string/case.rs:148 |  |
+| `string.wildcard` | 1 |  | 2 | 1 | string | reference/Bund/src/stdlib/functions/string/wildmatch.rs:89 |  |
+| `string.wildcard.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/wildmatch.rs:90 | no sentinel type accepted |
+| `string.wrap.english` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/string/textwrap.rs:102 | type-constrained: list rejected |
+| `string.wrap.english.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/string/textwrap.rs:103 | no sentinel type accepted |
+| `swap` | 2 |  | 2 | 2 | int | reference/rust_multistack/src/stdlib/swap.rs:100 |  |
+| `swap_in` | 2 |  |  |  |  | reference/rust_multistack/src/stdlib/swap.rs:99 | type-constrained: list rejected |
+| `swap_one` | 2 |  | 2 | 2 | int | reference/rust_multistack/src/stdlib/swap.rs:100 |  |
 | `sysinfo.hostname` |  |  |  |  |  | reference/Bund/src/stdlib/functions/sysinfo/host.rs:66 | not probed: effectful, out of scope, or terminates |
 | `sysinfo.kernel_version` |  |  |  |  |  | reference/Bund/src/stdlib/functions/sysinfo/host.rs:67 | not probed: effectful, out of scope, or terminates |
 | `sysinfo.mem.buffers` |  |  |  |  |  | reference/Bund/src/stdlib/functions/sysinfo/mem.rs:100 | not probed: effectful, out of scope, or terminates |
@@ -578,57 +576,57 @@ grounds. Those are listed with a reason rather than guessed at.
 | `system.ip` |  |  |  |  |  | reference/Bund/src/stdlib/functions/system/ip.rs:34 | not probed: effectful, out of scope, or terminates |
 | `system.ipv6` |  |  |  |  |  | reference/Bund/src/stdlib/functions/system/ip.rs:35 | not probed: effectful, out of scope, or terminates |
 | `system.locale` |  |  |  |  |  | reference/Bund/src/stdlib/functions/system/locale.rs:27 | not probed: effectful, out of scope, or terminates |
-| `system.path.filename` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/system/unixpath.rs:109 |  |
-| `system.path.filename.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/system/unixpath.rs:110 |  |
-| `system.path.split` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/system/unixpath.rs:107 |  |
-| `system.path.split.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/system/unixpath.rs:108 |  |
+| `system.path.filename` | 1 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/system/unixpath.rs:109 |  |
+| `system.path.filename.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/system/unixpath.rs:110 | no sentinel type accepted |
+| `system.path.split` | 1 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/system/unixpath.rs:107 |  |
+| `system.path.split.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/system/unixpath.rs:108 | no sentinel type accepted |
 | `system.setproctitle` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/system/proctitle.rs:70 | not probed: effectful, out of scope, or terminates |
 | `system.setproctitle.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/system/proctitle.rs:71 | not probed: effectful, out of scope, or terminates |
 | `system.shell` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/system/shell.rs:81 | not probed: effectful, out of scope, or terminates |
 | `system.shell.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/system/shell.rs:82 | not probed: effectful, out of scope, or terminates |
-| `tag` | 3 |  |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_tag.rs:72 |  |
-| `tail` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:201 |  |
-| `tail.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:202 |  |
-| `take` |  |  |  |  |  | reference/rust_multistack/src/stdlib/workbench.rs:81 |  |
-| `text` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:142 |  |
+| `tag` | 3 |  | 3 | 1 | string | reference/rust_multistackvm/src/stdlib/values/value_tag.rs:72 |  |
+| `tail` | 1 |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:201 |  |
+| `tail.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:202 | no sentinel type accepted |
+| `take` |  |  |  |  |  | reference/rust_multistack/src/stdlib/workbench.rs:81 | type-constrained: list rejected |
+| `text` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:142 |  |
 | `time.now` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/time/timestamp.rs:35 | not probed: effectful, out of scope, or terminates |
 | `time.timestamp` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/time/timestamp.rs:36 | not probed: effectful, out of scope, or terminates |
-| `times` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/times_fun.rs:92 |  |
-| `times.` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/times_fun.rs:93 |  |
-| `to_current` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/current.rs:72 |  |
-| `to_stack` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/current.rs:74 |  |
-| `true` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:137 |  |
-| `type` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_types.rs:65 |  |
-| `type.of` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_types.rs:66 |  |
-| `unalias` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/alias.rs:73 |  |
-| `unfold` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/values/unfold.rs:61 |  |
-| `unfold.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/unfold.rs:62 |  |
-| `unique` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/values/listop.rs:70 |  |
-| `unique.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/listop.rs:71 |  |
-| `unregister` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/lambdas/registry.rs:90 |  |
-| `unwrap` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/oop/value_class.rs:169 |  |
+| `times` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/times_fun.rs:92 | type-constrained: list rejected |
+| `times.` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/times_fun.rs:93 | type-constrained: list rejected |
+| `to_current` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/current.rs:72 | type-constrained: list rejected |
+| `to_stack` | 1 |  | 1 | 0 | string | reference/rust_multistack/src/stdlib/current.rs:74 |  |
+| `true` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:137 |  |
+| `type` | 1 |  | 1 | 2 | int | reference/rust_multistackvm/src/stdlib/values/value_types.rs:65 |  |
+| `type.of` | 1 |  | 1 | 2 | int | reference/rust_multistackvm/src/stdlib/values/value_types.rs:66 |  |
+| `unalias` | 1 |  | 1 | 0 | string | reference/rust_multistackvm/src/stdlib/alias.rs:73 |  |
+| `unfold` | 1 |  | 1 | 1 | list | reference/Bund/src/stdlib/functions/values/unfold.rs:61 |  |
+| `unfold.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/unfold.rs:62 | no sentinel type accepted |
+| `unique` | 1 |  | 1 | 1 | list | reference/Bund/src/stdlib/functions/values/listop.rs:70 |  |
+| `unique.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/listop.rs:71 | no sentinel type accepted |
+| `unregister` | 1 |  | 1 | 0 | string | reference/rust_multistackvm/src/stdlib/lambdas/registry.rs:90 |  |
+| `unwrap` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/oop/value_class.rs:169 | type-constrained: list rejected |
 | `url` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/file.rs:102 | not probed: effectful, out of scope, or terminates |
 | `url.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/filesystem/file.rs:103 | not probed: effectful, out of scope, or terminates |
 | `use` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_use.rs:78 | not probed: effectful, out of scope, or terminates |
 | `use.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_use.rs:79 | not probed: effectful, out of scope, or terminates |
-| `valuemap` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:147 |  |
-| `var` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/vars/registry.rs:57 |  |
-| `var-` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/vars/registry.rs:58 |  |
-| `var?` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/vars/resolve.rs:35 |  |
+| `valuemap` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:147 |  |
+| `var` | 2 |  | 2 | 0 | string | reference/rust_multistackvm/src/stdlib/vars/registry.rs:57 |  |
+| `var-` | 1 |  | 1 | 0 | string | reference/rust_multistackvm/src/stdlib/vars/registry.rs:58 |  |
+| `var?` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/vars/resolve.rs:35 | type-constrained: list rejected |
 | `version` |  |  |  |  |  | reference/Bund/src/stdlib/functions/sysinfo/host.rs:69 | not probed: effectful, out of scope, or terminates |
-| `while` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/while_fun.rs:96 |  |
-| `while.` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/while_fun.rs:97 |  |
-| `wrap` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/oop/value_class.rs:168 |  |
-| `|` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:139 |  |
-| `Λ` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:135 |  |
-| `Σ` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/add.rs:25 |  |
-| `Σ.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/add.rs:26 |  |
-| `λ` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:135 |  |
-| `π` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float.rs:34 |  |
-| `←` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/create_aliases.rs:23 |  |
-| `→` |  |  |  |  |  | reference/rust_multistack/src/stdlib/rotate.rs:94 |  |
-| `∅` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:139 |  |
-| `∈` | 3 |  |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_dict.rs:120 |  |
-| `≠` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:237 |  |
-| `⩽` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:241 |  |
-| `⩾` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:240 |  |
+| `while` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/while_fun.rs:96 | type-constrained: list rejected |
+| `while.` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/while_fun.rs:97 | type-constrained: list rejected |
+| `wrap` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/oop/value_class.rs:168 | type-constrained: list rejected |
+| `|` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:139 |  |
+| `Λ` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:135 |  |
+| `Σ` |  |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/math/add.rs:25 |  |
+| `Σ.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/add.rs:26 | no sentinel type accepted |
+| `λ` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:135 |  |
+| `π` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/math/float.rs:34 |  |
+| `←` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/create_aliases.rs:23 | type-constrained: list rejected |
+| `→` |  |  | 0 | 0 | int | reference/rust_multistack/src/stdlib/rotate.rs:94 |  |
+| `∅` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:139 |  |
+| `∈` | 3 |  | 3 | 1 | string | reference/rust_multistackvm/src/stdlib/values/value_dict.rs:120 |  |
+| `≠` | 2 |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:237 |  |
+| `⩽` | 2 |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:241 |  |
+| `⩾` | 2 |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:240 |  |

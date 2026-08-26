@@ -75,3 +75,13 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   heap types and rides in the header. Lazy `.id` and sampled `.timestamp` are
   unchanged and are D1 and D2. The 24-byte figure survives only as candidate
   C, the cheapest *inline*-identity shape, which the scan rules out.
+
+- `00-jit-feasibility.md` §4.1's supersession above — "`.id` and `.timestamp`
+  are public API on the base `Object` class, so the value cannot shrink to 16
+  bytes" -> **retired by RFC-0001**. The premise is right and the conclusion
+  does not follow. `.id` and `.timestamp` are public
+  (`reference/Bund/src/stdlib/functions/oop/base_classes.rs:91-92`) and `.id`
+  returns a string (`:16`), but identity moves to the *heap header*, not off
+  the value entirely, so both stay answerable while the value measures 16
+  bytes — `cargo xtask layout`, candidate D. What the entry correctly rules
+  out is candidate B, identity carried inline, which measures 32.

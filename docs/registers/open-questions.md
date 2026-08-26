@@ -11,7 +11,6 @@ promote it to a decision, or delete the claim.
 | # | Question | Raised in |
 |---|----------|-----------|
 | Q14 | The Phase 0 baseline cannot measure interpretation: ~9.6 ms of every 14 ms run is loading a 381 MB binary before `main` starts, and 3-5 ms more is stdlib registration. **D28 removes most of that cause for Bund2**, so the question narrows: once the dependency set is cut, does the corpus resolve interpretation well enough to write RFC-0001 and RFC-0005 criteria against, or is in-process measurement still required? Re-run `cargo xtask bench --target bund2` when there is a bund2 to run. | `cargo xtask bench` |
-| Q18 | RFC-0001 renders `q`, `attr` and `curr` as constants rather than carrying them as fields, on the evidence that all 244 golden renderings show `q: 100.0`, `attr: []`, `curr: -1`. But `q` is written in source — `set` copies it on the non-map path (`reference/rust_dynamic/src/set.rs:61`) and `push` does the same (`reference/rust_dynamic/src/push.rs:164`). Is there any program that can drive `q` off 100.0? If so, criterion 5 fails and `q` becomes a field. | RFC-0001 |
 | Q15 | `cargo xtask unblock` is specified as "for each unimplemented word, count hermetic examples it alone gates". That ranking can only see the 140 in-scope words the goldens touch, so as written it reports an empty work queue with 446 words unimplemented. What replaces it, ranking against the coverage denominator? Residue of Q5. | Q5 |
 
 ## Triaged
@@ -36,7 +35,8 @@ column says.
 | Q12 | promoted | D23 — `<class> !` builds from the value, either provenance |
 | Q13 | promoted | D25 — an anonymous class must name itself |
 | Q17 | read; NOT normative | The guide below, and `cargo xtask guide`. It documents 99 words of 617 — a partial standard-library reference, not a language specification. It cannot be the standard for "100% preserved"; it is corroborating evidence, and the corpus plus the registry remain the oracle |
-| Q16 | implemented | `golden::capture_jobs` collects `tests/probes/*.bund` alongside the corpus (`xtask/src/golden/mod.rs:83-97`); all six probe goldens carry captured output, and conform's 63 is 57 suite + 6 probes. The question was recorded before the capture landed and was stale, not open |
+| Q18 | grounded — `q` is constant in reach | RFC-0001 renders `q` as `100.0` rather than carrying it. No word writes it: `set` copies it (`reference/rust_dynamic/src/set.rs:33`) and `push` copies it (`reference/rust_dynamic/src/push.rs:164`), neither changes it. `Value::new` sets `q: 0.0` (`reference/rust_dynamic/src/value.rs:38`) but nothing reaches it — the `nodata` word yields `dt: 97` with `q: 100.0`, confirmed by probe. Raised as `[UNGROUNDED]` and closed by RFC-0001's review, which scanned for word-reachable writers and found none. Note `attr` did **not** survive the same test: `1 2 attribute` drives it off `[]`, so `attr` is a field |
+| Q16 | implemented | `golden::capture_jobs` collects `tests/probes/*.bund` alongside the corpus (`xtask/src/golden/mod.rs:83-97`); the probe goldens carry captured output, and conform's 64 is 57 suite + 7 probes. The question was recorded before the capture landed and was stale, not open |
 
 
 ---

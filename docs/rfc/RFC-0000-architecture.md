@@ -385,9 +385,11 @@ point.
 `tests/golden/CONFORMANCE.txt`.** RFC-0000 changes no behaviour, so any
 movement means something else did. This is the regression gate.
 
-Accepted at **0/63**. The mark is now **0/64**: RFC-0001's grounding added one
-authored probe, `tests/probes/valuemap-hash-eq.bund`, pinning F29 — a
-`valuemap` read returning the whole map instead of the value under the key.
+Accepted at **0/63**. The mark is now **0/65**: RFC-0001's grounding added two
+authored probes: `tests/probes/valuemap-hash-eq.bund`, pinning F29 — a
+`valuemap` read returning the whole map instead of the value under the key —
+and `tests/probes/value-fields.bund`, pinning that `attribute` drives `attr`
+off `[]` while `q` stays `100.0`.
 That is a deliberate denominator change of the kind the provenance table below
 exists to record, not a regression. The criterion is written against the
 recorded mark rather than a literal so that adding a probe does not require
@@ -462,6 +464,7 @@ a decision, not drift:
 | suite programs | 80 | **57** | −3 out of scope (D15), −18 not reproducible (F14, F15, F17), then −2 more when D28 deferred five subsystems |
 | conformance | 59 | **63** | the suite fell to 57, and six authored probes were captured (D21) |
 | conformance | 63 | **64** | RFC-0001's grounding added a seventh probe for F29 — `valuemap` is write-only |
+| conformance | 64 | **65** | RFC-0001's review added an eighth, pinning which of `q`/`attr`/`curr`/`tags` are real state |
 | coverage | 140/586 | **121/497** | D26 and D28 together moved 89 words out of scope. The 120 now shown as out-of-scope is the running total, D15's 31 console words included — 617 − 586 = 31 was D15 alone |
 
 The full narrowing is regenerated into `tests/golden/HERMETIC.txt` on every
