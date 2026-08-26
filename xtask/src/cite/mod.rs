@@ -306,6 +306,27 @@ fn check_oracle_provenance(repo: &Path, findings: &mut Vec<Finding>) -> (usize, 
                 });
                 continue;
             }
+            // The grammar sits beside src/, not inside it.
+            let (vroot, sroot) = (
+                reg.join(format!("{c}-{want}")),
+                repo.join(format!("reference/{c}")),
+            );
+            if vroot.is_dir()
+                && sroot.is_dir()
+                && let Some(diff) = grammar_difference(&vroot, &sroot)
+            {
+                findings.push(Finding {
+                    doc: format!("reference/{c}"),
+                    doc_line: 0,
+                    citation: format!("{c} {want}"),
+                    problem: format!(
+                        "submodule grammar differs from the linked crate {want} at {diff} — \
+                         the syntax cited is not the syntax the oracle parses"
+                    ),
+                    hard: true,
+                });
+                continue;
+            }
             if vend.is_dir() && sub.is_dir() {
                 agreed += 1;
             }
@@ -324,12 +345,43 @@ fn dirs_registry() -> Option<std::path::PathBuf> {
         .find(|p| p.is_dir())
 }
 
+/// First differing `*.pest` file between two crate roots, if any.
+///
+/// The grammar sits at the crate root, not under `src/`
+/// (`reference/bund_language_parser/bund.pest`), so `first_difference` walking
+/// `src/` cannot see it. It is source in every sense that matters here: every
+/// syntax decision in the registers rests on it, and a divergence between the
+/// grammar the oracle links and the grammar cited would be invisible.
+fn grammar_difference(a: &Path, b: &Path) -> Option<String> {
+    fn pests(dir: &Path) -> Vec<String> {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return Vec::new();
+        };
+        let mut v: Vec<String> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_file() && p.extension().is_some_and(|x| x == "pest"))
+            .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+            .collect();
+        v.sort();
+        v
+    }
+    let (fa, fb) = (pests(a), pests(b));
+    if fa != fb {
+        return Some("the grammar file lists differ".to_string());
+    }
+    fa.iter()
+        .find(|n| std::fs::read(a.join(n)).ok() != std::fs::read(b.join(n)).ok())
+        .cloned()
+}
+
 /// First relative path whose contents differ between two trees, if any.
 ///
 /// Compares `**/*.rs` only. Manifests are deliberately out of scope: a
 /// submodule that bumps its `Cargo.toml` version without touching code is the
 /// version-skew advisory, not a source divergence, and folding the two would
-/// make every release-prep commit look like a citation failure.
+/// make every release-prep commit look like a citation failure. Grammar files
+/// live outside `src/` and are covered by `grammar_difference`.
 fn first_difference(a: &Path, b: &Path) -> Option<String> {
     fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -615,5 +667,56 @@ mod tests {
         assert!(t.contains(&"autoadd".to_string()));
         assert!(!t.iter().any(|x| x.contains('/')));
         assert!(!t.iter().any(|x| x.contains(' ')));
+    }
+}
+
+#[cfg(test)]
+mod grammar_tests {
+    use super::grammar_difference;
+
+    fn tmp(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("bund2-cite-{name}"));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn identical_grammars_agree() {
+        let (a, b) = (tmp("ga"), tmp("gb"));
+        std::fs::write(a.join("bund.pest"), "value = { int }").unwrap();
+        std::fs::write(b.join("bund.pest"), "value = { int }").unwrap();
+        assert_eq!(grammar_difference(&a, &b), None);
+    }
+
+    #[test]
+    fn a_changed_rule_is_caught() {
+        let (a, b) = (tmp("gc"), tmp("gd"));
+        std::fs::write(a.join("bund.pest"), "value = { int }").unwrap();
+        std::fs::write(b.join("bund.pest"), "value = { int | float }").unwrap();
+        assert_eq!(grammar_difference(&a, &b).as_deref(), Some("bund.pest"));
+    }
+
+    #[test]
+    fn a_grammar_appearing_on_one_side_is_caught() {
+        let (a, b) = (tmp("ge"), tmp("gf"));
+        std::fs::write(b.join("bund.pest"), "value = { int }").unwrap();
+        assert!(grammar_difference(&a, &b).is_some());
+    }
+
+    /// The whole point: `src/`-only walking cannot see a root-level grammar,
+    /// so `first_difference` must report agreement where this one reports a
+    /// divergence.
+    #[test]
+    fn src_walking_alone_would_miss_it() {
+        let (a, b) = (tmp("gg"), tmp("gh"));
+        for d in [&a, &b] {
+            std::fs::create_dir_all(d.join("src")).unwrap();
+            std::fs::write(d.join("src/lib.rs"), "// same").unwrap();
+        }
+        std::fs::write(a.join("bund.pest"), "value = { int }").unwrap();
+        std::fs::write(b.join("bund.pest"), "value = { str }").unwrap();
+        assert_eq!(super::first_difference(&a.join("src"), &b.join("src")), None);
+        assert!(grammar_difference(&a, &b).is_some());
     }
 }

@@ -416,6 +416,14 @@ whenever D14 rules on another word.
    exists. Implemented in response to this RFC's review, which found five
    citation defects by hand.
 
+   It also reports **5/5 oracle crates byte-verified**, which is what covers
+   the binary criterion 5 cannot see (F21). That comparison walks `**/*.rs`
+   under each crate's `src/` — and the grammar is neither: `bund.pest` sits at
+   the crate root. Every syntax decision in the registers rests on it, so a
+   divergence there would be exactly the kind criterion 6 exists to catch, and
+   it was invisible. The check now compares root-level `*.pest` too. The two
+   copies agree today.
+
 Criteria 1 and 2 are the two health numbers. Criterion 5 catches an accidental
 edit to the code the citations point at — not to the oracle, which it cannot
 see. Criterion 3 and criterion 4's first clause are **not yet checkable**:
