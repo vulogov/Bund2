@@ -1,11 +1,11 @@
 # RFC-0002: Symbols, the word slot table, and `bund2-api`
 
-- Status: **Draft — blocked.** Three OPEN decisions gate parts of this design
-  (see "Blocking decisions"), and review 1 rejected the slot structure on
-  grounds independent of all three; that is fixed below. See "Review history".
+- Status: **Draft — blocked on D14 alone.** D9 and D29 are settled; review 1
+  rejected the slot structure on grounds independent of all three, and that is
+  fixed below. See "Blocking decisions" and "Review history".
 - Depends on: RFC-0001
-- Decisions consumed: D16
-- Blocked on: D9, D14, D29
+- Decisions consumed: D9, D16, D29
+- Blocked on: D14
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
   `80377728f45b`; `bundcore` `3b0b8ba219a6`; `rust_dynamic` `ceb27c96fa10`;
   `rust_multistack` `9a97675ee5d8`; `rust_multistackvm` `4605832678d4`
@@ -13,18 +13,26 @@
 
 ## Blocking decisions
 
-Per `CLAUDE.md`, an OPEN decision is not silently defaulted. Three gate this
-RFC, and each is marked `[BLOCKED: Dn]` at the point where it bites:
+Per `CLAUDE.md`, an OPEN decision is not silently defaulted. Three gated this
+RFC; two are now settled and the third is marked `[BLOCKED: D14]` at the two
+points where it bites:
 
-- **D9** — whether `Intrinsic` lowerings are exposed through `bund2-api`.
-  Gates one item in the stable surface, nothing else.
-- **D14** — which words are language core and which are library. Gates the
-  **shape** of `bund2-api`: whether it is one surface or two.
-- **D29** — revive or drop the four dead words. Gates the **word set** the
-  slot table is populated with, and hence RFC-0000's B2 denominator.
+**D9 is RESOLVED — no.** `Intrinsic` stays internal to `bund2-stdlib`;
+external crates get `Native` with a declared effect. Beyond the Cranelift
+version-pinning argument, exposing lowerings would make the stable surface
+depend on `bund2-jit`, which RFC-0000's B3 forbids for `bund2-stdlib` and
+which is the inversion B3 exists to prevent.
 
-Everything else here is groundable and drafted. The design does not depend on
-how the three resolve; the surface does.
+**D29 is RESOLVED — revive `stacks_left` alone.** `dup_in`, `from_workbench`
+and `push_to` get no slot. `<-` and `←` are already registered aliases and
+start resolving once their target exists. The in-scope set goes 497 -> 498.
+
+**D14 remains OPEN** and is the last blocker. It gates the **shape** of
+`bund2-api` — one surface or two — and criterion 2's denominator. Method B is
+chosen and `cargo xtask scope` computes the partition; what is not settled is
+whether the partition it produces is the one D14 records.
+
+Everything else here is groundable and drafted.
 
 ## Summary
 
@@ -391,18 +399,18 @@ the slot table is what makes it possible, not because concurrency is in scope.
 The one crate with a stability guarantee: `Symbol`, `StackEffect`, `WordKind`,
 `NativeFn`, and the registration surface.
 
-`[BLOCKED: D9]` — whether `Intrinsic` lowerings are exposed here. Exposing
-them pins external packages to an exact Cranelift version. The default
-recorded is "no"; this RFC does not take it.
+D9 settles the first question: `Intrinsic` is **not** here. `LowerFn` would
+pin every consumer to an exact Cranelift version, and it would put `bund2-jit`
+behind the stable surface.
 
 `[BLOCKED: D14]` — whether `bund2-api` is one surface or two. If words split
 into language core and library, the library half needs a surface that
 out-of-tree word packages compile against, and that is a different stability
 promise from the core's. The shape of this section depends on the answer.
 
-`[BLOCKED: D29]` — the initial word set. Whether `dup_in`, `from_workbench`,
-`push_to` and `stacks_left` get slots at all, and whether `<-` and `←` resolve
-to anything.
+D29 settles the word set at the margin: `stacks_left` gets a slot, `dup_in`,
+`from_workbench` and `push_to` do not, and `<-`/`←` resolve for the first
+time. That is a deliberate deviation in both directions and is recorded there.
 
 ## Preservation analysis
 
@@ -445,9 +453,11 @@ them and one was vacuous without saying so. Each below names the tool.
 1. `cargo xtask conform` does not fall below the mark in
    `tests/golden/CONFORMANCE.txt`. RFC-0002 changes dispatch, not meaning.
    **Tool:** `cargo xtask conform`, which exists.
-2. `cargo xtask coverage` reports its number against the word set D14 and D29
-   settle. **The figure cannot be written here** until they do — writing one
-   would take their defaults. `[BLOCKED: D14, D29]`
+2. `cargo xtask coverage` reports its number against the word set D14
+   settles. D29 has moved the in-scope set to **498** by reviving
+   `stacks_left`; D14 decides how that 498 splits into core and library, and
+   only the core half is a preservation target. **The figure cannot be written
+   here** until D14 records a partition. `[BLOCKED: D14]`
 3. Dispatching a word allocates **0** times. **No tool exists yet**:
    `cargo xtask layout` measures value shapes with a counting allocator and
    has no VM to dispatch in. This criterion becomes checkable when
