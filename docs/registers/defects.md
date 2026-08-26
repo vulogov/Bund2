@@ -837,3 +837,33 @@ value with `dt: ASSOCIATION`, so every one of those arms is unreachable.
 - Disposition: Bund2 omits `ASSOCIATION` unless a writer is found. It is a
   `dt` constant with no values, so omitting it removes no behaviour. Record
   the omission in RFC-0001's tag table.
+
+## F37 — `stdlib/classes/registry.rs` is source that is never compiled
+`reference/rust_multistackvm/src/stdlib/classes/registry.rs` defines
+`stdlib_lambda_register` and `stdlib_lambda_unregister` and registers both as
+words (`:61-62`). Nothing declares the module: `stdlib/mod.rs` lists 20-odd
+`pub mod` entries and `classes` is not among them
+(`reference/rust_multistackvm/src/stdlib/mod.rs:3-27`), and the only `classes`
+in the crate root is `multistackvm_classes`
+(`reference/rust_multistackvm/src/lib.rs:9`), a different file. So the file is
+never compiled and its registrations never run.
+
+**No count is affected.** Its two names, `register` and `unregister`, are both
+also registered by `stdlib/lambdas/registry.rs:88-90`, which does compile, so
+the file contributes no unique name and the 617 total is the same with or
+without it.
+
+What it does affect is **attribution**. `cargo xtask corpus` reports the
+implementing site as "last wins" over its own path-ordered scan, and the real
+order is the explicit call sequence in
+`reference/rust_multistackvm/src/stdlib/mod.rs:29-51` — a different order,
+which happens to agree here because both live registrations for `unregister`
+are in one file and source order settles them (F32). The agreement is
+accidental, not constructed.
+
+- Found by: RFC-0002 review 2
+- Disposition: no tool change. Registration is last-write-wins, so the outcome
+  is determined by order rather than by which files exist, and no observed
+  attribution is currently wrong. Recorded so that a future disagreement
+  between path order and init order is diagnosed rather than rediscovered.
+  Bund2 does not carry the file.

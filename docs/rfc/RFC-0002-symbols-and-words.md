@@ -25,7 +25,8 @@ which is the inversion B3 exists to prevent.
 
 **D29 is RESOLVED — revive `stacks_left` alone.** `dup_in`, `from_workbench`
 and `push_to` get no slot. `<-` and `←` are already registered aliases and
-start resolving once their target exists. The in-scope set goes 497 -> 498.
+will start resolving once their target exists. The in-scope set **will go**
+497 -> 498; the tools print 497 until Bund2 implements the word.
 
 **D14 remains OPEN** and is the last blocker. It gates the **shape** of
 `bund2-api` — one surface or two — and criterion 2's denominator. Method B is
@@ -36,10 +37,13 @@ Everything else here is groundable and drafted.
 
 ## Summary
 
-Names become interned `Symbol`s resolved once at parse time. The seven
-name-keyed `HashMap<String, _>` tables in `VM` collapse to one slot table
-indexed by `Symbol`, each slot carrying a generation counter so a redefinition
-invalidates inline caches without a scan. Native words declare a `StackEffect`
+Names become interned `Symbol`s resolved once at parse time. **Six** of the
+seven name-keyed `HashMap<String, _>` tables in `VM`, plus the stack layer's
+separate inline table, become one slot table indexed by `Symbol` — each slot
+carrying one `Option` per namespace, so the namespaces stay independent while
+the lookup becomes an index. `vars` stays separate, being keyed twice. Each
+slot carries a generation counter so a redefinition invalidates inline caches
+without a scan. Native words declare a `StackEffect`
 and a kind (`Sync` / `Blocking` / `Async`) at registration. A registry builder
 replaces the `BUND` global mutex. `bund2-api` becomes the one crate with a
 stability guarantee.
@@ -151,11 +155,29 @@ later.
 2. `is_command` → `c()` (`:16-17`).
 3. Otherwise, **under an `autoadd` branch** (`:19`): if `autoadd` is set the
    name is appended to the value beneath it on the stack (`:20-27`) rather
-   than executed. Only in the `else` does resolution continue.
+   than executed. Only in the `else` does resolution continue. Note the
+   ordering: `is_command` fires first (`:16`) and returns (`:17`), so
+   `autoadd` does **not** precede the command check — a command runs even
+   with `autoadd` set.
 4. `$`-prefix → `call_internal_word` (`:33-35`).
 5. Alias resolution (`:39-42`).
 6. Lambda (`:46-54`).
 7. Inline (`:59`).
+
+### `autoadd` has three branches, not one
+
+`self.autoadd` is tested in three places, each doing something different:
+
+- `:19`, in the `CALL` arm — the name is appended to the value beneath it
+  rather than executed (`:20-27`).
+- `:72`, in the `CONTEXT` arm — the context value is pushed instead of
+  switching stacks (`:73`), so **stack switching is suppressed**.
+- `:89`, in the catch-all — any other value is appended to the value beneath
+  it (`:90-96`).
+
+An earlier draft covered only the first. The mode is a global on the `VM`
+(`reference/rust_multistackvm/src/multistackvm.rs:22`), so all three are live
+whenever it is set.
 
 ### Alias resolution happens twice
 
@@ -232,11 +254,16 @@ single-slot enum makes it unrepresentable: writing `Lambda` would destroy
 The same holds for lambdas versus classes, which are also independent tables
 (`reference/rust_multistackvm/src/multistackvm.rs:27-28`).
 
-So the collapse this RFC proposes is **one lookup, not one binding**: seven
-string-keyed hash maps become one indexed array whose entries carry the same
-seven namespaces the reference keeps apart. §"Seven name-keyed tables" states
-the principle — conflating them produces false resolutions — and the earlier
-draft committed exactly that error forty lines after stating it.
+So the collapse this RFC proposes is **one lookup, not one binding**: six of
+the seven string-keyed maps, plus the stack layer's own inline table, become
+one indexed array whose entries carry those namespaces separately. The `native`
+binding is where the VM's `inline_fun` and the stack layer's `inline_fun`
+merge, which is what removes the fallthrough at
+`reference/rust_multistackvm/src/multistackvm_inline.rs:51-67`.
+
+§"Seven name-keyed tables" states the principle — conflating them produces
+false resolutions — and the earlier draft committed exactly that error forty
+lines after stating it.
 
 `vars` stays a separate structure: it is
 `HashMap<String, HashMap<String, Value>>`
@@ -279,9 +306,10 @@ outside the run, and two boundaries carry names out:
 - **The `Debug` rendering.** `CALL` values are golden-visible in a passing
   corpus golden, not merely in error text:
   `tests/golden/examples/bund_dynamic_demos/compile_and_apply.golden` renders
-  `dt: 6, q: 100.0, data: String("println")`, and the same for `"+"`,
-  `"format"`, `"get"` and `"swap"`. There are 43 `dt: 6` and 30 `dt: 7`
-  renderings suite-wide.
+  `dt: 6, q: 100.0, data: String("println")`, and the same for `"+"` and
+  `"format"`. `"get"` and `"swap"` are golden-visible too, in the
+  `examples/object_oriented_programming/` goldens rather than that one. There
+  are 43 `dt: 6` and 30 `dt: 7` renderings suite-wide.
 
 So the rule is the same one RFC-0001 applies to identity: **`Symbol` inside,
 string at every observation boundary.** The interner supports reverse lookup
@@ -290,79 +318,34 @@ serialisation resolve back to the exact name. Serialisation is a
 materialisation point, exactly as D20 has it.
 
 Interning happens at parse time, in `bund2-syntax`, which is where the
-reference's grammar `reference/bund_language_parser/bund.pest` is re-implemented —
-that grammar is what defines a name, and it is the premise of "interned at
-parse time". A `CALL` built at run time by `bund.eval` interns through the
-same table.
+reference's grammar `reference/bund_language_parser/bund.pest` is
+re-implemented — that grammar is what defines a name, and it is the premise of
+"interned at parse time". A `CALL` built at run time by `bund.eval` interns
+through the same table.
 
-### Alias resolution happens twice
+### The `$` sigil is stripped at intern time, not at dispatch
 
-`apply` resolves the alias at `:39` and then calls `self.i(real_name)` at
-`:59`. `VM::i` resolves the alias **again**
-(`reference/rust_multistackvm/src/multistackvm_inline.rs:71-74`) before
-reaching `i_direct`. For an alias onto a real word the second lookup is
-wasted; for an alias onto an alias, the two together resolve two levels while
-either alone resolves one.
+`element` admits `SYMBOL` (`reference/bund_language_parser/bund.pest:36`), and
+`name` is `element ~ nelement*` (`:28`), so **`$println` lexes as a single
+name** — the grammar has no rule that separates the sigil. The reference
+strips it at run time instead: `call_internal_word` takes `&name[1..]` and
+calls `self.i` on the remainder
+(`reference/rust_multistackvm/src/multistackvm_call_internal_word.rs:7-8`).
 
-### `$` skips the lambda check, not alias resolution
+That matters here because a naive interner would give `println` and `$println`
+**different `Symbol`s**, and then "the same slot reached two ways" would be
+false — there would be two slots. An earlier draft's criterion required them
+to resolve "for the same `Symbol`" without saying how, which the grammar
+forbids.
 
-The comment says "without lambda check or alias resolution"
-(`reference/rust_multistackvm/src/multistackvm_apply.rs:30-31`), but
-`call_internal_word` strips the `$` and calls `self.i`
-(`reference/rust_multistackvm/src/multistackvm_call_internal_word.rs:7-8`),
-and `i` resolves aliases (`multistackvm_inline.rs:71`). Only the lambda check
-is skipped. This is **F26**, confirmed by probe.
+So `bund2-syntax` strips the sigil when it interns: `$println` interns to the
+`Symbol` for `println`, with the sigil recorded on the `CALL` as a flag rather
+than as part of the name. Dispatch then reads the flag to decide whether to
+skip the `lambda` binding, which is exactly what `call_internal_word` does
+with `&name[1..]`, moved from run time to parse time.
 
-### Registration is last-write-wins, and the world never closes
-
-`register_inline` unregisters before inserting
-(`reference/rust_multistackvm/src/multistackvm_inline.rs:6-9`), so a later
-registration of the same name replaces the earlier one silently. `register`,
-`unregister`, `alias` and `unalias` are words, so the table is mutable at
-runtime and no closed-world assumption is available. This is **D16**.
-
-## Design
-
-### Symbols
-
-```rust
-pub struct Symbol(u32);
-```
-
-Interned at parse time. A `CALL` value carries a `Symbol`, not a `String`, so
-the thirteen allocations above become zero: resolution is an index.
-
-Interning happens once per distinct name per program. The interner is part of
-the registry, not a global.
-
-### One slot table
-
-```rust
-pub struct Slot {
-    generation: u32,
-    entry:      WordEntry,
-}
-
-pub enum WordEntry {
-    Native { f: NativeFn, effect: StackEffect, kind: WordKind },
-    Lambda(BundValue),
-    Alias(Symbol),
-    Class(BundValue),
-    Vacant,
-}
-```
-
-`Vec<Slot>` indexed by `Symbol`. The seven `HashMap`s collapse into the
-discriminant, so a name has exactly one meaning and the namespaces that must
-stay distinct — commands, methods, vars — keep separate tables rather than
-separate string conventions.
-
-**The `_inline` suffix does not exist.** F31 is not expressible here: there is
-no second spelling of a key to get wrong.
-
-`generation` increments when a slot is rewritten. An inline cache records the
-generation it was built against, so a redefinition invalidates caches without
-a scan — which is what makes D16's permanently-open world affordable.
+The name must still render as `$println` in `Debug` output and serialise as
+`$println`, by the same rule as every other boundary.
 
 ### Alias resolution
 
@@ -387,12 +370,31 @@ Effect *inference* for Bund-defined words is RFC-0004, not here.
 ### Registry builder
 
 Registration happens against a builder, which freezes into an immutable
-`Registry` shared by `Arc`. The `BUND` global mutex disappears. Runtime
-mutation — `register`, `alias` — writes through a per-VM overlay, so D16's
-open world survives without a process-wide lock.
+`Registry` shared by **`Rc`**, not `Arc`. The `BUND` global mutex disappears.
+Runtime mutation — `register`, `alias` — writes through a per-VM overlay, so
+D16's open world survives without a process-wide lock.
 
-This is the change RFC-0007's actor model needs; it is specified here because
-the slot table is what makes it possible, not because concurrency is in scope.
+**`Arc` would be a lie, and an earlier draft told it.** A `Slot` holds a
+`BundValue` for its `lambda` and `class` bindings, and RFC-0001 defines
+`BundValue` as an `Rc<HeapValue>` whose `id`, `stamp` and `curr` are `Cell`s.
+`Rc` is neither `Send` nor `Sync` and `Cell` is not `Sync`, so a `Registry`
+containing one cannot cross a thread whatever pointer wraps it. `Arc` would
+buy nothing and would advertise a capability the contents forbid. This is the
+first real collision between RFC-0001 and RFC-0002, and neither cited the
+other until this review.
+
+It follows that **this is not "the change RFC-0007's actor model needs"**,
+which an earlier draft claimed. Removing the global mutex makes a per-VM
+registry possible; making a registry *shareable across threads* is a separate
+problem that starts with whether `BundValue` is `Send`, and RFC-0001 says it
+is not. RFC-0007 inherits that question rather than a solution.
+
+**The overlay cannot express `unregister` of a builtin.** An overlay that
+holds additions has no way to record a removal, so `unregister` of a word from
+the frozen base would silently do nothing — which is F32's shape reintroduced
+by the fix for F32. The overlay therefore stores an explicit
+present-or-removed state per slot, not just an addition. Recorded because the
+naive reading is the one that looks obviously right.
 
 ### `bund2-api`
 
@@ -417,7 +419,7 @@ time. That is a deliberate deviation in both directions and is recorded there.
 | Behaviour | Disposition |
 |---|---|
 | Resolution order: command, `$`-internal, alias, lambda, inline | **Preserved exactly**, including the order. |
-| The `autoadd` branch preceding all of it | **Preserved exactly.** |
+| `autoadd`, all three branches | **Preserved exactly**, including that it does *not* precede the command check — `is_command` returns at `apply.rs:17` before `autoadd` is consulted at `:19` — and including `:72`, where it suppresses stack switching rather than appending. |
 | `$` skipping the lambda check but not aliases (F26) | **Preserved exactly**, including the surprise. The comment is wrong; the behaviour is the contract. |
 | Fallthrough from the VM table to the stack table | **Preserved in effect.** One slot table has no two tiers to fall between; the words keep their names and meanings. |
 | Last-write-wins registration | **Preserved exactly**, as a generation bump, with registrations replayed in source order and never deduped — F32 depends on the second `unregister` winning. |
@@ -436,10 +438,14 @@ time. That is a deliberate deviation in both directions and is recorded there.
 thirteen allocations and eight hashes remain, because the cost is in hashing
 strings at dispatch, not in the suffix.
 
-**Keep the seven tables, index them by `Symbol`.** Cheaper to write, and it
-keeps the tables' independence. Rejected because it preserves the thing that
-makes resolution order hard to reason about: seven places a name can live,
-consulted in a fixed order that is written out longhand in `apply`.
+**Keep the seven tables, index each by `Symbol`.** Cheaper to write, and it
+keeps the independence the design needs. Rejected on cost, not on structure —
+the chosen design keeps six independent bindings too, so "fewer places a name
+can live" was never the argument and an earlier draft wrongly made it. Seven
+`Vec`s indexed by `Symbol` means seven bounds-checked loads and seven cache
+lines on a dispatch that consults several namespaces in order; one `Vec` of
+slots means one. The thirteen allocations go either way; the memory traffic
+does not.
 
 **Intern at registration only, not at parse.** Halves the benefit. A `CALL`
 built at runtime by `bund.eval` still needs interning, so the interner must
@@ -454,9 +460,10 @@ them and one was vacuous without saying so. Each below names the tool.
    `tests/golden/CONFORMANCE.txt`. RFC-0002 changes dispatch, not meaning.
    **Tool:** `cargo xtask conform`, which exists.
 2. `cargo xtask coverage` reports its number against the word set D14
-   settles. D29 has moved the in-scope set to **498** by reviving
-   `stacks_left`; D14 decides how that 498 splits into core and library, and
-   only the core half is a preservation target. **The figure cannot be written
+   settles. `cargo xtask coverage` and `cargo xtask scope` both print **497**
+   today; D29 takes it to **498** once `stacks_left` is implemented, which has
+   not happened yet. D14 then decides how that 498 splits into core and
+   library, and only the core half is a preservation target. **The figure cannot be written
    here** until D14 records a partition. `[BLOCKED: D14]`
 3. Dispatching a word allocates **0** times. **No tool exists yet**:
    `cargo xtask layout` measures value shapes with a counting allocator and
@@ -478,9 +485,14 @@ them and one was vacuous without saying so. Each below names the tool.
    behaviour. It is a Bund2 unit test in `bund2-interp`, and F31's entry is
    the reference for the deviation. The same applies to F32's fix.
 6. A name bound as both a lambda and a native resolves to the lambda by
-   `name` and to the native by `$name`, for the same `Symbol`. **Tool:** a
-   Bund2 unit test, and `tests/probes/` can hold the oracle side of it since
-   the oracle passes this one.
+   `name` and to the native by `$name`, **reaching the same slot** — the
+   sigil is stripped when the name is interned, so `$println` and `println`
+   share a `Symbol` and the `$` travels as a flag on the `CALL`. The grammar
+   makes this a requirement rather than a nicety: `element` admits `SYMBOL`
+   (`reference/bund_language_parser/bund.pest:36`) so `$println` lexes as one
+   name, and a naive interner would produce two symbols and two slots.
+   **Tool:** a Bund2 unit test; `tests/probes/` can hold the oracle side,
+   since the oracle passes this one.
 7. A lambda saved to the world file in one process reloads and runs in
    another, with the `CALL` names intact. **Tool:** a Bund2 integration test.
    This is the criterion that `Symbol`-in-the-payload would have failed.
@@ -557,3 +569,69 @@ is how a commitment quietly lapses.
   One correction the review owed elsewhere: F18's heading said 14 words and
   its list enumerated 13. The missing one is `tail`, re-derived from
   `docs/arity.md`.
+
+- **2026-08-26, review 2** — `docs/rfc/reviews/RFC-0002-review-2026-08-26-2.md`.
+  Verdict: do not accept, and again not for D14.
+
+  **The blocker was mechanical and mine.** The file contained **two `## Design`
+  sections**: the revision from review 1 was inserted ahead of the old text
+  instead of replacing it, so the committed RFC asserted both "a slot is a set
+  of bindings, not one binding" and, sixty lines later, the single-enum
+  `WordEntry` that review 1 had rejected — along with a verbatim duplicate of
+  the Current-behaviour tail. Deleted; nothing in the duplicated block had
+  survived the revision. Worth naming plainly: a scripted edit that inserts
+  rather than replaces produces a document that passes every citation check
+  and contradicts itself, and `cargo xtask cite` was clean throughout.
+
+  Beyond the deletion:
+
+  **`autoadd` was wrong twice.** The preservation row promised it "preceded
+  all of it" while §Resolution order correctly had `is_command` firing first
+  and returning at `apply.rs:17`. And it has **three** branches, not one —
+  `:19` in the `CALL` arm, `:72` in the `CONTEXT` arm where it suppresses
+  stack switching, and `:89` in the catch-all. Review 1 raised the second
+  point and it had stayed open.
+
+  **Criterion 6 asked for what the grammar forbids.** It required `name` and
+  `$name` to resolve "for the same `Symbol`", but `element` admits `SYMBOL`
+  (`reference/bund_language_parser/bund.pest:36`) so `$println` lexes as a
+  single name and would intern separately. The reference strips the sigil at
+  run time (`multistackvm_call_internal_word.rs:7`); the RFC never said where
+  `$` is handled at all. It is now stripped at intern time, with the sigil
+  carried as a flag on the `CALL`.
+
+  **`Arc<Registry>` collided with RFC-0001** — the first real collision
+  between the two, and neither cited the other. A `Slot` holds a `BundValue`,
+  which RFC-0001 defines as an `Rc<HeapValue>` with `Cell` fields: neither
+  `Send` nor `Sync`. `Arc` buys nothing the contents allow, so it is now `Rc`,
+  and the claim that this is "the change RFC-0007's actor model needs" is
+  withdrawn — RFC-0007 inherits the question of whether `BundValue` can cross
+  a thread, not an answer.
+
+  **The per-VM overlay could not express `unregister` of a builtin**, which is
+  F32's shape reintroduced by the fix for F32. The overlay now stores an
+  explicit present-or-removed state per slot.
+
+  One citation defect: `compile_and_apply.golden` renders `println`, `+` and
+  `format`, not `get` or `swap` — those are golden-visible in the
+  `object_oriented_programming` goldens. The suite total of 43 was right; the
+  attribution was not, and `cite` cannot catch it because goldens are data it
+  scans for citations rather than a target it checks against.
+
+  The in-scope figure was asserted in the perfect tense — "goes 497 -> 498" —
+  while both tools print 497 and will until `stacks_left` is implemented.
+  Corrected to the future.
+
+  And review 1's D1/D2 were still open: Summary, Design and Alternatives gave
+  three different answers on which tables collapse. The truth is six of the
+  seven plus the stack layer's inline table, with `vars` separate; the
+  Alternatives rejection has been rewritten too, since "fewer places a name
+  can live" was never the argument — the chosen design keeps six.
+
+  Recorded from this pass: **F37**, `stdlib/classes/registry.rs` is source
+  that no `mod` declares and that therefore never compiles. It contributes no
+  unique name, so no count moves; what it exposes is that `cargo xtask corpus`
+  attributes "last wins" by path order while the real order is the call
+  sequence at `stdlib/mod.rs:29-51`. The two agree here by accident. Per the
+  owner: registration is last-write-wins, so the outcome is order-determined
+  and no tool change is warranted.
