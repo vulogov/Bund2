@@ -659,3 +659,39 @@ looking keys stay distinct (preserving it).
 
 - Found by: reading `rust_dynamic` for RFC-0001
 - Disposition: RFC-0001 must state which. Recorded here; not decided.
+
+## F31 — `resolve` cannot find any stack-layer word
+`TS::register_inline` stores handlers under a **suffixed** key: it inserts
+`format!("{}_inline", &name)` (`reference/rust_multistack/src/ts_inline.rs:8`),
+so registering `dup_one` writes the key `dup_one_inline`.
+`TS::get_inline` reads with the same suffix
+(`reference/rust_multistack/src/ts_inline.rs:33,34`).
+
+`TS::is_inline` does **not**. It tests `contains_key(&name)` with the bare
+name (`reference/rust_multistack/src/ts_inline.rs:24`), which no key ever
+matches, so it returns false for every word in the stack layer.
+
+The one caller that matters is the `resolve` word
+(`reference/rust_multistackvm/src/stdlib/lambdas/resolve.rs:70`). It tries
+lambda, then `vm.is_inline` for the VM layer, then `vm.stack.is_inline` for
+the stack layer (`:17`, `:19`, `:21`), and bails otherwise (`:23`). Since the
+third test can never succeed, **`resolve` fails for every stack-layer word**.
+
+Confirmed against the oracle. `"println" resolve` leaves a PTR (`dt: 7`);
+`"dup_one" resolve` returns `RESOLVE: function dup_one not found`.
+
+31 words are affected — every `register_inline` in `rust_multistack`,
+including `drop`, `swap`, `take`, `move`, `dup_one`, `dup_many`, `clear`,
+`fold` and the rotations.
+
+Note `VM::is_inline` is correct: it adds the suffix
+(`reference/rust_multistackvm/src/multistackvm_inline.rs:25`), matching the
+suffix `VM::register_inline` writes (`:8`). Only the stack layer's copy of the
+pattern dropped it, which is why the defect is invisible for VM-layer words.
+
+- Found by: reading the dispatch chain for RFC-0002
+- Affects: `resolve`, and any future caller of `TS::is_inline`
+- Disposition: Bund2 fixes it. Under RFC-0002's interned single slot table the
+  bug is not expressible — there is no suffix and no second table to disagree
+  with. No golden covers `resolve`, so conformance cannot move; record the
+  divergence in RFC-0002.
