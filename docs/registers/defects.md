@@ -78,7 +78,13 @@ guard never fires as intended.
 - Behavioural. Disposition:
 
 ## F12 — `Ord::cmp` disagrees with `PartialOrd::partial_cmp` for floats
-`partial_cmp` handles `Val::F64` (`reference/rust_dynamic/src/ord.rs:19-21`),
+`lt` handles `Val::F64` (`reference/rust_dynamic/src/ord.rs:19-21`) — an
+earlier version of this entry attributed those lines to `partial_cmp`, which
+is `:6-8` and delegates to `cmp`, so it cannot disagree with `cmp` at all. The
+disagreement is between `cmp` and the four individually overridden
+comparisons, `lt`, `le`, `gt` and `ge`
+(`reference/rust_dynamic/src/ord.rs:9,48,87,126`), none of which reads an id.
+Those four are the reachable path;
 but `cmp` has no `Val::F64` arm: two FLOATs fall through to
 `self.id.cmp(&other.id)` (`reference/rust_dynamic/src/ord.rs:199`), ordering
 by random nanoid. This violates the std requirement that `Ord::cmp` agree with
@@ -966,3 +972,35 @@ one cannot.
   unsatisfiable as written. It now asks for nineteen.
 - Disposition: Bund2 omits the arm unless a writer is found. An arm with no
   constructor carries no behaviour.
+
+
+## F39 — a caller search that stops at four crates finds phantom dead code
+`Value::exit` was reported as having zero callers by RFC-0001's fourth review
+and repeated by the RFC, on the strength of a search across
+`reference/rust_dynamic/src`, `reference/rust_multistackvm/src`,
+`reference/rust_multistack/src` and `reference/Bund/src`.
+
+It has one, in the fifth crate: the parser's `EOI` handler
+(`reference/bund_language_parser/src/vm/eoi.rs:8`). So **every parsed program
+ends with an `EXIT` value**, three evaluation loops break on it
+(`reference/Bund/src/stdlib/helpers/eval.rs:16`,
+`reference/Bund/src/stdlib/functions/bund/bund_interpreter.rs:35`,
+`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:60`), and the
+arm is one of the most-executed in the language rather than dead.
+
+Corrected by the repository owner.
+
+This is not a defect in the reference. It is a defect in **method**, and it is
+recorded because the same four-crate habit produced F19, F25, F36 and F38 —
+all genuine, but all established by the same kind of search. `Value::operator`
+and `Value::embedding` were re-checked across all six crates and do have zero
+callers; `Val::Token` likewise.
+
+- Found by: the repository owner, correcting RFC-0001 review 4
+- Affects: any "no callers" claim in the registers
+- Disposition: **method, not behaviour.** A reachability claim must name the
+  crates it searched, and the search must cover all six —
+  `Bund`, `bundcore`, `bund_language_parser`, `rust_dynamic`,
+  `rust_multistack`, `rust_multistackvm`. `cargo xtask corpus` scans three by
+  design, because it is looking for *word registrations* and those live in
+  three; a claim about a *constructor* has no such excuse.

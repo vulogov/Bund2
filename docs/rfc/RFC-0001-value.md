@@ -130,11 +130,24 @@ not. D1 and D13 both rest on `eq.rs:53`, and the design below depends on it.
 
 `Ord::cmp` has the same shape: content for `I64`, `Time` and `String`, and
 `self.id.cmp(&other.id)` otherwise
-(`reference/rust_dynamic/src/ord.rs:175,183,191,199`). So **ordering reads the
-id too**, which D1 names as one of three internal readers and an earlier draft
-of this section omitted entirely. F12 records that this path is inconsistent
-with `PartialOrd`'s `lt` (`reference/rust_dynamic/src/ord.rs:16,24`, which
-returns `true` for any mismatch) and currently unreachable.
+(`reference/rust_dynamic/src/ord.rs:175,183,191,199`). So **`cmp` reads the
+id**, which D1 names as one of three internal readers.
+
+**But `cmp` is the unreachable path, and two earlier drafts analysed only it.**
+`PartialOrd` overrides `lt`, `le`, `gt` and `ge` individually
+(`reference/rust_dynamic/src/ord.rs:9,48,87,126`), and **none of the four
+reads an id** — they compare content and fall back to `true` or `false` on a
+type mismatch. Those four are what a comparison in Bund reaches, and what
+`tests/golden/examples/code_snippets/sorting_numbers_in_list.golden` covers. `partial_cmp` delegates to
+`cmp` (`:6-8`), so it cannot disagree with it; the disagreement F12 means is
+between `cmp` and the four overrides, and F12 mis-cites itself on this —
+it attributes `ord.rs:19-21` to `partial_cmp` when those lines are inside
+`lt`.
+
+For this RFC the consequence is narrow and worth stating: the id is read by
+equality, by hashing, and by `cmp` — but the ordering a program can actually
+observe does not read it, so lazy identity is not forced to materialise by a
+sort.
 
 `Hash` hashes **only the id** (`reference/rust_dynamic/src/hash.rs:6`), and
 `Val::ValueMap` is a `HashMap<Value, Value>`
@@ -310,6 +323,40 @@ and payload must be shareable on different schedules. The win over the
 reference is unchanged in kind — a serialise-deserialise round trip becomes
 one header allocation and a refcount bump — and now it is correct.
 
+### One policy for the `Rc` and the identity slot (D13)
+
+D13 does not merely permit `Rc::make_mut`; it sets a condition on it, in
+terms: *"the lazy identity slot must be shared across clones and must split at
+the same points the `Rc` does. If the two split policies disagree, an
+unobserved value and its clone materialise different ids and `A == A.clone()`
+silently becomes false. RFC-0001 must show one policy governing both."*
+
+An earlier draft showed half of it. `Clone` is an `Rc` bump, so the slot is
+shared and clone-equal holds — that is D1's hazard answered. **`make_mut` was
+left unanswered**, and it breaks the same property: `make_mut` clones the
+`HeapValue`, an unminted slot is copied as *unminted*, and the two halves then
+mint independently. Two different ids, and `A == A.clone()` flips from true to
+false.
+
+This is not a corner. `TS::push` calls `set_tag` unconditionally
+(`reference/rust_multistack/src/ts_push.rs:25`), and this RFC classifies
+`set_tag` as a minting-free mutation and therefore a split point. So it fires
+on **every push of a cloned value**.
+
+**The policy, one rule covering both: a CoW split materialises the identity
+before it copies.** Minting is on first *need*, and a split is a need —
+precisely because it is the moment at which two copies could otherwise
+diverge. Both halves then carry the same concrete id, which is what the
+reference produces: its `Clone` deep-copies the `id` `String`, and a
+minting-free mutation like `set_tag` leaves both copies holding it.
+
+`stamp` follows the same rule, for the same reason.
+
+The cost is a mint per split of a shared value, which is the price of D1's
+laziness being observable through equality. It is bounded by how often a
+*cloned* value is mutated — an unshared value's `make_mut` does not copy and
+so does not split.
+
 ### Value semantics
 
 `Rc::make_mut` clone-on-write (D13), with one claim from the earlier draft
@@ -343,9 +390,11 @@ drivable on a scalar too: `1 2 attribute` renders `dt: 2` — an integer — wit
 a populated `attr`, which is this RFC's own probe and the evidence cited for
 `attr` being a field at all.
 
-The goldens say how often this matters. Of the 258 renderings, **27 have a
-scalar payload; 24 of those carry a non-empty `tags` and 3 a populated
-`attr`**. Criterion 6 asks the `Debug` rendering to reproduce the reference's
+The goldens say how often this matters. Of the 258 renderings, **34 have a
+scalar payload and 29 of those carry a non-empty `tags`** — `I64` 17 of which
+12 are tagged, `Bool` 12 of 12, `F64` 3 of 3, `Null` 2 of 2 — and 3 carry a
+populated `attr`. An earlier draft said 27 and 24, from a scan that required
+a parenthesised payload and so missed `Null` entirely. Criterion 6 asks the `Debug` rendering to reproduce the reference's
 text, and an inline scalar arm cannot reproduce any of those 24.
 
 So the scalar arms are the **unadorned** form, not the only form:
@@ -545,6 +594,10 @@ it is stated here so it is not discovered by a golden failure.
 | **Dup-unequal**: `A == A.dup()` false for non-scalars | **Preserved exactly.** `dup` clears the identity slot on a fresh header. This is the contract an earlier draft broke. |
 | `set_tag` mutating in place without minting | **Preserved exactly.** `make_mut` copies the id, which is what an in-place write does. |
 | Equality: content for four arms, identity for fifteen, mixed for `Val::List` | **Preserved exactly** for every arm with a heap header. |
+| Equality across `Int` and `Float` | **Deliberately changed, and this is the largest deviation in the RFC.** `42 == 42.5` is true in the reference's truncating orientation and false in Bund2, by D30's amendment. It disagrees with a captured golden, `eq-asymmetry.golden`, which is regenerated with `--reason F33`. Two earlier drafts had rows for the heap arms and for `Bool`/`Nodata`/`None`, and `Int` and `Float` fell between them. |
+| `HashMap` iteration order in the `Debug` rendering (F15) | **Deliberately fixed.** `Payload` uses `BTreeMap`, so both rendering paths are ordered by construction. F15 asks RFC-0001 to choose a deterministic map; this is that choice. |
+| `Val::Token`, and the four `dt` constants with no writer (F36, F38) | **Deliberately omitted.** An arm no constructor writes carries no behaviour. Recorded in the `Payload` definition. |
+| Identity and stamp minted per construction, normalised out of the goldens (F14) | **Preserved observably.** F14 is why the goldens carry `<id>` and `<stamp>`; laziness is invisible to them either way, which is what makes D1 and D2 capturable at all. |
 | Equality by identity for `Bool`, `Nodata`, `None` | **Deliberately changed** — scalars have no identity to compare. Unreachable through `==`, which bails on non-numeric types. See the scalar section. |
 | Mutation resetting `attr`, `curr`, `tags` (F34) | **Preserved exactly.** The header is rebuilt, not copied — `make_mut` would copy it, which is the divergence this row exists to close. |
 | `push` on a `RESULT` yielding a `LIST` (F35) | **Deliberately fixed.** The `dt` is preserved, as `set` already does for maps. No golden covers it. |
@@ -594,7 +647,7 @@ the value nothing.
    The qualifier is load-bearing: `TS::push` tags unconditionally
    (`reference/rust_multistack/src/ts_push.rs:25`), so a scalar pushed to a
    stack is boxed and allocates. An earlier draft asserted this without the
-   qualifier, which the goldens contradict — 24 of the 27 scalar renderings
+   qualifier, which the goldens contradict — 29 of the 34 scalar renderings
    carry a non-empty `tags`. **Boxing one costs 5 allocations and 721 bytes**,
    measured, and that is what pushing an integer costs. The row exists so the
    qualifier cannot quietly become an excuse.
@@ -628,16 +681,23 @@ the value nothing.
    renderings across 29 goldens, including `q: 100.0` as a constant and
    `attr`, `curr`, `tags` as real state. **255 show `attr: []` and 3 do not**;
    the three come from this RFC's own probe and are the reason `attr` is a
-   field. **27 of the 258 have a scalar payload, 24 of them with a non-empty
+   field. **34 of the 258 have a scalar payload, 29 of them with a non-empty
    `tags`** — those are the renderings an inline-only scalar arm could not
    produce, which is why scalars are boxable.
-7. **The bincode wire format is byte-identical to the reference** for one
-   value of each payload arm **that the reference can construct**, compared
-   against bytes captured from the oracle. That is **nineteen**, not twenty:
-   `Val::Token` appears nowhere in `rust_dynamic` outside its own declaration
-   (`reference/rust_dynamic/src/types.rs:69`), so no oracle run can produce
-   one and an earlier draft's "each of the 20" was unsatisfiable. Recorded as
-   F38.
+7. **The bincode wire format is byte-identical to the reference** for every
+   payload arm a **probe can construct on the oracle**, and the set is
+   enumerated by the probe suite rather than asserted here. The method is
+   oracle byte-capture, so what it needs is *reachability from Bund*, not the
+   existence of a Rust constructor — two earlier drafts got this wrong in
+   sequence, first claiming twenty arms and then nineteen. `Val::Token` has no
+   constructor at all (F38), and `Value::operator` and `Value::embedding` have
+   **zero callers in any of the six crates**. `Value::exit` does have one —
+   the parser's `EOI` handler
+   (`reference/bund_language_parser/src/vm/eoi.rs:8`) — but an `EXIT` is
+   consumed by the evaluator and never reaches a stack, so it cannot be
+   captured this way either. Writing an exact number here would be a third
+   guess after twenty and nineteen; the probe suite reports the set it can
+   actually construct.
 8. **`.id` returns a 21-character string** over the reference's nanoid
    alphabet, and two values minted in one VM never collide.
 9. `cargo tree -p bund2-value` lists no `bund2-interp`. Vacuous until
@@ -663,11 +723,13 @@ the value nothing.
     that a cited line means what the prose says. Two reviews have found
     citations that resolve and mislead, and `cite` passed both times.
 14. **`cargo xtask lint` reports no contradictions.** It cross-checks every
-    preservation row against the disposition of the defect it cites, which is
-    the check that would have caught review 3's ordering row, and it catches a
+    preservation row against the disposition of the defect it cites — the
+    check that would have caught review 3's ordering row — and catches a
     duplicated section heading, which is what blocked RFC-0002's second
-    review. It found three inconsistencies on its first run over this RFC and
-    RFC-0002.
+    review. **What it structurally cannot see is a row that is absent.** Four
+    were missing when review 4 read this RFC, including the largest deviation
+    in it, and no mechanical check will find the next one. This criterion is
+    a floor, not a substitute for a reader.
 
 ## Open questions
 
@@ -803,3 +865,66 @@ the value nothing.
   oracle" unsatisfiable — it now asks for nineteen. **F36** is extended from
   `ASSOCIATION` to all four `dt` constants with no writer: `LITERAL`,
   `LARGE_FLOAT`, `ASSOCIATION`, `TOKEN`, leaving 38 live of 42 declared.
+
+- **2026-08-26, review 4** — `docs/rfc/reviews/RFC-0001-review-2026-08-26-4.md`.
+  Verdict: do not accept. Review 3's items were all done; all 50 citations
+  resolved and read correctly, `layout` reproduced every allocation figure,
+  and the payload/`dt` table verified row by row.
+
+  **The design contradicted D13, not merely its own table.** D13 states the
+  condition in terms — *"RFC-0001 must show one policy governing both"* — and
+  the draft showed one half. `Clone` as an `Rc` bump shares the identity slot,
+  so clone-equal holds; `make_mut` copies the slot, an unminted slot copies as
+  unminted, and the two halves then mint different ids. `set_tag` on every
+  push is a minting-free mutation that this RFC itself classifies as a split,
+  so the break fires on every push of a cloned value. The policy is now one
+  rule: **a CoW split materialises the identity before it copies**, which is
+  what the reference produces, since its `Clone` deep-copies the `id` string.
+  `stamp` follows it. And `curr` was worse than unanswered — as a `Cell`
+  inside the shared `Rc` it gave the cursor *reference* semantics across
+  clones; it is a plain field now, split by `make_mut` like any other.
+
+  **`Payload` was used and never defined**, which is why F15's "choose a
+  deterministic map — RFC-0001 territory" and F36's "record it in RFC-0001's
+  tag table" were both unanswered. It is defined now, with `BTreeMap` for both
+  map kinds — F15's actual request — and with the arms F36 and F38 rule out
+  omitted.
+
+  **Criterion 7's "nineteen" was still unsatisfiable.** Review 3 cut it from
+  twenty by removing `Val::Token`, but the criterion's method is oracle
+  byte-capture, which needs reachability from Bund rather than a Rust
+  constructor. `Value::exit`, `Value::operator` and `Value::embedding` have
+  zero callers anywhere, so at most sixteen arms qualify. Rather than guess a
+  third number, the criterion now says the probe suite enumerates the set.
+
+  **The scalar counts were wrong in four places** — 34 scalar renderings with
+  29 tagged, not 27 and 24 (`I64` 17/12, `Bool` 12/12, `F64` 3/3, `Null` 2/2).
+  The earlier scan required a parenthesised payload and missed `Null`
+  entirely. The argument was strengthened by the correction; the figures had
+  simply not reproduced.
+
+  **Four preservation rows were missing**, including the largest deviation in
+  the RFC: `42 == 42.5` flipping true to false, which disagrees with a
+  captured golden. The two equality rows covered heap arms and
+  `Bool`/`Nodata`/`None`, and `Int` and `Float` fell between them. F15, F38
+  and F14 had no rows either. Criterion 14 leaned on `cargo xtask lint` as
+  though it could catch this; **a missing row is structurally invisible to
+  it**, and the criterion now says so.
+
+  And the ordering analysis covered the unreachable path. `lt`, `le`, `gt` and
+  `ge` are each overridden (`reference/rust_dynamic/src/ord.rs:9,48,87,126`),
+  none reads an id, and those are what a sort reaches — `partial_cmp`
+  delegates to `cmp` and cannot disagree with it. F12 mis-cited itself the
+  same way, attributing `ord.rs:19-21` to `partial_cmp` when those lines are
+  inside `lt`; corrected there too.
+
+  **Corrected by the repository owner during this pass:** review 4 reported
+  `Value::exit` as having zero callers and this RFC repeated it. It has one —
+  the parser's `EOI` handler
+  (`reference/bund_language_parser/src/vm/eoi.rs:8`) — so every parsed program
+  ends with an `EXIT` value and three evaluation loops break on it. Both the
+  review's search and this RFC's covered four crates and not the parser.
+  Recorded as **F39**, as a defect in method rather than in the reference,
+  because the same four-crate habit produced F19, F25, F36 and F38. Those were
+  re-checked across all six crates and hold; `Value::operator` and
+  `Value::embedding` do have zero callers.
