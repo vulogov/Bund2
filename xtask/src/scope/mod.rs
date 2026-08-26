@@ -27,7 +27,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+pub mod variants;
+
 use crate::corpus::{self, classify, registry};
+use variants::{Completion, Variant};
 
 /// One word's partition verdict, with the reason it landed there.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -230,6 +233,89 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         names.sort();
         println!("  {s}");
         println!("      {}", names.join(" "));
+    }
+    println!();
+
+    // ------------------------------------------------------------------
+    // The variant comparison D14 needs before it records anything.
+    let probe_words: BTreeSet<String> = {
+        let mut out = BTreeSet::new();
+        let dir = repo.join("tests/probes");
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.extension().is_some_and(|x| x == "bund")
+                    && let Ok(src) = std::fs::read_to_string(&p)
+                {
+                    let lexed = corpus::lex::lex(&src);
+                    for t in lexed.tokens.iter().filter(|t| t.kind == corpus::lex::Kind::Name) {
+                        out.insert(t.text.clone());
+                    }
+                }
+            }
+        }
+        out
+    };
+
+    let seed_b: BTreeSet<String> = verdict
+        .iter()
+        .filter(|(_, v)| matches!(v, Verdict::Seed))
+        .map(|(k, _)| k.clone())
+        .collect();
+    let mut seed_p = seed_b.clone();
+    for w in &probe_words {
+        if in_scope.contains(w) {
+            seed_p.insert(w.clone());
+        }
+        if let Some((t, _)) = reg.alias.get(w.as_str())
+            && in_scope.contains(t.as_str())
+        {
+            seed_p.insert(t.clone());
+        }
+    }
+
+    let vs = vec![
+        Variant {
+            name: "B",
+            note: "closure + D18 only",
+            core: variants::partition(&repo, &reg, &in_scope, &seed_b, Completion::None),
+        },
+        Variant {
+            name: "B+probes",
+            note: "B, and the authored probes seed too",
+            core: variants::partition(&repo, &reg, &in_scope, &seed_p, Completion::None),
+        },
+        Variant {
+            name: "B'",
+            note: "B+probes, then file completion",
+            core: variants::partition(&repo, &reg, &in_scope, &seed_p, Completion::File),
+        },
+        Variant {
+            name: "B\u{2033}",
+            note: "B', but file completion only in vm/ and stack/",
+            core: variants::partition(
+                &repo,
+                &reg,
+                &in_scope,
+                &seed_p,
+                Completion::FileInLanguageLayers,
+            ),
+        },
+        Variant {
+            name: "C",
+            note: "B+probes, then subsystem completion (contradicts Q4)",
+            core: variants::partition(&repo, &reg, &in_scope, &seed_p, Completion::Subsystem),
+        },
+    ];
+    variants::report(&vs, &in_scope);
+
+    println!("## what B\u{2033} adds over B+probes\n");
+    let added = variants::delta(&vs[1].core, &vs[3].core);
+    println!("  {} words, by subsystem:\n", added.len());
+    for (sub, mut ws) in variants::by_subsystem(&reg, &added) {
+        ws.sort();
+        println!("  {sub}");
+        println!("      {}", ws.join(" "));
     }
     println!();
 
