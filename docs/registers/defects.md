@@ -817,8 +817,9 @@ distinction between the two — they share the `Val::List` payload — so the
 value silently changes type.
 
 - Found by: RFC-0001 review 2
-- Disposition: Bund2 preserves the `dt`, as `set` does for maps
-  (`reference/rust_dynamic/src/set.rs:22` restores `raw_value.dt = self.dt`).
+- Disposition: **fix.** Bund2 restores the `dt` after a push, the way `set`
+  already does for maps (`reference/rust_dynamic/src/set.rs:22` restores
+  `raw_value.dt = self.dt`), so a `RESULT` stays a `RESULT`.
   The asymmetry between `set` restoring the tag and `push` not is the defect.
   No corpus program pushes to a `RESULT`, so no golden covers it.
 

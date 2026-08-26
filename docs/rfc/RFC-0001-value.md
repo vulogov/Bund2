@@ -595,8 +595,11 @@ the value nothing.
    (`reference/rust_multistack/src/ts_push.rs:25`), so a scalar pushed to a
    stack is boxed and allocates. An earlier draft asserted this without the
    qualifier, which the goldens contradict — 24 of the 27 scalar renderings
-   carry a non-empty `tags`.
+   carry a non-empty `tags`. **Boxing one costs 5 allocations and 721 bytes**,
+   measured, and that is what pushing an integer costs. The row exists so the
+   qualifier cannot quietly become an excuse.
 3. `dup` of a heap list on a stack allocates **4** times and **649** bytes,
+   and `dup` of a *boxed* scalar the same **4** and **649**,
    against the reference's full bincode serialise-and-deserialise, and `dup`
    of a scalar allocates **0**. Measured by `cargo xtask layout`, which now
    carries `dup` rows — it had none for any candidate, so an earlier draft's
@@ -659,6 +662,12 @@ the value nothing.
 13. `cargo xtask cite` reports zero defects. Note what it does **not** check:
     that a cited line means what the prose says. Two reviews have found
     citations that resolve and mislead, and `cite` passed both times.
+14. **`cargo xtask lint` reports no contradictions.** It cross-checks every
+    preservation row against the disposition of the defect it cites, which is
+    the check that would have caught review 3's ordering row, and it catches a
+    duplicated section heading, which is what blocked RFC-0002's second
+    review. It found three inconsistencies on its first run over this RFC and
+    RFC-0002.
 
 ## Open questions
 

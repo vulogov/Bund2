@@ -431,7 +431,7 @@ time. That is a deliberate deviation in both directions and is recorded there.
 | `autoadd`, all three branches | **Preserved exactly**, including that it does *not* precede the command check — `is_command` returns at `apply.rs:17` before `autoadd` is consulted at `:19` — and including `:72`, where it suppresses stack switching rather than appending. |
 | `$` skipping the lambda check but not aliases (F26) | **Preserved exactly**, including the surprise. The comment is wrong; the behaviour is the contract. |
 | Fallthrough from the VM table to the stack table | **Preserved in effect.** One slot table has no two tiers to fall between; the words keep their names and meanings. |
-| Last-write-wins registration | **Preserved exactly**, as a generation bump, with registrations replayed in source order and never deduped — F32 depends on the second `unregister` winning. |
+| Last-write-wins registration | **Preserved exactly**, as a generation bump, with registrations replayed in source order and never deduped. Deduping would silently change which handler wins; the row below is what that costs today. |
 | A name bound as lambda and native at once | **Preserved exactly.** Slots carry one `Option` per namespace, so writing a lambda does not disturb the native and `$name` still reaches it. |
 | `CALL` carrying a name string, golden-visible | **Preserved exactly as text.** `Symbol` is internal; the `Debug` rendering resolves it back through the interner, so `data: String("println")` renders unchanged. |
 | Lambda bodies bincoded into the world file | **Preserved exactly.** Serialisation is a materialisation point: names are written as strings, so a saved lambda reloads in another process. |

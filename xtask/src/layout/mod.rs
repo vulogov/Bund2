@@ -108,6 +108,13 @@ struct Heap {
 
 #[allow(dead_code)]
 enum HeapPayload {
+    /// A boxed scalar. RFC-0001's scalar arms are the *unadorned* form; a
+    /// scalar that acquires a header — an observed identity, a stamp, a tag,
+    /// an attribute — is represented this way. `TS::push` tags
+    /// unconditionally (`reference/rust_multistack/src/ts_push.rs:25`), so
+    /// every scalar pushed to a stack takes this form, which makes it the
+    /// common case rather than an edge one.
+    Scalar(CandidateHeader),
     Str(String),
     List(Vec<CandidateHeader>),
     Map(HashMap<String, CandidateHeader>),
@@ -386,7 +393,21 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     let (n, b, _) = measure(|| dheap.dup());
     println!("  {:<44}{n:>7}{b:>9}", "D: dup a list (fresh header, shared payload)");
     let (n, b, _) = measure(|| scalar.clone());
-    println!("  {:<44}{n:>7}{b:>9}", "D: dup a scalar (no header at all)");
+    println!("  {:<44}{n:>7}{b:>9}", "D: dup an unadorned scalar (no header)");
+
+    // The case that actually occurs: `push` tags unconditionally, so a scalar
+    // on a stack is a boxed scalar. Criterion 2's "unadorned" qualifier is
+    // load-bearing precisely because of this row.
+    let (n, b, boxed) = measure(|| {
+        CandidateTagged::Heap(Rc::new(HeapTagged::on_stack(HeapPayload::Scalar(
+            CandidateHeader::Int(7),
+        ))))
+    });
+    println!("  {:<44}{n:>7}{b:>9}", "D: box a scalar (what push forces)");
+    let (n, b, _) = measure(|| boxed.clone());
+    println!("  {:<44}{n:>7}{b:>9}", "D: clone a boxed scalar (Rc bump)");
+    let (n, b, _) = measure(|| boxed.dup());
+    println!("  {:<44}{n:>7}{b:>9}", "D: dup a boxed scalar");
 
     let (n, b, inline) = measure(|| CandidateInline {
         id: 0,
@@ -398,7 +419,13 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     println!("  {:<44}{n:>7}{b:>9}", "B: clone a scalar");
     println!();
 
-    println!("  A scalar allocating zero is the property that matters: under");
+    println!("  An UNADORNED scalar allocating zero is the property that");
+    println!("  matters, and the qualifier is the point: `push` writes a stack");
+    println!("  tag with no type test, so a scalar on a stack is boxed and the");
+    println!("  `box a scalar` row above is what a pushed integer costs.");
+    println!("  RFC-0001 criterion 2 is written against the unadorned row and");
+    println!("  says so; criterion 3 is written against the boxed ones.\n");
+    println!("  Historical note: under");
     println!("  the header design an integer never touches the heap, so the");
     println!("  lazy identity D1 specifies costs nothing until observed.\n");
 

@@ -29,6 +29,13 @@ jobs:
         # invalidates citations at the commit that makes it rather than
         # whenever someone next reads an RFC.
         run: cargo xtask cite
+
+      # Self-consistency, which `cite` cannot see: a preservation row that
+      # contradicts the disposition it cites, a duplicated section heading,
+      # a count that has drifted from its artefact. Two of the five review
+      # blockers so far were of exactly this kind.
+      - name: documents agree with themselves
+        run: cargo xtask lint
       - name: feature matrix
         run: |
           cargo check --workspace --features aot

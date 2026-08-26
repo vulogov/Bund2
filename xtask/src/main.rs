@@ -37,6 +37,11 @@ Oracle
                 a token, that the token is near the cited line. Catches stale
                 line numbers; cannot check that a line means what the prose
                 says.
+  lint          Self-consistency, which `cite` cannot see: a preservation row
+                that contradicts the defect disposition it cites, a heading
+                duplicated inside one document, a claimed count that has
+                drifted from the artefact it describes. Every check is a hard
+                failure — none has a false-positive mode.
   guide         Cross-reference the reference's Library Guide against the
                 registry: documented words that are not callable, pages the
                 book never renders, the guide's own layer attribution against
@@ -83,6 +88,7 @@ mod golden;
 mod guide;
 mod scope;
 mod layout;
+mod lint;
 
 /// Counting allocator, so `layout` can report allocations per operation.
 #[global_allocator]
@@ -152,6 +158,13 @@ fn main() -> std::process::ExitCode {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
                 eprintln!("xtask guide: {err}");
+                std::process::ExitCode::FAILURE
+            }
+        },
+        "lint" => match lint::run(&args) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("xtask lint: {err}");
                 std::process::ExitCode::FAILURE
             }
         },
