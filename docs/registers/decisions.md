@@ -637,7 +637,7 @@ word.
 
 - Decided by: repository owner, answering Q9 (Option C)
 - Blocks: nothing; unblocks the "covered by a hand test" term in
-  `cargo xtask coverage` — though capture is not implemented yet, carried as Q16
+  `cargo xtask coverage` — capture landed in `golden::capture_jobs`, so Q16 is closed
 - Status: RESOLVED
 - Known limitation, carried on Q5: coverage is measured per *word*, not per
   behaviour. `!` counts as covered today with half its dispatch untested.
