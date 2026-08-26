@@ -135,7 +135,7 @@ NaN-boxing and a smaller value.
 - Blocks: RFC-0001
 - Default: full `i64`
 - Evidence: `cargo xtask layout`
-- Status: OPEN
+- Status: **RESOLVED — full `i64`.** NaN-boxing is not taken.
 
 Measurement narrows what NaN-boxing is worth. With identity in the heap
 header (D1, D2, and the layout scan), the candidate value is **already 16
@@ -147,6 +147,23 @@ For contrast the same measurement puts the reference's `Value` replica at
 **176 bytes**, and identity carried inline at 32. The large win is already
 taken by moving identity off the value; NaN-boxing is a second, smaller step
 with a semantic cost attached.
+
+**Resolution.** Full `i64`. 176 -> 16 is the win that mattered and it is
+already banked; 16 -> 8 buys packing density in lists, not speed on the common
+path, because a 16-byte value is two machine words and a scalar never reaches
+the heap either way (`cargo xtask layout` measures 0 allocations for
+constructing and cloning a scalar under candidate A).
+
+What it would cost is a 51-bit integer cap, and Bund is dynamically typed:
+nothing in the language warns before an integer wraps. `cast_int` returns
+`i64` (`reference/rust_dynamic/src/cast.rs:17`) and the reference stores
+`Val::I64(i64)` (`reference/rust_dynamic/src/types.rs:72`), so 51 bits would
+be a narrowing of an existing observable range, not a choice about a new one.
+
+The asymmetry decides it: representation is private behind `BundValue`'s API
+and can change later, so NaN-boxing stays available as an optimisation.
+Integer width is semantic and observable, so capping it is not reversible once
+programs depend on it.
 
 ## D5 — lambda body mutability
 Can a LAMBDA body be mutated after construction, or is it write-once? Write-once

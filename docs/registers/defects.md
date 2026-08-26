@@ -571,3 +571,91 @@ advertises.
   language feature the reference does not have, which is a deviation even
   though the guide describes it. If it is ever exposed, `peek` must follow
   `pull`, not `push`.
+
+## F28 — `push_to_stack` checks the wrong stack's length against the cap
+`TS::push` reads the current stack's length and the current stack's capacity,
+which is consistent: `stack_name` comes from `current_stack_name()`
+(`reference/rust_multistack/src/ts_push.rs:14`), and both
+`current_stack_len()` (`:20`) and `stack_capacity(stack_name)` (`:21`) are
+about that same stack.
+
+`TS::push_to_stack` is not. It takes `cap` for the **named** stack
+(`reference/rust_multistack/src/ts_push.rs:48`) but `stack_len` from the
+**current** one (`:47`), then evicts when `stack_len >= cap` (`:54`). So
+pushing to a capped stack `B` while `A` is current drops B's oldest element
+based on A's depth — evicting when B is empty if A is deep, and never
+evicting when A is shallow no matter how full B is.
+
+`stack_len(name)` exists and is the function this wants
+(`reference/rust_multistack/src/ts_len.rs:19-28`); `push_to_stack` calls
+`current_stack_len` instead.
+
+Reachable but untested: capacities are set only by
+`ensure_stack_with_capacity`
+(`reference/rust_multistack/src/stdlib/ensure_stack.rs:96`, implementation at
+`:32-59`), a registered inline word with **zero corpus uses**, so no golden
+covers it.
+
+- Found by: reading `rust_multistack` for RFC-0001
+- Disposition: Bund2 fixes it — use the named stack's length. A golden cannot
+  disagree, because none exercises it. Record the divergence in RFC-0001.
+
+## F29 — `valuemap` is write-only: nothing can read a `Val::ValueMap` back
+`valuemap` is a registered inline word
+(`reference/rust_multistackvm/src/stdlib/artefacts.rs:147`) with the alias
+`match` (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:45`), and
+`set` has a real `VALUEMAP` branch that inserts through `set_vmap`
+(`reference/rust_multistackvm/src/stdlib/values/value_dict.rs:17-19`).
+
+No read path exists.
+
+- `Value::get` dispatches on `dt` and its arm lists
+  `MAP | INFO | CONFIG | ASSOCIATION | CURRY | MESSAGE | CONDITIONAL | OBJECT | CLASS`
+  (`reference/rust_dynamic/src/get.rs:7`). `VALUEMAP` is absent, so a
+  valuemap falls to the catch-all at `:18` and `get` returns **`self.clone()`**
+  — the whole map — rather than the value under the key, and rather than an
+  error.
+- `Value::has_key` has the same arm without `VALUEMAP`
+  (`reference/rust_dynamic/src/has_key.rs:7`) and its catch-all returns
+  `make_false()` (`:19-20`), so `?key` on a valuemap always answers false.
+
+Confirmed against the oracle. `valuemap "k" 42 set "k" get` leaves the map
+itself on the stack, not `42` — `tests/probes/valuemap-hash-eq.bund`.
+
+The failure is silent, which is what makes it worth recording: a program that
+uses a valuemap gets a plausible-looking value back and no diagnostic.
+
+- Found by: reading `rust_dynamic` for RFC-0001
+- Disposition: undecided. Bund2 either implements the read path or does not
+  implement `valuemap`; both deviate. See F30 — implementing the read path
+  naively does not work either. Blocked pending a decision alongside D29.
+
+## F30 — `Hash` and `PartialEq` disagree, so `Val::ValueMap` cannot key on content
+`impl Hash for Value` hashes **only the id**:
+`self.id.hash(hasher)` and nothing else (`reference/rust_dynamic/src/hash.rs:6`).
+
+`impl PartialEq for Value` compares **content** for like types — two strings
+by their text (`reference/rust_dynamic/src/eq.rs:32`), two integers by value
+(`:10`), two floats by value (`:21`) — and only falls back to
+`self.id == other.id` when the types differ (`:15`, `:26`, `:34`).
+
+Two structurally identical strings are therefore `==` but hash to different
+buckets, since every construction mints a fresh id
+(`reference/rust_dynamic/src/create.rs:10` and every sibling constructor).
+That breaks the `Hash`/`Eq` contract, and `Val::ValueMap` is a
+`HashMap<Value, Value>` (`reference/rust_dynamic/src/types.rs:79`) — a map
+keyed by exactly the type whose contract is broken.
+
+Latent today only because of F29: `get` never reaches the lookup, so nothing
+can observe the miss. It becomes live the moment a read path is added, which
+is why F29 cannot be fixed by adding `VALUEMAP` to `get.rs:7` alone.
+
+This is a hard constraint on **D1**. If identity is minted lazily, then
+hashing a value forces it to materialise, and two equal values must reach the
+*same* id for a content-keyed map to work — which is the opposite of what a
+per-construction nanoid gives. Either the value hashes by content (changing
+observable `ValueMap` behaviour) or `ValueMap` keys by identity and equal-
+looking keys stay distinct (preserving it).
+
+- Found by: reading `rust_dynamic` for RFC-0001
+- Disposition: RFC-0001 must state which. Recorded here; not decided.

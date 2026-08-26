@@ -125,6 +125,41 @@ enum CandidateHeader {
     Heap(Rc<Heap>),
 }
 
+/// **Candidate D — A, plus the reference's `dt` type tag.**
+///
+/// A and B both assume the payload discriminant *is* the type. In the
+/// reference it is not: `dt` (`reference/rust_dynamic/src/types.rs:15-56`) and
+/// `Val` (`:66-90`) are independent axes. One `Val` arm carries many `dt`
+/// tags — `Val::Map` is written with `CLASS`, `CONDITIONAL`, `CONFIG`,
+/// `CURRY`, `INFO`, `MAP` and `OBJECT`, and `Val::String` with `CALL`,
+/// `CONTEXT`, `JSON_WRAPPED`, `PTR`, `STRING` and `TEXTBUFFER`. `PTR` versus
+/// `STRING` is the difference between a name that executes and text that does
+/// not, so folding the tag into the payload would lose behaviour.
+///
+/// The tag is only ever ambiguous for heap types — `NONE`, `BOOL`, `INTEGER`
+/// and `FLOAT` are one-to-one with their payloads. So it goes in the heap
+/// header beside the identity, not in the value, and the question this
+/// measures is whether that keeps the value at 16 bytes.
+#[allow(dead_code)]
+struct HeapTagged {
+    id: std::cell::Cell<u64>,
+    stamp: std::cell::Cell<f64>,
+    /// The reference's `dt`, verbatim: a `u16` over the constants at
+    /// `reference/rust_dynamic/src/types.rs:15-56`.
+    dt: u16,
+    payload: HeapPayload,
+}
+
+#[derive(Clone)]
+#[allow(dead_code)]
+enum CandidateTagged {
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+    Nodata,
+    Heap(Rc<HeapTagged>),
+}
+
 /// **Candidate B — identity inline on every value.** What the representation
 /// must look like if `id` and `stamp` cannot move off the value. Carried for
 /// contrast: this is the shape the scan rules out.
@@ -200,6 +235,12 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         align_of::<CandidateToken>(),
         "cheapest inline; bounds the stamp's cost",
     );
+    row(
+        "D: A + the reference's dt tag",
+        size_of::<CandidateTagged>(),
+        align_of::<CandidateTagged>(),
+        "dt and Val are independent axes",
+    );
     println!();
     row(
         "  Rc<Heap>",
@@ -212,6 +253,12 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         size_of::<Heap>(),
         align_of::<Heap>(),
         "",
+    );
+    row(
+        "  HeapTagged (pointee)",
+        size_of::<HeapTagged>(),
+        align_of::<HeapTagged>(),
+        "carries dt",
     );
     println!();
 
@@ -227,9 +274,20 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         "  Carrying identity inline costs {} bytes per value (B - A).\n",
         b - a
     );
-    println!("  D4 is still OPEN. NaN-boxing would shrink A further by folding");
-    println!("  the tag into unused float bits, at the cost of 51-bit integers.");
-    println!("  These figures assume full i64 — D4's default.\n");
+    let d = size_of::<CandidateTagged>();
+    if d == a {
+        println!("  Candidate D carries the reference's dt tag and is still {d}");
+        println!("  bytes: the tag only needs disambiguating for heap types, so");
+        println!("  it fits in the header beside the identity and costs the value");
+        println!("  nothing. That is the shape RFC-0001 specifies.\n");
+    } else {
+        println!("  Candidate D is {d} bytes against A's {a} — carrying dt costs");
+        println!("  {} bytes per value.\n", d - a);
+    }
+    println!("  D4 is RESOLVED: full i64, NaN-boxing not taken. Folding the tag");
+    println!("  into unused float bits would reach 8 bytes at the cost of 51-bit");
+    println!("  integers, and the 176 -> 16 win is already banked. These figures");
+    println!("  are the full-i64 ones the decision rests on.\n");
 
     // -----------------------------------------------------------------------
     println!("## allocations per operation\n");

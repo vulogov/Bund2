@@ -1,0 +1,10 @@
+//
+// Probe: Hash for Value hashes only `id` (rust_dynamic/src/hash.rs:6) while
+// PartialEq compares content for two strings (rust_dynamic/src/eq.rs:32).
+// Val::ValueMap is a HashMap<Value, Value>, so two structurally equal string
+// keys compare == yet hash to different buckets. A lookup with a freshly
+// built but equal key should therefore miss.
+//
+"probe: valuemap, insert under k then read back with a fresh equal k" println
+valuemap "k" 42 set "k" get
+debug.display_stack
