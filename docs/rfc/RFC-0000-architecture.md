@@ -251,10 +251,10 @@ so conformance can read 100% with three quarters of the language untested.
 Three files are the shared state between sessions, and this RFC does not
 duplicate them:
 
-- `docs/registers/decisions.md` — 28 entries. Append-only; a status may
+- `docs/registers/decisions.md` — 29 entries. Append-only; a status may
   change, an entry may not be deleted or renumbered.
-- `docs/registers/defects.md` — 25 entries. The roadmap's §5 listed eleven;
-  seven more were found by running the oracle rather than reading it. F14, F15 and
+- `docs/registers/defects.md` — 26 entries. The roadmap's §5 listed eleven;
+  the rest were found by running the oracle rather than reading it. F14, F15 and
   F17 are why 18 of 77 hermetic programs could not be captured, and
   `tests/golden/UNSTABLE.txt` tags each row with which: **13 F14, 2 F15, 3
   F17**. Normalising F14 and F15 recovered those 15; the three F17 rows are
@@ -305,14 +305,19 @@ RFC-0002 states the dispatch contract per `autoadd` arm.
 `register_inline`, so dispatch cannot reach it — yet `<-` and `←` are aliased
 to it (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:22,23`).
 Confirmed against the oracle: `1 2 <-` fails with *"Inline stacks_left not
-registered"*, while `stacks_right`, which is registered inline, works.
-Recorded as F22. F19 covers the table; these aliases are why dropping it is
+registered"*, while `1 2 ->` gives `2` — `stacks_right` is registered inline
+and works. Recorded as F22. (A separate defect, F23, affects
+`rotate_stack_right`, which is a different word from `stacks_right` and
+rotates the wrong way; an earlier draft conflated the two and claimed the
+pair was broken in both directions, which it is not.) F19 covers the table; these aliases are why dropping it is
 not purely subtractive — two documented words go with it.
 
 *A JSON round trip discards identity.* `to_binary` on a JSON value converts to
 a string and re-wraps (`reference/rust_dynamic/src/bincode.rs:9-28`), and
-`from_binary` re-parses it (`:54-69`), so the reconstructed value carries a
-fresh identity rather than the original's. This is why F13's disposition calls
+`from_binary` re-parses it (`:54-69`) through `Value::json`, which mints a
+fresh identity with `nanoid!()`
+(`reference/rust_dynamic/src/create_special.rs:205,207`), so the reconstructed
+value is not the original. This is why F13's disposition calls
 `dup` on a JSON value behavioural rather than merely slow, and RFC-0001 must
 decide whether the round trip preserves identity or the reference's behaviour
 is preserved as-is.
@@ -431,6 +436,9 @@ rediscovering them.
   exists, the redb change is a breaking format change.
 - **D14** is OPEN and is the M6 denominator. It does not block this RFC, but
   criterion 2's figure moves as it resolves.
+- **D29** is OPEN: whether Bund2 revives or omits the four dead words
+  (F19, F22, F24). Either choice deviates from the oracle, and it moves
+  criterion 2's denominator by four either way.
 - The reference's `Documentation/Bund_Library_Guide/` is described in
   `docs/research/05-rfc-roadmap.md` §1.5 as the closest thing to a language
   specification and the normative reference for judging preservation. This RFC

@@ -325,6 +325,11 @@ fn dirs_registry() -> Option<std::path::PathBuf> {
 }
 
 /// First relative path whose contents differ between two trees, if any.
+///
+/// Compares `**/*.rs` only. Manifests are deliberately out of scope: a
+/// submodule that bumps its `Cargo.toml` version without touching code is the
+/// version-skew advisory, not a source divergence, and folding the two would
+/// make every release-prep commit look like a citation failure.
 fn first_difference(a: &Path, b: &Path) -> Option<String> {
     fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -534,11 +539,15 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         format!("{prov_agreed}/{prov_checked}")
     );
     if prov_agreed < prov_checked {
-        println!("      The remainder were NOT byte-compared: the vendored crate");
-        println!("      source is absent. That is the normal case in CI, where");
-        println!("      these five crates are not workspace dependencies and are");
-        println!("      never downloaded — so there, only the version tier runs.");
-        println!("      Build the oracle to make this check meaningful.");
+        // Two different causes land here and the message must not assert one:
+        // the tier may have been skipped for want of vendored source, or it
+        // may have run and found a difference — in which case a hard finding
+        // is printed below and "not compared" would contradict it.
+        println!("      The remainder either were not compared — the vendored");
+        println!("      crate source is absent, which is the normal case in CI");
+        println!("      since these five are not Bund2 workspace dependencies —");
+        println!("      or were compared and differed, in which case a defect");
+        println!("      appears below. Build the oracle to make this meaningful.");
     }
     println!("  {:<32}{:>6}", "citations checked", checked);
     println!(

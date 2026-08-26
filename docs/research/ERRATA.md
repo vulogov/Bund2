@@ -56,3 +56,13 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   layout, boundaries and the tier model. §1.1 is deliberately not superseded:
   it mixes layout with value, symbol and lambda claims belonging to RFC-0001,
   RFC-0002 and RFC-0003, and RFC-0000 disclaims that scope.
+
+- `00-jit-feasibility.md` §"leading `$`" (line 119) and §"`$name`" (line 556)
+  -> corrected by F26: `$` does **not** bypass alias resolution. It skips the
+  lambda check only. `call_internal_word` strips the sigil and calls `i()`
+  (`reference/rust_multistackvm/src/multistackvm_call_internal_word.rs:7-8`),
+  and `i()` resolves aliases first
+  (`reference/rust_multistackvm/src/multistackvm_inline.rs:71-72`). Verified
+  against the oracle: `1 "$dup" ptr !` resolves through the alias table.
+  Line 556 proposes a distinct IR opcode premised on full bypass; that premise
+  is false.

@@ -558,6 +558,11 @@ wire format stays byte-identical to the reference
 (`reference/rust_dynamic/src/bincode.rs:30`) and `from_binary` restores them
 verbatim (`reference/rust_dynamic/src/bincode.rs:71`).
 
+**Both of those citations are in the non-JSON branches** — `:30` inside the
+`} else {` at `:29`, `:71` inside the one at `:70` — so this paragraph states
+the rule for every type *except* JSON. For a JSON value the round trip is not
+identity-preserving: see the corrected scope below.
+
 That is only affordable because **`dup` stops serialising**. Today
 `Value::dup` is a bincode round-trip
 (`reference/rust_dynamic/src/dup.rs:7-13`), reached from the `dup` word
@@ -585,7 +590,9 @@ self-consistent whatever is written (`bincode.rs:71` restores exactly what
 and `:71` inside the one at `:70`. For a JSON value the round trip is **not**
 self-consistent — `to_binary` converts to a string and re-wraps (`:9-28`) and
 `from_binary` re-parses through `serde_json` (`:54-69`), so the reconstructed
-value carries a fresh identity rather than the original's. D20's rule holds as
+value carries a fresh identity rather than the original's —
+`Value::json` mints one with `nanoid!()`
+(`reference/rust_dynamic/src/create_special.rs:205,207`). D20's rule holds as
 stated for every other type; for JSON, identity is discarded by the round trip
 and RFC-0001 must decide whether to preserve that or fix it. This is the same
 asymmetry F13 records for `dup`. Whether such readers exist is **D11, still OPEN**. If D11
@@ -916,3 +923,38 @@ two interpreters, and any performance criterion has to say which it means.
 - Status: RESOLVED
 - Not a deletion: a feature-gated word can be enabled. What this forbids is
   linking it by default.
+
+## D29 — the four dead words: revive or drop
+F19, F22 and F24 leave four names registered only into the stack layer's dead
+`functions` table, unreachable by any dispatch path: `dup_in`,
+`from_workbench`, `push_to`, `stacks_left`. Two aliases, `<-` and `←`, point
+at `stacks_left` and are therefore dead too (F22).
+
+Bund2 must either implement them as real words or omit them, and either choice
+is a deviation from the oracle in one direction or the other. **Not decided
+here** — dropping a word the reference documents, or adding one it cannot
+execute, is a preservation call for the owner.
+
+The evidence, so the call is cheap to make:
+
+- **No golden moves either way.** No corpus program uses any of the four, nor
+  `<-` or `←`, so `cargo xtask conform` is unaffected at 0/63.
+- **Coverage moves against reviving.** Implementing all four takes the
+  in-scope denominator from 497 to 501, with all four untested — so reviving
+  them lowers coverage while adding no verified behaviour.
+- **Reviving `stacks_left` is the one with a real payoff.** It repairs `<-`
+  and `←`, and makes the `stacks_left`/`stacks_right` pair symmetric for the
+  first time. Note this is separate from F23, which is `rotate_stack_right`
+  calling the left rotation — a different word and a different bug.
+- **Nothing depends on the other three.** `dup_in`, `from_workbench` and
+  `push_to` have no aliases, no corpus uses, and inline siblings that already
+  cover the same ground (`dup_one`, `take`, `push`).
+
+Options: revive all four; revive `stacks_left` alone, on the strength of the
+two aliases pointing at it; or omit all four and drop `<-`/`←` with them,
+recording the removal as a stated deviation.
+
+- Blocks: RFC-0002's word set, and the M6 denominator alongside D14
+- Default: none — the arguments cut both ways and the owner should pick
+- Evidence: F19, F22, F23, F24; `cargo xtask corpus`, `cargo xtask coverage`
+- Status: OPEN

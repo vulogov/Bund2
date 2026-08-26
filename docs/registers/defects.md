@@ -423,19 +423,25 @@ which is a fix rather than a removal.
 - Behavioural. Disposition:
 
 ## F23 — `rotate_stack_right` rotates left
-`stdlib_stacks_right_inline` ends by calling `stdlib_stack_left`
-(`reference/rust_multistack/src/stdlib/rotate.rs:88`), so the word registered
-as `stacks_right` (`:94`) performs the left rotation.
+`stdlib_stack_right_inline` (`reference/rust_multistack/src/stdlib/rotate.rs:83-89`)
+ends by calling `stdlib_stack_left` (`:88`), and it is what
+`rotate_stack_right` is registered to (`:102`). So the word rotates the
+current stack left.
 
-Found in the same `init_stdlib` that F22 cites, which is worth noting: the
-`stacks_left` / `stacks_right` pair is broken in both directions at once —
-`stacks_left` is registered into the dead table and unreachable, and
-`stacks_right` is reachable but rotates the wrong way. Between them the
-language has no working stack rotation by name.
+Two corrections to the first draft of this entry, both material. The affected
+word is `rotate_stack_right`, not `stacks_right`: line 88 sits in
+`stdlib_stack_right_inline`, while `stacks_right` is registered to
+`stdlib_stacks_right_inline` (`:17-19`, `:94`), which is correct. And the
+claim that the pair was "broken in both directions" was false — verified
+against the oracle, `1 2 ->` gives `2`. `stacks_right` works.
 
-No corpus program uses either (`->`, `<-`, `stacks_right`, `stacks_left` are
-all in the never-used set), so no golden covers it.
-- `reference/rust_multistack/src/stdlib/rotate.rs:88,94`
+What is true is narrower and still worth recording: `rotate_stack_right` is
+also registered twice, as a function (`:101`) and inline (`:102`), which is
+another instance of the F24 pattern.
+
+No corpus program uses `rotate_stack_right`, `rotate_stack_left`, `->` or
+`<-`, so no golden covers it.
+- `reference/rust_multistack/src/stdlib/rotate.rs:83-89,101,102`
 - Behavioural. Disposition:
 
 ## F24 — four names exist only in the dead table, and `push` is registered twice
@@ -453,6 +459,9 @@ same name bound twice to different functions, one of them unreachable.
 That leaves **four genuinely dead words**: `dup_in`, `from_workbench`,
 `push_to`, `stacks_left`. F22 covers `stacks_left` and the two aliases into
 it; the other three have no aliases and no corpus uses.
+
+Whether Bund2 revives or omits them is a preservation deviation either way,
+so it is a decision rather than a disposition: **D29**.
 - `reference/rust_multistack/src/stdlib/dup.rs`, `workbench.rs`, `push.rs`,
   `rotate.rs`; `reference/Bund/src/stdlib/functions/values/push.rs:74`
 - Behavioural. Disposition:
@@ -464,20 +473,66 @@ it; the other three have no aliases and no corpus uses.
 self-referential cluster: each is called only by the others, and nothing
 outside calls any of them.
 
-It matters because it is not a copy of the live path. `apply_in` has **no
-`$`-prefix arm** and inverts the `autoadd` test relative to `apply`
-(`reference/rust_multistackvm/src/multistackvm_apply.rs:16-60`). So the
-reference contains two resolution orders that disagree, one of them
-unreachable.
+It matters because it is not a copy of the live path, though the first draft
+of this entry got the difference wrong. There is **no inversion**: `apply` and
+`apply_in` test `if self.autoadd` in the same position and the same polarity
+in all three arms (`multistackvm_apply.rs:19,72,89` against
+`multistackvm_apply_in.rs:15,45,62`).
 
-The live path is unaffected, which was worth confirming rather than assuming:
-`!` goes through `vm.call`, which uses `apply`, not `apply_in`
-(`reference/rust_multistackvm/src/stdlib/execute.rs:32`). Verified against the
-oracle with `1 2 "$drop" ptr !`, which takes the `$` arm — the arm `apply_in`
-does not have.
+The two real divergences in the CALL arm are these. `apply_in` has **no
+`$`-prefix arm** — it goes from the `autoadd` test straight to alias
+resolution (`multistackvm_apply_in.rs:15-20`), where `apply` checks for the
+sigil first (`multistackvm_apply.rs:33`). And under `autoadd` the two do
+different things: `apply` pulls the top value and appends the name to it
+(`:20-27`), while `apply_in` pushes the name onto the named stack whole
+(`multistackvm_apply_in.rs:16`).
+
+The live path is unaffected — `!` reaches `vm.call`, which uses `apply`
+(`reference/rust_multistackvm/src/stdlib/execute.rs:32`). The first draft
+tried to demonstrate that with `1 2 "$drop" ptr !` and demonstrated nothing:
+`drop` has no alias, so both the `$` and plain spellings converge on the same
+inline word. See F26 for what a discriminating pair looks like, and for why
+the `$` arm is not the bypass its comment claims.
 
 Consequence for RFC-0002: the dispatch contract has one resolution order to
 specify, not two, and porting this cluster would import a second.
 - `reference/rust_multistackvm/src/multistackvm_apply_in.rs`,
   `multistackvm_lambda_eval_in.rs`, `multistackvm_call.rs:12`
 - Dead code. Disposition:
+
+## F26 — `$name` does not bypass alias resolution
+The comment above the `$` arm says the prefix forces an internal call
+"without lambda check or alias resolution"
+(`reference/rust_multistackvm/src/multistackvm_apply.rs:29-32`). Half of that
+is true. `call_internal_word` strips the `$` and calls `i()`
+(`reference/rust_multistackvm/src/multistackvm_call_internal_word.rs:7-8`),
+and `VM::i` resolves aliases before dispatching
+(`reference/rust_multistackvm/src/multistackvm_inline.rs:71-72`). So `$` skips
+the **lambda** lookup and goes straight through the **alias** table.
+
+Confirmed against the oracle with a discriminating pair — one that turns on a
+name which *is* an alias:
+
+- `1 "$dup" ptr !` leaves two values. `dup` is an alias of `dup_one`
+  (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:18`) and is not
+  an inline word in its own right (F24), so it could only have been found
+  *through* the alias table.
+- `:Hi { … } register "Hi" ptr !` prints `HI`; the same with `"$Hi"` fails
+  with "not registered" — the lambda check really is skipped.
+
+A pair built on `drop`, which has no alias, proves nothing: both spellings
+converge on the same inline word. An earlier version of F25 used exactly that
+pair and drew a conclusion from it.
+
+This has been observed before and never recorded, which is why it keeps
+resurfacing: the first review reported it, and
+`docs/research/00-jit-feasibility.md:119` and `:556` still assert the bypass —
+`:556` proposing a distinct IR opcode on the strength of it. ERRATA entry
+added.
+
+Consequence for RFC-0002: `$` is not an escape from the name tables. It
+selects *which* tables, and the alias table is not one it skips — so a
+distinct opcode premised on full bypass would be wrong.
+- `reference/rust_multistackvm/src/multistackvm_apply.rs:29-32`,
+  `multistackvm_call_internal_word.rs:7-8`, `multistackvm_inline.rs:71-72`
+- Behavioural, and a wrong source comment. Disposition:
