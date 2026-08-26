@@ -305,7 +305,8 @@ The full set, from `cargo xtask arity` — each declares 1 and consumes 2:
 `string.distance.dameraulevenshtein`, `string.distance.hamming`,
 `string.distance.jarowinkler`, `string.distance.levenshtein`,
 `string.distance.sift3`, `string.regex`, `string.regex.matches`,
-`string.wildcard` (`reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:199,203`,
+`string.wildcard`, `tail`
+(`reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:199,203`,
 `reference/rust_multistackvm/src/stdlib/artefacts.rs:143,144`,
 `reference/Bund/src/stdlib/functions/string/distance.rs:139-147`,
 `reference/Bund/src/stdlib/functions/string/regex.rs:99`,
@@ -676,7 +677,7 @@ so registering `dup_one` writes the key `dup_one_inline`.
 (`reference/rust_multistack/src/ts_inline.rs:33,34`).
 
 `TS::is_inline` does **not**. It tests `contains_key(&name)` with the bare
-name (`reference/rust_multistack/src/ts_inline.rs:24`), which no key ever
+name (`reference/rust_multistack/src/ts_inline.rs:25`), which no key ever
 matches, so it returns false for every word in the stack layer.
 
 The one caller that matters is the `resolve` word
@@ -703,3 +704,32 @@ pattern dropped it, which is why the defect is invisible for VM-layer words.
   bug is not expressible — there is no suffix and no second table to disagree
   with. No golden covers `resolve`, so conformance cannot move; record the
   divergence in RFC-0002.
+
+
+## F32 — `unregister` is registered twice, so no lambda can be unregistered
+`init_stdlib` in the lambda registry binds the same name twice in consecutive
+statements:
+
+```rust reference/rust_multistackvm/src/stdlib/lambdas/registry.rs:88
+    let _ = vm.register_inline("register".to_string(), stdlib_lambda_register);
+    let _ = vm.register_inline("unregister".to_string(), stdlib_lambda_unregister);
+    let _ = vm.register_inline("unregister".to_string(), stdlib_class_unregister);
+```
+
+Registration is last-write-wins — `register_inline` unregisters before
+inserting (`reference/rust_multistackvm/src/multistackvm_inline.rs:6-9`) — so
+`unregister` resolves to `stdlib_class_unregister` and
+`stdlib_lambda_unregister` is unreachable. **There is no way to unregister a
+lambda from Bund.**
+
+Confirmed against the oracle. Registering a lambda named `println`, calling
+`:println unregister`, and calling `println` again still runs the lambda.
+
+- Found by: reading the registration mechanism for RFC-0002
+- Affects: `unregister` for lambdas; `stdlib_lambda_unregister` is dead code
+- Disposition: Bund2 fixes it — the two need distinct names, or one word that
+  dispatches on what the name is bound to. No corpus program calls
+  `unregister`, so no golden covers it. This is also why RFC-0002's registry
+  builder must **not** silently dedupe duplicate registrations: replaying them
+  in order is what reproduces the reference, and deduping would change which
+  handler wins. Record the divergence in RFC-0002.

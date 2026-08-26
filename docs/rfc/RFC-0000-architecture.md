@@ -259,7 +259,7 @@ duplicate them:
 
 - `docs/registers/decisions.md` — 29 entries (D4 resolved by RFC-0001's grounding). Append-only; a status may
   change, an entry may not be deleted or renumbered.
-- `docs/registers/defects.md` — 31 entries. The roadmap's §5 listed eleven;
+- `docs/registers/defects.md` — 32 entries. The roadmap's §5 listed eleven;
   the rest were found by running the oracle rather than reading it. F14, F15 and
   F17 are why 18 of 77 hermetic programs could not be captured, and
   `tests/golden/UNSTABLE.txt` tags each row with which: **13 F14, 2 F15, 3
