@@ -1,6 +1,6 @@
 # RFC-0001: `BundValue` — representation, identity, and value semantics
 
-- Status: Draft — revised after reviews 1 and 2 (2026-08-26). D30 settles F29/F30; **Q20 (F33's asymmetric equality) now blocks acceptance**.
+- Status: Draft — revised after reviews 1 and 2 (2026-08-26). D30 and its amendment settle F29, F30 and F33. **No OPEN decision or question gates this RFC.**
 - Depends on: RFC-0000
 - Decisions consumed: D1, D2, D4, D13, D20, D30
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
@@ -380,6 +380,37 @@ Nothing in the corpus can distinguish them — `.timestamp` has zero corpus uses
 — and the goldens normalise stamps away as F14. An earlier draft consumed D2
 and gave `stamp` no section, no preservation row and no criterion.
 
+### Equality across int and float is exact (D30's amendment, F33)
+
+The reference's equality is **asymmetric**: `Val::I64` against `Val::F64`
+truncates the float (`reference/rust_dynamic/src/eq.rs:13`) while `Val::F64`
+against `Val::I64` widens the int (`:24`). `impl Eq` asserts the symmetry it
+does not have (`:59-62`). A content hash cannot be built on that, because no
+bucket assignment is consistent with an asymmetric equality.
+
+D30's amendment makes the contract bidirectional, and that has one consistent
+implementation. Both obvious symmetrisations fail, and both failures are
+pinned in `tests/golden/probes/eq-asymmetry.golden`:
+
+- **Truncate both ways** is not transitive: on the oracle `42 == 42.5` is
+  true and `42 == 42.9` is true, while `42.5 == 42.9` is false.
+- **Widen both ways** is not transitive above 2^53: on the oracle
+  `9007199254740993 == 9007199254740992.0` is **true**, because widening
+  `2^53+1` to `f64` loses the low bit — so two distinct integers are equal to
+  one float and therefore to each other.
+
+So an integer and a float are equal **when they denote the same mathematical
+value**:
+
+    i == f  ⟺  f is finite and integral, within i64 range, and f as i64 == i
+
+Symmetric by construction, transitive, and hashable — which is what D30 needs.
+`42 == 42.0` holds; `42 == 42.5` does not; `9007199254740993` does not equal
+`9007199254740992.0`.
+
+**A deviation in both directions**, and the reference's behaviour is captured,
+so the golden will disagree and its disposition is F33.
+
 ### Hashing mirrors equality (D30)
 
 The reference hashes the id alone, while equality compares content for four
@@ -395,6 +426,13 @@ Hashing *everything* by content would also satisfy the contract, and is
 rejected: it computes an O(size) hash for a list whose equality is then
 decided by identity — cost with no lookup to show for it, since the entry
 still would not be found.
+
+**The float-bearing arms follow from exactness**, which settles what review 2
+flagged as unspecified. A float that is finite, integral and in `i64` range
+hashes as the `i64` it denotes, so `42` and `42.0` share a bucket. `-0.0` is
+normalised to `0.0` before hashing, since the two are equal and equal values
+must hash alike. `NaN` is never equal to anything, including itself, so its
+hash is unconstrained — it takes a fixed value and never matches.
 
 Two consequences worth stating:
 
@@ -515,12 +553,13 @@ the value nothing.
    explicitly rather than left as a gap, and its reachability argument is in
    the scalar section.
 5. `cargo xtask conform` does not fall below the mark in
-   `tests/golden/CONFORMANCE.txt`, now **0/65**. RFC-0001 implements a value,
+   `tests/golden/CONFORMANCE.txt`, now **0/66**. RFC-0001 implements a value,
    not a word, so the number may rise; it may not fall. The grounding and
    review for this RFC moved the denominator from 63 by adding two probes —
    `tests/probes/valuemap-hash-eq.bund` pinning F29, and
-   `tests/probes/value-fields.bund` pinning which fields are real state. Both
-   moves are recorded in RFC-0000's provenance table.
+   `tests/probes/value-fields.bund` pinning which fields are real state, then a
+   third, `tests/probes/eq-asymmetry.bund`, pinning F33. All three moves are
+   recorded in RFC-0000's provenance table.
 6. The `Debug` rendering reproduces the reference's text for the **258**
    renderings across 29 goldens, including `q: 100.0` as a constant and
    `attr`, `curr`, `tags` as real state. **255 of the 258 show `attr: []` and
@@ -542,24 +581,23 @@ the value nothing.
     have non-decreasing stamps** once observed. D2's deviation — that two
     never-observed values may share a stamp — is asserted as the expected
     behaviour, not worked around.
-12. `cargo xtask cite` reports zero defects. Note what it does **not** check:
+12. **Equality across int and float is exact, symmetric and transitive.**
+    `42 == 42.0` is true; `42 == 42.5` and `42.5 == 42` are both false;
+    `9007199254740993 == 9007199254740992.0` is false. And `42` and `42.0`
+    hash alike, `-0.0` and `0.0` hash alike, `NaN` equals nothing. This is
+    D30's amendment and it is what makes the content hash implementable.
+13. `cargo xtask cite` reports zero defects. Note what it does **not** check:
     that a cited line means what the prose says. Two reviews have found
     citations that resolve and mislead, and `cite` passed both times.
 
 ## Open questions
 
-- **F33 blocks D30's implementation, and is the one thing still open.**
-  `PartialEq` is asymmetric across int/float — `42 == 42.5` truncates and is
-  true, `42.5 == 42` widens and is false
-  (`reference/rust_dynamic/src/eq.rs:13,24`) — while `impl Eq` asserts
-  symmetry (`:59-62`). A content hash must decide whether `42` and `42.5`
-  share a bucket, and **no bucket assignment is consistent with an asymmetric
-  equality**. Carried as **Q20**; RFC-0001 cannot be accepted until it states
-  a direction.
-- **Hashing the float-bearing arms needs a per-arm rule.** `F64`, `Metrics`,
-  `Operator` and `Json` all carry floats, and content-hashing them has to
-  settle NaN (never equal to itself) and `-0.0` versus `0.0` (equal, and
-  required to hash alike). Not specified here.
+- **F33 is settled** by D30's amendment: equality across int and float is
+  exact, and therefore symmetric, transitive and hashable. Q20 closed. Two
+  goldens now pin behaviour Bund2 will deliberately change —
+  `eq-asymmetry.golden` and `valuemap-hash-eq.golden` — and both are
+  regenerated with `--reason F33` and `--reason F29` respectively once Bund2
+  can run them.
 - **F29 and F30 are settled by D30** — hash mirrors equality, and the `get`
   word mirrors `set`. Nothing OPEN now gates this RFC. Two residues:
   `tests/golden/probes/valuemap-hash-eq.golden` pins the *broken* behaviour

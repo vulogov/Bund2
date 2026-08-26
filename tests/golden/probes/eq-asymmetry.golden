@@ -1,0 +1,26 @@
+# golden for tests/probes/eq-asymmetry.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: the asymmetry itself
+  42.eq(42.5) truncates the float ->
+true
+  42.5.eq(42) widens the int      ->
+false
+probe: truncation is not transitive
+  42 == 42.5 ->
+true
+  42 == 42.9 ->
+true
+  42.5 == 42.9 ->
+false
+probe: widening loses the bit above 2^53
+  (2^53+1) == 2^53.0 ->
+false
+╭╮
+╰╯
+╭╮
+╰╯

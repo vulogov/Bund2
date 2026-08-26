@@ -778,8 +778,13 @@ so the mixed pair is exactly a case it forwards to `PartialEq`.
 - Affects: **D30 directly.** A content hash must decide whether `42` and
   `42.5` share a bucket, and no bucket assignment can be consistent with an
   asymmetric equality. Whichever direction Bund2 picks is a deviation.
-- Disposition: undecided. RFC-0001 must state which direction it takes and
-  record it as a deviation. Carried as Q20.
+- Disposition: **fixed, per D30's amendment — exact numeric comparison.** An
+  integer and a float are equal when they denote the same mathematical value.
+  Neither truncation nor widening would do: both are non-transitive, the first
+  at `42/42.5/42.9` and the second above 2^53, and both are pinned in
+  `tests/golden/probes/eq-asymmetry.golden`. Exactness is the only reading of
+  "bidirectional" that yields a valid equivalence relation, which is what a
+  content hash requires. Q20 closed.
 
 ## F34 — mutating a container resets its header, discarding `attr`, `curr` and `tags`
 `set` on a map rebuilds through `Value::from_dict` and then restores only the

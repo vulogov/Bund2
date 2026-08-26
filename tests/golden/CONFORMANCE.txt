@@ -8,4 +8,4 @@
 # reach a fraction of the word table. That number is `cargo xtask
 # coverage`, and neither substitutes for the other.
 
-0/65
+0/66

@@ -1,0 +1,17 @@
+//
+// Probe: F33. PartialEq is asymmetric across int/float, and neither of the
+// two obvious symmetrisations is a valid equivalence relation.
+//
+// `a b ==` computes b.eq(a), since the word pulls the top of the stack first.
+//
+"probe: the asymmetry itself" println
+"  42.eq(42.5) truncates the float ->" println 42.5 42 == println
+"  42.5.eq(42) widens the int      ->" println 42 42.5 == println
+
+"probe: truncation is not transitive" println
+"  42 == 42.5 ->" println 42.5 42 == println
+"  42 == 42.9 ->" println 42.9 42 == println
+"  42.5 == 42.9 ->" println 42.9 42.5 == println
+
+"probe: widening loses the bit above 2^53" println
+"  (2^53+1) == 2^53.0 ->" println 9007199254740992.0 9007199254740993 == println

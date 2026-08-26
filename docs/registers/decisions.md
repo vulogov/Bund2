@@ -1100,6 +1100,55 @@ useful for, work.
   `?key` counterpart to mirror. The same reasoning would fix it, but the
   decision as given names `get`. Carried as Q19.
 
-- Blocks: RFC-0001 (now unblocked), F29, F30
-- Evidence: `tests/probes/valuemap-hash-eq.bund`, confirmed against the oracle
-- Status: **RESOLVED — hash mirrors equality; `get` mirrors `set`.**
+### Amendment: the contract is made bidirectional (F33, Q20)
+
+RFC-0001's second review found that content hashing cannot be implemented on
+top of the reference's equality, because that equality is **asymmetric**:
+`Val::I64` against `Val::F64` truncates the float
+(`reference/rust_dynamic/src/eq.rs:13`) while `Val::F64` against `Val::I64`
+widens the int (`:24`), so `42 == 42.5` and `42.5 == 42` disagree. `impl Eq`
+asserts the symmetry it does not have (`:59-62`). No bucket assignment can be
+consistent with an asymmetric equality.
+
+Decided by the repository owner: **make the contract bidirectional.**
+
+That instruction has exactly one consistent implementation, and the two
+obvious readings are both ruled out by probe:
+
+- **Truncate in both directions** — not transitive. `42 == 42.5` is true and
+  `42 == 42.9` is true, but `42.5 == 42.9` is false. Confirmed against the
+  oracle, `tests/probes/eq-asymmetry.bund`.
+- **Widen in both directions** — not transitive either, above 2^53.
+  `9007199254740993 == 9007199254740992.0` answers **true** on the oracle:
+  widening `2^53+1` to `f64` loses the low bit. Two distinct integers then
+  compare equal to one float, so they compare equal to each other.
+
+So bidirectional forces **exact numeric comparison**: an integer and a float
+are equal when they denote the same mathematical value, and not otherwise.
+
+    i == f  ⟺  f is finite and integral, f is within i64 range, and f as i64 == i
+
+That is symmetric by construction, transitive, and hashable — which is the
+whole point, since D30 needs a bucket assignment. `42 == 42.0` is true,
+`42 == 42.5` is false, and `9007199254740993 == 9007199254740992.0` is false.
+
+**Hashing follows from it**, which also settles the float-bearing arms the
+review flagged:
+
+- a float that is finite, integral and in range hashes **as the `i64` it
+  denotes**, so `42` and `42.0` share a bucket;
+- `-0.0` is normalised to `0.0` before hashing, since the two are equal and
+  equal values must hash alike;
+- `NaN` is never equal to anything including itself, so its hash is
+  unconstrained; it takes a fixed value and simply never matches.
+
+This is a **deviation from the reference in both directions**: `42 == 42.5`
+changes from true to false, and `42.5 == 42` stays false. The reference's
+behaviour is pinned in `tests/golden/probes/eq-asymmetry.golden`, which Bund2
+will disagree with; the disposition is F33, an original-implementation bug.
+
+- Blocks: RFC-0001 (now unblocked), F29, F30, F33
+- Evidence: `tests/probes/valuemap-hash-eq.bund`,
+  `tests/probes/eq-asymmetry.bund`, both confirmed against the oracle
+- Status: **RESOLVED — hash mirrors equality; `get` mirrors `set`; equality is
+  exact across int/float, and therefore symmetric, transitive and hashable.**

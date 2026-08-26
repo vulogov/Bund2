@@ -385,7 +385,7 @@ point.
 `tests/golden/CONFORMANCE.txt`.** RFC-0000 changes no behaviour, so any
 movement means something else did. This is the regression gate.
 
-Accepted at **0/63**. The mark is now **0/65**: RFC-0001's grounding added two
+Accepted at **0/63**. The mark is now **0/66**: RFC-0001's grounding added two
 authored probes: `tests/probes/valuemap-hash-eq.bund`, pinning F29 — a
 `valuemap` read returning the whole map instead of the value under the key —
 and `tests/probes/value-fields.bund`, pinning that `attribute` drives `attr`
@@ -465,6 +465,7 @@ a decision, not drift:
 | conformance | 59 | **63** | the suite fell to 57, and six authored probes were captured (D21) |
 | conformance | 63 | **64** | RFC-0001's grounding added a seventh probe for F29 — `valuemap` is write-only |
 | conformance | 64 | **65** | RFC-0001's review added an eighth, pinning which of `q`/`attr`/`curr`/`tags` are real state |
+| conformance | 65 | **66** | RFC-0001's review 2 added a ninth, pinning F33 — the asymmetric int/float equality and both failed symmetrisations |
 | coverage | 140/586 | **121/497** | D26 and D28 together moved 89 words out of scope. The 120 now shown as out-of-scope is the running total, D15's 31 console words included — 617 − 586 = 31 was D15 alone |
 
 The full narrowing is regenerated into `tests/golden/HERMETIC.txt` on every
