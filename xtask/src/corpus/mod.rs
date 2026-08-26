@@ -25,7 +25,7 @@ const CORPUS_ROOTS: &[&str] = &["reference/Bund/examples", "reference/Bund/tests
 /// Crates that register names. All three tiers `i_direct` can reach:
 /// the VM's own table, and the stack layer it falls through to
 /// (`reference/rust_multistackvm/src/multistackvm_inline.rs:42,52`).
-const REGISTRY_ROOTS: &[&str] = &[
+pub const REGISTRY_ROOTS: &[&str] = &[
     "reference/Bund/src",
     "reference/rust_multistackvm/src",
     "reference/rust_multistack/src",
@@ -120,7 +120,7 @@ fn collect_bund(dir: &Path, out: &mut Vec<PathBuf>, recurse: bool) {
     }
 }
 
-fn load_corpus(repo: &Path) -> Vec<Program> {
+pub fn load_corpus(repo: &Path) -> Vec<Program> {
     let mut programs = Vec::new();
     for (idx, root) in CORPUS_ROOTS.iter().enumerate() {
         let abs = repo.join(root);

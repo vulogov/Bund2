@@ -1,8 +1,8 @@
 # RFC-0001: `BundValue` — representation, identity, and value semantics
 
-- Status: Draft — revised after review 1 (2026-08-26); the F29/F30 decision still blocks acceptance
+- Status: Draft — revised after review 1 (2026-08-26). D30 settles the F29/F30 blocker; no OPEN decision now gates this RFC.
 - Depends on: RFC-0000
-- Decisions consumed: D1, D2, D4, D13, D20
+- Decisions consumed: D1, D2, D4, D13, D20, D30
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
   `80377728f45b`; `bundcore` `3b0b8ba219a6`; `rust_dynamic` `ceb27c96fa10`;
   `rust_multistack` `9a97675ee5d8`; `rust_multistackvm` `4605832678d4`
@@ -126,7 +126,8 @@ returns `true` for any mismatch) and currently unreachable.
 `Hash` hashes **only the id** (`reference/rust_dynamic/src/hash.rs:6`), and
 `Val::ValueMap` is a `HashMap<Value, Value>`
 (`reference/rust_dynamic/src/types.rs:79`) keyed by exactly that type — F30,
-unobservable today only because F29 leaves no read path.
+unobservable today only because F29 leaves no read path. **D30 resolves both**;
+see Design.
 
 The three readers together — equality, ordering, hashing — are why identity
 cannot simply be dropped, and why D1 defines laziness as minting on first
@@ -314,6 +315,40 @@ reference's in-place write does not change the id either.
 
 Cycles stay impossible by construction, as they do today.
 
+### Hashing mirrors equality (D30)
+
+The reference hashes the id alone, while equality compares content for four
+payload kinds and identity for sixteen. The two disagree, and `Val::ValueMap`
+is keyed by the type whose contract is broken — F30.
+
+D30 settles it: **`hash` mirrors `eq`, kind by kind.** Content-compared kinds
+(`Int`, `Float`, `String`, `Time`) hash their content; identity-compared kinds
+hash their identity. That satisfies the `Hash`/`Eq` contract by construction,
+and it is what makes a scalar-keyed valuemap lookup find its entry.
+
+Hashing *everything* by content would also satisfy the contract, and is
+rejected: it computes an O(size) hash for a list whose equality is then
+decided by identity — cost with no lookup to show for it, since the entry
+still would not be found.
+
+Two consequences worth stating:
+
+- **Composite keys stay identity-keyed.** A freshly built list equal to a
+  stored key will not find it, because `eq` for a list is identity
+  (`reference/rust_dynamic/src/eq.rs:53`). Changing that means changing
+  equality across the language, which D30 deliberately does not do.
+- **Laziness gets cheaper.** D1 lists hashing among the needs that force a
+  lazy identity to materialise. Under this design a scalar never has an
+  identity to materialise, so a scalar-keyed lookup mints nothing. Composite
+  keys still do.
+
+`valuemap` also becomes readable, which is the other half of D30: Bund2's
+`get` word pulls both operands and branches on the container's type before
+casting the key, mirroring `set`
+(`reference/rust_multistackvm/src/stdlib/values/value_dict.rs:16-19`). That is
+a word-level change and belongs to RFC-0002's word set, but it is recorded
+here because without D30's hashing it would not work.
+
 ### Integers
 
 Full `i64` (D4). NaN-boxing would reach 8 bytes by folding the tag into unused
@@ -352,7 +387,8 @@ it is stated here so it is not discovered by a golden failure.
 | `set_tag` mutating in place without minting | **Preserved exactly.** `make_mut` copies the id, which is what an in-place write does. |
 | Equality: content for four payload kinds, identity for sixteen | **Preserved exactly**, including `Bool` comparing by identity. |
 | Ordering falling back to `id.cmp` | **Preserved exactly**, including F12's inconsistency with `lt`. |
-| Hash by identity | **Not preserved — deliberately open.** See F30 and Open questions. |
+| Hash by identity | **Deliberately changed, per D30.** `hash` mirrors `eq`: content for the four content-compared kinds, identity for the other sixteen. Unobservable before the `get` mirror exists, since F29 leaves no read path. |
+| `valuemap` unreadable (F29) | **Deliberately fixed, per D30.** The `get` word branches on the container's type before casting the key, mirroring `set`. |
 | `tags`, including the per-push stack tag | **Preserved exactly**, as a field. |
 | `attr`, drivable by the `attribute` word | **Preserved exactly**, as a field. |
 | `curr` as the iteration cursor | **Preserved as a field.** Nothing advances it today; RFC-0003 decides whether Bund2's iteration does. |
@@ -362,7 +398,7 @@ it is stated here so it is not discovered by a golden failure.
 | JSON round trip losing identity | **Preserved exactly**, including the loss. D20's scope correction. |
 | `dup` as a bincode round trip | **Deliberately changed** to one header allocation plus a payload `Rc` bump. Observably identical: both yield an equal payload with a fresh identity. |
 | `push_to_stack` capacity check | **Deliberately fixed** — F28. No golden exercises it. |
-| `valuemap` write-only | **Blocked.** F29 and F30 — see Open questions. |
+
 
 ## Alternatives considered
 
@@ -418,20 +454,21 @@ the value nothing.
 9. `cargo tree -p bund2-value` lists no `bund2-interp`. Vacuous until
    `bund2-value` has dependencies, exactly as RFC-0000's D-2 records; this is
    the RFC that makes it real.
-10. `cargo xtask cite` reports zero defects.
+10. **`valuemap "k" 42 set "k" get` leaves `42`**, not the map — D30's read
+    path. And a valuemap keyed by a freshly built equal *scalar* finds its
+    entry, while one keyed by a freshly built equal *list* does not: that
+    asymmetry is D30's stated limit and is asserted, not left to chance.
+11. `cargo xtask cite` reports zero defects.
 
 ## Open questions
 
-- **F29 and F30 together block `valuemap`, and this is the one thing that
-  blocks acceptance.** `get` has no `VALUEMAP` arm and returns the whole map
-  through its catch-all (`reference/rust_dynamic/src/get.rs:18-19`); `?key`
-  always answers false (`reference/rust_dynamic/src/has_key.rs:19-20`). Adding
-  the arm does not fix it, because `Hash` keys on identity while `PartialEq`
-  compares content for the four scalar kinds, so an equal-but-freshly-built
-  string key cannot be found. **A decision is required**: either `BundValue`
-  hashes by content, which changes `ValueMap` behaviour no program can
-  currently observe, or `ValueMap` keys by identity and equal-looking keys
-  stay distinct. This RFC takes neither.
+- **F29 and F30 are settled by D30** — hash mirrors equality, and the `get`
+  word mirrors `set`. Nothing OPEN now gates this RFC. Two residues:
+  `tests/golden/probes/valuemap-hash-eq.golden` pins the *broken* behaviour
+  and must be regenerated with
+  `cargo xtask golden --accept valuemap-hash-eq --reason F29` once Bund2 can
+  run it; and **Q19** asks whether `?key` gets the same branch, which D30 did
+  not name.
 - **D14** is OPEN and governs which words exist; it does not affect this RFC's
   representation.
 - Whether Bund2's own iteration drives `curr` or uses an external cursor is

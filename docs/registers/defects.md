@@ -627,9 +627,12 @@ The failure is silent, which is what makes it worth recording: a program that
 uses a valuemap gets a plausible-looking value back and no diagnostic.
 
 - Found by: reading `rust_dynamic` for RFC-0001
-- Disposition: undecided. Bund2 either implements the read path or does not
-  implement `valuemap`; both deviate. See F30 — implementing the read path
-  naively does not work either. Blocked pending a decision alongside D29.
+- Disposition: **fixed, per D30.** Bund2's `get` word pulls both operands,
+  branches on the container's type, and looks up by the key `Value` for a
+  valuemap — the same shape `set` already has
+  (`reference/rust_multistackvm/src/stdlib/values/value_dict.rs:16-19`). D30
+  also settles F30, without which the branch alone would still miss.
+  `?key` is not covered by the decision; carried as Q19.
 
 ## F30 — `Hash` and `PartialEq` disagree, so `Val::ValueMap` cannot key on content
 `impl Hash for Value` hashes **only the id**:
@@ -667,7 +670,11 @@ observable `ValueMap` behaviour) or `ValueMap` keys by identity and equal-
 looking keys stay distinct (preserving it).
 
 - Found by: reading `rust_dynamic` for RFC-0001
-- Disposition: RFC-0001 must state which. Recorded here; not decided.
+- Disposition: **fixed, per D30 — hash by content, mirroring equality.**
+  Content-compared kinds hash their content; identity-compared kinds hash
+  their identity. That satisfies the `Hash`/`Eq` contract and makes a
+  scalar-keyed lookup succeed. Composite keys stay identity-keyed, because
+  `eq` for a list is identity — a stated limit, not an oversight.
 
 ## F31 — `resolve` cannot find any stack-layer word
 `TS::register_inline` stores handlers under a **suffixed** key: it inserts

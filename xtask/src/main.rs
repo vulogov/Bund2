@@ -44,6 +44,12 @@ Oracle
                 hazard warnings against the effect audit. Closes Q17. The guide
                 documents 99 of 617 names, so it is advisory, not normative.
 
+  scope         Compute D14's core/library partition by method B: corpus-seeded,
+                closed over implementation reach, plus D18 workbench forms.
+                Computed rather than enumerated, so it cannot drift. Reports
+                where the method splits a subsystem — the words that sit beside
+                a core sibling and are still library. Resolves nothing.
+
 Evidence
   corpus        Scan the example corpus for uses of .id, .timestamp, bund.eval,
                 load.lambdas, register, and post-construction LAMBDA mutation;
@@ -74,6 +80,7 @@ mod conform;
 mod corpus;
 mod golden;
 mod guide;
+mod scope;
 mod layout;
 
 /// Counting allocator, so `layout` can report allocations per operation.
@@ -130,6 +137,13 @@ fn main() -> std::process::ExitCode {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
                 eprintln!("xtask bench: {err}");
+                std::process::ExitCode::FAILURE
+            }
+        },
+        "scope" => match scope::run(&args) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("xtask scope: {err}");
                 std::process::ExitCode::FAILURE
             }
         },

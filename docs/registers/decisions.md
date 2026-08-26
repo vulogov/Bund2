@@ -253,7 +253,28 @@ Should `Intrinsic` lowerings ever be exposed through `bund2-api`? Doing so pins
 external packages to an exact Cranelift version.
 - Blocks: RFC-0002
 - Default: no
-- Status: OPEN
+- Status: **RESOLVED — no.** `Intrinsic` stays internal to `bund2-stdlib`.
+  Decided by the repository owner; this adopts the recorded default, now
+  explicitly.
+
+Three reasons, the third of which is not in the research note.
+
+A `LowerFn` signature contains `cranelift_frontend::FunctionBuilder`, so every
+external package using one is pinned to the exact Cranelift version Bund2 was
+built with. `cranelift-jit` self-describes as extremely experimental and moves
+on a monthly cadence, which would make `bund2-api`'s stability guarantee false
+(`docs/research/01-extensibility-async.md:184-189`).
+
+**RFC-0000's B3 requires `bund2-stdlib` not to depend on `bund2-jit`** — Tier 1
+stays optional. Exposing lowerings through the stable surface would make that
+surface depend on the optional subsystem, which is the inversion B3 exists to
+prevent.
+
+And it is the reversible direction: not exposing something can be undone later,
+exposing it cannot. The same asymmetry decided D4.
+
+External crates get `Native` with a declared effect, which is already a large
+improvement on today's opaque `fn(&mut VM)`.
 
 ## D10 — C toolchain requirement
 May `bund2 build` require `cc`, or must the compiler be self-contained?
@@ -983,4 +1004,102 @@ the second option specifically; it does not decide between them.
 - Blocks: RFC-0002's word set, and the M6 denominator alongside D14
 - Default: none — the arguments cut both ways and the owner should pick
 - Evidence: F19, F22, F23, F24; `cargo xtask corpus`, `cargo xtask coverage`
-- Status: OPEN
+- Status: **RESOLVED — revive `stacks_left` alone.** Decided by the repository
+  owner. `dup_in`, `from_workbench` and `push_to` are omitted.
+
+`stacks_left` is the only one of the Library Guide's 99 documented words that
+cannot be called: it carries a description, an algorithm and a worked sample
+ending "// Now stacks are in order B C A". The reference documents it as part
+of the language and cannot execute it. Two aliases, `<-` and `←`, point at it
+and are dead because of it.
+
+The other three have no guide page, no alias, no corpus use, and live inline
+siblings covering the same ground — `dup_one`, `take`, `push`.
+
+**Denominator effect.** `<-` and `←` are already counted, since they are
+registered aliases; their target is not. So reviving `stacks_left` alone takes
+the in-scope set from 497 to **498** and repairs two already-counted aliases
+that today resolve nowhere. Reviving all four would have reached 501; omitting
+all four would have dropped to 495 by removing the two aliases.
+
+Not to be conflated with **F23**, which is `rotate_stack_right` calling the
+left rotation — a different word and a different bug, unaffected by this.
+
+## D30 — `valuemap` becomes readable: hash by content, and `get` mirrors `set`
+F29 and F30 together left `valuemap` unimplementable and blocked RFC-0001.
+Decided by the repository owner: **hash by content, plus mirroring `set`'s
+pass-through in the `get` word.** Both halves are needed; neither works alone.
+
+### The `get` mirror
+
+`set` pulls all three operands, branches on the container's type
+(`reference/rust_multistackvm/src/stdlib/values/value_dict.rs:16`), and passes
+the key through **as a `Value`** for a valuemap (`:18`), casting to string only
+in the fallback (`:21-27`).
+
+`get` does not. It casts the key to a string immediately
+(`reference/rust_multistackvm/src/stdlib/values/value_dict.rs:54`) and only
+then pulls the container (`:60`), so it can never observe that the container
+is a valuemap, and a non-string key fails before the container is examined.
+
+Bund2's `get` pulls both, branches on the container's type, looks up by the
+key `Value` for a valuemap, and otherwise casts to string and behaves exactly
+as today. That is the same shape as `set`, which is why this is a mirror
+rather than a new rule.
+
+It also removes a second asymmetry: `set` accepts a non-string key on a
+valuemap and `get` rejects one. After the mirror both accept it.
+
+### Hash by content, mirroring equality
+
+`Hash` today hashes the id alone (`reference/rust_dynamic/src/hash.rs:6`).
+`PartialEq` compares **content** for four payload kinds — `I64`
+(`reference/rust_dynamic/src/eq.rs:10`), `F64` (`:21`), `String` (`:32`),
+`Time` (`:40`) — and **identity** for the other sixteen, through the catch-all
+at `:45` and its fallback at `:53`.
+
+So `BundValue::hash` mirrors `BundValue::eq`, kind by kind:
+
+- content-compared kinds hash their content,
+- identity-compared kinds hash their identity.
+
+This is what makes `valuemap "k" 42 set "k" get` return `42`: the fresh `"k"`
+hashes into the same bucket, and `String` equality then compares text.
+
+Mirroring is also what keeps the `Hash`/`Eq` contract. Hashing *everything* by
+content would satisfy the contract too, but it would compute an O(size) hash
+for a list or map whose equality is then decided by identity — wasted work
+that buys no lookup, since the entry still would not be found.
+
+### What this does not do
+
+**Composite keys stay identity-keyed.** A freshly built list equal to a stored
+key still will not find it, because `eq` for lists is identity
+(`reference/rust_dynamic/src/eq.rs:53`). Fixing that means changing equality
+itself, which reaches far past `valuemap` — and is a much larger deviation
+that this decision does not take. Scalar keys, which is what a valuemap is
+useful for, work.
+
+### Consequences
+
+- **A deviation from the reference, and a deliberate one.** `Hash` changes
+  and `get` gains a branch. It is unobservable *today* only because F29 leaves
+  no read path at all; the point of the decision is to create one.
+- **`tests/golden/probes/valuemap-hash-eq.golden` pins the broken behaviour**
+  — `get` returning the whole map. When Bund2 implements this, that golden
+  disagrees, and the disposition is the second of CLAUDE.md's three: an
+  original-implementation bug. Regenerate with
+  `cargo xtask golden --accept valuemap-hash-eq --reason F29`.
+- **It makes D1 cheaper.** D1 lists hashing among the five needs that force a
+  lazy identity to materialise. Under content-hashing a scalar key never
+  needs one, so a valuemap lookup on scalar keys mints nothing. Composite
+  keys still materialise.
+- `?key` is **not** covered. `Value::has_key` omits `VALUEMAP` from its arm
+  and answers false for everything else
+  (`reference/rust_dynamic/src/has_key.rs:7,19-20`), and `set` has no
+  `?key` counterpart to mirror. The same reasoning would fix it, but the
+  decision as given names `get`. Carried as Q19.
+
+- Blocks: RFC-0001 (now unblocked), F29, F30
+- Evidence: `tests/probes/valuemap-hash-eq.bund`, confirmed against the oracle
+- Status: **RESOLVED — hash mirrors equality; `get` mirrors `set`.**
