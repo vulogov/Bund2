@@ -716,7 +716,10 @@ mod grammar_tests {
         }
         std::fs::write(a.join("bund.pest"), "value = { int }").unwrap();
         std::fs::write(b.join("bund.pest"), "value = { str }").unwrap();
-        assert_eq!(super::first_difference(&a.join("src"), &b.join("src")), None);
+        assert_eq!(
+            super::first_difference(&a.join("src"), &b.join("src")),
+            None
+        );
         assert!(grammar_difference(&a, &b).is_some());
     }
 }

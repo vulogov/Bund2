@@ -92,6 +92,26 @@ impl Effect {
 /// Per-word overrides, applied before the path rules. Each entry is a word
 /// whose effect differs from its file's.
 const WORD_OVERRIDES: &[(&str, Effect, &str)] = &[
+    // `bund.exit` and its alias `exit` call `process::exit` — Bund/src/stdlib/
+    // functions/bund/bund_exit.rs:13, :19, :30. The path rule reads the
+    // directory and says Pure, which is wrong in the way that matters most
+    // for capture: the process is gone before `capture_epilogue` can dump the
+    // stacks, so the golden would assert nothing about final state while
+    // looking like a normal capture. One corpus program calls `exit`
+    // (Bund/examples/code_snippets/number_of_lines_in_file.bund:13), and it
+    // was already excluded by `args` (Host) and `file` (Filesystem), so the
+    // hermetic set does not move. What this closes is the trap for an
+    // authored probe, where nothing else would have caught it.
+    (
+        "bund.exit",
+        Effect::Process,
+        "Bund/src/stdlib/functions/bund/bund_exit.rs:30",
+    ),
+    (
+        "exit",
+        Effect::Process,
+        "Bund/src/stdlib/functions/create_aliases.rs:31",
+    ),
     // `console.text.randomcolor` / `.rainbow` / `.matrix` pick a colour at
     // random — reference/Bund/src/stdlib/functions/console/spinner.rs:278-279
     // (`random_pleasing_color`), :310.

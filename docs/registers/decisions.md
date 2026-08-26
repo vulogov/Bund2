@@ -954,6 +954,15 @@ Options: revive all four; revive `stacks_left` alone, on the strength of the
 two aliases pointing at it; or omit all four and drop `<-`/`←` with them,
 recording the removal as a stated deviation.
 
+**Addendum, after reading the Library Guide (Q17).** The four are not
+symmetric. `stacks_left` has a full page in the guide — description,
+algorithm, and a worked sample ending "// Now stacks are in order B C A" — and
+is the only one of the 99 documented words that does not resolve to a callable
+name. `dup_in`, `from_workbench` and `push_to` have no page at all. So the
+reference documents `stacks_left` as part of the language and cannot execute
+it, while the other three are undocumented as well as dead. That strengthens
+the second option specifically; it does not decide between them.
+
 - Blocks: RFC-0002's word set, and the M6 denominator alongside D14
 - Default: none — the arguments cut both ways and the owner should pick
 - Evidence: F19, F22, F23, F24; `cargo xtask corpus`, `cargo xtask coverage`

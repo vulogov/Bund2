@@ -253,7 +253,7 @@ duplicate them:
 
 - `docs/registers/decisions.md` — 29 entries. Append-only; a status may
   change, an entry may not be deleted or renumbered.
-- `docs/registers/defects.md` — 26 entries. The roadmap's §5 listed eleven;
+- `docs/registers/defects.md` — 27 entries. The roadmap's §5 listed eleven;
   the rest were found by running the oracle rather than reading it. F14, F15 and
   F17 are why 18 of 77 hermetic programs could not be captured, and
   `tests/golden/UNSTABLE.txt` tags each row with which: **13 F14, 2 F15, 3
@@ -447,8 +447,26 @@ rediscovering them.
 - **D29** is OPEN: whether Bund2 revives or omits the four dead words
   (F19, F22, F24). Either choice deviates from the oracle, and it moves
   criterion 2's denominator by four either way.
-- The reference's `Documentation/Bund_Library_Guide/` is described in
-  `docs/research/05-rfc-roadmap.md` §1.5 as the closest thing to a language
-  specification and the normative reference for judging preservation. This RFC
-  does not adopt it as normative, because it has not been read.
-  `[UNGROUNDED]` — recorded as Q17.
+- **Q17 is closed.** `docs/research/05-rfc-roadmap.md` §1.5 described the
+  reference's `Documentation/Bund_Library_Guide/` as the closest thing to a
+  language specification and proposed it as the normative reference for
+  judging preservation. It has now been read. It documents **99 words of the
+  617 callable names** — 16% — with no grammar, no evaluation order and no
+  resolution order, and six of those 99 pages are never rendered because
+  `index.csv` does not name them. **This RFC does not adopt it as normative**,
+  and now says so on the evidence rather than for want of reading: it is a
+  partial standard-library reference, and a preservation standard that omits
+  five sixths of the language is not one. The corpus and the registry remain
+  the oracle; the guide is corroborating evidence, and where the two disagree
+  the implementation is what Bund2 preserves.
+
+  What the reading is worth is corroboration and three new facts. `cargo xtask
+  guide` cross-references it on every run: the guide's own three-layer
+  attribution agrees with `classify::subsystem` on **96 words with 0
+  disagreements**, which is D14's axis confirmed from an independent source
+  (the axis, not the cut — D14 stays OPEN); the effect audit catches every one
+  of the author's 18 hand-flagged hazards and 12 more he did not flag; and the
+  guide documents one word, `stacks_left`, that cannot be called at all, which
+  is why D29's four are no longer symmetric. The full reading is in
+  `docs/registers/open-questions.md`, and the FIFO-policy divergence it turned
+  up is F27.

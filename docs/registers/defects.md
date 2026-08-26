@@ -536,3 +536,38 @@ distinct opcode premised on full bypass would be wrong.
 - `reference/rust_multistackvm/src/multistackvm_apply.rs:29-32`,
   `multistackvm_call_internal_word.rs:7-8`, `multistackvm_inline.rs:71-72`
 - Behavioural, and a wrong source comment. Disposition:
+
+## F27 — FIFO stacks are documented but unreachable, and `peek` disagrees with `pull`
+`Introduction.typ:16` of the Library Guide states that BUND "offers you an
+ability to creae a stack with FIFO policy". The machinery exists:
+`Stack::fifo` (`reference/rust_multistack/src/stack.rs:27`) sets
+`policy = false` (`:30`), and `TS::add_named_fifo`
+(`reference/rust_multistack/src/ts_add.rs:20-27`) builds one.
+
+`add_named_fifo` has **no caller**. Not in `rust_multistackvm`, not in the
+Bund runtime, not in `rust_multistack` itself. `policy` is set false in
+exactly one place — `stack.rs:30`, inside `Stack::fifo` — so every stack in a
+running Bund is LIFO and both FIFO branches are dead code. No word creates a
+FIFO stack.
+
+Hidden behind that is a second defect that cannot currently be observed.
+`push` honours the policy (`stack_push.rs:9,11`): LIFO pushes the back, FIFO
+pushes the front. `pull` always pops the back (`stack_pull.rs:8`), with the
+policy branch commented out at `:9-13` — and that is **correct**, because
+pushing at the opposite end is what makes it FIFO; the commented-out version
+would have popped the front and turned FIFO back into LIFO. The error is in
+`peek`, which does branch (`stack_peek.rs:9,11`): on a FIFO stack it returns
+`front_mut`, the newest value, while the next `pull` removes the oldest. So
+`peek` and `pull` would disagree about what is on top.
+
+Latent, not live: with no way to build a FIFO stack, no program can observe
+it. It becomes live the moment Bund2 exposes the FIFO policy the guide
+advertises.
+
+- Found by: reading the Library Guide (Q17)
+- Affects: whether Bund2 implements FIFO stacks at all
+- Disposition: preserve the observable behaviour — every stack LIFO — and do
+  not implement the FIFO policy without a decision. Exposing it would add a
+  language feature the reference does not have, which is a deviation even
+  though the guide describes it. If it is ever exposed, `peek` must follow
+  `pull`, not `push`.

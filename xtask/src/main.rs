@@ -13,8 +13,8 @@ Health. Two numbers, and neither substitutes for the other (Q5).
                 move it by exactly zero. Never add words to this denominator —
                 that would make implementing a word move the number and
                 destroy the invariant. --accept records a new mark.
-  coverage      Completeness: words with a test over words in scope. 77 goldens
-                cover 140 of the 586 in-scope names, so `conform` can read
+  coverage      Completeness: words with a test over words in scope. The
+                goldens cover 121 of the 497 in-scope names, so `conform` can read
                 100% with three quarters of the language untested. This is the
                 number that says so.
 
@@ -37,6 +37,12 @@ Oracle
                 a token, that the token is near the cited line. Catches stale
                 line numbers; cannot check that a line means what the prose
                 says.
+  guide         Cross-reference the reference's Library Guide against the
+                registry: documented words that are not callable, pages the
+                book never renders, the guide's own layer attribution against
+                the one derived from the registration path, and its hand-written
+                hazard warnings against the effect audit. Closes Q17. The guide
+                documents 99 of 617 names, so it is advisory, not normative.
 
 Evidence
   corpus        Scan the example corpus for uses of .id, .timestamp, bund.eval,
@@ -67,6 +73,7 @@ mod cite;
 mod conform;
 mod corpus;
 mod golden;
+mod guide;
 mod layout;
 
 /// Counting allocator, so `layout` can report allocations per operation.
@@ -123,6 +130,13 @@ fn main() -> std::process::ExitCode {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
                 eprintln!("xtask bench: {err}");
+                std::process::ExitCode::FAILURE
+            }
+        },
+        "guide" => match guide::run(&args) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("xtask guide: {err}");
                 std::process::ExitCode::FAILURE
             }
         },

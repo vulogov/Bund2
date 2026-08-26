@@ -12,7 +12,6 @@ promote it to a decision, or delete the claim.
 |---|----------|-----------|
 | Q14 | The Phase 0 baseline cannot measure interpretation: ~9.6 ms of every 14 ms run is loading a 381 MB binary before `main` starts, and 3-5 ms more is stdlib registration. **D28 removes most of that cause for Bund2**, so the question narrows: once the dependency set is cut, does the corpus resolve interpretation well enough to write RFC-0001 and RFC-0005 criteria against, or is in-process measurement still required? Re-run `cargo xtask bench --target bund2` when there is a bund2 to run. | `cargo xtask bench` |
 | Q15 | `cargo xtask unblock` is specified as "for each unimplemented word, count hermetic examples it alone gates". That ranking can only see the 140 in-scope words the goldens touch, so as written it reports an empty work queue with 446 words unimplemented. What replaces it, ranking against the coverage denominator? Residue of Q5. | Q5 |
-| Q17 | `docs/research/05-rfc-roadmap.md` §1.5 calls `reference/Bund/Documentation/Bund_Library_Guide` — Typst source with per-word `description`, `sample` and `algorithm` fragments — the closest thing to a language specification, and proposes it as the normative reference against which "100% preserved" is judged. RFC-0000 does not adopt it, because it has not been read. Is it normative, and what does it say that the corpus does not? | RFC-0000 |
 
 ## Triaged
 
@@ -35,6 +34,7 @@ column says.
 | Q11 | promoted | D24 — `.` gap-filling for operand-sourcing words only |
 | Q12 | promoted | D23 — `<class> !` builds from the value, either provenance |
 | Q13 | promoted | D25 — an anonymous class must name itself |
+| Q17 | read; NOT normative | The guide below, and `cargo xtask guide`. It documents 99 words of 617 — a partial standard-library reference, not a language specification. It cannot be the standard for "100% preserved"; it is corroborating evidence, and the corpus plus the registry remain the oracle |
 | Q16 | implemented | `golden::capture_jobs` collects `tests/probes/*.bund` alongside the corpus (`xtask/src/golden/mod.rs:83-97`); all six probe goldens carry captured output, and conform's 63 is 57 suite + 6 probes. The question was recorded before the capture landed and was stale, not open |
 
 
@@ -890,3 +890,94 @@ lexer is covered by 11 unit tests, including that `{}` inside a string does
 not open a lambda (`reference/Bund/tests/testing_ifthenelse.bund:1`) and that
 `1e5` lexes as integer `1` followed by name `e5`, since `float`
 (`bund.pest:23`) requires a `.` before any exponent.
+
+---
+
+# The Library Guide, read (Q17)
+
+`docs/research/05-rfc-roadmap.md` §1.5 proposed
+`reference/Bund/Documentation/Bund_Library_Guide` as the normative reference
+against which "100% preserved" is judged. RFC-0000 declined to adopt it
+because it had not been read. It has now been read, and the checkable part of
+it is `cargo xtask guide`, so these numbers regenerate rather than drift.
+
+## It is not a specification
+
+99 word pages under `lib/`, against 617 callable names in the registry — **16%
+of the language**. It documents no grammar, no evaluation order, no
+resolution order, and no word outside those pages. Six of the 99 pages are
+never rendered: `Library.typ:10-17` builds the book by iterating `index.csv`,
+and `index.csv` names 93 directories, so `file.write.`, `load.script`,
+`math.log10`, `seq.desc`, `string.tokenize.lines` and `string.tokenize.lines.`
+exist as text no reader ever sees.
+
+So it cannot carry the preservation standard. **Disposition: advisory, not
+normative.** The corpus and the registry remain the oracle. Where the guide
+and the implementation disagree, the implementation is what Bund2 preserves —
+but the disagreement is worth recording, and three are recorded below.
+
+## What it corroborates
+
+- **The three-layer partition is the author's own.** `Library_introduction.typ:15-19`
+  divides the standard library across `rust_multistack` (stack operations),
+  `rust_multistackvm` (the VM core — "the core logic of the BUND language
+  remains intact within this crate"), and the Bund runtime. Every word page
+  ticks exactly one of those three in a "Defined in" box. Cross-referenced
+  against `classify::subsystem`, which derives the same three from the
+  registration path: **96 agree, 0 disagree, 3 unticked** (`dup_one_in`,
+  `use`, `use.`). Two independent sources for D14's axis, in complete
+  agreement. Note this settles the *axis*, not the *cut* — D14 stays OPEN.
+- **The effect audit did not miss a hazard.** 18 pages carry a `#danger`
+  warning written by hand. The audit derives hazard from the registration
+  path. 13 of the 18 come out non-hermetic, and none of those 13 appears in
+  any of the 57 suite programs.
+- **The guide's own hazard notion is coarser than the audit's.** The other 5
+  — `clear`, `clear_in`, `drop`, `drop_in`, `drop_stack` — are flagged
+  "destructive operation with data", which is about losing your own stack,
+  not touching the world. A golden captures final state, so those reproduce
+  exactly. Conflating the two kinds would have stripped every program using
+  `drop` from the suite; a first cut of the check did exactly that.
+- **The audit is strictly stronger.** 12 documented words are non-hermetic
+  with no `#danger` at all: `args`, `args.parse`, `debug.display_hostinfo`,
+  `debug.shell`, `fs.cwd`, `io.textfile`, `io.textfile.`, `load.script`,
+  `save`, `save.aliases`, `save.lambdas`, `save.stacks`. A reader of the guide
+  would not be warned about any of them.
+
+## What it says that the corpus does not
+
+Three claims the guide makes that no corpus program exercises, each checked
+against source:
+
+1. **Stacks are circular buffers, not plain LIFO.**
+   `Introduction_the_art_of_stack_operations.typ:15` — "BUND stores data in
+   multiple named circular buffers... you can rotate the buffer in the left or
+   right direction, data is consumed in a single direction only." Grounded:
+   `Stack` wraps a `VecDeque` (`reference/rust_multistack/src/stack.rs:11`)
+   and rotates with `rotate_left` / `rotate_right`
+   (`reference/rust_multistack/src/stack_rotate.rs:9,19`). The stack *of*
+   stacks is circular too, and selecting a named stack rotates it to the top
+   (`Introduction_the_art_of_stack_operations.typ:43`).
+2. **The workbench is a circular stack with no name.**
+   `Introduction_the_art_of_stack_operations.typ:72`.
+3. **FIFO stacks — advertised, unreachable.** `Introduction.typ:16` says BUND
+   "offers you an ability to creae a stack with FIFO policy". `Stack::fifo`
+   exists (`reference/rust_multistack/src/stack.rs:27`) and sets
+   `policy = false` (`:30`); `add_named_fifo` wraps it
+   (`reference/rust_multistack/src/ts_add.rs:20-27`). Nothing calls
+   `add_named_fifo` — not `rust_multistackvm`, not the Bund runtime, not
+   `rust_multistack` itself. Recorded as **F27**, with the latent `peek`
+   inconsistency it hides.
+
+## The one word the guide documents that cannot run
+
+`stacks_left` has a full page — description, algorithm, and a worked sample
+ending "// Now stacks are in order B C A" — and is registered only into the
+stack layer's dead `functions` table
+(`reference/rust_multistack/src/stdlib/rotate.rs:93`), which no dispatch path
+consults. It is the only one of the 99 that does not resolve.
+
+This is decisive for **D29**, which asks whether to revive or drop the four
+dead words, and it splits them cleanly: `stacks_left` is documented as part of
+the language and has two aliases pointing at it; `dup_in`, `from_workbench`
+and `push_to` have no page, no alias, and no corpus use. D29 stays OPEN — the
+call is the owner's — but the two groups are no longer symmetric.
