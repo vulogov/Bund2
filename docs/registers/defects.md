@@ -608,7 +608,17 @@ covers it.
 `set` has a real `VALUEMAP` branch that inserts through `set_vmap`
 (`reference/rust_multistackvm/src/stdlib/values/value_dict.rs:17-19`).
 
-No read path exists.
+No read path exists, and the cause is in **two layers**, not one.
+
+At the **word** layer, `stdlib_value_get` casts the key to a string
+(`reference/rust_multistackvm/src/stdlib/values/value_dict.rs:54`) *before*
+pulling the container (`:60`), so it can never observe that the container is a
+valuemap. `set` pulls all three operands first and branches on the container's
+type (`:16-19`), passing the key through as a `Value`. `?key` has the same
+stringification (`:97`). **No change confined to `rust_dynamic` can fix this** —
+it is a word-level defect, which is why D30's fix is a word change.
+
+At the **value** layer:
 
 - `Value::get` dispatches on `dt` and its arm lists
   `MAP | INFO | CONFIG | ASSOCIATION | CURRY | MESSAGE | CONDITIONAL | OBJECT | CLASS`
@@ -740,3 +750,85 @@ Confirmed against the oracle. Registering a lambda named `println`, calling
   builder must **not** silently dedupe duplicate registrations: replaying them
   in order is what reproduces the reference, and deduping would change which
   handler wins. Record the divergence in RFC-0002.
+
+## F33 — `PartialEq` is asymmetric across int/float, and `impl Eq` asserts otherwise
+Comparing an integer to a float truncates; comparing a float to an integer
+widens:
+
+- `Val::I64` against `Val::F64` — `*i_val_self == *f_val_other as i64`
+  (`reference/rust_dynamic/src/eq.rs:13`)
+- `Val::F64` against `Val::I64` — `*f_val_self == *i_val_other as f64`
+  (`reference/rust_dynamic/src/eq.rs:24`)
+
+So `42 == 42.5` truncates `42.5` to `42` and answers **true**, while
+`42.5 == 42` widens `42` to `42.0` and answers **false**. Confirmed against
+the oracle: `42 42.5 ==` prints `false` and `42.5 42 ==` prints `true` — the
+operands reach `stdlib_logic_compare` in stack order, so the printed pair is
+the reverse of the written one, and the asymmetry is visible either way.
+
+`impl Eq for Value` (`reference/rust_dynamic/src/eq.rs:59-62`) is an empty
+impl asserting the reflexive-symmetric-transitive contract that `eq.rs:13`
+and `:24` break.
+
+This is reachable: the `==` word accepts `INTEGER | FLOAT | CINTEGER | CFLOAT
+| TIME` on both sides (`reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:17-20`),
+so the mixed pair is exactly a case it forwards to `PartialEq`.
+
+- Found by: RFC-0001 review 2
+- Affects: **D30 directly.** A content hash must decide whether `42` and
+  `42.5` share a bucket, and no bucket assignment can be consistent with an
+  asymmetric equality. Whichever direction Bund2 picks is a deviation.
+- Disposition: undecided. RFC-0001 must state which direction it takes and
+  record it as a deviation. Carried as Q20.
+
+## F34 — mutating a container resets its header, discarding `attr`, `curr` and `tags`
+`set` on a map rebuilds through `Value::from_dict` and then restores only the
+tag (`reference/rust_dynamic/src/set.rs:21-23`). `from_dict` is a constructor,
+so it writes `attr: Vec::new()`, `curr: -1` and `tags: HashMap::new()`
+(`reference/rust_dynamic/src/create_map.rs:38-40`). `from_list`
+(`reference/rust_dynamic/src/create_list.rs:19-27`) and `from_valuemap`
+(`reference/rust_dynamic/src/create_map.rs:43`) do the same.
+
+So mutation does not preserve the header — it **resets** it. Confirmed against
+the oracle: `dict 99 attribute "b" 2 set` renders `attr: []`, while the
+control `1 2 attribute` renders `attr` populated.
+
+- Found by: RFC-0001 review 2
+- Affects: **RFC-0001's value semantics.** `Rc::make_mut` *copies* the header,
+  so clone-on-write preserves `attr`/`curr`/`tags` where the reference
+  discards them. That is a divergence on every container mutation, and it was
+  absent from the preservation table.
+- Disposition: Bund2 reproduces the reset — a container mutation clears
+  `attr`, `curr` and `tags` and re-applies the stack tag, matching the
+  constructors. Record in RFC-0001.
+
+## F35 — `push` on a `RESULT` silently yields a `LIST`
+`Value::push` handles `LIST | RESULT` in one arm
+(`reference/rust_dynamic/src/push.rs:37`) and returns `Value::from_list(data)`
+(`:48`), which sets `dt: LIST` (`reference/rust_dynamic/src/create_list.rs:23`).
+
+Pushing to a `RESULT` therefore converts it to a `LIST`. The `dt` is the whole
+distinction between the two — they share the `Val::List` payload — so the
+value silently changes type.
+
+- Found by: RFC-0001 review 2
+- Disposition: Bund2 preserves the `dt`, as `set` does for maps
+  (`reference/rust_dynamic/src/set.rs:22` restores `raw_value.dt = self.dt`).
+  The asymmetry between `set` restoring the tag and `push` not is the defect.
+  No corpus program pushes to a `RESULT`, so no golden covers it.
+
+## F36 — `ASSOCIATION` is readable but has no writer
+`ASSOCIATION` (`reference/rust_dynamic/src/types.rs:51`) appears in eight
+reader arms — `get` (`reference/rust_dynamic/src/get.rs:7`), `has_key`
+(`reference/rust_dynamic/src/has_key.rs:7,26`), `set`
+(`reference/rust_dynamic/src/set.rs:14,74`), `reduce`
+(`reference/rust_dynamic/src/reduce.rs:19`) and `conv`
+(`reference/rust_dynamic/src/conv.rs:518,595,729`).
+
+No constructor writes it. Nothing in `create*.rs` or `conv*.rs` produces a
+value with `dt: ASSOCIATION`, so every one of those arms is unreachable.
+
+- Found by: RFC-0001 review 2
+- Disposition: Bund2 omits `ASSOCIATION` unless a writer is found. It is a
+  `dt` constant with no values, so omitting it removes no behaviour. Record
+  the omission in RFC-0001's tag table.

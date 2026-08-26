@@ -147,7 +147,55 @@ struct HeapTagged {
     /// The reference's `dt`, verbatim: a `u16` over the constants at
     /// `reference/rust_dynamic/src/types.rs:15-56`.
     dt: u16,
-    payload: HeapPayload,
+    /// The iteration cursor. `reference/rust_dynamic/src/iter.rs` reads and
+    /// writes it for every value type, so it is state, not a constant.
+    curr: std::cell::Cell<i32>,
+    /// Written on every push — `reference/rust_multistack/src/ts_push.rs:25`
+    /// sets the stack tag — so it is never empty on a stack value. That is
+    /// what makes `dup` cost more than one allocation.
+    tags: std::collections::BTreeMap<String, String>,
+    /// Driven by the `attribute` word.
+    attr: Vec<CandidateTagged>,
+    /// Behind its own `Rc` so `dup` can reset identity while sharing the
+    /// payload — see RFC-0001's `dup` section.
+    payload: Rc<HeapPayload>,
+}
+
+impl HeapTagged {
+    /// A stack value: identity unminted, carrying the tag every push writes.
+    fn on_stack(payload: HeapPayload) -> Self {
+        let mut tags = std::collections::BTreeMap::new();
+        tags.insert("stack".to_string(), "main".to_string());
+        Self {
+            id: std::cell::Cell::new(0),
+            stamp: std::cell::Cell::new(0.0),
+            dt: 9,
+            curr: std::cell::Cell::new(-1),
+            tags,
+            attr: Vec::new(),
+            payload: Rc::new(payload),
+        }
+    }
+}
+
+impl CandidateTagged {
+    /// `dup` as RFC-0001 specifies it: a fresh header with a cleared identity,
+    /// sharing the payload. Not a bare `Rc` bump — D1's contract is
+    /// clone-equal versus dup-unequal.
+    fn dup(&self) -> Self {
+        match self {
+            CandidateTagged::Heap(h) => CandidateTagged::Heap(Rc::new(HeapTagged {
+                id: std::cell::Cell::new(0),
+                stamp: std::cell::Cell::new(0.0),
+                dt: h.dt,
+                curr: std::cell::Cell::new(-1),
+                tags: h.tags.clone(),
+                attr: h.attr.clone(),
+                payload: Rc::clone(&h.payload),
+            })),
+            other => other.clone(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -328,16 +376,17 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     println!("  {:<44}{n:>7}{b:>9}", "D: clone a scalar");
 
     let (n, b, dheap) = measure(|| {
-        CandidateTagged::Heap(Rc::new(HeapTagged {
-            id: std::cell::Cell::new(0),
-            stamp: std::cell::Cell::new(0.0),
-            dt: 9, // LIST
-            payload: HeapPayload::List(vec![CandidateHeader::Int(1)]),
-        }))
+        CandidateTagged::Heap(Rc::new(HeapTagged::on_stack(HeapPayload::List(vec![
+            CandidateHeader::Int(1),
+        ]))))
     });
-    println!("  {:<44}{n:>7}{b:>9}", "D: construct a 1-element list");
+    println!("  {:<44}{n:>7}{b:>9}", "D: construct a 1-element list on a stack");
     let (n, b, _) = measure(|| dheap.clone());
     println!("  {:<44}{n:>7}{b:>9}", "D: clone a list (Rc bump)");
+    let (n, b, _) = measure(|| dheap.dup());
+    println!("  {:<44}{n:>7}{b:>9}", "D: dup a list (fresh header, shared payload)");
+    let (n, b, _) = measure(|| scalar.clone());
+    println!("  {:<44}{n:>7}{b:>9}", "D: dup a scalar (no header at all)");
 
     let (n, b, inline) = measure(|| CandidateInline {
         id: 0,
