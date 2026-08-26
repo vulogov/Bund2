@@ -42,17 +42,19 @@ pub enum Completion {
     Subsystem,
     /// File completion, but only inside the two **language** layers.
     ///
-    /// The Library Guide's own three-layer split says where the library is:
+    /// The Library Guide's own three-layer split gives the axis:
     /// `rust_multistack` is stack operations, `rust_multistackvm` holds "the
-    /// core logic of the BUND language", and the Bund runtime is where "all
-    /// standard library functions" live
+    /// core logic of the BUND language", and the Bund runtime "encompasses
+    /// implementing all standard library functions"
+    /// — though `:16` also says `rust_multistack` "incorporates elements of
+    /// the standard library", so the guide gives the axis and not the cut
     /// (`reference/Bund/Documentation/Bund_Library_Guide/Library_introduction.typ:15-19`).
     /// `cargo xtask guide` cross-checked that split against the registration
     /// paths and found 96 agreements and 0 disagreements.
     ///
-    /// So completing a file is right in `vm/` and `stack/`, where a partly
-    /// used file means a partly used *language feature*, and wrong in
-    /// `bund/`, where it means a partly used *library*.
+    /// What justifies the cut is measured, not read: of B''s 129 additions,
+    /// every one in `vm/` or `stack/` is a language feature and every
+    /// misfiling is in `bund/`. The layer boundary is where the errors stop.
     FileInLanguageLayers,
 }
 

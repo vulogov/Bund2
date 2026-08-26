@@ -405,13 +405,27 @@ author's own line rather than a judgement of ours.**
 `reference/Bund/Documentation/Bund_Library_Guide/Library_introduction.typ:15-19`
 divides the implementation into `rust_multistack` (stack operations),
 `rust_multistackvm` — "the core logic of the BUND language remains intact
-within this crate" — and the Bund runtime, which is where "all standard
-library functions" live. `cargo xtask guide` cross-checked that split against
+within this crate" — and the Bund runtime, which "encompasses implementing all
+standard library functions".
+
+**Read precisely, that is an axis and not a cut.** `:16` says `rust_multistack`
+"incorporates elements of the standard library that pertain specifically to
+these operations", so the guide does *not* say the library lives only in the
+runtime. RFC-0000 was careful about exactly this — "the axis, not the cut" —
+and an earlier version of this entry was not. What the guide supports is that
+the three layers are the right axis; what justifies cutting on it is the
+empirical result below. `cargo xtask guide` cross-checked that split against
 the registration paths and found **96 agreements and 0 disagreements**.
 
+The empirical result is what carries the rule: of B''s 129 additions, **every
+one in `vm/` or `stack/` is a language feature and every misfiling is in
+`bund/`** — the `string.distance.*` and `string.random.*` families, `fs.cp`,
+`fs.mv`, `url`, `sysinfo.hostname`. The layer boundary is where the errors
+stop, which is a measurement rather than a reading of the guide.
+
 So completing a file is right in `vm/` and `stack/`, where a partly-used file
-means a partly-used *language feature*, and wrong in `bund/`, where it means a
-partly-used *library*.
+has meant a partly-used *language feature*, and wrong in `bund/`, where it has
+meant a partly-used *library*.
 
 **C is rejected** on two grounds: it takes 92.6% of the in-scope set as core,
 which makes the distinction meaningless, and it completes by subsystem, which

@@ -1,8 +1,10 @@
 # RFC-0002: Symbols, the word slot table, and `bund2-api`
 
-- Status: Draft. **No OPEN decision gates this RFC** — D9, D14 and D29 are all
-  settled. Reviews 1 and 2 rejected it on grounds independent of them; both are
-  addressed below. See "Review history".
+- Status: Draft. No OPEN *decision* gates this RFC — D9, D14 and D29 are
+  settled — but **three defects with empty dispositions do**: F18, F19 and
+  F25, each of which names this RFC as the consumer of its consequence. Three
+  reviews have rejected it on grounds independent of the decisions. See
+  "Blocking decisions" and "Review history".
 - Depends on: RFC-0001
 - Decisions consumed: D9, D14, D16, D29
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
@@ -33,6 +35,20 @@ scope, generated into `docs/core-words.md` by `cargo xtask scope --write`. It
 settles both things it gated: `bund2-api` is **two surfaces**, and criterion
 2 has its denominator.
 
+**Three defects block acceptance, and it is their empty dispositions that do
+it.** CLAUDE.md: an empty `disposition` blocks any work item touching that
+area. Each names RFC-0002 as the consumer of its consequence, and this RFC
+depends on all three:
+
+- **F18** — fourteen words declare a smaller arity than they consume, which
+  changes error text. `StackEffect` cannot say which arity it carries until
+  F18 rules.
+- **F19** — the stack layer's dead `functions` table. It is why `dup` at
+  `reference/rust_multistack/src/stdlib/dup.rs:85` is not what makes `dup`
+  callable, and it is the table D29 ruled on.
+- **F25** — `apply_in` as a second resolution order with no `$` arm. This RFC
+  unifies the two dispatchers, which is a deviation F25 has to sanction.
+
 Everything else here is groundable and drafted.
 
 ## Summary
@@ -53,9 +69,18 @@ stability guarantee.
 ### Dispatching one word allocates thirteen strings
 
 Take `dup`, an alias for `dup_one`
-(`reference/rust_multistackvm/src/stdlib/create_aliases.rs:18`), which is
-registered in the **stack** layer
-(`reference/rust_multistack/src/stdlib/dup.rs:87`). Following
+(`reference/rust_multistackvm/src/stdlib/create_aliases.rs:18`), where
+`dup_one` is registered as an inline in the **stack** layer
+(`reference/rust_multistack/src/stdlib/dup.rs:87`).
+
+The name `dup` is *also* registered at
+`reference/rust_multistack/src/stdlib/dup.rs:85`, but by `register_function`,
+into the table no dispatch path consults — F19. So the alias is what makes
+`dup` callable, and the `register_function` entry beside it is dead, exactly
+as `dup_in` at `:88` is. That is the table D29 ruled on. An earlier draft
+cited `:87` for `dup` itself, which is `dup_one`.
+
+Following
 `reference/rust_multistackvm/src/multistackvm_apply.rs:9-62`:
 
 | # | allocation | site |
@@ -164,7 +189,31 @@ later.
 6. Lambda (`:46-54`).
 7. Inline (`:59`).
 
-### `autoadd` has three branches, not one
+### `apply` is not the only resolution order — `apply_in` is a second
+
+Everything above describes `VM::apply`. `VM::apply_in`
+(`reference/rust_multistackvm/src/multistackvm_apply_in.rs:7`) is a parallel
+dispatcher taking a stack name, and it is **not** the same order:
+
+- it has its own `CALL`, `CONTEXT` and catch-all arms with their own `autoadd`
+  tests (`:15`, `:45`, `:62`) — so `autoadd` has **six** live branches across
+  the two functions, not three;
+- and it has **no `$` arm at all**. `call_internal_word` appears nowhere in
+  it, so a `$`-prefixed name dispatched through `apply_in` does not reach the
+  internal word.
+
+This is F25, which records `apply_in` as a second resolution order and whose
+disposition is still empty. An earlier draft of this RFC specified dispatch
+against `apply` alone and said "three branches, not one" of a fact that holds
+of one of two functions.
+
+**RFC-0002 unifies them**: one slot table reached by one resolution order,
+with the stack name a parameter rather than a second code path. That is a
+deviation, and it is the right one — two dispatchers that disagree about `$`
+is a defect surface, not a feature — but it is a deviation and F25 has to rule
+on it before this RFC can be accepted.
+
+### `autoadd` has three branches in `apply`, and three more in `apply_in`
 
 `self.autoadd` is tested in three places, each doing something different:
 
@@ -177,7 +226,7 @@ later.
 
 An earlier draft covered only the first. The mode is a global on the `VM`
 (`reference/rust_multistackvm/src/multistackvm.rs:22`), so all three are live
-whenever it is set.
+whenever it is set — and so are `apply_in`'s three, above.
 
 ### Alias resolution happens twice
 
@@ -203,7 +252,16 @@ is skipped. This is **F26**, confirmed by probe.
 (`reference/rust_multistackvm/src/multistackvm_inline.rs:6-9`), so a later
 registration of the same name replaces the earlier one silently. `register`,
 `unregister`, `alias` and `unalias` are words, so the table is mutable at
-runtime and no closed-world assumption is available. This is **D16**.
+runtime and no closed-world assumption is available.
+
+**That is only half of D16, and it is the easier half.** The other half is
+that a call *target* need not be a literal at all: `execute` turns a string
+into a call, `ptr` builds a `PTR` from one
+(`reference/rust_multistackvm/src/stdlib/artefacts.rs:88`), and `bund.eval`
+compiles a snippet. So a name can be computed, and the `$` sigil can be
+computed with it — which is exactly what breaks a parse-time interner, as the
+Design section records. An earlier draft consumed D16 and reduced it to table
+mutability, which is the half that does not stress this design.
 
 ## Design
 
@@ -323,29 +381,41 @@ re-implemented — that grammar is what defines a name, and it is the premise of
 "interned at parse time". A `CALL` built at run time by `bund.eval` interns
 through the same table.
 
-### The `$` sigil is stripped at intern time, not at dispatch
+### The `$` sigil is honoured at dispatch, and interning happens wherever a
+name becomes a call
 
-`element` admits `SYMBOL` (`reference/bund_language_parser/bund.pest:36`), and
+`element` admits `SYMBOL` (`reference/bund_language_parser/bund.pest:36`) and
 `name` is `element ~ nelement*` (`:28`), so **`$println` lexes as a single
 name** — the grammar has no rule that separates the sigil. The reference
-strips it at run time instead: `call_internal_word` takes `&name[1..]` and
-calls `self.i` on the remainder
+strips it at dispatch: `call_internal_word` takes `&name[1..]` and calls
+`self.i` on the remainder
 (`reference/rust_multistackvm/src/multistackvm_call_internal_word.rs:7-8`).
 
-That matters here because a naive interner would give `println` and `$println`
-**different `Symbol`s**, and then "the same slot reached two ways" would be
-false — there would be two slots. An earlier draft's criterion required them
-to resolve "for the same `Symbol`" without saying how, which the grammar
-forbids.
+An earlier draft moved that to parse time, in `bund2-syntax`. **That is
+wrong, and D16 is why.** The world never closes, so a call target can be a
+string built at run time that no parser ever sees as a name. Confirmed against
+the oracle: `"$println" ptr !` and `"$println" !` both reach the native, and
+they still do after `println` has been shadowed by a lambda. Under
+parse-time-only stripping all three fail.
 
-So `bund2-syntax` strips the sigil when it interns: `$println` interns to the
-`Symbol` for `println`, with the sigil recorded on the `CALL` as a flag rather
-than as part of the name. Dispatch then reads the flag to decide whether to
-skip the `lambda` binding, which is exactly what `call_internal_word` does
-with `&name[1..]`, moved from run time to parse time.
+So:
 
-The name must still render as `$println` in `Debug` output and serialise as
-`$println`, by the same rule as every other boundary.
+- **The sigil is honoured at dispatch**, as the reference does it. A slot is
+  reached by the `Symbol` for the bare name; the sigil decides whether the
+  `lambda` binding is consulted.
+- **Interning happens wherever a name becomes a call**, which is *not* only
+  the parser. `execute` (`!`) turns a string or a `PTR` into a call and is
+  used 69 times across 39 corpus programs; `bund.eval` compiles a snippet;
+  `ptr` builds a `PTR` from a string
+  (`reference/rust_multistackvm/src/stdlib/artefacts.rs:88`). Each interns
+  through the same table, and interning a name not seen before **adds a
+  slot** — that is what D16's open world means for this design, and an
+  earlier draft's single sentence named `bund.eval` alone.
+
+Interning is therefore a runtime operation with a parse-time fast path, not a
+parse-time operation. The fast path matters — it is where the thirteen
+allocations go — but it is an optimisation of the general case, not the
+definition of it.
 
 ### Alias resolution
 
@@ -366,6 +436,18 @@ found 14 under-declared ones (F18), so the initial declarations are derived
 rather than hand-written.
 
 Effect *inference* for Bund-defined words is RFC-0004, not here.
+
+**Declaring the probed arity changes observable error text, and F18 is why.**
+Fourteen words guard on a depth smaller than they consume, so the guard passes
+and the *second* pull fails with a different message: `1 pair` reports
+`NO DATA #2` rather than "Stack is too shallow for inline pair()". If
+`StackEffect` carries the probed arity, the guard fires first and the message
+becomes the "too shallow" one — a behaviour change on fourteen words, none of
+which any corpus program reaches, so no golden covers it and nothing would
+catch it.
+
+F18's disposition is empty. Until it rules, this RFC cannot say which arity
+`StackEffect` declares.
 
 ### Registry builder
 
@@ -437,7 +519,7 @@ time. That is a deliberate deviation in both directions and is recorded there.
 | Lambda bodies bincoded into the world file | **Preserved exactly.** Serialisation is a materialisation point: names are written as strings, so a saved lambda reloads in another process. |
 | `unregister` bound twice, no lambda unregisterable (F32) | **Deliberately fixed**, by giving the two words distinct names. No corpus program calls `unregister`, so conformance cannot move. |
 | Open world — `register` / `alias` at runtime | **Preserved exactly.** D16. |
-| Alias resolved twice | **Preserved for one level, deliberately changed for chains.** Resolving to a fixed point differs from resolving exactly twice only for an alias chain three deep or more. No such chain exists in the reference's own registrations, and none is constructible in the corpus. Stated as a deviation rather than assumed away. |
+| Alias resolved twice, and once under `$` | **Deliberately changed, and the divergence starts at two links, not three.** `apply` resolves one link (`:39`) and `i` resolves another (`multistackvm_inline.rs:71`), so a plain name follows two. `$name` reaches `i` directly through `call_internal_word` and follows **one**. Confirmed on the oracle: with `a2 → b2 → println`, plain `a2` succeeds and `$a2` fails with `Inline b2 not registered`. Fixed-point resolution makes both succeed, so it changes `$`-dispatch at two links and plain dispatch at three. No such chain exists in the reference's 70 registrations and none is constructible in the corpus — but D16 means a program can build one. |
 | `resolve` failing on stack-layer words (F31) | **Deliberately fixed.** No golden covers `resolve`, so conformance cannot move. |
 | `BUND` held for the whole run | **Deliberately changed.** Observably identical for a single-threaded program, which is every program today. |
 
@@ -495,14 +577,20 @@ them and one was vacuous without saying so. Each below names the tool.
    behaviour. It is a Bund2 unit test in `bund2-interp`, and F31's entry is
    the reference for the deviation. The same applies to F32's fix.
 6. A name bound as both a lambda and a native resolves to the lambda by
-   `name` and to the native by `$name`, **reaching the same slot** — the
-   sigil is stripped when the name is interned, so `$println` and `println`
-   share a `Symbol` and the `$` travels as a flag on the `CALL`. The grammar
-   makes this a requirement rather than a nicety: `element` admits `SYMBOL`
-   (`reference/bund_language_parser/bund.pest:36`) so `$println` lexes as one
-   name, and a naive interner would produce two symbols and two slots.
-   **Tool:** a Bund2 unit test; `tests/probes/` can hold the oracle side,
-   since the oracle passes this one.
+   `name` and to the native by `$name`, **reaching the same slot**, and it
+   does so **for a name that never passed the parser**: `"$println" ptr !`
+   and `"$println" !` both reach the native, including after `println` has
+   been shadowed. That third clause is the one that matters — an earlier
+   draft stripped the sigil at intern time in `bund2-syntax`, which passes the
+   first two clauses and fails this one, and D16 guarantees the case arises.
+   **Tool:** a Bund2 unit test plus a probe, since the oracle passes all
+   three.
+6a. **A two-deep alias chain resolves the same way through `$name` as through
+   `name`.** The reference does not: plain `a2` succeeds and `$a2` fails with
+   `Inline b2 not registered`, because `apply` and `i` each resolve one link
+   while `call_internal_word` reaches `i` directly and resolves one. This is
+   the deviation the preservation table records, and it is asserted rather
+   than left implicit.
 7. A lambda saved to the world file in one process reloads and runs in
    another, with the `CALL` names intact. **Tool:** a Bund2 integration test.
    This is the criterion that `Symbol`-in-the-payload would have failed.
@@ -645,3 +733,52 @@ is how a commitment quietly lapses.
   sequence at `stdlib/mod.rs:29-51`. The two agree here by accident. Per the
   owner: registration is last-write-wins, so the outcome is order-determined
   and no tool change is warranted.
+
+- **2026-08-26, review 3** — `docs/rfc/reviews/RFC-0002-review-2026-08-26-3.md`.
+  Verdict: do not accept. Every citation resolved, the thirteen allocation
+  rows were traced individually and correctly attributed — including the two
+  easiest to get wrong, row 8 being `:81` not `:74` because `i` receives
+  `dup_one`, which is not an alias, and row 10 naming only `is_inline`'s
+  `format!` because the VM lookup fails before `get_inline` — and every count
+  reproduced. Review 2's duplicated-`Design` blocker was gone.
+
+  **Both blockers were the same mistake: specifying a mechanism against
+  `VM::apply` alone.**
+
+  The `$` sigil was moved to parse-time interning. The reference strips it at
+  dispatch, and D16 means a call target can be a string built at run time that
+  no parser sees. On the oracle `"$println" ptr !` and `"$println" !` both
+  reach the native, and still do after `println` is shadowed by a lambda —
+  three cases parse-time stripping fails. The draft's single sentence on
+  runtime interning named `bund.eval` and not `execute`, which the corpus uses
+  69 times across 39 programs. Interning is now a runtime operation with a
+  parse-time fast path.
+
+  The alias-chain row put the divergence at three links. It is **two** for
+  `$name`, which reaches `i` directly and resolves one link where a plain name
+  resolves two. Oracle, on `a2 → b2 → println`: plain `a2` succeeds, `$a2`
+  fails with `Inline b2 not registered`. The RFC states that mechanism two
+  sections earlier under F26 and had not drawn the conclusion.
+
+  Three register entries — **F18**, **F19**, **F25** — name RFC-0002 as the
+  consumer of their consequence, all three have empty dispositions, and the
+  RFC cited none of them. They are now the recorded blockers. F25 in
+  particular records `apply_in` as a **second resolution order with no `$` arm
+  and three more `autoadd` branches**, so "three branches, not one" was true
+  of one of two functions; and F18 collides with `StackEffect`, since
+  declaring the probed arity changes error text on fourteen words. D16 was
+  consumed and reduced to table mutability — its other half, dispatch by
+  computed name, is precisely what broke the parse-time interner.
+
+  Two citation-precision defects. `Library_introduction.typ:16` says
+  `rust_multistack` "incorporates elements of the standard library", so the
+  guide gives D14 its **axis and not its cut** — RFC-0000 was careful about
+  exactly this and D14's entry was not; the cut now rests on the measured
+  result, that every misfiling in B''s additions is in `bund/`. And
+  `dup.rs:87` registers `dup_one`, not `dup`: `dup` is at `:85` through
+  `register_function` into F19's dead table, beside `dup_in` at `:88`, which
+  is the table D29 ruled on.
+
+  Recorded separately: `cargo xtask lint` caught this session's own edit
+  re-introducing a duplicate `## Design` — the very error it was built for,
+  on the first real edit after it was built.
