@@ -14,7 +14,13 @@ touch the area.
 The class variant shadows the lambda variant, so lambda unregistration is
 unreachable by name. The class one is presumably meant to be `unregister.class`.
 - `reference/rust_multistackvm/src/stdlib/lambdas/registry.rs`
-- Behavioural. Disposition:
+- Behavioural. Disposition: **FIX**, and see **F32**, which records the same
+  defect independently: `unregister` is bound twice in consecutive statements
+  (`reference/rust_multistackvm/src/stdlib/lambdas/registry.rs:89,90`) and the
+  class variant wins, so no lambda can be unregistered. Confirmed against the
+  oracle there. Bund2 gives the two words distinct names. This entry found it
+  first from the source; F32 found it again while reading the registration
+  mechanism for RFC-0002 and confirmed it by probe.
 
 ## F2 — `if.false.in_workbench` uses the wrong stack
 `stdlib_logic_if_false_in_workbench` passes `StackOps::FromStack`, not
@@ -325,7 +331,24 @@ Two consequences:
 
 No corpus program hits any of these paths, so no golden covers them.
 - see the citations above
-- Behavioural. Disposition:
+- Behavioural. Disposition: **FIX — declare the probed arity, and accept the
+  changed error text.** `StackEffect` (RFC-0002) carries the arity the word
+  actually consumes, so the guard fires before the first pull and these
+  fourteen report "Stack is too shallow for inline <word>()" where the
+  reference reports `NO DATA #2`.
+
+  Option A — preserve the guard, declare 1 for a word that consumes 2 — was
+  rejected because the declared guard **is already not the contract**: this
+  entry's own second consequence says RFC-0004 must take the probed column
+  wherever the two disagree. A static arity that lies does not stay cosmetic.
+  RFC-0004 infers effects from it and RFC-0005 orders JIT guards by it, so
+  preserving the wrong number propagates the defect into two later RFCs in
+  order to keep an error string on a path that fails either way.
+
+  What changes is observable and small: fourteen words, on inputs that error
+  under both implementations, with only the message differing. No corpus
+  program reaches any of them, so no golden covers it and `conform` cannot
+  move. Record the divergence in RFC-0002 alongside `StackEffect`.
 
 ## F19 — the stack layer's `functions` table is dead code
 `rust_multistack` keeps a fourth name-keyed table alongside the two inline
@@ -353,7 +376,23 @@ Consequence for RFC-0002: **bund2 does not need a fourth `WordEntry` variant.**
 The slot table absorbs three tiers, not four. Porting the table because it
 exists would add a name space the language does not have.
 - `reference/rust_multistack/src/ts_functions.rs:6,25,36`
-- Dead code. Disposition:
+- Dead code. Disposition: **OMIT the table.** Bund2 has no fourth namespace:
+  the slot table absorbs three tiers, not four, which is this entry's own
+  consequence for RFC-0002. Porting a table because it exists would add a name
+  space the language does not have.
+
+  The names split cleanly, and neither half needs a new decision:
+
+  - Registered **both** ways — `drop`, `dup` and the rest of the duplicating
+    pairs — are unaffected. The inline registration is what makes them
+    callable, and it is preserved.
+  - Registered **only** here — `dup_in`, `from_workbench`, `push_to`,
+    `stacks_left` — are exactly the dead words, and **D29 has already ruled**:
+    `stacks_left` is revived, the other three are omitted.
+
+  So omitting the table costs no reachable behaviour, and the one name that
+  needed reviving is revived by decision rather than by porting the table that
+  hid it.
 
 ## F20 — the `swap` alias shadows a different inline word
 `swap` is registered twice, in two namespaces. `reference/rust_multistack/src/stdlib/swap.rs:98`
@@ -499,7 +538,36 @@ Consequence for RFC-0002: the dispatch contract has one resolution order to
 specify, not two, and porting this cluster would import a second.
 - `reference/rust_multistackvm/src/multistackvm_apply_in.rs`,
   `multistackvm_lambda_eval_in.rs`, `multistackvm_call.rs:12`
-- Dead code. Disposition:
+- Dead code. Disposition: **OMIT the cluster**, in three parts, because
+  "dead code, ignore it" is not sufficient for a path that encodes a different
+  contract.
+
+  1. **Not ported.** Bund2 specifies one resolution order, because the
+     reference has one that runs: `VM::call` -> `apply`
+     (`reference/rust_multistackvm/src/multistackvm_call.rs:8`), which is what
+     `execute` reaches
+     (`reference/rust_multistackvm/src/stdlib/execute.rs:32`). `call_in` ->
+     `apply_in` -> `lambda_eval_in` -> `apply_in` is closed, and nothing
+     outside the three calls any of them.
+
+  2. **The divergences are not preserved, and cannot be observed.** No
+     `$`-prefix arm, and an `autoadd` that pushes the name whole rather than
+     appending it to the value beneath. This is a deviation of the safest
+     available kind — nothing can call the code — but it is a deviation, which
+     is why this entry cannot simply wave the cluster away. `autoadd` has
+     **three live branches**, in `apply`; `apply_in`'s three are unreachable.
+
+  3. **The forward constraint, which is the part with teeth.** When a later
+     RFC needs per-stack dispatch — RFC-0007's actor model is the likely one —
+     it is built on the single resolution order with the stack as a
+     **parameter**, not by reviving a second dispatcher. The reference's own
+     attempt at a second one drifted into disagreeing with the live path about
+     `$`. That is what a parallel code path costs, and this entry is the
+     evidence for the rule.
+
+  Porting it as a second `WordEntry` path buys nothing: it cannot be called,
+  and it would import the `$` disagreement into a design whose point is that
+  one name reaches one slot by one order.
 
 ## F26 — `$name` does not bypass alias resolution
 The comment above the `$` arm says the prefix forces an internal call
@@ -743,6 +811,9 @@ Confirmed against the oracle. Registering a lambda named `println`, calling
 `:println unregister`, and calling `println` again still runs the lambda.
 
 - Found by: reading the registration mechanism for RFC-0002
+- **Duplicate of F1**, which recorded the same defect from the source before
+  this one confirmed it by probe. Both are kept, per the append-only rule;
+  F1 carries the disposition and this entry carries the oracle evidence.
 - Affects: `unregister` for lambdas; `stdlib_lambda_unregister` is dead code
 - Disposition: Bund2 fixes it — the two need distinct names, or one word that
   dispatches on what the name is bound to. No corpus program calls

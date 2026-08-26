@@ -1,10 +1,10 @@
 # RFC-0002: Symbols, the word slot table, and `bund2-api`
 
-- Status: Draft. No OPEN *decision* gates this RFC — D9, D14 and D29 are
-  settled — but **three defects with empty dispositions do**: F18, F19 and
-  F25, each of which names this RFC as the consumer of its consequence. Three
-  reviews have rejected it on grounds independent of the decisions. See
-  "Blocking decisions" and "Review history".
+- Status: Draft. **Nothing gates this RFC**: D9, D14 and D29 are settled, and
+  F18, F19 and F25 — the three defects that named it as the consumer of their
+  consequence — now carry dispositions. Three reviews have rejected it on
+  grounds independent of all six. See "Blocking decisions" and
+  "Review history".
 - Depends on: RFC-0001
 - Decisions consumed: D9, D14, D16, D29
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
@@ -35,19 +35,23 @@ scope, generated into `docs/core-words.md` by `cargo xtask scope --write`. It
 settles both things it gated: `bund2-api` is **two surfaces**, and criterion
 2 has its denominator.
 
-**Three defects block acceptance, and it is their empty dispositions that do
-it.** CLAUDE.md: an empty `disposition` blocks any work item touching that
-area. Each names RFC-0002 as the consumer of its consequence, and this RFC
-depends on all three:
+**Three defects gated acceptance and all three now have dispositions.** Each
+names RFC-0002 as the consumer of its consequence:
 
-- **F18** — fourteen words declare a smaller arity than they consume, which
-  changes error text. `StackEffect` cannot say which arity it carries until
-  F18 rules.
-- **F19** — the stack layer's dead `functions` table. It is why `dup` at
-  `reference/rust_multistack/src/stdlib/dup.rs:85` is not what makes `dup`
-  callable, and it is the table D29 ruled on.
-- **F25** — `apply_in` as a second, unreachable resolution order with no `$`
-  arm. This RFC omits it, which is a deviation F25 has to sanction.
+- **F18 — FIX.** `StackEffect` declares the **probed** arity, not the guard's.
+  Fourteen words consequently report "Stack is too shallow" where the
+  reference reports `NO DATA #2`. Preserving the guard would have made
+  `StackEffect` declare 1 for a word that consumes 2, and RFC-0004 infers
+  effects from it while RFC-0005 orders JIT guards by it — a static arity that
+  lies does not stay cosmetic.
+- **F19 — OMIT the table.** The slot table absorbs three tiers, not four.
+  Names registered both ways are unaffected, since the inline registration is
+  what makes them callable; names registered only there are the dead words,
+  and D29 already ruled on those.
+- **F25 — OMIT the cluster.** `apply_in` is unreachable, so there is one
+  resolution order to specify. The forward constraint is the part that binds:
+  per-stack dispatch, when RFC-0007 needs it, is the single order with the
+  stack as a parameter, not a second dispatcher.
 
 Everything else here is groundable and drafted.
 
@@ -222,10 +226,12 @@ because the reference has one that runs; the second is unreachable and is not
 ported. `autoadd` therefore has **three live branches**, in `apply` — an
 earlier note in this section said six, which counts the dead ones.
 
-What F25 must still rule is the omission itself: dropping a code path is a
-deviation even when nothing can observe it, and if a later RFC needs "dispatch
-onto a named stack" it should be built on the single order with the stack as a
-parameter rather than by reviving this one.
+**F25's disposition is OMIT**, and it carries a forward constraint this RFC
+inherits: when a later RFC needs "dispatch onto a named stack" — RFC-0007's
+actor model is the likely one — it is built on the single resolution order
+with the stack as a parameter, not by reviving a second dispatcher. The
+reference's own second dispatcher drifted into disagreeing with the live path
+about `$`; that is what a parallel code path costs.
 
 ### `autoadd` has three branches, all in `apply`
 
@@ -461,8 +467,9 @@ becomes the "too shallow" one — a behaviour change on fourteen words, none of
 which any corpus program reaches, so no golden covers it and nothing would
 catch it.
 
-F18's disposition is empty. Until it rules, this RFC cannot say which arity
-`StackEffect` declares.
+**F18's disposition is FIX**: `StackEffect` declares the probed arity. The
+fourteen words change error text, on inputs that error either way, and no
+golden covers them.
 
 ### Registry builder
 
