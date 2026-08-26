@@ -1,7 +1,12 @@
 # RFC-0000: Architecture, crate boundaries, and the tier model
 
-- Status: Draft
+- Status: **Accepted** (2026-08-25)
 - Depends on: —
+- Accepted against: B1 conform 0/63; B2 coverage 121/497; B3 `bund2-stdlib`
+  free of `bund2-jit`; B4 six clean submodules; B5 `cite` 0 defects over 1059
+  citations with 5/5 oracle crates byte-verified. D-1 and D-2 are deferred to
+  RFC-0002 and are not part of this acceptance. Four adversarial review passes
+  are folded in; the fourth is the last that found anything.
 - Decisions consumed: D15, D16, D20, D21, D26, D27, D28
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
   `80377728f45b`; `bundcore` `3b0b8ba219a6`; `rust_dynamic` `ceb27c96fa10`;
@@ -11,8 +16,9 @@
   it mixes layout with value, symbol and lambda claims that belong to
   RFC-0001, RFC-0002 and RFC-0003, and superseding it here would take scope
   this RFC disclaims. See `docs/research/ERRATA.md`,
-  which holds six corrections — two predating this session, three from the
-  corpus scan, and this RFC's own supersession entry.
+  which holds seven corrections — two predating this session, three from the
+  corpus scan, this RFC's own supersession entry, and the `$name` correction
+  from F26.
 
 ## Summary
 
@@ -362,14 +368,84 @@ measured a binary Bund2 will never resemble.
 
 ## Acceptance criteria
 
-1. `cargo xtask conform` reports **0/63** at this commit, and the number is
-   recorded in `tests/golden/CONFORMANCE.txt`. RFC-0000 changes no behaviour,
-   so any movement means something else did.
-2. `cargo xtask coverage` reports **121/497** in-scope words covered.
+Two kinds, kept apart on purpose. **Five are binding**: each can fail today,
+and each is a command with an answer. **Two are deferred**: they describe real
+rules, but both pass against empty crates, and a criterion that cannot fail is
+not a criterion. Accepting this RFC means accepting the five. The two are
+carried so RFC-0002 inherits them rather than rediscovering them.
 
-**Both denominators move, and the provenance is pinned here** so a later RFC
-citing either can tell whether it has shifted. Each step is a decision, not
-drift:
+Earlier drafts listed all seven as one set of six, which overstated what
+acceptance rested on. Two drafts also got criterion B3 wrong in ways that
+looked like passes — the record is kept below, since the failure mode is the
+point.
+
+### Binding — verified at this commit
+
+**B1. `cargo xtask conform` reports 0/63**, and the number is recorded in
+`tests/golden/CONFORMANCE.txt`. RFC-0000 changes no behaviour, so any movement
+means something else did. This is the regression gate.
+
+**B2. `cargo xtask coverage` reports 121/497** in-scope words covered. This is
+the completeness number, and it is *not* a gate: it moves whenever D14 or D29
+rules on another word. It is pinned here so a later RFC citing it can tell
+whether it has shifted.
+
+**B3. `cargo tree -p bund2-stdlib` does not list `bund2-jit`** — Tier 1 stays
+optional. 0 occurrences today.
+
+**B4. `git status --porcelain` is empty inside every `reference/` submodule**
+after a full `cargo xtask golden` run. All six are clean. This guards the
+citation targets, not the binary: since the oracle links crates.io rather than
+the submodules (F21), an edit to a submodule cannot change what the oracle
+runs, and this check cannot see it. B5 is what covers the binary.
+
+**B5. `cargo xtask cite` reports zero defects** over 1059 citations: every
+`reference/...:N` in this RFC and in the registers names a file that exists
+and a line that exists, and every fenced block claiming a line matches it
+verbatim. It also reports **5/5 oracle crates byte-verified**, which is the
+part that covers the binary B4 cannot see. That comparison walks `**/*.rs`
+under each crate's `src/`, and the grammar is neither — `bund.pest` sits at
+the crate root. Every syntax decision in the registers rests on it, so a
+divergence there is exactly what B5 exists to catch, and it was invisible;
+root-level `*.pest` is now compared too. The two copies agree.
+
+### Deferred to RFC-0002 — cannot fail today
+
+**D-1. `cargo tree --no-default-features` pulls in no `ai`, `image`, `bus`,
+`forecast`, `statistics`, `internaldb` or `console` dependency.** No Bund2
+crate declares any of those features; the only features that exist are `aot`,
+`jit` and `async` (`crates/bund2/Cargo.toml`, `crates/bund2-jit/Cargo.toml`).
+The command can produce no evidence either way, so asserting it would pass by
+vacuity. D28 is a commitment until RFC-0002 declares the feature set.
+
+**D-2. `cargo tree -p bund2-value` does not list `bund2-interp`** — the value
+type is usable without a VM. `cargo tree -p bund2-value` prints a single line
+and lists no dependency at all, so nothing could fail it. It passes because
+the crate is empty, not because the rule is enforced. Real with RFC-0001.
+
+Two drafts got this one wrong. The first wrote it as
+`cargo tree -p bund2-interp`, which lists `bund2-value` four times because
+that is the *intended* direction — so it failed while appearing to test the
+rule. The second corrected the command and then claimed the clause was real.
+
+### Stated limits of the five
+
+None of these blocks acceptance. All three are real and none is fixed here.
+
+- **B5's byte check does not run in CI.** The five oracle crates are not Bund2
+  workspace dependencies, so their vendored sources are absent in a clean
+  checkout and the tier degrades to "not compared" without a defect. The
+  strongest part of B5 is strong locally and hollow in the pipeline.
+- **B2 has zero hand tests.** All 121 covered words are covered by goldens, so
+  coverage and conformance rest on the same evidence seen twice. The second
+  health number is not yet independent of the first. Residue of Q5.
+- **B2's denominator has two open decisions under it.** D14 (library scope)
+  and D29 (the four dead words) each move it, the latter by four either way.
+
+### Provenance of both denominators
+
+Pinned here so a later RFC can tell whether a figure has shifted. Each step is
+a decision, not drift:
 
 | Denominator | Was | Now | What moved it |
 |---|---|---|---|
@@ -381,55 +457,6 @@ drift:
 
 The full narrowing is regenerated into `tests/golden/HERMETIC.txt` on every
 `cargo xtask corpus` run, so it cannot drift from the filters that produce it.
-Criterion 1 and not criterion 2 is the regression gate, because coverage moves
-whenever D14 rules on another word.
-3. **Not yet checkable, and stated as such.** No Bund2 crate declares an
-   `ai`, `image`, `bus`, `forecast`, `statistics`, `internaldb` or `console`
-   feature — the only features that exist today are `aot`, `jit` and `async`
-   (`crates/bund2/Cargo.toml`, `crates/bund2-jit/Cargo.toml`). So
-   `cargo tree --no-default-features` can produce no evidence either way, and
-   asserting it would be a criterion that passes by vacuity. It becomes
-   checkable when RFC-0002 declares the feature set; until then D28 is a
-   commitment, not a verified property.
-4. The two boundary rules point in **opposite** directions and need different
-   commands. `cargo tree -p bund2-value` must not list `bund2-interp` — that
-   is the rule "the value type is usable without a VM", and it holds today
-   (0 occurrences). `cargo tree -p bund2-stdlib` must not list `bund2-jit` —
-   that is "Tier 1 stays optional", and it also holds.
-
-   Two drafts got this wrong. The first wrote clause one as
-   `cargo tree -p bund2-interp`, which lists `bund2-value` four times because
-   that is the *intended* direction — so it failed while appearing to test the
-   rule. The second corrected the command but then claimed both clauses were
-   real. Clause one is **vacuous**: `cargo tree -p bund2-value` prints a
-   single line and lists no dependency at all, so nothing could fail it. It
-   passes today because the crate is empty, not because the rule is enforced.
-   Clause two is real. Both become meaningful with RFC-0002 and RFC-0003.
-5. `git status --porcelain` inside every `reference/` submodule is empty after
-   a full `cargo xtask golden` run. Note what this does **not** guarantee:
-   since the oracle links crates.io rather than the submodules (F21), an edit
-   to a submodule cannot change the oracle, and this check cannot observe a
-   change to what the oracle actually runs. It guards the citation targets,
-   not the binary. Criterion 6's provenance check is what covers the binary.
-6. `cargo xtask cite` reports zero defects: every `reference/...:N` citation
-   in this RFC and in the registers names a file that exists and a line that
-   exists. Implemented in response to this RFC's review, which found five
-   citation defects by hand.
-
-   It also reports **5/5 oracle crates byte-verified**, which is what covers
-   the binary criterion 5 cannot see (F21). That comparison walks `**/*.rs`
-   under each crate's `src/` — and the grammar is neither: `bund.pest` sits at
-   the crate root. Every syntax decision in the registers rests on it, so a
-   divergence there would be exactly the kind criterion 6 exists to catch, and
-   it was invisible. The check now compares root-level `*.pest` too. The two
-   copies agree today.
-
-Criteria 1 and 2 are the two health numbers. Criterion 5 catches an accidental
-edit to the code the citations point at — not to the oracle, which it cannot
-see. Criterion 3 and criterion 4's first clause are **not yet checkable**:
-both pass today against empty crates, and a criterion that cannot fail is not
-a criterion. They are carried so RFC-0002 inherits them rather than
-rediscovering them.
 
 ## Open questions
 
@@ -443,10 +470,10 @@ rediscovering them.
 - **D11** is OPEN and gates D27. If an external reader of the world file
   exists, the redb change is a breaking format change.
 - **D14** is OPEN and is the M6 denominator. It does not block this RFC, but
-  criterion 2's figure moves as it resolves.
+  B2's figure moves as it resolves.
 - **D29** is OPEN: whether Bund2 revives or omits the four dead words
   (F19, F22, F24). Either choice deviates from the oracle, and it moves
-  criterion 2's denominator by four either way.
+  B2's denominator by four either way.
 - **Q17 is closed.** `docs/research/05-rfc-roadmap.md` §1.5 described the
   reference's `Documentation/Bund_Library_Guide/` as the closest thing to a
   language specification and proposed it as the normative reference for
