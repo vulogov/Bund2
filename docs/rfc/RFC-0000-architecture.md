@@ -16,9 +16,9 @@
   it mixes layout with value, symbol and lambda claims that belong to
   RFC-0001, RFC-0002 and RFC-0003, and superseding it here would take scope
   this RFC disclaims. See `docs/research/ERRATA.md`,
-  which holds seven corrections — two predating this session, three from the
-  corpus scan, this RFC's own supersession entry, and the `$name` correction
-  from F26.
+  which holds eight corrections — two predating this session, three from the
+  corpus scan, this RFC's own supersession entry, the `$name` correction
+  from F26, and RFC-0001's supersession of the 24-byte value figure.
 
 ## Summary
 
@@ -257,9 +257,9 @@ so conformance can read 100% with three quarters of the language untested.
 Three files are the shared state between sessions, and this RFC does not
 duplicate them:
 
-- `docs/registers/decisions.md` — 29 entries. Append-only; a status may
+- `docs/registers/decisions.md` — 29 entries (D4 resolved by RFC-0001's grounding). Append-only; a status may
   change, an entry may not be deleted or renumbered.
-- `docs/registers/defects.md` — 27 entries. The roadmap's §5 listed eleven;
+- `docs/registers/defects.md` — 30 entries. The roadmap's §5 listed eleven;
   the rest were found by running the oracle rather than reading it. F14, F15 and
   F17 are why 18 of 77 hermetic programs could not be captured, and
   `tests/golden/UNSTABLE.txt` tags each row with which: **13 F14, 2 F15, 3

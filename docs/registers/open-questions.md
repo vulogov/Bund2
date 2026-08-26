@@ -11,6 +11,7 @@ promote it to a decision, or delete the claim.
 | # | Question | Raised in |
 |---|----------|-----------|
 | Q14 | The Phase 0 baseline cannot measure interpretation: ~9.6 ms of every 14 ms run is loading a 381 MB binary before `main` starts, and 3-5 ms more is stdlib registration. **D28 removes most of that cause for Bund2**, so the question narrows: once the dependency set is cut, does the corpus resolve interpretation well enough to write RFC-0001 and RFC-0005 criteria against, or is in-process measurement still required? Re-run `cargo xtask bench --target bund2` when there is a bund2 to run. | `cargo xtask bench` |
+| Q18 | RFC-0001 renders `q`, `attr` and `curr` as constants rather than carrying them as fields, on the evidence that all 244 golden renderings show `q: 100.0`, `attr: []`, `curr: -1`. But `q` is written in source — `set` copies it on the non-map path (`reference/rust_dynamic/src/set.rs:61`) and `push` does the same (`reference/rust_dynamic/src/push.rs:164`). Is there any program that can drive `q` off 100.0? If so, criterion 5 fails and `q` becomes a field. | RFC-0001 |
 | Q15 | `cargo xtask unblock` is specified as "for each unimplemented word, count hermetic examples it alone gates". That ranking can only see the 140 in-scope words the goldens touch, so as written it reports an empty work queue with 446 words unimplemented. What replaces it, ranking against the coverage denominator? Residue of Q5. | Q5 |
 
 ## Triaged

@@ -66,3 +66,12 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   against the oracle: `1 "$dup" ptr !` resolves through the alias table.
   Line 556 proposes a distinct IR opcode premised on full bypass; that premise
   is false.
+
+- `05-rfc-roadmap.md` §6, the row "24-byte `{tag, payload, birth}`; lazy
+  `.id`; sampled `.timestamp`" -> superseded by RFC-0001: the measured value
+  is **16 bytes**, and the tag is not in it. `cargo xtask layout` puts
+  candidate A (identity in the heap header) at 16 and candidate D (the same
+  plus the reference's `dt`) also at 16, because the tag is only ambiguous for
+  heap types and rides in the header. Lazy `.id` and sampled `.timestamp` are
+  unchanged and are D1 and D2. The 24-byte figure survives only as candidate
+  C, the cheapest *inline*-identity shape, which the scan rules out.

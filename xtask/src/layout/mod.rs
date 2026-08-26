@@ -63,7 +63,7 @@ fn measure<T>(f: impl FnOnce() -> T) -> (usize, usize, T) {
 // ---------------------------------------------------------------------------
 
 /// The reference's `Val` discriminant, abbreviated to its widest arms.
-/// `reference/rust_dynamic/src/types.rs:60-90`.
+/// `reference/rust_dynamic/src/types.rs:66-87`.
 #[allow(dead_code)]
 enum RefVal {
     I64(i64),
@@ -129,7 +129,7 @@ enum CandidateHeader {
 ///
 /// A and B both assume the payload discriminant *is* the type. In the
 /// reference it is not: `dt` (`reference/rust_dynamic/src/types.rs:15-56`) and
-/// `Val` (`:66-90`) are independent axes. One `Val` arm carries many `dt`
+/// `Val` (`:66-87`) are independent axes. One `Val` arm carries many `dt`
 /// tags — `Val::Map` is written with `CLASS`, `CONDITIONAL`, `CONFIG`,
 /// `CURRY`, `INFO`, `MAP` and `OBJECT`, and `Val::String` with `CALL`,
 /// `CONTEXT`, `JSON_WRAPPED`, `PTR`, `STRING` and `TEXTBUFFER`. `PTR` versus
