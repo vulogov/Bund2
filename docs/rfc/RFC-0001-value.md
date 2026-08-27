@@ -954,10 +954,9 @@ the crate is empty, not because the boundary is enforced. Real once
 
 Each names what makes it checkable. None can run against a three-line crate.
 
-**D1. `size_of::<BundValue>()` is 16 and `align_of` is 8**, asserted in a unit
-test in `bund2-value`. `cargo xtask layout` already reports 16/8 for candidate
-D, which is the shape this RFC specifies; what is deferred is the assertion on
-the real type.
+**D1 — MET.** `size_of::<BundValue>()` is 16 and `align_of` is 8, asserted on
+the real type in `crates/bund2-value`. `cargo xtask layout` reports the same
+for candidate D.
 
 **D2. `A == A.clone()` is true and `A == A.dup()` is false**, for every
 **identity-compared** kind — a list, a map, a lambda. This is D13's contract,
@@ -1002,8 +1001,10 @@ and `PTR` and `List` carries both `LIST` and `PAIR`. Two earlier drafts said
 twenty and then nineteen, both from counting declarations rather than
 reachability.
 
-**D5. `.id` returns a 21-character string** over the reference's nanoid
-alphabet, and two values minted in one VM never collide. **And observation is
+**D5 — MET for the format, deferred for the VM seed.** `.id` returns a
+21-character string over the reference's nanoid alphabet and 1000 values in
+one process do not collide, both asserted in `bund2-value`. The seed is a
+process counter until RFC-0002 supplies a VM. **And observation is
 idempotent through a container**: `l 0 get .id` twice returns the same id,
 which requires the promotion to be written back — see the scalar section. The
 second clause is the one an earlier draft's rule did not deliver.

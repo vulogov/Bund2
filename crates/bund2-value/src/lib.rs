@@ -59,6 +59,30 @@ fn mint() -> u64 {
     NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
+/// nanoid's alphabet, and its length. `.id` must return a 21-character string
+/// over these (D5), because `register_method_id` hands the id straight to
+/// `Value::from_string`
+/// (`reference/Bund/src/stdlib/functions/oop/base_classes.rs:16`).
+const ALPHABET: &[u8; 64] = b"_-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const ID_LEN: usize = 21;
+
+/// Format a minted counter as a nanoid-shaped string.
+///
+/// D1 chose "a counter plus a VM seed" precisely so the *format* survives
+/// while the generation becomes lazy. The counter is spread over all 21
+/// positions rather than left-padded, so consecutive ids do not share a
+/// 20-character prefix — which would make the goldens' `<id>` normalisation
+/// the only thing hiding a very obvious pattern.
+fn format_id(n: u64) -> String {
+    let mut out = [ALPHABET[0]; ID_LEN];
+    let mut x = n;
+    for slot in out.iter_mut() {
+        *slot = ALPHABET[(x % 64) as usize];
+        x /= 64;
+    }
+    String::from_utf8(out.to_vec()).expect("alphabet is ASCII")
+}
+
 /// What a heap value points at, separately from its header.
 ///
 /// Behind its own `Rc` so `dup` can reset the identity while sharing the
@@ -128,6 +152,24 @@ impl HeapValue {
         let fresh = mint();
         self.identity.set(fresh);
         fresh
+    }
+}
+
+impl Payload {
+    /// The reference's `Val` variant name, which the `Debug` rendering emits
+    /// and 32 goldens capture. Bund2's own arm names differ — `Str` against
+    /// `String` — so the mapping is explicit rather than derived, because a
+    /// rename here would silently change captured text.
+    fn val_name(&self) -> &'static str {
+        match self {
+            Payload::Str(_) => "String",
+            Payload::Bin(_) => "Binary",
+            Payload::List(_) => "List",
+            Payload::Map(_) => "Map",
+            Payload::ValueMap(_) => "ValueMap",
+            Payload::Exit => "Exit",
+            Payload::Scalar(_) => unreachable!("a boxed scalar renders as its inner value"),
+        }
     }
 }
 
@@ -595,5 +637,431 @@ mod tests {
         let mut h = DefaultHasher::new();
         v.hash(&mut h);
         h.finish()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Rendering (RFC-0001 criterion D3)
+// ---------------------------------------------------------------------------
+
+impl BundValue {
+    /// The `.id` accessor: a 21-character nanoid-shaped string.
+    ///
+    /// Returns the promoted value alongside it, for the same reason
+    /// [`BundValue::identity`] does — an unadorned scalar has nowhere to keep
+    /// what it minted, so the caller must write the promotion back.
+    pub fn id_string(&self) -> (String, Option<BundValue>) {
+        let (n, promoted) = self.identity();
+        (format_id(n), promoted)
+    }
+
+    /// The reference's `Debug` text for this value.
+    ///
+    /// `normalised` produces the form the goldens hold — `id: "<id>"` and
+    /// `stamp: <stamp>` — which is what criterion D3 compares against. The
+    /// goldens are normalised for F14 before capture, so the target is that
+    /// text and **not** the reference's raw output; an earlier draft of D3
+    /// asked for the raw form, which would also have demanded the `HashMap`
+    /// ordering this RFC replaces.
+    pub fn render(&self, normalised: bool) -> String {
+        let mut out = String::new();
+        self.render_into(&mut out, normalised);
+        out
+    }
+
+    fn render_into(&self, out: &mut String, norm: bool) {
+        use std::fmt::Write;
+        // A scalar renders through a synthetic header: the reference has no
+        // unboxed values, so every rendering is a full `Value { .. }`.
+        let (dt, q, curr) = (self.dt(), self.q(), self.curr());
+        let id = if norm {
+            "<id>".to_string()
+        } else {
+            self.peek_id()
+        };
+        let stamp = if norm {
+            "<stamp>".to_string()
+        } else {
+            format!("{:?}", self.peek_stamp())
+        };
+        let _ = write!(
+            out,
+            "Value {{ id: \"{id}\", stamp: {stamp}, dt: {dt}, q: {q:?}, data: "
+        );
+        self.render_payload(out, norm);
+        let _ = write!(out, ", attr: [");
+        for (i, a) in self.attr().iter().enumerate() {
+            if i > 0 {
+                let _ = write!(out, ", ");
+            }
+            a.render_into(out, norm);
+        }
+        let _ = write!(out, "], curr: {curr}, tags: {{");
+        for (i, (k, v)) in self.tags().iter().enumerate() {
+            if i > 0 {
+                let _ = write!(out, ", ");
+            }
+            let _ = write!(out, "{k:?}: {v:?}");
+        }
+        let _ = write!(out, "}} }}");
+    }
+
+    fn render_payload(&self, out: &mut String, norm: bool) {
+        use std::fmt::Write;
+        match self {
+            BundValue::Int(i) => {
+                let _ = write!(out, "I64({i})");
+            }
+            BundValue::Float(f) => {
+                let _ = write!(out, "F64({f:?})");
+            }
+            BundValue::Bool(b) => {
+                let _ = write!(out, "Bool({b})");
+            }
+            BundValue::Nodata | BundValue::None => out.push_str("Null"),
+            BundValue::Heap(h) => match &*h.payload {
+                Payload::Scalar(inner) => inner.render_payload(out, norm),
+                Payload::Exit => out.push_str("Exit"),
+                Payload::Str(x) => {
+                    let _ = write!(out, "String({x:?})");
+                }
+                Payload::Bin(b) => {
+                    let _ = write!(out, "Binary({b:?})");
+                }
+                p @ Payload::List(v) => {
+                    let _ = write!(out, "{}([", p.val_name());
+                    for (i, e) in v.iter().enumerate() {
+                        if i > 0 {
+                            let _ = write!(out, ", ");
+                        }
+                        e.render_into(out, norm);
+                    }
+                    out.push_str("])");
+                }
+                p @ Payload::Map(m) => {
+                    let _ = write!(out, "{}({{", p.val_name());
+                    for (i, (k, v)) in m.iter().enumerate() {
+                        if i > 0 {
+                            let _ = write!(out, ", ");
+                        }
+                        let _ = write!(out, "{k:?}: ");
+                        v.render_into(out, norm);
+                    }
+                    out.push_str("})");
+                }
+                p @ Payload::ValueMap(m) => {
+                    // Ordered by the rendered key. The container hashes, per
+                    // D30; determinism comes from the renderer, which is the
+                    // distinction an earlier draft collapsed by reaching for
+                    // one map type to satisfy both requirements.
+                    let _ = write!(out, "{}({{", p.val_name());
+                    let mut entries: Vec<(String, &BundValue)> =
+                        m.iter().map(|(k, v)| (k.render(true), v)).collect();
+                    entries.sort_by(|a, b| a.0.cmp(&b.0));
+                    for (i, (k, v)) in entries.iter().enumerate() {
+                        if i > 0 {
+                            let _ = write!(out, ", ");
+                        }
+                        out.push_str(k);
+                        out.push_str(": ");
+                        v.render_into(out, norm);
+                    }
+                    out.push_str("})");
+                }
+            },
+        }
+    }
+
+    /// The id *without* minting, for rendering. Rendering an unminted value
+    /// would otherwise mint one, which would make `Debug` an observation and
+    /// D2's laziness unobservable in the goldens.
+    fn peek_id(&self) -> String {
+        match self {
+            BundValue::Heap(h) if h.identity.get() != 0 => format_id(h.identity.get()),
+            _ => format_id(0),
+        }
+    }
+
+    fn peek_stamp(&self) -> f64 {
+        match self {
+            BundValue::Heap(h) => h.stamp.get(),
+            _ => 0.0,
+        }
+    }
+
+    pub fn curr(&self) -> i32 {
+        match self {
+            BundValue::Heap(h) => h.curr,
+            _ => -1,
+        }
+    }
+
+    pub fn attr(&self) -> &[BundValue] {
+        match self {
+            BundValue::Heap(h) => &h.attr,
+            _ => &[],
+        }
+    }
+
+    pub fn tags(&self) -> &BTreeMap<String, String> {
+        static EMPTY: std::sync::OnceLock<BTreeMap<String, String>> = std::sync::OnceLock::new();
+        match self {
+            BundValue::Heap(h) => &h.tags,
+            _ => EMPTY.get_or_init(BTreeMap::new),
+        }
+    }
+}
+
+#[cfg(test)]
+mod render_tests {
+    use super::*;
+
+    /// Every string here is copied verbatim from
+    /// `tests/golden/probes/payload-arms.golden`. This is criterion D3 made
+    /// checkable: the target is the normalised text the goldens hold, not the
+    /// reference's raw output.
+    fn on_main(v: BundValue) -> BundValue {
+        // What `TS::push` does to every value it accepts
+        // (`reference/rust_multistack/src/ts_push.rs:25`).
+        let boxed = v.promote();
+        let BundValue::Heap(h) = &boxed else {
+            unreachable!()
+        };
+        let mut tags = h.tags.clone();
+        tags.insert("stack".into(), "main".into());
+        BundValue::Heap(Rc::new(HeapValue {
+            identity: Cell::new(h.identity.get()),
+            stamp: Cell::new(h.stamp.get()),
+            dt: h.dt,
+            q: h.q,
+            curr: h.curr,
+            tags,
+            attr: h.attr.clone(),
+            payload: Rc::clone(&h.payload),
+        }))
+    }
+
+    #[test]
+    fn scalars_render_as_the_goldens_hold_them() {
+        for (v, want) in [
+            (
+                BundValue::Int(42),
+                r#"Value { id: "<id>", stamp: <stamp>, dt: 2, q: 100.0, data: I64(42), attr: [], curr: -1, tags: {"stack": "main"} }"#,
+            ),
+            (
+                BundValue::Bool(true),
+                r#"Value { id: "<id>", stamp: <stamp>, dt: 1, q: 100.0, data: Bool(true), attr: [], curr: -1, tags: {"stack": "main"} }"#,
+            ),
+            (
+                BundValue::Nodata,
+                r#"Value { id: "<id>", stamp: <stamp>, dt: 97, q: 100.0, data: Null, attr: [], curr: -1, tags: {"stack": "main"} }"#,
+            ),
+        ] {
+            assert_eq!(on_main(v).render(true), want);
+        }
+    }
+
+    #[test]
+    fn a_string_and_an_empty_list_render_as_the_goldens_hold_them() {
+        assert_eq!(
+            on_main(BundValue::str("s")).render(true),
+            r#"Value { id: "<id>", stamp: <stamp>, dt: 4, q: 100.0, data: String("s"), attr: [], curr: -1, tags: {"stack": "main"} }"#
+        );
+        assert_eq!(
+            on_main(BundValue::list(vec![])).render(true),
+            r#"Value { id: "<id>", stamp: <stamp>, dt: 9, q: 100.0, data: List([]), attr: [], curr: -1, tags: {"stack": "main"} }"#
+        );
+    }
+
+    /// D5: 21 characters over nanoid's alphabet.
+    #[test]
+    fn an_id_is_a_21_character_nanoid_shaped_string() {
+        let v = BundValue::list(vec![]);
+        let (id, _) = v.id_string();
+        assert_eq!(id.chars().count(), ID_LEN);
+        assert!(
+            id.bytes().all(|b| ALPHABET.contains(&b)),
+            "id {id} left the alphabet"
+        );
+    }
+
+    /// Two values minted in one process never collide.
+    #[test]
+    fn ids_do_not_collide() {
+        let ids: std::collections::HashSet<String> = (0..1000)
+            .map(|_| BundValue::list(vec![]).id_string().0)
+            .collect();
+        assert_eq!(ids.len(), 1000);
+    }
+
+    /// Rendering must not be an observation, or D2's laziness would be
+    /// unobservable in the goldens — every capture would mint everything.
+    #[test]
+    fn rendering_does_not_mint() {
+        let v = BundValue::list(vec![]);
+        let BundValue::Heap(h) = &v else {
+            unreachable!()
+        };
+        let _ = v.render(false);
+        assert_eq!(h.identity.get(), 0, "render must not mint");
+    }
+
+    /// D30's rendering half: the container hashes, the renderer orders.
+    #[test]
+    fn a_valuemap_renders_in_a_deterministic_order() {
+        let mut m = HashMap::new();
+        m.insert(BundValue::Int(2), BundValue::Int(20));
+        m.insert(BundValue::Int(1), BundValue::Int(10));
+        m.insert(BundValue::Int(3), BundValue::Int(30));
+        let once = BundValue::valuemap(m.clone()).render(true);
+        let twice = BundValue::valuemap(m).render(true);
+        assert_eq!(once, twice);
+        assert!(once.find("I64(1)").unwrap() < once.find("I64(2)").unwrap());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The three mutation classes (RFC-0001)
+// ---------------------------------------------------------------------------
+
+impl Clone for HeapValue {
+    fn clone(&self) -> Self {
+        Self {
+            identity: Cell::new(self.identity.get()),
+            stamp: Cell::new(self.stamp.get()),
+            dt: self.dt,
+            q: self.q,
+            curr: self.curr,
+            tags: self.tags.clone(),
+            attr: self.attr.clone(),
+            payload: Rc::clone(&self.payload),
+        }
+    }
+}
+
+impl BundValue {
+    /// **Class 1 — rebuild.** What `set` on a map and `push` do: the result
+    /// goes through a constructor, so it carries a fresh identity, a fresh
+    /// stamp, an empty `attr`, `curr` at `-1`, empty `tags`, and `q` back at
+    /// 100.0 (`reference/rust_dynamic/src/create_map.rs:33-40`). The receiver
+    /// is untouched. This is F34, and it is why `Rc::make_mut` alone is the
+    /// wrong model: `make_mut` *copies* the header where the reference
+    /// discards it.
+    pub fn rebuilt(&self, dt: u16, payload: Payload) -> Self {
+        let _ = self;
+        BundValue::heap(dt, payload)
+    }
+
+    /// **Class 2 — regenerate in place.** What `attr_add` does, and it is its
+    /// own class: `self.dup().regen_id()` then a push onto the result's `attr`
+    /// (`reference/rust_dynamic/src/attr.rs:19-20`), where `regen_id` writes a
+    /// fresh id **and** stamp (`reference/rust_dynamic/src/id.rs:6-7`). So it
+    /// mints like a rebuild but **preserves** `attr`, `curr` and `tags`.
+    ///
+    /// Confirmed against the oracle: `1 2 attribute 3 attribute` renders two
+    /// entries with tags intact. A two-class partition filed this under
+    /// rebuild, which would have emptied the `attr` the word exists to fill.
+    pub fn attr_added(&self, value: BundValue) -> Self {
+        let base = self.clone().promote();
+        let BundValue::Heap(h) = &base else {
+            unreachable!()
+        };
+        let mut next = (**h).clone();
+        next.identity.set(mint());
+        next.stamp.set(now_ms());
+        next.attr.push(value);
+        BundValue::Heap(Rc::new(next))
+    }
+
+    /// **Class 3 — minting-free.** What `set_tag` does
+    /// (`reference/rust_dynamic/src/tags.rs:5`), and what `TS::push` runs on
+    /// every push. It mutates in place, leaving id and stamp alone.
+    ///
+    /// Under clone-on-write this is a **split**, and the split
+    /// **materialises the identity before copying** — D13 requires one policy
+    /// governing both the `Rc` and the identity slot, and an unminted slot
+    /// copied as unminted would let the two halves mint different ids and
+    /// flip `A == A.clone()` from true to false.
+    pub fn with_tag(&self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        let base = self.clone().promote();
+        let BundValue::Heap(h) = &base else {
+            unreachable!()
+        };
+        // Materialise before the split, whether or not the split happens: the
+        // rule must not depend on a refcount, or the identity a value ends up
+        // with would depend on how many clones existed at the time.
+        let _ = h.identity();
+        let mut next = (**h).clone();
+        next.tags.insert(key.into(), value.into());
+        BundValue::Heap(Rc::new(next))
+    }
+}
+
+/// Wall-clock milliseconds, matching `timestamp_ms`
+/// (`reference/rust_dynamic/src/value.rs:7-9`).
+fn now_ms() -> f64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as f64)
+        .unwrap_or(0.0)
+}
+
+#[cfg(test)]
+mod mutation_tests {
+    use super::*;
+
+    /// Class 1 empties the header. Class 2 preserves it. A two-class
+    /// partition has nowhere to put the second, and an earlier RFC draft
+    /// filed it under the first.
+    #[test]
+    fn rebuild_empties_the_header_and_attr_add_preserves_it() {
+        let tagged = BundValue::Int(1).with_tag("stack", "main");
+        let with_attr = tagged.attr_added(BundValue::Int(2));
+        assert_eq!(with_attr.attr().len(), 1);
+        assert_eq!(
+            with_attr.tags().get("stack").map(String::as_str),
+            Some("main"),
+            "attr_add must preserve tags"
+        );
+
+        let rebuilt = tagged.rebuilt(MAP, Payload::Map(BTreeMap::new()));
+        assert!(rebuilt.tags().is_empty(), "a rebuild empties tags");
+        assert!(rebuilt.attr().is_empty());
+        assert_eq!(rebuilt.q(), 100.0, "a rebuild resets q");
+    }
+
+    /// The oracle case: `1 2 attribute 3 attribute` renders two entries.
+    #[test]
+    fn attr_add_accumulates() {
+        let v = BundValue::Int(1)
+            .attr_added(BundValue::Int(2))
+            .attr_added(BundValue::Int(3));
+        assert_eq!(v.attr().len(), 2);
+    }
+
+    /// Class 2 mints; class 3 does not.
+    #[test]
+    fn attr_add_mints_and_set_tag_does_not() {
+        let a = BundValue::list(vec![]).promote();
+        let (before, _) = a.identity();
+        assert_ne!(a.attr_added(BundValue::Int(1)).identity().0, before);
+        assert_eq!(a.with_tag("k", "v").identity().0, before);
+    }
+
+    /// D13's condition: the split must not let two halves mint separately.
+    /// Without materialising first, `a` and `b` would end up with different
+    /// ids and `A == A.clone()` would silently become false.
+    #[test]
+    fn a_minting_free_split_keeps_both_halves_on_one_identity() {
+        let a = BundValue::list(vec![]);
+        let b = a.clone();
+        assert_eq!(a, b, "clone-equal before the split");
+        let split = b.with_tag("stack", "main");
+        assert_eq!(
+            a.identity().0,
+            split.identity().0,
+            "the split must carry the identity across"
+        );
     }
 }
