@@ -1064,3 +1064,50 @@ additionally reports the wrong *word*.
   by F18's disposition — that fix rewrites these guards anyway — and is
   recorded separately because it is a distinct defect that would survive a
   fix addressing only the arity.
+
+## F41 — a scripted edit whose target does not match silently does nothing
+RFC-0001's fourth revision reported that `Payload` had been defined, that
+`curr` had been changed from a `Cell` to a plain field, and that F15's
+`BTreeMap` choice and F36's omissions had been recorded. **None of it landed.**
+The edit was a Python `str.replace` whose `old` text did not match the file —
+it named the identity field `id` where the document says `identity`, and used
+different column alignment — so the replace returned the string unchanged, the
+script exited 0, and the pass was reported as complete.
+
+Two preservation rows and the review history then asserted work that was not
+in the file, and both read as internally consistent, so `cargo xtask lint`
+could not see it: the rows and the history agreed with each other and only
+disagreed with the code block.
+
+This is the same class as the duplicated `## Design` section in RFC-0002 —
+a scripted edit that did not do what the script said — and the third instance
+after that one and F18's disposition landing on F1.
+
+- Found by: RFC-0001 review 5
+- Disposition: **method, not behaviour.** Every scripted replacement asserts
+  its target matched before writing. A `replace` without an assert is the
+  failure mode, because it cannot fail loudly.
+
+  `cargo xtask lint` gains the check that would have caught this specific
+  shape: a type named in a fenced `rust` block but never introduced there.
+  `Payload` was used at `Rc<Payload>` and defined nowhere; `NativeFn` in
+  RFC-0002 was the same defect, found by that RFC's fourth review.
+
+## F42 — `set` on a `LIST` discards the container and the `dt`
+`Value::set` on a list or result returns `Value::from_list(vec![value])`
+(`reference/rust_dynamic/src/set.rs:9`) — a **new one-element list holding
+only the value being set**. The existing elements are dropped, and so is the
+`dt`, so a `RESULT` becomes a `LIST`.
+
+The map arm two lines below restores the tag — `raw_value.dt = self.dt`
+(`reference/rust_dynamic/src/set.rs:22`) — so the asymmetry is within one
+function.
+
+This is F35's defect in the sibling word: F35 records `push` on a `RESULT`
+yielding a `LIST`, and `set` does the same and additionally discards the
+container. Neither is reached by a corpus program.
+
+- Found by: RFC-0001 review 5
+- Disposition: **FIX**, with F35. `set` on a list sets an element and
+  preserves the `dt`, as the map arm already preserves it. No golden covers
+  it, so `conform` cannot move.

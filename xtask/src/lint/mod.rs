@@ -20,7 +20,7 @@
 //! none of these has a false-positive mode: a heading is duplicated or it is
 //! not, a claimed count matches or it does not.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 pub struct Finding {
@@ -113,6 +113,125 @@ fn duplicate_headings(src: &str) -> Vec<(usize, String)> {
         } else {
             seen.insert(h, i + 1);
         }
+    }
+    out
+}
+
+/// Type names a fenced `rust` block uses but no block in the document
+/// introduces.
+///
+/// F41: RFC-0001 wrote `payload: Rc<Payload>` and defined `Payload` nowhere,
+/// for two revisions, because a scripted edit reported success without
+/// matching. RFC-0002's fourth review found the same shape in
+/// `native: Option<NativeFn>`. Both are a name presented as though the
+/// document defines it, which a reader checks by scrolling and a machine
+/// checks by counting.
+pub fn undefined_types(src: &str, also_introduced: &BTreeSet<String>) -> Vec<(usize, String)> {
+    let mut introduced: BTreeSet<String> = also_introduced.clone();
+    let mut used: Vec<(usize, String)> = Vec::new();
+    let mut in_rust = false;
+    for (i, line) in src.lines().enumerate() {
+        let t = line.trim_start();
+        if t.starts_with("```") {
+            in_rust = t.starts_with("```rust");
+            continue;
+        }
+        if !in_rust {
+            continue;
+        }
+        for kw in ["pub enum ", "pub struct ", "pub type ", "enum ", "struct ", "type "] {
+            if let Some(rest) = t.strip_prefix(kw) {
+                let name: String = rest
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                if !name.is_empty() {
+                    introduced.insert(name);
+                }
+                break;
+            }
+        }
+        // A generic argument or a field type: `Rc<Payload>`, `Option<NativeFn>`.
+        for cap in angle_bracketed(t) {
+            used.push((i + 1, cap));
+        }
+    }
+    used.retain(|(_, n)| {
+        !introduced.contains(n)
+            && n.chars().next().is_some_and(|c| c.is_uppercase())
+            && !KNOWN.contains(&n.as_str())
+    });
+    used.dedup_by(|a, b| a.1 == b.1);
+    used
+}
+
+/// Type names a document introduces in a fenced `rust` block.
+///
+/// Collected across the whole RFC set before checking any one of them: the
+/// RFCs are one design, so RFC-0002 legitimately writes `BundValue` and lets
+/// RFC-0001 define it. What the check is for is a name **no** document
+/// defines.
+pub fn introduced_types(src: &str) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    let mut in_rust = false;
+    for line in src.lines() {
+        let t = line.trim_start();
+        if t.starts_with("```") {
+            in_rust = t.starts_with("```rust");
+            continue;
+        }
+        if !in_rust {
+            continue;
+        }
+        for kw in ["pub enum ", "pub struct ", "pub type ", "enum ", "struct ", "type "] {
+            if let Some(rest) = t.strip_prefix(kw) {
+                let name: String = rest
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                if !name.is_empty() {
+                    out.insert(name);
+                }
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// Type names Rust or the ecosystem provides, which a document need not define.
+const KNOWN: &[&str] = &[
+    "String", "Vec", "Option", "Result", "Box", "Rc", "Arc", "Cell", "RefCell", "BTreeMap",
+    "HashMap", "BTreeSet", "HashSet", "VecDeque", "Error", "Ordering", "Value", "Symbol",
+    // Reference types RFC-0001 carries over verbatim rather than defining.
+    "Metric", "Operator",
+];
+
+/// Identifiers appearing inside `<...>` on a line.
+fn angle_bracketed(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let cs: Vec<char> = line.chars().collect();
+    let mut i = 0;
+    while i < cs.len() {
+        if cs[i] == '<' {
+            let mut j = i + 1;
+            let mut cur = String::new();
+            while j < cs.len() && cs[j] != '>' {
+                if cs[j].is_alphanumeric() || cs[j] == '_' {
+                    cur.push(cs[j]);
+                } else {
+                    if !cur.is_empty() {
+                        out.push(std::mem::take(&mut cur));
+                    }
+                }
+                j += 1;
+            }
+            if !cur.is_empty() {
+                out.push(cur);
+            }
+            i = j;
+        }
+        i += 1;
     }
     out
 }
@@ -267,6 +386,42 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         }
     }
     println!("  figure claims checked against artefacts               {figures_checked:>4}");
+
+    // --- 4. types used in a code block that no block introduces --------------
+    // Introductions are pooled across the RFC set first: the RFCs are one
+    // design, so a name defined in RFC-0001 and used in RFC-0002 is fine.
+    let mut all_introduced: BTreeSet<String> = BTreeSet::new();
+    for path in &docs {
+        if !path.to_string_lossy().contains("/rfc/") {
+            continue;
+        }
+        if let Ok(src) = std::fs::read_to_string(path) {
+            all_introduced.extend(introduced_types(&src));
+        }
+    }
+    let mut blocks_checked = 0usize;
+    for path in &docs {
+        let rel = path
+            .strip_prefix(&repo)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .to_string();
+        if !rel.contains("/rfc/") {
+            continue;
+        }
+        let Ok(src) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        blocks_checked += src.lines().filter(|l| l.trim_start().starts_with("```rust")).count();
+        for (line, name) in undefined_types(&src, &all_introduced) {
+            findings.push(Finding {
+                doc: rel.clone(),
+                line,
+                what: format!("`{name}` is used in a rust block and introduced in none"),
+            });
+        }
+    }
+    println!("  rust blocks checked for undefined types               {blocks_checked:>4}");
     println!();
 
     if findings.is_empty() {
@@ -403,6 +558,43 @@ mod tests {
     #[test]
     fn a_bare_f_is_not_a_defect_number() {
         assert!(fnums("Function FIX").is_empty());
+    }
+
+    #[test]
+    fn a_type_used_but_never_introduced_is_found() {
+        let src = "```rust\npub struct V { payload: Rc<Payload> }\n```\n";
+        let f = undefined_types(src, &BTreeSet::new());
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].1, "Payload");
+    }
+
+    #[test]
+    fn a_type_the_document_introduces_is_not_flagged() {
+        let src = "```rust\npub struct V { payload: Rc<Payload> }\npub enum Payload { A }\n```\n";
+        assert!(undefined_types(src, &BTreeSet::new()).is_empty());
+    }
+
+    /// Rust's own types are not the document's to define.
+    #[test]
+    fn known_types_are_not_flagged() {
+        let src = "```rust\nstruct V { a: Vec<String>, b: BTreeMap<String, Value> }\n```\n";
+        assert!(undefined_types(src, &BTreeSet::new()).is_empty());
+    }
+
+    /// A name another RFC defines is not this one's to define. The RFCs are
+    /// one design and the pool is shared.
+    #[test]
+    fn a_type_another_document_introduces_is_not_flagged() {
+        let other: BTreeSet<String> = ["BundValue".to_string()].into_iter().collect();
+        let src = "```rust\nstruct Slot { lambda: Option<BundValue> }\n```\n";
+        assert!(undefined_types(src, &other).is_empty());
+    }
+
+    /// Only `rust` blocks — a shell transcript is not a declaration site.
+    #[test]
+    fn non_rust_blocks_are_ignored() {
+        let src = "```\nfoo: Rc<Whatever>\n```\n";
+        assert!(undefined_types(src, &BTreeSet::new()).is_empty());
     }
 
     #[test]
