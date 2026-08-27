@@ -241,14 +241,15 @@ converter returns `Value::none()` for a JSON null
 converts a JSON null therefore holds a value with `q: 0.0`, and rendering
 `q` as `100.0` would diverge on it.
 
-**Q18 is reopened.** It was closed as "grounded" on a scan that never opened
-`q.rs`.
+**Q18 was reopened on this, and is now closed** — on a probe rather than a
+scan: `"null" json json.to_value` yields `q: 0.0` on the oracle
+(`tests/probes/q-observable.bund`). It had first been closed as "grounded" by
+a scan that never opened `q.rs`.
 
 All four are **observable**, because `debug.display_stack` prints the Rust
-`Debug` rendering and the goldens capture it: **29 of the 66 goldens** contain
-raw `Value { ... }` text, 258 renderings in total. 255 show `q: 100.0`,
-`attr: []` and `curr: -1`; the other 3 carry a populated `attr` and come from
-this RFC's own probe. Before that probe existed every rendering agreed, which
+`Debug` rendering and the goldens capture it: **31 of the 68 goldens** contain
+raw `Value { ... }` text, **278** renderings in total. 275 show `attr: []`;
+the other 3 carry a populated `attr` and come from this RFC's own probe. Before that probe existed every rendering agreed, which
 is a fact about the corpus rather than about the fields — and is exactly how
 an earlier draft mistook three of them for constants.
 
@@ -312,7 +313,7 @@ pub enum Payload {
     List(Vec<BundValue>),
     Matrix(Vec<Vec<BundValue>>),
     Map(BTreeMap<String, BundValue>),
-    ValueMap(BTreeMap<BundValue, BundValue>),
+    ValueMap(HashMap<BundValue, BundValue>),
     Json(serde_json::Value),
     Metrics(Vec<Metric>),
     Operator(Operator),
@@ -335,10 +336,30 @@ deep-copies and gives each its own. `Iterator::next` takes `&mut self`
 (`reference/rust_dynamic/src/iter.rs:6`), so `curr` is reached through
 `make_mut` and splits with it.
 
-**The maps are `BTreeMap`, which is F15's choice.** The reference renders a
-dict in `HashMap` order, which differs between runs and cost 15 of the 18
-unreproducible programs. Ordered maps make the rendering deterministic by
-construction, and F15's disposition asks RFC-0001 to choose exactly this.
+**`Map` is a `BTreeMap` and `ValueMap` is a `HashMap`, and the difference is
+not an oversight.** An earlier draft made both `BTreeMap` and thereby deleted
+D30's mechanism.
+
+`Map` is keyed by `String`, whose `Ord` is total and cheap, so ordering it
+satisfies F15 by construction: the reference renders a dict in `HashMap`
+order, which differs between runs and cost 15 of the 18 unreproducible
+programs. F15's disposition asks RFC-0001 for exactly this, and it asks it of
+**dict members and tags** — not of `ValueMap`.
+
+`ValueMap` **must hash**, because that is what D30 decided: hash by content,
+mirroring equality, so an equal-but-freshly-built key finds its entry. A
+`BTreeMap` does not hash — it needs a total `Ord` over `BundValue`, and this
+RFC makes that impossible three ways over. F12's disposition is FIX, which
+deletes `cmp`'s id fallback and leaves non-scalars unordered. `NaN` is equal
+to nothing, so floats admit no total order. And the four overridden
+comparisons return `true` or `false` on a type mismatch rather than an
+`Ordering` (`reference/rust_dynamic/src/ord.rs:9,48,87,126`). D30's own
+wording — keys "hash into the same bucket" — names the mechanism.
+
+Determinism for `ValueMap` rendering therefore comes from the **renderer**,
+not the container: entries are emitted in sorted order of their rendered form.
+Two different requirements — a container that hashes, and output that is
+ordered — which an earlier draft conflated by reaching for one type.
 
 `Payload` omits `Val::Token` and the four `dt` constants with no writer —
 `LITERAL`, `LARGE_FLOAT`, `ASSOCIATION`, `TOKEN` — which F36 and F38 ask this
@@ -397,7 +418,19 @@ fn dup(&self) -> BundValue          // one small allocation, not a bincode round
 ```
 
 That is why `payload` sits behind its own `Rc` inside `HeapValue`: identity
-and payload must be shareable on different schedules. The win over the
+and payload must be shareable on different schedules.
+
+**What `dup` does with the other header fields**, which an earlier draft left
+unsaid. The reference's `dup` is a bincode round trip that then overwrites
+**only** `id` (`reference/rust_dynamic/src/dup.rs:11`), so the copy keeps the
+original's `stamp`, `attr`, `curr`, `tags` and `q` exactly. Bund2's `dup`
+copies all five and clears only the identity slot.
+
+`stamp` needs care: the reference guarantees a value and its `dup` share one,
+and under lazy sampling two *unobserved* values would sample independently and
+differ. So **`dup` materialises the stamp before copying**, by the same rule
+as the identity at a CoW split and for the same reason — it is the moment two
+copies could otherwise diverge. The win over the
 reference is unchanged in kind — a serialise-deserialise round trip becomes
 one header allocation and a refcount bump — and now it is correct.
 
@@ -435,22 +468,43 @@ laziness being observable through equality. It is bounded by how often a
 *cloned* value is mutated — an unshared value's `make_mut` does not copy and
 so does not split.
 
-**This rule and F34's header reset apply to disjoint sets of mutations, and an
-earlier draft let them overlap.** `set` on a map is *not* a CoW split: it is a
-header **rebuild**, and the reference gives the receiver and the result
-different ids — `from_dict` mints a fresh one
-(`reference/rust_dynamic/src/create_map.rs:33`). So:
+**Mutations fall into three classes, not two.** An earlier draft had two and
+put `attr_add` in the wrong one; the class it belongs to has no analogue in
+either.
 
-- **Minting mutations** — `set`, `push`, `attr_add` — rebuild the header. The
-  result gets a fresh identity and an empty `attr`/`curr`/`tags`, per F34. The
-  receiver is untouched.
-- **Minting-free mutations** — `set_tag` alone, among the reachable ones — are
-  CoW splits, and *those* materialise the identity before copying so both
-  halves keep the same one.
+**1. Rebuild** — `set` on a map or list, `push`. These go through a
+constructor, so the result carries a fresh identity, a fresh stamp, an empty
+`attr`, `curr` at `-1`, empty `tags`, and **`q` reset to 100.0** —
+`from_dict` writes all six (`reference/rust_dynamic/src/create_map.rs:33-40`).
+The receiver is untouched. This is F34. Note the fallback arms of `set` and
+`push` do *not* rebuild: they copy `q` from the receiver
+(`reference/rust_dynamic/src/set.rs:33`, `push.rs:164`), so `q`'s treatment
+differs by arm within one function.
 
-Classifying `set` as both, as an earlier draft did, produced a contradiction:
-one rule says the halves share an id and the other says the result gets a
-fresh one. Only the second is the reference's behaviour.
+**2. Regenerate in place** — `attr_add`, and it is its own class.
+`attr_add` is `self.dup().regen_id()` then a push onto the result's `attr`
+(`reference/rust_dynamic/src/attr.rs:19-20`), and `regen_id` writes a fresh id
+**and a fresh stamp** (`reference/rust_dynamic/src/id.rs:6-7`). So it mints,
+like a rebuild — but it **preserves** `attr`, `curr` and `tags`, because the
+`dup` carries them. Confirmed against the oracle: `1 2 attribute 3 attribute`
+renders **two** entries in `attr`, each with its `tags` intact. A two-bucket
+partition has nowhere to put that, and an earlier draft filed it under
+rebuild, which would have emptied the `attr` the word exists to populate.
+
+**3. Minting-free** — mutate in place, leaving id and stamp alone. These are
+the CoW splits, and *these* materialise the identity before copying so both
+halves keep the same one. An earlier draft said `set_tag` was the only
+reachable one. It is not, and this RFC establishes the others itself several
+pages earlier: `Iterator::next` writes `curr`
+(`reference/rust_dynamic/src/iter.rs:11,24`), and `calc_q`/`set_q` write `q`
+(`reference/rust_dynamic/src/q.rs:5,9`) from every arithmetic operator
+(`reference/rust_dynamic/src/math.rs:416-420`). Direct field writes outside
+`rust_dynamic` count too —
+`reference/Bund/src/stdlib/functions/values/merge.rs:83` sets `dt` in place.
+
+Classifying `set` as both a split and a rebuild, as an earlier draft did, was
+a contradiction: one rule says the halves share an id, the other says the
+result gets a fresh one. Only the rebuild is the reference's behaviour.
 
 ### Value semantics
 
@@ -485,10 +539,12 @@ drivable on a scalar too: `1 2 attribute` renders `dt: 2` — an integer — wit
 a populated `attr`, which is this RFC's own probe and the evidence cited for
 `attr` being a field at all.
 
-The goldens say how often this matters. Of the 258 renderings, **34 have a
-scalar payload and 29 of those carry a non-empty `tags`** — `I64` 17 of which
-12 are tagged, `Bool` 12 of 12, `F64` 3 of 3, `Null` 2 of 2 — and 3 carry a
-populated `attr`. An earlier draft said 27 and 24, from a scan that required
+The goldens say how often this matters. Of the **278** renderings, **45 have
+a scalar payload and 40 of those carry a non-empty `tags`** — `I64` 22,
+`Bool` 13, `Null` 6, `F64` 4 — and 3 carry a populated `attr`. These figures
+move whenever a probe is added and have moved three times; they are quoted
+because criterion D3 rests on them, and D3 names the golden *set* rather than
+a number for that reason. An earlier draft said 27 and 24, from a scan that required
 a parenthesised payload and so missed `Null` entirely. Criterion 6 asks the `Debug` rendering to reproduce the reference's
 text, and an inline scalar arm cannot reproduce any of those 29.
 
@@ -505,7 +561,17 @@ A scalar is `Int(7)` until it acquires anything a header holds — an observed
 identity, a stamp, a tag, an attribute, a moved cursor — at which point it is
 represented as `Heap` with a scalar payload. The `dt` distinction is preserved
 either way, and equality, ordering and hashing read through both forms
-identically, so boxing is invisible to the language.
+identically, so boxing is invisible **to equality, ordering and hashing**.
+
+That is the limit of the claim, and an earlier draft wrote it without one.
+`.id` and `.timestamp` mint on observation, and an unadorned scalar has
+nowhere to keep what it minted — observing one twice would yield two different
+ids where the reference yields one. The state is reachable: `"[1,2]" json
+json.to_value` leaves inner scalars with `tags: {}`, so a program can hold an
+unadorned scalar and then interrogate it. **So `.id` and `.timestamp` box**:
+observing either promotes the value, and the promoted form is what the stack
+holds. Same rule as any other header field acquiring a value, and it keeps
+observation idempotent.
 
 **What this costs, stated plainly.** Because `push` tags unconditionally, a
 scalar pushed to a stack is boxed, so "a scalar never touches the heap" holds
@@ -528,7 +594,15 @@ than an earlier draft claimed
 the catch-all at `reference/rust_dynamic/src/eq.rs:45` and are equal only if
 they share an id (`:53`). Bund2 compares them by content instead.
 
-That remains a deviation, and the argument for it is reachability — but an
+**The reason two earlier drafts gave for this no longer holds.** They argued
+that scalars *have no identity to compare*. Since review 3 made scalars
+boxable, a boxed scalar has a header and therefore an identity slot, so the
+premise is false — what survives is that an **unadorned** scalar has none, and
+equality must not depend on whether either operand happens to be boxed.
+Content comparison is the only rule stable under boxing, which is a better
+reason than the one it replaces.
+
+The deviation itself is carried by reachability — but an
 earlier draft overstated the argument. It said the `==` word "accepts only
 `INTEGER | FLOAT | CINTEGER | CFLOAT | TIME`". **It also accepts `STRING`**
 (`reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:47`). The
@@ -652,6 +726,20 @@ casting the key, mirroring `set`
 a word-level change and belongs to RFC-0002's word set, but it is recorded
 here because without D30's hashing it would not work.
 
+### `BundValue` is neither `Send` nor `Sync`
+
+Stated here because RFC-0002 cites this RFC for it and, until now, this RFC
+did not say it. The non-scalar arm is `Rc<HeapValue>` and `HeapValue` carries
+`Cell` fields, so neither trait is derivable: `Rc` is neither `Send` nor
+`Sync`, and `Cell` is not `Sync`. The choice is deliberate — an `Arc` and an
+atomic identity would cost every clone a contended refcount to buy a property
+no single-threaded interpreter needs — but it propagates, and RFC-0002's
+registry inherits it: a `Slot` holding a `BundValue` cannot cross a thread
+whatever pointer wraps it.
+
+RFC-0007 inherits the question rather than an answer. Making `BundValue`
+shareable is not a change to the registry; it starts here.
+
 ### Integers
 
 Full `i64` (D4). NaN-boxing would reach 8 bytes by folding the tag into unused
@@ -663,19 +751,23 @@ change later; integer width cannot.
 
 ### Iteration
 
-`impl Iterator for Value` has no caller in the reference, so `curr` never
-advances in a running Bund. Bund2 carries `curr` as a field anyway, because
-the field is observable in the `Debug` rendering and because RFC-0003 may
-expose iteration. Whether Bund2's own iteration drives `curr` or uses an
-external cursor is left to RFC-0003; carrying the field keeps both open.
+`impl Iterator for Value` has **six callers**, all `for … in` loops in
+`reference/Bund/src/cmd/` — see the `curr` discussion above, which is where
+the evidence sits. `curr` is a field and Bund2's iteration operates on a
+locally owned cursor, so iterating neither splits a shared value nor mints an
+identity per step. Whether RFC-0003's own iteration re-exposes a stored cursor
+is its call; carrying the field keeps that open.
 
 ### Rendering
 
-`q` is rendered as the constant `100.0` rather than carried. Everything else
-in the `Debug` output is real state. The rendering must reproduce the
-reference's text exactly, because 29 goldens capture it — this is the one
-place where preservation is of a text format rather than of a behaviour, and
-it is stated here so it is not discovered by a golden failure.
+Every field in the `Debug` output is real state, `q` included — it is a
+fixpoint at 100.0, not a constant, and the JSON-null path reaches 0.0. The
+rendering must reproduce **the normalised text the goldens hold**, across 31
+of them, which is not the same as the reference's raw output: the goldens
+normalise `id`, `stamp` and map order, and this RFC orders the dict rendering
+deliberately. This is the one place where preservation is of a text format
+rather than of a behaviour, and it is stated here so it is not discovered by a
+golden failure.
 
 ## Preservation analysis
 
@@ -704,7 +796,7 @@ it is stated here so it is not discovered by a golden failure.
 | `tags`, including the per-push stack tag | **Preserved exactly**, as a field. |
 | `attr`, drivable by the `attribute` word | **Preserved exactly**, as a field. |
 | `curr` as the iteration cursor | **Preserved as a field.** Nothing advances it today; RFC-0003 decides whether Bund2's iteration does. |
-| `q` averaged by arithmetic and propagated | **Preserved exactly**, as a field. Two earlier drafts rendered it as the constant `100.0`; it is a *fixpoint* at 100.0, not a constant, and `Value::none` — which the JSON converter returns for a null — starts at `0.0`. Q18 is reopened. |
+| `q` averaged by arithmetic and propagated | **Preserved exactly**, as a field. Two earlier drafts rendered it as the constant `100.0`; it is a *fixpoint* at 100.0, not a constant, and `Value::none` — which the JSON converter returns for a null — starts at `0.0`. Q18 closed on a probe. |
 | `Value::has_key` on a `VALUEMAP` (Q19) | **Expressible at the value layer, deferred at the word layer.** `Payload::ValueMap` is a `BTreeMap<BundValue, BundValue>`, so a key lookup needs no new machinery here. Whether `?key` exposes it is RFC-0002's, since D30 mirrored `set` into `get` and `?key` has no `set` counterpart to mirror. |
 | `stamp` reset by `set` and `push` | **Preserved exactly.** The rebuilding constructors write `timestamp_ms()` (`reference/rust_dynamic/src/create_map.rs:34`), so a mutated container's stamp is the mutation's, not the original's — which D2 names and no earlier row carried. |
 | `set` on a `LIST`/`RESULT` dropping the container | **Deliberately fixed**, with F35. `set` on a list returns `Value::from_list(vec![value])` (`reference/rust_dynamic/src/set.rs:9`) — it discards the existing container *and* the `dt`, where the map arm restores `dt` (`:22`). F35 records the same defect in `push`; this is its sibling and was unrecorded. |
@@ -762,7 +854,7 @@ serialise-and-deserialise. `cargo xtask layout`, which carries `dup` rows
 because an earlier draft claimed "1 allocation — one header" and was both
 wrong and unmeasurable.
 
-**B3. `cargo xtask cite` reports zero defects** — 1266 citations at this
+**B3. `cargo xtask cite` reports zero defects** — 1275 citations at this
 commit. Note what it does **not** check: that a cited line means what the
 prose says. Reviews 1 through 4 each found citations that resolved and
 misled, and `cite` passed every time. Review 5 found none, which is the first
@@ -804,11 +896,12 @@ a bool**: scalars carry no identity, so `true == true.dup()` is true in Bund2
 and false in the reference, a deviation asserted rather than left as a gap.
 
 **D3. The `Debug` rendering reproduces the normalised text the goldens hold**
-for the 258 renderings across 29 goldens — not the reference's raw output. The
-goldens already normalise `id`, `stamp` (F14) and map order (F15), and this
-RFC replaces `HashMap` with `BTreeMap` deliberately, so a criterion written
-against raw output would demand the order this RFC removes. 255 show
-`attr: []` and 3 do not; 34 have a scalar payload, 29 of them tagged.
+for **every rendering in `tests/golden/`** — 278 across 31 goldens at this
+commit, and the criterion names the set rather than the number because adding
+a probe moves it, which has happened three times. Not the reference's raw
+output: the goldens already normalise `id`, `stamp` (F14) and map order (F15),
+and this RFC orders the dict rendering deliberately, so a criterion written
+against raw output would demand the order this RFC removes.
 
 **D4. The bincode wire format is byte-identical to the reference** for every
 payload arm a probe can construct on the oracle. **The set is 11**, and it is
@@ -828,10 +921,14 @@ path. And a valuemap keyed by a freshly built equal *scalar* finds its entry
 while one keyed by a freshly built equal *list* does not: that asymmetry is
 D30's stated limit and is asserted, not left to chance.
 
-**D7. `.timestamp` returns a float and two independently constructed values
-have non-decreasing stamps** once observed. D2's deviation — that two
-never-observed values may share a stamp — is asserted as expected behaviour,
-not worked around.
+**D7. `.timestamp` returns a float**, and the stamp orders by **observation,
+not construction** — which is what lazy sampling gives up, and an earlier
+version of this criterion asserted the opposite by demanding non-decreasing
+stamps for independently *constructed* values. Under D2 a value constructed
+first and observed second carries the later stamp. Two consequences are
+asserted rather than worked around: two never-observed values may share a
+stamp, and a value and its `dup` always do, because `dup` materialises before
+copying.
 
 **D8. Equality across int and float is exact, symmetric and transitive.**
 `42 == 42.0` is true; `42 == 42.5` is false **in both operand orientations**;
@@ -878,7 +975,7 @@ hash alike, `NaN` equals nothing.
   `:13` and `:49`) — `cargo xtask cite` passed all three, because it checks
   that a line exists and that a token is near it, not that the line means what
   the prose claims. Three counts were wrong (42 `dt` constants not 40, 132
-  corpus programs not 138, 250 renderings across 28 goldens not 244 across 27, since risen to 258 across 29
+  corpus programs not 138, 250 renderings across 28 goldens not 244 across 27 — a figure that has moved with every probe added since
   — this RFC's own probe moved the last one and the criterion was not
   updated).
 
@@ -1134,3 +1231,55 @@ hash alike, `NaN` equals nothing.
   both.
 
   The mark moved 0/66 to **0/68**.
+
+- **2026-08-27, review 6** — `docs/rfc/reviews/RFC-0001-review-2026-08-27.md`.
+  Verdict: do not accept. Citations held for a second consecutive pass and
+  every `layout` figure reproduced. Nine findings, two confirmed by fresh
+  oracle probes, and every one held on re-verification.
+
+  **The mutation policy had two buckets and needs three.** `attr_add` is
+  `dup().regen_id()` then a push (`reference/rust_dynamic/src/attr.rs:19-20`):
+  it **mints and preserves**, where a rebuild mints and empties. Filing it
+  under rebuild would have emptied the `attr` the word exists to populate.
+  Oracle: `1 2 attribute 3 attribute` renders two entries with tags intact.
+  And `set_tag` is not the only minting-free mutation — `next` writes `curr`
+  and the arithmetic operators write `q`, both of which **this RFC establishes
+  several pages earlier**, plus a direct `dt` write in `merge.rs:83`.
+
+  **`Payload::ValueMap` as a `BTreeMap` deleted D30's mechanism.** D30 decides
+  hash by content and says so in terms — keys "hash into the same bucket". A
+  `BTreeMap` does not hash; it needs a total `Ord` that F12's FIX deletes, that
+  `NaN`-equals-nothing forbids, and that the four overridden comparisons do not
+  provide. `Map` stays a `BTreeMap` because `String` keys order trivially and
+  that is what F15 asked for — **dict members and tags, not valuemap**.
+  `ValueMap` is a `HashMap`, and rendering determinism comes from the renderer.
+
+  The rebuild rule omitted `q`, which the constructors reset to 100.0 while
+  the fallback arms copy it, and `regen_id` resets `stamp` as well as `id`.
+
+  **Two arguments rested on a premise review 3 removed.** The preservation row
+  and criterion D2 both said scalars "have no identity to compare"; a *boxed*
+  scalar has one. What survives is that equality must not depend on whether an
+  operand happens to be boxed, which is a better reason. And "boxing is
+  invisible to the language" was defended only for equality, ordering and
+  hashing: `.id` and `.timestamp` mint on observation and an unadorned scalar
+  cannot keep what it minted, so those two **box**. The state is reachable —
+  `"[1,2]" json json.to_value` leaves inner scalars with `tags: {}`.
+
+  `dup`'s treatment of `stamp`, `tags`, `attr`, `curr` and `q` was
+  unspecified. The reference overwrites **only** `id` (`dup.rs:11`), so a value
+  and its `dup` share a stamp — which lazy sampling would break unless `dup`
+  materialises first. It now does.
+
+  Three sections still asserted what reviews 4 and 5 had corrected: §Iteration
+  and the `curr` row said "no caller", §Rendering still rendered `q` as a
+  constant, and Q18 was called reopened in two places and closed in two. Every
+  golden-derived count had drifted again — 68 goldens, 278 renderings across
+  31, 45 scalar with 40 tagged — so criterion D3 now names the golden **set**
+  rather than a number.
+
+  Criterion D7 asserted non-decreasing stamps for independently *constructed*
+  values, which is exactly what lazy sampling gives up; it now says stamps
+  order by observation. And RFC-0002 cited this RFC for "`BundValue` is not
+  `Send`", a claim it never made — now stated here, where the dependency
+  points.

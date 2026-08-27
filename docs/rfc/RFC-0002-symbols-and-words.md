@@ -523,9 +523,10 @@ premise.** A `Slot` holds a `BundValue` for its `lambda` and `class` bindings.
 RFC-0001 defines `BundValue` as an **enum** whose non-scalar arm is
 `Heap(Rc<HeapValue>)`, and it is `HeapValue` that carries `Cell` fields —
 `identity` and `stamp`, not `id`, and not `curr`, which is a plain field
-precisely so clones do not share a cursor. The conclusion survives the
-correction and the premise did not: an `Rc` is neither `Send` nor `Sync` and a
-`Cell` is not `Sync`, so a `Registry` reachable to one cannot cross a thread
+precisely so clones do not share a cursor. **RFC-0001 now states the
+consequence itself**, in its own section: `BundValue` is neither `Send` nor
+`Sync`. This RFC cited it for that before it said so, which is the wrong
+direction for a dependency. A `Registry` holding one cannot cross a thread
 whatever pointer wraps it. `Arc` would
 buy nothing and would advertise a capability the contents forbid. This is the
 first real collision between RFC-0001 and RFC-0002, and neither cited the
