@@ -64,9 +64,9 @@ draft. **D20** — serialisation is a materialisation point — is what lets
 `Symbol` be internal while names cross the wire. **D28** is the whole basis of
 the D-1 handoff below. And **D27** rules the world file is **redb**, which
 criterion 7 rides on: a lambda saved in one process and reloaded in another
-crosses that format. D27 is RESOLVED but **gated on D11, which is OPEN** — if
+crosses that format. D27 is RESOLVED but **gated on D31, which is OPEN** — if
 an external reader of the world file exists, redb is a breaking format change.
-So criterion 7 is checkable only once D11 rules, and the Design's description
+So criterion 7 is checkable only once D31 rules, and the Design's description
 of the reference's world file as SQLite is a statement about the reference,
 not about Bund2's.
 
@@ -664,9 +664,11 @@ them and one was vacuous without saying so. Each below names the tool.
    another, with the `CALL` names intact. **Tool:** a Bund2 integration test.
    This is the criterion that `Symbol`-in-the-payload would have failed.
    **It rides on D27** — the world file is redb, not the reference's SQLite —
-   and D27 is gated on **D11**, which is OPEN. Until D11 rules on whether an
-   external reader exists, this criterion tests a format that may still
-   change.
+   and D27 is gated on **D31**, which is OPEN. Until D31 rules on whether an
+   external reader of the world file exists, this criterion tests a format
+   that may still change. D31's recommended resolution is a feature-gated
+   one-way importer, which would discharge the condition without requiring an
+   unprovable negative.
 8. `cargo xtask cite` reports zero defects. Note what this does **not** check:
    that a cited line means what the prose says. Two reviews have now found
    citations that resolve and mislead, and both times `cite` passed.
@@ -911,5 +913,6 @@ is how a commitment quietly lapses.
   names with an **empty intersection**, now verified and stated.
 
   And the decisions-consumed list was short by three: **D20**, **D28**, and
-  **D27** — which criterion 7 rides on, and which is itself gated on **D11**,
-  still OPEN.
+  **D27** — which criterion 7 rides on, and which is itself gated on the
+  world-file question. That was D11 when the review was written; D11 has since
+  been split, and the gate is now **D31**.

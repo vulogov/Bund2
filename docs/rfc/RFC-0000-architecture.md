@@ -257,7 +257,7 @@ so conformance can read 100% with three quarters of the language untested.
 Three files are the shared state between sessions, and this RFC does not
 duplicate them:
 
-- `docs/registers/decisions.md` — 30 entries, of which 5 are OPEN. Append-only; a status may
+- `docs/registers/decisions.md` — 31 entries, of which 5 are OPEN. Append-only; a status may
   change, an entry may not be deleted or renumbered.
 - `docs/registers/defects.md` — 40 entries. The roadmap's §5 listed eleven;
   the rest were found by running the oracle rather than reading it. F14, F15 and
@@ -340,7 +340,9 @@ discovered during M1.
 **The world file container changes** from SQLite to redb (D27). The contained
 values do not: they remain bincode-serialised `Value`s, and D20's rule that
 serialisation materialises lazy identity is unaffected. This is a format
-change gated on D11, which is still OPEN.
+change gated on **D31**, which is OPEN — not on D11, which asks the same
+question about the *object* format and is now RESOLVED on evidence that does
+not transfer to the world file.
 
 ## Alternatives considered
 
@@ -480,14 +482,19 @@ The full narrowing is regenerated into `tests/golden/HERMETIC.txt` on every
   is a `bund2` to run.
 - **Q15** — `cargo xtask unblock` needs redesigning before it can order M6
   work; as specified it can only see the words the goldens touch.
-- **D11** is OPEN and gates D27. If an external reader of the world file
-  exists, the redb change is a breaking format change.
+- **D31** is OPEN and gates D27, and through it RFC-0002's criterion 7. If an
+  external reader of the world file exists, the redb change is breaking. It
+  was recorded against D11 until D11 was split: D11 asks about the object
+  format, which has no producer reachable from Bund and is therefore RESOLVED,
+  while the world file is a user-named SQLite database. The recommended
+  resolution is a feature-gated one-way importer, which makes the question
+  moot rather than answering it.
 - **D14 is RESOLVED** — method B″, core 286 of 497. B2 keeps reporting over
   the in-scope 497, which is how CLAUDE.md defines coverage; the core figure,
   **121/286**, is the M6 denominator and is printed beside it.
-- **D29** is OPEN: whether Bund2 revives or omits the four dead words
-  (F19, F22, F24). Either choice deviates from the oracle, and it moves
-  B2's denominator by four either way.
+- **D29 is RESOLVED** — revive `stacks_left` alone; `dup_in`,
+  `from_workbench` and `push_to` are omitted. The in-scope set goes 497 to 498
+  once the word is implemented.
 - **Q17 is closed.** `docs/research/05-rfc-roadmap.md` §1.5 described the
   reference's `Documentation/Bund_Library_Guide/` as the closest thing to a
   language specification and proposed it as the normative reference for

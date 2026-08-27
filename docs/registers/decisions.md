@@ -240,9 +240,10 @@ fetched over a URI, and the world file.
 **Backend for the world file: SQLite or redb, owner's option.** redb is a
 pure-Rust embedded store and drops the C dependency, which also bears on D10.
 Either is acceptable *provided nothing outside Bund2 reads the world file* —
-and that is exactly D11, still OPEN. If an external reader exists, changing
-the backend is a breaking format change; if not, it is free. Decide D11 before
-committing to redb.
+and that is **D31**, still OPEN. (It was recorded against D11 until D11 was
+split; D11 asks about the object format, which is a different artefact.) If an
+external reader exists, changing the backend is a breaking format change; if
+not, it is free. D27 takes redb, conditional on D31.
 
 - Read against the pinned submodule, not GitHub `main`. `reference/Bund` is
   pinned (`reference/PINNED.txt`) and upstream may have moved since; per
@@ -286,7 +287,38 @@ May `bund2 build` require `cc`, or must the compiler be self-contained?
 Does anything outside the project depend on the current bincode object format?
 - Blocks: RFC-0003
 - Default: no; version the IR format freshly
-- Status: OPEN
+- Status: **RESOLVED — no external dependents. Version the IR format freshly.**
+
+**This entry was being asked two questions and it only ever posed one.** As
+written it is about the *object format* — what `compile_to_binary`
+bincode-serialises. D27 was leaning on it for the **world file**, which is a
+different artefact with a different exposure profile. The world-file question
+is split out as **D31**; this entry answers the one it asks.
+
+For the object format the answer is close to a proof rather than a judgement:
+**nothing reachable from Bund produces one.**
+
+- `Value::compile` is the object-format producer
+  (`reference/rust_dynamic/src/bincode.rs:38`), and it has **zero callers** in
+  any of the six crates.
+- The Bund word `compile` is a different thing entirely: it parses a string
+  and pushes a `LIST` onto the stack
+  (`reference/Bund/src/stdlib/functions/bund/bund_interpreter.rs:43`). It
+  never serialises and never writes a file.
+- No other word emits a compiled object. The words that reach a file are
+  `save.*` and `load.*`, which are the world file — D31 — and `wrap`/`unwrap`,
+  which produce an `ENVELOPE` value that stays on the stack.
+
+So no Bund program can ever have produced a file in this format, and there are
+no files in the wild to break. External dependence would require a Rust
+consumer calling `rust_dynamic` directly, which is a different question from
+the one this entry asks and one the repository owner is positioned to answer
+outright.
+
+Two things this unblocks besides RFC-0003. **D20**'s deferred step — encoding
+"unset" in the wire format so laziness survives serialisation — becomes
+available, since it was held back only on this. And it does **not** discharge
+D27's condition, which is D31.
 
 ## D12 — the `*` fold-family
 Restrict the whole-stack variadic words in JIT-able positions, or accept them
@@ -720,10 +752,13 @@ value carries a fresh identity rather than the original's —
 (`reference/rust_dynamic/src/create_special.rs:205,207`). D20's rule holds as
 stated for every other type; for JSON, identity is discarded by the round trip
 and RFC-0001 must decide whether to preserve that or fix it. This is the same
-asymmetry F13 records for `dup`. Whether such readers exist is **D11, still OPEN**. If D11
-resolves to its default of none, a further step becomes available: encode
-"unset" in the format so laziness survives serialisation entirely. Not adopted
-now — it diverges the wire format, and D20 deliberately does not prejudge D11.
+asymmetry F13 records for `dup`. Whether such readers exist was **D11**, now
+**RESOLVED — none**, on the evidence that nothing reachable from Bund produces
+a file in the format. So the further step is now *available*: encode "unset"
+in the format so laziness survives serialisation entirely. It is still **not
+adopted** — it diverges the wire format from the reference, which D20's own
+first clause forbids, and RFC-0001 would have to take that deviation
+explicitly. Recorded as available rather than taken.
 
 - Decided by: repository owner, answering Q8 (Option 3)
 - Blocks: RFC-0001 (value representation)
@@ -986,12 +1021,14 @@ while the pure-Rust ones store a directory rather than a single file. redb is
 the one crate that is both, and dropping the C dependency also eases **D10**
 (whether `bund2 build` may require `cc`).
 
-**This is a format change, and it is gated on D11** — "does anything outside
-the project depend on the current format". If an external reader of the world
-file exists, switching backends breaks it; if not, the change is free. D11 is
-still OPEN, so this decision is taken on the expectation that it resolves to
-its default of "no external dependents". If it does not, D27 must be revisited
-before implementation.
+**This is a format change, and it is gated on D31** — not on D11, which asks
+about the *object* format and is now RESOLVED on evidence that does not
+transfer. D31 asks whether anything outside the project reads the **world
+file**, which is a user-named SQLite database passed explicitly as
+`bund load --world <path>` (`reference/Bund/src/cmd/mod.rs:318`). If an
+external reader exists, switching backends breaks it; if not, the change is
+free. D31 is OPEN, and it carries a mitigation — a one-way importer — that
+makes the question moot rather than requiring it to be answered.
 
 Unaffected: what goes *into* the world is still bincode-serialised `Value`s,
 so D20's rule stands — serialisation materialises lazy identity, and the value
@@ -999,8 +1036,8 @@ encoding is unchanged. Only the container changes.
 
 - Decided by: repository owner
 - Blocks: nothing; informs RFC-0003 and D10
-- Depends on: D11
-- Status: RESOLVED (conditional on D11)
+- Depends on: D31
+- Status: RESOLVED (conditional on D31)
 
 ## D28 — only essential features in the default build
 Bund2's default build enables only what the language needs. The heavyweight
@@ -1245,3 +1282,46 @@ will disagree with; the disposition is F33, an original-implementation bug.
   `tests/probes/eq-asymmetry.bund`, both confirmed against the oracle
 - Status: **RESOLVED — hash mirrors equality; `get` mirrors `set`; equality is
   exact across int/float, and therefore symmetric, transitive and hashable.**
+
+
+## D31 — external readers of the world file
+Does anything outside the project read a Bund **world file**? Split from D11,
+which asks the same shape of question about the *object* format and is
+resolved on evidence that does not transfer.
+
+The two artefacts are not comparable. The object format has no producer
+reachable from Bund, so no file in it exists. The world file is the opposite:
+it is created by `save.*`, it is a **user-named path** supplied on the command
+line — `bund load --world <path>` and `bund wscript --world <path>`
+(`reference/Bund/src/cmd/mod.rs:318,328`) — and it is a **SQLite** database
+(`reference/Bund/Cargo.toml:131`) holding six tables of user state: `ALIASES`,
+`BOOTSTRAP`, `LAMBDAS`, `MODELS`, `STACKS`, `STACK_DATA`. A user-named SQLite
+file in a user's directory is exactly the artefact somebody opens with
+`sqlite3`, and no obscurity argument is available for it.
+
+- Blocks: D27, and therefore RFC-0002's criterion 7
+- Default: none. **A negative about other people's files is not provable**,
+  and adopting "no" by default is the failure mode this register exists to
+  prevent.
+- Status: OPEN
+
+**Recommended resolution: do not answer it — make it moot.** Ship a one-way
+importer, `bund2 world import <sqlite-path>` producing a redb world file. The
+original is never written, so any external reader keeps working on it, and a
+migrating user keeps their lambdas and stacks. That converts an unprovable
+negative into a bounded engineering cost.
+
+The cost is a read-only SQLite dependency, and it must stay confined: the
+importer is a **tool path, feature-gated off by default**, so D27's pure-Rust
+rationale and D28's "only essential features in the default build" both
+survive. `bund2` itself never links SQLite.
+
+The alternative is to document the break. It is cheaper and defensible if the
+world file is treated as regenerable — but `LAMBDAS` and `STACK_DATA` are user
+state, regenerable only if the user still holds the source that produced them.
+
+**The cheapest resolution is one only the repository owner can give.** If
+nobody outside this project has run `bund load --world`, this closes as "no",
+D27's condition discharges, and the importer becomes a convenience rather than
+a mitigation. That is knowledge, not analysis, and it is the one input this
+entry cannot gather for itself.
