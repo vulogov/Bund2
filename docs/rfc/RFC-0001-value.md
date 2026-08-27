@@ -1,9 +1,17 @@
 # RFC-0001: `BundValue` — representation, identity, and value semantics
 
-- Status: Draft, revised through five reviews. **Nothing gates it**: D30 and
-  its amendment settle F29, F30 and F33; Q18 is closed on a probe and Q19 is
-  divided between this RFC and RFC-0002. The criteria are partitioned —
-  4 binding, 2 vacuous-but-labelled, 8 deferred to the implementation.
+- Status: **Proposed** (2026-08-27), after seven reviews. Nothing gates it:
+  D30 and its amendment settle F29, F30 and F33; Q18 is closed on a probe and
+  Q19 divided between this RFC and RFC-0002. The four binding criteria pass;
+  two are vacuous and labelled; **eight are deferred because `bund2-value` is
+  three lines**, and that is why the status is Proposed rather than Accepted.
+
+  The seventh review found the design sound and the document stale — repairs
+  landing in the body and not in the sections quoting it, counts incremented
+  rather than re-derived. That is a document-maintenance failure, and it is
+  cheaper to fix against a compiler than against a reader: the deferred
+  criteria become checkable, and a claim that contradicts itself stops
+  compiling. **Implementation is the next step, not another revision.**
 - Depends on: RFC-0000
 - Decisions consumed: D1, D2, D4, D13, D20, D30
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
@@ -201,9 +209,10 @@ constant and with a cursor that resets, and the cursor reading is the true
 one. An earlier draft read the evidence the wrong way and proposed deleting
 the field, which would delete the state iteration needs.
 
-**It has six callers**, and two earlier drafts said it had none. They sit in
-`reference/Bund/src/cmd/` — `bund_cluster.rs:35,40,305,310` and
-`bund_bbus.rs:172,177`, both modules declared at
+**It has seven callers**, and two earlier drafts said it had none while a
+third said six. They sit in `reference/Bund/src/cmd/` —
+`bund_cluster.rs:35,40,305,310,437` and `bund_bbus.rs:97,172`, both modules
+declared at
 `reference/Bund/src/cmd/mod.rs:20,21` — and each is a `for n in value` loop
 over a `Value` returned by the zenoh accessors
 (`reference/Bund/src/stdlib/helpers/zenoh/putget.rs:80,119`). The earlier
@@ -253,8 +262,8 @@ scan: `"null" json json.to_value` yields `q: 0.0` on the oracle
 a scan that never opened `q.rs`.
 
 All four are **observable**, because `debug.display_stack` prints the Rust
-`Debug` rendering and the goldens capture it: **31 of the 68 goldens** contain
-raw `Value { ... }` text, **278** renderings in total. 275 show `attr: []`;
+`Debug` rendering and the goldens capture it: **32 of the 69 goldens** contain
+raw `Value { ... }` text, **303** renderings in total. 300 show `attr: []`;
 the other 3 carry a populated `attr` and come from this RFC's own probe. Before that probe existed every rendering agreed, which
 is a fact about the corpus rather than about the fields — and is exactly how
 an earlier draft mistook three of them for constants.
@@ -540,19 +549,12 @@ result gets a fresh one. Only the rebuild is the reference's behaviour.
 
 ### Value semantics
 
-`Rc::make_mut` clone-on-write (D13), with one claim from the earlier draft
-**withdrawn**. That draft said CoW split points "coincide exactly with the
-points where the reference regenerates the id". They do not, and the
-counterexample is on the hottest path: `set_tag` mutates in place and mints
-nothing (`reference/rust_dynamic/src/tags.rs:5`), yet runs on every push.
-
-The accurate statement is narrower and still sufficient: **every mutating
-operation that the reference gives a fresh id to is a CoW split point**
-(`set.rs:16,31,43,58,76,91`, `push.rs:165`, `attr.rs:7,13,19` — and `attr_add`
-is explicit about it, calling `regen_id` at `attr.rs:19`). Mutations that mint
-nothing, of which `set_tag` is the only one reachable, are split points too,
-and `make_mut` copying the id is the correct behaviour for them, because the
-reference's in-place write does not change the id either.
+`Rc::make_mut` clone-on-write (D13). Which mutations split, and what each does
+to the header, is **the three-class partition above** — rebuild,
+regenerate-in-place, minting-free — and this section deliberately does not
+restate it. Two earlier drafts stated a two-class version here and left it
+standing after the body replaced it, twenty lines apart. The repair that
+matters is having one statement, not a better second one.
 
 Cycles stay impossible by construction, as they do today.
 
@@ -565,20 +567,21 @@ writes all of those on scalars.
 
 `TS::push` calls `value.set_tag("stack", …)` on **every** push with **no type
 test** (`reference/rust_multistack/src/ts_push.rs:25`) — which is the very
-fact criterion 3 uses to explain why a heap `dup` costs four allocations. So
+fact criterion **B2** uses to explain why a heap `dup` costs four
+allocations. So
 every scalar that reaches a stack carries a non-empty `tags`. And `attr` is
 drivable on a scalar too: `1 2 attribute` renders `dt: 2` — an integer — with
 a populated `attr`, which is this RFC's own probe and the evidence cited for
 `attr` being a field at all.
 
-The goldens say how often this matters. Of the **278** renderings, **45 have
-a scalar payload and 40 of those carry a non-empty `tags`** — `I64` 22,
-`Bool` 13, `Null` 6, `F64` 4 — and 3 carry a populated `attr`. These figures
+The goldens say how often this matters. Of the **303** renderings, **54 have
+a scalar payload and 47 of those carry a non-empty `tags`** — `I64` 25,
+`Bool` 14, `Null` 8, `F64` 7 — and 3 carry a populated `attr`. These figures
 move whenever a probe is added and have moved three times; they are quoted
 because criterion D3 rests on them, and D3 names the golden *set* rather than
 a number for that reason. An earlier draft said 27 and 24, from a scan that required
 a parenthesised payload and so missed `Null` entirely. Criterion 6 asks the `Debug` rendering to reproduce the reference's
-text, and an inline scalar arm cannot reproduce any of those 29.
+text, and an inline scalar arm cannot reproduce any of those 47.
 
 So the scalar arms are the **unadorned** form, not the only form:
 
@@ -602,8 +605,20 @@ ids where the reference yields one. The state is reachable: `"[1,2]" json
 json.to_value` leaves inner scalars with `tags: {}`, so a program can hold an
 unadorned scalar and then interrogate it. **So `.id` and `.timestamp` box**:
 observing either promotes the value, and the promoted form is what the stack
-holds. Same rule as any other header field acquiring a value, and it keeps
-observation idempotent.
+holds.
+
+**Promotion has to write back, and "it boxes" does not achieve that.**
+`Value::get` returns a **clone** (`reference/rust_dynamic/src/get.rs:11`), so
+promoting the clone leaves the container holding the original, and
+`l 0 get .id` twice still mints two ids. This RFC's own `json.to_value`
+example is exactly that case — the inner scalars live inside a list, and
+reaching one goes through `get`.
+
+The rule is therefore stated at the container rather than the accessor: **an
+element promoted by observation is written back**, which under clone-on-write
+splits the container if it is shared. That is a deviation — the reference's
+`get` has no write-back — and it is what lazy identity costs when the accessor
+returns a copy. Criterion D5 carries it.
 
 **What this costs, stated plainly.** Because `push` tags unconditionally, a
 scalar pushed to a stack is boxed, so "a scalar never touches the heap" holds
@@ -723,10 +738,31 @@ The reference hashes the id alone, while equality compares content for four
 payload arms and identity for the rest. The two disagree, and `Val::ValueMap`
 is keyed by the type whose contract is broken — F30.
 
-D30 settles it: **`hash` mirrors `eq`, kind by kind.** Content-compared kinds
-(`Int`, `Float`, `String`, `Time`) hash their content; identity-compared kinds
-hash their identity. That satisfies the `Hash`/`Eq` contract by construction,
-and it is what makes a scalar-keyed valuemap lookup find its entry.
+D30 settles it: **`hash` mirrors `eq`, kind by kind.** In Bund2 that is
+**six** content-hashed kinds, not the reference's four: `Int`, `Float`,
+`String` and `Time` as in the reference, plus `Bool` and the two nullary
+scalars, which this RFC moved to content comparison for stability under
+boxing. An earlier draft enumerated four here and six in the scalar section —
+and a `Bool` that compares by content while hashing by identity breaks
+`Hash`/`Eq` in the one structure that consumes both. Identity-compared kinds
+hash their identity.
+
+**The key equality is not the `==` word's equality**, and an earlier draft did
+not separate them. `HashMap<BundValue, _>` requires `Eq`, `Eq` requires
+reflexivity, and "`NaN` is equal to nothing" denies it — the same fault this
+RFC convicts the reference of forty lines earlier, and now *reachable*,
+because D30 creates the read path that makes `ValueMap` observable.
+
+So there are two, named separately:
+
+- the **word** `==` keeps IEEE semantics, `NaN != NaN`, because that is what a
+  Bund program sees and `logic_compare_fun.rs` is already its own dispatch;
+- the **key** equality behind `ValueMap` and `Hash` is *total*: all `NaN`s are
+  one value, `-0.0` and `0.0` are one value. That makes `Eq` sound and `Hash`
+  consistent with it.
+
+The reference cannot draw this distinction, having one `PartialEq` and an
+`impl Eq` that lies about it. Bund2 has two and says which is which.
 
 Hashing *everything* by content would also satisfy the contract, and is
 rejected: it computes an O(size) hash for a list whose equality is then
@@ -783,9 +819,10 @@ change later; integer width cannot.
 
 ### Iteration
 
-`impl Iterator for Value` has **six callers**, all `for … in` loops in
-`reference/Bund/src/cmd/` — see the `curr` discussion above, which is where
-the evidence sits. `curr` is a field and Bund2's iteration operates on a
+`impl Iterator for Value` has **seven callers**, all `for … in` loops in
+`reference/Bund/src/cmd/` — see the `curr` discussion above. One of them,
+`bund_cluster.rs:437`, pushes each element onto a VM stack, so an iteration
+result reaches the language. `curr` is a field and Bund2's iteration operates on a
 locally owned cursor, so iterating neither splits a shared value nor mints an
 identity per step. Whether RFC-0003's own iteration re-exposes a stored cursor
 is its call; carrying the field keeps that open.
@@ -817,7 +854,7 @@ golden failure.
 | `HashMap` iteration order in the `Debug` rendering (F15) | **Deliberately fixed.** `Payload` uses `BTreeMap`, so both rendering paths are ordered by construction. F15 asks RFC-0001 to choose a deterministic map; this is that choice. |
 | `Val::Token`, and the four `dt` constants with no writer (F36, F38) | **Deliberately omitted.** An arm no constructor writes carries no behaviour. Recorded in the `Payload` definition. |
 | Identity and stamp minted per construction, normalised out of the goldens (F14) | **Preserved observably.** F14 is why the goldens carry `<id>` and `<stamp>`; laziness is invisible to them either way, which is what makes D1 and D2 capturable at all. |
-| Equality by identity for `Bool`, `Nodata`, `None` | **Deliberately changed** — scalars have no identity to compare. Unreachable through `==`, which bails on non-numeric types. See the scalar section. |
+| Equality by identity for `Bool`, `Nodata`, `None` | **Deliberately changed.** Not because scalars lack an identity — a *boxed* one has a header, and that reason died when review 3 made scalars boxable — but because equality must not depend on whether an operand happens to be boxed. Unreachable through `==`, which bails on non-numeric types. See the scalar section. |
 | Mutation resetting `attr`, `curr`, `tags` (F34) | **Preserved exactly.** The header is rebuilt, not copied — `make_mut` would copy it, which is the divergence this row exists to close. |
 | `push` on a `RESULT` yielding a `LIST` (F35) | **Deliberately fixed.** The `dt` is preserved, as `set` already does for maps. No golden covers it. |
 | `ASSOCIATION` readable but unwritable (F36) | **Deliberately omitted.** A `dt` constant with no constructor and therefore no values; omitting it removes no behaviour. |
@@ -827,9 +864,9 @@ golden failure.
 | `valuemap` unreadable (F29) | **Deliberately fixed, per D30.** The `get` word branches on the container's type before casting the key, mirroring `set`. |
 | `tags`, including the per-push stack tag | **Preserved exactly**, as a field. |
 | `attr`, drivable by the `attribute` word | **Preserved exactly**, as a field. |
-| `curr` as the iteration cursor | **Preserved as a field.** Nothing advances it today; RFC-0003 decides whether Bund2's iteration does. |
+| `curr` as the iteration cursor | **Preserved as a field.** Seven `for … in` loops advance it (`reference/Bund/src/cmd/bund_cluster.rs:35,40,305,310,437`, `bund_bbus.rs:97,172`); Bund2 iterates on a locally owned cursor, so iteration neither splits nor mints. |
 | `q` averaged by arithmetic and propagated | **Preserved exactly**, as a field. Two earlier drafts rendered it as the constant `100.0`; it is a *fixpoint* at 100.0, not a constant, and `Value::none` — which the JSON converter returns for a null — starts at `0.0`. Q18 closed on a probe. |
-| `Value::has_key` on a `VALUEMAP` (Q19) | **Expressible at the value layer, deferred at the word layer.** `Payload::ValueMap` is a `BTreeMap<BundValue, BundValue>`, so a key lookup needs no new machinery here. Whether `?key` exposes it is RFC-0002's, since D30 mirrored `set` into `get` and `?key` has no `set` counterpart to mirror. |
+| `Value::has_key` on a `VALUEMAP` (Q19) | **Expressible at the value layer, deferred at the word layer.** `Payload::ValueMap` is a `HashMap<BundValue, BundValue>`, so a key lookup needs no new machinery here. Whether `?key` exposes it is RFC-0002's, since D30 mirrored `set` into `get` and `?key` has no `set` counterpart to mirror. |
 | `stamp` reset by `set` and `push` | **Preserved exactly.** The rebuilding constructors write `timestamp_ms()` (`reference/rust_dynamic/src/create_map.rs:34`), so a mutated container's stamp is the mutation's, not the original's — which D2 names and no earlier row carried. |
 | `set` on a `LIST`/`RESULT` dropping the container | **Deliberately fixed**, with F35. `set` on a list returns `Value::from_list(vec![value])` (`reference/rust_dynamic/src/set.rs:9`) — it discards the existing container *and* the `dt`, where the map arm restores `dt` (`:22`). F35 records the same defect in `push`; this is its sibling and was unrecorded. |
 | Binary wire format byte-identical | **Preserved exactly.** D20. The lazy identity materialises at this boundary. |
@@ -878,7 +915,8 @@ candidate D, measured by the counting allocator in `cargo xtask layout`. The
 qualifier is load-bearing: `TS::push` tags unconditionally
 (`reference/rust_multistack/src/ts_push.rs:25`), so a scalar on a stack is
 boxed, and **boxing one costs 5 allocations and 721 bytes** — also measured,
-in the row beside it, so the qualifier cannot quietly become an excuse.
+in the row beside it, so the qualifier cannot quietly become an excuse. 47 of
+the 54 scalar renderings in the goldens carry a non-empty `tags`.
 
 **B2. `dup` of a heap list on a stack allocates 4 times and 649 bytes**, and
 `dup` of a boxed scalar the same, against the reference's full bincode
@@ -886,7 +924,7 @@ serialise-and-deserialise. `cargo xtask layout`, which carries `dup` rows
 because an earlier draft claimed "1 allocation — one header" and was both
 wrong and unmeasurable.
 
-**B3. `cargo xtask cite` reports zero defects** — 1276 citations at this
+**B3. `cargo xtask cite` reports zero defects** — over whatever count the tool reports at this
 commit. Note what it does **not** check: that a cited line means what the
 prose says. Reviews 1 through 4 each found citations that resolved and
 misled, and `cite` passed every time. Review 5 found none, which is the first
@@ -924,21 +962,28 @@ the real type.
 **D2. `A == A.clone()` is true and `A == A.dup()` is false**, for a list, a
 map and a lambda — every kind with a heap header to carry an identity. This is
 D13's contract, and it is listed because an earlier draft broke it. **Not for
-a bool**: scalars carry no identity, so `true == true.dup()` is true in Bund2
-and false in the reference, a deviation asserted rather than left as a gap.
+a bool**: `true == true.dup()` is true in Bund2 and false in the reference.
+The reason is stability under boxing — a boxed scalar *does* have an identity
+slot — not the absence of one, which is the reason two earlier drafts gave and
+the scalar section retired.
 
 **D3. The `Debug` rendering reproduces the normalised text the goldens hold**
-for **every rendering in `tests/golden/`** — 278 across 31 goldens at this
-commit, and the criterion names the set rather than the number because adding
-a probe moves it, which has happened three times. Not the reference's raw
+for **every rendering in `tests/golden/`**. The criterion names the set and
+not a number: the figure drifted in four consecutive reviews because it was
+incremented by hand rather than re-derived, and `cargo xtask lint` cannot see
+prose arithmetic. Not the reference's raw
 output: the goldens already normalise `id`, `stamp` (F14) and map order (F15),
 and this RFC orders the dict rendering deliberately, so a criterion written
 against raw output would demand the order this RFC removes.
 
 **D4. The bincode wire format is byte-identical to the reference** for every
-payload arm a probe can construct on the oracle. **The set is 11**, and it is
-measured rather than guessed: `tests/probes/payload-arms.bund` constructs one
-of each and `tests/golden/probes/payload-arms.golden` pins them — `Bool`,
+payload arm a probe can construct on the oracle. **The scope is measured, the bytes are not.**
+`tests/probes/payload-arms.bund` constructs one value of each reachable arm
+and `tests/golden/probes/payload-arms.golden` pins them — but that golden
+holds the **`Debug` rendering** and contains no bincode at all, so it settles
+*which arms to compare* and checks none of them. The byte comparison needs a
+probe that does not exist: something that serialises each arm and emits the
+bytes in a capturable form. The set is 11 — `Bool`,
 `I64`, `F64`, `String`, `Null`, `List`, `Map`, `ValueMap`, `Metrics`,
 `Lambda`, `Json`, across 13 `dt` values, since `String` carries both `STRING`
 and `PTR` and `List` carries both `LIST` and `PAIR`. Two earlier drafts said
@@ -946,7 +991,10 @@ twenty and then nineteen, both from counting declarations rather than
 reachability.
 
 **D5. `.id` returns a 21-character string** over the reference's nanoid
-alphabet, and two values minted in one VM never collide.
+alphabet, and two values minted in one VM never collide. **And observation is
+idempotent through a container**: `l 0 get .id` twice returns the same id,
+which requires the promotion to be written back — see the scalar section. The
+second clause is the one an earlier draft's rule did not deliver.
 
 **D6. `valuemap "k" 42 set "k" get` leaves `42`**, not the map — D30's read
 path. And a valuemap keyed by a freshly built equal *scalar* finds its entry
@@ -982,7 +1030,7 @@ hash alike, `NaN` equals nothing.
   `q` away from the 100.0 fixpoint; `"null" json json.to_value` yields
   `q: 0.0` on the oracle, through two registered in-scope words, so `q` is a
   field. Q19's value-layer half needs no decision — `Payload::ValueMap` is a
-  `BTreeMap<BundValue, BundValue>`, so the lookup is expressible by
+  `HashMap<BundValue, BundValue>`, so the lookup is expressible by
   construction — and its word-layer half, whether `?key` exposes it, goes to
   RFC-0002 because D30 mirrored `set` into `get` and named only `get`.
 - **F29 and F30 are settled by D30** — hash mirrors equality, and the `get`
@@ -1315,3 +1363,49 @@ hash alike, `NaN` equals nothing.
   order by observation. And RFC-0002 cited this RFC for "`BundValue` is not
   `Send`", a claim it never made — now stated here, where the dependency
   points.
+
+- **2026-08-27, review 7** — `docs/rfc/reviews/RFC-0001-review-2026-08-27-2.md`.
+  Verdict: do not accept, with review 6's items "acted on, and acted on well".
+  **What blocked it was that the repairs landed in the design body and not in
+  the sections that quote it** — which is the diagnosis, not a list of
+  symptoms.
+
+  One citation defect, the first in three passes and in the negative-claim
+  area this RFC names as its own weakness: `bund_bbus.rs:177` is a `match`,
+  not a loop, and `impl Iterator` has **seven** callers, not six —
+  `bund_bbus.rs:97` and `bund_cluster.rs:437` were both missed, and the second
+  pushes each element onto a VM stack.
+
+  Eight repairs had not propagated. §"Value semantics" still carried the
+  two-class mutation taxonomy twenty lines after the body replaced it with
+  three; the `Bool` row and criterion D2 still gave the "scalars have no
+  identity" reason the scalar section retires in terms; three places still
+  called `ValueMap` a `BTreeMap`; the `curr` row still said nothing advances
+  it. The fix in each case was to have **one** statement rather than a better
+  second one — §"Value semantics" now points at the partition instead of
+  restating it.
+
+  Three new contradictions, each following from review 6's own repairs.
+  §"Hashing" enumerated four content-hashed kinds where this RFC has six, and
+  a `Bool` that compares by content while hashing by identity breaks
+  `Hash`/`Eq` in the one structure consuming both. `HashMap` requires `Eq`,
+  `Eq` requires reflexivity, and "`NaN` equals nothing" denies it — the fault
+  this RFC convicts the reference of, made reachable by D30's read path; there
+  are now two equalities, the word's IEEE one and the key's total one. And the
+  `.id`/`.timestamp` promotion rule did not close its own hole: `get` returns
+  a clone, so promoting it writes nothing back and `l 0 get .id` twice still
+  mints two ids — the write-back is now stated at the container.
+
+  Criterion D4 pointed at `payload-arms.golden` for a **byte**-identical wire
+  format; that golden holds the `Debug` rendering and contains no bincode. It
+  settles which arms to compare and checks none of them.
+
+  Counts drifted for the fourth consecutive review — 303 renderings across 32
+  goldens, 54 scalar payloads — because they were incremented rather than
+  re-derived. D3 now names the golden **set** and no number.
+
+  **This is the pass on which the RFC moves to Proposed.** The design has
+  survived seven adversarial reads and the seventh called it sound; what keeps
+  failing is document maintenance on a 1300-line artefact that states each
+  claim in four places. A compiler enforces what prose does not, and eight of
+  the criteria cannot run until `bund2-value` exists.

@@ -1,10 +1,14 @@
 # RFC-0002: Symbols, the word slot table, and `bund2-api`
 
-- Status: Draft. **Nothing gates this RFC**: D9, D14 and D29 are settled, and
-  F18, F19 and F25 — the three defects that named it as the consumer of their
-  consequence — now carry dispositions. Three reviews have rejected it on
-  grounds independent of all six. See "Blocking decisions" and
-  "Review history".
+- Status: **Proposed** (2026-08-27), after four reviews. Nothing gates it:
+  D9, D14 and D29 are settled, and F18, F19, F25 and F26 — the four defects
+  naming this RFC as the consumer of their consequence — carry dispositions.
+  The one live dependency is **D31**, through D27, and it gates criterion 7
+  rather than the design.
+
+  Proposed rather than Accepted for the same reason as RFC-0001: the slot
+  table does not exist yet, so the criteria that would test it cannot run.
+  See "Blocking decisions" and "Review history".
 - Depends on: RFC-0001
 - Decisions consumed: D9, D14, D16, D20, D27, D28, D29
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
