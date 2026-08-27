@@ -959,13 +959,25 @@ test in `bund2-value`. `cargo xtask layout` already reports 16/8 for candidate
 D, which is the shape this RFC specifies; what is deferred is the assertion on
 the real type.
 
-**D2. `A == A.clone()` is true and `A == A.dup()` is false**, for a list, a
-map and a lambda — every kind with a heap header to carry an identity. This is
-D13's contract, and it is listed because an earlier draft broke it. **Not for
-a bool**: `true == true.dup()` is true in Bund2 and false in the reference.
-The reason is stability under boxing — a boxed scalar *does* have an identity
-slot — not the absence of one, which is the reason two earlier drafts gave and
-the scalar section retired.
+**D2. `A == A.clone()` is true and `A == A.dup()` is false**, for every
+**identity-compared** kind — a list, a map, a lambda. This is D13's contract,
+and it is listed because an earlier draft broke it.
+
+**Not "every kind with a heap header", which is what three earlier drafts
+said.** A string has a header *and* compares by content, so `dup` cannot make
+it unequal: the oracle prints `true` for `"s" dup ==`. The discriminator is
+how the kind compares, not whether it has somewhere to keep an id. Found by
+the implementation's own test, which failed on `str` while passing on `list`
+and `map`.
+
+**Not for a bool** either: `true == true.dup()` is true in Bund2 and false in
+the reference. The reason there is stability under boxing — a boxed scalar
+*does* have an identity slot — not the absence of one.
+
+Note what the criterion can and cannot be checked through. The `==` **word**
+rejects lists and maps outright (`COMPARE: unsupported operand`), so this
+contract is observable only through `PartialEq` — `ValueMap` keys and
+container membership — and not from Bund source.
 
 **D3. The `Debug` rendering reproduces the normalised text the goldens hold**
 for **every rendering in `tests/golden/`**. The criterion names the set and
