@@ -1150,3 +1150,26 @@ large-output in-scope program would have been silently mis-attributed.
   reference, recorded here beside F39 and F41 because the register is where
   method defects live and because the failure mode — a wrong diagnosis that
   looks like a finding — is the same one those two record.
+
+## F44 — measuring an unfiltered program wrote into the pinned submodule
+While sizing the 18 unreproducible programs for F43, every one was run
+directly against the oracle — including `image_blur_and_save.bund` and
+`image_upscale_and_save.bund`, which write their output **into
+`reference/Bund/examples/image/`**. Two tracked PNG/JPG files were rewritten,
+and `git status` inside the submodule stopped being empty.
+
+Restored with `git checkout --`, and no citation was affected, since the files
+are images and nothing cites them.
+
+The lesson is the one the hermetic filter already encodes and the measurement
+bypassed: `cargo xtask golden` runs only programs that passed the effect
+audit, and running the oracle by hand skips that gate. Both files gave **0
+bytes of stdout** in the size measurement, which is what a filesystem writer
+looks like from outside — the output went somewhere else.
+
+- Found by: `git status` on the submodule, after the F43 measurement
+- Disposition: **method.** An ad-hoc oracle run over a program not in
+  `tests/golden/HERMETIC.txt` must be treated as an effectful action, and the
+  submodule checked afterwards. CLAUDE.md already requires the submodule stay
+  clean; this records how it stopped being so, since the failure was silent —
+  the programs succeeded and nothing reported anything.
