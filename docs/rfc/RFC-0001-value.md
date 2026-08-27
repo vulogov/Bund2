@@ -138,7 +138,13 @@ not. D1 and D13 both rest on `eq.rs:53`, and the design below depends on it.
 (`reference/rust_dynamic/src/ord.rs:175,183,191,199`). So **`cmp` reads the
 id**, which D1 names as one of three internal readers.
 
-**But `cmp` is the unreachable path, and two earlier drafts analysed only it.**
+**But `cmp` is the path a program does not reach, and two earlier drafts
+analysed only it.** That is a negative claim of the class this RFC has been
+wrong about three times, so its basis is stated rather than assumed: it rests
+on reading `PartialOrd`, which overrides all four comparisons, and not on a
+probe. No probe here discriminates `cmp` from the overrides, because the two
+agree on every operand pair a program can currently build. Recorded as a claim
+about the source, not a measured fact.
 `PartialOrd` overrides `lt`, `le`, `gt` and `ge` individually
 (`reference/rust_dynamic/src/ord.rs:9,48,87,126`), and **none of the four
 reads an id** — they compare content and fall back to `true` or `false` on a
@@ -364,6 +370,32 @@ ordered — which an earlier draft conflated by reaching for one type.
 `Payload` omits `Val::Token` and the four `dt` constants with no writer —
 `LITERAL`, `LARGE_FLOAT`, `ASSOCIATION`, `TOKEN` — which F36 and F38 ask this
 RFC to record. **38 `dt` constants are live of the 42 declared.**
+
+**What that claim rests on, said precisely.** It is a grep: no assignment to
+`dt` names those four in any of the six crates. That method has produced a
+false negative in three consecutive reviews — `Value::exit`, `impl Iterator`,
+`q` — so this RFC does not leave it as the only evidence.
+
+`tests/probes/dt-reachable.bund` enumerates in the **positive** direction:
+it constructs a value of every `dt` a Bund program can be made to produce, and
+the golden pins the result. Across the whole suite, **20 of the 42 constants
+are reached**: `NONE`, `BOOL`, `INTEGER`, `FLOAT`, `STRING`, `CALL`, `PTR`,
+`LIST`, `PAIR`, `MAP`, `CFLOAT`, `METRICS`, `LAMBDA`, `TEXTBUFFER`, `JSON`,
+`CONDITIONAL`, `VALUEMAP`, `CLASS`, `OBJECT`, `NODATA`.
+
+**The enumeration does not prove the four are dead, and saying so is the
+point.** Twenty-two constants go unreached, and several of them —
+`MATRIX`, `CURRY`, `MESSAGE`, `ERROR`, `ENVELOPE` — almost certainly have a
+constructor this enumeration simply did not find. The four F36 names sit in
+that group, not in a group of their own. So the negative claim remains
+**grep-established and enumeration-corroborated**, which is weaker than proven
+and stronger than an unchecked assertion, and it is the honest description of
+what this RFC knows.
+
+`TIME` is a third case worth its own line: it is reachable, through
+`time.now`, and **not capturable** — a clock reading differs between runs, so
+the golden refuses it. Reachable-and-unpinnable is an answer the enumeration
+records rather than loses.
 
 `tags`, `attr`, `curr` and `q` are all fields, and all four vary.
 
@@ -854,7 +886,7 @@ serialise-and-deserialise. `cargo xtask layout`, which carries `dup` rows
 because an earlier draft claimed "1 allocation — one header" and was both
 wrong and unmeasurable.
 
-**B3. `cargo xtask cite` reports zero defects** — 1275 citations at this
+**B3. `cargo xtask cite` reports zero defects** — 1276 citations at this
 commit. Note what it does **not** check: that a cited line means what the
 prose says. Reviews 1 through 4 each found citations that resolved and
 misled, and `cite` passed every time. Review 5 found none, which is the first
@@ -873,7 +905,7 @@ substitute for a reader.
 ### Vacuous but real — they run, and cannot fail yet
 
 **V1. `cargo xtask conform` does not fall below the mark** in
-`tests/golden/CONFORMANCE.txt`, now **0/68**. At 0/68 nothing can fall. It
+`tests/golden/CONFORMANCE.txt`, now **0/69**. At 0/69 nothing can fall. It
 becomes real with the first golden Bund2 passes.
 
 **V2. `cargo tree -p bund2-value` lists no `bund2-interp`.** It passes because

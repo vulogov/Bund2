@@ -259,7 +259,7 @@ duplicate them:
 
 - `docs/registers/decisions.md` — 31 entries, of which 5 are OPEN. Append-only; a status may
   change, an entry may not be deleted or renumbered.
-- `docs/registers/defects.md` — 42 entries. The roadmap's §5 listed eleven;
+- `docs/registers/defects.md` — 43 entries. The roadmap's §5 listed eleven;
   the rest were found by running the oracle rather than reading it. F14, F15 and
   F17 are why 18 of 77 hermetic programs could not be captured, and
   `tests/golden/UNSTABLE.txt` tags each row with which: **13 F14, 2 F15, 3
@@ -387,7 +387,7 @@ point.
 `tests/golden/CONFORMANCE.txt`.** RFC-0000 changes no behaviour, so any
 movement means something else did. This is the regression gate.
 
-Accepted at **0/63**. The mark is now **0/68**: RFC-0001's grounding added two
+Accepted at **0/63**. The mark is now **0/69**: RFC-0001's grounding added two
 authored probes: `tests/probes/valuemap-hash-eq.bund`, pinning F29 — a
 `valuemap` read returning the whole map instead of the value under the key —
 and `tests/probes/value-fields.bund`, pinning that `attribute` drives `attr`
@@ -468,7 +468,7 @@ a decision, not drift:
 | conformance | 63 | **64** | RFC-0001's grounding added a seventh probe for F29 — `valuemap` is write-only |
 | conformance | 64 | **65** | RFC-0001's review added an eighth, pinning which of `q`/`attr`/`curr`/`tags` are real state |
 | conformance | 65 | **66** | RFC-0001's review 2 added a ninth, pinning F33 — the asymmetric int/float equality and both failed symmetrisations |
-| conformance | 66 | **68** | RFC-0001's post-review-5 work added two: `q-observable` closing Q18, and `payload-arms` enumerating criterion D4's set |
+| conformance | 66 | **69** | RFC-0001 added three probes: `q-observable` closing Q18, `payload-arms` for criterion D4, and `dt-reachable` enumerating which of the 42 `dt` constants a program can produce |
 | coverage | 140/586 | **121/497** | D26 and D28 together moved 89 words out of scope. The 120 now shown as out-of-scope is the running total, D15's 31 console words included — 617 − 586 = 31 was D15 alone |
 
 The full narrowing is regenerated into `tests/golden/HERMETIC.txt` on every

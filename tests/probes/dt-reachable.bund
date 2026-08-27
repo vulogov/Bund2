@@ -1,0 +1,42 @@
+//
+// Probe: which of the reference's 42 `dt` constants can a Bund program
+// actually produce?
+//
+// RFC-0001 carries several negative claims — that `Val::Token` and four `dt`
+// constants have no writer, that `cmp` is the unreachable ordering path. Each
+// was established by grepping for callers, and that method has produced a
+// false negative in three consecutive reviews: `Value::exit` (the parser
+// calls it), `impl Iterator` (six `for … in` loops), `q` (every arithmetic
+// operator).
+//
+// So this probe enumerates in the POSITIVE direction. It constructs one value
+// of every `dt` a program can reach and pins the result. A constant absent
+// from the capture is not thereby proven dead — the enumeration may simply not
+// have found the word — but it is evidence of a different kind from a grep,
+// and it is the kind that would have caught all three misses above.
+//
+// Three categories result, not two. `time.now` reaches TIME(13) and is
+// deliberately absent: a clock reading differs between runs, so the capture
+// refuses it. Reachable and unpinnable is its own answer, and the enumeration
+// records it here rather than losing it.
+//
+"probe: one value per reachable dt" println
+42                          debug.display_stack drop  // INTEGER 2
+1.5                         debug.display_stack drop  // FLOAT 3
+true                        debug.display_stack drop  // BOOL 1
+"s"                         debug.display_stack drop  // STRING 4
+'lit'                       debug.display_stack drop  // STRING 4 — note, not LITERAL 5
+nodata                      debug.display_stack drop  // NODATA 97
+"null" json                 debug.display_stack drop  // JSON 24
+"null" json json.to_value   debug.display_stack drop  // NONE 0
+list                        debug.display_stack drop  // LIST 9
+dict                        debug.display_stack drop  // MAP 11
+valuemap                    debug.display_stack drop  // VALUEMAP 30
+metrics                     debug.display_stack drop  // METRICS 16
+lambda                      debug.display_stack drop  // LAMBDA 17
+`x                          debug.display_stack drop  // PTR 7
+1 2 pair                    debug.display_stack drop  // PAIR 10
+conditional                 debug.display_stack drop  // CONDITIONAL 29
+"x" convert.to_textbuffer   debug.display_stack drop  // TEXTBUFFER 22
+class                       debug.display_stack drop  // CLASS 31
+1.0 2.0 complex             debug.display_stack drop  // CFLOAT 15

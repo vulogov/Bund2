@@ -358,6 +358,27 @@ pub(crate) fn run_once(exe: &Path, program_file: &Path, cwd: &Path) -> Result<Ru
         .spawn()
         .map_err(|e| format!("spawning oracle: {e}"))?;
 
+    // Drain both pipes on their own threads *while* the child runs.
+    //
+    // Waiting for exit before reading deadlocks any program whose output
+    // exceeds the OS pipe buffer — 64 KiB here — because the child blocks
+    // writing while the parent blocks waiting. The symptom is a timeout, so
+    // it reads as "the oracle hung" rather than "we never emptied the pipe".
+    // `tests/probes/dt-reachable.bund` produces 69,747 bytes and was refused
+    // that way. Recorded as F43.
+    let mut out_pipe = child.stdout.take().ok_or("no stdout pipe")?;
+    let mut err_pipe = child.stderr.take().ok_or("no stderr pipe")?;
+    let out_handle = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = out_pipe.read_to_end(&mut buf);
+        buf
+    });
+    let err_handle = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = err_pipe.read_to_end(&mut buf);
+        buf
+    });
+
     let start = std::time::Instant::now();
     let status = loop {
         match child.try_wait() {
@@ -373,14 +394,11 @@ pub(crate) fn run_once(exe: &Path, program_file: &Path, cwd: &Path) -> Result<Ru
             Err(e) => return Err(format!("waiting on oracle: {e}")),
         }
     };
+    let drained_out = out_handle.join().unwrap_or_default();
+    let drained_err = err_handle.join().unwrap_or_default();
 
-    let mut raw = String::new();
-    if let Some(mut o) = child.stdout.take() {
-        let _ = o.read_to_string(&mut raw);
-    }
-    if let Some(mut e) = child.stderr.take() {
-        let _ = e.read_to_string(&mut raw);
-    }
+    let mut raw = String::from_utf8_lossy(&drained_out).into_owned();
+    raw.push_str(&String::from_utf8_lossy(&drained_err));
     Ok(Run {
         output: normalise(&raw),
         status: status.code().unwrap_or(-1),

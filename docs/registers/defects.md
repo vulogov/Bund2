@@ -1120,3 +1120,33 @@ container. Neither is reached by a corpus program.
 - Disposition: **FIX**, with F35. `set` on a list sets an element and
   preserves the `dt`, as the map arm already preserves it. No golden covers
   it, so `conform` cannot move.
+
+## F43 — the golden capture deadlocks on any program over the pipe buffer
+`run_once` in `xtask/src/golden/mod.rs` spawned the oracle with
+`Stdio::piped()` on both streams and then waited for exit **before** reading
+either. A child that fills the OS pipe buffer — 64 KiB here — blocks on
+`write` while the parent blocks on `try_wait`, and neither moves.
+
+The symptom is the misleading part: the parent's own 60-second timeout fires
+and the program is reported **"timed out"**, which reads as *the oracle hung*
+rather than *we never emptied the pipe*. It cost this session an hour of
+diagnosing a non-existent non-determinism, first in `time.now` and then in the
+nanosecond stamps `metrics` renders — both plausible, both wrong.
+
+Found by `tests/probes/dt-reachable.bund`, which produces **69,747 bytes**
+against a 65,536-byte buffer.
+
+**Impact on the recorded numbers: none, and it was close.** Of the 18 programs
+`tests/golden/UNSTABLE.txt` lists as unreproducible, 12 produce well under
+64 KiB and were genuinely non-deterministic — F14, F15 and F17 as recorded.
+The other 6 are the `bund/image` family at **1.2 MB** each, which would have
+deadlocked; they are out of scope under D28 for an unrelated reason, so their
+exclusion is over-determined and no conformance figure moves. The next
+large-output in-scope program would have been silently mis-attributed.
+
+- Found by: enumerating reachable `dt` values for RFC-0001
+- Disposition: **FIXED.** Both pipes are drained on their own threads while
+  the child runs. This is a defect in Bund2's tooling rather than in the
+  reference, recorded here beside F39 and F41 because the register is where
+  method defects live and because the failure mode — a wrong diagnosis that
+  looks like a finding — is the same one those two record.
