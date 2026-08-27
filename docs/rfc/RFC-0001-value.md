@@ -1,6 +1,9 @@
 # RFC-0001: `BundValue` — representation, identity, and value semantics
 
-- Status: Draft — revised after reviews 1 and 2 (2026-08-26). D30 and its amendment settle F29, F30 and F33. **No OPEN decision or question gates this RFC.**
+- Status: Draft, revised through five reviews. **Nothing gates it**: D30 and
+  its amendment settle F29, F30 and F33; Q18 is closed on a probe and Q19 is
+  divided between this RFC and RFC-0002. The criteria are partitioned —
+  4 binding, 2 vacuous-but-labelled, 8 deferred to the implementation.
 - Depends on: RFC-0000
 - Decisions consumed: D1, D2, D4, D13, D20, D30
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
@@ -702,7 +705,7 @@ it is stated here so it is not discovered by a golden failure.
 | `attr`, drivable by the `attribute` word | **Preserved exactly**, as a field. |
 | `curr` as the iteration cursor | **Preserved as a field.** Nothing advances it today; RFC-0003 decides whether Bund2's iteration does. |
 | `q` averaged by arithmetic and propagated | **Preserved exactly**, as a field. Two earlier drafts rendered it as the constant `100.0`; it is a *fixpoint* at 100.0, not a constant, and `Value::none` — which the JSON converter returns for a null — starts at `0.0`. Q18 is reopened. |
-| `Value::has_key` on a `VALUEMAP` (Q19) | **Undecided at the value layer.** D30 fixed the `get` word; `?key` needs both layers and D30 named only `get`. Q19 carries it, and this row exists so the gap is visible in the table rather than only in the register. |
+| `Value::has_key` on a `VALUEMAP` (Q19) | **Expressible at the value layer, deferred at the word layer.** `Payload::ValueMap` is a `BTreeMap<BundValue, BundValue>`, so a key lookup needs no new machinery here. Whether `?key` exposes it is RFC-0002's, since D30 mirrored `set` into `get` and `?key` has no `set` counterpart to mirror. |
 | `stamp` reset by `set` and `push` | **Preserved exactly.** The rebuilding constructors write `timestamp_ms()` (`reference/rust_dynamic/src/create_map.rs:34`), so a mutated container's stamp is the mutation's, not the original's — which D2 names and no earlier row carried. |
 | `set` on a `LIST`/`RESULT` dropping the container | **Deliberately fixed**, with F35. `set` on a list returns `Value::from_list(vec![value])` (`reference/rust_dynamic/src/set.rs:9`) — it discards the existing container *and* the `dt`, where the map arm restores `dt` (`:22`). F35 records the same defect in `push`; this is its sibling and was unrecorded. |
 | Binary wire format byte-identical | **Preserved exactly.** D20. The lazy identity materialises at this boundary. |
@@ -734,108 +737,109 @@ the value nothing.
 
 ## Acceptance criteria
 
-1. `size_of::<BundValue>()` is **16** and `align_of` is **8**, asserted in a
-   unit test in `bund2-value`, and `cargo xtask layout` reports the same for
-   candidate D.
-2. Constructing and cloning an **unadorned** scalar allocate **0** times for
-   candidate D, measured by the counting allocator in `cargo xtask layout`.
-   The qualifier is load-bearing: `TS::push` tags unconditionally
-   (`reference/rust_multistack/src/ts_push.rs:25`), so a scalar pushed to a
-   stack is boxed and allocates. An earlier draft asserted this without the
-   qualifier, which the goldens contradict — 29 of the 34 scalar renderings
-   carry a non-empty `tags`. **Boxing one costs 5 allocations and 721 bytes**,
-   measured, and that is what pushing an integer costs. The row exists so the
-   qualifier cannot quietly become an excuse.
-3. `dup` of a heap list on a stack allocates **4** times and **649** bytes,
-   and `dup` of a *boxed* scalar the same **4** and **649**,
-   against the reference's full bincode serialise-and-deserialise, and `dup`
-   of a scalar allocates **0**. Measured by `cargo xtask layout`, which now
-   carries `dup` rows — it had none for any candidate, so an earlier draft's
-   claim of "1 allocation — one header" was both wrong and unmeasurable. It
-   is more than one because `HeapValue` carries `tags` and `attr` by value and
-   **`tags` is never empty on a stack value**: `TS::push` writes the stack tag
-   on every push (`reference/rust_multistack/src/ts_push.rs:25`). The same
-   fact is why criterion 2 says *unadorned* — a scalar on a stack is a boxed
-   scalar.
-4. **`A == A.clone()` is true and `A == A.dup()` is false**, for a list, a
-   map and a lambda — every kind that has a heap header to carry an identity.
-   This is D1's contract, and it is listed because an earlier draft broke it.
-   **Not for a bool**: scalars carry no identity, so `true == true.dup()` is
-   true in Bund2 and false in the reference. That deviation is asserted
-   explicitly rather than left as a gap, and its reachability argument is in
-   the scalar section.
-5. `cargo xtask conform` does not fall below the mark in
-   `tests/golden/CONFORMANCE.txt`, now **0/66**. **Vacuous today**, and
-   labelled as such the way criterion 9 is: at 0/66 nothing can fall, so this
-   criterion cannot fail until Bund2 passes a golden. It becomes real with the
-   first one. RFC-0001 implements a value,
-   not a word, so the number may rise; it may not fall. The grounding and
-   review for this RFC moved the denominator from 63 by adding two probes —
-   `tests/probes/valuemap-hash-eq.bund` pinning F29, and
-   `tests/probes/value-fields.bund` pinning which fields are real state, then a
-   third, `tests/probes/eq-asymmetry.bund`, pinning F33. All three moves are
-   recorded in RFC-0000's provenance table.
-6. The `Debug` rendering reproduces **the normalised text the goldens hold**
-   for the 258 renderings across 29 goldens — not the reference's raw output.
-   The distinction is load-bearing and an earlier draft missed it: the goldens
-   already normalise `id`, `stamp` (F14) and map order (F15), so a criterion
-   written against the reference's raw text would demand `HashMap` order,
-   which this RFC deliberately replaces with `BTreeMap`. The target is
-   `tests/golden/`, including `q: 100.0` as a constant and
-   `attr`, `curr`, `tags` as real state. **255 show `attr: []` and 3 do not**;
-   the three come from this RFC's own probe and are the reason `attr` is a
-   field. **34 of the 258 have a scalar payload, 29 of them with a non-empty
-   `tags`** — those are the renderings an inline-only scalar arm could not
-   produce, which is why scalars are boxable.
-7. **The bincode wire format is byte-identical to the reference** for every
-   payload arm a **probe can construct on the oracle**, and the set is
-   enumerated by the probe suite rather than asserted here. The method is
-   oracle byte-capture, so what it needs is *reachability from Bund*, not the
-   existence of a Rust constructor — two earlier drafts got this wrong in
-   sequence, first claiming twenty arms and then nineteen. `Val::Token` has no
-   constructor at all (F38), and `Value::operator` and `Value::embedding` have
-   **zero callers in any of the six crates**. `Value::exit` does have one —
-   the parser's `EOI` handler
-   (`reference/bund_language_parser/src/vm/eoi.rs:8`) — but an `EXIT` is
-   consumed by the evaluator and never reaches a stack, so it cannot be
-   captured this way either. Writing an exact number here would be a third
-   guess after twenty and nineteen; the probe suite reports the set it can
-   actually construct. **That suite does not exist yet** — none of the nine
-   current probes touches `to_binary`, `wrap` or `compile` — so this criterion
-   is a commitment to write it, not a check that can run today. Said plainly
-   rather than left to look checkable.
-8. **`.id` returns a 21-character string** over the reference's nanoid
-   alphabet, and two values minted in one VM never collide.
-9. `cargo tree -p bund2-value` lists no `bund2-interp`. Vacuous until
-   `bund2-value` has dependencies, exactly as RFC-0000's D-2 records; this is
-   the RFC that makes it real.
-10. **`valuemap "k" 42 set "k" get` leaves `42`**, not the map — D30's read
-    path. And a valuemap keyed by a freshly built equal *scalar* finds its
-    entry, while one keyed by a freshly built equal *list* does not: that
-    asymmetry is D30's stated limit and is asserted, not left to chance.
-11. **`.timestamp` returns a float and two independently constructed values
-    have non-decreasing stamps** once observed. D2's deviation — that two
-    never-observed values may share a stamp — is asserted as the expected
-    behaviour, not worked around.
-12. **Equality across int and float is exact, symmetric and transitive.**
-    `42 == 42.0` is true; `42 == 42.5` is false **in both operand
-    orientations**; and `2^53+1` versus `2^53.0` is false **in both
-    orientations**. The orientation matters: the reference already answers
-    false for the truncating one, so a criterion that asserts only that
-    tests nothing — it is the widening orientation, where the reference
-    answers true, that this criterion actually constrains. And `42` and `42.0`
-    hash alike, `-0.0` and `0.0` hash alike, `NaN` equals nothing.
-13. `cargo xtask cite` reports zero defects. Note what it does **not** check:
-    that a cited line means what the prose says. Two reviews have found
-    citations that resolve and mislead, and `cite` passed both times.
-14. **`cargo xtask lint` reports no contradictions.** It cross-checks every
-    preservation row against the disposition of the defect it cites — the
-    check that would have caught review 3's ordering row — and catches a
-    duplicated section heading, which is what blocked RFC-0002's second
-    review. **What it structurally cannot see is a row that is absent.** Four
-    were missing when review 4 read this RFC, including the largest deviation
-    in it, and no mechanical check will find the next one. This criterion is
-    a floor, not a substitute for a reader.
+Three kinds, kept apart, the way RFC-0000 separates its binding criteria from
+its deferred ones. **Four are binding**: each runs today and each can fail.
+**Two are vacuous but real** — they run and cannot currently fail, and are
+labelled rather than counted. **Eight are deferred to the implementation**,
+because `bund2-value` is three lines and nothing in it can be measured yet.
+
+Accepting this RFC means accepting the four. An earlier draft listed all
+fourteen as though they were checkable, which would have made "accepted" mean
+accepted against four while appearing to mean fourteen.
+
+### Binding — these run today and can fail
+
+**B1. Constructing and cloning an *unadorned* scalar allocate 0 times**, for
+candidate D, measured by the counting allocator in `cargo xtask layout`. The
+qualifier is load-bearing: `TS::push` tags unconditionally
+(`reference/rust_multistack/src/ts_push.rs:25`), so a scalar on a stack is
+boxed, and **boxing one costs 5 allocations and 721 bytes** — also measured,
+in the row beside it, so the qualifier cannot quietly become an excuse.
+
+**B2. `dup` of a heap list on a stack allocates 4 times and 649 bytes**, and
+`dup` of a boxed scalar the same, against the reference's full bincode
+serialise-and-deserialise. `cargo xtask layout`, which carries `dup` rows
+because an earlier draft claimed "1 allocation — one header" and was both
+wrong and unmeasurable.
+
+**B3. `cargo xtask cite` reports zero defects** — 1266 citations at this
+commit. Note what it does **not** check: that a cited line means what the
+prose says. Reviews 1 through 4 each found citations that resolved and
+misled, and `cite` passed every time. Review 5 found none, which is the first
+pass where that was true.
+
+**B4. `cargo xtask lint` reports no contradictions.** It cross-checks every
+preservation row against the disposition of the defect it cites, catches a
+duplicated section heading, catches a claimed count that has drifted from its
+artefact, and catches a type used in a `rust` block that no RFC introduces —
+the last of which was added because `Payload` was undefined here for two
+revisions while the history said otherwise (F41). **What it structurally
+cannot see is a row that is absent.** Four were missing when review 4 read
+this RFC, including the largest deviation in it. B4 is a floor, not a
+substitute for a reader.
+
+### Vacuous but real — they run, and cannot fail yet
+
+**V1. `cargo xtask conform` does not fall below the mark** in
+`tests/golden/CONFORMANCE.txt`, now **0/68**. At 0/68 nothing can fall. It
+becomes real with the first golden Bund2 passes.
+
+**V2. `cargo tree -p bund2-value` lists no `bund2-interp`.** It passes because
+the crate is empty, not because the boundary is enforced. Real once
+`bund2-value` has contents — which is this RFC's own implementation.
+
+### Deferred to the implementation
+
+Each names what makes it checkable. None can run against a three-line crate.
+
+**D1. `size_of::<BundValue>()` is 16 and `align_of` is 8**, asserted in a unit
+test in `bund2-value`. `cargo xtask layout` already reports 16/8 for candidate
+D, which is the shape this RFC specifies; what is deferred is the assertion on
+the real type.
+
+**D2. `A == A.clone()` is true and `A == A.dup()` is false**, for a list, a
+map and a lambda — every kind with a heap header to carry an identity. This is
+D13's contract, and it is listed because an earlier draft broke it. **Not for
+a bool**: scalars carry no identity, so `true == true.dup()` is true in Bund2
+and false in the reference, a deviation asserted rather than left as a gap.
+
+**D3. The `Debug` rendering reproduces the normalised text the goldens hold**
+for the 258 renderings across 29 goldens — not the reference's raw output. The
+goldens already normalise `id`, `stamp` (F14) and map order (F15), and this
+RFC replaces `HashMap` with `BTreeMap` deliberately, so a criterion written
+against raw output would demand the order this RFC removes. 255 show
+`attr: []` and 3 do not; 34 have a scalar payload, 29 of them tagged.
+
+**D4. The bincode wire format is byte-identical to the reference** for every
+payload arm a probe can construct on the oracle. **The set is 11**, and it is
+measured rather than guessed: `tests/probes/payload-arms.bund` constructs one
+of each and `tests/golden/probes/payload-arms.golden` pins them — `Bool`,
+`I64`, `F64`, `String`, `Null`, `List`, `Map`, `ValueMap`, `Metrics`,
+`Lambda`, `Json`, across 13 `dt` values, since `String` carries both `STRING`
+and `PTR` and `List` carries both `LIST` and `PAIR`. Two earlier drafts said
+twenty and then nineteen, both from counting declarations rather than
+reachability.
+
+**D5. `.id` returns a 21-character string** over the reference's nanoid
+alphabet, and two values minted in one VM never collide.
+
+**D6. `valuemap "k" 42 set "k" get` leaves `42`**, not the map — D30's read
+path. And a valuemap keyed by a freshly built equal *scalar* finds its entry
+while one keyed by a freshly built equal *list* does not: that asymmetry is
+D30's stated limit and is asserted, not left to chance.
+
+**D7. `.timestamp` returns a float and two independently constructed values
+have non-decreasing stamps** once observed. D2's deviation — that two
+never-observed values may share a stamp — is asserted as expected behaviour,
+not worked around.
+
+**D8. Equality across int and float is exact, symmetric and transitive.**
+`42 == 42.0` is true; `42 == 42.5` is false **in both operand orientations**;
+`2^53+1` versus `2^53.0` is false in both. The orientation matters — the
+reference already answers false for the truncating one, so asserting only that
+tests nothing; it is the widening orientation, where the reference answers
+true, that this constrains. And `42` and `42.0` hash alike, `-0.0` and `0.0`
+hash alike, `NaN` equals nothing.
 
 ## Open questions
 
@@ -845,6 +849,13 @@ the value nothing.
   `eq-asymmetry.golden` and `valuemap-hash-eq.golden` — and both are
   regenerated with `--reason F33` and `--reason F29` respectively once Bund2
   can run them.
+- **Q18 is closed and Q19 divided.** Q18 asked whether any word can observe
+  `q` away from the 100.0 fixpoint; `"null" json json.to_value` yields
+  `q: 0.0` on the oracle, through two registered in-scope words, so `q` is a
+  field. Q19's value-layer half needs no decision — `Payload::ValueMap` is a
+  `BTreeMap<BundValue, BundValue>`, so the lookup is expressible by
+  construction — and its word-layer half, whether `?key` exposes it, goes to
+  RFC-0002 because D30 mirrored `set` into `get` and named only `get`.
 - **F29 and F30 are settled by D30** — hash mirrors equality, and the `get`
   word mirrors `set`. Nothing OPEN now gates this RFC. Two residues:
   `tests/golden/probes/valuemap-hash-eq.golden` pins the *broken* behaviour
@@ -1091,3 +1102,35 @@ the value nothing.
   value-layer half), `stamp`'s reset by the rebuilding constructors, which D2
   names, and `set` on a `LIST` discarding both the container and the `dt` —
   F35's defect in the sibling word, now **F42**.
+
+- **2026-08-27, post-review-5 work.** Four items, none of which needed a
+  review to identify — they were the residue review 5 left.
+
+  **The criteria are partitioned.** Fourteen were listed as though checkable
+  while `bund2-value` is three lines and eight of them cannot run at all.
+  RFC-0000 separates binding from deferred and says so; this RFC now does the
+  same — 4 binding, 2 vacuous-but-labelled, 8 deferred with each naming what
+  makes it checkable. Without the split, accepting this RFC would have meant
+  accepting against four criteria while appearing to mean fourteen.
+
+  **Q18 is closed on a probe rather than a scan**, which is the whole point:
+  `"null" json json.to_value` yields `q: 0.0` on the oracle through two
+  registered in-scope words. `tests/probes/q-observable.bund`.
+
+  **Q19 is divided** rather than left "undecided" in a table whose job is
+  dispositions. The value layer needs no decision; the word layer is
+  RFC-0002's.
+
+  **Criterion D4's probe suite exists now.**
+  `tests/probes/payload-arms.bund` constructs one value of each arm a Bund
+  program can reach and the golden pins them: **11 payload arms across 13 `dt`
+  values**. That replaces two guesses — twenty, then nineteen — both made by
+  counting declarations rather than reachability.
+
+  Enumerating them turned up one more defect: `wrap` bails with `"Stack is too
+  shallow for inline UNWRAP"`
+  (`reference/Bund/src/stdlib/functions/oop/value_class.rs:85`), the same
+  wrong-word shape as `complex` reporting as `pair`. F40 is extended to cover
+  both.
+
+  The mark moved 0/66 to **0/68**.

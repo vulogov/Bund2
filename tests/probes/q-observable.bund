@@ -1,0 +1,19 @@
+//
+// Probe: Q18. Can a word observe `q` at a value other than 100.0?
+//
+// Two RFC-0001 drafts rendered `q` as the constant 100.0. It is a fixpoint,
+// not a constant: every arithmetic operation averages it
+// (rust_dynamic/src/q.rs:5, math.rs:416-420) and all constructors start at
+// 100.0, so the average never moves. `Value::none` starts at 0.0 instead
+// (create_special.rs:19-21, value.rs:38), and `json.to_value` returns it for
+// a JSON null (cast_json_to_value.rs:39).
+//
+// Both words are registered and in scope, so the path is reachable.
+//
+"probe: json null converts to a value carrying q 0.0, not 100.0" println
+"null" json json.to_value
+debug.display_stack
+
+"probe: for contrast, an ordinary integer sits at the 100.0 fixpoint" println
+42
+debug.display_stack

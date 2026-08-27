@@ -1,0 +1,25 @@
+//
+// Probe: which payload arms a Bund program can actually construct.
+//
+// RFC-0001's criterion 7 asks for a byte-identical wire format "for every
+// payload arm a probe can construct on the oracle", and delegates the set to
+// this probe rather than asserting a count — two drafts guessed twenty and
+// then nineteen, both wrong, because the question is reachability from Bund
+// and not the existence of a Rust constructor.
+//
+// One value of each constructible arm, rendered with its `dt`.
+//
+"probe: one value per constructible payload arm" println
+42            debug.display_stack drop
+1.5           debug.display_stack drop
+true          debug.display_stack drop
+"s"           debug.display_stack drop
+nodata        debug.display_stack drop
+list          debug.display_stack drop
+dict          debug.display_stack drop
+valuemap      debug.display_stack drop
+metrics       debug.display_stack drop
+lambda        debug.display_stack drop
+"null" json   debug.display_stack drop
+`x            debug.display_stack drop
+1 2 pair      debug.display_stack drop

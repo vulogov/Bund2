@@ -1047,7 +1047,7 @@ callers; `Val::Token` likewise.
   three; a claim about a *constructor* has no such excuse.
 
 
-## F40 — `complex` reports itself as `pair`
+## F40 — guard messages name the wrong word
 `stdlib_complex_inline` guards the stack and bails with
 `"Stack is too shallow for inline pair()"`
 (`reference/rust_multistackvm/src/stdlib/artefacts.rs:27`) — the message
@@ -1059,7 +1059,16 @@ So a program that under-feeds `complex` is told that `pair` failed. Both are
 in F18's fourteen, so both already report the wrong *kind* of error; this one
 additionally reports the wrong *word*.
 
-- Found by: RFC-0002 review 4, while checking what F18's fix replaces
+**It is not the only one.** `stdlib_object_value_wrap` — the word `wrap`
+(`reference/Bund/src/stdlib/functions/oop/value_class.rs:168`) — guards the
+stack and bails with `"Stack is too shallow for inline UNWRAP"`
+(`:85`). Confirmed against the oracle: `1 wrap` reports UNWRAP.
+
+So at least two guards name a neighbour rather than themselves, both copied
+along with the guard they sit under.
+
+- Found by: RFC-0002 review 4, while checking what F18's fix replaces;
+  extended while enumerating constructible payload arms for RFC-0001
 - Disposition: **FIX.** The message names the word that failed. It is covered
   by F18's disposition — that fix rewrites these guards anyway — and is
   recorded separately because it is a distinct defect that would survive a
