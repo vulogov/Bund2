@@ -85,6 +85,11 @@ name = "bund2-cli"
 version = "0.0.0"
 dependencies = [
  "bund2",
+ "bund2-api",
+ "bund2-interp",
+ "bund2-stdlib",
+ "bund2-syntax",
+ "bund2-value",
 ]
 
 [[package]]

@@ -12,6 +12,11 @@ name = "bund2"
 path = "src/main.rs"
 
 [dependencies]
+bund2-stdlib.workspace = true
+bund2-syntax.workspace = true
+bund2-interp.workspace = true
+bund2-api.workspace = true
+bund2-value.workspace = true
 bund2.workspace = true
 
 [features]
