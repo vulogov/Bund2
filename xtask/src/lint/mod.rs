@@ -139,7 +139,14 @@ pub fn undefined_types(src: &str, also_introduced: &BTreeSet<String>) -> Vec<(us
         if !in_rust {
             continue;
         }
-        for kw in ["pub enum ", "pub struct ", "pub type ", "enum ", "struct ", "type "] {
+        for kw in [
+            "pub enum ",
+            "pub struct ",
+            "pub type ",
+            "enum ",
+            "struct ",
+            "type ",
+        ] {
             if let Some(rest) = t.strip_prefix(kw) {
                 let name: String = rest
                     .chars()
@@ -183,7 +190,14 @@ pub fn introduced_types(src: &str) -> BTreeSet<String> {
         if !in_rust {
             continue;
         }
-        for kw in ["pub enum ", "pub struct ", "pub type ", "enum ", "struct ", "type "] {
+        for kw in [
+            "pub enum ",
+            "pub struct ",
+            "pub type ",
+            "enum ",
+            "struct ",
+            "type ",
+        ] {
             if let Some(rest) = t.strip_prefix(kw) {
                 let name: String = rest
                     .chars()
@@ -412,7 +426,10 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         let Ok(src) = std::fs::read_to_string(path) else {
             continue;
         };
-        blocks_checked += src.lines().filter(|l| l.trim_start().starts_with("```rust")).count();
+        blocks_checked += src
+            .lines()
+            .filter(|l| l.trim_start().starts_with("```rust"))
+            .count();
         for (line, name) in undefined_types(&src, &all_introduced) {
             findings.push(Finding {
                 doc: rel.clone(),
@@ -469,8 +486,7 @@ fn claimed_entries(line: &str, figure: &str) -> Option<usize> {
     let idx = line.find("entries")?;
     let upto: String = line[..idx].to_string();
     let _ = cs;
-    upto
-        .split_whitespace()
+    upto.split_whitespace()
         .rev()
         .find_map(|t| t.trim_matches(|c: char| !c.is_ascii_digit()).parse().ok())
 }

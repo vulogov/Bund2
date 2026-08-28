@@ -43,7 +43,16 @@ mod dt {
     pub const PTR: u16 = 7;
     pub const LIST: u16 = 9;
     pub const MAP: u16 = 11;
+    pub const PAIR: u16 = 10;
+    pub const CFLOAT: u16 = 15;
+    pub const METRICS: u16 = 16;
+    pub const LAMBDA: u16 = 17;
+    pub const TEXTBUFFER: u16 = 22;
+    pub const JSON: u16 = 24;
+    pub const CONDITIONAL: u16 = 29;
     pub const VALUEMAP: u16 = 30;
+    pub const CLASS: u16 = 31;
+    pub const OBJECT: u16 = 32;
     pub const NODATA: u16 = 97;
 }
 
@@ -102,9 +111,19 @@ pub enum Payload {
     /// The end-of-input marker the parser emits for `EOI`
     /// (`reference/bund_language_parser/src/vm/eoi.rs:8`).
     Exit,
+    Lambda(Vec<BundValue>),
+    Metrics(Vec<Metric>),
+    Json(serde_json::Value),
     /// A boxed scalar. Scalars are inline until they acquire a header, and
     /// `TS::push` tags unconditionally, so anything pushed to a stack is boxed.
     Scalar(BundValue),
+}
+
+/// `reference/rust_dynamic/src/metric.rs`, as the value sees it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Metric {
+    pub stamp: u128,
+    pub data: f64,
 }
 
 /// The header a heap value carries.
@@ -169,6 +188,9 @@ impl Payload {
             Payload::List(_) => "List",
             Payload::Map(_) => "Map",
             Payload::ValueMap(_) => "ValueMap",
+            Payload::Lambda(_) => "Lambda",
+            Payload::Metrics(_) => "Metrics",
+            Payload::Json(_) => "Json",
             Payload::Exit => "Exit",
             Payload::Scalar(_) => unreachable!("a boxed scalar renders as its inner value"),
         }
@@ -219,6 +241,96 @@ impl BundValue {
     #[allow(clippy::mutable_key_type)]
     pub fn valuemap(m: HashMap<BundValue, BundValue>) -> Self {
         Self::heap(VALUEMAP, Payload::ValueMap(m))
+    }
+    pub fn lambda(body: Vec<BundValue>) -> Self {
+        Self::heap(LAMBDA, Payload::Lambda(body))
+    }
+    pub fn metrics(m: Vec<Metric>) -> Self {
+        Self::heap(METRICS, Payload::Metrics(m))
+    }
+    pub fn json(j: serde_json::Value) -> Self {
+        Self::heap(JSON, Payload::Json(j))
+    }
+
+    // The six tags below are the *same* payloads under different `dt`s, which
+    // is the independent-axes design paying for itself: no new arm is needed
+    // to reach six more of the twenty `dt` values the goldens carry.
+
+    /// `from_pair` builds a list and then assigns `dt`
+    /// (`reference/rust_dynamic/src/create.rs:164-167`).
+    pub fn pair(a: BundValue, b: BundValue) -> Self {
+        Self::heap(PAIR, Payload::List(vec![a, b]))
+    }
+    pub fn complex_float(re: f64, im: f64) -> Self {
+        Self::heap(
+            CFLOAT,
+            Payload::List(vec![BundValue::Float(re), BundValue::Float(im)]),
+        )
+    }
+    pub fn textbuffer(s: impl Into<String>) -> Self {
+        Self::heap(TEXTBUFFER, Payload::Str(s.into()))
+    }
+    pub fn conditional(m: BTreeMap<String, BundValue>) -> Self {
+        Self::heap(CONDITIONAL, Payload::Map(m))
+    }
+    pub fn class(m: BTreeMap<String, BundValue>) -> Self {
+        Self::heap(CLASS, Payload::Map(m))
+    }
+    pub fn object(m: BTreeMap<String, BundValue>) -> Self {
+        Self::heap(OBJECT, Payload::Map(m))
+    }
+
+    /// Build a value with an explicit `dt` over a given payload.
+    ///
+    /// The independent-axes design in one function: the differential renderer
+    /// needs it because a golden says `dt: 10, data: List(…)` and nothing else
+    /// distinguishes a `PAIR` from a `LIST`.
+    pub fn with_dt(dt: u16, p: Payload) -> Self {
+        Self::heap(dt, p)
+    }
+
+    /// Combine two values' `q` the way `calc_q` does: the mean
+    /// (`reference/rust_dynamic/src/q.rs:5`, reached from `impl Add` at
+    /// `reference/rust_dynamic/src/math.rs:416-420`).
+    ///
+    /// **D32**: `q` is the mechanism for a future fuzzy-math feature, so what
+    /// Bund2 preserves is the *propagation* and not merely the field. An
+    /// arithmetic result carries the mean of its operands' `q`, which is why
+    /// 100.0 is a fixpoint rather than a default.
+    pub fn combine_q(a: &BundValue, b: &BundValue) -> f64 {
+        (a.q() + b.q()) / 2.0
+    }
+
+    /// Set `q`.
+    ///
+    /// `q` is a field, not the constant two RFC-0001 drafts made it: `calc_q`
+    /// averages it on every arithmetic operation
+    /// (`reference/rust_dynamic/src/q.rs:5`), and `Value::none` — which the
+    /// JSON converter returns for a null — starts at **0.0**, not 100.0.
+    ///
+    /// This existed nowhere until `cargo xtask render` reported four
+    /// differences against `q-observable.golden` and `dt-reachable.golden`:
+    /// the constructor hardcoded 100.0 and nothing could move it, so the one
+    /// case Q18 closed on was unrepresentable.
+    pub fn with_q(self, q: f64) -> Self {
+        let base = self.promote();
+        let BundValue::Heap(h) = &base else {
+            unreachable!()
+        };
+        let mut next = (**h).clone();
+        next.q = q;
+        BundValue::Heap(Rc::new(next))
+    }
+
+    /// Set the tags wholesale. Used to reconstruct a captured rendering.
+    pub fn with_tags(self, tags: BTreeMap<String, String>) -> Self {
+        let base = self.promote();
+        let BundValue::Heap(h) = &base else {
+            unreachable!()
+        };
+        let mut next = (**h).clone();
+        next.tags = tags;
+        BundValue::Heap(Rc::new(next))
     }
 
     fn heap(dt: u16, p: Payload) -> Self {
@@ -647,6 +759,33 @@ mod tests {
 // ---------------------------------------------------------------------------
 
 impl BundValue {
+    /// The `.timestamp` accessor (D2). Sampled on first observation, like the
+    /// identity — and like it, an unadorned scalar has nowhere to keep the
+    /// sample, so observing promotes and the caller writes the promotion back.
+    ///
+    /// **The stamp orders by observation, not construction.** A value built
+    /// first and observed second carries the later stamp. That is what
+    /// laziness gives up, and criterion D7 asserts it rather than working
+    /// around it.
+    pub fn timestamp(&self) -> (f64, Option<BundValue>) {
+        match self {
+            BundValue::Heap(h) => {
+                let s = h.stamp.get();
+                if s != 0.0 {
+                    return (s, None);
+                }
+                let fresh = now_ms();
+                h.stamp.set(fresh);
+                (fresh, None)
+            }
+            scalar => {
+                let boxed = scalar.clone().promote();
+                let (s, _) = boxed.timestamp();
+                (s, Some(boxed))
+            }
+        }
+    }
+
     /// The `.id` accessor: a 21-character nanoid-shaped string.
     ///
     /// Returns the promoted value alongside it, for the same reason
@@ -729,6 +868,34 @@ impl BundValue {
                 }
                 Payload::Bin(b) => {
                     let _ = write!(out, "Binary({b:?})");
+                }
+                Payload::Metrics(m) => {
+                    let _ = write!(out, "Metrics([");
+                    for (i, e) in m.iter().enumerate() {
+                        if i > 0 {
+                            let _ = write!(out, ", ");
+                        }
+                        let stamp = if norm {
+                            "<stamp>".into()
+                        } else {
+                            e.stamp.to_string()
+                        };
+                        let _ = write!(out, "Metric {{ stamp: {stamp}, data: {:?} }}", e.data);
+                    }
+                    out.push_str("])");
+                }
+                Payload::Json(j) => {
+                    let _ = write!(out, "Json({j})");
+                }
+                p @ Payload::Lambda(v) => {
+                    let _ = write!(out, "{}([", p.val_name());
+                    for (i, e) in v.iter().enumerate() {
+                        if i > 0 {
+                            let _ = write!(out, ", ");
+                        }
+                        e.render_into(out, norm);
+                    }
+                    out.push_str("])");
                 }
                 p @ Payload::List(v) => {
                     let _ = write!(out, "{}([", p.val_name());
@@ -1065,5 +1232,109 @@ mod mutation_tests {
             split.identity().0,
             "the split must carry the identity across"
         );
+    }
+}
+
+#[cfg(test)]
+mod arm_tests {
+    use super::*;
+
+    /// Six more `dt` values reached with no new payload arm — the independent
+    /// axes paying for themselves.
+    #[test]
+    fn one_payload_serves_several_tags() {
+        assert_eq!(
+            BundValue::pair(BundValue::Int(1), BundValue::Int(2)).dt(),
+            PAIR
+        );
+        assert_eq!(BundValue::complex_float(1.0, 2.0).dt(), CFLOAT);
+        assert_eq!(BundValue::textbuffer("x").dt(), TEXTBUFFER);
+        assert_eq!(BundValue::conditional(BTreeMap::new()).dt(), CONDITIONAL);
+        assert_eq!(BundValue::class(BTreeMap::new()).dt(), CLASS);
+        assert_eq!(BundValue::object(BTreeMap::new()).dt(), OBJECT);
+    }
+
+    /// A `PAIR` and a `LIST` share the `List` payload, so they render the same
+    /// `data:` and differ only in `dt` — which is exactly the reference's
+    /// behaviour and the reason `dt` cannot be derived from the payload.
+    #[test]
+    fn pair_and_list_differ_only_by_tag() {
+        let p = BundValue::pair(BundValue::Int(1), BundValue::Int(2));
+        let l = BundValue::list(vec![BundValue::Int(1), BundValue::Int(2)]);
+        assert_ne!(p.dt(), l.dt());
+        let (rp, rl) = (p.render(true), l.render(true));
+        assert_eq!(
+            rp.replace("dt: 10", "dt: 9"),
+            rl,
+            "PAIR and LIST must differ only in dt"
+        );
+    }
+
+    /// D7: sampled on first observation, and stable after.
+    #[test]
+    fn timestamp_is_sampled_once() {
+        let v = BundValue::list(vec![]);
+        let (a, _) = v.timestamp();
+        let (b, _) = v.timestamp();
+        assert_eq!(a, b, "the stamp must not resample");
+        assert!(a > 0.0);
+    }
+
+    /// D7's deviation, asserted rather than worked around: the stamp orders by
+    /// observation, so a value constructed first can carry the later stamp.
+    #[test]
+    fn stamps_order_by_observation_not_construction() {
+        let first_built = BundValue::list(vec![]);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let second_built = BundValue::list(vec![]);
+        let (second_stamp, _) = second_built.timestamp();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let (first_stamp, _) = first_built.timestamp();
+        assert!(
+            first_stamp >= second_stamp,
+            "the value built first was observed second and must carry the later stamp"
+        );
+    }
+
+    /// A scalar has nowhere to keep a sample, so observing promotes.
+    #[test]
+    fn observing_a_scalar_stamp_promotes_it() {
+        let (_, promoted) = BundValue::Int(1).timestamp();
+        assert!(promoted.expect("must promote").is_boxed());
+    }
+}
+
+#[cfg(test)]
+mod q_tests {
+    use super::*;
+
+    /// D32: the averaging is the feature in embryo, so it is preserved rather
+    /// than the field being carried inertly.
+    #[test]
+    fn q_averages_and_100_is_a_fixpoint() {
+        let full = BundValue::Int(1);
+        assert_eq!(full.q(), 100.0);
+        assert_eq!(
+            BundValue::combine_q(&full, &full),
+            100.0,
+            "100.0 is a fixpoint"
+        );
+
+        let none = BundValue::None.with_q(0.0);
+        assert_eq!(BundValue::combine_q(&full, &none), 50.0);
+        assert_eq!(
+            BundValue::combine_q(&none, &none),
+            0.0,
+            "and 0.0 is a fixpoint too"
+        );
+    }
+
+    /// The case Q18 closed on, and the one `cargo xtask render` found
+    /// unrepresentable: a value must be able to hold a `q` other than 100.0.
+    #[test]
+    fn q_can_hold_the_json_null_value() {
+        let v = BundValue::None.with_q(0.0);
+        assert_eq!(v.q(), 0.0);
+        assert!(v.render(true).contains("q: 0.0"));
     }
 }

@@ -387,13 +387,22 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             CandidateHeader::Int(1),
         ]))))
     });
-    println!("  {:<44}{n:>7}{b:>9}", "D: construct a 1-element list on a stack");
+    println!(
+        "  {:<44}{n:>7}{b:>9}",
+        "D: construct a 1-element list on a stack"
+    );
     let (n, b, _) = measure(|| dheap.clone());
     println!("  {:<44}{n:>7}{b:>9}", "D: clone a list (Rc bump)");
     let (n, b, _) = measure(|| dheap.dup());
-    println!("  {:<44}{n:>7}{b:>9}", "D: dup a list (fresh header, shared payload)");
+    println!(
+        "  {:<44}{n:>7}{b:>9}",
+        "D: dup a list (fresh header, shared payload)"
+    );
     let (n, b, _) = measure(|| scalar.clone());
-    println!("  {:<44}{n:>7}{b:>9}", "D: dup an unadorned scalar (no header)");
+    println!(
+        "  {:<44}{n:>7}{b:>9}",
+        "D: dup an unadorned scalar (no header)"
+    );
 
     // The case that actually occurs: `push` tags unconditionally, so a scalar
     // on a stack is a boxed scalar. Criterion 2's "unadorned" qualifier is

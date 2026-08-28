@@ -163,7 +163,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
     println!("This does not resolve D14. It produces the list the decision needs.\n");
 
     println!("## the partition\n");
-    println!("  registered names            {:>5}", reg.word_names().len());
+    println!(
+        "  registered names            {:>5}",
+        reg.word_names().len()
+    );
     println!(
         "  out of scope by decision    {:>5}",
         reg.word_names().len() - in_scope.len()
@@ -203,7 +206,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
             continue;
         };
         let e = by_sub.entry(classify::subsystem(&site)).or_default();
-        if v.is_core() { e.0.push(w) } else { e.1.push(w) }
+        if v.is_core() {
+            e.0.push(w)
+        } else {
+            e.1.push(w)
+        }
     }
     let mut split: Vec<(&String, usize, usize)> = by_sub
         .iter()
@@ -249,7 +256,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     && let Ok(src) = std::fs::read_to_string(&p)
                 {
                     let lexed = corpus::lex::lex(&src);
-                    for t in lexed.tokens.iter().filter(|t| t.kind == corpus::lex::Kind::Name) {
+                    for t in lexed
+                        .tokens
+                        .iter()
+                        .filter(|t| t.kind == corpus::lex::Kind::Name)
+                    {
                         out.insert(t.text.clone());
                     }
                 }

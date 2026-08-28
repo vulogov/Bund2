@@ -37,6 +37,10 @@ Oracle
                 a token, that the token is near the cited line. Catches stale
                 line numbers; cannot check that a line means what the prose
                 says.
+  render        RFC-0001 criterion D3, differentially: parse every rendering
+                the goldens hold back into a BundValue, render it, compare.
+                Values Bund2 cannot build yet are counted apart from ones it
+                renders wrong — conflating them turns coverage into a pass.
   lint          Self-consistency, which `cite` cannot see: a preservation row
                 that contradicts the defect disposition it cites, a heading
                 duplicated inside one document, a claimed count that has
@@ -86,9 +90,10 @@ mod conform;
 mod corpus;
 mod golden;
 mod guide;
-mod scope;
 mod layout;
 mod lint;
+mod render;
+mod scope;
 
 /// Counting allocator, so `layout` can report allocations per operation.
 #[global_allocator]
@@ -158,6 +163,13 @@ fn main() -> std::process::ExitCode {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
                 eprintln!("xtask guide: {err}");
+                std::process::ExitCode::FAILURE
+            }
+        },
+        "render" => match render::run(&args) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("xtask render: {err}");
                 std::process::ExitCode::FAILURE
             }
         },

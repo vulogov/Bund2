@@ -248,6 +248,14 @@ the same. So every arithmetic operation writes `q`.
 Every golden shows `100.0` because that is a **fixpoint**, not a constant: all
 constructors start at 100.0 and the average of 100.0 and 100.0 is 100.0.
 
+**And the averaging is the point, not an accident** — D32: `q` is the
+mechanism for a future fuzzy-math feature, stated by the repository owner.
+That rules out a reading the evidence alone left open, since a varying field
+with no reader is defensibly inert state to carry along. It is not: Bund2
+preserves the **propagation**, so an arithmetic result carries the mean of its
+operands' `q`. The distinction matters downstream — a field that merely rides
+along can be dropped from a JIT fast path and a propagating one cannot.
+
 The fixpoint is escapable, and one in-scope word escapes it. `Value::none` is
 `Value::new` (`reference/rust_dynamic/src/create_special.rs:19-21`), which
 sets `q: 0.0` (`reference/rust_dynamic/src/value.rs:38`), and the JSON
@@ -978,7 +986,8 @@ rejects lists and maps outright (`COMPARE: unsupported operand`), so this
 contract is observable only through `PartialEq` — `ValueMap` keys and
 container membership — and not from Bund source.
 
-**D3. The `Debug` rendering reproduces the normalised text the goldens hold**
+**D3 — checked by `cargo xtask render`.** The `Debug` rendering reproduces the
+normalised text the goldens hold
 for **every rendering in `tests/golden/`**. The criterion names the set and
 not a number: the figure drifted in four consecutive reviews because it was
 incremented by hand rather than re-derived, and `cargo xtask lint` cannot see
@@ -986,6 +995,14 @@ prose arithmetic. Not the reference's raw
 output: the goldens already normalise `id`, `stamp` (F14) and map order (F15),
 and this RFC orders the dict rendering deliberately, so a criterion written
 against raw output would demand the order this RFC removes.
+
+The check is differential rather than sampled: `cargo xtask render` parses
+every captured rendering back into a `BundValue`, renders it, and compares.
+**59 of the 87 top-level renderings round-trip identically and none differs**;
+the other 28 are values Bund2 cannot build yet, counted apart, because
+conflating *not built* with *built wrong* is how a coverage number turns into
+a pass. An earlier version of this criterion was checked against five
+hand-copied strings.
 
 **D4. The bincode wire format is byte-identical to the reference** for every
 payload arm a probe can construct on the oracle. **Byte-identity is impossible for maps, and the reference is why.** `Val::Map`

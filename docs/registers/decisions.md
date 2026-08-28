@@ -1325,3 +1325,40 @@ nobody outside this project has run `bund load --world`, this closes as "no",
 D27's condition discharges, and the importer becomes a convenience rather than
 a mitigation. That is knowledge, not analysis, and it is the one input this
 entry cannot gather for itself.
+
+## D32 — `q` is reserved for fuzzy math, and its propagation is preserved
+Stated by the repository owner: **`q` is the mechanism for a future "fuzzy
+math" feature.** It is not vestigial, and it is not a rendering artefact.
+
+That resolves a reading the evidence alone left open. Two RFC-0001 drafts
+treated `q` as a constant to be rendered, and the register closed Q18 once on
+a scan that never opened `q.rs`. The evidence that corrected them showed `q`
+*varies* — `calc_q` averages it on every arithmetic operation
+(`reference/rust_dynamic/src/q.rs:5`, reached from `impl Add` at
+`reference/rust_dynamic/src/math.rs:416-420`), and `Value::none` starts at
+`0.0` (`reference/rust_dynamic/src/create_special.rs:19-21`,
+`value.rs:38`) where every other constructor starts at 100.0.
+
+But "varies" was as far as the evidence went, and a defensible reading of a
+varying field with no reader is *inert state to carry along*. The owner's
+statement rules that out: the averaging **is** the feature, in embryo.
+
+**What Bund2 preserves is therefore the propagation, not just the field.**
+
+- `q` is a field on the header, which RFC-0001 already carries.
+- Arithmetic averages it: `q(a ⊕ b) = (q(a) + q(b)) / 2`, matching `calc_q`.
+- Constructors start at 100.0 and `none` at 0.0, so the 100.0 the goldens
+  show everywhere is a **fixpoint**, not a default — an average of full
+  confidence with full confidence.
+- A word that consumes or reports `q` does not exist yet and is not invented
+  here. D18's gap-filling does not extend to a feature the reference has not
+  built.
+
+The interpretation matters for RFC-0004 and RFC-0005: a field that merely
+rides along can be dropped from a JIT fast path, and a field that carries a
+propagating computation cannot.
+
+- Decided by: repository owner
+- Blocks: nothing; constrains RFC-0001's `q` handling and any later fuzzy-math
+  work
+- Status: **RESOLVED — preserve the propagation.**

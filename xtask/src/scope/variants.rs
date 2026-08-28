@@ -189,7 +189,10 @@ pub fn report(variants: &[Variant], in_scope: &BTreeSet<String>) {
     for (w, why) in BELLWETHERS {
         let mut row = format!("  {w:<24}");
         for v in variants {
-            row.push_str(&format!("{:>12}", if v.core.contains(*w) { "core" } else { "—" }));
+            row.push_str(&format!(
+                "{:>12}",
+                if v.core.contains(*w) { "core" } else { "—" }
+            ));
         }
         println!("{row}   {why}");
     }
