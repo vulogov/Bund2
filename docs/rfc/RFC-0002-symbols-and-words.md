@@ -465,6 +465,14 @@ reference's double resolution is preserved in **effect**: an alias chain
 resolves to the same target it does today. See Preservation analysis for the
 one case where "twice" and "to a fixed point" differ.
 
+**A fixed point may not exist, and the resolver bounds itself.** `alias` is a
+word, so D16 lets a program build a cycle — `a → b → a` — and "resolve to a
+fixed point" is then an instruction to loop forever. The reference cannot hit
+this because it follows a fixed two links and stops. So the resolver caps its
+walk and returns the last link rather than diverging. Bounded rather than
+correct: there is no right answer for a cyclic alias, and stopping beats
+hanging.
+
 ### Native word declaration
 
 ```rust
@@ -482,7 +490,15 @@ They are different types over different receivers, which is *why* the
 reference needs two tables and a fallthrough rather than one.
 
 `NativeFn` is the VM-receiver form, and it is one of the five types
-`bund2-api` guarantees. A stack-tier word becomes a `NativeFn` that reaches
+`bund2-api` guarantees.
+
+**And criterion 4 forces `bund2-api` to own the receiver.** `NativeFn` needs a
+`Vm` to take, `Vm` is RFC-0003's, and criterion 4 forbids `bund2-api` from
+reaching `bund2-interp` — so the trait cannot live where the implementation
+does. `bund2-api` declares it and `bund2-interp` implements it, which is the
+only arrangement the criterion permits. The RFC named `NativeFn` without
+naming its receiver, and the direction only became forced when the signature
+was written down. A stack-tier word becomes a `NativeFn` that reaches
 the stacks through the VM, which is what the fallthrough already achieves at
 `reference/rust_multistackvm/src/multistackvm_inline.rs:52` — the VM hands
 `&mut self.stack` to the stack-tier function. Merging removes a receiver
@@ -639,17 +655,24 @@ them and one was vacuous without saying so. Each below names the tool.
    now because the 13-allocation figure in Motivation is what it answers;
    flagged because listing an unrunnable criterion as though it were runnable
    is what the earlier draft did.
-4. `cargo tree -p bund2-api` lists no `bund2-interp` and no `bund2-jit`.
-   **Near-vacuous today**: the crate depends only on `bund2-value` and both
-   forbidden crates are empty, so it passes because there is nothing to drag
-   rather than because the boundary is enforced. It becomes real when
-   `bund2-interp` has contents. Labelled, as RFC-0001's equivalent is.
+4. **MET, and no longer vacuous.** `cargo tree -p bund2-api` lists
+   `bund2-value` and no `bund2-interp` or `bund2-jit`. The crate now carries
+   the slot table, the interner and the five guaranteed types, so it passes
+   because the boundary holds rather than because there is nothing to drag.
+   It is also what forced the `Vm` trait into `bund2-api`: the criterion
+   leaves nowhere else for `NativeFn`'s receiver to live.
 5. `"dup_one" resolve` succeeds, and so does `resolve` for each of the 31
    stack-layer words — F31's regression test. **This cannot be a golden.**
    Goldens capture what the oracle does, and the oracle *fails* this: F31 is a
    reference defect, so `cargo xtask golden` would pin the failure as expected
    behaviour. It is a Bund2 unit test in `bund2-interp`, and F31's entry is
    the reference for the deviation. The same applies to F32's fix.
+**Implemented and tested** in `crates/bund2-api`: twelve tests, one per claim
+below that a review had to catch. The slot's six independent bindings, the
+sigil at dispatch, a run-time string carrying its sigil, last-write-wins
+registration, F32's fix, the saturating generation, fixed-point alias
+resolution and its cycle bound, and command-before-everything.
+
 6. A name bound as both a lambda and a native resolves to the lambda by
    `name` and to the native by `$name`, **reaching the same slot**, and it
    does so **for a name that never passed the parser**: `"$println" ptr !`
