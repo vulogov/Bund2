@@ -1173,3 +1173,37 @@ looks like from outside — the output went somewhere else.
   submodule checked afterwards. CLAUDE.md already requires the submodule stay
   clean; this records how it stopped being so, since the failure was silent —
   the programs succeeded and nothing reported anything.
+
+## F45 — the bincode wire format is not byte-deterministic for maps
+`Val::Map` is a `HashMap<String, Value>` and `Val::ValueMap` a
+`HashMap<Value, Value>` (`reference/rust_dynamic/src/types.rs:78,79`). bincode
+serialises a map by iterating it, and Rust's `HashMap` uses a per-process
+random seed, so **two runs of the reference serialising the same map emit
+different bytes**.
+
+Confirmed directly: a `HashMap` of eight string keys iterated in two runs of
+one binary gives `["b","e","d","g","c","a","h","f"]` and then
+`["a","e","c","f","d","h","b","g"]`.
+
+This is **F15's defect in a second surface**. F15 records `HashMap` ordering
+in the `Debug` rendering, which cost 15 of the 18 unreproducible programs;
+this is the same non-determinism reaching the serialised form, where no
+normaliser can reach it.
+
+Two consequences:
+
+- **RFC-0001's criterion D4 is unachievable as written** for any value
+  containing a map. "Byte-identical to the reference" presumes the reference
+  has *one* answer to compare against, and for maps it does not. D4 now scopes
+  itself to the map-free arms and states why.
+- **Byte-comparing two world files is meaningless.** D27 and RFC-0002's
+  criterion 7 concern a lambda surviving a save/reload; that round trip is
+  well-defined, but a byte comparison of the stored blob is not.
+
+- Found by: writing the wire format down for `bund2-value`
+- Disposition: **PRESERVE the format, not the bytes.** Bund2 emits the same
+  encoding — same field order, same variant indices — and a map's entry order
+  is whatever its container yields, exactly as the reference's is. What Bund2
+  guarantees, and what a criterion can check, is that the reference can
+  *decode* what Bund2 writes and Bund2 can decode what the reference writes.
+  Byte-equality is checkable only for map-free values, and D4 says so.

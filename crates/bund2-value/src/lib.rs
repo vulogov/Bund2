@@ -21,6 +21,8 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod wire;
+
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};

@@ -988,7 +988,17 @@ and this RFC orders the dict rendering deliberately, so a criterion written
 against raw output would demand the order this RFC removes.
 
 **D4. The bincode wire format is byte-identical to the reference** for every
-payload arm a probe can construct on the oracle. **The scope is measured, the bytes are not.**
+payload arm a probe can construct on the oracle. **Byte-identity is impossible for maps, and the reference is why.** `Val::Map`
+and `Val::ValueMap` are `HashMap`s, bincode serialises a map by iterating it,
+and Rust's `HashMap` iterates in a per-process random order — so the reference
+emits different bytes for the same map on two runs. That is **F45**, F15's
+defect reaching the wire. The criterion therefore reads: byte-identical for
+the **map-free** arms, and *decodable in both directions* for the rest — the
+reference can read what Bund2 writes and Bund2 can read what the reference
+writes. An earlier draft asked for byte-identity across the board, which
+presumes the reference has one answer to compare against.
+
+**The scope is measured, the bytes are not.**
 `tests/probes/payload-arms.bund` constructs one value of each reachable arm
 and `tests/golden/probes/payload-arms.golden` pins them — but that golden
 holds the **`Debug` rendering** and contains no bincode at all, so it settles
