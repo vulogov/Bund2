@@ -60,6 +60,11 @@ impl Stack {
         self.items.pop_back()
     }
 
+    /// Bottom-first, which is the order the reference's box draws in.
+    pub fn contents(&self) -> Vec<BundValue> {
+        self.items.iter().cloned().collect()
+    }
+
     /// **`pull` does not honour the policy and is right not to.** The
     /// reference's `pull` always pops the back, with the FIFO branch commented
     /// out (`reference/rust_multistack/src/stack_pull.rs:9-13`) — and that is
@@ -275,6 +280,18 @@ impl Vm for Interp {
     fn clear(&mut self) {
         let name = self.current_name();
         self.clear_stack(&name);
+    }
+
+    fn snapshot(&self) -> Vec<BundValue> {
+        self.stacks
+            .stacks
+            .get(self.stacks.current_name())
+            .map(Stack::contents)
+            .unwrap_or_default()
+    }
+
+    fn snapshot_workbench(&self) -> Vec<BundValue> {
+        self.stacks.workbench.contents()
     }
 
     fn rotate_left(&mut self) {

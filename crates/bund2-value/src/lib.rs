@@ -850,7 +850,7 @@ impl BundValue {
         let stamp = if norm {
             "<stamp>".to_string()
         } else {
-            format!("{:?}", self.peek_stamp())
+            format!("{:?}", self.render_stamp())
         };
         let _ = write!(
             out,
@@ -978,10 +978,38 @@ impl BundValue {
         }
     }
 
-    fn peek_stamp(&self) -> f64 {
+    /// The stamp for rendering, **materialising it** if it has not been.
+    ///
+    /// Identity can stay lazy through a render because `format_id(0)` is a
+    /// 21-character placeholder — exactly a nanoid's width — so nothing
+    /// downstream can tell. The stamp has no such luxury. A real one prints as
+    /// `1787954810882.0`, fifteen characters; an unmaterialised `0.0` is
+    /// three. The goldens normalise the *text* to `<stamp>`, but the width was
+    /// already baked into the box `debug.display_stack` drew around it:
+    /// `comfy_table` sizes the column to its content, so a short stamp yields
+    /// a border twelve columns narrower than the golden's and the row fails on
+    /// a value that normalisation says is equal. Laziness that changes the
+    /// output is not laziness, it is a defect.
+    ///
+    /// Materialising here is D2's own rule — a stamp is taken at first *need*,
+    /// and being printed is a need — and it inherits D7's accepted
+    /// consequence, that stamps order by observation rather than construction.
+    ///
+    /// A scalar has nowhere to keep the sample and `render` cannot promote
+    /// through `&self`, so it samples without caching. That costs a repeated
+    /// `now_ms()` on an unboxed value, which `push` has usually already boxed.
+    fn render_stamp(&self) -> f64 {
         match self {
-            BundValue::Heap(h) => h.stamp.get(),
-            _ => 0.0,
+            BundValue::Heap(h) => {
+                let s = h.stamp.get();
+                if s != 0.0 {
+                    return s;
+                }
+                let fresh = now_ms();
+                h.stamp.set(fresh);
+                fresh
+            }
+            _ => now_ms(),
         }
     }
 
@@ -1090,16 +1118,51 @@ mod render_tests {
         assert_eq!(ids.len(), 1000);
     }
 
-    /// Rendering must not be an observation, or D2's laziness would be
+    /// Rendering must not mint an **identity**, or D2's laziness would be
     /// unobservable in the goldens — every capture would mint everything.
+    /// It may stay lazy because `format_id(0)` has a real nanoid's width.
     #[test]
-    fn rendering_does_not_mint() {
+    fn rendering_does_not_mint_an_identity() {
         let v = BundValue::list(vec![]);
         let BundValue::Heap(h) = &v else {
             unreachable!()
         };
         let _ = v.render(false);
         assert_eq!(h.identity.get(), 0, "render must not mint");
+    }
+
+    /// The **stamp** is the opposite case: it materialises, because its
+    /// rendered width differs from an unmaterialised one's and that width is
+    /// baked into the box the goldens captured.
+    #[test]
+    fn rendering_materialises_the_stamp() {
+        let v = BundValue::list(vec![]);
+        let BundValue::Heap(h) = &v else {
+            unreachable!()
+        };
+        assert_eq!(h.stamp.get(), 0.0, "lazy until needed");
+        let first = v.render(false);
+        let stamped = h.stamp.get();
+        assert_ne!(stamped, 0.0, "printing is a need");
+        assert_eq!(v.render(false), first, "and the sample is taken once");
+    }
+
+    /// The reason the two differ: a real stamp is fifteen characters wide and
+    /// `0.0` is three, so leaving it lazy would narrow every box drawn round
+    /// it. Rendering to a real width is the property conformance rests on.
+    #[test]
+    fn a_rendered_stamp_has_a_real_stamps_width() {
+        let rendered = BundValue::list(vec![]).render(false);
+        let stamp = rendered
+            .split("stamp: ")
+            .nth(1)
+            .and_then(|s| s.split(',').next())
+            .unwrap();
+        assert_eq!(
+            stamp.len(),
+            format!("{:?}", now_ms()).len(),
+            "rendered {stamp} must be as wide as a freshly sampled stamp"
+        );
     }
 
     /// D30's rendering half: the container hashes, the renderer orders.

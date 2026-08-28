@@ -71,6 +71,20 @@ pub trait Vm {
     fn depth(&self) -> usize;
     fn peek(&self) -> Option<BundValue>;
     fn clear(&mut self);
+    /// The stack's contents **bottom-first**, without disturbing it.
+    ///
+    /// The order is the reference's: `debug.display_stack` iterates
+    /// `&current_stack.stack` directly
+    /// (`reference/Bund/src/stdlib/functions/debug_fun/debug_display_stack.rs:25`),
+    /// and pushes append, so the first row of the box is the *bottom* of the
+    /// stack. `string_concatenation.golden:9-11` confirms it: the program
+    /// leaves `true` then swaps a string over it, and the string prints first.
+    ///
+    /// This exists so a reader is not a mutator. Pulling everything and
+    /// pushing it back reverses that order and, worse, re-runs `push`, which
+    /// rewrites the stack tag on every value it touches.
+    fn snapshot(&self) -> Vec<BundValue>;
+    fn snapshot_workbench(&self) -> Vec<BundValue>;
     /// Circular, which is why a stack is a `VecDeque`.
     fn rotate_left(&mut self);
     fn rotate_right(&mut self);
@@ -431,6 +445,59 @@ mod tests {
     fn noop(_: &mut dyn Vm) -> Result<(), Error> {
         Ok(())
     }
+
+    /// A `Vm` that does nothing, for the tests that only need to *call* a
+    /// native and look at what it returned.
+    ///
+    /// The trait has no default methods on purpose, so this has to spell out
+    /// every one — a `Vm` whose stack operations silently succeed while
+    /// dropping values is the kind of stub a real word could be tested against
+    /// by accident.
+    struct NoVm;
+    impl Vm for NoVm {
+        fn push(&mut self, _: BundValue) {}
+        fn pull(&mut self) -> Option<BundValue> {
+            None
+        }
+        fn depth(&self) -> usize {
+            0
+        }
+        fn peek(&self) -> Option<BundValue> {
+            None
+        }
+        fn clear(&mut self) {}
+        fn snapshot(&self) -> Vec<BundValue> {
+            Vec::new()
+        }
+        fn snapshot_workbench(&self) -> Vec<BundValue> {
+            Vec::new()
+        }
+        fn rotate_left(&mut self) {}
+        fn rotate_right(&mut self) {}
+        fn current_name(&self) -> String {
+            "main".into()
+        }
+        fn to_stack(&mut self, _: &str) {}
+        fn stack_exists(&self, _: &str) -> bool {
+            false
+        }
+        fn ensure_stack(&mut self, _: &str) {}
+        fn depth_of(&self, _: &str) -> usize {
+            0
+        }
+        fn push_to(&mut self, _: &str, _: BundValue) {}
+        fn pull_from(&mut self, _: &str) -> Option<BundValue> {
+            None
+        }
+        fn clear_stack(&mut self, _: &str) {}
+        fn drop_stack(&mut self, _: &str) {}
+        fn rotate_stacks_left(&mut self) {}
+        fn rotate_stacks_right(&mut self) {}
+        fn push_workbench(&mut self, _: BundValue) {}
+        fn pull_workbench(&mut self) -> Option<BundValue> {
+            None
+        }
+    }
     fn eff() -> StackEffect {
         StackEffect {
             consumes: 0,
@@ -519,16 +586,6 @@ mod tests {
         r.register_native("unregister", first, eff(), WordKind::Sync);
         let s = r.register_native("unregister", second, eff(), WordKind::Sync);
         let f = r.slot(s).unwrap().native.unwrap().f;
-        struct NoVm;
-        impl Vm for NoVm {
-            fn push(&mut self, _: BundValue) {}
-            fn pull(&mut self) -> Option<BundValue> {
-                None
-            }
-            fn depth(&self) -> usize {
-                0
-            }
-        }
         assert_eq!(f(&mut NoVm), Err(Error("second".into())));
     }
 

@@ -1207,3 +1207,39 @@ Two consequences:
   guarantees, and what a criterion can check, is that the reference can
   *decode* what Bund2 writes and Bund2 can decode what the reference writes.
   Byte-equality is checkable only for map-free values, and D4 says so.
+
+## F46 — a lazy stamp is observable through the width of the box drawn round it
+
+`debug.display_stack` draws its rows with `comfy_table`, which sizes a column
+to the widest content in it
+(`reference/Bund/src/stdlib/functions/debug_fun/debug_display_stack.rs:14-27`).
+The golden capture then normalises the *text* of a stamp to `<stamp>`, but the
+box was already drawn: the border length is fixed at capture time by the stamp
+the reference actually printed.
+
+D2 makes Bund2's stamp lazy, taken at first need. Nothing before this needed
+one, so a value reached the box unmaterialised and rendered `stamp: 0.0` —
+three characters where the reference prints `1787954810882.0`, fifteen. The
+rows compared equal after normalisation and the borders did not:
+
+    oracle  ╭──────…──────╮   150 columns
+    bund2   ╭──────…──╮       138 columns
+
+Twelve columns, on every non-empty box, in a value whose normalised text was
+already identical. Identity escapes this only by accident: `format_id(0)` is a
+21-character placeholder, exactly a nanoid's width, so its laziness cannot be
+seen.
+
+- Found by: diffing `debug.display_stack` against the oracle on a
+  three-value stack, after the unit test on the frame alone passed
+- Disposition: **Bund2 bug, fixed.** `render` materialises the stamp. This is
+  D2's own rule — first *need*, and printing is a need — and it inherits D7's
+  accepted consequence that stamps order by observation, not construction. A
+  scalar has nowhere to keep the sample and `render` cannot promote through
+  `&self`, so it samples without caching.
+
+The general form is worth more than the instance: **laziness that changes the
+output is not laziness.** Anything deferred must render at the width the
+reference renders it, because a golden captures a layout and not only a value.
+A unit test on the frame cannot catch this — only the oracle can, which is
+what the oracle is for.

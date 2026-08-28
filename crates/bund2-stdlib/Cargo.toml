@@ -11,6 +11,12 @@ rust-version.workspace = true
 bund2-interp.workspace = true
 
 [dependencies]
+# The same table library the reference draws its stack dump with, at the same
+# major version — `comfy-table = "7.1.*"` in reference/Bund/Cargo.toml. Not a
+# convenience: the goldens capture the exact box, and reverse-engineering the
+# padding, row separators and unicode widths would be a near-miss that fails a
+# golden while looking right.
+comfy-table = "7.1"
 bund2-value.workspace = true
 bund2-api.workspace = true
 bund2-ir.workspace = true

@@ -10,6 +10,9 @@
 
 use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
 use bund2_value::BundValue;
+use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+use comfy_table::presets::UTF8_FULL;
+use comfy_table::{ContentArrangement, Table};
 
 fn eff(consumes: u8, produces: u8) -> StackEffect {
     StackEffect { consumes, produces }
@@ -69,54 +72,56 @@ fn space(_vm: &mut dyn Vm) -> Result<(), Error> {
 /// that ends with an empty stack and an empty workbench, and it is the whole
 /// output of `helloworld.golden` beyond the greeting.
 ///
-/// A non-empty stack renders as a table sized to its widest row. That is not
-/// implemented here: getting it byte-exact needs the reference's table
-/// library and its padding rules, and a near-miss would fail a golden while
-/// looking right. Reporting the gap beats guessing at it.
+/// A **non-empty** stack renders as a one-column table, one row per value,
+/// bottom of the stack first.
+///
+/// This draws it with `comfy_table` under the same three settings the
+/// reference applies —
+/// `reference/Bund/src/stdlib/functions/debug_fun/debug_display_stack.rs:14-27`
+/// loads `UTF8_FULL`, applies `UTF8_ROUND_CORNERS`, and sets
+/// `ContentArrangement::Dynamic`. Using the same library is not laziness, it
+/// is the only way to be byte-exact: the goldens capture the box down to the
+/// dashed row separator `├╌╌┤` that the rounded-corners modifier substitutes
+/// for `UTF8_FULL`'s solid one, and a hand-rolled near-miss fails a golden
+/// while looking right.
+///
+/// `Dynamic` sizes to the terminal, so it wraps under one and does not when
+/// output is a pipe. The goldens were captured through a pipe — the widest is
+/// a single unwrapped 190-column row — and `conform` compares captured output,
+/// so both sides see the same absence of a terminal.
 fn draw_box(rows: &[String]) -> String {
     if rows.is_empty() {
+        // Zero columns, so no preset applies and comfy_table prints nothing at
+        // all. The reference still emits a degenerate two-line box, which is
+        // most of what the capture epilogue leaves behind.
         return "╭╮\n╰╯".to_string();
     }
-    let width = rows.iter().map(|r| r.chars().count()).max().unwrap_or(0) + 2;
-    let mut out = String::new();
-    out.push('╭');
-    out.push_str(&"─".repeat(width));
-    out.push_str("╮\n");
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS)
+        .set_content_arrangement(ContentArrangement::Dynamic);
     for r in rows {
-        let pad = width - 2 - r.chars().count();
-        out.push_str(&format!("│ {r}{} │\n", " ".repeat(pad)));
+        table.add_row(vec![r.clone()]);
     }
-    out.push('╰');
-    out.push_str(&"─".repeat(width));
-    out.push('╯');
-    out
+    table.to_string()
 }
 
+/// Displaying is not consuming, so this reads the stack rather than draining
+/// and refilling it. Draining reversed the row order and re-ran `push`, which
+/// rewrites the stack tag on every value it touches.
 fn display_stack(vm: &mut dyn Vm) -> Result<(), Error> {
-    let mut rows = Vec::new();
-    let mut held = Vec::new();
-    while let Some(v) = vm.pull() {
-        rows.push(v.render(false));
-        held.push(v);
-    }
-    // Displaying is not consuming: put them back in the order they were in.
-    for v in held.into_iter().rev() {
-        vm.push(v);
-    }
+    let rows: Vec<String> = vm.snapshot().iter().map(|v| v.render(false)).collect();
     println!("{}", draw_box(&rows));
     Ok(())
 }
 
 fn display_workbench(vm: &mut dyn Vm) -> Result<(), Error> {
-    let mut rows = Vec::new();
-    let mut held = Vec::new();
-    while let Some(v) = vm.pull_workbench() {
-        rows.push(v.render(false));
-        held.push(v);
-    }
-    for v in held.into_iter().rev() {
-        vm.push_workbench(v);
-    }
+    let rows: Vec<String> = vm
+        .snapshot_workbench()
+        .iter()
+        .map(|v| v.render(false))
+        .collect();
     println!("{}", draw_box(&rows));
     Ok(())
 }
@@ -149,6 +154,37 @@ mod tests {
     #[test]
     fn an_empty_stack_is_a_zero_width_box() {
         assert_eq!(draw_box(&[]), "╭╮\n╰╯");
+    }
+
+    /// The box, byte-for-byte, against bytes lifted out of a golden.
+    ///
+    /// These are `tests/golden/tests/string_concatenation.golden:8-12` with
+    /// the two long renderings replaced by short stand-ins — what is under
+    /// test is the frame, not what goes in the cells. The dashed `├╌╌┤` row
+    /// separator is the tell that `UTF8_ROUND_CORNERS` was applied: plain
+    /// `UTF8_FULL` draws it solid.
+    #[test]
+    fn a_non_empty_stack_is_a_rounded_table() {
+        assert_eq!(
+            draw_box(&["alpha".to_string(), "bb".to_string()]),
+            concat!(
+                "╭───────╮\n",
+                "│ alpha │\n",
+                "├╌╌╌╌╌╌╌┤\n",
+                "│ bb    │\n",
+                "╰───────╯",
+            )
+        );
+    }
+
+    /// One row per value, in stack order, and the box is as wide as the
+    /// widest. A single row gets no separator at all.
+    #[test]
+    fn one_row_has_no_separator() {
+        assert_eq!(
+            draw_box(&["x".to_string()]),
+            "╭───╮\n│ x │\n╰───╯"
+        );
     }
 
     /// `println` prints contents, not the `Debug` rendering. Conflating the
