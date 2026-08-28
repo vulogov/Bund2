@@ -100,16 +100,14 @@ pub fn lex(src: &str) -> Result<Vec<Term>, LexError> {
 /// sequence with a `.` is a float, and an exponent without a `.` is not — the
 /// corpus lexer records that `1e5` is a *name* in this language.
 fn classify(tok: &str) -> Term {
-    let numeric_start = tok
-        .chars()
-        .next()
-        .is_some_and(|c| c.is_ascii_digit() || c == '-')
-        && tok
-            .chars()
-            .skip(1)
-            .next()
-            .is_some_and(|c| c.is_ascii_digit())
-        || tok.chars().next().is_some_and(|c| c.is_ascii_digit());
+    // A leading digit, or a sign followed by one. Anything else is a name,
+    // including `-` alone, which is a word.
+    let mut cs = tok.chars();
+    let numeric_start = match cs.next() {
+        Some(c) if c.is_ascii_digit() => true,
+        Some('-') => cs.next().is_some_and(|c| c.is_ascii_digit()),
+        _ => false,
+    };
     if numeric_start {
         if tok.contains('.') {
             if let Ok(f) = tok.parse::<f64>() {
