@@ -337,6 +337,33 @@ impl BundValue {
         BundValue::Heap(Rc::new(HeapValue::new(dt, p)))
     }
 
+    /// The string a `Str` payload holds, if this is one.
+    ///
+    /// Any `dt` — `STRING`, `PTR`, `CALL`, `TEXTBUFFER` all carry `Str`, and
+    /// a word that wants a name does not care which.
+    pub fn as_str(&self) -> Option<String> {
+        match self {
+            BundValue::Heap(h) => match &*h.payload {
+                Payload::Str(s) => Some(s.clone()),
+                Payload::Scalar(inner) => inner.as_str(),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// The integer this holds, boxed or not.
+    pub fn as_int(&self) -> Option<i64> {
+        match self {
+            BundValue::Int(i) => Some(*i),
+            BundValue::Heap(h) => match &*h.payload {
+                Payload::Scalar(inner) => inner.as_int(),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     /// The `dt` tag.
     pub fn dt(&self) -> u16 {
         match self {

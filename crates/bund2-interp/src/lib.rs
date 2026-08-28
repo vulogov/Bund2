@@ -84,6 +84,12 @@ impl Stack {
             self.items.rotate_left(1);
         }
     }
+
+    pub fn rotate_right(&mut self) {
+        if !self.items.is_empty() {
+            self.items.rotate_right(1);
+        }
+    }
 }
 
 /// The stack of stacks, plus the workbench.
@@ -256,11 +262,101 @@ impl Vm for Interp {
     }
 
     fn depth(&self) -> usize {
+        self.depth_of(&self.current_name())
+    }
+
+    fn peek(&self) -> Option<BundValue> {
         self.stacks
             .stacks
             .get(self.stacks.current_name())
-            .map(Stack::len)
-            .unwrap_or(0)
+            .and_then(|s| s.peek().cloned())
+    }
+
+    fn clear(&mut self) {
+        let name = self.current_name();
+        self.clear_stack(&name);
+    }
+
+    fn rotate_left(&mut self) {
+        self.stacks.current_mut().0.rotate_left();
+    }
+
+    fn rotate_right(&mut self) {
+        self.stacks.current_mut().0.rotate_right();
+    }
+
+    fn current_name(&self) -> String {
+        self.stacks.current_name().to_string()
+    }
+
+    fn to_stack(&mut self, name: &str) {
+        self.stacks.to_stack(name);
+    }
+
+    fn stack_exists(&self, name: &str) -> bool {
+        self.stacks.stacks.contains_key(name)
+    }
+
+    fn ensure_stack(&mut self, name: &str) {
+        self.stacks.stacks.entry(name.to_string()).or_default();
+        if !self.stacks.order.iter().any(|n| n == name) {
+            self.stacks.order.push_back(name.to_string());
+        }
+    }
+
+    fn depth_of(&self, name: &str) -> usize {
+        self.stacks.stacks.get(name).map(Stack::len).unwrap_or(0)
+    }
+
+    fn push_to(&mut self, name: &str, v: BundValue) {
+        self.ensure_stack(name);
+        if let Some(s) = self.stacks.stacks.get_mut(name) {
+            s.push(v, name);
+        }
+    }
+
+    fn pull_from(&mut self, name: &str) -> Option<BundValue> {
+        self.stacks.stacks.get_mut(name).and_then(Stack::pull)
+    }
+
+    fn clear_stack(&mut self, name: &str) {
+        if let Some(s) = self.stacks.stacks.get_mut(name) {
+            s.items.clear();
+        }
+    }
+
+    fn drop_stack(&mut self, name: &str) {
+        self.stacks.stacks.remove(name);
+        self.stacks.order.retain(|n| n != name);
+        if self.stacks.order.is_empty() {
+            self.stacks.order.push_back("main".to_string());
+            self.stacks.stacks.entry("main".into()).or_default();
+        }
+    }
+
+    fn rotate_stacks_left(&mut self) {
+        if !self.stacks.order.is_empty() {
+            self.stacks.order.rotate_left(1);
+        }
+    }
+
+    fn rotate_stacks_right(&mut self) {
+        if !self.stacks.order.is_empty() {
+            self.stacks.order.rotate_right(1);
+        }
+    }
+
+    fn push_workbench(&mut self, v: BundValue) {
+        // The workbench "does not carry a specific name"
+        // (`…/Introduction_the_art_of_stack_operations.typ:72`), so the tag it
+        // receives is the stack the value came from — which is what makes a
+        // workbench value's tag a fossil rather than a location.
+        let name = self.current_name();
+        self.stacks.workbench.push(v, &name);
+    }
+
+    fn pull_workbench(&mut self) -> Option<BundValue> {
+        self.stacks.workbench.pull()
     }
 }
 

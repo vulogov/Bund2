@@ -7,6 +7,9 @@ license.workspace      = true
 repository.workspace   = true
 rust-version.workspace = true
 
+[dev-dependencies]
+bund2-interp.workspace = true
+
 [dependencies]
 bund2-value.workspace = true
 bund2-api.workspace = true

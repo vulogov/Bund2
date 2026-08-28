@@ -49,13 +49,51 @@ impl Symbol {
 /// fourth review; it is one of the types `bund2-api` guarantees.
 pub type NativeFn = fn(&mut dyn Vm) -> Result<(), Error>;
 
-/// What the interpreter offers a native word. RFC-0003 fills this in; it
-/// exists here so `NativeFn` has a receiver and the stable surface can be
-/// written against something.
+/// What the interpreter offers a native word.
+///
+/// **The tier merge forces this wider than an external word needs, and
+/// RFC-0002 did not say so.** The reference splits natives in two: the VM tier
+/// takes `&mut VM` and the stack tier takes `&mut TS`
+/// (`reference/rust_multistackvm/src/multistackvm.rs:8`,
+/// `reference/rust_multistack/src/ts.rs:9`). RFC-0002 merges them into one
+/// `NativeFn`, which means a stack word like `rotate_current_left` is the same
+/// type as an external package's word — so the receiver has to expose stack
+/// rotation, named stacks and the workbench, none of which an external word
+/// wants.
+///
+/// The alternative is two receivers, which is the split the merge exists to
+/// remove. Carried as a stated consequence: **the stable surface is as wide
+/// as the widest native**, and the 31 stack-layer words are the widest.
 pub trait Vm {
+    // --- the current stack -------------------------------------------------
     fn push(&mut self, v: BundValue);
     fn pull(&mut self) -> Option<BundValue>;
     fn depth(&self) -> usize;
+    fn peek(&self) -> Option<BundValue>;
+    fn clear(&mut self);
+    /// Circular, which is why a stack is a `VecDeque`.
+    fn rotate_left(&mut self);
+    fn rotate_right(&mut self);
+
+    // --- named stacks ------------------------------------------------------
+    fn current_name(&self) -> String;
+    /// Make a stack current, creating it if absent. Rotates the
+    /// stack-of-stacks rather than reassigning.
+    fn to_stack(&mut self, name: &str);
+    fn stack_exists(&self, name: &str) -> bool;
+    fn ensure_stack(&mut self, name: &str);
+    fn depth_of(&self, name: &str) -> usize;
+    fn push_to(&mut self, name: &str, v: BundValue);
+    fn pull_from(&mut self, name: &str) -> Option<BundValue>;
+    fn clear_stack(&mut self, name: &str);
+    fn drop_stack(&mut self, name: &str);
+    /// Rotate the stack **of stacks**, which is what `stacks_left` acts on.
+    fn rotate_stacks_left(&mut self);
+    fn rotate_stacks_right(&mut self);
+
+    // --- the workbench -----------------------------------------------------
+    fn push_workbench(&mut self, v: BundValue);
+    fn pull_workbench(&mut self) -> Option<BundValue>;
 }
 
 /// A word's failure. RFC-0003 replaces this with a spanned error value.
