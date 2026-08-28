@@ -262,7 +262,13 @@ impl Registry {
     /// (`reference/rust_multistackvm/src/stdlib/lambdas/registry.rs:89,90`) and
     /// the second wins, which is why no lambda can be unregistered. A builder
     /// that deduped would silently change which handler runs.
-    pub fn register_native(&mut self, name: &str, f: NativeFn, effect: StackEffect, kind: WordKind) -> Symbol {
+    pub fn register_native(
+        &mut self,
+        name: &str,
+        f: NativeFn,
+        effect: StackEffect,
+        kind: WordKind,
+    ) -> Symbol {
         let s = self.interner.intern(name);
         let slot = self.slot_mut(s);
         slot.native = Some(Native { f, effect, kind });
@@ -290,7 +296,13 @@ impl Registry {
         a
     }
 
-    pub fn register_command(&mut self, name: &str, f: NativeFn, effect: StackEffect, kind: WordKind) -> Symbol {
+    pub fn register_command(
+        &mut self,
+        name: &str,
+        f: NativeFn,
+        effect: StackEffect,
+        kind: WordKind,
+    ) -> Symbol {
         let s = self.interner.intern(name);
         let slot = self.slot_mut(s);
         slot.command = Some(Native { f, effect, kind });
@@ -360,6 +372,13 @@ impl Registry {
         Resolved::Unbound
     }
 
+    /// Where an alias chain lands, for a caller that needs the target slot
+    /// rather than the verdict — dispatch does, because the handler lives on
+    /// the target and not on the alias.
+    pub fn resolve_target(&self, s: Symbol) -> Symbol {
+        self.follow(s)
+    }
+
     /// Slots that carry at least one binding. A name interned but never bound
     /// is not a word.
     pub fn bound(&self) -> usize {
@@ -375,7 +394,10 @@ mod tests {
         Ok(())
     }
     fn eff() -> StackEffect {
-        StackEffect { consumes: 0, produces: 0 }
+        StackEffect {
+            consumes: 0,
+            produces: 0,
+        }
     }
     fn native(r: &mut Registry, name: &str) -> Symbol {
         r.register_native(name, noop, eff(), WordKind::Sync)

@@ -438,6 +438,63 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     println!("  the header design an integer never touches the heap, so the");
     println!("  lazy identity D1 specifies costs nothing until observed.\n");
 
+    // -----------------------------------------------------------------------
+    // RFC-0002 criterion 3. Until `bund2-interp` existed there was no VM to
+    // dispatch in, and the criterion was listed with no tool that could run
+    // it — which RFC-0002's second review recorded.
+    println!("## allocations per dispatch  (RFC-0002 criterion 3)\n");
+    {
+        use bund2_api::{StackEffect, Vm, WordKind};
+        use bund2_interp::Interp;
+        use bund2_value::BundValue;
+
+        fn nop(_: &mut dyn Vm) -> Result<(), bund2_api::Error> {
+            Ok(())
+        }
+        fn pusher(vm: &mut dyn Vm) -> Result<(), bund2_api::Error> {
+            vm.push(BundValue::Int(1));
+            Ok(())
+        }
+        let eff = StackEffect {
+            consumes: 0,
+            produces: 0,
+        };
+
+        let mut i = Interp::new();
+        let plain = i.registry.register_native("w", nop, eff, WordKind::Sync);
+        i.registry.register_alias("b", "w");
+        let aliased = i.registry.register_alias("a", "b");
+        let pushes = i.registry.register_native("p", pusher, eff, WordKind::Sync);
+
+        // Warm anything lazily initialised before measuring.
+        let _ = measure(|| i.dispatch(plain, false));
+
+        let (n, b, _) = measure(|| i.dispatch(plain, false));
+        println!("  {:<44}{n:>7}{b:>9}", "dispatch a native by Symbol");
+        let (n, b, _) = measure(|| i.dispatch(aliased, false));
+        println!("  {:<44}{n:>7}{b:>9}", "dispatch through a two-link alias");
+        let (n, b, _) = measure(|| i.dispatch(pushes, false));
+        println!(
+            "  {:<44}{n:>7}{b:>9}",
+            "dispatch a word that pushes a scalar"
+        );
+        let (n, b, _) = measure(|| i.dispatch_name("w"));
+        println!(
+            "  {:<44}{n:>7}{b:>9}",
+            "dispatch by name (lookup, no intern)"
+        );
+        println!();
+        println!("  The reference allocates **thirteen** strings and hashes");
+        println!("  eight times to dispatch `dup`, itemised per call site in");
+        println!("  RFC-0002's Motivation. Dispatch by Symbol is the whole");
+        println!("  point, and the alias row shows the chain costs nothing");
+        println!("  extra because a link is an index.\n");
+        println!("  The pushing row is not zero, and that is RFC-0001's");
+        println!("  boxing cost, not a dispatch cost: `TS::push` tags every");
+        println!("  value with no type test, so a scalar reaching a stack is");
+        println!("  boxed. RFC-0003 may move the tag into the stack slot.\n");
+    }
+
     println!("  What this does NOT measure: the reference's own allocation");
     println!("  behaviour, since reference/ is deliberately not linked into");
     println!("  this workspace. For that, `cargo xtask bench` times the oracle");

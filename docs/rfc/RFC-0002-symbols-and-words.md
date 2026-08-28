@@ -647,14 +647,20 @@ them and one was vacuous without saying so. Each below names the tool.
    core set to 287 once `stacks_left` is implemented — the tools print 497 and
    286 until then. **Tool:** `cargo xtask coverage`, reading the partition
    `cargo xtask scope --write` generates.
-3. Dispatching a word allocates **0** times. **No tool exists yet**:
-   `cargo xtask layout` measures value shapes with a counting allocator and
-   has no VM to dispatch in. This criterion becomes checkable when
-   `bund2-interp` can execute a `CALL`, and the harness is the counting
-   allocator moved behind a `cargo xtask dispatch` that RFC-0003 adds. Listed
-   now because the 13-allocation figure in Motivation is what it answers;
-   flagged because listing an unrunnable criterion as though it were runnable
-   is what the earlier draft did.
+3. **MET.** Dispatching a word allocates **0** times, measured by
+   `cargo xtask layout`'s counting allocator now that `bund2-interp` gives it
+   a VM to dispatch in. Zero by `Symbol`, zero **through a two-link alias** —
+   a link is an index, so the chain costs nothing extra — and zero by name,
+   since a lookup that misses does not intern. Against the thirteen
+   allocations and eight hash lookups the reference needs for `dup`, itemised
+   per call site in Motivation.
+
+   One row is deliberately not zero: **a word that pushes a scalar allocates
+   8 times and 901 bytes.** That is RFC-0001's boxing cost, not a dispatch
+   cost — `TS::push` tags every value with no type test, so a scalar reaching
+   a stack is boxed. It is reported beside the others so the two are not
+   confused, and it is the figure the stack-slot alternative RFC-0001 defers
+   to RFC-0003 would be judged against.
 4. **MET, and no longer vacuous.** `cargo tree -p bund2-api` lists
    `bund2-value` and no `bund2-interp` or `bund2-jit`. The crate now carries
    the slot table, the interner and the five guaranteed types, so it passes

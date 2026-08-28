@@ -12,3 +12,5 @@ rust-version.workspace = true
 # `cargo xtask render` checks the renderer against the goldens, so it needs
 # the type it is checking.
 bund2-value = { path = "../crates/bund2-value" }
+bund2-api = { path = "../crates/bund2-api" }
+bund2-interp = { path = "../crates/bund2-interp" }
