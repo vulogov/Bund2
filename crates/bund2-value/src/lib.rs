@@ -44,6 +44,15 @@ mod dt {
     pub const LIST: u16 = 9;
     pub const MAP: u16 = 11;
     pub const PAIR: u16 = 10;
+    /// `TIME` and `CINTEGER` have no constructor in Bund2 yet. They are here
+    /// because the comparison gate names them by tag: `stdlib_logic_compare`
+    /// admits `INTEGER | FLOAT | CINTEGER | CFLOAT | TIME` as operand types
+    /// (`reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:18,20`),
+    /// and that gate reads `type_of()`, which is the `dt` tag verbatim
+    /// (`reference/rust_dynamic/src/value_types.rs:5-7`). Writing the gate
+    /// with two of its five tags missing would be writing a different gate.
+    pub const TIME: u16 = 13;
+    pub const CINTEGER: u16 = 14;
     pub const CFLOAT: u16 = 15;
     pub const METRICS: u16 = 16;
     pub const LAMBDA: u16 = 17;
@@ -362,6 +371,32 @@ impl BundValue {
             },
             _ => None,
         }
+    }
+
+    /// The inline scalar inside, looking through boxing.
+    ///
+    /// `push` boxes every scalar it touches, because `TS::push` writes a
+    /// `stack` tag unconditionally and an inline `Int` has nowhere to keep
+    /// one. So a word that pulls its operands never sees `BundValue::Int`; it
+    /// sees `Heap { payload: Scalar(Int) }`. Any word that needs to know
+    /// *which* scalar kind it has — as the comparisons do, since the
+    /// reference's ordering branches on `Val::I64` against `Val::F64` — has to
+    /// look through that, and matching the outer value alone silently takes
+    /// the wrong arm.
+    ///
+    /// This is the tag/payload split seen from the other side: [`dt`] answers
+    /// what the value is labelled, this answers what it holds.
+    ///
+    /// [`dt`]: BundValue::dt
+    pub fn unboxed(&self) -> &BundValue {
+        let mut v = self;
+        while let BundValue::Heap(h) = v {
+            match &*h.payload {
+                Payload::Scalar(inner) => v = inner,
+                _ => break,
+            }
+        }
+        v
     }
 
     /// The `dt` tag.

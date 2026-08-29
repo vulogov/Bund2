@@ -1243,3 +1243,73 @@ output is not laziness.** Anything deferred must render at the width the
 reference renders it, because a golden captures a layout and not only a value.
 A unit test on the frame cannot catch this — only the oracle can, which is
 what the oracle is for.
+
+## F47 — every ordering comparison answers true when the operand kinds differ
+
+`PartialOrd for Value` overrides `lt`, `le`, `gt` and `ge` individually, and
+each override matches the receiver's payload arm against the operand's. When
+they differ, every one of them falls to `_ => return true`
+(`reference/rust_dynamic/src/ord.rs:16,24,55,63,94,102,133,141`).
+
+So an integer against a float answers **true to all four operators at once**,
+including the two that cannot both hold. Confirmed against the oracle:
+
+    1 2.0 <     true
+    1 2.0 >     true
+    1 2.0 <=    true
+    1 2.0 >=    true
+
+The sane implementation sitting next to it never runs. `partial_cmp` delegates
+to `Ord::cmp` (`:6-8`), and `cmp` compares `I64` against `I64` properly
+(`:170-177`) — but Rust's `<` calls `PartialOrd::lt`, and the override shadows
+it. The comparison words reach the broken path
+(`reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:29-39`).
+
+Note that `cmp` is no better across kinds: it falls back to comparing **ids**
+(`:175`), so an int against a float would order by minting order. Neither path
+gives a usable answer; only the overrides are reachable.
+
+- Found by: reading `ord.rs` while implementing the comparison words, then
+  probing all four operators against the oracle
+- Disposition: **PRESERVED, pending D33.** Bund2 reproduces it exactly. It is
+  a defect, but fixing it is a deviation, and an unplanned deviation is a
+  decision. D30 settled equality across int/float and did not reach ordering.
+  D33 carries the question; until it resolves, the reference's answers stand
+  and `crates/bund2-stdlib/src/logic.rs` pins all four in a test.
+
+## F48 — `conform` cannot express a deviation the owner already approved
+
+D30 mandates two deviations from the reference and names the goldens each one
+breaks: `eq-asymmetry` (F33) and `valuemap-hash-eq` (F29). Both are approved.
+Neither can be recorded as approved.
+
+`cargo xtask conform` compares captured bytes and counts equality
+(`xtask/src/conform/mod.rs:150`). A golden Bund2 deliberately disagrees with
+fails, permanently, and sits in the failure list looking exactly like a
+regression.
+
+CLAUDE.md prescribes `cargo xtask golden --accept <name> --reason <ref>` for
+the original-implementation-bug disposition, but that is the wrong instrument
+here. `--accept` re-runs the **oracle** and writes what it produced
+(`xtask/src/golden/mod.rs:582-586`). The oracle has not changed, so the bytes
+are identical, the golden is reported unchanged, and Bund2 still fails it.
+`--accept` handles a changed *capture*; it has nothing to say about a changed
+*Bund2*.
+
+Two consequences:
+
+- **The conformance number understates Bund2 and will keep doing so.** Every
+  approved deviation is a permanent subtraction, and the count cannot
+  distinguish one from a real regression — which is the one thing the number
+  exists to do.
+- **The baseline ratchet enforces the wrong direction.** Implementing an
+  approved deviation *lowers* the count, so `conform` reports a regression for
+  doing what a decision instructed.
+
+- Found by: implementing `==` under D30 and looking for where to record that
+  `tests/golden/probes/eq-asymmetry.golden` is now expected to disagree
+- Disposition: **OPEN.** The shape is a per-golden deviation register keyed by
+  the approving reference, so that a deviating golden is compared against the
+  recorded Bund2 answer instead of the oracle's, and counted as a pass with
+  its justification named. That changes what the health number means, so it is
+  the owner's call and not a tooling detail — raised as part of D33's context.

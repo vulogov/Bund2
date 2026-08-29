@@ -1362,3 +1362,52 @@ propagating computation cannot.
 - Blocks: nothing; constrains RFC-0001's `q` handling and any later fuzzy-math
   work
 - Status: **RESOLVED — preserve the propagation.**
+
+## D33 — does D30's exact numeric comparison extend to ordering?
+
+D30's amendment made equality exact across int and float, because a valuemap
+needs a bucket assignment and an asymmetric equality cannot have one. Ordering
+was never in its path: hashing does not consult `<`.
+
+So `==` is now exact and symmetric while `<`, `>`, `<=` and `>=` still answer
+**true to all four at once** on an int against a float (F47). That leaves the
+two halves of comparison disagreeing about what a number is.
+
+### Options
+
+1. **Preserve.** Ordering keeps the reference's answers; only equality
+   deviates, and only where D30 said. Smallest deviation surface, and the
+   goldens keep their meaning.
+2. **Extend exactness to ordering.** `1 2.0 <` becomes true and the other
+   three become false, by comparing the mathematical values as D30 defines
+   them. Comparison becomes internally consistent — `a < b`, `a == b`,
+   `a > b` exactly one of which holds — at the cost of a second deviation and
+   the goldens that pin the current answers.
+3. **Extend, and reject mixed kinds instead.** Bail as the gate already does
+   for a string operand. Consistent, but it breaks programs that today get an
+   answer, and the reference does admit the comparison.
+
+### Recommendation
+
+**Option 2.** D30's reasoning already applies: it chose exactness because the
+alternatives were not valid relations, and neither truncation nor widening
+gives a valid *order* either. Option 1 leaves `42 == 42.0` true while
+`42 < 42.0` and `42 > 42.0` are also both true, which no program can reason
+about. The deviation is the same one D30 already took, finished rather than
+extended.
+
+Against it: option 1 is free and this is not. Ordering across kinds may simply
+be rare in the corpus, in which case the inconsistency costs little — that is
+measurable and worth measuring before deciding.
+
+### What is implemented meanwhile
+
+**Option 1**, because preserving the reference is the default and needs no
+decision. `crates/bund2-stdlib/src/logic.rs` pins all four mixed-kind answers
+in a test, so whichever way this resolves the change is one edit and one test.
+
+- Depends on: D30 (equality, resolved), F47 (the defect), F48 (there is
+  currently no way to record the resulting golden disagreement as approved —
+  which applies to D30's two existing deviations already, and would apply to
+  this one too)
+- Status: **OPEN**

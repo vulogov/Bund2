@@ -6,8 +6,11 @@ pub mod stack;
 
 pub mod console;
 
+pub mod logic;
+
 /// Register everything this crate provides.
 pub fn register_all(r: &mut bund2_api::Registry) {
     stack::register(r);
     console::register(r);
+    logic::register(r);
 }

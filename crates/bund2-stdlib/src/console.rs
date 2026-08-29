@@ -24,6 +24,10 @@ fn eff(consumes: u8, produces: u8) -> StackEffect {
 /// `Value { id: … data: String("Hello World!") … }`. The `Debug` rendering is
 /// `debug.display_stack`'s business, and conflating the two is why the two
 /// functions are separate here.
+/// `push` boxes scalars, so this looks through the box before matching. A
+/// `Bool` that reached a stack arrives as `Heap { payload: Scalar(Bool) }`,
+/// and matching the outer value alone sent it to the `Debug` rendering — the
+/// oracle prints `false` where that printed `Value { id: … }`.
 fn display(v: &BundValue) -> String {
     if let Some(s) = v.as_str() {
         return s;
@@ -31,7 +35,7 @@ fn display(v: &BundValue) -> String {
     if let Some(i) = v.as_int() {
         return i.to_string();
     }
-    match v {
+    match v.unboxed() {
         BundValue::Float(f) => format!("{f}"),
         BundValue::Bool(b) => b.to_string(),
         BundValue::Nodata | BundValue::None => String::new(),
