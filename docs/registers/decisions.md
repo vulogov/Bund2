@@ -127,7 +127,88 @@ JIT-eligible, or permanently Tier 0? Permanently Tier 0 removes a whole class
 of unbounded code-memory growth.
 - Blocks: RFC-0003, RFC-0005
 - Default: permanently Tier 0
-- Status: OPEN
+- Status: **RESOLVED — no eval-specific tier rule. Eligibility falls out of the
+  content-hash compiled cache, bounded by that cache's cap.**
+
+### The question was miscast
+
+It asks which tier eval'd code belongs to, which presumes eval'd code is a
+thing a tier can hold. It is not. `bund_compile_and_eval` parses the string and
+`apply`s each token straight into the VM, retaining nothing
+(`reference/Bund/src/stdlib/helpers/eval.rs`); `Bund::eval` is the same loop
+(`reference/bundcore/src/bundcore_eval.rs:7-45`, and F52 records the
+duplication). There is no artifact, no name, and nothing to attach compiled
+code to. A tier policy needs a subject before it needs a verdict.
+
+### Code arriving through eval has two fates, and only one is in scope
+
+A snippet that calls `register` installs a **named lambda** in the ordinary
+table (`reference/rust_multistackvm/src/stdlib/lambdas/registry.rs:5-22`).
+From that moment it is indistinguishable from a lambda written in source —
+reached through `apply` → `is_lambda` → `lambda_eval` — and it is JIT-eligible
+by the normal word path whatever this decision says. D3 governs only the
+*other* fate: the token stream applied once and discarded.
+
+### What eligibility would actually require
+
+Three things, none of them specific to eval:
+
+1. **A stable key.** A content hash of the snippet, since it has no name.
+2. **Reuse.** A hit counter on that key, promoting at a threshold.
+3. **A bound.** A cap with eviction, because distinct snippets are distinct
+   compilation units — which is exactly the unbounded growth this decision was
+   opened to prevent.
+
+RFC-0003 already owes (1) — "compiled cache keyed by content hash" is its
+assigned improvement for lambda bodies — and RFC-0005 already owes (3), as
+"code-memory caps; recompile caps; demotion policy". Both exist for reasons
+that have nothing to do with eval.
+
+### The decision
+
+**Do not legislate a tier for eval output.** Hash the token stream as any
+other body is hashed and let the ordinary promotion threshold decide. A snippet
+that repeats gets hot and compiles; a snippet that never repeats never crosses
+the threshold and is never compiled. Code memory is bounded by the cache cap,
+not by a carve-out.
+
+"Permanently Tier 0" is only *necessary* if the cache is not content-keyed. It
+is available at any time as a one-line policy if evidence later demands it, and
+resolving this way does not spend that option.
+
+### Why this is safe on the evidence
+
+`bund.eval` appears **once in the 132-program corpus**, at
+`reference/Bund/examples/code_snippets/bund_shell.bund:24` — and it is a REPL.
+`input*` is a readline loop that pushes each typed line and evaluates the body
+per iteration (`reference/Bund/src/stdlib/functions/io/input.rs:105-116`), so
+every evaluation sees a different string.
+
+That is the adversarial case for JIT eligibility, and content-hash keying
+handles it correctly *without* a special rule: N distinct lines produce N keys
+with zero hits, nothing reaches the threshold, and nothing is compiled. A blunt
+"permanently Tier 0" gets the same answer here but also excludes
+`bund.eval-file` re-run in a loop — same file, same hash, genuinely hot — which
+it cannot distinguish.
+
+### Consequences
+
+- **RFC-0003 is unblocked**, and gains no eval-specific machinery. It specifies
+  one evaluator (F52) and one content-hash cache; eval uses both.
+- **RFC-0005 inherits the bound.** The cap and demotion policy it already owes
+  are now load-bearing for this decision too, and must be stated as such rather
+  than left as tuning.
+- **A Tier-0 win is available in the same place.** The reference re-parses
+  identical strings on every call — there is no parse cache at all. Keying
+  parses by the same content hash helps the REPL case with no JIT involved.
+- **`--noeval` remains the hard answer.** It already replaces all four eval
+  words with a bailing stub (`reference/Bund/src/stdlib/functions/bund/bund_eval.rs:117-121`),
+  so a build in which this question cannot arise is a supported configuration
+  and not something Bund2 has to invent.
+- **Revisit if a workload repeats snippets.** The evidence here is one corpus
+  program. If a real workload evals the same string hot, this decision already
+  does the right thing; if one evals varying strings faster than the cache
+  evicts, the cap is the lever, and that is RFC-0005's to tune.
 
 ## D4 — integer width
 Is full `i64` required, or are 51-bit integers acceptable? The latter allows

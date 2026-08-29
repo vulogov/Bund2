@@ -1431,3 +1431,23 @@ declared at `bund_execute/mod.rs:3` and called from `execute.rs:91`.
 - Disposition: **Nothing to port.** Recorded so a later reader does not ground
   a claim in the dead copy — a `path:line` citation into it would resolve, and
   be about code that never runs.
+
+## F55 — `input*`'s lambda type check is disabled by operator precedence
+
+`if ! lambda_value.type_of() == LAMBDA`
+(`reference/Bund/src/stdlib/functions/io/input.rs:91`) does not negate the
+comparison. `!` binds to `type_of()`, which returns `u16`, so this is a
+**bitwise complement**: `(!dt) == 17`. For that to hold `dt` would have to be
+`65518`, which is not a type tag — the guard can never fire, and its message
+`INPUT*: #1 must be a LAMBDA` is unreachable.
+
+The effect is only a worse error. A non-lambda passes the guard and reaches
+`lambda_eval`, which rejects it with `This is not a lambda`
+(`reference/rust_multistackvm/src/multistackvm_lambda_eval.rs:28`) — so the
+operation still fails, naming the wrong layer.
+
+- Found by: reading `input*` to ground D3's REPL evidence
+- Disposition: **Bund2 checks the type it means to check.** The reachable
+  behaviour changes only in the text of an error on an already-failing path.
+  If a golden pins that text it needs `--accept` under this F-number, and F48
+  applies.
