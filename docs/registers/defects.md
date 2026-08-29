@@ -1313,3 +1313,121 @@ Two consequences:
   recorded Bund2 answer instead of the oracle's, and counted as a pass with
   its justification named. That changes what the health number means, so it is
   the owner's call and not a tooling detail — raised as part of D33's context.
+
+## F49 — the grammar accepts digit separators the token handler cannot convert
+
+`digits` admits `_` between digits — `digits = @{ (ASCII_DIGIT | ("_" ~
+ASCII_DIGIT))+ }` (`reference/bund_language_parser/bund.pest:49`) — and both
+`integer` and `float` are built from it (`:22-23`). The handler then parses the
+raw token text with `lexical_core`, which rejects `_`
+(`reference/bund_language_parser/src/vm/integer.rs:8-14`, and the same shape in
+`float.rs:8-14`).
+
+So `1_000` parses and then fails conversion. Against the oracle it is a hard
+error, not a fallback to a name:
+
+    Error parsing token: Error converting INT to VALUE: lexical parse error:
+    'invalid digit found' at index 1
+
+- Found by: reading the grammar for RFC-0003, then probing the oracle
+- Disposition: **PRESERVE the observable behaviour** — `1_000` is an error in
+  this language and a program relying on it cannot exist. Bund2's parser
+  should reject it at the same point rather than silently accepting a literal
+  the reference refuses. Worth stating in RFC-0003 because the obvious reading
+  of the grammar alone says the opposite.
+
+## F50 — a leading-zero integer silently parses as several values
+
+`int = @{ "0" | (ASCII_NONZERO_DIGIT ~ digits?) }`
+(`reference/bund_language_parser/bund.pest:48`) cannot match a run beginning
+with `0` followed by more digits. The grammar does not fail — it matches `0`,
+then matches again, so the literal decomposes.
+
+`007` puts **three** integers on the stack: `I64(0)`, `I64(0)`, `I64(7)`.
+Confirmed against the oracle with `debug.display_stack`.
+
+This is worse than F49, which at least errors. A zero-padded number — a date
+field, an ID, an octal-looking constant — is accepted and means something
+entirely different, with nothing printed to say so.
+
+- Found by: reading the grammar for RFC-0003, then probing the oracle
+- Disposition: **PRESERVE.** It follows from the grammar and any program in
+  the corpus that contains a zero-padded literal already means the decomposed
+  form. Changing it would change those programs. RFC-0003 states it, and
+  `bund2 check` (RFC-0004) is the right place to warn.
+
+## F51 — `{}` and `[]` are parse errors
+
+`lambda = { "{" ~ term+ ~ "}" }` and `list = { "[" ~ term+ ~ "]" }`
+(`reference/bund_language_parser/bund.pest:31-32`) both require **at least one**
+term. There is no empty form.
+
+Confirmed: `{} 1 println` fails at `1:2`, pointing at the `}`.
+
+An empty lambda is constructible at runtime — `conditional_run` defaults a
+missing slot to `Value::lambda()`
+(`reference/Bund/src/stdlib/functions/conditional/conditional_ifthenelse.rs:17,21,25`)
+— so the value exists and only the *literal* is unspellable.
+
+- Found by: reading the grammar for RFC-0003, then probing the oracle
+- Disposition: **PRESERVE**, and state it in RFC-0003. A parser that accepts
+  `{}` would accept programs the reference rejects, which is the direction
+  that silently breaks the oracle relationship.
+
+## F52 — the interpreter loop exists twice, verbatim
+
+`Bund::eval` (`reference/bundcore/src/bundcore_eval.rs:7-45`) and
+`bund_compile_and_eval` (`reference/Bund/src/stdlib/helpers/eval.rs`) are the
+same loop: append `\n`, `bund_parse`, then match each word's `dt` — `NONE`
+continue, `EXIT` break, `ERROR` bail, everything else `apply` — down to the
+identical error strings.
+
+They live in different crates, so a fix to one drifts from the other silently.
+The top-level path uses the first (`bc.eval`, via
+`reference/Bund/src/stdlib/helpers/run_snippet.rs`), and `bund.eval` uses the
+second.
+
+- Found by: reading both eval paths for RFC-0003
+- Disposition: **Bund2 has one loop.** Not a behavioural deviation — the two
+  are currently identical, so collapsing them preserves what both do. RFC-0003
+  specifies a single evaluator and the duplication does not survive.
+
+## F53 — `execute.` guards the main stack and then pulls the workbench
+
+`stdlib_execute_from_workbench_inline` tests `vm.stack.current_stack_len() < 1`
+(`reference/rust_multistackvm/src/stdlib/execute.rs:117`) — the **main** stack
+— before delegating with `StackOps::FromWorkBench`, which pulls from the
+**workbench** (`:22`).
+
+So a value waiting on the workbench cannot be executed while the main stack
+happens to be empty. Confirmed against the oracle: with a PTR on the workbench
+and nothing on the stack, `execute.` returns
+
+    Stack is too shallow for inline execute()
+
+The base function's own guard is correct (`:14-18`), which is why this is only
+reachable through the outer wrapper. `bund.eval.` gets the same shape right,
+testing `vm.stack.workbench.len()`
+(`reference/Bund/src/stdlib/functions/bund/bund_eval.rs:17-21`), so the
+convention is clear and this is the outlier.
+
+- Found by: reading `execute.rs` for RFC-0003, then probing the oracle
+- Disposition: **Bund2 checks the stack it pulls from.** An
+  original-implementation bug. It widens what is accepted rather than changing
+  an answer, so no golden that passes today can stop passing; a golden that
+  pins the error message would need `--accept` under this F-number, and F48
+  applies.
+
+## F54 — a second, orphaned copy of `execute_object`
+
+`reference/rust_multistackvm/src/stdlib/execute_types/execute_object.rs`
+exists but is not declared in `execute_types/mod.rs`, which lists only
+`conditional_through` and `execute_conditionals` (`mod.rs:31-33` in a 38-line
+file). The reachable copy is
+`reference/rust_multistackvm/src/stdlib/bund_execute/execute_object.rs`,
+declared at `bund_execute/mod.rs:3` and called from `execute.rs:91`.
+
+- Found by: resolving `execute`'s OBJECT arm for RFC-0003
+- Disposition: **Nothing to port.** Recorded so a later reader does not ground
+  a claim in the dead copy — a `path:line` citation into it would resolve, and
+  be about code that never runs.
