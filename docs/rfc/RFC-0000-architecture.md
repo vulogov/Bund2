@@ -257,9 +257,9 @@ so conformance can read 100% with three quarters of the language untested.
 Three files are the shared state between sessions, and this RFC does not
 duplicate them:
 
-- `docs/registers/decisions.md` — 33 entries, of which 5 are OPEN. Append-only; a status may
+- `docs/registers/decisions.md` — 34 entries, of which 5 are OPEN. Append-only; a status may
   change, an entry may not be deleted or renumbered.
-- `docs/registers/defects.md` — 57 entries. The roadmap's §5 listed eleven;
+- `docs/registers/defects.md` — 59 entries. The roadmap's §5 listed eleven;
   the rest were found by running the oracle rather than reading it. F14, F15 and
   F17 are why 18 of 77 hermetic programs could not be captured, and
   `tests/golden/UNSTABLE.txt` tags each row with which: **13 F14, 2 F15, 3

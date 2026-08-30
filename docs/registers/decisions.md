@@ -210,6 +210,48 @@ it cannot distinguish.
   does the right thing; if one evals varying strings faster than the cache
   evicts, the cap is the lever, and that is RFC-0005's to tune.
 
+### Amendment (2026-08-29) — the mechanism was wrong; the conclusion survives
+
+RFC-0003's first review found this resolution had not consulted **D5**, which
+was already RESOLVED and blocks RFC-0003. D5 finds lambda bodies write-once and
+states the consequence: "the compiled cache needs no invalidation machinery …
+a cache keyed on **identity** simply does not contain the replacement."
+
+This entry assumed a **content hash**. Two things follow, and the second
+reverses an argument made above.
+
+**Content hashing does not work naively.** Every `BundValue` carries a lazily
+minted `id` and a sampled `stamp` (D1, D2). A hash over a freshly parsed body
+therefore never equals the hash of an earlier parse of the same text unless the
+hash is explicitly defined to exclude identity and stamp. Nothing had defined
+that. As written, the cache would never hit and this resolution would have
+failed silently.
+
+**Under D5's identity keying, eval'd code is never promoted.** Each
+`bund.eval` re-parses and mints fresh values, so an identity-keyed cache cannot
+hit for eval output at all — no matter how often the same string is evaluated.
+
+The conclusion is unchanged: **no eval-specific tier rule is needed.** But the
+reason is now the opposite of the one given above. It is not that repeated
+snippets get promoted and unrepeated ones do not; it is that eval output is
+structurally incapable of hitting an identity-keyed cache, so it stays at Tier 0
+without anything being legislated. That converges with this entry's recorded
+default rather than departing from it.
+
+**Withdrawn:** the argument that a blunt "permanently Tier 0" rule would wrongly
+exclude `bund.eval-file` re-run in a loop. Under identity keying that case is
+not promoted either, so the rule and the cache agree and the distinction the
+argument rested on does not exist.
+
+**Still standing:** the Tier-0 parse-cache observation. The reference re-parses
+identical strings on every call; caching *parses* by source text is independent
+of how compiled code is keyed, and is where the REPL win actually is.
+
+If a future decision adopts content hashing over identity — for the separate
+benefit of letting structurally identical lambdas share compiled code — it must
+define the hash to exclude `id` and `stamp`, and this entry's original reasoning
+becomes live again. That is not decided here.
+
 ## D4 — integer width
 Is full `i64` required, or are 51-bit integers acceptable? The latter allows
 NaN-boxing and a smaller value.
@@ -1492,3 +1534,58 @@ in a test, so whichever way this resolves the change is one edit and one test.
   which applies to D30's two existing deviations already, and would apply to
   this one too)
 - Status: **OPEN**
+
+## D34 — does `( … )` keep hoisting out of an enclosing block?
+
+F58: a `( … )` nested inside `{ … }` or `[ … ]` writes its CONTEXT marker and
+inner terms to the top-level token stream, leaving only `endcontext` in the
+block (`reference/bund_language_parser/src/vm/ctx.rs:8-20` against
+`lambda.rs:11`, `list.rs:11`). Observable — `:F { ( 7 ) 9 } register` fails on
+the oracle where `:F { 7 9 } register` succeeds.
+
+RFC-0003's assigned improvement is "scoped blocks replacing the parser side
+channel (F9)", which authorises changing the *representation*. It does not by
+itself authorise changing what a nested `( … )` does, and an unplanned
+deviation is a decision.
+
+### Options
+
+1. **Preserve the hoist.** Lowering emits the inner terms into the enclosing
+   stream exactly as today. Bit-faithful, and it means a scoped AST node whose
+   lowering is deliberately non-local — the side channel survives in the
+   lowering even though it left the parser.
+2. **Lower in place.** `( … )` becomes a context scope within its block.
+   `:F { ( 7 ) 9 } register` starts working. Programs relying on the hoist
+   change meaning; no corpus program is currently known to.
+3. **Reject nested `( … )` at parse time.** Makes the unsupported case loud
+   instead of silently wrong. Rejects programs the reference accepts, including
+   any that hoist deliberately.
+
+### Recommendation
+
+**Option 2**, contingent on evidence. The hoist has no plausible intended
+semantics — it produces a block that does not contain what it lexically
+contains — and option 1 preserves a shape that would have to be described in
+the RFC as deliberate. But the deciding evidence has not been gathered: no
+corpus program has been checked for a nested `( … )`. That check is cheap and
+should precede the decision.
+
+### Evidence (gathered 2026-08-29)
+
+**No corpus program nests `( … )` inside a block.** Exactly one of the 132
+programs uses `( … )` at all —
+`reference/Bund/examples/bund_dynamic_demos/create_lambda_on_the_fly_in_the_context.bund:10,20`
+— and it is top level, wrapping the canonical metaprogramming idiom
+(`call,` → `lambda*` → `register`) in a temporary context.
+
+At top level the hoist is a no-op: `state` *is* the top-level stream, so
+pushing into it and returning a node are indistinguishable. The reference's
+behaviour and option 2 therefore agree on every program in the corpus, and no
+golden can distinguish them.
+
+That removes the risk from option 2 without deciding it: the question is no
+longer "what breaks" but "what should a nested `( … )` mean", which is a
+language question and the owner's.
+
+- Blocks: RFC-0003 (D2's preservation claim)
+- Status: **OPEN** — evidence gathered; recommendation option 2; not adopted

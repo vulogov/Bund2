@@ -4,7 +4,7 @@
 # it drops below this. The JIT and AOT milestones must not move it at
 # all — they change speed, not meaning.
 #
-# This is NOT a measure of how much of the language works; 59 goldens
+# This is NOT a measure of how much of the language works; 69 goldens
 # reach a fraction of the word table. That number is `cargo xtask
 # coverage`, and neither substitutes for the other.
 

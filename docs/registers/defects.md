@@ -1478,7 +1478,8 @@ resolve.
 
 - Found by: reading the alias table for RFC-0003, then probing the oracle
 - Disposition: **PRESERVE the unreachability, do not port the alias.** Bund2
-  registers 45 aliases from this table minus this one, and RFC-0003 states why
+  registers the other 41 of this table's 42 and not this one, and RFC-0003 says why
+  (count corrected from "45" on 2026-08-29: the file holds 42 `register_alias` calls)
   — an alias whose name is a prefix sigil is shadowed by the sigil. Porting it
   would create a word the reference does not have.
 
@@ -1486,10 +1487,11 @@ resolve.
 
 `conditional_ctx::conditional_run` saves the current stack name, switches with
 `to_stack(cond_name)`, runs the `pre`, `run` and `post` lambdas, and only then
-restores (`reference/Bund/src/stdlib/functions/conditional/conditional_ctx.rs:60-72`).
+restores (`reference/Bund/src/stdlib/functions/conditional/conditional_ctx.rs:60-74`).
 
 Each of the three evaluations `bail!`s on error, and every one of those returns
-before the restoring `to_stack(prev_stack_name)` at `:71`. There is no unwind
+before the restoring `to_stack(prev_stack_name)` at `:74` (corrected from `:71`,
+2026-08-29). There is no unwind
 protection, so an error inside a context leaves the interpreter on the
 context's stack.
 
@@ -1504,3 +1506,58 @@ the `except` lambda then runs against a stack the program did not choose.
   context is a frame with an exit action, and unwinding runs it. The
   reference's shape cannot express that because the restore is a statement
   after three early returns.
+
+## F58 — `( … )` inside a block hoists out of it
+
+`ctx::process_token` pushes `Value::context()` and each inner term into the
+`state` vector and returns a `CALL "endcontext"`
+(`reference/bund_language_parser/src/vm/ctx.rs:8-20`). `state` is the vector
+`bund_parse` is building (`reference/bund_language_parser/src/lib.rs:16,21-23`).
+
+`lambda::process_token` and `list::process_token` pass that same vector down
+while collecting their own terms into a *local* `res`
+(`reference/bund_language_parser/src/vm/lambda.rs:11`, `list.rs:11`). So a
+`( … )` nested inside `{ … }` or `[ … ]` writes its marker and its inner terms
+to the **top-level stream**, and only the `endcontext` call lands in the block.
+
+The block is silently reordered and the top-level stream silently gains
+elements. Confirmed against the oracle:
+
+    :F { 7 9 } register        ok
+    :F { ( 7 ) 9 } register    REGISTER expecting lambda name to be string
+
+The second fails because the CONTEXT marker and `7` were emitted before the
+atom `F`, so `register` finds the wrong values beneath it.
+
+This is F9 with a behavioural half. F9 recorded the parser side channel as a
+*representation* problem; nesting makes it an observable one.
+
+- Found by: RFC-0003's first review, then confirmed against the oracle
+- Disposition: **OPEN — carried as D34.** Preserving means reproducing the
+  hoist; fixing means a deviation. RFC-0003's assigned improvement is "scoped
+  blocks replacing the parser side channel", which is a representation change
+  and does not by itself authorise the behavioural one.
+
+## F59 — fixing F53 makes `execute.`'s LIST and MAP arms reachable, and they are wrong for the workbench
+
+F53's fix — guard the stack that is pulled from — is not "widening only", which
+is how RFC-0003's first draft classified it.
+
+With the `:117` guard corrected, `execute.` on a LIST reaches
+`reference/rust_multistackvm/src/stdlib/execute.rs:40-48`, which pushes each
+element onto the **main** stack (`:41`) and then recurses with `op` still
+`FromWorkBench` (`:42`) — so the recursion pulls from the workbench, not from
+what it just pushed. The MAP arm pulls its key from the **main** stack (`:56`)
+whatever `op` says.
+
+Today these paths are unreachable through `execute.` whenever the main stack is
+empty, because the wrong guard rejects the call first. The F53 fix removes that
+accidental shield and exposes two arms that never had a correct workbench
+implementation.
+
+- Found by: RFC-0003's first review
+- Disposition: **Fix F53 and the arms together, or neither.** RFC-0003 must
+  state what `execute.` does on a LIST and on a MAP rather than classify the
+  change as widening. The minimal coherent fix is for the workbench variant to
+  thread `op` through the push sites as well as the pull sites; whether that is
+  a deviation depends on what the arms are held to mean, which no golden pins.
