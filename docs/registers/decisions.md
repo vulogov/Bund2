@@ -1680,17 +1680,68 @@ whether the cache can **hit**.
    lambdas — the `{ … } if` argument form — become uncacheable, which is most
    of the corpus's block usage.
 
-### Recommendation
+4. **The body's `Rc` pointer.** `BundValue::Heap(Rc<HeapValue>)`
+   (`crates/bund2-value/src/lib.rs:219`) holds `payload: Rc<Payload>` (`:159`),
+   and a lambda's payload *is* its body. Key on `Rc::as_ptr(&payload)`, with the
+   cache holding a strong clone so the address cannot be reused while an entry
+   refers to it.
 
-**Option 2.** It is the only one that both hits and stays stale-free, and the
-exclusion it requires is the same one D3's amendment already identified as
-necessary for any content-based scheme. Option 1 is D5's letter but not its
-intent; option 3 gives up exactly the lambdas RFC-0003's block idiom creates.
+### Decision
 
-The cost is honest and should be stated in RFC-0005: an O(body) hash the first
-time a body is considered for promotion, on a path that is by definition hot.
+Decided by the repository owner: **option 4 — key on the body's `Rc` pointer.**
 
-- Blocks: RFC-0003 (its design section on the cache), RFC-0005
-- Depends on: D5 (write-once), D20 (materialisation points), F13 (`dup` mints
-  fresh identity), D3's amendment (content hashing needs id/stamp excluded)
-- Status: **OPEN**
+**The dup objection dissolves rather than being paid for.** `dup` gives the copy
+a fresh header with a cleared identity but a **shared payload** —
+`payload: Rc::clone(&h.payload)` (`crates/bund2-value/src/lib.rs:480`). So a
+`dup`'d lambda and its original share one payload pointer and therefore one
+cache entry. That is the objection F13 raised, answered by keying on the thing
+that is actually shared rather than on the thing `dup` deliberately replaces.
+
+**Nothing is materialised**, so D20's enumeration is untouched and needs no
+amendment — which was the other half of what made option 1 untenable.
+
+**D5's reasoning is preserved exactly, applied to the pointer instead of the
+id.** Bodies are write-once, so a changed body is a new `Rc` and a stale entry
+is unreachable; no invalidation machinery is needed. `Rc::make_mut` (D13) keeps
+that true even if a body were ever mutated, since the clone-on-write produces a
+new pointer.
+
+| | 1 identity | 2 content | 4 pointer |
+|---|---|---|---|
+| materialises identity | yes | no | no |
+| hits for `dup`'d bodies | no | yes | yes |
+| key cost | O(1) | O(body) | O(1) |
+| needs invalidation | no | no | no |
+| D20 amendment required | yes | no | no |
+
+**Evidence.** No corpus program `dup`s a lambda — 0 of the 55 `dup` invocations
+across 38 of 132 programs — so the dup case was structural rather than observed
+even before option 4 removed it. That measurement is why option 2's O(body) hash
+is not worth paying today.
+
+**Option 2 remains a strict upgrade** and is not foreclosed. Its advantages over
+option 4 are that structurally identical lambdas share compiled code and that
+re-parsed bodies hit; if a workload shows either, only the key function changes.
+This entry supersedes its own earlier recommendation of option 2, which was made
+before `dup`'s payload sharing was checked.
+
+### Consequences
+
+- **RFC-0003's S3 states the key** and is unblocked.
+- **The cache must hold the strong `Rc`.** If an entry outlives its body, the
+  allocator may reuse the address and a stale entry becomes a *false hit* —
+  wrong code executed, which is the worst failure class available here. This is
+  an invariant to test, not merely to document.
+- **The cache pins bodies alive**, so RFC-0005's cap is load-bearing for heap as
+  well as code memory. D3's amendment reached the same conclusion by a different
+  route; RFC-0005 should state it once for both.
+- **Eval'd code still does not hit**, under option 4 exactly as under option 1,
+  which is what D3's amended resolution already relies on. The two stay
+  consistent.
+
+- Blocks: RFC-0003 (now unblocked), RFC-0005
+- Depends on: D5 (write-once), D13 (`Rc::make_mut`), D20 (materialisation
+  points, untouched by this), F13 (`dup` mints fresh identity but shares the
+  payload)
+- Status: **RESOLVED — key on the body's `Rc` pointer; the cache holds a strong
+  reference.**

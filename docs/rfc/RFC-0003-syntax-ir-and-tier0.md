@@ -3,15 +3,15 @@
 - Status: **Draft**
 - Depends on: RFC-0001 (the value), RFC-0002 (symbols and the word table)
 - Decisions consumed: D3 (no eval-specific tier rule, as amended 2026-08-29),
-  D5 (lambda bodies are write-once; the compiled cache is keyed on identity and
-  needs no invalidation), D11 (no external dependents of `compile_to_binary`;
-  version the IR format freshly), D16 (the world is permanently open, so a call
-  target may be a name computed at runtime), D34 (`( … )` lowers in place).
-  D27 informs but is not consumed.
-- Blocked on: **D35** — what the compiled cache keys on. D5 resolved "identity",
-  but D20's materialisation points do not include executing a lambda and F13
-  makes `dup` mint a fresh one, so an identity-keyed cache can never hit for a
-  `dup`'d lambda. S3 states the cache's shape and defers the key.
+  D5 (lambda bodies are write-once, so the compiled cache needs no
+  invalidation), D11 (no external dependents of `compile_to_binary`; version the
+  IR format freshly), D16 (the world is permanently open, so a call target may
+  be a name computed at runtime), D34 (`( … )` lowers in place), D35 (the cache
+  keys on the body's `Rc` pointer). D13 and D20 are relied on and D27 informs;
+  none of those three is consumed.
+- Blocked on: nothing. D34 resolves `( … )` lowering, D35 resolves the cache
+  key, and F59 is dispositioned. F62 and S6's observer interface remain
+  unresolved design questions inside this RFC, not blockers on it.
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
   `80377728f45b`; `bundcore` `3b0b8ba219a6`; `rust_dynamic` `ceb27c96fa10`;
   `rust_multistack` `9a97675ee5d8`; `rust_multistackvm` `4605832678d4`
