@@ -1376,21 +1376,41 @@ missing slot to `Value::lambda()`
 
 ## F52 — the interpreter loop exists twice, verbatim
 
+**Correction (2026-08-30): there are three copies, and the third is not
+identical.**
+
 `Bund::eval` (`reference/bundcore/src/bundcore_eval.rs:7-45`) and
 `bund_compile_and_eval` (`reference/Bund/src/stdlib/helpers/eval.rs`) are the
 same loop: append `\n`, `bund_parse`, then match each word's `dt` — `NONE`
 continue, `EXIT` break, `ERROR` bail, everything else `apply` — down to the
 identical error strings.
 
-They live in different crates, so a fix to one drifts from the other silently.
+The debugger holds a **third**
+(`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:52-95`): same
+append, same `bund_parse`, same four arms, same two error strings — but it
+prints each word before applying it (`:74`) and then runs a readline loop after
+every word (`:81-95`).
+
+That third copy matters twice over. It falsifies "the two copies are currently
+identical", which was this entry's reason for calling the collapse a non-
+deviation; and it is the clearest argument for a materialised frame stack in the
+whole reference, because a per-word step loop is exactly what one gives for
+free. The debugger exists as a duplicated interpreter *because* the interpreter
+has no steppable state.
+
+They live in different crates, so a fix to one drifts from the others silently.
 The top-level path uses the first (`bc.eval`, via
-`reference/Bund/src/stdlib/helpers/run_snippet.rs`), and `bund.eval` uses the
-second.
+`reference/Bund/src/stdlib/helpers/run_snippet.rs`), `bund.eval` uses the
+second, and `--debugger` uses the third.
 
 - Found by: reading both eval paths for RFC-0003
-- Disposition: **Bund2 has one loop.** Not a behavioural deviation — the two
-  are currently identical, so collapsing them preserves what both do. RFC-0003
-  specifies a single evaluator and the duplication does not survive.
+- Disposition: **Bund2 has one loop, parameterised.** The first two are
+  identical, so collapsing them preserves what both do. The third is not: it
+  prints and it steps. Collapsing all three means the single evaluator takes a
+  per-word observer — nothing for the two silent callers, print-and-step for the
+  debugger — which reproduces all three behaviours without three loops. Calling
+  this a pure non-deviation, as an earlier version of this entry did, was only
+  true while the third copy was unnoticed.
 
 ## F53 — `execute.` guards the main stack and then pulls the workbench
 
@@ -1689,3 +1709,60 @@ The root cause is that the invariant the guard wants is not represented.
   F60 is what remains: `endcontext` is a registered inline
   (`reference/rust_multistackvm/src/stdlib/ctx.rs:31`) and so callable by hand,
   balanced or not.
+
+
+## F61 — a comment marker abutting a word is swallowed into the word
+
+`element` admits `/` (`reference/bund_language_parser/bund.pest:36`), and `name`
+is `element ~ nelement*` (`:28`). `COMMENT` is applied by pest *between* tokens
+(`:54`), so it cannot interrupt one.
+
+Therefore `1 2 +// add` lexes `+//` as a **single name**, not as `+` followed by
+a comment. Confirmed against the oracle:
+
+    i(+//) for stack returned: Inline +// not registered
+
+and `1` and `2` are still on the stack, unadded.
+
+This is the fourth trap in the same family as F49, F50 and F51: a form that
+reads one way and lexes another. It is the least visible of them, because the
+error names a word the programmer never wrote and the source looks like an
+ordinary trailing comment.
+
+- Found by: RFC-0003's second review, then confirmed against the oracle
+- Disposition: **PRESERVE, and state it.** It follows from `element` including
+  `/`, which is also what makes `/` and `*` ordinary word characters — the
+  language has words spelled `*+` and `*/`. Requiring whitespace before `//`
+  would be a narrowing with no decision behind it. RFC-0003 states it and
+  `bund2 check` (RFC-0004) is where a warning belongs.
+
+## F62 — `endcontext` is shadowable, so a context can be opened and never closed
+
+`apply` consults the lambda table before the inline table
+(`reference/rust_multistackvm/src/multistackvm_apply.rs:46,59`), so a lambda
+registered under a stdlib name wins. `endcontext` is an ordinary registered
+inline (`reference/rust_multistackvm/src/stdlib/ctx.rs:31`) and has no
+protection.
+
+Since `( … )` lowers to a CONTEXT marker plus a `CALL "endcontext"`
+(`reference/bund_language_parser/src/vm/ctx.rs:8-20`), shadowing that name
+redirects the closing half of every parenthesis in the program. Confirmed
+against the oracle:
+
+    :endcontext { "HIJACKED" println } register
+    ( 7 )
+
+prints `HIJACKED` and continues. The context was opened — the stack switched —
+and never closed. Execution proceeds on the scratch stack with no diagnostic.
+
+This is not introduced by D34: the reference emits the same call, so the same
+shadowing works today. D34 makes it uniform rather than positional, which is
+why it is worth recording now.
+
+- Found by: RFC-0003's second review, then confirmed against the oracle
+- Disposition: **OPEN.** Three shapes are available and none is obviously right:
+  lower `( … )` to an opcode the word table cannot intercept; keep the call but
+  refuse to register a lambda over the name; or preserve the hazard and document
+  it. The first is cleanest for D34 but removes a hook that metaprogramming
+  might legitimately want, and this language's whole posture is that the word
+  table is open (D16). Not decided here.

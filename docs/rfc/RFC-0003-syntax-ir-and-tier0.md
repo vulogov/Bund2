@@ -57,12 +57,17 @@ rather than failing — F50. Neither is written down anywhere.
 
 **Every caller papers over the same grammar defect.** `name`, `atom`, `ptr`,
 `stack` and `command` all require *trailing* whitespace (`bund.pest:26-30`), so
-a program ending in a word does not parse. The three sites that parse all append
-`\n` first — `bundcore_eval.rs:8`, `helpers/eval.rs`, and
-`bund_interpreter.rs:29`. `helpers/run_snippet.rs` is not itself an evaluation
-path but appends at five places (`:15,62,100,138,162`) before delegating to
-`Bund::eval`, which appends again — so the CLI paths append **twice**. The
-workaround is uniform, undocumented, load-bearing, and partly duplicated.
+a program ending in a word does not parse. There are **five** non-test callers of
+`bund_parse` and **four** append `\n` first — `bundcore_eval.rs:8`,
+`helpers/eval.rs`, `bund_interpreter.rs:29`, and the debugger's
+`debug_debug.rs:52`. The fifth, the library entry point
+`bund_language_parser/src/compile.rs:15`, does **not**, so it fails on exactly
+the input the other four are compensating for.
+
+`helpers/run_snippet.rs` is not itself a parse site but appends at five places
+(`:15,62,100,138,162`) before delegating to `Bund::eval`, which appends again —
+so the CLI paths append **twice**. The workaround is undocumented,
+load-bearing, duplicated on one path and absent on another.
 
 **Control flow is partly data, and the dispatch table for it is global
 mutable state.** `?ifthenelse` and `?try` push CONDITIONAL values whose
@@ -71,8 +76,9 @@ branches are lambdas in named slots
 executed by looking the conditional's `type` string up in `CF`, a
 `Mutex<BTreeMap<String, ConditionalFn>>`
 (`reference/rust_multistackvm/src/stdlib/execute_types/mod.rs:11-16`). That is
-a fourth live dispatch table, and RFC-0000's "three live tables" counted word
-registration only.
+a fourth live dispatch table. RFC-0000's "three dispatch tiers, three live
+tables" (`docs/rfc/RFC-0000-architecture.md:135`) counts word registration only
+and remains correct on its own terms.
 
 ## Current behaviour
 
@@ -126,9 +132,21 @@ nest; the third is a side channel.
 
 Every parse ends with an EXIT value, from the `EOI` handler.
 
-### 3. The evaluator, twice
+### 3. The evaluator, three times
 
-Both copies do: append `\n`, `bund_parse`, then per element — `NONE` continue,
+`Bund::eval` (`reference/bundcore/src/bundcore_eval.rs:7-45`),
+`bund_compile_and_eval` (`reference/Bund/src/stdlib/helpers/eval.rs`) and the
+debugger's loop
+(`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:52-95`) are the
+same loop. The first two are identical; the third prints each word before
+applying it (`:74`) and runs a readline loop after every word (`:81-95`).
+
+**The third is the strongest argument in the reference for a materialised frame
+stack.** A per-word step loop is what a frame stack gives for free; the debugger
+exists as a duplicated interpreter precisely because the interpreter has no
+steppable state.
+
+All three do: append `\n`, `bund_parse`, then per element — `NONE` continue,
 `EXIT` break, `ERROR` bail, otherwise `apply`
 (`reference/bundcore/src/bundcore_eval.rs:8-43`). The error text on the last
 arm is `Attempt to evaluate value {:?} returned error: {}`, which is what the
@@ -203,14 +221,16 @@ string) and `associated`, pushes it, then runs `except` and `recovery`
 (`conditional_tryexcept.rs:32-49`). Errors are `easy_error::Error` — a string
 context, with no position.
 
-`curry` is code generation: it builds a lambda of the captured data followed by
-the target lambda followed by a `CALL "!"`, and registers it under a name
-(`conditional_curry.rs:44-53`).
+`curry` is code generation: it builds a lambda from the captured data — pushed
+in **reverse**, `data.into_iter().rev()` — followed by the target lambda and a
+`CALL "!"`, then registers it under a name (`conditional_curry.rs:44-53`). The
+`!` is an alias, so a curried word's last instruction is a call site D8's cache
+must invalidate on an alias-table generation bump.
 
 ### 6. Programs are data, and that is the idiom
 
 `compile` parses a string into a **LIST of values**, dropping the trailing EXIT
-(`reference/Bund/src/stdlib/functions/bund/bund_interpreter.rs:28-42`).
+(`reference/Bund/src/stdlib/functions/bund/bund_interpreter.rs:29-43`).
 `lambda!` converts a LIST to a LAMBDA
 (`reference/Bund/src/stdlib/functions/bund/bund_fun.rs:163-186`). `lambda*`
 drains the **entire current stack** into a LAMBDA, preserving order
@@ -253,6 +273,11 @@ inherited:
   one means anything else today.
 - `{}` and `[]` do not parse (F51). An empty lambda is constructible at
   runtime and unspellable as a literal.
+- `1 2 +// add` lexes `+//` as one **name** (F61). `element` admits `/`
+  (`bund.pest:36`) and pest applies `COMMENT` between tokens (`:54`), so a
+  comment marker abutting a word is swallowed into it. The oracle answers
+  `Inline +// not registered` with `1` and `2` still unadded — an error naming
+  a word the programmer never wrote.
 
 The trailing-whitespace requirement (`bund.pest:26-30`) is preserved with its
 terminator set widened by exactly one member: `name`, `atom`, `ptr`, `stack`
@@ -272,7 +297,7 @@ newly accept `{ 1 println}`, which is a program the reference rejects — a
 deviation, not a simplification.
 
 Admitting end-of-input as a terminator is what the reference already achieves
-by appending `\n` at all four evaluation sites. Under it, `1 2 +` with no
+by appending `\n` at four of its five parse sites. Under it, `1 2 +` with no
 trailing newline parses, exactly as the reference parses it after the append;
 `{ 1 println}` still fails, exactly as the reference fails it. The set of
 accepted programs is unchanged. What changes is that the `\n` append stops
@@ -322,6 +347,17 @@ exit action, the same mechanism that fixes F57.
 
 F9 closes at the representation; D34 closes the behavioural half.
 
+**`endcontext` is a shadowable name, and D34 makes every `( … )` depend on it.**
+`apply` consults the lambda table before the inline table
+(`reference/rust_multistackvm/src/multistackvm_apply.rs:46,59`), so
+`:endcontext { … } register` captures the closing half of every parenthesis in
+the program. Confirmed against the oracle: the shadow runs, the context is
+opened, and it is never closed. The reference emits the same call and has the
+same hazard, so D34 does not introduce it — but D34 makes it uniform, so this
+RFC cannot leave it unsaid. Recorded as **F62** and open: lowering to an opcode
+the word table cannot intercept is cleanest, and it removes a hook that D16's
+permanently-open world otherwise grants.
+
 ### D3. BundIR, and what stays a value
 
 A lambda body **stays `Vec<BundValue>`**. This is not a concession; it is
@@ -370,15 +406,20 @@ call depth** — a bound that needs stating precisely, because an earlier draft
 claimed "no Rust recursion, anywhere on the evaluation path" and that is not
 what this design delivers.
 
-Two exclusions are deliberate:
+Three depth axes exist and only the first is addressed here:
 
 - **The parser still recurses.** `parse_pair` descends through `lambda.rs:11`,
   `list.rs:11` and `ctx.rs:11`, so deeply nested brackets overflow at parse
   time, not at call time. Bund2's parser inherits that shape. Nesting depth and
   call depth are different limits and only the second is addressed here.
+- **Class-hierarchy depth is a separate Rust recursion.** `make_bund_object`
+  calls itself for each superclass
+  (`reference/rust_multistackvm/src/stdlib/bund_object.rs:50`), so a deep class
+  chain overflows independently of call depth. Flattening it is RFC-0009's
+  concern (flattened per-class vtables); this RFC only names it.
 - **Native words that re-enter evaluation** need a mechanism, described below;
-  without one the `?`-family reintroduces exactly the recursion this section
-  removes.
+  without one the `?`-family — and object and class construction — reintroduce
+  exactly the recursion this section removes.
 
 A frame carries: the body being executed, an instruction pointer, and an
 optional **exit action**. Calling a lambda pushes a frame; returning pops one.
@@ -420,7 +461,7 @@ nesting this design replaces. Carried as **Q21**.
 
 **Exit actions fix F57.** `context` switches stacks and restores afterwards,
 but the restore sits after three early returns and is skipped on error
-(`conditional_ctx.rs:60-72`). As a frame with an exit action, the restore runs
+(`conditional_ctx.rs:60-74`). As a frame with an exit action, the restore runs
 on both paths. The reference's shape cannot express this; the flat loop does so
 structurally rather than as a patch.
 
@@ -459,7 +500,9 @@ F53 corrects `execute.`'s wrapper, which guards the main stack
 workbench (`:22`). That fix alone is not safe, because it exposes two arms with
 no coherent workbench behaviour — **F59**.
 
-`op` is threaded through every *pull* site and no *push* site: the LIST arm
+`op` is threaded through the *receiver* pull and no *push* site — and not
+through every pull either: the MAP arm takes its key from the main stack
+regardless (`:56`), which under the convention below is correct. The LIST arm
 pushes each element onto the **main** stack (`:41`) and the MAP arm pushes the
 resolved value there (`:66`), and both then recurse re-passing `op` (`:42`,
 `:67`). So each resolves a value onto one stack and looks for it on another.
@@ -499,6 +542,21 @@ operands and results on main — which is independent confirmation of the
 convention rather than an exception to it. LIST and MAP are the only arms that
 ever split the two.
 
+**They do, however, re-enter evaluation, one call deeper than those two files.**
+`execute_object` ends in `vm.m`, whose LAMBDA arm is `lambda_eval`
+(`reference/rust_multistackvm/src/multistackvm_object.rs:77-78`).
+`execute_class` delegates to `stdlib_object_inline` → `make_bund_object`, which
+**recurses over the superclass chain**
+(`reference/rust_multistackvm/src/stdlib/bund_object.rs:50`), evaluates each
+`.init` lambda (`:76`, `:156`), then inspects the stack and `apply`s
+(`:166,169,173`). That is D4's evaluate-inspect-evaluate shape, so both are
+re-entrant natives under D4a's request/resume rule — and class construction adds
+a **third depth axis**, hierarchy depth, alongside call depth and parser nesting
+depth. An earlier draft of this RFC asserted the opposite in its closing note.
+
+This does not change F59's scope, which is about the push/pull split and remains
+two arms.
+
 ### D5. Errors carry position
 
 Errors become a structured value carrying a span, not an `easy_error::Error`
@@ -510,20 +568,29 @@ error: {}` included — and the span is additional, not a replacement.
 `context` slot (`conditional_tryexcept.rs:35-40`); the slot's string is
 unchanged, and the span rides alongside.
 
-### D6. One evaluator
+### D6. One evaluator, parameterised by an observer
 
-F52's duplication does not survive. `bund2-interp` has a single evaluation
-entry point; `bund.eval` and the top-level script path both use it. This is not
-a deviation — the two copies are currently identical — but it is a precondition
-for D5 and D4 being true of both.
+F52's duplication does not survive. `bund2-interp` has a single evaluation entry
+point used by all three of today's callers: the top-level script path,
+`bund.eval`, and `--debugger`.
+
+The first two are identical, so collapsing them preserves what both do. The
+third is not — it prints and it steps — so the single evaluator takes a per-word
+**observer**: nothing for the two silent callers, print-and-step for the
+debugger. That reproduces all three without three loops.
+
+An earlier draft called this a pure non-deviation on the grounds that "the two
+copies are currently identical". There are three, and the third differs; the
+collapse is still behaviour-preserving, but because of the observer, not because
+the copies agree.
 
 ### D7. Conditional dispatch is a registry, not a global mutex
 
 The `CF` table becomes a field on the registry RFC-0002 already owns, keyed by
 type string, populated at construction. Same lookup, same failure message
 (`EXECUTE:CONDITIONAL conditionals handler does not exist: {type}`), no global
-mutable state. The `STDLIB` mutex went the same way in RFC-0002 and for the
-same reason.
+mutable state. The `BUND` global mutex went the same way in RFC-0002 and for
+the same reason (`docs/rfc/RFC-0002-symbols-and-words.md:537`).
 
 ### D8. Inline caches on call sites
 
@@ -546,6 +613,11 @@ stable until a generation bumps.
 | `ctx` at top level | preserved exactly; representation changed (F9) |
 | `ctx` nested in a block, hoisting out of it | **deliberately changed** — F58, approved by D34; lowered in place |
 | `endcontext` callable unbalanced, dropping the current stack | **fixed** (F60) — a narrowing; today it is silent |
+| `endcontext` shadowable by a registered lambda | preserved for now — **F62**, open |
+| `+//` lexing as one name | preserved, and stated (F61) |
+| The debugger's third eval loop, which prints and steps | preserved via D6's observer |
+| `execute_class` / `execute_object` re-entering evaluation | preserved; both are re-entrant natives under D4a |
+| `make_bund_object` recursing over the superclass chain | preserved; a third depth axis, flattening deferred to RFC-0009 |
 | `apply`'s resolution order, `autoadd` semantics, non-nestability | preserved exactly |
 | `execute`'s eight arms and their errors | preserved exactly |
 | `execute.` guarding the wrong stack | **fixed** (F53), but *not* widening only — see F59 below |
@@ -599,8 +671,8 @@ that RFC-0008 and RFC-0007 both need a materialised frame stack for.
 see.** Rejected on the evidence. They are MAPs assembled at runtime by `set`
 and dispatched by a string lookup; the branches are not known until execution.
 Literal `if`, `times`, `while` and `loop` remain statically analysable and are
-lowered as control flow; the `?`-family is a helper call. This refines §1.1
-rather than contradicting it.
+lowered as control flow; the `?`-family is a helper call. This **restates**
+§1.1 rather than refining it, which is why the header supersedes nothing.
 
 **Dropping the trailing-whitespace requirement.** Rejected, after a draft of
 this RFC proposed it. It reads like a vestigial quirk and is not one: `}` is
@@ -640,12 +712,28 @@ work rather than assumed.
 
 3. **The parser accepts exactly the reference's language.** A differential
    harness — `cargo xtask parity`, which does not exist and is part of this
-   RFC's work — parses each corpus program through both front ends and compares
-   the emitted value streams element by element under the golden normaliser,
-   which erases `id` and `stamp` (F14). Without that normalisation the
-   comparison is unsatisfiable, since every `Value` carries a fresh identity.
-   The 69 golden-backed programs compare against captured streams; the remaining
-   63 require a live oracle run and therefore inherit F21.
+   RFC's work.
+
+   An earlier draft made this unsatisfiable by comparing "value streams element
+   by element" against captured goldens. No golden holds a value stream: all 69
+   carry exactly `## exit` and `## output`. And the golden normaliser is a text
+   substitution, not a `Vec<Value>` comparator.
+
+   The mechanism that makes it satisfiable is already in the language.
+   **`compile` is the oracle's dump mode** — it parses a string and pushes the
+   token stream as a LIST
+   (`reference/Bund/src/stdlib/functions/bund/bund_interpreter.rs:29-43`), so
+   `"<source>" compile debug.display_stack` renders the reference's own stream
+   in the same `Value { … }` text the normaliser already handles. No
+   instrumentation of `reference/` is required, and `reference/` stays
+   read-only.
+
+   So: for each corpus program, render the reference's stream that way, render
+   Bund2's the same way, and compare the **normalised text**. Three constraints
+   follow and must be honoured rather than discovered — `compile` drops the
+   trailing EXIT (`:33-35`), so the comparison excludes it; source is passed as
+   a Bund string literal, so embedded quotes need escaping; and the run goes
+   through the oracle binary, so it inherits F21 like every other oracle claim.
 
 4. **The three grammar traps are pinned against the oracle**, as probes under
    `tests/probes/` per D21: `1_000` errors, `007` yields three integers, `{}`
@@ -683,6 +771,13 @@ work rather than assumed.
 
 ## Open questions
 
+- **F62 blocks nothing but is unresolved.** `endcontext` is shadowable and D34
+  routes every `( … )` through it. Three shapes are available — an
+  un-interceptable opcode, refusing registration over the name, or documenting
+  the hazard — and the first conflicts with D16's permanently-open world.
+- **The `--debugger` path is now in D6's scope.** Collapsing three loops into
+  one plus an observer is specified but untested; the observer's interface is
+  not designed here.
 - **F54 is a citation hazard, not just dead code.**
   `reference/rust_multistackvm/src/stdlib/execute_types/execute_object.rs`
   declares `execute_object` over a body byte-identical to
