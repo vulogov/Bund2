@@ -8,9 +8,9 @@
   version the IR format freshly), D16 (the world is permanently open, so a call
   target may be a name computed at runtime), D34 (`( … )` lowers in place).
   D27 informs but is not consumed.
-- Blocked on: **F59** — `execute.`'s LIST and MAP arms have no correct workbench
-  behaviour, and F53's fix exposes them. D34 is resolved (lower in place) and no
-  longer blocks.
+- Blocked on: nothing. D34 (lower in place) and F59 (`execute.` recurses
+  `FromStack`) are both resolved; F59's scope caveat — `execute_class` and
+  `execute_object` are unread — is a read before implementing, not a blocker.
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
   `80377728f45b`; `bundcore` `3b0b8ba219a6`; `rust_dynamic` `ceb27c96fa10`;
   `rust_multistack` `9a97675ee5d8`; `rust_multistackvm` `4605832678d4`
@@ -452,6 +452,44 @@ This is a **narrowing**, and the only one in this RFC: a program that today
 destroys a stack silently now gets an error. It is safe because the current
 behaviour produces no output for a golden to have captured.
 
+### D4b. `execute.` takes only its receiver from the workbench
+
+F53 corrects `execute.`'s wrapper, which guards the main stack
+(`reference/rust_multistackvm/src/stdlib/execute.rs:117`) and then pulls the
+workbench (`:22`). That fix alone is not safe, because it exposes two arms with
+no coherent workbench behaviour — **F59**.
+
+`op` is threaded through every *pull* site and no *push* site: the LIST arm
+pushes each element onto the **main** stack (`:41`) and the MAP arm pushes the
+resolved value there (`:66`), and both then recurse re-passing `op` (`:42`,
+`:67`). So each resolves a value onto one stack and looks for it on another.
+Measured: with `dup` and a `LIST(111, 222)` on the workbench and `7` on main,
+`execute.` leaves `7, 111, 111, 222` and fails — the elements pushed as data and
+never executed, the workbench's `dup` executed in their place.
+
+**The `,`-family already settles what `op` means.** `get,`/`set,` pull the
+receiver per `op`
+(`reference/Bund/src/stdlib/functions/values/getsetinplace.rs:42-45`) while
+taking the key from the main stack unconditionally (`:54`) and pushing the
+result there unconditionally (`:70`). `op` selects where the *receiver* lives;
+operands and results live on the main stack.
+
+So Bund2's `execute.` **takes only its receiver from the workbench and then
+proceeds exactly as `execute`**: the recursion passes `FromStack`, because by
+then the value to execute is on the main stack. The MAP arm's key continues to
+come from the main stack, which under this rule was always right.
+
+That is the sibling convention rather than a new one, and it is the only reading
+under which F53's fix is coherent — which is why this RFC treats them as one
+change. No corpus program uses `execute.` or its alias `!.`
+(`reference/rust_multistackvm/src/stdlib/create_aliases.rs:6`), so no golden is
+at risk.
+
+**Unclosed scope.** `execute_class` and `execute_object` also receive `op`
+(`execute.rs:88,91`) and have not been read. If either splits pushes and pulls
+the same way, this rule covers four arms rather than two. That read precedes
+implementation.
+
 ### D5. Errors carry position
 
 Errors become a structured value carrying a span, not an `easy_error::Error`
@@ -502,7 +540,7 @@ stable until a generation bumps.
 | `apply`'s resolution order, `autoadd` semantics, non-nestability | preserved exactly |
 | `execute`'s eight arms and their errors | preserved exactly |
 | `execute.` guarding the wrong stack | **fixed** (F53), but *not* widening only — see F59 below |
-| `execute.` on a LIST or a MAP | **must be specified** — F59; today unreachable when the stack is empty, and reachable after F53's fix |
+| `execute.` on a LIST or a MAP | **deliberately changed** — F59; recursion passes `FromStack`, so only the receiver comes from the workbench |
 | `through`, the ninth conditional type, registered cross-crate | preserved; D7 must carry it |
 | `raise`, registered with the family but pushing nothing | preserved exactly |
 | `autoadd` disable: same "cannot nest" message, same non-empty-stack guard (`autoadd.rs:17-18,20-22`) | preserved exactly, including the duplicated message |
@@ -525,8 +563,9 @@ reachable, and those arms are wrong for the workbench — the LIST arm pushes on
 the **main** stack (`reference/rust_multistackvm/src/stdlib/execute.rs:41`) and
 then recurses still pulling from the workbench (`:42`), and the MAP arm takes its
 key from the main stack (`:56`) whatever the operand says. The wrong guard is
-currently shielding them. Recorded as **F59**; this RFC must say what `execute.`
-does on a LIST and a MAP, or defer F53 until it can.
+currently shielding them. Recorded as **F59** and resolved in D4b: the recursion
+passes `FromStack`, so only the receiver comes from the workbench. F53 and F59
+land together or not at all.
 
 **The error-text preservation in D5 collides with F14.** The eval loop
 interpolates the offending word with `{:?}` (`bundcore_eval.rs:33`), and F14
@@ -635,8 +674,10 @@ work rather than assumed.
 
 ## Open questions
 
-- **F59 blocks criterion 5.** `execute.`'s LIST and MAP arms have no correct
-  workbench behaviour, and F53's fix exposes them.
+- **F59's scope is not fully closed.** Its rule is decided (D4b), but
+  `execute_class` and `execute_object` also receive `op` and are unread; if
+  either splits pushes and pulls the same way, the rule covers four arms rather
+  than two. A read before implementing, not a blocker.
 - **Q21** — how the frame loop reproduces the nested `bail!` concatenation that
   `?try` files into its `context` slot. Registered.
 - **Q22** — the compiled-cache promotion threshold and cap, which D3's amended

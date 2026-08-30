@@ -1412,11 +1412,14 @@ testing `vm.stack.workbench.len()`
 convention is clear and this is the outlier.
 
 - Found by: reading `execute.rs` for RFC-0003, then probing the oracle
-- Disposition: **Bund2 checks the stack it pulls from.** An
-  original-implementation bug. It widens what is accepted rather than changing
-  an answer, so no golden that passes today can stop passing; a golden that
-  pins the error message would need `--accept` under this F-number, and F48
-  applies.
+- Disposition: **Bund2 checks the stack it pulls from — together with F59.**
+  An original-implementation bug. It is *not* widening-only, as an earlier
+  version of this entry implied: correcting the guard exposes the LIST and MAP
+  arms, which have no coherent workbench behaviour. F59 records that and carries
+  the joint disposition — the recursion passes `StackOps::FromStack`, so
+  `execute.` means "receiver from the workbench, then proceed as `execute`".
+  Neither half lands without the other. No corpus program uses `execute.` or
+  `!.`, so no golden is at risk.
 
 ## F54 — a second, orphaned copy of `execute_object`
 
@@ -1555,12 +1558,55 @@ empty, because the wrong guard rejects the call first. The F53 fix removes that
 accidental shield and exposes two arms that never had a correct workbench
 implementation.
 
-- Found by: RFC-0003's first review
-- Disposition: **Fix F53 and the arms together, or neither.** RFC-0003 must
-  state what `execute.` does on a LIST and on a MAP rather than classify the
-  change as widening. The minimal coherent fix is for the workbench variant to
-  thread `op` through the push sites as well as the pull sites; whether that is
-  a deviation depends on what the arms are held to mean, which no golden pins.
+### What the arms actually do, measured
+
+Both are reachable today whenever the main stack is non-empty, and both are
+already incoherent. With `dup` and a `LIST(111, 222)` on the workbench and `7`
+on the main stack, `execute.` leaves main as `7, 111, 111, 222` and then fails
+with `Stack is too shallow for inline EXECUTE.()`. The list's elements were
+pushed onto main **as data and never executed**, while the workbench's `dup` was
+executed in their place, once per element, until the workbench ran dry. The MAP
+arm behaves the same way: it resolves the key's value onto main, then looks for
+the next thing on the workbench.
+
+### The convention that settles it
+
+The `,`-suffix family already fixes what `op` means. In `get,`/`set,` the
+workbench variant pulls the **receiver** from the workbench
+(`reference/Bund/src/stdlib/functions/values/getsetinplace.rs:42-45`) but takes
+the **key** from the main stack unconditionally (`:54`), returns the receiver
+per `op` (`:66-69`), and pushes the **result** to the main stack unconditionally
+(`:70`).
+
+So: `op` selects where the receiver lives; operands and results live on the main
+stack. Under that rule `execute.`'s MAP arm taking its key from main
+(`reference/rust_multistackvm/src/stdlib/execute.rs:56`) is correct, and pushing
+the resolved value to main (`:66`) is correct. The defect is only that the
+recursion re-passes `op` (`:42`, `:67`) when the thing to execute is by then on
+the main stack.
+
+- Found by: RFC-0003's first review; behaviour then probed against the oracle
+- Disposition: **Fixed with F53, as one change. The recursion passes
+  `StackOps::FromStack`.** Decided by the repository owner.
+
+  `execute.` therefore means: take the receiver from the workbench, then proceed
+  exactly as `execute`. That is the sibling convention rather than a new rule,
+  and it is the only reading under which F53's guard fix is coherent — which is
+  why the two are not separable.
+
+  Rejected: threading the workbench through the push sites as well, which is
+  self-consistent but contradicts `get,`/`set,` and would fork the meaning of
+  the `.` suffix; and rejecting LIST and MAP outright, which is also a deviation
+  since the call mutates the main stack before failing today.
+
+  **Risk is measured at zero.** No corpus program uses `execute.` or its alias
+  `!.` (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:6`), so no
+  golden captures any behaviour of any arm.
+
+  **Scope caveat, to be closed before implementing.** `execute_class` and
+  `execute_object` also receive `op` (`execute.rs:88,91`) and have not been
+  read. If either has the same push/pull split, this fix covers four arms rather
+  than two.
 
 
 ## F60 — `endcontext`'s "Context is empty" guard can never fire, and the failure is silent
