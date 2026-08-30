@@ -1533,10 +1533,10 @@ This is F9 with a behavioural half. F9 recorded the parser side channel as a
 *representation* problem; nesting makes it an observable one.
 
 - Found by: RFC-0003's first review, then confirmed against the oracle
-- Disposition: **OPEN — carried as D34.** Preserving means reproducing the
-  hoist; fixing means a deviation. RFC-0003's assigned improvement is "scoped
-  blocks replacing the parser side channel", which is a representation change
-  and does not by itself authorise the behavioural one.
+- Disposition: **DEVIATION, approved — D34 resolves to lower in place.** `( … )`
+  becomes a scope in the block that lexically contains it, so the bracket is
+  balanced wherever it appears. Top-level `( … )` is unchanged and no golden
+  moves. See D34 for the grounding and the measured consequence of the hoist.
 
 ## F59 — fixing F53 makes `execute.`'s LIST and MAP arms reachable, and they are wrong for the workbench
 
@@ -1561,3 +1561,51 @@ implementation.
   change as widening. The minimal coherent fix is for the workbench variant to
   thread `op` through the push sites as well as the pull sites; whether that is
   a deviation depends on what the arms are held to mean, which no golden pins.
+
+
+## F60 — `endcontext`'s "Context is empty" guard can never fire, and the failure is silent
+
+`stdlib_endcontext` guards with `if vm.stacks_stack.len() < 1 { bail!("Context
+is empty") }` (`reference/rust_multistackvm/src/stdlib/ctx.rs:6-8`). That
+condition is unreachable in both directions:
+
+- `stacks_stack` is initialised holding `"main"`
+  (`reference/rust_multistackvm/src/multistackvm.rs:38-39`), so it starts at
+  length 1, not 0.
+- `pop_stacks` refuses to go below one — it pops only when `len() > 1` and
+  otherwise peeks without popping
+  (`reference/rust_multistackvm/src/multistackvm_stacks_stack.rs:10-16`).
+
+So the length is never less than 1 and the guard is dead code, in the same
+class as F55's precedence bug and F56's shadowed alias.
+
+What happens instead: `endcontext` with no context open moves the current
+stack's top value to the workbench, calls `drop_stack()` on the **current**
+stack, and discards `pop_stacks`'s result. Confirmed against the oracle —
+`111 222 333` on `main`, then a bare `endcontext`:
+
+    before                   111, 222, 333
+    after a bare endcontext  main is empty; 333 is on the workbench
+
+`111` and `222` are gone. No error, no diagnostic.
+
+The root cause is that the invariant the guard wants is not represented.
+`stacks_stack` conflates the initial stack with stacks opened by `(`, so
+"is a context open?" cannot be asked of it.
+
+- Found by: grounding D34, then probing the oracle
+- Disposition: **Bund2 implements the guard the reference wrote and could not
+  fire.** Context depth is tracked separately from the base stack — under
+  RFC-0003's frame loop a context is a frame with an exit action, so the depth
+  is the count of context frames — and `endcontext` fails with the reference's
+  own message, `Context is empty`, when that count is zero.
+
+  This is an original-implementation bug and a **narrowing**: a program that
+  today silently destroys a stack now gets an error. No golden can capture the
+  current behaviour as intended, since it produces no output; if one pins the
+  destroyed state it needs `--accept` under this F-number, and F48 applies.
+
+  D34 fixes the *parse* half — a lowered `( … )` is balanced by construction.
+  F60 is what remains: `endcontext` is a registered inline
+  (`reference/rust_multistackvm/src/stdlib/ctx.rs:31`) and so callable by hand,
+  balanced or not.

@@ -6,9 +6,11 @@
   D5 (lambda bodies are write-once; the compiled cache is keyed on identity and
   needs no invalidation), D11 (no external dependents of `compile_to_binary`;
   version the IR format freshly), D16 (the world is permanently open, so a call
-  target may be a name computed at runtime). D27 informs but is not consumed.
-- Blocked on: **D34** — does `( … )` keep hoisting out of an enclosing block?
-  D2 below depends on it and this RFC must not decide it
+  target may be a name computed at runtime), D34 (`( … )` lowers in place).
+  D27 informs but is not consumed.
+- Blocked on: **F59** — `execute.`'s LIST and MAP arms have no correct workbench
+  behaviour, and F53's fix exposes them. D34 is resolved (lower in place) and no
+  longer blocks.
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
   `80377728f45b`; `bundcore` `3b0b8ba219a6`; `rust_dynamic` `ceb27c96fa10`;
   `rust_multistack` `9a97675ee5d8`; `rust_multistackvm` `4605832678d4`
@@ -292,19 +294,33 @@ block. Confirmed against the oracle:
     :F { 7 9 } register        ok
     :F { ( 7 ) 9 } register    REGISTER expecting lambda name to be string
 
-Recorded as **F58**. Lowering the node in place is therefore a **deviation**,
-not a representation change, and this RFC does not take it: it is carried as
-**D34** for the owner.
+Recorded as **F58**. Lowering the node in place is a **deviation**, not a
+representation change, and **D34 approves it**: `( … )` is a scope in the block
+that lexically contains it, and lowering emits the CONTEXT marker, the inner
+terms and the `endcontext` call together inside that block.
 
-Evidence gathered for D34: exactly one of the 132 corpus programs uses `( … )`
-at all, and it is top level
-(`reference/Bund/examples/bund_dynamic_demos/create_lambda_on_the_fly_in_the_context.bund:10,20`).
-No corpus program nests one, so no golden distinguishes the options — which
-makes this a question about what the language should mean rather than about
-what breaks.
+Top-level `( … )` is unchanged, which is where every corpus use is — exactly one
+of the 132 programs uses the form at all
+(`reference/Bund/examples/bund_dynamic_demos/create_lambda_on_the_fly_in_the_context.bund:10,20`),
+wrapping the `call,` → `lambda*` → `register` idiom. So no golden moves.
 
-Until D34 resolves, this RFC specifies the AST node and leaves the lowering of
-the nested case unspecified. F9 closes at the representation either way.
+**Why the hoist is not an alternative scoping rule.** `Value::context()` names a
+fresh anonymous scratch stack
+(`reference/rust_dynamic/src/create_special.rs:22-33`); `apply` switches to it
+through `to_stack`, which also pushes the name onto the runtime `stacks_stack`
+(`reference/rust_multistackvm/src/multistackvm_to_stack.rs:5-19`); `endcontext`
+carries the top value out to the workbench, drops the stack and pops that
+nesting stack (`reference/rust_multistackvm/src/stdlib/ctx.rs:5-27`). The two
+are a balanced pair over runtime state, and the hoist separates them in *time* —
+the open runs with the enclosing stream, the close only when the block is
+called. Measured on the oracle, a lambda holding a hoisted-open context destroys
+its caller's stack when invoked, taking values that were never inside the
+parentheses.
+
+Under D4 this falls out rather than being added: a context is a frame with an
+exit action, the same mechanism that fixes F57.
+
+F9 closes at the representation; D34 closes the behavioural half.
 
 ### D3. BundIR, and what stays a value
 
@@ -408,6 +424,34 @@ but the restore sits after three early returns and is skipped on error
 on both paths. The reference's shape cannot express this; the flat loop does so
 structurally rather than as a patch.
 
+### D4a. Context depth is represented, so `endcontext` can refuse
+
+D34 balances every `( … )` the parser produces. It does not make `endcontext`
+safe, because `endcontext` is a registered inline
+(`reference/rust_multistackvm/src/stdlib/ctx.rs:31`) and a program may call it
+by hand, balanced or not.
+
+Today that is silent corruption — **F60**. The guard
+`if vm.stacks_stack.len() < 1 { bail!("Context is empty") }` (`ctx.rs:6-8`)
+cannot fire: `stacks_stack` is initialised holding `"main"`
+(`reference/rust_multistackvm/src/multistackvm.rs:38-39`) and `pop_stacks`
+refuses to go below one
+(`reference/rust_multistackvm/src/multistackvm_stacks_stack.rs:10-16`). So a
+bare `endcontext` passes the guard, moves the top value to the workbench, and
+drops the **current** stack. Confirmed against the oracle: `111 222 333` on
+`main`, then `endcontext`, leaves `main` empty with `333` on the workbench and
+no diagnostic.
+
+The invariant is unrepresentable as written, because `stacks_stack` conflates
+the base stack with stacks opened by `(`. Bund2 separates them: a context is a
+**frame with an exit action** (D4), so context depth is the count of context
+frames, and `endcontext` fails with the reference's own message — `Context is
+empty` — when that count is zero.
+
+This is a **narrowing**, and the only one in this RFC: a program that today
+destroys a stack silently now gets an error. It is safe because the current
+behaviour produces no output for a golden to have captured.
+
 ### D5. Errors carry position
 
 Errors become a structured value carrying a span, not an `easy_error::Error`
@@ -453,7 +497,8 @@ stable until a generation bumps.
 | `{}`/`[]` unparseable; `007` decomposes; `1_000` rejected | preserved, and stated (F51, F50, F49) |
 | Trailing-whitespace requirement on five rules | preserved; terminator set gains end-of-input, which is what the `\n` append already achieved. `{ 1 println}` still fails |
 | `ctx` at top level | preserved exactly; representation changed (F9) |
-| `ctx` nested in a block, hoisting out of it | **undecided** — F58, blocked on D34 |
+| `ctx` nested in a block, hoisting out of it | **deliberately changed** — F58, approved by D34; lowered in place |
+| `endcontext` callable unbalanced, dropping the current stack | **fixed** (F60) — a narrowing; today it is silent |
 | `apply`'s resolution order, `autoadd` semantics, non-nestability | preserved exactly |
 | `execute`'s eight arms and their errors | preserved exactly |
 | `execute.` guarding the wrong stack | **fixed** (F53), but *not* widening only — see F59 below |
@@ -559,12 +604,21 @@ work rather than assumed.
    and `[]` fail to parse, and `{ 1 println}` fails while `1 2 +` with no
    trailing newline succeeds.
 
-5. **F53 and F57 are fixed and observable.** For F53: `execute.` succeeds with a
-   value on the workbench and an empty stack — and F59 is answered, with
-   `execute.` on a LIST and on a MAP specified and tested. For F57: a `context`
-   whose lambda raises inside a `?try` leaves the interpreter on the stack it
-   started from, asserted via `current_name` on the VM rather than via a word,
-   since no word this RFC cites prints the current stack name.
+5. **F53, F57 and F60 are fixed and observable.**
+   - **F53** — `execute.` succeeds with a value on the workbench and an empty
+     stack, and **F59** is answered: `execute.` on a LIST and on a MAP is
+     specified and tested, not left to the exposed arms.
+   - **F57** — a `context` whose lambda raises inside a `?try` leaves the
+     interpreter on the stack it started from, asserted via `current_name` on
+     the VM rather than via a word, since no word this RFC cites prints the
+     current stack name.
+   - **F60** — a bare `endcontext` with no context open fails with `Context is
+     empty` and leaves the current stack intact. Asserted against the recorded
+     deviation rather than against the oracle, whose behaviour here is silent
+     destruction.
+   - **D34** — `:F { ( 7 ) 9 } register` registers `F`, and a lambda containing
+     a `( … )` opens and closes its own context on every call, leaving the
+     caller's stack unchanged across two invocations.
 
 6. **One evaluator.** A test that a behavioural change made at the single entry
    point is visible from both `bund.eval` and the script path. The earlier
@@ -581,9 +635,6 @@ work rather than assumed.
 
 ## Open questions
 
-- **D34 blocks acceptance.** `( … )` nested in a block hoists out of it (F58).
-  Evidence is gathered — no corpus program nests one — and the recommendation is
-  to lower in place, but it is a deviation and the owner's call.
 - **F59 blocks criterion 5.** `execute.`'s LIST and MAP arms have no correct
   workbench behaviour, and F53's fix exposes them.
 - **Q21** — how the frame loop reproduces the nested `bail!` concatenation that

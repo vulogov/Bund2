@@ -1587,5 +1587,56 @@ That removes the risk from option 2 without deciding it: the question is no
 longer "what breaks" but "what should a nested `( … )` mean", which is a
 language question and the owner's.
 
-- Blocks: RFC-0003 (D2's preservation claim)
-- Status: **OPEN** — evidence gathered; recommendation option 2; not adopted
+### Decision
+
+Decided by the repository owner: **option 2 — lower in place.** `( … )` is a
+scope within the block that lexically contains it. Lowering emits the CONTEXT
+marker, the inner terms and the `endcontext` call together, inside the
+enclosing block, so the bracket is balanced wherever it appears.
+
+Top-level `( … )` is unchanged, which is where every corpus use is, so no
+golden moves.
+
+**What the hoist actually was.** Grounding gathered for this decision shows it
+is not an alternative scoping rule. `Value::context()` names a fresh anonymous
+scratch stack (`reference/rust_dynamic/src/create_special.rs:22-33`); `apply`
+switches to it through `to_stack`, which also pushes the name onto the runtime
+`stacks_stack` (`reference/rust_multistackvm/src/multistackvm_to_stack.rs:5-19`);
+`endcontext` carries the top value out to the workbench, drops the stack and
+pops that nesting stack (`reference/rust_multistackvm/src/stdlib/ctx.rs:5-27`).
+CONTEXT and `endcontext` are therefore a balanced pair over runtime state, and
+the hoist separates the halves in *time*: the open runs when the enclosing
+stream is evaluated, the close only when the block is called — never, once, or
+many times.
+
+Measured on the oracle with `{ ( 7 ) 9 } :F swap register`, then `111 222`
+pushed and `F` called twice:
+
+    before any call     7, 111, 222     the 7 escaped the parentheses
+    after first call    9               7, 111 and 222 destroyed
+    after second call   9               another stack dropped, silently
+
+`111` and `222` were never inside the parentheses. Nothing errors.
+
+**Why option 2 rather than 1 or 3.** Option 1 would mean specifying, as
+intended behaviour, that a block does not contain what it lexically contains
+and that a call may destroy its caller's stack; it also fights RFC-0003's frame
+loop, where a context is naturally a frame with an exit action — the mechanism
+that already fixes F57 — so reproducing the hoist would mean breaking frame
+discipline deliberately. Option 3 (reject nested `( … )`) is strictly safer
+than either and remains available as an interim, but it forecloses the corpus's
+own idiom — bounding `lambda*` with a context — from being used inside a word
+body, which is the one place it would be reusable.
+
+### Consequences
+
+- **F58 closes** with disposition "deliberate deviation, approved here."
+- `:F { ( 7 ) 9 } register` starts working. No corpus program relies on the
+  hoist; a program outside the corpus that did would be relying on its caller's
+  stack being destroyed at an unpredictable time.
+- **This fixes the parse half only.** `endcontext` remains unbalanced-callable
+  by hand, and its guard cannot fire — F60, fixed separately.
+
+- Blocks: RFC-0003 (D2's preservation claim) — now unblocked
+- Status: **RESOLVED — lower in place. `( … )` is a scope in the block that
+  contains it.**
