@@ -8,9 +8,10 @@
   version the IR format freshly), D16 (the world is permanently open, so a call
   target may be a name computed at runtime), D34 (`( … )` lowers in place).
   D27 informs but is not consumed.
-- Blocked on: nothing. D34 (lower in place) and F59 (`execute.` recurses
-  `FromStack`) are both resolved; F59's scope caveat — `execute_class` and
-  `execute_object` are unread — is a read before implementing, not a blocker.
+- Blocked on: **D35** — what the compiled cache keys on. D5 resolved "identity",
+  but D20's materialisation points do not include executing a lambda and F13
+  makes `dup` mint a fresh one, so an identity-keyed cache can never hit for a
+  `dup`'d lambda. S3 states the cache's shape and defers the key.
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
   `80377728f45b`; `bundcore` `3b0b8ba219a6`; `rust_dynamic` `ceb27c96fa10`;
   `rust_multistack` `9a97675ee5d8`; `rust_multistackvm` `4605832678d4`
@@ -40,7 +41,7 @@ construct is not a representation of this language.
 
 **The interpreter cannot be made deeper, and it exists twice.** `Bund::eval`
 (`reference/bundcore/src/bundcore_eval.rs:7-45`) and `bund_compile_and_eval`
-(`reference/Bund/src/stdlib/helpers/eval.rs`) are the same loop,
+(`reference/Bund/src/stdlib/helpers/eval.rs:7-41`) are the same loop,
 down to identical error strings, in two crates. Both call `vm.apply`, which for
 a lambda calls `lambda_eval` (`reference/rust_multistackvm/src/multistackvm_apply.rs:49`),
 which calls `apply` on each body element
@@ -59,7 +60,7 @@ rather than failing — F50. Neither is written down anywhere.
 `stack` and `command` all require *trailing* whitespace (`bund.pest:26-30`), so
 a program ending in a word does not parse. There are **five** non-test callers of
 `bund_parse` and **four** append `\n` first — `bundcore_eval.rs:8`,
-`helpers/eval.rs`, `bund_interpreter.rs:29`, and the debugger's
+`helpers/eval.rs:8`, `bund_interpreter.rs:29`, and the debugger's
 `debug_debug.rs:52`. The fifth, the library entry point
 `bund_language_parser/src/compile.rs:15`, does **not**, so it fails on exactly
 the input the other four are compensating for.
@@ -87,7 +88,8 @@ and remains correct on its own terms.
 `value` is an ordered choice of `float`, `integer`, `lambda`, `list`, `ctx`,
 `ptr`, `name`, `command`, `atom`, `stack`, `string`, `literal`
 (`reference/bund_language_parser/bund.pest:7-20`). Order is significant: `ptr`
-precedes `name`, and `name` carries an explicit `!("`")` guard (`:28-29`).
+precedes `name` (`:13-14`), and `name` carries an explicit `` !("`") `` guard
+(`:28`).
 
 Five rules are atomic and require trailing whitespace — `atom`, `stack`,
 `name`, `ptr`, `command` (`:26-30`). Three are not atomic and nest normally —
@@ -110,17 +112,27 @@ therefore *not* inside atomic rules or string bodies.
 
 | form | produces | citation |
 |---|---|---|
-| `name` | `Value::call(name)` | `vm/name.rs` |
-| `command` | `Value::call(":")` / `(";")` | `vm/command.rs` |
-| `atom` `:foo` | `Value::from_string("foo")` | `vm/atom.rs` |
-| `ptr` `` `foo `` | `Value::ptr("foo")` | `vm/ptr.rs` |
-| `stack` `@main` | `Value::named_context("main")` | `vm/stack.rs` |
-| `lambda` `{…}` | `Value::to_lambda(terms)` | `vm/lambda.rs` |
-| `list` `[…]` | `Value::from_list(terms)` | `vm/list.rs` |
-| `EOI` | `Value::exit()` | `vm/eoi.rs` |
+| `name` | `Value::call(name)` | `vm/name.rs:7-10` |
+| `command` | `Value::call(":")` / `(";")` | `vm/command.rs:7-9` |
+| `atom` `:foo` | `Value::from_string("foo")` | `vm/atom.rs:7-10` |
+| `ptr` `` `foo `` | `Value::ptr("foo")` | `vm/ptr.rs:7-10` |
+| `stack` `@main` | `Value::named_context("main")` | `vm/stack.rs:7-10` |
+| `lambda` `{…}` | `Value::to_lambda(terms)` | `vm/lambda.rs:8-20` |
+| `list` `[…]` | `Value::from_list(terms)` | `vm/list.rs:8-20` |
+| `EOI` | `Value::exit()` | `vm/eoi.rs:7-9` |
 
 `atom` slices `[1..len-1]` then trims, dropping the leading `:` and the
 trailing whitespace the grammar required.
+
+**An atom is interchangeable with a string.** `:foo` and `"foo"` both produce a
+STRING and nothing downstream distinguishes them
+(`reference/bund_language_parser/src/vm/atom.rs:7-10`); the atom is a surface
+form whose content is any run of characters without whitespace. The grammar does
+not implement that — `aelement` admits only
+`ASCII_ALPHANUMERIC | LETTER | "." | "_"` (`bund.pest:38`) where `element`
+additionally admits `-` and sixteen others (`:36`) — so `foo-bar` is a legal word
+name while `:foo-bar` is a parse error, and the `:name { … } register` idiom
+cannot name it. Recorded as **F63**.
 
 **`ctx` is the exception, and it is F9.** `( … )` does not return a tree. It
 pushes `Value::context()` into the shared output vector, parses its inner terms
@@ -135,7 +147,7 @@ Every parse ends with an EXIT value, from the `EOI` handler.
 ### 3. The evaluator, three times
 
 `Bund::eval` (`reference/bundcore/src/bundcore_eval.rs:7-45`),
-`bund_compile_and_eval` (`reference/Bund/src/stdlib/helpers/eval.rs`) and the
+`bund_compile_and_eval` (`reference/Bund/src/stdlib/helpers/eval.rs:7-41`) and the
 debugger's loop
 (`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:52-95`) are the
 same loop. The first two are identical; the third prints each word before
@@ -208,7 +220,7 @@ registers a Rust handler under that type string into `CF`
 is registered alongside the eight (`conditional/mod.rs:44`) but pushes nothing —
 it pulls a message and fails
 (`reference/Bund/src/stdlib/functions/conditional/raise.rs:6-17`). The
-cross-crate half is what makes D7's "populated at construction" non-trivial.
+cross-crate half is what makes S7's "populated at construction" non-trivial.
 
 `!` on a CONDITIONAL reads `type`, looks it up, and calls the handler
 (`reference/rust_multistackvm/src/stdlib/execute_types/execute_conditionals.rs:9-25`).
@@ -224,7 +236,7 @@ context, with no position.
 `curry` is code generation: it builds a lambda from the captured data — pushed
 in **reverse**, `data.into_iter().rev()` — followed by the target lambda and a
 `CALL "!"`, then registers it under a name (`conditional_curry.rs:44-53`). The
-`!` is an alias, so a curried word's last instruction is a call site D8's cache
+`!` is an alias, so a curried word's last instruction is a call site S8's cache
 must invalidate on an alias-table generation bump.
 
 ### 6. Programs are data, and that is the idiom
@@ -252,12 +264,21 @@ argument:
 ?try :try { … } set :except { … } set !
 ```
 
-`{` and `}` appear in 42 of the 69 captured goldens, which is the single
-largest blocker to conformance.
+`{` or `}` appears outside string literals in 42 of the 69 captured goldens —
+37 of the 57 suite goldens and 5 of the 12 probes. That is the largest single
+count among unimplemented constructs measured this way; it is not a claim about
+which construct is hardest, since every one of those 42 needs other words too.
 
 ## Design
 
-### D1. One grammar, one parser, stated traps
+**Namespace note.** Sections here are numbered **S1–S8**. Register decisions are
+`D1`–`D35` in `docs/registers/decisions.md` and are always written `D<n>` with a
+description. An earlier draft numbered these sections `D1`–`D8`, so a sentence
+could contain both namespaces — "as D5 resolved" inside a section itself called
+D3 — and that collision is what produced the first review's missed decision.
+
+
+### S1. One grammar, one parser, stated traps
 
 `bund2-syntax` implements the grammar above, producing a typed AST with spans
 rather than a `Vec<Value>`. The twelve value forms and the ordered choice are
@@ -303,7 +324,7 @@ trailing newline parses, exactly as the reference parses it after the append;
 accepted programs is unchanged. What changes is that the `\n` append stops
 being load-bearing and disappears from the call sites.
 
-### D2. Scoped blocks — and the nesting case is a decision, not a cleanup
+### S2. Scoped blocks — `( … )` lowers in place
 
 `( … )` becomes a node in the AST like `{ … }` and `[ … ]`, not a mutation of
 the output vector.
@@ -342,7 +363,7 @@ called. Measured on the oracle, a lambda holding a hoisted-open context destroys
 its caller's stack when invoked, taking values that were never inside the
 parentheses.
 
-Under D4 this falls out rather than being added: a context is a frame with an
+Under S4 this falls out rather than being added: a context is a frame with an
 exit action, the same mechanism that fixes F57.
 
 F9 closes at the representation; D34 closes the behavioural half.
@@ -358,7 +379,7 @@ RFC cannot leave it unsaid. Recorded as **F62** and open: lowering to an opcode
 the word table cannot intercept is cleanest, and it removes a hook that D16's
 permanently-open world otherwise grants.
 
-### D3. BundIR, and what stays a value
+### S3. BundIR, and what stays a value
 
 A lambda body **stays `Vec<BundValue>`**. This is not a concession; it is
 forced. `compile` yields a LIST of values, `lambda!` retypes a LIST as a
@@ -368,7 +389,8 @@ language's representation.
 
 BundIR is therefore a **cache over** a body, never the body itself:
 
-- keyed on the body's **identity**, as D5 resolved. D5 finds lambda bodies
+- keyed on the body's **identity**, as D5 resolved — but see the caveat below,
+  which D35 now carries; D5 finds lambda bodies
   write-once — `set` on a LAMBDA returns a new value
   (`reference/rust_dynamic/src/set.rs:11-13`) and `push` converts to LIST first
   (`reference/Bund/src/stdlib/functions/values/push.rs:34`) — and concludes
@@ -392,6 +414,19 @@ re-parses and mints fresh values on every call, so it cannot hit an
 identity-keyed cache at all and stays at Tier 0 without any rule. The conclusion
 — no eval-specific tier rule — is unchanged.
 
+**D35 blocks this section.** Two facts D5 did not weigh make identity keying
+untenable as stated. **It is an unlisted materialisation point**: D20 enumerates
+where lazy identity ends — `save.*`, `compile`, `wrap` — and executing a lambda
+is not on that list, so an identity-keyed cache materialises an identity on the
+hottest path in the language. **And `dup` makes it miss**: F13's disposition is
+a structural clone *plus fresh identity*, and `dup` is 55 invocations across 38
+of 132 programs, so a dup'd lambda can never hit the cache for its original.
+
+D5 is not wrong; it answered whether the cache can go **stale**, and identity
+keying cannot. It did not answer whether the cache can **hit**. D35 carries the
+question, recommends content keying with `id` and `stamp` excluded from the
+hash, and is OPEN — so this section states the shape and not the key.
+
 **D11 is discharged here.** D11 resolves "no external dependents of
 `compile_to_binary`; version the IR format freshly." Under this design BundIR is
 an in-process cache with no serialised form, so there is no format to version.
@@ -399,7 +434,7 @@ If a later RFC serialises it — for AOT (RFC-0006) or an image (RFC-0010) — D
 "version freshly" applies at that point and this RFC's silence must not be read
 as a format decision.
 
-### D4. The flat frame loop
+### S4. The flat frame loop
 
 Tier 0 is one loop over an explicit frame stack. No Rust recursion **for Bund
 call depth** — a bound that needs stating precisely, because an earlier draft
@@ -465,7 +500,7 @@ but the restore sits after three early returns and is skipped on error
 on both paths. The reference's shape cannot express this; the flat loop does so
 structurally rather than as a patch.
 
-### D4a. Context depth is represented, so `endcontext` can refuse
+### S4a. Context depth is represented, so `endcontext` can refuse
 
 D34 balances every `( … )` the parser produces. It does not make `endcontext`
 safe, because `endcontext` is a registered inline
@@ -493,7 +528,7 @@ This is a **narrowing**, and the only one in this RFC: a program that today
 destroys a stack silently now gets an error. It is safe because the current
 behaviour produces no output for a golden to have captured.
 
-### D4b. `execute.` takes only its receiver from the workbench
+### S4b. `execute.` takes only its receiver from the workbench
 
 F53 corrects `execute.`'s wrapper, which guards the main stack
 (`reference/rust_multistackvm/src/stdlib/execute.rs:117`) and then pulls the
@@ -518,7 +553,10 @@ result there unconditionally (`:70`). `op` selects where the *receiver* lives;
 operands and results live on the main stack.
 
 So Bund2's `execute.` **takes only its receiver from the workbench and then
-proceeds exactly as `execute`**: the recursion passes `FromStack`, because by
+proceeds exactly as `execute`** — a statement about which stack each operation
+touches, not about message text: the `EXECUTE.` error prefix stays distinct from
+`EXECUTE` (`reference/rust_multistackvm/src/stdlib/execute.rs:113,120`). Read
+literally the phrase would merge them, which no golden would forgive. the recursion passes `FromStack`, because by
 then the value to execute is on the main stack. The MAP arm's key continues to
 come from the main stack, which under this rule was always right.
 
@@ -549,15 +587,15 @@ ever split the two.
 **recurses over the superclass chain**
 (`reference/rust_multistackvm/src/stdlib/bund_object.rs:50`), evaluates each
 `.init` lambda (`:76`, `:156`), then inspects the stack and `apply`s
-(`:166,169,173`). That is D4's evaluate-inspect-evaluate shape, so both are
-re-entrant natives under D4a's request/resume rule — and class construction adds
+(`:166,169,173`). That is S4's evaluate-inspect-evaluate shape, so both are
+re-entrant natives under S4a's request/resume rule — and class construction adds
 a **third depth axis**, hierarchy depth, alongside call depth and parser nesting
 depth. An earlier draft of this RFC asserted the opposite in its closing note.
 
 This does not change F59's scope, which is about the push/pull split and remains
 two arms.
 
-### D5. Errors carry position
+### S5. Errors carry position
 
 Errors become a structured value carrying a span, not an `easy_error::Error`
 string. The reference's error text is preserved verbatim where a golden
@@ -568,7 +606,7 @@ error: {}` included — and the span is additional, not a replacement.
 `context` slot (`conditional_tryexcept.rs:35-40`); the slot's string is
 unchanged, and the span rides alongside.
 
-### D6. One evaluator, parameterised by an observer
+### S6. One evaluator, parameterised by an observer
 
 F52's duplication does not survive. `bund2-interp` has a single evaluation entry
 point used by all three of today's callers: the top-level script path,
@@ -584,7 +622,7 @@ copies are currently identical". There are three, and the third differs; the
 collapse is still behaviour-preserving, but because of the observer, not because
 the copies agree.
 
-### D7. Conditional dispatch is a registry, not a global mutex
+### S7. Conditional dispatch is a registry, not a global mutex
 
 The `CF` table becomes a field on the registry RFC-0002 already owns, keyed by
 type string, populated at construction. Same lookup, same failure message
@@ -592,7 +630,7 @@ type string, populated at construction. Same lookup, same failure message
 mutable state. The `BUND` global mutex went the same way in RFC-0002 and for
 the same reason (`docs/rfc/RFC-0002-symbols-and-words.md:537`).
 
-### D8. Inline caches on call sites
+### S8. Inline caches on call sites
 
 Each call site carries a monomorphic cache of `(Symbol, generation) →
 resolution`, invalidated by RFC-0002's generation counter. This is where the
@@ -614,9 +652,12 @@ stable until a generation bumps.
 | `ctx` nested in a block, hoisting out of it | **deliberately changed** — F58, approved by D34; lowered in place |
 | `endcontext` callable unbalanced, dropping the current stack | **fixed** (F60) — a narrowing; today it is silent |
 | `endcontext` shadowable by a registered lambda | preserved for now — **F62**, open |
+| `endcontext`'s conditional carry-out: top value to the workbench if the stack is non-empty | preserved exactly; S4's exit action must reproduce it — `( 7 ) take` yields `7` |
+| `execute.`'s error prefix `EXECUTE.` distinct from `EXECUTE` | preserved exactly; S4b's "proceeds exactly as `execute`" governs stack selection, not message text |
+| `:atom`'s character class narrower than `name`'s | **deliberately changed** — F63, widened to any non-whitespace run |
 | `+//` lexing as one name | preserved, and stated (F61) |
-| The debugger's third eval loop, which prints and steps | preserved via D6's observer |
-| `execute_class` / `execute_object` re-entering evaluation | preserved; both are re-entrant natives under D4a |
+| The debugger's third eval loop, which prints and steps | preserved via S6's observer |
+| `execute_class` / `execute_object` re-entering evaluation | preserved; both are re-entrant natives under S4a |
 | `make_bund_object` recursing over the superclass chain | preserved; a third depth axis, flattening deferred to RFC-0009 |
 | `apply`'s resolution order, `autoadd` semantics, non-nestability | preserved exactly |
 | `execute`'s eight arms and their errors | preserved exactly |
@@ -626,8 +667,8 @@ stable until a generation bumps.
 | `raise`, registered with the family but pushing nothing | preserved exactly |
 | `autoadd` disable: same "cannot nest" message, same non-empty-stack guard (`autoadd.rs:17-18,20-22`) | preserved exactly, including the duplicated message |
 | `cmd+` — `::`, `;;`, `:;` are single command tokens resolving to nothing | preserved exactly |
-| `atom`'s byte slice `[1..len-1]`, safe only because the terminator was ASCII whitespace | **must be re-derived** under D1's widened terminator set |
-| `Bund::run` pulls workbench-first-then-stack and prints a result (`bundcore_run.rs:6-22`) | preserved; D6's "one evaluator" must keep the CLI `eval` subcommand's return-value behaviour |
+| `atom`'s byte slice `[1..len-1]`, safe only because the terminator was ASCII whitespace | **must be re-derived** under S1's widened terminator set |
+| `Bund::run` pulls workbench-first-then-stack and prints a result (`bundcore_run.rs:6-22`) | preserved; S6's "one evaluator" must keep the CLI `eval` subcommand's return-value behaviour |
 | Conditionals as values; missing slot defaults to empty lambda | preserved exactly |
 | `CF` as a global mutex | **changed** to registry state; lookup and errors identical (D7) |
 | `context` leaving the wrong stack on error | **fixed** (F57) — structural, via exit actions |
@@ -644,7 +685,7 @@ reachable, and those arms are wrong for the workbench — the LIST arm pushes on
 the **main** stack (`reference/rust_multistackvm/src/stdlib/execute.rs:41`) and
 then recurses still pulling from the workbench (`:42`), and the MAP arm takes its
 key from the main stack (`:56`) whatever the operand says. The wrong guard is
-currently shielding them. Recorded as **F59** and resolved in D4b: the recursion
+currently shielding them. Recorded as **F59** and resolved in S4b: the recursion
 passes `FromStack`, so only the receiver comes from the workbench. F53 and F59
 land together or not at all.
 
@@ -693,22 +734,35 @@ work rather than assumed.
    conform` must not drop below the recorded baseline in
    `tests/golden/CONFORMANCE.txt`. Separately — because `conform` compares
    captured bytes (`xtask/src/conform/mod.rs:150`) and has no parse-only mode —
-   this RFC adds `cargo xtask conform --parse-only`, reporting how many of the
-   69 goldens' sources parse without error. That number must rise from its
-   pre-RFC value to **at least 42**, the count of goldens using `{` or `}`
-   outside string literals. It is not a conformance claim: those goldens also
-   need `set`, `!`, `register` and `format`, which this RFC does not implement.
+   this RFC adds `cargo xtask conform --parse-only`, reporting how many golden
+   sources parse without error.
+
+   **Measured against a fixed denominator: the 69 goldens as of this RFC — 57
+   suite plus 12 probes.** Of those, 42 use `{` or `}` outside string literals
+   (37 suite, 5 probes), and that is the number `--parse-only` must reach.
+
+   Criterion 4 adds five probes, which would otherwise move both figures — a
+   denominator of 74 and a brace count of 44 — and **two of its probes are
+   required not to parse** (`{}` and `{ 1 println}`). Counting them as
+   parse-reach failures would make criteria 1 and 4 contradict each other, so
+   `--parse-only` reports against the fixed set and lists deliberately-rejecting
+   probes separately.
+
+   It is not a conformance claim: those goldens also need `set`, `!`, `register`
+   and `format`, which this RFC does not implement.
 
    *(An earlier draft said "42 of 69 goldens" without stating the measure, and a
    reviewer reading it as brace characters anywhere got 49. The seven-golden gap
    is `format` template placeholders inside string literals — `{answer}`, `{A}` —
    which are consumed by `leon` at runtime and are not block syntax.)*
 
-2. **Bund call depth is bounded by heap, not by the Rust stack.** A
-   self-recursive Bund word at depth 100,000 either completes or reports a
-   Bund-level error, within a 60-second wall clock, without a stack overflow.
-   Scoped to *call* depth: parser nesting depth is excluded by D4 and is not
-   tested here.
+2. **Bund call depth is bounded by heap, not by the Rust stack.** Decided by
+   `cargo xtask depth`, added with this RFC: it runs a self-recursive Bund word
+   at depth 100,000 in a subprocess and asserts the process neither overflows
+   nor exceeds a 60-second wall clock, reporting completion or a Bund-level
+   error as a pass. Scoped to *call* depth — parser nesting depth and
+   class-hierarchy depth are the other two axes S4 names, and neither is tested
+   here.
 
 3. **The parser accepts exactly the reference's language.** A differential
    harness — `cargo xtask parity`, which does not exist and is part of this
@@ -729,11 +783,24 @@ work rather than assumed.
    read-only.
 
    So: for each corpus program, render the reference's stream that way, render
-   Bund2's the same way, and compare the **normalised text**. Three constraints
-   follow and must be honoured rather than discovered — `compile` drops the
-   trailing EXIT (`:33-35`), so the comparison excludes it; source is passed as
-   a Bund string literal, so embedded quotes need escaping; and the run goes
-   through the oracle binary, so it inherits F21 like every other oracle claim.
+   Bund2's the same way, and compare the **normalised text**. Five constraints
+   follow and must be honoured rather than discovered.
+
+   - `compile` drops the trailing EXIT (`:33-35`), so the comparison excludes it.
+   - Source is passed as a Bund string literal, so embedded quotes need escaping.
+   - The run goes through the oracle binary, so it inherits F21.
+   - **The golden normaliser is not sufficient.** It rewrites `id:` and `stamp:`
+     (`xtask/src/golden/mod.rs:164-202`), and `Value::context()` puts a fresh
+     `nanoid!()` in **`data`**, not in `id`
+     (`reference/rust_dynamic/src/create_special.rs:28`). Two oracle runs of
+     `"( 4 )" compile debug.display_stack` therefore differ after normalisation
+     — measured. The parity harness needs its own rule erasing a CONTEXT value's
+     payload, or every program containing `( … )` is permanently unstable.
+   - **Nested `( … )` is expected to differ.** D34 approves lowering in place, so
+     Bund2's stream for a nested context is deliberately not the reference's.
+     Those programs compare only their *top-level* streams; the nested case is
+     covered by the D34 tests in criterion 5, not here. Without this carve-out
+     the criterion contradicts an approved deviation.
 
 4. **The three grammar traps are pinned against the oracle**, as probes under
    `tests/probes/` per D21: `1_000` errors, `007` yields three integers, `{}`
@@ -745,9 +812,14 @@ work rather than assumed.
      stack, and **F59** is answered: `execute.` on a LIST and on a MAP is
      specified and tested, not left to the exposed arms.
    - **F57** — a `context` whose lambda raises inside a `?try` leaves the
-     interpreter on the stack it started from, asserted via `current_name` on
-     the VM rather than via a word, since no word this RFC cites prints the
-     current stack name.
+     interpreter on the stack it started from. Asserted through Bund2's `Vm`
+     trait, whose accessor is `current_name`; the reference spells the same
+     thing `TS::current_stack_name`
+     (`reference/rust_multistack/src/ts_current.rs:6`) — the assertion is on
+     Bund2's API, so no reference spelling is implied.
+   - **The carry-out survives.** `( 7 ) take` yields `7`: S4's exit action
+     reproduces `endcontext`'s conditional move of the top value to the
+     workbench, not merely the stack drop.
    - **F60** — a bare `endcontext` with no context open fails with `Context is
      empty` and leaves the current stack intact. Asserted against the recorded
      deviation rather than against the oracle, whose behaviour here is silent
@@ -756,9 +828,12 @@ work rather than assumed.
      a `( … )` opens and closes its own context on every call, leaving the
      caller's stack unchanged across two invocations.
 
-6. **One evaluator.** A test that a behavioural change made at the single entry
-   point is visible from both `bund.eval` and the script path. The earlier
-   "checkable by grep" is dropped — a duplicated loop has no literal to match.
+6. **One evaluator, three callers.** A test that a behavioural change made at
+   the single entry point is visible from **all three** of the script path,
+   `bund.eval`, and `--debugger` — the third being the one S6's observer exists
+   for. The earlier "checkable by grep" is dropped: a duplicated loop has no
+   literal to match, and the earlier "both callers" predated finding the third
+   copy.
 
 7. **`cite` and `lint` clean, with the load-bearing citations quoted.** `cargo
    xtask cite`'s only exact check is on fenced blocks whose info string carries
@@ -771,6 +846,10 @@ work rather than assumed.
 
 ## Open questions
 
+- **D35 blocks S3.** The compiled cache's key is undecided: identity keying is
+  D5's letter but adds a materialisation point D20 does not list and cannot hit
+  for any `dup`'d lambda (F13). Recommendation is content keying with `id` and
+  `stamp` excluded; not adopted here.
 - **F62 blocks nothing but is unresolved.** `endcontext` is shadowable and D34
   routes every `( … )` through it. Three shapes are available — an
   un-interceptable opcode, refusing registration over the name, or documenting
@@ -790,9 +869,9 @@ work rather than assumed.
 - **F48 applies to criterion 1.** `conform` cannot express an approved
   deviation, so the baseline it is measured against is understated by D30's two
   existing deviations.
-- **D8 depends on an unfinished part of RFC-0002.** The inline cache keys on
+- **S8 depends on an unfinished part of RFC-0002.** The inline cache keys on
   `(Symbol, generation)`, and RFC-0002 records its generation overflow policy as
-  unresolved. D8 also has two consequences not yet analysed: it removes the only
+  unresolved. S8 also has two consequences not yet analysed: it removes the only
   alias resolution `$name` gets (F26 — `apply` skips the alias step, but
   `call_internal_word` calls `i()`, which resolves), and every curried word ends
   in a `Value::call("!")` (`conditional_curry.rs:51`), an alias, so its last call
@@ -803,13 +882,13 @@ work rather than assumed.
   owns the cache is unstated. That is an architectural change and belongs stated
   against RFC-0000 rather than inferred.
 - **Lowering is assumed total and information-preserving.** Criterion 3 depends
-  on it; D2 introduces an AST node whose nested lowering is undecided. Nothing
+  on it; S2 introduces an AST node whose nested lowering is undecided. Nothing
   yet states that lowering is a function.
 - **The read behind this RFC is complete for the front end and dispatch core,
   and partial for the word vocabulary.** `conditional/`'s `csv` and `sqlite`
   handlers (372 lines) were surveyed for shape, not read; `values/`'s `merge`,
   `unfold`, `listop` and `sort_lists` were enumerated by registration; and
   `execute_class` and `execute_object` have since been read, closing F59's scope
-  and removing that gap. Neither re-enters evaluation, so D4's frame model is
+  and removing that gap. Neither re-enters evaluation, so S4's frame model is
   unaffected by them. What remains unread constrains RFC-0004's effect table,
   not the IR's shape.

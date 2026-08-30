@@ -1640,3 +1640,57 @@ body, which is the one place it would be reusable.
 - Blocks: RFC-0003 (D2's preservation claim) — now unblocked
 - Status: **RESOLVED — lower in place. `( … )` is a scope in the block that
   contains it.**
+
+## D35 — what does the compiled cache key on, given `dup` and D20?
+
+RFC-0003 keys the compiled cache on the lambda body's **identity**, following
+D5's "a cache keyed on identity simply does not contain the replacement". Two
+things that D5 did not weigh make that untenable as stated.
+
+**It is an unlisted materialisation point.** D20 enumerates where lazy identity
+ends — `save.lambdas`/`save.stacks`/`save.aliases`, `compile`, and `wrap` — and
+says materialising there is correct because "those write values meant to be read
+by another process." **Executing a lambda is not on that list.** An
+identity-keyed cache forces every lambda hot enough to promote to materialise an
+identity it otherwise never needs, which is a new materialisation point on the
+hottest path in the language.
+
+**`dup` makes it miss.** F13's disposition is that Bund2 implements `dup` as a
+structural clone **plus fresh identity**. `dup` is 55 invocations across 38 of
+132 programs. So a lambda that reached the stack through `dup` has an identity
+its original does not, and an identity-keyed cache treats the two as unrelated
+bodies — it cannot hit for any dup'd lambda, in principle, forever.
+
+D5's reasoning is not wrong; it is answering a different question. D5 asked
+whether a cache can go **stale**, and identity keying cannot. It did not ask
+whether the cache can **hit**.
+
+### Options
+
+1. **Identity keying, as D5's letter.** No invalidation, and no hits for dup'd
+   lambdas. Adds a materialisation point D20 does not list, so D20 needs
+   amending either way.
+2. **Content keying with identity and stamp excluded from the hash.** Hits for
+   dup'd and re-parsed bodies alike; still needs no invalidation, because a
+   changed body is a new body with new content. Requires defining the hash to
+   skip `id` and `stamp` — which D3's amendment already flagged as undecided —
+   and pays an O(body) hash on first promotion.
+3. **Key on the registered name plus a generation.** Sidesteps value identity
+   entirely: the cache belongs to the word table, not to the value. Anonymous
+   lambdas — the `{ … } if` argument form — become uncacheable, which is most
+   of the corpus's block usage.
+
+### Recommendation
+
+**Option 2.** It is the only one that both hits and stays stale-free, and the
+exclusion it requires is the same one D3's amendment already identified as
+necessary for any content-based scheme. Option 1 is D5's letter but not its
+intent; option 3 gives up exactly the lambdas RFC-0003's block idiom creates.
+
+The cost is honest and should be stated in RFC-0005: an O(body) hash the first
+time a body is considered for promotion, on a path that is by definition hot.
+
+- Blocks: RFC-0003 (its design section on the cache), RFC-0005
+- Depends on: D5 (write-once), D20 (materialisation points), F13 (`dup` mints
+  fresh identity), D3's amendment (content hashing needs id/stamp excluded)
+- Status: **OPEN**

@@ -1766,3 +1766,62 @@ why it is worth recording now.
   it. The first is cleanest for D34 but removes a hook that metaprogramming
   might legitimately want, and this language's whole posture is that the word
   table is open (D16). Not decided here.
+
+## F63 — `:atom` cannot name a word that `name` can spell
+
+`atom` is built from `aelement`, which admits only
+`ASCII_ALPHANUMERIC | LETTER | "." | "_"`
+(`reference/bund_language_parser/bund.pest:38,26`). `name` is built from
+`element`, which additionally admits `-` and sixteen other punctuation
+characters (`:36,28`).
+
+So the two character classes disagree, and the atom's is strictly smaller.
+`foo-bar` is a legal word name; `:foo-bar` is a **parse error**. Confirmed
+against the oracle:
+
+    :my-word { 1 } register    parse error
+    foo-bar                    Inline foo-bar not registered
+
+The second reaches dispatch, which proves the name is well-formed.
+
+This matters because `:name { … } register` is *the* documented idiom for
+defining a word (`reference/Bund/examples/helloworld_lambda.bund`), and
+`register` takes the name as a string
+(`reference/rust_multistackvm/src/stdlib/lambdas/registry.rs:17-22`). A whole
+class of spellable word names — every kebab-case one, and anything using the
+other sixteen characters — cannot be written with the standard idiom. They
+remain reachable through a quoted string, `"my-word" { 1 } register`, so the
+capability exists and only the shorthand is missing.
+
+### The intended semantics, from the repository owner
+
+`:<X>` is an **atom**, and an atom is **interchangeable with a string** — its
+content is `X`, and `X` is any run of characters without whitespace. The parser
+already agrees at the value level: `atom::process_token` returns
+`Value::from_string` (`reference/bund_language_parser/src/vm/atom.rs:7-10`), so
+`:foo` and `"foo"` produce the same STRING and nothing downstream can tell them
+apart. The atom is a surface form, not a distinct type.
+
+Given that, `aelement` is simply wrong. It admits
+`ASCII_ALPHANUMERIC | LETTER | "." | "_"` where the syntax it implements should
+admit every non-whitespace character, so the grammar narrows the construct to a
+fraction of what it means. `:my-word` failing is not a deliberate restriction on
+atoms; it is the grammar failing to express them.
+
+An earlier version of this entry speculated the narrow class "may be
+deliberate", and dispositioned PRESERVE on that guess. The guess was wrong.
+
+- Found by: RFC-0003's second review round, then confirmed against the oracle;
+  intended semantics supplied by the repository owner
+- Disposition: **Bund2 widens `aelement` to any run of non-whitespace
+  characters.** An original-implementation bug, in the same family as F49 and
+  F61 — a grammar rule that does not describe the construct it names.
+
+  This is a **widening**: `:my-word` and every other spaceless atom start
+  parsing, and no program the reference accepts changes meaning, because the
+  atoms it accepts today are a strict subset. The trailing-whitespace
+  requirement is unchanged, so `:foo}` still fails exactly as `println}` does
+  (S1), and atom termination stays consistent with name termination.
+
+  No golden is at risk: a program using `:my-word` cannot exist in the corpus,
+  since it would not parse.
