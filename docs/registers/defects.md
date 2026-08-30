@@ -1451,3 +1451,56 @@ operation still fails, naming the wrong layer.
   behaviour changes only in the text of an error on an already-failing path.
   If a golden pins that text it needs `--accept` under this F-number, and F48
   applies.
+
+## F56 — the `$` alias is unreachable, because `$` is also the sigil
+
+`$` is registered as an alias for `take`
+(`reference/rust_multistackvm/src/stdlib/create_aliases.rs:36`). It can never
+fire.
+
+`apply` tests the first character of a call name and routes any `$`-prefixed
+name to `call_internal_word` (`reference/rust_multistackvm/src/multistackvm_apply.rs:33-35`)
+**before** alias resolution at `:39`. `call_internal_word` strips the sigil
+(`reference/rust_multistackvm/src/multistackvm_call_internal_word.rs:7-8`), so
+a bare `$` becomes the empty name. Confirmed against the oracle — `1 2 $`
+returns:
+
+    i() for stack returned: Inline  not registered
+
+Note the doubled space: the name is empty. The two operands are untouched, so
+nothing was taken.
+
+This is the same ordering F26 examined from the other side. F26 established
+that `$` does *not* bypass alias resolution for `$name`, because
+`call_internal_word` calls `i()` and `i()` resolves aliases. The bare `$` is
+the case where the sigil consumes the whole name and there is nothing left to
+resolve.
+
+- Found by: reading the alias table for RFC-0003, then probing the oracle
+- Disposition: **PRESERVE the unreachability, do not port the alias.** Bund2
+  registers 45 aliases from this table minus this one, and RFC-0003 states why
+  — an alias whose name is a prefix sigil is shadowed by the sigil. Porting it
+  would create a word the reference does not have.
+
+## F57 — a failing `context` lambda leaves the VM on the wrong stack
+
+`conditional_ctx::conditional_run` saves the current stack name, switches with
+`to_stack(cond_name)`, runs the `pre`, `run` and `post` lambdas, and only then
+restores (`reference/Bund/src/stdlib/functions/conditional/conditional_ctx.rs:60-72`).
+
+Each of the three evaluations `bail!`s on error, and every one of those returns
+before the restoring `to_stack(prev_stack_name)` at `:71`. There is no unwind
+protection, so an error inside a context leaves the interpreter on the
+context's stack.
+
+At top level this is masked — the error ends the program. It is observable
+wherever the error is caught, which `?try` does by design
+(`reference/Bund/src/stdlib/functions/conditional/conditional_tryexcept.rs:32-49`):
+the `except` lambda then runs against a stack the program did not choose.
+
+- Found by: reading `conditional_ctx` for RFC-0003
+- Disposition: **Bund2 restores on both paths.** An original-implementation
+  bug. RFC-0003's flat frame loop makes this structural rather than a fix — a
+  context is a frame with an exit action, and unwinding runs it. The
+  reference's shape cannot express that because the restore is a statement
+  after three early returns.
