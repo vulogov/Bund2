@@ -485,10 +485,19 @@ change. No corpus program uses `execute.` or its alias `!.`
 (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:6`), so no golden is
 at risk.
 
-**Unclosed scope.** `execute_class` and `execute_object` also receive `op`
-(`execute.rs:88,91`) and have not been read. If either splits pushes and pulls
-the same way, this rule covers four arms rather than two. That read precedes
-implementation.
+**Scope: two arms, not four.** `execute_class` and `execute_object` were read to
+settle this. Neither splits pushes from pulls, because neither consults `op` —
+both take it as `_op`. `execute_class` pushes the value onto the main stack and
+delegates
+(`reference/rust_multistackvm/src/stdlib/bund_execute/execute_class.rs:8-10`);
+`execute_object` pulls a method name from the main stack, pushes the value
+there, and dispatches with `vm.m`
+(`reference/rust_multistackvm/src/stdlib/bund_execute/execute_object.rs:8-20`).
+
+Both therefore already behave as this rule prescribes — receiver in hand,
+operands and results on main — which is independent confirmation of the
+convention rather than an exception to it. LIST and MAP are the only arms that
+ever split the two.
 
 ### D5. Errors carry position
 
@@ -674,10 +683,11 @@ work rather than assumed.
 
 ## Open questions
 
-- **F59's scope is not fully closed.** Its rule is decided (D4b), but
-  `execute_class` and `execute_object` also receive `op` and are unread; if
-  either splits pushes and pulls the same way, the rule covers four arms rather
-  than two. A read before implementing, not a blocker.
+- **F54 is a citation hazard, not just dead code.**
+  `reference/rust_multistackvm/src/stdlib/execute_types/execute_object.rs`
+  declares `execute_object` over a body byte-identical to
+  `execute_conditionals`. A citation into it resolves and returns the wrong
+  subsystem, and `cite` cannot catch that — the path and line exist.
 - **Q21** — how the frame loop reproduces the nested `bail!` concatenation that
   `?try` files into its `context` slot. Registered.
 - **Q22** — the compiled-cache promotion threshold and cap, which D3's amended
@@ -704,6 +714,7 @@ work rather than assumed.
   and partial for the word vocabulary.** `conditional/`'s `csv` and `sqlite`
   handlers (372 lines) were surveyed for shape, not read; `values/`'s `merge`,
   `unfold`, `listop` and `sort_lists` were enumerated by registration; and
-  `execute_class` / `execute_object`, two of `execute`'s eight arms, were not
-  read at all. None constrains the IR's shape; the last does constrain D4's
-  frame model, since those arms may re-enter evaluation.
+  `execute_class` and `execute_object` have since been read, closing F59's scope
+  and removing that gap. Neither re-enters evaluation, so D4's frame model is
+  unaffected by them. What remains unread constrains RFC-0004's effect table,
+  not the IR's shape.

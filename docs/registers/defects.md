@@ -1430,10 +1430,24 @@ file). The reachable copy is
 `reference/rust_multistackvm/src/stdlib/bund_execute/execute_object.rs`,
 declared at `bund_execute/mod.rs:3` and called from `execute.rs:91`.
 
-- Found by: resolving `execute`'s OBJECT arm for RFC-0003
-- Disposition: **Nothing to port.** Recorded so a later reader does not ground
-  a claim in the dead copy — a `path:line` citation into it would resolve, and
-  be about code that never runs.
+**Correction (2026-08-30): it is not a copy of `execute_object`.** The file
+declares `pub fn execute_object` (`:8`) whose body is byte-identical to
+`execute_conditionals` — it reads the value's `type` slot, looks it up in `CF`,
+and calls the handler. So the name says object dispatch and the code does
+conditional dispatch.
+
+That is a worse trap than a stale duplicate. A `path:line` citation into this
+file resolves, and returns confidently wrong code: a reader grounding a claim
+about how OBJECT is executed would be reading the conditional dispatcher. The
+live object executor is
+`reference/rust_multistackvm/src/stdlib/bund_execute/execute_object.rs`, which
+pulls a method name and calls `vm.m` — nothing to do with `CF`.
+
+- Found by: resolving `execute`'s OBJECT arm for RFC-0003; the name/content
+  mismatch found on 2026-08-30 while closing F59's scope
+- Disposition: **Nothing to port, and nothing to cite.** Recorded so a later
+  reader does not ground a claim in it. `cargo xtask cite` cannot catch this —
+  the path and line exist, and only the content is wrong for its name.
 
 ## F55 — `input*`'s lambda type check is disabled by operator precedence
 
@@ -1603,10 +1617,30 @@ the main stack.
   `!.` (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:6`), so no
   golden captures any behaviour of any arm.
 
-  **Scope caveat, to be closed before implementing.** `execute_class` and
-  `execute_object` also receive `op` (`execute.rs:88,91`) and have not been
-  read. If either has the same push/pull split, this fix covers four arms rather
-  than two.
+  **Scope closed (2026-08-30): two arms, not four.** `execute_class` and
+  `execute_object` were read. Neither has the push/pull split, because neither
+  consults `op` at all — both take it as `_op`.
+
+  - `execute_class` pushes the value onto the main stack and delegates to
+    `stdlib_object_inline`
+    (`reference/rust_multistackvm/src/stdlib/bund_execute/execute_class.rs:8-10`).
+    No pull, no recursion.
+  - `execute_object` guards the main stack, pulls a **method name** from it,
+    pushes the value onto it, and dispatches with `vm.m`
+    (`reference/rust_multistackvm/src/stdlib/bund_execute/execute_object.rs:8-20`).
+    No recursion.
+
+  **Both already behave exactly as this disposition prescribes.** The receiver
+  is in hand by the time they are called, and every operand and result they
+  touch is on the main stack — which is "op selects the receiver; everything
+  else is main", arrived at independently. That is confirmation of the rule
+  rather than an exception to it, and it leaves LIST and MAP as the only two
+  arms that ever split pushes from pulls.
+
+  Worth noting the contrast with F53: `execute_object` guards
+  `current_stack_len() < 1` — the same shape as F53's bug — and here it is
+  **correct**, because the method name it needs genuinely comes from the main
+  stack. The guard is only wrong when it does not match what is pulled.
 
 
 ## F60 — `endcontext`'s "Context is empty" guard can never fire, and the failure is silent
