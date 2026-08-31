@@ -72,8 +72,16 @@ answerable.
 | method slots | a **PTR** naming a method | `.id` → `` `.id `` |
 
 The base hierarchy is `Object` → `Printable` → `Display`
-(`base_classes.rs:95,107`). Note the direction: a class's `.super` names the
-class **above** it, and `Object` — the root by name — has `Printable` above it.
+(`base_classes.rs:95,107`).
+
+**`.super` reads upward, conventionally.** `create_class_hierarhy_demo.bund:21`
+sets `".super" [ :A ]` on class `B`, so `A` is `B`'s parent. What is
+unconventional is only the base chain's naming: `Display` is its root and
+`Object` is the most derived of the three. That costs nothing, because a user
+class inherits from `Object` and reaches the whole chain through it —
+confirmed: a class with `".super" [ :Object ]` answers `.id`. Preserved as
+named; renaming would break any program that spells `Printable` or `Display`
+in a `.super`.
 
 **Slot names and method names are not the same.** `Object` maps the slot `.id`
 to the method `` `.id ``, but `Printable` maps the slot `str` to the method
@@ -96,6 +104,11 @@ So a method is reachable only through a class slot: nothing dispatches
 `make_bund_object` (`bund_object.rs:26-60`):
 
 1. `dup`s the class — a deep copy under F13's fix, a bincode round trip today.
+   **So every instance gets its own identity**, which is what `.id` should
+   answer: two objects of one class return different ids, confirmed against the
+   oracle. F13's fresh-identity `dup` is exactly right here, and D35's cache is
+   unaffected because step 2 writes to the copy immediately, so no payload is
+   ever shared with the class.
 2. Sets `dt` to `OBJECT` and `.class_name` to the class's name.
 3. **Rebuilds `.super`**: for each *name* in the class's `.super`, constructs
    that parent object recursively and pushes the **object** into the list.
@@ -139,6 +152,13 @@ Neither consults `op`, so both take their operands from the main stack whatever
 `oop/` registers ten words (`oop/*.rs`): the built-in classes `True`, `False`,
 `Intervals`, `List`, `Floats`, and `wrap` / `unwrap` / `is`
 (`value_class.rs:168-170`) and `#` / `#.` (`object_execute.rs:59-60`).
+
+**D14 already splits them, and the split runs exactly along this RFC's seam.**
+`cargo xtask scope` puts the machinery in **core** — `class`, `object`, `#`,
+`#.`, `is`, `wrap`, `unwrap`, `?class`, `?object`, `resolve.class` — and the
+built-in classes in **library**: `True`, `False`, `Intervals`, `List`,
+`Floats`. So this RFC specifies what core needs and the built-in classes are
+deferrable word packages, with no further decision required.
 
 **Almost none of `oop/` is machinery.** Of its 1,183 lines, 948 are those
 built-in classes and 235 are `base_classes.rs`, `object_execute.rs` and
@@ -287,21 +307,12 @@ prevents more than one VM.
 
 ## Open questions
 
-- **The `.super` direction reads backwards.** `Object`'s `.super` is
-  `["Printable"]` and `Printable`'s is `["Display"]`
-  (`base_classes.rs:95,107`), so the class named `Object` is not the root of
-  its own hierarchy. Whether that is intended or an artefact is not settled;
-  the resolution order is preserved either way, and nothing here depends on the
-  answer. Worth a register entry if a program is found relying on it.
-- **`dup` in construction is F13's path.** `make_bund_object` `dup`s the class
-  (`bund_object.rs:29-32`), and F13's fix makes `dup` a structural clone with a
-  **fresh identity**. So every instance's class-copy has an identity distinct
-  from the class's. Nothing observed depends on it; stated because D35 keyed a
-  cache on exactly this distinction.
-- **The built-in classes are not scoped here.** `Intervals`, `List`, `Floats`,
-  `True`, `False` and the `Display`/`Printable` chain are 948 of `oop/`'s
-  1,183 lines and are library, not machinery. D14's core/library split governs
-  which of them Bund2 ships; this RFC specifies the mechanism they use.
-- **F66 applies to the OOP goldens.** Two of the four unreproducible goldens
+Three questions this RFC opened were settled by probing while it was in draft,
+and are now stated as facts above rather than carried: the `.super` direction
+(Current behaviour §1), `dup`'s fresh identity per instance (§3), and D14's
+core/library split of the OOP words (§6). One remains, and it is not this
+RFC's to close.
+
+- **F66 applies to the OOP goldens, and F48 is why it matters.** Two of the four unreproducible goldens
   are `execute-arm-class` and `execute-arm-not-executable`, so criterion 1's
   denominator is understated by that much.
