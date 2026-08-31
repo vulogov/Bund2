@@ -56,12 +56,18 @@ mod dt {
     pub const CFLOAT: u16 = 15;
     pub const METRICS: u16 = 16;
     pub const LAMBDA: u16 = 17;
+    /// A stack switch. `@name` carries the name; a `( … )` scratch context
+    /// carries a generated one (`reference/rust_dynamic/src/create_special.rs:22-33`).
+    pub const CONTEXT: u16 = 21;
     pub const TEXTBUFFER: u16 = 22;
     pub const JSON: u16 = 24;
     pub const CONDITIONAL: u16 = 29;
     pub const VALUEMAP: u16 = 30;
     pub const CLASS: u16 = 31;
     pub const OBJECT: u16 = 32;
+    /// What the parser emits at end of input; the evaluator breaks on it
+    /// (`reference/bundcore/src/bundcore_eval.rs:16-18`).
+    pub const EXIT: u16 = 93;
     pub const NODATA: u16 = 97;
 }
 
@@ -250,6 +256,25 @@ impl BundValue {
     #[allow(clippy::mutable_key_type)]
     pub fn valuemap(m: HashMap<BundValue, BundValue>) -> Self {
         Self::heap(VALUEMAP, Payload::ValueMap(m))
+    }
+    /// `@name` — a stack switch naming its target.
+    pub fn named_context(name: impl Into<String>) -> Self {
+        Self::heap(CONTEXT, Payload::Str(name.into()))
+    }
+    /// The anonymous scratch context `( … )` opens.
+    ///
+    /// The reference generates a fresh nanoid for the name
+    /// (`reference/rust_dynamic/src/create_special.rs:28`) so that no two
+    /// contexts collide and none can be reached by `@name`. Bund2 mints from
+    /// the same counter the identity uses, so the name is unique per process
+    /// and has a nanoid's shape and width.
+    pub fn context() -> Self {
+        Self::named_context(format_id(mint()))
+    }
+    /// End of input. Carries no payload — `Val::Exit`
+    /// (`reference/rust_dynamic/src/create_special.rs:85-96`).
+    pub fn exit() -> Self {
+        Self::heap(EXIT, Payload::Exit)
     }
     pub fn lambda(body: Vec<BundValue>) -> Self {
         Self::heap(LAMBDA, Payload::Lambda(body))

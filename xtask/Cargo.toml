@@ -9,6 +9,7 @@ license.workspace      = true
 rust-version.workspace = true
 
 [dependencies]
+bund2-syntax.workspace = true
 # `cargo xtask render` checks the renderer against the goldens, so it needs
 # the type it is checking.
 bund2-value = { path = "../crates/bund2-value" }

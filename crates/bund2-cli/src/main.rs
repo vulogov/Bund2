@@ -1,16 +1,14 @@
 //! The bund2 command line runner.
 //!
-//! **A slice.** It lexes a program with `bund2-syntax`, dispatches each term
-//! through `bund2-interp`, and stops there — no REPL, no `--emit`, no
-//! subcommands beyond `script --file`, which is what `cargo xtask conform`
-//! invokes. RFC-0003 replaces the middle of it with an IR and a frame loop.
+//! **A slice.** It parses a program with `bund2-syntax`, lowers it to a value
+//! stream, and hands that to `bund2-interp`'s single evaluator — no REPL, no
+//! `--emit`, no subcommands beyond `script --file`, which is what
+//! `cargo xtask conform` invokes. RFC-0003's frame loop replaces the
+//! evaluator's middle; the front end is now the real one.
 
 use std::process::ExitCode;
 
-use bund2_api::Vm;
 use bund2_interp::Interp;
-use bund2_syntax::{Term, lex};
-use bund2_value::BundValue;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -52,17 +50,11 @@ fn parse_args(args: &[String]) -> Result<String, String> {
 }
 
 fn run(src: &str) -> Result<(), String> {
-    let terms = lex(src).map_err(|e| e.to_string())?;
+    // No `\n` is appended. The reference appends one at four of its five parse
+    // sites to satisfy a grammar rule that demands trailing whitespace; S1
+    // admits end of input as a terminator instead, so the workaround is gone.
+    let stream = bund2_syntax::compile(src).map_err(|e| e.render(src))?;
     let mut vm = Interp::new();
     bund2_stdlib::register_all(&mut vm.registry);
-
-    for t in terms {
-        match t {
-            Term::Int(i) => vm.push(BundValue::Int(i)),
-            Term::Float(f) => vm.push(BundValue::Float(f)),
-            Term::Str(s) => vm.push(BundValue::str(s)),
-            Term::Name(n) => vm.dispatch_name(&n).map_err(|e| e.0)?,
-        }
-    }
-    Ok(())
+    vm.eval(&stream).map_err(|e| e.0)
 }

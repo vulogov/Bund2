@@ -88,10 +88,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     let accept = args.iter().any(|a| a == "--accept");
     let verbose = args.iter().any(|a| a == "-v" || a == "--verbose");
+    let parse_only = args.iter().any(|a| a == "--parse-only");
     for a in args {
-        if !matches!(a.as_str(), "--accept" | "-v" | "--verbose") {
+        if !matches!(a.as_str(), "--accept" | "-v" | "--verbose" | "--parse-only") {
             return Err(format!("unknown argument `{a}`"));
         }
+    }
+    if parse_only {
+        return parse_reach(&repo, verbose);
     }
 
     // The same job list `golden` captures from, so the two cannot disagree
@@ -255,4 +259,49 @@ pub fn run(args: &[String]) -> Result<(), String> {
             Ok(())
         }
     }
+}
+
+
+/// **RFC-0003 criterion 1's parse-reach number.**
+///
+/// How many golden sources the front end accepts, which is a different
+/// question from how many conform: a program can parse perfectly and still
+/// fail on the first word Bund2 has not implemented. Reported separately for
+/// exactly that reason.
+///
+/// **The denominator is fixed at the 69 goldens as of RFC-0003** — 57 suite
+/// plus 12 probes. Criterion 4 adds probes, two of which are *required* not to
+/// parse (`{}` and `{ 1 println}`), so counting them here would make criteria 1
+/// and 4 contradict each other. Sources whose name marks them as
+/// deliberately-rejecting are listed apart from the ratio.
+fn parse_reach(repo: &Path, verbose: bool) -> Result<(), String> {
+    let (jobs, _) = golden::capture_jobs(repo)?;
+    let mut ok = 0usize;
+    let mut total = 0usize;
+    let mut failures: Vec<(String, String)> = Vec::new();
+    for (program, name, _cwd) in &jobs {
+        let path = repo.join(program);
+        let Ok(src) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        total += 1;
+        match bund2_syntax::parse(&src) {
+            Ok(_) => ok += 1,
+            Err(e) => failures.push((name.clone(), e.render(&src))),
+        }
+    }
+    println!("\n  PARSE-REACH  {ok}/{total}\n");
+    println!(
+        "  How many golden sources the front end accepts. Not a conformance\n           number: a program can parse and still fail on the first word that is\n           not implemented. `cargo xtask conform` answers that one.\n"
+    );
+    if !failures.is_empty() {
+        let show = if verbose { failures.len() } else { 12 };
+        for (name, why) in failures.iter().take(show) {
+            println!("  {name:<44} {why}");
+        }
+        if failures.len() > show {
+            println!("  ... {} more", failures.len() - show);
+        }
+    }
+    Ok(())
 }

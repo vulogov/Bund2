@@ -254,6 +254,88 @@ impl Interp {
             None => Err(Error(format!("{name} not registered"))),
         }
     }
+
+    /// Apply one value, as `VM::apply` does
+    /// (`reference/rust_multistackvm/src/multistackvm_apply.rs:8-104`).
+    ///
+    /// Three arms, and the third is everything else:
+    ///
+    /// - **CALL** — dispatch. RFC-0002's registry already folds in the command,
+    ///   sigil, alias and lambda ordering the reference spells out at `:16-59`.
+    /// - **CONTEXT** — switch stacks (`:69-87`). `( … )` opens one this way and
+    ///   `endcontext` closes it.
+    /// - **anything else** — push (`:99`).
+    ///
+    /// `autoadd` is not implemented, so the branches at `:19` and `:89` are
+    /// absent. When list construction lands it belongs here, not at the call
+    /// sites.
+    pub fn apply(&mut self, v: BundValue) -> Result<(), Error> {
+        match v.dt() {
+            bund2_value::CALL => {
+                let name = v
+                    .as_str()
+                    .ok_or_else(|| Error("Empty function name passed for CALL".into()))?;
+                if name.is_empty() {
+                    return Err(Error("Empty function name passed for CALL".into()));
+                }
+                self.dispatch_name(&name)
+            }
+            bund2_value::CONTEXT => {
+                let name = v.as_str().ok_or_else(|| {
+                    Error("Can not get the name of context from the CONTEXT value".into())
+                })?;
+                self.to_stack(&name);
+                Ok(())
+            }
+            _ => {
+                self.push(v);
+                Ok(())
+            }
+        }
+    }
+
+    /// **The one evaluator** — RFC-0003 §S6.
+    ///
+    /// The reference has three copies of this loop, two identical and one that
+    /// prints and steps (F52): `reference/bundcore/src/bundcore_eval.rs:7-45`,
+    /// `reference/Bund/src/stdlib/helpers/eval.rs:7-41`, and the debugger's at
+    /// `reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:52-95`.
+    /// This is all three, with the difference between them passed in as an
+    /// observer rather than duplicated.
+    ///
+    /// The four arms are the reference's: `NONE` continues, `EXIT` breaks,
+    /// `ERROR` bails, everything else applies. The error text on the last arm
+    /// is preserved verbatim in *shape*; the interpolated value cannot
+    /// reproduce, because `{:?}` embeds `id` and `stamp` (F14).
+    pub fn eval(&mut self, stream: &[BundValue]) -> Result<(), Error> {
+        self.eval_observed(stream, &mut |_| {})
+    }
+
+    /// [`Interp::eval`] with a per-word observer. The debugger's copy is this
+    /// with a printing, stepping observer.
+    pub fn eval_observed(
+        &mut self,
+        stream: &[BundValue],
+        observe: &mut dyn FnMut(&BundValue),
+    ) -> Result<(), Error> {
+        for v in stream {
+            match v.dt() {
+                bund2_value::NONE => continue,
+                bund2_value::EXIT => break,
+                _ => {
+                    observe(v);
+                    if let Err(e) = self.apply(v.clone()) {
+                        return Err(Error(format!(
+                            "Attempt to evaluate value {} returned error: {}",
+                            v.render(false),
+                            e.0
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Vm for Interp {
