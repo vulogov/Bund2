@@ -47,7 +47,7 @@ fn if_base(vm: &mut dyn Vm, want: bool, prefix: &str) -> Result<(), Error> {
 ///
 /// A BOOL is itself; the numeric kinds are false at zero. `==` and friends
 /// push a BOOL, so that is the path the corpus takes.
-fn cast_bool(v: &BundValue) -> Option<bool> {
+pub(crate) fn cast_bool(v: &BundValue) -> Option<bool> {
     match v.unboxed() {
         BundValue::Bool(b) => Some(*b),
         BundValue::Int(i) => Some(*i != 0),

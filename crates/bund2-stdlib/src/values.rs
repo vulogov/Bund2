@@ -237,8 +237,9 @@ fn execute_value(vm: &mut dyn Vm, v: BundValue) -> Result<(), Error> {
                 ))),
             }
         }
-        CONDITIONAL | CLASS | OBJECT => Err(Error(
-            "EXECUTE: conditional, class and object arms are not implemented".into(),
+        CONDITIONAL => crate::conditional::execute_conditional(vm, v),
+        CLASS | OBJECT => Err(Error(
+            "EXECUTE: the class and object arms need the object model (RFC-0009)".into(),
         )),
         _ => Err(Error("Received value is not of executable type".into())),
     }

@@ -163,6 +163,11 @@ impl Stacks {
 
 /// The interpreter.
 pub struct Interp {
+    /// Contexts opened by `( … )` and not yet closed, each with the stack to
+    /// restore. **Separate from the stack-of-stacks on purpose** — the
+    /// reference conflates the two and so cannot tell whether a context is
+    /// open, which is F60.
+    contexts: Vec<(String, String)>,
     pub registry: Registry,
     pub stacks: Stacks,
     /// `apply` tests this in three places, and it does **not** precede the
@@ -184,6 +189,7 @@ impl Interp {
             registry: Registry::new(),
             stacks: Stacks::default(),
             autoadd: false,
+            contexts: Vec::new(),
         }
     }
 
@@ -310,6 +316,14 @@ impl Interp {
                 let name = v.as_str().ok_or_else(|| {
                     Error("Can not get the name of context from the CONTEXT value".into())
                 })?;
+                // `VM::to_stack` switches *and* pushes the name onto the
+                // nesting stack (`reference/rust_multistackvm/src/multistackvm_to_stack.rs:5-19`),
+                // which is what `endcontext` later pops. Every switch counts,
+                // `@name` included — the difference from the reference is only
+                // that this stack starts **empty** rather than holding `main`,
+                // so a bare `endcontext` has nothing to pop and F60's guard can
+                // finally fire.
+                self.push_context(&name);
                 self.to_stack(&name);
                 Ok(())
             }
@@ -514,6 +528,24 @@ impl Vm for Interp {
             .interner
             .lookup_call(name)
             .is_some_and(|(s, _)| self.registry.resolve_target(s) != s)
+    }
+
+    fn conditional(&self, ty: &str) -> Option<bund2_api::ConditionalFn> {
+        self.registry.conditional(ty)
+    }
+
+    fn context_depth(&self) -> usize {
+        self.contexts.len()
+    }
+
+    fn push_context(&mut self, name: &str) {
+        // The stack to come back to is the one current *before* the switch.
+        let prev = self.current_name();
+        self.contexts.push((name.to_string(), prev));
+    }
+
+    fn pop_context(&mut self) -> Option<String> {
+        self.contexts.pop().map(|(_, prev)| prev)
     }
 
     fn get_lambda(&self, name: &str) -> Option<BundValue> {

@@ -142,6 +142,20 @@ pub trait Vm {
     fn is_alias(&self, name: &str) -> bool;
     /// The lambda bound to this name, if any.
     fn get_lambda(&self, name: &str) -> Option<BundValue>;
+    /// The handler for a conditional `type`, if one is bound (S7).
+    fn conditional(&self, ty: &str) -> Option<ConditionalFn>;
+
+    // --- contexts ----------------------------------------------------------
+    /// How many contexts `( … )` has opened and not yet closed.
+    ///
+    /// The reference cannot ask this: `stacks_stack` conflates the base stack
+    /// with stacks opened by `(`, which is why `endcontext`'s own guard can
+    /// never fire (F60). Tracking the depth separately is what lets it.
+    fn context_depth(&self) -> usize;
+    fn push_context(&mut self, name: &str);
+    /// Pop one context, returning the stack to restore to. `None` when no
+    /// context is open.
+    fn pop_context(&mut self) -> Option<String>;
 }
 
 /// A word's failure. RFC-0003 replaces this with a spanned error value.
@@ -322,11 +336,48 @@ impl Interner {
 pub struct Registry {
     pub interner: Interner,
     slots: Vec<Slot>,
+    /// **The conditional table — RFC-0003 §S7.**
+    ///
+    /// The reference keeps this in a `lazy_static` `Mutex<BTreeMap<…>>` called
+    /// `CF` (`reference/rust_multistackvm/src/stdlib/execute_types/mod.rs:11-16`),
+    /// a fourth live dispatch table alongside the three word tables. It is
+    /// keyed by a conditional's `type` **string**, not by a word name, so it
+    /// cannot fold into the slot table: `!` on a CONDITIONAL reads `type` and
+    /// looks it up (`execute_conditionals.rs:9-25`).
+    ///
+    /// Here it is registry state, populated at construction. Same lookup, same
+    /// failure message, no global mutable state — the `BUND` mutex went the
+    /// same way in RFC-0002.
+    ///
+    /// A `BTreeMap`, as the reference's is, so iteration order is stable.
+    conditionals: std::collections::BTreeMap<String, ConditionalFn>,
 }
+
+/// A conditional handler: it receives the CONDITIONAL value itself, because
+/// every branch it might run is in one of that value's slots
+/// (`reference/rust_multistackvm/src/stdlib/execute_types/mod.rs:8`).
+pub type ConditionalFn = fn(&mut dyn Vm, BundValue) -> Result<(), Error>;
 
 impl Registry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Bind a conditional `type` string to its handler.
+    ///
+    /// The reference populates this from two crates — eight types from `Bund`
+    /// (`reference/Bund/src/stdlib/functions/conditional/mod.rs:20-27`) and
+    /// `through` from `rust_multistackvm`
+    /// (`reference/rust_multistackvm/src/stdlib/execute_types/mod.rs:36`) —
+    /// which is what makes the global mutex load-bearing there and merely
+    /// convenient here.
+    pub fn register_conditional(&mut self, ty: &str, f: ConditionalFn) {
+        self.conditionals.insert(ty.to_string(), f);
+    }
+
+    /// The handler for a conditional `type`, if one is bound.
+    pub fn conditional(&self, ty: &str) -> Option<ConditionalFn> {
+        self.conditionals.get(ty).copied()
     }
 
     fn slot_mut(&mut self, s: Symbol) -> &mut Slot {
@@ -549,6 +600,16 @@ mod tests {
             false
         }
         fn get_lambda(&self, _: &str) -> Option<BundValue> {
+            None
+        }
+        fn conditional(&self, _: &str) -> Option<ConditionalFn> {
+            None
+        }
+        fn context_depth(&self) -> usize {
+            0
+        }
+        fn push_context(&mut self, _: &str) {}
+        fn pop_context(&mut self) -> Option<String> {
             None
         }
     }

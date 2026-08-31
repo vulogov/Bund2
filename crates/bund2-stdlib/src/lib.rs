@@ -14,6 +14,8 @@ pub mod math;
 
 pub mod control;
 
+pub mod conditional;
+
 /// Register everything this crate provides.
 pub fn register_all(r: &mut bund2_api::Registry) {
     stack::register(r);
@@ -22,4 +24,5 @@ pub fn register_all(r: &mut bund2_api::Registry) {
     values::register_words(r);
     math::register(r);
     control::register(r);
+    conditional::register(r);
 }

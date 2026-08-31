@@ -1825,3 +1825,47 @@ deliberate", and dispositioned PRESERVE on that guess. The guess was wrong.
 
   No golden is at risk: a program using `:my-word` cannot exist in the corpus,
   since it would not parse.
+
+## F65 — `conditional_try` is defined and never registered
+
+`stdlib_conditional_try_inline` builds a CONDITIONAL tagged `type: "try"`
+(`reference/rust_multistackvm/src/stdlib/artefacts.rs:127-131`). Nothing
+registers it: `artefacts.rs`'s `init_stdlib` binds fourteen words (`:134-147`)
+and this is not among them, and the name appears nowhere else in any of the six
+crates.
+
+The tag it would have produced is also orphaned. `?try` builds
+`type: "tryexcept"`
+(`reference/Bund/src/stdlib/functions/conditional/conditional_tryexcept.rs:7-11`)
+and the conditional table binds `tryexcept`
+(`reference/Bund/src/stdlib/functions/conditional/mod.rs:21`); no handler is
+bound to `try`. So even if the word were reachable, executing what it pushes
+would fail with `EXECUTE:CONDITIONAL conditionals handler does not exist: try`.
+
+Third of its kind, after F55's guard that cannot fire and F56's alias the sigil
+shadows.
+
+- Found by: building the conditional table for RFC-0003's S7
+- Disposition: **Not ported.** Bund2 binds the eight types that have handlers
+  plus `through`, and no word that produces an unhandled tag.
+
+## F64 — a non-`Add` arithmetic operation on two strings silently returns an operand
+
+`string_op_string_string` implements `Add` and falls through to `_ => x` for
+everything else (`reference/rust_dynamic/src/math.rs:103-108`), and
+`string_op_string_int` does the same (`:110-116`).
+
+So `"a" "b" -` is `"b"` — the left operand, unchanged — rather than an error.
+Confirmed against the oracle. `*` and `/` behave the same way on two strings.
+
+That is worse than the type errors either side of it: `numeric_op` rejects an
+incompatible operand pair explicitly (`:203`), so a string against a list fails
+loudly while a string against a string fails silently and looks like it worked.
+
+- Found by: implementing arithmetic for RFC-0003's word vocabulary, then
+  probing the oracle
+- Disposition: **PRESERVE, and pin it.** A program relying on it is
+  indistinguishable from one with a typo, but changing the answer changes what
+  those programs do. `crates/bund2-stdlib/src/math.rs` reproduces it with a
+  test that names this F-number, and `bund2 check` (RFC-0004) is where a
+  warning belongs.
