@@ -93,7 +93,7 @@ fn space(_vm: &mut dyn Vm) -> Result<(), Error> {
 /// output is a pipe. The goldens were captured through a pipe — the widest is
 /// a single unwrapped 190-column row — and `conform` compares captured output,
 /// so both sides see the same absence of a terminal.
-fn draw_box(rows: &[String]) -> String {
+pub(crate) fn draw_box_rows(rows: &[String]) -> String {
     if rows.is_empty() {
         // Zero columns, so no preset applies and comfy_table prints nothing at
         // all. The reference still emits a degenerate two-line box, which is
@@ -116,7 +116,7 @@ fn draw_box(rows: &[String]) -> String {
 /// rewrites the stack tag on every value it touches.
 fn display_stack(vm: &mut dyn Vm) -> Result<(), Error> {
     let rows: Vec<String> = vm.snapshot().iter().map(|v| v.render(false)).collect();
-    println!("{}", draw_box(&rows));
+    println!("{}", draw_box_rows(&rows));
     Ok(())
 }
 
@@ -126,7 +126,7 @@ fn display_workbench(vm: &mut dyn Vm) -> Result<(), Error> {
         .iter()
         .map(|v| v.render(false))
         .collect();
-    println!("{}", draw_box(&rows));
+    println!("{}", draw_box_rows(&rows));
     Ok(())
 }
 
@@ -157,7 +157,7 @@ mod tests {
     /// leaves nothing behind.
     #[test]
     fn an_empty_stack_is_a_zero_width_box() {
-        assert_eq!(draw_box(&[]), "╭╮\n╰╯");
+        assert_eq!(draw_box_rows(&[]), "╭╮\n╰╯");
     }
 
     /// The box, byte-for-byte, against bytes lifted out of a golden.
@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn a_non_empty_stack_is_a_rounded_table() {
         assert_eq!(
-            draw_box(&["alpha".to_string(), "bb".to_string()]),
+            draw_box_rows(&["alpha".to_string(), "bb".to_string()]),
             concat!(
                 "╭───────╮\n",
                 "│ alpha │\n",
@@ -186,7 +186,7 @@ mod tests {
     #[test]
     fn one_row_has_no_separator() {
         assert_eq!(
-            draw_box(&["x".to_string()]),
+            draw_box_rows(&["x".to_string()]),
             "╭───╮\n│ x │\n╰───╯"
         );
     }

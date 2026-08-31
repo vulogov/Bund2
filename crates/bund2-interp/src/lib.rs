@@ -168,6 +168,10 @@ pub struct Interp {
     /// reference conflates the two and so cannot tell whether a context is
     /// open, which is F60.
     contexts: Vec<(String, String)>,
+    /// Where diagnostics go. Silent by default, so a `Vm` built in a test
+    /// writes to nobody's terminal; the CLI swaps in a text reporter and a TUI
+    /// would swap in its own.
+    pub reporter: Box<dyn bund2_api::diag::Reporter>,
     pub registry: Registry,
     pub stacks: Stacks,
     /// `apply` tests this in three places, and it does **not** precede the
@@ -190,6 +194,7 @@ impl Interp {
             stacks: Stacks::default(),
             autoadd: false,
             contexts: Vec::new(),
+            reporter: Box::new(bund2_api::diag::SilentReporter),
         }
     }
 
@@ -349,6 +354,29 @@ impl Interp {
     /// reproduce, because `{:?}` embeds `id` and `stamp` (F14).
     pub fn eval(&mut self, stream: &[BundValue]) -> Result<(), Error> {
         self.eval_observed(stream, &mut |_| {})
+            .map_err(|(i, e)| {
+                // The reference wraps the failure with the value that caused
+                // it (`reference/bundcore/src/bundcore_eval.rs:33`), which is
+                // how it says *where* — it has no source positions. Bund2 has
+                // spans, so `eval_indexed` hands back the index and the bare
+                // reason and lets the caller say where properly. This wrapper
+                // survives only for callers that want the reference's text.
+                let v = stream.get(i).map(|v| v.render(false)).unwrap_or_default();
+                Error(format!(
+                    "Attempt to evaluate value {v} returned error: {}",
+                    e.0
+                ))
+            })
+    }
+
+    /// [`Interp::eval`], reporting **which value** failed.
+    ///
+    /// The index is into the stream the caller lowered, so a caller holding
+    /// `Lowered` can turn it into a source position. That is the whole of
+    /// RFC-0003 §S5 that a flat `Vec<BundValue>` can support: top-level
+    /// positions, not positions inside a lambda body.
+    pub fn eval_indexed(&mut self, stream: &[BundValue]) -> Result<(), (usize, Error)> {
+        self.eval_observed(stream, &mut |_| {})
     }
 
     /// [`Interp::eval`] with a per-word observer. The debugger's copy is this
@@ -357,19 +385,15 @@ impl Interp {
         &mut self,
         stream: &[BundValue],
         observe: &mut dyn FnMut(&BundValue),
-    ) -> Result<(), Error> {
-        for v in stream {
+    ) -> Result<(), (usize, Error)> {
+        for (i, v) in stream.iter().enumerate() {
             match v.dt() {
                 bund2_value::NONE => continue,
                 bund2_value::EXIT => break,
                 _ => {
                     observe(v);
                     if let Err(e) = self.apply(v.clone()) {
-                        return Err(Error(format!(
-                            "Attempt to evaluate value {} returned error: {}",
-                            v.render(false),
-                            e.0
-                        )));
+                        return Err((i, e));
                     }
                 }
             }
@@ -528,6 +552,24 @@ impl Vm for Interp {
             .interner
             .lookup_call(name)
             .is_some_and(|(s, _)| self.registry.resolve_target(s) != s)
+    }
+
+    fn report(&mut self, d: bund2_api::diag::Diagnostic) {
+        // Collect the stacks only if something will show them.
+        let d = if self.reporter.wants_stack() {
+            let stack = self.snapshot().iter().map(|v| v.render(false)).collect();
+            let wb = self
+                .snapshot_workbench()
+                .iter()
+                .map(|v| v.render(false))
+                .collect();
+            d.on_stack(self.current_name())
+                .with_stack(stack)
+                .with_workbench(wb)
+        } else {
+            d.on_stack(self.current_name())
+        };
+        self.reporter.report(&d);
     }
 
     fn conditional(&self, ty: &str) -> Option<bund2_api::ConditionalFn> {

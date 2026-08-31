@@ -162,7 +162,12 @@ fn run_error(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
         .get("context")
         .and_then(|v| v.as_str())
         .unwrap_or_default();
-    eprintln!("{msg}");
+    // **Non-critical, so delivered quietly.** The program asked for this to be
+    // said and is still running, so it goes through the reporter as a `Notice`
+    // — one line on stderr, no table and no stack dump — rather than being
+    // printed here. A TUI receives it as a value instead of finding text on a
+    // stream it does not own.
+    vm.report(bund2_api::diag::Diagnostic::notice(msg));
     let associated = slot(&c, "associated");
     vm.eval_body(&associated)
         .map_err(|e| Error(format!("ERROR ASSOCIATED lambda returns: {}", e.0)))

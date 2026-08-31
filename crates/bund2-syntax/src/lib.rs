@@ -611,6 +611,52 @@ pub fn compile(src: &str) -> Result<Vec<BundValue>, ParseError> {
     Ok(lower(&parse(src)?))
 }
 
+/// A lowered program, with a span for every top-level value.
+///
+/// The value stream is **identical** to [`lower`]'s — the spans ride alongside
+/// rather than inside, so nothing about the stream changes and `xtask parity`
+/// still compares like for like. Putting a position inside a `BundValue` would
+/// have made every program differ from the reference's.
+pub struct Lowered {
+    pub values: Vec<BundValue>,
+    /// `spans[i]` is where `values[i]` was written. The trailing EXIT gets the
+    /// end of the source.
+    pub spans: Vec<Span>,
+}
+
+impl Lowered {
+    /// Where the value at `i` came from.
+    pub fn span_of(&self, i: usize) -> Option<Span> {
+        self.spans.get(i).copied()
+    }
+}
+
+/// Lower, keeping a span per emitted value.
+///
+/// **Top level only.** A value inside a lambda body carries no span, so a
+/// failure three calls deep is reported at the top-level term that started it.
+/// That is the honest limit of a `Vec<BundValue>` stream: positions for nested
+/// values need the IR RFC-0003 §S5 describes, which does not exist yet.
+pub fn lower_with_spans(terms: &[Term], src_len: usize) -> Lowered {
+    let mut values = Vec::new();
+    let mut spans = Vec::new();
+    for t in terms {
+        let before = values.len();
+        lower_into(t, &mut values);
+        // A `( … )` lowers to several values; they all point at the whole
+        // parenthesis, which is the term the reader wrote.
+        for _ in before..values.len() {
+            spans.push(t.span());
+        }
+    }
+    values.push(BundValue::exit());
+    spans.push(Span {
+        start: src_len,
+        end: src_len,
+    });
+    Lowered { values, spans }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

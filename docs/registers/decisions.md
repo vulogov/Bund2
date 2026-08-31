@@ -1745,3 +1745,78 @@ before `dup`'s payload sharing was checked.
   payload)
 - Status: **RESOLVED — key on the body's `Rc` pointer; the cache holds a strong
   reference.**
+
+## D36 — error presentation: the reference's frame, a Bund location, and a reporter seam
+
+Requested by the repository owner: deliver a precise reason and location, make
+the stack dump optional, keep non-critical reports quiet, and leave hooks for a
+future TUI.
+
+### What is preserved
+
+The **frame** and the **exit code**. An uncaught error prints a `comfy_table`
+report to stdout, then `[BUND] Content of the stack` and the stack box, and the
+process exits **0**
+(`reference/Bund/src/stdlib/helpers/print_error.rs:104-132`;
+`reference/Bund/src/stdlib/helpers/run_snippet.rs` sets no code). Every golden
+capturing a failing program pins that, and changing it is a deviation nobody
+asked for.
+
+### What changes
+
+**The `Location` row names a position in the Bund program.** The reference has
+no source positions at all: it recovers a **Rust** file and line by regex from
+the tail of the message (`print_error.rs:12-46`), which `easy_error`'s `bail!`
+appended. On the capture machine that path runs through `~/.cargo/registry` and
+names a crate version — F66, and unreproducible anywhere else. Bund2's parser
+has spans, so the row names the `.bund` file, line and column, and a `Source`
+row shows the line itself.
+
+**The reason carries no location.** The reference concatenates the two and
+recovers them by regex, which fails for any message ending in a parenthesis.
+Here they are separate fields and nothing parses a message.
+
+**The reason is the precise one.** The reference wraps it —
+`Attempt to evaluate value Value { id: … } returned error: …` — because
+interpolating the offending value is the only way it can say *where*. With a
+real location that wrapper is noise, so the report shows the inner reason.
+`Interp::eval` still produces the wrapped text for callers that want it.
+
+**Delivery is proportional to severity.** `Error` gets the report; `Warning`
+and `Notice` get one line on stderr with no table and no stack. `?error`'s
+message is a `Notice` — the program asked for it to be said and is still
+running.
+
+**The stack dump is a switch**, `--dump-stack` / `--no-dump-stack`, default on
+as the reference always dumps. It gates *collection*, not just display: the
+evaluator asks `Reporter::wants_stack` before rendering every value on every
+stack.
+
+### The TUI seam
+
+`bund2-api::diag` defines a structured `Diagnostic` — severity, reason,
+location, optional stack and workbench snapshots, current stack name — and a
+`Reporter` trait with one method. `TextReporter` is one implementation;
+`CollectingReporter` and `SilentReporter` are two more. A TUI implements the
+trait, receives values rather than text, and lays out the parts itself.
+
+`Vm::report` is the seam at the language level: a word emits a diagnostic
+without deciding how it looks, which is what `?error` now does instead of
+printing.
+
+### Consequences
+
+- **Conformance is unchanged at 17/69, and the four F66 goldens still cannot
+  pass.** Two of them capture the `Attempt to evaluate value …` wrapper and two
+  capture a `~/.cargo` path; both are unreproducible for reasons predating this
+  decision. F48 applies — `conform` still cannot record an approved deviation.
+- **Positions are top-level only.** A failure inside a lambda body reports the
+  top-level term that started it, because a `Vec<BundValue>` stream has nowhere
+  to put a span for a nested value. Spans ride in a parallel vector so the
+  stream itself is unchanged and `xtask parity` still compares like for like.
+  Nested positions need RFC-0003 §S5's IR.
+- **`Severity::Warning` has no producer yet.** The path exists and is tested;
+  nothing in the current word set warns.
+
+- Status: **RESOLVED — frame preserved, location and delivery redesigned,
+  reporting behind a trait.**

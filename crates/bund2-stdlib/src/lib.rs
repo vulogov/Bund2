@@ -16,6 +16,8 @@ pub mod control;
 
 pub mod conditional;
 
+pub mod report;
+
 /// Register everything this crate provides.
 pub fn register_all(r: &mut bund2_api::Registry) {
     stack::register(r);

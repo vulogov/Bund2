@@ -19,6 +19,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod diag;
+
 use std::collections::HashMap;
 
 use bund2_value::BundValue;
@@ -144,6 +146,15 @@ pub trait Vm {
     fn get_lambda(&self, name: &str) -> Option<BundValue>;
     /// The handler for a conditional `type`, if one is bound (S7).
     fn conditional(&self, ty: &str) -> Option<ConditionalFn>;
+
+    /// Emit a diagnostic.
+    ///
+    /// **The hook a word uses to say something without deciding how it looks.**
+    /// `?error` reports through this rather than printing, so a TUI receives a
+    /// structured [`Diagnostic`] instead of finding text on stdout. The
+    /// implementation attaches the current stack name, and a stack snapshot
+    /// only if the reporter asks for one.
+    fn report(&mut self, d: diag::Diagnostic);
 
     // --- contexts ----------------------------------------------------------
     /// How many contexts `( … )` has opened and not yet closed.
@@ -605,6 +616,7 @@ mod tests {
         fn conditional(&self, _: &str) -> Option<ConditionalFn> {
             None
         }
+        fn report(&mut self, _: diag::Diagnostic) {}
         fn context_depth(&self) -> usize {
             0
         }
