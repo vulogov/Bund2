@@ -18,6 +18,10 @@ bund2-interp.workspace = true
 # padding, row separators and unicode widths would be a near-miss that fails a
 # golden while looking right.
 comfy-table = "7.1"
+# The reference's template crate, same major version -- leon = "3.0.1" in
+# reference/rust_multistackvm/Cargo.toml. Same argument as comfy-table: the
+# goldens capture rendered text, so the renderer has to be the same one.
+leon = "3.0"
 bund2-value.workspace = true
 bund2-api.workspace = true
 bund2-ir.workspace = true
