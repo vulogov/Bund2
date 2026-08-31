@@ -87,6 +87,7 @@ mod arity;
 mod bench;
 mod cite;
 mod conform;
+mod parity;
 mod corpus;
 mod golden;
 mod guide;
@@ -135,6 +136,13 @@ fn main() -> std::process::ExitCode {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
                 eprintln!("xtask conform: {err}");
+                std::process::ExitCode::FAILURE
+            }
+        },
+        "parity" => match parity::run(&args) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("xtask parity: {err}");
                 std::process::ExitCode::FAILURE
             }
         },

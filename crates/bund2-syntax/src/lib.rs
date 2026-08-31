@@ -307,6 +307,19 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// A double-quoted string.
+    ///
+    /// **Escapes are recognised but not translated.** The grammar's `escape`
+    /// rule (`bund.pest:46`) exists so that `\"` does not end the string, and
+    /// the handler then takes the raw text between the quotes —
+    /// `&t.as_str()[1..t.len() - 1]`
+    /// (`reference/bund_language_parser/src/vm/string.rs:8`) — with no
+    /// translation at all. So `"a\nb"` is four characters including a literal
+    /// backslash, and `"x\"y"` is four including the backslash.
+    ///
+    /// Confirmed against the oracle: both print with their backslashes intact.
+    /// An earlier version of this parser translated them, which silently
+    /// changed every string containing one.
     fn string(&mut self, start: usize) -> Result<Term, ParseError> {
         self.bump();
         let mut out = String::new();
@@ -314,15 +327,16 @@ impl<'a> Parser<'a> {
             match self.bump() {
                 None => return self.err(start, "unterminated string"),
                 Some('"') => return Ok(Term::Str(out, self.span_from(start))),
-                Some('\\') => match self.bump() {
-                    None => return self.err(start, "unterminated escape"),
-                    Some('n') => out.push('\n'),
-                    Some('t') => out.push('\t'),
-                    Some('r') => out.push('\r'),
-                    Some('b') => out.push('\u{8}'),
-                    Some('f') => out.push('\u{c}'),
-                    Some(other) => out.push(other),
-                },
+                Some('\\') => {
+                    // The backslash is kept, and so is whatever follows it —
+                    // consuming the next character is what stops `\"` from
+                    // terminating the string.
+                    out.push('\\');
+                    match self.bump() {
+                        None => return self.err(start, "unterminated escape"),
+                        Some(next) => out.push(next),
+                    }
+                }
                 Some(ch) => out.push(ch),
             }
         }
@@ -438,8 +452,15 @@ impl<'a> Parser<'a> {
                 tok.push(self.bump().expect("peeked"));
             }
         }
+        // `float = sign? ~ int ~ "." ~ ( digits ~ exp? | exp )?` — the
+        // fractional part is **optional** (`bund.pest:23`), so a trailing dot
+        // still makes a float. `1.` is `F64(1.0)` and `3.foo` is `F64(3.0)`
+        // followed by the name `foo`; both confirmed against the oracle. An
+        // earlier version of this parser required a digit after the dot, which
+        // turned `1.` into the integer `1` and the word `.` — an alias for
+        // `return`, so the program silently returned instead of pushing.
         let mut is_float = false;
-        if self.peek() == Some('.') && self.peek_at(1).is_some_and(|c| c.is_ascii_digit()) {
+        if self.peek() == Some('.') {
             is_float = true;
             tok.push(self.bump().expect("peeked"));
             while self.peek().is_some_and(|c| c.is_ascii_digit() || c == '_') {
@@ -594,6 +615,15 @@ pub fn compile(src: &str) -> Result<Vec<BundValue>, ParseError> {
 mod tests {
     use super::*;
 
+    /// `"a\nb"` as it appears in a source file: quote, a, backslash, n, b, quote.
+    const BACKSLASH_N_SRC: &str = "\u{22}a\u{5c}nb\u{22}";
+    /// The value it must produce: a, backslash, n, b.
+    const BACKSLASH_N_VAL: &str = "a\u{5c}nb";
+    /// `"x\"y" println` — the escaped quote must not end the string.
+    const ESCAPED_QUOTE_SRC: &str = "\u{22}x\u{5c}\u{22}y\u{22} println";
+    /// The value: x, backslash, quote, y.
+    const ESCAPED_QUOTE_VAL: &str = "x\u{5c}\u{22}y";
+
     fn names(src: &str) -> Vec<Term> {
         parse(src).expect("parses")
     }
@@ -672,6 +702,21 @@ mod tests {
     ///
     /// The stopgap lexer this parser replaced asserted `1e5` was a single name.
     /// It was wrong; `docs/registers/open-questions.md` had it right.
+    /// A trailing dot still makes a float, and the number ends there — `float`
+    /// is atomic with no terminator requirement, exactly like `integer`.
+    #[test]
+    fn a_trailing_dot_is_still_a_float() {
+        assert!(matches!(names("1. set")[0], Term::Float(f, _) if f == 1.0));
+        let t = names("3.foo");
+        assert_eq!(t.len(), 2, "{t:?}");
+        assert!(matches!(t[0], Term::Float(f, _) if f == 3.0));
+        assert!(matches!(&t[1], Term::Name(n, _) if n == "foo"));
+        // A detached dot is the word, not part of the number.
+        let u = names("1 .");
+        assert!(matches!(u[0], Term::Int(1, _)));
+        assert!(matches!(&u[1], Term::Name(n, _) if n == "."));
+    }
+
     #[test]
     fn an_exponent_without_a_dot_splits() {
         let t = names("1e5");
@@ -712,6 +757,30 @@ mod tests {
     fn ptr_and_stack_sigils() {
         assert!(matches!(&names("`dup !")[0], Term::Ptr(p, _) if p == "dup"));
         assert!(matches!(&names("@main 1")[0], Term::Stack(s, _) if s == "main"));
+    }
+
+    /// Escapes are recognised so the string ends in the right place, and then
+    /// kept verbatim — the reference's handler slices raw text
+    /// (`reference/bund_language_parser/src/vm/string.rs:8`). Confirmed against
+    /// the oracle: `"a\nb" println` prints `a\nb`.
+    #[test]
+    fn string_escapes_are_not_translated() {
+        // Source: "a\nb"  ->  value: a\nb, four characters, backslash kept.
+        let t = names(BACKSLASH_N_SRC);
+        assert!(matches!(&t[0], Term::Str(s, _) if s == BACKSLASH_N_VAL), "{:?}", t[0]);
+        // \" does not end the string, and both characters survive.
+        let u = names(ESCAPED_QUOTE_SRC);
+        assert_eq!(u.len(), 2, "{u:?}");
+        assert!(matches!(&u[0], Term::Str(s, _) if s == ESCAPED_QUOTE_VAL), "{:?}", u[0]);
+    }
+
+    /// A `'…'` literal has no escaping at all: the body runs to the next `'`
+    /// (`bund.pest:25`).
+    #[test]
+    fn a_literal_runs_to_the_next_quote() {
+        // 'a\nb' -> a, backslash, n, b. No escaping inside a literal at all.
+        let t = names("\u{27}a\u{5c}nb\u{27} x");
+        assert!(matches!(&t[0], Term::Str(s, _) if s == BACKSLASH_N_VAL), "{:?}", t[0]);
     }
 
     #[test]
