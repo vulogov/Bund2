@@ -27,6 +27,8 @@ pub mod control;
 
 pub mod conditional;
 
+pub mod seq;
+
 pub mod report;
 
 /// Register everything this crate provides.
@@ -38,4 +40,5 @@ pub fn register_all(r: &mut bund2_api::Registry) {
     math::register(r);
     control::register(r);
     conditional::register(r);
+    seq::register(r);
 }

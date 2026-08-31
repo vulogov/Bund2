@@ -19,6 +19,14 @@ fn dict(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// `valuemap` — a map keyed by whole values, not strings
+/// (`reference/rust_multistackvm/src/stdlib/artefacts.rs:147`). Aliased
+/// `match` (`create_aliases.rs:45`).
+fn valuemap(vm: &mut dyn Vm) -> Result<(), Error> {
+    vm.push(BundValue::valuemap(Default::default()));
+    Ok(())
+}
+
 /// `list` — an empty LIST (`artefacts.rs`).
 fn list(vm: &mut dyn Vm) -> Result<(), Error> {
     vm.push(BundValue::list(Vec::new()));
@@ -51,6 +59,14 @@ fn set(vm: &mut dyn Vm) -> Result<(), Error> {
     let d_val = crate::pull::operand(vm, "SET", 1)?;
     let key_val = crate::pull::operand(vm, "SET", 2)?;
     let receiver = crate::pull::operand(vm, "SET", 3)?;
+    // **The branch that makes a valuemap writable.** `set` tests the receiver
+    // first and passes the key through uncast for a VALUEMAP
+    // (`reference/rust_multistackvm/src/stdlib/values/value_dict.rs:17-19`);
+    // only the fallback casts to a string.
+    if receiver.is_valuemap() {
+        vm.push(receiver.set_vmap(key_val, d_val));
+        return Ok(());
+    }
     let key = key_val
         .as_str()
         .ok_or_else(|| Error("SET key expected to be string".into()))?;
@@ -76,6 +92,19 @@ fn get(vm: &mut dyn Vm) -> Result<(), Error> {
     }
     let key_val = crate::pull::operand(vm, "GET", 1)?;
     let container = crate::pull::operand(vm, "GET", 2)?;
+    // **D30's mirror, and the read path F29 says does not exist.** The
+    // reference casts the key before it looks at the container, so a VALUEMAP
+    // can be written and never read. Testing the container first is exactly
+    // what `set` already does.
+    if container.is_valuemap() {
+        return match container.get_vmap(&key_val) {
+            Some(v) => {
+                vm.push(v);
+                Ok(())
+            }
+            None => Err(Error("GET returns error: key not found".into())),
+        };
+    }
     let key = key_val
         .as_str()
         .ok_or_else(|| Error("GET key expected to be string".into()))?;
@@ -254,7 +283,67 @@ fn execute_value(vm: &mut dyn Vm, v: BundValue) -> Result<(), Error> {
     }
 }
 
+/// The reflection family — what the word table knows about a name
+/// (`reference/Bund/src/stdlib/functions/bund/bund_fun.rs:10-104`).
+///
+/// Each pulls a name and pushes a bool. `?word` is the union of the three
+/// (`:92-100`), which is why it cannot be written as an alias for any of them.
+fn ask(vm: &mut dyn Vm, word: &str, f: impl Fn(&dyn Vm, &str) -> bool) -> Result<(), Error> {
+    let Some(v) = vm.pull() else {
+        return Err(Error(format!("Stack is too shallow for {word}")));
+    };
+    let name = v
+        .as_str()
+        .ok_or_else(|| Error(format!("{word} casting string returns: not a string")))?;
+    let answer = f(vm, &name);
+    vm.push(BundValue::Bool(answer));
+    Ok(())
+}
+
+fn is_alias(vm: &mut dyn Vm) -> Result<(), Error> {
+    ask(vm, "?ALIAS", |vm, n| vm.is_alias(n))
+}
+
+fn is_lambda(vm: &mut dyn Vm) -> Result<(), Error> {
+    ask(vm, "?LAMBDA", |vm, n| vm.is_lambda(n))
+}
+
+fn is_stdlib(vm: &mut dyn Vm) -> Result<(), Error> {
+    ask(vm, "?STDLIB", |vm, n| vm.is_native(n))
+}
+
+/// `?word` — native **or** lambda **or** alias (`bund_fun.rs:92-100`).
+fn is_word(vm: &mut dyn Vm) -> Result<(), Error> {
+    ask(vm, "?WORD", |vm, n| {
+        vm.is_native(n) || vm.is_lambda(n) || vm.is_alias(n)
+    })
+}
+
+/// `lambda=` — the body bound to a name (`bund_fun.rs:135-160`).
+fn get_lambda(vm: &mut dyn Vm) -> Result<(), Error> {
+    let Some(v) = vm.pull() else {
+        return Err(Error("Stack is too shallow for LAMBDA.GET".into()));
+    };
+    let name = v
+        .as_str()
+        .ok_or_else(|| Error("LAMBDA.GET casting string returns: not a string".into()))?;
+    match vm.get_lambda(&name) {
+        Some(body) => {
+            vm.push(body);
+            Ok(())
+        }
+        None => Err(Error(format!("LAMBDA.GET returned: {name} is not a lambda"))),
+    }
+}
+
 pub fn register_words(r: &mut Registry) {
+    r.register_native("valuemap", valuemap, eff(0, 1), WordKind::Sync);
+    r.register_native("?alias", is_alias, eff(1, 1), WordKind::Sync);
+    r.register_native("?lambda", is_lambda, eff(1, 1), WordKind::Sync);
+    r.register_native("?stdlib", is_stdlib, eff(1, 1), WordKind::Sync);
+    r.register_native("?word", is_word, eff(1, 1), WordKind::Sync);
+    r.register_native("lambda=", get_lambda, eff(1, 1), WordKind::Sync);
+    r.register_alias("match", "valuemap");
     r.register_native("dict", dict, eff(0, 1), WordKind::Sync);
     r.register_native("list", list, eff(0, 1), WordKind::Sync);
     r.register_native("lambda", lambda, eff(0, 1), WordKind::Sync);

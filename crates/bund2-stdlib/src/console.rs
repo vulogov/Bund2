@@ -29,18 +29,7 @@ fn eff(consumes: u8, produces: u8) -> StackEffect {
 /// and matching the outer value alone sent it to the `Debug` rendering — the
 /// oracle prints `false` where that printed `Value { id: … }`.
 fn display(v: &BundValue) -> String {
-    if let Some(s) = v.as_str() {
-        return s;
-    }
-    if let Some(i) = v.as_int() {
-        return i.to_string();
-    }
-    match v.unboxed() {
-        BundValue::Float(f) => format!("{f}"),
-        BundValue::Bool(b) => b.to_string(),
-        BundValue::Nodata | BundValue::None => String::new(),
-        other => other.render(false),
-    }
+    v.display()
 }
 
 fn println_word(vm: &mut dyn Vm) -> Result<(), Error> {

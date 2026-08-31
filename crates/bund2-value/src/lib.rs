@@ -514,6 +514,83 @@ impl BundValue {
         }
     }
 
+    /// `set` for a **`valuemap`**, whose key is a whole value rather than a
+    /// string (`reference/rust_dynamic/src/set.rs:38-53`).
+    ///
+    /// `set` already branches to this when the receiver is a VALUEMAP
+    /// (`reference/rust_multistackvm/src/stdlib/values/value_dict.rs:17-19`),
+    /// passing the key through uncast. D30 makes `get` mirror it.
+    pub fn set_vmap(&self, key: BundValue, value: BundValue) -> BundValue {
+        match self {
+            BundValue::Heap(h) => match &*h.payload {
+                Payload::ValueMap(m) => {
+                    let mut next = m.clone();
+                    next.insert(key, value);
+                    self.rebuilt(self.dt(), Payload::ValueMap(next))
+                }
+                _ => self.clone(),
+            },
+            _ => self.clone(),
+        }
+    }
+
+    /// Read a `valuemap` by whole-value key — **the read path D30 created**.
+    ///
+    /// F29 records that the reference has none: `get` casts the key to a
+    /// string before it ever looks at the container
+    /// (`reference/rust_multistackvm/src/stdlib/values/value_dict.rs:52-59`),
+    /// so a VALUEMAP can be written and never read. This works because
+    /// `BundValue`'s `Hash` mirrors its `Eq` kind by kind, so a freshly built
+    /// scalar key hashes into the bucket an equal one was stored under.
+    pub fn get_vmap(&self, key: &BundValue) -> Option<BundValue> {
+        match self {
+            BundValue::Heap(h) => match &*h.payload {
+                Payload::ValueMap(m) => m.get(key).cloned(),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Whether this is a `valuemap`, which decides whether `set` and `get`
+    /// take the whole-value path.
+    pub fn is_valuemap(&self) -> bool {
+        matches!(self, BundValue::Heap(h) if matches!(&*h.payload, Payload::ValueMap(_)))
+    }
+
+    /// The **display** form — what `println` writes, as distinct from the
+    /// `Debug` rendering a golden captures.
+    ///
+    /// A list is `"["` then, per element, a space, the element's display form
+    /// and `" :: "`, then `"]"`
+    /// (`reference/rust_dynamic/src/conv.rs:340-353`). So `[1, "a"]` shows as
+    /// `[ 1 ::  a :: ]`, with the doubled space that falls out of every element
+    /// carrying both a leading space and a trailing separator.
+    pub fn display(&self) -> String {
+        if let Some(s) = self.as_str() {
+            return s;
+        }
+        match self.unboxed() {
+            BundValue::Int(i) => i.to_string(),
+            BundValue::Float(f) => format!("{f:?}"),
+            BundValue::Bool(b) => b.to_string(),
+            BundValue::Nodata | BundValue::None => String::new(),
+            BundValue::Heap(h) => match &*h.payload {
+                Payload::List(items) => {
+                    let mut out = "[".to_string();
+                    for v in items {
+                        out.push(' ');
+                        out.push_str(&v.display());
+                        out.push_str(" :: ");
+                    }
+                    out.push(']');
+                    out
+                }
+                _ => self.render(false),
+            },
+        }
+    }
+
     /// `Value::get` for a string key (`reference/rust_dynamic/src/get.rs`).
     pub fn get(&self, key: &str) -> Option<BundValue> {
         self.as_map().and_then(|m| m.get(key.trim()).cloned())
