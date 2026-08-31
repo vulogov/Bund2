@@ -197,12 +197,24 @@ is the polymorphic cache the roadmap assigns here; it sits on top of S1's
 flattened table, which is what makes the cached value cheap to recompute on a
 miss.
 
-### S6. `#` and `!`-on-an-object are the same operation
+### S6. `#` and `!`-on-an-object are **different** operations
 
-`#` (`object_execute.rs:59`) and `!` on an OBJECT
-(`bund_execute/execute_object.rs`) both pull a method name and dispatch. They
-are specified here as one path with two spellings, so the `execute` arm
-RFC-0003 §S4b left unimplemented is filled by the same code `#` uses.
+An earlier draft of this section claimed they were one path with two spellings.
+They are not, and probing settled it.
+
+- **`!` on an OBJECT dispatches a named method.** It pulls a method-name
+  *string* from the main stack, pushes the object back, and calls `m`
+  (`bund_execute/execute_object.rs:8-20`). Confirmed:
+  `:.id :A object !` returns the instance's id.
+- **`#` runs supplied code against the object's unwrapped value.** It pulls a
+  **LAMBDA or PTR** — a name string is rejected with `# NO LAMBDA or PTR IN #1`
+  — pulls the object, pushes it, calls `unwrap`, pushes the code, and calls `!`
+  (`object_execute.rs:11-39`).
+
+So `#` is not dispatch at all: it is `unwrap`-then-apply, and its `!` is the
+ordinary polymorphic execute on whatever `unwrap` produced. Bund2 implements
+them separately, and only the first fills the `execute` arm RFC-0003 §S4b left
+open.
 
 ## Preservation analysis
 
@@ -215,7 +227,8 @@ RFC-0003 §S4b left unimplemented is filled by the same code `#` uses.
 | `m()` peeks rather than pulls | preserved exactly |
 | Non-OBJECT receiver error text | preserved exactly |
 | A `LAMBDA` in a method slot is evaluated; anything else is pushed | preserved exactly |
-| `!` on a CLASS constructs; on an OBJECT dispatches | preserved exactly (S6) |
+| `!` on a CLASS constructs; on an OBJECT dispatches a named method | preserved exactly (S6) |
+| `#` is `unwrap`-then-apply, and rejects a name string | preserved exactly (S6) |
 | Construction evaluates every ancestor's `.init` | preserved exactly |
 | `methods_fun` as a fifth global table | **changed** to registry state, as RFC-0003 §S7 did for the conditional table |
 | Construction recursing in Rust | **changed** to frames (S3) — observable only as hierarchies that no longer overflow |
