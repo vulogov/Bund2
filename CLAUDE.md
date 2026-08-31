@@ -48,6 +48,47 @@ bug (record in `docs/registers/defects.md`, then
 approved in the work item. An unplanned deviation is a decision: stop and take
 it to `docs/registers/decisions.md` before changing code.
 
+## Bund2 does not panic — absolute
+
+No `panic!`, no `unwrap()`, no `expect()`, no `unreachable!`, no `todo!`, no
+`unimplemented!`, no `process::exit` in shipped code. Enforced by
+`[workspace.lints.clippy]`, denied across every crate including `xtask`; tests
+opt out at each crate root because a panicking assertion in a test is the point.
+
+An interpreter that aborts takes the user's program state with it — the stacks,
+the word table, whatever a session had built — and explains nothing, because
+the trace names Rust frames and no Bund word.
+
+Three ways out, in order of preference:
+
+1. **Make the invariant structural.** `BundValue::into_heap` returns the `Rc`,
+   so "promote always yields a heap value" is a type and there is no arm to
+   write. Prefer this; it removes the question.
+2. **Write the real error arm.** The reference guards a word's depth *and*
+   writes `SET returns: NO DATA #1` for the pull that follows
+   (`reference/rust_multistackvm/src/stdlib/values/value_dict.rs:30-42`).
+   Reproducing that is safer *and* more faithful than asserting it away.
+3. **`Error::internal`.** For a broken invariant with no sensible continuation.
+   It names the invariant, says the defect is in Bund2 rather than in the
+   program being run, and routes through the diagnostic path so a reporter — a
+   TUI's included — receives it. `Error::is_internal` separates the two
+   audiences.
+
+Every unrecoverable internal error is handled with a meaningful explanation.
+"Cannot happen" is not an explanation. See D37.
+
+## Errors are reported, not printed
+
+Words emit a `Diagnostic` through `Vm::report`; they do not write to stdout or
+stderr. A `Diagnostic` is structured — severity, reason, Bund source location,
+optional stack snapshot — and a `Reporter` renders it. That is the seam a TUI
+will implement, so anything that formats at the point of failure closes it.
+
+Delivery is proportional to severity: an `Error` has stopped the program and
+earns a report, a `Warning` or `Notice` has not and gets one line on stderr.
+Values in a report use `BundValue::summary`, which is bounded; the raw `Debug`
+form belongs to `debug.display_stack` and `--raw-values`. See D36.
+
 ## Registers are append-only
 
 `docs/registers/decisions.md` and `defects.md` are the shared state between
