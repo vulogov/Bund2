@@ -58,3 +58,20 @@ codegen-units = 1
 
 [profile.bench]
 debug = true
+
+# Bund2 must not panic. An interpreter that aborts on an internal inconsistency
+# takes the user's program state with it and explains nothing; every failure
+# path has to produce a diagnostic instead. These are `restriction` lints, off
+# by default, and denied here so the compiler finds violations rather than a
+# reviewer.
+#
+# Tests opt out at each crate root: a test that cannot unwrap has to be written
+# around its own scaffolding, and a panicking assertion in a test is the point.
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+todo = "deny"
+unimplemented = "deny"
+exit = "deny"

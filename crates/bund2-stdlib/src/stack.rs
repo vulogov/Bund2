@@ -58,7 +58,7 @@ fn shallow(vm: &dyn Vm, need: usize, word: &str) -> Result<(), Error> {
 
 fn dup_one(vm: &mut dyn Vm) -> Result<(), Error> {
     shallow(vm, 1, "dup_one")?;
-    let top = vm.peek().expect("depth checked");
+    let top = crate::pull::top(vm, "DUP")?;
     // `dup` in the reference is a bincode round trip that mints a fresh id
     // (`reference/rust_dynamic/src/dup.rs:7-12`). Here it is a fresh header
     // over a shared payload — same observable result, without the round trip.
@@ -69,7 +69,7 @@ fn dup_one(vm: &mut dyn Vm) -> Result<(), Error> {
 fn dup_many(vm: &mut dyn Vm) -> Result<(), Error> {
     let n = count_arg(vm, "dup_many")?;
     shallow(vm, 1, "dup_many")?;
-    let top = vm.peek().expect("depth checked");
+    let top = crate::pull::top(vm, "DUP")?;
     for _ in 0..n {
         vm.push(top.dup());
     }
@@ -123,8 +123,8 @@ fn drop_stack(vm: &mut dyn Vm) -> Result<(), Error> {
 
 fn swap_one(vm: &mut dyn Vm) -> Result<(), Error> {
     shallow(vm, 2, "swap_one")?;
-    let a = vm.pull().expect("depth checked");
-    let b = vm.pull().expect("depth checked");
+    let a = crate::pull::operand(vm, "SWAP", 1)?;
+    let b = crate::pull::operand(vm, "SWAP", 2)?;
     vm.push(a);
     vm.push(b);
     Ok(())
@@ -135,11 +135,11 @@ fn swap_one(vm: &mut dyn Vm) -> Result<(), Error> {
 fn swap_n(vm: &mut dyn Vm) -> Result<(), Error> {
     let n = count_arg(vm, "swap")?;
     shallow(vm, 2, "swap")?;
-    let top = vm.peek().expect("depth checked");
+    let top = crate::pull::top(vm, "DUP")?;
     for _ in 0..n {
         vm.rotate_right();
     }
-    let other = vm.pull().expect("depth checked");
+    let other = crate::pull::operand(vm, "MOVE", 1)?;
     vm.push(top);
     for _ in 0..n {
         vm.rotate_left();
@@ -154,8 +154,8 @@ fn swap_in(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth_of(&name) < 2 {
         return Err(Error("Swap in stack had failed. Stack too shallow.".into()));
     }
-    let a = vm.pull_from(&name).expect("depth checked");
-    let b = vm.pull_from(&name).expect("depth checked");
+    let a = crate::pull::operand_from(vm, &name, "SWAP_IN", 1)?;
+    let b = crate::pull::operand_from(vm, &name, "SWAP_IN", 2)?;
     vm.push_to(&name, a);
     vm.push_to(&name, b);
     Ok(())
@@ -224,7 +224,7 @@ fn stack_exists(vm: &mut dyn Vm) -> Result<(), Error> {
 fn move_word(vm: &mut dyn Vm) -> Result<(), Error> {
     let name = name_arg(vm, "move")?;
     shallow(vm, 1, "move")?;
-    let v = vm.pull().expect("depth checked");
+    let v = crate::pull::operand(vm, "MOVE", 1)?;
     vm.push_to(&name, v);
     Ok(())
 }
@@ -250,7 +250,7 @@ fn take(vm: &mut dyn Vm) -> Result<(), Error> {
 
 fn return_word(vm: &mut dyn Vm) -> Result<(), Error> {
     shallow(vm, 1, "return")?;
-    let v = vm.pull().expect("depth checked");
+    let v = crate::pull::operand(vm, "RETURN", 1)?;
     vm.push_workbench(v);
     Ok(())
 }

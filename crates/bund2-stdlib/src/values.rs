@@ -48,9 +48,9 @@ fn set(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 3 {
         return Err(Error("Stack is too shallow for inline set".into()));
     }
-    let d_val = vm.pull().expect("depth checked");
-    let key_val = vm.pull().expect("depth checked");
-    let receiver = vm.pull().expect("depth checked");
+    let d_val = crate::pull::operand(vm, "SET", 1)?;
+    let key_val = crate::pull::operand(vm, "SET", 2)?;
+    let receiver = crate::pull::operand(vm, "SET", 3)?;
     let key = key_val
         .as_str()
         .ok_or_else(|| Error("SET key expected to be string".into()))?;
@@ -74,8 +74,8 @@ fn get(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 2 {
         return Err(Error("Stack is too shallow for inline get".into()));
     }
-    let key_val = vm.pull().expect("depth checked");
-    let container = vm.pull().expect("depth checked");
+    let key_val = crate::pull::operand(vm, "GET", 1)?;
+    let container = crate::pull::operand(vm, "GET", 2)?;
     let key = key_val
         .as_str()
         .ok_or_else(|| Error("GET key expected to be string".into()))?;
@@ -94,8 +94,8 @@ fn has_key(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 2 {
         return Err(Error("Stack is too shallow for inline get".into()));
     }
-    let key_val = vm.pull().expect("depth checked");
-    let container = vm.pull().expect("depth checked");
+    let key_val = crate::pull::operand(vm, "?KEY", 1)?;
+    let container = crate::pull::operand(vm, "?KEY", 2)?;
     let key = key_val
         .as_str()
         .ok_or_else(|| Error("GET key expected to be string".into()))?;
@@ -114,8 +114,8 @@ fn register(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 2 {
         return Err(Error("Stack is too shallow for inline register".into()));
     }
-    let body = vm.pull().expect("depth checked");
-    let name_val = vm.pull().expect("depth checked");
+    let body = crate::pull::operand(vm, "REGISTER", 1)?;
+    let name_val = crate::pull::operand(vm, "REGISTER", 2)?;
     let name = name_val
         .as_str()
         .ok_or_else(|| Error("REGISTER expecting lambda name to be string".into()))?;
@@ -211,14 +211,23 @@ fn execute_value(vm: &mut dyn Vm, v: BundValue) -> Result<(), Error> {
             vm.apply(BundValue::call(name))
         }
         LAMBDA => {
-            let body = v.as_lambda().expect("LAMBDA carries a body").to_vec();
+            let body = v
+                .as_lambda()
+                .ok_or_else(|| Error::internal("a LAMBDA value carried no body"))?
+                .to_vec();
             vm.eval_body(&body)
         }
         LIST => {
-            let items = v.as_list().expect("LIST carries items").to_vec();
+            let items = v
+                .as_list()
+                .ok_or_else(|| Error::internal("a LIST value carried no items"))?
+                .to_vec();
             for item in items {
+                // Pushed and pulled so the item passes through `push`'s tag
+                // write, which is what the reference's recursion does
+                // (`reference/rust_multistackvm/src/stdlib/execute.rs:41-42`).
                 vm.push(item);
-                let top = vm.pull().expect("just pushed");
+                let top = crate::pull::operand(vm, "EXECUTE", 1)?;
                 execute_value(vm, top)?;
             }
             Ok(())

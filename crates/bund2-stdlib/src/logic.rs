@@ -161,14 +161,20 @@ fn numeric_ord(op: Op, a: &BundValue, b: &BundValue) -> bool {
             Op::Lt => x < y,
             Op::Ge => x >= y,
             Op::Le => x <= y,
-            _ => unreachable!("equality does not reach numeric_ord"),
+            // `compare` routes equality elsewhere, so this arm is not
+            // reached. Answering false is a defensible result for an ordering
+            // question that was never asked; aborting is not.
+            _ => false,
         },
         (BundValue::Float(x), BundValue::Float(y)) => match op {
             Op::Gt => x > y,
             Op::Lt => x < y,
             Op::Ge => x >= y,
             Op::Le => x <= y,
-            _ => unreachable!("equality does not reach numeric_ord"),
+            // `compare` routes equality elsewhere, so this arm is not
+            // reached. Answering false is a defensible result for an ordering
+            // question that was never asked; aborting is not.
+            _ => false,
         },
         // F47: mismatched payload arms answer true to every operator.
         _ => true,
@@ -223,8 +229,8 @@ fn run(op: Op, vm: &mut dyn Vm) -> Result<(), Error> {
             op.word()
         )));
     }
-    let v1 = vm.pull().expect("depth checked");
-    let v2 = vm.pull().expect("depth checked");
+    let v1 = crate::pull::operand(vm, op.word(), 1)?;
+    let v2 = crate::pull::operand(vm, op.word(), 2)?;
     match compare(op, &v1, &v2) {
         Ok(res) => {
             vm.push(BundValue::Bool(res));

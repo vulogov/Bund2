@@ -19,3 +19,6 @@ default = []
 aot   = ["bund2-runtime/aot"]
 jit   = ["bund2-runtime/jit"]
 async = ["dep:bund2-async"]
+
+[lints]
+workspace = true

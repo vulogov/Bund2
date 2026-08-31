@@ -267,11 +267,13 @@ fn endcontext(vm: &mut dyn Vm) -> Result<(), Error> {
         return Err(Error("Context is empty".into()));
     }
     if vm.depth() > 0 {
-        let last = vm.pull().expect("depth checked");
+        let last = crate::pull::operand(vm, "ENDCONTEXT", 1)?;
         vm.push_workbench(last);
     }
     let name = vm.current_name();
-    let prev = vm.pop_context().expect("depth checked");
+    let prev = vm
+        .pop_context()
+        .ok_or_else(|| Error::internal("context depth was non-zero but no context was open"))?;
     vm.drop_stack(&name);
     vm.to_stack(&prev);
     Ok(())

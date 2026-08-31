@@ -1,6 +1,17 @@
 //! The standard library: native words, effects, and JIT lowerings.
 
 #![forbid(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable
+    )
+)]
+
+mod pull;
 
 pub mod stack;
 

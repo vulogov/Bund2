@@ -386,7 +386,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
             Verdict::Seed => "corpus",
             Verdict::Closure(_) => "closure",
             Verdict::WorkbenchForm(_) => "D18 form",
-            Verdict::Library => unreachable!(),
+            // Library words are filtered out before this loop; naming the
+            // bucket is better than aborting the report if one slips through.
+            Verdict::Library => "library",
         };
         *by_reason.entry(k).or_default() += 1;
     }

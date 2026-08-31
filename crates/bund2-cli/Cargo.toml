@@ -24,3 +24,6 @@ default = []
 aot   = ["bund2/aot"]
 jit   = ["bund2/jit"]
 async = ["bund2/async"]
+
+[lints]
+workspace = true

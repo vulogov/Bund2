@@ -1,3 +1,12 @@
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable
+    )
+)]
 //! Project tooling. Run with `cargo xtask <command>`.
 //!
 //! Everything lives here rather than in shell scripts so it is cross-platform,

@@ -11,6 +11,15 @@
 //! not implemented, and will need it.
 
 #![forbid(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable
+    )
+)]
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -126,12 +135,15 @@ impl Stacks {
         self.order.front().map(String::as_str).unwrap_or("main")
     }
 
+    /// The current stack, creating it if it has somehow gone missing.
+    ///
+    /// The invariant is that a current stack always exists, and asserting it
+    /// put a panic on the hottest path in the interpreter. Creating an empty
+    /// one instead is indistinguishable in every reachable case and cannot
+    /// abort the program in an unreachable one.
     fn current_mut(&mut self) -> (&mut Stack, String) {
         let name = self.current_name().to_string();
-        let s = self
-            .stacks
-            .get_mut(&name)
-            .expect("the current stack always exists");
+        let s = self.stacks.entry(name.clone()).or_default();
         (s, name)
     }
 
@@ -146,9 +158,10 @@ impl Stacks {
             self.order.push_front(name.to_string());
             return;
         }
-        while self.current_name() != name {
-            let front = self.order.pop_front().expect("non-empty");
-            self.order.push_back(front);
+        // `rotate_left` moves the front to the back without an `Option` to
+        // unwrap, so there is no impossible case to explain.
+        while self.current_name() != name && !self.order.is_empty() {
+            self.order.rotate_left(1);
         }
     }
 
@@ -212,11 +225,19 @@ impl Interp {
     pub fn dispatch(&mut self, s: Symbol, sigil: bool) -> Result<(), Error> {
         match self.registry.resolve(s, sigil) {
             Resolved::Command => {
+                // `resolve` said the slot holds a command; if the binding has
+                // gone in between, that is a broken invariant and not the
+                // program's fault, so it is reported rather than asserted.
                 let f = self
                     .registry
                     .slot(s)
                     .and_then(|sl| sl.command)
-                    .expect("resolve said command")
+                    .ok_or_else(|| {
+                        Error::internal(format!(
+                            "`{}` resolved to a command whose binding is absent",
+                            self.registry.interner.name(s)
+                        ))
+                    })?
                     .f;
                 f(self)
             }
@@ -268,7 +289,12 @@ impl Interp {
                     .registry
                     .slot(target)
                     .and_then(|sl| sl.native)
-                    .expect("resolve said native")
+                    .ok_or_else(|| {
+                        Error::internal(format!(
+                            "`{}` resolved to a native whose binding is absent",
+                            self.registry.interner.name(target)
+                        ))
+                    })?
                     .f;
                 f(self)
             }
@@ -557,12 +583,14 @@ impl Vm for Interp {
     fn report(&mut self, d: bund2_api::diag::Diagnostic) {
         // Collect the stacks only if something will show them.
         let d = if self.reporter.wants_stack() {
-            let stack = self.snapshot().iter().map(|v| v.render(false)).collect();
-            let wb = self
-                .snapshot_workbench()
-                .iter()
-                .map(|v| v.render(false))
-                .collect();
+            // Compact by default; the raw `Debug` form only when a debug
+            // session asks for it. A stack of raw renderings is ~150 columns a
+            // row and tells the reader nothing they were looking for.
+            let w = self.reporter.value_width();
+            let raw = self.reporter.wants_raw_values();
+            let fmt = |v: &BundValue| if raw { v.render(false) } else { v.summary(w) };
+            let stack = self.snapshot().iter().map(&fmt).collect();
+            let wb = self.snapshot_workbench().iter().map(&fmt).collect();
             d.on_stack(self.current_name())
                 .with_stack(stack)
                 .with_workbench(wb)

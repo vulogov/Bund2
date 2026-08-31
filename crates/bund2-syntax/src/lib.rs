@@ -34,6 +34,15 @@
 //!   so `:my-word` fails while `foo-bar` is a legal word name. Widened here.
 
 #![forbid(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable
+    )
+)]
 
 use bund2_value::BundValue;
 
@@ -193,6 +202,19 @@ impl<'a> Parser<'a> {
         self.i >= self.chars.len()
     }
 
+    /// Consume the character at the cursor, appending it to `out`.
+    ///
+    /// Every `bump()` in this parser followed a successful `peek()`, so the
+    /// `Option` was always `Some` — and saying so with `expect` put a panic on
+    /// a path that cannot be reached but would abort the interpreter if it
+    /// ever were. Doing nothing at end of input is correct: the caller's loop
+    /// condition already tested for it.
+    fn take_into(&mut self, out: &mut String) {
+        if let Some(c) = self.bump() {
+            out.push(c);
+        }
+    }
+
     /// Whitespace and `//` comments — pest's implicit rules (`bund.pest:52,54`),
     /// applied *between* tokens and therefore never inside one. That is exactly
     /// why F61's `+//` is a single name.
@@ -259,9 +281,13 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parse one term. The caller has already skipped trivia and checked that
+    /// something remains; an empty cursor is reported rather than asserted.
     fn term(&mut self) -> Result<Term, ParseError> {
         let start = self.offset();
-        let c = self.peek().expect("term called at end of input");
+        let Some(c) = self.peek() else {
+            return self.err(start, "expected a term, found end of input");
+        };
 
         // Bracket forms first: they are not atomic, so trivia nests inside.
         if c == '{' {
@@ -394,7 +420,7 @@ impl<'a> Parser<'a> {
     fn colon_or_atom(&mut self, start: usize) -> Result<Term, ParseError> {
         let mut cmd = String::new();
         while matches!(self.peek(), Some(':') | Some(';')) {
-            cmd.push(self.bump().expect("peeked"));
+            self.take_into(&mut cmd);
         }
         if self.at_terminator() {
             return Ok(Term::Command(cmd, self.span_from(start)));
@@ -442,14 +468,14 @@ impl<'a> Parser<'a> {
     fn number(&mut self, start: usize) -> Result<Term, ParseError> {
         let mut tok = String::new();
         if matches!(self.peek(), Some('+') | Some('-')) {
-            tok.push(self.bump().expect("peeked"));
+            self.take_into(&mut tok);
         }
         // int
         if self.peek() == Some('0') {
-            tok.push(self.bump().expect("peeked"));
+            self.take_into(&mut tok);
         } else {
             while self.peek().is_some_and(|c| c.is_ascii_digit() || c == '_') {
-                tok.push(self.bump().expect("peeked"));
+                self.take_into(&mut tok);
             }
         }
         // `float = sign? ~ int ~ "." ~ ( digits ~ exp? | exp )?` — the
@@ -462,9 +488,9 @@ impl<'a> Parser<'a> {
         let mut is_float = false;
         if self.peek() == Some('.') {
             is_float = true;
-            tok.push(self.bump().expect("peeked"));
+            self.take_into(&mut tok);
             while self.peek().is_some_and(|c| c.is_ascii_digit() || c == '_') {
-                tok.push(self.bump().expect("peeked"));
+                self.take_into(&mut tok);
             }
             // `exp` is only reachable after a `.` (`bund.pest:23`), which is
             // why `1e5` is a name and `1.5e5` is a float.
@@ -473,12 +499,12 @@ impl<'a> Parser<'a> {
                     || (matches!(self.peek_at(1), Some('+') | Some('-'))
                         && self.peek_at(2).is_some_and(|c| c.is_ascii_digit())))
             {
-                tok.push(self.bump().expect("peeked"));
+                self.take_into(&mut tok);
                 if matches!(self.peek(), Some('+') | Some('-')) {
-                    tok.push(self.bump().expect("peeked"));
+                    self.take_into(&mut tok);
                 }
                 while self.peek().is_some_and(|c| c.is_ascii_digit()) {
-                    tok.push(self.bump().expect("peeked"));
+                    self.take_into(&mut tok);
                 }
             }
         }
@@ -490,7 +516,7 @@ impl<'a> Parser<'a> {
                 format!(
                     "Error converting {kind} to VALUE: lexical parse error: \
                      'invalid digit found' at index {}",
-                    tok.find('_').expect("contains checked")
+                    tok.find('_').unwrap_or(0)
                 ),
             );
         }
@@ -514,13 +540,15 @@ impl<'a> Parser<'a> {
     /// **F61 lives here.** `/` is an `element`, and comments are only skipped
     /// *between* tokens, so `+//` is one name and not `+` plus a comment.
     fn name(&mut self, start: usize) -> Result<Term, ParseError> {
-        let first = self.peek().expect("name called at end of input");
+        let Some(first) = self.peek() else {
+            return self.err(start, "expected a name, found end of input");
+        };
         if !is_element(first) {
             self.bump();
             return self.err(start, format!("unexpected character `{first}`"));
         }
         let mut out = String::new();
-        out.push(self.bump().expect("peeked"));
+        self.take_into(&mut out);
         while let Some(ch) = self.peek() {
             if !is_nelement(ch) {
                 break;
@@ -528,12 +556,13 @@ impl<'a> Parser<'a> {
             out.push(ch);
             self.i += 1;
         }
-        if !self.at_terminator() {
-            let bad = self.peek().expect("not at terminator");
-            return self.err(
-                start,
-                format!("expected whitespace or end of input, found `{bad}`"),
-            );
+        if let Some(bad) = self.peek() {
+            if !bad.is_whitespace() {
+                return self.err(
+                    start,
+                    format!("expected whitespace or end of input, found `{bad}`"),
+                );
+            }
         }
         Ok(Term::Name(out, self.span_from(start)))
     }

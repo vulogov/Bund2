@@ -1,3 +1,12 @@
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable
+    )
+)]
 //! The bund2 command line runner.
 //!
 //! **A slice.** It parses a program with `bund2-syntax`, lowers it to a value
@@ -30,7 +39,7 @@ fn main() -> ExitCode {
     // Exit 0 either way: a Bund failure is reported, not signalled. Only a
     // failure to *start* — bad arguments, an unreadable file — is an exit code,
     // because there is no program to report against.
-    let _ok = run(&src, &args.file, args.dump_stack);
+    let _ok = run(&src, &args.file, args.dump_stack, args.raw_values);
     ExitCode::SUCCESS
 }
 
@@ -40,6 +49,9 @@ struct Args {
     /// reference always dumps; `--no-dump-stack` is for a caller that wants
     /// the reason alone.
     dump_stack: bool,
+    /// Show raw `Debug` values in the dump. For a debug session; the default
+    /// is a compact summary that fits the terminal.
+    raw_values: bool,
 }
 
 /// `script --file <path>`, the shape `conform` and the oracle share.
@@ -47,18 +59,21 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut it = args.iter();
     let mut file = None;
     let mut dump_stack = true;
+    let mut raw_values = false;
     while let Some(a) = it.next() {
         match a.as_str() {
             "script" => {}
             "--file" => file = it.next().cloned(),
             "--dump-stack" => dump_stack = true,
             "--no-dump-stack" => dump_stack = false,
+            "--raw-values" | "--debug-values" => raw_values = true,
             other => return Err(format!("unknown argument `{other}`")),
         }
     }
     Ok(Args {
         file: file.ok_or("expected: bund2 script --file <path>")?,
         dump_stack,
+        raw_values,
     })
 }
 
@@ -88,10 +103,12 @@ fn locate(src: &str, file: &str, span: bund2_syntax::Span) -> bund2_api::diag::L
 /// (`reference/Bund/src/stdlib/helpers/run_snippet.rs:85-90` sets no code), and
 /// every golden capturing a failing program pins that. Changing it would be a
 /// deviation nobody has asked for.
-fn run(src: &str, file: &str, dump_stack: bool) -> bool {
+fn run(src: &str, file: &str, dump_stack: bool, raw_values: bool) -> bool {
     let mut vm = Interp::new();
     bund2_stdlib::register_all(&mut vm.registry);
-    vm.reporter = Box::new(bund2_stdlib::report::TextReporter::new(dump_stack));
+    let mut reporter = bund2_stdlib::report::TextReporter::new(dump_stack);
+    reporter.raw_values = raw_values;
+    vm.reporter = Box::new(reporter);
 
     // No `\n` is appended. The reference appends one at four of its five parse
     // sites to satisfy a grammar rule that demands trailing whitespace; S1

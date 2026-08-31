@@ -37,6 +37,15 @@ pub struct TextReporter {
     /// or a TUI that renders the stack in its own pane and would only be
     /// duplicating it here.
     pub dump_stack: bool,
+    /// Show the raw `Debug` rendering instead of a compact summary.
+    ///
+    /// **For a debug session only.** The raw form names every header field and
+    /// runs about 150 columns for a single integer; a stack of ten overflows
+    /// any terminal and buries the one fact the reader wanted.
+    pub raw_values: bool,
+    /// The widest a report may be. Bounds both the table and each value inside
+    /// it, so nothing wraps into unreadability.
+    pub width: usize,
     /// Where the fatal report goes. Stdout, as the reference's does, because
     /// the goldens capture it there.
     fatal_to_stdout: bool,
@@ -46,9 +55,25 @@ impl Default for TextReporter {
     fn default() -> Self {
         Self {
             dump_stack: true,
+            raw_values: false,
+            width: terminal_width(),
             fatal_to_stdout: true,
         }
     }
+}
+
+/// The terminal's width, or a readable default when there is no terminal.
+///
+/// A pipe has no width, and `comfy_table`'s `Dynamic` arrangement then lets a
+/// row grow without bound — which is exactly how the reference's stack dumps
+/// reach 190 columns in the goldens. For a *report* that is never what is
+/// wanted, so an explicit bound is set either way.
+fn terminal_width() -> usize {
+    std::env::var("COLUMNS")
+        .ok()
+        .and_then(|c| c.parse::<usize>().ok())
+        .filter(|c| *c >= 40)
+        .unwrap_or(100)
 }
 
 impl TextReporter {
@@ -68,6 +93,9 @@ impl TextReporter {
             .load_preset(UTF8_FULL)
             .apply_modifier(UTF8_ROUND_CORNERS)
             .set_content_arrangement(ContentArrangement::Dynamic)
+            // Without this the report grows to its widest cell, which on a
+            // piped stream is unbounded.
+            .set_width(self.width.min(u16::MAX as usize) as u16)
             .add_row(vec![d.severity.label().to_string(), d.reason.clone()]);
         if let Some(loc) = &d.location {
             table.add_row(vec!["Location".to_string(), loc.to_string()]);
@@ -84,6 +112,9 @@ impl TextReporter {
 
 /// The empty-stack box, and the frame for a non-empty one. Shared with
 /// `debug.display_stack` so a dumped stack looks like a displayed one.
+///
+/// `debug.display_stack` keeps the raw rendering and the unbounded box, because
+/// the goldens capture it byte for byte. Only the *report* summarises.
 fn stack_box(rows: &[String]) -> String {
     crate::console::draw_box_rows(rows)
 }
@@ -91,6 +122,15 @@ fn stack_box(rows: &[String]) -> String {
 impl Reporter for TextReporter {
     fn wants_stack(&self) -> bool {
         self.dump_stack
+    }
+
+    fn wants_raw_values(&self) -> bool {
+        self.raw_values
+    }
+
+    /// Leave room for the box's own borders and padding.
+    fn value_width(&self) -> usize {
+        self.width.saturating_sub(4).max(16)
     }
 
     fn report(&mut self, d: &Diagnostic) {

@@ -15,3 +15,6 @@ bund2-syntax.workspace = true
 bund2-value = { path = "../crates/bund2-value" }
 bund2-api = { path = "../crates/bund2-api" }
 bund2-interp = { path = "../crates/bund2-interp" }
+
+[lints]
+workspace = true

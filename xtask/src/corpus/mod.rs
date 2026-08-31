@@ -1454,7 +1454,12 @@ fn effect_audit(programs: &[Program], reg: &Registry) {
         used.extend(p.word_set());
     }
 
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let Some(repo) = Path::new(env!("CARGO_MANIFEST_DIR")).parent() else {
+        // These two report; there is nothing to report against without a
+        // repository root, so say so and return rather than abort.
+        eprintln!("  cannot locate the repository root from CARGO_MANIFEST_DIR");
+        return;
+    };
     let mut cache: BTreeMap<String, Vec<(Effect, String)>> = BTreeMap::new();
     let mut under: Vec<(String, Effect, Effect, String, String)> = Vec::new();
     let mut over: Vec<(String, Effect, String)> = Vec::new();
@@ -1534,7 +1539,12 @@ fn reachability(programs: &[Program], reg: &Registry) {
     println!("in other stdlib subsystems. A per-word D14 ruling commits to");
     println!("everything listed against it.\n");
 
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let Some(repo) = Path::new(env!("CARGO_MANIFEST_DIR")).parent() else {
+        // These two report; there is nothing to report against without a
+        // repository root, so say so and return rather than abort.
+        eprintln!("  cannot locate the repository root from CARGO_MANIFEST_DIR");
+        return;
+    };
 
     let mut used: BTreeSet<&str> = BTreeSet::new();
     for p in programs {

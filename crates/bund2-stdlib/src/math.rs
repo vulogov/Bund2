@@ -144,8 +144,8 @@ fn run(op: Op, vm: &mut dyn Vm) -> Result<(), Error> {
             op.prefix()
         )));
     }
-    let x = vm.pull().expect("depth checked");
-    let y = vm.pull().expect("depth checked");
+    let x = crate::pull::operand(vm, op.prefix(), 1)?;
+    let y = crate::pull::operand(vm, op.prefix(), 2)?;
     match numeric_op(op, &x, &y) {
         Ok(v) => {
             vm.push(v);

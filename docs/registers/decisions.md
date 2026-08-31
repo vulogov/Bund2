@@ -1820,3 +1820,64 @@ printing.
 
 - Status: **RESOLVED — frame preserved, location and delivery redesigned,
   reporting behind a trait.**
+
+## D37 — Bund2 does not panic, and an impossible state is explained
+
+Required by the repository owner: no `panic!()`, no `unwrap()`, no unhandled
+exceptions; and every unrecoverable internal error handled with a meaningful
+explanation.
+
+### Why an interpreter in particular
+
+A panic aborts the process. In a compiler that is survivable — the input is a
+file and the user re-runs it. In an interpreter it takes the user's *program
+state* with it: the stacks, the word table, anything a REPL session had built.
+It also explains nothing useful, because the stack trace names Rust frames
+inside `rust_multistackvm`-shaped code and no Bund word at all.
+
+The reference does not assert either, and its habit is worth copying. It guards
+a word's depth *and* writes a real failure arm for the pull that follows —
+`SET returns: NO DATA #1`
+(`reference/rust_multistackvm/src/stdlib/values/value_dict.rs:30-42`) — for
+exactly the pulls a Rust programmer would call unreachable.
+
+### What was done
+
+**Enforced, not asserted.** `[workspace.lints.clippy]` denies `unwrap_used`,
+`expect_used`, `panic`, `unreachable`, `todo`, `unimplemented` and `exit`
+across every crate including `xtask`. Tests opt out at each crate root, because
+a panicking assertion in a test is the point.
+
+Sixty sites were removed, in three kinds:
+
+- **Made structural.** `BundValue::into_heap` returns the `Rc` directly, so the
+  "promote always yields a heap value" invariant is a type rather than a
+  comment with an `unreachable!` under it. Six sites disappeared with it. The
+  parser's `take_into` does the same for `bump()`-after-`peek()`, removing
+  ten more. `format_id` builds from `char`s, so there is no fallible UTF-8
+  conversion left to explain.
+- **Given the reference's own error.** Every `expect("depth checked")` became
+  a real `NO DATA #n` arm, which is both safer and closer to the reference than
+  the assertion was.
+- **Reported as internal.** Where a broken invariant genuinely has no sensible
+  continuation, `Error::internal` says which invariant, that it is a defect in
+  Bund2 rather than in the program being run, and that it should be reported —
+  and routes through the same diagnostic path as any other error, so it reaches
+  the reporter a TUI installed rather than stderr.
+
+### Consequences
+
+- **`Error::is_internal` distinguishes the two audiences.** A reporter can
+  present "your program is wrong" differently from "Bund2 is wrong"; nothing
+  does yet, and the seam exists.
+- **A few behaviours changed in unreachable cases**, deliberately and in the
+  safe direction: `current_mut` creates a missing current stack rather than
+  asserting one, stack rotation uses `rotate_left` so there is no `Option`, and
+  `numeric_ord` answers `false` for an ordering question equality never asks.
+  None is reachable from any program.
+- **Verified by planting one.** A deliberate `unwrap()` added to
+  `bund2-value` was rejected by the lint, so the rule is enforced by the build
+  and not by review.
+
+- Status: **RESOLVED — enforced workspace-wide; internal errors carry an
+  explanation and an audience.**

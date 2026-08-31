@@ -388,13 +388,15 @@ fn report(
         println!("  and consume 2, or guard for 2 and succeed on a shallower");
         println!("  stack because the sentinel took a different branch. Each of");
         println!("  these needs reading before RFC-0004 trusts either number.\n");
+        // `disagree` is built from rows that have both numbers, so these are
+        // present; defaulting rather than unwrapping keeps the report from
+        // aborting if that filter ever changes.
         for r in disagree.iter().take(40) {
-            let (c, p, t) = r.probed.unwrap();
+            let (c, p, t) = r.probed.unwrap_or((0, 0, ""));
+            let declared = r.declared_stack.unwrap_or(0);
             println!(
-                "  {:<26} declared {}  probed {c}->{p} ({t})   {}",
-                r.word,
-                r.declared_stack.unwrap(),
-                r.site
+                "  {:<26} declared {declared}  probed {c}->{p} ({t})   {}",
+                r.word, r.site
             );
         }
         if disagree.len() > 40 {

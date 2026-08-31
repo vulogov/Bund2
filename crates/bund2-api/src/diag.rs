@@ -161,6 +161,23 @@ pub trait Reporter {
     fn wants_stack(&self) -> bool {
         false
     }
+
+    /// Whether snapshots should carry the **raw** `Debug` rendering rather
+    /// than a compact summary.
+    ///
+    /// Off by default. The raw form names every header field — id, stamp, dt,
+    /// q, attr, curr, tags — and runs about 150 columns for a single integer.
+    /// That is what a golden captures and what a debug session wants; it is
+    /// not what belongs in an error a person has to read.
+    fn wants_raw_values(&self) -> bool {
+        false
+    }
+
+    /// How wide a single value may be rendered. Summaries are cut to fit, so
+    /// a row can never overflow the terminal.
+    fn value_width(&self) -> usize {
+        100
+    }
 }
 
 /// A reporter that keeps what it is given.

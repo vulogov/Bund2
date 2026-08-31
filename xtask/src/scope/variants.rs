@@ -128,7 +128,9 @@ pub fn partition(
                         format!("\0{w}")
                     }
                 }
-                Completion::None => unreachable!(),
+                // Filtered out above; a sentinel keeps the key total rather
+                // than aborting a scope report.
+                Completion::None => String::new(),
             })
         };
         let live: BTreeSet<String> = core.iter().filter_map(|w| key(w)).collect();

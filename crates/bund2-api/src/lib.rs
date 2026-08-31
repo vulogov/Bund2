@@ -18,6 +18,15 @@
 //!   which handler runs.
 
 #![forbid(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable
+    )
+)]
 
 pub mod diag;
 
@@ -172,6 +181,32 @@ pub trait Vm {
 /// A word's failure. RFC-0003 replaces this with a spanned error value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Error(pub String);
+
+impl Error {
+    /// **An invariant this code relies on did not hold.**
+    ///
+    /// Bund2 does not abort on an internal inconsistency. An interpreter that
+    /// panics takes the user's program state with it, explains nothing, and
+    /// leaves a stack trace through Rust internals that names no Bund word. So
+    /// an impossible state becomes an ordinary error, routed through the same
+    /// diagnostic path as any other — with a reason that says plainly which
+    /// invariant broke, that it is a defect in Bund2 rather than in the
+    /// program, and where to report it.
+    ///
+    /// Reach for this only where the condition genuinely cannot arise from any
+    /// input. Anything a program can cause is a normal error and deserves a
+    /// message about the program, not about Bund2.
+    pub fn internal(what: impl std::fmt::Display) -> Self {
+        Error(format!(
+            "internal error: {what}. This is a defect in Bund2, not in the              program being run — the interpreter reached a state it believes              impossible and stopped rather than continue with values it cannot              trust. Please report it with the program that produced it."
+        ))
+    }
+
+    /// Whether this reports a broken invariant rather than a bad program.
+    pub fn is_internal(&self) -> bool {
+        self.0.starts_with("internal error: ")
+    }
+}
 
 /// How a native word may block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

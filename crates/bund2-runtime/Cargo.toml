@@ -20,3 +20,6 @@ default = []
 # bund2-async depends on bund2-runtime, so it must NOT appear here.
 aot = ["dep:bund2-jit", "bund2-jit/aot"]
 jit = ["dep:bund2-jit", "bund2-jit/jit"]
+
+[lints]
+workspace = true

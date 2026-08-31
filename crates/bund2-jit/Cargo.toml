@@ -22,3 +22,6 @@ default = []
 # can be disassembled, diffed, and checked into a test corpus.
 aot = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-module", "dep:cranelift-object"]
 jit = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-module", "dep:cranelift-jit"]
+
+[lints]
+workspace = true

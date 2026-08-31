@@ -20,6 +20,15 @@
 //!   [`BundValue::eq_ieee`].
 
 #![deny(unsafe_op_in_unsafe_fn)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable
+    )
+)]
 
 pub mod wire;
 
@@ -100,13 +109,38 @@ const ID_LEN: usize = 21;
 /// 20-character prefix — which would make the goldens' `<id>` normalisation
 /// the only thing hiding a very obvious pattern.
 fn format_id(n: u64) -> String {
-    let mut out = [ALPHABET[0]; ID_LEN];
+    // Built from `char`s rather than bytes so there is no fallible UTF-8
+    // conversion to explain. The alphabet is ASCII by construction and the
+    // type system now says so.
+    let mut out = String::with_capacity(ID_LEN);
     let mut x = n;
-    for slot in out.iter_mut() {
-        *slot = ALPHABET[(x % 64) as usize];
+    for _ in 0..ID_LEN {
+        out.push(ALPHABET[(x % 64) as usize] as char);
         x /= 64;
     }
-    String::from_utf8(out.to_vec()).expect("alphabet is ASCII")
+    out
+}
+
+/// Cut a string to `width` characters, marking that it was cut.
+fn truncate(s: &str, width: usize) -> String {
+    if s.chars().count() <= width {
+        return s.to_string();
+    }
+    let kept: String = s.chars().take(width.saturating_sub(1)).collect();
+    format!("{kept}…")
+}
+
+/// A short name for a `dt`, for summaries. Not the reference's `type_name`,
+/// which is title-cased for display
+/// (`reference/rust_dynamic/src/value_types.rs:8-14`).
+fn tag_name(dt: u16) -> &'static str {
+    match dt {
+        MAP => "dict",
+        CONDITIONAL => "conditional",
+        CLASS => "class",
+        OBJECT => "object",
+        _ => "map",
+    }
 }
 
 /// What a heap value points at, separately from its header.
@@ -207,7 +241,9 @@ impl Payload {
             Payload::Metrics(_) => "Metrics",
             Payload::Json(_) => "Json",
             Payload::Exit => "Exit",
-            Payload::Scalar(_) => unreachable!("a boxed scalar renders as its inner value"),
+            // A boxed scalar renders as the scalar it boxes, so this name is
+            // not normally reached — but naming it is better than refusing to.
+            Payload::Scalar(_) => "Scalar",
         }
     }
 }
@@ -347,22 +383,16 @@ impl BundValue {
     /// the constructor hardcoded 100.0 and nothing could move it, so the one
     /// case Q18 closed on was unrepresentable.
     pub fn with_q(self, q: f64) -> Self {
-        let base = self.promote();
-        let BundValue::Heap(h) = &base else {
-            unreachable!()
-        };
-        let mut next = (**h).clone();
+        let h = self.into_heap();
+        let mut next = (*h).clone();
         next.q = q;
         BundValue::Heap(Rc::new(next))
     }
 
     /// Set the tags wholesale. Used to reconstruct a captured rendering.
     pub fn with_tags(self, tags: BTreeMap<String, String>) -> Self {
-        let base = self.promote();
-        let BundValue::Heap(h) = &base else {
-            unreachable!()
-        };
-        let mut next = (**h).clone();
+        let h = self.into_heap();
+        let mut next = (*h).clone();
         next.tags = tags;
         BundValue::Heap(Rc::new(next))
     }
@@ -494,6 +524,108 @@ impl BundValue {
         self.as_map().is_some_and(|m| m.contains_key(key.trim()))
     }
 
+    /// A compact, bounded rendering — **what a person reads**.
+    ///
+    /// [`render`] produces the reference's `Debug` form, which is what the
+    /// goldens capture and what a debug session wants: every header field, on
+    /// one line, ~150 columns for a single integer. In an error report a stack
+    /// of those is unreadable, and a stack of ten overflows any terminal.
+    ///
+    /// This shows the value and nothing else, truncating with `…` so a row can
+    /// never exceed `width`. Containers show their kind and size before their
+    /// contents, because on a failure path "a list of 900" is the useful fact
+    /// and the 900 elements are not.
+    ///
+    /// [`render`]: BundValue::render
+    pub fn summary(&self, width: usize) -> String {
+        let mut out = String::new();
+        self.summarise(&mut out, width, 0);
+        out
+    }
+
+    fn summarise(&self, out: &mut String, width: usize, depth: usize) {
+        // Nesting deeper than this is noise in a one-line summary.
+        const MAX_DEPTH: usize = 2;
+        // Enough elements to recognise the shape, not enough to fill a line.
+        const MAX_ITEMS: usize = 4;
+
+        if out.chars().count() >= width {
+            return;
+        }
+        let inner = self.unboxed();
+        match inner {
+            BundValue::Int(i) => out.push_str(&i.to_string()),
+            BundValue::Float(f) => out.push_str(&format!("{f:?}")),
+            BundValue::Bool(b) => out.push_str(&b.to_string()),
+            BundValue::Nodata => out.push_str("nodata"),
+            BundValue::None => out.push_str("none"),
+            BundValue::Heap(h) => match &*h.payload {
+                Payload::Str(s) => {
+                    // `dt` distinguishes what a `Str` payload means: a CALL is
+                    // a word, a PTR is a reference to one, a CONTEXT is a
+                    // stack. Showing them alike would hide the difference that
+                    // matters most on a failure path.
+                    match self.dt() {
+                        CALL => out.push_str(&truncate(s, width)),
+                        PTR => out.push_str(&format!("`{}", truncate(s, width.saturating_sub(1)))),
+                        CONTEXT => out.push_str(&format!("@{}", truncate(s, width.saturating_sub(1)))),
+                        _ => out.push_str(&format!("\"{}\"", truncate(s, width.saturating_sub(2)))),
+                    }
+                }
+                Payload::Bin(b) => out.push_str(&format!("bin/{}", b.len())),
+                Payload::Exit => out.push_str("exit"),
+                Payload::Metrics(m) => out.push_str(&format!("metrics/{}", m.len())),
+                Payload::Json(_) => out.push_str("json"),
+                Payload::Scalar(v) => v.summarise(out, width, depth),
+                Payload::Lambda(body) => {
+                    // A lambda's body is code. Its length is the useful fact.
+                    out.push_str(&format!("lambda/{}", body.len()));
+                }
+                Payload::List(items) => {
+                    out.push_str(&format!("list/{}", items.len()));
+                    if depth < MAX_DEPTH && !items.is_empty() {
+                        out.push_str(" [");
+                        for (n, it) in items.iter().take(MAX_ITEMS).enumerate() {
+                            if n > 0 {
+                                out.push_str(", ");
+                            }
+                            it.summarise(out, width, depth + 1);
+                        }
+                        if items.len() > MAX_ITEMS {
+                            out.push_str(", …");
+                        }
+                        out.push(']');
+                    }
+                }
+                Payload::Map(m) => {
+                    out.push_str(&format!("{}/{}", tag_name(self.dt()), m.len()));
+                    if depth < MAX_DEPTH && !m.is_empty() {
+                        out.push_str(" {");
+                        for (n, (k, v)) in m.iter().take(MAX_ITEMS).enumerate() {
+                            if n > 0 {
+                                out.push_str(", ");
+                            }
+                            out.push_str(k);
+                            out.push_str(": ");
+                            v.summarise(out, width, depth + 1);
+                        }
+                        if m.len() > MAX_ITEMS {
+                            out.push_str(", …");
+                        }
+                        out.push('}');
+                    }
+                }
+                Payload::ValueMap(m) => out.push_str(&format!("valuemap/{}", m.len())),
+            },
+        }
+        // Hard bound: a row can never exceed `width`, whatever the recursion
+        // produced.
+        if out.chars().count() > width {
+            let kept: String = out.chars().take(width.saturating_sub(1)).collect();
+            *out = format!("{kept}…");
+        }
+    }
+
     /// The `dt` tag.
     pub fn dt(&self) -> u16 {
         match self {
@@ -526,12 +658,26 @@ impl BundValue {
         match self {
             BundValue::Heap(h) => (h.identity(), None),
             scalar => {
-                let boxed = scalar.clone().promote();
-                let BundValue::Heap(h) = &boxed else {
-                    unreachable!("promote always yields a heap value")
-                };
-                (h.identity(), Some(boxed))
+                let h = scalar.clone().into_heap();
+                let id = h.identity();
+                (id, Some(BundValue::Heap(h)))
             }
+        }
+    }
+
+    /// Box a scalar and hand back the header itself.
+    ///
+    /// `promote` always yields a `Heap`, but its return type does not say so,
+    /// which forced every caller to match and then explain what to do when the
+    /// impossible happened. Returning the `Rc` makes the invariant
+    /// **structural**: there is no arm left to write, and nothing to panic in.
+    fn into_heap(self) -> Rc<HeapValue> {
+        match self.promote() {
+            BundValue::Heap(h) => h,
+            // `promote` returns `Heap` for every input; this arm exists only
+            // because the signature cannot express that. Boxing again is a
+            // correct answer rather than an abort.
+            other => Rc::new(HeapValue::new(other.dt(), Payload::Scalar(other))),
         }
     }
 
@@ -632,12 +778,14 @@ impl PartialEq for BundValue {
             (Int(a), Float(b)) | (Float(b), Int(a)) => int_eq_float(*a, *b),
             // A boxed scalar compares as the scalar it boxes, so boxing is
             // invisible here.
-            (Heap(h), other) | (other, Heap(h)) if matches!(*h.payload, Payload::Scalar(_)) => {
-                let Payload::Scalar(inner) = &*h.payload else {
-                    unreachable!()
-                };
-                inner == other
+            // Destructured in the guard rather than after it, so there is no
+            // second match that could fail.
+            (Heap(h), other) | (other, Heap(h))
+                if matches!(&*h.payload, Payload::Scalar(inner) if inner == other) =>
+            {
+                true
             }
+            (Heap(h), _) | (_, Heap(h)) if matches!(*h.payload, Payload::Scalar(_)) => false,
             // A string payload compares by **content**, whatever its `dt`.
             // `eq.rs` matches on `self.data`, so `Val::String` is
             // content-compared whether it is tagged `STRING`, `PTR` or `CALL`
@@ -1295,6 +1443,65 @@ mod render_tests {
         );
     }
 
+    /// The compact form shows the value and nothing else. The `Debug` form is
+    /// ~150 columns for a single integer, which is right for a golden and
+    /// wrong for an error report.
+    #[test]
+    fn a_summary_is_the_value_not_the_header() {
+        assert_eq!(BundValue::Int(42).summary(80), "42");
+        assert_eq!(BundValue::str("hi").summary(80), "\"hi\"");
+        assert_eq!(BundValue::Bool(true).summary(80), "true");
+        assert_eq!(BundValue::Nodata.summary(80), "nodata");
+        // The same value's raw rendering is an order of magnitude longer.
+        assert!(BundValue::Int(42).render(false).len() > 100);
+    }
+
+    /// A `Str` payload means different things under different tags, and a
+    /// summary that hid the difference would hide the one that matters most
+    /// when something has gone wrong.
+    #[test]
+    fn a_summary_distinguishes_what_a_string_payload_means() {
+        assert_eq!(BundValue::call("println").summary(80), "println");
+        assert_eq!(BundValue::ptr("dup").summary(80), "`dup");
+        assert_eq!(BundValue::named_context("main").summary(80), "@main");
+        assert_eq!(BundValue::str("main").summary(80), "\"main\"");
+    }
+
+    /// Containers lead with kind and size: on a failure path "a list of 900"
+    /// is the useful fact and the 900 elements are not.
+    #[test]
+    fn a_container_leads_with_its_size() {
+        let big = BundValue::list((0..900).map(BundValue::Int).collect());
+        let s = big.summary(80);
+        assert!(s.starts_with("list/900"), "{s}");
+        assert!(s.contains('…'), "elided: {s}");
+        assert_eq!(BundValue::lambda(vec![BundValue::Int(1)]).summary(80), "lambda/1");
+    }
+
+    /// **The width is a hard bound.** A row that can overflow a terminal is
+    /// the thing this exists to prevent, so the bound holds whatever the
+    /// recursion produced.
+    #[test]
+    fn a_summary_never_exceeds_its_width() {
+        let nested = BundValue::list(vec![
+            BundValue::str("x".repeat(500)),
+            BundValue::list((0..50).map(BundValue::Int).collect()),
+        ]);
+        for w in [8usize, 20, 40, 80] {
+            let s = nested.summary(w);
+            assert!(s.chars().count() <= w, "width {w}: {} chars", s.chars().count());
+        }
+        assert!(BundValue::str("y".repeat(300)).summary(30).chars().count() <= 30);
+    }
+
+    /// A boxed scalar summarises as the scalar. Everything that reaches a
+    /// stack is boxed, so without this every row would read `map/0`.
+    #[test]
+    fn a_boxed_scalar_summarises_as_its_value() {
+        let boxed = BundValue::Int(7).promote();
+        assert_eq!(boxed.summary(80), "7");
+    }
+
     /// D30's rendering half: the container hashes, the renderer orders.
     #[test]
     fn a_valuemap_renders_in_a_deterministic_order() {
@@ -1351,11 +1558,8 @@ impl BundValue {
     /// entries with tags intact. A two-class partition filed this under
     /// rebuild, which would have emptied the `attr` the word exists to fill.
     pub fn attr_added(&self, value: BundValue) -> Self {
-        let base = self.clone().promote();
-        let BundValue::Heap(h) = &base else {
-            unreachable!()
-        };
-        let mut next = (**h).clone();
+        let h = self.clone().into_heap();
+        let mut next = (*h).clone();
         next.identity.set(mint());
         next.stamp.set(now_ms());
         next.attr.push(value);
@@ -1372,15 +1576,12 @@ impl BundValue {
     /// copied as unminted would let the two halves mint different ids and
     /// flip `A == A.clone()` from true to false.
     pub fn with_tag(&self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        let base = self.clone().promote();
-        let BundValue::Heap(h) = &base else {
-            unreachable!()
-        };
+        let h = self.clone().into_heap();
         // Materialise before the split, whether or not the split happens: the
         // rule must not depend on a refcount, or the identity a value ends up
         // with would depend on how many clones existed at the time.
         let _ = h.identity();
-        let mut next = (**h).clone();
+        let mut next = (*h).clone();
         next.tags.insert(key.into(), value.into());
         BundValue::Heap(Rc::new(next))
     }

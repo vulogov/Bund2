@@ -27,7 +27,7 @@ fn if_base(vm: &mut dyn Vm, want: bool, prefix: &str) -> Result<(), Error> {
     if vm.depth() < 2 {
         return Err(Error(format!("Stack is too shallow for inline {prefix}")));
     }
-    let lambda_val = vm.pull().expect("depth checked");
+    let lambda_val = crate::pull::operand(vm, prefix, 1)?;
     if lambda_val.dt() != LAMBDA {
         return Err(Error(format!("{prefix}: #1 parameter must be lambda")));
     }
@@ -37,7 +37,10 @@ fn if_base(vm: &mut dyn Vm, want: bool, prefix: &str) -> Result<(), Error> {
     let cond = cast_bool(&cond_val)
         .ok_or_else(|| Error(format!("{prefix} returns error: can not cast to bool")))?;
     if cond == want {
-        let body = lambda_val.as_lambda().expect("checked LAMBDA").to_vec();
+        let body = lambda_val
+            .as_lambda()
+            .ok_or_else(|| Error::internal("a value tagged LAMBDA carried no body"))?
+            .to_vec();
         return vm.eval_body(&body);
     }
     Ok(())
@@ -73,18 +76,21 @@ fn ifthenelse(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 3 {
         return Err(Error("Stack is too shallow for inline IFTHENELSE".into()));
     }
-    let else_val = vm.pull().expect("depth checked");
-    let then_val = vm.pull().expect("depth checked");
+    let else_val = crate::pull::operand(vm, "IFTHENELSE", 1)?;
+    let then_val = crate::pull::operand(vm, "IFTHENELSE", 2)?;
     for v in [&then_val, &else_val] {
         if v.dt() != LAMBDA {
             return Err(Error("IFTHENELSE: parameters must be lambda".into()));
         }
     }
-    let cond_val = vm.pull().expect("depth checked");
+    let cond_val = crate::pull::operand(vm, "IFTHENELSE", 3)?;
     let cond = cast_bool(&cond_val)
         .ok_or_else(|| Error("IFTHENELSE returns error: can not cast to bool".into()))?;
     let chosen = if cond { then_val } else { else_val };
-    let body = chosen.as_lambda().expect("checked LAMBDA").to_vec();
+    let body = chosen
+        .as_lambda()
+        .ok_or_else(|| Error::internal("a value tagged LAMBDA carried no body"))?
+        .to_vec();
     vm.eval_body(&body)
 }
 

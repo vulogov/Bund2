@@ -10,3 +10,6 @@ rust-version.workspace = true
 [dependencies]
 bund2-value.workspace = true
 bund2-api.workspace = true
+
+[lints]
+workspace = true
