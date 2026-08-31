@@ -1869,3 +1869,45 @@ loudly while a string against a string fails silently and looks like it worked.
   those programs do. `crates/bund2-stdlib/src/math.rs` reproduces it with a
   test that names this F-number, and `bund2 check` (RFC-0004) is where a
   warning belongs.
+
+## F66 — an uncaught error prints the reference's own build paths, so those goldens cannot reproduce
+
+An uncaught error does not terminate the reference with a message. It prints a
+two-row `comfy_table` report — an `Error` row and a **`Location`** row — then
+`[BUND]  Content of the stack` and the stack and workbench boxes, and exits
+**0**.
+
+The `Location` row holds a Rust source path from the machine that built the
+oracle:
+
+    │ Location ┆ /Users/gandalf/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/
+                 rust_multistackvm-0.38.0/src/stdlib/math/math_op.rs:111:29 │
+
+`easy_error`'s `bail!` also appends a location to the message itself, so a
+*caught* error's text carries one too — `tryexcept_demo.golden` records
+`… Because I can (src/stdlib/functions/conditional/raise.rs:16:5)` inside a
+string the program printed with `format`.
+
+Four goldens are affected: `tryexcept_demo`, `tryexcept_demo_divide_to_0`,
+`execute-arm-class` and `execute-arm-not-executable`.
+
+Two separate problems, and only one is about paths:
+
+- **The captured text is machine-specific.** It names a `~/.cargo/registry`
+  directory, a crates.io index hash and a crate version. No other machine
+  reproduces it, and it is F21 made visible: the path proves the oracle links
+  the registry rather than the pinned submodule.
+- **The error *presentation* is unimplemented.** Bund2 prints the bare message
+  to stderr and exits 1; the reference prints a table and exits 0. That part is
+  reproducible and is simply not built, and it is worth separating from the
+  paths, because every golden whose program errors depends on it.
+
+- Found by: measuring the remaining conformance failures after the conditional
+  registry landed
+- Disposition: **Build the presentation; the paths are a deviation.** Bund2
+  reproduces the table, the `[BUND]` banner and the exit code, so a program that
+  errors produces the reference's shape. The `Location` row cannot carry the
+  reference's path and will carry Bund2's own; the `bail!` suffix inside a
+  message likewise. Those four goldens then differ only in the path, which is an
+  approved deviation under this F-number — and F48 applies, since `conform`
+  still has no way to record one.

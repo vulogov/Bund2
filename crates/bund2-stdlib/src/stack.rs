@@ -395,6 +395,13 @@ pub fn register(r: &mut Registry) {
     r.register_alias("<-", "stacks_left");
     r.register_alias("←", "stacks_left");
     // The aliases the VM layer adds over these.
+    // `reference/rust_multistackvm/src/stdlib/create_aliases.rs:4,24-27,36`.
+    r.register_alias(".", "return");
+    r.register_alias("->", "stacks_right");
+    r.register_alias("→", "stacks_right");
+    r.register_alias("<--", "rotate_current_left");
+    r.register_alias("-->", "rotate_current_right");
+    r.register_alias("stack", "ensure_stack");
     r.register_alias("dup", "dup_one");
     r.register_alias("swap", "swap_one");
 }
