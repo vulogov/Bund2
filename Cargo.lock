@@ -146,6 +146,7 @@ dependencies = [
  "bund2-api",
  "bund2-interp",
  "bund2-ir",
+ "bund2-syntax",
  "bund2-value",
  "comfy-table",
 ]

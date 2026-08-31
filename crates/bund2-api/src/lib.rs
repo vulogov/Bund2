@@ -108,6 +108,40 @@ pub trait Vm {
     // --- the workbench -----------------------------------------------------
     fn push_workbench(&mut self, v: BundValue);
     fn pull_workbench(&mut self) -> Option<BundValue>;
+
+    // --- re-entering evaluation --------------------------------------------
+    /// Apply one value, as `VM::apply` does
+    /// (`reference/rust_multistackvm/src/multistackvm_apply.rs:8-104`).
+    ///
+    /// `execute` needs this: its PTR/STRING/CALL arm calls by name and its
+    /// LAMBDA arm evaluates a body
+    /// (`reference/rust_multistackvm/src/stdlib/execute.rs:30,94`), so a native
+    /// word has to be able to re-enter evaluation.
+    ///
+    /// **This is the surface RFC-0003's S4a replaces.** Under the frame loop a
+    /// native returns a *request* to push a frame rather than calling back, so
+    /// that Rust depth stops tracking Bund depth. Until the loop exists this is
+    /// a direct call and the recursion is real.
+    fn apply(&mut self, v: BundValue) -> Result<(), Error>;
+
+    /// Evaluate a lambda body
+    /// (`reference/rust_multistackvm/src/multistackvm_lambda_eval.rs:8-32`).
+    fn eval_body(&mut self, body: &[BundValue]) -> Result<(), Error>;
+
+    // --- the word table ----------------------------------------------------
+    /// Bind a name to a lambda, as `register` does
+    /// (`reference/rust_multistackvm/src/stdlib/lambdas/registry.rs:5-38`).
+    fn register_lambda(&mut self, name: &str, body: BundValue);
+    /// Unbind a lambda, leaving any native under the same name standing (F32).
+    fn unregister_lambda(&mut self, name: &str);
+    /// Is this name bound to a lambda?
+    fn is_lambda(&self, name: &str) -> bool;
+    /// Is this name bound to a native?
+    fn is_native(&self, name: &str) -> bool;
+    /// Is this name bound to an alias?
+    fn is_alias(&self, name: &str) -> bool;
+    /// The lambda bound to this name, if any.
+    fn get_lambda(&self, name: &str) -> Option<BundValue>;
 }
 
 /// A word's failure. RFC-0003 replaces this with a spanned error value.
@@ -495,6 +529,26 @@ mod tests {
         fn rotate_stacks_right(&mut self) {}
         fn push_workbench(&mut self, _: BundValue) {}
         fn pull_workbench(&mut self) -> Option<BundValue> {
+            None
+        }
+        fn apply(&mut self, _: BundValue) -> Result<(), Error> {
+            Ok(())
+        }
+        fn eval_body(&mut self, _: &[BundValue]) -> Result<(), Error> {
+            Ok(())
+        }
+        fn register_lambda(&mut self, _: &str, _: BundValue) {}
+        fn unregister_lambda(&mut self, _: &str) {}
+        fn is_lambda(&self, _: &str) -> bool {
+            false
+        }
+        fn is_native(&self, _: &str) -> bool {
+            false
+        }
+        fn is_alias(&self, _: &str) -> bool {
+            false
+        }
+        fn get_lambda(&self, _: &str) -> Option<BundValue> {
             None
         }
     }

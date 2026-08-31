@@ -424,6 +424,76 @@ impl BundValue {
         v
     }
 
+    /// The map this holds, if it holds one.
+    pub fn as_map(&self) -> Option<&BTreeMap<String, BundValue>> {
+        match self {
+            BundValue::Heap(h) => match &*h.payload {
+                Payload::Map(m) => Some(m),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// The list this holds, if it holds one.
+    pub fn as_list(&self) -> Option<&[BundValue]> {
+        match self {
+            BundValue::Heap(h) => match &*h.payload {
+                Payload::List(v) => Some(v),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// The lambda body this holds, if it holds one.
+    pub fn as_lambda(&self) -> Option<&[BundValue]> {
+        match self {
+            BundValue::Heap(h) => match &*h.payload {
+                Payload::Lambda(v) => Some(v),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// `Value::set`, arm for arm (`reference/rust_dynamic/src/set.rs:6-36`).
+    ///
+    /// Four behaviours, and three of them are not "insert into a map":
+    ///
+    /// - `LIST` **discards the container and the key**, returning a one-element
+    ///   list (`:7-9`). That is F42, preserved.
+    /// - `LAMBDA` replaces the whole body with one element (`:10-12`), which is
+    ///   what D5 relies on for bodies being write-once — the original is
+    ///   untouched and a new value comes back.
+    /// - The map-like tags insert, preserving the **receiver's** `dt` (`:14-27`),
+    ///   so a CONDITIONAL stays a CONDITIONAL. `?try :try { … } set` depends on
+    ///   it. The key is trimmed (`:20`).
+    /// - Anything else returns the *value*, carrying the receiver's `q`
+    ///   (`:29-34`).
+    pub fn set(&self, key: &str, value: BundValue) -> BundValue {
+        match self.dt() {
+            LIST => BundValue::list(vec![value]),
+            LAMBDA => BundValue::lambda(vec![value]),
+            MAP | CONDITIONAL | CLASS | OBJECT => {
+                let mut m = self.as_map().cloned().unwrap_or_default();
+                m.insert(key.trim().to_string(), value);
+                self.rebuilt(self.dt(), Payload::Map(m))
+            }
+            _ => value.with_q(self.q()),
+        }
+    }
+
+    /// `Value::get` for a string key (`reference/rust_dynamic/src/get.rs`).
+    pub fn get(&self, key: &str) -> Option<BundValue> {
+        self.as_map().and_then(|m| m.get(key.trim()).cloned())
+    }
+
+    /// Whether a string key is present.
+    pub fn has_key(&self, key: &str) -> bool {
+        self.as_map().is_some_and(|m| m.contains_key(key.trim()))
+    }
+
     /// The `dt` tag.
     pub fn dt(&self) -> u16 {
         match self {

@@ -222,9 +222,35 @@ impl Interp {
                 self.push(BundValue::call(name));
                 Ok(())
             }
-            Resolved::Lambda => Err(Error(
-                "lambda evaluation is RFC-0003's, not implemented".into(),
-            )),
+            Resolved::Lambda => {
+                // `lambda_eval` applies each element of the body
+                // (`reference/rust_multistackvm/src/multistackvm_lambda_eval.rs:13-14`).
+                //
+                // **This recurses in Rust**, exactly as the reference does, so
+                // Bund call depth is Rust call depth. RFC-0003's S4 replaces it
+                // with a frame loop; the body is cloned out first so the
+                // registry is not borrowed across the call.
+                let target = self.registry.resolve_target(s);
+                let body = self
+                    .registry
+                    .slot(target)
+                    .and_then(|slot| slot.lambda.clone())
+                    .ok_or_else(|| Error("resolved to a lambda that is not there".into()))?;
+                // `lambda_eval` bails on a non-LAMBDA
+                // (`reference/rust_multistackvm/src/multistackvm_lambda_eval.rs:27-29`).
+                // The `register` word guards the type, but the registry API
+                // does not, so the check belongs here too.
+                let items = body
+                    .as_lambda()
+                    .ok_or_else(|| Error("This is not a lambda".into()))?
+                    .to_vec();
+                for v in items {
+                    self.apply(v).map_err(|e| {
+                        Error(format!("Lambda content evaluation returned error: {}", e.0))
+                    })?;
+                }
+                Ok(())
+            }
             Resolved::Native => {
                 let target = self.registry.resolve_target(s);
                 let f = self
@@ -445,6 +471,59 @@ impl Vm for Interp {
         }
     }
 
+    fn apply(&mut self, v: BundValue) -> Result<(), Error> {
+        Interp::apply(self, v)
+    }
+
+    fn eval_body(&mut self, body: &[BundValue]) -> Result<(), Error> {
+        for v in body {
+            self.apply(v.clone())
+                .map_err(|e| Error(format!("Lambda content evaluation returned error: {}", e.0)))?;
+        }
+        Ok(())
+    }
+
+    fn register_lambda(&mut self, name: &str, body: BundValue) {
+        self.registry.register_lambda(name, body);
+    }
+
+    fn unregister_lambda(&mut self, name: &str) {
+        if let Some((s, _)) = self.registry.interner.lookup_call(name) {
+            self.registry.unregister_lambda(s);
+        }
+    }
+
+    fn is_lambda(&self, name: &str) -> bool {
+        self.registry
+            .interner
+            .lookup_call(name)
+            .and_then(|(s, _)| self.registry.slot(self.registry.resolve_target(s)))
+            .is_some_and(|slot| slot.lambda.is_some())
+    }
+
+    fn is_native(&self, name: &str) -> bool {
+        self.registry
+            .interner
+            .lookup_call(name)
+            .and_then(|(s, _)| self.registry.slot(self.registry.resolve_target(s)))
+            .is_some_and(|slot| slot.native.is_some())
+    }
+
+    fn is_alias(&self, name: &str) -> bool {
+        self.registry
+            .interner
+            .lookup_call(name)
+            .is_some_and(|(s, _)| self.registry.resolve_target(s) != s)
+    }
+
+    fn get_lambda(&self, name: &str) -> Option<BundValue> {
+        self.registry
+            .interner
+            .lookup_call(name)
+            .and_then(|(s, _)| self.registry.slot(self.registry.resolve_target(s)))
+            .and_then(|slot| slot.lambda.clone())
+    }
+
     fn push_workbench(&mut self, v: BundValue) {
         // The workbench "does not carry a specific name"
         // (`…/Introduction_the_art_of_stack_operations.typ:72`), so the tag it
@@ -496,12 +575,16 @@ mod tests {
     #[test]
     fn the_sigil_selects_the_native_over_the_lambda() {
         let (mut i, s) = with_native("println");
-        i.registry.register_lambda("println", BundValue::Int(1));
-        // Plain: finds the lambda, which RFC-0003 will evaluate.
-        assert!(i.dispatch(s, false).is_err(), "plain must reach the lambda");
-        // `$`: skips it and runs the native.
+        // A real lambda now, with an effect that distinguishes it from the
+        // native's. An earlier version of this test bound a non-lambda and read
+        // the resulting error as proof the lambda arm was reached — which
+        // stopped meaning anything once that arm was implemented.
+        i.registry
+            .register_lambda("println", BundValue::lambda(vec![BundValue::Int(1)]));
+        i.dispatch(s, false).expect("plain must reach the lambda");
+        assert_eq!(i.pull().and_then(|v| v.as_int()), Some(1), "the lambda ran");
         i.dispatch(s, true).expect("$name must reach the native");
-        assert_eq!(i.pull(), Some(BundValue::Int(7)));
+        assert_eq!(i.pull().and_then(|v| v.as_int()), Some(7), "the native ran");
     }
 
     /// The case D16 forces: a name built at run time, never lexed.
