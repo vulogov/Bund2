@@ -1,6 +1,8 @@
 # RFC-0000: Architecture, crate boundaries, and the tier model
 
-- Status: **Accepted** (2026-08-25)
+- Status: **Accepted** (2026-08-25), **amended 2026-09-01** — `bund2-ir`'s
+  boundary rule, under Design › Workspace layout. The amendment is appended
+  beside the row rather than rewritten into it, so the change is visible.
 - Depends on: —
 - Accepted against: B1 conform 0/63; B2 coverage 121/497; B3 `bund2-stdlib`
   free of `bund2-jit`; B4 six clean submodules; B5 `cite` 0 defects over 1059
@@ -187,6 +189,52 @@ mapping from the reference is deliberate rather than incidental:
 | `bund2` | — | the façade that composes the above |
 | `bund2-cli` | `Bund/src/cmd` | argument parsing and the REPL; no language logic |
 | `xtask` | — (new) | oracle capture, conformance, measurement |
+
+#### Amendment (2026-09-01) — `bund2-ir` is a cache, not the pipeline
+
+The `bund2-ir` row above reads "AST to BundIR; the only crate that defines the
+instruction set". Half of that is now wrong, and the row is left as written
+rather than edited, because this RFC is Accepted and a silent rewrite would
+erase that its architecture claim moved.
+
+**A lambda body stays `Vec<BundValue>`**, so the AST does not lower to BundIR.
+RFC-0003 §S3 shows why it cannot: `compile` yields a LIST of values
+(`reference/Bund/src/stdlib/functions/bund/bund_interpreter.rs:29-43`),
+`lambda!` retypes a LIST as a LAMBDA
+(`reference/Bund/src/stdlib/functions/bund/bund_fun.rs:163-186`), `lambda*`
+folds the live stack into one (`:189-202`), and `curry` assembles one element
+at a time
+(`reference/Bund/src/stdlib/functions/conditional/conditional_curry.rs:44-53`).
+Bund programs **construct** bodies at run time, so the body must be a value. A
+representation Bund code cannot build is not this language's representation.
+
+The pipeline is therefore:
+
+    AST  ──bund2-syntax──▶  Vec<BundValue>  ──bund2-ir (optional)──▶  BundIR
+
+Three corrections follow:
+
+- **Lowering belongs to `bund2-syntax`,** not `bund2-ir`. `lower_with_spans`
+  is there, and its spans ride in a parallel vector so the value stream stays
+  identical to the reference's — which is what lets `cargo xtask parity`
+  compare like for like.
+- **BundIR is optional and off the mandatory path.** Tier 0 interprets the
+  `Vec<BundValue>` directly and must, because that is the fallback whenever a
+  body is built and run once — the common case for `bund.eval` (D3).
+- **"The only crate that defines the instruction set" still holds**, and is
+  worth keeping: it is why `bund2-ir` remains its own crate rather than folding
+  into `bund2-jit`. Tier 0 and RFC-0006's AOT can name the instruction set
+  without linking Cranelift, which is the same reason the `bund2-stdlib` ⇸
+  `bund2-jit` rule exists.
+
+The boundary rule for the row should read: **`Vec<BundValue>` to BundIR; the
+only crate that defines the instruction set; optional, and Tier 0 never
+requires it.**
+
+Nothing else in this RFC changes. The dependency rules below are unaffected,
+and `bund2-ir` is still a member with no dependants that use it — 12 lines
+today — which is the honest state of a crate whose contents RFC-0005 will
+define.
 
 The rule that makes these boundaries checkable: **`bund2-value` must not
 depend on `bund2-interp`, and `bund2-stdlib` must not depend on

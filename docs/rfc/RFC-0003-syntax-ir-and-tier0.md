@@ -946,11 +946,11 @@ lambda  = { "{" ~ term+ ~ "}" }
   `call_internal_word` calls `i()`, which resolves), and every curried word ends
   in a `Value::call("!")` (`conditional_curry.rs:51`), an alias, so its last call
   site must invalidate on an alias-table generation bump.
-- **RFC-0000 assigns `bund2-ir` a role this RFC redraws.** RFC-0000:180 gives it
-  "AST to BundIR; the only crate that defines the instruction set". Here the
-  pipeline is AST → `Vec<BundValue>` → optional BundIR cache, and which crate
-  owns the cache is unstated. That is an architectural change and belongs stated
-  against RFC-0000 rather than inferred.
+- **RFC-0000's `bund2-ir` row is amended**, not left to be inferred. Its
+  boundary rule now reads `Vec<BundValue>` to BundIR, optional, with Tier 0
+  never requiring it, and names `bund2-syntax` as lowering's home. The
+  amendment is appended beside the original row because RFC-0000 is Accepted.
+
 - **Lowering is assumed total and information-preserving.** Criterion 3 depends
   on it; S2 introduces an AST node whose nested lowering is undecided. Nothing
   yet states that lowering is a function.
