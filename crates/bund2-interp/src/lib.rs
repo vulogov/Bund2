@@ -604,6 +604,30 @@ impl Vm for Interp {
         self.registry.conditional(ty)
     }
 
+    fn register_class(&mut self, name: &str, class: BundValue) {
+        self.registry.register_class(name, class);
+    }
+
+    fn class(&self, name: &str) -> Option<BundValue> {
+        self.registry.class(name)
+    }
+
+    fn is_class(&self, name: &str) -> bool {
+        self.registry.is_class(name)
+    }
+
+    fn unregister_class(&mut self, name: &str) {
+        self.registry.unregister_class(name);
+    }
+
+    fn method(&self, name: &str) -> Option<bund2_api::NativeFn> {
+        self.registry.method(name)
+    }
+
+    fn is_method(&self, name: &str) -> bool {
+        self.registry.is_method(name)
+    }
+
     fn context_depth(&self) -> usize {
         self.contexts.len()
     }

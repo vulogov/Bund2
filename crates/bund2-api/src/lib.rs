@@ -156,6 +156,14 @@ pub trait Vm {
     /// The handler for a conditional `type`, if one is bound (S7).
     fn conditional(&self, ty: &str) -> Option<ConditionalFn>;
 
+    // --- classes and methods (RFC-0009) ------------------------------------
+    fn register_class(&mut self, name: &str, class: BundValue);
+    fn class(&self, name: &str) -> Option<BundValue>;
+    fn is_class(&self, name: &str) -> bool;
+    fn unregister_class(&mut self, name: &str);
+    fn method(&self, name: &str) -> Option<NativeFn>;
+    fn is_method(&self, name: &str) -> bool;
+
     /// Emit a diagnostic.
     ///
     /// **The hook a word uses to say something without deciding how it looks.**
@@ -397,6 +405,20 @@ pub struct Registry {
     ///
     /// A `BTreeMap`, as the reference's is, so iteration order is stable.
     conditionals: std::collections::BTreeMap<String, ConditionalFn>,
+    /// **The class registry — RFC-0009.** Separate from the word table, as the
+    /// reference's is (`reference/rust_multistackvm/src/multistackvm.rs:28`):
+    /// `register` files a class here, not among the words, which is why
+    /// `:Probe register` then `Probe` reports `Inline Probe not registered`.
+    classes: std::collections::BTreeMap<String, BundValue>,
+    /// **The method table** — the fifth name-keyed table
+    /// (`reference/rust_multistackvm/src/multistackvm_methods.rs:8`). A method
+    /// is reachable only through a class slot; nothing dispatches it by name.
+    methods: std::collections::BTreeMap<String, NativeFn>,
+    /// Bumped by `register_class` and `register_method`. RFC-0002's generation
+    /// is **per word-table slot** and never sees either of these tables, so a
+    /// dispatch cache keyed on a class needs its own.
+    class_generation: u32,
+    method_generation: u32,
 }
 
 /// A conditional handler: it receives the CONDITIONAL value itself, because
@@ -424,6 +446,52 @@ impl Registry {
     /// The handler for a conditional `type`, if one is bound.
     pub fn conditional(&self, ty: &str) -> Option<ConditionalFn> {
         self.conditionals.get(ty).copied()
+    }
+
+    /// File a class under a name.
+    ///
+    /// The reference validates only the CLASS tag and inserts
+    /// (`reference/rust_multistackvm/src/multistackvm_classes.rs:7-20`) — it
+    /// does **not** check that `.super` names registered parents, so a class
+    /// may be registered whose parents are not. RFC-0009 §S1 flattens at
+    /// construction rather than here for exactly that reason.
+    pub fn register_class(&mut self, name: &str, class: BundValue) {
+        self.classes.insert(name.to_string(), class);
+        self.class_generation = self.class_generation.saturating_add(1);
+    }
+
+    pub fn class(&self, name: &str) -> Option<BundValue> {
+        self.classes.get(name).cloned()
+    }
+
+    pub fn is_class(&self, name: &str) -> bool {
+        self.classes.contains_key(name)
+    }
+
+    pub fn unregister_class(&mut self, name: &str) {
+        if self.classes.remove(name).is_some() {
+            self.class_generation = self.class_generation.saturating_add(1);
+        }
+    }
+
+    /// Bind a method name to a native. Methods are reached through a class
+    /// slot holding a PTR, never by word dispatch.
+    pub fn register_method(&mut self, name: &str, f: NativeFn) {
+        self.methods.insert(name.to_string(), f);
+        self.method_generation = self.method_generation.saturating_add(1);
+    }
+
+    pub fn method(&self, name: &str) -> Option<NativeFn> {
+        self.methods.get(name).copied()
+    }
+
+    pub fn is_method(&self, name: &str) -> bool {
+        self.methods.contains_key(name)
+    }
+
+    /// The two generations a dispatch cache keys on (§S5).
+    pub fn oop_generation(&self) -> (u32, u32) {
+        (self.class_generation, self.method_generation)
     }
 
     fn slot_mut(&mut self, s: Symbol) -> &mut Slot {
@@ -650,6 +718,20 @@ mod tests {
         }
         fn conditional(&self, _: &str) -> Option<ConditionalFn> {
             None
+        }
+        fn register_class(&mut self, _: &str, _: BundValue) {}
+        fn class(&self, _: &str) -> Option<BundValue> {
+            None
+        }
+        fn is_class(&self, _: &str) -> bool {
+            false
+        }
+        fn unregister_class(&mut self, _: &str) {}
+        fn method(&self, _: &str) -> Option<NativeFn> {
+            None
+        }
+        fn is_method(&self, _: &str) -> bool {
+            false
         }
         fn report(&mut self, _: diag::Diagnostic) {}
         fn context_depth(&self) -> usize {

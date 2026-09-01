@@ -148,9 +148,16 @@ fn register(vm: &mut dyn Vm) -> Result<(), Error> {
     let name = name_val
         .as_str()
         .ok_or_else(|| Error("REGISTER expecting lambda name to be string".into()))?;
+    // A CLASS goes to the **class registry**, a LAMBDA to the word table. They
+    // are different tables, which is why `:Probe class register` then `Probe`
+    // reports `Probe not registered` — the class is filed, just not as a word.
     match body.dt() {
-        LAMBDA | CLASS => {
+        LAMBDA => {
             vm.register_lambda(&name, body);
+            Ok(())
+        }
+        CLASS => {
+            vm.register_class(&name, body);
             Ok(())
         }
         _ => Err(Error("REGISTER expecting CLASS or LAMBDA".into())),
@@ -276,9 +283,10 @@ fn execute_value(vm: &mut dyn Vm, v: BundValue) -> Result<(), Error> {
             }
         }
         CONDITIONAL => crate::conditional::execute_conditional(vm, v),
-        CLASS | OBJECT => Err(Error(
-            "EXECUTE: the class and object arms need the object model (RFC-0009)".into(),
-        )),
+        // F16's fix, per D23 and D25: executing a class constructs from the
+        // value, not by looking a name up.
+        CLASS => crate::oop::construct_from_value(vm, v),
+        OBJECT => crate::oop::execute_object(vm, v),
         _ => Err(Error("Received value is not of executable type".into())),
     }
 }
