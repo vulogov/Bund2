@@ -197,20 +197,16 @@ fn run_context(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
     let body = slot(&c, &n);
     let post = slot(&c, &format!("{n}.post"));
 
-    vm.to_stack(&cond_name);
-    let outcome = vm
-        .eval_body(&pre)
-        .map_err(|e| Error(format!("CONTEXT PRE lambda returns: {}", e.0)))
-        .and_then(|()| {
-            vm.eval_body(&body)
-                .map_err(|e| Error(format!("CONTEXT RUN lambda returns: {}", e.0)))
-        })
-        .and_then(|()| {
-            vm.eval_body(&post)
-                .map_err(|e| Error(format!("CONTEXT POST lambda returns: {}", e.0)))
-        });
-    vm.to_stack(&prev);
-    outcome
+    // **F57, structurally.** One scoped call whose frame carries the return as
+    // an exit action, so the restore happens on the failure path without a
+    // second `to_stack` anyone could forget — which is exactly the shape the
+    // reference gets wrong.
+    let mut all = pre;
+    all.extend(body);
+    all.extend(post);
+    let _ = prev;
+    vm.scoped_call(&cond_name, all)
+        .map_err(|e| Error(format!("CONTEXT lambda returns: {}", e.0)))
 }
 
 /// `curry` — **code generation**. Build a lambda of the captured data, the

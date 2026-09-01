@@ -135,9 +135,35 @@ pub trait Vm {
     /// a direct call and the recursion is real.
     fn apply(&mut self, v: BundValue) -> Result<(), Error>;
 
-    /// Evaluate a lambda body
-    /// (`reference/rust_multistackvm/src/multistackvm_lambda_eval.rs:8-32`).
+    /// Evaluate a lambda body **now**, for a native that inspects the stack
+    /// afterwards (`reference/rust_multistackvm/src/multistackvm_lambda_eval.rs:8-32`).
+    ///
+    /// Costs one Rust frame per *native*, not per Bund call. Prefer
+    /// [`Vm::tail_call`] wherever nothing runs after the body.
     fn eval_body(&mut self, body: &[BundValue]) -> Result<(), Error>;
+
+    /// Run `body` **after this native returns** — RFC-0003 §S4a's request.
+    ///
+    /// For tail positions, which is most of them: a lambda call, `if`'s branch,
+    /// a `through` conditional's body, `execute` on a LAMBDA. The loop pushes a
+    /// frame, so nothing recurses and Bund call depth costs heap rather than
+    /// Rust stack.
+    ///
+    /// A native must not touch the stack after calling this expecting the
+    /// body's effect — the body has not run yet. That is the distinction from
+    /// [`Vm::eval_body`], and the reason both exist.
+    fn tail_call(&mut self, body: Vec<BundValue>);
+
+    /// Run `body` on `stack`, returning to the current stack **however the
+    /// body leaves** — RFC-0003 §S4's exit action.
+    ///
+    /// This is F57's fix made structural. The reference restores with a
+    /// statement placed after three early returns
+    /// (`reference/Bund/src/stdlib/functions/conditional/conditional_ctx.rs:60-74`),
+    /// so a failure inside a context strands the interpreter on the context's
+    /// stack. A frame that carries its exit action cannot skip it, because the
+    /// unwinder runs it on the way past.
+    fn scoped_call(&mut self, stack: &str, body: Vec<BundValue>) -> Result<(), Error>;
 
     // --- the word table ----------------------------------------------------
     /// Bind a name to a lambda, as `register` does
@@ -700,6 +726,10 @@ mod tests {
             Ok(())
         }
         fn eval_body(&mut self, _: &[BundValue]) -> Result<(), Error> {
+            Ok(())
+        }
+        fn tail_call(&mut self, _: Vec<BundValue>) {}
+        fn scoped_call(&mut self, _: &str, _: Vec<BundValue>) -> Result<(), Error> {
             Ok(())
         }
         fn register_lambda(&mut self, _: &str, _: BundValue) {}

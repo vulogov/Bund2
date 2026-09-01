@@ -175,6 +175,25 @@ impl Stacks {
 }
 
 /// The interpreter.
+/// One body being executed, and how far through it we are.
+///
+/// **RFC-0003 §S4.** A frame carries the body, an instruction pointer, and an
+/// optional exit action that runs when the frame leaves — however it leaves.
+/// That last part is what fixes F57: the reference restores a context's stack
+/// with a statement placed after three early returns, so a failure skips it.
+struct Frame {
+    body: Vec<BundValue>,
+    ip: usize,
+    /// Run when this frame is popped, on success **and** on failure.
+    exit: Option<ExitAction>,
+}
+
+/// What a frame does on the way out.
+enum ExitAction {
+    /// Return to a named stack. `( … )` and `context` both need this.
+    ToStack(String),
+}
+
 pub struct Interp {
     /// Contexts opened by `( … )` and not yet closed, each with the stack to
     /// restore. **Separate from the stack-of-stacks on purpose** — the
@@ -185,6 +204,13 @@ pub struct Interp {
     /// writes to nobody's terminal; the CLI swaps in a text reporter and a TUI
     /// would swap in its own.
     pub reporter: Box<dyn bund2_api::diag::Reporter>,
+    /// **The frame stack — RFC-0003 §S4.** Bund call depth lives here, on the
+    /// heap, instead of on the Rust stack.
+    frames: Vec<Frame>,
+    /// A body a native asked the loop to run **after it returns** — §S4a's
+    /// request, in its tail-position form. The native sets it and returns; the
+    /// loop pushes a frame. Nothing recurses.
+    pending_tail: Option<Vec<BundValue>>,
     pub registry: Registry,
     pub stacks: Stacks,
     /// `apply` tests this in three places, and it does **not** precede the
@@ -208,6 +234,8 @@ impl Interp {
             autoadd: false,
             contexts: Vec::new(),
             reporter: Box::new(bund2_api::diag::SilentReporter),
+            frames: Vec::new(),
+            pending_tail: None,
         }
     }
 
@@ -276,11 +304,11 @@ impl Interp {
                     .as_lambda()
                     .ok_or_else(|| Error("This is not a lambda".into()))?
                     .to_vec();
-                for v in items {
-                    self.apply(v).map_err(|e| {
-                        Error(format!("Lambda content evaluation returned error: {}", e.0))
-                    })?;
-                }
+                // **The call that used to recurse.** Calling a lambda is a
+                // tail position: nothing in `dispatch` runs after the body. So
+                // it becomes a request, and the loop pushes a frame — Bund
+                // call depth stops being Rust call depth.
+                self.request_tail(items);
                 Ok(())
             }
             Resolved::Native => {
@@ -332,7 +360,23 @@ impl Interp {
     /// `autoadd` is not implemented, so the branches at `:19` and `:89` are
     /// absent. When list construction lands it belongs here, not at the call
     /// sites.
+    /// Apply one value **synchronously**: whatever it asks for has run by the
+    /// time this returns.
+    ///
+    /// This is what a native gets through the `Vm` trait, because a native that
+    /// applies a value and then inspects the stack must see the result. The
+    /// evaluation loop uses [`Interp::apply_step`] instead, which leaves the
+    /// request for the loop to fulfil — that is the difference between one Rust
+    /// frame per Bund call and none.
     pub fn apply(&mut self, v: BundValue) -> Result<(), Error> {
+        let floor = self.frames.len();
+        self.apply_step(v)?;
+        self.take_pending();
+        self.run_to(floor)
+    }
+
+    /// Apply one value, leaving any requested body for the caller's loop.
+    pub fn apply_step(&mut self, v: BundValue) -> Result<(), Error> {
         match v.dt() {
             bund2_value::CALL => {
                 let name = v
@@ -418,13 +462,99 @@ impl Interp {
                 bund2_value::EXIT => break,
                 _ => {
                     observe(v);
-                    if let Err(e) = self.apply(v.clone()) {
+                    if let Err(e) = self.apply_step(v.clone()) {
+                        return Err((i, e));
+                    }
+                    // A top-level word may have asked for a body to run.
+                    if let Err(e) = self.drain_frames() {
                         return Err((i, e));
                     }
                 }
             }
         }
         Ok(())
+    }
+
+    /// Ask the loop to run `body` **after the current native returns**.
+    ///
+    /// This is §S4a's request mechanism in the shape that covers tail
+    /// positions — which is most of them: a lambda call, `if`'s branch, a
+    /// `through` conditional's body, `execute` on a LAMBDA. The native sets the
+    /// request and returns; the loop pushes a frame; **no Rust frame is added
+    /// per Bund call**, which is the whole point.
+    ///
+    /// Natives that must inspect the stack *between* two evaluations —
+    /// `?ifthenelse`, `?try`, `times` — still call [`Interp::eval_body`], which
+    /// is synchronous. Those add one Rust frame per *native*, not per Bund
+    /// call, so depth is bounded by how deeply such natives nest rather than by
+    /// how deep the program recurses.
+    pub fn request_tail(&mut self, body: Vec<BundValue>) {
+        self.pending_tail = Some(body);
+    }
+
+    /// Push a frame for whatever the last native requested, if anything.
+    fn take_pending(&mut self) {
+        if let Some(body) = self.pending_tail.take() {
+            self.frames.push(Frame {
+                body,
+                ip: 0,
+                exit: None,
+            });
+        }
+    }
+
+    /// Run frames until the stack returns to `floor`.
+    ///
+    /// The loop is flat: a body that calls a body pushes rather than recurses,
+    /// so 100,000 Bund calls cost 100,000 heap frames and one Rust frame.
+    fn run_to(&mut self, floor: usize) -> Result<(), Error> {
+        while self.frames.len() > floor {
+            let Some(frame) = self.frames.last_mut() else {
+                break;
+            };
+            if frame.ip >= frame.body.len() {
+                let done = self.frames.pop();
+                if let Some(Frame {
+                    exit: Some(action), ..
+                }) = done
+                {
+                    self.run_exit(action);
+                }
+                continue;
+            }
+            let v = frame.body[frame.ip].clone();
+            frame.ip += 1;
+            match self.apply_step(v) {
+                Ok(()) => self.take_pending(),
+                Err(e) => {
+                    // Unwind to the floor, running every exit action on the
+                    // way. This is what the reference cannot do: its restore
+                    // is a statement after the early returns.
+                    while self.frames.len() > floor {
+                        if let Some(Frame {
+                            exit: Some(action), ..
+                        }) = self.frames.pop()
+                        {
+                            self.run_exit(action);
+                        }
+                    }
+                    return Err(e);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn run_exit(&mut self, action: ExitAction) {
+        match action {
+            ExitAction::ToStack(name) => self.to_stack(&name),
+        }
+    }
+
+    /// Drive any frame the top level's last word requested.
+    fn drain_frames(&mut self) -> Result<(), Error> {
+        self.take_pending();
+        self.run_to(0)
     }
 }
 
@@ -539,12 +669,40 @@ impl Vm for Interp {
         Interp::apply(self, v)
     }
 
+    /// Run a body **now**, for a native that must inspect the stack after it.
+    ///
+    /// Synchronous, but flat inside: it pushes a frame and drives the loop back
+    /// down to its own floor, so however deeply the body recurses it costs one
+    /// Rust frame — this one. `?ifthenelse` and `?try` need this shape because
+    /// they act on what the body left behind; `if` does not, and uses
+    /// [`Interp::request_tail`] instead.
+    fn tail_call(&mut self, body: Vec<BundValue>) {
+        Interp::request_tail(self, body);
+    }
+
+    fn scoped_call(&mut self, stack: &str, body: Vec<BundValue>) -> Result<(), Error> {
+        let prev = self.current_name();
+        let floor = self.frames.len();
+        self.to_stack(stack);
+        self.frames.push(Frame {
+            body,
+            ip: 0,
+            // Carried by the frame, so the unwinder runs it on a failure just
+            // as the loop runs it on success. F57.
+            exit: Some(ExitAction::ToStack(prev)),
+        });
+        self.run_to(floor)
+    }
+
     fn eval_body(&mut self, body: &[BundValue]) -> Result<(), Error> {
-        for v in body {
-            self.apply(v.clone())
-                .map_err(|e| Error(format!("Lambda content evaluation returned error: {}", e.0)))?;
-        }
-        Ok(())
+        let floor = self.frames.len();
+        self.frames.push(Frame {
+            body: body.to_vec(),
+            ip: 0,
+            exit: None,
+        });
+        self.run_to(floor)
+            .map_err(|e| Error(format!("Lambda content evaluation returned error: {}", e.0)))
     }
 
     fn register_lambda(&mut self, name: &str, body: BundValue) {
@@ -707,7 +865,11 @@ mod tests {
         // stopped meaning anything once that arm was implemented.
         i.registry
             .register_lambda("println", BundValue::lambda(vec![BundValue::Int(1)]));
-        i.dispatch(s, false).expect("plain must reach the lambda");
+        // `dispatch` on a lambda now *requests* a frame rather than running the
+        // body (§S4), so the caller drives the loop. `apply` is the
+        // synchronous door; `dispatch` alone leaves the request pending.
+        i.apply(BundValue::call("println"))
+            .expect("plain must reach the lambda");
         assert_eq!(i.pull().and_then(|v| v.as_int()), Some(1), "the lambda ran");
         i.dispatch(s, true).expect("$name must reach the native");
         assert_eq!(i.pull().and_then(|v| v.as_int()), Some(7), "the native ran");

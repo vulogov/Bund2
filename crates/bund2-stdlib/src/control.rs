@@ -41,7 +41,10 @@ fn if_base(vm: &mut dyn Vm, want: bool, prefix: &str) -> Result<(), Error> {
             .as_lambda()
             .ok_or_else(|| Error::internal("a value tagged LAMBDA carried no body"))?
             .to_vec();
-        return vm.eval_body(&body);
+        // Tail position: nothing here runs after the branch, so the loop takes
+        // it (§S4a). This is what keeps a self-recursive word through `?true`
+        // from adding a Rust frame per iteration.
+        vm.tail_call(body);
     }
     Ok(())
 }
@@ -91,7 +94,8 @@ fn ifthenelse(vm: &mut dyn Vm) -> Result<(), Error> {
         .as_lambda()
         .ok_or_else(|| Error::internal("a value tagged LAMBDA carried no body"))?
         .to_vec();
-    vm.eval_body(&body)
+    vm.tail_call(body);
+    Ok(())
 }
 
 /// `format` — a `leon` template filled from the stack

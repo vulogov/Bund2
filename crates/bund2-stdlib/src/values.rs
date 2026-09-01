@@ -251,7 +251,8 @@ fn execute_value(vm: &mut dyn Vm, v: BundValue) -> Result<(), Error> {
                 .as_lambda()
                 .ok_or_else(|| Error::internal("a LAMBDA value carried no body"))?
                 .to_vec();
-            vm.eval_body(&body)
+            vm.tail_call(body);
+            Ok(())
         }
         LIST => {
             let items = v
