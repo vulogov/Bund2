@@ -411,12 +411,21 @@ language's representation.
 
 BundIR is therefore a **cache over** a body, never the body itself:
 
-- keyed on the body's **identity**, as D5 resolved — but see the caveat below,
-  which D35 now carries; D5 finds lambda bodies
+- keyed on the body's **`Rc` pointer**, as **D35** resolves.
+  `BundValue::Heap` holds `payload: Rc<Payload>` and a lambda's payload *is*
+  its body, so the pointer names the compilation unit directly. The cache holds
+  a strong clone, or a freed body's address could be reused and a stale entry
+  become a false hit.
+
+  D5 supplies the reason no invalidation is needed: lambda bodies are
   write-once — `set` on a LAMBDA returns a new value
   (`reference/rust_dynamic/src/set.rs:11-13`) and `push` converts to LIST first
-  (`reference/Bund/src/stdlib/functions/values/push.rs:34`) — and concludes
-  that an identity-keyed cache "simply does not contain the replacement";
+  (`reference/Bund/src/stdlib/functions/values/push.rs:34`) — so a changed body
+  is a new `Rc` and a stale entry is unreachable. D5 phrased that for
+  *identity* keying; D35 found identity untenable, because it would mint on the
+  hottest path (a materialisation point D20 does not list) and could never hit
+  for a `dup`'d body. `dup` shares the payload, so pointer keying hits where
+  identity keying misses;
 - **no invalidation machinery**, which is D5's stated consequence and not an
   independent choice here. An earlier draft of this section said "invalidated
   when the body changes", which contradicted a resolved decision;
