@@ -1,7 +1,28 @@
 # RFC-0003: Surface syntax, BundIR, and the Tier 0 interpreter
 
-- Status: **Draft** — all seven acceptance criteria met (see below); status is
-  the owner's call.
+- Status: **Proposed** (2026-09-01), after three reviews. **All seven
+  acceptance criteria are met and every one of them runs** — parse-reach 69/69,
+  call depth 100,000, parity 47/47, the grammar traps pinned, F53/F57/F59/F60
+  and D34 implemented, one evaluator behind an observer, and six exact-match
+  fenced blocks verified by `cite`.
+
+  That is a different footing from RFC-0001 and RFC-0002, which are Proposed
+  because their criteria **cannot** run — the code they describe does not exist.
+  These do run, and pass, against `conform`, `parity`, `depth` and `cite`.
+
+  Proposed rather than Accepted for one reason: RFC-0000's bar is a review pass
+  that finds nothing, and this RFC's third pass found four blockers — a
+  contradiction between S1 and S7, a preservation row that inverted how a PTR
+  slot behaves, an identity claim that contradicted its own `set` row, and a
+  criterion whose grep matched text the tool never prints. Three of those four
+  were introduced by the response to the previous review, which is why the
+  owner directed that implementation, not a fourth review, decide the design.
+  Implementation has now agreed with the design at every point it could
+  disagree.
+
+  What remains open is listed below and none of it gates the design: two
+  questions belong to RFC-0002 and RFC-0005, one is an amendment RFC-0000 should
+  carry, and F62 is a hazard the reference shares.
 - Depends on: RFC-0001 (the value), RFC-0002 (symbols and the word table)
 - Decisions consumed: D3 (no eval-specific tier rule, as amended 2026-08-29),
   D5 (lambda bodies are write-once, so the compiled cache needs no
@@ -883,10 +904,11 @@ lambda  = { "{" ~ term+ ~ "}" }
 
 ## Open questions
 
-- **D35 blocks S3.** The compiled cache's key is undecided: identity keying is
-  D5's letter but adds a materialisation point D20 does not list and cannot hit
-  for any `dup`'d lambda (F13). Recommendation is content keying with `id` and
-  `stamp` excluded; not adopted here.
+- **D35 is resolved** (the compiled cache keys on the body's `Rc` pointer), so
+  S3 states the key rather than deferring it. Content keying stays available as
+  a strict upgrade if a workload ever shows structurally identical lambdas
+  worth sharing.
+
 - **F62 blocks nothing but is unresolved.** `endcontext` is shadowable and D34
   routes every `( … )` through it. Three shapes are available — an
   un-interceptable opcode, refusing registration over the name, or documenting
@@ -903,9 +925,11 @@ lambda  = { "{" ~ term+ ~ "}" }
   `?try` files into its `context` slot. Registered.
 - **Q22** — the compiled-cache promotion threshold and cap, which D3's amended
   resolution presumes and RFC-0005 owns. Registered.
-- **F48 applies to criterion 1.** `conform` cannot express an approved
-  deviation, so the baseline it is measured against is understated by D30's two
-  existing deviations.
+- **F48 is fixed**, so criterion 1's denominator is no longer understated by
+  approved deviations: `tests/golden/DEVIATIONS.txt` records them with a hash
+  of the output Bund2 must keep producing, and `conform` counts them apart from
+  the ratio.
+
 - **S8 depends on an unfinished part of RFC-0002.** The inline cache keys on
   `(Symbol, generation)`, and RFC-0002 records its generation overflow policy as
   unresolved. S8 also has two consequences not yet analysed: it removes the only
