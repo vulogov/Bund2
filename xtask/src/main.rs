@@ -96,6 +96,7 @@ mod arity;
 mod bench;
 mod cite;
 mod conform;
+mod depth;
 mod parity;
 mod corpus;
 mod golden;
@@ -145,6 +146,13 @@ fn main() -> std::process::ExitCode {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
                 eprintln!("xtask conform: {err}");
+                std::process::ExitCode::FAILURE
+            }
+        },
+        "depth" => match depth::run_cmd(&args) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("xtask depth: {err}");
                 std::process::ExitCode::FAILURE
             }
         },

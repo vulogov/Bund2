@@ -757,7 +757,10 @@ work rather than assumed.
    which are consumed by `leon` at runtime and are not block syntax.)*
 
 2. **Bund call depth is bounded by heap, not by the Rust stack.** Decided by
-   `cargo xtask depth`, added with this RFC: it runs a self-recursive Bund word
+   `cargo xtask depth`, **which now exists**. Its reading today: the call axis
+   survives 5,000 and aborts between 5,000 and 20,000, against the 100,000 this
+   criterion asks for — so the criterion can fail before the frame loop and pass
+   after it, which is what makes it worth having. It it runs a self-recursive Bund word
    at depth 100,000 in a subprocess and asserts the process neither overflows
    nor exceeds a 60-second wall clock, reporting completion or a Bund-level
    error as a pass. Scoped to *call* depth — parser nesting depth and

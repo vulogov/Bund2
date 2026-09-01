@@ -391,9 +391,10 @@ prevents more than one VM.
 3. **Class-hierarchy depth is bounded by heap, not by the Rust stack.** A class
    chain 10,000 deep instantiates or reports a Bund-level error, within a
    60-second wall clock, without a stack overflow. Decided by `cargo xtask
-   depth` — **which does not exist**; RFC-0003 criterion 2 introduces it for
-   call depth and this adds hierarchy depth as its third axis. Neither RFC may
-   be accepted while the tool is still hypothetical.
+   depth`, **which now exists** and carries this as its `class` axis alongside
+   RFC-0003 criterion 2's `call`. It reports `unsupported` today, because a
+   feature that is not implemented fails cleanly for a reason that has nothing
+   to do with depth and must not read as a pass.
 4. **`.id` and `.timestamp` answer on an object**, `.id` as a 21-character
    string, and neither materialises anything on a value that is never asked.
    Pinned as probes under `tests/probes/` per D21.
