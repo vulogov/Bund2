@@ -313,6 +313,12 @@ and are now stated as facts above rather than carried: the `.super` direction
 core/library split of the OOP words (§6). One remains, and it is not this
 RFC's to close.
 
-- **F66 applies to the OOP goldens, and F48 is why it matters.** Two of the four unreproducible goldens
-  are `execute-arm-class` and `execute-arm-not-executable`, so criterion 1's
-  denominator is understated by that much.
+- **F66 applies to the OOP goldens.** Two of the four unreproducible goldens
+  are `execute-arm-class` and `execute-arm-not-executable`. **F48 is now
+  fixed**, so the mechanism exists: `cargo xtask conform --accept-deviation
+  <golden> --reason F66` records each with a hash of what Bund2 must produce,
+  and they are counted apart from the ratio rather than failing indistinguishably
+  forever. They are not recorded yet — D36's error presentation is still
+  settling, and recording a hash of output about to change would only produce a
+  drift. Record them once this RFC's implementation lands and the output is
+  stable.
