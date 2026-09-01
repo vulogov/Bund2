@@ -1,0 +1,24 @@
+//
+// PROBE: RFC-0003 §S1's terminator rule, from both sides.
+//
+// `name`, `atom`, `ptr`, `stack` and `command` require *trailing* whitespace
+// (reference/bund_language_parser/bund.pest:26-30), so a program ending in a
+// word does not parse. Every one of the reference's parse sites appends `\n`
+// to compensate — `bundcore_eval.rs:8`, `helpers/eval.rs`,
+// `bund_interpreter.rs:29`, `debug_debug.rs:52` — and the library entry point
+// `bund_language_parser/src/compile.rs:15` does not, so it fails on exactly the
+// input the other four are working around.
+//
+// S1 admits end of input as a terminator instead, which is what the append
+// achieves, and drops the append. The accepted language is unchanged, and this
+// probe pins both halves of that claim:
+//
+//   - a word at end of input parses (the line below with no trailing space),
+//   - a closing brace is still not a terminator, which is why `{ 1 println}`
+//     fails — that half cannot be probed here, because a golden of a parse
+//     error captures the oracle's ~/.cargo path (F66). It is pinned by test in
+//     crates/bund2-syntax/src/lib.rs.
+//
+"probe: a word at end of input" println
+1 2 +
+debug.display_stack

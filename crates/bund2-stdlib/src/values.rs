@@ -238,6 +238,32 @@ fn execute(vm: &mut dyn Vm) -> Result<(), Error> {
     execute_value(vm, v)
 }
 
+/// `execute.`, spelled `!.` — **F53 and F59, which land together**.
+///
+/// Two defects, one change. F53: the reference's wrapper guards the **main**
+/// stack (`reference/rust_multistackvm/src/stdlib/execute.rs:117`) and then
+/// pulls the **workbench** (`:22`), so a value waiting on the workbench cannot
+/// be executed while the main stack happens to be empty. F59: correcting that
+/// guard exposes the LIST and MAP arms, which push to the main stack and then
+/// recurse still reading the workbench — incoherent, and reachable today
+/// whenever the main stack is non-empty.
+///
+/// The joint disposition: **only the receiver comes from the workbench**, and
+/// everything after proceeds exactly as `execute`. That is the `,`-family's own
+/// convention — `get,`/`set,` pull the receiver per the operand and take the
+/// key from the main stack unconditionally
+/// (`reference/Bund/src/stdlib/functions/values/getsetinplace.rs:42-45,54,70`)
+/// — so it is the sibling rule applied, not a new one.
+///
+/// Which makes the implementation one line: pull from the workbench, then hand
+/// to the same `execute_value` the main-stack form uses.
+fn execute_from_workbench(vm: &mut dyn Vm) -> Result<(), Error> {
+    let Some(v) = vm.pull_workbench() else {
+        return Err(Error("Stack is too shallow for inline EXECUTE.()".into()));
+    };
+    execute_value(vm, v)
+}
+
 fn execute_value(vm: &mut dyn Vm, v: BundValue) -> Result<(), Error> {
     match v.dt() {
         PTR | STRING | CALL => {
@@ -366,11 +392,13 @@ pub fn register_words(r: &mut Registry) {
     r.register_native("lambda*", fold_lambda, eff(0, 1), WordKind::Sync);
     r.register_native("make.call", make_call, eff(1, 1), WordKind::Sync);
     r.register_native("execute", execute, eff(1, 0), WordKind::Sync);
+    r.register_native("execute.", execute_from_workbench, eff(1, 0), WordKind::Sync);
 
     // The reference's alias table, for the words above
     // (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:5,21,28,29,40,41`
     // and `reference/Bund/src/stdlib/functions/create_aliases.rs:26`).
     r.register_alias("!", "execute");
+    r.register_alias("!.", "execute.");
     r.register_alias("config", "dict");
     r.register_alias("call,", "make.call");
     r.register_alias(",", "set");
@@ -486,12 +514,33 @@ mod tests {
         assert_eq!(body.as_lambda().unwrap()[0].as_int(), Some(1), "order kept");
     }
 
+    /// **F53.** A value on the workbench is executable even when the main
+    /// stack is empty — the case the reference's wrong guard refuses.
+    #[test]
+    fn execute_from_the_workbench_works_on_an_empty_stack() {
+        let i = run(":Five { 5 } register
+`Five return
+execute.").expect("runs");
+        assert_eq!(i.peek().and_then(|v| v.as_int()), Some(5));
+    }
+
+    /// **F59.** Only the receiver comes from the workbench; a LIST's elements
+    /// execute from the main stack, so the arm is coherent rather than pushing
+    /// to one stack and reading another.
+    #[test]
+    fn only_the_receiver_comes_from_the_workbench() {
+        let i = run(":Five { 5 } register
+[ `Five ] return
+execute.").expect("runs");
+        assert_eq!(i.peek().and_then(|v| v.as_int()), Some(5));
+    }
+
     #[test]
     fn every_word_here_resolves() {
         let i = vm();
         for name in [
             "dict", "config", "list", "lambda", "λ", "nodata", "|", "set", ",", "get", "?key",
-            "register", "unregister", "lambda!", "lambda*", "make.call", "call,", "execute", "!",
+            "register", "unregister", "lambda!", "lambda*", "make.call", "call,", "execute", "!", "execute.", "!.",
         ] {
             assert!(
                 i.registry.interner.lookup_call(name).is_some(),

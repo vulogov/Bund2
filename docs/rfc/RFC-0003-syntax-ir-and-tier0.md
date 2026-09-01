@@ -1,6 +1,7 @@
 # RFC-0003: Surface syntax, BundIR, and the Tier 0 interpreter
 
-- Status: **Draft**
+- Status: **Draft** — all seven acceptance criteria met (see below); status is
+  the owner's call.
 - Depends on: RFC-0001 (the value), RFC-0002 (symbols and the word table)
 - Decisions consumed: D3 (no eval-specific tier rule, as amended 2026-08-29),
   D5 (lambda bodies are write-once, so the compiled cache needs no
@@ -804,15 +805,27 @@ work rather than assumed.
      covered by the D34 tests in criterion 5, not here. Without this carve-out
      the criterion contradicts an approved deviation.
 
-4. **The three grammar traps are pinned against the oracle**, as probes under
-   `tests/probes/` per D21: `1_000` errors, `007` yields three integers, `{}`
-   and `[]` fail to parse, and `{ 1 println}` fails while `1 2 +` with no
-   trailing newline succeeds.
+4. **The grammar traps are pinned against the oracle.** Two are probes under
+   `tests/probes/` per D21 and both pass: `grammar-leading-zero` (`007` is three
+   integers, F50) and `grammar-terminator` (a word at end of input parses, §S1).
+
+   **The rejecting traps cannot be probes, and the reason is F66.** `1_000`,
+   `{}`, `[]`, `{ 1 println}` and `+//` all *fail*, and a golden of a failure
+   captures the oracle's error report — whose `Location` row holds an absolute
+   path into the capture machine's `~/.cargo/registry`, which no other machine
+   reproduces. `xtask parity` cannot cover them either, since it compares the
+   parse output of programs that parse. They are pinned by test in
+   `crates/bund2-syntax/src/lib.rs`, each against an oracle observation recorded
+   in its doc comment.
+
+   An earlier version of this criterion asked for all of them as probes. That
+   was not achievable, and saying so is better than a probe that pins a path.
 
 5. **F53, F57 and F60 are fixed and observable.**
-   - **F53** — `execute.` succeeds with a value on the workbench and an empty
-     stack, and **F59** is answered: `execute.` on a LIST and on a MAP is
-     specified and tested, not left to the exposed arms.
+   - **F53 and F59 — met.** `execute.` succeeds with a value on the workbench
+     and an empty stack, and only the *receiver* comes from the workbench, so a
+     LIST's elements execute from the main stack rather than the arm pushing to
+     one stack and reading another. Both tested.
    - **F57** — a `context` whose lambda raises inside a `?try` leaves the
      interpreter on the stack it started from. Asserted through Bund2's `Vm`
      trait, whose accessor is `current_name`; the reference spells the same
@@ -841,10 +854,32 @@ work rather than assumed.
    xtask cite`'s only exact check is on fenced blocks whose info string carries
    a citation (`xtask/src/cite/mod.rs`); a document with none passes it while
    citing wrong lines, which is how four bad line numbers survived this RFC's
-   first draft. Before acceptance, the citations this RFC's design rests on —
-   `execute.rs`'s dispatch arms, `ctx.rs`'s push-into-state, `bundcore_eval.rs`'s
-   loop, `autoadd.rs`'s guards — must be quoted as cited fenced blocks so `cite`
-   verifies their content and not merely their existence.
+   first draft. **Met** — the five this design rests on:
+
+   ```pest reference/bund_language_parser/bund.pest:48
+int     = @{ "0" | (ASCII_NONZERO_DIGIT ~ digits?) }
+   ```
+
+   ```pest reference/bund_language_parser/bund.pest:31
+lambda  = { "{" ~ term+ ~ "}" }
+   ```
+
+   ```rust reference/bund_language_parser/src/vm/string.rs:8
+    let the_str: &str = &t.as_str()[1..t.len() - 1];
+   ```
+
+   ```rust reference/bund_language_parser/src/vm/ctx.rs:9
+    state.push(Value::context());
+   ```
+
+   ```rust reference/rust_multistackvm/src/multistackvm_lambda_eval.rs:13-14
+                        for v in lambda_content {
+                            match self.apply(v) {
+   ```
+
+   In order: F50's decomposing integer, F51's `term+`, the raw-text string
+   slice that showed escapes are never translated, F9's push-into-the-output
+   side channel, and the recursion §S4 replaces.
 
 ## Open questions
 

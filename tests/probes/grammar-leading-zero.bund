@@ -1,0 +1,21 @@
+//
+// PROBE: F50. A leading-zero integer decomposes into several values.
+//
+// `int = @{ "0" | (ASCII_NONZERO_DIGIT ~ digits?) }`
+// (reference/bund_language_parser/bund.pest:48) cannot match a run beginning
+// with `0` followed by more digits. The grammar does not fail — it matches the
+// `0`, then matches again — so the literal silently becomes three values.
+//
+// This is the worst of the four grammar traps because it is the only one that
+// is silent. F49's `1_000` errors, F51's `{}` errors, and F61's `+//` errors on
+// an unregistered word; a zero-padded number — a date field, an id, an
+// octal-looking constant — is simply accepted and means something else.
+//
+// The other three cannot be probed. A golden of a parse error captures the
+// oracle's error report, whose `Location` row holds an absolute path into the
+// capture machine's ~/.cargo/registry (F66), so no other machine reproduces it.
+// They are pinned by test in crates/bund2-syntax/src/lib.rs instead, each
+// against an oracle observation recorded in its doc comment.
+//
+"probe: 007 is three integers, not seven" println
+007 debug.display_stack
