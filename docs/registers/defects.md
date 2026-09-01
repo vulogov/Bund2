@@ -1308,11 +1308,36 @@ Two consequences:
 
 - Found by: implementing `==` under D30 and looking for where to record that
   `tests/golden/probes/eq-asymmetry.golden` is now expected to disagree
-- Disposition: **OPEN.** The shape is a per-golden deviation register keyed by
-  the approving reference, so that a deviating golden is compared against the
-  recorded Bund2 answer instead of the oracle's, and counted as a pass with
-  its justification named. That changes what the health number means, so it is
-  the owner's call and not a tooling detail — raised as part of D33's context.
+- Disposition: **FIXED.** Decided by the repository owner. `tests/golden/DEVIATIONS.txt`
+  records, per golden, the approving reference and a **hash of Bund2's expected
+  output**; `cargo xtask conform --accept-deviation <golden> --reason <ref>`
+  writes a row, and `--reason` is mandatory because a deviation without the
+  decision that approved it is indistinguishable from a regression someone gave
+  up on.
+
+  Three properties were chosen deliberately.
+
+  **A hash, not an exclusion.** An exclusion stops checking; a hash keeps
+  checking against the right thing, so an *unintended* change to a deviating
+  golden is reported as a **drift** — a regression inside a deviation, which an
+  exclusion would have hidden.
+
+  **The denominator does not move.** A deviating golden is still a captured
+  golden, so it stays in the total and is reported apart:
+  `CONFORMANCE 21/69 (+2 approved deviation(s))`. An earlier version of this
+  fix removed them from the denominator, which quietly contradicted the report's
+  own "denominator is every captured golden" and made the ratio look better by
+  shrinking what it was measured against.
+
+  **`tests/golden/` is untouched.** Nothing regenerates a golden from Bund2's
+  output; the oracle's record stays the oracle's record. The register sits
+  beside it.
+
+  Recorded so far: `eq-asymmetry` under F33 and `valuemap-hash-eq` under F29 —
+  D30's two, which had been failing correctly and indistinguishably since the
+  decision was taken. F66's four are not yet recorded, because D36's error
+  presentation is still settling and recording a hash of output that is about
+  to change would only produce a drift.
 
 ## F49 — the grammar accepts digit separators the token handler cannot convert
 

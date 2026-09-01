@@ -24,6 +24,8 @@
 
 use std::path::{Path, PathBuf};
 
+pub mod deviations;
+
 use crate::golden;
 
 /// Where the high-water mark is kept.
@@ -32,6 +34,11 @@ const BASELINE: &str = "tests/golden/CONFORMANCE.txt";
 struct Outcome {
     program: String,
     passed: bool,
+    /// An approved deviation: neither a pass nor a failure. It stays in the
+    /// denominator — it is a captured golden — but it is reported apart,
+    /// because the ratio answers "agrees with the oracle" and this one is
+    /// approved not to.
+    approved: bool,
     detail: String,
 }
 
@@ -89,10 +96,24 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let accept = args.iter().any(|a| a == "--accept");
     let verbose = args.iter().any(|a| a == "-v" || a == "--verbose");
     let parse_only = args.iter().any(|a| a == "--parse-only");
-    for a in args {
-        if !matches!(a.as_str(), "--accept" | "-v" | "--verbose" | "--parse-only") {
-            return Err(format!("unknown argument `{a}`"));
+    // `--accept-deviation <golden> --reason <ref>` records that Bund2 is
+    // approved to disagree with a golden, and what it must produce instead.
+    let mut accept_deviation: Option<String> = None;
+    let mut reason: Option<String> = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--accept-deviation" => accept_deviation = it.next().cloned(),
+            "--reason" => reason = it.next().cloned(),
+            "--accept" | "-v" | "--verbose" | "--parse-only" => {}
+            other => return Err(format!("unknown argument `{other}`")),
         }
+    }
+    if accept_deviation.is_some() && reason.is_none() {
+        return Err(
+            "--accept-deviation needs --reason: a deviation without the decision \n               that approved it is indistinguishable from a regression someone gave up on"
+                .into(),
+        );
     }
     if parse_only {
         return parse_reach(&repo, verbose);
@@ -109,6 +130,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // Only programs that actually have a captured golden are in the
     // denominator. A program in HERMETIC.txt whose capture was refused is not
     // a conformance failure — there is nothing to conform to.
+    let approved = deviations::load(&repo);
+    let mut approved_hits: Vec<(String, String)> = Vec::new();
+    let mut drifted: Vec<(String, String)> = Vec::new();
+    let mut newly_recorded: Option<(String, String)> = None;
+
     let mut cases: Vec<(String, String, PathBuf, i32, String)> = Vec::new();
     let mut uncaptured = 0usize;
     for (program, name, cwd) in &jobs {
@@ -127,7 +153,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut outcomes: Vec<Outcome> = Vec::new();
     let mut not_implemented = 0usize;
 
-    for (program, _name, cwd, want_status, want_output) in &cases {
+    for (program, name, cwd, want_status, want_output) in &cases {
         let src = std::fs::read_to_string(repo.join(program))
             .map_err(|e| format!("reading {program}: {e}"))?;
         let case_file = work.join("case.bund");
@@ -147,11 +173,55 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     outcomes.push(Outcome {
                         program: program.clone(),
                         passed: false,
+                        approved: false,
                         detail: "bund2 is not implemented".into(),
                     });
                     continue;
                 }
-                let passed = got.status == *want_status && got.output == *want_output;
+                let matches_oracle = got.status == *want_status && got.output == *want_output;
+
+                // Recording a deviation: capture what Bund2 produces now, so a
+                // later change to it is still caught.
+                if accept_deviation.as_deref() == Some(name.as_str()) {
+                    newly_recorded = Some((name.clone(), got.output.clone()));
+                }
+
+                // An approved deviation is not a pass and not a failure — it
+                // is its own outcome, counted and reported apart so the ratio
+                // keeps meaning what it says.
+                match deviations::judge(&approved, name, &got.output) {
+                    deviations::Verdict::Approved => {
+                        let why = approved
+                            .get(name)
+                            .map(|d| d.reason.clone())
+                            .unwrap_or_default();
+                        approved_hits.push((name.clone(), why.clone()));
+                        outcomes.push(Outcome {
+                            program: program.clone(),
+                            passed: false,
+                            approved: true,
+                            detail: format!("approved deviation ({why})"),
+                        });
+                        continue;
+                    }
+                    deviations::Verdict::Drifted => {
+                        let why = approved
+                            .get(name)
+                            .map(|d| d.reason.clone())
+                            .unwrap_or_default();
+                        drifted.push((name.clone(), why));
+                        outcomes.push(Outcome {
+                            program: program.clone(),
+                            passed: false,
+                            approved: false,
+                            detail: "approved deviation, but its output changed".into(),
+                        });
+                        continue;
+                    }
+                    deviations::Verdict::NotDeviating => {}
+                }
+
+                let passed = matches_oracle;
                 let detail = if passed {
                     String::new()
                 } else if got.status != *want_status {
@@ -164,12 +234,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 outcomes.push(Outcome {
                     program: program.clone(),
                     passed,
+                    approved: false,
                     detail,
                 });
             }
             Err(e) => outcomes.push(Outcome {
                 program: program.clone(),
                 passed: false,
+                approved: false,
                 detail: e,
             }),
         }
@@ -178,14 +250,66 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let passed = outcomes.iter().filter(|o| o.passed).count();
     let total = outcomes.len();
 
+    // Persist a newly recorded deviation before reporting, so the report
+    // already reflects it on the next run.
+    if let (Some((golden, out)), Some(why)) = (newly_recorded.clone(), reason.clone()) {
+        let mut rows = approved.clone();
+        rows.insert(
+            golden.clone(),
+            deviations::Deviation {
+                golden: golden.clone(),
+                reason: why.clone(),
+                expected: deviations::hash(&out),
+            },
+        );
+        deviations::save(&repo, &rows)?;
+        println!("\n  recorded deviation  {golden}  ({why})");
+        println!("  Bund2's current output is now what that golden must keep");
+        println!("  producing; a later change to it fails as a drift.\n");
+    } else if accept_deviation.is_some() && newly_recorded.is_none() {
+        return Err(format!(
+            "no golden named `{}` was run, so nothing was recorded",
+            accept_deviation.unwrap_or_default()
+        ));
+    }
+
     println!("# cargo xtask conform\n");
-    println!("  CONFORMANCE  {passed}/{total}\n");
+    if approved_hits.is_empty() {
+        println!("  CONFORMANCE  {passed}/{total}\n");
+    } else {
+        println!(
+            "  CONFORMANCE  {passed}/{total}  (+{} approved deviation(s))\n",
+            approved_hits.len()
+        );
+    }
     println!(
         "  Denominator is every captured golden: {} suite programs plus {probe_count}",
         total.saturating_sub(probe_count)
     );
     println!("  authored probes (D21). Both are captured from the oracle, so a");
     println!("  probe failing is a preservation failure like any other.\n");
+
+    if !approved_hits.is_empty() {
+        println!(
+            "  {} golden(s) Bund2 is **approved** to disagree with — F48. Each is\n               counted apart from the ratio, not folded into it, because a\n               conformance number that silently absorbs deviations stops being a\n               regression number.\n",
+            approved_hits.len()
+        );
+        for (g, why) in &approved_hits {
+            println!("      {g:<44} {why}");
+        }
+        println!();
+    }
+
+    if !drifted.is_empty() {
+        println!(
+            "  {} approved deviation(s) DRIFTED: the deviation is still approved,\n               but Bund2 no longer produces what was recorded for it. That is a\n               regression inside a deviation, which a bare exclusion would hide.\n",
+            drifted.len()
+        );
+        for (g, why) in &drifted {
+            println!("      {g:<44} {why}");
+        }
+        println!();
+    }
 
     if uncaptured > 0 {
         println!("  {uncaptured} program(s) have no golden and are excluded from");
@@ -199,10 +323,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
         println!("  and moving it is the work.\n");
     } else if verbose || (passed < total && not_implemented < total) {
         println!("## failing\n");
-        for o in outcomes.iter().filter(|o| !o.passed).take(40) {
+        for o in outcomes.iter().filter(|o| !o.passed && !o.approved).take(40) {
             println!("  {:<62} {}", o.program, o.detail);
         }
-        let failing = outcomes.iter().filter(|o| !o.passed).count();
+        let failing = outcomes.iter().filter(|o| !o.passed && !o.approved).count();
         if failing > 40 {
             println!("  ... {} more", failing - 40);
         }

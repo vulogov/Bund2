@@ -1,0 +1,14 @@
+# Approved deviations. Written by `cargo xtask conform --accept-deviation`.
+#
+# A golden Bund2 is approved to disagree with, the decision or defect that
+# approved it, and a hash of the output Bund2 must keep producing. The hash
+# is why this is not an exclusion: an unintended change to a deviating
+# golden still fails.
+#
+# These are reported separately and never folded into the conformance
+# ratio. `tests/golden/` remains the oracle's record; nothing here edits it.
+#
+# <golden>\t<reason>\t<hash of bund2's expected output>
+
+probes/eq-asymmetry.golden	F33	12549031992110010338
+probes/valuemap-hash-eq.golden	F29	1124794954886992390
