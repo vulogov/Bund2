@@ -111,12 +111,16 @@ So a method is reachable only through a class slot: nothing dispatches
 `make_bund_object` (`bund_object.rs:27-113`):
 
 1. `dup`s the class — a deep copy under F13's fix, a bincode round trip today.
-   **So every instance gets its own identity**, which is what `.id` should
-   answer: two objects of one class return different ids, confirmed against the
-   oracle. F13's fresh-identity `dup` is exactly right here, and D35's cache is
-   unaffected because step 2 writes to the copy immediately, so no payload is
-   ever shared with the class.
-2. Sets `dt` to `OBJECT` and `.class_name` to the class's name.
+2. Sets `dt` to `OBJECT` and `.class_name` to the class's name — and **this is
+   where the instance's identity comes from**, not from step 1. `set` on a
+   map-like tag builds a fresh value through `Value::from_dict`
+   (`reference/rust_dynamic/src/set.rs:14-27`), which mints a new id and stamp
+   rather than carrying the `dup`'s
+   (`reference/rust_dynamic/src/create_map.rs`). An earlier draft credited the
+   identity to `dup`; the observable fact — two instances of one class return
+   different ids, confirmed against the oracle — holds either way, but the
+   reason matters for D35, whose cache keys on the payload pointer that this
+   write replaces.
 3. **Rebuilds `.super`**: for each *name* in the class's `.super`, constructs
    that parent object recursively and pushes the **object** into the list.
 4. Evaluates each parent's `.init` (`:72-80`), which is a **PTR** in every
@@ -201,10 +205,23 @@ because programs read those slots directly — `.str` reaches for `.class_name`
 (`base_classes.rs:36-42`) and `locate_value_in_object` is exported for library
 use (`oop::value_class::locate_value_in_object`).
 
-Registration additionally computes a **flattened method table** for the class:
-every slot reachable through `.super`, resolved once, with the depth-first
-first-match rule applied at flatten time rather than at call time. Dispatch
-becomes one lookup.
+A **flattened method table** is computed beside it: every slot reachable
+through `.super`, resolved once, with the depth-first first-match rule applied
+at flatten time rather than at call time. Dispatch becomes one lookup.
+
+**Flattening happens at first construction, not at registration.** An earlier
+draft said registration, and §S7 two pages later said parents resolve at
+construction — a contradiction the RFC carried rather than resolved.
+Registration is the wrong moment: `register_class` validates only the CLASS tag
+and inserts (`reference/rust_multistackvm/src/multistackvm_classes.rs:7-20`),
+so a class may be registered whose parents are not. Confirmed against the
+oracle — `:B class ".super" [ :A ] set register` succeeds with `A` absent.
+Flattening there would reject it and **narrow the language**.
+
+Construction is the right moment because it is already where an unregistered
+parent fails (§S7). The table is memoised on the class and invalidated by the
+class registry's generation (§S5), so it is computed once per class per
+registration epoch rather than once per instance.
 
 The flattening is a **cache over the field tree**, not a replacement for it, in
 exactly the sense RFC-0003 §S3 makes BundIR a cache over a lambda body: the
@@ -327,10 +344,15 @@ the arm cannot succeed.
 | `set_value_in_object` rewrites a slot per object, rebuilding the parents it passes | preserved exactly; diverges that object from its class (S1a) |
 | `.init` is a **PTR** in every built-in class, not a LAMBDA | preserved exactly — both arms exist and the PTR one is the common case |
 | `.init` may replace the object under construction, via `if_object_of_class_in_stack` | preserved exactly |
-| `set` on a map returns a **new** value: fresh id, fresh stamp, `q` reset, `attr` and `tags` dropped | preserved exactly — so construction's identity comes from the `.class_name` write, not from `dup`, and `.timestamp` tracks the last write |
+| `set` on a map returns a **new** value: fresh id, fresh stamp, `q` reset, `attr` and `tags` dropped (`reference/rust_dynamic/src/set.rs:14-27`) | preserved exactly — so construction's identity comes from the `.class_name` write, not from `dup`, and `.timestamp` tracks the last write |
+| `#` swallows the result of the words it applies (`object_execute.rs:35-38` discards both `apply` results) | **must be specified** — an error inside `#` is lost, which no row previously admitted |
+| An `.init` PTR naming an unregistered method is **silently skipped** | **must be specified** — construction succeeds with an uninitialised object |
+| An `.init` may substitute a parent object already on the stack, via `if_object_of_class_in_stack` (`bund_object.rs:162-173`) | preserved exactly — and it mutates the very tree S1's table precomputes, so it marks the object diverged (S1a) |
+| `register_class` validates only the CLASS tag, so a class may be registered whose parents are not (`multistackvm_classes.rs:7-20`) | preserved exactly — which is why S1 flattens at construction, not registration |
+| F11's inverted guard sits in the `Value` class's `.init`, on the construction path, with an **empty disposition** | **carried** — this RFC cannot preserve or fix a behaviour whose disposition nobody has taken |
 | `m()` peeks rather than pulls | preserved exactly |
 | Non-OBJECT receiver error text | preserved exactly |
-| A `LAMBDA` in a method slot is evaluated; anything else is pushed | preserved exactly |
+| A `PTR` in a method slot resolves through `methods_fun` and is **called**; a `LAMBDA` is evaluated; anything else is pushed (`multistackvm_object.rs:57-82`) | preserved exactly |
 | `!` on a CLASS **always errors** (F16) | **deliberately changed** — D23/D25; see S7 |
 | `!` on an OBJECT dispatches a named method | preserved exactly (S6) |
 | `#` is `unwrap`-then-apply, and rejects a name string | preserved exactly (S6) |
@@ -376,11 +398,21 @@ prevents more than one VM.
    golden in this RFC's territory. Bund2 currently stops on `class` in 11 of
    the 15 and on `object` in 4.
 
-   "First unimplemented word" is not a quantity any tool reports, so the
-   criterion is: after this RFC lands, no golden in that set may fail with
-   `class not registered` or `object not registered`. Measured by `cargo xtask
-   conform -v` and grepping its failure list — which is checkable, unlike the
-   earlier wording.
+   **The mechanism, because the last two attempts were not checkable.**
+   `conform -v`'s failure list reports only `output differs (N lines vs M)` —
+   grepping it for `class not registered` finds nothing, today and after, so
+   that wording passed vacuously. Errors also exit 0 under D36, so the exit
+   code says nothing either.
+
+   This RFC adds `cargo xtask conform --blocked-on`, which runs each failing
+   golden through `bund2` and reports the **first `… not registered` word** its
+   diagnostic names. The criterion: after this RFC lands, `--blocked-on` names
+   neither `class` nor `object` for any golden. The tool does not exist yet and
+   is part of this RFC's work, as `xtask parity` was RFC-0003's.
+
+   *(Measured today by running `bund2` directly over the set: 11 stop on
+   `class` and 4 on `object`. A reviewer measured 10/5; the per-file listing
+   supports 11/4, with `execute-arm-class` stopping on `class`.)*
 2. **Dispatch resolves the same slot as a search would — over *objects*, not
    only classes.** A differential test over the built-in hierarchy and the
    corpus's own classes: for every class, every method name reachable from it,
@@ -401,10 +433,56 @@ prevents more than one VM.
 5. **`methods_fun` is registry state.** No global holds it, and two `Interp`s
    in one process can register different methods under the same name.
 6. **`cite` and `lint` clean**, with the load-bearing citations quoted as
-   fenced blocks so `cite` verifies their content — RFC-0003's criterion 7
-   found that a document with none passes while citing wrong lines.
+   fenced blocks so `cite` verifies their **content** and not merely that the
+   line exists. RFC-0003's criterion 7 found that a document with no fenced
+   blocks passes while citing wrong lines, and this RFC's first two reviews
+   found six such lines between them.
+
+   The four this design rests on:
+
+   ```rust reference/rust_multistackvm/src/multistackvm_classes.rs:8-10
+        if ! bclass.is_type(CLASS) {
+            bail!("register: argument #1 is not a CLASS");
+        }
+   ```
+
+   ```rust reference/rust_multistackvm/src/multistackvm_object.rs:57-60
+            PTR => {
+                match method_value.cast_string() {
+                    Ok(method_name) => {
+                        if self.is_method(method_name.clone()) {
+   ```
+
+   ```rust reference/rust_dynamic/src/set.rs:11-13
+            LAMBDA => {
+                return Value::to_lambda(vec![value]);
+            }
+   ```
+
+   ```rust reference/rust_multistackvm/src/stdlib/bund_object.rs:119-122
+        Some(name_value) => {
+            match name_value.cast_string() {
+                Ok(name) => {
+                    if vm.is_class(name.clone()) {
+   ```
 
 ## Open questions
+
+- **F11 has no disposition.** `if ! value.type_of() == OBJECT` in the `Value`
+  class's `.init` (`reference/Bund/src/stdlib/functions/oop/value_class.rs`) is
+  the same precedence bug as F55 and F60's guard, and it sits **on the
+  construction path this RFC specifies**. Its register entry ends
+  `Behavioural. Disposition:` with nothing after it. This RFC cannot state
+  whether the guard is preserved or fixed until someone takes that disposition.
+- **F67 is this RFC's own, and is not yet in its preservation analysis.** The
+  first review produced it — a missing parent reported under the child's name
+  (`bund_object.rs:99`) — and the disposition is "Bund2 names the parent". It
+  belongs in a row once the construction section is implemented.
+- **F37 makes one of F16's citations point at dead code.**
+  `stdlib/classes/registry.rs` is never compiled, and F16's text cites it for
+  `register`'s operand order. The live path is
+  `reference/rust_multistackvm/src/stdlib/lambdas/registry.rs:20`. This RFC
+  cites the live one; F16's own text should be corrected.
 
 Three questions this RFC opened were settled by probing while it was in draft,
 and are now stated as facts above rather than carried: the `.super` direction
