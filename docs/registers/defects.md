@@ -1936,3 +1936,23 @@ Two separate problems, and only one is about paths:
   message likewise. Those four goldens then differ only in the path, which is an
   approved deviation under this F-number — and F48 applies, since `conform`
   still has no way to record one.
+
+## F67 — a missing parent class is reported under the child's name
+
+`make_bund_object` walks `.super`, and when a named parent is not registered it
+fails with `OBJECT class {} not registered`
+(`reference/rust_multistackvm/src/stdlib/bund_object.rs:99`). The name it
+interpolates is `name` — the class **being constructed** — while the parent
+that is actually missing is `class_name`, bound in the same loop and used
+correctly one line above (`:98`).
+
+So constructing `B`, whose `.super` names an unregistered `A`, reports
+`OBJECT class B not registered` — naming a class that *is* registered and
+saying nothing about `A`. The message sends the reader to the wrong end of the
+hierarchy.
+
+- Found by: RFC-0009's first review
+- Disposition: **Bund2 names the parent.** An original-implementation bug, and
+  a message-only change on a path that already fails. If a golden pins the
+  text it needs `--accept-deviation` under this F-number; none does today,
+  because no corpus program constructs a class with an unregistered parent.

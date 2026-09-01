@@ -4,7 +4,14 @@
 - Depends on: RFC-0001 (the value), RFC-0002 (symbols and the word table),
   RFC-0003 (the frame loop, for construction's recursion)
 - Decisions consumed: D1 (lazy identity — `.id` is the consumer that proves it
-  must stay answerable), D2 (lazy stamp, likewise for `.timestamp`)
+  must stay answerable), D2 (lazy stamp, likewise for `.timestamp`),
+  **D23** (`<class> !` builds from the CLASS *value*, never a registry lookup),
+  **D25** (an anonymous class must carry its own `.class_name`, or construction
+  fails). Both complete **F16**, whose disposition is FIX.
+- **Method note.** An earlier draft consumed only D1 and D2, because it searched
+  the register for decisions declaring `Blocks: RFC-0009` and found none. D23
+  says `Blocks: nothing`. A decision about an RFC's *subject* need not name the
+  RFC, so the register must be searched by subject as well.
 - Blocked on: nothing. No open decision names RFC-0009.
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
   `80377728f45b`; `bundcore` `3b0b8ba219a6`; `rust_dynamic` `ceb27c96fa10`;
@@ -72,7 +79,7 @@ answerable.
 | method slots | a **PTR** naming a method | `.id` → `` `.id `` |
 
 The base hierarchy is `Object` → `Printable` → `Display`
-(`base_classes.rs:95,107`).
+(`base_classes.rs:95,109`).
 
 **`.super` reads upward, conventionally.** `create_class_hierarhy_demo.bund:21`
 sets `".super" [ :A ]` on class `B`, so `A` is `B`'s parent. What is
@@ -101,7 +108,7 @@ So a method is reachable only through a class slot: nothing dispatches
 
 ### 3. Constructing an object materialises the ancestry
 
-`make_bund_object` (`bund_object.rs:26-60`):
+`make_bund_object` (`bund_object.rs:27-113`):
 
 1. `dup`s the class — a deep copy under F13's fix, a bincode round trip today.
    **So every instance gets its own identity**, which is what `.id` should
@@ -112,10 +119,18 @@ So a method is reachable only through a class slot: nothing dispatches
 2. Sets `dt` to `OBJECT` and `.class_name` to the class's name.
 3. **Rebuilds `.super`**: for each *name* in the class's `.super`, constructs
    that parent object recursively and pushes the **object** into the list.
-4. Evaluates each parent's `.init` lambda (`:76`), then the class's own
-   (`:156`).
-5. Inspects the stack for an object of the same class and `apply`s
-   (`:162-173`).
+4. Evaluates each parent's `.init` (`:72-80`), which is a **PTR** in every
+   built-in class — `.bool_init`, `.float_init`, `.list_init` and the rest
+   (`reference/Bund/src/stdlib/functions/oop/bool_class.rs:38` and siblings) —
+   with a LAMBDA arm beside it.
+
+Steps 5 and 6 belong to `stdlib_object_inline`, not to `make_bund_object`; an
+earlier draft cited them as if they were the same function.
+
+5. Evaluates the object's own `.init` (`:134-160`).
+6. Tests `if_object_of_class_in_stack` and `apply`s (`:162-173`) — so an
+   `.init` **may replace the object being constructed** with one already on the
+   stack.
 
 So an instance's `.super` is a list of objects, where its class's was a list of
 strings. The two shapes share a slot name and are read by the same code.
@@ -138,11 +153,21 @@ under §S4a.
 
 ### 5. `execute` reaches objects two ways
 
-`!` on a `CLASS` pushes the value and calls `stdlib_object_inline`
-(`reference/rust_multistackvm/src/stdlib/bund_execute/execute_class.rs:8-10`)
-— that is, executing a class **constructs** an instance. `!` on an `OBJECT`
-pulls a **method name** from the main stack, pushes the object back, and calls
-`m` (`bund_execute/execute_object.rs:8-20`).
+**`!` on a `CLASS` always fails — F16.** `execute_class` pushes the class
+**value** and calls `stdlib_object_inline`
+(`reference/rust_multistackvm/src/stdlib/bund_execute/execute_class.rs:8-10`),
+and that function immediately `cast_string()`s its operand to obtain a class
+*name* (`reference/rust_multistackvm/src/stdlib/bund_object.rs:119-122`), then
+looks the name up with `is_class` / `get_class`. A CLASS value is a MAP, so the
+cast fails and the arm errors for the only type that routes to it.
+
+An earlier draft of this section said the arm "constructs an instance" and
+filed it as preserved. It does not construct anything, and the deviation this
+RFC's own territory requires was recorded as a non-deviation.
+
+`!` on an `OBJECT` does work: it pulls a **method name** from the main stack,
+pushes the object back, and calls `m`
+(`bund_execute/execute_object.rs:8-20`).
 
 Neither consults `op`, so both take their operands from the main stack whatever
 `execute.` was asked for — which RFC-0003 §S4b confirms is the convention.
@@ -155,9 +180,10 @@ Neither consults `op`, so both take their operands from the main stack whatever
 
 **D14 already splits them, and the split runs exactly along this RFC's seam.**
 `cargo xtask scope` puts the machinery in **core** — `class`, `object`, `#`,
-`#.`, `is`, `wrap`, `unwrap`, `?class`, `?object`, `resolve.class` — and the
-built-in classes in **library**: `True`, `False`, `Intervals`, `List`,
-`Floats`. So this RFC specifies what core needs and the built-in classes are
+`#.`, `is`, `wrap`, `unwrap`, `?class`, `?object` — and the built-in classes in
+**library**: `True`, `False`, `Intervals`, `List`, `Floats`. `resolve.class` is
+**library** too (`docs/core-words.md`, `vm/lambdas`); an earlier draft listed it
+as core. So this RFC specifies what core needs and the built-in classes are
 deferrable word packages, with no further decision required.
 
 **Almost none of `oop/` is machinery.** Of its 1,183 lines, 948 are those
@@ -185,6 +211,23 @@ exactly the sense RFC-0003 §S3 makes BundIR a cache over a lambda body: the
 tree is what programs can observe and what they can build, so it stays
 authoritative.
 
+### S1a. A per-class table is not enough: slots are rewritten per **object**
+
+`set_value_in_object` walks the same `.super` tree the search walks and
+**rewrites a slot in one object**, rebuilding each parent it passes through
+(`reference/Bund/src/stdlib/functions/oop/value_class.rs:31-52`). `wrap` uses
+it. So after a `wrap`, one instance's tree differs from its class's, and a
+table flattened per class would answer for the class where the search answers
+for the object.
+
+The flattened table therefore serves as a **fast path with a guard**: it is
+consulted only while an object's tree is known to match its class's, and any
+per-object rewrite marks that object as diverged and sends its lookups back to
+the search. Marking is cheap because `set_value_in_object` is the only writer.
+
+An earlier draft missed this, and its criterion 2 quantified over classes
+alone, so it could not have caught the disagreement.
+
 ### S2. The field tree is preserved, and so is its double shape
 
 An instance's `.super` continues to hold constructed parent objects and a
@@ -211,11 +254,23 @@ Neither is a new materialisation point: D20 already lists the needs, and
 
 ### S5. Method dispatch gets an inline cache
 
-A `m()` call site caches `(class identity, method name) → resolved method`,
-invalidated by the same generation counter RFC-0002 gives the word table. This
-is the polymorphic cache the roadmap assigns here; it sits on top of S1's
-flattened table, which is what makes the cached value cheap to recompute on a
-miss.
+A `m()` call site caches `(class, method name) → resolved method`. Two details
+an earlier draft got wrong:
+
+**RFC-0002's generation counter does not cover this.** It is per word-table
+slot, and classes live in their own registry
+(`reference/rust_multistackvm/src/multistackvm.rs:28`) while methods live in
+`methods_fun` — two tables the word table's counter never sees. The class
+registry and the method table each need their own generation, bumped by
+`register_class` and `register_method`, and the cache keys on both.
+
+**The key is not class *identity*.** Keying on identity would force the lazy
+materialisation D35 rejected for the compiled cache, for the same reason: it
+puts a mint on the hottest path. The cache keys on the class's **`Rc` pointer**,
+as D35 does, which is stable for a registered class and costs nothing.
+
+The cache sits on top of S1's flattened table, which is what makes a miss cheap
+to refill.
 
 ### S6. `#` and `!`-on-an-object are **different** operations
 
@@ -236,6 +291,31 @@ ordinary polymorphic execute on whatever `unwrap` produced. Bund2 implements
 them separately, and only the first fills the `execute` arm RFC-0003 §S4b left
 open.
 
+### S7. `<class> !` constructs, from the value — D23 and D25
+
+F16's disposition is FIX and D23 resolves the shape: **build from the CLASS
+value the stack holds, never by looking a name up in the registry.** Both
+provenances behave identically — a class resolved back onto the stack, and one
+constructed dynamically and never registered.
+
+The registry is still consulted for **parents**: `.super` holds parent class
+*names* and construction walks them
+(`reference/rust_multistackvm/src/stdlib/bund_object.rs:44-48`), so a class
+whose parents are unregistered still fails, on the parents.
+
+**D25 supplies the name.** A CLASS value does not know its own name —
+`stdlib_class_inline` creates a bare class with only `.super` set
+(`reference/rust_multistackvm/src/stdlib/artefacts.rs:69-73`) and `register`
+takes the name from *beneath* the class on the stack, which is why the idiom is
+`:Name class … register`. So `<class> !` takes `.class_name` from the class
+value's own attribute, and **fails at that point** if there is none, rather
+than producing an object without one. Every built-in class already sets it
+(`base_classes.rs:96,110`).
+
+This is the only behaviour in this RFC that changes an answer, and it adds one
+where there was an error: nothing can depend on the present behaviour, because
+the arm cannot succeed.
+
 ## Preservation analysis
 
 | Behaviour | Disposition |
@@ -244,10 +324,15 @@ open.
 | `.super` holds names on a class and objects on an instance | preserved exactly, asymmetry included (S2) |
 | Slot name and method name differ (`str` → `` `.str ``) | preserved exactly |
 | Depth-first, first-match resolution order | preserved exactly; computed at flatten time (S1) |
+| `set_value_in_object` rewrites a slot per object, rebuilding the parents it passes | preserved exactly; diverges that object from its class (S1a) |
+| `.init` is a **PTR** in every built-in class, not a LAMBDA | preserved exactly — both arms exist and the PTR one is the common case |
+| `.init` may replace the object under construction, via `if_object_of_class_in_stack` | preserved exactly |
+| `set` on a map returns a **new** value: fresh id, fresh stamp, `q` reset, `attr` and `tags` dropped | preserved exactly — so construction's identity comes from the `.class_name` write, not from `dup`, and `.timestamp` tracks the last write |
 | `m()` peeks rather than pulls | preserved exactly |
 | Non-OBJECT receiver error text | preserved exactly |
 | A `LAMBDA` in a method slot is evaluated; anything else is pushed | preserved exactly |
-| `!` on a CLASS constructs; on an OBJECT dispatches a named method | preserved exactly (S6) |
+| `!` on a CLASS **always errors** (F16) | **deliberately changed** — D23/D25; see S7 |
+| `!` on an OBJECT dispatches a named method | preserved exactly (S6) |
 | `#` is `unwrap`-then-apply, and rejects a name string | preserved exactly (S6) |
 | Construction evaluates every ancestor's `.init` | preserved exactly |
 | `methods_fun` as a fifth global table | **changed** to registry state, as RFC-0003 §S7 did for the conditional table |
@@ -283,19 +368,32 @@ prevents more than one VM.
 ## Acceptance criteria
 
 1. **Conformance does not regress and the OOP goldens move.** `cargo xtask
-   conform` must not drop below its recorded baseline, and the **15** goldens
-   whose first unimplemented word is `class` (11) or `object` (4) must either
-   pass or fail on a word this RFC does not implement. Measured by `cargo xtask
-   conform`; the split is measured, not estimated.
-2. **Dispatch resolves the same slot as a search would.** A differential test
-   over the built-in hierarchy and the corpus's own classes: for every class
-   and every method name reachable from it, the flattened table's answer equals
-   `locate_value_in_object`'s. The search implementation is kept in the test as
-   the oracle for the table.
+   conform` must not drop below its recorded baseline.
+
+   **The affected set, stated precisely**, because an earlier draft conflated a
+   directory with a measurement: `tests/golden/examples/object_oriented_programming/`
+   holds **14** goldens, and `probes/execute-arm-class.golden` is a fifteenth
+   golden in this RFC's territory. Bund2 currently stops on `class` in 11 of
+   the 15 and on `object` in 4.
+
+   "First unimplemented word" is not a quantity any tool reports, so the
+   criterion is: after this RFC lands, no golden in that set may fail with
+   `class not registered` or `object not registered`. Measured by `cargo xtask
+   conform -v` and grepping its failure list — which is checkable, unlike the
+   earlier wording.
+2. **Dispatch resolves the same slot as a search would — over *objects*, not
+   only classes.** A differential test over the built-in hierarchy and the
+   corpus's own classes: for every class, every method name reachable from it,
+   **and every object after a `wrap`**, the flattened table's answer equals
+   `locate_value_in_object`'s. The object quantifier is the point: S1a's
+   per-object rewrites are exactly what a class-only comparison cannot see. The
+   search implementation is kept in the test as the oracle for the table.
 3. **Class-hierarchy depth is bounded by heap, not by the Rust stack.** A class
    chain 10,000 deep instantiates or reports a Bund-level error, within a
-   60-second wall clock, without a stack overflow. This is `cargo xtask
-   depth`'s third axis, alongside RFC-0003 criterion 2's call depth.
+   60-second wall clock, without a stack overflow. Decided by `cargo xtask
+   depth` — **which does not exist**; RFC-0003 criterion 2 introduces it for
+   call depth and this adds hierarchy depth as its third axis. Neither RFC may
+   be accepted while the tool is still hypothetical.
 4. **`.id` and `.timestamp` answer on an object**, `.id` as a 21-character
    string, and neither materialises anything on a value that is never asked.
    Pinned as probes under `tests/probes/` per D21.
@@ -313,12 +411,15 @@ and are now stated as facts above rather than carried: the `.super` direction
 core/library split of the OOP words (§6). One remains, and it is not this
 RFC's to close.
 
-- **F66 applies to the OOP goldens.** Two of the four unreproducible goldens
-  are `execute-arm-class` and `execute-arm-not-executable`. **F48 is now
-  fixed**, so the mechanism exists: `cargo xtask conform --accept-deviation
-  <golden> --reason F66` records each with a hash of what Bund2 must produce,
-  and they are counted apart from the ratio rather than failing indistinguishably
-  forever. They are not recorded yet — D36's error presentation is still
-  settling, and recording a hash of output about to change would only produce a
-  drift. Record them once this RFC's implementation lands and the output is
-  stable.
+- **F66 applies to `execute-arm-not-executable`, but not to
+  `execute-arm-class`.** An earlier draft planned to record both as F66
+  deviations. That is wrong for the second: `execute-arm-class` captures the
+  error F16 records, and after F16's FIX the arm **constructs** instead of
+  erroring, so the probe stops proving what it was written to prove. D25's
+  follow-on already says it must be reshaped. Reshape it as the proof that
+  `<class> !` builds an object; do not preserve its error under F66.
+
+  `execute-arm-not-executable` is a genuine F66 case and can be recorded with
+  `cargo xtask conform --accept-deviation … --reason F66` once D36's error
+  presentation stops moving — a hash of output about to change would only
+  produce a drift.

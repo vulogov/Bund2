@@ -89,6 +89,25 @@ earns a report, a `Warning` or `Notice` has not and gets one line on stderr.
 Values in a report use `BundValue::summary`, which is bounded; the raw `Debug`
 form belongs to `debug.display_stack` and `--raw-values`. See D36.
 
+## Grounding an RFC — two failures that keep recurring
+
+**Search the registers by subject, not only by `Blocks:`.** RFC-0003 missed D5
+and D11; RFC-0009 missed F16, D23 and D25 — all resolved, all directly about
+the RFC's subject, none declaring `Blocks:` that RFC. D23 says `Blocks:
+nothing`. Grep the registers for the *words and files* the RFC is about before
+drafting, and list what you found.
+
+**Follow the call one level further than the file you were told to read.**
+RFC-0003 asserted `execute_class` and `execute_object` do not re-enter
+evaluation, having read exactly those two files; both do, one call deeper.
+RFC-0009 asserted `!` on a CLASS constructs an object, having read
+`execute_class.rs` but not `stdlib_object_inline`, which `cast_string`s its
+operand and so always fails. A claim about what a function *does* is not
+grounded until its callees are read.
+
+Both mistakes produce the same shape of error: a required deviation filed as a
+non-deviation, so no criterion covers it.
+
 ## Registers are append-only
 
 `docs/registers/decisions.md` and `defects.md` are the shared state between
