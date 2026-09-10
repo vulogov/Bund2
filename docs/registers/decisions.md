@@ -377,9 +377,10 @@ Should `Intrinsic` lowerings ever be exposed through `bund2-api`? Doing so pins
 external packages to an exact Cranelift version.
 - Blocks: RFC-0002
 - Default: no
-- Status: **RESOLVED — no.** `Intrinsic` stays internal to `bund2-stdlib`.
-  Decided by the repository owner; this adopts the recorded default, now
-  explicitly.
+- Status: **RESOLVED — no**, and **amended 2026-09-09**: the answer is about
+  `bund2-api`'s surface, not about where Bund2's own lowerings live. See the
+  amendment below. Decided by the repository owner; this adopts the recorded
+  default, now explicitly.
 
 Three reasons, the third of which is not in the research note.
 
@@ -400,11 +401,64 @@ exposing it cannot. The same asymmetry decided D4.
 External crates get `Native` with a declared effect, which is already a large
 improvement on today's opaque `fn(&mut VM)`.
 
+### Amendment, 2026-09-09 — the scope is the stable surface, not the placement
+
+The concluding sentence above — "`Intrinsic` stays internal to `bund2-stdlib`"
+— has been read as deciding **where Bund2's own lowerings may live**. It does
+not, and RFC-0005 §S6 spent a review cycle apparently trapped by it.
+
+Read the question this entry asks: *"Should `Intrinsic` lowerings ever be
+exposed through `bund2-api`?"* All three reasons are about the stable ABI — a
+`LowerFn` pinning external packages to a Cranelift version, the stable surface
+acquiring a dependency on an optional subsystem, and the reversibility of not
+exposing. None of them speaks to Tier 1 lowering Bund2's own words.
+
+**What is actually forbidden**, and it is RFC-0000's rule rather than this one:
+`bund2-stdlib` must not depend on `bund2-jit` (criterion B3). **The reverse is
+not forbidden** — `bund2-jit` may depend on `bund2-stdlib`, and nothing in
+RFC-0000 says otherwise. So the constraint that binds is narrower than it
+looked: **no Cranelift type may appear in `bund2-stdlib` or `bund2-api`.**
+
+RFC-0005 §S6 satisfies that by having a word publish a **BundIR** fragment
+rather than a CLIF lowering. BundIR mentions no Cranelift type, `bund2-ir` is
+already a dependency of `bund2-jit`, and the code generator does the CLIF work
+on its own side of the boundary. This entry's resolution is unchanged: nothing
+of the sort is exposed through `bund2-api`, and an external package still gets
+`Native` with a declared effect and no more.
+
+- Amended by: repository owner, 2026-09-09, on Q33
+
 ## D10 — C toolchain requirement
 May `bund2 build` require `cc`, or must the compiler be self-contained?
 - Blocks: RFC-0006
 - Default: yes, `cc`; `--emit=bundle` covers toolchain-free targets
-- Status: OPEN
+
+### Resolution
+
+**Yes.** `bund2 build --emit=native` may require a C toolchain. `cranelift-object`
+produces a `.o` and something has to link it; a self-contained linker is a
+project of its own and not one this language needs.
+
+The clause after the semicolon is **load-bearing, not decoration**.
+`--emit=bundle` — runtime plus embedded IR, pure interpreter, no Cranelift and
+no `cc` — is what a target outside x86-64/aarch64/s390x/riscv64 gets, and
+`docs/research/02-native-binaries.md:228-231` calls it "a first-class output of
+`bund2 build`, not an afterthought". RFC-0006 inherits both halves: it may
+shell out to `cc` for `--emit=native`, and it must keep `--emit=bundle`
+buildable without one.
+
+**What this resolution does not permit.** It scopes the requirement to *one
+output mode of one subcommand*. It does not permit the interpreter, the crates
+it is built from, or `--emit=bundle` itself to require a C compiler — that
+would invert the escape hatch, since producing the toolchain-free artefact
+would then need a toolchain. D40's `grok` dependency did exactly that and is
+feature-gated off by default as a result; see its amendment.
+
+- Decided by: repository owner, 2026-09-07, asked directly rather than taken as
+  a default after D40 was found to have spent it silently
+- Blocks: RFC-0006
+- Status: **RESOLVED — yes for `--emit=native`; `--emit=bundle` stays
+  toolchain-free, and nothing below `bund2 build` may require `cc`.**
 
 ## D11 — external dependents of `compile_to_binary`
 Does anything outside the project depend on the current bincode object format?
@@ -1481,10 +1535,43 @@ The interpretation matters for RFC-0004 and RFC-0005: a field that merely
 rides along can be dropped from a JIT fast path, and a field that carries a
 propagating computation cannot.
 
+### Amended 2026-09-10 — `q` is kept, not averaged (Q35)
+
+Decided by the repository owner, on Q35's evidence. **The premise above was
+grounded one call short.** `calc_q` has no caller anywhere in `rust_dynamic`
+(`reference/rust_dynamic/src/q.rs:4-7`). `impl Add for Value` does average,
+through `set_q` (`reference/rust_dynamic/src/math.rs:413-424`), but it is a Rust
+operator overload no word uses: `+` reaches `math_op`, which calls
+`Value::numeric_op` directly and pushes the result
+(`reference/rust_multistackvm/src/stdlib/math/add.rs:6-8`,
+`reference/rust_multistackvm/src/stdlib/math/math_op.rs:7-19`). Nothing in
+`rust_multistackvm` or `Bund` calls `set_q` or `calc_q` at all. So the
+reference's *language* never averages `q`, and no Bund program can observe it
+doing so.
+
+What Bund2 preserves is therefore:
+
+- `q` as a field on every value, rendered where the reference renders it;
+- constructors at 100.0 and `none` at 0.0;
+- **no averaging by any word.** An arithmetic result is a fresh value at 100.0
+  whatever its operands carried — which `crates/bund2-stdlib/src/math.rs`
+  already did, and every golden shows.
+
+The bullet "Arithmetic averages it" above is superseded, and with it the
+"fixpoint" reading: the 100.0 the goldens show is the constructors' value, not
+the stable point of an average. The reservation stands — `q` remains the
+mechanism for a future fuzzy-math feature — but how `q` combines will be
+designed when that feature is, as new behaviour, not inherited from an
+operator overload the language never calls.
+
+**Not a deviation.** Bund2 now matches the reference exactly where the
+original reading would have made it diverge.
+
 - Decided by: repository owner
 - Blocks: nothing; constrains RFC-0001's `q` handling and any later fuzzy-math
   work
-- Status: **RESOLVED — preserve the propagation.**
+- Status: **RESOLVED — amended 2026-09-10: `q` is kept but not averaged
+  (Q35).** Originally resolved as "preserve the propagation".
 
 ## D33 — does D30's exact numeric comparison extend to ordering?
 
@@ -1681,7 +1768,7 @@ whether the cache can **hit**.
    of the corpus's block usage.
 
 4. **The body's `Rc` pointer.** `BundValue::Heap(Rc<HeapValue>)`
-   (`crates/bund2-value/src/lib.rs:219`) holds `payload: Rc<Payload>` (`:159`),
+   (`crates/bund2-value/src/lib.rs`) holds `payload: Rc<Payload>` (`:210`),
    and a lambda's payload *is* its body. Key on `Rc::as_ptr(&payload)`, with the
    cache holding a strong clone so the address cannot be reused while an entry
    refers to it.
@@ -1692,7 +1779,7 @@ Decided by the repository owner: **option 4 — key on the body's `Rc` pointer.*
 
 **The dup objection dissolves rather than being paid for.** `dup` gives the copy
 a fresh header with a cleared identity but a **shared payload** —
-`payload: Rc::clone(&h.payload)` (`crates/bund2-value/src/lib.rs:480`). So a
+`payload: Rc::clone(&h.payload)` (`crates/bund2-value/src/lib.rs`). So a
 `dup`'d lambda and its original share one payload pointer and therefore one
 cache entry. That is the objection F13 raised, answered by keying on the thing
 that is actually shared rather than on the thing `dup` deliberately replaces.
@@ -1743,8 +1830,41 @@ before `dup`'s payload sharing was checked.
 - Depends on: D5 (write-once), D13 (`Rc::make_mut`), D20 (materialisation
   points, untouched by this), F13 (`dup` mints fresh identity but shares the
   payload)
-- Status: **RESOLVED — key on the body's `Rc` pointer; the cache holds a strong
-  reference.**
+**Citations corrected 2026-09-08 (F2).** The three line numbers into
+`crates/bund2-value` in this entry — `:219`, `:159`, `:480` — had decayed to a
+doc comment, `q: 100.0` and a blank line. They were never checked: `cargo xtask
+cite` extracted only `reference/`-prefixed paths, so citations into live code
+rotted invisibly while the tool reported zero defects. The claims are unchanged
+and were re-verified against the current lines; only the numbers moved. See F2.
+
+### Amended 2026-09-10 — the cache holds a `Weak` (Q32)
+
+Decided by the repository owner, on Q32. **The key is unchanged**: the body's
+`Rc` pointer. What changes is the strength of the cache's reference, and the
+reason given for it.
+
+The consequence above — "the cache must hold the strong `Rc`", because "the
+allocator may reuse the address" — does not follow. An `Rc`'s allocation is
+freed only when its strong **and** weak counts both reach zero, so a live
+`Weak` keeps the address out of reuse as surely as a strong reference does
+(RFC-0005 §S7). The strong reference was buying liveness, not safety.
+
+D42 removes the need for that liveness. Every running frame now holds its own
+clone of the body's `Rc`, so a body is alive whenever compiled code for it can
+run, and compiled code is only ever entered by looking its body up. Nothing
+needs the cache to keep a body alive.
+
+- **The cache holds a `Weak`**, like RFC-0005's promotion counter. An entry
+  whose `Weak` no longer upgrades is dead and is swept; it cannot answer for a
+  different body, because its address cannot be reused while it lives.
+- **"The cache pins bodies alive" is withdrawn.** RFC-0005's 1024-body cap
+  bounds code memory, not heap.
+- **"An invariant to test" stands**, retargeted: the test is that a dead entry
+  answers for nothing, not that a strong count stays at one (RFC-0005
+  criterion 3).
+
+- Status: **RESOLVED — key on the body's `Rc` pointer. Amended 2026-09-10
+  (Q32): the cache holds a `Weak`, not a strong reference.**
 
 ## D36 — error presentation: the reference's frame, a Bund location, and a reporter seam
 
@@ -1881,3 +2001,454 @@ Sixty sites were removed, in three kinds:
 
 - Status: **RESOLVED — enforced workspace-wide; internal errors carry an
   explanation and an audience.**
+
+## D38 — third-party crates the reference uses: pin, do not vendor
+
+When the reference reaches a crate whose *rendered output or ordering* a golden
+captures, Bund2 uses the same crate rather than reimplementing it. That rule
+was already in force for `comfy-table` and `leon`; `dtoa` joined it when
+`2.0 math.sqrt` turned out to print `1.4142135623730952` in the reference and
+`…951` under Rust's `{:?}` from identical bits.
+
+`algos` forced the question of *how* to take such a dependency, because it is
+the first one the reference declares as **git**:
+
+```toml reference/Bund/Cargo.toml:78
+algos = { version="0.6.*", git="https://github.com/Brad-Edwards/algos.git" }
+```
+
+No `rev`, no `tag`. The oracle builds against whatever the branch head is, so
+the reference's own sort order is a function of when it was compiled.
+
+### The decision
+
+**Pin a rev; do not vendor.**
+
+```toml
+algos = { git = "https://github.com/Brad-Edwards/algos.git", rev = "4c08437" }
+```
+
+`4c08437` is v0.6.8, the checkout the built oracle links, so Bund2 is pinned
+*more* tightly than the reference is.
+
+Vendoring was considered and rejected on size and on D37, not on licensing:
+the crate is BSD 3-Clause, so copying it is permitted with attribution. It is
+201 files and ~51,000 lines, of which four entry points are used, and
+`[workspace.lints.clippy]` denies `unwrap`/`expect`/`panic` in every workspace
+member. Vendored code becomes a workspace member, so it would need blanket
+`allow`s — a hole in D37 in the least-reviewed code in the tree.
+`cs/graph/dijkstra.rs` alone has two such calls outside its tests.
+
+### What this does not fix
+
+**D37 is weakened either way.** A panic inside `dijkstra` aborts the process
+whether the code is a dependency or vendored; lint scope changes who *may* fix
+it, not whether it can happen. If one is ever observed, the response is to
+vendor **that module only** — about 400 lines, BSD notice retained, each panic
+path rewritten to D37 — rather than the crate.
+
+### What was reimplemented instead, and why that is not a contradiction
+
+`sort` does **not** take this dependency. `algos`' quicksort is ~90 non-test
+lines, self-contained, and free of `unwrap`/`expect`, so it is transcribed into
+`crates/bund2-stdlib/src/sort.rs` and verified against the oracle over ten
+cases including heavy ties and strings. The rule is "pin what you cannot
+faithfully reproduce", not "depend by default": a 90-line unstable sort can be
+reproduced exactly and checked, and reproducing it removes a runtime
+dependency from the hottest correctness path. The graph family cannot be
+reproduced that cheaply, and that is where the pin earns its place.
+
+- Decided by: repository owner
+- Blocks: `graph!` and the graph family; `listop`'s `fibonacci` search
+- Status: **RESOLVED — pin `rev = "4c08437"`; vendor only a module, only if D37
+  forces it.**
+
+## D39 — an internal loop must be bounded; a program's loop may not be
+
+Two questions arrived together — "fix hangs that are internal, not caused by
+user code" and "can we detect user error and at least warn" — and they have
+different answers, so the boundary is drawn once here.
+
+### Internal loops are bounded, and the shape is checked
+
+A loop Bund2 runs on its own behalf must terminate on data it has already
+taken. F70 is what the alternative looks like: the reference's `move` drains
+the current stack in a loop that pushes as it pulls, and pushing to a stack
+that does not exist yet **creates** it — which makes it current, because the
+current stack is the back of the deque
+(`reference/rust_multistack/src/ts_current.rs:7`). The loop then pulls back
+what it just pushed. `1 2 3 :box move` never returns.
+
+Every drain in `crates/` collects first and pushes afterwards, so none can feed
+itself, and `cargo xtask lint` reports a `while let Some(..) = vm.pull…` loop
+whose body pushes. The check was verified by reintroducing the hang and
+watching the lint fail.
+
+Two loops were tightened rather than left correct-by-argument:
+
+- `Stacks::to_stack`'s rotation spun `while current_name() != name`. A
+  membership test ten lines above guarantees the name is present, so it did
+  terminate — but that is the same reasoning F70 punishes, and it is now
+  bounded by the deque's length. The reference bounds the same rotation by
+  counting a full circle and failing (`ts_to_current.rs:24-26`).
+- `Registry::follow` already stopped after 64 links, because D16 lets a program
+  build an alias cycle.
+
+**A hang is worse than a panic**, which is why this earns a rule of its own
+next to D37. A panic at least produces a trace and a non-zero exit; a hang
+cannot be reported, cannot be caught by `?try`, and cannot be told apart from a
+slow program.
+
+### A program's loop is not ours to stop — but it can be reported
+
+`true { } while` runs forever, and so it should: that is Turing-completeness,
+and the reference spins too. Refusing it would change what the language means.
+
+So `Warning` gets its first producers — D36 defined the severity and noted
+nothing yet emitted one:
+
+- **`while` at 10,000,000 iterations.** One line on stderr, emitted **once**,
+  saying what the body must do to terminate. It does not stop the loop and does
+  not change the result.
+- **`alias` closing a cycle.** The binding is performed exactly as the
+  reference performs it (`multistackvm_alias.rs:5-15` has no check), and the
+  warning names the circle. Bund2 cannot spin on it — `follow` is guarded — but
+  it would otherwise resolve to whichever link the guard stopped on, which is a
+  silent wrong answer.
+
+Both thresholds are chosen so no corpus program reaches them, and `conform`
+folds stderr into the captured output, so a golden fails immediately if one
+ever does. That is the safety net for a heuristic: it cannot fire unnoticed.
+
+### What is deliberately not attempted
+
+Static detection of non-termination. It is undecidable in general, and the
+useful approximation — a loop whose condition cannot change — is RFC-0004's
+`bund2 check` working over an abstract stack, not a run-time guess.
+
+- Decided by: repository owner, in response to F70
+- Blocks: nothing; extends D36's severity ladder and sits beside D37
+- Status: **RESOLVED — internal loops bounded and linted; program loops warned,
+  never stopped.**
+
+## D40 — `string.grok` brings a C dependency, and that reaches the AOT milestone
+
+D38 settled *how* to take a crate the reference reaches (pin it, do not vendor
+it) for crates whose output a golden captures. `string.grok` satisfies that
+rule and adds a second question D38 did not face: the crate is not pure Rust.
+
+```toml reference/Bund/Cargo.toml:62
+grok = "2.0.0"
+```
+
+`grok 2.4.1` depends on `onig`, which depends on `onig_sys`, which **compiles
+Oniguruma from C sources at build time**. Nothing else in the workspace does.
+
+### Why not reimplement it on `fancy_regex`
+
+Because a grok pattern is a regex after expansion, and the two engines are not
+the same language. Oniguruma and `fancy_regex` differ on backreference
+semantics, on some character-class shorthands, and on what a malformed pattern
+does. `string.grok`'s answer *is* Oniguruma's answer — the same argument that
+made `dtoa` non-negotiable in D38, one layer up: a near-miss engine produces a
+MAP that is right on the easy patterns and silently different on the rest,
+which is worse than not having the word.
+
+### The decision
+
+**Take the dependency, and state its cost where the cost lands.**
+
+- Bund2's build now requires a **C compiler**, on every target, for one word.
+  That was previously not true.
+- The **AOT milestone inherits it.** Cross-compiling a `cranelift-object`
+  build to a target without a working C cross-toolchain will fail on
+  `onig_sys` before it reaches any Bund2 code, and the failure will name a
+  crate no one was thinking about.
+
+The exit, if that cost is ever refused, is a **feature flag** rather than a
+reimplementation: `string.grok` is one word in the library half, and D14 makes
+the library half deferrable by design. Dropping it costs one word and one
+probe stanza. Reimplementing it costs correctness that nothing would measure.
+
+### Amendment, 2026-09-07 — the flag is taken, not merely named
+
+The paragraph above named a feature flag as "the exit, if that cost is ever
+refused", and then shipped the dependency on by default. That was wrong on a
+point the entry itself did not notice: **D10 was OPEN**, and its default —
+"yes, `cc`" — is about `bund2 build`, not about every `cargo build` of the
+workspace. Taking it for the interpreter is a strictly stronger claim than the
+default authorises, and CLAUDE.md forbids adopting an OPEN decision's default
+at all, let alone a widened one.
+
+The inversion is the substance, not the procedure. `--emit=bundle` exists so a
+target with no C toolchain can still run Bund; a default-on `grok` means
+building the runtime for that target needs a C toolchain. The escape hatch
+stops being an escape.
+
+So:
+
+- `grok` is **`optional = true`** with a `grok` feature, **off by default**.
+  `cargo tree -e normal,build` on the default build now matches no `onig` and
+  no `cc`.
+- `string.grok` and `string.grok.` leave the default registry. `coverage`
+  measures the default build and therefore does not count them, which is the
+  truth about what ships.
+- The probe moves to `tests/probes/features/`, which `collect_probes` does not
+  reach because it reads `tests/probes` non-recursively
+  (`xtask/src/golden/mod.rs`). A probe for a word the default build
+  does not bind would fail the default build.
+
+**The flag is a holding position, not the end state.** D14 already calls the
+library half "re-implementable as out-of-tree word packages", and a word that
+changes the *build's* toolchain requirements is exactly what belongs outside
+the core. `string.grok` moves out of tree once RFC-0002's external package
+loading exists; until then the feature flag stands in for it.
+
+- Decided by: this session, on the evidence that grok's contents matched the
+  oracle exactly on the first run and only the MAP order differed (F76);
+  **amended by the repository owner**, 2026-09-07, who took option A
+- Blocks: nothing today; the AOT milestone reads D10, now RESOLVED
+- Status: **RESOLVED — dependency taken but feature-gated off; the default
+  build requires no C compiler, and out-of-tree is the end state.**
+
+## D41 — the stack tag rides in the value's padding for scalars (Q29)
+
+Q25 measured the stack tag at 60–75% of every word. Options 1 and 2 of
+RFC-0001's amendment took `value/push_pull/balanced` from **126.9 ns to
+52.0 ns** without changing any layout. Of the remaining 52, **43.7 is
+`with_tag` and 25.1 of that is `promote/scalar` — boxing, with no tag written
+at all**.
+
+That is the floor, and it is measured rather than argued: **a scalar has no
+header, a tag needs one, and building one costs an allocation.** RFC-0005 §S1
+asks for under 20 ns, and no amount of tuning the tag reaches it while the tag
+lives inside a header.
+
+### The decision
+
+**A scalar carries its stack tag inline, as an interned symbol in the padding
+the enum already has.**
+
+```rust
+pub struct StackSym(u32);   // 0 == never pushed
+
+pub enum BundValue {
+    Int(i64, StackSym),
+    Float(f64, StackSym),
+    Bool(bool, StackSym),
+    Nodata(StackSym),
+    None(StackSym),
+    Heap(Rc<HeapValue>),    // keeps its tag in the map, as today
+}
+```
+
+**It is free.** Measured: `BundValue` is 16 bytes today and 16 bytes with a
+`u32` on every scalar variant, because `Int(i64)` already pads 9 bytes to 16.
+A `u16` is also 16, so the width is chosen for headroom, not size.
+
+### The rules that make it correct
+
+1. **The symbol is excluded from equality, hashing and ordering.** It is
+   metadata about where a value has been, not part of what it is — the
+   repository owner's framing, and the reason this is a *secondary* attribute.
+   `PartialEq`, `Hash` and `Ord` are all hand-written here, so every site is a
+   compile error rather than a silent inclusion.
+2. **`promote` translates.** Boxing a tagged scalar must move the symbol into
+   the header's `tags` map, or a value that acquires an `attr` would lose its
+   stack tag. This is the one rule whose violation is silent.
+3. **`tags()` synthesises.** A tagged scalar reports `{"stack": <name>}`, so
+   the render path, the wire format and the 39 goldens see no difference.
+4. **A thread-local interner resolves symbol → name**, in `bund2-value`.
+   `BundValue` is neither `Send` nor `Sync`, so a thread-local is the right
+   shape and no lock is involved.
+5. **The `tag` word still writes the map.** A program-set key forces boxing, as
+   any non-stack tag does; a later push writes the symbol on the boxed value's
+   map, which is the reference's "push wins" ordering
+   (`reference/rust_multistackvm/src/stdlib/values/value_tag.rs:49-50`).
+
+### What was rejected, and why it is recorded
+
+- **Option 3, an inline payload slot.** Measured at ~41 ns and **+24 bytes on
+  every heap value** (`HeapValue` 88 → 112), including strings and lists that
+  gain nothing. It buys less than A and costs memory A does not.
+- **Option B, the tag out of the value entirely**, materialised where a value
+  escapes into a container or is rendered. The most principled reading of
+  "secondary attribute", and rejected on failure mode rather than on principle:
+  its correctness rests on enumerating every escape site, the compiler cannot
+  check that enumeration, and a miss prints `tags: {}` in a golden rather than
+  failing to build. A's churn is large but every site of it is a type error.
+
+### Consequences
+
+- **~125 construction sites and ~102 pattern sites** change. All are
+  compiler-enforced; none is a judgement call.
+- **RFC-0001's stated layout is unchanged at 16 bytes**, so its headline
+  survives. The amendment's outcome section records the measurement chain.
+- RFC-0005 §S1's gate becomes reachable for the first time: boxing leaves the
+  push path entirely for scalars.
+
+- Decided by: repository owner, 2026-09-08, choosing A from the four options in
+  RFC-0001's Q25 amendment after the boxing experiment
+  (`crates/bund2-bench/benches/boxing.rs`) measured the floor
+- Blocks: nothing; unblocks RFC-0005 §S1's precondition
+- Depends on: D1 (lazy identity — a scalar has none, and gaining a symbol must
+  not change that), D13 (the CoW split policy, which the symbol does not
+  participate in), D30 (equality is content for scalars — the symbol must not
+  enter it)
+### Implemented, 2026-09-08
+
+Landed, and **the gate it existed to unblock is met.**
+
+| | baseline | opt 1 | opt 2 | **D41** |
+|---|---|---|---|---|
+| `value/push_pull/balanced` | 126.9 ns | 96.7 ns | 52.0 ns | **10.1 ns** |
+| `dispatch/literal_push` per word | 94 ns | 64 ns | 45 ns | **24.5 ns** |
+| `dispatch/native_call` per word | 112 ns | 88 ns | 58 ns | **28.8 ns** |
+| `dispatch/dup_drop` per word | 122 ns | 92 ns | 59 ns | **44.9 ns** |
+
+**A 12.6× improvement on the push/pull round trip**, and `BundValue` still
+measures **16 bytes, 8-aligned** — the prediction that it was free in padding
+held. Conformance stayed at **73/86 at every step**, with all 39 tag-bearing
+goldens green.
+
+RFC-0005 §S1 asked for `value/push_pull/balanced` under 20 ns. It is 10.1.
+**The value layer is now ~10 ns of a ~25 ns word, so dispatch is the dominant
+term** — which is the second half of that gate, and the first time the study's
+§2.2 condition has been satisfied.
+
+**Corrected 2026-09-10: the paragraph above overreaches, and RFC-0005 §S1
+withdraws it.** These benchmarks cannot separate dispatching a word from the
+work the word does once dispatched. `dispatch/literal_only/w1000` is the only
+path with no dispatch, and subtracting it bounds dispatch from above — at most
+33.7 ns per word — without saying how much of that bound *is* dispatch. So the
+gate's second half is **not settled**; RFC-0005 criterion 10 is the experiment
+that settles it. Two smaller corrections: 10.1 ns is this entry's run, and
+RFC-0005 quotes 9.8 ns for the same benchmark from another; and the three
+`dispatch/*` rows in the table above name benchmark families, whose full IDs
+end `/w2000`, `/w4000` and `/w3000`. Raised by RFC-0005's fifth review (S9).
+
+**One test inverted, which is the tell that this worked.**
+`push_tags_with_the_current_stack` asserted `v.is_boxed()` — "tagging a scalar
+boxes it" — and had done so, correctly, since the interpreter was written. It
+now asserts the negation. A second test was added for rule 2, the one no
+compiler catches: boxing a tagged scalar must carry the symbol into the map.
+
+The mechanical churn was as estimated and entirely compiler-driven. Routing
+constructions through `BundValue::int`/`float`/`boolean`/`nodata`/`none` was
+deliberate: a scripted rewrite that left `StackSym::NONE` in *pattern* position
+would have compiled and matched only untagged values — a silent wrong answer —
+whereas a function call is a hard error in a pattern.
+
+- Status: **RESOLVED — inline interned symbol on the scalar variants.
+  Implemented 2026-09-08; push/pull 126.9 -> 10.1 ns, value still 16 bytes,
+  conformance unmoved.**
+
+## D42 — a body's `Rc` reaches the point where it starts running (Q36)
+
+RFC-0005's compiled cache and promotion counter key on the body's `Rc` (D35),
+and Bund2 discarded it before any body ran. `Vm::eval_body` took
+`&[BundValue]`, `Vm::tail_call` took `Vec<BundValue>`, RFC-0003's `Frame` held
+a copied `Vec<BundValue>`, and `times` copied the body out of its lambda once
+per call. Only `dispatch`'s named-lambda arm held the `Rc`, one line before
+`.to_vec()`. The reference's `times` passes `lambda_val.clone()` to
+`lambda_eval` on every iteration
+(`reference/rust_multistackvm/src/stdlib/logic/times_fun.rs:20`), so its body
+arrives as the same value each time.
+
+### Decision
+
+Decided by the repository owner: **Q36's option A.**
+
+- `Vm::eval_body(&[BundValue])` becomes **`Vm::eval_lambda(&BundValue)`**, and
+  `Vm::tail_call(Vec<BundValue>)` becomes **`Vm::tail_lambda(BundValue)`**.
+  Both take the LAMBDA value, so its `Rc` survives to the entry.
+- RFC-0003's **`Frame` holds the body's value** and an instruction pointer,
+  not a copied `Vec`.
+- `Vm::scoped_call` keeps its `Vec`: its body is assembled per call from three
+  slots, so it never had a key to keep. The frame wraps it as a LIST value.
+
+### Consequences
+
+- **A body is alive whenever it is running**, because its frame holds a clone
+  of its `Rc`. That is what lets D35's amendment (Q32) move the cache to a
+  `Weak`.
+- **A body copy per call is gone** from every loop word, conditional and
+  method path — the eighteen stdlib call sites that used the two methods.
+- **Amends RFC-0002** (the `Vm` trait) **and RFC-0003** (the frame), both
+  Accepted; each carries a dated amendment.
+
+### Implemented, 2026-09-10
+
+Landed the same day. `Vm::eval_lambda` and `Vm::tail_lambda` replace the two
+methods, the frame holds the body's value and reads each item through it, and
+`push_frame` is the one place a body starts running. `conditional.rs` splits
+its slot reader in two: `slot_body` hands out the value, for running, and
+`slot_items` hands out the items for `context`, which assembles a fresh body per
+call. The eighteen stdlib call sites and the CLI's `observe` pass the value
+they already held.
+
+**It shows one key where there was none.** `times_enters_one_body_under_one_key`
+runs `100 { drop } times` with Tier 0's `entry_log` seam on, and sees 100
+entries under a single key (`crates/bund2-stdlib/src/seq.rs`). The key is
+`payload_key`, D35's `Rc` pointer (`crates/bund2-value/src/lib.rs`).
+
+**Tier 0 got slightly faster, not slower.** Reading through a held value costs
+less than the per-call body copy it replaced. Criterion, `--baseline pre-q36`,
+taken immediately before the change on the same machine:
+
+| benchmark | before | after | Criterion's verdict |
+|---|---|---|---|
+| `dispatch/dup_drop/w3000` | 96.5 µs | 92.8 µs | −2.5%, improved (p = 0.00) |
+| `dispatch/native_call/w4000` | 105.6 µs | 102.5 µs | −2.8%, improved (p = 0.00) |
+| `dispatch/literal_push/w2000` | 47.8 µs | 47.1 µs | −1.2%, within noise |
+| `dispatch/literal_only/w1000` | 14.1 µs | 14.1 µs | no change (p = 0.81) |
+| `fragment/int_add/tier0` | 60.4 µs | 59.8 µs | −1.8%, improved (p = 0.00) |
+| `fragment/dup_drop/tier0` | 88.5 µs | 87.8 µs | no change (p = 0.28) |
+
+`literal_only` runs no body at all, and it is the one row that did not move.
+
+Conformance held at 79/86, ceiling 79/86; `cargo xtask depth` still completes
+a 100,000-deep call; 307 tests pass.
+
+- Decided by: repository owner, 2026-09-10, choosing A from Q36's three options
+- Blocks: nothing; unblocks RFC-0005 §S3, §S5's loop argument, §S7's counter
+  and criterion 20
+- Depends on: D35 (the key), D5 (bodies are write-once, so holding the value
+  never observes a change)
+- Status: **RESOLVED — the value reaches the entry point.**
+
+## D43 — the `bund2-api` additions RFC-0005's guards need (Q37)
+
+RFC-0005 §S6's meaning guard needs two things `bund2-api` does not have.
+
+### Decision
+
+Decided by the repository owner: **Q37's options A and A**, as one RFC-0002
+amendment.
+
+1. **A registration id on `Native`**, assigned by `Registry::register_native`
+   from a counter. The JIT inlines a fragment only when the slot holds
+   `bund2-stdlib`'s own registration, which a name cannot show and a function
+   address cannot either (`std::ptr::fn_addr_eq`). Ids are per `Registry`, and
+   F32's replay gives a re-registration a fresh one, so `bund2-stdlib`'s
+   `(registration id, Fragment)` table is built at registration time.
+2. **Stable per-name generation cells**: a mirror of each registry `Slot`'s
+   generation, written by the same `touch()`, in fixed-size chunks that never
+   move, handed out by a `Registry` accessor. `slots: Vec<Slot>` reallocates on
+   a new name, so nothing may point into it.
+
+Rejected: comparing function addresses (a guarantee Rust does not make);
+registering fragments with natives (a `bund2-ir` type on the stable surface,
+and fragments from external packages, which D9's amendment rules out); stable
+slots themselves (a pointer hop on every Tier 0 dispatch); a helper call per
+guarded site (the cost the guard exists to avoid).
+
+**When:** implemented when RFC-0005 reaches Proposed. Nothing reads either
+until a lowering exists, and surface added with no consumer is surface
+designed without one.
+
+- Decided by: repository owner, 2026-09-10
+- Blocks: RFC-0005's meaning guard (§S6) and criterion 17
+- Depends on: D9 as amended (no Cranelift type in `bund2-api`), F32 (replayed
+  registrations)
+- Status: **RESOLVED — decided; implementation deferred to RFC-0005 Proposed.**

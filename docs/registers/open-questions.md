@@ -10,7 +10,18 @@ promote it to a decision, or delete the claim.
 
 | # | Question | Raised in |
 |---|----------|-----------|
-| Q14 | The Phase 0 baseline cannot measure interpretation: ~9.6 ms of every 14 ms run is loading a 381 MB binary before `main` starts, and 3-5 ms more is stdlib registration. **D28 removes most of that cause for Bund2**, so the question narrows: once the dependency set is cut, does the corpus resolve interpretation well enough to write RFC-0001 and RFC-0005 criteria against, or is in-process measurement still required? Re-run `cargo xtask bench --target bund2` when there is a bund2 to run. | `cargo xtask bench` |
+| Q26 | ~~Is `with_tag`'s `identity()` call a materialisation point?~~ **Answered, and the answer was already in RFC-0001.** Its section "One policy for the `Rc` and the identity slot (D13)" requires that *a CoW split materialises the identity before it copies*, and names `set_tag` on push as exactly the case that fires it — without it the two halves mint independently and `A == A.clone()` silently becomes false. So the call at `crates/bund2-value/src/lib.rs` is policy, not oversight. What is over-applied is that it is **unconditional**: a uniquely-owned value has no second half to diverge from and needs no mint. Folded into RFC-0001's Q25 amendment, option 1 | RFC-0001, amendment |
+| Q27 | Which target profile is Bund2 optimising for — REPL or long-running batch? `00-jit-feasibility.md` §3.2a's code-memory constraint "bites hard" on the former and "barely at all" on the latter, and RFC-0005 §S7's caps are chosen for the former. Raised as the study's own open question 7 and still unanswered | RFC-0005 §S7 |
+| Q28 | Does `s390x` matter? RFC-0005 §S8 degrades tail calls there because `CallConv::Tail` historically lacked s390x support. **Lower stakes than first recorded**: §S8 now claims tail calls only for the last word of a body, not for threaded code, so losing them on one target costs a frame per call and nothing structural. Still worth answering, because an untested degradation path is one nobody has run | RFC-0005 §S8 |
+| Q29 | **Resolved as D41 and implemented.** The tag moved into the value's existing padding as an interned `StackSym`: `value/push_pull/balanced` went **126.9 -> 96.7 -> 52.0 -> 10.1 ns** across options 1, 2 and A, `BundValue` still measures **16 bytes**, and conformance held at 73/86 throughout. RFC-0005 SS1's 20 ns gate is met for the first time, and the value layer is now ~10 ns of a ~25 ns word, so dispatch is the dominant term. **Corrected 2026-09-10:** that closing clause is withdrawn. These benchmarks cannot separate dispatch from the work a word does once dispatched, so whether dispatch dominates is RFC-0005 criterion 10's experiment, not a result (RFC-0005 §S1, and D41's own correction). 10.1 ns is D41's run; RFC-0005 quotes 9.8 ns from another | D41 |
+| Q30 | ~~Should a citation into `crates/` be a hard failure?~~ **Answered, and the question was the wrong one.** Not "harden the proximity check" but **stop citing line numbers into live code**: `reference/` is pinned by SHA and cannot move, `crates/` and `xtask/` decay on every edit *above* the cited line, and the observed window is hours — two `with_tag` citations went stale the same afternoon they were repaired, because 21 lines were added to the file's header. `cite` now **refuses** a `path:line` into `crates/` or `xtask/` outside a fenced block, and instead checks that a backticked symbol on the line appears in the file — a check with no false-positive mode, so it is hard where proximity could only be advisory. **84 citations converted across 28 files**; the advisory list is now `reference/`-only. A fenced exact-match block may still carry a line, because that check fails loudly when the line moves | F79 |
+| Q31 | ~~The pinned Cranelift cannot build under the pinned toolchain~~ **Answered: raise the toolchain.** `rust-toolchain.toml` now pins **1.95.0**; workspace builds, 276 tests pass, clippy clean, conformance unchanged at 73/86, and `--features jit`/`aot` build in all four crates. Raising was the only option of the three that keeps Tier 1 the same build as Tier 0. See F80. **Corrected 2026-09-10 (RFC-0005's fifth review, S9):** the features are declared in **five** crates, not four — `bund2-jit`, `bund2-runtime`, the umbrella `bund2`, `bund2-cli` and `bund2-bench` (which gained `aot` after this row was written). Conformance is now **79/86, ceiling 79/86**, and reads the same with `cargo xtask conform --features jit`, which since the fourth review builds the binary it measures and says so | F80 |
+| Q32 | **Answered 2026-09-10 by the owner: A — the cache holds a `Weak`; D35 amended.** *As raised:* **D35's rationale for a strong reference does not hold as written.** It cites address reuse — "a stale entry becomes a false hit" — but RFC-0005 §S7 establishes that a `Weak` prevents reuse too, since an `Rc`'s allocation is freed only when strong *and* weak counts reach zero. So the strong reference is not buying address safety. It may be buying something real — a demoted entry needs the body to fall back to — but that depends on whether a body can be live for the cache and dead for everything else, which is RFC-0003's territory. **The conclusion is not challenged**; D35 stays RESOLVED and the cache holds a strong reference. The reason should be re-derived, because the pinning cost it implies (≤1024 bodies) is charged against it | RFC-0005 §S7 |
+| Q33 | **Answered: option A, and the prototype inverted its emphasis.** The apparent trap was two misreadings, recorded in D9's amendment: the forbidden direction is `stdlib → jit` (`jit → stdlib` is permitted), and D9's subject is the *stable ABI*, not where Bund2's own lowerings live. Binding constraint: **no Cranelift type in `bund2-stdlib` or `bund2-api`** — which BundIR satisfies. **Two fragments were then prototyped and measured** (`crates/bund2-bench/benches/fragment.rs`): per operation, `Int + Int` 59.5 → 15.5 → 6.1 ns and `dup drop` 86.0 → 15.9 → 5.9 ns for tier0 → inlined → promoted. So **inlining alone is 3.8–5.4× and applies everywhere**, while **promotion adds only 2.6–2.7× and only inside a region free of opaque sites** — of which the corpus has 61. Every risky part of the design (Q34, criteria 9 and 12, §S5's stop rule) belongs to promotion, the smaller multiplier. The work is therefore **staged: inlining first, promotion second and only if criterion 10 earns it**. Worth building: yes, on the inlining half. **Corrected 2026-09-10 (RFC-0005's fifth review, B2):** the figures above measured a shape no fragment can express — the literal was folded into the arm as a constant, and the guard was skipped. Re-measured with the literal pushed and pulled and the guard asked (`crates/bund2-bench/benches/fragment.rs`, the `lowered` column), per operation: `Int + Int` 59.2 → 29.2 → 6.7 ns and `dup drop` 88.8 → 29.7 → 6.9 ns for tier0 → lowered → promoted. **Inlining alone is at most 2.0–3.0×; promotion adds 4.3–4.4× on top.** The emphasis this row records is reversed: promotion is the prize and inlining its prerequisite, and on arithmetic inlining alone sits at RFC-0005 criterion 10's 2× threshold before any compiled-code overhead. "Every risky part belongs to promotion" is also withdrawn: inlining carries the redefinition risk, closed by §S6's meaning guard. Figures live in RFC-0005 §S6 | RFC-0005 §S6, D9 |
+| Q34 | **What identifies a word that reads the stack beyond its arity?** `debug.display_stack` declares `eff(0, 0)` and calls `vm.snapshot()`, reading everything; it runs in the golden capture epilogue. More broadly most natives guard on `vm.depth()`, which promotion makes short, so a correctly-declared `Fixed(2, 1)` word can still answer `Stack is too shallow` where Tier 0 answers normally. `StackEffect` records what a word *consumes*, not what it *observes*, and nothing else records it either. Neither `Opaque` nor RFC-0005 criterion 13 covers it. **Extended 2026-09-10 (RFC-0005's sixth review, B2):** words that reach *another* stack by name have the same shape when the name is the current stack's — `swap_in`, `rotate_stack_left` and `rotate_stack_right` (`eff(1, 0)`, `crates/bund2-stdlib/src/stack.rs`) read or reorder values promotion may be holding. Words that *switch* the current stack are a different case, handled by RFC-0005 §S5's current-stack epoch rather than by this set | RFC-0005 §S5, §S6, criterion 14 |
+| Q35 | **Answered 2026-09-10 by the owner: A — `q` is kept but not averaged.** D32 is amended to match; Bund2's `math.rs` already agreed, so no arithmetic changes. *As raised:* **D32 (RESOLVED) says arithmetic averages `q`; the reference's words do not, and nothing above `rust_dynamic` can.** D32 states "Arithmetic averages it: `q(a ⊕ b) = (q(a) + q(b)) / 2`, matching `calc_q`", grounded on `calc_q` "reached from `impl Add` at `reference/rust_dynamic/src/math.rs:416-420`". Followed one level further, neither half holds for the language: (1) `calc_q` (`reference/rust_dynamic/src/q.rs:4-7`) has **no caller anywhere in `rust_dynamic`**; (2) `impl Add for Value` (`reference/rust_dynamic/src/math.rs:413-424`) averages through `set_q`, not `calc_q`, and is a Rust operator overload that no word uses — `+` is `stdlib_add_inline` → `stdlib_math_op_inline` (`reference/rust_multistackvm/src/stdlib/math/add.rs:6-8`), and `math_op` calls `Value::numeric_op` **directly** and pushes its result (`reference/rust_multistackvm/src/stdlib/math/math_op.rs:7-19`); (3) **no file in `reference/rust_multistackvm/src` or `reference/Bund/src` calls `set_q` or `calc_q` at all**, so no Bund word can set `q`, and none can average it. The only reachable non-100.0 `q` is `Value::none`'s 0.0, and NONE is not numeric: `"null" json json.to_value 42 +` fails in the oracle rather than producing 50.0. Bund2's `crates/bund2-stdlib/src/math.rs` header already says `q` is not averaged, so **shipped code contradicts a RESOLVED decision** and no register said so until this row. Also repeating D32's premise: `tests/probes/q-observable.bund`'s header comment ("every arithmetic operation averages it"). **Options:** (A) amend D32 — the reference propagates nothing; Bund2 preserves the *field* and the fixpoint and averages nothing, which is what ships today and what every golden shows; the fuzzy-math feature D32 reserves `q` for would be new behaviour, designed when it is built. (B) keep D32's propagation as an **approved deviation** — Bund2 averages where the reference does not. Today unobservable, since no numeric value with `q` ≠ 100.0 can be constructed, but it would become observable the moment one can, and it would make every arithmetic fragment carry the average. (C) leave D32 as written and record the contradiction only. **Recommendation: A**, because it is the one where Bund2, the reference and the goldens already agree. Found by RFC-0005's fifth review (`docs/rfc/reviews/RFC-0005-review-2026-09-10.md` S1); verified against the pinned source and the oracle 2026-09-10. | D32, RFC-0005 §S6 and criterion 16, `crates/bund2-stdlib/src/math.rs`, `crates/bund2-stdlib/src/fragments.rs` |
+| Q36 | **Answered 2026-09-10 by the owner: A — recorded as D42.** *As raised:* **How does a body's `Rc` reach the point where it starts running?** RFC-0005's cache (§S3, D35) and counter (§S7) key on the body's `Rc`, and Bund2 discards it before any body runs: `Vm::eval_body` takes `&[BundValue]` and `Vm::tail_call` takes `Vec<BundValue>` (`crates/bund2-api/src/lib.rs`), `Interp::eval_body` copies the slice into a `Frame` whose `body` is a `Vec<BundValue>`, and `times_base` copies the body out of the lambda once per call (`crates/bund2-stdlib/src/seq.rs`). Eighteen stdlib call sites use the two methods; only `dispatch`'s named-lambda arm ever holds the `Rc`, one line before `.to_vec()`. The reference's `times` passes `lambda_val.clone()` to `lambda_eval` on each iteration (`reference/rust_multistackvm/src/stdlib/logic/times_fun.rs:20`). **Options:** (A) replace `eval_body(&[BundValue])` and `tail_call(Vec<BundValue>)` with methods taking the LAMBDA value itself — say `eval_lambda(&BundValue)` and `tail_lambda(BundValue)` — and make RFC-0003's `Frame` hold that value (an `Rc` clone) and an index, not a copied `Vec`; amends RFC-0002 (the `Vm` trait) and RFC-0003 (the frame), and removes a body copy per call as a side effect. (B) keep both signatures and add keyed variants beside them, migrating callers over time — two ways to run a body, and the unkeyed one silently never reaches the tier. (C) key the cache on content instead — D35's deferred "strict upgrade"; reopens a RESOLVED decision and still needs the body at entry. **Recommendation: A.** Found by RFC-0005's sixth review (B1); verified against the code 2026-09-10 | RFC-0002, RFC-0003, RFC-0005 §S3 §S5 §S7 criterion 20, D35 |
+| Q37 | **Answered 2026-09-10 by the owner: A and A — recorded as D43, implemented when RFC-0005 reaches Proposed.** *As raised:* **Two additions to `bund2-api` that RFC-0005 §S6's guards need.** (1) A **registration id** on `Native`, assigned by `Registry::register_native`, so the JIT can confirm a slot holds `bund2-stdlib`'s own registration before inlining its fragment: a name cannot show that, and Rust makes no promise about function addresses (`std::ptr::fn_addr_eq`). Ids are per `Registry`, and F32's replay gives a re-registration a fresh one, so the fragment table is built at registration time. (2) **Stable per-name generation cells**: `Registry` keeps slots in a `Vec<Slot>` that `slot_mut` grows with `resize_with`, so no pointer to a generation survives a later `register`; the meaning guard needs a cell at a stable address, mirrored by `touch()`, allocated in chunks that never move, and handed out by a `Registry` accessor. Both are additions and neither changes behaviour, but both are `bund2-api`'s public surface — RFC-0002, Accepted. **Recommendation:** accept both as one RFC-0002 amendment when RFC-0005 reaches Proposed; no code before then. Found by RFC-0005's sixth review (S2, §7.6) | RFC-0002, RFC-0005 §S6 |
 | Q15 | `cargo xtask unblock` is specified as "for each unimplemented word, count hermetic examples it alone gates". That ranking can only see the 140 in-scope words the goldens touch, so as written it reports an empty work queue with 446 words unimplemented. What replaces it, ranking against the coverage denominator? Residue of Q5. | Q5 |
 
 ## Triaged
@@ -21,6 +32,8 @@ column says.
 
 | # | Disposition | Answer lives in |
 |---|---|---|
+| Q14 | answered by measurement — **no**, and for a sharper reason than expected | "Phase 0 baseline, re-run against Bund2" below. The corpus cannot resolve interpretation because the noise floor exceeds the signal, so RFC-0001 and RFC-0005 criteria go to `benches/` (Criterion), not to `cargo xtask bench` |
+| Q25 | answered and implemented | **D41.** The stack tag moved into the value's existing padding as an interned `StackSym`; `value/push_pull/balanced` went 126.9 → 9.8 ns across options 1, 2 and A, `BundValue` is still 16 bytes, conformance held at 73/86. RFC-0005 §S1's prerequisite 1 is met. Residue was Q29, also closed |
 | Q1 | grounded, then promoted | D1 and D2, plus "The `id` / `stamp` layout scan" below — the corpus could not settle it, an exhaustive field scan could |
 | Q2 | promoted | D16 — the world is permanently open |
 | Q3 | folded into D14 | The axis question is settled: D14 resolves per word, recorded on D14's Method line. Which words are core is not a separate question — it *is* D14's remaining work |
@@ -38,7 +51,9 @@ column says.
 | Q20 | resolved — exact comparison | D30's amendment. "Make the contract bidirectional" has one consistent implementation: an integer and a float are equal iff they denote the same mathematical value. Truncating in both directions is non-transitive (`42 == 42.5`, `42 == 42.9`, `42.5 != 42.9`) and widening is non-transitive above 2^53 — with the float on top the receiver widens and the oracle answers true, with the int on top it truncates and answers false. Both orientations are pinned in `tests/probes/eq-asymmetry.bund`; the first version of that probe wrote only the truncating one and labelled it as the widening one. Hashing follows: an integral in-range float hashes as its `i64`, `-0.0` normalises to `0.0`, `NaN` never matches |
 | Q18 | closed — `q` is a field | Reopened after being closed on a scan that never opened `q.rs`, and now closed on a **probe** instead. `"null" json json.to_value` yields `dt: 0` with **`q: 0.0`** on the oracle, through two registered in-scope words — `tests/probes/q-observable.bund`. So a program can observe `q` away from the 100.0 fixpoint, and RFC-0001 carries it as a field rather than rendering it. The lesson is recorded in F39's disposition: a reachability claim wants a probe, not a grep |
 | Q19 | divided, not open | The value layer and the word layer are different questions and an earlier row conflated them. **Value layer, RFC-0001**: `Payload::ValueMap` is a `BTreeMap<BundValue, BundValue>`, so a key lookup is expressible by construction — there is nothing to decide. **Word layer, RFC-0002**: whether `?key` exposes it. D30 mirrored `set` into `get` and named only `get`, and `?key` has no `set` counterpart to mirror, so extending it is a decision the owner has not taken. Carried to RFC-0002's word set |
-| Q16 | implemented | `golden::capture_jobs` collects `tests/probes/*.bund` alongside the corpus (`xtask/src/golden/mod.rs:83-97`); the probe goldens carry captured output, and conform's 64 is 57 suite + 7 probes. The question was recorded before the capture landed and was stale, not open |
+| Q22 | resolved — three answered, one unprobeable, one defect | Of the five words that could not be probed: `stacks_left`, `<-` and `←` are **F71** — unreachable in the reference, so there is no oracle answer to capture. `drop_stack` removes the current stack and the reference names the next one with a fresh nanoid, so a capture is unreproducible by construction. `endcontext` is **F72**: its guard `stacks_stack.len() < 1` (`reference/rust_multistackvm/src/stdlib/ctx.rs:6`) can never fire, because the deque is seeded with `"main"` (`multistackvm.rs:38`) and `pop_stacks` refuses to empty it (`multistackvm_stacks_stack.rs:11-15`) — so closing a context that was never opened does not error, it **drops the current stack** and puts its top on the workbench. Bund2 keeps the guard the author wrote |
+| Q21 | resolved — three Bund2 defects and one reference defect | Bund2's `move`, `move_from` and `to_current` were each a different word from the reference's. `move` moved one value where the reference **drains** the current stack (`ts_move.rs:17-31`); `move_from` took one name and moved to the current stack where the reference takes **two names** and drains between them (`stack_move.rs:65-71`); `to_current` was byte-identical to `to_stack`, which is what made the pair indistinguishable. All three now agree with the oracle, pinned by `tests/probes/named-stacks.bund`. **The reference defect is F70**: draining into a stack that does not exist yet never terminates, because creating a stack makes it current (`ts_current.rs:7` reads `stacks.back()`) and the loop then feeds itself — `1 2 3 :box move` hangs the oracle. Two method notes worth keeping: the `to_current` fix was itself wrong first, because `ts_move.rs::move_to_current` has a matching name and **no word registers it** — CLAUDE.md's "follow the call one level further", committed while investigating a divergence caused by the same habit. And `cargo xtask effects` had flagged `move_from`'s arity correctly, and `tests/golden/EFFECTS.txt` had explained it away as a probe artefact; the probe was right |
+| Q16 | implemented | `golden::capture_jobs` collects `tests/probes/*.bund` alongside the corpus (`xtask/src/golden/mod.rs`); the probe goldens carry captured output, and conform's 64 is 57 suite + 7 probes. The question was recorded before the capture landed and was stale, not open |
 
 
 ---
@@ -233,7 +248,7 @@ the `apply` of a PTR falls to the push arm at
 of `execute` (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:5`),
 which pulls that value and, for `PTR | STRING | CALL`, hands the string
 straight to `vm.call(...)`
-(`reference/rust_multistackvm/src/stdlib/execute.rs:26-33`) — full name
+(`reference/rust_multistackvm/src/stdlib/execute.rs:26-30`) — full name
 resolution, alias then lambda then inline.
 
 Three properties follow, none of which involve `bund.eval`:
@@ -884,6 +899,86 @@ needs either much larger programs than the corpus contains, or in-process
 measurement — which is where Criterion becomes the right tool, in `benches/`,
 once Bund2 has an interpreter to call. Recorded as Q14.
 
+## Phase 0 baseline, re-run against Bund2 (Q14, answered)
+
+Q14 asked whether, once D28 cut the dependency set, the corpus would resolve
+interpretation well enough to write RFC-0001 and RFC-0005 criteria against.
+Both targets, re-run through the same harness, release builds, 57 programs,
+5 runs each, best of three whole-harness runs:
+
+| | oracle | Bund2 |
+|---|---|---|
+| sum of per-program min | 845.2 ms | **153.9 ms** |
+| mean per program | 14.8 ms | **2.7 ms** |
+| floor — the fastest program | 13.7 ms | **2.3 ms** |
+| implied interpretation, mean − floor | ~1.1 ms | **~0.4 ms** |
+
+**D28 worked, and Bund2 is 5.5× faster over the corpus with no JIT at all.**
+The startup floor fell from 13.7 ms to 2.3 ms, which is the whole of that
+factor: the fixed cost is what D28 was about.
+
+**The answer to Q14 is no, and in-process measurement says why in one line.**
+`crates/bund2-bench` now calls the interpreter directly, and the fixed cost
+turns out not to be what the paragraph above assumed:
+
+| in process | median |
+|---|---|
+| `startup/registry/register_all` — the whole stdlib | **32 µs** |
+| `startup/parse/mixed` | 4.5 µs |
+| `corpus/sequence_generate_2` — a real program, evaluated | **9.3 µs** |
+| `corpus/sorting_numbers_in_list` | 8.5 µs |
+
+So registering 261 words costs 32 µs, against an end-to-end floor of 2.3 ms.
+**Registration is ~1.4% of the fixed cost; the other 98.6% is process spawn** —
+dynamic loading, not anything Bund2 does. The harness's own prose said "spawning
+this binary and registering its stdlib" as though the two were comparable, and
+they are three orders of magnitude apart.
+
+And an ordinary corpus program *evaluates* in ~9 µs. Against a 2 300 µs spawn,
+interpretation is **around 0.4% of what `cargo xtask bench` measures** — not the
+15–37% the subprocess arithmetic suggested, because mean-minus-floor was picking
+up a handful of heavy programs rather than a typical one. The run-to-run spread
+of the whole harness (153.9 → 162.2 ms) is larger than the corpus's entire
+interpreted content several times over.
+
+The corpus therefore cannot resolve interpretation *at all*. A percentage
+derived from it would be reporting dynamic-linker scheduling with a plausible
+face on it.
+
+So the consequence Q14 anticipated stands, for a better-evidenced reason:
+
+- An RFC-0005 criterion phrased as "X% faster over the corpus" measures process
+  startup and noise. It would fail a good JIT or pass a bad one.
+- The same applies to RFC-0001's value-layout claims.
+- `cargo xtask bench` keeps exactly the job it was good for: catching a
+  regression that makes startup or registration dramatically worse, and giving
+  the two targets a like-for-like end-to-end comparison. The 5.5× above is a
+  fair use of it; a JIT speedup would not be.
+- Performance criteria for RFC-0001 and RFC-0005 belong in `crates/bund2-bench`,
+  in process, where the interpreter is called directly and startup is not in the
+  sample. Groups are `startup`, `dispatch`, `arith`, `lambda`, `corpus` and
+  `rendering`; `startup` is the one a JIT must **not** move.
+
+**A second finding, from building that harness.** The first `corpus` group
+included `pull_demo`, which reached `display` — and `display` renders markdown
+through termimad. It measured **3.9 ms against 8.5 µs** for the corpus programs
+beside it: roughly four hundred times an entire ordinary program, for one
+rendered table, and 99.7% of the group it was in. Any JIT claim measured there
+would have been a claim about terminal layout. It now sits in its own
+`rendering` group under its own name. Recorded because it is the exact failure
+this whole question is about — a number that is real, reproducible, and about
+something other than what it appears to be.
+
+**One tooling defect found while answering this.** The harness located
+`target/release/bund2` but did not build it, so the first run of this
+measurement timed a binary five days and sixty-four words stale, and the output
+was indistinguishable from a current one. `xtask bench` now builds
+`bund2-cli --release` before timing it, as `xtask effects` already did for
+`bund2-cli` — a measurement whose subject is unidentified is worse than none,
+because it gets quoted.
+
+---
+
 ## Lexer fidelity
 
 The `.bund` lexer in `xtask/src/corpus/lex.rs` mirrors
@@ -986,3 +1081,8 @@ and `push_to` have no page, no alias, and no corpus use. D29 stays OPEN — the
 call is the owner's — but the two groups are no longer symmetric.
 | Q21 | open | Does the frame loop reproduce the nested `bail!` concatenation that `?try` files into its `context` slot? Today `err.ctx` is assembled by `bail!` at every level a failure passed through (`reference/rust_multistackvm/src/multistackvm_lambda_eval.rs:17`, `reference/rust_multistackvm/src/stdlib/execute.rs:45`, `reference/bundcore/src/bundcore_eval.rs:33`), so the string encodes the Rust call nesting. RFC-0003 replaces that nesting with a frame stack and does not say which frame the unwinder stops at or how the text is rebuilt. Raised by RFC-0003's first review as P2 |
 | Q22 | open | What is the compiled-cache promotion threshold and cap, and where are they stated? D3's amended resolution makes eval's tier eligibility a consequence of identity keying rather than a rule, which presumes a threshold and a bound that RFC-0005 owns. RFC-0005 must state them as load-bearing for D3, not as tuning. Raised by RFC-0003's first review |
+
+## Open — added 2026-09-02
+
+| # | Question | Raised in |
+|---|----------|-----------|

@@ -85,3 +85,31 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   the value entirely, so both stay answerable while the value measures 16
   bytes — `cargo xtask layout`, candidate D. What the entry correctly rules
   out is candidate B, identity carried inline, which measures 32.
+
+- `00-jit-feasibility.md` §2.1's expectation table -> superseded by RFC-0005
+  §S1, which replaces its rows with measurement. The document asked for exactly
+  this — "order-of-magnitude reasoning, to be replaced by measurement in
+  Phase 0" — so this is the substitution it invited. The rows that survive:
+  "Cranelift tier: naive lowering ~1.2–1.5×" is corroborated, since dispatch is
+  at most a quarter of an average word's cost and Amdahl bounds a perfect
+  Tier 1 near 1.3×. **That corroboration is itself withdrawn, 2026-09-09**: the
+  "at most a quarter" rested on comparing a per-word figure against a
+  per-push/pull one, which are not commensurable, and RFC-0005 §S1 now declines
+  to replace the bound because no benchmark separates dispatch from the work a
+  word does once dispatched. §2.1's row is neither corroborated nor refuted
+  here; RFC-0005 criterion 10 makes it an experiment. The row that does not
+  survive as written is the framing that value-representation work was already
+  behind us: `value/with_tag/scalar`
+  measures **73.1 ns** against a **4.1 ns** clone and a **126.9 ns** push/pull
+  round trip, so §2.2's gate — "Project B is worth doing only if Project A's
+  measurements show that dispatch and boxing are still the bottleneck" — does
+  not pass **when RFC-0005 was drafted**. Boxing was the bottleneck; dispatch
+  was not.
+
+  **That is no longer the state, 2026-09-09.** D41 moved the stack tag into the
+  value's padding: `value/push_pull/balanced` went 126.9 → 9.8 ns and the
+  `dispatch/*` programs improved 3.8–4.2×. RFC-0005 §S1's update carries the
+  numbers. Half the gate is now met — the 20 ns prerequisite — and the other
+  half, that dispatch has become the dominant term, **cannot be shown with
+  these benchmarks** and is RFC-0005 criterion 10's experiment. This paragraph
+  is kept because it is what the gate turned on, not because it is current.

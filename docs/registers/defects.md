@@ -77,6 +77,217 @@ guard never fires as intended.
 - `reference/Bund/src/stdlib/functions/oop/value_class.rs`
 - Behavioural. Disposition:
 
+## F72 — `endcontext`'s guard is dead, so closing a context that was never opened destroys a stack
+
+`endcontext` opens by refusing to run when no context is open:
+
+```rust reference/rust_multistackvm/src/stdlib/ctx.rs:6
+    if vm.stacks_stack.len() < 1 {
+```
+
+That condition is never true. `stacks_stack` is **seeded with one entry** at
+construction — `ss.push_back("main".to_string())`
+(`reference/rust_multistackvm/src/multistackvm.rs:38`) — and `pop_stacks`
+refuses to take the last one, returning `peek_stacks()` instead of popping
+when the length is not greater than 1
+(`reference/rust_multistackvm/src/multistackvm_stacks_stack.rs:11-15`).
+`clear_stacks` also keeps one (`:30-40`). The deque therefore never falls below
+one element, and the guard is unreachable — the same shape as F11 and F69,
+where a test that was written never fires.
+
+**What runs instead is destructive.** With the guard passed, `endcontext` moves
+the current stack's top to the **workbench** (`ctx.rs:9-17`) and then calls
+`vm.stack.drop_stack()` (`:18`), which removes the current stack outright.
+
+Confirmed against the oracle. `1 2 endcontext` prints nothing, and afterwards:
+the stack is **empty and unnamed** — `current` answers a fresh nanoid, because
+dropping the last named stack leaves the reference to invent one — the value
+`1` is gone with the stack it lived on, and `2` is sitting on the workbench.
+
+So a program that closes a context it never opened does not get an error. It
+loses a stack.
+
+The context stack itself is real and works: applying a `CONTEXT` value calls
+`VM::to_stack` (`multistackvm_apply.rs:69-78`), which switches stacks *and*
+records the switch (`multistackvm_to_stack.rs:8`). It is only the emptiness
+test that cannot fire.
+
+No corpus program calls `endcontext`.
+
+- Found by: probing the words no program exercises — Bund2 refused
+  `( 1 2 ) endcontext` and the reference did not, which is Q22's last open item
+- Behavioural. Disposition: **FIX — Bund2 keeps the guard the author wrote.**
+  `endcontext` with no context open reports `Context is empty`, which is
+  `ctx.rs:7`'s own message, rather than dropping a stack.
+
+  Bund2 also returns to the stack the context was opened *from*, which it
+  recorded, instead of leaving the choice to whatever the deque holds next.
+  That is not a second deviation so much as the first one's consequence: a
+  guard that fires means the pop is only ever reached with a context to pop.
+
+  **No golden covers it and none could.** The reference's post-state contains a
+  stack named by a fresh nanoid, so `cargo xtask golden` would refuse the
+  capture as unreproducible — the same reason `drop_stack` cannot be probed.
+  `tests/probes/remaining-vocabulary.bund` names both exclusions.
+
+## F71 — `stacks_left` is registered only as a function, so the word is unreachable
+
+Every other word in `rotate.rs` is registered twice, as a function and inline.
+Two are not:
+
+```rust reference/rust_multistack/src/stdlib/rotate.rs:93
+    let _ = ts.register_function("stacks_left".to_string(), stdlib_stacks_left);
+```
+
+`stacks_left` gets only the **function** form, and `stacks_right` only the
+**inline** form (`:94`). The inline handler `stdlib_stacks_left_inline` exists
+at `:9-11` and nothing registers it, so it is dead code — the same shape as F1
+and F32, where a registration mistake leaves a working handler unreachable.
+
+A bare `stacks_left` therefore fails, while the identical `stacks_right`
+succeeds. **The two aliases go down with it**: `<-` and `←` both point at
+`stacks_left`
+(`reference/rust_multistackvm/src/stdlib/create_aliases.rs:22-23`), so three
+spellings of "move left around the stack ring" are unusable and one spelling of
+"move right" works.
+
+Confirmed against the oracle: `stacks_left`, `<-` and `←` each report an
+error; `stacks_right` prints the new current stack.
+
+No corpus program calls any of them.
+
+- Found by: writing a probe for the navigation words, after `cargo xtask
+  coverage` listed them among the words no program exercises
+- Behavioural. Disposition: **FIX — Bund2 registers both, as every neighbour in
+  that file does.** F1's precedent: a handler the author wrote and the
+  registration hid is a defect, not a contract. Reproducing the unreachability
+  would mean deleting a working word and three of its spellings to match a
+  missing line.
+
+  No golden covers it, so there is nothing to record as a deviation. It is
+  pinned by `tests/probes/stack-navigation.bund`, which exercises the
+  right-hand spellings the oracle can run and states why the left-hand ones are
+  absent.
+
+## F70 — `move` to a stack that does not exist yet never terminates
+
+`move` drains the current stack into a named one
+(`reference/rust_multistack/src/stdlib/stack_move.rs:24-30` calling
+`move_from_current`), and the drain is a loop that pulls from *current* and
+pushes to *name_to*:
+
+```rust reference/rust_multistack/src/ts_move.rs:17
+    pub fn move_from_current(&mut self, name_to: String) -> &mut TS {
+```
+
+The loop is correct only while `current` and `name_to` are different stacks.
+They stop being different on the first push, because three innocuous facts
+compose:
+
+- `push_to_stack` calls `ensure_stack` before pushing
+  (`reference/rust_multistack/src/ts_push.rs:46`);
+- `ensure_stack` creates the stack through `add_named_stack`, which appends it
+  with `self.stacks.push_back(...)`
+  (`reference/rust_multistack/src/ts_add.rs:14`);
+- **the current stack is the back of that deque** —
+  `current_stack_name` is `self.ensure().stacks.back().cloned()`
+  (`reference/rust_multistack/src/ts_current.rs:7`).
+
+So pushing to a stack that does not exist yet **makes it current**. The next
+`pull()` takes back the value just pushed, pushes it again, and the loop never
+reaches an empty stack.
+
+Confirmed against the oracle, and the mechanism confirmed by its own
+workaround:
+
+- `1 2 3 :box move` — **hangs**. Killed at 8 seconds; no output, no error.
+- `:box ensure_stack @main 1 2 3 :box move` — exits 0 and prints normally,
+  because `ensure_stack` inside the push then finds `box` already present and
+  does not re-append it.
+
+No corpus program calls `move`, which is presumably why this has never been
+hit.
+
+- Found by: investigating Q21 — Bund2's `move` family diverged from the
+  reference, and establishing which side was right meant running the
+  reference's version
+- Behavioural, and **worse than an error**: a hang cannot be reported, caught
+  by `?try`, or distinguished from a long computation. It takes the session
+  with it exactly as a panic would, which is D37's argument arriving through a
+  loop rather than an abort.
+- Disposition: **FIX — Bund2 drains a snapshot.** Bund2 takes the source
+  stack's contents once and then pushes, so the destination becoming current
+  mid-drain cannot feed the loop. `1 2 3 :box move` terminates and moves three
+  values. This is a deviation with no golden to record it against, because the
+  reference produces no output to capture — it produces nothing at all.
+- Follow-up 2026-09-03: **the shape is now checked, and one more instance was
+  found in Bund2.**
+
+  Every drain in `crates/` was audited. All five collect their values before
+  pushing any, so none can feed itself. `cargo xtask lint` now enforces that: a
+  `while let Some(..) = vm.pull…` loop whose body pushes is reported. Verified
+  by reintroducing the hang in `move` and watching the lint fail.
+
+  The instance found was `Stacks::to_stack`'s rotation
+  (`crates/bund2-interp/src/lib.rs`), which spun `while current_name() != name`.
+  It terminated — a membership test ten lines above guarantees the name is
+  present — but that is the same kind of reasoning this defect punishes, so it
+  is now bounded by the deque's length. The reference guards its own rotation
+  by counting a full circle and failing (`ts_to_current.rs:24-26`); bounding is
+  the same guarantee without the error.
+
+  **What is deliberately not fixed: a program that loops forever.**
+  `true { } while` is Turing-completeness, not a defect, and the reference
+  behaves the same way. `cargo xtask depth` bounds the three axes it can with a
+  60-second wall clock. The rule this defect establishes is narrower and
+  checkable: *a native's own loop must be bounded by data it has already
+  taken.*
+
+## F69 — the `dt` guard in `cast_json_to_value` never fires, and the fallback does not cover the same case
+
+```rust reference/rust_dynamic/src/cast_json_to_value.rs:6
+        if ! self.dt == JSON {
+```
+
+`!` binds tighter than `==`, so this parses as `(!self.dt) == JSON`: a bitwise
+NOT of a `u16` compared against 24. For a genuine JSON value `!24u16` is 65511,
+so the guard never fires — and for every other tag it does not fire either.
+**Exactly F11's shape**, at a different site.
+
+Unusually for this class, it is redundant twice over, and the reachability is
+worth stating because it changes the disposition:
+
+- **Every caller already establishes the tag.** Five construct
+  `Value::json(...)` on the line before (`json.rs:27`, `wrap_json.rs:54,79`,
+  `conv.rs:681`, `map.rs:14`) and the one Bund word that reaches it guards with
+  `is_type(JSON)` first
+  (`reference/rust_multistackvm/src/stdlib/json/conversion.rs:37`).
+- **The payload match catches the same case anyway.** Its final arm returns
+  `This Dynamic type is not JSON: {dt}` (`:99`), which is what the guard was
+  written to say.
+
+**But the two tests are not the same test, and that is the actual defect.** The
+guard reads the **tag**; the fallback reads the **payload arm**. A value whose
+`dt` is not JSON while its payload is still `Val::Json` passes both and gets
+converted, where a working guard would refuse it. That pair is constructible in
+principle — the reference assigns `dt` directly elsewhere, as
+`make_bund_object` does with `res.dt = OBJECT`
+(`reference/rust_multistackvm/src/stdlib/bund_object.rs:35`) — which is the
+tag/payload split RFC-0001 makes an explicit axis.
+
+Nothing reachable from Bund produces such a value today, so no golden covers
+it and the defect is latent rather than observable.
+
+- Found by: implementing `json.to_value` and reading the callee, after the
+  caller had already been read
+- Behavioural, latent. Disposition: **Bund2 writes the guard as intended.**
+  `crates/bund2-stdlib/src/json.rs` checks `dt() != JSON` and then matches the
+  payload through `as_json`, so a mismatched pair is refused by the first test
+  and a JSON-tagged value with a foreign payload is an `Error::internal` by the
+  second. There is no observable deviation, because no reachable value has a
+  mismatched pair — this is the case where writing the correct guard costs
+  nothing and reproducing the broken one would buy nothing.
+
 ## F12 — `Ord::cmp` disagrees with `PartialOrd::partial_cmp` for floats
 `lt` handles `Val::F64` (`reference/rust_dynamic/src/ord.rs:19-21`) — an
 earlier version of this entry attributed those lines to `partial_cmp`, which
@@ -868,6 +1079,27 @@ Confirmed against the oracle. Registering a lambda named `println`, calling
   builder must **not** silently dedupe duplicate registrations: replaying them
   in order is what reproduces the reference, and deduping would change which
   handler wins. Record the divergence in RFC-0002.
+- Update 2026-09-02: **"no corpus program calls `unregister`" is wrong, and a
+  golden does cover it.**
+  `reference/Bund/examples/bund_dynamic_demos/resolving_lambda.bund:36` calls
+  `:HelloWorld unregister`, and its next four lines are written specifically to
+  observe the result — the source comment reads "After unregister, function
+  ?lambda must return FALSE, but by calling ```not``` we are making it TRUE".
+
+  The golden shows the program's own expectation failing. The oracle prints no
+  confirmation line, because `?lambda` still answers `true` after the
+  `unregister` that this defect says never happens. Confirmed directly:
+  registering `HW`, calling `:HW unregister`, then `:HW ?lambda` prints `true`
+  on the oracle and `false` on Bund2.
+
+  So the disposition stands and its consequence is now recorded:
+  `resolving_lambda.golden` is an **approved deviation** under this F-number.
+  Bund2 prints the confirmation line the program was written to print, and the
+  oracle does not.
+
+  Found by implementing `not`, which is the word that made the divergence
+  visible — before it, the golden failed on an unregistered word and the
+  disagreement was hidden behind that.
 
 ## F33 — `PartialEq` is asymmetric across int/float, and `impl Eq` asserts otherwise
 Comparing an integer to a float truncates; comparing a float to an integer
@@ -1284,14 +1516,14 @@ breaks: `eq-asymmetry` (F33) and `valuemap-hash-eq` (F29). Both are approved.
 Neither can be recorded as approved.
 
 `cargo xtask conform` compares captured bytes and counts equality
-(`xtask/src/conform/mod.rs:150`). A golden Bund2 deliberately disagrees with
+(`xtask/src/conform/mod.rs`). A golden Bund2 deliberately disagrees with
 fails, permanently, and sits in the failure list looking exactly like a
 regression.
 
 CLAUDE.md prescribes `cargo xtask golden --accept <name> --reason <ref>` for
 the original-implementation-bug disposition, but that is the wrong instrument
 here. `--accept` re-runs the **oracle** and writes what it produced
-(`xtask/src/golden/mod.rs:582-586`). The oracle has not changed, so the bytes
+(`xtask/src/golden/mod.rs`). The oracle has not changed, so the bytes
 are identical, the golden is reported unchanged, and Bund2 still fails it.
 `--accept` handles a changed *capture*; it has nothing to say about a changed
 *Bund2*.
@@ -1936,6 +2168,69 @@ Two separate problems, and only one is about paths:
   message likewise. Those four goldens then differ only in the path, which is an
   approved deviation under this F-number — and F48 applies, since `conform`
   still has no way to record one.
+- Update 2026-09-01: **recorded.** F48's register exists, and three of the four
+  are now in `tests/golden/DEVIATIONS.txt` under `F66`. Two corrections to the
+  paragraph above, both found by doing it:
+
+  - **It is four goldens, but only three are F66.** `execute-arm-class` is
+    recorded under `F16/D23/D25` instead. The reference errors on `<class> !`
+    and Bund2 constructs, which is RFC-0009's deliberate deviation; it happens
+    to be a golden of an error report, which is what put it on F66's list.
+  - **They differ by more than the path.** D36 replaced the Rust location with
+    a Bund one and added `Source` and `Stack` rows, so the table shape differs
+    too, and D36's own consequences say so. The deviation approved here is
+    D36's presentation as a whole, not the path alone.
+
+  Two Bund2 bugs were fixed first, so the recorded hashes pin the reference's
+  frame rather than a broken copy of it: the `[BUND]` banner used one space
+  where the reference's coloured path emits two
+  (`reference/Bund/src/stdlib/helpers/print_error.rs:133,153`), and
+  `TextReporter` printed a workbench box after the stack box where the
+  reference prints only the stack (`:126-131`).
+
+## F68 — `convert.to_bool` panics the process on an unrecognised string
+
+`stdlib_convert_base` pulls a value and calls `value.conv(BOOL)`
+(`reference/rust_multistackvm/src/stdlib/convert/internal.rs:25`). For a STRING
+source that reaches `value_string_conversion`'s `BOOL` arm, which is
+
+```rust reference/rust_dynamic/src/conv.rs:207
+        BOOL => {
+```
+
+and calls `rustils::parse::boolean::string_to_bool` (`:208-210`). That function
+has **no error arm** in `conv`'s eyes — it returns a bare `bool`, not a
+`Result` — because it panics instead.
+
+Confirmed against the oracle. `"maybe" convert.to_bool` prints a backtrace,
+`The application panicked (crashed).  Invalid String: maybe`, names
+`rustils-0.1.23/src/parse/boolean.rs:402`, and exits **101**.
+
+That exit code is the tell. Every other Bund failure exits **0** and prints a
+`comfy_table` report (F66); this one does not reach `print_error` at all,
+because the process is already gone. So a program's stacks, word table and
+session state are lost, and the trace names Rust frames and no Bund word —
+which is D37's argument, arriving from the reference rather than from Bund2.
+
+The recognised set is narrow. Confirmed accepted: `true`, `TRUE`, `yes`, `1`,
+`no`, `0`. Confirmed fatal: `maybe`. `rustils` is pinned only as `0.1.*`
+(`reference/rust_dynamic/Cargo.toml:22`), so the exact set is not fixed by the
+submodule either.
+
+No corpus program converts a string to a bool, so no golden covers it.
+
+- Found by: differential-testing Bund2's `convert.*` table against the oracle
+  while implementing it — 26 conversions agree, and the 27th crashed the oracle
+- Behavioural. Disposition: **FIX — Bund2 returns `false`.** D37 forbids Bund2
+  from reproducing a panic, and there is no faithful alternative: the reference
+  has no error path here to copy, only an abort. `false` is chosen over an
+  error because `string_to_bool` is *total* for every input the oracle
+  survives, and a word that returns a bool for `"no"` and an error for `"maybe"`
+  would invent a failure mode the reference does not have.
+
+  This is a deviation with no golden to record it against, so it is pinned by
+  test in `crates/bund2-stdlib/src/convert.rs` instead, with the accepted set
+  above as the cases that must keep agreeing.
 
 ## F67 — a missing parent class is reported under the child's name
 
@@ -1956,3 +2251,496 @@ hierarchy.
   a message-only change on a path that already fails. If a golden pins the
   text it needs `--accept-deviation` under this F-number; none does today,
   because no corpus program constructs a class with an unregistered parent.
+
+## F73 — the `.` suffix does not agree with itself about where the answer goes
+
+A `.`-suffixed word is meant to be its plain sibling with the first operand
+taken from the workbench. In `bund/string` the *input* half of that is
+consistent — operand 1 comes off the workbench and operand 2 off the current
+stack, which is why the guard checks both depths
+(`reference/Bund/src/stdlib/functions/string/prefix_suffix.rs:23-30,32-39`) —
+but the *output* half splits, family by family, with no rule behind it:
+
+| pushes the answer to the **stack** | pushes it to the **workbench** |
+|---|---|
+| `string.prefix` / `.suffix` (`prefix_suffix.rs:52`) | `string.distance*` (`distance.rs:90-91`) |
+| `string.regex` (`regex.rs:47`) | `string.expressionmatch` (`textexpr_match.rs:66-67`) |
+| `string.regex.matches` (`regex_matches.rs:57`) | `string.fuzzymatch` (`fuzzy_match.rs:67-70`) |
+| `string.regex.split` (`regex_split.rs:50`) | `string.deunicode` (`unicode.rs:39-42`) |
+| `string.wildcard` (`wildmatch.rs:44,46`) | `string.wrap.english` (`textwrap.rs:76-79`) |
+| `string.grok` (`grok.rs:64`) | |
+| `string.tokenize*` (`tokenize.rs:73`) | |
+
+The left column is written `vm.stack.push(res)` unconditionally; the right is
+written `match op { FromStack => push, FromWorkBench => push_to_workbench }`.
+Both spellings appear in files a few hundred lines apart, and `string.regex.`
+and `string.distance.` — neighbours by name and identical in shape — are on
+opposite sides.
+
+The consequence for a program is that `take` after a `.` word is right half the
+time. A user who learns the idiom from `string.distance.` and applies it to
+`string.regex.` pulls whatever was underneath instead.
+
+Confirmed against the oracle for both columns.
+
+- Found by: implementing the group and reading each file's push rather than
+  the first one's
+- Behavioural. Disposition: **PRESERVE.** Every one of these is a word's
+  observable contract, and a program written against the reference depends on
+  it. Bund2 reproduces the table exactly; `crates/bund2-stdlib/src/library_string.rs`
+  carries it as the module's opening documentation so the next reader does not
+  infer the rule that is not there.
+
+## F74 — `string.tokenize.unique` and `.stemmed` answer in a different order every run
+
+Both build their result by inserting tokens into a `HashSet` and then iterating
+it (`reference/Bund/src/stdlib/functions/string/tokenize.rs:49-65`). Rust seeds
+`HashSet`'s hasher per process, so the LIST that reaches the stack is in a
+different order on every invocation.
+
+Five runs of the oracle on `"the cat sat on the cat with a mat"`:
+
+```
+[ sat ::  with ::  on ::  mat ::  a ::  cat ::  the :: ]
+[ with ::  cat ::  on ::  mat ::  sat ::  the ::  a :: ]
+[ a ::  sat ::  mat ::  with ::  the ::  on ::  cat :: ]
+[ on ::  mat ::  a ::  sat ::  the ::  with ::  cat :: ]
+[ the ::  sat ::  mat ::  with ::  cat ::  on ::  a :: ]
+```
+
+`.stemmed` behaves the same way. Sorting does not rescue it: `sort` is not
+alphabetical, so tokens that compare equal stay in hash order.
+
+- Found by: running the oracle repeatedly before writing a probe, because the
+  source read `HashSet`
+- Behavioural. Disposition: **PRESERVE the property, not an order.** Bund2 uses
+  a `HashSet` too, so it reproduces "unordered and deduplicated" — which is all
+  there is to reproduce, since no particular order is the reference's answer
+  either. **No golden may capture these words**, and the probe that exercises
+  `string.tokenize.unique` says so in its header. `.stemmed` is unimplemented
+  for an unrelated reason: `rnltk` pulls `nalgebra` in behind it.
+
+## F75 — `string.expressionmatch` cannot compile any expression
+
+The word builds its matcher with `srch::Expression::new`
+(`reference/Bund/src/stdlib/functions/string/textexpr_match.rs:61`) and bails
+when that fails (`:63`). It always fails. Every atom in the crate's own
+specification was tried against the oracle:
+
+```
+numeric        => STRING.EXPRESSIONMATCH returned error when creates matcher
+alpha          => STRING.EXPRESSIONMATCH returned error when creates matcher
+alphanumeric   => STRING.EXPRESSIONMATCH returned error when creates matcher
+length 5       => STRING.EXPRESSIONMATCH returned error when creates matcher
+equals hello   => STRING.EXPRESSIONMATCH returned error when creates matcher
+```
+
+`contains "a"` and `starts "h"` fail earlier still, in Bund's own tokenizer.
+So the word has two forms, an entry in the word table, an arity in
+`docs/arity.md`, and no input for which it returns a value.
+
+`srch` is pinned at `0.0.1` (`reference/Bund/Cargo.toml:126`), which is the
+only published version.
+
+- Found by: trying to write a probe for `string.expressionmatch.` and failing
+  to find an expression that works, then checking the crate's specification
+- Behavioural. Disposition: **PRESERVE.** Bund2 calls the same crate the same
+  way and fails on the same inputs, so the two agree. There is nothing to fix
+  without changing what the word means, which is a language decision and not
+  this register's to take. Recorded so that a future reader does not spend the
+  same hour concluding the implementation is broken.
+
+## F76 — a MAP's key order is unreproducible, so any printed dict differs between runs
+
+`rust_dynamic`'s dict iterates a hash map, so the order `println` renders is
+seeded per process. This is not specific to any word — three runs of
+`dict :a 1 set :b 2 set :c 3 set println` on the oracle:
+
+```
+{ a=1 ::  b=2 ::  c=3 :: }
+{ b=2 ::  a=1 ::  c=3 :: }
+{ b=2 ::  a=1 ::  c=3 :: }
+```
+
+`string.grok` shows it too, and there the map is built by the word rather than
+the program: five runs gave three different orders for one input.
+
+**No golden is exposed today** — none captures a MAP with more than one key —
+but the constraint is permanent: a golden that prints a multi-key MAP cannot be
+stable, whatever Bund2 does.
+
+- Found by: `string.grok`'s contents matching the oracle exactly while its key
+  order did not, which turned out to be true of every dict
+- Behavioural. Disposition: **DEVIATE, and the deviation is an improvement.**
+  Bund2's MAP order is stable across runs. Reproducing the instability would
+  mean deliberately randomising output, which is not preservation of anything a
+  program can depend on — there is no order to preserve. A program that needs a
+  particular order must sort, on either implementation. Stated here rather than
+  in `DEVIATIONS.txt` because no golden differs.
+
+## F77 — `print.` and `println.` guard the stack and then read the workbench
+
+`stdlib_print_inline_base` tests the depth of the **current stack** before it
+looks at which side it was asked for:
+
+```rust reference/rust_multistackvm/src/stdlib/print.rs:7
+    if vm.stack.current_stack_len() < 1 {
+```
+
+The `StackOps` match that decides where the value comes from is the *next*
+statement (`:10-13`). So for `print.` and `println.` the guard is about a stack
+the word will not read, and the workbench — which it will — is never checked.
+
+Two observable consequences, both confirmed against the oracle:
+
+- a full workbench with an empty current stack is refused with
+  `Stack is too shallow for inline PRINT.`, though the value it was asked to
+  print is right there;
+- a full current stack with an empty workbench passes the guard and fails one
+  line later with `PRINT. returns: NO DATA`, having consumed nothing.
+
+The same shape as F18's fourteen and F72's dead test: a guard that was written
+and does not guard the thing. Here it is not dead, just aimed at the wrong
+stack.
+
+- Found by: implementing the `.` siblings and reading the guard rather than
+  assuming it mirrored `sort.`, which is three files away and does check the
+  side it reads (`.../values/sort_lists.rs:19-20`)
+- Behavioural. Disposition: **PRESERVE.** Both messages are observable and a
+  program can depend on either. Bund2 declares `print.` as `1 -> 0` for the
+  same reason — the stack cell really is required — so `bund2 check` reports the
+  underflow the reference reports rather than the one it ought to.
+
+## F78 — two `.` words pass `FromStack`, so they ignore the workbench their name promises
+
+`if_fun.rs` has four entry points into one base function. Three pass the
+`StackOps` their name implies; the fourth does not:
+
+```rust reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:103
+pub fn stdlib_logic_if_false_in_workbench(vm: &mut VM) -> Result<&mut VM, Error> {
+```
+
+Its body passes `StackOps::FromStack` (`:104`), where
+`stdlib_logic_if_in_workbench` two functions above passes
+`StackOps::FromWorkBench` (`:95-96`). Only the error prefix was changed to
+`"?FALSE."`. So `if.false.in_workbench` — and its alias `?false.`
+(`reference/rust_multistackvm/src/stdlib/create_aliases.rs:16`) — is `?false`
+with a different message: it reads its condition from the current stack, guards
+`current_stack_len() < 2`, and never touches the workbench.
+
+Confirmed against the oracle. `false return { … } ?false.` reports
+`Stack is too shallow for inline ?FALSE.` from `if_fun.rs:16` — the *FromStack*
+guard — with the condition sitting on the workbench where the name said to put
+it. `false { … } ?false.` runs.
+
+**The same slip appears once more**, in the loop family:
+
+```rust reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:115
+pub fn stdlib_logic_loop_over_workbench(vm: &mut VM) -> Result<&mut VM, Error> {
+    stdlib_logic_loop_over_stack_base(vm, StackOps::FromStack, "*LOOP.".to_string())
+```
+
+against `stdlib_logic_loop_over_stack` at `:111-113`, which passes the same
+thing. `*loop` and `*loop.` are therefore the same word twice. Neither is
+implemented in Bund2 yet, so only the `?false.` half is live.
+
+The other six `.` words in this family are correct: `if.in_workbench`,
+`ifthenelse.`, `notifthenelse.`, `loop.`, `map.`, `times.` and `while.` all read
+the side they name.
+
+- Found by: implementing the nine logic `.` variants and diffing each against
+  the oracle — `?false.` was the one case of six that disagreed, and the
+  disagreement pointed at the reference rather than at Bund2
+- Behavioural. Disposition: **PRESERVE.** `crates/bund2-stdlib/src/control.rs`
+  registers `if.false.in_workbench` with `Side::Stack` and `opaque(2)`, and says
+  in the doc comment that the `Side::Stack` is the bug being kept. A program
+  that calls `?false.` today is a program that puts its condition on the stack,
+  because nothing else works.
+
+## F79 — `cargo xtask cite` could not see a citation into `crates/`, so five rotted unnoticed
+
+**This is a defect in Bund2's own tooling, not in the reference.** It is
+recorded here because it is the mechanism by which grounded claims silently
+stop being grounded, and CLAUDE.md makes grounding a requirement rather than a
+courtesy.
+
+`citations_in` matched one prefix:
+
+```rust xtask/src/cite/mod.rs:137
+    let starts_at = |i: usize| {
+```
+
+— and before this fix that closure tested `reference/` alone. A citation into
+`crates/` was read past, whatever it said.
+
+The consequence is worse than a gap, because `crates/` decays *faster* than
+`reference/`. `reference/` is pinned by SHA and cannot move; `crates/` is
+edited every session. **D41 moved `with_tag` by roughly two hundred lines and
+invalidated five citations on the day they were written**, while `cargo xtask
+cite` reported **zero defects over 1782 citations**:
+
+| citation | pointed at | should have been |
+|---|---|---|
+| RFC-0005 §S1 | `crates/bund2-interp/src/lib.rs` — a doc comment | `:147` |
+| RFC-0005 §S1 | `crates/bund2-value/src/lib.rs` — inside `mod tests` | `:2018` |
+| D35 | `crates/bund2-value/src/lib.rs` — a doc comment | `:338` |
+| D35 | `:159` — `q: 100.0` | `:210` |
+| D35 | `:480` — a blank doc line | `:1114` |
+
+Two of those are in **D35, which is RESOLVED and load-bearing** for RFC-0003
+§S3 and RFC-0005 §S3. Two more had been propagated into
+`docs/registers/open-questions.md` and a bench doc comment.
+
+An earlier session widened `ROOTS` so the walk *read* Rust files, and wrote a
+doc comment implying their citations were now checked. They were scanned and
+not extracted — the fix was half of one, and the comment overstated it.
+
+- Found by: an adversarial review of RFC-0005 that opened the citations by hand
+- Tooling. Disposition: **FIXED, in three parts.**
+  1. `CITE_PREFIXES` now lists `reference/`, `crates/`, `xtask/`, `docs/`,
+     `tests/golden/` and `tests/probes/`. A bare `tests/` is deliberately
+     absent: in this repository it is ambiguous, meaning `reference/Bund/tests`
+     by convention, and listing it produced 14 false findings.
+  2. Citations in `docs/research/` are advisory, never fatal. Those documents
+     are immutable and superseded through `ERRATA.md`, so a tool that fails the
+     build on one demands an edit the project forbids — and the reasoning trail
+     is allowed to describe a plan that was not adopted.
+  3. The five citations above are corrected, with a note in D35 recording that
+     only the numbers moved and the claims were re-verified.
+
+**What was still not checked, and now is — Q30, resolved.** Existence and range
+are weak: a line that exists and says something else passes. The advisory
+"quoted token near the cited line" check *did* flag all five — `` `with_tag`
+occurs in the file but not within 3 lines`` — and stayed advisory, so the run
+stayed green.
+
+The fix was not to harden that check. It was to notice the asymmetry underneath
+it: **`reference/` is pinned by SHA and cannot move; `crates/` and `xtask/` are
+edited every session**, so a line number into them decays on every edit above
+it. The window is not months. Two of these citations were repaired for a review
+and went stale the same afternoon, when a 21-line comment was added above
+`with_tag` while fixing an unrelated clippy warning.
+
+So `cite` now **refuses** a `path:line` citation into `crates/` or `xtask/`
+outside a fenced block, and checks instead that a backticked symbol on the line
+appears in the file. That check asks "is it there", not "is it near line N", so
+it has no false-positive mode and is a hard failure. **84 citations were
+converted across 28 files.** The advisory list is now `reference/`-only: 95
+entries, all against a pinned tree.
+
+A fenced exact-match block may still carry `path:line` for live code, because
+that check compares the quoted body against the file and fails loudly when the
+line moves — which is the property Q30 wanted and the proximity heuristic could
+not give.
+
+## F80 — the pinned Cranelift cannot build under the pinned toolchain
+
+**Tooling, in Bund2's own workspace.** Recorded because it makes every
+`jit`-gated acceptance criterion in RFC-0005 unrunnable, including the one the
+whole milestone rests on.
+
+`Cargo.toml` pins Cranelift exactly, on §3.2e's instruction:
+
+```toml Cargo.toml:50
+cranelift-codegen  = "=0.135.0"
+```
+
+and `rust-toolchain.toml` pins the compiler:
+
+```toml rust-toolchain.toml:2
+channel = "1.90.0"
+```
+
+`cranelift-codegen@0.135.0` and six sibling crates declare
+`rust-version = 1.95.0`. So `--features jit` fails before it compiles a line of
+Bund2:
+
+```
+error: rustc 1.94.1 is not supported by the following packages:
+  cranelift-assembler-x64@0.135.0 requires rustc 1.95.0
+```
+
+— on `bund2-jit`, on `bund2-runtime`, and on `bund2-bench`. Nothing gated on
+the feature can be built, run or measured today.
+
+**What this costs RFC-0005.** Criterion 2 is "conformance moves by exactly
+zero — `cargo xtask conform` reads the same N/M with the `jit` feature on and
+off". That cannot be run. Criteria 4, 5, 6, 7, 9, 10, 11 and 12 are equally
+gated. The RFC is not wrong about them; they are simply undecidable until this
+is resolved, which is a fact its status should carry rather than one an
+implementer discovers.
+
+This is exactly the churn §3.2e predicted — *"`cranelift-jit` describes itself
+as 'extremely experimental'. The API has moved across recent versions. Pin
+exact versions; budget for periodic migration work"*. The pin did its job; the
+budgeted migration has not been spent.
+
+- Found by: adding a `jit` feature to `bund2-bench` so RFC-0005's criterion 7
+  could run, and discovering the feature cannot build in any crate
+- Tooling. Disposition: **FIXED — the toolchain pin raised to 1.95.0**, chosen
+  by the repository owner from the three options (raise the toolchain; pin
+  Cranelift back to a release supporting 1.90, which may not exist at a monthly
+  cadence; or split the build matrix). Raising is the only one that does not
+  make Tier 1 a different build from Tier 0.
+
+  Verified on 1.95.0: the whole workspace builds, **276 tests pass**, clippy
+  reports no errors, and conformance is unchanged at 73/86. `--features jit`
+  and `--features aot` now build in `bund2-jit`, `bund2-runtime`, `bund2-cli`
+  and `bund2-bench`, none of which was possible before.
+
+  **RFC-0005 criterion 2 ran for the first time**: `cargo xtask conform` reads
+  **73/86 with the feature on and 73/86 with it off**. It passes, and it is
+  *vacuous today* — the feature gates no code yet, so equality is trivial. It
+  stops being vacuous the day a tier exists, which is the point of having wired
+  it now rather than then.
+
+  One environmental note that is not a repository defect: `RUSTUP_TOOLCHAIN` in
+  this shell overrides `rust-toolchain.toml`, which is why the 1.90.0 pin was
+  not in force and the discrepancy surfaced as a Cranelift error rather than a
+  toolchain one.
+
+**And that half is now guarded.** `xtask/src/toolchain/mod.rs` compares the
+running `rustc` against the pin on every `cargo xtask` invocation and refuses
+on a mismatch, naming `RUSTUP_TOOLCHAIN` when it is the cause:
+
+```
+xtask: toolchain mismatch: rust-toolchain.toml pins 1.95.0, but rustc is 1.94.1.
+...
+RUSTUP_TOOLCHAIN=1.94.1-aarch64-apple-darwin is set in the environment, and it
+overrides rust-toolchain.toml.
+```
+
+A shell build-driver was considered and rejected: it would duplicate
+`rust-toolchain.toml`, need maintaining beside it, and **still lose to the same
+environment variable** unless it unset it — solving the general problem by
+re-implementing rustup and the specific one by accident. The guard sits at the
+entry point every number the project quotes already passes through, which a
+driver does not.
+
+The escape is `BUND2_ALLOW_TOOLCHAIN_MISMATCH=1`, deliberately awkward and
+deliberately present: a guard with no exit becomes a reason to delete the
+guard. A concrete `channel` is compared; `stable`, `beta` and dated nightlies
+are not, because they do not denote one version.
+
+## F81 — `#` discards the result of the `unwrap` it depends on
+
+`stdlib_object_execute_base` runs `unwrap` and then `!`, and throws away the
+outcome of both:
+
+```rust reference/Bund/src/stdlib/functions/oop/object_execute.rs:35-38
+    vm.stack.push(obj_val.clone());
+    let _ = vm.apply(Value::call("unwrap".to_string(), Vec::new()));
+    vm.stack.push(lambda_val.clone());
+    let _ = vm.apply(Value::call("!".to_string(), Vec::new()));
+```
+
+The word has already checked that operand #2 is an OBJECT (`:28-32`), so the
+common failure is excluded. What is not excluded is an OBJECT carrying no
+`.data` anywhere in its `.super` tree: `unwrap` bails
+(`value_class.rs:120-123`), pushes nothing, and `#` continues — the lambda then
+runs against whatever the stack happens to hold, and `#` reports success.
+
+`#` also returns `Ok(vm)` unconditionally, so a failing lambda is invisible too.
+
+**Status:** REPRODUCED. Bund2 spells the same two discards in
+`crates/bund2-stdlib/src/oop.rs`'s `object_execute` rather than propagating,
+because the alternative changes what a program observes. Reachable only for an
+object with no `.data`; no golden reaches it.
+
+## F82 — `wrap`'s guard and two of its errors name `UNWRAP`
+
+Three of the five messages in `stdlib_object_value_wrap` name the other word:
+
+```rust reference/Bund/src/stdlib/functions/oop/value_class.rs:84-93
+    if vm.stack.current_stack_len() < 2 {
+        bail!("Stack is too shallow for inline UNWRAP");
+    }
+    let obj_val = match vm.stack.pull() {
+        Some(obj_val) => if obj_val.type_of() == OBJECT {
+            obj_val
+        } else {
+            bail!("UNWRAP NO OBJECT IN #1");
+        },
+        None => bail!("UNWRAP NO DATA IN #1"),
+```
+
+Only the two later ones say `WRAP` (`:97`, `:102`). A `?try` handler that
+matches on the text cannot tell which word failed, and the depth in the first
+message — 2 — is `wrap`'s, not `unwrap`'s, so the sentence is internally
+inconsistent as well as misattributed.
+
+**Status:** REPRODUCED, in `crates/bund2-stdlib/src/oop.rs`'s `wrap_word`. The
+text is observable through `?try`.
+
+## F83 — three tags are routed to a conversion that refuses them by name
+
+`Value::conv` sends CLASS and OBJECT to `value_map_conversion`:
+
+```rust reference/rust_dynamic/src/conv.rs:729-736
+                MAP | INFO | CONFIG | ASSOCIATION | MESSAGE | CONDITIONAL | CLASS | OBJECT => match &self.data {
+                    Val::Map(m_val) => value_map_conversion(t, self.dt, m_val),
+                    _ => Err(format!("Can not convert MAP Value from {:?}", &self.dt).into()),
+                },
+                VALUEMAP => match &self.data {
+                    Val::ValueMap(m_val) => true_value_map_conversion(t, self.dt, m_val),
+                    _ => Err(format!("Can not convert VALUEMAP Value from {:?}", &self.dt).into()),
+                },
+```
+
+and both destinations then reject the tag they were sent, because neither guard
+lists it:
+
+```rust reference/rust_dynamic/src/conv.rs:595
+    if ot != MAP && ot != ASSOCIATION && ot != INFO && ot != CONFIG && ot != MESSAGE && ot != CONDITIONAL {
+```
+
+(`true_value_map_conversion`'s guard at `:518` is the same list, and likewise
+omits VALUEMAP.) So `valuemap convert.to_int`, `class convert.to_int` and an
+OBJECT equivalent all fail with `Source value is not MAP but 30 and not
+suitable for conversion` — a complaint about the dispatcher's own routing,
+naming a type the program never mentioned.
+
+The dispatcher and the guards disagree about which tags `value_map_conversion`
+handles; one of the two lists is wrong, and the arms are unreachable either way.
+
+**Status:** REPRODUCED in `crates/bund2-stdlib/src/convert.rs`'s `conv_value`,
+which returns the same sentence for the same three tags. Observable through
+`?try`.
+
+## F84 — Bund2's Tier 0 `autoadd` is not the reference's
+
+**A Bund2 defect, dormant.** Recorded because RFC-0005 criterion 18 needs an
+oracle for `autoadd`, and Tier 0 is not one.
+
+The reference consults `autoadd` in three places. A CALL is appended *into*
+the value beneath it, leaving one value:
+
+```rust reference/rust_multistackvm/src/multistackvm_apply.rs:19-22
+                            if self.autoadd {
+                                match self.stack.pull() {
+                                    Some(mut val) => {
+                                        self.stack.push(val.push(value));
+```
+
+A CONTEXT value is pushed instead of switching stacks (`:72-73`), and **every
+other value, literals included**, is appended to the value beneath (`:89-97`).
+
+Bund2 differs on all three:
+
+- `Interp::dispatch`'s `autoadd` arm pulls the value beneath, pushes it back,
+  and pushes the CALL **as a separate value** — two values where the
+  reference leaves one (`crates/bund2-interp/src/lib.rs`, `dispatch`).
+- Literals and CONTEXT values are not collected at all. `Interp::apply`'s doc
+  comment says so: "`autoadd` is not implemented, so the branches at `:19` and
+  `:89` are absent."
+- The unit test `autoadd_appends_the_name_instead_of_running_it` asserts the
+  two-value shape ("the value is left beneath"), so it pins the divergence
+  rather than catching it.
+
+**Not observable today**: nothing in Bund2 binds `:` or `;`, which are what set
+and clear the flag (`reference/rust_multistackvm/src/stdlib/autoadd.rs:28-29`).
+
+**Status:** OPEN. To be fixed when `:` and `;` are bound — the collecting
+append needs `Value::push`'s semantics for every kind of receiver — and the
+test rewritten then to assert the reference's shape. Found by RFC-0005's sixth
+review (S1).
