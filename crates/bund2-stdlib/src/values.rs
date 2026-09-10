@@ -510,7 +510,10 @@ pub fn register_words(r: &mut Registry) {
     // the LAMBDA arm runs a body, the OBJECT arm dispatches a method. It is
     // also one of the five most-used words in the corpus, spelled `!`.
     r.register_native("execute", execute_top, StackEffect::opaque(1), WordKind::Sync);
-    r.register_native("execute.", execute_from_workbench, eff(1, 0), WordKind::Sync);
+    // F87: opaque, as `execute` is — it reaches the same `execute_value`, so
+    // it runs whatever it is handed. And it consumes nothing from the main
+    // stack: the receiver comes off the workbench.
+    r.register_native("execute.", execute_from_workbench, StackEffect::opaque(0), WordKind::Sync);
 
     // The reference's alias table, for the words above
     // (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:5,21,28,29,40,41`

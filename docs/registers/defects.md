@@ -2811,3 +2811,31 @@ review to 51, with no document changed. The test is
 as long as another number in the same list is corroborated. That was already
 true of `crates/` citations, and a check that flagged every list with any
 unrelated number was producing noise, not findings.
+
+## F87 — `execute.` declares a fixed effect and runs arbitrary code
+
+**A Bund2 defect in a declared effect**, RFC-0004's annotation, found by
+RFC-0005's eighth review (B2).
+
+`execute` is registered `StackEffect::opaque(1)`, and `execute.` was
+registered `eff(1, 0)`. Both reach `execute_value`
+(`crates/bund2-stdlib/src/values.rs`). It runs a name through `vm.apply`, a
+lambda through `vm.tail_lambda`, and re-enters itself for a LIST or a MAP. So
+`execute.` ran arbitrary code while declaring that it consumed one value and
+produced none, and `:!. ?effect` printed `opaque=false`. The `consumes=1` was
+wrong on its own terms too: `execute_from_workbench` pulls its receiver from
+the workbench, and `execute_from_the_workbench_works_on_an_empty_stack`
+asserts that the main stack may be empty.
+
+**Why it matters.** `bund2 check` tracked stack depth straight across `!.`,
+and RFC-0005 §S5 promotes across any call with a fixed effect, so values held
+in registers would have been invisible to whatever `!.` ran. The probes call
+it (`tests/probes/remaining-vocabulary.bund:52` and `:55`).
+
+**Status:** FIXED 2026-09-10. `execute.` is `StackEffect::opaque(0)`: opaque,
+and consuming nothing from the main stack. `no_fixed_effect_native_runs_a_body`
+(`crates/bund2-stdlib/src/lib.rs`) runs every native with a fixed effect
+against a stack and a workbench of lambdas, and asserts through `entry_log`
+that none starts a body. Before the fix it named `execute.` and nothing else,
+which agrees with the review's hand audit of the sixteen functions that
+re-enter evaluation. Conformance is 79/86, ceiling 79/86, before and after.
