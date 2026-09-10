@@ -220,7 +220,7 @@ fn run_through(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
 fn run_ifthenelse(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
     let (if_l, then_l, else_l) = (slot_body(&c, "if"), slot_body(&c, "then"), slot_body(&c, "else"));
     vm.eval_lambda(&if_l)
-        .map_err(|e| Error(format!("IFTHENELSE IF lambda returns: {}", e.0)))?;
+        .map_err(|e| e.context("IFTHENELSE IF lambda returns: "))?;
     let cond_val = vm
         .pull()
         .ok_or_else(|| Error("IFTHENELSE conditional require condition on the stack".into()))?;
@@ -228,10 +228,10 @@ fn run_ifthenelse(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
         .ok_or_else(|| Error("IFTHENELSE error casting conditional".into()))?;
     if cond {
         vm.eval_lambda(&then_l)
-            .map_err(|e| Error(format!("IFTHENELSE THEN lambda returns: {}", e.0)))
+            .map_err(|e| e.context("IFTHENELSE THEN lambda returns: "))
     } else {
         vm.eval_lambda(&else_l)
-            .map_err(|e| Error(format!("IFTHENELSE ELSE lambda returns: {}", e.0)))
+            .map_err(|e| e.context("IFTHENELSE ELSE lambda returns: "))
     }
 }
 
@@ -256,9 +256,9 @@ fn run_tryexcept(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
             .set("context", BundValue::str(e.0));
         vm.push(err_c);
         vm.eval_lambda(&except_l)
-            .map_err(|e| Error(format!("TRYEXCEPT EXCEPT lambda returns: {}", e.0)))?;
+            .map_err(|e| e.context("TRYEXCEPT EXCEPT lambda returns: "))?;
         vm.eval_lambda(&recovery_l)
-            .map_err(|e| Error(format!("TRYEXCEPT RECOVERY lambda returns: {}", e.0)))?;
+            .map_err(|e| e.context("TRYEXCEPT RECOVERY lambda returns: "))?;
     }
     Ok(())
 }
@@ -277,7 +277,7 @@ fn run_error(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
     vm.report(bund2_api::diag::Diagnostic::notice(msg));
     let associated = slot_body(&c, "associated");
     vm.eval_lambda(&associated)
-        .map_err(|e| Error(format!("ERROR ASSOCIATED lambda returns: {}", e.0)))
+        .map_err(|e| e.context("ERROR ASSOCIATED lambda returns: "))
 }
 
 /// `context` — run `<n>.pre`, `<n>`, `<n>.post` on a named stack, then come
@@ -313,7 +313,7 @@ fn run_context(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
     all.extend(post);
     let _ = prev;
     vm.scoped_call(&cond_name, all)
-        .map_err(|e| Error(format!("CONTEXT lambda returns: {}", e.0)))
+        .map_err(|e| e.context("CONTEXT lambda returns: "))
 }
 
 /// `curry` — **code generation**. Build a lambda of the captured data, the

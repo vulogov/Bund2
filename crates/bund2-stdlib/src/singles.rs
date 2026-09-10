@@ -40,7 +40,7 @@ fn conditional_move(vm: &mut dyn Vm, to_stack: bool, prefix: &str) -> Result<(),
     }
     let body = lambda_val.clone();
     vm.eval_lambda(&body)
-        .map_err(|e| Error(format!("{prefix} lambda returns: {}", e.0)))?;
+        .map_err(|e| e.context(format!("{prefix} lambda returns: ")))?;
 
     let outcome = vm
         .pull()
@@ -568,7 +568,7 @@ fn display(vm: &mut dyn Vm) -> Result<(), Error> {
             let run = vm
                 .conditional("fmt")
                 .ok_or_else(|| Error("DISPLAY: conditional returns error: no fmt".into()))?;
-            run(vm, v).map_err(|e| Error(format!("DISPLAY: conditional returns error: {}", e.0)))?;
+            run(vm, v).map_err(|e| e.context("DISPLAY: conditional returns error: "))?;
             let out = vm
                 .pull()
                 .ok_or_else(|| Error("DISPLAY: No value discovered on the stack".into()))?;

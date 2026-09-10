@@ -20,7 +20,39 @@ use std::process::ExitCode;
 use bund2_api::Vm;
 use bund2_interp::Interp;
 
+/// The evaluation thread's stack: Tier 0's share, sized to the main-thread
+/// stack Bund2 ran on before (8 MiB), plus the reserve beneath the floor.
+/// RFC-0005 §S8; Tier 1's share is added when the tier exists.
+const EVAL_STACK: usize = 8 * 1024 * 1024 + bund2_interp::STACK_RESERVE;
+
+/// **Run everything on a thread whose stack Bund2 chose — RFC-0005 §S8, F85.**
+///
+/// The main thread's stack is the operating system's to size, so Bund2 cannot
+/// know where it ends. A thread it spawns, it can: the size is the one it asked
+/// for, and the top is where the thread's entry function starts. From those
+/// two numbers every `Interp` on the thread takes a floor, and recursion that
+/// reaches it is reported as a Bund-level error instead of aborting the
+/// process. Output, input and the exit code all pass straight through.
 fn main() -> ExitCode {
+    let spawned = std::thread::Builder::new()
+        .name("bund2".into())
+        .stack_size(EVAL_STACK)
+        .spawn(|| {
+            bund2_interp::set_stack_region(bund2_interp::stack_marker(), EVAL_STACK);
+            run_cli()
+        });
+    match spawned {
+        // A panic is not a path this program has (D37); if one ever reached
+        // here, failing is the only honest exit code.
+        Ok(handle) => handle.join().unwrap_or(ExitCode::FAILURE),
+        Err(e) => {
+            eprintln!("bund2: could not start the evaluation thread: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_cli() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     // `bund2 words` — every name a program can call, one per line.
     //

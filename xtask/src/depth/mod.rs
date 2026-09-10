@@ -170,6 +170,20 @@ fn call_program(n: usize) -> String {
     )
 }
 
+/// A word that calls itself **through `times`**, `n` levels deep — F85's
+/// shape.
+///
+/// Direct recursion (`call`) runs on RFC-0003's heap frames; this does not.
+/// `times` runs its body synchronously, so every level spends Rust stack, and
+/// until RFC-0005 §S8's Tier 0 floor it aborted the process. The floor turns
+/// that into a Bund-level error, which is a pass here; an abort is not.
+fn loop_program(n: usize) -> String {
+    format!(
+        ":Down {{ 1 swap - dup 0 != {{ 1 {{ drop Down }} times }} ?true }} register\n{n} Down\n",
+        n = n
+    )
+}
+
 /// `n` nested lambdas. Overflows the *parser*, not the evaluator.
 fn nesting_program(n: usize) -> String {
     let mut s = String::with_capacity(n * 4 + 8);
@@ -266,6 +280,12 @@ pub fn run_cmd(args: &[String]) -> Result<(), String> {
             depth.min(10_000),
             class_program(depth.min(10_000)),
             "a class chain — RFC-0009 §S3",
+        ),
+        (
+            "loop",
+            depth,
+            loop_program(depth),
+            "a word that calls itself through `times` — F85, RFC-0005 §S8's floor",
         ),
     ];
 

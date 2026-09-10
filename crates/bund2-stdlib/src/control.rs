@@ -221,7 +221,7 @@ fn while_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
             return Ok(());
         }
         vm.eval_lambda(&body)
-            .map_err(|e| Error(format!("WHILE: lambda execution returns error: {}", e.0)))?;
+            .map_err(|e| e.context("WHILE: lambda execution returns error: "))?;
     }
 }
 

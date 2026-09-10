@@ -2770,8 +2770,19 @@ native that runs a body synchronously — `loop`, `map`, `while`, the
 conditionals, `?try`, the method paths — spends a Rust frame per level the same
 way.
 
-**Status:** OPEN. RFC-0005 §S8's stack floor is the proposed fix: Tier 0 checks
-its remaining headroom wherever a native re-enters evaluation, and below the
-floor it reports a Bund-level error instead of aborting. That changes no golden
-that exists, and none could have captured the abort — its text carries a thread
-id, which a capture cannot reproduce.
+**Status:** FIXED in Tier 0, 2026-09-10 — RFC-0005 §S8's Tier 0 floor.
+`bund2` runs evaluation on a thread it spawns with an 8 MiB stack plus a
+256 KiB reserve (`EVAL_STACK`, `crates/bund2-cli/src/main.rs`), and declares
+that stack's top and size. `Vm::eval_lambda`, `Vm::apply` and
+`Vm::scoped_call` compare the address of a local against the floor and, below
+it, refuse with `Error::stack_exhausted` (`crates/bund2-interp/src/lib.rs`).
+Every body-error wrapper passes that error through unchanged
+(`Error::context`, `crates/bund2-api/src/lib.rs`), so it is reported once
+rather than re-wrapped at every level on the way out.
+
+The program above now reports `machine stack exhausted: …` instead of
+aborting. `cargo xtask depth`'s new `loop` axis — 100,000 levels through
+`times` — reports a Bund-level error where it used to abort. The reference
+still aborts, so this is now a divergence in Bund2's favour, required by D37.
+No golden captures either side: the abort's text carries a thread id, which a
+capture cannot reproduce.

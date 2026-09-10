@@ -1279,10 +1279,11 @@ recursion continues on the heap. That recovers RFC-0003's guarantee, and it
 never needs OSR.
 
 **Embedders.** A program that runs `Interp` on a thread Bund2 did not spawn
-declares that thread's stack size through an `Interp` setting. If it does not,
-Bund2 assumes Rust's documented default for a spawned thread, 2 MiB, and gives
-Tier 1 no share — so compiled code simply does not run there, and Tier 0 keeps
-its floor.
+declares that thread's stack with `bund2_interp::set_stack_region` before
+building the `Interp`. If it does not, the `Interp` assumes 1 MiB below the
+point where it was built — half of Rust's documented 2 MiB default for a
+spawned thread, since a constructor is rarely at the very top — and Tier 1 gets
+no share there, so compiled code simply does not run on that thread.
 
 **What it costs.** Tier 1 pays a stack-pointer read, a load and a compare per
 compiled body entry, under criterion 11's 2 ns bound. Tier 0 pays an address, a
@@ -1303,8 +1304,14 @@ The Tier 0 floor is its fix. `Vm::eval_lambda`, `Vm::apply` and
 return a Bund-level error — reported through `Vm::report` like any other, and
 catchable by `?try` — that names the cause: recursion through `times`, `loop`,
 `map`, a conditional or a method runs on the machine stack, and recursing
-directly runs on the heap instead. **This half does not depend on Tier 1**, and
-could land before this RFC is accepted.
+directly runs on the heap instead. **This half does not depend on Tier 1, and
+it landed on 2026-09-10**, ahead of this RFC's acceptance. `bund2` spawns its
+evaluation thread at 8 MiB plus the 256 KiB reserve, every `Interp::new` takes
+its floor from the declared region, and `Error::context` passes the exhaustion
+through each body wrapper unchanged, so it is reported once rather than
+re-wrapped at every level. `cargo xtask depth`'s new `loop` axis now reports
+instead of aborting. Tier 1's share of the stack, and its floor, arrive with
+the tier.
 
 # S9. Tier pinning
 
@@ -1374,7 +1381,7 @@ disagrees with interpreted code", and each has a named guard:
 | a **type** specialisation taking a path the interpreter would not | guard-and-branch, generic counterpart in the same function (§S5) |
 | a compiled call running under `autoadd`, where the reference would collect the name instead | entry guard on the flag, and a per-site check at every inlined fragment; `:` and `;` are opaque sites (§S4, §S6); criterion 18 |
 | **a promoted recursion overflowing the machine stack where Tier 0 runs it on the heap** | a stack floor Bund2 measures on a thread it spawns, compared against `get_stack_pointer` at every compiled body's entry; below it the body declines along the path an interpreted body takes (§S8); `cargo xtask depth` at 100,000 with the feature on, criterion 11 |
-| **native-mediated recursion overflowing the machine stack in Tier 0 itself** — through `times`, `loop`, `map`, a conditional, `?try` or a method — which aborts today (F85) | the Tier 0 floor, checked wherever a native re-enters evaluation; below it a Bund-level error, never an abort (§S8); criterion 11 |
+| **native-mediated recursion overflowing the machine stack in Tier 0 itself** — through `times`, `loop`, `map`, a conditional, `?try` or a method — which aborted until 2026-09-10 (F85) | the Tier 0 floor, built, and checked wherever a native re-enters evaluation; below it a Bund-level error, never an abort (§S8); criterion 11's `loop` axis |
 | the tier taking stack that Tier 0's native nesting would have had | two floors: the tier's share sits above Tier 0's, and the thread is sized so Tier 0's share equals today's main-thread stack; criterion 11 checks the Tier 0 floor fires at the same depth with the feature on and off |
 | a value synced back from a `Variable` losing its D41 stack symbol, so a golden renders `tags: {}` | the sync writes through the same path `Stack::push` uses, not a bare `push_back` (§S5); criterion 12 |
 | a slot naming a spelling rather than the resolved target, when `i` resolves aliases twice | slots key on the resolved name (§S4), **except for `$`**, which is resolved one level shallower and keys on that one-level answer (§S4, *The chain*) |
@@ -1674,9 +1681,9 @@ evidence, and this one is listed as runnable rather than as met.
     It also runs a recursion **through a loop word** — a body that calls itself
     from inside `times` — because `eval_lambda` spends a Rust frame per nesting
     (§S8, *The guard*), and the self-recursive word alone never exercises that.
-    That axis must **report, not abort**, in both builds. **Today it aborts in
-    both** — F85 — so it fails until §S8's Tier 0 floor lands, and it is added
-    to `cargo xtask depth` together with that fix, not before. It also reports
+    That axis must **report, not abort**, in both builds. It aborted in both
+    until §S8's Tier 0 floor landed (F85). `cargo xtask depth`'s `loop` axis
+    now runs it at 100,000 levels and reports a Bund-level error. It also reports
     the depth at which Tier 0's floor fires, and **that depth must be the same
     with the feature on and off**: the tier's share of the stack sits above
     Tier 0's, never inside it (§S8, *How the guard reads the stack*).

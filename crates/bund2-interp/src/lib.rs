@@ -317,6 +317,54 @@ impl Stacks {
     }
 }
 
+// --- the machine-stack floor: RFC-0005 §S8, F85 ------------------------------
+
+thread_local! {
+    /// The machine stack this thread runs on, if whoever started the thread
+    /// said so: `(top, size)` in bytes. `bund2`'s evaluation thread declares
+    /// it; a thread that has not is treated conservatively (see
+    /// [`ASSUMED_BUDGET`]).
+    static STACK_REGION: std::cell::Cell<Option<(usize, usize)>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Bytes kept below the Tier 0 floor, for the frames between one check and
+/// the next. Reporting the error needs none of it: by the time it is
+/// reported, the stack has unwound.
+pub const STACK_RESERVE: usize = 256 * 1024;
+
+/// How far below its construction point an `Interp` assumes it may recurse,
+/// on a thread whose stack nobody declared: half of Rust's default for a
+/// spawned thread, 2 MiB, because the constructor is rarely at the very top.
+const ASSUMED_BUDGET: usize = 1024 * 1024;
+
+/// Declare the stack this thread runs on — its top, as [`stack_marker`] read
+/// in the thread's entry function, and its size in bytes. Every `Interp` built
+/// on this thread afterwards takes its floor from it. RFC-0005 §S8.
+pub fn set_stack_region(top: usize, size: usize) {
+    STACK_REGION.with(|r| r.set(Some((top, size))));
+}
+
+/// The address of a local in this call's frame, as an integer: the stack
+/// pointer, near enough, taken in safe Rust. Nothing ever dereferences it.
+/// Stacks grow downward on every target Bund2 builds for, so a smaller value
+/// is deeper.
+#[inline(never)]
+pub fn stack_marker() -> usize {
+    let marker = 0u8;
+    std::ptr::addr_of!(marker) as usize
+}
+
+/// The Tier 0 floor for an `Interp` built on the current thread.
+fn tier0_floor() -> usize {
+    match STACK_REGION.with(std::cell::Cell::get) {
+        Some((top, size)) => top.saturating_sub(size).saturating_add(STACK_RESERVE),
+        None => stack_marker()
+            .saturating_sub(ASSUMED_BUDGET)
+            .saturating_add(STACK_RESERVE),
+    }
+}
+
 /// The items a frame's body value carries: a LAMBDA's body, or a LIST's
 /// elements for a body assembled at run time (`scoped_call`'s).
 fn frame_items(v: &BundValue) -> Option<&[BundValue]> {
@@ -369,6 +417,11 @@ pub struct Interp {
     /// every frame pushed for a body records that body's `payload_key`, which
     /// is how a test shows one key reaching every iteration of a loop (D42).
     pub entry_log: Option<Vec<usize>>,
+    /// **The Tier 0 floor — RFC-0005 §S8, F85.** The lowest stack address at
+    /// which a native may still re-enter evaluation. Below it,
+    /// `Vm::eval_lambda`, `Vm::apply` and `Vm::scoped_call` refuse with
+    /// [`Error::stack_exhausted`] instead of nesting until the process aborts.
+    stack_floor: usize,
     pub registry: Registry,
     pub stacks: Stacks,
     /// `apply` tests this in three places, and it does **not** precede the
@@ -395,7 +448,13 @@ impl Interp {
             frames: Vec::new(),
             pending_tail: None,
             entry_log: None,
+            stack_floor: tier0_floor(),
         }
+    }
+
+    /// Is there room above the Tier 0 floor to re-enter evaluation?
+    fn stack_ok(&self) -> bool {
+        stack_marker() > self.stack_floor
     }
 
     /// Dispatch a call.
@@ -527,6 +586,10 @@ impl Interp {
     /// request for the loop to fulfil — that is the difference between one Rust
     /// frame per Bund call and none.
     pub fn apply(&mut self, v: BundValue) -> Result<(), Error> {
+        // A native re-entering evaluation spends Rust stack (RFC-0005 §S8).
+        if !self.stack_ok() {
+            return Err(Error::stack_exhausted());
+        }
         let floor = self.frames.len();
         self.apply_step(v)?;
         self.take_pending();
@@ -886,6 +949,9 @@ impl Vm for Interp {
     }
 
     fn scoped_call(&mut self, stack: &str, body: Vec<BundValue>) -> Result<(), Error> {
+        if !self.stack_ok() {
+            return Err(Error::stack_exhausted());
+        }
         let prev = self.current_name();
         let floor = self.frames.len();
         self.to_stack(stack);
@@ -903,10 +969,16 @@ impl Vm for Interp {
                 "eval_lambda was handed a value that carries no body; every caller checks the LAMBDA tag first",
             ));
         }
+        // **F85's fix.** Every native that runs a body synchronously comes
+        // through here, and each such level spends Rust stack. Below the floor,
+        // refuse rather than nest until the process aborts (RFC-0005 §S8).
+        if !self.stack_ok() {
+            return Err(Error::stack_exhausted());
+        }
         let floor = self.frames.len();
         self.push_frame(lambda.clone(), None);
         self.run_to(floor)
-            .map_err(|e| Error(format!("Lambda content evaluation returned error: {}", e.0)))
+            .map_err(|e| e.context("Lambda content evaluation returned error: "))
     }
 
     fn register_lambda(&mut self, name: &str, body: BundValue) {
@@ -1152,6 +1224,31 @@ mod tests {
 
     /// Under `autoadd` a non-command name is appended to the value beneath
     /// rather than executed (`apply.rs:20-27`).
+    /// **RFC-0005 §S8's Tier 0 floor, driven directly.** With the floor set
+    /// above the current stack pointer, re-entering evaluation is refused with
+    /// the stack-exhausted error — and nothing runs.
+    #[test]
+    fn below_the_floor_evaluation_is_refused_not_attempted() {
+        let here = stack_marker();
+        // floor = top - size + reserve = here + 4 * reserve, above us.
+        set_stack_region(here + 4 * STACK_RESERVE, STACK_RESERVE);
+        let mut i = Interp::new();
+        STACK_REGION.with(|r| r.set(None));
+        let body = BundValue::lambda(vec![BundValue::int(1)]);
+        let e = Vm::eval_lambda(&mut i, &body).expect_err("refused below the floor");
+        assert!(e.is_stack_exhausted(), "{}", e.0);
+        assert_eq!(i.depth(), 0, "nothing ran");
+    }
+
+    /// A declared region puts the floor `size - reserve` below its top.
+    #[test]
+    fn a_declared_region_sets_the_floor() {
+        set_stack_region(10 * 1024 * 1024, 8 * 1024 * 1024);
+        let i = Interp::new();
+        STACK_REGION.with(|r| r.set(None));
+        assert_eq!(i.stack_floor, 2 * 1024 * 1024 + STACK_RESERVE);
+    }
+
     #[test]
     fn autoadd_appends_the_name_instead_of_running_it() {
         let (mut i, s) = with_native("w");

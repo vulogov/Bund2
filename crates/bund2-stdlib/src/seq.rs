@@ -119,7 +119,7 @@ fn times_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     for v in 0..n {
         vm.push(BundValue::int(v));
         vm.eval_lambda(&body)
-            .map_err(|e| Error(format!("TIMES: lambda execution returns error: {}", e.0)))?;
+            .map_err(|e| e.context("TIMES: lambda execution returns error: "))?;
     }
     Ok(())
 }
@@ -179,7 +179,7 @@ fn loop_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     for v in items {
         vm.push(v);
         vm.eval_lambda(&body)
-            .map_err(|e| Error(format!("LOOP: lambda execution returns error: {}", e.0)))?;
+            .map_err(|e| e.context("LOOP: lambda execution returns error: "))?;
     }
     Ok(())
 }
@@ -241,7 +241,7 @@ fn map_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     for v in items {
         vm.push(v);
         vm.eval_lambda(&body)
-            .map_err(|e| Error(format!("MAP: lambda execution returns error: {}", e.0)))?;
+            .map_err(|e| e.context("MAP: lambda execution returns error: "))?;
         let outcome = vm
             .pull()
             .ok_or_else(|| Error("MAP can not obtain MAP outcome from stack".into()))?;
@@ -435,5 +435,34 @@ mod entry_key_tests {
         let log = entries(":f { 1 drop } register f f");
         assert_eq!(log.len(), 2);
         assert_eq!(log.first(), log.get(1));
+    }
+}
+
+#[cfg(test)]
+mod stack_floor_tests {
+    use bund2_interp::Interp;
+
+    /// **F85, fixed.** Recursion through `times` spends a Rust frame per
+    /// level and used to abort the process on the machine stack, as the
+    /// reference still does. It now reports a Bund-level error — and the error
+    /// was not re-wrapped at every level on the way out, or it would be
+    /// megabytes long.
+    #[test]
+    fn recursion_through_times_reports_instead_of_aborting() {
+        let mut i = Interp::new();
+        crate::register_all(&mut i.registry);
+        let stream =
+            bund2_syntax::compile(":f { 1 { drop f } times } register f").expect("compiles");
+        let e = i.eval(&stream).expect_err("must report, not abort");
+        assert!(
+            e.0.contains("machine stack exhausted"),
+            "{}",
+            &e.0[..e.0.len().min(300)]
+        );
+        assert!(
+            e.0.len() < 4096,
+            "the error was re-wrapped at every level: {} bytes",
+            e.0.len()
+        );
     }
 }

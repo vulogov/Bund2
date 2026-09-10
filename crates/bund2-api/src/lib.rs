@@ -277,7 +277,51 @@ impl Error {
     pub fn is_internal(&self) -> bool {
         self.0.starts_with("internal error: ")
     }
+
+    /// **The machine stack is nearly exhausted** — RFC-0005 §S8's Tier 0
+    /// floor, and F85's fix.
+    ///
+    /// A native that runs a body synchronously spends a Rust frame per level,
+    /// so recursion through one is bounded by the machine stack rather than by
+    /// the heap RFC-0003's frame loop gives direct recursion. Below the floor
+    /// evaluation is refused with this, instead of nesting until the process
+    /// aborts. It is a Bund-level error: reported like any other, and
+    /// catchable by `?try`.
+    pub fn stack_exhausted() -> Self {
+        Error(format!(
+            "{STACK_EXHAUSTED}recursion through a word that runs a lambda — `times`, `loop`, \
+             `map`, `while`, a conditional, `?try` or a method — spends machine stack at \
+             every level, and this recursion ran out of it. A word that calls itself \
+             directly runs on the heap instead and has no such limit."
+        ))
+    }
+
+    /// Whether this is [`Error::stack_exhausted`].
+    pub fn is_stack_exhausted(&self) -> bool {
+        self.0.starts_with(STACK_EXHAUSTED)
+    }
+
+    /// Prefix this error with the word that ran the failing body, as a native
+    /// reporting a failure inside its lambda does — **except a stack
+    /// exhaustion, which passes through unchanged.**
+    ///
+    /// That exception is not cosmetic. The exhaustion is raised thousands of
+    /// levels deep and returns through every one of them; if each level
+    /// prefixed it, the message would grow by a line per level and be copied
+    /// in full at each, which is quadratic in the depth — megabytes of text and
+    /// seconds of copying to report that the stack ran out.
+    pub fn context(self, prefix: impl std::fmt::Display) -> Self {
+        if self.is_stack_exhausted() {
+            self
+        } else {
+            Error(format!("{prefix}{}", self.0))
+        }
+    }
 }
+
+/// The prefix that identifies [`Error::stack_exhausted`], as `internal error: `
+/// identifies [`Error::internal`].
+const STACK_EXHAUSTED: &str = "machine stack exhausted: ";
 
 /// How a native word may block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

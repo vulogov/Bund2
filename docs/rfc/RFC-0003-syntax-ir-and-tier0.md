@@ -4,7 +4,8 @@
   §S3 written while D35 was open are superseded by its resolution; see the
   amendment at the end and the marker above each. A second amendment the same
   day puts S4's frame on the body's value (D42) and the cache's reference on a
-  `Weak` (D35 as amended). All seven criteria re-run at acceptance and
+  `Weak` (D35 as amended), and a third puts a floor under native-mediated
+  nesting (F85). All seven criteria re-run at acceptance and
   each has *grown* rather than merely held: parse-reach is **82/82** where the
   criterion pinned 69, `cargo xtask parity` is **51/51** where it was 47, and
   `cargo xtask depth` still completes all three axes — call at 100,000, nesting
@@ -1034,3 +1035,25 @@ unaffected in kind: the loop is still flat, and only what a frame holds
 changed. Nothing a program does changes.
 
 - Amended by: repository owner, 2026-09-10, on Q36 and Q32
+
+## Amendment, 2026-09-10 (third) — a floor under native-mediated nesting (F85)
+
+S4 bounds Bund call depth by the heap for **direct** calls, and its
+criterion 2 measures exactly that. A native that runs a body synchronously —
+`times`, `loop`, `map`, `while`, the conditionals, `?try`, the method paths —
+still spends a Rust frame per level, and recursion through one aborted the
+process on the machine stack (F85), as the reference's does. That is a fourth
+depth axis, and S4 did not name it.
+
+It is now bounded. `bund2` runs evaluation on a thread whose stack it sizes,
+and every `Interp` on that thread takes a floor from it. `Vm::eval_lambda`,
+`Vm::apply` and `Vm::scoped_call` refuse below the floor with a Bund-level
+error instead of nesting further. The mechanism is RFC-0005 §S8's Tier 0
+floor, which needs no JIT. `cargo xtask depth` runs the new axis at 100,000
+levels through `times`, and it reports the error.
+
+Direct recursion is unaffected, and so is criterion 2. The only change a
+program can see is that this recursion now fails the way a Bund program is
+allowed to fail — with a diagnostic — instead of killing the process.
+
+- Amended by: repository owner, 2026-09-10, on F85
