@@ -1,0 +1,41 @@
+# golden for tests/probes/aliases-and-suffixes.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: arithmetic aliases resolve to their targets
+3
+probe: the workbench suffixes cross two stacks
+5
+7
+12
+4
+probe: lambda aliases build a LAMBDA, they do not test for one
+Lambda
+Lambda
+probe: nodata aliases
+NODATA
+NODATA
+probe: ?true and ?false are if and if.false
+then ran
+else ran
+probe: ifthenelse spelled in full
+true
+probe: the reflection predicates
+true
+true
+probe: type and type.of
+String
+2
+probe: cdr and the distance aliases
+[ 2 ::  3 :: ]
+3
+2
+probe: sysinfo.version resolves as a word
+true
+╭╮
+╰╯
+╭╮
+╰╯

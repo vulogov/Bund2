@@ -1,0 +1,54 @@
+//
+// PROBE: named stacks — switching, and moving between them.
+//
+// Bund is multi-stack, and the words here split into two families that are
+// easy to confuse because their names do not distinguish them:
+//
+//   - **switching**: `to_stack` and `to_current` rotate the stack deque until
+//     the named stack is at the back, and the back *is* the current stack
+//     (reference/rust_multistack/src/ts_current.rs:7,
+//     ts_to_current.rs:6-43). No value moves. They differ only in the missing
+//     case: `to_stack` creates the stack, `to_current` fails.
+//   - **moving**: `move` drains the current stack into a named one, and
+//     `move_from` drains one named stack into another
+//     (ts_move.rs:17-31, :55-70). Both are loops — they move *everything*, not
+//     one value.
+//
+// `move_to_current` in the same file looks like a third, but **no word
+// registers it**. Reading it and assuming `to_current` was its caller is how
+// Bund2 came to have `to_current` and `to_stack` doing the same thing, which
+// is what Q21 was opened for.
+//
+// **`move` is called on stacks that already exist, deliberately.** Moving into
+// a stack that does not exist yet hangs the reference forever — F70 — because
+// creating a stack makes it current and the drain then feeds itself. Bund2
+// terminates, so the two cannot be compared there and this probe does not try.
+//
+:a ensure_stack
+:b ensure_stack
+"probe: to_stack and to_current switch, they do not move" println
+@a
+1 2 3
+@main
+:a to_current
+current println
+@main
+current println
+
+"probe: move drains the current stack into a named one" println
+@main
+4 5 6
+:b move
+@b
+"b:" println
+debug.display_stack
+
+"probe: move_from drains one named stack into another" println
+@main
+:b :a move_from
+@b
+"b after draining a into it:" println
+debug.display_stack
+@a
+"a is now empty:" println
+debug.display_stack

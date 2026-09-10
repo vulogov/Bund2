@@ -1,0 +1,103 @@
+// The `.` siblings — and the four different contracts hiding behind one suffix.
+//
+// `cargo xtask coverage` calls these "one mechanical paired test per base".
+// They are not mechanical. Reading each family's own source turned up four
+// distinct shapes, and a word written from its neighbour lands on the wrong
+// one (F73):
+//
+//   operand 1    operand 2    result       family
+//   ---------    ---------    ------       ------
+//   workbench    stack        workbench    string.distance.   (D24's contract)
+//   workbench    stack        stack        string.prefix.
+//   workbench    workbench    workbench    head. tail. at.
+//   workbench    (stack, n×)  workbench    pull.
+//
+// So every line below is written from the file that defines it, and the `take`
+// after a word is present exactly when that family answers on the workbench.
+//
+// Not captured here:
+//   pull. with more than one key — a multi-key MAP prints in an
+//   unreproducible order (F76), so the stanza uses a single name.
+
+// --- car. / cdr.: one workbench operand, answer on the workbench ---
+[ 1 2 3 ] return car. take println
+[ 1 2 3 ] return cdr. take println
+[ "a" "b" ] return car. take println
+
+// --- head. / tail. / at.: BOTH operands off the workbench ---
+// The count goes on the workbench first, so it is underneath the list —
+// `value_carcdr.rs:64-67` pulls the value, then the count, from the same side.
+2 return [ 1 2 3 4 ] return head. take println
+2 return [ 1 2 3 4 ] return tail. take println
+2 return [ 1 2 3 4 ] return at. take println
+1 return [ 9 8 7 ] return at. take println
+
+// --- convert.to_*.: operand and answer both on the workbench, and the guard
+// checks the workbench (unlike the print family below) ---
+"42" return convert.to_int. take println
+"3.5" return convert.to_float. take println
+42 return convert.to_string. take println
+1 return convert.to_bool. take println
+"x" return convert.to_list. take println
+
+// --- sort.: the plain mirror ---
+[ 3 1 2 ] return sort. take println
+[ "c" "a" "b" ] return sort. take println
+
+// --- pull.: names off the workbench, values off the STACK, map to the
+// workbench. One name only, per F76. ---
+7 [ :only ] return pull. take println
+
+// --- print. / println.: F77 — the guard reads the current stack while the
+// value is pulled from the workbench, so a stack value must be present or the
+// word refuses. The 0 below is that required-but-unread cell. ---
+"printed-from-workbench" return 0 println.
+"and-print" return 0 print. nl
+
+// ============================================================================
+// The rest of the `.` vocabulary. Two more contracts turn up here, so the four
+// in the header are really six.
+// ============================================================================
+
+// --- get, / set, and their `.` siblings: the dictionary follows the side, the
+// key and the value never do, and `get` splits its two answers across both
+// (getsetinplace.rs:54-79). The dict is pulled FIRST, so it sits on top and
+// the key goes underneath it. ---
+:k dict :k 7 set get, println println
+:k 9 dict :k 7 set set, :k get println
+dict :k 7 set return :k get., println take println
+dict :k 7 set return :k 9 set., take :k get println
+
+// --- format.: only the TEMPLATE moves to the workbench. The values that fill
+// it are still pulled from the stack and the result still lands there. ---
+"world" "hello {a}" return format. println
+5 3 "{x} and {y}" return format. println
+
+// --- make.call. and merge. / ++. : plain mirrors, workbench in and out.
+// merge. is D24's stated contract — receiver on the workbench, operand on the
+// stack — which most of the `.` family does not actually follow. ---
+:dup return make.call. take println
+[ 3 ] [ 1 2 ] return merge. take println
+[ 3 ] [ 1 2 ] return ++. take println
+
+// --- the logic family: the LAMBDA always stays a stack operand. Only the
+// condition, the count or the collection moves (if_fun.rs:27,31-34). ---
+true return { "if. ran" println } if.
+false return { "if. skipped" println } if.
+true return { "?true. ran" println } ?true.
+true return { "then" println } { "else" println } ?true*.
+false return { "then" println } { "else" println } ifthenelse.
+3 return { println } times.
+[ 1 2 3 ] return { println } loop.
+[ 1 2 3 ] return { 10 * } map. take println
+
+// `while.` re-reads its condition from the WORKBENCH every iteration, so the
+// body must leave the next one there. A body written for `while` does not
+// port across (while_fun.rs:50-58).
+true return { "tick" println false return } while.
+
+// --- F78: `?false.` does NOT read the workbench. Its entry point passes
+// StackOps::FromStack where its three siblings pass FromWorkBench
+// (if_fun.rs:103-105 against :95-96), so it is `?false` with a different error
+// prefix. The condition below is on the STACK, deliberately. ---
+false { "?false. ran, from the stack" println } ?false.

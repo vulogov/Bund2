@@ -1,0 +1,22 @@
+# golden for tests/probes/f18-arity-words.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+[ 1 ::  2 :: ]
+[ 3 ::  4 :: ]
+2
+42
+false
+false
+false
+false
+2.5
+0.7460317611694336
+3
+╭╮
+╰╯
+╭╮
+╰╯

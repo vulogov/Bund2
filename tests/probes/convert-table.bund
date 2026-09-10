@@ -1,0 +1,44 @@
+//
+// PROBE: the `convert.to_*` table, and `not`, which shares its conversion.
+//
+// Every `convert.to_X` is one call to `stdlib_convert_base` with a target tag
+// (reference/rust_multistackvm/src/stdlib/convert/internal.rs:6-41), so this
+// pins `Value::conv` (reference/rust_dynamic/src/conv.rs:694-705) through the
+// words that reach it.
+//
+// Four things here are not obvious and are the reason the probe exists:
+//
+//   - **`conv` dispatches on the payload arm first and the tag second**
+//     (`conv.rs:698-703`), so a PTR and a STRING take different paths although
+//     both hold a Rust String. `"dup" ptr` renders `` `(dup) ``, not `dup`.
+//   - **NODATA and NONE convert to their own names** (`conv.rs:41,60`), not to
+//     the empty string.
+//   - **`not` converts before negating** (`logic_ops_fun.rs:15`), so it
+//     accepts non-booleans: `1 not` is `false`.
+//   - **`"maybe" convert.to_bool` is absent on purpose.** It aborts the oracle
+//     — F68 — so no golden can hold it, and Bund2's `false` is pinned by test
+//     in `crates/bund2-stdlib/src/convert.rs` instead.
+//
+1 convert.to_string println
+-7 convert.to_string println
+1.0 convert.to_string println
+3.14 convert.to_string println
+true convert.to_string println
+"hi" convert.to_string println
+nodata convert.to_string println
+"dup" ptr convert.to_string println
+1 convert.to_bool println
+0 convert.to_bool println
+0.0 convert.to_bool println
+"true" convert.to_bool println
+"no" convert.to_bool println
+"42" convert.to_int println
+"3.5" convert.to_float println
+3.9 convert.to_int println
+true convert.to_int println
+false convert.to_float println
+7 convert.to_list println
+1 not println
+0 not println
+true not println
+"no" not println

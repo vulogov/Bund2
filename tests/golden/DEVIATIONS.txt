@@ -10,5 +10,10 @@
 #
 # <golden>\t<reason>\t<hash of bund2's expected output>
 
+examples/bund_dynamic_demos/resolving_lambda.golden	F1/F32	11998043983603124924
+examples/code_snippets/tryexcept_demo.golden	F66	18167870587313206355
+examples/code_snippets/tryexcept_demo_divide_to_0.golden	F66/D36	12545633712476177608
 probes/eq-asymmetry.golden	F33	12549031992110010338
+probes/execute-arm-class.golden	F16/D23/D25	5025803366308495063
+probes/execute-arm-not-executable.golden	F66	13928917372238819859
 probes/valuemap-hash-eq.golden	F29	1124794954886992390

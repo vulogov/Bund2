@@ -1,0 +1,78 @@
+// bund/string — the library half's string group, and every `.` sibling.
+//
+// The `.` forms are the point of this probe. Their operand shape is not the
+// obvious one: operand 1 comes off the workbench, operand 2 off the current
+// stack, and *where the answer lands differs by family with no rule behind it*
+// (F73). So each `.` word below is followed by whichever of `println` or
+// `take println` its family actually requires, and getting that wrong is
+// exactly the mistake the probe exists to catch.
+//
+// Three words of the group are deliberately absent:
+//
+//   string.tokenize.unique  — F74: builds its answer from a HashSet, so the
+//                             order differs on every run. It is implemented,
+//                             and it cannot be captured here.
+//   string.tokenize.stemmed — unimplemented; rnltk pulls nalgebra behind it.
+//   id.ulid, string.random.* — random by definition.
+//
+// string.grok is behind an off-by-default feature (D10, D40) because its crate
+// binds a C library, so it is probed separately in
+// tests/probes/features/library-string-grok.bund -- a directory conform does
+// not scan, because collect_probes reads tests/probes non-recursively
+// (xtask/src/golden/mod.rs). A probe for a word the default build does
+// not register would fail the default build, which is the wrong signal.
+
+// --- prefix and suffix, both forms ---
+"lo" "hello" string.prefix println
+"lo" "hello" string.suffix println
+"he" "hello" string.prefix println
+"" "hello" string.prefix println
+"hello" return "he" string.prefix. println
+"hello" return "lo" string.suffix. println
+
+// --- regex: every match, and split ---
+"[0-9]+" "a1b22c333" string.regex.matches println
+"[0-9]+" "no digits" string.regex.matches println
+"," "a,b,c" string.regex.split println
+"a1b22" return "[0-9]+" string.regex.matches. println
+"a,b,c" return "," string.regex.split. println
+
+// The `.` siblings of the two F18 pattern words. Both push to the stack.
+"hello" return "h.*o" string.regex. println
+"hello" return "h*o" string.wildcard. println
+
+// --- tokenize ---
+"Hello, world! Two." string.tokenize println
+"Hello, world!" return string.tokenize. println
+
+// `lines` is an alias for string.tokenize.lines, and `lines.` for its
+// workbench form (reference/Bund/src/stdlib/functions/create_aliases.rs:29-30).
+"one
+two
+ three " string.tokenize.lines println
+"a
+b" lines println
+"a
+b" return lines. println
+
+// --- deunicode: transliterates, and its `.` form answers on the workbench ---
+"Æneid café naïve" string.deunicode println
+"café" return string.deunicode. take println
+
+// --- fuzzymatch: a Skim score, 0 for no match, workbench-answering ---
+"abc" "abcxyz" string.fuzzymatch println
+"zzz" "abc" string.fuzzymatch println
+"abcxyz" return "abc" string.fuzzymatch. take println
+
+// --- the distance family's workbench forms, which answer on the workbench ---
+"kitten" return "sitting" string.distance. take println
+"kitten" return "sitting" string.distance.levenshtein. take println
+"kitten" return "sitting" string.distance.dameraulevenshtein. take println
+"karolin" return "kathrin" string.distance.hamming. take println
+"martha" return "marhta" string.distance.jarowinkler. take println
+"martha" return "marhta" string.distance.sift3. take println
+
+// --- wrap.english: hyphenates, so a long word breaks mid-word ---
+20 "The quick brown fox jumps over the lazy dog repeatedly" string.wrap.english println
+12 "Internationalization considerations" string.wrap.english println
+"hello world" return 5 string.wrap.english. take println

@@ -1,0 +1,37 @@
+//
+// PROBE: the `math.*` float family — seventeen words, one body.
+//
+// Each is a plain `f64` method on the pulled operand
+// (reference/rust_multistackvm/src/stdlib/math/float_math.rs:93-165), so what
+// is worth pinning is not the arithmetic but the two things around it:
+//
+//   - the **gate**. The operand goes through `cast_float`, which accepts only
+//     a `Val::F64` (reference/rust_dynamic/src/cast.rs:9-16). An INTEGER is
+//     refused. That is stricter than `+` and friends, which coerce, and the
+//     last line here pins it.
+//   - the **rendering**. These are the words most likely to produce a float
+//     whose shortest form differs between `dtoa` and Rust's `{:?}`;
+//     `2.0 math.sqrt` is exactly that value. Printing them is what makes the
+//     goldens sensitive to it.
+//
+// Sixteen of the seventeen had no golden and no probe when this was written —
+// they were implemented, compared against the oracle once in a scratch
+// directory, and that comparison was not preserved anywhere. This preserves it.
+//
+1.0 math.sin println
+0.5 math.cos println
+0.5 math.tan println
+2.0 math.sqrt println
+8.0 math.cbrt println
+-3.7 math.abs println
+-3.7 math.floor println
+-3.7 math.ceil println
+3.7 math.round println
+3.75 math.fract println
+-2.5 math.signum println
+0.5 math.asin println
+0.5 math.acos println
+1.0 math.atan println
+1.0 math.sinh println
+1.0 math.cosh println
+1.0 math.tanh println

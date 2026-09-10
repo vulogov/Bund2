@@ -1,0 +1,24 @@
+# golden for tests/probes/library-pure.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+HELLO WORLD
+hello world
+hello_world
+Hello World
+helloWorld
+2.718281828459045
+0.9999999998311266
+2.0
+120.0
+1.1883951058
+2.0
+1024.0
+14.0
+╭╮
+╰╯
+╭╮
+╰╯

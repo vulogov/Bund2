@@ -1,0 +1,21 @@
+// string.grok, which lives behind the off-by-default `grok` feature.
+//
+// **This directory is deliberately outside conform's reach.** `collect_probes`
+// reads `tests/probes` non-recursively
+// (`xtask/src/golden/mod.rs`), so nothing here is captured or run by
+// `cargo xtask conform`. That is the point: the word is not in the default
+// registry, and a probe for a word the default build does not bind would fail
+// the default build — the wrong signal entirely.
+//
+// Run it by hand against both, with the feature on:
+//
+//     cargo build -p bund2-cli --features bund2-stdlib/grok
+//     diff <(./target/oracle/release/bund script --file $PWD/tests/probes/features/library-string-grok.bund) \
+//          <(./target/debug/bund2      script --file $PWD/tests/probes/features/library-string-grok.bund)
+//
+// Single-capture patterns only: a multi-key MAP prints in an unreproducible
+// order (F76), which is why this is not simply a longer probe.
+
+"%{WORD:w}" "hello" string.grok println
+"%{NUMBER:n}" "nothing here" string.grok println
+"hello" return "%{WORD:w}" string.grok. println

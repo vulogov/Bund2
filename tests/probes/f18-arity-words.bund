@@ -1,0 +1,39 @@
+//
+// PROBE: F18's fourteen — the words whose depth guard under-declares.
+//
+// Each guards `< 1` in the reference and then pulls **two**
+// (reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:27-33,64-67
+// for the list words; artefacts.rs:7,10,16 for `pair`), so one operand short
+// gives `NO DATA #2` on a stack the first pull has already emptied. F18's
+// disposition is FIX: declare the arity the word consumes, so the guard fires
+// before anything is taken and the operand survives. That deviation is not
+// visible here — it is pinned by test, because a golden of it would capture
+// the reference's `~/.cargo` path (F66).
+//
+// What *is* pinned here is that the words agree on every case that works, and
+// three orders that are easy to get backwards and were:
+//
+//   - `head`/`tail`/`at` take the **list on top**, count beneath
+//     (`value_carcdr.rs:27-33` pulls the value before the arm pulls its count).
+//   - `string.regex` and `string.wildcard` take the **subject on top**,
+//     pattern beneath (`regex.rs:28,31`) — the opposite of
+//     `string.expressionmatch`, whose expression is on top.
+//   - `at` is **one-based** and refuses 0 (`carcdr.rs:57-60`).
+//
+// Two answers are refusals rather than values: `complex` builds a `CFLOAT` and
+// printing one reports `Can not convert Value from 15`, exactly as a PAIR
+// reports 10. Both are the tag/payload split — a numeric payload that no
+// conversion arm admits.
+//
+2 [ 1 2 3 4 ] head println
+2 [ 1 2 3 4 ] tail println
+2 [ 1 2 3 4 ] at println
+1 42 head println
+1.0 2.0 complex drop
+"hello world" "h.*d" string.regex println
+"hello" "z.*" string.regex println
+"hello.txt" "*.txt" string.wildcard println
+"hello.txt" "*.md" string.wildcard println
+"kitten" "sitting" string.distance.sift3 println
+"kitten" "sitting" string.distance.jarowinkler println
+"abc" "xyz" string.distance.hamming println

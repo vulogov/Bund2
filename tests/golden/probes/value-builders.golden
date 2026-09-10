@@ -1,0 +1,25 @@
+# golden for tests/probes/value-builders.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: fold drains the stack into a list, in push order
+[ 3 ::  2 ::  1 :: ]
+probe: lambda! turns a list into a lambda
+Lambda
+probe: make.call turns a string into a CALL
+Call
+probe: match is an alias for valuemap
+ValueMap
+probe: nodata and its aliases
+NODATA
+NODATA
+probe: comparison spellings
+false
+false
+╭╮
+╰╯
+╭╮
+╰╯

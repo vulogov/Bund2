@@ -1,0 +1,43 @@
+# golden for tests/probes/library-string.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+false
+true
+true
+true
+true
+true
+[ 1 ::  22 ::  333 :: ]
+[]
+[ a ::  b ::  c :: ]
+[ 1 ::  22 :: ]
+[ a ::  b ::  c :: ]
+true
+true
+[ Hello ::  world ::  Two :: ]
+[ Hello ::  world :: ]
+[ one ::  two ::  three :: ]
+[ a ::  b :: ]
+[ a ::  b :: ]
+AEneid cafe naive
+cafe
+71
+0
+71
+3
+3
+3
+3
+0.9444444179534912
+2.0
+[ The quick brown fox ::  jumps over the lazy ::  dog repeatedly :: ]
+[ Internation- ::  alization ::  considera- ::  tions :: ]
+[ hello ::  world :: ]
+╭╮
+╰╯
+╭╮
+╰╯

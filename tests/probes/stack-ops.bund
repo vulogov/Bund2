@@ -1,0 +1,39 @@
+//
+// PROBE: the stack words the corpus never reaches.
+//
+// `rust_multistack` is the **third** registration tier — ERRATA records that a
+// scan of only `rust_multistackvm` and `Bund` reports these as unregistered —
+// and most of it is untouched by the corpus. These are the ones Bund2
+// implements, exercised here so the implementation is checked against the
+// oracle rather than against my reading of it.
+//
+// Two behaviours worth pinning because they are easy to get backwards:
+//
+//   - **`swap` takes a count**, it is not the classic two-element exchange
+//     (reference/rust_multistack/src/stdlib/swap.rs:23-29); `swap_one` is that.
+//     `10 20 30 1 swap` answers `10 20 1 30`, and the stack comes back the
+//     size it went in — which is why its declared effect is 2->2 and not 1->0.
+//   - **`clear` empties the current stack**, so the box after it is empty and
+//     everything pushed before is gone.
+//
+"probe: swap takes a count, swap_one exchanges" println
+10 20 30 1 swap debug.display_stack
+clear
+10 20 swap_one debug.display_stack
+clear
+"probe: dup_one, dup_many, drop" println
+7 dup_one debug.display_stack
+clear
+7 3 dup_many debug.display_stack
+clear
+1 2 3 drop debug.display_stack
+clear
+"probe: rotate" println
+1 2 3 rotate_current_left debug.display_stack
+clear
+1 2 3 rotate_current_right debug.display_stack
+clear
+"probe: the workbench round trip" println
+42 . take println
+"probe: return moves to the workbench, take brings it back" println
+5 return take println

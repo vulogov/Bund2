@@ -1,0 +1,39 @@
+//
+// PROBE: navigating the stack ring.
+//
+// The stacks form a deque and the **current stack is its back**
+// (reference/rust_multistack/src/ts_current.rs:7), so navigation is rotation
+// of that ring. `stacks_right` is `ts.right()` and pushes nothing
+// (reference/rust_multistack/src/stdlib/rotate.rs:13-19) — a *move*, not a
+// count, which the arrow alias `->` makes plainer than the name does.
+//
+// **`stacks_left` is absent on purpose — F71.** It is registered only as a
+// function and never inline (`rotate.rs:93`), so the bare word is unreachable
+// in the reference and so are its aliases `<-` and `←`. Bund2 registers it as
+// every neighbour in that file is registered, so it works here; a golden
+// cannot compare the two, because one side errors.
+//
+:a ensure_stack
+:b ensure_stack
+@main
+"probe: stacks_right moves around the ring" println
+current println
+stacks_right
+current println
+"probe: the arrow alias is the same word" println
+->
+current println
+"probe: stack_exists answers for present and absent names" println
+:a stack_exists println
+:nosuch stack_exists println
+// `ensure_stack_with_capacity` takes the **name on top** and the capacity
+// beneath (`ensure_stack.rs:36,42`), and the capacity is real: a push onto a
+// full stack drops the value **most recently pushed** before adding the new
+// one (`ts_push.rs:52-57`), so a stack capped at 2 given `1 2 3 4` keeps `1`
+// and `4`. Not what "capacity" usually means, and preserved as written.
+"probe: a capacity bounds the stack, discarding the newest" println
+2 :capped ensure_stack_with_capacity
+@capped
+1 2 3 4
+debug.display_stack
+@main

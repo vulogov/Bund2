@@ -1,0 +1,50 @@
+//
+// PROBE: the alias table, and the `.` workbench suffixes.
+//
+// Two groups the corpus never spells, both preserved because a program may.
+//
+// **Aliases.** `create_aliases.rs` binds Unicode and ASCII spellings to the
+// same natives (reference/rust_multistackvm/src/stdlib/create_aliases.rs:4-45).
+// Nothing distinguishes them at run time — an alias resolves before dispatch —
+// so the point of the probe is that they resolve *at all*, and to the right
+// target.
+//
+// **The `.` suffixes.** D24's contract: the primary operand comes off the
+// **workbench**, the secondary off the **main stack**, and the result goes back
+// to the workbench (reference/Bund/src/stdlib/functions/values/push.rs:29,38,50).
+// So `+.` is not "`+` on the workbench" — it crosses both stacks, which is the
+// grounding for RFC-0004 giving a stack effect two axes.
+//
+"probe: arithmetic aliases resolve to their targets" println
+1 2 + println
+"probe: the workbench suffixes cross two stacks" println
+0 . 5 +. take println
+10 . 3 -. take println
+2 . 6 *. take println
+12 . 3 /. take println
+"probe: lambda aliases build a LAMBDA, they do not test for one" println
+λ type println drop
+Λ type println drop
+clear
+"probe: nodata aliases" println
+∅ convert.to_string println
+| convert.to_string println
+"probe: ?true and ?false are if and if.false" println
+true { "then ran" println } ?true
+false { "else ran" println } ?false
+"probe: ifthenelse spelled in full" println
+42 42 != { true } { false } ifthenelse println
+clear
+"probe: the reflection predicates" println
+:println ?stdlib println
+:version ?alias println
+"probe: type and type.of" println
+"x" type println drop
+1 type.of println drop
+clear
+"probe: cdr and the distance aliases" println
+[ 1 2 3 ] cdr println
+"kitten" "sitting" string.distance println
+"ca" "abc" string.distance.dameraulevenshtein println
+"probe: sysinfo.version resolves as a word" println
+:sysinfo.version ?word println

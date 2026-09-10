@@ -1,0 +1,66 @@
+//
+// PROBE: RFC-0009 criterion 4 — `.id` and `.timestamp` answer on an object.
+//
+// These are methods on the base `Object` class
+// (reference/Bund/src/stdlib/functions/oop/base_classes.rs:91-92), and `.id`
+// returns a *string* (`:16-17`). ERRATA records them as the constraint that
+// stopped RFC-0001 shrinking the value by dropping identity: they are public
+// API, so identity had to stay answerable. RFC-0001 resolved it by moving
+// identity into the heap header rather than off the value.
+//
+// So this probe is where D1's laziness ends for an object, and where D2's does.
+// Both are reached by dispatch walking `.super` two levels — a user class does
+// not carry `.id`; `Object` does.
+//
+// **What a probe can and cannot pin here.** An identity is a fresh nanoid per
+// value, so *no* run agrees with another on it. A first draft printed the id
+// and `cargo xtask golden` refused the capture — "two runs disagree after
+// normalisation" — which is the harness being right: a golden holding a random
+// string fails forever and teaches the reader to ignore failures.
+//
+// So everything below is a *predicate* over the identity, never the identity.
+// Two of criterion 4's clauses cannot be reduced to a predicate at all and are
+// pinned in Rust instead:
+//
+//   - "a **21-character** string" — the oracle registers no length word (445
+//     word names across reference/Bund/src/stdlib/, none of them `len`), so
+//     the length is not expressible in Bund. Pinned by
+//     `crates/bund2-stdlib/src/oop.rs`'s `dispatch_reaches_an_inherited_method`.
+//   - "**neither materialises** anything on a value that is never asked" — the
+//     unminted state is by definition unobservable from the language. Pinned by
+//     `crates/bund2-value/src/lib.rs`'s `identity_is_not_minted_until_needed`
+//     and `stamps_order_by_observation_not_construction`.
+//
+// The class names itself per D25, which is also what lets `<class> !` build it.
+//
+:Probed class
+  :.class_name "Probed" set
+  ".super" [ :Object ] set
+register
+
+//
+// `.id` and `.timestamp` **peek**: the receiver stays on the stack and the
+// answer is pushed beside it (base_classes.rs:12-17). So each call leaves
+// [object, answer], and `swap drop` is what keeps the object from being
+// compared against the answer — which is what a first draft of this probe did.
+//
+// Each clause also drops its own leavings. The capture pins the final stack,
+// so an id left behind would make the *stack* unreproducible even when every
+// printed line agrees.
+//
+"probe: .id answers a String" println
+:.id :Probed object ! swap drop
+"String" ?type println drop
+
+"probe: two instances of one class have distinct identities" println
+:.id :Probed object ! swap drop
+:.id :Probed object ! swap drop
+!= println
+
+"probe: .timestamp answers a non-zero Float" println
+:.timestamp :Probed object ! swap drop
+"Float" ?type println drop
+:.timestamp :Probed object ! swap drop
+0.0 != println
+
+debug.display_stack

@@ -1,0 +1,59 @@
+//
+// PROBE: the `_in` family — words that act on a *named* stack.
+//
+// For each word that acts on the current stack there is a sibling naming its
+// target: `drop`/`drop_in`, `clear`/`clear_in`, `dup_one`/`dup_one_in`,
+// `swap`/`swap_in`. The sibling takes the stack name **on top**, which is the
+// operand reversal again, and it does not switch stacks — the current stack is
+// untouched throughout.
+//
+// Three of these had the wrong shape until they were compared against the
+// oracle, and all three were silent about it because no corpus program calls
+// them:
+//
+//   - `swap_in` ignored its count and exchanged the top two, which is
+//     `swap_one`, and left the count behind. Its **name** is on top: the inline wrapper
+//     pulls n then name and passes (n, name), but the function it calls reads
+//     parameter one as the name (swap.rs:57,90-92), so the two are crossed.
+//   - `dup_many_in` pulled the count before the name; the reference pulls the
+//     name first (reference/rust_multistack/src/stdlib/dup.rs:71-72), so the
+//     source reads `<count> <name> dup_many_in`.
+//   - `drop_stack` pulled a stack name. It takes none: it removes the
+//     **current** stack outright (drop.rs:54-66, ts_drop_stack.rs:10-21).
+//   - `return_to` moved the workbench's top to the current stack, which is
+//     `take`. It takes a name (workbench.rs:43-59).
+//
+:t ensure_stack
+@t
+1 2 3
+@main
+"probe: drop_in removes one value from a named stack" println
+:t drop_in
+@t
+debug.display_stack
+@main
+"probe: dup_one_in and dup_many_in duplicate its top" println
+:t dup_one_in
+@t
+debug.display_stack
+@main
+2 :t dup_many_in
+@t
+debug.display_stack
+@main
+"probe: swap_in reorders inside the named stack" println
+1 :t swap_in
+@t
+debug.display_stack
+@main
+"probe: clear_in empties it, the current stack untouched" println
+:t clear_in
+current println
+@t
+debug.display_stack
+@main
+"probe: return_to moves the workbench top to a named stack" println
+9 .
+:t return_to
+@t
+debug.display_stack

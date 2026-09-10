@@ -1,0 +1,35 @@
+//
+// PROBE: the library half — D14's other 211 words, where they can be checked.
+//
+// D14 calls the library half "deferrable, re-implementable as out-of-tree word
+// packages". Deferrable is not absent: these are in scope, counted by
+// `cargo xtask coverage`, and a program calling one expects the reference's
+// answer.
+//
+// What is probed is the part that *can* be: pure functions of their operands.
+// No clock, no filesystem, no network, no randomness — `id.ulid` and
+// `math.random.int` cannot be captured, and `bund/sysinfo` answers differently
+// on every machine. That is most of why this half is deferrable at all.
+//
+// Two orders worth pinning, because the family is **not consistent with
+// itself**: `math.nroot` and `math.perimeter` use their first pull first
+// (reference/Bund/src/stdlib/functions/math/math.rs:79-83), while `math.power`
+// computes `pow(xvalue, fvalue)` with `fvalue` the first pull (`:111-117`) —
+// so its source reads `<exponent> <base> math.power`.
+//
+// The case words **convert before casing** (`case.rs:13`), so `42
+// string.upper` is `"42"` rather than a refusal.
+//
+"hello world" string.upper println
+"HELLO WORLD" string.lower println
+"hello world" string.snake println
+"hello world" string.title println
+"hello world" string.camel println
+1.0 math.exp println
+2.718281828 math.ln println
+100.0 math.log10 println
+5.0 math.factorial println
+1.0 math.cosecant println
+3.0 8.0 math.nroot println
+2.0 10.0 math.power println
+3.0 4.0 math.perimeter println

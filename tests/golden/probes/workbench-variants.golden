@@ -1,0 +1,55 @@
+# golden for tests/probes/workbench-variants.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+1
+[ 2 ::  3 :: ]
+a
+[ 1 ::  2 :: ]
+[ 3 ::  4 :: ]
+2
+9
+42
+3.5
+42
+true
+[ x :: ]
+[ 1 ::  2 ::  3 :: ]
+[ b ::  a ::  c :: ]
+{ only=7 }
+printed-from-workbench
+and-print
+7
+{ k=7 }
+9
+7
+{ k=7 }
+9
+hello world
+3 and 5
+F(dup)
+[ 1 ::  2 ::  3 :: ]
+[ 1 ::  2 ::  3 :: ]
+if. ran
+?true. ran
+else
+then
+0
+1
+2
+1
+2
+3
+[ 10 ::  20 ::  30 :: ]
+tick
+?false. ran, from the stack
+╭───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Value { id: "<id>", stamp: <stamp>, dt: 2, q: 100.0, data: I64(0), attr: [], curr: -1, tags: {"stack": "main"} } │
+├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ Value { id: "<id>", stamp: <stamp>, dt: 2, q: 100.0, data: I64(0), attr: [], curr: -1, tags: {"stack": "main"} } │
+╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭╮
+╰╯

@@ -1,0 +1,92 @@
+//
+// PROBE: the last words no corpus program spells.
+//
+// Nothing here shares a subject — this is the tail of the vocabulary, gathered
+// so that every word Bund2 implements is run against the oracle at least once.
+// Several are aliases whose only interesting property is that they resolve to
+// the right target, which a probe is the only way to state.
+//
+// Two words are **deliberately absent** and carried as Q22 instead:
+//
+//   - `drop_stack` removes the current stack, and the reference then names the
+//     next one with a **fresh nanoid** — a different string every run, so no
+//     golden can hold it.
+//   - `endcontext` errors in Bund2 where the reference succeeds, and the cause
+//     is context bookkeeping rather than the word.
+//
+// `?move`'s operand order is the deep one: `<name> <value> <lambda> ?move`.
+// The lambda runs *first*, its result is the condition, and the value moves
+// only if that was true — so the value is pulled from under an answer the
+// lambda may have pushed from anywhere
+// (reference/rust_multistackvm/src/stdlib/stackop/conditional_move.rs:16-45).
+//
+// `stacks_left` and its aliases `<-` and `←` are absent for F71: the reference
+// registers only the function form, so the bare word is unreachable there.
+//
+"probe: rotate_current aliases move values within one stack" println
+1 2 3 --> debug.display_stack
+clear
+1 2 3 <-- debug.display_stack
+clear
+
+"probe: the right-arrow alias walks the stack ring" println
+:t ensure_stack
+@main
+→ current println
+@main
+
+"probe: set spelled as an element-of sign" println
+dict "k" 9 ∈ println
+
+"probe: ?error builds a CONDITIONAL" println
+?error type println drop
+
+"probe: space prints one, between two prints" println
+"a" print space "b" println
+
+"probe: if.false runs its branch when the condition is false" println
+false { "if.false ran" println } if.false
+
+"probe: execute. and !. take their target from the workbench" println
+`dup .
+1 execute. debug.display_stack
+clear
+`dup .
+1 !. debug.display_stack
+clear
+
+"probe: return_from moves a named stack's top to the workbench" println
+:t ensure_stack
+@t
+7
+@main
+:t return_from take println
+
+"probe: rotate_stack_left and _right name their target" println
+:t rotate_stack_left current println
+:t rotate_stack_right current println
+
+"probe: the workbench has its own dump" println
+9 . debug.display_workbench
+take drop
+
+"probe: var- removes a variable binding" println
+:x 42 var
+:x var? println
+:x var-
+
+"probe: ?move sends a value to a named stack when its lambda says true" println
+:m ensure_stack
+@main
+:m 5 { true } ?move
+@m debug.display_stack
+@main
+
+"probe: fold_stack folds a named stack into a list, **in that stack**" println
+:f ensure_stack
+@f
+1 2
+@main
+:f fold_stack
+@f debug.display_stack
+@main

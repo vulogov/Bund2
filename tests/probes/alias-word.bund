@@ -1,0 +1,22 @@
+//
+// PROBE: `alias` and `unalias` — binding one name to another at run time.
+//
+// The **alias is on top** and the target beneath it
+// (reference/rust_multistackvm/src/stdlib/alias.rs:9,11), so the source reads
+// `<target> <alias> alias`. Neither name has to exist yet: D16's open world
+// means a name may be bound before anything answers to it.
+//
+// This is what makes an alias *cycle* constructible from a program — the
+// reference's `register_alias` unregisters and inserts with no check
+// (multistackvm_alias.rs:5-15) — and it is why `Registry::follow` resolves to
+// a fixed point with a guard rather than a plain loop. The cycle itself is not
+// probed here: the reference reports it through a path that carries a
+// `~/.cargo` location (F66), so no golden can hold it.
+//
+"probe: a name aliased to println prints" println
+:println :say alias
+"aliased" say
+"probe: ?alias sees it, and unalias removes it" println
+:say ?alias println
+:say unalias
+:say ?alias println

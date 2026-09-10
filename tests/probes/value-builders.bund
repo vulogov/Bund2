@@ -1,0 +1,26 @@
+//
+// PROBE: the value-building words the corpus never spells.
+//
+// `fold`, `fold_stack` and `lambda*` all drain a stack into one value, and
+// `lambda!` and `make.call` convert one value into another. None appears in a
+// corpus program, so this is the only place their shapes are pinned.
+//
+// The one worth reading twice is **`fold` reverses**: it drains the stack
+// top-down and then reverses, so the list reads in the order the values were
+// pushed rather than the order they came off. `1 2 3 fold` is `[ 1 2 3 ]`, not
+// `[ 3 2 1 ]`.
+//
+"probe: fold drains the stack into a list, in push order" println
+1 2 3 fold println
+"probe: lambda! turns a list into a lambda" println
+[ 1 2 ] lambda! type println drop
+"probe: make.call turns a string into a CALL" println
+"dup" make.call type println drop
+"probe: match is an alias for valuemap" println
+match type println drop
+"probe: nodata and its aliases" println
+nodata type println drop
+∅ type println drop
+"probe: comparison spellings" println
+1 2 <= println
+2 1 >= println

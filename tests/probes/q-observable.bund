@@ -1,10 +1,11 @@
 //
 // Probe: Q18. Can a word observe `q` at a value other than 100.0?
 //
-// Two RFC-0001 drafts rendered `q` as the constant 100.0. It is a fixpoint,
-// not a constant: every arithmetic operation averages it
-// (rust_dynamic/src/q.rs:5, math.rs:416-420) and all constructors start at
-// 100.0, so the average never moves. `Value::none` starts at 0.0 instead
+// Two RFC-0001 drafts rendered `q` as the constant 100.0. It is a field, not
+// a constant — but no word writes it. Arithmetic does not average it: `+`
+// calls `numeric_op` directly and never reaches `calc_q`, which has no caller
+// (Q35; D32 as amended 2026-09-10). Constructors start at 100.0, and
+// `Value::none` starts at 0.0 instead
 // (create_special.rs:19-21, value.rs:38), and `json.to_value` returns it for
 // a JSON null (cast_json_to_value.rs:39).
 //
