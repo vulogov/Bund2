@@ -2466,6 +2466,64 @@ designed without one.
   registrations)
 - Status: **RESOLVED — decided; implementation deferred to RFC-0005 Proposed.**
 
+## D44 — the level at which evaluation reports stack exhaustion is not part of a program's meaning
+
+RFC-0005's seventh review, B1. F85's fix gives Tier 0 a floor on the machine
+stack: below it, a native that would re-enter evaluation returns
+`machine stack exhausted` instead of nesting until the process aborts
+(RFC-0005 §S8). How many Bund levels fit above that floor depends on the size
+of the Rust frames each level spends, so it depends on the build.
+
+RFC-0005 promised two things about it that no fixed floor can both give: that
+Tier 0's capacity with the tier on is *never less* than with it off, and that
+the floor fires at *the same* level either way. Enlarging the stack by Tier 1's
+share moves the Tier 0 floor down by that share, which gives "more". Pinning
+the floor instead makes compiled frames come out of Tier 0's part. The stack is
+LIFO, so a floor says where compiled frames may *start* and reserves no region
+for them.
+
+### Decision
+
+Decided by the repository owner, 2026-09-10: **not meaning.** The level at
+which evaluation reports `machine stack exhausted` may differ between builds,
+profiles, platforms, and with Tier 1 on or off, and so may the number of side
+effects a program performs before it is reported. What *is* required:
+
+1. **Evaluation nesting never aborts the process.** It completes, or it returns
+   a Bund-level error that is reported and that `?try` can catch (D37).
+2. **With Tier 1 on, Tier 0's capacity is never less than with it off.** A
+   program whose native nesting fits under the default binary fits under the
+   `jit` binary.
+
+### Evidence
+
+It already differs between Bund2's own builds. The `loop` axis of
+`cargo xtask depth` (100,000 levels through `times`) reports at **level
+10,923 in release** and at **level 2,371 in the dev profile**, measured
+2026-09-10 on the same source. `conform` runs the dev profile and `depth` the
+release one. The oracle aborts at every depth (F85), so there is no golden to
+pin a level to, and none could be captured.
+
+### Rejected
+
+**Meaning.** Keeping the level identical with the tier on would need a floor
+that moves by the bytes live compiled frames hold, or compiled code on a stack
+of its own. Either would be new machinery to preserve a number the oracle
+never defines and Bund2's two build profiles already disagree on.
+
+### Consequences
+
+- RFC-0005 criterion 11 compares the level with the feature on and off and
+  requires **on ≥ off**, not equality. `cargo xtask depth` prints the level on
+  its `loop` axis, so the comparison has something to compare.
+- RFC-0005 §S8 drops "the tier's share sits above Tier 0's, never inside it".
+
+- Decided by: repository owner, 2026-09-10, on RFC-0005's seventh review (B1)
+- Blocks: nothing; unblocks RFC-0005 §S8 and criterion 11
+- Depends on: D37 (no abort), F85 (the floor)
+- Status: **RESOLVED — the level is not meaning; never aborting, and never
+  less with the tier, are.**
+
 ## D45 — a reporter says, per severity, whether it wants a stack snapshot
 
 RFC-0005's seventh review, S1. `Reporter::wants_stack` took no argument, and

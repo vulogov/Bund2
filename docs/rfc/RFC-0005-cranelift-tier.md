@@ -29,6 +29,16 @@
   to every entry point, with dated amendments to RFC-0002 and RFC-0003. D43
   decides the `bund2-api` additions §S6's guards need, to be built when this
   RFC reaches Proposed.
+
+  The seventh review's two blockers are answered. **B1** was the owner's:
+  D44 decides that the level at which evaluation reports stack exhaustion is
+  not part of a program's meaning, so §S8 now promises that evaluation never
+  aborts and that Tier 0 never has less room with the tier on. It no longer
+  promises that the level is the same. **B2** was this RFC's: §S5's pre-call
+  generation check now applies §S6's rules, so nothing stays promoted across a
+  call through an alias. That review's S1 went to the owner too. D45 makes the
+  reporter answer `wants_stack` per severity, which lets values be promoted
+  across calls under the CLI's default reporter. D45 is built.
 - Depends on: RFC-0001 (the value, whose representation §S1 indicts),
   RFC-0002 (`StackEffect`, the word slot table, and the open world that forces
   indirect calls), RFC-0003 (BundIR as a cache over a body, and the frame
@@ -47,7 +57,9 @@
   rather than taking its default), **D35** (the cache keys on the body's `Rc`
   pointer; as amended 2026-09-10 on Q32, it holds a `Weak`), **D42** (a body's
   `Rc` reaches the point where it starts running), **D43** (the registration
-  id and stable generation cells §S6's guards need), **D37** (no panic), **D39** (an
+  id and stable generation cells §S6's guards need), **D44** (the level at
+  which stack exhaustion is reported is not meaning), **D45** (a reporter
+  wants a stack snapshot per severity), **D37** (no panic), **D39** (an
   internal loop must be bounded)
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
   `80377728f45b`; `bundcore` `3b0b8ba219a6`; `rust_dynamic` `ceb27c96fa10`;
@@ -273,7 +285,12 @@ conformance denominator.
 # S3. The compilation unit, and the cache
 
 **D35 resolves the key: the body's `Rc` pointer.** RFC-0003 §S3 states the
-shape, and D42 carries the key to every point where a body starts running.
+shape, and D42 carries the key to every point where a stored body starts
+running. **`Vm::scoped_call` is the exception.** D42 left it taking a `Vec`,
+which it wraps as a LIST built on each call (`Interp::scoped_call`,
+`crates/bund2-interp/src/lib.rs`), so a `context` body has no key and never
+reaches the tier. That is not a meaning risk, since such a body runs at Tier 0
+as it does today. It is a body this RFC does not compile.
 Two consequences this RFC owns:
 
 - **A freed body's address may be reused**, so an entry that outlives its body
@@ -376,19 +393,23 @@ no-op. The flag is VM-wide and mutable, toggled by two words registered as
     let _ = vm.register_command(":".to_string(), stdlib_autoadd_enable_inline);
 ```
 
-with `;` disabling it at `reference/rust_multistackvm/src/stdlib/autoadd.rs:29`. They are commands precisely so that step 2
-outranks step 3 — otherwise `;` could never turn the mode off again, because
-under autoadd it would be collected rather than run.
+with `;` disabling it at `reference/rust_multistackvm/src/stdlib/autoadd.rs:29`. `autoadd.rs` gives no reason
+for registering them as commands. **The inference** is that they have to be:
+step 2 outranks step 3, and without that `;` could never turn the mode off
+again, because under autoadd it would be collected rather than run.
 
 Two consequences this RFC owns, and an earlier draft had neither:
 
 - **Compiled code must guard on `autoadd` at entry** and decline to run when it
   is set, and **re-read it after every call it makes**, because a callee can
-  turn it on. The reference collects every value it applies under the mode —
-  calls, CONTEXT values and literals alike
-  (`reference/rust_multistackvm/src/multistackvm_apply.rs:19-27`, `reference/rust_multistackvm/src/multistackvm_apply.rs:72-73`,
-  `reference/rust_multistackvm/src/multistackvm_apply.rs:89-97`) — so a check at calls alone cannot honour
-  it. §S5's residual path does: once the flag is seen set, every remaining
+  turn it on. The mode changes what the reference does with **every** value
+  it applies, not only calls. A CALL and a literal are appended into the value
+  beneath, `self.stack.push(val.push(value))`
+  (`reference/rust_multistackvm/src/multistackvm_apply.rs:22`, `reference/rust_multistackvm/src/multistackvm_apply.rs:92`). A CONTEXT value is
+  **pushed as a value of its own** instead of switching stacks,
+  `self.stack.push(value)` (`reference/rust_multistackvm/src/multistackvm_apply.rs:73`). It is not collected;
+  F84 has this right, and an earlier revision said "collected". So a check at
+  calls alone cannot honour the mode. §S5's residual path does: once the flag is seen set, every remaining
   value goes through `apply`. No OSR is involved; the residual path is part of
   the compiled function.
 - **`:` and `;` are opaque sites** in the sense §S5 defines: after either, the
@@ -397,10 +418,15 @@ Two consequences this RFC owns, and an earlier draft had neither:
   before any of the machinery D16 makes dynamic — so this cannot be decided
   statically.
 
-The corpus barely exercises this — one program uses `:` or `;` as a word,
-`reference/Bund/examples/code_snippets/textexpression_demo.bund`, found by
-`grep -lE '(^|[[:space:]])[:;]([[:space:]]|$)'` over the corpus roots — but D16
-means one may appear at run time.
+**No corpus program uses `:` or `;` as a word.** An earlier revision counted
+one, from a `grep` for either character standing alone. That grep matches two
+files today, and neither is a use: every match in
+`reference/Bund/examples/code_snippets/textexpression_demo.bund` is inside a
+string literal, and the one in `tests/probes/workbench-variants.bund` is in a
+comment. A `grep` cannot tell a word from a string or a comment, so it is not
+evidence for a word count. `bund2 check`'s tokeniser could be. This agrees with
+Bund2 binding neither word while `conform` sits at its ceiling. D16 still means
+one may appear at run time.
 
 Cranelift compounds this. `JITModule` has no per-function redefinition or
 deallocation; `get_finalized_function`'s pointer is valid until
@@ -596,8 +622,12 @@ Three rules follow:
   promotion may be holding. That is Q34's shape, a word observing beyond its
   arity, and Q34 now lists them.
 
-The cost is one load and compare per call for each of the two cells. Criterion
-21 checks the behaviour, and criterion 18 the `autoadd` half.
+The cost is one load and compare per cell. After every call two cells are read
+(the epoch and `autoadd`). Before a call across which values stay promoted, a
+third is read: the callee's generation (*What a promoted value must not
+change*, below). Criterion 17 bounds these per-call checks as well as the
+inlined sites' checks. Criterion 21 checks the behaviour, and criterion 18 the
+`autoadd` half.
 
 ## What a promoted value must not change
 
@@ -614,20 +644,53 @@ promoted value, each to the stack it came from, before it returns an error** —
 whether the error is its own or a callee's — exactly as the residual path does.
 By the time anything reads the stack, nothing is left in a register.
 
-**A native that reports mid-body reads the whole stack.** `Interp::report`
-takes that snapshot whenever the reporter wants stacks, whatever the severity,
-so a native that calls `Vm::report` while values below its arity are held in
-registers would show a short stack. That is Q34's shape — a word observing
-beyond its arity — and the rule is structural: **while the reporter wants
-stacks, no value stays promoted across a call.** The reporter is fixed when the
-`Interp` is built, so this is known at entry, and costs nothing per call.
+**A native that reports mid-body may read the whole stack.** `Interp::report`
+takes a snapshot when the reporter wants one for the diagnostic's severity, so
+a native that calls `Vm::report` while values below its arity are held in
+registers would show a short stack. That is Q34's shape, a word observing
+beyond its arity, and the rule is structural: **while the reporter wants a
+snapshot for a severity natives report mid-body, `Warning` or `Notice`, no
+value stays promoted across a call.** Natives return errors rather than
+reporting them (§S11). The embedder's fatal report comes after evaluation has
+returned, by which time every error path has synced.
+
+**The reporter is read at each compiled body's entry.** It is not fixed when
+the `Interp` is built, which an earlier revision claimed. The CLI replaces it
+afterwards (`run`, `crates/bund2-cli/src/main.rs`), and the field is public.
+What does hold is narrower: no `Vm` method reaches the reporter, so it cannot
+change while a compiled body runs.
+
+**In the default configuration the rule withholds nothing.** D45 made
+`wants_stack` take the severity, and the CLI's `TextReporter` wants a snapshot
+only for a fatal report, the only kind under which it renders one
+(`TextReporter::wants_stack`, `crates/bund2-stdlib/src/report.rs`). So under
+`bund2 script`, with or without `--no-dump-stack`, values are promoted across
+calls. A reporter that wants mid-body snapshots gets exact ones and no
+promotion across calls: `CollectingReporter` with `wants_stack` set, or a TUI
+that shows the stack beside a warning. The seventh review found that the
+earlier rule, which read `wants_stack` without a severity, meant no promotion
+across any call in any `bund2 script` run, and §S6's promotion ceilings were
+figures for a configuration nobody runs by default.
 
 **`.id` and `.timestamp` need no rule of their own.** Both are lazy. An
 identity is minted on first *need* — `.id`, equality, ordering, hashing or
 serialisation (D1) — and a stamp is sampled when it is first observed, not at
 construction (D2). A promoted value is observed only after it has been synced,
-so it is minted and sampled at the same program point as in Tier 0. The
-obligation falls on fragments instead: an arm that compares, orders or hashes
+so its stamp is sampled at the same observation as in Tier 0.
+
+**Its identity may be minted in a different order, and that is not meaning.**
+Tier 0 also mints where nothing observes the result. `Stack::push_as` tags a
+shared heap value through `with_tag`, and `with_tag`'s shared arm materialises
+identity before it splits (`BundValue::with_tag`,
+`crates/bund2-value/src/lib.rs`). `mint()` is a process-wide counter in the
+same file. A promoted heap value skips that push, so it would be minted later,
+and in a different order relative to other values. An earlier revision said
+it is "minted at the same program point", which holds for scalars only. The
+rule that survives a wider guard is that ids are opaque, and F14 normalises
+them in every golden, so mint order is not meaning. Today the case cannot
+arise, because `Guard::TopAreInt` admits unboxed scalars only.
+
+The obligation falls on fragments instead: an arm that compares, orders or hashes
 must materialise identity wherever its word does. Today's fragments compare
 nothing, and scalars compare by content (D30). Criterion 16's differential
 test, which already asserts `dup`'s fresh identity, is where a wider arm has to
@@ -646,11 +709,44 @@ callee's effect *as it was at compile time*. A `register` or `alias` can later
 rebind that name to a word with a different effect — a fold that consumes the
 whole stack, or simply one that consumes more — and then the promoted values
 would be invisible to it. So before every call **across which any value stays
-promoted**, compiled code compares the call slot's generation cell (§S6,
+promoted**, compiled code compares the callee's generation cell (§S6,
 *Addressing*) against the one it was compiled with. If it has changed, the body
 syncs everything and takes the residual path from that call onward. That is one
 load and compare per such call, and it is what "detected at run time" means for
-D12. Criterion 22 checks it.
+D12.
+
+**That check reads one slot, so it holds only for a call that resolves through
+one.** This is the seventh review's B2, answered by carrying over §S6's three
+inlining rules:
+
+- **A direct resolution only.** A name that is an alias resolves through two
+  registry `Slot`s, and each writer touches only the slot it writes
+  (`Registry::register_alias`, `Registry::register_lambda`,
+  `crates/bund2-api/src/lib.rs`). The stdlib's own aliases show the failure.
+  `<-` and `←` alias `stacks_left`, `->` and `→` alias `stacks_right`
+  (`stacks_left` in `crates/bund2-stdlib/src/stack.rs`), and `?` aliases
+  `conditional` (`crates/bund2-stdlib/src/conditional.rs`). If `:stacks_left { … } register`
+  binds a lambda that consumes two values, a call to `<-` reaches that lambda,
+  and `<-`'s own generation has not moved. **So nothing stays promoted across a
+  call through an alias.** The body syncs before it, as at an opaque site. A
+  name that is direct at compile time and made an alias later is caught,
+  because `register_alias` touches that name's own slot and the check fails.
+- **`$name` reads its own name's slot, under the same rule.** `$` skips the
+  lambda check and resolves one level of alias (§S4, *The chain*). On a direct
+  name that level is the name itself, so the check reads that name's slot. On
+  an alias, the body syncs before the call.
+- **Never against a saturated slot.** `Slot::touch` stops at `u32::MAX`
+  (`crates/bund2-api/src/lib.rs`), so a check compiled against a saturated
+  generation can never fail. A callee whose slot is saturated at compile time
+  is treated as an alias is: the body syncs before the call.
+- **The third inlining rule, that the registration is recognised, belongs to
+  inlining alone.** It asks whether a fragment belongs to the binding in the
+  slot, and D43's registration id answers it. The pre-call check trusts only
+  an effect, and the generation pins the binding that effect was read from.
+
+This is CLAUDE.md's "follow the call one level further". The check read the
+call slot and stopped there, while dispatch went on to the target. Criterion 22
+checks it, the alias case included.
 
 # S6. Stack-slot promotion — the actual win, and what withholds it
 
@@ -858,10 +954,25 @@ registry:
 
 At compile time the JIT embeds each cell's address as an immediate. That is
 safe to do because the cells outlive every compiled function: both die with the
-runtime. A check is then one load and one compare per cell — **two per inlined
-site** (generation, `autoadd`), **two per call** (epoch, `autoadd`), as costed,
-and **one per compiled body entry** (the floor). AOT cannot embed an address; it would reach the cells through a
-relocated data symbol or a helper, and AOT's lowering is RFC-0006's.
+runtime. A check is then one load and one compare per cell. That makes **two
+per inlined site** (generation, `autoadd`) and **two after every call** (epoch,
+`autoadd`). **A third comes before a call across which values stay promoted**:
+the callee's generation (§S5), so generation cells are read at call sites as
+well as at inlined sites. Each compiled body entry adds **one** (the floor).
+Criterion 17 bounds the per-site and per-call costs alike. AOT cannot embed an
+address; it would reach the cells through a relocated data symbol or a helper,
+and AOT's lowering is RFC-0006's.
+
+**"The runtime" is the `Interp`, and there is one of each per `Interp`**: one
+compiled cache, one `JITModule`, one set of cells and one fragment table. The
+floor cell's value is the one each `Interp` takes from its thread's declared
+region when it is built. Values are `Rc` and `!Send`, but two `Interp`s on one
+thread share them freely, as the tests and embedders do. A cache shared by the
+thread would find code compiled against another `Interp`'s cells, or against
+freed cells once that `Interp` dropped. With a cache per `Interp`, a body
+another `Interp` compiled is a miss, and runs at Tier 0 or is compiled again
+against this `Interp`'s cells. Registration ids are per `Registry` (D43), so
+the fragment table could not be shared in any case. Criterion 23 checks this.
 
 **No new kind of `unsafe`.** The cells are `Cell`s written by safe Rust, and
 compiled code reads them through addresses it was handed as integers. The one
@@ -1222,8 +1333,11 @@ If only the last word of a body is a tail call, **every other inter-word call
 consumes a machine frame** — and RFC-0003's flat frame loop consumes none.
 That RFC's criterion 2 is not decorative: *"Bund call depth is bounded by heap,
 not by the Rust stack"*, **Met** at a call depth of **100,000**, where before
-the frame loop the same program aborted between 5,000 and 20,000
-(`docs/rfc/RFC-0003-syntax-ir-and-tier0.md:795-798`).
+the frame loop the same program aborted between 5,000 and 20,000 (RFC-0003,
+acceptance criterion 2). It is cited by number because RFC-0003's amendments
+append and move its lines. An earlier revision cited a line range, and after an
+amendment moved the text that range pointed into another criterion.
+`cite` could not tell, because the lines still existed.
 
 So a self-recursive word that completes at Tier 0 **overflows the machine stack
 once promoted**. Three things follow, and none of them is about speed:
@@ -1293,13 +1407,18 @@ ends.**
 
 1. **Evaluation runs on a thread Bund2 spawns, with a stack size it chooses**
    — `std::thread::Builder::stack_size`: the standard library, no crate, no
-   `unsafe`, no C toolchain. `bund2 script` and the REPL both do this. Nothing
-   observable changes: standard output, standard error and the exit code pass
-   straight through.
+   `unsafe`, no C toolchain. `bund2` does this for every subcommand (`main`,
+   `crates/bund2-cli/src/main.rs`). There is no REPL yet, and one would do the
+   same. Nothing observable changes: standard output, standard error and the
+   exit code pass straight through.
 2. **At that thread's entry the runtime records the stack's top**: the address
    of a local in the entry function, taken with `std::ptr::addr_of!` and cast to
    an integer, which is safe Rust. Stacks grow downward on all four targets
-   Cranelift supports, so the stack's end is the top minus the size.
+   Cranelift supports. Each target's `gen_stack_lower_bound_trap` traps when
+   the stack pointer falls *below* its limit (`cranelift-codegen` 0.135.0,
+   `src/isa/x64/abi.rs`, `src/isa/aarch64/abi.rs`, `src/isa/riscv64/abi.rs`
+   and `src/isa/s390x/abi.rs`), which is only a bound if the stack grows down.
+   So the stack's end is the top minus the size.
 3. **From those two numbers it computes two floors**, described next.
 4. **A check is one comparison against a floor, and it branches — it never
    traps.** Tier 0 compares the address of a local in the function doing the
@@ -1308,24 +1427,59 @@ ends.**
    `inst.isle`), against the floor loaded from a runtime-owned cell (§S6,
    *Addressing*).
 
-**Two floors, so the tier never takes stack Tier 0 would have had.** The stack
-is split in two:
+**Two floors, and what they promise (D44).**
 
-- **The top part is Tier 1's.** Compiled frames may occupy it. A compiled body
-  whose entry finds the stack pointer below the **Tier 1 floor** declines.
-- **The bottom part is Tier 0's**, for native-mediated nesting — every native
-  that runs a body synchronously. Below the **Tier 0 floor** such a native
-  reports a Bund-level error instead of nesting further. A reserve beneath that
-  floor is kept for reporting the error.
+- **The Tier 1 floor** sits Tier 1's share below the top. A compiled body
+  whose entry finds the stack pointer below it declines. The floor says where
+  compiled frames may *start*, and it reserves no region for them. The stack
+  is LIFO, and its outermost frames are always Tier 0's (`run_cli`,
+  `Interp::eval`, the frame loop). So Tier 0 frames also sit above this floor,
+  whenever a compiled body calls a native that re-enters evaluation.
+- **The Tier 0 floor** sits one reserve above the stack's end. Below it, a
+  native that would run a body synchronously reports a Bund-level error
+  instead of nesting further.
 
-The bottom part is sized to what Tier 0 has today: the main thread's stack,
-8 MiB on this machine (`ulimit -s`: 8176 KiB). The thread is spawned at that
-plus Tier 1's share, so **Tier 0's nesting capacity with the tier on is never
-less than it is with the tier off**. That is the property that keeps the tier
-from moving conformance — a program whose native nesting fits today still fits
-— and criterion 11 checks it. Proposed defaults: 8 MiB for each part and a
-256 KiB reserve. Like §S7's knobs, they are defaults with a stated basis, and
-they change only with a measurement behind the change.
+The thread is sized at Tier 0's part, which is what Tier 0 has today, plus
+Tier 1's share. Tier 0's part is the main thread's stack, 8 MiB on this machine
+(`ulimit -s`: 8176 KiB). Compiled frames live above the Tier 1 floor, so they
+can never occupy Tier 0's 8 MiB. **Tier 0's capacity with the tier on is
+therefore never less than with it off**, and it is more whenever compiled
+frames are not using the top part. A program whose native nesting fits today
+still fits.
+
+**Never less, and not the same.** How much more room Tier 0 gets depends on
+what runs, so the level at which a program reports `machine stack exhausted`
+can differ with the tier on. An earlier revision also required that level to
+be *the same*, and no fixed floor gives both (the seventh review's B1). The
+owner decided that the level is not meaning (D44). It already differs between
+Bund2's own build profiles: the `loop` axis of `cargo xtask depth` reports at
+level 10,923 in release and 2,371 in dev. And the oracle aborts at every
+depth (F85). What is meaning is that evaluation nesting never aborts, and that
+the level with the tier on is never lower. Criterion 11 checks both.
+
+**The reserve is for the frames between one check and the next.** It is not
+for reporting the error, which an earlier revision said: by the time the
+error is reported, the stack has unwound (`STACK_RESERVE`,
+`crates/bund2-interp/src/lib.rs`). Each floor sits one reserve above the bottom
+of its part. The Tier 0 floor is at `top − size + STACK_RESERVE`
+(`tier0_floor`, same file). The Tier 1 floor is one reserve above the bottom of
+Tier 1's share, so a compiled body entered just above it, and anything it calls
+without re-entering evaluation, stays inside that share. Two things come out of
+the reserve and are not measured, though both are small against 256 KiB:
+
+- the thread-entry frames, because the declared top is `stack_marker()` called
+  inside the spawned closure, below the true top;
+- a guard page, on platforms where the size requested includes one.
+
+The reserve rests on an assumption, stated under *What this design assumes*:
+everything a leaf native does between two checks fits in it. A native that
+recurses in Rust on the depth of its *data*, such as one rendering a deeply
+nested value, is not bounded by a floor on evaluation, and this RFC claims
+nothing about it.
+
+Proposed defaults: 8 MiB for each part and a 256 KiB reserve. Like §S7's
+knobs, they are defaults with a stated basis, and they change only with a
+measurement behind the change.
 
 **Declining takes the path an interpreted body would have taken.** A compiled
 body that finds the stack pointer below the Tier 1 floor does what Tier 0 does
@@ -1338,12 +1492,27 @@ floor and declines in turn, so beneath the floor nothing compiled runs, and the
 recursion continues on the heap. That recovers RFC-0003's guarantee, and it
 never needs OSR.
 
+**§S5's residual path is bounded the same way.** It applies the rest of a body
+through `Vm::apply`, which is synchronous. Each value there that runs a body
+costs a Rust frame, as any native re-entering evaluation does. So recursion
+that passes through residual paths spends machine stack. It stops spending it
+at the Tier 1 floor, below which every compiled body declines and the
+recursion continues on the heap. `Vm::apply` also checks the Tier 0 floor
+before it re-enters (`Interp::apply`, `crates/bund2-interp/src/lib.rs`). The
+worst case is therefore a Bund-level error, never an abort.
+
 **Embedders.** A program that runs `Interp` on a thread Bund2 did not spawn
 declares that thread's stack with `bund2_interp::set_stack_region` before
 building the `Interp`. If it does not, the `Interp` assumes 1 MiB below the
-point where it was built — half of Rust's documented 2 MiB default for a
-spawned thread, since a constructor is rarely at the very top — and Tier 1 gets
-no share there, so compiled code simply does not run on that thread.
+point where it was built, and Tier 1 gets no share there, so compiled code does
+not run on that thread. 1 MiB is half of Rust's default for a spawned thread,
+since a constructor is rarely at the very top. `std::thread`'s module
+documentation, *Stack size*, says "Currently, it is 2 MiB on all Tier-1
+platforms" (read in the 1.94.1 `rust-docs` component, with the same sentence
+in the 1.98.1 source). The same section names the `RUST_MIN_STACK` environment
+variable as changing that default. So an embedder whose threads run with
+`RUST_MIN_STACK` below about 1.25 MiB must declare its region, or the assumed
+floor lies past the stack's end.
 
 **What it costs.** Tier 1 pays a stack-pointer read, a load and a compare per
 compiled body entry, under criterion 11's 2 ns bound. Tier 0 pays an address, a
@@ -1370,8 +1539,35 @@ evaluation thread at 8 MiB plus the 256 KiB reserve, every `Interp::new` takes
 its floor from the declared region, and `Error::context` passes the exhaustion
 through each body wrapper unchanged, so it is reported once rather than
 re-wrapped at every level. `cargo xtask depth`'s new `loop` axis now reports
-instead of aborting. Tier 1's share of the stack, and its floor, arrive with
+instead of aborting, and prints the level at which the floor fired: 10,923 in
+release on 2026-09-10. Tier 1's share of the stack, and its floor, arrive with
 the tier.
+
+## What this design assumes
+
+*Added 2026-09-10. The seventh review listed six assumptions the text relied on
+without stating them.* Each is stated here, with the place that enforces or
+decides it.
+
+1. **One compiled cache, one `JITModule`, one set of cells and one fragment
+   table per `Interp`.** §S6, *Addressing*, and criterion 23.
+2. **The reporter's `wants_stack` does not change while a compiled body
+   runs.** It can change between runs, since the CLI replaces the reporter
+   after construction, so it is read at each entry. No `Vm` method reaches
+   it, so it cannot change within one. It is asked per severity (D45, §S5).
+3. **The level at which evaluation reports stack exhaustion is not part of a
+   program's meaning.** D44, §S8, criterion 11.
+4. **Everything a leaf native does between two floor checks fits in the
+   256 KiB reserve.** This is not measured. A native that recurses in Rust on
+   the depth of its data is not bounded by a floor on evaluation, and this RFC
+   claims nothing for it (§S8).
+5. **The residual path's `apply` is `Vm::apply`, which is synchronous.**
+   Recursion through residual paths spends machine stack until the Tier 1
+   floor, and is bounded by §S8's floors rather than by the heap (§S8,
+   *Declining*).
+6. **Every call crossed by promotion resolves through one registry `Slot`.**
+   This one is enforced rather than assumed. A call through an alias, or
+   against a saturated slot, is synced before (§S5).
 
 # S9. Tier pinning
 
@@ -1447,8 +1643,9 @@ disagrees with interpreted code", and each has a named guard:
 | a **type** specialisation taking a path the interpreter would not | guard-and-branch, generic counterpart in the same function (§S5) |
 | a compiled call running under `autoadd`, where the reference would collect the name instead | entry guard on the flag, and a per-site check at every inlined fragment; `:` and `;` are opaque sites (§S4, §S6); criterion 18 |
 | **a promoted recursion overflowing the machine stack where Tier 0 runs it on the heap** | a stack floor Bund2 measures on a thread it spawns, compared against `get_stack_pointer` at every compiled body's entry; below it the body declines along the path an interpreted body takes (§S8); `cargo xtask depth` at 100,000 with the feature on, criterion 11 |
-| **native-mediated recursion overflowing the machine stack in Tier 0 itself** — through `times`, `loop`, `map`, a conditional, `?try` or a method — which aborted until 2026-09-10 (F85) | the Tier 0 floor, built, and checked wherever a native re-enters evaluation; below it a Bund-level error, never an abort (§S8); criterion 11's `loop` axis |
-| the tier taking stack that Tier 0's native nesting would have had | two floors: the tier's share sits above Tier 0's, and the thread is sized so Tier 0's share equals today's main-thread stack; criterion 11 checks the Tier 0 floor fires at the same depth with the feature on and off |
+| **native-mediated recursion overflowing the machine stack in Tier 0 itself** — through `times`, `loop`, `map`, a conditional, `?try` or a method — which aborted until 2026-09-10 (F85) | the Tier 0 floor, built, and checked wherever a native re-enters evaluation; below it a Bund-level error, never an abort from evaluation nesting (§S8). A native recursing in Rust on the depth of its data is outside that guarantee (*What this design assumes*, 4); criterion 11's `loop` axis |
+| the tier taking stack that Tier 0's native nesting would have had | the thread is sized at Tier 0's part plus Tier 1's share, and compiled frames start only above the Tier 1 floor, so Tier 0 never has less room with the tier on (§S8); criterion 11 checks that the `loop` level is no lower with the feature on |
+| the level at which `machine stack exhausted` is reported, which moves with the build profile and with the feature | not meaning (D44): never an abort, and never lower with the tier on; criterion 11 |
 | a value synced back from a `Variable` losing its D41 stack symbol, so a golden renders `tags: {}` | the sync writes through the same path `Stack::push` uses, not a bare `push_back` (§S5); criterion 12 |
 | a slot naming a spelling rather than the resolved target, when `i` resolves aliases twice | slots key on the resolved name (§S4), **except for `$`**, which is resolved one level shallower and keys on that one-level answer (§S4, *The chain*) |
 | `unregister` against a name a compiled body still calls | the call slot is rewritten to what the name now resolves to — the native a lambda shadowed, if any — and to a failing stub only when nothing resolves; never freed (§S4) |
@@ -1457,23 +1654,25 @@ disagrees with interpreted code", and each has a named guard:
 | an **opaque** site leaving a stale promoted value behind | promotion stops and syncs to the real stack before the call (§S5); cost checked by criterion 9 |
 | mixed-kind comparison lowered to a machine compare | forbidden while D33 is OPEN (§S6) |
 | a `*`-family word crossing a promoted region — including one bound at run time to a name the body was compiled against | an `opaque` effect (D12; none is registered today), and the pre-call slot-generation check, which syncs before any call whose binding changed (§S5, *What a promoted value must not change*); criterion 22 |
+| **a callee reached through an alias or `$name` whose target is rebound while values are promoted across the call**, such as `<-` → `stacks_left` with `stacks_left` rebound to a lambda that consumes two | nothing stays promoted across a call that does not resolve through its own registry `Slot`, or whose slot's generation is saturated: the body syncs before it (§S5); criteria 5 and 22 |
 | an error returned from compiled code while values are promoted, whose report or `[BUND]` stack dump would show a short stack | every error return syncs first (§S5); criterion 22 |
-| a native that reports with a stack snapshot while values below its arity are promoted | nothing stays promoted across a call while the reporter wants stacks (§S5); Q34 |
-| a promoted value's `.id` or `.timestamp` | both are lazy (D1, D2) and observed only after a sync; a fragment that compares or hashes must materialise identity where its word does — criterion 16 |
+| a native that reports with a stack snapshot while values below its arity are promoted | the reporter says per severity whether it wants a snapshot (D45); while it wants one for `Warning` or `Notice`, nothing stays promoted across a call, and this is read at each entry (§S5); Q34; criterion 22 |
+| a promoted value's `.id` or `.timestamp` | both are lazy (D1, D2), and a stamp is observed only after a sync. Once a guard admits heap values, a heap value's mint order may differ from Tier 0's; that is not meaning, because ids are opaque and F14 normalises them (§S5). A fragment that compares or hashes must materialise identity where its word does — criterion 16 |
 | a warning or notice from compiled code | compiled code emits none of its own; a fragment has no reporting op, so an arm that reports stays a call (§S5) |
 | unbounded code memory | caps and permanent demotion (§S7) |
 | a fragment disagreeing with its word | differential test per fragment over the arm's boundaries, identity included (§S6); criterion 16 |
 | an op failing after its guard admitted, with operands already pulled | `Fragment::new`, the only constructor, refuses such a fragment; anything that escapes is `Error::internal`, never a fall-through and never silent success (§S6); criterion 19 |
 | a word reading beyond its declared arity while values are promoted | a promotion barrier (Q34); criterion 14 |
 | the lowering and `frag::run` disagreeing about what a fragment means | criterion 16's third leg, required before a lowering ships |
-| a body entered through a loop word, conditional or method path never reaching the tier, because no `Rc` survived to the entry | D42: `Vm::eval_lambda` and `Vm::tail_lambda` take the value, and the frame holds it; criterion 20 |
+| a body entered through a loop word, conditional or method path never reaching the tier, because no `Rc` survived to the entry | D42: `Vm::eval_lambda` and `Vm::tail_lambda` take the value, and the frame holds it; criterion 20. `Vm::scoped_call` is the exception: its body is a LIST built per call, so a `context` body has no key and stays at Tier 0 (§S3) |
 | a **current-stack switch** mid-body — `to_stack`, `to_current`, `stacks_left`, `stacks_right`, `endcontext`, a scoped conditional, a CONTEXT literal — while values are promoted | the current-stack epoch, re-read after every call, and a static barrier at a CONTEXT literal; the residual path syncs each value to the stack it came from (§S5); criterion 21 |
 | a named-stack word — `swap_in`, `rotate_stack_*` — reaching the current stack by name while promotion holds its values | a promotion barrier (Q34); criterion 14 |
-| `autoadd` turned on mid-body, when the reference collects literals and CONTEXT values as well as calls | re-read after every call; the residual path applies the rest through `apply` (§S5); criterion 18, against a reference-captured probe |
+| `autoadd` turned on mid-body, when the reference collects literals as well as calls, and pushes a CONTEXT value rather than switching to it | re-read after every call; the residual path applies the rest through `apply` (§S5); criterion 18, against a reference-captured probe |
 | unregistering a lambda that shadowed a native | the call slot is rewritten to the revealed native, not stubbed (§S4) |
 | a compiled body substituted at `eval_lambda`, whose errors Tier 0 wraps as `Lambda content evaluation returned error: …` and `times` wraps again as `TIMES: lambda execution returns error: …` | the compiled body returns its error unwrapped and the entry wraps it, so both prefixes come from the same code whichever tier ran (`Vm::eval_lambda`; `times_base` in `crates/bund2-stdlib/src/seq.rs`) |
 | an eval'd string's inner lambda recompiled on every evaluation | the 1024-body cap (§S7); content-hash keying is the eventual answer (§S3) |
 | a guard widened to boxed values, whose operands might carry a `q` other than 100.0 | no arithmetic word averages `q` (D32 as amended, Q35), so the result is a fresh 100.0 either way; criterion 16 must then include such an operand if one can be built (§S6, constraint 2) |
+| a body compiled under one `Interp` and run by another on the same thread | one cache, `JITModule`, set of cells and fragment table per `Interp`, so another `Interp`'s code is never found (§S6, *Addressing*); criterion 23 |
 
 ## Alternatives considered
 
@@ -1550,6 +1749,12 @@ evidence, and this one is listed as runnable rather than as met.
    2026-09-10. This criterion measures the **dev** profile and criterion 11
    measures **release**; the split is deliberate, and stated in both places.
 
+   **Once a tier exists, this criterion exercises promotion across calls
+   under the CLI's default reporter.** D45 made `TextReporter` want a snapshot
+   only for a fatal report, which is made after evaluation returns. Before
+   D45 the default reporter kept every value from being promoted across a
+   call, so this criterion would have run promotion only between calls.
+
    **`--features` did not exist on `conform` when this criterion first claimed
    to have run.** `conform` rebuilt `bund2-cli` unconditionally and without
    features, so a jit-built binary was overwritten and the non-jit one
@@ -1604,6 +1809,11 @@ evidence, and this one is listed as runnable rather than as met.
    before the caller runs and once **mid-body**, by a `register`, `alias` or
    `unregister` earlier in the same compiled body. Each must change the
    caller's result exactly as it changes Tier 0's.
+
+   **A third time through an alias.** A caller that calls `<-`, with
+   `stacks_left` rebound to a lambda of a different effect, once before the
+   caller runs and once mid-body. `<-`'s own generation does not move, which
+   is the case §S5's direct-resolution rule exists for.
 
 6. **The caps hold**, checked by a test per row of §S7's table rather than by
    inspection. With the compiled-function cap set to 4, compiling five distinct
@@ -1670,6 +1880,11 @@ evidence, and this one is listed as runnable rather than as met.
    compiled form must be **no more than 5% slower** — the same band as
    criterion 7, and for the same reason: run-to-run spread is already ~±2.5%.
 
+   **It runs under the CLI's default reporter**, `TextReporter` with its stack
+   dump on, which is the configuration `bund2 script` uses and which permits
+   promotion across calls under D45. A figure taken under `--no-dump-stack` or
+   a silent embedder must say so.
+
    **The crossover length is reported, not optional.** An earlier wording said
    that if the compiled form is slower below some length, "this RFC must state
    that length" — a criterion that lets its own failure be renamed as a
@@ -1720,7 +1935,8 @@ evidence, and this one is listed as runnable rather than as met.
     ceiling and room to spare.
 
     Reported per shape, then: inlining alone, and inlining with promotion. The
-    1.2× floor above applies to the tier as shipped.
+    1.2× floor above applies to the tier as shipped. It is measured under the
+    CLI's default reporter, as criterion 9 is.
 
 11. **A promoted recursion does not overflow the machine stack.** §S8's
     correctness problem, and the criterion is one that already exists:
@@ -1735,8 +1951,8 @@ evidence, and this one is listed as runnable rather than as met.
     asked for — F80's lesson applied to the one check that stands between §S8
     and an abort.
 
-    RFC-0003's criterion 2 is **Met** at a call depth of 100,000
-    (`docs/rfc/RFC-0003-syntax-ir-and-tier0.md:795-798`). It must stay met with
+    RFC-0003's criterion 2 is **Met** at a call depth of 100,000 (RFC-0003,
+    acceptance criterion 2, cited by number as in §S8). It must stay met with
     the tier on. Before the frame loop the same program aborted between 5,000
     and 20,000, so this criterion has a demonstrated failure mode and is not
     hypothetical.
@@ -1753,10 +1969,15 @@ evidence, and this one is listed as runnable rather than as met.
     (§S8, *The guard*), and the self-recursive word alone never exercises that.
     That axis must **report, not abort**, in both builds. It aborted in both
     until §S8's Tier 0 floor landed (F85). `cargo xtask depth`'s `loop` axis
-    now runs it at 100,000 levels and reports a Bund-level error. It also reports
-    the depth at which Tier 0's floor fires, and **that depth must be the same
-    with the feature on and off**: the tier's share of the stack sits above
-    Tier 0's, never inside it (§S8, *How the guard reads the stack*).
+    now runs it at 100,000 levels, reports a Bund-level error, and prints the
+    level at which Tier 0's floor fired: **10,923** in release on 2026-09-10.
+
+    **That level is not meaning (D44).** It is 2,371 in the dev profile on the
+    same source, and the oracle aborts at every depth. So the criterion is that
+    the axis reports rather than aborts in both builds, and that **its level
+    with the feature on is no lower than with it off**. An earlier revision
+    required the two levels to be equal, and no fixed floor can give that and
+    "never less" together (the seventh review's B1; §S8, *Two floors*).
 
 12. **A synced value keeps its stack tag.** §S5's rule writes promoted values
     back to the real stack; **D41 put the stack tag inside the value for
@@ -1845,13 +2066,22 @@ evidence, and this one is listed as runnable rather than as met.
     the 29.2 ns `lowered` `+` it guards. Above that, the guard's design is
     reconsidered before inlining ships.
 
+    **The per-call checks have the same bound.** The two loads after every call
+    (epoch, `autoadd`), together with the callee's generation before a call
+    across which values stay promoted (§S5), must cost under 2 ns per call.
+    In a body that promotes, calls are far more common than inlined sites, and
+    until the seventh review nothing bounded their checks.
+
 18. **Compiled code honours `autoadd`** — at entry, after every call, and for
-    every kind of value the reference collects. Bind `:` and `;`, compile a
-    body that turns the mode on mid-body through `!`, and assert that the
-    calls, **literals** and CONTEXT values after it are collected rather than
-    dispatched, pushed or switched to
-    (`reference/rust_multistackvm/src/multistackvm_apply.rs:19-27`, `reference/rust_multistackvm/src/multistackvm_apply.rs:72-73`,
-    `reference/rust_multistackvm/src/multistackvm_apply.rs:89-97`).
+    every kind of value the mode affects. Bind `:` and `;`, compile a body that
+    turns the mode on mid-body through `!`, and assert two things. The calls
+    and **literals** after it must be appended into the value beneath rather
+    than dispatched or pushed
+    (`reference/rust_multistackvm/src/multistackvm_apply.rs:19-27`, `reference/rust_multistackvm/src/multistackvm_apply.rs:89-97`).
+    A CONTEXT value must be **pushed as a value of its own** rather than
+    switched to (`reference/rust_multistackvm/src/multistackvm_apply.rs:72-73`).
+    An earlier wording had CONTEXT "collected", which contradicted F84; a probe
+    written to it would have asserted the wrong shape.
 
     **The oracle is the reference, not Tier 0.** Tier 0's `autoadd` arm pushes
     the name *beside* the value where the reference appends it *into* the
@@ -1901,14 +2131,41 @@ evidence, and this one is listed as runnable rather than as met.
     that resolves the current stack once, or that syncs to the stack current
     at the sync rather than the one each value came from.
 
-22. **What a promoted value must not change, doesn't.** Compile a body that
-    promotes and then fails — once through its own op and once through a
-    callee — and assert the error report and the `[BUND]  Content of the stack`
-    dump match Tier 0's. Then compile a body that promotes across a call, and
-    rebind that call's name to a word with a different effect, both before the
-    body runs and mid-body through `register`; assert the stacks match Tier
-    0's. Finally, run a body that promotes under a reporter that wants stacks,
-    and assert nothing is held across a call. Needs a tier.
+22. **What a promoted value must not change, doesn't.** Four parts, each
+    asserted against Tier 0's result:
+
+    - **An error with values promoted.** Compile `1 2 "a" +` with `1` and `2`
+      promoted. `+`'s type guard declines, and its generic counterpart, the
+      word called through its slot, returns the error. The report and the
+      `[BUND]  Content of the stack` dump must match. Then do the same with a
+      callee that fails. A fragment op cannot be the one that fails, because
+      criterion 19 makes a failure after the guard impossible to construct.
+    - **An effect changed at run time.** Promote across a call, and rebind that
+      call's name to a word with a different effect, once before the body runs
+      and once mid-body through `register`. The stacks must match.
+    - **An alias whose target is rebound.** Promote across a call to `<-`, and
+      rebind `stacks_left` to a lambda that consumes two, before the body runs
+      and mid-body. The stacks must match. Repeat with `$stacks_left`, and
+      with a callee whose slot generation is saturated.
+    - **The reporter, observed through the diagnostic.** Under
+      `CollectingReporter` with `wants_stack` set, run a promoted body that
+      calls `?error`, whose notice is reported mid-body (`run_error`,
+      `crates/bund2-stdlib/src/conditional.rs`). The notice's snapshot in
+      `CollectingReporter::seen` must equal Tier 0's; that snapshot is the seam
+      that shows whether anything was held across the call. Then, under
+      `TextReporter::new(true)`, the lowering's side table (criterion 17) must
+      record at least one call crossed by promotion in the same body. Under the
+      default reporter, promotion across calls must not be zero (D45).
+
+    Needs a tier.
+
+23. **A body compiled for one `Interp` is never run by another.** On one
+    thread, build two `Interp`s, evaluate a body under the first until it is
+    compiled, and evaluate the same `Rc` under the second. The second's cache
+    must miss, so the body is interpreted or compiled again against the second
+    `Interp`'s cells. After the first `Interp` is dropped, the second must still
+    give Tier 0's result. This fails for any cache, module or cell shared
+    across `Interp`s (§S6, *Addressing*). Needs a tier.
 
 ## Open questions
 
