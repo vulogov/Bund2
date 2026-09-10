@@ -10,3 +10,8 @@
         clippy::unreachable
     )
 )]
+
+/// A word's specialised arm, for a code generator to inline. RFC-0005 §S6.
+pub mod fragment;
+
+pub use fragment::{Fragment, Guard, Op};

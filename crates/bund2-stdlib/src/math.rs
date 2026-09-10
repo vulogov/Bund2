@@ -19,14 +19,14 @@
 //! `1 2 + debug.display_stack` shows `q: 100.0`.
 
 use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
-use bund2_value::BundValue;
+use bund2_value::{BundValue, LIST};
 
 fn eff(consumes: u8, produces: u8) -> StackEffect {
-    StackEffect { consumes, produces }
+    StackEffect::fixed(consumes, produces)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Op {
+pub(crate) enum Op {
     Add,
     Sub,
     Mul,
@@ -68,38 +68,63 @@ impl Op {
 /// (`reference/rust_dynamic/src/math.rs:127-235`).
 ///
 /// `x` is the **top** of the stack.
-fn numeric_op(op: Op, x: &BundValue, y: &BundValue) -> Result<BundValue, Error> {
+pub(crate) fn numeric_op(op: Op, x: &BundValue, y: &BundValue) -> Result<BundValue, Error> {
     use BundValue::{Float, Int};
     let (xa, ya) = (x.unboxed(), y.unboxed());
     let xs = x.as_str();
     let ys = y.as_str();
 
+    // **A LIST left operand is append, and only under `Add`**
+    // (`reference/rust_dynamic/src/math.rs:296-324`). Two lists concatenate
+    // (`:299-308`); a list and anything else pushes the anything-else as one
+    // element (`:315-320`). Every other operation on a list is
+    // `Incompartible operation for the list` (`:322`).
+    //
+    // This is checked before the numeric arms because it dispatches on the
+    // **tag**, where those dispatch on the payload — a LIST has no scalar arm
+    // to match, so reaching the numeric `match` at all means falling through
+    // to the string fallback and reporting the wrong error. That is what
+    // `dynamic_demo_4.bund` hit: `list . … +.` appends a name to a list on the
+    // workbench, and it reported
+    // `Incompartible Y argument for the math operations`.
+    if x.dt() == LIST {
+        if op != Op::Add {
+            return Err(Error("Incompartible operation for the list".into()));
+        }
+        let mut items = x.as_list().unwrap_or_default().to_vec();
+        match (y.dt() == LIST, y.as_list()) {
+            (true, Some(tail)) => items.extend(tail.iter().cloned()),
+            _ => items.push(y.clone()),
+        }
+        return Ok(BundValue::list(items));
+    }
+
     match (xa, ya) {
-        (Int(a), Int(b)) => {
+        (Int(a, _), Int(b, _)) => {
             if op == Op::Div && *b == 0 {
                 return Err(Error("Integer division to 0.0".into()));
             }
-            Ok(Int(op.int(*a, *b)))
+            Ok(BundValue::int(op.int(*a, *b)))
         }
-        (Float(a), Float(b)) => {
+        (Float(a, _), Float(b, _)) => {
             if op == Op::Div && *b == 0.0 {
                 return Err(Error("Float-point division to 0.0".into()));
             }
-            Ok(Float(op.float(*a, *b)))
+            Ok(BundValue::float(op.float(*a, *b)))
         }
         // Mixed kinds promote to float, and the *divisor's* zero test uses the
         // divisor's own kind (`math.rs:160-170,178-188`).
-        (Float(a), Int(b)) => {
+        (Float(a, _), Int(b, _)) => {
             if op == Op::Div && *b == 0 {
                 return Err(Error("Integer division to 0.0".into()));
             }
-            Ok(Float(op.float(*a, *b as f64)))
+            Ok(BundValue::float(op.float(*a, *b as f64)))
         }
-        (Int(a), Float(b)) => {
+        (Int(a, _), Float(b, _)) => {
             if op == Op::Div && *b == 0.0 {
                 return Err(Error("Float-point division to 0.0".into()));
             }
-            Ok(Float(op.float(*a as f64, *b)))
+            Ok(BundValue::float(op.float(*a as f64, *b)))
         }
         _ => {
             // String arms. An `I64` left operand with a string right operand
@@ -107,8 +132,8 @@ fn numeric_op(op: Op, x: &BundValue, y: &BundValue) -> Result<BundValue, Error> 
             // swap places (`math.rs:200-202`), so the *string* leads.
             match (xs, ys, xa, ya) {
                 (Some(a), Some(b), _, _) => Ok(BundValue::str(string_op(op, &a, &b))),
-                (_, Some(b), Int(a), _) => Ok(BundValue::str(string_op_int(op, &b, *a))),
-                (Some(a), _, _, Int(b)) => Ok(BundValue::str(string_op_int(op, &a, *b))),
+                (_, Some(b), Int(a, _), _) => Ok(BundValue::str(string_op_int(op, &b, *a))),
+                (Some(a), _, _, Int(b, _)) => Ok(BundValue::str(string_op_int(op, &a, *b))),
                 _ => Err(Error("Incompartible Y argument for the math operations".into())),
             }
         }
@@ -155,8 +180,49 @@ fn run(op: Op, vm: &mut dyn Vm) -> Result<(), Error> {
     }
 }
 
+/// The `.` form — **D24's contract, and it crosses two stacks.**
+///
+/// Operand #1 comes off the **workbench**, operand #2 off the **main stack**
+/// with no branch at all, and the result goes back to the **workbench**
+/// (`reference/rust_multistackvm/src/stdlib/math/math_op.rs:96,101,107`). So
+/// `+.` is not "`+` on the workbench": it is `-1` workbench, `-1` stack, `+1`
+/// workbench, which is why RFC-0004 gives a stack effect two axes.
+///
+/// The guard is both stacks — main at 1 *and* workbench at 1 (`:86-91`) — and
+/// both report the same "Stack is too shallow" text even though one of them is
+/// about the workbench.
+fn run_workbench(op: Op, vm: &mut dyn Vm) -> Result<(), Error> {
+    let prefix = format!("{}.", op.prefix());
+    if vm.depth() < 1 || vm.snapshot_workbench().is_empty() {
+        return Err(Error(format!("Stack is too shallow for inline {prefix}()")));
+    }
+    let x = vm
+        .pull_workbench()
+        .ok_or_else(|| Error(format!("{prefix} returns: NO DATA #1")))?;
+    let y = crate::pull::operand(vm, &prefix, 2)?;
+    match numeric_op(op, &x, &y) {
+        Ok(v) => {
+            vm.push_workbench(v);
+            Ok(())
+        }
+        Err(e) => Err(Error(format!("{prefix} returns error: {}", e.0))),
+    }
+}
+
 fn add(vm: &mut dyn Vm) -> Result<(), Error> {
     run(Op::Add, vm)
+}
+fn add_wb(vm: &mut dyn Vm) -> Result<(), Error> {
+    run_workbench(Op::Add, vm)
+}
+fn sub_wb(vm: &mut dyn Vm) -> Result<(), Error> {
+    run_workbench(Op::Sub, vm)
+}
+fn mul_wb(vm: &mut dyn Vm) -> Result<(), Error> {
+    run_workbench(Op::Mul, vm)
+}
+fn div_wb(vm: &mut dyn Vm) -> Result<(), Error> {
+    run_workbench(Op::Div, vm)
 }
 fn sub(vm: &mut dyn Vm) -> Result<(), Error> {
     run(Op::Sub, vm)
@@ -168,11 +234,78 @@ fn div(vm: &mut dyn Vm) -> Result<(), Error> {
     run(Op::Div, vm)
 }
 
+/// The `math.*` float family — seventeen words, one body
+/// (`reference/rust_multistackvm/src/stdlib/math/float_math.rs:93-165,170-188`).
+///
+/// Each is a plain `f64` method on the pulled operand, so the interesting part
+/// is the gate rather than the arithmetic: the operand goes through
+/// `cast_float`, which accepts **only** a `Val::F64`
+/// (`reference/rust_dynamic/src/cast.rs:9-16`). An integer is refused —
+/// `2 math.sqrt` is an error, `2.0 math.sqrt` is not — and the error names the
+/// tag it got. This is a stricter gate than the arithmetic words use, which
+/// coerce across int and float, and it is preserved as written.
+///
+/// The guard's message says `float_op` and not the word's own name (`:95`),
+/// so every one of the seventeen reports the same text. That is F40's shape
+/// and it is reproduced rather than improved.
+fn float_op(vm: &mut dyn Vm, f: fn(f64) -> f64) -> Result<(), Error> {
+    if vm.depth() < 1 {
+        return Err(Error("Stack is too shallow for inline float_op".into()));
+    }
+    let v = crate::pull::operand(vm, "FLOAT_OP", 1)?;
+    let BundValue::Float(x, _) = *v.unboxed() else {
+        // `cast_float`'s text, inside the base's wrapper (`:156`). Confirmed
+        // against the oracle: `2 math.sqrt` reports
+        // `FLOAT_OP returns error: This Dynamic type is not float: 2`.
+        return Err(Error(format!(
+            "FLOAT_OP returns error: This Dynamic type is not float: {}",
+            v.dt()
+        )));
+    };
+    vm.push(BundValue::float(f(x)));
+    Ok(())
+}
+
 pub fn register(r: &mut Registry) {
+    // The seventeen, in the reference's registration order (`:171-187`).
+    macro_rules! float_word {
+        ($name:literal, $m:ident) => {
+            r.register_native(
+                $name,
+                |vm| float_op(vm, |x| x.$m()),
+                eff(1, 1),
+                WordKind::Sync,
+            );
+        };
+    }
+    float_word!("math.floor", floor);
+    float_word!("math.abs", abs);
+    float_word!("math.signum", signum);
+    float_word!("math.cbrt", cbrt);
+    float_word!("math.ceil", ceil);
+    float_word!("math.round", round);
+    float_word!("math.fract", fract);
+    float_word!("math.sqrt", sqrt);
+    float_word!("math.sin", sin);
+    float_word!("math.cos", cos);
+    float_word!("math.tan", tan);
+    float_word!("math.asin", asin);
+    float_word!("math.acos", acos);
+    float_word!("math.atan", atan);
+    float_word!("math.sinh", sinh);
+    float_word!("math.cosh", cosh);
+    float_word!("math.tanh", tanh);
     r.register_native("+", add, eff(2, 1), WordKind::Sync);
     r.register_native("-", sub, eff(2, 1), WordKind::Sync);
     r.register_native("*", mul, eff(2, 1), WordKind::Sync);
     r.register_native("/", div, eff(2, 1), WordKind::Sync);
+    // `eff` cannot yet say "one from each stack" — RFC-0004 §S1 is what widens
+    // it. Until then these declare the main-stack half, which is the half the
+    // current shape can express, and the doc comment carries the rest.
+    r.register_native("+.", add_wb, eff(1, 0), WordKind::Sync);
+    r.register_native("-.", sub_wb, eff(1, 0), WordKind::Sync);
+    r.register_native("*.", mul_wb, eff(1, 0), WordKind::Sync);
+    r.register_native("/.", div_wb, eff(1, 0), WordKind::Sync);
 }
 
 #[cfg(test)]
@@ -250,11 +383,28 @@ mod tests {
         assert!(f.contains("Float-point division to 0.0"), "{f}");
     }
 
-    /// Arithmetic does not average `q`; the result carries the default.
+    /// **Arithmetic does not average `q`** — D32, as amended on Q35's answer.
+    ///
+    /// The operand at `q` 0.0 is what lets this fail. The earlier version added
+    /// `1 2 +`, both at 100.0, where an average and a fresh default are the same
+    /// number — so it passed under either rule and decided nothing. No Bund
+    /// program can build a numeric value at another `q`, which is why this is
+    /// constructed in Rust rather than parsed.
     #[test]
     fn arithmetic_leaves_q_at_the_default() {
-        let i = run_src("1 2 +").expect("runs");
-        assert_eq!(i.peek().map(|v| v.q()), Some(100.0));
+        use bund2_api::Vm as _;
+        let mut i = bund2_interp::Interp::new();
+        crate::register_all(&mut i.registry);
+        i.push(bund2_value::BundValue::int(2).with_q(0.0));
+        i.push(bund2_value::BundValue::int(1));
+        let stream = bund2_syntax::compile("+").expect("compiles");
+        i.eval(&stream).expect("runs");
+        assert_eq!(i.peek().and_then(|v| v.as_int()), Some(3));
+        assert_eq!(
+            i.peek().map(|v| v.q()),
+            Some(100.0),
+            "an average of 0.0 and 100.0 would read 50.0"
+        );
     }
 
     #[test]

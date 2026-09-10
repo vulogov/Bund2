@@ -21,7 +21,11 @@
     )
 )]
 
+/// Executing a word's specialised arm — RFC-0005 §S6's first consumer.
+pub mod frag;
+
 use std::collections::{BTreeMap, VecDeque};
+use std::rc::Rc;
 
 use bund2_api::{Error, Registry, Resolved, Symbol, Vm};
 use bund2_value::BundValue;
@@ -40,12 +44,61 @@ use bund2_value::BundValue;
 /// `add_named_fifo` has no caller, so every stack in a running Bund is LIFO
 /// and both FIFO branches are dead. That is F27, and exposing the policy would
 /// add a feature the reference advertises and does not have.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Stack {
+    /// This stack's own name, for the tag every push writes.
+    ///
+    /// Held here rather than passed in because `current_mut` had to hand back
+    /// an owned `String` alongside the `&mut Stack` — the borrow checker will
+    /// not lend both out of one map — and that cost **two allocations per
+    /// push**: one for `current_name().to_string()` and one for the
+    /// `entry(name.clone())` lookup. Neither had anything to do with the tag.
+    ///
+    /// `Rc<str>` rather than `String` so `Stacks::to_stack` can hand the name
+    /// over without copying it.
+    name: Rc<str>,
+    /// The interned `"stack"` key, cached so a push clones an `Rc` instead of
+    /// allocating a `String`. Two `String` allocations per push measured
+    /// 36.5 ns against 16.3 ns for two `Rc` clones
+    /// (`crates/bund2-bench/benches/boxing.rs`).
+    tag_key: Rc<str>,
+    /// This stack's name, interned. **D41**: a pushed scalar stores this
+    /// symbol inline instead of being boxed to carry a map entry.
+    sym: bund2_value::StackSym,
     items: VecDeque<BundValue>,
+    /// A bound set by `ensure_stack_with_capacity`, if one was.
+    ///
+    /// Per-stack rather than a side table, so a push cannot consult one
+    /// stack's length against another's bound — which is exactly what the
+    /// reference does (`ts_push.rs:47-48` reads `current_stack_len()` and
+    /// `stack_capacity(name)`), and F39 records.
+    cap: Option<usize>,
+}
+
+impl Default for Stack {
+    fn default() -> Self {
+        Self::named("main")
+    }
 }
 
 impl Stack {
+    /// A stack that knows its own name.
+    pub fn named(name: &str) -> Self {
+        Self::from_rc(Rc::from(name))
+    }
+
+    /// The same, sharing an already-interned name — so the map key and the
+    /// stack's own copy are one allocation, not two.
+    pub fn from_rc(name: Rc<str>) -> Self {
+        Self {
+            sym: bund2_value::intern_stack_name(&name),
+            name,
+            tag_key: bund2_value::stack_tag_key(),
+            items: VecDeque::new(),
+            cap: None,
+        }
+    }
+
     /// Push, **writing the stack tag**.
     ///
     /// `TS::push` calls `set_tag("stack", …)` on every push with no type test
@@ -61,8 +114,43 @@ impl Stack {
     /// keeps the tag of the stack it *was* on, which is why the inner values
     /// of the `valuemap` probe render `tags: {"stack": "main"}` while sitting
     /// inside a map.
-    fn push(&mut self, v: BundValue, stack_name: &str) {
-        self.items.push_back(v.with_tag("stack", stack_name));
+    /// Push, dropping the **newest** value first when a capacity is set.
+    ///
+    /// The reference reads the capacity, and if the stack is already that
+    /// deep, calls `curr.pull()` before pushing
+    /// (`reference/rust_multistack/src/ts_push.rs:52-57`). `pull` takes from
+    /// the top, so a capped stack discards the value most recently pushed,
+    /// not the oldest — a stack with capacity 2 given `1 2 3 4` ends up
+    /// holding `1` and `4`, confirmed against the oracle.
+    ///
+    /// That is not what "capacity" usually means, and it is preserved as
+    /// written.
+    fn push(&mut self, v: BundValue) {
+        let (sym, name) = (self.sym, Rc::clone(&self.name));
+        self.push_as(v, sym, &name);
+    }
+
+
+    /// Push, tagging with a name that is **not** this stack's own.
+    ///
+    /// One caller, and it is the reason this exists: the workbench "does not
+    /// carry a specific name", so a value pushed there keeps the tag of the
+    /// stack it came from — a fossil rather than a location. Tagging it with
+    /// the workbench's own name would erase that.
+    fn push_as(&mut self, v: BundValue, sym: bund2_value::StackSym, stack_name: &Rc<str>) {
+        if let Some(cap) = self.cap
+            && self.items.len() >= cap
+        {
+            self.items.pop_back();
+        }
+        // **D41.** A scalar takes the symbol inline — no allocation, no
+        // boxing. A heap value already has a header, so its tag goes in the
+        // map as it always did.
+        let tagged = match v {
+            BundValue::Heap(_) => v.with_tag(Rc::clone(&self.tag_key), Rc::clone(stack_name)),
+            scalar => scalar.with_stack_sym(sym),
+        };
+        self.items.push_back(tagged);
     }
 
     fn pull(&mut self) -> Option<BundValue> {
@@ -82,6 +170,21 @@ impl Stack {
     /// with `pull` on a FIFO stack.
     pub fn peek(&self) -> Option<&BundValue> {
         self.items.back()
+    }
+
+    /// The value `n` places below the top, without copying the stack.
+    ///
+    /// `n == 0` is the top, so this is `peek` generalised. It exists for
+    /// fragment guards (RFC-0005 §S5), which ask about the top *few* values:
+    /// the obvious spelling — `snapshot()` and index — clones every value on
+    /// the stack to look at two of them, which is `O(depth)` allocation on the
+    /// path whose whole purpose is to be cheaper than a call.
+    pub fn peek_at(&self, n: usize) -> Option<&BundValue> {
+        let len = self.items.len();
+        if n >= len {
+            return None;
+        }
+        self.items.get(len - 1 - n)
     }
 
     pub fn len(&self) -> usize {
@@ -109,11 +212,11 @@ impl Stack {
 /// The stack of stacks, plus the workbench.
 #[derive(Debug)]
 pub struct Stacks {
-    stacks: BTreeMap<String, Stack>,
+    stacks: BTreeMap<Rc<str>, Stack>,
     /// Names in rotation order. The reference's stack-of-stacks is itself a
     /// circular buffer, and selecting a named stack **rotates it to the top**
     /// (`…/Introduction_the_art_of_stack_operations.typ:43`).
-    order: VecDeque<String>,
+    order: VecDeque<Rc<str>>,
     /// "a circular stack that … does not carry a specific name" (`:72`).
     workbench: Stack,
 }
@@ -121,18 +224,19 @@ pub struct Stacks {
 impl Default for Stacks {
     fn default() -> Self {
         let mut stacks = BTreeMap::new();
-        stacks.insert("main".to_string(), Stack::default());
+        let main: Rc<str> = Rc::from("main");
+        stacks.insert(Rc::clone(&main), Stack::from_rc(Rc::clone(&main)));
         Self {
             stacks,
-            order: VecDeque::from([String::from("main")]),
-            workbench: Stack::default(),
+            order: VecDeque::from([main]),
+            workbench: Stack::named("main"),
         }
     }
 }
 
 impl Stacks {
     pub fn current_name(&self) -> &str {
-        self.order.front().map(String::as_str).unwrap_or("main")
+        self.order.front().map(|n| &**n).unwrap_or("main")
     }
 
     /// The current stack, creating it if it has somehow gone missing.
@@ -141,10 +245,32 @@ impl Stacks {
     /// put a panic on the hottest path in the interpreter. Creating an empty
     /// one instead is indistinguishable in every reachable case and cannot
     /// abort the program in an unreachable one.
-    fn current_mut(&mut self) -> (&mut Stack, String) {
-        let name = self.current_name().to_string();
-        let s = self.stacks.entry(name.clone()).or_default();
-        (s, name)
+    fn current_mut(&mut self) -> &mut Stack {
+        // **No allocation.** Cloning the front `Rc` is a refcount bump; this
+        // used to be `current_name().to_string()`, which allocated on every
+        // push and every pull.
+        let name = match self.order.front() {
+            Some(n) => Rc::clone(n),
+            None => Rc::from("main"),
+        };
+        self.stacks
+            .entry(name)
+            .or_insert_with_key(|k| Stack::from_rc(Rc::clone(k)))
+    }
+
+    /// The current stack's name as a shared handle, for the one caller that
+    /// needs to tag with it — `push_workbench`.
+    fn current_sym_and_name(&self) -> (bund2_value::StackSym, Rc<str>) {
+        let name = match self.order.front() {
+            Some(n) => Rc::clone(n),
+            None => Rc::from("main"),
+        };
+        let sym = self
+            .stacks
+            .get(&name)
+            .map(|s| s.sym)
+            .unwrap_or_else(|| bund2_value::intern_stack_name(&name));
+        (sym, name)
     }
 
     /// Make a named stack current, creating it if needed.
@@ -153,25 +279,48 @@ impl Stacks {
     /// named stack to become the current stack, the buffer rotates to bring
     /// the required stack to the proper position".
     pub fn to_stack(&mut self, name: &str) {
-        self.stacks.entry(name.to_string()).or_default();
-        if !self.order.iter().any(|n| n == name) {
-            self.order.push_front(name.to_string());
+        self.stacks
+            .entry(Rc::from(name))
+            .or_insert_with_key(|k| Stack::from_rc(Rc::clone(k)));
+        if !self.order.iter().any(|n| &**n == name) {
+            self.order.push_front(Rc::from(name));
             return;
         }
-        // `rotate_left` moves the front to the back without an `Option` to
-        // unwrap, so there is no impossible case to explain.
-        while self.current_name() != name && !self.order.is_empty() {
+        // **Bounded by the deque's length, so termination is structural.**
+        //
+        // The membership test above already guarantees `name` is present, so
+        // an unbounded `while current_name() != name` would in fact stop. But
+        // that argument lives ten lines from the loop, and F70 is what happens
+        // when a loop's termination depends on a fact established elsewhere:
+        // the reference's drain is correct exactly until pushing to a stack
+        // creates it, and then it never returns.
+        //
+        // The reference guards the same rotation by counting a full circle and
+        // failing — "We made a full circle over stacks and did not find {}"
+        // (`reference/rust_multistack/src/ts_to_current.rs:24-26`). This bounds
+        // it instead: at most one full rotation, after which the deque is back
+        // where it started and nothing has been lost.
+        for _ in 0..self.order.len() {
+            if self.current_name() == name {
+                break;
+            }
             self.order.rotate_left(1);
         }
     }
 
     pub fn names(&self) -> impl Iterator<Item = &str> {
-        self.stacks.keys().map(String::as_str)
+        self.stacks.keys().map(|k| &**k)
     }
 
     pub fn workbench(&mut self) -> &mut Stack {
         &mut self.workbench
     }
+}
+
+/// The items a frame's body value carries: a LAMBDA's body, or a LIST's
+/// elements for a body assembled at run time (`scoped_call`'s).
+fn frame_items(v: &BundValue) -> Option<&[BundValue]> {
+    v.as_lambda().or_else(|| v.as_list())
 }
 
 /// The interpreter.
@@ -182,7 +331,11 @@ impl Stacks {
 /// That last part is what fixes F57: the reference restores a context's stack
 /// with a statement placed after three early returns, so a failure skips it.
 struct Frame {
-    body: Vec<BundValue>,
+    /// The value whose body this frame runs — a LAMBDA, or a LIST for a body
+    /// assembled at run time. **Held, not copied (D42)**, so the body's `Rc`,
+    /// D35's cache key, is in hand for as long as the frame runs, and a body is
+    /// alive whenever anything is executing it.
+    body: BundValue,
     ip: usize,
     /// Run when this frame is popped, on success **and** on failure.
     exit: Option<ExitAction>,
@@ -210,7 +363,12 @@ pub struct Interp {
     /// A body a native asked the loop to run **after it returns** — §S4a's
     /// request, in its tail-position form. The native sets it and returns; the
     /// loop pushes a frame. Nothing recurses.
-    pending_tail: Option<Vec<BundValue>>,
+    pending_tail: Option<BundValue>,
+    /// **Where bodies start running, by key — RFC-0005 criterion 20.** `None`
+    /// in production, so the cost is one branch per body entry. When `Some`,
+    /// every frame pushed for a body records that body's `payload_key`, which
+    /// is how a test shows one key reaching every iteration of a loop (D42).
+    pub entry_log: Option<Vec<usize>>,
     pub registry: Registry,
     pub stacks: Stacks,
     /// `apply` tests this in three places, and it does **not** precede the
@@ -236,6 +394,7 @@ impl Interp {
             reporter: Box::new(bund2_api::diag::SilentReporter),
             frames: Vec::new(),
             pending_tail: None,
+            entry_log: None,
         }
     }
 
@@ -300,15 +459,14 @@ impl Interp {
                 // (`reference/rust_multistackvm/src/multistackvm_lambda_eval.rs:27-29`).
                 // The `register` word guards the type, but the registry API
                 // does not, so the check belongs here too.
-                let items = body
-                    .as_lambda()
-                    .ok_or_else(|| Error("This is not a lambda".into()))?
-                    .to_vec();
+                if body.as_lambda().is_none() {
+                    return Err(Error("This is not a lambda".into()));
+                }
                 // **The call that used to recurse.** Calling a lambda is a
                 // tail position: nothing in `dispatch` runs after the body. So
                 // it becomes a request, and the loop pushes a frame — Bund
                 // call depth stops being Rust call depth.
-                self.request_tail(items);
+                self.request_tail(body);
                 Ok(())
             }
             Resolved::Native => {
@@ -484,22 +642,41 @@ impl Interp {
     /// per Bund call**, which is the whole point.
     ///
     /// Natives that must inspect the stack *between* two evaluations —
-    /// `?ifthenelse`, `?try`, `times` — still call [`Interp::eval_body`], which
+    /// `?ifthenelse`, `?try`, `times` — still call [`Vm::eval_lambda`], which
     /// is synchronous. Those add one Rust frame per *native*, not per Bund
     /// call, so depth is bounded by how deeply such natives nest rather than by
     /// how deep the program recurses.
-    pub fn request_tail(&mut self, body: Vec<BundValue>) {
+    pub fn request_tail(&mut self, body: BundValue) {
         self.pending_tail = Some(body);
     }
 
     /// Push a frame for whatever the last native requested, if anything.
     fn take_pending(&mut self) {
         if let Some(body) = self.pending_tail.take() {
-            self.frames.push(Frame {
-                body,
-                ip: 0,
-                exit: None,
-            });
+            self.push_frame(body, None);
+        }
+    }
+
+    /// Push a frame for `body` — **the one place a body starts running**, so
+    /// the one place its key is observed (D42, RFC-0005 criterion 20).
+    fn push_frame(&mut self, body: BundValue, exit: Option<ExitAction>) {
+        if let (Some(log), Some(k)) = (self.entry_log.as_mut(), body.payload_key()) {
+            log.push(k);
+        }
+        self.frames.push(Frame { body, ip: 0, exit });
+    }
+
+    /// Pop frames down to `floor`, running every exit action on the way. This
+    /// is what the reference cannot do: its restore is a statement after the
+    /// early returns.
+    fn unwind_to(&mut self, floor: usize) {
+        while self.frames.len() > floor {
+            if let Some(Frame {
+                exit: Some(action), ..
+            }) = self.frames.pop()
+            {
+                self.run_exit(action);
+            }
         }
     }
 
@@ -512,32 +689,35 @@ impl Interp {
             let Some(frame) = self.frames.last_mut() else {
                 break;
             };
-            if frame.ip >= frame.body.len() {
-                let done = self.frames.pop();
-                if let Some(Frame {
-                    exit: Some(action), ..
-                }) = done
-                {
-                    self.run_exit(action);
+            // Read through the held value (D42). `get`, not an index: a frame
+            // whose value carries no body is a broken invariant, not a panic.
+            let next = frame_items(&frame.body).map(|items| items.get(frame.ip).cloned());
+            let v = match next {
+                Some(Some(v)) => {
+                    frame.ip += 1;
+                    v
                 }
-                continue;
-            }
-            let v = frame.body[frame.ip].clone();
-            frame.ip += 1;
+                Some(None) => {
+                    let done = self.frames.pop();
+                    if let Some(Frame {
+                        exit: Some(action), ..
+                    }) = done
+                    {
+                        self.run_exit(action);
+                    }
+                    continue;
+                }
+                None => {
+                    self.unwind_to(floor);
+                    return Err(Error::internal(
+                        "a frame's body is neither a LAMBDA nor a LIST value",
+                    ));
+                }
+            };
             match self.apply_step(v) {
                 Ok(()) => self.take_pending(),
                 Err(e) => {
-                    // Unwind to the floor, running every exit action on the
-                    // way. This is what the reference cannot do: its restore
-                    // is a statement after the early returns.
-                    while self.frames.len() > floor {
-                        if let Some(Frame {
-                            exit: Some(action), ..
-                        }) = self.frames.pop()
-                        {
-                            self.run_exit(action);
-                        }
-                    }
+                    self.unwind_to(floor);
                     return Err(e);
                 }
             }
@@ -560,12 +740,11 @@ impl Interp {
 
 impl Vm for Interp {
     fn push(&mut self, v: BundValue) {
-        let (stack, name) = self.stacks.current_mut();
-        stack.push(v, &name);
+        self.stacks.current_mut().push(v);
     }
 
     fn pull(&mut self) -> Option<BundValue> {
-        self.stacks.current_mut().0.pull()
+        self.stacks.current_mut().pull()
     }
 
     fn depth(&self) -> usize {
@@ -577,6 +756,13 @@ impl Vm for Interp {
             .stacks
             .get(self.stacks.current_name())
             .and_then(|s| s.peek().cloned())
+    }
+
+    fn peek_at(&self, n: usize) -> Option<BundValue> {
+        self.stacks
+            .stacks
+            .get(self.stacks.current_name())
+            .and_then(|s| s.peek_at(n).cloned())
     }
 
     fn clear(&mut self) {
@@ -597,11 +783,11 @@ impl Vm for Interp {
     }
 
     fn rotate_left(&mut self) {
-        self.stacks.current_mut().0.rotate_left();
+        self.stacks.current_mut().rotate_left();
     }
 
     fn rotate_right(&mut self) {
-        self.stacks.current_mut().0.rotate_right();
+        self.stacks.current_mut().rotate_right();
     }
 
     fn current_name(&self) -> String {
@@ -617,9 +803,24 @@ impl Vm for Interp {
     }
 
     fn ensure_stack(&mut self, name: &str) {
-        self.stacks.stacks.entry(name.to_string()).or_default();
-        if !self.stacks.order.iter().any(|n| n == name) {
-            self.stacks.order.push_back(name.to_string());
+        self.stacks
+            .stacks
+            .entry(Rc::from(name))
+            .or_insert_with_key(|k| Stack::from_rc(Rc::clone(k)));
+        if !self.stacks.order.iter().any(|n| &**n == name) {
+            self.stacks.order.push_back(Rc::from(name));
+        }
+    }
+
+    fn ensure_stack_with_capacity(&mut self, name: &str, cap: usize) {
+        self.ensure_stack(name);
+        // The reference only records a capacity the first time
+        // (`reference/rust_multistack/src/ts_ensure.rs:20-22` inserts into
+        // `stack_cap` only when absent), so a second call does not resize.
+        if let Some(s) = self.stacks.stacks.get_mut(name)
+            && s.cap.is_none()
+        {
+            s.cap = Some(cap);
         }
     }
 
@@ -630,7 +831,7 @@ impl Vm for Interp {
     fn push_to(&mut self, name: &str, v: BundValue) {
         self.ensure_stack(name);
         if let Some(s) = self.stacks.stacks.get_mut(name) {
-            s.push(v, name);
+            s.push(v);
         }
     }
 
@@ -646,10 +847,14 @@ impl Vm for Interp {
 
     fn drop_stack(&mut self, name: &str) {
         self.stacks.stacks.remove(name);
-        self.stacks.order.retain(|n| n != name);
+        self.stacks.order.retain(|n| &**n != name);
         if self.stacks.order.is_empty() {
-            self.stacks.order.push_back("main".to_string());
-            self.stacks.stacks.entry("main".into()).or_default();
+            let main: Rc<str> = Rc::from("main");
+            self.stacks.order.push_back(Rc::clone(&main));
+            self.stacks
+                .stacks
+                .entry(main)
+                .or_insert_with_key(|k| Stack::from_rc(Rc::clone(k)));
         }
     }
 
@@ -676,31 +881,30 @@ impl Vm for Interp {
     /// Rust frame — this one. `?ifthenelse` and `?try` need this shape because
     /// they act on what the body left behind; `if` does not, and uses
     /// [`Interp::request_tail`] instead.
-    fn tail_call(&mut self, body: Vec<BundValue>) {
-        Interp::request_tail(self, body);
+    fn tail_lambda(&mut self, lambda: BundValue) {
+        Interp::request_tail(self, lambda);
     }
 
     fn scoped_call(&mut self, stack: &str, body: Vec<BundValue>) -> Result<(), Error> {
         let prev = self.current_name();
         let floor = self.frames.len();
         self.to_stack(stack);
-        self.frames.push(Frame {
-            body,
-            ip: 0,
-            // Carried by the frame, so the unwinder runs it on a failure just
-            // as the loop runs it on success. F57.
-            exit: Some(ExitAction::ToStack(prev)),
-        });
+        // The exit action is carried by the frame, so the unwinder runs it on a
+        // failure just as the loop runs it on success. F57. The body is
+        // assembled per call, so it is wrapped as a LIST value: there is no
+        // key worth keeping (D42).
+        self.push_frame(BundValue::list(body), Some(ExitAction::ToStack(prev)));
         self.run_to(floor)
     }
 
-    fn eval_body(&mut self, body: &[BundValue]) -> Result<(), Error> {
+    fn eval_lambda(&mut self, lambda: &BundValue) -> Result<(), Error> {
+        if frame_items(lambda).is_none() {
+            return Err(Error::internal(
+                "eval_lambda was handed a value that carries no body; every caller checks the LAMBDA tag first",
+            ));
+        }
         let floor = self.frames.len();
-        self.frames.push(Frame {
-            body: body.to_vec(),
-            ip: 0,
-            exit: None,
-        });
+        self.push_frame(lambda.clone(), None);
         self.run_to(floor)
             .map_err(|e| Error(format!("Lambda content evaluation returned error: {}", e.0)))
     }
@@ -786,6 +990,31 @@ impl Vm for Interp {
         self.registry.is_method(name)
     }
 
+    fn register_alias(&mut self, alias: &str, target: &str) -> bool {
+        self.registry.register_alias(alias, target);
+        self.registry.alias_cycles(alias)
+    }
+
+    fn unregister_alias(&mut self, alias: &str) {
+        self.registry.unregister_alias(alias);
+    }
+
+    fn effect_of(&self, name: &str) -> Option<bund2_api::StackEffect> {
+        self.registry.effect_of(name)
+    }
+
+    fn register_var(&mut self, name: &str, value: BundValue) {
+        self.registry.register_var(name, value);
+    }
+
+    fn var(&self, name: &str) -> Option<BundValue> {
+        self.registry.var(name)
+    }
+
+    fn unregister_var(&mut self, name: &str) {
+        self.registry.unregister_var(name);
+    }
+
     fn context_depth(&self) -> usize {
         self.contexts.len()
     }
@@ -813,12 +1042,16 @@ impl Vm for Interp {
         // (`…/Introduction_the_art_of_stack_operations.typ:72`), so the tag it
         // receives is the stack the value came from — which is what makes a
         // workbench value's tag a fossil rather than a location.
-        let name = self.current_name();
-        self.stacks.workbench.push(v, &name);
+        let (sym, name) = self.stacks.current_sym_and_name();
+        self.stacks.workbench.push_as(v, sym, &name);
     }
 
     fn pull_workbench(&mut self) -> Option<BundValue> {
         self.stacks.workbench.pull()
+    }
+
+    fn workbench_depth(&self) -> usize {
+        self.stacks.workbench.len()
     }
 }
 
@@ -828,13 +1061,10 @@ mod tests {
     use bund2_api::{StackEffect, WordKind};
 
     fn eff() -> StackEffect {
-        StackEffect {
-            consumes: 0,
-            produces: 0,
-        }
+        StackEffect::fixed(0, 0)
     }
     fn marker(vm: &mut dyn Vm) -> Result<(), Error> {
-        vm.push(BundValue::Int(7));
+        vm.push(BundValue::int(7));
         Ok(())
     }
 
@@ -851,7 +1081,7 @@ mod tests {
         let (mut i, s) = with_native("w");
         i.dispatch(s, false).expect("dispatches");
         assert_eq!(i.depth(), 1);
-        assert_eq!(i.pull(), Some(BundValue::Int(7)));
+        assert_eq!(i.pull(), Some(BundValue::int(7)));
     }
 
     /// RFC-0002's central behaviour, end to end this time: the same name
@@ -864,7 +1094,7 @@ mod tests {
         // the resulting error as proof the lambda arm was reached — which
         // stopped meaning anything once that arm was implemented.
         i.registry
-            .register_lambda("println", BundValue::lambda(vec![BundValue::Int(1)]));
+            .register_lambda("println", BundValue::lambda(vec![BundValue::int(1)]));
         // `dispatch` on a lambda now *requests* a frame rather than running the
         // body (§S4), so the caller drives the loop. `apply` is the
         // synchronous door; `dispatch` alone leaves the request pending.
@@ -879,9 +1109,9 @@ mod tests {
     #[test]
     fn a_runtime_string_dispatches_with_its_sigil() {
         let (mut i, _) = with_native("println");
-        i.registry.register_lambda("println", BundValue::Int(1));
+        i.registry.register_lambda("println", BundValue::int(1));
         i.dispatch_name("$println").expect("reaches the native");
-        assert_eq!(i.pull(), Some(BundValue::Int(7)));
+        assert_eq!(i.pull(), Some(BundValue::int(7)));
     }
 
     /// A miss must not intern — a program dispatching a computed miss in a
@@ -904,7 +1134,7 @@ mod tests {
         i.registry.register_alias("b2", "println");
         let a2 = i.registry.register_alias("a2", "b2");
         i.dispatch(a2, false).expect("two links");
-        assert_eq!(i.pull(), Some(BundValue::Int(7)));
+        assert_eq!(i.pull(), Some(BundValue::int(7)));
     }
 
     /// `is_command` returns before `autoadd` is consulted
@@ -917,7 +1147,7 @@ mod tests {
             .register_command("c", marker, eff(), WordKind::Sync);
         i.autoadd = true;
         i.dispatch(s, false).expect("commands precede autoadd");
-        assert_eq!(i.pull(), Some(BundValue::Int(7)));
+        assert_eq!(i.pull(), Some(BundValue::int(7)));
     }
 
     /// Under `autoadd` a non-command name is appended to the value beneath
@@ -926,25 +1156,54 @@ mod tests {
     fn autoadd_appends_the_name_instead_of_running_it() {
         let (mut i, s) = with_native("w");
         i.autoadd = true;
-        i.push(BundValue::Int(1));
+        i.push(BundValue::int(1));
         i.dispatch(s, false).expect("autoadd");
         assert_eq!(i.pull().map(|v| v.dt()), Some(bund2_value::CALL));
         assert_eq!(
             i.pull(),
-            Some(BundValue::Int(1)),
+            Some(BundValue::int(1)),
             "the value is left beneath"
         );
     }
 
-    /// Every push writes the stack tag, with no type test — which is why a
-    /// scalar on a stack is boxed.
+    /// Every push writes the stack tag, with no type test — and **since D41 a
+    /// scalar is no longer boxed to carry it.**
+    ///
+    /// This test used to assert the opposite: "tagging a scalar boxes it". It
+    /// was right, and it was the whole cost — `promote/scalar` measured
+    /// 25.1 ns of allocation for a value that only needed four bytes of
+    /// padding. The tag is still reported identically, which is what the 39
+    /// tag-bearing goldens check; only the allocation is gone.
     #[test]
     fn push_tags_with_the_current_stack() {
         let mut i = Interp::new();
-        i.push(BundValue::Int(1));
+        i.push(BundValue::int(1));
         let v = i.pull().expect("pushed");
-        assert_eq!(v.tags().get("stack").map(String::as_str), Some("main"));
-        assert!(v.is_boxed(), "tagging a scalar boxes it");
+        assert_eq!(v.tags().get("stack").map(|s| &**s), Some("main"));
+        assert!(
+            !v.is_boxed(),
+            "D41: a scalar carries its tag inline and must not be boxed"
+        );
+    }
+
+    /// **D41 rule 2.** Boxing a tagged scalar carries the symbol into the
+    /// header's map. Without this a value that gains an `attr` after being
+    /// pushed would silently lose its stack tag — the one violation in D41
+    /// that no compiler catches.
+    #[test]
+    fn boxing_a_tagged_scalar_carries_the_tag_into_the_header() {
+        let mut i = Interp::new();
+        i.stacks.to_stack("side");
+        i.push(BundValue::int(1));
+        let v = i.pull().expect("pushed");
+        assert!(!v.is_boxed());
+        let boxed = v.promote();
+        assert!(boxed.is_boxed());
+        assert_eq!(
+            boxed.tags().get("stack").map(|s| &**s),
+            Some("side"),
+            "the symbol must survive promotion into the map"
+        );
     }
 
     #[test]
@@ -952,11 +1211,56 @@ mod tests {
         let mut i = Interp::new();
         i.stacks.to_stack("side");
         assert_eq!(i.stacks.current_name(), "side");
-        i.push(BundValue::Int(1));
+        i.push(BundValue::int(1));
         assert_eq!(
-            i.pull().unwrap().tags().get("stack").map(String::as_str),
+            i.pull().unwrap().tags().get("stack").map(|s| &**s),
             Some("side")
         );
+    }
+
+    /// **The workbench tag is a fossil of the source stack, not of the
+    /// workbench.** The workbench "does not carry a specific name", so a value
+    /// returned there keeps the tag of the stack it came from.
+    ///
+    /// This is why `Stack::push_as` exists beside `Stack::push`. When each
+    /// stack learned its own name — to stop `current_mut` allocating it twice
+    /// per push — the workbench acquired one too, and pushing with *its* name
+    /// would have quietly erased the fossil. Confirmed against the oracle:
+    /// `@foo 1 return take` leaves a value tagged `stack: "foo"`.
+    #[test]
+    fn the_workbench_keeps_the_tag_of_the_stack_a_value_came_from() {
+        let mut i = Interp::new();
+        i.stacks.to_stack("foo");
+        i.push(BundValue::int(1));
+        let v = i.pull().expect("pushed");
+        i.push_workbench(v);
+        let back = i.pull_workbench().expect("returned");
+        assert_eq!(
+            back.tags().get("stack").map(|s| &**s),
+            Some("foo"),
+            "the workbench must not retag with its own name"
+        );
+    }
+
+    /// **D13, both branches.** `with_tag` splits only when the header is
+    /// actually shared; a uniquely owned one is mutated in place and needs no
+    /// identity, because there is no second half to diverge from.
+    ///
+    /// The property D13 protects is the *shared* case, and it is asserted in
+    /// `bund2-value`. What this test pins is that the fast branch is reachable
+    /// at all — before the fix, `with_tag` took `&self` and cloned first, so
+    /// the answer to "is anyone else holding this?" was always yes and the
+    /// in-place path was dead code.
+    #[test]
+    fn pushing_a_fresh_scalar_does_not_mint_an_identity() {
+        let mut i = Interp::new();
+        i.push(BundValue::int(7));
+        let v = i.pull().expect("pushed");
+        assert!(
+            !v.has_identity(),
+            "a value that was never shared must not have been minted on push"
+        );
+        assert_eq!(v.tags().get("stack").map(|s| &**s), Some("main"));
     }
 
     /// Selecting a stack rotates the stack-of-stacks rather than reassigning
@@ -976,7 +1280,7 @@ mod tests {
     fn a_stack_rotates() {
         let mut s = Stack::default();
         for n in 1..=3 {
-            s.push(BundValue::Int(n), "main");
+            s.push(BundValue::int(n));
         }
         assert_eq!(s.peek().map(|v| v.dt()), Some(bund2_value::INTEGER));
         s.rotate_left();

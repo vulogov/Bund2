@@ -5,10 +5,12 @@
 //! `set` (29 goldens), `!` (24) and `register` (22).
 
 use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
-use bund2_value::{BundValue, CALL, CLASS, CONDITIONAL, LAMBDA, LIST, MAP, OBJECT, PTR, STRING};
+use bund2_value::{
+    BundValue, CALL, CLASS, CONDITIONAL, LAMBDA, LIST, MAP, Metric, OBJECT, PTR, STRING,
+};
 
 fn eff(consumes: u8, produces: u8) -> StackEffect {
-    StackEffect { consumes, produces }
+    StackEffect::fixed(consumes, produces)
 }
 
 /// `dict` — an empty MAP (`reference/rust_multistackvm/src/stdlib/artefacts.rs:113-115`).
@@ -40,9 +42,33 @@ fn lambda(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// `metrics` — a METRICS value of **128 zeroed samples**. Aliased `sample`
+/// (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:37`).
+///
+/// The word is `vm.apply(Value::metrics())`
+/// (`reference/rust_multistackvm/src/stdlib/artefacts.rs:61-63`), and
+/// `Value::metrics` is `Value::metrics_n(128)`
+/// (`reference/rust_dynamic/src/create_metrics.rs:24-26`) — a fixed-size
+/// buffer, not a growable one. The 128 is the observable part: it is what
+/// `tests/golden/probes/dt-reachable.golden` pins.
+///
+/// **Each sample is stamped, and the stamps are not all equal.** `Metric::new`
+/// calls `timestamp_ns` per sample
+/// (`reference/rust_dynamic/src/metric.rs:12-16`), so the buffer records 128
+/// separate readings of the clock rather than one. Nothing here can depend on
+/// that — the golden normalises every stamp — but constructing them from a
+/// single `now` would be a different value, and `debug.display_stack` is not
+/// the only thing that ever reads one.
+fn metrics(vm: &mut dyn Vm) -> Result<(), Error> {
+    vm.push(BundValue::metrics(
+        (0..128).map(|_| Metric::new(0.0)).collect(),
+    ));
+    Ok(())
+}
+
 /// `nodata`. Aliased `|` and `∅` (`create_aliases.rs:40-41`).
 fn nodata(vm: &mut dyn Vm) -> Result<(), Error> {
-    vm.push(BundValue::Nodata);
+    vm.push(BundValue::nodata());
     Ok(())
 }
 
@@ -130,7 +156,7 @@ fn has_key(vm: &mut dyn Vm) -> Result<(), Error> {
         .ok_or_else(|| Error("GET key expected to be string".into()))?;
     let present = container.has_key(&key);
     vm.push(container);
-    vm.push(BundValue::Bool(present));
+    vm.push(BundValue::boolean(present));
     Ok(())
 }
 
@@ -210,13 +236,32 @@ fn fold_lambda(vm: &mut dyn Vm) -> Result<(), Error> {
 /// (`reference/Bund/src/stdlib/functions/create_aliases.rs`), which is the
 /// spelling §1.3's idiom uses.
 fn make_call(vm: &mut dyn Vm) -> Result<(), Error> {
-    let Some(v) = vm.pull() else {
-        return Err(Error("Stack is too shallow for inline MAKE.CALL".into()));
+    make_call_base(vm, crate::wb::Side::Stack)
+}
+
+/// `make.call.` — the plain mirror: name off the workbench, CALL back to it
+/// (`reference/Bund/src/stdlib/functions/values/make_call_value.rs:18-19,25,38`).
+///
+/// This one's guard *does* name the workbench, unlike F77's print family.
+fn make_call_wb(vm: &mut dyn Vm) -> Result<(), Error> {
+    make_call_base(vm, crate::wb::Side::Bench)
+}
+
+fn make_call_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
+    let prefix = &format!("MAKE.CALL{}", side.dot());
+    if side.depth(vm) < 1 {
+        return Err(Error(format!(
+            "{} is too shallow for inline {prefix}",
+            if side == crate::wb::Side::Stack { "Stack" } else { "Workbench" }
+        )));
+    }
+    let Some(v) = side.pull(vm) else {
+        return Err(Error(format!("{prefix} returns NO DATA #1")));
     };
-    let name = v
-        .as_str()
-        .ok_or_else(|| Error("MAKE.CALL casting of string returned: not a string".into()))?;
-    vm.push(BundValue::call(name));
+    let name = v.as_str().ok_or_else(|| {
+        Error(format!("{prefix} casting of string returned: not a string"))
+    })?;
+    side.push(vm, BundValue::call(name));
     Ok(())
 }
 
@@ -231,7 +276,7 @@ fn make_call(vm: &mut dyn Vm) -> Result<(), Error> {
 /// (`:42,67`) and the LAMBDA arm re-enters evaluation (`:94`), so Rust depth
 /// tracks Bund depth exactly as the reference does. RFC-0003's S4 replaces
 /// that with a frame loop; until it exists, this is faithful and shallow.
-fn execute(vm: &mut dyn Vm) -> Result<(), Error> {
+pub(crate) fn execute_top(vm: &mut dyn Vm) -> Result<(), Error> {
     let Some(v) = vm.pull() else {
         return Err(Error("Stack is too shallow for inline execute()".into()));
     };
@@ -273,11 +318,8 @@ fn execute_value(vm: &mut dyn Vm, v: BundValue) -> Result<(), Error> {
             vm.apply(BundValue::call(name))
         }
         LAMBDA => {
-            let body = v
-                .as_lambda()
-                .ok_or_else(|| Error::internal("a LAMBDA value carried no body"))?
-                .to_vec();
-            vm.tail_call(body);
+            let body = v.clone();
+            vm.tail_lambda(body);
             Ok(())
         }
         LIST => {
@@ -331,7 +373,7 @@ fn ask(vm: &mut dyn Vm, word: &str, f: impl Fn(&dyn Vm, &str) -> bool) -> Result
         .as_str()
         .ok_or_else(|| Error(format!("{word} casting string returns: not a string")))?;
     let answer = f(vm, &name);
-    vm.push(BundValue::Bool(answer));
+    vm.push(BundValue::boolean(answer));
     Ok(())
 }
 
@@ -371,7 +413,74 @@ fn get_lambda(vm: &mut dyn Vm) -> Result<(), Error> {
     }
 }
 
+/// `type` — the receiver's tag name, pushed beside it
+/// (`reference/rust_multistackvm/src/stdlib/values/value_types.rs:6-19`).
+///
+/// Peeks, so the effect is 1→2 and not 1→1. Every word in this trio peeks;
+/// `?type` is the one that pulls, and it pulls the *name* rather than the
+/// value (`:40-47`).
+fn value_type(vm: &mut dyn Vm) -> Result<(), Error> {
+    let v = crate::pull::top(vm, "TYPE")?;
+    vm.push(BundValue::str(v.type_name()));
+    Ok(())
+}
+
+/// `type.of` — the tag itself, as an INTEGER (`value_types.rs:21-34`).
+///
+/// The reference casts `type_of()`, a `u16`, to `i64` (`:27`), so the number
+/// on the stack is the `dt` verbatim.
+fn value_type_of(vm: &mut dyn Vm) -> Result<(), Error> {
+    let v = crate::pull::top(vm, "TYPE")?;
+    vm.push(BundValue::int(i64::from(v.dt())));
+    Ok(())
+}
+
+/// `?type` — does the receiver carry this tag name? (`value_types.rs:36-61`).
+///
+/// The name is pulled from the top and the receiver is peeked *below* it, so
+/// the receiver survives and the answer lands on top of it. The comparison is
+/// on the name and not the number, which is why `Unknown` in [`type_name`]
+/// answers `false` for every name a caller can spell rather than aborting.
+///
+/// [`type_name`]: bund2_value::BundValue::type_name
+fn value_if_type(vm: &mut dyn Vm) -> Result<(), Error> {
+    let name = crate::pull::operand(vm, "TYPE", 1)?;
+    let Some(name) = name.unboxed().as_str() else {
+        return Err(Error("Error casting type name".into()));
+    };
+    let name = name.to_string();
+    let v = crate::pull::top(vm, "TYPE")?;
+    vm.push(BundValue::boolean(v.type_name() == name));
+    Ok(())
+}
+
+/// `ptr` — a PTR built from a string
+/// (`reference/rust_multistackvm/src/stdlib/artefacts.rs:80-99`).
+///
+/// The reference ends with `vm.apply(Value::ptr(name, Vec::new()))` (`:88`).
+/// `apply` on a PTR takes the default arm and pushes
+/// (`reference/rust_multistackvm/src/multistackvm_apply.rs:88-99`, the
+/// non-`autoadd` branch), so this is a push and not an execution — which is
+/// the whole point of the word: it makes a callable *value* without calling it.
+fn ptr(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 1 {
+        return Err(Error("Stack is too shallow for inline ptr()".into()));
+    }
+    let v = crate::pull::operand(vm, "PTR", 1)?;
+    let Some(name) = v.unboxed().as_str() else {
+        return Err(Error(
+            "PTR returns error: This Dynamic type is not string".into(),
+        ));
+    };
+    vm.push(BundValue::ptr(name));
+    Ok(())
+}
+
 pub fn register_words(r: &mut Registry) {
+    r.register_native("ptr", ptr, eff(1, 1), WordKind::Sync);
+    r.register_native("type", value_type, eff(1, 2), WordKind::Sync);
+    r.register_native("type.of", value_type_of, eff(1, 2), WordKind::Sync);
+    r.register_native("?type", value_if_type, eff(2, 2), WordKind::Sync);
     r.register_native("valuemap", valuemap, eff(0, 1), WordKind::Sync);
     r.register_native("?alias", is_alias, eff(1, 1), WordKind::Sync);
     r.register_native("?lambda", is_lambda, eff(1, 1), WordKind::Sync);
@@ -382,6 +491,7 @@ pub fn register_words(r: &mut Registry) {
     r.register_native("dict", dict, eff(0, 1), WordKind::Sync);
     r.register_native("list", list, eff(0, 1), WordKind::Sync);
     r.register_native("lambda", lambda, eff(0, 1), WordKind::Sync);
+    r.register_native("metrics", metrics, eff(0, 1), WordKind::Sync);
     r.register_native("nodata", nodata, eff(0, 1), WordKind::Sync);
     r.register_native("set", set, eff(3, 1), WordKind::Sync);
     r.register_native("get", get, eff(2, 1), WordKind::Sync);
@@ -389,9 +499,17 @@ pub fn register_words(r: &mut Registry) {
     r.register_native("register", register, eff(2, 0), WordKind::Sync);
     r.register_native("unregister", unregister, eff(1, 0), WordKind::Sync);
     r.register_native("lambda!", to_lambda, eff(1, 1), WordKind::Sync);
-    r.register_native("lambda*", fold_lambda, eff(0, 1), WordKind::Sync);
+    // Opaque: folds the **whole stack** into a LAMBDA, so its consumption is
+    // the depth it finds (`bund_fun.rs:189-202`).
+    r.register_native("lambda*", fold_lambda, StackEffect::opaque(0), WordKind::Sync);
     r.register_native("make.call", make_call, eff(1, 1), WordKind::Sync);
-    r.register_native("execute", execute, eff(1, 0), WordKind::Sync);
+    r.register_native("make.call.", make_call_wb, eff(0, 0), WordKind::Sync);
+    // **Opaque — RFC-0004 §S6's first barrier.** `execute` dispatches on
+    // eight tags (`reference/rust_multistackvm/src/stdlib/execute.rs:27-93`)
+    // and each arm has a different effect: the MAP arm pulls a second operand,
+    // the LAMBDA arm runs a body, the OBJECT arm dispatches a method. It is
+    // also one of the five most-used words in the corpus, spelled `!`.
+    r.register_native("execute", execute_top, StackEffect::opaque(1), WordKind::Sync);
     r.register_native("execute.", execute_from_workbench, eff(1, 0), WordKind::Sync);
 
     // The reference's alias table, for the words above
@@ -403,6 +521,7 @@ pub fn register_words(r: &mut Registry) {
     r.register_alias("call,", "make.call");
     r.register_alias(",", "set");
     r.register_alias("∈", "set");
+    r.register_alias("sample", "metrics");
     r.register_alias("λ", "lambda");
     r.register_alias("Λ", "lambda");
     r.register_alias("|", "nodata");
@@ -449,8 +568,8 @@ mod tests {
     /// F42, preserved: `set` on a LIST throws the container and the key away.
     #[test]
     fn set_on_a_list_discards_the_container() {
-        let l = BundValue::list(vec![BundValue::Int(1), BundValue::Int(2)]);
-        let after = l.set("k", BundValue::Int(9));
+        let l = BundValue::list(vec![BundValue::Int(1, bund2_value::StackSym::NONE), BundValue::Int(2, bund2_value::StackSym::NONE)]);
+        let after = l.set("k", BundValue::Int(9, bund2_value::StackSym::NONE));
         assert_eq!(after.as_list().map(|v| v.len()), Some(1));
     }
 
@@ -459,8 +578,8 @@ mod tests {
     /// write-once, and therefore what D35's cache rests on.
     #[test]
     fn set_on_a_lambda_replaces_the_body_without_mutating_it() {
-        let orig = BundValue::lambda(vec![BundValue::Int(1), BundValue::Int(2)]);
-        let after = orig.set("k", BundValue::Int(9));
+        let orig = BundValue::lambda(vec![BundValue::Int(1, bund2_value::StackSym::NONE), BundValue::Int(2, bund2_value::StackSym::NONE)]);
+        let after = orig.set("k", BundValue::Int(9, bund2_value::StackSym::NONE));
         assert_eq!(after.as_lambda().map(|b| b.len()), Some(1));
         assert_eq!(orig.as_lambda().map(|b| b.len()), Some(2), "original intact");
     }
@@ -535,12 +654,32 @@ execute.").expect("runs");
         assert_eq!(i.peek().and_then(|v| v.as_int()), Some(5));
     }
 
+    /// **128, and the stamps are distinct.** The count is what
+    /// `tests/golden/probes/dt-reachable.golden` pins; the stamps are what a
+    /// single shared `now` would quietly get wrong, since the golden normalises
+    /// every one of them away (`create_metrics.rs:8-26`, `metric.rs:12-16`).
+    #[test]
+    fn metrics_is_a_hundred_and_twenty_eight_zeroed_samples() {
+        let i = run("metrics").expect("runs");
+        let v = i.peek().expect("a value");
+        assert_eq!(v.dt(), bund2_value::METRICS);
+        let m = v.as_metrics().expect("a METRICS payload");
+        assert_eq!(m.len(), 128);
+        assert!(m.iter().all(|s| s.data == 0.0), "every sample starts at 0.0");
+        assert!(
+            m.iter().any(|s| s.stamp != m[0].stamp),
+            "every sample carried one shared stamp; the reference reads the \
+             clock per sample"
+        );
+    }
+
     #[test]
     fn every_word_here_resolves() {
         let i = vm();
         for name in [
             "dict", "config", "list", "lambda", "λ", "nodata", "|", "set", ",", "get", "?key",
             "register", "unregister", "lambda!", "lambda*", "make.call", "call,", "execute", "!", "execute.", "!.",
+            "metrics", "sample",
         ] {
             assert!(
                 i.registry.interner.lookup_call(name).is_some(),

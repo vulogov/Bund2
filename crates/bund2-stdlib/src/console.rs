@@ -15,7 +15,7 @@ use comfy_table::presets::UTF8_FULL;
 use comfy_table::{ContentArrangement, Table};
 
 fn eff(consumes: u8, produces: u8) -> StackEffect {
-    StackEffect { consumes, produces }
+    StackEffect::fixed(consumes, produces)
 }
 
 /// How a value prints, as distinct from how it renders.
@@ -32,19 +32,46 @@ fn display(v: &BundValue) -> String {
     v.display()
 }
 
-fn println_word(vm: &mut dyn Vm) -> Result<(), Error> {
-    let Some(v) = vm.pull() else {
-        return Err(Error("Stack is too shallow for inline PRINTLN".into()));
-    };
-    println!("{}", display(&v));
-    Ok(())
+/// The reference's refusal, for a value that has no string form.
+///
+/// `print` and `println` go through `conv(STRING)`
+/// (`reference/rust_multistackvm/src/stdlib/print.rs:16`) and report what it
+/// says, so a PAIR — which no conversion arm admits — stops the program rather
+/// than printing something invented.
+fn as_text(v: &BundValue, prefix: &str) -> Result<String, Error> {
+    if !v.displayable() {
+        return Err(Error(format!(
+            "{prefix} returns: Can not convert Value from {}",
+            v.dt()
+        )));
+    }
+    Ok(display(v))
 }
 
-fn print_word(vm: &mut dyn Vm) -> Result<(), Error> {
-    let Some(v) = vm.pull() else {
-        return Err(Error("Stack is too shallow for inline PRINT".into()));
+/// `print` / `println` and their `.` siblings
+/// (`reference/rust_multistackvm/src/stdlib/print.rs:6-32`).
+///
+/// **The `.` form guards the wrong stack — F77.** `stdlib_print_inline_base`
+/// tests `current_stack_len() < 1` *before* the `StackOps` match (`:7-9`), so
+/// the workbench form checks the depth of a stack it is not going to read and
+/// then pulls from the workbench. A program with a full workbench and an empty
+/// current stack gets "Stack is too shallow"; one with a full stack and an
+/// empty workbench passes the guard and gets "PRINT. returns: NO DATA".
+/// Preserved, because both messages are observable.
+fn print_base(vm: &mut dyn Vm, nl: bool, side: crate::wb::Side) -> Result<(), Error> {
+    let prefix = &format!("{}{}", if nl { "PRINTLN" } else { "PRINT" }, side.dot());
+    if vm.depth() < 1 {
+        return Err(Error(format!("Stack is too shallow for inline {prefix}")));
+    }
+    let Some(v) = side.pull(vm) else {
+        return Err(Error(format!("{prefix} returns: NO DATA")));
     };
-    print!("{}", display(&v));
+    let text = as_text(&v, prefix)?;
+    if nl {
+        println!("{text}");
+    } else {
+        print!("{text}");
+    }
     Ok(())
 }
 
@@ -120,8 +147,14 @@ fn display_workbench(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 pub fn register(r: &mut Registry) {
-    r.register_native("println", println_word, eff(1, 0), WordKind::Sync);
-    r.register_native("print", print_word, eff(1, 0), WordKind::Sync);
+    use crate::wb::Side;
+    r.register_native("println", |vm| print_base(vm, true, Side::Stack), eff(1, 0), WordKind::Sync);
+    r.register_native("print", |vm| print_base(vm, false, Side::Stack), eff(1, 0), WordKind::Sync);
+    // F77: the guard still reads the current stack, so the `.` forms do
+    // require one value there — declared, because `check` would otherwise
+    // miss an underflow the reference really reports.
+    r.register_native("println.", |vm| print_base(vm, true, Side::Bench), eff(1, 0), WordKind::Sync);
+    r.register_native("print.", |vm| print_base(vm, false, Side::Bench), eff(1, 0), WordKind::Sync);
     r.register_native("nl", nl, eff(0, 0), WordKind::Sync);
     r.register_native("space", space, eff(0, 0), WordKind::Sync);
     r.register_native(
@@ -185,6 +218,6 @@ mod tests {
     #[test]
     fn println_prints_contents_not_the_rendering() {
         assert_eq!(display(&BundValue::str("Hello World!")), "Hello World!");
-        assert_eq!(display(&BundValue::Int(42)), "42");
+        assert_eq!(display(&BundValue::int(42)), "42");
     }
 }

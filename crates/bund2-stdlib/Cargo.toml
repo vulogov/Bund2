@@ -8,10 +8,14 @@ repository.workspace   = true
 rust-version.workspace = true
 
 [dev-dependencies]
-bund2-syntax.workspace = true
 bund2-interp.workspace = true
 
 [dependencies]
+# `compile` is the oracle's own dump mode: it parses a string and pushes the
+# token stream (`reference/Bund/src/stdlib/functions/bund/bund_interpreter.rs:30`),
+# so the word needs the parser at run time and not only in tests. No cycle --
+# bund2-syntax depends on bund2-value alone.
+bund2-syntax.workspace = true
 # The same table library the reference draws its stack dump with, at the same
 # major version — `comfy-table = "7.1.*"` in reference/Bund/Cargo.toml. Not a
 # convenience: the goldens capture the exact box, and reverse-engineering the
@@ -22,9 +26,91 @@ comfy-table = "7.1"
 # reference/rust_multistackvm/Cargo.toml. Same argument as comfy-table: the
 # goldens capture rendered text, so the renderer has to be the same one.
 leon = "3.0"
+# `fmt` looks a message up as `{name}.{locale}` before `{name}`
+# (`reference/Bund/src/stdlib/functions/conditional/conditional_fmt.rs:153-161`),
+# so which message renders depends on the machine. That is the reference's
+# behaviour and it is preserved rather than pinned to a fixed locale --
+# accepted by the repository owner. Same crate and major version as
+# `reference/Bund/Cargo.toml`.
+sys-locale = "0.3"
+# `json` parses with serde_json, as the reference does
+# (`reference/rust_multistackvm/src/stdlib/artefacts_json.rs:3`).
+serde_json = "1"
+# `graph.path` runs `fast_paths::prepare` and `calc_path`
+# (`reference/Bund/src/stdlib/functions/graph/getpath.rs:48,73`), and node names
+# go through `convert_case`'s Title case before they are looked up
+# (`.../graph/make_graph.rs:10`) -- so `:A` is `A` but `:my_node` is `My Node`,
+# and matching that renaming is required to find a node at all. Both crates.io,
+# same versions as `reference/Bund/Cargo.toml:85-86`.
+#
+# **Not `algos`.** D38 pinned it for the graph family, but the two graph
+# goldens reach `graph!` and `graph.path`, neither of which uses it: `algos`
+# serves `graph.paths` (dijkstra), `graph.allpath` (johnson) and
+# `graph.transitiveclosure` (warshall), and no golden reaches those.
+convert_case = "0.7"
+fast_paths = "1.0"
+# The reference's string-algorithm crates, same versions as
+# `reference/Bund/Cargo.toml:44,126`. `distance` computes the edit distances a
+# program prints as numbers, and `srch` compiles the expression language
+# `string.expressionmatch` accepts -- reimplementing either would be
+# reimplementing someone else's definition of the answer.
+distance = "0.4"
+srch = "0.0.1"
+# F18's remaining words need the reference's own matchers, and the goldens
+# would capture their answers: `fancy_regex` for `string.regex`, `wildmatch`
+# for `string.wildcard`, `natural` for the Jaro-Winkler distance. Same versions
+# as `reference/Bund/Cargo.toml`.
+fancy-regex = "0.14"
+wildmatch = "2.4"
+natural = "0.5"
+# The reference's math library, for the library-half `math.*` words. Same
+# version as `reference/Bund/Cargo.toml:53`; `mathlab::math::fact` and
+# friends define the answers a golden would capture.
+mathlab = "1.2"
+# `bund/string`'s two remaining pure algorithms, same versions as
+# `reference/Bund/Cargo.toml:45,83`. `deunicode` is a transliteration *table* —
+# its answer for a given codepoint is data, not a rule that could be derived —
+# and `fuzzy-matcher`'s Skim score is a number a program prints, so both are
+# the reference's definition of the answer rather than a convenience.
+deunicode = "1.6"
+fuzzy-matcher = "0.3"
+# `string.wrap.english` wraps with a **hyphenation dictionary**, not on spaces
+# (`reference/Bund/src/stdlib/functions/string/textwrap.rs:64-70`), so where a
+# long word breaks is the dictionary's answer and not a rule. Same crates and
+# versions as `reference/Bund/Cargo.toml:127-128`, except that the reference
+# takes `embed_all` and only `Language::EnglishUS` is ever asked for
+# (`textwrap.rs:85,90`) -- so `embed_en-us` is the same dictionary without the
+# other seventy.
+textwrap = { version = "0.16.2", default-features = false, features = ["smawk", "unicode-width", "unicode-linebreak", "hyphenation"] }
+hyphenation = { version = "0.8", features = ["embed_en-us"] }
+# **Optional, and off by default — D10.** `grok` pulls `onig` -> `onig_sys`,
+# which compiles Oniguruma from C at build time, and it is the only `cc`
+# consumer in the workspace. D10 permits `bund2 build` to require a C
+# toolchain; it does not permit *every* build to, and `--emit=bundle` exists
+# precisely so a target without a toolchain can still run Bund. A default-on
+# grok would make the toolchain-free fallback itself unbuildable. See D40.
+grok = { version = "2.0", optional = true }
+# `display` and the `.display` method render through termimad's markdown
+# formatter (`reference/Bund/src/stdlib/functions/system/display.rs:44`,
+# `.../oop/display_class.rs:65`). Same version as
+# `reference/Bund/Cargo.toml:84`.
+#
+# **Known hazard, verified against the oracle: `term_text` wraps to the
+# terminal width.** The same program at `COLUMNS=40` and `COLUMNS=200` produces
+# different output, so any golden capturing `.display` of text longer than the
+# capture terminal is unreproducible elsewhere -- F66's failure mode reached by
+# a different route. The corpus's templates are ~30 characters and survive any
+# terminal that wide, so no golden is affected today. Accepted by the
+# repository owner.
+termimad = "0.31"
 bund2-value.workspace = true
 bund2-api.workspace = true
 bund2-ir.workspace = true
+
+[features]
+# `string.grok` and `string.grok.`. Off by default: see the note on the
+# dependency above and D40's amendment.
+grok = ["dep:grok"]
 
 [lints]
 workspace = true

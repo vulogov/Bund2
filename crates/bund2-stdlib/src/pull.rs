@@ -23,6 +23,7 @@ pub(crate) fn operand(vm: &mut dyn Vm, word: &str, n: usize) -> Result<BundValue
 }
 
 /// Pull from a named stack, same contract.
+#[allow(dead_code)]
 pub(crate) fn operand_from(
     vm: &mut dyn Vm,
     stack: &str,

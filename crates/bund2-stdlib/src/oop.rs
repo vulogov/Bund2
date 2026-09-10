@@ -22,7 +22,7 @@ use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
 use bund2_value::{BundValue, LAMBDA, OBJECT, PTR};
 
 fn eff(consumes: u8, produces: u8) -> StackEffect {
-    StackEffect { consumes, produces }
+    StackEffect::fixed(consumes, produces)
 }
 
 // --- construction -----------------------------------------------------------
@@ -84,12 +84,42 @@ fn make_object(vm: &mut dyn Vm, name: &str, class: &BundValue, budget: usize) ->
                 return Err(Error(format!("OBJECT class {pname} not registered")));
             };
             let pobj = make_object(vm, &pname, &pclass, budget - 1)?;
+            // **The parent goes on the stack before its `.init` runs, and
+            // what comes back off is what gets stored.** The reference pushes
+            // it (`bund_object.rs:56`), runs `.init`, then — if the top is
+            // still an object of that class — pulls and stores *that*
+            // (`:83-88`), falling back to the unpushed value otherwise
+            // (`:89-91`).
+            //
+            // Both halves matter. An `.init` reaches its receiver only
+            // through the stack, so without the push it initialises nothing;
+            // and the pulled value carries the `stack` tag that `push` writes,
+            // which is why `create_class_hierarhy_demo`'s captured parent
+            // reads `tags: {"stack": "main"}` where Bund2's read `tags: {}`.
+            vm.push(pobj.clone());
             run_init(vm, &pobj)?;
-            parents.push(pobj);
+            parents.push(match top_is_object_of_class(vm, &pname) {
+                true => vm.pull().unwrap_or(pobj),
+                false => pobj,
+            });
         }
     }
     obj = obj.set(".super", BundValue::list(parents));
     Ok(obj)
+}
+
+/// Is the top of the stack an OBJECT whose `.class_name` is `name`?
+///
+/// The reference's `if_object_of_class_in_stack`
+/// (`reference/rust_multistackvm/src/stdlib/bund_object.rs:6-25`). It peeks,
+/// and answers `false` for an empty stack, a non-OBJECT, or a missing or
+/// non-string `.class_name` — never an error. That tolerance is the point: it
+/// is asked after arbitrary user code has run, and any of those states is a
+/// legitimate answer of "no".
+fn top_is_object_of_class(vm: &mut dyn Vm, name: &str) -> bool {
+    vm.peek().is_some_and(|v| {
+        v.dt() == OBJECT && v.get(".class_name").and_then(|c| c.as_str()).as_deref() == Some(name)
+    })
 }
 
 /// Evaluate an object's `.init`, if it has one that can be run.
@@ -103,11 +133,8 @@ fn run_init(vm: &mut dyn Vm, obj: &BundValue) -> Result<(), Error> {
     };
     match init.dt() {
         LAMBDA => {
-            let body = init
-                .as_lambda()
-                .ok_or_else(|| Error::internal("a value tagged LAMBDA carried no body"))?
-                .to_vec();
-            vm.eval_body(&body)
+            let body = init.clone();
+            vm.eval_lambda(&body)
         }
         PTR => {
             let Some(mname) = init.as_str() else {
@@ -136,6 +163,33 @@ fn class_word(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// Push the finished object, run its own `.init`, and leave the object on the
+/// stack — the tail `stdlib_object_inline` shares with `make_bund_object`'s
+/// parent loop (`reference/rust_multistackvm/src/stdlib/bund_object.rs:132-172`).
+///
+/// **The re-push is not redundant.** An `.init` reaches its receiver through
+/// the stack, and most of them *consume* it: `class_constructors_demo.bund`'s
+/// is `{ :.class_name get … }`, and `get` pulls its container. So after a
+/// typical `.init` the object is gone, `if_object_of_class_in_stack` answers
+/// false, and the reference applies the value it kept
+/// (`:167-171`) — which is how `:A object` still leaves an object behind. An
+/// earlier version of this pushed once and stopped, so every constructor that
+/// read a field silently emptied the stack.
+///
+/// `apply` on an OBJECT is a plain push (`multistackvm_apply.rs:88-99`, the
+/// non-`autoadd` arm), so this spells the push rather than routing through an
+/// `apply` Bund2 would only use here.
+fn push_and_init(vm: &mut dyn Vm, name: &str, obj: BundValue) -> Result<(), Error> {
+    vm.push(obj.clone());
+    run_init(vm, &obj)?;
+    let finished = match top_is_object_of_class(vm, name) {
+        true => vm.pull().unwrap_or(obj),
+        false => obj,
+    };
+    vm.push(finished);
+    Ok(())
+}
+
 /// `object` — construct from a **registered** class, by name.
 fn object_word(vm: &mut dyn Vm) -> Result<(), Error> {
     let Some(nv) = vm.pull() else {
@@ -148,9 +202,7 @@ fn object_word(vm: &mut dyn Vm) -> Result<(), Error> {
         return Err(Error(format!("OBJECT class {name} not registered")));
     };
     let obj = make_object(vm, &name, &class, 512)?;
-    vm.push(obj.clone());
-    run_init(vm, &obj)?;
-    Ok(())
+    push_and_init(vm, &name, obj)
 }
 
 /// `<class> !` — **D23 and D25**, completing F16's FIX.
@@ -168,8 +220,7 @@ pub fn construct_from_value(vm: &mut dyn Vm, class: BundValue) -> Result<(), Err
         )
     })?;
     let obj = make_object(vm, &name, &class, 512)?;
-    vm.push(obj.clone());
-    run_init(vm, &obj)
+    push_and_init(vm, &name, obj)
 }
 
 /// `!` on an OBJECT — pull a method **name** and dispatch
@@ -210,11 +261,8 @@ pub fn dispatch_method(vm: &mut dyn Vm, name: &str) -> Result<(), Error> {
             }
         }
         LAMBDA => {
-            let body = slot
-                .as_lambda()
-                .ok_or_else(|| Error::internal("a value tagged LAMBDA carried no body"))?
-                .to_vec();
-            vm.eval_body(&body)
+            let body = slot.clone();
+            vm.eval_lambda(&body)
         }
         _ => {
             vm.push(slot);
@@ -229,15 +277,24 @@ fn is_class_word(vm: &mut dyn Vm) -> Result<(), Error> {
     };
     let name = v.as_str().unwrap_or_default();
     let answer = vm.is_class(&name);
-    vm.push(BundValue::Bool(answer));
+    vm.push(BundValue::boolean(answer));
     Ok(())
 }
 
+/// `?object` — is the top an OBJECT? **Peeks**, unlike `?class`.
+///
+/// The asymmetry is the reference's, not a slip: `?class` takes a *name* and
+/// consumes it (`reference/Bund/src/stdlib/functions/bund/bund_class.rs:15`),
+/// while `?object` inspects a *value* and leaves it
+/// (`:39`). `create_object.bund`'s closing idiom depends on it —
+/// `object ?object { … } if` tests the object it just built and expects it
+/// still to be there afterwards, which is why the golden's captured stack
+/// holds an object and Bund2's held nothing.
 fn is_object_word(vm: &mut dyn Vm) -> Result<(), Error> {
-    let Some(v) = vm.pull() else {
+    let Some(v) = vm.peek() else {
         return Err(Error("Stack is too shallow for ?OBJECT".into()));
     };
-    vm.push(BundValue::Bool(v.dt() == OBJECT));
+    vm.push(BundValue::boolean(v.dt() == OBJECT));
     Ok(())
 }
 
@@ -271,7 +328,75 @@ fn method_timestamp(vm: &mut dyn Vm) -> Result<(), Error> {
         vm.pull();
         vm.push(p);
     }
-    vm.push(BundValue::Float(t));
+    vm.push(BundValue::float(t));
+    Ok(())
+}
+
+/// `.format` — render the object's `.template`, peeking
+/// (`reference/Bund/src/stdlib/functions/oop/display_class.rs:14-85`).
+///
+/// Pulls the receiver, then **pushes it back and pushes the rendered text**
+/// (`:69-70`), so the effect is 1→2 like `.id`. A non-OBJECT is simply
+/// converted to a string (`:72-82`), which is how `display` on a scalar works.
+///
+/// Keys are filled from the object's own slots, and a key the object does not
+/// carry is **pulled from the stack** (`:38-44`) — which is why
+/// `3.14 :display :Answer … !` puts `3.14` on the stack first: the template
+/// names `{Pi}`, the class has no `Pi`, and the stack supplies it.
+///
+/// The text goes through `termimad::term_text` (`:65`), whose output wraps to
+/// the terminal width — see the note on the dependency in `Cargo.toml`.
+fn method_format(vm: &mut dyn Vm) -> Result<(), Error> {
+    let Some(v) = vm.pull() else {
+        return Err(Error("Stack is empty for method '.format'".into()));
+    };
+    if v.dt() != OBJECT {
+        let text = v.display();
+        vm.push(v);
+        vm.push(BundValue::str(text));
+        return Ok(());
+    }
+    let tpl = v
+        .get(".template")
+        .and_then(|t| t.as_str())
+        .ok_or_else(|| Error("'.format' NO TEMPLATE".into()))?;
+    let template = leon::Template::parse(tpl.as_str())
+        .map_err(|e| Error(format!("FMT.STR error parsing template: {e}")))?;
+    let mut values: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for name in template.keys() {
+        if values.contains_key(*name) {
+            continue;
+        }
+        let filled = match v.get(name) {
+            Some(a) => a.display(),
+            None => vm
+                .pull()
+                .ok_or_else(|| Error(format!("'.format' can not resolve {name}")))?
+                .display(),
+        };
+        values.insert(name.to_string(), filled);
+    }
+    let res = template
+        .render(&values)
+        .map_err(|e| Error(format!("FMT.STR error rendering: {e}")))?;
+    vm.push(v);
+    vm.push(BundValue::str(format!("{}", termimad::term_text(&res))));
+    Ok(())
+}
+
+/// `.display` — `.format`, then print
+/// (`reference/Bund/src/stdlib/functions/oop/display_class.rs:87-94`).
+///
+/// It calls `.format` and then `stdlib_print_inline` — `print`, not `println`
+/// (`:93`), so no newline is added and the object is left on the stack.
+fn method_display(vm: &mut dyn Vm) -> Result<(), Error> {
+    method_format(vm)?;
+    let out = vm
+        .pull()
+        .ok_or_else(|| Error("'.display' produced no text".into()))?;
+    print!("{}", out.display());
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
     Ok(())
 }
 
@@ -326,9 +451,14 @@ fn register_base(r: &mut Registry) {
     r.register_method(".print", method_print);
     r.register_method(".println", method_println);
 
+    r.register_method(".format", method_format);
+    r.register_method(".display", method_display);
+
     let display = BundValue::class(Default::default())
         .set(".class_name", BundValue::str("Display"))
-        .set(".super", BundValue::list(Vec::new()));
+        .set(".super", BundValue::list(Vec::new()))
+        .set("format", BundValue::ptr(".format"))
+        .set("display", BundValue::ptr(".display"));
     r.register_class("Display", display);
 
     let printable = BundValue::class(Default::default())
@@ -347,12 +477,258 @@ fn register_base(r: &mut Registry) {
     r.register_class("Object", object);
 }
 
+// --- the wrapped-value classes ----------------------------------------------
+//
+// `Value`, `Integer` and `Bool` — a value carried *inside* an object, in the
+// slot `.data`, with `wrap`, `unwrap`, `is` and `#` as the access words.
+//
+// The reference splits these across one file per class
+// (`reference/Bund/src/stdlib/functions/oop/value_class.rs`, `int_class.rs`,
+// `bool_class.rs`), but they are one mechanism: `Value` owns `.data` and the
+// two subclasses differ only in the tag their `.init` converts it to.
+
+/// `set_value_in_object` — `locate`'s mirror, and **not** a plain `set`
+/// (`reference/Bund/src/stdlib/functions/oop/value_class.rs:31-52`).
+///
+/// A subclass instance does not hold `.data` itself; it inherits the slot from
+/// the `Value` object sitting in its `.super` list. So writing it means finding
+/// which object in the tree owns it, rebuilding that one, and rebuilding the
+/// `.super` chain above it — a `set` on the outer object would create a
+/// *second* `.data` shadowing the real one, and `unwrap` would then return
+/// whichever the depth-first walk reached first.
+///
+/// **A name owned by nobody is silently not written.** The reference still
+/// rebuilds `.super` and returns the object (`:50-51`), so the call reports
+/// success and changes nothing. `wrap` is the reason that is survivable: it
+/// checks the slot exists *before* calling this (`:95-99`).
+fn set_in_object(value: &BundValue, name: &str, n_value: &BundValue, budget: usize) -> BundValue {
+    if budget == 0 || value.get(name).is_some() {
+        return value.set(name, n_value.clone());
+    }
+    let Some(supers) = value.get(".super") else {
+        return value.clone();
+    };
+    let Some(items) = supers.as_list() else {
+        return value.clone();
+    };
+    let rebuilt: Vec<BundValue> = items
+        .iter()
+        .map(|s| set_in_object(s, name, n_value, budget.saturating_sub(1)))
+        .collect();
+    value.set(".super", BundValue::list(rebuilt))
+}
+
+/// Pull an OBJECT, or say which word wanted one and did not get one.
+fn pull_object(vm: &mut dyn Vm, prefix: &str) -> Result<BundValue, Error> {
+    let Some(v) = vm.pull() else {
+        return Err(Error(format!("{prefix}: NO DATA IN #1")));
+    };
+    if v.dt() != OBJECT {
+        return Err(Error(format!("{prefix}: NO OBJECT IN #1")));
+    }
+    Ok(v)
+}
+
+/// `.value_init` — take the value beneath the object and store it in `.data`
+/// (`value_class.rs:54-69`).
+///
+/// **A plain `set`, not `set_in_object`.** This is the object that *owns*
+/// `.data`; the slot comes into existence here.
+fn method_value_init(vm: &mut dyn Vm) -> Result<(), Error> {
+    let Some(obj) = vm.pull() else {
+        return Err(Error(
+            "Stack is empty for method '.init' of object Value".into(),
+        ));
+    };
+    let Some(data) = vm.pull() else {
+        return Err(Error("Object(Value) NO DATA #1".into()));
+    };
+    vm.push(obj.set(".data", data));
+    Ok(())
+}
+
+/// The shared body of `.int_init` and `.bool_init`
+/// (`int_class.rs:11-29`, `bool_class.rs:11-29`).
+///
+/// Both run *after* `Value`'s `.init` has stored `.data`, and both do the same
+/// thing to it: convert in place to the subclass's tag. That is the entire
+/// difference between `Integer` and `Bool` — which is why
+/// `"42" :Integer object unwrap` is the integer 42 and not the string.
+fn init_converting(vm: &mut dyn Vm, target: u16, class: &str, tag: &str) -> Result<(), Error> {
+    let Some(obj) = vm.pull() else {
+        return Err(Error(format!("{class}: stack is empty")));
+    };
+    let Some(data) = locate(&obj, ".data") else {
+        return Err(Error(format!("{class}: NO WRAPPED DATA WAS FOUND")));
+    };
+    let converted = crate::convert::conv_value(&data, target)
+        .map_err(|e| Error(format!("{class}: error converting to {tag}: {}", e.0)))?;
+    vm.push(set_in_object(&obj, ".data", &converted, 512));
+    Ok(())
+}
+
+fn method_int_init(vm: &mut dyn Vm) -> Result<(), Error> {
+    init_converting(vm, bund2_value::INTEGER, "Integer", "INT")
+}
+
+fn method_bool_init(vm: &mut dyn Vm) -> Result<(), Error> {
+    init_converting(vm, bund2_value::BOOL, "Bool", "BOOL")
+}
+
+fn method_float_init(vm: &mut dyn Vm) -> Result<(), Error> {
+    init_converting(vm, bund2_value::FLOAT, "Float", "FLOAT")
+}
+
+/// `unwrap` — replace the object with the value it carries
+/// (`value_class.rs:108-125`).
+fn unwrap_word(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 1 {
+        return Err(Error("Stack is too shallow for inline UNWRAP".into()));
+    }
+    let obj = pull_object(vm, "UNWRAP")?;
+    let Some(v) = locate(&obj, ".data") else {
+        return Err(Error("UNWRAP: found no wrapped VALUE".into()));
+    };
+    vm.push(v);
+    Ok(())
+}
+
+/// `is` — like `unwrap`, but **leaves the object underneath**
+/// (`value_class.rs:127-147`).
+///
+/// That is the whole distinction the `is_demo` example is built to show: `is`
+/// pushes the object and then the value, so a following `if` consumes the value
+/// and the object is still there.
+fn is_word(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 1 {
+        return Err(Error("Stack is too shallow for inline IS".into()));
+    }
+    let obj = pull_object(vm, "IS")?;
+    let Some(v) = locate(&obj, ".data") else {
+        return Err(Error("IS: found no wrapped VALUE".into()));
+    };
+    vm.push(obj);
+    vm.push(v);
+    Ok(())
+}
+
+/// `wrap` — store a value into an existing object's `.data`
+/// (`value_class.rs:83-106`).
+///
+/// **The operands are object-on-top, value-beneath** — the opposite of
+/// construction, which is why `wrap_unwrap_demo.bund` needs a `swap` first.
+///
+/// The reference's depth guard and its error strings both say `UNWRAP`
+/// (`:85`, `:91`, `:93`); only the two later messages say `WRAP`. Preserved:
+/// the text is what a `?try` handler reads.
+fn wrap_word(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 2 {
+        return Err(Error("Stack is too shallow for inline UNWRAP".into()));
+    }
+    let obj = pull_object(vm, "UNWRAP")?;
+    // Checked *before* the write, because `set_in_object` cannot report that it
+    // found no owner for the slot — it returns the object unchanged.
+    if locate(&obj, ".data").is_none() {
+        return Err(Error("WRAP: can not detect if OBJECT is wrappable".into()));
+    }
+    let Some(data) = vm.pull() else {
+        return Err(Error("WRAP NO DATA IN #1".into()));
+    };
+    vm.push(set_in_object(&obj, ".data", &data, 512));
+    Ok(())
+}
+
+/// `#` — run a lambda over an object's wrapped value
+/// (`reference/Bund/src/stdlib/functions/oop/object_execute.rs:11-44`).
+///
+/// It is `unwrap` followed by `!`, spelled as two `apply` calls on the words
+/// themselves (`:36,38`).
+///
+/// **Both of those calls discard their result** — `let _ = vm.apply(…)` — so a
+/// failing `unwrap` does not stop `#`, and the `!` that follows runs against
+/// whatever the stack then holds. Reproduced rather than corrected: it is
+/// reachable only when the object has no `.data`, and turning it into an error
+/// would change what a program sees. The guard above rejects the non-OBJECT
+/// case, which is the one that actually occurs.
+fn object_execute(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 2 {
+        return Err(Error("Stack is too shallow for inline #".into()));
+    }
+    let Some(body) = vm.pull() else {
+        return Err(Error("# NO DATA IN #1".into()));
+    };
+    if !matches!(body.dt(), LAMBDA | PTR) {
+        return Err(Error("# NO LAMBDA or PTR IN #1".into()));
+    }
+    let Some(obj) = vm.pull() else {
+        return Err(Error("# NO DATA IN #2".into()));
+    };
+    if obj.dt() != OBJECT {
+        return Err(Error("# NO OBJECT IN #2".into()));
+    }
+    vm.push(obj);
+    let _ = unwrap_word(vm);
+    vm.push(body);
+    let _ = crate::values::execute_top(vm);
+    Ok(())
+}
+
+/// `Value` and its two converting subclasses.
+///
+/// `Value`'s parent is `Object` (`value_class.rs:76`), so a wrapped value
+/// inherits `str`, `println` and the rest of the base chain — that is how
+/// `"…{A}…" format` reaches inside one.
+fn register_wrapped(r: &mut Registry) {
+    r.register_method(".value_init", method_value_init);
+    r.register_method(".int_init", method_int_init);
+    r.register_method(".bool_init", method_bool_init);
+    r.register_method(".float_init", method_float_init);
+
+    let value = BundValue::class(Default::default())
+        .set(".class_name", BundValue::str("Value"))
+        .set(".super", BundValue::list(vec![BundValue::str("Object")]))
+        .set(".init", BundValue::ptr(".value_init"));
+    r.register_class("Value", value);
+
+    // `Integer`, `Bool` and `Float` differ *only* in the tag their `.init`
+    // converts `.data` to (`int_class.rs:31-40`, `bool_class.rs:31-40`,
+    // `float_class.rs:31-40` — three files, one shape).
+    //
+    // **`List` is deliberately not here.** It is the same shape plus a `push`
+    // slot and a `.list_init` that is not a conversion (`list_class.rs:58-69`),
+    // so it is a different job rather than a fourth row.
+    for (name, init) in [
+        ("Integer", ".int_init"),
+        ("Bool", ".bool_init"),
+        ("Float", ".float_init"),
+    ] {
+        let c = BundValue::class(Default::default())
+            .set(".class_name", BundValue::str(name))
+            .set(".super", BundValue::list(vec![BundValue::str("Value")]))
+            .set(".init", BundValue::ptr(init));
+        r.register_class(name, c);
+    }
+
+    r.register_native("unwrap", unwrap_word, eff(1, 1), WordKind::Sync);
+    r.register_native("is", is_word, eff(1, 2), WordKind::Sync);
+    r.register_native("wrap", wrap_word, eff(2, 1), WordKind::Sync);
+    // **Opaque.** `#` ends by executing a lambda whose own effect is unknown,
+    // so its consumption is not a constant (RFC-0004 §S6).
+    r.register_native("#", object_execute, StackEffect::opaque(2), WordKind::Sync);
+}
+
 pub fn register(r: &mut Registry) {
     r.register_native("class", class_word, eff(0, 1), WordKind::Sync);
     r.register_native("object", object_word, eff(1, 1), WordKind::Sync);
     r.register_native("?class", is_class_word, eff(1, 1), WordKind::Sync);
-    r.register_native("?object", is_object_word, eff(1, 1), WordKind::Sync);
+    // **1 -> 2, because `?object` peeks.** It leaves the receiver and pushes
+    // the answer beside it (`bund_class.rs:39`), unlike `?class`, which
+    // consumes its name. The declaration said 1 -> 1 until
+    // `cargo xtask effects` compared it against the probed table: the peek was
+    // fixed earlier and the effect beside it was not.
+    r.register_native("?object", is_object_word, eff(1, 2), WordKind::Sync);
     register_base(r);
+    register_wrapped(r);
 }
 
 #[cfg(test)]
@@ -379,7 +755,7 @@ mod tests {
     #[test]
     fn the_class_idiom_registers_and_is_found() {
         let i = run_src(":A dup class :hello \"hi\" set register ?class").expect("runs");
-        assert_eq!(*i.peek().unwrap().unboxed(), BundValue::Bool(true));
+        assert_eq!(*i.peek().unwrap().unboxed(), BundValue::boolean(true));
     }
 
     /// A class lands in the class registry, **not** the word table — which is
@@ -511,6 +887,156 @@ mod tests {
         }
         for m in [".id", ".timestamp", ".str", ".print", ".println"] {
             assert!(i.registry.is_method(m), "{m} is not a method");
+        }
+    }
+
+    /// **Criterion 5**: the method table is registry state, not a global.
+    ///
+    /// The reference keeps `methods_fun` on the VM
+    /// (`reference/rust_multistackvm/src/multistackvm_methods.rs:8`), and Bund2
+    /// keeps it on `Registry`. The structural half — no `static`, no
+    /// `thread_local` — is visible by reading; this is the behavioural half,
+    /// and it is the one a future refactor to a global would break silently.
+    ///
+    /// Two `Interp`s in one process bind the *same* method name to different
+    /// natives, and each answers with its own. Deliberately using a name the
+    /// base hierarchy already owns, `.id`: if anything were shared, the second
+    /// registration would be visible from the first VM.
+    #[test]
+    fn two_interps_bind_one_method_name_differently() {
+        fn pushes_one(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.push(BundValue::int(1));
+            Ok(())
+        }
+        fn pushes_two(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.push(BundValue::int(2));
+            Ok(())
+        }
+
+        let mut a = Interp::new();
+        crate::register_all(&mut a.registry);
+        let mut b = Interp::new();
+        crate::register_all(&mut b.registry);
+        a.registry.register_method(".id", pushes_one);
+        b.registry.register_method(".id", pushes_two);
+
+        let src = ":A class \".super\" [ :Object ] set register\n:.id :A object !";
+        for (vm, want) in [(&mut a, 1i64), (&mut b, 2i64)] {
+            let stream = bund2_syntax::compile(src).expect("compiles");
+            vm.eval(&stream).expect("runs");
+            assert_eq!(vm.peek().and_then(|v| v.as_int()), Some(want));
+        }
+    }
+
+    // --- the wrapped-value classes -----------------------------------------
+
+    fn top_display(src: &str) -> String {
+        let i = run_src(src).expect("runs");
+        i.peek().map(|v| v.display()).expect("a value")
+    }
+
+    /// **The subclass `.init` converts, and that is its whole job.** All four
+    /// rows confirmed against the oracle (`int_class.rs:18`,
+    /// `bool_class.rs:18`, `float_class.rs:18`).
+    #[test]
+    fn a_subclass_init_converts_the_wrapped_value() {
+        assert_eq!(top_display("\"42\" :Integer object unwrap"), "42");
+        assert_eq!(top_display("1 :Bool object unwrap"), "true");
+        assert_eq!(top_display("0 :Bool object unwrap"), "false");
+        assert_eq!(top_display("\"3.5\" :Float object unwrap"), "3.5");
+    }
+
+    /// `Value` itself does not convert — it stores what it was given.
+    #[test]
+    fn the_value_class_stores_without_converting() {
+        let i = run_src("42 :Value object unwrap").expect("runs");
+        assert_eq!(i.peek().and_then(|v| v.as_int()), Some(42));
+        assert_eq!(top_display("\"42\" :Value object unwrap"), "42");
+        let i = run_src("\"42\" :Value object unwrap").expect("runs");
+        assert_eq!(
+            i.peek().map(|v| v.dt()),
+            Some(bund2_value::STRING),
+            "Value must not convert; only Integer does"
+        );
+    }
+
+    /// **`is` leaves the object, `unwrap` consumes it.** That is the entire
+    /// difference between them (`value_class.rs:141-142` against `:121`), and
+    /// it is what `is_demo.bund` exists to show.
+    #[test]
+    fn is_leaves_the_object_beneath_the_value() {
+        let i = run_src("true :Bool object is").expect("runs");
+        assert_eq!(i.depth(), 2, "`is` pushes the object and the value");
+        let mut i = i;
+        assert_eq!(i.pull().map(|v| v.display()).as_deref(), Some("true"));
+        assert_eq!(i.pull().map(|v| v.dt()), Some(OBJECT));
+
+        let i = run_src("true :Bool object unwrap").expect("runs");
+        assert_eq!(i.depth(), 1, "`unwrap` consumes the object");
+    }
+
+    /// `wrap` writes through to whichever object in the tree owns `.data` — a
+    /// plain `set` on the outer object would shadow it, and `unwrap` would then
+    /// read the shadow. `9` must come back, not `7`.
+    #[test]
+    fn wrap_writes_the_inherited_slot_rather_than_shadowing_it() {
+        assert_eq!(top_display("7 :Integer object 9 swap wrap unwrap"), "9");
+    }
+
+    /// `#` is `unwrap` then `!` (`object_execute.rs:35-38`).
+    #[test]
+    fn hash_runs_a_lambda_over_the_wrapped_value() {
+        assert_eq!(top_display("5 :Integer object { 2 * }  #"), "10");
+    }
+
+    /// Every one of these is reported rather than asserted, and each message is
+    /// the reference's — including `wrap`'s guard, which says `UNWRAP`
+    /// (`value_class.rs:85`) because the reference's does.
+    #[test]
+    fn the_wrapped_value_words_report_their_misuse() {
+        for (src, want) in [
+            ("unwrap", "Stack is too shallow for inline UNWRAP"),
+            ("is", "Stack is too shallow for inline IS"),
+            ("wrap", "Stack is too shallow for inline UNWRAP"),
+            ("1 2 wrap", "UNWRAP: NO OBJECT IN #1"),
+            ("42 unwrap", "UNWRAP: NO OBJECT IN #1"),
+            ("42 is", "IS: NO OBJECT IN #1"),
+            ("1 2 #", "# NO LAMBDA or PTR IN #1"),
+            ("1 { 1 } #", "# NO OBJECT IN #2"),
+            ("#", "Stack is too shallow for inline #"),
+        ] {
+            match run_src(src) {
+                Ok(_) => panic!("{src} was expected to fail"),
+                Err(e) => assert!(e.contains(want), "{src}: wanted {want:?}, got {e:?}"),
+            }
+        }
+    }
+
+    /// A conversion that cannot succeed is reported with the class's own
+    /// prefix, not the conversion table's (`int_class.rs:23`).
+    #[test]
+    fn a_failing_subclass_init_names_the_class() {
+        match run_src("nodata :Integer object") {
+            Ok(_) => panic!("expected a failure"),
+            Err(e) => assert!(
+                e.contains("Integer: error converting to INT"),
+                "got {e:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn the_wrapped_value_classes_and_words_are_registered() {
+        let mut i = Interp::new();
+        crate::register_all(&mut i.registry);
+        for c in ["Value", "Integer", "Bool", "Float"] {
+            assert!(i.registry.class(c).is_some(), "class {c} is not registered");
+        }
+        for w in ["wrap", "unwrap", "is", "#"] {
+            assert!(
+                i.registry.interner.lookup_call(w).is_some(),
+                "{w} is not registered"
+            );
         }
     }
 }

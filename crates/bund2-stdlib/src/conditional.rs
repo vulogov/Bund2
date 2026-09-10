@@ -16,15 +16,26 @@
 //! and does nothing. That is preserved.
 
 use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
-use bund2_value::{BundValue, CONDITIONAL, LAMBDA};
+use bund2_value::{BundValue, CONDITIONAL, LAMBDA, STRING};
 
 fn eff(consumes: u8, produces: u8) -> StackEffect {
-    StackEffect { consumes, produces }
+    StackEffect::fixed(consumes, produces)
 }
 
 /// A slot's lambda, or an empty one — the reference's `Err(_) => Value::lambda()`
 /// (`conditional_ifthenelse.rs:15-26`).
-fn slot(c: &BundValue, key: &str) -> Vec<BundValue> {
+/// A slot's LAMBDA **value**, for running it — held, not copied, so its `Rc`
+/// reaches the entry point (D42). A missing or non-LAMBDA slot is an empty
+/// body, as it always was.
+fn slot_body(c: &BundValue, key: &str) -> BundValue {
+    c.get(key)
+        .filter(|v| v.dt() == LAMBDA && v.as_lambda().is_some())
+        .unwrap_or_else(|| BundValue::lambda(Vec::new()))
+}
+
+/// A slot's items, for `context`, which concatenates three slots into one body
+/// assembled per call — a body with no key to keep.
+fn slot_items(c: &BundValue, key: &str) -> Vec<BundValue> {
     c.get(key)
         .filter(|v| v.dt() == LAMBDA)
         .and_then(|v| v.as_lambda().map(<[BundValue]>::to_vec))
@@ -49,6 +60,102 @@ fn q_try(vm: &mut dyn Vm) -> Result<(), Error> {
 
 fn q_error(vm: &mut dyn Vm) -> Result<(), Error> {
     vm.push(new_conditional("error"));
+    Ok(())
+}
+
+/// `fmt` — a CONDITIONAL that renders a **localised** message template
+/// (`reference/Bund/src/stdlib/functions/conditional/conditional_fmt.rs:133-138`).
+fn q_fmt(vm: &mut dyn Vm) -> Result<(), Error> {
+    vm.push(new_conditional("fmt"));
+    Ok(())
+}
+
+/// The machine's locale, or `en-US`
+/// (`conditional_fmt.rs:153-156`, and the same fallback at `:14-17`).
+fn locale() -> String {
+    sys_locale::get_locale().unwrap_or_else(|| "en-US".to_string())
+}
+
+/// Look a key up as `{key}.{locale}` first, then as `{key}`
+/// (`conditional_fmt.rs:157-161`).
+///
+/// **This is why `fmt`'s output is machine-dependent.** The corpus demo
+/// declares `greeting`, `greeting.en-US` and `greeting.ru-RU`, and which one
+/// renders is decided by the host — the golden captured the `en-US` one.
+/// Preserved as the reference's behaviour rather than pinned to a fixed
+/// locale.
+fn localised(c: &BundValue, key: &str) -> Option<BundValue> {
+    c.get(&format!("{key}.{}", locale())).or_else(|| c.get(key))
+}
+
+/// Render one message through `leon`, filling keys from the conditional and
+/// then from the stack (`conditional_fmt.rs:9-76`).
+///
+/// Per key, in order: `{key}.{locale}`, then `{key}` — both **recursively
+/// rendered**, because a slot may itself be a template (`:34-42`) — and
+/// failing both, one value **pulled from the stack** and converted with
+/// `conv(STRING)` (`:45-57`). So `"{answer} {pi}"` with `answer` in the map
+/// takes `pi` off the stack.
+///
+/// A repeated key is filled once (`:26-28`), matching `format`.
+fn render_message(vm: &mut dyn Vm, c: &BundValue, msg: &BundValue) -> Result<String, Error> {
+    // A non-STRING message is converted and not treated as a template
+    // (`:87-95`), which is what stops a number in a slot being parsed as one.
+    if msg.dt() != STRING {
+        return Ok(msg.display());
+    }
+    let text = msg
+        .as_str()
+        .ok_or_else(|| Error("FMT.STR error casting template: not a string".into()))?;
+    let template = leon::Template::parse(text.as_str())
+        .map_err(|e| Error(format!("FMT.STR error parsing template: {e}")))?;
+
+    let mut values: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for name in template.keys() {
+        if values.contains_key(*name) {
+            continue;
+        }
+        let filled = match localised(c, name) {
+            Some(inner) => render_message(vm, c, &inner)?,
+            None => {
+                let v = vm
+                    .pull()
+                    .ok_or_else(|| Error("FMT.STR: stack is too shallow".into()))?;
+                v.display()
+            }
+        };
+        values.insert(name.to_string(), filled);
+    }
+    template
+        .render(&values)
+        .map(|r| r.to_string())
+        .map_err(|e| Error(format!("FMT.STR error rendering: {e}")))
+}
+
+/// `!` on a `fmt` CONDITIONAL — pull a message **name**, render, push the text
+/// (`conditional_fmt.rs:140-171`).
+fn run_fmt(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
+    if vm.depth() < 1 {
+        return Err(Error("Stack is too shallow for FMT.RUN".into()));
+    }
+    let name_val = vm
+        .pull()
+        .ok_or_else(|| Error("FMT.RUN: No context name discovered on the stack".into()))?;
+    let name = name_val
+        .as_str()
+        .ok_or_else(|| Error("FMT.RUN: Error name casting".into()))?;
+    let msg = localised(&c, &name).ok_or_else(|| {
+        Error(format!(
+            "FMT.RUN: getting message with name {name} returns error: key not found"
+        ))
+    })?;
+    let text = render_message(vm, &c, &msg).map_err(|e| {
+        Error(format!(
+            "FMT.RUN: error converting message with name {name} returns error: {}",
+            e.0
+        ))
+    })?;
+    vm.push(BundValue::str(text));
     Ok(())
 }
 
@@ -100,8 +207,8 @@ fn raise(vm: &mut dyn Vm) -> Result<(), Error> {
 /// `through` — run the `run` slot if there is one, and say nothing if there
 /// is not (`reference/rust_multistackvm/src/stdlib/execute_types/conditional_through.rs:6-16`).
 fn run_through(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
-    let body = slot(&c, "run");
-    vm.eval_body(&body)
+    let body = slot_body(&c, "run");
+    vm.eval_lambda(&body)
 }
 
 /// `ifthenelse` — evaluate `if`, **inspect the stack**, then evaluate a branch
@@ -111,8 +218,8 @@ fn run_through(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
 /// mechanism exists for: this is not a tail call, so an exit action cannot
 /// express it. Until the frame loop lands it re-enters evaluation directly.
 fn run_ifthenelse(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
-    let (if_l, then_l, else_l) = (slot(&c, "if"), slot(&c, "then"), slot(&c, "else"));
-    vm.eval_body(&if_l)
+    let (if_l, then_l, else_l) = (slot_body(&c, "if"), slot_body(&c, "then"), slot_body(&c, "else"));
+    vm.eval_lambda(&if_l)
         .map_err(|e| Error(format!("IFTHENELSE IF lambda returns: {}", e.0)))?;
     let cond_val = vm
         .pull()
@@ -120,10 +227,10 @@ fn run_ifthenelse(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
     let cond = crate::control::cast_bool(&cond_val)
         .ok_or_else(|| Error("IFTHENELSE error casting conditional".into()))?;
     if cond {
-        vm.eval_body(&then_l)
+        vm.eval_lambda(&then_l)
             .map_err(|e| Error(format!("IFTHENELSE THEN lambda returns: {}", e.0)))
     } else {
-        vm.eval_body(&else_l)
+        vm.eval_lambda(&else_l)
             .map_err(|e| Error(format!("IFTHENELSE ELSE lambda returns: {}", e.0)))
     }
 }
@@ -136,21 +243,21 @@ fn run_ifthenelse(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
 /// and a `context` slot holding the failure's text. That is the whole exception
 /// model — a Rust `Err` caught at the lambda boundary and turned into data.
 fn run_tryexcept(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
-    let try_l = slot(&c, "try");
-    let except_l = slot(&c, "except");
-    let recovery_l = slot(&c, "recovery");
+    let try_l = slot_body(&c, "try");
+    let except_l = slot_body(&c, "except");
+    let recovery_l = slot_body(&c, "recovery");
     let associated = c
         .get("associated")
         .unwrap_or_else(|| BundValue::lambda(Vec::new()));
 
-    if let Err(e) = vm.eval_body(&try_l) {
+    if let Err(e) = vm.eval_lambda(&try_l) {
         let err_c = new_conditional("error")
             .set("associated", associated)
             .set("context", BundValue::str(e.0));
         vm.push(err_c);
-        vm.eval_body(&except_l)
+        vm.eval_lambda(&except_l)
             .map_err(|e| Error(format!("TRYEXCEPT EXCEPT lambda returns: {}", e.0)))?;
-        vm.eval_body(&recovery_l)
+        vm.eval_lambda(&recovery_l)
             .map_err(|e| Error(format!("TRYEXCEPT RECOVERY lambda returns: {}", e.0)))?;
     }
     Ok(())
@@ -168,8 +275,8 @@ fn run_error(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
     // printed here. A TUI receives it as a value instead of finding text on a
     // stream it does not own.
     vm.report(bund2_api::diag::Diagnostic::notice(msg));
-    let associated = slot(&c, "associated");
-    vm.eval_body(&associated)
+    let associated = slot_body(&c, "associated");
+    vm.eval_lambda(&associated)
         .map_err(|e| Error(format!("ERROR ASSOCIATED lambda returns: {}", e.0)))
 }
 
@@ -193,9 +300,9 @@ fn run_context(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
         .as_str()
         .ok_or_else(|| Error("CONTEXT.RUN: Error name casting".into()))?;
 
-    let pre = slot(&c, &format!("{n}.pre"));
-    let body = slot(&c, &n);
-    let post = slot(&c, &format!("{n}.post"));
+    let pre = slot_items(&c, &format!("{n}.pre"));
+    let body = slot_items(&c, &n);
+    let post = slot_items(&c, &format!("{n}.post"));
 
     // **F57, structurally.** One scoped call whose frame carries the return as
     // an exit action, so the restore happens on the failure path without a
@@ -279,6 +386,7 @@ pub fn register(r: &mut Registry) {
     r.register_native("?ifthenelse", q_ifthenelse, eff(0, 1), WordKind::Sync);
     r.register_native("?try", q_try, eff(0, 1), WordKind::Sync);
     r.register_native("?error", q_error, eff(0, 1), WordKind::Sync);
+    r.register_native("fmt", q_fmt, eff(0, 1), WordKind::Sync);
     r.register_native("conditional", conditional, eff(0, 1), WordKind::Sync);
     r.register_native("context", context_word, eff(1, 1), WordKind::Sync);
     r.register_native("curry", curry_word, eff(1, 1), WordKind::Sync);
@@ -294,6 +402,7 @@ pub fn register(r: &mut Registry) {
     r.register_conditional("error", run_error);
     r.register_conditional("context", run_context);
     r.register_conditional("curry", run_curry);
+    r.register_conditional("fmt", run_fmt);
 }
 
 /// `!` on a CONDITIONAL — read `type`, look it up, call it
@@ -341,7 +450,7 @@ mod tests {
         )
         .expect("runs");
         assert_eq!(i.depth(), 1, "the except branch left one value");
-        assert_eq!(*i.peek().unwrap().unboxed(), BundValue::Bool(true));
+        assert_eq!(*i.peek().unwrap().unboxed(), BundValue::boolean(true));
     }
 
     /// A `try` that succeeds runs neither `except` nor `recovery`.

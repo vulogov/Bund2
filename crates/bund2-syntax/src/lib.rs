@@ -556,13 +556,13 @@ impl<'a> Parser<'a> {
             out.push(ch);
             self.i += 1;
         }
-        if let Some(bad) = self.peek() {
-            if !bad.is_whitespace() {
-                return self.err(
-                    start,
-                    format!("expected whitespace or end of input, found `{bad}`"),
-                );
-            }
+        if let Some(bad) = self.peek()
+            && !bad.is_whitespace()
+        {
+            return self.err(
+                start,
+                format!("expected whitespace or end of input, found `{bad}`"),
+            );
         }
         Ok(Term::Name(out, self.span_from(start)))
     }
@@ -604,8 +604,8 @@ pub fn lower(terms: &[Term]) -> Vec<BundValue> {
 /// time.
 fn lower_into(t: &Term, out: &mut Vec<BundValue>) {
     match t {
-        Term::Int(n, _) => out.push(BundValue::Int(*n)),
-        Term::Float(f, _) => out.push(BundValue::Float(*f)),
+        Term::Int(n, _) => out.push(BundValue::int(*n)),
+        Term::Float(f, _) => out.push(BundValue::float(*f)),
         Term::Str(s, _) => out.push(BundValue::str(s.clone())),
         Term::Name(n, _) => out.push(BundValue::call(n.clone())),
         Term::Command(c, _) => out.push(BundValue::call(c.clone())),

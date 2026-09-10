@@ -29,7 +29,7 @@ use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
 use bund2_value::{BundValue, CFLOAT, CINTEGER, FLOAT, INTEGER, STRING, TIME};
 
 fn eff(consumes: u8, produces: u8) -> StackEffect {
-    StackEffect { consumes, produces }
+    StackEffect::fixed(consumes, produces)
 }
 
 /// The reference's `Ops`, with `Le`/`Leq` renamed to what they spell.
@@ -106,9 +106,9 @@ fn is_numeric_tag(dt: u16) -> bool {
 fn numeric_eq(a: &BundValue, b: &BundValue) -> bool {
     // Through the boxing `push` applies; see `BundValue::unboxed`.
     match (a.unboxed(), b.unboxed()) {
-        (BundValue::Int(x), BundValue::Int(y)) => x == y,
-        (BundValue::Float(x), BundValue::Float(y)) => x == y,
-        (BundValue::Int(i), BundValue::Float(f)) | (BundValue::Float(f), BundValue::Int(i)) => {
+        (BundValue::Int(x, _), BundValue::Int(y, _)) => x == y,
+        (BundValue::Float(x, _), BundValue::Float(y, _)) => x == y,
+        (BundValue::Int(i, _), BundValue::Float(f, _)) | (BundValue::Float(f, _), BundValue::Int(i, _)) => {
             exact_int_float(*i, *f)
         }
         // Reached only if a value carries a numeric `dt` over a non-numeric
@@ -156,7 +156,7 @@ fn exact_int_float(i: i64, f: f64) -> bool {
 /// the sane-looking `cmp` at `:167-203` never runs for these words.
 fn numeric_ord(op: Op, a: &BundValue, b: &BundValue) -> bool {
     match (a.unboxed(), b.unboxed()) {
-        (BundValue::Int(x), BundValue::Int(y)) => match op {
+        (BundValue::Int(x, _), BundValue::Int(y, _)) => match op {
             Op::Gt => x > y,
             Op::Lt => x < y,
             Op::Ge => x >= y,
@@ -166,7 +166,7 @@ fn numeric_ord(op: Op, a: &BundValue, b: &BundValue) -> bool {
             // question that was never asked; aborting is not.
             _ => false,
         },
-        (BundValue::Float(x), BundValue::Float(y)) => match op {
+        (BundValue::Float(x, _), BundValue::Float(y, _)) => match op {
             Op::Gt => x > y,
             Op::Lt => x < y,
             Op::Ge => x >= y,
@@ -233,7 +233,7 @@ fn run(op: Op, vm: &mut dyn Vm) -> Result<(), Error> {
     let v2 = crate::pull::operand(vm, op.word(), 2)?;
     match compare(op, &v1, &v2) {
         Ok(res) => {
-            vm.push(BundValue::Bool(res));
+            vm.push(BundValue::boolean(res));
             Ok(())
         }
         Err(e) => Err(Error(format!("{} returns error: {}", op.word(), e.0))),
@@ -267,12 +267,12 @@ fn le(vm: &mut dyn Vm) -> Result<(), Error> {
 /// is list-construction mode and no word in Bund2 sets it yet, so this pushes.
 /// When list construction lands, it goes through `apply`, not through here.
 fn bool_true(vm: &mut dyn Vm) -> Result<(), Error> {
-    vm.push(BundValue::Bool(true));
+    vm.push(BundValue::boolean(true));
     Ok(())
 }
 
 fn bool_false(vm: &mut dyn Vm) -> Result<(), Error> {
-    vm.push(BundValue::Bool(false));
+    vm.push(BundValue::boolean(false));
     Ok(())
 }
 
@@ -299,10 +299,10 @@ mod tests {
     use bund2_interp::Interp;
 
     fn f(x: f64) -> BundValue {
-        BundValue::Float(x)
+        BundValue::float(x)
     }
     fn i(x: i64) -> BundValue {
-        BundValue::Int(x)
+        BundValue::int(x)
     }
 
     /// `3 5 <` asks whether `5 < 3`. The top operand is on the left of the
@@ -395,7 +395,7 @@ mod tests {
     #[test]
     fn booleans_are_not_comparable() {
         assert_eq!(
-            compare(Op::Eq, &BundValue::Bool(true), &BundValue::Bool(true))
+            compare(Op::Eq, &BundValue::boolean(true), &BundValue::boolean(true))
                 .unwrap_err()
                 .0,
             "COMPARE: unsupported operand #1"
@@ -443,7 +443,7 @@ mod tests {
     fn a_shallow_stack_is_an_error_that_consumes_nothing() {
         let mut i = Interp::new();
         register(&mut i.registry);
-        i.push(BundValue::Int(1));
+        i.push(BundValue::int(1));
         assert_eq!(
             run(Op::Eq, &mut i).unwrap_err().0,
             "Stack is too shallow for inline =="
@@ -457,8 +457,8 @@ mod tests {
     fn a_gate_failure_names_the_word_and_the_reason() {
         let mut i = Interp::new();
         register(&mut i.registry);
-        i.push(BundValue::Bool(true));
-        i.push(BundValue::Bool(false));
+        i.push(BundValue::boolean(true));
+        i.push(BundValue::boolean(false));
         assert_eq!(
             run(Op::Eq, &mut i).unwrap_err().0,
             "== returns error: COMPARE: unsupported operand #1"
@@ -471,8 +471,8 @@ mod tests {
     fn comparison_through_the_stack_pushes_a_bool() {
         let mut i = Interp::new();
         register(&mut i.registry);
-        i.push(BundValue::Int(3));
-        i.push(BundValue::Int(5));
+        i.push(BundValue::int(3));
+        i.push(BundValue::int(5));
         run(Op::Lt, &mut i).unwrap();
         assert_eq!(i.depth(), 1, "two consumed, one produced");
         // `push` boxes it, so the result is a `Heap` carrying a `Scalar`, not
@@ -480,6 +480,6 @@ mod tests {
         // through, and exactly what a naive match on the outer value misses.
         let top = i.peek().unwrap();
         assert_eq!(top.dt(), bund2_value::BOOL);
-        assert_eq!(*top.unboxed(), BundValue::Bool(false), "3 5 < is false");
+        assert_eq!(*top.unboxed(), BundValue::boolean(false), "3 5 < is false");
     }
 }

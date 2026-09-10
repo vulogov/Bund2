@@ -22,6 +22,65 @@ use bund2_interp::Interp;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // `bund2 words` — every name a program can call, one per line.
+    //
+    // Not a language feature: it is the join key `cargo xtask coverage` needs.
+    // Coverage used to count in-scope words the *corpus mentioned*, which is a
+    // property of the corpus and could not move as words landed — it read
+    // 121/497 through forty words arriving in one session. Asking the binary
+    // what it registers is the only answer that is about Bund2.
+    if args.first().map(String::as_str) == Some("words") {
+        let mut i = Interp::new();
+        bund2_stdlib::register_all(&mut i.registry);
+        for name in i.registry.word_names() {
+            println!("{name}");
+        }
+        return ExitCode::SUCCESS;
+    }
+    // `bund2 effects` — every native's declared arity, for `xtask effects`.
+    if args.first().map(String::as_str) == Some("effects") {
+        let mut i = Interp::new();
+        bund2_stdlib::register_all(&mut i.registry);
+        for (name, e) in i.registry.declared_effects() {
+            println!("{name}\t{}\t{}", e.consumes, e.produces);
+        }
+        return ExitCode::SUCCESS;
+    }
+    // `bund2 infer --file <path>` — RFC-0004 §S3 and criterion 6.
+    //
+    // Runs the program so its `register` calls happen, then for every word it
+    // registered prints the **inferred** effect beside the one **observed** by
+    // calling the word against a stack of sentinels. The two must agree or the
+    // inference must say `opaque`; a wrong number is the failure this exists
+    // to catch.
+    if args.first().map(String::as_str) == Some("infer") {
+        let Some(file) = args.iter().skip_while(|a| *a != "--file").nth(1).cloned() else {
+            eprintln!("bund2: expected: bund2 infer --file <path>");
+            return ExitCode::from(2);
+        };
+        let Ok(src) = std::fs::read_to_string(&file) else {
+            eprintln!("bund2: reading {file}");
+            return ExitCode::from(2);
+        };
+        return run_infer(&src, &file);
+    }
+
+    // `bund2 check --file <path>` — RFC-0004 §S4.
+    //
+    // Reports where a program would underflow, and how much of it could not be
+    // analysed. It never runs the program and never changes what `script`
+    // does; a program it warns about still runs and still fails as it did.
+    if args.first().map(String::as_str) == Some("check") {
+        let Some(file) = args.iter().skip_while(|a| *a != "--file").nth(1).cloned() else {
+            eprintln!("bund2: expected: bund2 check --file <path>");
+            return ExitCode::from(2);
+        };
+        let Ok(src) = std::fs::read_to_string(&file) else {
+            eprintln!("bund2: reading {file}");
+            return ExitCode::from(2);
+        };
+        return run_check(&src, &file);
+    }
     let args = match parse_args(&args) {
         Ok(f) => f,
         Err(e) => {
@@ -75,6 +134,150 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
         dump_stack,
         raw_values,
     })
+}
+
+/// Check inference against a run, for every word a program registers.
+///
+/// **The observation is the hard half.** A word's depth delta is only
+/// meaningful if the word runs, and running it needs operands — so each is
+/// called against a stack of integer sentinels deep enough for its inferred
+/// floor, and the delta is what the stack lost or gained. A word that fails on
+/// integers (it wanted a string, a list, a lambda) is reported as unobservable
+/// rather than counted as agreeing: an unrun word is evidence of nothing, and
+/// folding it into a pass is how `xtask effects`'s "not in the table" bucket
+/// would have gone vacuous.
+fn run_infer(src: &str, file: &str) -> ExitCode {
+    let mut vm = Interp::new();
+    bund2_stdlib::register_all(&mut vm.registry);
+    let Ok(stream) = bund2_syntax::compile(src) else {
+        eprintln!("bund2: {file} does not parse");
+        return ExitCode::from(2);
+    };
+    // The program's own `register` calls are what put words in the table, so
+    // it has to run. Its failures are not this command's business.
+    let _ = vm.eval(&stream);
+
+    let mut names: Vec<String> = vm.registry.lambda_names();
+    names.sort();
+    let (mut agree, mut opaque, mut unobservable, mut wrong) = (0, 0, 0, 0);
+    for name in &names {
+        let Some(body) = vm.registry.lambda_body(name) else {
+            continue;
+        };
+        let inferred = bund2_stdlib::check::infer(&body, &vm.registry, 0);
+        if inferred.opaque {
+            opaque += 1;
+            println!("  {name:<28} inferred opaque");
+            continue;
+        }
+        match observe(&vm.registry, name, inferred.consumes) {
+            None => {
+                unobservable += 1;
+                println!(
+                    "  {name:<28} inferred {}->{}   not observable on integer sentinels",
+                    inferred.consumes, inferred.produces
+                );
+            }
+            Some(delta) => {
+                let want = i64::from(inferred.produces) - i64::from(inferred.consumes);
+                if want == delta {
+                    agree += 1;
+                } else {
+                    wrong += 1;
+                    println!(
+                        "  {name:<28} inferred {}->{} (net {want}) but ran net {delta}",
+                        inferred.consumes, inferred.produces
+                    );
+                }
+            }
+        }
+    }
+    println!(
+        "{file}: {} word(s) — {agree} agree, {opaque} opaque, {unobservable} unobservable, {wrong} WRONG",
+        names.len()
+    );
+    if wrong > 0 {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+/// Run one registered word against sentinels and report its depth delta.
+fn observe(registry: &bund2_api::Registry, name: &str, floor: u8) -> Option<i64> {
+    let mut vm = Interp::new();
+    // A fresh VM with the same vocabulary, so the word under test cannot be
+    // disturbed by what an earlier one left.
+    vm.registry = registry.clone();
+    for i in 0..floor.max(1) {
+        vm.push(bund2_value::BundValue::int(i64::from(i)));
+    }
+    let before = vm.depth() as i64;
+    let body = registry.lambda_value(name)?;
+    vm.eval_lambda(&body).ok()?;
+    Some(vm.depth() as i64 - before)
+}
+
+/// Analyse a program and report, without running it.
+///
+/// Exit 0 whether or not anything is found. **`check` does not gate**:
+/// RFC-0004's alternatives section rejects failing a build on it, because `!`
+/// is `Opaque` and one of the five most-used words in the corpus, so a false
+/// positive is certain and a checker that blocks gets turned off.
+fn run_check(src: &str, file: &str) -> ExitCode {
+    let lowered = match bund2_syntax::parse(src) {
+        Ok(terms) => bund2_syntax::lower_with_spans(&terms, src.len()),
+        Err(e) => {
+            eprintln!("{}", e.render(src));
+            return ExitCode::from(2);
+        }
+    };
+    let mut i = Interp::new();
+    bund2_stdlib::register_all(&mut i.registry);
+    let report = bund2_stdlib::check::check(&lowered.values, &i.registry, 0);
+
+    for f in &report.findings {
+        let where_ = lowered
+            .span_of(f.at)
+            .map(|sp| locate(src, file, sp))
+            .unwrap_or_else(|| bund2_api::diag::Location {
+                file: Some(file.to_string()),
+                line: 0,
+                column: 0,
+                excerpt: None,
+            });
+        eprintln!(
+            "Warning: {}:{}:{}: `{}` needs {} value(s); {} can be proven here",
+            where_.file.as_deref().unwrap_or(file),
+            where_.line,
+            where_.column,
+            f.word,
+            f.needs,
+            f.have
+        );
+    }
+
+    // **Criterion 5**: say how much was skipped, always — including when
+    // nothing was found, which is exactly when a silent report misleads.
+    println!(
+        "checked {}: {} finding(s), {} site(s) analysed, {} abandoned",
+        file,
+        report.findings.len(),
+        report.analysed,
+        report.abandoned
+    );
+    if !report.reasons.is_empty() {
+        println!("  analysis stopped at:");
+        for (why, n) in &report.reasons {
+            println!("    {n:>4}  {why}");
+        }
+        println!(
+            "  A finding is only ever about the {} site(s) above that were",
+            report.analysed
+        );
+        println!("  tracked. Nothing is claimed about the rest.");
+    }
+    ExitCode::SUCCESS
 }
 
 /// Turn a byte offset into a position a programmer can act on.

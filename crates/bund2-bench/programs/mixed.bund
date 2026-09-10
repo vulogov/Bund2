@@ -1,0 +1,39 @@
+// A representative program for the `corpus` group: no I/O, no clock, no
+// randomness, and it exercises the shapes a JIT would have to preserve —
+// arithmetic, list building, a registered word, a conditional and a loop.
+//
+// Deliberately silent. `println` would put terminal I/O inside the measured
+// region and make the number about the terminal.
+
+:double { 2 * } register
+
+// arithmetic through a registered word
+0
+10 { double drop } times
+drop
+
+// list construction and traversal
+[ 1 2 3 4 5 6 7 8 9 10 ]
+{ double drop } loop
+
+// map builds a new list per element
+[ 1 2 3 4 5 6 7 8 9 10 ]
+{ double } map
+drop
+
+// dictionary set/get, the other allocating path
+dict
+:a 1 set
+:b 2 set
+:a get
+drop
+
+// a conditional and a comparison
+10 10 == { 1 } { 2 } ?true*
+drop
+
+// string work, which goes through the heap payload
+"hello world" string.upper
+"hello world" string.tokenize
+drop
+drop

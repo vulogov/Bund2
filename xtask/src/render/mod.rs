@@ -178,7 +178,7 @@ fn parse(text: &str) -> Result<BundValue, String> {
             let k = p.string()?;
             p.eat(": ")?;
             let v = p.string()?;
-            tags.insert(k, v);
+            tags.insert(std::rc::Rc::from(k.as_str()), std::rc::Rc::from(v.as_str()));
             if p.eat(", ").is_err() {
                 p.eat("}")?;
                 break;
@@ -192,20 +192,20 @@ fn parse_payload(p: &mut P) -> Result<Payload, String> {
     if p.eat("I64(").is_ok() {
         let n: i64 = p.until(')').parse().map_err(|_| "bad i64".to_string())?;
         p.eat(")")?;
-        return Ok(Payload::Scalar(BundValue::Int(n)));
+        return Ok(Payload::Scalar(BundValue::int(n)));
     }
     if p.eat("F64(").is_ok() {
         let f: f64 = p.until(')').parse().map_err(|_| "bad f64".to_string())?;
         p.eat(")")?;
-        return Ok(Payload::Scalar(BundValue::Float(f)));
+        return Ok(Payload::Scalar(BundValue::float(f)));
     }
     if p.eat("Bool(").is_ok() {
         let b = p.until(')') == "true";
         p.eat(")")?;
-        return Ok(Payload::Scalar(BundValue::Bool(b)));
+        return Ok(Payload::Scalar(BundValue::boolean(b)));
     }
     if p.eat("Null").is_ok() {
-        return Ok(Payload::Scalar(BundValue::Nodata));
+        return Ok(Payload::Scalar(BundValue::nodata()));
     }
     if p.eat("String(").is_ok() {
         let s = p.string()?;

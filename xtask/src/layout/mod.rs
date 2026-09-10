@@ -263,8 +263,8 @@ pub fn run(_args: &[String]) -> Result<(), String> {
 
     println!("## size_of, in bytes\n");
     println!(
-        "  {:<34}{:>5}{:>7}   {}",
-        "representation", "size", "align", "note"
+        "  {:<34}{:>5}{:>7}   note",
+        "representation", "size", "align"
     );
     row(
         "reference Value (replica)",
@@ -452,13 +452,10 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             Ok(())
         }
         fn pusher(vm: &mut dyn Vm) -> Result<(), bund2_api::Error> {
-            vm.push(BundValue::Int(1));
+            vm.push(BundValue::int(1));
             Ok(())
         }
-        let eff = StackEffect {
-            consumes: 0,
-            produces: 0,
-        };
+        let eff = StackEffect::fixed(0, 0);
 
         let mut i = Interp::new();
         let plain = i.registry.register_native("w", nop, eff, WordKind::Sync);

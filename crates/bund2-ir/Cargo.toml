@@ -11,5 +11,10 @@ rust-version.workspace = true
 bund2-value.workspace = true
 bund2-syntax.workspace = true
 
+[features]
+# Exposes `Fragment::new_unchecked`, so a test can hold a fragment `new` would
+# refuse and show the executor refuses it too. No shipped crate enables it.
+unchecked = []
+
 [lints]
 workspace = true

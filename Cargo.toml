@@ -20,6 +20,7 @@ members = [
   "crates/bund2-async",
   "crates/bund2",
   "crates/bund2-cli",
+  "crates/bund2-bench",
   "xtask",
 ]
 
@@ -28,7 +29,10 @@ edition      = "2024"
 version      = "0.0.0"
 license      = "Apache-2.0"
 repository   = "https://github.com/vulogov/Bund2"
-rust-version = "1.90.0"
+# Raised with the toolchain pin, F80. Cranelift 0.135.0 declares 1.95.0, and a
+# workspace that claims a lower MSRV than its own optional dependency accepts
+# is claiming something no `--features jit` build can honour.
+rust-version = "1.95.0"
 
 [workspace.dependencies]
 # Internal

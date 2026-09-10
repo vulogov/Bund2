@@ -19,6 +19,27 @@
 //!   requires reflexivity. The language's `==` keeps IEEE semantics and is
 //!   [`BundValue::eq_ieee`].
 
+// **`clippy::mutable_key_type`, allowed with a reason rather than worked
+// around.** `Payload::ValueMap` is `HashMap<BundValue, BundValue>` — Bund's
+// VALUEMAP type — so the key type is fixed by the language, not chosen here.
+//
+// The lint fires because `BundValue` has interior mutability: the lazy
+// identity `Cell` (D1) and the sampled stamp `Cell` (D2). Its hazard is a key
+// whose hash changes while it sits in a map, and that cannot happen here:
+//
+// - `Hash` reads `identity()` on one arm only — a composite heap value — and
+//   **minting is idempotent**: the first call caches into the `Cell` and every
+//   later call returns the same `u64`. A key is hashed on insertion, so it is
+//   minted from its first use onward and its hash never moves.
+// - Scalars and strings hash by *content* and never consult the `Cell`, which
+//   is D30's read path.
+// - D41's inline `StackSym` is deliberately excluded from `Hash` and
+//   `PartialEq`, so acquiring a stack tag does not move a key's hash either.
+//
+// Silenced at the crate root rather than per site because all four sites are
+// the same type, and a per-site `allow` would repeat this argument four times
+// or, more likely, not at all.
+#![allow(clippy::mutable_key_type)]
 #![deny(unsafe_op_in_unsafe_fn)]
 #![cfg_attr(
     test,
@@ -33,6 +54,7 @@
 pub mod wire;
 
 use std::cell::Cell;
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
@@ -175,6 +197,33 @@ pub struct Metric {
     pub data: f64,
 }
 
+impl Metric {
+    /// One sample, stamped now.
+    ///
+    /// **Nanoseconds, not the milliseconds a `Value` carries.** `Metric` uses
+    /// `timestamp_ns` (`reference/rust_dynamic/src/metric.rs:13`) where a
+    /// `Value`'s `stamp` uses `timestamp_ms`
+    /// (`reference/rust_dynamic/src/value.rs:7-9`), and the two fields are both
+    /// spelled `stamp` in the debug rendering — so the resolutions differ by a
+    /// factor of a million in output that looks uniform.
+    pub fn new(data: f64) -> Self {
+        Self {
+            stamp: now_ns(),
+            data,
+        }
+    }
+}
+
+/// A value's tag map.
+///
+/// **`Rc<str>` on both sides, not `String`.** Every push writes one, and two
+/// `String` allocations per push measured **36.5 ns** against **16.3 ns** for
+/// two `Rc` clones (`crates/bund2-bench/benches/boxing.rs`) — on a path that
+/// runs for every value the interpreter touches. `Rc<str>` orders by content,
+/// so a `BTreeMap` keyed on it iterates in the same order a `String`-keyed one
+/// did, which the 39 goldens carrying `tags: {"stack": …}` depend on.
+pub type Tags = BTreeMap<Rc<str>, Rc<str>>;
+
 /// The header a heap value carries.
 #[derive(Debug)]
 pub struct HeapValue {
@@ -186,15 +235,16 @@ pub struct HeapValue {
     /// The reference's `dt`. Independent of the payload: `Val::String` carries
     /// `STRING`, `PTR` and `CALL` among others, and they behave differently.
     dt: u16,
-    /// Averaged by arithmetic, not a constant — `calc_q` at
-    /// `reference/rust_dynamic/src/q.rs:5`. The goldens all show 100.0 because
-    /// that is a fixpoint; `Value::none` starts at 0.0.
+    /// A field, not a constant — but no word writes it. Arithmetic does
+    /// **not** average it (D32 as amended, Q35): the reference's `+` never
+    /// reaches `calc_q`, which has no caller at all. Constructors start at
+    /// 100.0, which is why every golden shows it; `Value::none` starts at 0.0.
     q: f64,
     /// The iteration cursor. A plain field, not a `Cell`: a `Cell` inside the
     /// shared `Rc` would give clones a *shared* cursor.
     curr: i32,
     /// Written on every push (`reference/rust_multistack/src/ts_push.rs:25`).
-    tags: BTreeMap<String, String>,
+    tags: Tags,
     attr: Vec<BundValue>,
     payload: Rc<Payload>,
 }
@@ -207,7 +257,7 @@ impl HeapValue {
             dt,
             q: 100.0,
             curr: -1,
-            tags: BTreeMap::new(),
+            tags: Tags::new(),
             attr: Vec::new(),
             payload: Rc::new(payload),
         }
@@ -248,17 +298,132 @@ impl Payload {
     }
 }
 
+/// A stack name, interned. **D41.**
+///
+/// `0` means "never pushed". Anything else indexes the thread-local table in
+/// [`stack_name`].
+///
+/// This rides in padding the enum already had: `BundValue` measures 16 bytes
+/// with it and measured 16 without, because `Int(i64)` pads 9 bytes to 16
+/// either way. A `u16` would also fit; `u32` is chosen for headroom.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct StackSym(u32);
+
+impl StackSym {
+    /// Never pushed to a stack, so it carries no tag.
+    pub const NONE: StackSym = StackSym(0);
+
+    pub fn is_none(self) -> bool {
+        self.0 == 0
+    }
+}
+
+thread_local! {
+    /// Symbol -> name. Index 0 is unused and stands for [`StackSym::NONE`].
+    ///
+    /// Thread-local because `BundValue` is neither `Send` nor `Sync`, so no
+    /// lock is involved and no value can cross to a thread whose table would
+    /// resolve its symbol differently.
+    static STACK_NAMES: RefCell<Vec<Rc<str>>> = RefCell::new(vec![Rc::from("")]);
+}
+
+/// Intern a stack name. Cheap and idempotent; the table is tiny because a
+/// program names a handful of stacks.
+pub fn intern_stack_name(name: &str) -> StackSym {
+    STACK_NAMES.with(|t| {
+        let mut t = t.borrow_mut();
+        if let Some(i) = t.iter().position(|n| &**n == name) {
+            return StackSym(i as u32);
+        }
+        t.push(Rc::from(name));
+        StackSym((t.len() - 1) as u32)
+    })
+}
+
+thread_local! {
+    /// The `"stack"` key, interned once. Every tag written names it.
+    static STACK_KEY: Rc<str> = Rc::from("stack");
+}
+
+/// The interned `"stack"` tag key.
+pub fn stack_tag_key() -> Rc<str> {
+    STACK_KEY.with(Rc::clone)
+}
+
+/// Resolve a symbol back to the name it was interned from.
+pub fn stack_name(sym: StackSym) -> Option<Rc<str>> {
+    if sym.is_none() {
+        return None;
+    }
+    STACK_NAMES.with(|t| t.borrow().get(sym.0 as usize).cloned())
+}
+
 /// The runtime value. **Two words: 16 bytes, 8-aligned.**
+///
+/// Each scalar variant carries a [`StackSym`] in padding the enum already had
+/// — **D41**. It is metadata about where the value has been, never part of
+/// what it is: equality, hashing and ordering all ignore it, and every one of
+/// those is hand-written here so that omission is deliberate rather than
+/// derived.
 #[derive(Debug, Clone)]
 pub enum BundValue {
-    Int(i64),
-    Float(f64),
-    Bool(bool),
+    Int(i64, StackSym),
+    Float(f64, StackSym),
+    Bool(bool, StackSym),
     /// `dt` 97.
-    Nodata,
+    Nodata(StackSym),
     /// `dt` 0. Distinct from `Nodata`: `Val::Null` carries both tags.
-    None,
+    None(StackSym),
     Heap(Rc<HeapValue>),
+}
+
+impl BundValue {
+    /// The scalar constructors. **Use these, not the variants**: a bare
+    /// variant would need the symbol spelled at 125 call sites, and the point
+    /// of D41 is that a value acquires its tag by being pushed, not by being
+    /// built.
+    pub const fn int(v: i64) -> Self {
+        BundValue::Int(v, StackSym::NONE)
+    }
+    pub const fn float(v: f64) -> Self {
+        BundValue::Float(v, StackSym::NONE)
+    }
+    pub const fn boolean(v: bool) -> Self {
+        BundValue::Bool(v, StackSym::NONE)
+    }
+    pub const fn nodata() -> Self {
+        BundValue::Nodata(StackSym::NONE)
+    }
+    pub const fn none() -> Self {
+        BundValue::None(StackSym::NONE)
+    }
+
+    /// The stack symbol this value carries, if it is an untagged scalar.
+    pub fn stack_sym(&self) -> StackSym {
+        match self {
+            BundValue::Int(_, s)
+            | BundValue::Float(_, s)
+            | BundValue::Bool(_, s)
+            | BundValue::Nodata(s)
+            | BundValue::None(s) => *s,
+            BundValue::Heap(_) => StackSym::NONE,
+        }
+    }
+
+    /// The same value, tagged as having been pushed to `sym`.
+    ///
+    /// For a `Heap` value there is nowhere to put it, so the caller writes the
+    /// map instead — see `Vm::push`.
+    pub fn with_stack_sym(self, sym: StackSym) -> Self {
+        match self {
+            BundValue::Int(v, _) => BundValue::Int(v, sym),
+            BundValue::Float(v, _) => BundValue::Float(v, sym),
+            BundValue::Bool(v, _) => BundValue::Bool(v, sym),
+            BundValue::Nodata(_) => BundValue::Nodata(sym),
+            BundValue::None(_) => BundValue::None(sym),
+            heap => heap,
+        }
+    }
 }
 
 impl BundValue {
@@ -334,7 +499,7 @@ impl BundValue {
     pub fn complex_float(re: f64, im: f64) -> Self {
         Self::heap(
             CFLOAT,
-            Payload::List(vec![BundValue::Float(re), BundValue::Float(im)]),
+            Payload::List(vec![BundValue::float(re), BundValue::float(im)]),
         )
     }
     pub fn textbuffer(s: impl Into<String>) -> Self {
@@ -359,23 +524,10 @@ impl BundValue {
         Self::heap(dt, p)
     }
 
-    /// Combine two values' `q` the way `calc_q` does: the mean
-    /// (`reference/rust_dynamic/src/q.rs:5`, reached from `impl Add` at
-    /// `reference/rust_dynamic/src/math.rs:416-420`).
-    ///
-    /// **D32**: `q` is the mechanism for a future fuzzy-math feature, so what
-    /// Bund2 preserves is the *propagation* and not merely the field. An
-    /// arithmetic result carries the mean of its operands' `q`, which is why
-    /// 100.0 is a fixpoint rather than a default.
-    pub fn combine_q(a: &BundValue, b: &BundValue) -> f64 {
-        (a.q() + b.q()) / 2.0
-    }
-
     /// Set `q`.
     ///
-    /// `q` is a field, not the constant two RFC-0001 drafts made it: `calc_q`
-    /// averages it on every arithmetic operation
-    /// (`reference/rust_dynamic/src/q.rs:5`), and `Value::none` — which the
+    /// `q` is a field, not the constant two RFC-0001 drafts made it. No word
+    /// averages it (D32 as amended, Q35), but `Value::none` — which the
     /// JSON converter returns for a null — starts at **0.0**, not 100.0.
     ///
     /// This existed nowhere until `cargo xtask render` reported four
@@ -390,7 +542,7 @@ impl BundValue {
     }
 
     /// Set the tags wholesale. Used to reconstruct a captured rendering.
-    pub fn with_tags(self, tags: BTreeMap<String, String>) -> Self {
+    pub fn with_tags(self, tags: Tags) -> Self {
         let h = self.into_heap();
         let mut next = (*h).clone();
         next.tags = tags;
@@ -419,7 +571,7 @@ impl BundValue {
     /// The integer this holds, boxed or not.
     pub fn as_int(&self) -> Option<i64> {
         match self {
-            BundValue::Int(i) => Some(*i),
+            BundValue::Int(i, _) => Some(*i),
             BundValue::Heap(h) => match &*h.payload {
                 Payload::Scalar(inner) => inner.as_int(),
                 _ => None,
@@ -465,11 +617,65 @@ impl BundValue {
         }
     }
 
+    /// The valuemap this holds, if it holds one.
+    pub fn as_valuemap(&self) -> Option<&HashMap<BundValue, BundValue>> {
+        match self {
+            BundValue::Heap(h) => match &*h.payload {
+                Payload::ValueMap(m) => Some(m),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Re-tag a value, keeping its payload and header.
+    ///
+    /// **`set` rebuilds a map-like value as a MAP**, which is why `++` has to
+    /// put the tag back: merging into a CONDITIONAL would otherwise return a
+    /// MAP and stop `!` dispatching it. The reference writes `op_val1.dt =
+    /// o_type` directly (`reference/Bund/src/stdlib/functions/values/merge.rs:81`);
+    /// this is the same move through the header, since Bund2 has no writable
+    /// `dt` field.
+    ///
+    /// The tag and the payload are independent axes, so this changes only the
+    /// first — the pairing it produces is the caller's to justify.
+    pub fn with_dt_tag(self, dt: u16) -> Self {
+        let h = self.into_heap();
+        let mut next = (*h).clone();
+        next.dt = dt;
+        BundValue::Heap(Rc::new(next))
+    }
+
+    /// The `serde_json::Value` this holds, if it holds one.
+    ///
+    /// Cloned rather than borrowed because the payload sits behind an `Rc` and
+    /// `json.to_value` walks it while pushing onto the same VM.
+    pub fn as_json(&self) -> Option<serde_json::Value> {
+        match self {
+            BundValue::Heap(h) => match &*h.payload {
+                Payload::Json(j) => Some(j.clone()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     /// The list this holds, if it holds one.
     pub fn as_list(&self) -> Option<&[BundValue]> {
         match self {
             BundValue::Heap(h) => match &*h.payload {
                 Payload::List(v) => Some(v),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// The sample buffer this holds, if it holds one.
+    pub fn as_metrics(&self) -> Option<&[Metric]> {
+        match self {
+            BundValue::Heap(h) => match &*h.payload {
+                Payload::Metrics(m) => Some(m),
                 _ => None,
             },
             _ => None,
@@ -566,15 +772,56 @@ impl BundValue {
     /// (`reference/rust_dynamic/src/conv.rs:340-353`). So `[1, "a"]` shows as
     /// `[ 1 ::  a :: ]`, with the doubled space that falls out of every element
     /// carrying both a leading space and a trailing separator.
+    /// Can this value convert to a STRING at all?
+    ///
+    /// **A PAIR cannot**, and that is the tag/payload split once more: it
+    /// shares the LIST payload, but `value_list_conversion` admits `LIST` and
+    /// `RESULT` only (`reference/rust_dynamic/src/conv.rs:706-711`), so a PAIR
+    /// falls through every arm. Confirmed against the oracle —
+    /// `1 2 pair println` reports `Can not convert Value from 10`.
+    ///
+    /// `CINTEGER` and `CFLOAT` are the same story from the other direction:
+    /// they carry a numeric payload but `conv` reaches them through neither
+    /// the float nor the integer arm, so `1.0 2.0 complex println` reports
+    /// `Can not convert Value from 15`. Also confirmed.
+    ///
+    /// [`display`] answers for everything because it must return a string;
+    /// this is what the words that *can* fail consult first.
+    ///
+    /// [`display`]: BundValue::display
+    pub fn displayable(&self) -> bool {
+        !matches!(self.dt(), PAIR | CINTEGER | CFLOAT)
+    }
+
     pub fn display(&self) -> String {
+        // **Dispatch on the tag before the payload.** `conv` matches the
+        // payload arm and then re-checks the tag, sending a `Val::String` to
+        // three different conversions depending on whether its `dt` is STRING,
+        // CALL or PTR (`reference/rust_dynamic/src/conv.rs:698-703`). A PTR
+        // renders `` `(name) `` (`:100`) and a CALL renders `F(name)` (`:84`),
+        // where a STRING renders as itself.
+        //
+        // Reading `as_str` first collapsed all three, so `"dup" ptr println`
+        // printed `dup` where the oracle prints `` `(dup) ``. That is the
+        // tag/payload split from the rendering side, and it is the third place
+        // in this crate where taking the payload arm alone was wrong.
+        match self.dt() {
+            PTR => return format!("`({})", self.as_str().unwrap_or_default()),
+            CALL => return format!("F({})", self.as_str().unwrap_or_default()),
+            // NODATA and NONE convert to their *names*, not to nothing
+            // (`conv.rs:41-43,60-62`), so `nodata println` prints `NODATA`.
+            NODATA => return "NODATA".to_string(),
+            NONE => return "NONE".to_string(),
+            _ => {}
+        }
         if let Some(s) = self.as_str() {
             return s;
         }
         match self.unboxed() {
-            BundValue::Int(i) => i.to_string(),
-            BundValue::Float(f) => format!("{f:?}"),
-            BundValue::Bool(b) => b.to_string(),
-            BundValue::Nodata | BundValue::None => String::new(),
+            BundValue::Int(i, _) => i.to_string(),
+            BundValue::Float(f, _) => Self::float_text(*f),
+            BundValue::Bool(b, _) => b.to_string(),
+            BundValue::Nodata(_) | BundValue::None(_) => String::new(),
             BundValue::Heap(h) => match &*h.payload {
                 Payload::List(items) => {
                     let mut out = "[".to_string();
@@ -584,6 +831,26 @@ impl BundValue {
                         out.push_str(" :: ");
                     }
                     out.push(']');
+                    out
+                }
+                // A MAP renders `{ k=v ::  k=v :: }` — the same doubled-space
+                // shape as a LIST, with `k=` before each element
+                // (`reference/rust_dynamic/src/conv.rs:637-649`). A member that
+                // will not convert is **skipped**, not reported (`:647`).
+                //
+                // Found by `pull`, which is the first word to print a MAP: the
+                // oracle answers `{ a=3 ::  b=2 :: }` where this fell through
+                // to the raw `Debug` form.
+                Payload::Map(m) => {
+                    let mut out = "{".to_string();
+                    for (k, v) in m {
+                        out.push(' ');
+                        out.push_str(k);
+                        out.push('=');
+                        out.push_str(&v.display());
+                        out.push_str(" :: ");
+                    }
+                    out.push('}');
                     out
                 }
                 _ => self.render(false),
@@ -599,6 +866,23 @@ impl BundValue {
     /// Whether a string key is present.
     pub fn has_key(&self, key: &str) -> bool {
         self.as_map().is_some_and(|m| m.contains_key(key.trim()))
+    }
+
+    /// The reference's float→string rendering: `dtoa`, not Rust's `{:?}`
+    /// (`reference/rust_dynamic/src/conv.rs:128-130`).
+    ///
+    /// The two disagree on which shortest form to emit. `2.0 math.sqrt` holds
+    /// the same bits in both engines — `F64(1.4142135623730951)`, confirmed
+    /// through `debug.display_stack` — but the reference prints
+    /// `1.4142135623730952`. Both parse back to that same `f64`, so neither is
+    /// wrong; they are different libraries, and a golden captures the bytes.
+    ///
+    /// **`render` deliberately does not use this.** The `Value { … }` form is
+    /// Rust's `Debug`, so `F64(…)` must stay `{:?}` — using `dtoa` there would
+    /// break every golden that dumps a stack.
+    pub(crate) fn float_text(f: f64) -> String {
+        let mut buf = dtoa::Buffer::new();
+        buf.format(f).to_string()
     }
 
     /// A compact, bounded rendering — **what a person reads**.
@@ -631,11 +915,11 @@ impl BundValue {
         }
         let inner = self.unboxed();
         match inner {
-            BundValue::Int(i) => out.push_str(&i.to_string()),
-            BundValue::Float(f) => out.push_str(&format!("{f:?}")),
-            BundValue::Bool(b) => out.push_str(&b.to_string()),
-            BundValue::Nodata => out.push_str("nodata"),
-            BundValue::None => out.push_str("none"),
+            BundValue::Int(i, _) => out.push_str(&i.to_string()),
+            BundValue::Float(f, _) => out.push_str(&format!("{f:?}")),
+            BundValue::Bool(b, _) => out.push_str(&b.to_string()),
+            BundValue::Nodata(_) => out.push_str("nodata"),
+            BundValue::None(_) => out.push_str("none"),
             BundValue::Heap(h) => match &*h.payload {
                 Payload::Str(s) => {
                     // `dt` distinguishes what a `Str` payload means: a CALL is
@@ -706,12 +990,57 @@ impl BundValue {
     /// The `dt` tag.
     pub fn dt(&self) -> u16 {
         match self {
-            BundValue::Int(_) => INTEGER,
-            BundValue::Float(_) => FLOAT,
-            BundValue::Bool(_) => BOOL,
-            BundValue::Nodata => NODATA,
-            BundValue::None => NONE,
+            BundValue::Int(_, _) => INTEGER,
+            BundValue::Float(_, _) => FLOAT,
+            BundValue::Bool(_, _) => BOOL,
+            BundValue::Nodata(_) => NODATA,
+            BundValue::None(_) => NONE,
             BundValue::Heap(h) => h.dt,
+        }
+    }
+
+    /// The reference's name for this value's `dt`
+    /// (`reference/rust_dynamic/src/value_types.rs:8-54`).
+    ///
+    /// This is a **tag** name, not a payload name, so it answers on the `dt`
+    /// axis alone: a boxed `Int` reads `Integer` because `promote` carries the
+    /// scalar's `dt` onto the header it builds. That is what makes `type` safe
+    /// to write without [`unboxed`] — unlike the comparisons, which branch on
+    /// the arm and so must look through the box.
+    ///
+    /// The arms are exactly the tags Bund2 can construct. The reference names
+    /// fourteen more, all of them tags Bund2 has no writer for, and its own
+    /// last arm is `_ => "Unknown"` (`:52`) — so falling through to the same
+    /// answer is the reference's behaviour, not a gap in this table.
+    ///
+    /// [`unboxed`]: BundValue::unboxed
+    pub fn type_name(&self) -> &'static str {
+        match self.dt() {
+            NONE => "None",
+            NODATA => "NODATA",
+            BOOL => "Bool",
+            INTEGER => "Integer",
+            FLOAT => "Float",
+            STRING => "String",
+            CALL => "Call",
+            PTR => "Ptr",
+            LIST => "List",
+            PAIR => "Pair",
+            MAP => "Map",
+            TIME => "Time",
+            CINTEGER => "ComplexInteger",
+            CFLOAT => "ComplexFloat",
+            METRICS => "Metrics",
+            LAMBDA => "Lambda",
+            CONTEXT => "Context",
+            TEXTBUFFER => "TextBuffer",
+            JSON => "JSON",
+            CONDITIONAL => "Conditional",
+            VALUEMAP => "ValueMap",
+            CLASS => "CLASS",
+            OBJECT => "OBJECT",
+            EXIT => "Exit",
+            _ => "Unknown",
         }
     }
 
@@ -731,6 +1060,34 @@ impl BundValue {
     /// caller must write it back for observation to be idempotent. That
     /// write-back is the point RFC-0001's earlier drafts missed: `get` returns
     /// a clone, so promoting the clone alone changes nothing.
+    /// Whether identity has already been minted, **without minting it**.
+    ///
+    /// For tests that need to assert a path did *not* materialise identity —
+    /// calling [`BundValue::identity`] to find out would mint it and destroy
+    /// the thing being measured. A scalar has no header, so it is never
+    /// minted.
+    pub fn has_identity(&self) -> bool {
+        match self {
+            BundValue::Heap(h) => h.identity.get() != 0,
+            _ => false,
+        }
+    }
+
+    /// **D35's cache key**: the address of the payload a heap value carries.
+    ///
+    /// A `dup`'d value shares its original's payload, so the two share a key;
+    /// a rebuilt value — `set`, `push` — has a new payload and a new key, which
+    /// is D5's write-once property seen from here. `None` for an unboxed
+    /// scalar, which has no payload to point at. D42 makes this reachable
+    /// where a body starts running: `Vm::eval_lambda` and the frame receive the
+    /// value, not a copy of its items.
+    pub fn payload_key(&self) -> Option<usize> {
+        match self {
+            BundValue::Heap(h) => Some(Rc::as_ptr(&h.payload) as *const () as usize),
+            _ => None,
+        }
+    }
+
     pub fn identity(&self) -> (u64, Option<BundValue>) {
         match self {
             BundValue::Heap(h) => (h.identity(), None),
@@ -763,8 +1120,19 @@ impl BundValue {
         match self {
             BundValue::Heap(_) => self,
             scalar => {
+                // **D41 rule 2.** A tagged scalar being boxed must move its
+                // symbol into the header's map, or a value that later gains an
+                // `attr` would silently lose the stack tag it was pushed with.
+                // This is the one rule in D41 whose violation is invisible
+                // until a golden disagrees.
+                let sym = scalar.stack_sym();
                 let dt = scalar.dt();
-                BundValue::heap(dt, Payload::Scalar(scalar))
+                let inner = scalar.with_stack_sym(StackSym::NONE);
+                let boxed = BundValue::heap(dt, Payload::Scalar(inner));
+                match stack_name(sym) {
+                    Some(n) => boxed.with_tag(stack_tag_key(), n),
+                    None => boxed,
+                }
             }
         }
     }
@@ -808,9 +1176,9 @@ impl BundValue {
     /// reflexive for `HashMap` to be sound.
     pub fn eq_ieee(&self, other: &Self) -> bool {
         match (self, other) {
-            (BundValue::Float(a), BundValue::Float(b)) => a == b,
-            (BundValue::Float(a), BundValue::Int(b)) => int_eq_float(*b, *a),
-            (BundValue::Int(a), BundValue::Float(b)) => int_eq_float(*a, *b),
+            (BundValue::Float(a, _), BundValue::Float(b, _)) => a == b,
+            (BundValue::Float(a, _), BundValue::Int(b, _)) => int_eq_float(*b, *a),
+            (BundValue::Int(a, _), BundValue::Float(b, _)) => int_eq_float(*a, *b),
             _ => self == other,
         }
     }
@@ -848,11 +1216,11 @@ impl PartialEq for BundValue {
             // are content-compared in Bund2 where the reference compares them
             // by identity — equality must not depend on whether an operand
             // happens to be boxed.
-            (Int(a), Int(b)) => a == b,
-            (Float(a), Float(b)) => float_key(*a) == float_key(*b),
-            (Bool(a), Bool(b)) => a == b,
-            (Nodata, Nodata) | (None, None) => true,
-            (Int(a), Float(b)) | (Float(b), Int(a)) => int_eq_float(*a, *b),
+            (Int(a, _), Int(b, _)) => a == b,
+            (Float(a, _), Float(b, _)) => float_key(*a) == float_key(*b),
+            (Bool(a, _), Bool(b, _)) => a == b,
+            (Nodata(_), Nodata(_)) | (None(_), None(_)) => true,
+            (Int(a, _), Float(b, _)) | (Float(b, _), Int(a, _)) => int_eq_float(*a, *b),
             // A boxed scalar compares as the scalar it boxes, so boxing is
             // invisible here.
             // Destructured in the guard rather than after it, so there is no
@@ -889,8 +1257,8 @@ impl Hash for BundValue {
     fn hash<H: Hasher>(&self, state: &mut H) {
         use BundValue::*;
         match self {
-            Int(i) => i.hash(state),
-            Float(f) => {
+            Int(i, _) => i.hash(state),
+            Float(f, _) => {
                 if f.fract() == 0.0 && f.is_finite() && *f >= -(2f64.powi(63)) && *f < 2f64.powi(63)
                 {
                     (*f as i64).hash(state)
@@ -898,9 +1266,9 @@ impl Hash for BundValue {
                     float_key(*f).hash(state)
                 }
             }
-            Bool(b) => b.hash(state),
-            Nodata => 0x4E4F_4441u64.hash(state), // "NODA"
-            None => 0u64.hash(state),
+            Bool(b, _) => b.hash(state),
+            Nodata(_) => 0x4E4F_4441u64.hash(state), // "NODA"
+            None(_) => 0u64.hash(state),
             Heap(h) => match &*h.payload {
                 Payload::Scalar(inner) => inner.hash(state),
                 // Mirrors the content comparison above; without this a
@@ -936,7 +1304,7 @@ mod tests {
     #[test]
     fn clone_is_equal_and_dup_is_not_for_identity_compared_kinds() {
         for v in [
-            BundValue::list(vec![BundValue::Int(1)]),
+            BundValue::list(vec![BundValue::int(1)]),
             BundValue::map(BTreeMap::new()),
         ] {
             assert_eq!(v, v.clone(), "clone-equal failed for dt {}", v.dt());
@@ -962,15 +1330,15 @@ mod tests {
     /// slot — a boxed scalar has one.
     #[test]
     fn scalars_compare_by_content_boxed_or_not() {
-        assert_eq!(BundValue::Bool(true), BundValue::Bool(true));
+        assert_eq!(BundValue::boolean(true), BundValue::boolean(true));
         assert_eq!(
-            BundValue::Bool(true).promote(),
-            BundValue::Bool(true),
+            BundValue::boolean(true).promote(),
+            BundValue::boolean(true),
             "boxing must not change equality"
         );
         assert_eq!(
-            BundValue::Bool(true).promote(),
-            BundValue::Bool(true).promote()
+            BundValue::boolean(true).promote(),
+            BundValue::boolean(true).promote()
         );
     }
 
@@ -979,9 +1347,9 @@ mod tests {
     #[test]
     fn int_float_equality_is_exact_in_both_orientations() {
         let (i, f_eq, f_ne) = (
-            BundValue::Int(42),
-            BundValue::Float(42.0),
-            BundValue::Float(42.5),
+            BundValue::int(42),
+            BundValue::float(42.0),
+            BundValue::float(42.5),
         );
         assert_eq!(i, f_eq);
         assert_eq!(f_eq, i);
@@ -989,8 +1357,8 @@ mod tests {
         assert_ne!(f_ne, i);
 
         // 2^53 + 1 is not representable as f64; widening would say equal.
-        let big = BundValue::Int(9_007_199_254_740_993);
-        let near = BundValue::Float(9_007_199_254_740_992.0);
+        let big = BundValue::int(9_007_199_254_740_993);
+        let near = BundValue::float(9_007_199_254_740_992.0);
         assert_ne!(big, near);
         assert_ne!(near, big);
     }
@@ -998,9 +1366,9 @@ mod tests {
     /// Transitivity, which is what rules truncation out.
     #[test]
     fn equality_is_transitive_across_int_and_float() {
-        let a = BundValue::Int(42);
-        let b = BundValue::Float(42.5);
-        let c = BundValue::Float(42.9);
+        let a = BundValue::int(42);
+        let b = BundValue::float(42.5);
+        let c = BundValue::float(42.9);
         // Truncation would make a == b and a == c while b != c.
         assert!(!(a == b && a == c && b != c));
     }
@@ -1009,17 +1377,17 @@ mod tests {
     /// equality is total while the word's is not.
     #[test]
     fn nan_is_reflexive_as_a_key_and_not_as_a_word() {
-        let nan = BundValue::Float(f64::NAN);
+        let nan = BundValue::float(f64::NAN);
         assert_eq!(nan, nan.clone(), "Eq must be reflexive for HashMap");
         assert!(!nan.eq_ieee(&nan), "the word == keeps IEEE semantics");
     }
 
     #[test]
     fn negative_zero_and_zero_are_one_key() {
-        assert_eq!(BundValue::Float(-0.0), BundValue::Float(0.0));
+        assert_eq!(BundValue::float(-0.0), BundValue::float(0.0));
         assert_eq!(
-            hash_of(&BundValue::Float(-0.0)),
-            hash_of(&BundValue::Float(0.0))
+            hash_of(&BundValue::float(-0.0)),
+            hash_of(&BundValue::float(0.0))
         );
     }
 
@@ -1027,12 +1395,12 @@ mod tests {
     #[test]
     fn equal_values_hash_alike() {
         assert_eq!(
-            hash_of(&BundValue::Int(42)),
-            hash_of(&BundValue::Float(42.0))
+            hash_of(&BundValue::int(42)),
+            hash_of(&BundValue::float(42.0))
         );
         assert_eq!(
-            hash_of(&BundValue::Bool(true)),
-            hash_of(&BundValue::Bool(true).promote())
+            hash_of(&BundValue::boolean(true)),
+            hash_of(&BundValue::boolean(true).promote())
         );
     }
 
@@ -1046,10 +1414,10 @@ mod tests {
     #[test]
     fn a_valuemap_finds_a_freshly_built_equal_key() {
         let mut m = HashMap::new();
-        m.insert(BundValue::str("k"), BundValue::Int(42));
-        assert_eq!(m.get(&BundValue::str("k")), Some(&BundValue::Int(42)));
-        m.insert(BundValue::Int(7), BundValue::Int(1));
-        assert_eq!(m.get(&BundValue::Int(7)), Some(&BundValue::Int(1)));
+        m.insert(BundValue::str("k"), BundValue::int(42));
+        assert_eq!(m.get(&BundValue::str("k")), Some(&BundValue::int(42)));
+        m.insert(BundValue::int(7), BundValue::int(1));
+        assert_eq!(m.get(&BundValue::int(7)), Some(&BundValue::int(1)));
     }
 
     /// D30's stated limit: composite keys stay identity-keyed, because `eq`
@@ -1057,8 +1425,8 @@ mod tests {
     #[test]
     fn a_valuemap_does_not_find_a_freshly_built_composite_key() {
         let mut m = HashMap::new();
-        m.insert(BundValue::list(vec![BundValue::Int(1)]), BundValue::Int(9));
-        assert_eq!(m.get(&BundValue::list(vec![BundValue::Int(1)])), None);
+        m.insert(BundValue::list(vec![BundValue::int(1)]), BundValue::int(9));
+        assert_eq!(m.get(&BundValue::list(vec![BundValue::int(1)])), None);
     }
 
     /// Where content comparison and D13's contract meet, content wins — and
@@ -1078,7 +1446,7 @@ mod tests {
     /// be written back or the next observation mints again.
     #[test]
     fn observing_a_scalar_identity_promotes_and_returns_the_box() {
-        let v = BundValue::Int(1);
+        let v = BundValue::int(1);
         let (first, promoted) = v.identity();
         let promoted = promoted.expect("a scalar must promote");
         assert!(promoted.is_boxed());
@@ -1123,9 +1491,9 @@ mod tests {
     /// `Val::Null` carries two tags, so Bund2 has two arms.
     #[test]
     fn nodata_and_none_are_distinct() {
-        assert_ne!(BundValue::Nodata, BundValue::None);
-        assert_eq!(BundValue::Nodata.dt(), NODATA);
-        assert_eq!(BundValue::None.dt(), NONE);
+        assert_ne!(BundValue::nodata(), BundValue::none());
+        assert_eq!(BundValue::nodata().dt(), NODATA);
+        assert_eq!(BundValue::none().dt(), NONE);
     }
 
     fn hash_of(v: &BundValue) -> u64 {
@@ -1232,16 +1600,16 @@ impl BundValue {
     fn render_payload(&self, out: &mut String, norm: bool) {
         use std::fmt::Write;
         match self {
-            BundValue::Int(i) => {
+            BundValue::Int(i, _) => {
                 let _ = write!(out, "I64({i})");
             }
-            BundValue::Float(f) => {
+            BundValue::Float(f, _) => {
                 let _ = write!(out, "F64({f:?})");
             }
-            BundValue::Bool(b) => {
+            BundValue::Bool(b, _) => {
                 let _ = write!(out, "Bool({b})");
             }
-            BundValue::Nodata | BundValue::None => out.push_str("Null"),
+            BundValue::Nodata(_) | BundValue::None(_) => out.push_str("Null"),
             BundValue::Heap(h) => match &*h.payload {
                 Payload::Scalar(inner) => inner.render_payload(out, norm),
                 Payload::Exit => out.push_str("Exit"),
@@ -1267,7 +1635,18 @@ impl BundValue {
                     out.push_str("])");
                 }
                 Payload::Json(j) => {
-                    let _ = write!(out, "Json({j})");
+                    // **`Debug`, not `Display`.** The oracle derives `Debug` on
+                    // `Val` (`reference/rust_dynamic/src/types.rs:65`) whose arm
+                    // is `Json(serde_json::Value)` (`:85`), so it prints
+                    // serde_json's own `Debug` — `Null`, not `null`. `Display`
+                    // would serialise the JSON instead, which agrees with the
+                    // oracle on no value at all.
+                    //
+                    // This is only stable because both sides resolve the same
+                    // serde_json (1.0.151); its `Debug` is hand-written, not
+                    // derived, so a version skew could move the rendering
+                    // without moving the payload.
+                    let _ = write!(out, "Json({j:?})");
                 }
                 p @ Payload::Lambda(v) => {
                     let _ = write!(out, "{}([", p.val_name());
@@ -1382,11 +1761,32 @@ impl BundValue {
         }
     }
 
-    pub fn tags(&self) -> &BTreeMap<String, String> {
-        static EMPTY: std::sync::OnceLock<BTreeMap<String, String>> = std::sync::OnceLock::new();
+    /// This value's tags. **D41 rule 3.**
+    ///
+    /// A tagged scalar has no map, so its `"stack"` entry is synthesised from
+    /// the inline symbol. Borrowed for a heap value, owned for a scalar — the
+    /// render path and the wire format see one shape either way, which is what
+    /// keeps the 39 tag-bearing goldens identical.
+    pub fn tags(&self) -> std::borrow::Cow<'_, Tags> {
+        use std::borrow::Cow;
+        if let Some(name) = stack_name(self.stack_sym()) {
+            let mut m = Tags::new();
+            m.insert(stack_tag_key(), name);
+            return Cow::Owned(m);
+        }
         match self {
-            BundValue::Heap(h) => &h.tags,
-            _ => EMPTY.get_or_init(BTreeMap::new),
+            BundValue::Heap(h) => Cow::Borrowed(&h.tags),
+            // A scalar carries no tags. The empty map is thread-local and
+            // leaked once rather than a `OnceLock`, because `Tags` holds `Rc`
+            // and a `static` would require `Sync` — which `BundValue`
+            // deliberately is not. One empty map per thread, for the life of
+            // the thread.
+            _ => {
+                thread_local! {
+                    static EMPTY: &'static Tags = Box::leak(Box::new(Tags::new()));
+                }
+                Cow::Borrowed(EMPTY.with(|e| *e))
+            }
         }
     }
 }
@@ -1407,7 +1807,7 @@ mod render_tests {
             unreachable!()
         };
         let mut tags = h.tags.clone();
-        tags.insert("stack".into(), "main".into());
+        tags.insert(Rc::from("stack"), Rc::from("main"));
         BundValue::Heap(Rc::new(HeapValue {
             identity: Cell::new(h.identity.get()),
             stamp: Cell::new(h.stamp.get()),
@@ -1424,15 +1824,15 @@ mod render_tests {
     fn scalars_render_as_the_goldens_hold_them() {
         for (v, want) in [
             (
-                BundValue::Int(42),
+                BundValue::int(42),
                 r#"Value { id: "<id>", stamp: <stamp>, dt: 2, q: 100.0, data: I64(42), attr: [], curr: -1, tags: {"stack": "main"} }"#,
             ),
             (
-                BundValue::Bool(true),
+                BundValue::boolean(true),
                 r#"Value { id: "<id>", stamp: <stamp>, dt: 1, q: 100.0, data: Bool(true), attr: [], curr: -1, tags: {"stack": "main"} }"#,
             ),
             (
-                BundValue::Nodata,
+                BundValue::nodata(),
                 r#"Value { id: "<id>", stamp: <stamp>, dt: 97, q: 100.0, data: Null, attr: [], curr: -1, tags: {"stack": "main"} }"#,
             ),
         ] {
@@ -1525,12 +1925,12 @@ mod render_tests {
     /// wrong for an error report.
     #[test]
     fn a_summary_is_the_value_not_the_header() {
-        assert_eq!(BundValue::Int(42).summary(80), "42");
+        assert_eq!(BundValue::int(42).summary(80), "42");
         assert_eq!(BundValue::str("hi").summary(80), "\"hi\"");
-        assert_eq!(BundValue::Bool(true).summary(80), "true");
-        assert_eq!(BundValue::Nodata.summary(80), "nodata");
+        assert_eq!(BundValue::boolean(true).summary(80), "true");
+        assert_eq!(BundValue::nodata().summary(80), "nodata");
         // The same value's raw rendering is an order of magnitude longer.
-        assert!(BundValue::Int(42).render(false).len() > 100);
+        assert!(BundValue::int(42).render(false).len() > 100);
     }
 
     /// A `Str` payload means different things under different tags, and a
@@ -1548,11 +1948,11 @@ mod render_tests {
     /// is the useful fact and the 900 elements are not.
     #[test]
     fn a_container_leads_with_its_size() {
-        let big = BundValue::list((0..900).map(BundValue::Int).collect());
+        let big = BundValue::list((0..900).map(BundValue::int).collect());
         let s = big.summary(80);
         assert!(s.starts_with("list/900"), "{s}");
         assert!(s.contains('…'), "elided: {s}");
-        assert_eq!(BundValue::lambda(vec![BundValue::Int(1)]).summary(80), "lambda/1");
+        assert_eq!(BundValue::lambda(vec![BundValue::int(1)]).summary(80), "lambda/1");
     }
 
     /// **The width is a hard bound.** A row that can overflow a terminal is
@@ -1562,7 +1962,7 @@ mod render_tests {
     fn a_summary_never_exceeds_its_width() {
         let nested = BundValue::list(vec![
             BundValue::str("x".repeat(500)),
-            BundValue::list((0..50).map(BundValue::Int).collect()),
+            BundValue::list((0..50).map(BundValue::int).collect()),
         ]);
         for w in [8usize, 20, 40, 80] {
             let s = nested.summary(w);
@@ -1575,7 +1975,7 @@ mod render_tests {
     /// stack is boxed, so without this every row would read `map/0`.
     #[test]
     fn a_boxed_scalar_summarises_as_its_value() {
-        let boxed = BundValue::Int(7).promote();
+        let boxed = BundValue::int(7).promote();
         assert_eq!(boxed.summary(80), "7");
     }
 
@@ -1583,9 +1983,9 @@ mod render_tests {
     #[test]
     fn a_valuemap_renders_in_a_deterministic_order() {
         let mut m = HashMap::new();
-        m.insert(BundValue::Int(2), BundValue::Int(20));
-        m.insert(BundValue::Int(1), BundValue::Int(10));
-        m.insert(BundValue::Int(3), BundValue::Int(30));
+        m.insert(BundValue::int(2), BundValue::int(20));
+        m.insert(BundValue::int(1), BundValue::int(10));
+        m.insert(BundValue::int(3), BundValue::int(30));
         let once = BundValue::valuemap(m.clone()).render(true);
         let twice = BundValue::valuemap(m).render(true);
         assert_eq!(once, twice);
@@ -1652,16 +2052,59 @@ impl BundValue {
     /// governing both the `Rc` and the identity slot, and an unminted slot
     /// copied as unminted would let the two halves mint different ids and
     /// flip `A == A.clone()` from true to false.
-    pub fn with_tag(&self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        let h = self.clone().into_heap();
-        // Materialise before the split, whether or not the split happens: the
-        // rule must not depend on a refcount, or the identity a value ends up
-        // with would depend on how many clones existed at the time.
-        let _ = h.identity();
-        let mut next = (*h).clone();
-        next.tags.insert(key.into(), value.into());
-        BundValue::Heap(Rc::new(next))
+    /// Set one tag, splitting only if the header is actually shared — **D13,
+    /// as written**.
+    ///
+    /// D13's rule is that *a CoW split materialises the identity before it
+    /// copies*, because two halves of a split would otherwise mint
+    /// independently and `A == A.clone()` would silently become false. The rule
+    /// is about a split. A uniquely owned header has no second half, so there
+    /// is nothing to protect and nothing to mint.
+    ///
+    /// **This used to take `&self` and clone unconditionally**, which made the
+    /// fast path unreachable by construction: `self.clone().into_heap()` bumps
+    /// the count before asking whether anyone else holds it, so the answer was
+    /// always "shared". Taking `self` lets a freshly boxed scalar — every
+    /// literal an arithmetic word touches — take the in-place branch.
+    ///
+    /// The earlier comment argued the mint must not depend on a refcount, "or
+    /// the identity a value ends up with would depend on how many clones
+    /// existed at the time". That is true of the concrete number and false of
+    /// every relation built on it: ids are opaque and unstable across runs by
+    /// construction (the reference mints a nanoid), no golden pins one — F14
+    /// normalises `id` — and the property D13 actually names, that two halves
+    /// of a split agree, is preserved exactly because the mint happens on the
+    /// branch where a split occurs.
+    ///
+    /// This is the hottest path in the interpreter: `Vm::push` tags every value
+    /// it stores (`crates/bund2-interp/src/lib.rs`).
+    pub fn with_tag(self, key: Rc<str>, value: Rc<str>) -> Self {
+        let mut h = self.into_heap();
+        match Rc::get_mut(&mut h) {
+            Some(only) => {
+                only.tags.insert(key, value);
+            }
+            None => {
+                // A real split: materialise first, so both halves carry one id.
+                let _ = h.identity();
+                let mut next = (*h).clone();
+                next.tags.insert(key, value);
+                h = Rc::new(next);
+            }
+        }
+        BundValue::Heap(h)
     }
+}
+
+/// Wall-clock nanoseconds, matching `timestamp_ns`
+/// (`reference/rust_dynamic/src/value.rs:11-13`). Used by [`Metric::new`] and
+/// by nothing else — a `Value`'s own stamp is milliseconds.
+fn now_ns() -> u128 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
 }
 
 /// Wall-clock milliseconds, matching `timestamp_ms`
@@ -1683,11 +2126,11 @@ mod mutation_tests {
     /// filed it under the first.
     #[test]
     fn rebuild_empties_the_header_and_attr_add_preserves_it() {
-        let tagged = BundValue::Int(1).with_tag("stack", "main");
-        let with_attr = tagged.attr_added(BundValue::Int(2));
+        let tagged = BundValue::int(1).with_tag(Rc::from("stack"), Rc::from("main"));
+        let with_attr = tagged.attr_added(BundValue::int(2));
         assert_eq!(with_attr.attr().len(), 1);
         assert_eq!(
-            with_attr.tags().get("stack").map(String::as_str),
+            with_attr.tags().get("stack").map(|s| &**s),
             Some("main"),
             "attr_add must preserve tags"
         );
@@ -1701,9 +2144,9 @@ mod mutation_tests {
     /// The oracle case: `1 2 attribute 3 attribute` renders two entries.
     #[test]
     fn attr_add_accumulates() {
-        let v = BundValue::Int(1)
-            .attr_added(BundValue::Int(2))
-            .attr_added(BundValue::Int(3));
+        let v = BundValue::int(1)
+            .attr_added(BundValue::int(2))
+            .attr_added(BundValue::int(3));
         assert_eq!(v.attr().len(), 2);
     }
 
@@ -1712,8 +2155,8 @@ mod mutation_tests {
     fn attr_add_mints_and_set_tag_does_not() {
         let a = BundValue::list(vec![]).promote();
         let (before, _) = a.identity();
-        assert_ne!(a.attr_added(BundValue::Int(1)).identity().0, before);
-        assert_eq!(a.with_tag("k", "v").identity().0, before);
+        assert_ne!(a.attr_added(BundValue::int(1)).identity().0, before);
+        assert_eq!(a.with_tag(Rc::from("k"), Rc::from("v")).identity().0, before);
     }
 
     /// D13's condition: the split must not let two halves mint separately.
@@ -1724,7 +2167,7 @@ mod mutation_tests {
         let a = BundValue::list(vec![]);
         let b = a.clone();
         assert_eq!(a, b, "clone-equal before the split");
-        let split = b.with_tag("stack", "main");
+        let split = b.with_tag(Rc::from("stack"), Rc::from("main"));
         assert_eq!(
             a.identity().0,
             split.identity().0,
@@ -1742,7 +2185,7 @@ mod arm_tests {
     #[test]
     fn one_payload_serves_several_tags() {
         assert_eq!(
-            BundValue::pair(BundValue::Int(1), BundValue::Int(2)).dt(),
+            BundValue::pair(BundValue::int(1), BundValue::int(2)).dt(),
             PAIR
         );
         assert_eq!(BundValue::complex_float(1.0, 2.0).dt(), CFLOAT);
@@ -1757,8 +2200,8 @@ mod arm_tests {
     /// behaviour and the reason `dt` cannot be derived from the payload.
     #[test]
     fn pair_and_list_differ_only_by_tag() {
-        let p = BundValue::pair(BundValue::Int(1), BundValue::Int(2));
-        let l = BundValue::list(vec![BundValue::Int(1), BundValue::Int(2)]);
+        let p = BundValue::pair(BundValue::int(1), BundValue::int(2));
+        let l = BundValue::list(vec![BundValue::int(1), BundValue::int(2)]);
         assert_ne!(p.dt(), l.dt());
         let (rp, rl) = (p.render(true), l.render(true));
         assert_eq!(
@@ -1797,7 +2240,7 @@ mod arm_tests {
     /// A scalar has nowhere to keep a sample, so observing promotes.
     #[test]
     fn observing_a_scalar_stamp_promotes_it() {
-        let (_, promoted) = BundValue::Int(1).timestamp();
+        let (_, promoted) = BundValue::int(1).timestamp();
         assert!(promoted.expect("must promote").is_boxed());
     }
 }
@@ -1806,32 +2249,11 @@ mod arm_tests {
 mod q_tests {
     use super::*;
 
-    /// D32: the averaging is the feature in embryo, so it is preserved rather
-    /// than the field being carried inertly.
-    #[test]
-    fn q_averages_and_100_is_a_fixpoint() {
-        let full = BundValue::Int(1);
-        assert_eq!(full.q(), 100.0);
-        assert_eq!(
-            BundValue::combine_q(&full, &full),
-            100.0,
-            "100.0 is a fixpoint"
-        );
-
-        let none = BundValue::None.with_q(0.0);
-        assert_eq!(BundValue::combine_q(&full, &none), 50.0);
-        assert_eq!(
-            BundValue::combine_q(&none, &none),
-            0.0,
-            "and 0.0 is a fixpoint too"
-        );
-    }
-
     /// The case Q18 closed on, and the one `cargo xtask render` found
     /// unrepresentable: a value must be able to hold a `q` other than 100.0.
     #[test]
     fn q_can_hold_the_json_null_value() {
-        let v = BundValue::None.with_q(0.0);
+        let v = BundValue::none().with_q(0.0);
         assert_eq!(v.q(), 0.0);
         assert!(v.render(true).contains("q: 0.0"));
     }

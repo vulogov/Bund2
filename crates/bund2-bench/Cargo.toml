@@ -1,0 +1,58 @@
+[package]
+name = "bund2-bench"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# No library and no binary: this crate exists only to carry `benches/`.
+# It is a crate of its own rather than a `benches/` directory inside
+# `bund2-interp` because the thing worth measuring spans three crates —
+# parse (`bund2-syntax`), registration (`bund2-stdlib`) and evaluation
+# (`bund2-interp`) — and `bund2-stdlib` already dev-depends on
+# `bund2-interp`. Hanging the benches off either one would measure a slice
+# of the pipeline and invite a dev-dependency knot for no gain.
+[lib]
+path = "src/lib.rs"
+# The lib is a docstring, not code. Without these, `cargo bench` runs the
+# default libtest harness first and it rejects Criterion's flags.
+test = false
+bench = false
+
+[features]
+# **Inert today, and deliberately present.** RFC-0005 criterion 7 is an A/B
+# across this feature — `cargo bench -p bund2-bench --features jit -- --baseline
+# off` — and the command could not run at all while the feature did not exist,
+# which made the criterion unrunnable rather than merely unmet. It forwards to
+# the tier `bund2-runtime` gates; there is no tier behind it yet, so with the
+# feature on the benchmarks measure the same thing and the A/B reads zero.
+jit = ["dep:bund2-runtime", "bund2-runtime/jit"]
+aot = ["dep:bund2-runtime", "bund2-runtime/aot"]
+
+# A regular dependency, not a dev one: Cargo forbids optional
+# dev-dependencies, and the feature has to be optional for the A/B to mean
+# anything.
+[dependencies]
+bund2-runtime = { workspace = true, optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+bund2-value.workspace = true
+bund2-api.workspace = true
+bund2-syntax.workspace = true
+bund2-stdlib.workspace = true
+bund2-interp.workspace = true
+
+[[bench]]
+name = "interpret"
+harness = false
+
+[[bench]]
+name = "boxing"
+harness = false
+
+[[bench]]
+name = "fragment"
+harness = false
+
+[lints]
+workspace = true

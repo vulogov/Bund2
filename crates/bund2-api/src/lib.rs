@@ -81,6 +81,14 @@ pub trait Vm {
     fn pull(&mut self) -> Option<BundValue>;
     fn depth(&self) -> usize;
     fn peek(&self) -> Option<BundValue>;
+    /// The value `n` places below the top; `n == 0` is [`Vm::peek`].
+    ///
+    /// A fragment guard asks about the top few values and nothing else
+    /// (RFC-0005 §S5). Written with [`Vm::snapshot`] instead, that question
+    /// clones the whole stack to read two of its values — `O(depth)`
+    /// allocation on the path whose entire justification is being cheaper than
+    /// a call.
+    fn peek_at(&self, n: usize) -> Option<BundValue>;
     fn clear(&mut self);
     /// The stack's contents **bottom-first**, without disturbing it.
     ///
@@ -106,6 +114,8 @@ pub trait Vm {
     /// stack-of-stacks rather than reassigning.
     fn to_stack(&mut self, name: &str);
     fn stack_exists(&self, name: &str) -> bool;
+    /// Create a stack with a bound on its depth, if it does not exist.
+    fn ensure_stack_with_capacity(&mut self, name: &str, cap: usize);
     fn ensure_stack(&mut self, name: &str);
     fn depth_of(&self, name: &str) -> usize;
     fn push_to(&mut self, name: &str, v: BundValue);
@@ -119,6 +129,13 @@ pub trait Vm {
     // --- the workbench -----------------------------------------------------
     fn push_workbench(&mut self, v: BundValue);
     fn pull_workbench(&mut self) -> Option<BundValue>;
+    /// How deep the workbench is.
+    ///
+    /// Every `.`-suffixed word guards on this before pulling
+    /// (`reference/Bund/src/stdlib/functions/string/prefix_suffix.rs:23-26`),
+    /// and `snapshot_workbench().is_empty()` would clone the whole thing to
+    /// answer a question about its length.
+    fn workbench_depth(&self) -> usize;
 
     // --- re-entering evaluation --------------------------------------------
     /// Apply one value, as `VM::apply` does
@@ -135,24 +152,33 @@ pub trait Vm {
     /// a direct call and the recursion is real.
     fn apply(&mut self, v: BundValue) -> Result<(), Error>;
 
-    /// Evaluate a lambda body **now**, for a native that inspects the stack
-    /// afterwards (`reference/rust_multistackvm/src/multistackvm_lambda_eval.rs:8-32`).
+    /// Evaluate the body a LAMBDA value carries **now**, for a native that
+    /// inspects the stack afterwards
+    /// (`reference/rust_multistackvm/src/multistackvm_lambda_eval.rs:8-32`).
+    ///
+    /// **The value, not its items — D42.** RFC-0005's compiled cache and
+    /// promotion counter key on the body's `Rc` (D35), and a copied slice has
+    /// none: the `eval_body(&[BundValue])` this replaces discarded the key at
+    /// every entry, and `times` rebuilt the copy on every call. A LIST value is
+    /// accepted as a body too. Anything else is an internal error, since every
+    /// caller has already checked the tag.
     ///
     /// Costs one Rust frame per *native*, not per Bund call. Prefer
-    /// [`Vm::tail_call`] wherever nothing runs after the body.
-    fn eval_body(&mut self, body: &[BundValue]) -> Result<(), Error>;
+    /// [`Vm::tail_lambda`] wherever nothing runs after the body.
+    fn eval_lambda(&mut self, lambda: &BundValue) -> Result<(), Error>;
 
-    /// Run `body` **after this native returns** — RFC-0003 §S4a's request.
+    /// Run the body `lambda` carries **after this native returns** — RFC-0003
+    /// §S4a's request. The value is kept, not copied, for the reason
+    /// [`Vm::eval_lambda`] gives (D42).
     ///
-    /// For tail positions, which is most of them: a lambda call, `if`'s branch,
-    /// a `through` conditional's body, `execute` on a LAMBDA. The loop pushes a
-    /// frame, so nothing recurses and Bund call depth costs heap rather than
-    /// Rust stack.
+    /// For tail positions, which is most of them: a lambda call, `if`'s
+    /// branch, `execute` on a LAMBDA. The loop pushes a frame, so nothing
+    /// recurses and Bund call depth costs heap rather than Rust stack.
     ///
     /// A native must not touch the stack after calling this expecting the
     /// body's effect — the body has not run yet. That is the distinction from
-    /// [`Vm::eval_body`], and the reason both exist.
-    fn tail_call(&mut self, body: Vec<BundValue>);
+    /// [`Vm::eval_lambda`], and the reason both exist.
+    fn tail_lambda(&mut self, lambda: BundValue);
 
     /// Run `body` on `stack`, returning to the current stack **however the
     /// body leaves** — RFC-0003 §S4's exit action.
@@ -171,6 +197,10 @@ pub trait Vm {
     fn register_lambda(&mut self, name: &str, body: BundValue);
     /// Unbind a lambda, leaving any native under the same name standing (F32).
     fn unregister_lambda(&mut self, name: &str);
+    /// Bind `alias` to `target`, and say whether that closed a cycle.
+    fn register_alias(&mut self, alias: &str, target: &str) -> bool;
+    /// Unbind an alias.
+    fn unregister_alias(&mut self, alias: &str);
     /// Is this name bound to a lambda?
     fn is_lambda(&self, name: &str) -> bool;
     /// Is this name bound to a native?
@@ -189,6 +219,13 @@ pub trait Vm {
     fn unregister_class(&mut self, name: &str);
     fn method(&self, name: &str) -> Option<NativeFn>;
     fn is_method(&self, name: &str) -> bool;
+
+    // --- variables, the sixth namespace ------------------------------------
+    /// A word's declared effect, or `None` if it has none.
+    fn effect_of(&self, name: &str) -> Option<StackEffect>;
+    fn register_var(&mut self, name: &str, value: BundValue);
+    fn var(&self, name: &str) -> Option<BundValue>;
+    fn unregister_var(&mut self, name: &str);
 
     /// Emit a diagnostic.
     ///
@@ -261,6 +298,39 @@ pub enum WordKind {
 pub struct StackEffect {
     pub consumes: u8,
     pub produces: u8,
+    /// **The word's effect is not this pair.** RFC-0004 §S1's `Opaque` arm,
+    /// carried as a flag rather than a third variant so the 30-odd existing
+    /// `eff(a, b)` sites keep compiling.
+    ///
+    /// Set for a word whose effect depends on what it is handed rather than on
+    /// how many operands it takes: `!` dispatches on eight tags, `apply` runs
+    /// whatever it is given, the `*` folds consume the whole stack (D12), and
+    /// `graph!` pushes back what is not a LIST. `bund2 check` stops tracking
+    /// depth at one of these rather than guessing, and **says how many it
+    /// stopped at** — criterion 5, because a checker that reports "no problems"
+    /// without saying it skipped every `!` is worse than none.
+    pub opaque: bool,
+}
+
+impl StackEffect {
+    /// A word that takes `consumes` and leaves `produces`.
+    pub const fn fixed(consumes: u8, produces: u8) -> Self {
+        Self {
+            consumes,
+            produces,
+            opaque: false,
+        }
+    }
+
+    /// A word whose effect cannot be stated as a pair. `consumes` is still a
+    /// floor — the depth it needs before it can run at all.
+    pub const fn opaque(floor: u8) -> Self {
+        Self {
+            consumes: floor,
+            produces: 0,
+            opaque: true,
+        }
+    }
 }
 
 /// A native binding.
@@ -340,7 +410,7 @@ pub enum Resolved {
 /// what crosses every boundary — the `Debug` rendering the goldens capture,
 /// and the world file, where `save.lambdas` bincodes whole values and a
 /// per-run index would be meaningless on reload.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Interner {
     names: Vec<String>,
     index: HashMap<String, Symbol>,
@@ -349,6 +419,11 @@ pub struct Interner {
 impl Interner {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Every interned name, in symbol order.
+    pub fn names(&self) -> &[String] {
+        &self.names
     }
 
     /// Intern a name, creating a symbol if it is new.
@@ -412,7 +487,7 @@ impl Interner {
 }
 
 /// The word table.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Registry {
     pub interner: Interner,
     slots: Vec<Slot>,
@@ -436,6 +511,15 @@ pub struct Registry {
     /// `register` files a class here, not among the words, which is why
     /// `:Probe register` then `Probe` reports `Inline Probe not registered`.
     classes: std::collections::BTreeMap<String, BundValue>,
+    /// **The variable table** — a sixth namespace
+    /// (`reference/rust_multistackvm/src/multistackvm_vars.rs:14-70`).
+    ///
+    /// Separate from the word table, and **not consulted by name resolution**:
+    /// the only reader is the `var?` word
+    /// (`reference/rust_multistackvm/src/stdlib/vars/resolve.rs:12`). So
+    /// registering a var called `dup` does not shadow `dup`, and a bare `x`
+    /// after `:x 1 var` is still an unregistered word.
+    vars: std::collections::BTreeMap<String, BundValue>,
     /// **The method table** — the fifth name-keyed table
     /// (`reference/rust_multistackvm/src/multistackvm_methods.rs:8`). A method
     /// is reachable only through a class slot; nothing dispatches it by name.
@@ -488,6 +572,124 @@ impl Registry {
 
     pub fn class(&self, name: &str) -> Option<BundValue> {
         self.classes.get(name).cloned()
+    }
+
+    /// Every name bound to a lambda, for `bund2 infer`.
+    pub fn lambda_names(&self) -> Vec<String> {
+        self.interner
+            .names()
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| {
+                self.slots
+                    .get(*i)
+                    .is_some_and(|s| s.lambda.is_some() && s.native.is_none())
+            })
+            .map(|(_, n)| n.clone())
+            .collect()
+    }
+
+    /// The body a name is bound to, following aliases.
+    ///
+    /// What `bund2 check` needs to infer a Bund word's effect rather than
+    /// abandon at it (RFC-0004 §S3).
+    /// The LAMBDA value bound to `name`, following aliases — the value itself,
+    /// so its `Rc` survives to wherever it is run (D42). [`Registry::lambda_body`]
+    /// copies the items, which suits a reader but not an evaluator.
+    pub fn lambda_value(&self, name: &str) -> Option<BundValue> {
+        let &s = self.interner.index.get(name)?;
+        let t = self.follow(s);
+        self.slots.get(t.index()).and_then(|slot| slot.lambda.clone())
+    }
+
+    pub fn lambda_body(&self, name: &str) -> Option<Vec<BundValue>> {
+        let &s = self.interner.index.get(name)?;
+        let t = self.follow(s);
+        self.slots
+            .get(t.index())
+            .and_then(|slot| slot.lambda.as_ref())
+            .and_then(|v| v.as_lambda().map(<[BundValue]>::to_vec))
+    }
+
+    /// The declared effect of one name, following aliases to a fixed point.
+    ///
+    /// `None` when the name resolves to nothing, or to something with no
+    /// declared effect — a lambda, a class, a method. `bund2 check` treats
+    /// that as "cannot tell" rather than "takes nothing", because D16 lets a
+    /// name be bound at run time.
+    pub fn effect_of(&self, name: &str) -> Option<StackEffect> {
+        let &s = self.interner.index.get(name)?;
+        let t = self.follow(s);
+        self.slots
+            .get(t.index())
+            .and_then(|slot| slot.native.or(slot.command).map(|n| n.effect))
+    }
+
+    /// Every native's declared effect, by name, sorted.
+    ///
+    /// Only slots carrying a `native`: an alias has no effect of its own and a
+    /// lambda's is inferred rather than declared, so neither has a number to
+    /// cross-check. This is the left-hand side of `cargo xtask effects`.
+    pub fn declared_effects(&self) -> Vec<(String, StackEffect)> {
+        let mut out: Vec<(String, StackEffect)> = self
+            .interner
+            .names()
+            .iter()
+            .enumerate()
+            .filter_map(|(i, n)| {
+                self.slots
+                    .get(i)
+                    .and_then(|s| s.native.as_ref())
+                    .map(|nat| (n.clone(), nat.effect))
+            })
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
+    /// Every name that resolves to something callable, sorted.
+    ///
+    /// **What "callable" means here decides a health number**, so it is
+    /// spelled out: a name counts if its slot carries a `native`, a `command`,
+    /// a `lambda` or an `alias`. A slot carrying only a `class` or a `method`
+    /// does not — `register` files a class in its own table and a method is
+    /// reachable only through a class slot, so neither is a word a program can
+    /// call by name.
+    ///
+    /// This is what `cargo xtask coverage` joins against the reference's
+    /// registry to answer how much of the language exists, so it must mean
+    /// "a program can call this", not "the interner has seen this string".
+    pub fn word_names(&self) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .interner
+            .names()
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| {
+                self.slots.get(*i).is_some_and(|s| {
+                    s.native.is_some()
+                        || s.command.is_some()
+                        || s.lambda.is_some()
+                        || s.alias.is_some()
+                })
+            })
+            .map(|(_, n)| n.clone())
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    pub fn register_var(&mut self, name: &str, value: BundValue) {
+        self.vars.insert(name.to_string(), value);
+    }
+
+    pub fn var(&self, name: &str) -> Option<BundValue> {
+        self.vars.get(name).cloned()
+    }
+
+    pub fn unregister_var(&mut self, name: &str) {
+        self.vars.remove(name);
     }
 
     pub fn is_class(&self, name: &str) -> bool {
@@ -571,6 +773,55 @@ impl Registry {
         slot.alias = Some(t);
         slot.touch();
         a
+    }
+
+    /// Unbind an alias, leaving whatever else the slot holds.
+    pub fn unregister_alias(&mut self, alias: &str) {
+        let Some(&a) = self.interner.index.get(alias) else {
+            return;
+        };
+        let slot = self.slot_mut(a);
+        slot.alias = None;
+        slot.touch();
+    }
+
+    /// Would resolving this name walk in a circle?
+    ///
+    /// **Asked after registering, not before**, because the answer is about
+    /// the table as it now stands and the caller wants to warn about what it
+    /// just did. The reference has no such check — `register_alias` inserts
+    /// and returns (`reference/rust_multistackvm/src/multistackvm_alias.rs:5-15`)
+    /// — so `:a :b alias :b :a alias` builds a loop there and resolution spins
+    /// until [`follow`]'s guard stops it.
+    ///
+    /// Bund2 resolves to a fixed point with a 64-link guard, so a cycle does
+    /// not hang; it silently resolves to whatever link the guard stopped on.
+    /// That is the wrong kind of quiet, and this is what lets the `alias` word
+    /// say so.
+    ///
+    /// [`follow`]: Registry::follow
+    pub fn alias_cycles(&self, name: &str) -> bool {
+        let Some(&start) = self.interner.index.get(name) else {
+            return false;
+        };
+        let mut slow = start;
+        let mut fast = start;
+        loop {
+            let Some(f1) = self.slots.get(fast.index()).and_then(|s| s.alias) else {
+                return false;
+            };
+            let Some(f2) = self.slots.get(f1.index()).and_then(|s| s.alias) else {
+                return false;
+            };
+            let Some(s1) = self.slots.get(slow.index()).and_then(|s| s.alias) else {
+                return false;
+            };
+            slow = s1;
+            fast = f2;
+            if slow == fast {
+                return true;
+            }
+        }
     }
 
     pub fn register_command(
@@ -690,6 +941,9 @@ mod tests {
         fn peek(&self) -> Option<BundValue> {
             None
         }
+        fn peek_at(&self, _: usize) -> Option<BundValue> {
+            None
+        }
         fn clear(&mut self) {}
         fn snapshot(&self) -> Vec<BundValue> {
             Vec::new()
@@ -703,6 +957,7 @@ mod tests {
             "main".into()
         }
         fn to_stack(&mut self, _: &str) {}
+        fn ensure_stack_with_capacity(&mut self, _: &str, _: usize) {}
         fn stack_exists(&self, _: &str) -> bool {
             false
         }
@@ -722,18 +977,33 @@ mod tests {
         fn pull_workbench(&mut self) -> Option<BundValue> {
             None
         }
+        fn workbench_depth(&self) -> usize {
+            0
+        }
         fn apply(&mut self, _: BundValue) -> Result<(), Error> {
             Ok(())
         }
-        fn eval_body(&mut self, _: &[BundValue]) -> Result<(), Error> {
+        fn eval_lambda(&mut self, _: &BundValue) -> Result<(), Error> {
             Ok(())
         }
-        fn tail_call(&mut self, _: Vec<BundValue>) {}
+        fn tail_lambda(&mut self, _: BundValue) {}
         fn scoped_call(&mut self, _: &str, _: Vec<BundValue>) -> Result<(), Error> {
             Ok(())
         }
         fn register_lambda(&mut self, _: &str, _: BundValue) {}
         fn unregister_lambda(&mut self, _: &str) {}
+        fn register_alias(&mut self, _: &str, _: &str) -> bool {
+            false
+        }
+        fn unregister_alias(&mut self, _: &str) {}
+        fn effect_of(&self, _: &str) -> Option<StackEffect> {
+            None
+        }
+        fn register_var(&mut self, _: &str, _: BundValue) {}
+        fn var(&self, _: &str) -> Option<BundValue> {
+            None
+        }
+        fn unregister_var(&mut self, _: &str) {}
         fn is_lambda(&self, _: &str) -> bool {
             false
         }
@@ -773,10 +1043,7 @@ mod tests {
         }
     }
     fn eff() -> StackEffect {
-        StackEffect {
-            consumes: 0,
-            produces: 0,
-        }
+        StackEffect::fixed(0, 0)
     }
     fn native(r: &mut Registry, name: &str) -> Symbol {
         r.register_native(name, noop, eff(), WordKind::Sync)
@@ -792,7 +1059,7 @@ mod tests {
     fn a_name_is_a_lambda_and_a_native_at_once() {
         let mut r = Registry::new();
         native(&mut r, "println");
-        r.register_lambda("println", BundValue::Int(1));
+        r.register_lambda("println", BundValue::int(1));
 
         let (s, sigil) = r.interner.intern_call("println");
         assert!(!sigil);
@@ -810,7 +1077,7 @@ mod tests {
     fn registering_a_lambda_leaves_the_native_alone() {
         let mut r = Registry::new();
         let s = native(&mut r, "w");
-        r.register_lambda("w", BundValue::Int(1));
+        r.register_lambda("w", BundValue::int(1));
         let slot = r.slot(s).expect("slot");
         assert!(slot.native.is_some(), "the native was destroyed");
         assert!(slot.lambda.is_some());
@@ -836,7 +1103,7 @@ mod tests {
     fn a_runtime_string_carries_its_sigil() {
         let mut r = Registry::new();
         native(&mut r, "println");
-        r.register_lambda("println", BundValue::Int(1));
+        r.register_lambda("println", BundValue::int(1));
         // As `execute` would: a string off the stack, never lexed as a name.
         let (s, sigil) = r
             .interner
@@ -869,7 +1136,7 @@ mod tests {
     fn a_lambda_can_be_unregistered() {
         let mut r = Registry::new();
         let s = native(&mut r, "println");
-        r.register_lambda("println", BundValue::Int(1));
+        r.register_lambda("println", BundValue::int(1));
         assert_eq!(r.resolve(s, false), Resolved::Lambda);
         r.unregister_lambda(s);
         assert_eq!(r.resolve(s, false), Resolved::Native);
@@ -882,7 +1149,7 @@ mod tests {
         let mut r = Registry::new();
         let s = native(&mut r, "w");
         let g = r.slot(s).unwrap().generation();
-        r.register_lambda("w", BundValue::Int(1));
+        r.register_lambda("w", BundValue::int(1));
         assert!(r.slot(s).unwrap().generation() > g);
     }
 
@@ -891,8 +1158,10 @@ mod tests {
     /// match.
     #[test]
     fn the_generation_saturates() {
-        let mut slot = Slot::default();
-        slot.generation = u32::MAX;
+        let mut slot = Slot {
+            generation: u32::MAX,
+            ..Slot::default()
+        };
         slot.touch();
         assert_eq!(slot.generation, u32::MAX);
     }
@@ -931,7 +1200,7 @@ mod tests {
         let mut r = Registry::new();
         let s = r.register_command("c", noop, eff(), WordKind::Sync);
         r.register_native("c", noop, eff(), WordKind::Sync);
-        r.register_lambda("c", BundValue::Int(1));
+        r.register_lambda("c", BundValue::int(1));
         assert_eq!(r.resolve(s, false), Resolved::Command);
         assert_eq!(r.resolve(s, true), Resolved::Command);
     }

@@ -193,7 +193,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             Ok(mut s) => {
                 s.pop();
                 bund2_value::BundValue::list(s)
-                    .with_tag("stack", "main")
+                    .with_tag(std::rc::Rc::from("stack"), std::rc::Rc::from("main"))
                     .render(false)
             }
             Err(e) => {

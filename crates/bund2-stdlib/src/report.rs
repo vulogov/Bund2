@@ -3,7 +3,7 @@
 //! # What is preserved and what is not
 //!
 //! The **frame** is the reference's: a `comfy_table` report with an `Error` row
-//! and a `Location` row, then `[BUND] Content of the stack` and the stack box,
+//! and a `Location` row, then `[BUND]  Content of the stack` and the stack box,
 //! written to stdout, after which the program exits **0**
 //! (`reference/Bund/src/stdlib/helpers/print_error.rs:104-132`).
 //!
@@ -154,12 +154,30 @@ impl Reporter for TextReporter {
         }
 
         if let Some(rows) = &d.stack {
-            println!("[BUND] Content of the stack");
+            // Two spaces, and they are not a typo. The reference builds the
+            // banner with a trailing space —
+            // `format!("{}{}{}{}{}{} ", …)` — and then prints it with
+            // `println!("{} {}", &bund, …)`
+            // (`reference/Bund/src/stdlib/helpers/print_error.rs:133,153`),
+            // so the coloured path emits `[BUND]  Content`. Its plain path at
+            // `:126` emits one space, but the goldens were captured with
+            // colour on and ANSI stripped afterwards, so two is what every
+            // captured golden holds.
+            println!("[BUND]  Content of the stack");
             println!("{}", stack_box(rows));
         }
-        if let Some(rows) = &d.workbench {
-            println!("{}", stack_box(rows));
-        }
+        // **The workbench is carried but not printed.** The reference's error
+        // path calls `stdlib_debug_display_stack` and nothing else
+        // (`reference/Bund/src/stdlib/helpers/print_error.rs:126-131`), so a
+        // failing program emits exactly one box — which is the frame D36
+        // preserves, and what every F66 golden captured. Printing a second box
+        // here made Bund2's output one box longer than the oracle's on every
+        // uncaught error.
+        //
+        // `Diagnostic::workbench` stays populated: it is part of the structured
+        // value a `Reporter` receives, and a TUI laying the parts out itself is
+        // exactly the consumer D36's seam exists for. Only this renderer, whose
+        // output the goldens pin, declines to show it.
     }
 }
 
