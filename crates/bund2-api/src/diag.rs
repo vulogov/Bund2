@@ -153,12 +153,20 @@ impl Diagnostic {
 pub trait Reporter {
     fn report(&mut self, d: &Diagnostic);
 
-    /// Whether this reporter wants a stack snapshot collected at all.
+    /// Whether this reporter wants a stack snapshot collected for a diagnostic
+    /// of this severity.
     ///
     /// Collecting means rendering every value on every stack, which is not
     /// free on a deep stack and is wasted if nothing will show it. The
     /// evaluator asks before it collects.
-    fn wants_stack(&self) -> bool {
+    ///
+    /// **Per severity, because the answer differs by severity** (D45). A
+    /// terminal shows a stack only under a fatal report, and a fatal report
+    /// is made after the error has returned to the top. A warning or notice is
+    /// made mid-body, by a native, and a snapshot taken there is one RFC-0005
+    /// §S5 has to make exact. Asking for one only where it will be shown keeps
+    /// that cost to the reporters that actually show it.
+    fn wants_stack(&self, _severity: Severity) -> bool {
         false
     }
 
@@ -187,6 +195,8 @@ pub trait Reporter {
 #[derive(Debug, Default)]
 pub struct CollectingReporter {
     pub seen: Vec<Diagnostic>,
+    /// Wants a snapshot for every severity. That is the strictest reporter
+    /// there can be, which is what a test of snapshot exactness wants.
     pub wants_stack: bool,
 }
 
@@ -194,7 +204,7 @@ impl Reporter for CollectingReporter {
     fn report(&mut self, d: &Diagnostic) {
         self.seen.push(d.clone());
     }
-    fn wants_stack(&self) -> bool {
+    fn wants_stack(&self, _severity: Severity) -> bool {
         self.wants_stack
     }
 }
@@ -247,11 +257,12 @@ mod tests {
     /// and is wasted if no reporter will show it.
     #[test]
     fn the_stack_is_only_collected_when_wanted() {
-        assert!(!SilentReporter.wants_stack());
+        assert!(!SilentReporter.wants_stack(Severity::Error));
         let r = CollectingReporter {
             wants_stack: true,
             ..Default::default()
         };
-        assert!(r.wants_stack());
+        assert!(r.wants_stack(Severity::Error));
+        assert!(r.wants_stack(Severity::Warning));
     }
 }

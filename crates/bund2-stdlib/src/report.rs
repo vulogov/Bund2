@@ -23,7 +23,7 @@
 
 use std::io::Write;
 
-use bund2_api::diag::{Diagnostic, Reporter};
+use bund2_api::diag::{Diagnostic, Reporter, Severity};
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{ContentArrangement, Table};
@@ -120,8 +120,13 @@ fn stack_box(rows: &[String]) -> String {
 }
 
 impl Reporter for TextReporter {
-    fn wants_stack(&self) -> bool {
-        self.dump_stack
+    /// Only for a fatal report, because only a fatal report shows one: a
+    /// warning or notice is one line with no stack (below). Collecting one
+    /// there was rendering every value for nothing, and it is what kept
+    /// RFC-0005 §S5 from promoting values across a call under this reporter
+    /// (D45).
+    fn wants_stack(&self, severity: Severity) -> bool {
+        self.dump_stack && severity.is_fatal()
     }
 
     fn wants_raw_values(&self) -> bool {
@@ -214,8 +219,18 @@ mod tests {
     /// display — the evaluator asks before it renders every value.
     #[test]
     fn the_stack_dump_is_a_switch() {
-        assert!(TextReporter::new(true).wants_stack());
-        assert!(!TextReporter::new(false).wants_stack());
+        assert!(TextReporter::new(true).wants_stack(Severity::Error));
+        assert!(!TextReporter::new(false).wants_stack(Severity::Error));
+    }
+
+    /// A warning or notice renders as one line with no stack, so collecting
+    /// one for it is wasted — and would make every native that reports
+    /// mid-body read the whole stack (D45, RFC-0005 §S5).
+    #[test]
+    fn no_stack_is_wanted_where_none_is_shown() {
+        let r = TextReporter::new(true);
+        assert!(!r.wants_stack(Severity::Warning));
+        assert!(!r.wants_stack(Severity::Notice));
     }
 
     /// The severity split is about delivery: a warning gets a line, an error

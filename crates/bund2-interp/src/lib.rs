@@ -1015,8 +1015,9 @@ impl Vm for Interp {
     }
 
     fn report(&mut self, d: bund2_api::diag::Diagnostic) {
-        // Collect the stacks only if something will show them.
-        let d = if self.reporter.wants_stack() {
+        // Collect the stacks only if something will show them, for a
+        // diagnostic of this severity (D45).
+        let d = if self.reporter.wants_stack(d.severity) {
             // Compact by default; the raw `Debug` form only when a debug
             // session asks for it. A stack of raw renderings is ~150 columns a
             // row and tells the reader nothing they were looking for.

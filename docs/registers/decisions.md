@@ -1946,6 +1946,11 @@ printing.
 - **`Severity::Warning` has no producer yet.** The path exists and is tested;
   nothing in the current word set warns.
 
+**Amended 2026-09-10 by D45.** `Reporter::wants_stack` now takes the
+diagnostic's severity, and `TextReporter` wants a snapshot only for a fatal
+report, which is the only kind it shows one under. "It gates *collection*"
+above still holds, per severity.
+
 - Status: **RESOLVED — frame preserved, location and delivery redesigned,
   reporting behind a trait.**
 
@@ -2460,3 +2465,61 @@ designed without one.
 - Depends on: D9 as amended (no Cranelift type in `bund2-api`), F32 (replayed
   registrations)
 - Status: **RESOLVED — decided; implementation deferred to RFC-0005 Proposed.**
+
+## D45 — a reporter says, per severity, whether it wants a stack snapshot
+
+RFC-0005's seventh review, S1. `Reporter::wants_stack` took no argument, and
+`Interp::report` snapshotted every stack for any diagnostic whenever it
+returned true. The CLI's `TextReporter` returned true by default, and only
+`--no-dump-stack` turned it off. So a native that reported a warning or notice
+mid-body read the whole stack. RFC-0005 §S5 answered that by keeping no value
+promoted across any call while the reporter wants stacks, and that meant no
+promotion across calls in any `bund2 script` run, including every
+`cargo xtask conform` run.
+
+`TextReporter` never showed that snapshot. A warning or notice is one line on
+stderr with no stack, and only a fatal report prints `[BUND]  Content of the
+stack` (`crates/bund2-stdlib/src/report.rs`, `TextReporter::report`).
+
+### Decision
+
+Decided by the repository owner, 2026-09-10: **`wants_stack` takes the
+severity**, as `Reporter::wants_stack` in `crates/bund2-api/src/diag.rs`
+shows: `fn wants_stack(&self, severity: Severity) -> bool`. `TextReporter`
+wants a snapshot only for `Severity::Error`, and only when its dump is on.
+
+**Nothing printed changes**, because nothing printed a stack under a
+non-fatal diagnostic before. The one fatal report the CLI makes happens after
+evaluation has returned (`run` in `crates/bund2-cli/src/main.rs`), by which
+time RFC-0005's compiled bodies have synced. Natives do not report errors: they
+return them (RFC-0005 §S11). The natives that report today report warnings
+(`while` in `crates/bund2-stdlib/src/control.rs`, and one in `singles.rs`) or a
+notice (`?error` in `conditional.rs`).
+
+### Rejected
+
+- **Accept it**: promotion across calls only under `--no-dump-stack` or a
+  silent embedder, so the configuration users run would never get it.
+- **Sync before calls to reporting natives**: that means classifying which
+  natives can call `Vm::report`. The classification has Q34's shape, and it
+  would be wrong on the day a native started to warn.
+
+### Consequences
+
+- RFC-0005 §S5's rule reads the reporter **per severity a native reports
+  mid-body**, at each compiled body's entry. It cannot be read once when the
+  `Interp` is built, because the CLI replaces the reporter afterwards and the
+  field is public. It cannot change while a compiled body runs, because no
+  `Vm` method reaches it.
+- A reporter that does want mid-body snapshots — `CollectingReporter` with
+  `wants_stack` set — still gets exact ones, by §S5's rule.
+- `Reporter` is D36's seam, and its signature changed. All three implementors
+  are in-tree (`TextReporter`, `CollectingReporter`, `SilentReporter`), and
+  nothing outside the workspace implements it.
+- Conformance before and after: 79/86, ceiling 79/86.
+
+- Decided by: repository owner, 2026-09-10, on RFC-0005's seventh review (S1)
+- Blocks: nothing; unblocks promotion across calls in RFC-0005 §S5 under the
+  CLI's default reporter
+- Depends on: D36 (the reporter seam)
+- Status: **RESOLVED — built.**
