@@ -2744,3 +2744,34 @@ and clear the flag (`reference/rust_multistackvm/src/stdlib/autoadd.rs:28-29`).
 append needs `Value::push`'s semantics for every kind of receiver — and the
 test rewritten then to assert the reference's shape. Found by RFC-0005's sixth
 review (S1).
+
+## F85 — recursion through a loop word aborts Tier 0 on the machine stack
+
+**A Bund2 defect under D37, and one the reference shares.**
+
+`:f { 1 { f } times } register` followed by `f` recurses through `times`. In
+Bund2, each level nests Rust frames. `times_base`
+(`crates/bund2-stdlib/src/seq.rs`) calls `Vm::eval_lambda`, which pushes a
+frame and runs `run_to` from inside the native (`Interp::eval_lambda`,
+`crates/bund2-interp/src/lib.rs`), and the body's call to `f` reaches `times`
+again from there. So this recursion is bounded by the machine stack, not by the
+heap that RFC-0003's frame loop gives direct recursion. RFC-0003's criterion 2
+exercises direct recursion only, which is why it did not catch this.
+
+Both implementations die the same way — exit 134, `thread 'main' has overflowed
+its stack` / `fatal runtime error: stack overflow, aborting` — measured
+2026-09-10 on release builds, on this machine's 8 MiB main-thread stack
+(`ulimit -s`: 8176 KiB).
+
+**Why this is a defect and not a match.** D37 forbids an abort however
+faithfully it reproduces the reference. In the reference it is an oracle
+defect; in Bund2 it is a D37 gap. The shape is not special to `times`: every
+native that runs a body synchronously — `loop`, `map`, `while`, the
+conditionals, `?try`, the method paths — spends a Rust frame per level the same
+way.
+
+**Status:** OPEN. RFC-0005 §S8's stack floor is the proposed fix: Tier 0 checks
+its remaining headroom wherever a native re-enters evaluation, and below the
+floor it reports a Bund-level error instead of aborting. That changes no golden
+that exists, and none could have captured the abort — its text carries a thread
+id, which a capture cannot reproduce.

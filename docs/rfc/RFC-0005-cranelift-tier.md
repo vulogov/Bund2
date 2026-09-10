@@ -17,8 +17,9 @@
 
   So §S2–§S11 are worth designing and are not yet authorised to be built. Two
   correctness problems stand between this RFC and Proposed. **§S8's frame
-  consumption** has a guard and a criterion (11) but no mechanism: how a
-  compiled body reads its remaining machine-stack headroom is still unstated.
+  consumption** now has a mechanism — a stack floor Bund2 measures in Rust and
+  compiled code compares against its own stack pointer (§S8, *How the guard
+  reads the stack*) — new in this revision and unreviewed.
   And **§S6's inlining freezes a name** unless every inlined site re-checks
   what the name means — the fifth review's B1, answered in §S6 by a per-site
   meaning guard that criteria 5 and 17 test.
@@ -66,9 +67,9 @@ deoptimisation. It changes speed and not meaning: `cargo xtask conform` must
 move by **exactly zero**.
 
 That is the design. §S1's measurement no longer says "not yet" on performance
-grounds — D41 removed that objection — but two correctness problems are not
-closed: §S8's machine-stack headroom check has no mechanism, and §S6's meaning
-guard is new in this revision and unreviewed. The RFC stays Draft.
+grounds — D41 removed that objection — but its two correctness mechanisms are
+new and unreviewed: §S8's stack floor and §S6's meaning guard. The RFC stays
+Draft.
 
 ## Motivation
 
@@ -798,13 +799,15 @@ registry:
   by the same `touch()` that bumps it, and allocated in fixed-size chunks that
   never move when more are added;
 - one **`autoadd` cell** and one **current-stack epoch cell** (§S5), owned by
-  the runtime in a single allocation that lives as long as the `Interp`.
+  the runtime in a single allocation that lives as long as the `Interp`;
+- one **stack-floor cell** for the evaluation thread (§S8), which the check at
+  every compiled body's entry compares `get_stack_pointer` against.
 
 At compile time the JIT embeds each cell's address as an immediate. That is
 safe to do because the cells outlive every compiled function: both die with the
 runtime. A check is then one load and one compare per cell — **two per inlined
-site** (generation, `autoadd`) and **two per call** (epoch, `autoadd`), as
-costed. AOT cannot embed an address; it would reach the cells through a
+site** (generation, `autoadd`), **two per call** (epoch, `autoadd`), as costed,
+and **one per compiled body entry** (the floor). AOT cannot embed an address; it would reach the cells through a
 relocated data symbol or a helper, and AOT's lowering is RFC-0006's.
 
 **No new kind of `unsafe`.** The cells are `Cell`s written by safe Rust, and
@@ -1198,8 +1201,110 @@ they cover one call site per body. **Q28 sharpens accordingly**: on a target
 where `CallConv::Tail` degrades, the guard fires sooner and more often, but
 correctness does not depend on the platform.
 
-The threshold and the cost of the check are not specified here — that is
-criterion 11, and it is a measurement rather than a choice.
+### How the guard reads the stack — one floor, measured in Rust, compared in CLIF
+
+*Added 2026-09-10. Earlier revisions required this check and gave it no
+mechanism.*
+
+Four ways of doing it were ruled out first:
+
+- **Cranelift's own stack limit.** `Function::stack_limit` makes the prologue
+  compare the stack pointer against a limit and **trap** on overflow — on x64,
+  a `cmpq` against `rsp` followed by `TrapIf` with `TrapCode::STACK_OVERFLOW`
+  (`cranelift-codegen` 0.135.0, `src/isa/x64/abi.rs`,
+  `gen_stack_lower_bound_trap`). A trap is a hardware fault: with no signal
+  handler it ends the process, which D37 forbids, and it is guard-and-bail in
+  its hardest form (§S5). It also takes its limit only from a `VMContext`
+  parameter (`src/machinst/abi.rs`, `generate_gv`), which Bund2's uniform
+  `fn(&mut dyn Vm)` does not carry.
+- **The `stacker` crate.** It measures remaining stack through `psm`, whose
+  build script compiles assembly with a C toolchain. D10 forbids a C toolchain
+  anywhere below `bund2 build`.
+- **Asking the platform** for the current thread's stack bounds —
+  `pthread_get_stackaddr_np` on macOS, `pthread_getattr_np` on Linux — is
+  per-platform `unsafe` FFI for a number Bund2 can know without asking.
+- **Counting frames instead of bytes.** A counter bounds calls, not bytes.
+  Compiled frames differ in size from body to body, and the Rust frames between
+  two compiled bodies differ from native to native, so a sound count needs a
+  byte bound per frame that nothing provides.
+
+**The mechanism: Bund2 owns the stack it runs on, so it knows where that stack
+ends.**
+
+1. **Evaluation runs on a thread Bund2 spawns, with a stack size it chooses**
+   — `std::thread::Builder::stack_size`: the standard library, no crate, no
+   `unsafe`, no C toolchain. `bund2 script` and the REPL both do this. Nothing
+   observable changes: standard output, standard error and the exit code pass
+   straight through.
+2. **At that thread's entry the runtime records the stack's top**: the address
+   of a local in the entry function, taken with `std::ptr::addr_of!` and cast to
+   an integer, which is safe Rust. Stacks grow downward on all four targets
+   Cranelift supports, so the stack's end is the top minus the size.
+3. **From those two numbers it computes two floors**, described next.
+4. **A check is one comparison against a floor, and it branches — it never
+   traps.** Tier 0 compares the address of a local in the function doing the
+   check. Tier 1 compares CLIF's `get_stack_pointer`, which is lowered on x64,
+   aarch64, s390x and riscv64 (`src/isa/*/lower.isle`, and riscv64's
+   `inst.isle`), against the floor loaded from a runtime-owned cell (§S6,
+   *Addressing*).
+
+**Two floors, so the tier never takes stack Tier 0 would have had.** The stack
+is split in two:
+
+- **The top part is Tier 1's.** Compiled frames may occupy it. A compiled body
+  whose entry finds the stack pointer below the **Tier 1 floor** declines.
+- **The bottom part is Tier 0's**, for native-mediated nesting — every native
+  that runs a body synchronously. Below the **Tier 0 floor** such a native
+  reports a Bund-level error instead of nesting further. A reserve beneath that
+  floor is kept for reporting the error.
+
+The bottom part is sized to what Tier 0 has today: the main thread's stack,
+8 MiB on this machine (`ulimit -s`: 8176 KiB). The thread is spawned at that
+plus Tier 1's share, so **Tier 0's nesting capacity with the tier on is never
+less than it is with the tier off**. That is the property that keeps the tier
+from moving conformance — a program whose native nesting fits today still fits
+— and criterion 11 checks it. Proposed defaults: 8 MiB for each part and a
+256 KiB reserve. Like §S7's knobs, they are defaults with a stated basis, and
+they change only with a measurement behind the change.
+
+**Declining takes the path an interpreted body would have taken.** A compiled
+body that finds the stack pointer below the Tier 1 floor does what Tier 0 does
+with a lambda. At a tail position that is `Vm::tail_lambda`'s request: the
+body goes back to the frame loop and runs on the heap, holding no machine
+frame. At any other position it is `Vm::eval_lambda`: one synchronous boundary
+into Tier 0's part of the stack, below which the body runs flat. Every compiled
+body entered after that point finds the stack pointer still below the Tier 1
+floor and declines in turn, so beneath the floor nothing compiled runs, and the
+recursion continues on the heap. That recovers RFC-0003's guarantee, and it
+never needs OSR.
+
+**Embedders.** A program that runs `Interp` on a thread Bund2 did not spawn
+declares that thread's stack size through an `Interp` setting. If it does not,
+Bund2 assumes Rust's documented default for a spawned thread, 2 MiB, and gives
+Tier 1 no share — so compiled code simply does not run there, and Tier 0 keeps
+its floor.
+
+**What it costs.** Tier 1 pays a stack-pointer read, a load and a compare per
+compiled body entry, under criterion 11's 2 ns bound. Tier 0 pays an address, a
+load and a compare each time a native re-enters evaluation — `Vm::eval_lambda`,
+`Vm::apply` and `Vm::scoped_call` — calls that already push a frame and run a
+loop.
+
+### Tier 0 needs the same floor, and needs it now — F85
+
+`:f { 1 { f } times } register` followed by `f` aborts Bund2 today, and the
+oracle with it: exit 134, `thread 'main' has overflowed its stack` (F85).
+RFC-0003's frame loop makes *direct* recursion cost heap, but recursion through
+a native that runs its body synchronously spends a Rust frame per level (*The
+guard*, above). That is a D37 violation with no tier involved at all.
+
+The Tier 0 floor is its fix. `Vm::eval_lambda`, `Vm::apply` and
+`Vm::scoped_call` check it before re-entering evaluation, and below it they
+return a Bund-level error — reported through `Vm::report` like any other, and
+catchable by `?try` — that names the cause: recursion through `times`, `loop`,
+`map`, a conditional or a method runs on the machine stack, and recursing
+directly runs on the heap instead. **This half does not depend on Tier 1**, and
+could land before this RFC is accepted.
 
 # S9. Tier pinning
 
@@ -1268,7 +1373,9 @@ disagrees with interpreted code", and each has a named guard:
 | **an inlined fragment after its name changes meaning** — re-registered, aliased, shadowed by a lambda, made a command or unregistered, including by a `register`, `unregister` or `alias` earlier in the same compiled body | per-site meaning guard: the slot's generation and `autoadd`, re-read before the first op (§S6); criteria 5 and 17 |
 | a **type** specialisation taking a path the interpreter would not | guard-and-branch, generic counterpart in the same function (§S5) |
 | a compiled call running under `autoadd`, where the reference would collect the name instead | entry guard on the flag, and a per-site check at every inlined fragment; `:` and `;` are opaque sites (§S4, §S6); criterion 18 |
-| **a promoted recursion overflowing the machine stack where Tier 0 runs it on the heap** | machine-stack headroom guard on every compiled body entry (§S8); `cargo xtask depth` at 100,000 with the feature on, criterion 11 |
+| **a promoted recursion overflowing the machine stack where Tier 0 runs it on the heap** | a stack floor Bund2 measures on a thread it spawns, compared against `get_stack_pointer` at every compiled body's entry; below it the body declines along the path an interpreted body takes (§S8); `cargo xtask depth` at 100,000 with the feature on, criterion 11 |
+| **native-mediated recursion overflowing the machine stack in Tier 0 itself** — through `times`, `loop`, `map`, a conditional, `?try` or a method — which aborts today (F85) | the Tier 0 floor, checked wherever a native re-enters evaluation; below it a Bund-level error, never an abort (§S8); criterion 11 |
+| the tier taking stack that Tier 0's native nesting would have had | two floors: the tier's share sits above Tier 0's, and the thread is sized so Tier 0's share equals today's main-thread stack; criterion 11 checks the Tier 0 floor fires at the same depth with the feature on and off |
 | a value synced back from a `Variable` losing its D41 stack symbol, so a golden renders `tags: {}` | the sync writes through the same path `Stack::push` uses, not a bare `push_back` (§S5); criterion 12 |
 | a slot naming a spelling rather than the resolved target, when `i` resolves aliases twice | slots key on the resolved name (§S4), **except for `$`**, which is resolved one level shallower and keys on that one-level answer (§S4, *The chain*) |
 | `unregister` against a name a compiled body still calls | the call slot is rewritten to what the name now resolves to — the native a lambda shadowed, if any — and to a failing stub only when nothing resolves; never freed (§S4) |
@@ -1557,17 +1664,22 @@ evidence, and this one is listed as runnable rather than as met.
     and 20,000, so this criterion has a demonstrated failure mode and is not
     hypothetical.
 
-    The guard's threshold is reported with the result: **the depth at which
-    compiled bodies begin declining**, and the per-entry cost of the check
-    measured in `crates/bund2-bench`. A guard costing more than 2 ns per body
+    Reported with the result: **both floors**, **the depth at which compiled
+    bodies begin declining**, and the per-entry cost of the Tier 1 check
+    measured in `crates/bund2-bench`. A check costing more than 2 ns per body
     entry should be reconsidered against simply not promoting bodies that can
-    recurse — which D16 makes undecidable, so the guard is the expected answer
+    recurse — which D16 makes undecidable, so the check is the expected answer
     and the number is what says whether it is affordable.
 
     It also runs a recursion **through a loop word** — a body that calls itself
     from inside `times` — because `eval_lambda` spends a Rust frame per nesting
-    (§S8, *The guard*), and the self-recursive word alone never exercises
-    that.
+    (§S8, *The guard*), and the self-recursive word alone never exercises that.
+    That axis must **report, not abort**, in both builds. **Today it aborts in
+    both** — F85 — so it fails until §S8's Tier 0 floor lands, and it is added
+    to `cargo xtask depth` together with that fix, not before. It also reports
+    the depth at which Tier 0's floor fires, and **that depth must be the same
+    with the feature on and off**: the tier's share of the stack sits above
+    Tier 0's, never inside it (§S8, *How the guard reads the stack*).
 
 12. **A synced value keeps its stack tag.** §S5's rule writes promoted values
     back to the real stack; **D41 put the stack tag inside the value for
