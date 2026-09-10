@@ -599,6 +599,59 @@ Three rules follow:
 The cost is one load and compare per call for each of the two cells. Criterion
 21 checks the behaviour, and criterion 18 the `autoadd` half.
 
+## What a promoted value must not change
+
+*Added 2026-09-10, clearing items reviews had carried since the fourth: the
+stack a report shows, identity and timestamps, diagnostics from compiled code,
+and a fold word that arrives at run time.*
+
+**An error's report shows the stack Tier 0 would have shown.** An uncaught
+error is reported after it has returned to the top: the report's stack
+snapshot is taken when `Vm::report` is called (`Interp::report`), and the
+`[BUND]  Content of the stack` dump is printed after it
+(`crates/bund2-stdlib/src/report.rs`). So a compiled body **syncs every
+promoted value, each to the stack it came from, before it returns an error** —
+whether the error is its own or a callee's — exactly as the residual path does.
+By the time anything reads the stack, nothing is left in a register.
+
+**A native that reports mid-body reads the whole stack.** `Interp::report`
+takes that snapshot whenever the reporter wants stacks, whatever the severity,
+so a native that calls `Vm::report` while values below its arity are held in
+registers would show a short stack. That is Q34's shape — a word observing
+beyond its arity — and the rule is structural: **while the reporter wants
+stacks, no value stays promoted across a call.** The reporter is fixed when the
+`Interp` is built, so this is known at entry, and costs nothing per call.
+
+**`.id` and `.timestamp` need no rule of their own.** Both are lazy. An
+identity is minted on first *need* — `.id`, equality, ordering, hashing or
+serialisation (D1) — and a stamp is sampled when it is first observed, not at
+construction (D2). A promoted value is observed only after it has been synced,
+so it is minted and sampled at the same program point as in Tier 0. The
+obligation falls on fragments instead: an arm that compares, orders or hashes
+must materialise identity wherever its word does. Today's fragments compare
+nothing, and scalars compare by content (D30). Criterion 16's differential
+test, which already asserts `dup`'s fresh identity, is where a wider arm has to
+show it.
+
+**Compiled code emits no diagnostic of its own.** Errors are returned values
+(§S11). Warnings and notices come from natives, which compiled code reaches
+through their call slots, so they are emitted exactly as in Tier 0. And a
+fragment *cannot* emit one: `Op` has no reporting operation. So an arm that
+reports — `while`'s warning at ten million iterations, say — is not fragment
+material and stays a call.
+
+**A fold, or any change of effect, arriving at run time.** Promotion across a
+call keeps the values below the callee's arity in registers, and it trusts the
+callee's effect *as it was at compile time*. A `register` or `alias` can later
+rebind that name to a word with a different effect — a fold that consumes the
+whole stack, or simply one that consumes more — and then the promoted values
+would be invisible to it. So before every call **across which any value stays
+promoted**, compiled code compares the call slot's generation cell (§S6,
+*Addressing*) against the one it was compiled with. If it has changed, the body
+syncs everything and takes the residual path from that call onward. That is one
+load and compare per such call, and it is what "detected at run time" means for
+D12. Criterion 22 checks it.
+
 # S6. Stack-slot promotion — the actual win, and what withholds it
 
 §2.1's only row **that needs Cranelift** and promises more than ~1.5× is
@@ -995,7 +1048,14 @@ Three things bound promotion:
   and friends consume the whole stack, so the stack depth is not statically
   known across them. ERRATA records that the corpus uses none of them, so the
   barrier costs nothing measurable; it still has to be *represented*, because
-  D16 means one may appear at run time.
+  D16 means one may appear at run time. Bund2 registers none of the ten today,
+  nor their `Σ` aliases (checked against `bund2 words`, 2026-09-10; `*.` is
+  ordinary multiplication's workbench variant, not a fold), so a call to one is
+  a name with no binding, `Opaque` under criterion 13. When one is registered
+  it declares `StackEffect::opaque`, since `StackEffect` has no separate fold
+  kind. D12's "bails to Tier 0" is read as §S5's promotion stop (D12's dated
+  note), and a fold bound at run time to a name a body was compiled against is
+  caught by §S5's pre-call check.
 - **`Opaque` effects**, counted in *Where promotion stops* above. Promotion
   stops; compilation does not.
 - **D33 is OPEN.** Ordering across int and float currently answers **true to
@@ -1360,6 +1420,12 @@ D9's original sentence — no third-party CLIF lowerings — is about the stable
 ABI and still holds: an external package gets `Native` with a declared effect
 and no more, and cannot publish a fragment.
 
+**AOT conformance is RFC-0006's**, and it inherits this RFC's invariant
+unchanged: the output of `bund2 build --emit=native` must read the same N/M
+and CEILING as Tier 0, because AOT changes speed and not meaning exactly as the
+JIT does. Criterion 2 here covers the JIT; RFC-0006 states the AOT
+counterpart.
+
 # S11. Errors stay a return-value protocol
 
 `try_call` / `try_call_indirect` exist but the unwinder story is incomplete
@@ -1390,7 +1456,11 @@ disagrees with interpreted code", and each has a named guard:
 | a diagnostic raised in compiled code carrying no Bund source location | D36 requires a `Diagnostic` with a Bund location; compiled frames have none unless the lowering carries spans, which §S11's return-value protocol must thread |
 | an **opaque** site leaving a stale promoted value behind | promotion stops and syncs to the real stack before the call (§S5); cost checked by criterion 9 |
 | mixed-kind comparison lowered to a machine compare | forbidden while D33 is OPEN (§S6) |
-| a `*`-family word crossing a promoted region | D12's barrier, represented not assumed (§S6) |
+| a `*`-family word crossing a promoted region — including one bound at run time to a name the body was compiled against | an `opaque` effect (D12; none is registered today), and the pre-call slot-generation check, which syncs before any call whose binding changed (§S5, *What a promoted value must not change*); criterion 22 |
+| an error returned from compiled code while values are promoted, whose report or `[BUND]` stack dump would show a short stack | every error return syncs first (§S5); criterion 22 |
+| a native that reports with a stack snapshot while values below its arity are promoted | nothing stays promoted across a call while the reporter wants stacks (§S5); Q34 |
+| a promoted value's `.id` or `.timestamp` | both are lazy (D1, D2) and observed only after a sync; a fragment that compares or hashes must materialise identity where its word does — criterion 16 |
+| a warning or notice from compiled code | compiled code emits none of its own; a fragment has no reporting op, so an arm that reports stays a call (§S5) |
 | unbounded code memory | caps and permanent demotion (§S7) |
 | a fragment disagreeing with its word | differential test per fragment over the arm's boundaries, identity included (§S6); criterion 16 |
 | an op failing after its guard admitted, with operands already pulled | `Fragment::new`, the only constructor, refuses such a fragment; anything that escapes is `Error::internal`, never a fall-through and never silent success (§S6); criterion 19 |
@@ -1562,7 +1632,7 @@ evidence, and this one is listed as runnable rather than as met.
    |---|---|
    | `startup` | **no change**: Criterion reports no statistically significant difference, and the point estimate moves by **< 5%** |
    | `value` | no change, same tolerance — D41's work is below the tier and the tier must not disturb it |
-   | `dispatch`, `arith`, `corpus` | free to improve; a **regression beyond 5%** on any of them fails |
+   | `dispatch`, `arith`, `corpus` — the `bund2-bench` group, not `cargo xtask corpus` | free to improve; a **regression beyond 5%** on any of them fails |
 
    The 5% band is not arbitrary. Run-to-run spread on one machine is already a
    few percent — `fragment/int_add/tier0` read 57.9 and 59.2 ns in two runs on
@@ -1830,6 +1900,15 @@ evidence, and this one is listed as runnable rather than as met.
     program's stacks and diagnostics match Tier 0's. It fails on any lowering
     that resolves the current stack once, or that syncs to the stack current
     at the sync rather than the one each value came from.
+
+22. **What a promoted value must not change, doesn't.** Compile a body that
+    promotes and then fails — once through its own op and once through a
+    callee — and assert the error report and the `[BUND]  Content of the stack`
+    dump match Tier 0's. Then compile a body that promotes across a call, and
+    rebind that call's name to a word with a different effect, both before the
+    body runs and mid-body through `register`; assert the stacks match Tier
+    0's. Finally, run a body that promotes under a reporter that wants stacks,
+    and assert nothing is held across a call. Needs a tier.
 
 ## Open questions
 

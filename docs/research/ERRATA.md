@@ -113,3 +113,9 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   half, that dispatch has become the dominant term, **cannot be shown with
   these benchmarks** and is RFC-0005 criterion 10's experiment. This paragraph
   is kept because it is what the gate turned on, not because it is current.
+
+  **A benchmark name above, corrected 2026-09-10.** `value/with_tag/scalar` is
+  not a benchmark that exists: `crates/bund2-bench` has
+  `value/with_tag/scalar_unique` and `value/with_tag/heap_shared`, and RFC-0005
+  §S1's footnote records that which of them produced the 73.1 ns cannot now be
+  established. The figure stands as a record of that day's measurement.

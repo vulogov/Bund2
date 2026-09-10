@@ -528,6 +528,14 @@ multiplication (`reference/rust_multistackvm/src/stdlib/math/mul.rs:23`) and
 `**` is the variadic one. RFC-0004 should key on the registration, not the
 name.
 
+**Clarified 2026-09-10.** "A site using a fold bails to Tier 0", above, was
+written before RFC-0004's amendment of 2026-09-09, which withdrew any reading
+in which compiled code hands control back mid-body: there is no OSR to do it
+with. It is read as RFC-0005 §S5's rule — **promotion stops at the site**, the
+promoted values are synced, and what follows runs through runtime helpers —
+which is what this decision's barrier needs, and nothing more. Bund2 registers
+none of these words yet; when it does, each declares `StackEffect::opaque`.
+
 ## D13 — value semantics under Rc
 Today `Value` is deep-cloned everywhere, so Bund has value semantics and cycles
 are impossible by construction. Naive `Rc` would give reference semantics and
