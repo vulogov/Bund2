@@ -255,6 +255,7 @@ pub fn run_cmd(args: &[String]) -> Result<(), String> {
     let mut budget = 60u64;
     let mut require: Vec<String> = Vec::new();
     let mut features = String::new();
+    let mut release = true;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -278,6 +279,11 @@ pub fn run_cmd(args: &[String]) -> Result<(), String> {
             // not be written, and worse, `bund2_binary` below would silently
             // measure whichever binary happened to be lying in `target/`.
             "--features" => features = it.next().cloned().ok_or("--features needs a list")?,
+            // The dev profile, for D44's evidence that the exhaustion level
+            // moves with the build: the same `loop` source reports at a
+            // different level in dev than in release. Release stays the
+            // default, because that is what criterion 11 measures.
+            "--dev" => release = false,
             other => return Err(format!("unknown argument `{other}`")),
         }
     }
@@ -289,7 +295,7 @@ pub fn run_cmd(args: &[String]) -> Result<(), String> {
     // deliberately: a 100,000-deep call in a dev build measures debug-assertion
     // frame sizes, not the tier. `conform` measures dev. The two profiles are
     // a stated split, not an accident.
-    let bin = crate::buildcli::bund2(&repo, true, &features)?;
+    let bin = crate::buildcli::bund2(&repo, release, &features)?;
     let budget = Duration::from_secs(budget);
 
     // Nesting is measured shallower on purpose: a parser that recurses will
@@ -328,7 +334,7 @@ pub fn run_cmd(args: &[String]) -> Result<(), String> {
     println!("  only aborting and hanging fail.\n");
     // Which binary this is about — the line `conform` prints too. A depth
     // result with no provenance is F80's failure in a new place.
-    println!("  measured: {}\n", crate::buildcli::provenance(true, &features));
+    println!("  measured: {}\n", crate::buildcli::provenance(release, &features));
 
     let mut failed: Vec<String> = Vec::new();
     for (axis, n, src, what) in &cases {
