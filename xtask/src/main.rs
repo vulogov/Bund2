@@ -11,6 +11,13 @@
 //!
 //! Everything lives here rather than in shell scripts so it is cross-platform,
 //! cargo-native, and type-checked by CI like the rest of the workspace.
+//!
+//! **Every command is guarded by [`toolchain::check`] — F80.** A measurement
+//! is only worth having if you know which compiler produced it, and
+//! `RUSTUP_TOOLCHAIN` silently outranks `rust-toolchain.toml`. The guard is
+//! here rather than in a build driver because a driver only helps whoever
+//! remembers to type it; this is the entry point every number the project
+//! quotes already comes through.
 
 const HELP: &str = "\
 cargo xtask <command>
@@ -92,7 +99,11 @@ Evidence
                 --write to record docs/bench-baseline.md.
 ";
 
+use std::path::Path;
+
 mod arity;
+mod buildcli;
+mod effects;
 mod bench;
 mod cite;
 mod conform;
@@ -105,6 +116,7 @@ mod layout;
 mod lint;
 mod render;
 mod scope;
+mod toolchain;
 
 /// Counting allocator, so `layout` can report allocations per operation.
 #[global_allocator]
@@ -113,6 +125,17 @@ static ALLOC: layout::Counting = layout::Counting;
 fn main() -> std::process::ExitCode {
     let args: Vec<String> = std::env::args().skip(2).collect();
     let cmd = std::env::args().nth(1).unwrap_or_default();
+
+    // **Before anything measures anything — F80.** Every number below is only
+    // meaningful if it is attributable to the compiler the repository pins,
+    // and `RUSTUP_TOOLCHAIN` can silently override that pin.
+    if let Some(repo) = Path::new(env!("CARGO_MANIFEST_DIR")).parent()
+        && let Err(err) = toolchain::check(repo)
+    {
+        eprintln!("xtask: {err}");
+        return std::process::ExitCode::FAILURE;
+    }
+
     match cmd.as_str() {
         "corpus" => match corpus::run(&args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
@@ -125,6 +148,13 @@ fn main() -> std::process::ExitCode {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
                 eprintln!("xtask coverage: {err}");
+                std::process::ExitCode::FAILURE
+            }
+        },
+        "effects" => match effects::run(&args) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("xtask effects: {err}");
                 std::process::ExitCode::FAILURE
             }
         },

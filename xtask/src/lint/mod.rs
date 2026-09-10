@@ -439,6 +439,55 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         }
     }
     println!("  rust blocks checked for undefined types               {blocks_checked:>4}");
+
+    // **F70's shape, in Bund2's own source.**
+    //
+    // The reference's `move` drains the current stack in a loop that pushes as
+    // it pulls, and pushing to a stack that does not exist yet *creates* it,
+    // which makes it current — so the loop starts pulling back what it just
+    // pushed and never returns. `1 2 3 :box move` hangs the oracle forever.
+    //
+    // Bund2's drains take the contents first and push afterwards, which cannot
+    // feed itself. That is a property of how the loops are written, not
+    // something the type system enforces, so it is checked here: a `while let
+    // Some(..) = vm.pull…` loop whose body pushes is the shape that hangs.
+    //
+    // A hang is worse than a panic for D37's reason — it cannot be reported,
+    // cannot be caught by `?try`, and cannot be told apart from a slow program.
+    let mut drain_loops = 0usize;
+    for entry in walk_rs(&repo) {
+        let Ok(body) = std::fs::read_to_string(&entry) else {
+            continue;
+        };
+        let lines: Vec<&str> = body.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            let t = line.trim();
+            let drains = t.starts_with("while let Some(")
+                && (t.contains("vm.pull()") || t.contains("vm.pull_from("));
+            if !drains {
+                continue;
+            }
+            drain_loops += 1;
+            // The body runs to the closing brace at the loop's indentation.
+            let indent = line.len() - line.trim_start().len();
+            for l in lines.iter().skip(i + 1) {
+                let li = l.len() - l.trim_start().len();
+                if l.trim() == "}" && li == indent {
+                    break;
+                }
+                if l.contains("vm.push") {
+                    findings.push(Finding {
+                        doc: entry.strip_prefix(&repo).unwrap_or(&entry).display().to_string(),
+                        line: i + 1,
+                        what: "a drain loop pushes inside its own body — F70's shape. \n              Collect first, then push: pushing to a stack that does not \n              exist yet makes it current, and the loop feeds itself."
+                            .to_string(),
+                    });
+                    break;
+                }
+            }
+        }
+    }
+    println!("  drain loops checked for F70's shape                   {drain_loops:>4}");
     println!();
 
     if findings.is_empty() {
@@ -451,6 +500,27 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     }
     println!();
     Err(format!("{} inconsistency/ies", findings.len()))
+}
+
+/// Every `.rs` under `crates/`, for the source-level checks.
+fn walk_rs(repo: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![repo.join("crates")];
+    while let Some(dir) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                out.push(p);
+            }
+        }
+    }
+    out.sort();
+    out
 }
 
 /// `F12`, `F28` … mentioned on a line.

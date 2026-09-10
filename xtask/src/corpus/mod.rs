@@ -120,6 +120,50 @@ fn collect_bund(dir: &Path, out: &mut Vec<PathBuf>, recurse: bool) {
     }
 }
 
+/// Every `.bund` a *word* can be exercised by: the reference corpus, plus the
+/// probes authored under D21.
+///
+/// **Coverage reads this; `xtask corpus` does not.** A probe is a program for
+/// the purpose of "is this word exercised", and excluding them made D21's
+/// mechanism — the only way to raise coverage past what the corpus happens to
+/// mention — invisible to the number it exists to move. Three probes covering
+/// the whole `math.*` family moved it by zero.
+///
+/// `xtask corpus` keeps the reference roots alone, because its subject is what
+/// real Bund programs do and a probe is not one.
+pub fn load_corpus_and_probes(repo: &Path) -> Vec<Program> {
+    let mut programs = load_corpus(repo);
+    let dir = repo.join("tests/probes");
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "bund"))
+        .collect();
+    files.sort();
+    for f in files {
+        if let Ok(src) = std::fs::read_to_string(&f) {
+            let rel = f
+                .strip_prefix(repo)
+                .unwrap_or(&f)
+                .to_string_lossy()
+                .replace('\\', "/");
+            let name = f
+                .file_stem()
+                .map(|n| format!("probes/{}", n.to_string_lossy()))
+                .unwrap_or_default();
+            programs.push(Program {
+                path: rel,
+                name,
+                lines: src.lines().map(str::to_string).collect(),
+                lexed: lex::lex(&src),
+            });
+        }
+    }
+    programs
+}
+
 pub fn load_corpus(repo: &Path) -> Vec<Program> {
     let mut programs = Vec::new();
     for (idx, root) in CORPUS_ROOTS.iter().enumerate() {
@@ -437,6 +481,25 @@ fn load_core_words(repo: &Path) -> BTreeSet<String> {
 ///
 /// So there are two numbers and neither substitutes for the other:
 /// conformance answers "did we break observed behaviour", coverage answers
+/// Ask the built `bund2` which names it registers.
+///
+/// A subprocess rather than a link, because `xtask` does not depend on the
+/// interpreter and should not start: the join key is a list of strings, and
+/// `bund2 words` is the cheapest honest way to get it.
+fn bund2_words(repo: &Path) -> Result<Vec<String>, String> {
+    let exe = crate::buildcli::bund2(repo, false, "")?;
+    let out = std::process::Command::new(&exe)
+        .arg("words")
+        .output()
+        .map_err(|e| format!("running {}: {e}", exe.display()))?;
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
 /// "how much of the language is tested at all".
 pub fn run_coverage(_args: &[String]) -> Result<(), String> {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -444,7 +507,7 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
         .ok_or("cannot locate repository root")?
         .to_path_buf();
 
-    let programs = load_corpus(&repo);
+    let programs = load_corpus_and_probes(&repo);
     if programs.is_empty() {
         return Err(format!(
             "no .bund files under {:?}. Are the reference submodules checked out?",
@@ -468,7 +531,22 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
             in_scope.push(w);
         }
     }
-    let covered: Vec<&str> = in_scope
+    // **What Bund2 actually registers.** Asked of the binary rather than
+    // inferred, because the alternative — scanning `register_native` calls —
+    // would miss aliases and would not see a word the registry rejects.
+    let implemented_names = bund2_words(&repo)?;
+    let implemented_set: BTreeSet<&str> = implemented_names.iter().map(String::as_str).collect();
+
+    let implemented: Vec<&str> = in_scope
+        .iter()
+        .copied()
+        .filter(|w| implemented_set.contains(w))
+        .collect();
+    // Tested = implemented **and** run by at least one corpus program or
+    // probe. Implementation alone is not coverage: an unexercised word is
+    // untested code, and this is the number CLAUDE.md calls the completeness
+    // number.
+    let covered: Vec<&str> = implemented
         .iter()
         .copied()
         .filter(|w| used.contains(w))
@@ -476,11 +554,19 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
     let uncovered: Vec<&str> = in_scope
         .iter()
         .copied()
-        .filter(|w| !used.contains(w))
+        .filter(|w| !used.contains(w) || !implemented_set.contains(w))
+        .collect();
+    // The old numerator, kept because it is a real and useful bound: no word
+    // outside it can ever be covered by a golden, whatever Bund2 implements.
+    let reachable: Vec<&str> = in_scope
+        .iter()
+        .copied()
+        .filter(|w| used.contains(w))
         .collect();
 
     println!("# cargo xtask coverage\n");
-    println!("Words with a test, over words in scope. This is NOT conformance.");
+    println!("Words Bund2 implements and a program runs, over words in scope.");
+    println!("This is NOT conformance.");
     println!("`cargo xtask conform` is goldens passed over goldens — a regression");
     println!("number over a fixed corpus, which is why the JIT and AOT milestones");
     println!("must move it by exactly zero. Coverage is the completeness number.");
@@ -490,18 +576,39 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
     println!("  out of scope by decision    {:>5}", deferred.len());
     println!("  {:-<32}", "");
     println!("  words in scope              {:>5}", in_scope.len());
-    println!("  covered by a golden         {:>5}", covered.len());
-    println!(
-        "  covered by a hand test      {:>5}   (not yet wired — see Q5)",
-        0
-    );
+    println!("  implemented by Bund2        {:>5}", implemented.len());
+    println!("  of those, run by a golden   {:>5}", covered.len());
     println!("  {:-<32}", "");
+    let ipct = 100.0 * implemented.len() as f64 / in_scope.len().max(1) as f64;
     let pct = 100.0 * covered.len() as f64 / in_scope.len().max(1) as f64;
+    println!(
+        "  IMPLEMENTED             {:>5}/{:<5} ({ipct:.1}%)",
+        implemented.len(),
+        in_scope.len()
+    );
     println!(
         "  COVERAGE                {:>5}/{:<5} ({pct:.1}%)\n",
         covered.len(),
         in_scope.len()
     );
+    println!("  **COVERAGE is the completeness number**, and it is the smaller");
+    println!("  of the two on purpose: a word Bund2 registers but no program");
+    println!("  runs is untested code. IMPLEMENTED is reported beside it because");
+    println!("  the gap between them is the work of writing probes, not of");
+    println!("  writing words.\n");
+    println!("  Both are asked of the **binary**: `bund2 words` lists what the");
+    println!("  registry binds, and coverage joins that against the reference's");
+    println!("  registry. Until this run they were not — the numerator counted");
+    println!("  in-scope words the *corpus mentioned*, a property of the corpus");
+    println!("  that could not move as words landed, and it read 121/497 through");
+    println!("  roughly forty words arriving in a single session. A completeness");
+    println!("  number that cannot move is not one.\n");
+    println!(
+        "  Reachable at all: {} in-scope words appear in some golden, so that",
+        reachable.len()
+    );
+    println!("  is the ceiling on COVERAGE until probes are written for the rest.");
+    println!("  It is the old numerator, kept as the bound it always was.\n");
 
     // D14 splits the in-scope set into core and library. Coverage stays a
     // number over in-scope, because that is how CLAUDE.md defines it and the
@@ -1092,8 +1199,8 @@ fn task3(programs: &[Program], reg: &Registry) {
     rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
 
     println!(
-        "  {:<22} {:>7} {:>7} {:>10}  {}",
-        "subsystem", "breaks", "words", "otherwise", "basic?"
+        "  {:<22} {:>7} {:>7} {:>10}  basic?",
+        "subsystem", "breaks", "words", "otherwise"
     );
     println!("  {:<22} {:>7} {:>7} {:>10}", "", "progs", "used", "basic");
     for (sub, nbreak, nwords, nintr) in &rows {
@@ -1267,7 +1374,7 @@ fn task4<'a>(
     }
     println!("## disqualifying effects, by count of (program, word) pairs\n");
     let mut h: Vec<_> = hist.into_iter().collect();
-    h.sort_by(|a, b| b.1.cmp(&a.1));
+    h.sort_by_key(|e| std::cmp::Reverse(e.1));
     for (e, n) in h {
         println!("  {e:<14} {n:>4}");
     }

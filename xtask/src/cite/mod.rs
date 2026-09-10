@@ -57,7 +57,15 @@ struct Finding {
 }
 
 /// Files whose citations are checked.
-const ROOTS: &[&str] = &["docs", "tests/golden", "tests/probes", "CLAUDE.md"];
+///
+/// **`crates` is here because Rust source carries citations too**, and for a
+/// long time none of them were checked. Every word's doc comment grounds its
+/// operand order and its failure arms in `reference/…:N`, which is the same
+/// claim an RFC makes and decays the same way — but the walk only looked at
+/// `.md`, `.txt` and `.bund`, so 256 of the repository's 1746 citations were
+/// invisible to the tool that exists to verify them. The ones nearest the code
+/// are the ones a reader trusts most.
+const ROOTS: &[&str] = &["docs", "tests/golden", "tests/probes", "crates", "CLAUDE.md"];
 
 fn markdown_and_text(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -70,21 +78,68 @@ fn markdown_and_text(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
             markdown_and_text(&p, out);
         } else if p
             .extension()
-            .is_some_and(|e| e == "md" || e == "txt" || e == "bund")
+            .is_some_and(|e| e == "md" || e == "txt" || e == "bund" || e == "rs")
         {
             out.push(p);
         }
     }
 }
 
-/// Every `reference/...:N` or `reference/...:N,M` citation on a line, with the
-/// line numbers it names.
+/// Roots whose files are **edited**, so a line number into them decays.
+///
+/// **Q30.** `reference/` is pinned by SHA and cannot move, which is why a
+/// `path:line` citation into it is load-bearing: it pins a claim to a commit.
+/// `crates/` and `xtask/` have no such anchor. A citation into them decays on
+/// every edit *above* the cited line, and the observed window is hours: two
+/// citations to `with_tag` went stale the same afternoon they were repaired,
+/// because a 21-line comment was added to the file's header.
+///
+/// So a citation into these roots names a **symbol**, not a line, and `cite`
+/// checks the symbol is in the file. That check has no false-positive mode —
+/// it asks "is it there", not "is it near line N" — so it is a hard failure
+/// where the line-proximity heuristic could only ever be advisory.
+const LIVE_ROOTS: &[&str] = &["crates/", "xtask/"];
+
+fn is_live(path: &str) -> bool {
+    LIVE_ROOTS.iter().any(|r| path.starts_with(r))
+}
+
+/// Prefixes a citation can start with.
+///
+/// **`reference/` was the only one, and that was a hole — F2.** A citation
+/// into `crates/` decays faster than one into `reference/`, because
+/// `reference/` is pinned by SHA and `crates/` is edited every session: D41
+/// moved `with_tag` by ~200 lines and invalidated five citations across
+/// RFC-0005 and D35 on the day they were written, while `cite` reported zero
+/// defects over 1782 of them. Widening `ROOTS` to scan Rust files was not
+/// enough on its own — the extractor still only recognised one prefix, so the
+/// citations *into* those files were read past.
+/// **Not a bare `tests/`.** In this repository that prefix is ambiguous:
+/// `tests/golden/…` and `tests/probes/…` are repo-relative, while a bare
+/// `tests/testing_if.bund` means `reference/Bund/tests/…` — the corpus root,
+/// implied by convention. Listing `tests/` produced 14 false "file does not
+/// exist" findings on the first run, so the two real roots are named instead.
+const CITE_PREFIXES: &[&str] = &[
+    "reference/",
+    "crates/",
+    "xtask/",
+    "docs/",
+    "tests/golden/",
+    "tests/probes/",
+];
+
+/// Every `<prefix>/...:N` or `...:N,M` citation on a line, with the line
+/// numbers it names.
 fn citations_in(line: &str) -> Vec<(String, Vec<usize>)> {
     // Char indices throughout. Mixing them with byte slicing panics on the
     // first em dash, and these documents are full of them.
     let cs: Vec<char> = line.chars().collect();
-    let pat: Vec<char> = "reference/".chars().collect();
-    let starts_at = |i: usize| cs.len() >= i + pat.len() && cs[i..i + pat.len()] == pat;
+    let starts_at = |i: usize| {
+        CITE_PREFIXES.iter().any(|p| {
+            let pat: Vec<char> = p.chars().collect();
+            cs.len() >= i + pat.len() && cs[i..i + pat.len()] == pat
+        })
+    };
 
     let mut out = Vec::new();
     let mut i = 0;
@@ -133,6 +188,43 @@ fn citations_in(line: &str) -> Vec<(String, Vec<usize>)> {
             out.push((path, lines));
         }
         i = j.max(start + 1);
+    }
+    out
+}
+
+/// A bare `` `:N` ``, `` `:N-M` `` or `` `:N,M` `` — "the same file as the last
+/// citation".
+///
+/// **1366 of these across 60 files, and `cite` had never seen one.** The
+/// extractor required a path prefix, so the convention every document uses for
+/// a second reference into the same file — a seven-row table of steps that
+/// names the path once — was invisible. Criterion-8-style claims that "every
+/// citation resolves" were true only of the citations that spelled a path.
+///
+/// They are resolved against the most recent full citation *in the same
+/// document*, which is how a reader resolves them.
+fn bare_citations_in(line: &str) -> Vec<Vec<usize>> {
+    let mut out = Vec::new();
+    for seg in line.split('`') {
+        let t = seg.trim();
+        if !t.starts_with(':') {
+            continue;
+        }
+        let digits = &t[1..];
+        if digits.is_empty()
+            || !digits
+                .chars()
+                .all(|c| c.is_ascii_digit() || c == '-' || c == ',')
+        {
+            continue;
+        }
+        let nums: Vec<usize> = digits
+            .split(['-', ','])
+            .filter_map(|n| n.parse().ok())
+            .collect();
+        if !nums.is_empty() {
+            out.push(nums);
+        }
     }
     out
 }
@@ -501,8 +593,39 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             }
         }
 
+        // Lines that are a fence marker or inside one. A fenced block's info
+        // string may carry `path:line` even for live code, because the
+        // exact-match check verifies the quoted body against that line — it
+        // fails loudly when the line moves, which is the property Q30 wants.
+        let in_fence: std::collections::HashSet<usize> = {
+            let mut set = std::collections::HashSet::new();
+            let mut open = false;
+            for (i, l) in text.lines().enumerate() {
+                if l.trim_start().starts_with("```") {
+                    set.insert(i + 1);
+                    open = !open;
+                } else if open {
+                    set.insert(i + 1);
+                }
+            }
+            set
+        };
+        // The path a bare `:N` on a later line refers to.
+        let mut last_path: Option<String> = None;
         for (n, line) in text.lines().enumerate() {
+            // **A blank line ends the scope.** A bare `:N` is resolved by a
+            // reader against the path named nearby — the same table, the same
+            // sentence — not against whatever was last cited anywhere in a
+            // 1500-line document. Scoping to the whole document produced 52
+            // findings and every one was this mistake: a 14-line file cited
+            // once, then blamed for bare citations belonging elsewhere.
+            if line.trim().is_empty() {
+                last_path = None;
+            }
             let all = citations_in(line);
+            if let Some((p, _)) = all.last() {
+                last_path = Some(p.clone());
+            }
             // With two citations on a line there is no way to tell which
             // quoted token belongs to which, and pairing them all against all
             // manufactures defects. Existence still gets checked; only
@@ -519,6 +642,67 @@ pub fn run(_args: &[String]) -> Result<(), String> {
                         problem: "file does not exist".into(),
                         hard: true,
                     });
+                    continue;
+                }
+                // **Q30: a symbol, not a line, for live code.**
+                if is_live(&path) {
+                    let toks = quoted_tokens(line);
+                    if !nums.is_empty() && !in_fence.contains(&(n + 1)) {
+                        findings.push(Finding {
+                            doc: doc_rel.clone(),
+                            doc_line: n + 1,
+                            citation: format!("{path}:{}", nums[0]),
+                            problem:
+                                "line number into live code — cite the file and name a symbol \
+                                 in backticks instead; the line decays on the next edit above it \
+                                 (Q30). A fenced exact-match block may still carry one."
+                                    .into(),
+                            hard: true,
+                        });
+                        continue;
+                    }
+                    // The symbol must be in the file. No window, no proximity.
+                    if single && !toks.is_empty() {
+                        let src = source_cache.entry(path.clone()).or_insert_with(|| {
+                            std::fs::read_to_string(&abs)
+                                .map(|s| s.lines().map(str::to_string).collect())
+                                .unwrap_or_default()
+                        });
+                        let body = src.join("\n");
+                        // A path-qualified name is written `module::item` in
+                        // prose and appears as `item` in the source, so match
+                        // on the last segment. And a bare `:N` is a relative
+                        // line citation, not a symbol — it is caught by the
+                        // rule above when it carries a path, and is not a
+                        // token to look for here.
+                        let is_symbol = |t: &&String| {
+                            !t.starts_with(':') && t.chars().any(char::is_alphanumeric)
+                        };
+                        let tail = |t: &str| {
+                            t.rsplit("::").next().unwrap_or(t).trim_end_matches("()").to_string()
+                        };
+                        // **At least one, not all.** A prose line often names
+                        // one file and several unrelated things — a register
+                        // row citing a bench while also naming `bund2-api` and
+                        // `bund2-stdlib`. Demanding every backtick on the line
+                        // appear in the cited file manufactures defects out of
+                        // ordinary sentences. One match corroborates the
+                        // citation; none means nothing on the line points at
+                        // that file, which is the case worth reporting.
+                        let syms: Vec<&String> = toks.iter().filter(is_symbol).collect();
+                        if !syms.is_empty()
+                            && !syms.iter().any(|t| body.contains(&tail(t)))
+                            && let Some(t) = syms.first()
+                        {
+                            findings.push(Finding {
+                                doc: doc_rel.clone(),
+                                doc_line: n + 1,
+                                citation: path.clone(),
+                                problem: format!("`{t}` does not appear in the file"),
+                                hard: true,
+                            });
+                        }
+                    }
                     continue;
                 }
                 if nums.is_empty() {
@@ -573,6 +757,57 @@ pub fn run(_args: &[String]) -> Result<(), String> {
                     }
                 }
             }
+
+            // Bare `:N` — "the same file as the last citation". Resolved
+            // against the most recent full path in this document, which is how
+            // a reader resolves it. Existence and range only: a bare citation
+            // carries no path for the live-code rule to inspect, and a quoted
+            // token on the line belongs to whatever the prose is about.
+            if let Some(path) = last_path.clone()
+                && !in_fence.contains(&(n + 1))
+            {
+                let bare = bare_citations_in(line);
+                let abs = repo.join(&path);
+                if !bare.is_empty() && abs.is_file() {
+                    let src = source_cache.entry(path.clone()).or_insert_with(|| {
+                        std::fs::read_to_string(&abs)
+                            .map(|s| s.lines().map(str::to_string).collect())
+                            .unwrap_or_default()
+                    });
+                    for num in bare.into_iter().flatten() {
+                        checked += 1;
+                        if num == 0 || num > src.len() {
+                            findings.push(Finding {
+                                doc: doc_rel.clone(),
+                                doc_line: n + 1,
+                                citation: format!("{path}:{num}"),
+                                problem: format!(
+                                    "line {num} past end of file ({} lines) — bare `:N` \
+                                     resolved against the last citation in this document",
+                                    src.len()
+                                ),
+                                // **Advisory, and it cannot be otherwise.**
+                                // Resolving a bare `:N` needs the path from
+                                // nearby prose, and the documents use a
+                                // *second* shorthand the extractor cannot see
+                                // either — a bare filename, `bund.pest:48`,
+                                // with no directory. When that is what a
+                                // paragraph named, `last_path` still holds
+                                // something from further up and the range
+                                // check is against the wrong file.
+                                //
+                                // Every one of the 14 findings this produced
+                                // was that, not a stale citation. A gate with
+                                // that failure rate teaches people to ignore
+                                // the tool, which is worse than not checking.
+                                // Reported so the count is visible; never
+                                // fatal.
+                                hard: false,
+                            });
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -583,6 +818,23 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     println!("it points at. It cannot check that a line means what the prose");
     println!("says; that still needs a reader.\n");
 
+    // **A citation in `docs/research/` is never a hard failure.** Those
+    // documents are immutable — CLAUDE.md: "Research documents are immutable …
+    // When an RFC contradicts one, record it in `docs/research/ERRATA.md` — do
+    // not edit the original." A tool that fails the build on one is demanding
+    // an edit the project forbids, and the reasoning trail is *allowed* to
+    // describe a plan that was not adopted: `scaffold-and-implementation.md`
+    // names `tests/golden/test_times_loop.json`, and goldens ended up `.golden`.
+    // Reported, so the drift is visible; never fatal.
+    let findings: Vec<Finding> = findings
+        .into_iter()
+        .map(|mut f| {
+            if f.doc.starts_with("docs/research/") {
+                f.hard = false;
+            }
+            f
+        })
+        .collect();
     let (hard, soft): (Vec<&Finding>, Vec<&Finding>) = findings.iter().partition(|f| f.hard);
 
     println!(

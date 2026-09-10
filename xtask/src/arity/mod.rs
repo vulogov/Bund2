@@ -59,6 +59,10 @@ struct Row {
     declared_workbench: Option<usize>,
     /// Probed (consumed, produced) and the sentinel type that worked.
     probed: Option<(usize, usize, &'static str)>,
+    /// Adding operands did not change what the word left behind, so `probed`'s
+    /// `consumed` is a **floor** and not an arity. See [`probe_word`] for what
+    /// this does and does not prove.
+    depth_insensitive: bool,
     note: String,
 }
 
@@ -129,7 +133,7 @@ fn handler_body<'a>(src: &'a str, handler: &str) -> Option<&'a str> {
 
 /// Follow one level of delegation: many handlers are a single call into a
 /// `_base` function that holds the real guard.
-fn effective_body<'a>(src: &'a str, handler: &str) -> Option<String> {
+fn effective_body(src: &str, handler: &str) -> Option<String> {
     let body = handler_body(src, handler)?;
     let mut out = body.to_string();
     for cand in ["_base", "_inline_base"] {
@@ -177,7 +181,13 @@ const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 fn run_probe(oracle: &Path, scratch: &Path, program: &str) -> Option<String> {
     use std::io::Read;
 
-    let file = scratch.join("arity_probe.bund");
+    // **Per-process, because two concurrent runs otherwise clobber each other
+    // silently.** A shared `arity_probe.bund` lets one run's oracle read
+    // another run's program, and the result is not an error — it is a
+    // plausible wrong number. Observed: `!=` reported `probed 0->3`, which is
+    // impossible for a word probed against an empty stack, alongside a probed
+    // count that moved by 14 between runs of an otherwise deterministic tool.
+    let file = scratch.join(format!("arity_probe_{}.bund", std::process::id()));
     std::fs::write(&file, program).ok()?;
     let mut child = std::process::Command::new(oracle)
         .arg("script")
@@ -221,14 +231,14 @@ fn probe_word(
     oracle: &Path,
     scratch: &Path,
     word: &str,
-) -> (Option<(usize, usize, &'static str)>, String) {
+) -> (Option<(usize, usize, &'static str)>, bool, String) {
     let mut last_note = String::from("no sentinel type accepted");
     for (tyname, lit) in SENTINELS {
         for k in 0..=MAX_DEPTH {
             let sentinels = vec![*lit; k].join(" ");
             let program = format!("{sentinels}\n{word}\ndebug.display_stack\n");
             let Some(out) = run_probe(oracle, scratch, &program) else {
-                return (None, format!("timed out at depth {k} ({tyname})"));
+                return (None, false, format!("timed out at depth {k} ({tyname})"));
             };
             if errored(&out) {
                 if too_shallow(&out) {
@@ -244,10 +254,44 @@ fn probe_word(
             // whatever remains is precisely what it produced.
             let consumed = k;
             let produced = count_values(&out);
-            return (Some((consumed, produced, tyname)), String::new());
+
+            // **Is `k` an arity, or just a minimum?** The loop above only
+            // proves the word refused every shallower stack. A whole-stack
+            // fold refuses them too — `stdlib_math_op_multiple_inline` pulls
+            // until the stack yields NODATA
+            // (`reference/rust_multistackvm/src/stdlib/math/math_op.rs:38-52`)
+            // — and then reports the same `k` as a binary word does. D12 names
+            // that family, and before this check the table recorded `**`,
+            // `*+`, `*-` and `*/` as consuming 2, which is what a two-deep
+            // sentinel stack happens to hold.
+            //
+            // Two extra operands tell them apart: a fixed-arity word leaves
+            // two more behind. Confirmed against the oracle — at depth 4, `+`
+            // and `++` leave 3 while `**`, `*+`, `*-` and `*/` leave 1.
+            //
+            // **What this flag means is "the residual did not move", and that
+            // is weaker than "variadic".** A word that switches stacks reads
+            // its residual on a different stack, and a word that empties the
+            // stack reads 0 either way; both are depth-insensitive without
+            // consuming a variable number of operands. `ensure_stack` is the
+            // worked example — flagged here, but 2 operands in leaves 2 and 6
+            // leaves 6. The flag is therefore a *superset*, and it is reported
+            // as one rather than being narrowed by a guess.
+            let deeper = k + 2;
+            let probe = format!(
+                "{}\n{word}\ndebug.display_stack\n",
+                vec![*lit; deeper].join(" ")
+            );
+            let depth_insensitive = match run_probe(oracle, scratch, &probe) {
+                Some(out2) if !errored(&out2) => count_values(&out2) == produced,
+                // Deeper stack errors or times out: no evidence of folding, so
+                // report the fixed reading rather than guess.
+                _ => false,
+            };
+            return (Some((consumed, produced, tyname)), depth_insensitive, String::new());
         }
     }
-    (None, last_note)
+    (None, false, last_note)
 }
 
 pub fn run(args: &[String]) -> Result<(), String> {
@@ -322,15 +366,16 @@ pub fn run(args: &[String]) -> Result<(), String> {
             skipped_unsafe += 1;
         }
 
-        let (probed, note) = if have_oracle && safe {
+        let (probed, depth_insensitive, note) = if have_oracle && safe {
             probe_word(&oracle, &scratch, word)
         } else if !safe {
             (
                 None,
+                false,
                 "not probed: effectful, out of scope, or terminates".into(),
             )
         } else {
-            (None, String::new())
+            (None, false, String::new())
         };
 
         rows.push(Row {
@@ -339,6 +384,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             declared_stack: ds,
             declared_workbench: dw,
             probed,
+            depth_insensitive,
             note,
         });
     }
@@ -358,8 +404,12 @@ fn report(
     // Disagreement: declared says it needs N, the probe succeeded shallower.
     let mut disagree: Vec<&Row> = Vec::new();
     for r in rows {
+        // Excluded: for these the declared guard is a minimum and the probed
+        // count is the same minimum measured a different way, so a
+        // "disagreement" would be an artefact of comparing a floor to a floor.
         if let (Some(d), Some((c, _, _))) = (r.declared_stack, r.probed)
             && d != c
+            && !r.depth_insensitive
         {
             disagree.push(r);
         }
@@ -380,7 +430,40 @@ fn report(
         "declared and probed disagree",
         disagree.len()
     );
+    let insensitive: Vec<&Row> = rows.iter().filter(|r| r.depth_insensitive).collect();
+    println!(
+        "  {:<34}{:>5}",
+        "depth-insensitive residual",
+        insensitive.len()
+    );
     println!();
+
+    if !insensitive.is_empty() {
+        println!("## depth-insensitive residual\n");
+        println!("  Two extra operands changed nothing about what these left");
+        println!("  behind, so the probed `consumed` is a **floor** and the");
+        println!("  table writes it `N+`. Reading it as an arity is what this");
+        println!("  column exists to stop: a two-deep sentinel stack makes a");
+        println!("  whole-stack fold look binary, which is what the table said");
+        println!("  about `**`, `*+`, `*-` and `*/` before this check.\n");
+        println!("  **It does not prove variadicity.** It is a superset. A word");
+        println!("  that switches stacks measures its residual on a *different*");
+        println!("  stack and lands here too — `ensure_stack` does, probed with");
+        println!("  a string sentinel, and its depth is genuinely unchanged");
+        println!("  (verified against the oracle: 2 in, 2 out; 6 in, 6 out).");
+        println!("  Same for words that empty the stack outright. Which cause");
+        println!("  applies is a source question, not a probe question.\n");
+        println!("  D12's four are confirmed by source: `stdlib_math_op_multiple_inline`");
+        println!("  pulls until the stack yields NODATA");
+        println!("  (`reference/rust_multistackvm/src/stdlib/math/math_op.rs:38-52`),");
+        println!("  and at depth 4 they leave 1 where `+` and `++` leave 3.\n");
+        println!("  {:<28}{:>10}{:>10}", "word", "floor", "produced");
+        for r in &insensitive {
+            let (floor, produced) = r.probed.map(|(c, p, _)| (c, p)).unwrap_or((0, 0));
+            println!("  {:<28}{:>9}+{:>10}", r.word, floor, produced);
+        }
+        println!();
+    }
 
     if !disagree.is_empty() {
         println!("## declared depth differs from probed consumption\n");
@@ -423,6 +506,8 @@ fn report(
     s.push_str("|---|---|---|---|---|---|---|---|\n");
     for r in rows {
         let (c, p, t) = match r.probed {
+            // A floor, not an arity, so it is written `2+` rather than `2`.
+            Some((c, p, t)) if r.depth_insensitive => (format!("{c}+"), p.to_string(), t.to_string()),
             Some((c, p, t)) => (c.to_string(), p.to_string(), t.to_string()),
             None => (String::new(), String::new(), String::new()),
         };

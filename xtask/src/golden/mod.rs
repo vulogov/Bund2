@@ -73,7 +73,11 @@ pub(crate) fn capture_epilogue(src: &str) -> String {
 /// written to run. Probes are ours and depend on no file, so they run from the
 /// repo root — if a probe ever needs the reference tree it has stopped being
 /// hermetic.
-pub(crate) fn capture_jobs(repo: &Path) -> Result<(Vec<(String, String, PathBuf)>, usize), String> {
+/// One capture: the program's repo-relative path, the golden's name, and the
+/// directory to run it from.
+pub(crate) type CaptureJob = (String, String, PathBuf);
+
+pub(crate) fn capture_jobs(repo: &Path) -> Result<(Vec<CaptureJob>, usize), String> {
     let suite = read_suite(repo)?;
     let mut jobs: Vec<(String, String, PathBuf)> = suite
         .iter()
@@ -736,6 +740,25 @@ pub fn golden_path_for(repo: &Path, program: &str) -> PathBuf {
     repo.join("tests/golden").join(golden_name(program))
 }
 
+/// Split a golden into its recorded exit status and output.
+///
+/// Kept beside the writer so the two cannot drift: `conform` reads goldens
+/// through this, and any change to the format is a change to one file.
+pub(crate) fn parse_golden(body: &str) -> Option<(i32, String)> {
+    let out_at = body.find("\n## output\n")?;
+    let exit_at = body.find("\n## exit\n")?;
+    let status: i32 = body[exit_at + "\n## exit\n".len()..out_at]
+        .trim()
+        .parse()
+        .ok()?;
+    let output = body[out_at + "\n## output\n".len()..]
+        .strip_suffix('\n')
+        .unwrap_or(&body[out_at + "\n## output\n".len()..])
+        .to_string();
+    Some((status, output))
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -808,22 +831,4 @@ mod tests {
             golden_name("reference/Bund/examples/a__b.bund")
         );
     }
-}
-
-/// Split a golden into its recorded exit status and output.
-///
-/// Kept beside the writer so the two cannot drift: `conform` reads goldens
-/// through this, and any change to the format is a change to one file.
-pub(crate) fn parse_golden(body: &str) -> Option<(i32, String)> {
-    let out_at = body.find("\n## output\n")?;
-    let exit_at = body.find("\n## exit\n")?;
-    let status: i32 = body[exit_at + "\n## exit\n".len()..out_at]
-        .trim()
-        .parse()
-        .ok()?;
-    let output = body[out_at + "\n## output\n".len()..]
-        .strip_suffix('\n')
-        .unwrap_or(&body[out_at + "\n## output\n".len()..])
-        .to_string();
-    Some((status, output))
 }

@@ -21,14 +21,14 @@ grounds. Those are listed with a reason rather than guessed at.
 | `#.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/oop/object_execute.rs:60 | type-constrained: list rejected |
 | `$` |  |  |  |  |  | reference/rust_multistack/src/stdlib/workbench.rs:81 | type-constrained: list rejected |
 | `*` |  |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/math/mul.rs:23 |  |
-| `**` |  |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/math/mul.rs:25 |  |
+| `**` |  |  | 2+ | 1 | int | reference/rust_multistackvm/src/stdlib/math/mul.rs:25 |  |
 | `**.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/mul.rs:26 | no sentinel type accepted |
-| `*+` |  |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/math/add.rs:25 |  |
+| `*+` |  |  | 2+ | 1 | int | reference/rust_multistackvm/src/stdlib/math/add.rs:25 |  |
 | `*+.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/add.rs:26 | no sentinel type accepted |
-| `*-` |  |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/math/sub.rs:25 |  |
+| `*-` |  |  | 2+ | 1 | int | reference/rust_multistackvm/src/stdlib/math/sub.rs:25 |  |
 | `*-.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/sub.rs:26 | no sentinel type accepted |
 | `*.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/mul.rs:24 | no sentinel type accepted |
-| `*/` |  |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/math/div.rs:25 |  |
+| `*/` |  |  | 2+ | 1 | int | reference/rust_multistackvm/src/stdlib/math/div.rs:25 |  |
 | `*/.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/div.rs:26 | no sentinel type accepted |
 | `*loop` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:122 | type-constrained: list rejected |
 | `*loop.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:123 | type-constrained: list rejected |
@@ -110,7 +110,7 @@ grounds. Those are listed with a reason rather than guessed at.
 | `classifier` |  |  |  |  |  | reference/Bund/src/stdlib/functions/ai/mod.rs:61 | not probed: effectful, out of scope, or terminates |
 | `classifier.classify` |  |  |  |  |  | reference/Bund/src/stdlib/functions/ai/mod.rs:69 | not probed: effectful, out of scope, or terminates |
 | `classify` |  |  |  |  |  | reference/Bund/src/stdlib/functions/ai/mod.rs:69 | not probed: effectful, out of scope, or terminates |
-| `clear` |  |  | 0 | 0 | int | reference/rust_multistack/src/stdlib/clear.rs:58 |  |
+| `clear` |  |  | 0+ | 0 | int | reference/rust_multistack/src/stdlib/clear.rs:58 |  |
 | `clear_in` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/clear.rs:60 | type-constrained: list rejected |
 | `clear_stacks` |  |  | 0 | 0 | int | reference/rust_multistackvm/src/stdlib/stacks.rs:18 |  |
 | `clusters.detect` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/clustering.rs:57 | not probed: effectful, out of scope, or terminates |
@@ -184,7 +184,7 @@ grounds. Those are listed with a reason rather than guessed at.
 | `do.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/logic/do_fun.rs:68 | no sentinel type accepted |
 | `drop` |  |  |  |  |  | reference/rust_multistack/src/stdlib/drop.rs:71 | type-constrained: list rejected |
 | `drop_in` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/drop.rs:73 | type-constrained: list rejected |
-| `drop_stack` |  |  | 0 | 0 | int | reference/rust_multistack/src/stdlib/drop.rs:75 |  |
+| `drop_stack` |  |  | 0+ | 0 | int | reference/rust_multistack/src/stdlib/drop.rs:75 |  |
 | `drop_stacks` |  |  | 0 | 0 | int | reference/rust_multistackvm/src/stdlib/stacks.rs:19 |  |
 | `dup` |  |  |  |  |  | reference/rust_multistack/src/stdlib/dup.rs:87 | type-constrained: list rejected |
 | `dup_many` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/dup.rs:86 | type-constrained: list rejected |
@@ -193,8 +193,8 @@ grounds. Those are listed with a reason rather than guessed at.
 | `dup_one_in` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/dup.rs:90 | type-constrained: list rejected |
 | `encode.base64` |  |  | 1 | 1 | int | reference/Bund/src/stdlib/functions/encoding/base64.rs:121 |  |
 | `encode.base64.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/encoding/base64.rs:122 | no sentinel type accepted |
-| `endcontext` |  |  | 0 | 0 | int | reference/rust_multistackvm/src/stdlib/ctx.rs:31 |  |
-| `ensure_stack` | 1 |  | 1 | 0 | string | reference/rust_multistack/src/stdlib/ensure_stack.rs:95 |  |
+| `endcontext` |  |  | 0+ | 0 | int | reference/rust_multistackvm/src/stdlib/ctx.rs:31 |  |
+| `ensure_stack` | 1 |  | 1+ | 0 | string | reference/rust_multistack/src/stdlib/ensure_stack.rs:95 |  |
 | `ensure_stack_with_capacity` | 2 |  |  |  |  | reference/rust_multistack/src/stdlib/ensure_stack.rs:96 | type-constrained: list rejected |
 | `execute` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/execute.rs:124 | type-constrained: list rejected |
 | `execute.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/execute.rs:125 | no sentinel type accepted |
@@ -212,8 +212,8 @@ grounds. Those are listed with a reason rather than guessed at.
 | `float.NaN` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/math/float.rs:31 |  |
 | `float.Pi` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/math/float.rs:34 |  |
 | `fmt` |  |  | 0 | 1 | int | reference/Bund/src/stdlib/functions/conditional/mod.rs:41 |  |
-| `fold` |  |  | 0 | 1 | int | reference/rust_multistack/src/stdlib/fold.rs:41 |  |
-| `fold_stack` | 1 |  | 1 | 1 | string | reference/rust_multistack/src/stdlib/fold.rs:43 |  |
+| `fold` |  |  | 0+ | 1 | int | reference/rust_multistack/src/stdlib/fold.rs:41 |  |
+| `fold_stack` | 1 |  | 1+ | 1 | string | reference/rust_multistack/src/stdlib/fold.rs:43 |  |
 | `for` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/for_fun.rs:101 | type-constrained: list rejected |
 | `for.` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/for_fun.rs:102 | type-constrained: list rejected |
 | `forecast.estimate` |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:167 | not probed: effectful, out of scope, or terminates |
@@ -292,7 +292,7 @@ grounds. Those are listed with a reason rather than guessed at.
 | `json.to_value` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/json/conversion.rs:60 | type-constrained: list rejected |
 | `lambda` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:135 |  |
 | `lambda!` | 1 |  | 1 | 1 | list | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:218 |  |
-| `lambda*` |  |  | 0 | 1 | int | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:219 |  |
+| `lambda*` |  |  | 0+ | 1 | int | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:219 |  |
 | `lambda=` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:217 | type-constrained: list rejected |
 | `len` | 1 |  | 1 | 2 | int | reference/rust_multistackvm/src/stdlib/values/value_len.rs:24 |  |
 | `lines` | 1 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/string/tokenize.rs:129 |  |
@@ -342,8 +342,8 @@ grounds. Those are listed with a reason rather than guessed at.
 | `math.min,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/minmax.rs:84 | not probed: effectful, out of scope, or terminates |
 | `math.min.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/minmax.rs:82 | not probed: effectful, out of scope, or terminates |
 | `math.min.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/minmax.rs:86 | not probed: effectful, out of scope, or terminates |
-| `math.normalize` |  |  | 1 | 1 | int | reference/Bund/src/stdlib/functions/math/normalize.rs:68 |  |
-| `math.normalize,` |  |  | 1 | 1 | int | reference/Bund/src/stdlib/functions/math/normalize.rs:70 |  |
+| `math.normalize` |  |  | 1+ | 1 | int | reference/Bund/src/stdlib/functions/math/normalize.rs:68 |  |
+| `math.normalize,` |  |  | 1+ | 1 | int | reference/Bund/src/stdlib/functions/math/normalize.rs:70 |  |
 | `math.normalize.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/normalize.rs:69 | no sentinel type accepted |
 | `math.normalize.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/normalize.rs:71 | no sentinel type accepted |
 | `math.nroot` |  |  | 2 | 1 | float | reference/Bund/src/stdlib/functions/math/math.rs:158 |  |
@@ -355,8 +355,8 @@ grounds. Those are listed with a reason rather than guessed at.
 | `math.signum` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:173 |  |
 | `math.sin` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:179 |  |
 | `math.sinh` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:185 |  |
-| `math.smoothing` |  |  | 1 | 1 | int | reference/Bund/src/stdlib/functions/math/smoothing.rs:63 |  |
-| `math.smoothing,` |  |  | 1 | 1 | int | reference/Bund/src/stdlib/functions/math/smoothing.rs:65 |  |
+| `math.smoothing` |  |  | 1+ | 1 | int | reference/Bund/src/stdlib/functions/math/smoothing.rs:63 |  |
+| `math.smoothing,` |  |  | 1+ | 1 | int | reference/Bund/src/stdlib/functions/math/smoothing.rs:65 |  |
 | `math.smoothing.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/smoothing.rs:64 | no sentinel type accepted |
 | `math.smoothing.,` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/smoothing.rs:66 | no sentinel type accepted |
 | `math.sqrt` |  |  | 1 | 1 | float | reference/rust_multistackvm/src/stdlib/math/float_math.rs:178 |  |
@@ -449,7 +449,7 @@ grounds. Those are listed with a reason rather than guessed at.
 | `spinner.text.red` |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:345 | not probed: effectful, out of scope, or terminates |
 | `spinner.text.yellow` |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:350 | not probed: effectful, out of scope, or terminates |
 | `sqlite` |  |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:43 | type-constrained: list rejected |
-| `stack` | 1 |  | 1 | 0 | string | reference/rust_multistack/src/stdlib/ensure_stack.rs:95 |  |
+| `stack` | 1 |  | 1+ | 0 | string | reference/rust_multistack/src/stdlib/ensure_stack.rs:95 |  |
 | `stack_exists` | 1 |  | 1 | 1 | string | reference/rust_multistack/src/stdlib/ensure_stack.rs:97 |  |
 | `stacks_right` |  |  | 0 | 0 | int | reference/rust_multistack/src/stdlib/rotate.rs:94 |  |
 | `stat.count` |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/count.rs:52 | not probed: effectful, out of scope, or terminates |
@@ -594,7 +594,7 @@ grounds. Those are listed with a reason rather than guessed at.
 | `times` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/times_fun.rs:92 | type-constrained: list rejected |
 | `times.` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/times_fun.rs:93 | type-constrained: list rejected |
 | `to_current` | 1 |  |  |  |  | reference/rust_multistack/src/stdlib/current.rs:72 | type-constrained: list rejected |
-| `to_stack` | 1 |  | 1 | 0 | string | reference/rust_multistack/src/stdlib/current.rs:74 |  |
+| `to_stack` | 1 |  | 1+ | 0 | string | reference/rust_multistack/src/stdlib/current.rs:74 |  |
 | `true` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:137 |  |
 | `type` | 1 |  | 1 | 2 | int | reference/rust_multistackvm/src/stdlib/values/value_types.rs:65 |  |
 | `type.of` | 1 |  | 1 | 2 | int | reference/rust_multistackvm/src/stdlib/values/value_types.rs:66 |  |
@@ -619,7 +619,7 @@ grounds. Those are listed with a reason rather than guessed at.
 | `wrap` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/oop/value_class.rs:168 | type-constrained: list rejected |
 | `|` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:139 |  |
 | `Λ` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:135 |  |
-| `Σ` |  |  | 2 | 1 | int | reference/rust_multistackvm/src/stdlib/math/add.rs:25 |  |
+| `Σ` |  |  | 2+ | 1 | int | reference/rust_multistackvm/src/stdlib/math/add.rs:25 |  |
 | `Σ.` |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/add.rs:26 | no sentinel type accepted |
 | `λ` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/artefacts.rs:135 |  |
 | `π` |  |  | 0 | 1 | int | reference/rust_multistackvm/src/stdlib/math/float.rs:34 |  |

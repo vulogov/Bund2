@@ -28,7 +28,7 @@
 //! `--require <axis>` is what a CI gate would use once an axis is meant to
 //! hold.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -83,15 +83,6 @@ fn missing_word(text: &str) -> Option<String> {
     }
 }
 
-fn bund2_binary(repo: &Path) -> Result<PathBuf, String> {
-    for p in ["target/release/bund2", "target/debug/bund2"] {
-        let c = repo.join(p);
-        if c.exists() {
-            return Ok(c);
-        }
-    }
-    Err("bund2 is not built. Run `cargo build --release`.".into())
-}
 
 /// Run one program under a wall clock, and classify how it ended.
 fn run(bin: &Path, repo: &Path, src: &str, budget: Duration) -> Result<Outcome, String> {
@@ -217,6 +208,7 @@ pub fn run_cmd(args: &[String]) -> Result<(), String> {
     let mut depth = 100_000usize;
     let mut budget = 60u64;
     let mut require: Vec<String> = Vec::new();
+    let mut features = String::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -233,11 +225,25 @@ pub fn run_cmd(args: &[String]) -> Result<(), String> {
                     .ok_or("--timeout needs seconds")?
             }
             "--require" => require.push(it.next().cloned().ok_or("--require needs an axis")?),
+            // **RFC-0005 criterion 11 needs this.** The criterion is that a
+            // promoted recursion does not overflow the machine stack, which
+            // means running the depth axes against a binary built *with the
+            // tier*. Without a passthrough the command in that criterion could
+            // not be written, and worse, `bund2_binary` below would silently
+            // measure whichever binary happened to be lying in `target/`.
+            "--features" => features = it.next().cloned().ok_or("--features needs a list")?,
             other => return Err(format!("unknown argument `{other}`")),
         }
     }
 
-    let bin = bund2_binary(&repo)?;
+    // **The shared builder, not a private one.** `depth` kept its own
+    // `build_bund2` after the other four measuring subcommands moved to
+    // `crate::buildcli`, which is the drift that module exists to prevent —
+    // and RFC-0005 criterion 2 claimed all five shared it. Release profile,
+    // deliberately: a 100,000-deep call in a dev build measures debug-assertion
+    // frame sizes, not the tier. `conform` measures dev. The two profiles are
+    // a stated split, not an accident.
+    let bin = crate::buildcli::bund2(&repo, true, &features)?;
     let budget = Duration::from_secs(budget);
 
     // Nesting is measured shallower on purpose: a parser that recurses will
@@ -268,6 +274,9 @@ pub fn run_cmd(args: &[String]) -> Result<(), String> {
     println!("  not catchable, never reaches a Reporter, and takes the user's");
     println!("  state with it — D37. Completing and failing cleanly both pass;");
     println!("  only aborting and hanging fail.\n");
+    // Which binary this is about — the line `conform` prints too. A depth
+    // result with no provenance is F80's failure in a new place.
+    println!("  measured: {}\n", crate::buildcli::provenance(true, &features));
 
     let mut failed: Vec<String> = Vec::new();
     for (axis, n, src, what) in &cases {

@@ -128,7 +128,8 @@ Tier 0 = the BundIR interpreter (mandatory, every target).
 Tier 1 = the Cranelift JIT (optional). AOT = the cranelift-object build.
 Word = a named callable. Slot = a word table entry. Workbench = the auxiliary
 stack. Effect = a word's stack arity. Conformance = passing goldens over total.
-Coverage = in-scope words with a test over in-scope words.
+Ceiling = total minus approved deviations. Coverage = in-scope words Bund2
+implements *and* a golden runs, over in-scope words.
 
 ## Health metric
 
@@ -145,3 +146,20 @@ invariant that makes it worth having.
 That is the completeness number. The goldens reach only about a quarter of the
 in-scope words, so `conform` can read 100% with most of the language
 unimplemented and nothing else would say so.
+
+**"With a test" means Bund2 registers the word *and* some golden runs it**, and
+both halves are asked of the binary: `bund2 words` lists what the registry
+binds and `coverage` joins that against the reference's registry. It reports
+`IMPLEMENTED` beside `COVERAGE` — the first is what exists, the second what is
+exercised, and the gap between them is probes to write rather than words.
+
+`conform` also prints a **`CEILING`**: an approved deviation can never enter the
+numerator, so the reachable maximum is below the denominator. Quoting `N/M`
+without it overstates the remaining work.
+
+*The corpus is not the subject.* Coverage's numerator was once "in-scope words
+the corpus mentions", which is a property of the corpus: it read 121/497 across
+a session that landed forty words, because nothing in it consulted Bund2. That
+figure survives in the report as the *ceiling* on coverage — no word outside it
+can be exercised by a golden, whatever is implemented — which is the only claim
+it ever supported.

@@ -73,15 +73,176 @@ fn time_once(exe: &Path, program: &Path, cwd: &Path) -> Option<Duration> {
     }
 }
 
+/// Class-chain depths sampled by `--oop`. Only the endpoints matter: the cost
+/// per hierarchy level is read as a *slope* between two depths, which is what
+/// cancels the fixed cost the module header warns about. 128 is the top
+/// because `make_object`'s budget is 512 (`crates/bund2-stdlib/src/oop.rs`)
+/// and a chain at the budget reports rather than constructs — which is §S3
+/// and D37 working, but measures nothing.
+const OOP_DEPTHS: [usize; 3] = [1, 32, 128];
+
+/// Dispatches per dispatch-mode program, and constructions per construct-mode
+/// program. They differ because a construction at depth 128 costs roughly
+/// twenty times a dispatch, and equal counts would make the construction
+/// program dominate the wall clock without buying any precision.
+const OOP_DISPATCHES: usize = 20_000;
+const OOP_CONSTRUCTIONS: usize = 2_000;
+
+/// One side of the comparison: a display label, a program generator taking
+/// `(depth, iterations)`, and how many iterations that side runs.
+type OopMode = (&'static str, fn(usize, usize) -> String, usize);
+
+/// A class chain `C0 <- C1 <- … <- C(depth-1)`, rooted at `Object` so `.id`
+/// resolves — it lives on the base class, `depth` levels up.
+fn oop_chain(depth: usize) -> String {
+    let mut s = String::from(":C0 class \".super\" [ :Object ] set register\n");
+    for i in 1..depth {
+        s.push_str(&format!(
+            ":C{i} class \".super\" [ :C{} ] set register\n",
+            i - 1
+        ));
+    }
+    s
+}
+
+/// Construct once, then dispatch `n` times against that one object.
+///
+/// `:.id` pushes the method *name* — a STRING, not a PTR — and `!` on an
+/// OBJECT takes the name from below the object (§S6), so the body is
+/// `:.id swap ! drop`: push name, put it under the receiver, dispatch, discard
+/// the answer. The receiver survives because `.id` peeks (§S4).
+///
+/// Written out rather than looped with `times`, because a `times` body runs
+/// against a scoped stack — which is why the corpus's own `times` test carries
+/// its accumulator on the workbench
+/// (`reference/Bund/tests/test_times_loop.bund:1-4`) — and the receiver would
+/// not be visible inside it.
+fn oop_dispatch_program(depth: usize, n: usize) -> String {
+    let mut s = oop_chain(depth);
+    s.push_str(&format!(":C{} object\n", depth - 1));
+    for _ in 0..n {
+        s.push_str(":.id swap ! drop\n");
+    }
+    s.push_str("drop\n");
+    s
+}
+
+/// Construct `n` objects from the deepest class, discarding each.
+fn oop_construct_program(depth: usize, n: usize) -> String {
+    let mut s = oop_chain(depth);
+    let line = format!(":C{} object drop\n", depth - 1);
+    for _ in 0..n {
+        s.push_str(&line);
+    }
+    s
+}
+
+/// `cargo xtask bench --oop` — what does a hierarchy level cost, on each side?
+///
+/// This exists to decide RFC-0009 criterion 2. §S1 adds a flattened method
+/// table so that dispatch stops walking `.super`; §S1a then has to rebuild or
+/// invalidate that table per object, which lands on construction. Whether that
+/// is a win is a measurement, and this is it.
+///
+/// **Read the slope, not the level.** Every figure here includes process
+/// start, stdlib registration, and parsing tens of thousands of lines — the
+/// fixed cost this module's header warns about. Subtracting the depth-1
+/// program from the depth-128 one cancels all of it, because the two differ
+/// only in how deep the chain is. What survives is the per-level cost, which
+/// is the only quantity the criterion turns on.
+fn run_oop(exe: &Path, cwd: &Path, runs: usize, target: &str) -> Result<(), String> {
+    let dir = std::env::temp_dir().join("bund2-xtask-bench-oop");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("creating {}: {e}", dir.display()))?;
+
+    println!("# cargo xtask bench --oop\n");
+    println!("What does one class-hierarchy level cost — on dispatch, and on");
+    println!("construction? Target `{target}`, {runs} runs each, min reported.\n");
+    println!("RFC-0009 §S1 flattens the method table so dispatch stops walking");
+    println!("`.super`; §S1a then has to guard or rebuild that table per object,");
+    println!("which lands on construction. Criterion 2 turns on which side is");
+    println!("actually paying, so this measures both.\n");
+    println!("Read the *slope*. Each figure below includes process start, stdlib");
+    println!("registration and parsing tens of thousands of lines. The depth-1");
+    println!("and depth-128 programs differ only in chain depth, so subtracting");
+    println!("them cancels every one of those, and the per-level cost is what is");
+    println!("left.\n");
+
+    let modes: [OopMode; 2] = [
+        ("dispatch", oop_dispatch_program, OOP_DISPATCHES),
+        ("construct", oop_construct_program, OOP_CONSTRUCTIONS),
+    ];
+
+    println!("  {:<12}{:>8}{:>12}{:>12}", "mode", "depth", "iters", "min ms");
+    let mut floor: [Option<f64>; 2] = [None, None];
+    let mut top: [Option<f64>; 2] = [None, None];
+    for (mi, (label, make, iters)) in modes.iter().enumerate() {
+        for &depth in &OOP_DEPTHS {
+            let path = dir.join(format!("{label}-{depth}.bund"));
+            std::fs::write(&path, make(depth, *iters))
+                .map_err(|e| format!("writing {}: {e}", path.display()))?;
+            let mut samples = Vec::with_capacity(runs);
+            for _ in 0..runs {
+                match time_once(exe, &path, cwd) {
+                    Some(d) => samples.push(d),
+                    None => return Err(format!("could not spawn {}", exe.display())),
+                }
+            }
+            let Some(min) = samples.iter().copied().min() else {
+                return Err("no samples".into());
+            };
+            println!("  {label:<12}{depth:>8}{:>12}{:>12.1}", iters, ms(min));
+            if depth == OOP_DEPTHS[0] {
+                floor[mi] = Some(ms(min));
+            }
+            if depth == OOP_DEPTHS[OOP_DEPTHS.len() - 1] {
+                top[mi] = Some(ms(min));
+            }
+        }
+    }
+    println!();
+
+    let levels = (OOP_DEPTHS[OOP_DEPTHS.len() - 1] - OOP_DEPTHS[0]) as f64;
+    println!("## per level\n");
+    let mut per_level = [0.0f64; 2];
+    for (mi, (label, _, iters)) in modes.iter().enumerate() {
+        let (Some(lo), Some(hi)) = (floor[mi], top[mi]) else {
+            return Err("missing endpoint measurement".into());
+        };
+        // ms over the whole program → ns per iteration per level.
+        let ns = (hi - lo) * 1.0e6 / (*iters as f64) / levels;
+        per_level[mi] = ns;
+        println!("  {label:<12}{ns:>9.0} ns  per hierarchy level, per operation");
+    }
+    println!();
+
+    println!("## reading\n");
+    if per_level[0] <= 0.0 || per_level[1] <= 0.0 {
+        println!("  A slope came out at or below zero, which means the fixed cost");
+        println!("  swamped the signal on this machine. Raise --runs and re-read");
+        println!("  before drawing any conclusion; do not report this as flat.\n");
+        return Ok(());
+    }
+    let ratio = per_level[1] / per_level[0];
+    println!("  Construction pays {ratio:.0}x what dispatch pays for the same");
+    println!("  hierarchy level. §S1's flattened table removes the cheaper of");
+    println!("  the two, and §S1a's per-object guard adds to the dearer one.");
+    println!("  RFC-0009 criterion 2 records this and what follows from it.\n");
+    Ok(())
+}
+
 pub fn run(args: &[String]) -> Result<(), String> {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .ok_or("cannot locate repository root")?
         .to_path_buf();
 
+    let (features, args) = crate::buildcli::take_features(args);
+    let args = args.as_slice();
+
     let mut target = "oracle".to_string();
     let mut runs = DEFAULT_RUNS;
     let mut write = false;
+    let mut oop = false;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -98,6 +259,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     .ok_or("--runs needs a number")?;
             }
             "--write" => write = true,
+            "--oop" => oop = true,
             other => return Err(format!("unknown argument `{other}`")),
         }
     }
@@ -119,20 +281,26 @@ pub fn run(args: &[String]) -> Result<(), String> {
             p
         }
         "bund2" => {
-            let p = repo.join("target/release/bund2");
-            if !p.is_file() {
-                return Err(format!(
-                    "no bund2 at {}. Build it with:\n    cargo build --release -p bund2-cli",
-                    p.strip_prefix(&repo).unwrap_or(&p).display()
-                ));
-            }
-            p
+            // **Build it, do not merely find it.** A stale `target/release/bund2`
+            // times a Bund2 that no longer exists and says nothing about it:
+            // this harness once reported numbers for a binary five days and
+            // sixty-four words out of date, and the output was indistinguishable
+            // from a current run. `xtask effects` already builds `bund2-cli`
+            // before asking it anything, for the same reason — a measurement
+            // whose subject is unidentified is worse than no measurement,
+            // because it will be quoted.
+            crate::buildcli::bund2(&repo, true, &features)?
         }
         other => return Err(format!("unknown --target `{other}`; use oracle or bund2")),
     };
 
-    let suite = golden::read_suite(&repo)?;
     let cwd = repo.join("reference/Bund");
+
+    if oop {
+        return run_oop(&exe, &cwd, runs, &target);
+    }
+
+    let suite = golden::read_suite(&repo)?;
 
     println!("# cargo xtask bench\n");
     println!(
@@ -187,7 +355,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     println!();
 
     let mut slowest: Vec<&Timing> = ok.clone();
-    slowest.sort_by(|a, b| b.min().cmp(&a.min()));
+    slowest.sort_by_key(|r| std::cmp::Reverse(r.min()));
     println!("## slowest 15 by min\n");
     println!(
         "  {:<58}{:>9}{:>9}{:>9}",

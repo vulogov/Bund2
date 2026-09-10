@@ -217,7 +217,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         .filter(|(_, (c, l))| !c.is_empty() && !l.is_empty())
         .map(|(s, (c, l))| (s, c.len(), l.len()))
         .collect();
-    split.sort_by(|a, b| b.2.cmp(&a.2));
+    split.sort_by_key(|e| std::cmp::Reverse(e.2));
     println!("  {:<26}{:>6}{:>9}", "subsystem", "core", "library");
     for (s, c, l) in split.iter().take(20) {
         println!("  {s:<26}{c:>6}{l:>9}");

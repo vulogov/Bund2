@@ -165,8 +165,8 @@ pub fn partition(
 pub fn report(variants: &[Variant], in_scope: &BTreeSet<String>) {
     println!("## the five partitions\n");
     println!(
-        "  {:<12}{:>7}{:>10}{:>9}   {}",
-        "variant", "core", "library", "core %", "closes by"
+        "  {:<12}{:>7}{:>10}{:>9}   closes by",
+        "variant", "core", "library", "core %"
     );
     for v in variants {
         println!(
