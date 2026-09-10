@@ -1,6 +1,29 @@
 # RFC-0009: Classes, objects, and method dispatch
 
-- Status: **Draft**
+- Status: **Accepted** (2026-09-04), **with criterion 2 dormant** — that is what
+  accepting this means, and it is stated here rather than left in the criterion.
+  §S1's flattened table is not built, because `cargo xtask bench --oop` measures
+  dispatch at ~23 ns per hierarchy level against construction at ~450 ns. The
+  section stays as the answer if that cost ever moves, and criterion 2 records
+  what would reactivate it. Re-verified at acceptance: `conform --blocked-on`
+  reports no golden blocked on `class` or `object`.
+- Previously: **Proposed** (2026-09-01), after two reviews. **Five of six
+  acceptance criteria are met and each names the tool that decided it** —
+  `conform --blocked-on` reports neither `class` nor `object` blocking any
+  golden, `xtask depth`'s class axis completes at 10,000, one probe plus three
+  Rust tests pin `.id` and `.timestamp`, a two-VM test pins the method table as
+  registry state, and `cite` and `lint` are clean.
+
+  **Criterion 2 is amended to dormant, and it is the one to read before
+  accepting this.** It tests §S1's flattened table against the search; the
+  table is not built, because `cargo xtask bench --oop` measures Bund2's
+  dispatch at ~23 ns per hierarchy level against construction at ~450 ns. The
+  same harness measures the *reference's* search at ~40 µs per level — the cost
+  curve §S1 was designed against, and one RFC-0001's `Rc`-backed value already
+  removed. The criterion states what would reactivate it.
+
+  So this is proposed with a section deliberately unbuilt rather than with a
+  section quietly skipped. Accepting it accepts that.
 - Depends on: RFC-0001 (the value), RFC-0002 (symbols and the word table),
   RFC-0003 (the frame loop, for construction's recursion)
 - Decisions consumed: D1 (lazy identity — `.id` is the consumer that proves it
@@ -199,6 +222,17 @@ crate.
 ## Design
 
 ### S1. A class keeps its shape; a **flattened table** is added beside it
+
+> **Not built, as of 2026-09-01.** What ships is the search this section
+> replaces. `cargo xtask bench --oop` measures Bund2's dispatch at 23 ns per
+> hierarchy level against construction at 451 ns, so this section optimises the
+> cheaper side by about 19x while §S1a's guard adds to the dearer one. The same
+> harness measures the *oracle's* search at 40 µs per level — 1,700x — which is
+> the cost curve this section was designed against, and which RFC-0001's
+> `Rc`-backed value already removed. Criterion 2 carries both rows and states
+> what would reactivate the work. §S1, §S1a and §S5 are kept — they are the
+> answer if that cost ever moves — and the rest of this RFC does not depend on
+> them.
 
 The class value stays a MAP with `.class_name`, `.super` and method slots,
 because programs read those slots directly — `.str` reaches for `.class_name`
@@ -413,6 +447,29 @@ prevents more than one VM.
    *(Measured today by running `bund2` directly over the set: 11 stop on
    `class` and 4 on `object`. A reviewer measured 10/5; the per-file listing
    supports 11/4, with `execute-arm-class` stopping on `class`.)*
+
+   **Met.** `cargo xtask conform --blocked-on` exists and reports, in its own
+   words, "no golden is blocked on `class` or `object`. Both are registered."
+   Conformance is 26/72 against a baseline of 26, up from 0/69 when this RFC
+   was drafted.
+
+   Building the tool turned up a distinction the criterion did not anticipate,
+   and which would have let it pass while meaning less than it says. Four
+   goldens report `OBJECT class Integer not registered`, `… class Bool …` and
+   `… class Value …` — those are **built-in classes**, from the oracle's
+   per-type hierarchy (`reference/Bund/src/stdlib/functions/oop/int_class.rs:39`,
+   `bool_class.rs:39`, `value_class.rs:80`, and five more), not the word
+   `class`. A plain scan for `… not registered` would have counted them
+   alongside a missing word and, read quickly, they look exactly like the
+   failure this criterion forbids. `--blocked-on` therefore reports the two
+   kinds in separate rows and states the criterion's verdict itself rather
+   than leaving a reader to scan a table for it.
+
+   Those eight built-in classes are **out of this RFC's scope** and stay
+   unimplemented: they are library surface over the design this RFC settles,
+   and D14 puts library words outside the language core. They are named here
+   because a criterion met while four goldens still say "class … not
+   registered" needs to say why that is not a contradiction.
 2. **Dispatch resolves the same slot as a search would — over *objects*, not
    only classes.** A differential test over the built-in hierarchy and the
    corpus's own classes: for every class, every method name reachable from it,
@@ -420,6 +477,84 @@ prevents more than one VM.
    `locate_value_in_object`'s. The object quantifier is the point: S1a's
    per-object rewrites are exactly what a class-only comparison cannot see. The
    search implementation is kept in the test as the oracle for the table.
+
+   **Amended 2026-09-01: dormant, because the table it tests is not warranted
+   by measurement.** What ships is the search — `oop.rs`'s `locate`, walking
+   `.super` depth-first — and §S1's flattened table is not built. This
+   criterion cannot be satisfied by a test comparing a table against a search
+   when only the search exists, and it must not be quietly reported as passing
+   on that basis.
+
+   The amendment is not "it was hard". §S1 exists to make dispatch stop paying
+   for hierarchy depth, and §S1a's guard puts the cost of that back onto
+   construction. `cargo xtask bench --oop`, added for this question, measures
+   both sides by reading the *slope* between a depth-1 and a depth-128 chain,
+   which cancels process start, stdlib registration and parse cost because the
+   two programs differ in nothing else:
+
+   | per hierarchy level | dispatch | construction | ratio |
+   |---|---|---|---|
+   | Bund2 (`--target bund2`) | 22-23 ns | 451-506 ns | 19-23x |
+   | oracle (`--target oracle`) | ~40,000 ns | ~88,000 ns | ~2x |
+
+   The Bund2 row is given as a range because repeated runs disagree by about a
+   tenth — these are subprocess timings on a loaded machine, not isolated
+   microbenchmarks, and quoting one sample to two significant figures would
+   claim a precision the harness does not have. The ratio is stable across
+   runs and is what the criterion turns on; nothing below depends on the
+   figures being exact, only on their being an order of magnitude apart.
+
+   In Bund2, construction pays roughly **20x** per level what dispatch pays. So
+   §S1 optimises the cheaper side by roughly an order of magnitude, and §S1a's
+   per-object guard adds bookkeeping to the dearer one. On these numbers a
+   1,000-deep hierarchy — far past anything the corpus contains, and twice
+   §S3's budget — would save around 23 µs per dispatch, against a construction
+   that already costs around 450 µs.
+
+   **The oracle row is why this section was written, and why it is now
+   dormant.** The reference's search costs **40 µs** per hierarchy level —
+   about **1,700x** Bund2's — and there it is the same order as construction,
+   not a twentieth of it. A flattened table is the right answer to *that* cost
+   curve. It is not the right answer to Bund2's, and the difference is not
+   tuning: RFC-0001 replaced a value that deep-copies on every field read with
+   an `Rc`-backed one, so `locate` walking `.super` returns borrows where
+   `locate_value_in_object` returns clones of whole ancestries.
+
+   So §S1 was designed against a cost that RFC-0001 had already removed. That
+   is worth stating plainly, because it is a failure mode this project will
+   meet again: a section grounded correctly in the reference's *behaviour* can
+   still inherit the reference's *performance model*, and only a measurement
+   separates the two.
+
+   Two things this measurement does **not** say, because both were checked and
+   neither holds:
+
+   - It does not say the search is free. 23 ns per level is a real slope, and
+     at depth 128 the search is about half of a dispatch's cost. It says the
+     search is *cheap relative to the thing S1a would make dearer*.
+   - It does not say dispatch is cold. The `--oop` programs do nothing but
+     dispatch, 20,000 times; this is the friendliest case §S1 will ever get,
+     and it still loses.
+
+   **What reactivates it.** A measurement, not an opinion, and specifically one
+   of these:
+
+   - `bench --oop` showing construction's per-level cost brought below
+     dispatch's — which is what would happen if construction stopped deep
+     copying the ancestry, and is the optimisation the numbers actually point
+     at.
+   - A corpus program, or a user program the owner brings, whose profile is
+     dominated by dispatch over a deep chain.
+
+   Until one of those, §S1, §S1a and §S5 stay design: written down, grounded,
+   and not built. That is deliberate — they are the answer if the cost ever
+   moves — and the register entry that would record their absence is this
+   criterion, which is why it is amended here rather than deleted.
+
+   *(Both rows come from the same harness and the same generated programs, so
+   the comparison is like for like. The oracle's absolute figures are much
+   larger throughout — it is a bigger binary doing more at startup — which is
+   exactly what reading the slope rather than the level cancels.)*
 3. **Class-hierarchy depth is bounded by heap, not by the Rust stack.** A class
    chain 10,000 deep instantiates or reports a Bund-level error, within a
    60-second wall clock, without a stack overflow. Decided by `cargo xtask
@@ -430,8 +565,47 @@ prevents more than one VM.
 4. **`.id` and `.timestamp` answer on an object**, `.id` as a 21-character
    string, and neither materialises anything on a value that is never asked.
    Pinned as probes under `tests/probes/` per D21.
+
+   **Met**, and split across two mechanisms — because writing the probe showed
+   that "pinned as probes" is only achievable for part of it.
+
+   `tests/probes/oop-identity.bund` pins the answering half, differentially
+   against the oracle: `.id` answers a `String`, two instances of one class
+   answer *different* ids, and `.timestamp` answers a non-zero `Float`. Every
+   assertion is a **predicate over** the identity, never the identity itself.
+   A first draft printed the id, and `cargo xtask golden` refused the capture —
+   "two runs disagree after normalisation" — which is the harness being right:
+   an identity is a fresh nanoid per value, so no run agrees with another, and
+   a golden holding one fails forever.
+
+   Two clauses cannot be reduced to a predicate at all and are pinned in Rust:
+
+   - **"21-character"** — the oracle registers no length word (445 distinct
+     word names across `reference/Bund/src/stdlib/`, none of them `len`), so
+     the length is not expressible in Bund. `crates/bund2-stdlib/src/oop.rs`'s
+     `dispatch_reaches_an_inherited_method` asserts it.
+   - **"neither materialises"** — an unminted identity is by definition
+     unobservable from the language; observing it is what mints it (D1).
+     `crates/bund2-value/src/lib.rs`'s `identity_is_not_minted_until_needed`
+     and `stamps_order_by_observation_not_construction` assert it.
+
+   The probe needed `?type`, which the oracle registers
+   (`reference/rust_multistackvm/src/stdlib/values/value_types.rs:36-61,67`)
+   and Bund2 did not. `type`, `type.of` and `?type` were implemented for it and
+   agree with the oracle byte for byte. They move `coverage`, not `conform`:
+   no golden was added to the conformance denominator.
 5. **`methods_fun` is registry state.** No global holds it, and two `Interp`s
    in one process can register different methods under the same name.
+
+   **Met.** The structural half is visible by reading — `methods` is a field on
+   `Registry` (`crates/bund2-api/src/lib.rs`), and neither `bund2-api` nor
+   `bund2-stdlib` declares a `static` or `thread_local` holding it. The
+   behavioural half is the one a later refactor to a global would break
+   silently, so it is a test: `two_interps_bind_one_method_name_differently` in
+   `crates/bund2-stdlib/src/oop.rs` binds `.id` to two different natives in two
+   `Interp`s and dispatches in each. It uses a name the base hierarchy already
+   owns on purpose — if anything were shared, the second registration would be
+   visible from the first VM.
 6. **`cite` and `lint` clean**, with the load-bearing citations quoted as
    fenced blocks so `cite` verifies their **content** and not merely that the
    line exists. RFC-0003's criterion 7 found that a document with no fenced
@@ -465,6 +639,28 @@ prevents more than one VM.
                 Ok(name) => {
                     if vm.is_class(name.clone()) {
    ```
+
+   **Met.** `cargo xtask cite` reports "Every citation resolves at the pinned
+   SHAs" and `cargo xtask lint` reports "no contradictions", with the four
+   blocks above verified by content rather than by line number.
+
+## Criteria at a glance
+
+As of 2026-09-01, with `conform` at 26/72 and the class axis of `cargo xtask
+depth` completing at 10,000.
+
+| # | subject | state |
+|---|---|---|
+| 1 | conformance moves; `class`/`object` unblock anything | **met** — `conform --blocked-on` says so itself |
+| 2 | flattened table agrees with the search | **dormant** — the table is not built, and `bench --oop` says it should not be |
+| 3 | hierarchy depth bounded by heap | **met** — `xtask depth`, class axis |
+| 4 | `.id` and `.timestamp` answer, and stay lazy | **met** — one probe plus three Rust tests |
+| 5 | the method table is registry state | **met** — no globals, and a two-VM test |
+| 6 | `cite` and `lint` clean | **met** |
+
+Criterion 2 is the one to read before accepting this RFC. It is not deferred
+work; it is a section the measurement argues against building, and it says so
+with the numbers and with what would change the answer.
 
 ## Open questions
 

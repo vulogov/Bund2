@@ -1,6 +1,13 @@
 # RFC-0002: Symbols, the word slot table, and `bund2-api`
 
-- Status: **Proposed** (2026-08-27), after four reviews. Nothing gates it:
+- Status: **Accepted** (2026-09-04), **amended 2026-09-10** — `Vm`'s two
+  body-running methods take the LAMBDA value (D42), and two additions for
+  RFC-0005's guards are decided (D43); see the amendment at the end. Criterion 3 re-measured at acceptance:
+  dispatching a native by `Symbol` allocates **0** times, and so does
+  dispatching through a two-link alias — the row beside it shows 9 allocations
+  for a word that *pushes*, which is boxing rather than dispatch and is why the
+  criterion is worded as it is.
+- Previously: **Proposed** (2026-08-27), after four reviews. Nothing gates it:
   D9, D14 and D29 are settled, and F18, F19, F25 and F26 — the four defects
   naming this RFC as the consumer of their consequence — carry dispositions.
   The one live dependency is **D31**, through D27, and it gates criterion 7
@@ -950,3 +957,25 @@ is how a commitment quietly lapses.
   **D27** — which criterion 7 rides on, and which is itself gated on the
   world-file question. That was D11 when the review was written; D11 has since
   been split, and the gate is now **D31**.
+
+## Amendment, 2026-09-10 — the `Vm` surface (D42, D43)
+
+**Changed now (D42).** `Vm::eval_body(&mut self, body: &[BundValue])` and
+`Vm::tail_call(&mut self, body: Vec<BundValue>)` are replaced by
+`Vm::eval_lambda(&mut self, lambda: &BundValue)` and
+`Vm::tail_lambda(&mut self, lambda: BundValue)`. Both take the LAMBDA value,
+so the body's `Rc` — D35's cache key — survives to the point where the body
+starts running. `Registry::lambda_value` joins `Registry::lambda_body`: the
+first hands out the value, for running; the second a copy of the items, for
+reading. `Vm::scoped_call` is unchanged. A native that runs a body now passes
+the value it already holds, and no longer copies the body to do so.
+
+**Decided, not yet built (D43).** `Native` gains a registration id assigned by
+`Registry::register_native`, and `Registry` gains an accessor for a per-name
+generation cell at a stable address, mirrored by `touch()`. Both are additions
+and change no existing behaviour. They land when RFC-0005 reaches Proposed.
+
+Nothing a program does changes.
+
+- Amended by: repository owner, 2026-09-10, on Q36 and Q37 (RFC-0005's sixth
+  review)

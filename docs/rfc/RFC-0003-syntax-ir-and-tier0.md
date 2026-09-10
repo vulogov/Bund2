@@ -1,6 +1,15 @@
 # RFC-0003: Surface syntax, BundIR, and the Tier 0 interpreter
 
-- Status: **Proposed** (2026-09-01), after three reviews. **All seven
+- Status: **Accepted** (2026-09-04), **amended 2026-09-10** — two passages of
+  §S3 written while D35 was open are superseded by its resolution; see the
+  amendment at the end and the marker above each. A second amendment the same
+  day puts S4's frame on the body's value (D42) and the cache's reference on a
+  `Weak` (D35 as amended). All seven criteria re-run at acceptance and
+  each has *grown* rather than merely held: parse-reach is **82/82** where the
+  criterion pinned 69, `cargo xtask parity` is **51/51** where it was 47, and
+  `cargo xtask depth` still completes all three axes — call at 100,000, nesting
+  at 10,000, class reporting a Bund-level error at 10,000.
+- Previously: **Proposed** (2026-09-01), after three reviews. **All seven
   acceptance criteria are met and every one of them runs** — parse-reach 69/69,
   call depth 100,000, parity 47/47, the grammar traps pinned, F53/F57/F59/F60
   and D34 implemented, one evaluator behind an observer, and six exact-match
@@ -439,11 +448,20 @@ parse of the same text. Any future move to content keying — whose one benefit 
 letting structurally identical lambdas share compiled code — must first define
 the hash to exclude `id` and `stamp`. That is not decided here.
 
+> **Superseded 2026-09-10** — see *Amendment, 2026-09-10* at the end. Written
+> while D35 was open. No cache here is identity-keyed, and D3 rests on a
+> different ground.
+
 D3's **amended** resolution follows from identity keying rather than from
 content hashing, and the amendment reverses the original reasoning: eval'd code
 re-parses and mints fresh values on every call, so it cannot hit an
 identity-keyed cache at all and stays at Tier 0 without any rule. The conclusion
 — no eval-specific tier rule — is unchanged.
+
+> **Superseded 2026-09-10** — see *Amendment, 2026-09-10* at the end. This
+> paragraph and the next predate D35's resolution. D35 is RESOLVED — the body's
+> `Rc` pointer, stated in this section's first bullet — and nothing here is
+> blocked.
 
 **D35 blocks this section.** Two facts D5 did not weigh make identity keying
 untenable as stated. **It is an unlisted materialisation point**: D20 enumerates
@@ -764,7 +782,7 @@ work rather than assumed.
 1. **No conformance regression, and a stated parse-reach number.** `cargo xtask
    conform` must not drop below the recorded baseline in
    `tests/golden/CONFORMANCE.txt`. Separately — because `conform` compares
-   captured bytes (`xtask/src/conform/mod.rs:150`) and has no parse-only mode —
+   captured bytes (`xtask/src/conform/mod.rs`) and has no parse-only mode —
    this RFC adds `cargo xtask conform --parse-only`, reporting how many golden
    sources parse without error.
 
@@ -823,8 +841,8 @@ work rather than assumed.
    - Source is passed as a Bund string literal, so embedded quotes need escaping.
    - The run goes through the oracle binary, so it inherits F21.
    - **The golden normaliser is not sufficient.** It rewrites `id:` and `stamp:`
-     (`xtask/src/golden/mod.rs:164-202`), and `Value::context()` puts a fresh
-     `nanoid!()` in **`data`**, not in `id`
+     (`xtask/src/golden/mod.rs`).
+     But `Value::context()` puts a fresh `nanoid!()` in **`data`**, not in `id`
      (`reference/rust_dynamic/src/create_special.rs:28`). Two oracle runs of
      `"( 4 )" compile debug.display_stack` therefore differ after normalisation
      — measured. The parity harness needs its own rule erasing a CONTEXT value's
@@ -962,3 +980,57 @@ lambda  = { "{" ~ term+ ~ "}" }
   and removing that gap. Neither re-enters evaluation, so S4's frame model is
   unaffected by them. What remains unread constrains RFC-0004's effect table,
   not the IR's shape.
+
+## Amendment, 2026-09-10 — §S3's text from before D35 was resolved
+
+§S3 was drafted while D35 was OPEN and kept two passages from that draft after
+D35 resolved. They contradict the section's own first bullet ("keyed on the
+body's **`Rc` pointer**, as **D35** resolves"), this RFC's Status ("Blocked on:
+nothing … D35 resolves the cache key") and its open-questions list ("D35 is
+resolved"). They are left as written — this RFC is Accepted — each marked where
+it stands, and superseded here:
+
+| passage, by its opening words | said | now |
+|---|---|---|
+| "D3's **amended** resolution follows from identity keying rather than from content hashing" | eval'd code cannot hit an *identity*-keyed cache, so it stays at Tier 0 with no rule | **no cache here is identity-keyed**: D35 chose option 4, the body's `Rc` pointer. D3's conclusion — no eval-specific tier rule — stands, on a different ground: an eval'd token stream is applied token by token and retains nothing, so it is never a body and there is nothing to key. A lambda *inside* eval'd code is an ordinary body (RFC-0005 §S3) |
+| "**D35 blocks this section.**" and the paragraph after it, "D5 is not wrong" | D35 is OPEN and recommends content keying, so §S3 "states the shape and not the key" | **D35 is RESOLVED**, option 4. Content keying is deferred as "a strict upgrade", not recommended, and D35 records that it superseded its own earlier recommendation. §S3 states the key, and nothing in it is blocked |
+
+**Two questions this amendment does not settle**, both the owner's and both
+able to amend §S3 again:
+
+- **Q32** — the first bullet's reason for a strong reference ("or a freed
+  body's address could be reused") does not hold as written: a `Weak` also
+  keeps the allocation, and therefore the address, out of reuse.
+- **Q36** — the key §S3 states never reaches execution. S4's `Frame` holds a
+  copied `Vec<BundValue>`, and `Vm::eval_body` takes a slice, so the body's
+  `Rc` is discarded before any body runs.
+
+**Nothing any program does changes.** This corrects the record of a decision
+already taken.
+
+- Amended by: repository owner, 2026-09-10. The contradiction was carried as a
+  finding by RFC-0005's fifth and sixth reviews.
+
+## Amendment, 2026-09-10 (second) — S4's frame holds the body's value
+
+Both questions the first amendment left open were decided the same day.
+
+**D42 (Q36).** S4's `Frame` held `body: Vec<BundValue>`, a copy, so the `Rc`
+§S3 keys on never reached the frame loop. The frame now holds the body's
+**value** — a LAMBDA, or a LIST for a body assembled at run time — and an
+instruction pointer, and reads each item through it. `Vm::eval_lambda` and
+`Vm::tail_lambda` hand it the value (RFC-0002's amendment of the same date). A
+body is therefore alive whenever a frame is running it, and its key is in hand
+at every entry.
+
+**D35 as amended (Q32).** §S3's first bullet says the cache holds "a strong
+clone, or a freed body's address could be reused". The key stands; the reason
+does not. A `Weak` keeps the allocation, and so the address, out of reuse just
+as surely, and with D42 the frame keeps a running body alive. The cache holds a
+`Weak`.
+
+S4's criterion 2 — call depth bounded by heap, not the Rust stack — is
+unaffected in kind: the loop is still flat, and only what a frame holds
+changed. Nothing a program does changes.
+
+- Amended by: repository owner, 2026-09-10, on Q36 and Q32

@@ -1,6 +1,15 @@
 # RFC-0001: `BundValue` — representation, identity, and value semantics
 
-- Status: **Proposed** (2026-08-27), after seven reviews. Nothing gates it:
+- Status: **Accepted** (2026-09-04), **amended 2026-09-08 and 2026-09-10** —
+  see the amendments at the end. The second: `q` is kept, not averaged (D32
+  amended, Q35). The first: Q25 measures the stack tag at 60-75% of every word and lays out
+  four options, deciding none. Re-verified at acceptance, not taken on the
+  Proposed note: `cargo xtask layout` reports **0 allocations** to construct or
+  clone an unadorned scalar and **4 / 649 bytes** to `dup` a heap list, the two
+  numbers B1 and B2 name; `cite` reports zero defects and `lint` no
+  contradictions. The boxing cost B1 insists on stating beside itself is still
+  **5 allocations / 721 bytes**.
+- Previously: **Proposed** (2026-08-27), after seven reviews. Nothing gates it:
   D30 and its amendment settle F29, F30 and F33; Q18 is closed on a probe and
   Q19 divided between this RFC and RFC-0002. The four binding criteria pass;
   two are vacuous and labelled; **eight are deferred because `bund2-value` is
@@ -1449,3 +1458,329 @@ hash alike, `NaN` equals nothing.
   failing is document maintenance on a 1300-line artefact that states each
   claim in four places. A compiler enforces what prose does not, and eight of
   the criteria cannot run until `bund2-value` exists.
+
+---
+
+# Amendment, 2026-09-08 — Q25: the stack tag is 60–75% of every word
+
+**Nothing in the accepted design is withdrawn.** This amendment adds a
+measurement that was not available when the RFC was accepted, states the
+constraints any fix must satisfy, and lays out four options. **It decides
+nothing** — the choice changes a value's layout and belongs to the repository
+owner as a numbered decision.
+
+## What was measured
+
+`crates/bund2-bench`, in process, medians on one machine, release with debug
+info:
+
+| benchmark | median |
+|---|---|
+| `value/clone/scalar` — clone a `BundValue::Int` | **4.1 ns** |
+| `value/with_tag/scalar` — one `with_tag("stack", …)` | **73.1 ns** |
+| `value/push_pull/balanced` — one push and one pull through `Vm` | **126.9 ns** |
+| an average interpreted word (`dispatch/*`) | **~100–120 ns** |
+
+`Vm::push` did not store the value it was handed. It stored
+`v.with_tag("stack", stack_name)`, and `with_tag`, **as it stood then**, boxed
+the scalar, materialised identity, cloned the whole `HeapValue` including its
+`BTreeMap<String, String>`, inserted two freshly allocated `String`s, and
+wrapped the result in a fresh `Rc`.
+
+*(Past tense, and no line cited: option 2 and D41 rewrote both sites. `with_tag`
+is now `crates/bund2-value/src/lib.rs` and takes `Rc<str>`; the
+unconditional tagging is now the `Heap` arm alone,
+`crates/bund2-interp/src/lib.rs`. The numbers this amendment quotes were
+measured against the code described above, which is why it is described rather
+than pointed at.)*
+
+**Tagging a value costs eighteen times what cloning it costs**, and it happens
+on every push. RFC-0005 §S1 is gated on this: with dispatch at most a quarter
+of a word's cost, a Cranelift tier is bounded near 1.3× until it changes.
+
+## The reference does this in one insert
+
+The gap is Bund2's own, not a cost of preservation:
+
+```rust reference/rust_multistack/src/ts_push.rs:25
+                value.set_tag("stack", &curr.stack_id());
+```
+
+`value` there is `&mut`, and `set_tag` is a plain in-place insert
+(`reference/rust_dynamic/src/tags.rs:4-6`). The reference pays two `String`
+allocations and a hash insert. Bund2 pays that **plus** a box, an identity
+materialisation, a `HeapValue` clone, a `BTreeMap` clone and an `Rc`
+allocation — because `with_tag` takes `&self` and always produces a new value.
+
+## Four constraints any fix must satisfy
+
+1. **The tag is observable.** `debug.display_stack` prints the `Debug`
+   rendering and **39 of 86 goldens** contain `tags: {"stack": …}`. The
+   rendering loop is `crates/bund2-value/src/lib.rs` and it iterates
+   `tags()` in `BTreeMap` order, so both the text and the ordering are pinned.
+
+2. **The tag is a fossil, not a location.** It records where a value was last
+   *pushed*, which is not where it necessarily is. A value on the workbench
+   keeps the tag of the stack it came from, and — decisively — **values nested
+   inside containers carry it**: `payload-arms.golden` shows
+   `data: List([Value { … tags: {"stack": "main"} }])`, because those elements
+   were tagged while on the stack before being collected. Any scheme that
+   derives the tag from a value's *current* location is therefore wrong.
+
+3. **`with_tag`'s `identity()` call is D13's policy, not an oversight.** The
+   section "One policy for the `Rc` and the identity slot (D13)" above requires
+   that *a CoW split materialises the identity before it copies*, and names
+   `set_tag` on push as exactly the case that fires it: without it the two
+   halves mint independently and `A == A.clone()` silently becomes false. What
+   is over-applied is the *unconditional* materialisation — a value that is
+   uniquely owned has no second half to diverge from, and needs no mint.
+
+4. **A program can write the same key.** The reference registers a `tag` word
+   (`reference/rust_multistackvm/src/stdlib/values/value_tag.rs:72`) whose body
+   calls `set_tag` with a program-supplied key (`:49`) and then pushes the value
+   back (`:50`) — so a push always follows and always overwrites. Any scheme
+   that stores `stack` outside the general map must reproduce "the push wins".
+   Bund2 does not implement `tag` yet, so this is a constraint on the design and
+   not yet on the goldens.
+
+## The options
+
+### Option 1 — honour D13 literally: split only when shared
+
+`with_tag` takes `self` by value and uses `Rc::make_mut` semantics: if the
+header is uniquely owned, mutate in place and **do not** materialise identity;
+if it is shared, materialise and clone, exactly as today.
+
+The current code cannot do this, because `self.clone().into_heap()` bumps the
+count before asking — so the answer is always "shared" and the fast path is
+unreachable by construction.
+
+- **Preserves:** everything, including constraint 3, whose rule is stated in
+  terms of an actual split.
+- **Removes:** the `HeapValue` clone, the `BTreeMap` clone, the second `Rc`,
+  and the identity mint — for the uniquely-owned case, which is every freshly
+  boxed scalar and therefore most arithmetic.
+- **Leaves:** one box allocation and two `String` allocations per push.
+- **Risk:** low. It is a narrowing of when a split occurs, and D13 already
+  defines the behaviour on both sides.
+
+### Option 2 — intern the tag key and value
+
+`tags: BTreeMap<Symbol, Symbol>`, or `&'static str` keys with `Rc<str>` values.
+`"stack"` is a constant and stack names are few and long-lived.
+
+- **Removes:** the two `String` allocations per push.
+- **Requires:** the render loop to resolve symbols back to text, and to keep
+  `BTreeMap` ordering by *resolved name* rather than by symbol id, or the 39
+  goldens reorder.
+- **Composes with option 1** and is the natural second step.
+- **Risk:** moderate — the ordering trap is easy to miss and would surface as a
+  large golden diff rather than a subtle one, which is the good failure mode.
+
+### Option 3 — a dedicated `stack` field, outside the map
+
+`HeapValue` gains `stack: Option<Symbol>`; `tags()` synthesises the `"stack"`
+entry when rendering. Push writes a `u32` into a uniquely-owned header.
+
+- **Cheapest possible**: no allocation at all on the hot path.
+- **Preserves constraint 2** — the field travels with the value into
+  containers, exactly as the map entry does.
+- **Must reproduce constraint 4**: the synthesised entry has to win over a
+  program-set `"stack"` key, which matches the reference because `tag` pushes
+  the value afterwards and push overwrites.
+- **Requires** `tags()` to return an owned map rather than `&BTreeMap`, or a
+  second accessor — it currently hands out a reference
+  (`crates/bund2-value/src/lib.rs`), and that signature is used by
+  the render loop and by tests.
+- **Risk:** highest of the three, and the only one that changes a public
+  accessor's shape.
+
+### Option 4 — tag on observation rather than on push
+
+**Rejected, and recorded so it is not re-proposed.** Constraint 2 forbids it:
+the tag is a fossil that has already travelled into containers by the time
+anything observes it, so there is no later moment at which it can be
+reconstructed correctly.
+
+## Recommendation
+
+**Option 1, measure, then option 2 if the number is not yet met.**
+
+Option 1 is a bug fix in the strict sense — the code does not implement the
+policy D13 states — and it needs no decision about layout, no change to a
+public accessor, and no golden churn. It should be taken on its own merits
+whatever is decided about the rest.
+
+Whether it is *sufficient* is the open part. RFC-0005 §S1 asks for
+`value/push_pull/balanced` under **20 ns**; option 1 leaves three allocations
+per push and may land nearer 30–40. Option 2 removes two of the three and
+composes cleanly. Option 3 is the only one that reaches the floor, and it is
+the only one that should wait for a decision — it changes the layout this RFC
+specifies, so it wants a D-number rather than an amendment.
+
+## Outcome — option 1 implemented, 2026-09-08
+
+Taken, and it works, and **it does not reach the target — for a reason the
+options above had wrong.**
+
+`with_tag` now takes `self` and uses `Rc::get_mut`: a uniquely owned header is
+tagged in place with no clone and **no mint**, and a shared one materialises
+identity and splits exactly as before. Two allocations per push were also
+removed from `Stacks::current_mut`, which was calling `current_name().to_string()`
+and then `entry(name.clone())` — neither having anything to do with tagging.
+Each `Stack` now knows its own name.
+
+| | before | after |
+|---|---|---|
+| `value/push_pull/balanced` | 126.9 ns | **96.7 ns** |
+| `dispatch/literal_push` per word | 94 ns | **64 ns** |
+| `dispatch/dup_drop` per word | 122 ns | **92 ns** |
+| `dispatch/native_call` per word | 112 ns | **88 ns** |
+
+A quarter off, everywhere. Conformance unchanged at 73/86 with all 39
+tag-bearing goldens green.
+
+**But RFC-0005 §S1 asks for under 20 ns and this is 96.7.** The estimate in the
+recommendation above — "may land nearer 30–40" — was wrong, and the breakdown
+says why:
+
+| | median |
+|---|---|
+| `value/promote/scalar` — boxing alone, no tag written | **26.0 ns** |
+| `value/with_tag/scalar_unique` — box plus the tag | **59.8 ns** |
+| `value/with_tag/heap_shared` — clone-and-split path | **53.4 ns** |
+
+The split path is *cheaper* than the unique path, which is the tell. The
+dominant cost is not the clone that option 1 removed; it is **boxing a scalar
+at all** — 26 ns of two allocations — plus ~34 ns for the tag's two `String`
+allocations and map insert.
+
+**And boxing is unavoidable while the tag lives inside the value.** A Bund2
+scalar has no header; a tag needs one. So every integer pushed to a stack is
+heap-allocated for the sole purpose of carrying `stack: "main"`, and
+`push_tags_with_the_current_stack` in `crates/bund2-interp/src/lib.rs` has
+asserted exactly that all along — "tagging a scalar boxes it" — without anyone
+costing it.
+
+**This changes the options.** Option 3 as written — a dedicated `stack` field
+on `HeapValue` — does *not* fix this, because the field is still in the header
+and a scalar still has to be boxed to carry one. Reaching 20 ns requires the
+stack tag not to live in the value for scalars at all, which is a larger
+question than any of the four options above frames. Carried as **Q29**.
+
+Options 1 is done. Option 2 (interning the key and value) remains available and
+would take the ~34 ns tag cost down, plausibly landing near 60 ns — still not
+20. Option 4 stays rejected.
+
+## Outcome — option 2 implemented, 2026-09-08
+
+The recommendation above asked for option 1, then measurement, then option 2 if
+short. All three happened, and the isolating experiment
+(`crates/bund2-bench/benches/boxing.rs`) confirmed both halves of the estimate:
+
+| the experiment | median |
+|---|---|
+| boxing, payload behind its own `Rc` — two allocations | **21.6 ns** |
+| boxing, payload inline — one allocation | **12.4 ns** |
+| tag insert, two `String`s | **36.5 ns** |
+| tag insert, interned `Rc<str>` | **16.3 ns** |
+
+Option 2 was taken — **interning only, no layout change**: `tags` is now
+`BTreeMap<Rc<str>, Rc<str>>` (`Tags`), each `Stack` caches the interned
+`"stack"` key and its own name, and `Stacks::current_mut` clones the front
+`Rc` instead of calling `current_name().to_string()`, which had been
+allocating on **every push and every pull**.
+
+`Rc<str>` orders by content, so a `BTreeMap` keyed on it iterates exactly as
+the `String`-keyed one did — which is what the 39 tag-bearing goldens depend
+on, and they are all still green.
+
+| | baseline | after option 1 | **after option 2** |
+|---|---|---|---|
+| `value/push_pull/balanced` | 126.9 ns | 96.7 ns | **52.0 ns** |
+| `value/with_tag/scalar_unique` | 73.1 ns | 59.8 ns | **43.7 ns** |
+| `dispatch/literal_push` per word | 94 ns | 64 ns | **45 ns** |
+| `dispatch/dup_drop` per word | 122 ns | 92 ns | **59 ns** |
+| `dispatch/native_call` per word | 112 ns | 88 ns | **58 ns** |
+
+**59% off the push/pull round trip**, conformance unchanged at 73/86 throughout.
+That is better than the ~67 ns this amendment projected, because the projection
+counted only the tag and missed `current_mut`'s allocation.
+
+### What the remaining 52 ns is, and why 20 is out of reach here
+
+`with_tag` is 43.7 of the 52; everything else — `VecDeque`, the map lookup,
+the pull — is about 8. And of that 43.7, **25.1 ns is `promote/scalar`:
+boxing, with no tag written at all.**
+
+So the floor for this line of attack is boxing, and it is **measured, not
+inferred**. Taking option 3's inline payload slot as well would move boxing
+from 25.1 to roughly 14 and land the round trip near **41 ns** — for
+**+24 bytes on every heap value** (`HeapValue` 88 → 112). It would still not
+reach RFC-0005 §S1's 20 ns.
+
+**A scalar cannot carry a tag without a header, and building a header costs an
+allocation.** Reaching 20 ns therefore requires the tag not to be in the value
+for scalars — option A (a symbol in the value's existing padding, which
+measurement shows is free: `BundValue` is 16 bytes and so is `(i64, u32)`) or
+option B (the tag out of the value entirely). That is Q29, and this outcome
+converts it from a question about *whether* to one about *which*.
+
+## Outcome — option A taken as D41, 2026-09-08
+
+The paragraph above concluded that reaching 20 ns "requires the tag not to be
+in the value for scalars — option A ... or option B". The repository owner
+chose **A**, recorded as **D41**, and it is implemented.
+
+Each scalar variant carries a `StackSym(u32)` in padding the enum already had.
+`BundValue` measures **16 bytes, 8-aligned** — unchanged, as the layout
+measurement predicted.
+
+| | baseline | opt 1 | opt 2 | **D41** |
+|---|---|---|---|---|
+| `value/push_pull/balanced` | 126.9 ns | 96.7 ns | 52.0 ns | **10.1 ns** |
+| `dispatch/literal_push` per word | 94 ns | 64 ns | 45 ns | **24.5 ns** |
+| `dispatch/native_call` per word | 112 ns | 88 ns | 58 ns | **28.8 ns** |
+
+**12.6× on the round trip, and this RFC's headline figure is untouched.**
+Conformance held at 73/86 at every stage.
+
+The three rules D41 states are what keep this invisible to a program: the
+symbol is excluded from equality, hashing and ordering (all hand-written here,
+so omission is deliberate); `promote` carries it into the header's map when a
+tagged scalar is boxed; and `tags()` synthesises the `"stack"` entry so the
+render path, the wire format and the 39 tag-bearing goldens see one shape.
+
+`tags()` now returns `Cow<'_, Tags>` rather than `&Tags` — borrowed for a heap
+value, owned for a scalar whose entry is synthesised. That is the one signature
+in this RFC's surface that D41 changes.
+
+## What this amendment does not do
+
+It does not change the accepted design, the 16-byte figure, D13's policy, or
+any acceptance criterion. **Option 3, if taken, needs a decision entry**; options
+1 and 2 do not, being an implementation fix and an internal representation
+change respectively, neither observable to a Bund program.
+
+## Amendment, 2026-09-10 — `q` is kept, not averaged
+
+D32 is amended on the repository owner's answer to Q35, and five passages above
+rest on the reading it replaces. They are left as written — this RFC is
+Accepted, and what it said is part of the record — and superseded here:
+
+| passage, by its opening words | said | now |
+|---|---|---|
+| "**`q` is a field too, and two earlier drafts had it as a rendered constant.**" | `q` is "averaged and propagated"; "every arithmetic operation writes `q`"; 100.0 is a fixpoint | **no word writes `q`.** `calc_q` has no caller in `rust_dynamic` (`reference/rust_dynamic/src/q.rs:4-7`), and the averaging in `impl Add` (`reference/rust_dynamic/src/math.rs:413-424`) is an operator overload the `+` word never reaches: `math_op` calls `Value::numeric_op` directly (`reference/rust_multistackvm/src/stdlib/math/math_op.rs:7-19`). 100.0 is the constructors' value, not the fixpoint of an average |
+| the `HeapValue` sketch, `q: f64, // averaged by arithmetic` | averaged | carried, never averaged |
+| "halves keep the same one. An earlier draft said `set_tag` was the only reachable one." | `calc_q`/`set_q` write `q` "from every arithmetic operator" | neither is reached from any word; the constructors are `q`'s only reachable writers |
+| the Preservation row "`q` averaged by arithmetic and propagated" | preserved exactly | **preserved as a field, not averaged** — which changes nothing any golden shows |
+| "`q` has **two writers**, `calc_q` and `set_q`, reached from the arithmetic operators" | two writers on the arithmetic path | as above |
+
+The error is the one CLAUDE.md names: a claim about what a function does,
+grounded before its callers were read. `impl Add` does average; nothing on the
+path a program takes calls it.
+
+**Nothing Bund2 does changes.** `crates/bund2-stdlib/src/math.rs` never
+averaged, and no golden moves. What D32 reserves `q` for — a future fuzzy-math
+feature — is unaffected as a reservation: how `q` combines is designed when
+that feature is, as new behaviour.
