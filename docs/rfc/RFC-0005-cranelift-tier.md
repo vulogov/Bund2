@@ -1,0 +1,1743 @@
+# RFC-0005: Tier 1 — the Cranelift backend
+
+- Status: **Draft** (2026-09-08, revised 2026-09-09 and 2026-09-10).
+  `docs/research/00-jit-feasibility.md` §2.2 sets a hard gate — "Project B is
+  worth doing only if Project A's measurements show that dispatch and boxing
+  are still the bottleneck". When this was drafted the gate did **not** pass:
+  the dominant cost was one function in the value layer. **D41 changed that**,
+  and §S1's update records it — push/pull 126.9 → 9.8 ns, a 3.8–4.2×
+  improvement per program shape.
+
+  **Half the gate is met and half is not, and this RFC does not claim
+  otherwise.** The 20 ns prerequisite is met. The second — that dispatch is now
+  the dominant term — **cannot be shown with these benchmarks**, because none
+  of them separates dispatching a word from the work the word does once
+  dispatched (§S1). Criterion 10 makes that an experiment that can fail rather
+  than a claim.
+
+  So §S2–§S11 are worth designing and are not yet authorised to be built. Two
+  correctness problems stand between this RFC and Proposed. **§S8's frame
+  consumption** has a guard and a criterion (11) but no mechanism: how a
+  compiled body reads its remaining machine-stack headroom is still unstated.
+  And **§S6's inlining freezes a name** unless every inlined site re-checks
+  what the name means — the fifth review's B1, answered in §S6 by a per-site
+  meaning guard that criteria 5 and 17 test.
+
+  The sixth review's B1 — **no body's `Rc` reached the point where it starts
+  running** — was the owner's, and is decided and built: D42 carries the value
+  to every entry point, with dated amendments to RFC-0002 and RFC-0003. D43
+  decides the `bund2-api` additions §S6's guards need, to be built when this
+  RFC reaches Proposed.
+- Depends on: RFC-0001 (the value, whose representation §S1 indicts),
+  RFC-0002 (`StackEffect`, the word slot table, and the open world that forces
+  indirect calls), RFC-0003 (BundIR as a cache over a body, and the frame
+  loop), RFC-0004 (declared and inferred effects, which order guards)
+- Decisions consumed: **D3** (eval'd code is structurally unable to hit the
+  cache, so no tier rule is needed), **D5** (lambda bodies are write-once, so
+  no invalidation), **D9** as amended 2026-09-09 (**no Cranelift type may
+  appear in `bund2-stdlib` or `bund2-api`**; the original sentence governs the
+  stable ABI, not where Bund2's own lowerings live), **D10** (a C toolchain is permitted to `bund2 build`, not below
+  it), **D12** (the `*` fold family is a permanent optimisation barrier),
+  **D16** (dispatch by computed name — the open world), **D20**
+  (materialisation points), **D32** as amended 2026-09-10 on Q35's answer (`q` is
+  kept on every value and **not** averaged by arithmetic; §S6's constraint 2
+  rests on it),
+  **D33** (**OPEN**; §S6 states what it withholds
+  rather than taking its default), **D35** (the cache keys on the body's `Rc`
+  pointer; as amended 2026-09-10 on Q32, it holds a `Weak`), **D42** (a body's
+  `Rc` reaches the point where it starts running), **D43** (the registration
+  id and stable generation cells §S6's guards need), **D37** (no panic), **D39** (an
+  internal loop must be bounded)
+- Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
+  `80377728f45b`; `bundcore` `3b0b8ba219a6`; `rust_dynamic` `ceb27c96fa10`;
+  `rust_multistack` `9a97675ee5d8`; `rust_multistackvm` `4605832678d4`
+- Supersedes: `00-jit-feasibility.md` §2.1's expectation table, whose rows are
+  replaced by measurement in §S1. The document's own framing anticipated this —
+  "order-of-magnitude reasoning, to be replaced by measurement in Phase 0" — so
+  this is the substitution it asked for, not a contradiction. Recorded in
+  `docs/research/ERRATA.md`.
+
+## Summary
+
+Tier 1 compiles a lambda body to native code through Cranelift, behind a
+`cargo` feature, keyed on the body's `Rc` pointer, entered only through
+runtime-owned indirect slots, and specialised by guard-and-branch with no
+deoptimisation. It changes speed and not meaning: `cargo xtask conform` must
+move by **exactly zero**.
+
+That is the design. §S1's measurement no longer says "not yet" on performance
+grounds — D41 removed that objection — but two correctness problems are not
+closed: §S8's machine-stack headroom check has no mechanism, and §S6's meaning
+guard is new in this revision and unreviewed. The RFC stays Draft.
+
+## Motivation
+
+Bund2 is already **5.5× faster than the reference** over the corpus — 153.9 ms
+against 845.2 ms for 57 programs, measured through `cargo xtask bench` with
+both targets in release (`docs/registers/open-questions.md`, Q14). That factor is startup: the fastest program fell from
+13.7 ms to 2.3 ms, which is what D28's dependency cut bought.
+
+So the motivation for a JIT is not "Bund2 is slow relative to the oracle". It
+is that interpretation itself is slow in absolute terms, and the question this
+RFC has to answer first is *which part* of it.
+
+## Current behaviour
+
+There is no Tier 1 *code*: `crates/bund2-jit/src/lib.rs` is a doc comment and
+lint configuration — twelve lines — and `crates/bund2-ir/src/lib.rs` now
+declares `pub mod fragment` and re-exports `Fragment`, `Guard` and `Op`: the
+representation §S6 describes, and no lowering.
+
+**The wiring, however, already exists**, and an earlier draft said it did not.
+Cranelift is pinned at `=0.135.0` in the workspace and declared as optional
+dependencies of `bund2-jit` behind `jit` and `aot` features
+— the `jit` and `aot` features in `crates/bund2-jit/Cargo.toml`, which
+`crates/bund2-runtime/Cargo.toml` re-exports. So the feature gate §S10 requires
+is built; what is missing is everything it would gate.
+
+Tier 0 is what runs: `Interp::eval` walks a `Vec<BundValue>` and dispatches
+each `CALL` through the slot table.
+
+---
+
+# S1. The gate, measured — half met
+
+`00-jit-feasibility.md` §2.2 divides the work in two and puts a decision gate
+between them:
+
+> Project A — representation. […] Delivers the majority of the achievable
+> performance. […] Project B — Cranelift tier. […] Project B is worth doing
+> only if Project A's measurements show that dispatch and boxing are still the
+> bottleneck.
+
+and warns what happens if the gate is skipped:
+
+> A JIT that emits `call stdlib_add_inline` in sequence is a slower, more
+> fragile version of the interpreter.
+
+`crates/bund2-bench` now measures this in process. Medians, this machine,
+release with debug info:
+
+| benchmark | median | **per group** |
+|---|---|---|
+| `dispatch/literal_push/w2000` — `1 drop` ×1000 | 188 µs | **188 ns** |
+| `dispatch/dup_drop/w3000` — `1 dup drop` ×1000 | 366 µs | **366 ns** |
+| `dispatch/native_call/w4000` — `1 2 + drop` ×1000 | 446 µs | **446 ns** |
+
+**Per *group*, not per word.** An earlier draft divided by word count and then
+compared the result against `value/push_pull/balanced`, which produced an
+impossibility: a whole average word read 112 ns while a single push/pull round
+trip read 126.9. A word is not one push/pull — `1 2 + drop` is four words but
+three pushes and three pulls — and the two benchmarks do not share a harness,
+so the units were never commensurable. **Only differences within the
+`dispatch/*` family are meaningful**, and this table is restated in the unit
+that supports them.
+
+What the value-layer benchmarks below do establish is the cost of the
+operations themselves, which is a claim about `with_tag` and not about any
+split between dispatch and the value layer:
+
+| benchmark | median |
+|---|---|
+| `value/clone/scalar` — clone a `BundValue::Int` | **4.1 ns** |
+| `value/with_tag/scalar`\* — one `with_tag("stack", …)` | **73.1 ns** |
+| `value/push_pull/balanced` — one push and one pull through `Vm` | **126.9 ns** |
+
+\* **No benchmark of that name exists today.** `crates/bund2-bench` has
+`value/with_tag/scalar_unique` — the production case, a freshly boxed scalar
+with one holder — and `value/with_tag/heap_shared`. Whether 73.1 ns came from
+one of them under an earlier name cannot now be established: the bench crate is
+not yet under version control, so it has no history to consult. The figure is
+kept because this subsection records the state that motivated the gate; it is
+not a figure anything later rests on.
+
+**`with_tag` was 58% of a push/pull round trip and roughly 60–75% of an average
+word.** It was not incidental. `Stack::push_as` did not store the value it was
+handed, it stored `v.with_tag("stack", name)` — and `with_tag`, *as it stood
+then*, boxed the scalar, materialised its identity, cloned the entire
+`HeapValue` including its `BTreeMap` of tags, inserted two freshly allocated
+`String`s, and wrapped the result in a new `Rc`. Four allocations and a map
+clone, per value, per push. Cloning the same value cost 4.1 ns; tagging it cost
+73.1.
+
+**No line is cited for that, deliberately: the code no longer exists.** D41 and
+RFC-0001's Q25 amendment rewrote it, and `crates/bund2-value/src/lib.rs`
+today takes `Rc<str>` parameters — no `String` allocation — and mints and clones
+only on the shared arm, which the production path does not take. An earlier
+draft cited that line for the sentence above, which `cargo xtask cite` passed
+because the line resolves; it checks that a citation points somewhere, not that
+the prose describes what is there. **This whole subsection is a record of the
+state that motivated the gate**, and it is kept in the past tense for that
+reason. The current numbers are in the update below.
+
+That tag is not decoration — a value's `tags` carry `stack: <name>` and the
+reference's own values do too, which is why goldens capture it. The cost is in
+*how* it is written, not *that* it is written.
+
+### What this means for this RFC
+
+A Cranelift tier lowers the interpreter's dispatch, and the question is how
+much of a run that is.
+
+**An earlier draft answered "at most a quarter" and derived an Amdahl bound of
+about 1.3×. That figure is withdrawn.** It rested on the unit error above, and
+its inputs were superseded by D41 the same week. It is not replaced with a
+corrected number, because **these benchmarks cannot separate dispatch from the
+work a word does once dispatched** — removing dispatch would not remove `+`'s
+addition or `drop`'s pop, and nothing here measures that split. Criterion 10
+makes it an experiment rather than an estimate.
+
+What survives without arithmetic: `with_tag` cost 73.1 ns against a 4.1 ns
+clone, on a path that runs for every value the interpreter touches. That is a
+representation cost, it is large, and it is not something a code generator
+addresses. The study's own precondition — that the representation work be done
+first — was therefore not met.
+
+**So the gate's answer is: not yet.** Concretely, the following must land
+before §S2–§S11 are worth implementing:
+
+1. **`push` must stop reallocating.** The stack tag is a property of *where a
+   value is*, and it is being stored *in* the value. Candidate fixes — a tag
+   written only when observed, a stack-name interning so the insert is a `u32`,
+   or moving the tag to the stack's own bookkeeping — are RFC-0001's to weigh,
+   not this RFC's. The requirement here is a number: `value/push_pull/balanced`
+   under **20 ns**.
+2. **Re-run the gate.** With push cheap, `dispatch/*` re-measured tells us
+   whether dispatch has become the bottleneck. If an average word is then
+   dominated by the dispatch loop, Project B is justified and this RFC's design
+   sections apply unchanged.
+
+This is not a rejection of Tier 1. It is the sequencing the study asked for,
+with the measurement it said to take.
+
+### Update, 2026-09-08 — prerequisite 1 met, prerequisite 2 not settled
+
+Prerequisite 1 is satisfied; prerequisite 2 is not settled (below). **D41** moved the stack tag into the
+value's existing padding as an interned symbol, and RFC-0001's Q25 amendment
+records the chain:
+
+Per group, the unit the `dispatch/*` family supports:
+
+| program | baseline | **now** | |
+|---|---|---|---|
+| `1 drop` | 188 ns | **46.9 ns** | 4.0× |
+| `1 dup drop` | 366 ns | **95.8 ns** | 3.8× |
+| `1 2 + drop` | 446 ns | **105.2 ns** | 4.2× |
+| `value/push_pull/balanced` | 126.9 ns | **9.8 ns** | 12.9× |
+
+**Prerequisite 1 is met**: it asked for under 20 ns and `push_pull/balanced` is
+9.8.
+
+**Prerequisite 2 is not settled, and this update no longer claims it is.** It
+asked whether dispatch has become the bottleneck. Differencing *within* the
+family — the only subtraction these numbers support — gives:
+
+| | cost |
+|---|---|
+| a literal push, `dispatch/literal_only/w1000` — **no dispatch at all** | **13.2 ns** |
+| `drop` = `1 drop` − `1` | 33.7 ns |
+| `dup` = `1 dup drop` − `1 drop` | 48.9 ns |
+| `+` = `1 2 + drop` − `1 drop` − `1` | 45.1 ns |
+
+A literal push runs no word and costs 13.2 ns; a `drop` adds 33.7 for a
+dispatch plus a `VecDeque::pop_back`. So dispatch is **at most** 33.7 ns and
+plainly the larger term in a word — but "at most" is the honest quantifier,
+because nothing here separates the dispatch from the pop, or from `+`'s
+addition. That separation is criterion 10.
+
+`dispatch/literal_only/w1000` exists because of this: it is the non-dispatch path
+exactly, and it replaced a `nl`-based benchmark that was meant to isolate
+dispatch and in fact measured stdout at ~450 ns per word.
+
+Conformance did not move across D41 — 73/86, ceiling 79/86, before and after
+— and `BundValue` is still 16 bytes (a test in `crates/bund2-value/src/lib.rs`
+asserts `size_of::<BundValue>() == 16`). Conformance has since reached its ceiling,
+**79/86**, through Tier 0 work unrelated to this RFC (criterion 2).
+
+So §S2–§S11 are worth designing. The Status line says what still stands
+between them and being built.
+
+# S2. What Tier 1 is, and the one invariant
+
+Tier 1 compiles a **lambda body** to native code. It is never required: Tier 0
+interprets every body and must, because a body built and run once can never
+repay compilation (RFC-0003 §S3).
+
+**The invariant is that conformance moves by exactly zero.** CLAUDE.md states
+it for this milestone specifically — "the JIT and AOT milestones must move it
+by exactly zero: they change speed, not meaning, so any movement is a bug."
+This RFC adds no word, changes no word's behaviour, and adds nothing to the
+conformance denominator.
+
+# S3. The compilation unit, and the cache
+
+**D35 resolves the key: the body's `Rc` pointer.** RFC-0003 §S3 states the
+shape, and D42 carries the key to every point where a body starts running.
+Two consequences this RFC owns:
+
+- **A freed body's address may be reused**, so an entry that outlives its body
+  would become a *false hit* — wrong code executed, the worst failure
+  available here. **A `Weak` prevents it**: an `Rc`'s allocation is freed only
+  when its strong and weak counts both reach zero, so a live entry keeps the
+  address out of reuse. D35 first required a strong reference for this; its
+  amendment (Q32) moves the cache to a `Weak`, since the strong reference was
+  buying liveness rather than safety, and D42's frames now supply the
+  liveness. D35's "an invariant to test, not merely to document" stands, and
+  criterion 3 tests it.
+- **The cache does not pin bodies.** D35 first said it did, and that the cap
+  was therefore load-bearing for heap; with a `Weak` it pins nothing, and the
+  cap bounds code memory alone (§S7).
+
+**An eval'd token stream is never a compilation unit.** It is parsed and each
+token applied straight into the VM, retaining nothing (D3), so there is no body
+and no `Rc` for the cache to key — under pointer keying as under identity
+keying. That, not a threshold, is what D3's amended resolution rests on.
+
+**A lambda *inside* eval'd code is an ordinary body.** `1000 { … } times`
+evaluated from a string runs its inner body 1000 times under one `Rc` — D42
+carries the key to the entry point — and compiles like any other. Each
+re-evaluation of the string mints a new body and compiles it again, orphaning
+the previous code, which §S4 says is never reclaimed. **Only the 1024-body cap
+bounds that**, and a REPL re-evaluating such lines reaches it: after 1024,
+Tier 1 is off for the rest of the process. That is Q27's REPL profile arriving
+through D3's door. This RFC accepts it for v1 — bounding it is what the cap is
+for — and names the eventual answer: content-hash keying, which D35 calls "a
+strict upgrade" and defers, would let a re-evaluated line find its earlier
+code.
+
+# S4. Every inter-word call is indirect, through a runtime-owned slot
+
+**D16 makes the world permanently open**: a call target may be a name assembled
+at run time. `!` is the corpus's spelling of `execute`, and for `PTR | STRING |
+CALL` it hands the name to `vm.call`
+(`reference/rust_multistackvm/src/stdlib/execute.rs:26-30`).
+
+## The chain, followed all the way
+
+An earlier draft of this section cited `i`/`i_direct` and stopped there. That
+was one call short, and it is the mistake CLAUDE.md names: `vm.call` does not
+reach `i` directly — it wraps the name and applies it,
+`self.apply(Value::call(name.clone(), Vec::new()))`
+(`reference/rust_multistackvm/src/multistackvm_call.rs:8`). Everything below
+happens *before* the inline table is consulted, and all of it is contract:
+
+| # | step | source |
+|---|---|---|
+| 1 | an empty name bails | `reference/rust_multistackvm/src/multistackvm_apply.rs:13-14` |
+| 2 | **`is_command` → `c(name)`**, ahead of everything else | `reference/rust_multistackvm/src/multistackvm_apply.rs:16-17` |
+| 3 | **`autoadd`**, which does not call at all — see below | `reference/rust_multistackvm/src/multistackvm_apply.rs:19-27` |
+| 4 | a leading `$` → `call_internal_word` | `reference/rust_multistackvm/src/multistackvm_apply.rs:33-34` |
+| 5 | alias resolution | `reference/rust_multistackvm/src/multistackvm_apply.rs:39-40` |
+| 6 | `is_lambda` → `lambda_eval` | `reference/rust_multistackvm/src/multistackvm_apply.rs:46-49` |
+| 7 | otherwise `i(real_name)` | `reference/rust_multistackvm/src/multistackvm_apply.rs:59` |
+
+Only at step 7 does the chain reach the inline tables, where `i` resolves
+aliases **again** (`reference/rust_multistackvm/src/multistackvm_inline.rs:69-75`).
+Then `i_direct` tries the VM's own table and falls through to the stack
+layer's (`reference/rust_multistackvm/src/multistackvm_inline.rs:41-67`). D16 declares that order
+contract.
+
+*(Every path in this table is spelled in full because `cargo xtask cite` cannot
+seed a scope from a bare filename, and a table after a blank line has none in
+scope; written as `:16-17`, these were thirteen citations the tool could not
+check. The fifth review found that, and opened all thirteen by hand.)*
+
+For lowering, steps 2, 4, 5 and 6 mean a compiled call site cannot assume its
+target is a native: the same name may be a command, a `$`-forced internal, an
+alias, or a lambda, and which one is a run-time property.
+
+**And "the resolved target" is ambiguous, because the two paths resolve to
+different depths.** A plain name is resolved twice — once by `apply`
+(`reference/rust_multistackvm/src/multistackvm_apply.rs:39-40`) and again by `i`
+(`reference/rust_multistackvm/src/multistackvm_inline.rs:69-75`). A `$`-prefixed name is resolved **once**:
+`call_internal_word` strips the sigil and calls `i` directly
+(`reference/rust_multistackvm/src/multistackvm_call_internal_word.rs:7-8`),
+skipping `apply`'s resolution.
+
+On a one-deep alias chain the two agree, which is why this has not surfaced. On
+a two-deep chain `a → b → c` they do not: `a` reaches `c`, `$a` reaches `b` —
+because `get_alias` answers with one `name_mapping` lookup and never follows the
+chain (`reference/rust_multistackvm/src/multistackvm_alias.rs:31-39`).
+F26 already records that `$` does **not** bypass alias resolution — it skips
+the lambda check only — and this is the finer consequence: it skips one *level*
+of it. A slot keyed on "the resolved target" therefore needs to say which
+resolution, and a compiled `$name` call must key on the one-level answer.
+
+## Step 3 is the one that changes what a call means
+
+**Under `autoadd`, a CALL is not a call.** `apply` pulls the value beneath and
+appends the CALL to it — `self.stack.push(val.push(value))` — and never
+dispatches (`reference/rust_multistackvm/src/multistackvm_apply.rs:19-27`); an empty stack is an error, not a
+no-op. The flag is VM-wide and mutable, toggled by two words registered as
+**commands**:
+
+```rust reference/rust_multistackvm/src/stdlib/autoadd.rs:28
+    let _ = vm.register_command(":".to_string(), stdlib_autoadd_enable_inline);
+```
+
+with `;` disabling it at `reference/rust_multistackvm/src/stdlib/autoadd.rs:29`. They are commands precisely so that step 2
+outranks step 3 — otherwise `;` could never turn the mode off again, because
+under autoadd it would be collected rather than run.
+
+Two consequences this RFC owns, and an earlier draft had neither:
+
+- **Compiled code must guard on `autoadd` at entry** and decline to run when it
+  is set, and **re-read it after every call it makes**, because a callee can
+  turn it on. The reference collects every value it applies under the mode —
+  calls, CONTEXT values and literals alike
+  (`reference/rust_multistackvm/src/multistackvm_apply.rs:19-27`, `reference/rust_multistackvm/src/multistackvm_apply.rs:72-73`,
+  `reference/rust_multistackvm/src/multistackvm_apply.rs:89-97`) — so a check at calls alone cannot honour
+  it. §S5's residual path does: once the flag is seen set, every remaining
+  value goes through `apply`. No OSR is involved; the residual path is part of
+  the compiled function.
+- **`:` and `;` are opaque sites** in the sense §S5 defines: after either, the
+  meaning of every following call has changed, so promotion stops there. They
+  are reachable by computed name through `!`, since step 2 tests `is_command`
+  before any of the machinery D16 makes dynamic — so this cannot be decided
+  statically.
+
+The corpus barely exercises this — one program uses `:` or `;` as a word,
+`reference/Bund/examples/code_snippets/textexpression_demo.bund`, found by
+`grep -lE '(^|[[:space:]])[:;]([[:space:]]|$)'` over the corpus roots — but D16
+means one may appear at run time.
+
+Cranelift compounds this. `JITModule` has no per-function redefinition or
+deallocation; `get_finalized_function`'s pointer is valid until
+`free_memory(self)` consumes the whole module
+(`00-jit-feasibility.md` §3.2a). Bund's `register`, `unregister` and `alias`
+mutate the word table at run time, and Bund2 implements all three
+(`register` and `unregister` in `crates/bund2-stdlib/src/values.rs`, `alias` in
+`crates/bund2-stdlib/src/singles.rs`).
+
+Therefore:
+
+- **No compiled call is a direct relocation to a `FuncId`.** Every inter-word
+  call loads a pointer from a runtime-owned slot and calls it indirectly.
+- **Redefining a word writes a new pointer into its slot.** The old code is
+  orphaned; its pages are never reclaimed.
+- **Unregistering rewrites the call slot to whatever the name now resolves
+  to**, and writes a failing stub only when nothing does. Bund2's registry
+  `Slot` holds six independent bindings (`crates/bund2-api/src/lib.rs`,
+  `Slot`), and the `unregister` word clears the lambda alone
+  (`crates/bund2-stdlib/src/values.rs`, `unregister`). So unregistering a
+  lambda that shadowed a native **reveals the native**, and Tier 0 runs it; a
+  stub there would diverge. The call slot itself is never freed, because
+  compiled code holds its address.
+
+**Two structures, one name each.** This RFC says *call slot* for the
+runtime-owned cell a compiled call site loads its target from, and *registry
+`Slot`* for `bund2-api`'s record of a name's six bindings and their generation.
+There is one call slot per name, rewritten whenever that name's registry
+`Slot` is touched. A name whose resolution passes through another `Slot` — an
+alias — has its call slot point at a resolving trampoline that runs the full
+chain through `dispatch`, so an alias is never cached and never fanned out.
+That is the same rule §S6 applies when it refuses to inline through an alias,
+so the two sections now describe one model.
+- **Code memory grows monotonically for the process lifetime**, which is what
+  §S7's caps exist to bound.
+- Module rotation — fresh `JITModule`, re-JIT live words, `free_memory` the old
+  one — needs a shadow stack to prove no orphaned frame is live. **Out of scope
+  for v1**, as the study directs.
+
+**§3.2d is *not* discharged by the rule above, and an earlier draft claimed it
+was.** Calls on x86-64 use 32-bit relocations (±2 GB), and the study's
+mitigation has two halves: reserve a contiguous region up front, and "route
+**runtime-helper** calls through an indirection table so helper addresses are
+never a relocation-range problem".
+
+The slot rule covers **inter-word** calls. Runtime-helper calls are a different
+set and a larger one: §S5's second rule syncs promoted values back to the real
+stack *through helpers*, so every opaque site emits them, and §S6's promotion
+emits them at every boundary. None of that goes through a word slot, because a
+helper is not a word.
+
+So this RFC owes §3.2d a second mechanism it does not yet specify: **a helper
+table, addressed indirectly, distinct from the word slots.** The allocator half
+is settled — `cranelift-jit`'s `ArenaMemoryProvider`, adopted on §3.2d's
+recommendation and not on evidence of its own. The helper table is not, and it
+is exactly the path §S5 depends on most.
+
+**D16 also forecloses static devirtualisation of `!`.** Speculation behind a
+guard with a full-resolution fallback is permitted, because that is speed and
+not meaning — but the health metric must still move by zero.
+
+# S5. Guard and branch; never guard and bail
+
+Cranelift is a code generator, not a JIT runtime: **no deoptimisation, no
+bailout metadata, no on-stack replacement** (§3.2b). For a dynamically typed
+language this is *the* defining constraint, and it fixes the specialisation
+strategy:
+
+> Guard and branch to a compiled generic path. Never guard and bail out.
+
+Every type-specialised region carries its generic counterpart in the same
+function, reachable by a conditional branch. This costs code size and
+forecloses V8-style speculation; it has no runtime metadata cost and cannot go
+wrong at run time, which under D37 is the property that matters.
+
+The absence of OSR has a second consequence: **do not plan to enter compiled
+code mid-loop.** Compile at word granularity and rely on loop bodies being
+separately compilable lambdas — which in Bund they are: `times`, `loop`, `map`
+and `while` each test their operand with `is_type(LAMBDA)` before running it
+(`reference/rust_multistackvm/src/stdlib/logic/times_fun.rs:13`, `reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:12`,
+`reference/rust_multistackvm/src/stdlib/logic/map_fun.rs:12`, `reference/rust_multistackvm/src/stdlib/logic/while_fun.rs:11`), and each
+refuses anything else outright — `times` with `TIMES: #1 parameter must be
+lambda` (`reference/rust_multistackvm/src/stdlib/logic/times_fun.rs:38`), and `loop`, `map` and `while` the
+same way (`reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:41`, `reference/rust_multistackvm/src/stdlib/logic/map_fun.rs:99`,
+`reference/rust_multistackvm/src/stdlib/logic/while_fun.rs:39`).
+
+**Bund2 now keeps what that needs — D42.** The reference's `times` passes
+`lambda_val.clone()` to `lambda_eval` on every iteration
+(`reference/rust_multistackvm/src/stdlib/logic/times_fun.rs:20`), so the same `Rc` arrives each time.
+Bund2's `times` used to copy the body out once per call and run a slice
+through a `Vm::eval_body` that took `&[BundValue]`, so no key reached the entry
+point (the sixth review's B1). Under D42 `Vm::eval_lambda` takes the value and
+the frame holds it, and `100 { drop } times` enters one body under one key a
+hundred times, which `times_enters_one_body_under_one_key` asserts
+(`crates/bund2-stdlib/src/seq.rs`).
+
+**RFC-0004 orders the guards.** A word's declared or inferred `StackEffect`
+gives the arity a guard must check before entry. This is the RFC-0004
+dependency doing real work rather than nominal work.
+
+## `Opaque` is not a type question, and takes the other rule
+
+The rule above is about **types**: *is this operand an Int?* It has a generic
+counterpart — the boxed arithmetic the interpreter would have run — so it can
+branch to it.
+
+**`Opaque` has no such counterpart.** It is a static claim about *stack depth*:
+after `!`, the depth is unknown, and no path recovers it. Calling that "the
+generic path" is a category error, and an earlier draft of this section made
+it. So opacity takes a second rule:
+
+> **Promotion stops at an opaque site.** Values held in `Variable`s are synced
+> back to the real stack before the call, and everything after it runs through
+> runtime helpers.
+
+**The sync writes through the path `Stack::push` uses**, not a bare
+`push_back`, so a synced value carries its D41 stack symbol. A bare write would
+leave `StackSym::NONE` and render `tags: {}` where the oracle renders
+`tags: {"stack": "main"}` (criterion 12).
+
+"Everything after it runs through runtime helpers" has one exception, and it is
+§S6's: an **inlined fragment** after an opaque site still runs inline, because
+its per-site meaning guard re-reads exactly the state an opaque site can
+change. Without that guard the exception would be unsound, and an earlier
+revision of §S6 claimed it without one.
+
+Control never leaves compiled code, so **no OSR is required** — which is the
+same constraint the type rule obeys, applied consistently.
+
+**RFC-0004 §S1 said something different, and is amended.** Its closing sentence
+— "a `Fold` or an `Opaque` site bails to Tier 0" — was a forward-looking claim
+about this RFC, written before it existed. Read as a run-time bail it needs the
+OSR machinery §3.2b denies; read as whole-body exclusion it would refuse every body that branches or
+loops — control flow is 19 of the 63 opaque sites that §S6's *Where promotion
+stops* counts. RFC-0004's amendment of 2026-09-09 withdraws it and points here.
+**This is not a deviation**: nothing a program does changes, and the health
+metric must still move by exactly zero.
+
+**D12 is untouched.** `Fold` remains a barrier that cannot be optimised across;
+it simply no longer kills the body it appears in.
+
+## After any call, three things may have changed — and one path answers all three
+
+*Added 2026-09-10, answering the sixth review's B2 and S1.*
+
+A compiled body calls words through call slots, and a called word can change
+state the body relied on:
+
+- **which stack is current.** `to_stack` and `to_current` declare `eff(1, 0)`,
+  `stacks_left` and `stacks_right` declare `eff(0, 0)` and rotate the stack
+  ring whose front *is* the current stack (`crates/bund2-stdlib/src/stack.rs`),
+  `endcontext` declares `eff(0, 0)` and switches back
+  (`crates/bund2-stdlib/src/conditional.rs`), and a conditional that runs its
+  body on another stack does so through `Vm::scoped_call`;
+- **what a later name means** — `register`, `unregister`, `alias`;
+- **whether values are applied or collected** — `:` sets `autoadd`.
+
+RFC-0004 classifies none of these; its effects count stack depth. Rather than
+enumerate every word that can change them — a list that would be wrong the day
+a word landed — **compiled code re-reads the state after every call it
+makes**, from runtime-owned cells (§S6, *Addressing*): the current stack's
+epoch, bumped on every change of current stack, and the `autoadd` flag. Name
+meaning is re-read at each inlined site, which is where it matters (§S6), and
+a slot call always loads its target fresh.
+
+If either cell has changed, the body takes its **residual path**. It syncs every
+promoted value to **the stack it was taken from** — recorded when the value
+was promoted, not the stack current now — and then applies the rest of the
+body's values one at a time through the runtime's `apply`, exactly as Tier 0
+would. That is guard-and-branch, not guard-and-bail: the residual path is
+compiled into the same function as the generic counterpart of everything after
+the call, and control never leaves compiled code. No OSR.
+
+The sixth review's example is `1 2 "s" to_stack +`. `to_stack` bumps the epoch;
+the body syncs `1` and `2` back to `main` and applies `+` through the runtime
+on `s`, which fails `Stack is too shallow for inline ADD()` — as Tier 0 and the
+reference both do, checked 2026-09-10. Without the check, promotion would add
+the two and push `3` onto `s`.
+
+Three rules follow:
+
+- **A CONTEXT literal is a static barrier.** It switches stacks with no call at
+  all (`reference/rust_multistackvm/src/multistackvm_apply.rs:69-87`, and `Interp::apply_step`'s CONTEXT
+  arm), so the lowering sees it, syncs before it, and applies it through the
+  runtime.
+- **A lowered op addresses the current stack as of that op**, never a stack
+  resolved once at entry. `frag::run` already does, through `Interp::pull`. A
+  lowering may cache the current stack only between calls, which is exactly
+  the window in which the epoch cannot move.
+- **Words that reach another stack by name** — `swap_in`, `rotate_stack_left`,
+  `rotate_stack_right` — do not switch the current stack, so the epoch does
+  not move. When the name *is* the current stack's, they read or reorder values
+  promotion may be holding. That is Q34's shape, a word observing beyond its
+  arity, and Q34 now lists them.
+
+The cost is one load and compare per call for each of the two cells. Criterion
+21 checks the behaviour, and criterion 18 the `autoadd` half.
+
+# S6. Stack-slot promotion — the actual win, and what withholds it
+
+§2.1's only row **that needs Cranelift** and promises more than ~1.5× is
+"stack-slot promotion + type guards — ~2–5×". The other three rows above that
+figure — two "large multiple"s and the ~2× threaded interpreter — are all in
+the "Needs Cranelift? **no**" column, which is §2.2's whole argument and the
+reason the qualification matters. An earlier draft dropped it and claimed this
+was the *only* such row.
+
+The idea: a compiled body's intermediate values live in Cranelift `Variable`s
+rather than round-tripping through the `Stack`, so a sequence like `1 2 +`
+never materialises a `BundValue` at all.
+
+Promotion is valuable *precisely because* touching the stack is expensive — and
+**D41 made it much less expensive**, from 126.9 ns per push/pull to 9.8. So
+promotion's headroom shrank with the thing that motivated it, and the ~2–5×
+figure was written against the old cost. **The two are not additive and must
+not be claimed as such**; criterion 10 measures what is left.
+
+## Promotion needs inlining, and §S8 is what makes that necessary
+
+§S8's escape from §3.2f is that a compiled word's signature is uniform,
+`fn(&mut dyn Vm)`, **because operands travel on the shared VM stack rather than
+in the call**. That answer is correct and it has a consequence this section
+originally did not face: *a value held in a Cranelift `Variable` is invisible to
+every word.*
+
+So `1 2 +` skips materialising a `BundValue` only if `+` is **inlined** into the
+compiled body. If `+` is *called* — through a slot, with the uniform signature —
+it reads its operands off the real stack, and they have to be there. **Promotion
+across a word therefore requires a lowering for that word, not a call to it.**
+
+### The apparent trap, and why it is not one
+
+`Intrinsic` is named by D9 and appears nowhere in `crates/`. D9 concludes that
+it "stays internal to `bund2-stdlib`", and RFC-0000 criterion **B3** requires
+that `cargo tree -p bund2-stdlib` not list `bund2-jit`. Read together those
+seem to put the lowering where the code generator cannot reach it.
+
+Two readings are wrong there, and D9's amendment of 2026-09-09 records both.
+**The forbidden direction is `stdlib → jit`; `jit → stdlib` is permitted** and
+nothing in RFC-0000 says otherwise. And D9's subject is the *stable ABI* —
+whether external packages may ship CLIF — not where Bund2's own lowerings live.
+The constraint that actually binds is narrower: **no Cranelift type may appear
+in `bund2-stdlib` or `bund2-api`.**
+
+### The mechanism: a word publishes BundIR, not CLIF
+
+A word may carry an optional **BundIR fragment**. `bund2-jit` lowers BundIR to
+CLIF on its own side of the boundary; `bund2-stdlib` mentions no Cranelift type
+and gains no Cranelift dependency, so B3 and D9 stand exactly as written.
+`bund2-ir` is already a dependency of `bund2-jit`.
+
+Three constraints, and the second is what makes this affordable:
+
+1. **The fragment is BundIR, never CLIF.** The permitted dependency direction
+   is `bund2-jit → bund2-stdlib`, and criterion 15 asserts it so a later change
+   cannot invert it quietly.
+
+2. **A fragment specialises one arm and always has the word as its generic
+   branch.** It is not an alternative implementation of the word.
+
+   This is what keeps fragments small enough to be worth writing. A fragment
+   for `+` cannot restate `numeric_op` (`crates/bund2-stdlib/src/math.rs`),
+   which handles int, float, mixed kinds, **LIST append**, string
+   concatenation and division by zero. It does not have to: under §S5's
+   existing guard-and-branch rule the fragment covers `Int + Int → Int` — four
+   IR operations — and every other shape branches to the call.
+
+   **What makes that arm free of `q` is the guard.** `Guard::TopAreInt` admits
+   only *unboxed* scalars, whose `q` is the 100.0 every constructor writes, and
+   the word's result is a fresh value at 100.0 too
+   (`crates/bund2-stdlib/src/math.rs`'s header). An earlier revision said the
+   fragment carried "D32's `q` average". It carries none: the reference's `+`
+   calls `numeric_op` directly and never reaches the code that averages, and
+   **D32, amended on Q35's answer, says Bund2 keeps `q` but does not average
+   it.** So an arithmetic result is a fresh value at 100.0 whatever its
+   operands carried, and `PushInt` produces exactly that. Widening a guard to
+   boxed values therefore owes no `q` arithmetic; it owes the differential test
+   an operand whose `q` is not 100.0, if one can be built, or the `q` assertion
+   stays unable to fail.
+
+3. **Every fragment carries a differential test** running the specialised arm
+   and the generic arm on the same inputs and asserting equality — value,
+   `dt`, `q`, D41's stack tag and, for `dup`, F13's fresh identity.
+   Criterion 16. On today's integer domain the `q` assertion cannot fail
+   (constraint 2); it is kept so that it can once a guard widens.
+
+Because the generic path *is* the word, a fragment can only be wrong on the arm
+it claims — which is what bounds the divergence risk that would otherwise make
+this a second implementation of the language.
+
+### Inlining freezes a name — unless every inlined site asks
+
+*Added 2026-09-10, answering the fifth review's B1. An earlier revision called
+inlining the half that carried no risk. It carries one.*
+
+§S4 builds the call architecture on a single rule: no compiled call binds a
+name at compile time; every call loads its target from a slot, so a redefined
+word is seen by every caller. **An inlined fragment breaks that rule by a
+different route.** Its ops *are* the body, and no slot is on the path. Once
+`+`'s `Int + Int` arm is inlined, the compiled body adds two integers for as
+long as it lives, whatever `+` has since become — and §S4's chain lists what it
+can become: a lambda (`reference/rust_multistackvm/src/multistackvm_apply.rs:46-49`), an alias to something
+else (`reference/rust_multistackvm/src/multistackvm_apply.rs:39-40`), a command
+(`reference/rust_multistackvm/src/multistackvm_apply.rs:16-17`), or, under `autoadd`, not a call at all
+(`reference/rust_multistackvm/src/multistackvm_apply.rs:19-27`).
+
+**It is not confined to opaque sites.** `register`, `unregister` and `alias`
+declare fixed effects; they are not `Opaque`. So under §S5 a compiled body runs
+straight through one and then reaches an inlined `+` whose meaning the word
+before it just changed. RFC-0004's `Opaque` classifies stack depth, and nothing
+classifies name meaning. Q34 is the stack-observation case of a fixed effect
+understating what a word does; this is the name-table case.
+
+**The mechanism is a meaning guard at every inlined site.** After the type
+guard admits and before the first op, compiled code checks two things against
+live runtime state:
+
+1. **The site's slot generation still equals the one captured when the
+   fragment was inlined.** The registry `Slot` already carries this counter —
+   documented for inline caches, none of which exists yet, so the meaning
+   guard would be its first reader — and each writer of a binding §S4's chain
+   consults bumps it:
+   `register_native`, `register_lambda`, `register_alias`, `unregister_alias`,
+   `register_command` and `unregister_lambda` all call `touch()`
+   (`crates/bund2-api/src/lib.rs`). A lambda shadowing `+`, an alias
+   retargeting it, a command registered under it and an unregister all change
+   the generation of `+`'s slot.
+2. **`autoadd` is clear.**
+
+If either check fails, the site branches to the slot call — the generic path,
+in exactly §S5's shape, with no bail and no OSR. Both checks are loads at the
+site, not facts fixed at compile time, so the guard holds after an opaque site
+and after a table mutator earlier in the same body. Mutators need no
+classification at all.
+
+Three rules make this sound rather than nearly sound:
+
+- **Inline only on a direct resolution.** A fragment is inlined only when the
+  site's name resolves through its *own* slot — no alias on the path, and no
+  lambda or command binding in the slot — so there is one generation to guard.
+  A name reached through an alias resolves through a second slot, whose
+  rewrite would not touch the first. Such a site is called, not inlined.
+  Aliases are rare on arithmetic, and this keeps the guard to one compare.
+- **Never inline against a saturated slot.** `touch()` saturates at
+  `u32::MAX` so that a stale inline cache cannot match a wrapped counter; a
+  saturated slot "stops caching instead". The same rule applies here: a slot
+  at `u32::MAX` keeps that value through every later rewrite, so a fragment
+  inlined against it would never see one.
+- **Recognise the registration — not the name, and not the address.** At
+  compile time the JIT must confirm the slot holds *`bund2-stdlib`'s own* `+`,
+  not another native registered under the same name, and a name cannot show
+  that. A function address cannot either: Rust guarantees neither that two
+  distinct functions have distinct addresses nor that one function has only
+  one — `std::ptr::fn_addr_eq`'s documentation says so. So a `Native` needs an
+  identity of its own — a **registration id**
+  assigned by `Registry::register_native` — which `Native` does not carry
+  today, and `bund2-stdlib` publishes its fragments keyed by the ids of the
+  registrations it made. Ids are per `Registry` — a fresh `Interp` mints new
+  ones, and F32's replay gives a re-registration a fresh id — so the table is
+  built per registry, at registration time, never as a static.
+
+**Where the association lives: `bund2-jit`.** `bund2-stdlib` publishes
+`(registration id, Fragment)` pairs from `crate::fragments`, and `bund2-jit` —
+which may depend on `bund2-stdlib` (D9 amended) — reads them when it compiles a
+site. **`bund2-api` carries no `Fragment` type.** Its only addition is the
+opaque registration id on `Native`, which names no code generator and no IR.
+External packages therefore cannot publish fragments: D9's amendment gives them
+`Native` with a declared effect and no more, and this keeps it so.
+
+**What it costs**: two loads and two compares per inlined site, both
+predictable — addressed as *Addressing* below describes. Criterion 17 checks that every inlined region carries the guard
+and measures what it costs. Criterion 5, extended, checks that it works — for
+each way §S4's chain lets a name change meaning, before the caller runs and
+mid-body.
+
+**Rejected: one VM-wide epoch**, bumped on any table write. It needs one
+compare rather than two, but in a REPL, where `register` is routine, a single
+unrelated definition would demote every inlined site in every compiled body
+until each was recompiled.
+
+### Addressing: where the guards' loads point
+
+*Added 2026-09-10, answering the sixth review's S2. The costing above said "two
+loads" without saying of what.*
+
+Compiled code receives `&mut dyn Vm` (§S8), and `Vm` exposes no registry, no
+generation and no `autoadd`. Nor does a generation have a stable address:
+`Registry` keeps its slots in a `Vec<Slot>` that `slot_mut` grows with
+`resize_with` whenever a new name is registered (`crates/bund2-api/src/lib.rs`,
+`Registry::slot_mut`), so a pointer into it dangles after the next `register`.
+
+So the guards read **runtime-owned cells at stable addresses**, not the
+registry:
+
+- a **generation cell per name**, mirrored from the registry `Slot`'s counter
+  by the same `touch()` that bumps it, and allocated in fixed-size chunks that
+  never move when more are added;
+- one **`autoadd` cell** and one **current-stack epoch cell** (§S5), owned by
+  the runtime in a single allocation that lives as long as the `Interp`.
+
+At compile time the JIT embeds each cell's address as an immediate. That is
+safe to do because the cells outlive every compiled function: both die with the
+runtime. A check is then one load and one compare per cell — **two per inlined
+site** (generation, `autoadd`) and **two per call** (epoch, `autoadd`), as
+costed. AOT cannot embed an address; it would reach the cells through a
+relocated data symbol or a helper, and AOT's lowering is RFC-0006's.
+
+**No new kind of `unsafe`.** The cells are `Cell`s written by safe Rust, and
+compiled code reads them through addresses it was handed as integers. The one
+`unsafe` this tier needs is the one it always needed — calling JIT-emitted code
+at all — and the cells add nothing beside it.
+
+**What this changes outside this RFC.** The generation mirror belongs to
+`Registry`, which is `bund2-api`'s, so `Registry` grows an accessor that hands
+out a name's cell. With the registration id above, that is an addition to
+RFC-0002's surface — **decided as D43** (Q37), and built when this RFC reaches
+Proposed.
+
+**So both halves of this design carry risk.** Inlining carries the
+*redefinition* risk, closed by this guard. Promotion carries the
+*stack-visibility* risk, closed by Q34 and criteria 9, 12 and 14. The staging
+below weighs both.
+
+### Measured — three times, and the third reverses the second
+
+Fragments were prototyped and measured before the rest were written, as this
+section required. `crates/bund2-bench/benches/fragment.rs`, run with
+
+    cargo bench -p bund2-bench --bench fragment
+
+on 2026-09-10 — one run, this machine, release. There is no Cranelift lowering
+to time, so it measures **ceilings**, and each column is constructed rather than
+subtracted:
+
+| column | what it is |
+|---|---|
+| `tier0` | the program interpreted, every word dispatched |
+| `inlined` | the fragment executed by `frag::run` — the model, as it runs |
+| `lowered` | the fragment's own ops written out in Rust: literal pushed and pulled, guard asked, nothing folded — **the ceiling for inlining** |
+| `promoted` | intermediates held in a register — **the ceiling for inlining plus promotion** |
+
+Per operation — Criterion's point estimate for 1000 operations, divided by
+1000:
+
+| | `tier0` | `inlined` | `lowered` | `promoted` |
+|---|---|---|---|---|
+| `Int + Int` | 59.2 ns | 44.7 ns | **29.2 ns** | **6.7 ns** |
+| `dup drop` | 88.8 ns | 44.7 ns | **29.7 ns** | **6.9 ns** |
+
+| | inlining alone, `tier0`/`lowered` | promotion on top, `lowered`/`promoted` | together |
+|---|---|---|---|
+| `Int + Int` | **2.0×** | **4.4×** | 8.8× |
+| `dup drop` | **3.0×** | **4.3×** | 12.9× |
+
+Run-to-run spread is about 2%: `int_add/tier0` read 57.9 and 59.2 ns in two
+runs the same day, and the sixth review's re-run agreed with every ratio to
+within 3%. The two `inlined` cells are both 44.7 ns, and equal in that re-run
+too (46.3 ns). That is `frag::run`'s fixed cost — guard, op loop, register
+file — dominating two arms that each do about one push's work; it is not a
+copying error.
+
+**The inlining ceiling on arithmetic is 2.0×, and promotion is the larger
+multiplier.** Once an inlined arm's operands live on the real stack, the stack
+traffic — the literal's push, then two pulls and a push per `+` — is most of
+what is left, and removing that traffic is exactly what promotion does. The
+prize is promotion. Inlining is what makes it possible (*Promotion needs
+inlining*, above).
+
+**The two earlier versions of this table were each wrong, in opposite
+directions**, and both are recorded because both errors are easy to repeat:
+
+- **2026-09-09: inlining 3.8–5.4×.** Its `inlined` column was hand-written as
+  one pull and one push, with the literal `1` folded into the arm as a constant
+  and no guard. No fragment can express that: `Op` has no immediate operand,
+  and `fragments::int_add()` pops two values behind `Guard::TopAreInt(2)`. Its
+  `dup drop` half also measured `push(clone)` rather than `dup`, which is not
+  what the word does (F13); correcting that alone moved 5.4× to 4.8×. The fifth
+  review found the folded constant (B2).
+- **2026-09-10, first re-run: inlining 0.9× — slower than the word.** That
+  column ran the real fragment through `frag::run`, which at the time
+  collected the top of the stack into a `Vec` and heap-allocated its register
+  file on every entry: `int_add/inlined` read 65.0 ns against `tier0`'s 57.9.
+  Removing both allocations brought it to 44.7. That gap is the model's
+  overhead, not inlining's — which is why `lowered` is a separate column.
+
+The earlier revision drew its staging from the first of these: "inline first,
+promotion second", because inlining was the larger win and every risk belonged
+to promotion. **Both halves of that are withdrawn.** Inlining is the smaller
+win, and it carries the redefinition risk the meaning guard above closes.
+
+**So the staging is:** inlining is built first because promotion cannot exist
+without it, not because it pays on its own. On operand-free arms — `dup drop`,
+3.0× — it clears criterion 10's threshold by itself. On arithmetic — 2.03× —
+it clears it by a hair before compiled code pays anything, and criterion 10
+expects the lowering to fall under it. Promotion follows,
+and criterion 10 is where it has to earn its machinery.
+
+### What has been built, 2026-09-09 and 2026-09-10
+
+The representation and its first consumer, which is everything on this side of
+a code generator:
+
+| | where | what it is |
+|---|---|---|
+| `Fragment`, `Guard`, `Op` | `crates/bund2-ir/src/fragment.rs` | the arm, naming no code generator |
+| `frag::run` | `crates/bund2-interp/src/frag.rs` | executes one against the real stack, allocating nothing; `Ok(false)` only when the guard declines |
+| `Fragment::new` | `crates/bund2-ir/src/fragment.rs` | the only constructor outside a test-only feature; refuses a fragment whose ops, walked typed against its guard, could fail after it admits |
+| `Vm::peek_at` | `crates/bund2-api/src/lib.rs` | the top *n* without copying the stack — what a guard asks |
+| `int_add`, `dup`, `drop_top` | `crates/bund2-stdlib/src/fragments.rs` | the two measured arms |
+| criterion 16's differential test | same file | the arm against the word, over the arm's boundaries |
+
+**Criterion 15 holds**: `cargo tree -p bund2-stdlib` lists neither `bund2-jit`
+nor any `cranelift-*` crate, with `bund2-stdlib` now depending on `bund2-ir`.
+
+`frag::run` is **not Tier 1** — it generates no code and caches nothing. It
+exists so the representation is exercised rather than assumed, and so
+criterion 16 can run before a lowering is written. **The remaining half is the
+Cranelift consumer**, which is what `bund2-jit` is for and what this RFC still
+has to be Accepted before anyone writes.
+
+Four properties are asserted by test rather than by prose, because each fails
+silently:
+
+- **A declined guard leaves the stack untouched.** If it did not, the word that
+  runs instead would see operands the program never pushed.
+- **A fragment that could fail after its guard admits cannot be built**, and
+  one that escapes anyway is an internal error, never a decline and never a
+  silent success: by then the operands are gone (criterion 19).
+- **The arm agrees with the word on value, `dt`, `q` and D41's stack tag**,
+  none of which any golden prints on this path. On today's domain the `q` half
+  cannot fail, and constraint 2 says why.
+- **`dup`'s copy has its own identity**, in the arm and in the word (F13). The
+  render comparison normalises identities away and could not see this; an
+  earlier version of the test relied on it alone.
+
+**What the ceilings do not include.** `lowered` and `promoted` call `Interp`
+directly rather than through `&mut dyn Vm` or §S4's runtime helper table, and
+compiled code pays entry, exit, a type guard and — per inlined site — a meaning
+guard. Both columns are optimistic, `promoted` more so: its `dup drop` case is a
+value kept alive in a register, which is what "compiles to nothing" looks like
+in Rust. Criterion 10 measures the real thing; these say whether it can be worth
+measuring. For promotion the answer is yes. For inlining alone on arithmetic it
+is almost certainly not, and criterion 10's measurement decides.
+
+### Where promotion stops — the corpus, counted
+
+*Restored 2026-09-10. An earlier revision carried this table, lost it in an
+edit, and kept five references to it; the fifth review found them pointing at
+nothing — one of them in RFC-0004's accepted amendment.*
+
+`bund2 check` reports every call site where RFC-0004's analysis stops.
+Re-derive with:
+
+    for f in $(find reference/Bund/examples reference/Bund/tests tests/probes \
+                    -name '*.bund' -not -path '*/features/*'); do
+      ./target/debug/bund2 check --file "$PWD/$f" | grep -E '^ +[0-9]+ +`'
+    done
+
+On 2026-09-10, across 161 programs, it prints **113** sites:
+
+| why analysis stops | sites |
+|---|---|
+| the word's effect is not a fixed pair — `Opaque` or `Fold` | **63** |
+| the name has no binding when analysed | **50** |
+
+The 63, by word: `!` 32, `times` 7, `if` 7, `loop` 5, `graph!` 5, `?true*` 2,
+and one each of `pull.`, `map`, `#`, `?true` and `?.`. **Nineteen are ordinary
+control flow** — `times` 7, `if` 7 and `loop` 5 — which is why whole-body exclusion,
+RFC-0004 §S1's original reading, would refuse nearly every body that branches
+or loops.
+
+**All 50 are names Bund2 does not register at all** — `generator` 19, `cwd` 5,
+`classifier` 4, and the rest of the postponed network, database and AI
+vocabulary. "No effect" there means *no binding at analysis time*, and D16 says
+a binding may still arrive at run time; that is why criterion 13 treats an
+absent effect as `Opaque` rather than as zero.
+
+**What promotion can reach is the straight-line run before the first of these
+sites in a body.** Inlining, behind the meaning guard above, is not bounded by
+them.
+
+The figures move as words land and effects are declared. The fourth review
+counted 116, 61 and 55; since then `if` has gained a site and `#` has appeared.
+That is why the command sits beside the numbers: a count with no derivation
+beside it rots.
+
+Three things bound promotion:
+
+- **D12 — the `*` fold family is a permanent optimisation barrier.** `*+`, `**`
+  and friends consume the whole stack, so the stack depth is not statically
+  known across them. ERRATA records that the corpus uses none of them, so the
+  barrier costs nothing measurable; it still has to be *represented*, because
+  D16 means one may appear at run time.
+- **`Opaque` effects**, counted in *Where promotion stops* above. Promotion
+  stops; compilation does not.
+- **D33 is OPEN.** Ordering across int and float currently answers **true to
+  all four of `<`, `>`, `<=`, `>=` at once** (F47), which is not a machine
+  representable order. A mixed-kind comparison therefore **cannot be lowered to
+  a single machine compare** while D33 stands. This RFC does not take D33's
+  default: it requires mixed-kind comparison to take the generic path, and
+  notes that if D33 resolves to option 2 the lowering becomes available.
+
+# S7. Tiering policy: threshold, cap, demotion — Q22, answered here
+
+Q22 asks for the compiled-cache promotion threshold and cap and says RFC-0005
+"must state them as load-bearing for D3, not as tuning". D35 first added
+that the cap was load-bearing for heap as well, because the cache held strong
+references to bodies; its amendment (Q32) moves the cache to a `Weak`, and the
+cap now bounds code memory alone.
+
+Stated once, for both:
+
+| knob | value | why it is load-bearing |
+|---|---|---|
+| **promotion threshold** | 64 evaluations of one body | Below it, a body is interpreted. It is **not** what makes D3 true — an eval'd token stream is never a body at all (§S3). A lambda inside eval'd code *is* a body, can cross 64 within one evaluation, and is bounded only by the cap. An earlier revision said the threshold made D3 true by construction, and it does not |
+| **compiled-function cap** | 1024 bodies | Code memory is never reclaimed (§S4). This is the only bound on it |
+| **recompile cap** | 4 per slot | A word redefined in a REPL loop would otherwise orphan a function per redefinition |
+| **demotion** | permanent, per body | A body that exceeds the recompile cap returns to Tier 0 and is never promoted again |
+| **counter cap** | 4096 bodies | See below. The counter is a second structure and needs its own bound |
+| **heap consequence** | neither structure pins a body: the cache and the counter both hold a `Weak` | D35 first required the cache's reference to be strong; its amendment (Q32) withdrew that |
+
+These are **defaults with a stated basis**. The cap exists because
+`free_memory` is all-or-nothing, and changing it changes a correctness argument,
+not a benchmark. The threshold is the tuning knob of the two: it decides when a
+body has earned compilation, and no correctness argument rests on it. Both are
+configurable, and the configuration is recorded rather than silent.
+
+## The counter's key and lifetime
+
+An earlier draft named a threshold of "64 evaluations of one body" and said
+nothing about what counts them. That is not a detail: the counter is a second
+map over the same bodies as the cache, and the two obvious designs are both
+wrong.
+
+- **Key on the pointer, hold a strong `Rc`** — safe from address reuse, and it
+  pins *every body ever evaluated*, not the 1024 that were compiled. The heap
+  claim in the table above would be false and the growth unbounded.
+- **Key on the pointer, hold nothing** — no pinning, and it inherits exactly
+  the hazard §S3 guards against: a freed body's address is reused, the new body
+  inherits a hot count, and it is compiled on its first evaluation.
+
+**The counter holds a `Weak`.** That is not a compromise between the two; it
+removes the dilemma, because of a property of `Rc` this RFC now depends on:
+**the backing allocation is freed only when the strong *and* weak counts reach
+zero** (the `std::rc` module's documentation of `Weak`). So a live `Weak` keeps the allocation — and therefore the address
+`Rc::as_ptr` returns — out of circulation, while the body's *contents* are
+dropped on the last strong reference. No pinning, and no reuse.
+
+Their stale entries would fail differently, which is why the question of
+strength was asked separately for each:
+
+| | strength | a stale entry means |
+|---|---|---|
+| compiled cache | `Weak` (D35 as amended) | a dead entry that no longer upgrades — swept, and never a false hit, because its address cannot be reused while it lives |
+| promotion counter | `Weak` | at worst a body compiled earlier than it earned. A performance mistake, never a wrong answer |
+
+Both now hold a `Weak`, for the same reason: a `Weak` is enough to keep an
+address out of reuse, and a strong reference would pin what nothing else
+needs.
+
+**And that argument cuts at D35, which this RFC should say rather than let a
+reader notice.** D35's stated reason for the cache holding a *strong* reference
+is that "if an entry outlives its body, the allocator may reuse the address and
+a stale entry becomes a false hit". The paragraph above establishes that a
+`Weak` prevents address reuse too — the allocation is not freed while one
+lives. So **address safety is not what the strong reference buys**, and D35's
+rationale as written is weaker than it appears.
+
+What a strong reference does buy is separate and this RFC does not have the
+standing to decide it: a demoted or evicted entry needs the *body* to fall back
+to, and if the cache were the last holder, dropping the entry would drop the
+lambda. Whether that is reachable — whether a body can be live for the cache
+and dead for everything else — depends on how bodies are held elsewhere, which
+is RFC-0003's territory.
+
+**Settled 2026-09-10 (Q32, option A).** The owner amended D35: the cache
+holds a `Weak`. The case above is why — address safety never needed a strong
+reference — and D42 removes the other reason: every running frame now holds its
+own clone of its body's `Rc`, so a body is alive whenever compiled code for it
+can run. The key is unchanged.
+
+**Lifetime.** An entry whose `Weak` no longer upgrades is dead and is evicted
+on the next sweep. The map is capped at 4096; at the cap, the coldest entries
+go first. A dead entry costs one `RcBox` header until it is swept — not the
+body.
+
+**D39 applies**: the sweep is an internal loop and is bounded on data already
+taken. It runs over the map as it stands, never until a condition holds.
+
+# S8. Tail calls, and why §3.2f does not take them away
+
+`CallConv::Tail` with `return_call` / `return_call_indirect` is supported on
+x86-64, aarch64 and riscv64 (§3.1); **s390x historically lacked it**, so the
+lowering must degrade to an ordinary call there rather than assume it.
+
+## The objection this section has to answer
+
+§3.2f says dynamically typed languages want callee-side argument-count checks
+and array-style access, and that the workaround — "passing `argc: usize,
+argv: *mut Value`" — **defeats tail calls**. An earlier draft of this section
+did not mention it, which left §S8 premised on something the study appears to
+withdraw two pages later.
+
+**It does not apply to Bund, and the reason is structural rather than lucky.**
+§3.2f is about passing *arguments*. A concatenative language passes none: a
+word's operands are already on the VM's stack, which the callee shares. So a
+compiled word's signature is not variadic and never becomes `argc/argv` — it is
+one pointer to the VM and one status, uniformly, which is the shape
+`bund2-api` already has:
+
+```rust crates/bund2-api/src/lib.rs:61
+pub type NativeFn = fn(&mut dyn Vm) -> Result<(), Error>;
+```
+
+That matters because `return_call` constrains the callee against the caller.
+Cranelift's verifier requires the two to share a **calling convention** and to
+return **the same types** (`cranelift-codegen` 0.135.0, `src/verifier/mod.rs`,
+`typecheck_tail_call`). Parameters need not match: an earlier revision said the
+signatures must match *exactly*, which overstated the rule. A uniform signature
+satisfies the real rule by construction, and it is uniform precisely because
+operands do not travel in it. §S11's decision
+that errors stay a return-value protocol rather than native unwinding is the
+other half: it keeps the *return* type uniform too.
+
+**What §3.2f does cost Bund is real, but it is not this.** "Force everything
+onto the stack" lands here as §S5's rule — promoted values must be synced back
+to the VM stack before an inter-word call, because the callee reads them there.
+That is a promotion cost, measured by criterion 9, and it would exist whatever
+calling convention Cranelift offered.
+
+## What this RFC claims, and what it does not
+
+Two different uses of tail calls sit behind §3.1's sentence "a word body can be
+compiled as a chain of tail calls", and only one is claimed here:
+
+- **Claimed: the last word of a body is in tail position.** Lowering it as
+  `return_call_indirect` saves a frame per body call, and matters most for
+  self-recursive words. RFC-0003's frame loop already makes Bund-level call
+  depth cost heap rather than Rust stack, and `Vm::tail_lambda` exists for
+  exactly these positions; a compiled body must preserve that property rather
+  than reintroduce stack growth Tier 0 does not have.
+- **Not claimed: threaded code**, in which every word tail-calls the next. That
+  is a different compilation strategy with its own register-allocation and
+  debugging consequences, and nothing in this RFC depends on it. §3.1's phrase
+  describes it; this RFC does not adopt it.
+
+The distinction matters because the second is what makes tail calls
+load-bearing in other designs.
+
+## And that is a correctness problem, not an optimisation
+
+An earlier draft ended here with "if `CallConv::Tail` were withdrawn tomorrow
+the design would lose a frame per call and nothing else". **That is wrong, and
+it is the most serious defect this RFC has had.**
+
+If only the last word of a body is a tail call, **every other inter-word call
+consumes a machine frame** — and RFC-0003's flat frame loop consumes none.
+That RFC's criterion 2 is not decorative: *"Bund call depth is bounded by heap,
+not by the Rust stack"*, **Met** at a call depth of **100,000**, where before
+the frame loop the same program aborted between 5,000 and 20,000
+(`docs/rfc/RFC-0003-syntax-ir-and-tier0.md:795-798`).
+
+So a self-recursive word that completes at Tier 0 **overflows the machine stack
+once promoted**. Three things follow, and none of them is about speed:
+
+- **It is a conformance change.** The program's observable behaviour differs
+  between tiers, and CLAUDE.md requires this milestone to move the health
+  metric by exactly zero.
+- **It is an abort, which D37 forbids** outright. A stack overflow is precisely
+  the failure D37 exists to prevent: the process dies, the user's stacks and
+  word table die with it, and the trace names machine frames rather than a Bund
+  word.
+- **It silently un-meets an accepted criterion of another RFC.** RFC-0003's
+  criterion 2 would fail with the `jit` feature on, and nothing in this RFC
+  noticed.
+
+### The guard
+
+**Every compiled body checks machine-stack headroom on entry and declines if it
+is low**, falling back to the interpreter for that call.
+
+This is an *entry* guard, the same shape as §S4's `autoadd` guard and for the
+same reason: there is no OSR to bail with mid-body (§3.2b), so the only safe
+place to refuse is before the frame is taken. Declining recovers the RFC-0003
+guarantee **for direct calls**, which Tier 0's frame loop runs flat: one
+compiled frame is spent, and the recursion continues on the heap. It does not
+for **native-mediated nesting**. `Vm::eval_lambda`, which `times`, `loop`,
+`map`, the conditionals and the method paths use, pushes a frame and calls
+`run_to` from inside the native — one Rust frame per nesting — so a compiled
+body calling such a word, whose lambda calls a compiled body, alternates Rust
+frames. The headroom threshold has to cover that, and criterion 11 gains a case
+for it.
+
+Tail calls reduce how often the guard fires; they do not replace it, because
+they cover one call site per body. **Q28 sharpens accordingly**: on a target
+where `CallConv::Tail` degrades, the guard fires sooner and more often, but
+correctness does not depend on the platform.
+
+The threshold and the cost of the check are not specified here — that is
+criterion 11, and it is a measurement rather than a choice.
+
+# S9. Tier pinning
+
+Two later RFCs need the same mechanism: RFC-0007 must pin a word to Tier 0
+across an await point, and RFC-0008 must pin one to Tier 0 while a breakpoint
+is set in it. The roadmap assigns it jointly to RFC-5, RFC-7 and RFC-8 as "one
+mechanism" (`docs/research/05-rfc-roadmap.md:243`).
+
+This RFC specifies **the mechanism and not its policy**: a body may be marked
+`pinned`, which makes it ineligible for promotion and demotes it if already
+promoted. What causes a pin for async is **D6 and D7's**, both OPEN and both
+declaring `Blocks: RFC-0007`; this RFC does not anticipate them.
+
+# S10. The feature gate, and portability
+
+Cranelift targets x86-64, aarch64, s390x and riscv64 — no 32-bit x86, no 32-bit
+ARM (§3.2c). **The interpreter is therefore the portability story**, and Tier 1
+must be a `cargo` feature that compiles out cleanly, exactly as `string.grok`
+is (D40).
+
+D10's resolution is the governing rule and it cuts both ways here: `bund2 build
+--emit=native` may require a C toolchain, and **nothing below `bund2 build` may
+require one**. Cranelift is pure Rust and needs no `cc`, so the JIT feature
+does not violate D10 — but it must not drag in anything that does.
+
+Exact version pins are already in place (`=0.135.0`) and §3.2e's instruction —
+"pin exact versions; budget for periodic migration work" — is honoured by the
+workspace as it stands.
+
+**The migration was owed and has now been paid — F80.**
+`cranelift-codegen@0.135.0` requires rustc **1.95.0** while
+`rust-toolchain.toml` pinned **1.90.0**, so `--features jit` failed before
+compiling any Bund2 code, in every crate gating on it. The toolchain pin is now
+**1.95.0** (Q31, decided by the repository owner), which was the only option of
+three that keeps Tier 1 the same build as Tier 0 rather than a second one.
+
+`--features jit` and `--features aot` are declared in five crates —
+`bund2-jit`, `bund2-runtime`, the umbrella `bund2`, `bund2-cli` and
+`bund2-bench`. `conform --features jit` builds `bund2-cli` with the feature,
+and **criterion 2 has run**: 79/86 with the feature on and 79/86 with it off,
+ceiling 79/86 in both.
+
+**D9, as amended 2026-09-09, applies**: no Cranelift type may appear in
+`bund2-stdlib` or `bund2-api`, which is what §S6's fragments are shaped around.
+D9's original sentence — no third-party CLIF lowerings — is about the stable
+ABI and still holds: an external package gets `Native` with a declared effect
+and no more, and cannot publish a fragment.
+
+# S11. Errors stay a return-value protocol
+
+`try_call` / `try_call_indirect` exist but the unwinder story is incomplete
+(§3.2g). Bund2's errors are already `Result`-shaped and route through `Vm::report`
+as `Diagnostic`s (D36); compiled code keeps that convention and does not adopt
+native unwinding. Under D37 this is also the only option that cannot abort.
+
+## Preservation analysis
+
+Tier 1 preserves everything by construction, because it adds no word and
+changes no word's behaviour. The risks are all of the form "compiled code
+disagrees with interpreted code", and each has a named guard:
+
+| risk | guard |
+|---|---|
+| stale cache entry after a body is freed | the cache's `Weak` keeps the address out of reuse, and a dead entry is swept (D35 as amended); criterion 3 |
+| a redefined word still calling old code | all calls indirect through a slot (§S4) |
+| **an inlined fragment after its name changes meaning** — re-registered, aliased, shadowed by a lambda, made a command or unregistered, including by a `register`, `unregister` or `alias` earlier in the same compiled body | per-site meaning guard: the slot's generation and `autoadd`, re-read before the first op (§S6); criteria 5 and 17 |
+| a **type** specialisation taking a path the interpreter would not | guard-and-branch, generic counterpart in the same function (§S5) |
+| a compiled call running under `autoadd`, where the reference would collect the name instead | entry guard on the flag, and a per-site check at every inlined fragment; `:` and `;` are opaque sites (§S4, §S6); criterion 18 |
+| **a promoted recursion overflowing the machine stack where Tier 0 runs it on the heap** | machine-stack headroom guard on every compiled body entry (§S8); `cargo xtask depth` at 100,000 with the feature on, criterion 11 |
+| a value synced back from a `Variable` losing its D41 stack symbol, so a golden renders `tags: {}` | the sync writes through the same path `Stack::push` uses, not a bare `push_back` (§S5); criterion 12 |
+| a slot naming a spelling rather than the resolved target, when `i` resolves aliases twice | slots key on the resolved name (§S4), **except for `$`**, which is resolved one level shallower and keys on that one-level answer (§S4, *The chain*) |
+| `unregister` against a name a compiled body still calls | the call slot is rewritten to what the name now resolves to — the native a lambda shadowed, if any — and to a failing stub only when nothing resolves; never freed (§S4) |
+| `alias` retargeted after a caller was compiled | a name reached through an alias is never cached: its call slot points at the resolving trampoline (§S4, *Two structures*), so a retarget is seen on the next call and there is nothing to fan out |
+| a diagnostic raised in compiled code carrying no Bund source location | D36 requires a `Diagnostic` with a Bund location; compiled frames have none unless the lowering carries spans, which §S11's return-value protocol must thread |
+| an **opaque** site leaving a stale promoted value behind | promotion stops and syncs to the real stack before the call (§S5); cost checked by criterion 9 |
+| mixed-kind comparison lowered to a machine compare | forbidden while D33 is OPEN (§S6) |
+| a `*`-family word crossing a promoted region | D12's barrier, represented not assumed (§S6) |
+| unbounded code memory | caps and permanent demotion (§S7) |
+| a fragment disagreeing with its word | differential test per fragment over the arm's boundaries, identity included (§S6); criterion 16 |
+| an op failing after its guard admitted, with operands already pulled | `Fragment::new`, the only constructor, refuses such a fragment; anything that escapes is `Error::internal`, never a fall-through and never silent success (§S6); criterion 19 |
+| a word reading beyond its declared arity while values are promoted | a promotion barrier (Q34); criterion 14 |
+| the lowering and `frag::run` disagreeing about what a fragment means | criterion 16's third leg, required before a lowering ships |
+| a body entered through a loop word, conditional or method path never reaching the tier, because no `Rc` survived to the entry | D42: `Vm::eval_lambda` and `Vm::tail_lambda` take the value, and the frame holds it; criterion 20 |
+| a **current-stack switch** mid-body — `to_stack`, `to_current`, `stacks_left`, `stacks_right`, `endcontext`, a scoped conditional, a CONTEXT literal — while values are promoted | the current-stack epoch, re-read after every call, and a static barrier at a CONTEXT literal; the residual path syncs each value to the stack it came from (§S5); criterion 21 |
+| a named-stack word — `swap_in`, `rotate_stack_*` — reaching the current stack by name while promotion holds its values | a promotion barrier (Q34); criterion 14 |
+| `autoadd` turned on mid-body, when the reference collects literals and CONTEXT values as well as calls | re-read after every call; the residual path applies the rest through `apply` (§S5); criterion 18, against a reference-captured probe |
+| unregistering a lambda that shadowed a native | the call slot is rewritten to the revealed native, not stubbed (§S4) |
+| a compiled body substituted at `eval_lambda`, whose errors Tier 0 wraps as `Lambda content evaluation returned error: …` and `times` wraps again as `TIMES: lambda execution returns error: …` | the compiled body returns its error unwrapped and the entry wraps it, so both prefixes come from the same code whichever tier ran (`Vm::eval_lambda`; `times_base` in `crates/bund2-stdlib/src/seq.rs`) |
+| an eval'd string's inner lambda recompiled on every evaluation | the 1024-body cap (§S7); content-hash keying is the eventual answer (§S3) |
+| a guard widened to boxed values, whose operands might carry a `q` other than 100.0 | no arithmetic word averages `q` (D32 as amended, Q35), so the result is a fresh 100.0 either way; criterion 16 must then include such an operand if one can be built (§S6, constraint 2) |
+
+## Alternatives considered
+
+**Build Tier 1 before the representation work.** This was the live question when
+this RFC was drafted, and it is now moot: D41 did the representation work, and
+§S1's update records a 3.8–4.2× improvement per program shape from that alone.
+
+It is kept as an alternative because the *reasoning* still applies to whatever
+comes next. A compiled lowering of `push` written before D41 would have encoded
+the expensive shape into generated code, making the representation fix harder
+rather than easier — and the cheapest thing a JIT can do is not be asked to
+compensate for a representation that has slack left in it. Whether slack
+remains is criterion 10.
+
+An earlier version of this entry rejected the alternative on an Amdahl bound of
+"~1.3× at best". That figure is withdrawn (§S1) and this entry no longer rests
+on it.
+
+**A threaded interpreter instead of a JIT.** §2.1 rates this ~2× and it needs
+no code generator, no platform restriction and no code-memory policy. It is a
+genuine competitor to this RFC and it is **not** ruled out here — but it is
+RFC-0003's territory (Tier 0's implementation), not this one's. §S1's
+prerequisite may make it the better next step, and this RFC should not
+pre-empt that.
+
+**Content-hashed cache keys instead of pointer keys.** D35 considered and
+rejected this for now; it remains "a strict upgrade" whose only cost is the key
+function. Not reopened here.
+
+**Module rotation to reclaim code memory.** Needs a shadow stack to prove no
+orphaned frame is live. Out of scope for v1, per §3.2a.
+
+## Acceptance criteria
+
+Each names the tool that decides it **and either a threshold or a boolean
+outcome**. Criteria 1, 7, 9, 10, 11 and 17 carry a number; the rest are boolean by
+nature — a redefined word is observed or it is not, a cap holds or it does not,
+`cite` exits 0 or it does not.
+
+An adversarial review found 4, 6 and 7 naming neither, which is how a criterion
+goes vacuous: 7 read "shows improvement", and nothing fails that. **Criteria 1
+and 2 gate the RFC's own premise**; the rest are for the implementation.
+
+**The `--features jit` criteria became runnable on 2026-09-09**, when the
+toolchain pin was raised to 1.95.0 to match the pinned Cranelift (F80, Q31).
+Before that none of 2, 4, 5, 6, 7, 9, 10, 11 or 12 could be executed at all.
+
+Criterion 2 has since **run and passed** — 79/86 with the feature on and off, ceiling 79/86, on 2026-09-10 —
+and is **vacuous until a tier exists**, since the feature gates no code. That
+is worth stating rather than counting: a criterion that cannot fail yet is not
+evidence, and this one is listed as runnable rather than as met.
+
+1. **The gate is passed before implementation begins.**
+   `cargo bench -p bund2-bench -- value/push_pull` reports **under 20 ns**.
+   **Met**: 9.8 ns, after D41.
+
+   An earlier version also required "`dispatch/*` re-measured shows the
+   dispatch loop, not the value layer, as the dominant term". **That half is
+   withdrawn**, because §S1's update establishes it cannot be shown with these
+   benchmarks — nothing separates dispatching a word from the work the word
+   does once dispatched, and the difference `1 drop` − `dispatch/literal_only/w1000`
+   bounds dispatch only from above. A criterion that cannot be decided is worse than none; the question
+   it was reaching for is criterion 10, which can fail.
+
+2. **Conformance moves by exactly zero.**
+
+        cargo xtask conform
+        cargo xtask conform --features jit
+
+   Both must read the same N/M **and the same CEILING**. Any movement is a bug,
+   per CLAUDE.md — which also requires the ceiling beside the number, since an
+   approved deviation can never enter the numerator and N/M alone overstates
+   the remaining work. Today: **79/86, ceiling 79/86**, both ways, measured
+   2026-09-10. This criterion measures the **dev** profile and criterion 11
+   measures **release**; the split is deliberate, and stated in both places.
+
+   **`--features` did not exist on `conform` when this criterion first claimed
+   to have run.** `conform` rebuilt `bund2-cli` unconditionally and without
+   features, so a jit-built binary was overwritten and the non-jit one
+   measured — both numbers came from the same build and nothing said so. All
+   five subcommands that measure the binary now share one builder
+   (`xtask/src/buildcli/mod.rs`) — `depth` last, on 2026-09-10, after the fifth
+   review found it still carrying a private one — and `conform` prints the line
+   `measured: bund2-cli, dev profile, features: jit` above its result.
+
+3. **A cache entry cannot answer for a different body.** D35 requires this as
+   a test, not a comment, and names the failure: an entry whose body was freed
+   can be answered for a *different* body at the reused address — wrong code
+   executed.
+
+   With D35 as amended (Q32) **the cache holds a `Weak`**, which keeps the
+   address out of reuse while the entry lives. The test: drop every strong
+   reference to a compiled body and assert its contents are dropped, that its
+   entry no longer upgrades and answers for nothing, and that after the sweep
+   the entry is gone. An earlier version tested that a strong reference kept
+   the body alive, which D35 no longer requires.
+
+   §S7's counter is criterion 6, and it now holds the same kind of reference:
+   both must drop a body's contents with its last strong reference.
+
+4. **Every inter-word call in compiled code is indirect**, checked
+   mechanically rather than by reading.
+
+   "Inspecting the emitted CLIF" was the earlier wording and it names no tool:
+   inspection is a person, and a person will stop looking once the design feels
+   settled. The property §S4 actually requires is about *relocations* — a
+   direct call emits a relocation naming a `FuncId`, and that relocation is
+   exactly what would still point at orphaned code after a word is redefined.
+
+   The check: compile a body that calls another word, and assert the module's
+   relocation records contain **no entry targeting a function**. Corroborated,
+   not replaced, by asserting the CLIF text contains `call_indirect` and no
+   bare `call fn`, which is readable but formatting-dependent.
+
+   It fails if any lowering path emits a direct call, including one added later
+   for a word that looks safely static — and D16 means none is.
+
+5. **A redefined word is observed by compiled callers — called *and*
+   inlined.** `register` a word, force promotion of a caller, `register` it
+   again with different behaviour, and assert the caller's next result
+   changes.
+
+   **As first written this passed vacuously for every inlined word**, because
+   an inlined fragment goes through no slot (the fifth review's B1). So it runs
+   a second time against a caller that inlines `+`'s fragment, changing what
+   `+` means in each way §S4's chain allows — re-registered as a lambda,
+   aliased to another word, unregistered, and registered as a command — once
+   before the caller runs and once **mid-body**, by a `register`, `alias` or
+   `unregister` earlier in the same compiled body. Each must change the
+   caller's result exactly as it changes Tier 0's.
+
+6. **The caps hold**, checked by a test per row of §S7's table rather than by
+   inspection. With the compiled-function cap set to 4, compiling five distinct
+   bodies leaves the fifth interpreted. With the recompile cap set to 2, a
+   third redefinition demotes the body permanently. With the counter cap set to
+   8, evaluating nine distinct bodies leaves the map at 8.
+
+   **And the counter does not pin.** Evaluate a body below the threshold, drop
+   every strong reference to it, and assert the body's contents are dropped
+   while the counter still holds its entry — then that the entry is gone after
+   a sweep. This is §S7's claim that the *cache* pins ≤1024 bodies and the
+   *counter* pins none; without it, "the counter holds a `Weak`" is a comment
+   rather than a property. It is the counterpart of criterion 3, and it fails
+   the same way: silently, and only under memory pressure.
+
+7. **The feature does not move what it must not**, with a stated tolerance.
+
+   This is the regression half; the *win* is criterion 10, and an earlier
+   version conflated them into "shows improvement", which nothing can fail —
+   0.1% is an improvement.
+
+       cargo bench -p bund2-bench -- --save-baseline off      # feature off
+       cargo bench -p bund2-bench --features jit -- --baseline off
+
+   | group | requirement |
+   |---|---|
+   | `startup` | **no change**: Criterion reports no statistically significant difference, and the point estimate moves by **< 5%** |
+   | `value` | no change, same tolerance — D41's work is below the tier and the tier must not disturb it |
+   | `dispatch`, `arith`, `corpus` | free to improve; a **regression beyond 5%** on any of them fails |
+
+   The 5% band is not arbitrary. Run-to-run spread on one machine is already a
+   few percent — `fragment/int_add/tier0` read 57.9 and 59.2 ns in two runs on
+   2026-09-10, and the sixth review's re-run of that table agreed to within 3%
+   — and a threshold inside the noise would fail on weather. (An earlier
+   wording quoted a range for `startup/registry/register_all` that no recorded
+   run supports.)
+
+   **A corpus wall-clock figure is not an acceptance criterion.** Q14
+   establishes that the subprocess harness cannot resolve interpretation — an
+   ordinary program evaluates in ~9 µs against a 2.3 ms process floor — so a
+   percentage taken there measures process spawn. `cargo xtask bench` keeps
+   only its regression role: catching a startup collapse.
+
+8. **`cite` and `lint` clean**, with `cargo xtask cite` resolving every
+   `path:line` in this document. **Note what this now checks and did not
+   before:** citations into `crates/` were invisible to the extractor until
+   F79, which is how two of this document's own citations were stale on the day
+   they were written. It is **still partly blind**: the extractor cannot seed a
+   scope from an unprefixed filename, so §S4's thirteen `multistackvm_apply.rs`
+   and `multistackvm_inline.rs` citations were invisible to it until they were
+   spelled with their `reference/rust_multistackvm/src/` prefix on 2026-09-10.
+   A citation `cite` cannot see is one it cannot fail.
+
+9. **The sync is worth its cost.** §S5's second rule requires promoted values
+   to be written back — each to the stack it was taken from — before an opaque
+   call. **It is not
+   established that this pays.** For a short straight-line run the sync may
+   cost more than the promotion saved, which would collapse the stop-at-the-site
+   rule back into whole-body exclusion for those bodies.
+
+   The criterion: a benchmark in `crates/bund2-bench` comparing a body with an
+   opaque site in the middle against the same body interpreted, at straight-line
+   run lengths of **1, 4, 16 and 64 words before the site**. At each length the
+   compiled form must be **no more than 5% slower** — the same band as
+   criterion 7, and for the same reason: run-to-run spread is already ~±2.5%.
+
+   **The crossover length is reported, not optional.** An earlier wording said
+   that if the compiled form is slower below some length, "this RFC must state
+   that length" — a criterion that lets its own failure be renamed as a
+   parameter. It is now: the shortest length passing the 5% band is recorded,
+   and promotion is skipped beneath it. **If no length passes, §S5's second
+   rule is wrong** and the choice is between whole-body exclusion (RFC-0004's
+   original reading; §S6's *Where promotion stops* counts what that costs) and abandoning promotion
+   across opaque sites entirely.
+
+   Recorded as a criterion rather than an assumption because it is the one place
+   §S5's rule could be wrong in a way that no correctness test would catch.
+
+10. **The dispatch share is measured, not estimated.** §S1 withdraws an Amdahl
+    bound rather than correcting it, because no benchmark here separates
+    dispatching a word from the work the word does once dispatched:
+    the difference `1 drop` − `dispatch/literal_only/w1000` bounds dispatch at
+    **≤ 33.7 ns** and cannot go finer. (An earlier wording attributed the bound
+    to `dispatch/literal_only/w1000` itself, which reads 13.2.)
+
+    The criterion: before any lowering is optimised, an A/B on one compiled
+    body against the same body interpreted, reported per program shape as in
+    §S1's update. **A speedup below 1.2× on `1 2 + drop` means the tier is not
+    earning its keep** and §S1's gate should be reopened rather than the number
+    explained. This is the criterion that decides whether Tier 1 was worth
+    building, and it is deliberately the one that can fail.
+
+    §S6's prototype puts ceilings on what this can report (*Measured*,
+    2026-09-10): **inlining alone at most 2.0× on `Int + Int` and 3.0× on
+    `dup drop`; inlining with promotion at most 8.8× and 12.9×** — in Rust,
+    with no compiled-code overhead. Compiled code pays entry, exit, a type
+    guard and a meaning guard per inlined site, and a helper call per sync, so
+    the real figures sit below those.
+
+    **The stop rule governs the measured lowering, not the ceiling.** If
+    inlining alone, *compiled*, comes in under 2× on a shape, that shape's
+    inlining is not worth its machinery on its own, and the constraint is the
+    lowering rather than the ceiling — a reason to stop, not to tune. The
+    ceiling cannot trigger the rule: on `Int + Int` it is **2.03×**
+    (59.2 / 29.2), and the sixth review's re-run read 2.04×. What the ceiling
+    does say is that there is almost no room. A lowering that adds more than
+    about 0.4 ns per `+` to the 29.2 ns `lowered` measures will land under 2×.
+    So this RFC **predicts** arithmetic inlining alone will not clear the rule,
+    does not propose it as a performance feature on the strength of that
+    prediction, and leaves the decision to this criterion's measurement. An
+    earlier revision said the rule had already been applied; it cannot have
+    been, before a lowering exists. Inlining stays necessary as the mechanism
+    promotion rests on, and operand-free arms like `dup drop` have a 3.0×
+    ceiling and room to spare.
+
+    Reported per shape, then: inlining alone, and inlining with promotion. The
+    1.2× floor above applies to the tier as shipped.
+
+11. **A promoted recursion does not overflow the machine stack.** §S8's
+    correctness problem, and the criterion is one that already exists:
+
+        cargo xtask depth                       # feature off — Met at 100,000
+        cargo xtask depth --features jit        # must read the same
+
+    **`--features` did not exist when this criterion was written**, and
+    `xtask depth` shelled out to whichever `bund2` happened to be sitting in
+    `target/`, so the command could not have measured a tier even in
+    principle. `depth` now *builds* the binary it measures, with the features
+    asked for — F80's lesson applied to the one check that stands between §S8
+    and an abort.
+
+    RFC-0003's criterion 2 is **Met** at a call depth of 100,000
+    (`docs/rfc/RFC-0003-syntax-ir-and-tier0.md:795-798`). It must stay met with
+    the tier on. Before the frame loop the same program aborted between 5,000
+    and 20,000, so this criterion has a demonstrated failure mode and is not
+    hypothetical.
+
+    The guard's threshold is reported with the result: **the depth at which
+    compiled bodies begin declining**, and the per-entry cost of the check
+    measured in `crates/bund2-bench`. A guard costing more than 2 ns per body
+    entry should be reconsidered against simply not promoting bodies that can
+    recurse — which D16 makes undecidable, so the guard is the expected answer
+    and the number is what says whether it is affordable.
+
+    It also runs a recursion **through a loop word** — a body that calls itself
+    from inside `times` — because `eval_lambda` spends a Rust frame per nesting
+    (§S8, *The guard*), and the self-recursive word alone never exercises
+    that.
+
+12. **A synced value keeps its stack tag.** §S5's rule writes promoted values
+    back to the real stack; **D41 put the stack tag inside the value for
+    scalars**, so a sync that pushes a bare `BundValue` leaves `StackSym::NONE`
+    and the value renders `tags: {}` where the oracle renders
+    `tags: {"stack": "main"}`.
+
+    36 of 86 goldens carry exactly that text, and 39 carry some `"stack":`
+    tag, so the failure is loud — but only if a
+    golden exercises a compiled body with an opaque site in it, which none does
+    today. The criterion: a probe that pushes, promotes, syncs and dumps, with
+    `cargo xtask conform` green. **This row exists because a reviewer found it
+    and the Preservation table did not**; the tag moved into the value one day
+    and this RFC was written the next, without the two being connected.
+
+13. **An absent effect is treated as `Opaque`, never as zero.** §S6's *Where
+    promotion stops* counts **50 sites** whose word declares no effect at all. A defaulted
+    `StackEffect` would read `Fixed(0, 0)` — "consumes nothing, produces
+    nothing" — and a compiled body would keep promoting straight through a call
+    that may do anything to the stack.
+
+    The check: register nothing for a name, compile a body that calls it, and
+    assert the lowering stops promoting at that site exactly as it does for
+    `!`. It fails silently otherwise, which is why it is a criterion and not a
+    remark.
+
+14. **A word that reads beyond its arity is a promotion barrier.** Q34. `debug.display_stack` declares `eff(0, 0)` and calls `vm.snapshot()`;
+    it runs in the golden capture epilogue, so it is on the conformance path.
+
+    The check: compile a body that promotes, then calls a word which inspects
+    the stack beyond its declared arity, and assert the observed depth and
+    contents match Tier 0's. **It fails today by construction**, because
+    nothing identifies that set of words — which is Q34, and why this criterion
+    is written before the mechanism that would satisfy it.
+
+15. **The dependency direction is not inverted.** §S6's mechanism rests on
+    `bund2-jit → bund2-stdlib` being permitted while the reverse is not.
+    RFC-0000's B3 already checks one half:
+
+        cargo tree -p bund2-stdlib      # must not list bund2-jit
+        cargo tree -p bund2-stdlib      # must not list any cranelift-* crate
+
+    The second line is new and is the one D9's amendment turns on: a fragment
+    that reached for a Cranelift type would pull the optional subsystem into
+    the mandatory crate, and B3 as written would not catch it because the
+    dependency would be on `cranelift-frontend` rather than on `bund2-jit`.
+
+16. **Every BundIR fragment agrees with the word it specialises.** A
+    differential test per fragment runs the arm and the word on **the same
+    constructed values** — not the same source text, which would route one side
+    through the lexer — and asserts equality of value, `dt`, `q` and D41's
+    stack tag. For `dup` it also asserts F13's property **directly**: the two
+    values left behind have different identities. The render comparison cannot
+    see that, because identities differ per run and are normalised away.
+
+    **The inputs are the arm's boundaries, chosen by hand**, and the test says
+    so; an earlier version called them generated. For `Int + Int` they include
+    `i64::MAX`, `i64::MIN` and their neighbours, and a separate assertion pins
+    `i64::MAX 1 +` to `i64::MIN` — wrap-around is where a lowering using a
+    trapping or checked add would part company with the word.
+
+    **On today's domain the `q` assertion cannot fail** (§S6, constraint 2),
+    and this criterion does not count it as evidence; it is kept so that a
+    widened guard can make it fail.
+
+    **It certifies the model, not the compiled code**, until it has a third
+    leg: the lowered code against `frag::run` over the same boundaries. That
+    leg is required before any lowering ships, and cannot be written before one
+    exists.
+
+    Runs today: `cargo test -p bund2-stdlib fragments`.
+
+17. **Every inlined site carries its meaning guard.** §S6: an inlined
+    fragment is entered only while the site's slot still holds the binding it
+    was inlined against, and `autoadd` is clear. Checked mechanically, as
+    criterion 4 is: compile a body that inlines a fragment and assert every
+    inlined region in the emitted code is preceded, on every path into it, by a
+    load and compare of the name's generation cell and of the `autoadd` cell
+    (§S6, *Addressing*). That is a dominance property, and it is checkable
+    because the lowering records each inlined region's entry block in a side
+    table and `cranelift-codegen`'s `DominatorTree` answers whether the guard's
+    block dominates it.
+
+    Its cost per site is measured in `crates/bund2-bench` and **must stay under
+    2 ns** — the bound criterion 11 sets for the headroom check, and about 7% of
+    the 29.2 ns `lowered` `+` it guards. Above that, the guard's design is
+    reconsidered before inlining ships.
+
+18. **Compiled code honours `autoadd`** — at entry, after every call, and for
+    every kind of value the reference collects. Bind `:` and `;`, compile a
+    body that turns the mode on mid-body through `!`, and assert that the
+    calls, **literals** and CONTEXT values after it are collected rather than
+    dispatched, pushed or switched to
+    (`reference/rust_multistackvm/src/multistackvm_apply.rs:19-27`, `reference/rust_multistackvm/src/multistackvm_apply.rs:72-73`,
+    `reference/rust_multistackvm/src/multistackvm_apply.rs:89-97`).
+
+    **The oracle is the reference, not Tier 0.** Tier 0's `autoadd` arm pushes
+    the name *beside* the value where the reference appends it *into* the
+    value, and it collects no literals or CONTEXT values at all — F84, whose
+    unit test asserts the divergence. So the criterion runs against a probe
+    golden captured from the oracle, like every other probe.
+
+    **Not runnable today, and stated so the guard is not built blind.** Bund2
+    binds neither `:` nor `;` (`bund2 words`), although `Interp` carries the
+    flag and the parser recognises `:` as a command term. The probe is
+    captured when they are bound — capturing it now would add a golden Tier 0
+    cannot pass — and F84 is fixed with them.
+
+19. **A fragment that could fail after its guard admits cannot be built.**
+    By then operands have been pulled, so neither declining nor running the
+    word next is safe. `Fragment`'s fields are private and `Fragment::new` is
+    its only constructor outside a test-only feature. It walks the ops,
+    typed, against what the guard promises, so every consuming op counts —
+    `DropTop` and `DupTop` as well as `PopInt` — and every register is written
+    before it is read. `frag::run` reports anything that escapes as
+    `Error::internal`, `DropTop` on an empty stack included, never as success.
+
+    **Met at the model level** by
+    `every_consuming_op_counts_and_registers_are_written_before_read`
+    (`crates/bund2-ir/src/fragment.rs`), and by
+    `new_refuses_the_fragments_that_could_fail_after_the_guard` and
+    `a_post_guard_failure_is_an_internal_error`
+    (`crates/bund2-interp/src/frag.rs`). An earlier revision claimed this with
+    `validate` optional and counting only `PopInt`; the sixth review found two
+    fragments that passed it and then succeeded silently. A lowering must keep
+    it: no path in the emitted code leads from a failed op back to the slot
+    call.
+
+20. **A body run by a loop word reaches the counter under one key.** Run a
+    lambda through `times` 100 times and assert §S7's counter holds one entry
+    for it, at 100. **Its precondition is met**: under D42 the key reaches the
+    entry point, and `times_enters_one_body_under_one_key`
+    (`crates/bund2-stdlib/src/seq.rs`) shows one key on all 100 entries through
+    Tier 0's `entry_log` seam. The criterion itself needs the counter, and runs
+    when one exists.
+
+21. **A current-stack switch mid-body gives Tier 0's result.** Compile, with
+    promotion on, `1 2 "s" to_stack +`; the same with `to_current`,
+    `stacks_left`, `endcontext` and a CONTEXT literal in place of `to_stack`;
+    and a conditional that runs its body on another stack. Assert each
+    program's stacks and diagnostics match Tier 0's. It fails on any lowering
+    that resolves the current stack once, or that syncs to the stack current
+    at the sync rather than the one each value came from.
+
+## Open questions
+
+- **Q25 — what replaces the stack tag on `push`?** §S1 requires
+  `value/push_pull/balanced` under 20 ns and deliberately does not say how.
+  The tag is observable (goldens capture `tags: {"stack": "main"}`), so the
+  options — write-on-observe, interned stack names, or moving the tag to the
+  stack's bookkeeping — differ in what they preserve. **Answered by D41**
+  (interned stack names, in the value's padding), which §S1's update records;
+  this RFC is no longer blocked on it.
+- **Q26 — resolved while drafting RFC-0001's amendment, not open.** The
+  `identity()` call on every push is **D13's policy**: RFC-0001's "One policy
+  for the `Rc` and the identity slot" requires a CoW split to materialise
+  identity before copying, and names `set_tag` on push as the case that fires
+  it. What is over-applied is that it is unconditional; that is option 1 of the
+  amendment, not a separate question.
+- **Q27 — which target profile is Bund2 optimising for?** §3.2a's code-memory
+  constraint "bites hard" on a REPL and "barely at all" on long-running batch,
+  and §S7's caps are chosen for the former. The study raised this as its own
+  open question 7 and it is still unanswered.
+- **Q28 — does `s390x` matter?** §S8 degrades tail calls there. If s390x is
+  not a target, the degradation path is dead code that will not be tested.
+- **Q34 — which words read beyond their declared arity?** Criterion 14's
+  barrier needs the set, and nothing identifies it yet.
+- **Q35 — answered 2026-09-10 by the owner: `q` is kept but not averaged.**
+  D32 is amended to match, and §S6's constraint 2 now rests on it.
+- **Q36 — answered 2026-09-10: D42.** The value reaches every entry point;
+  built.
+- **Q37 — answered 2026-09-10: D43.** The registration id and the stable
+  generation cells, built when this RFC reaches Proposed.
