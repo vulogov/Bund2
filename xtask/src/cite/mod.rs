@@ -158,10 +158,13 @@ fn citations_in(line: &str) -> Vec<(String, Vec<usize>)> {
         let path: String = cs[start..j].iter().collect();
         let path = path.trim_end_matches('.').to_string();
 
-        // Optional `:N`, `:N,M`, `:N-M`.
+        // Optional `:N`, `:N,M`, `:N-M`. A range is expanded to every line
+        // it names, so a quoted token anywhere inside it corroborates it (F86);
+        // a range wider than `RANGE_CAP` keeps only its ends.
         let mut lines = Vec::new();
         if j < cs.len() && cs[j] == ':' {
             let mut k = j + 1;
+            let mut after_dash = false;
             loop {
                 let ds = k;
                 while k < cs.len() && cs[k].is_ascii_digit() {
@@ -172,9 +175,15 @@ fn citations_in(line: &str) -> Vec<(String, Vec<usize>)> {
                 }
                 let n: String = cs[ds..k].iter().collect();
                 if let Ok(n) = n.parse::<usize>() {
-                    lines.push(n);
+                    match lines.last() {
+                        Some(&a) if after_dash && a < n && n - a <= RANGE_CAP => {
+                            lines.extend(a + 1..=n)
+                        }
+                        _ => lines.push(n),
+                    }
                 }
                 if k < cs.len() && matches!(cs[k], ',' | '-') {
+                    after_dash = cs[k] == '-';
                     k += 1;
                     continue;
                 }
@@ -191,6 +200,12 @@ fn citations_in(line: &str) -> Vec<(String, Vec<usize>)> {
     }
     out
 }
+
+/// The widest range `citations_in` expands line by line. Wider than this, a
+/// range is a whole-file gesture rather than a pointer, and only its two ends
+/// are kept. (Declared here, not beside `NEAR`, so that F79's quotation of
+/// `citations_in` keeps its line.)
+const RANGE_CAP: usize = 200;
 
 /// A bare `` `:N` ``, `` `:N-M` `` or `` `:N,M` `` — "the same file as the last
 /// citation".
@@ -713,6 +728,7 @@ pub fn run(_args: &[String]) -> Result<(), String> {
                         .map(|s| s.lines().map(str::to_string).collect())
                         .unwrap_or_default()
                 });
+                let mut resolves = true;
                 for num in &nums {
                     if *num == 0 || *num > src.len() {
                         findings.push(Finding {
@@ -722,39 +738,50 @@ pub fn run(_args: &[String]) -> Result<(), String> {
                             problem: format!("line {num} past end of file ({} lines)", src.len()),
                             hard: true,
                         });
-                        continue;
+                        // A range is expanded line by line; one finding says it.
+                        resolves = false;
+                        break;
                     }
-                    // Corroborate with a quoted token where the prose offers one.
-                    if !single {
-                        continue;
-                    }
-                    let toks = quoted_tokens(line);
-                    if toks.is_empty() {
-                        continue;
-                    }
-                    let lo = num.saturating_sub(NEAR + 1);
-                    let hi = (num + NEAR).min(src.len());
-                    let window = src[lo..hi].join("\n");
-                    let anywhere = src.join("\n");
-                    // Only report when the token exists in the file but not
-                    // near the cited line: that is a stale line number. A
-                    // token absent everywhere is usually prose, not a symbol.
-                    if let Some(t) = toks
-                        .iter()
-                        .find(|t| anywhere.contains(*t) && !window.contains(*t))
-                    {
-                        findings.push(Finding {
-                            doc: doc_rel.clone(),
-                            doc_line: n + 1,
-                            citation: format!("{path}:{num}"),
-                            problem: format!(
-                                "`{t}` occurs in the file but not within {NEAR} lines"
-                            ),
-                            hard: false,
-                        });
-                    } else {
-                        corroborated += 1;
-                    }
+                }
+                // Corroborate with a quoted token where the prose offers one.
+                if !resolves || !single {
+                    continue;
+                }
+                let toks = quoted_tokens(line);
+                if toks.is_empty() {
+                    continue;
+                }
+                // **One window for the whole citation — F86.** This measured
+                // from each number separately, so `:19-27` citing a token on
+                // line 19 was flagged as "not within three lines" of 27. A
+                // range now arrives expanded (`citations_in`), and the token
+                // may sit near any line the citation names: at least one, not
+                // all, the rule the `crates/` check above already follows.
+                let near = |t: &str| {
+                    nums.iter().any(|&num| {
+                        let lo = num.saturating_sub(NEAR + 1);
+                        let hi = (num + NEAR).min(src.len());
+                        src[lo..hi].iter().any(|l| l.contains(t))
+                    })
+                };
+                // Only report when the token exists in the file but not
+                // near the cited lines: that is a stale line number. A
+                // token absent everywhere is usually prose, not a symbol.
+                if let Some(t) = toks
+                    .iter()
+                    .find(|t| src.iter().any(|l| l.contains(t.as_str())) && !near(t))
+                {
+                    findings.push(Finding {
+                        doc: doc_rel.clone(),
+                        doc_line: n + 1,
+                        citation: format!("{path}:{}", nums[0]),
+                        problem: format!(
+                            "`{t}` occurs in the file but not within {NEAR} lines of any line cited"
+                        ),
+                        hard: false,
+                    });
+                } else {
+                    corroborated += 1;
                 }
             }
 
@@ -910,7 +937,18 @@ mod tests {
     #[test]
     fn extracts_ranges() {
         let c = citations_in("`reference/x/y.rs:16-60`");
-        assert_eq!(c[0].1, vec![16, 60]);
+        assert_eq!(c[0].1, (16..=60).collect::<Vec<_>>());
+    }
+
+    /// A range names every line in it, so a token on its first line
+    /// corroborates it (F86). One past `RANGE_CAP` keeps its ends only.
+    #[test]
+    fn a_range_is_expanded_unless_it_is_wider_than_the_cap() {
+        let c = citations_in("`reference/x/y.rs:19-27`");
+        assert_eq!(c[0].1.first(), Some(&19));
+        assert_eq!(c[0].1.len(), 9);
+        let wide = format!("`reference/x/y.rs:1-{}`", RANGE_CAP + 2);
+        assert_eq!(citations_in(&wide)[0].1, vec![1, RANGE_CAP + 2]);
     }
 
     #[test]

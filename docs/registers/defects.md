@@ -2786,3 +2786,28 @@ aborting. `cargo xtask depth`'s new `loop` axis — 100,000 levels through
 still aborts, so this is now a divergence in Bund2's favour, required by D37.
 No golden captures either side: the abort's text carries a thread id, which a
 capture cannot reproduce.
+
+## F86 — `cite` measured a range citation from its last line
+
+**A Bund2 tooling defect**, found by RFC-0005's seventh review (S8).
+
+`citations_in` (`xtask/src/cite/mod.rs`) read `:19-27` as the two numbers 19
+and 27, and corroboration then checked each number on its own against a window
+of three lines either side. A quoted token on line 19 was therefore reported
+as "not within 3 lines" of 27. RFC-0005's `autoadd`, cited as
+`multistackvm_apply.rs:19-27` with `autoadd` on line 19, was one such case. A
+comma list had the same fault: every number had to have the token nearby.
+
+**Status:** FIXED 2026-09-10. A range now arrives expanded to every line it
+names, up to `RANGE_CAP` (200 lines, past which only its two ends are kept).
+Corroboration takes one window per citation: a token near **any** line the
+citation names corroborates it, which is the rule the `crates/` check already
+followed ("at least one, not all"). A range past the end of its file is
+reported once, not once per line. Advisories fell from 116 at the seventh
+review to 51, with no document changed. The test is
+`a_range_is_expanded_unless_it_is_wider_than_the_cap`.
+
+**What it gives up:** a comma list with one stale number is no longer flagged
+as long as another number in the same list is corroborated. That was already
+true of `crates/` citations, and a check that flagged every list with any
+unrelated number was producing noise, not findings.

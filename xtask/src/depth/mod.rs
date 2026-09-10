@@ -84,19 +84,51 @@ fn missing_word(text: &str) -> Option<String> {
 }
 
 
+/// The level the `loop` axis reached before Tier 0's floor refused to nest
+/// further — RFC-0005 criterion 11.
+///
+/// The counter the program descends is on the stack when the error is
+/// reported, so the level is `n` minus it. The stack box also holds the `0`
+/// `times` pushed for its iteration, which is why the counter is taken as the
+/// largest integer in the box rather than by position. `None` when there is no
+/// dump — the run completed, or failed some other way.
+fn loop_level(n: usize, text: &str) -> Option<usize> {
+    let dump = text.split("[BUND]  Content of the stack").nth(1)?;
+    let counter = dump
+        .lines()
+        .filter_map(|l| {
+            l.trim_matches(|c: char| c == '│' || c.is_whitespace())
+                .parse::<usize>()
+                .ok()
+        })
+        .max()?;
+    n.checked_sub(counter)
+}
+
 /// Run one program under a wall clock, and classify how it ended.
-fn run(bin: &Path, repo: &Path, src: &str, budget: Duration) -> Result<Outcome, String> {
+///
+/// Returns the output beside the outcome. `dump_stack` keeps the error
+/// report's stack box, which is where the `loop` axis reads its level from;
+/// every other axis runs without it.
+fn run(
+    bin: &Path,
+    repo: &Path,
+    src: &str,
+    budget: Duration,
+    dump_stack: bool,
+) -> Result<(Outcome, String), String> {
     let work = repo.join("target/depth");
     std::fs::create_dir_all(&work).map_err(|e| format!("creating {}: {e}", work.display()))?;
     let file = work.join("case.bund");
     std::fs::write(&file, src).map_err(|e| format!("writing {}: {e}", file.display()))?;
 
     let started = Instant::now();
-    let mut child = Command::new(bin)
-        .arg("script")
-        .arg("--file")
-        .arg(&file)
-        .arg("--no-dump-stack")
+    let mut cmd = Command::new(bin);
+    cmd.arg("script").arg("--file").arg(&file);
+    if !dump_stack {
+        cmd.arg("--no-dump-stack");
+    }
+    let mut child = cmd
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -121,11 +153,11 @@ fn run(bin: &Path, repo: &Path, src: &str, budget: Duration) -> Result<Outcome, 
                         } else {
                             format!("signal {sig}")
                         };
-                        return Ok(Outcome::Aborted(why));
+                        return Ok((Outcome::Aborted(why), text));
                     }
                 }
                 if text.contains("overflowed its stack") {
-                    return Ok(Outcome::Aborted("stack overflow reported".into()));
+                    return Ok((Outcome::Aborted("stack overflow reported".into()), text));
                 }
                 // **A missing word is not a pass.** An axis whose feature is
                 // unimplemented fails cleanly for a reason that has nothing to
@@ -133,21 +165,21 @@ fn run(bin: &Path, repo: &Path, src: &str, budget: Duration) -> Result<Outcome, 
                 // make the axis measure nothing — it would pass today and
                 // report nothing about the day the feature lands.
                 if let Some(w) = missing_word(&text) {
-                    return Ok(Outcome::Unsupported(format!("`{w}` is not implemented")));
+                    return Ok((Outcome::Unsupported(format!("`{w}` is not implemented")), text));
                 }
                 // An orderly exit. A Bund failure is reported and exits 0
                 // (D36), so the diagnostic in the output is what distinguishes
                 // the two — not the code.
                 if text.contains("│ Error") || text.contains("Error occured") {
-                    return Ok(Outcome::BundError);
+                    return Ok((Outcome::BundError, text));
                 }
-                return Ok(Outcome::Completed);
+                return Ok((Outcome::Completed, text));
             }
             None => {
                 if started.elapsed() > budget {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return Ok(Outcome::TimedOut);
+                    return Ok((Outcome::TimedOut, String::new()));
                 }
                 std::thread::sleep(Duration::from_millis(20));
             }
@@ -300,9 +332,22 @@ pub fn run_cmd(args: &[String]) -> Result<(), String> {
 
     let mut failed: Vec<String> = Vec::new();
     for (axis, n, src, what) in &cases {
-        let outcome = run(&bin, &repo, src, budget)?;
+        // **The `loop` axis also says how far it got.** Its pass is "reports,
+        // does not abort", and that alone would read the same whether the
+        // floor fired at level 10 or level 10,000. RFC-0005 criterion 11
+        // compares the level with the tier on and off (D44), so the level is
+        // printed rather than left in a stack box nobody sees.
+        let is_loop = *axis == "loop";
+        let (outcome, text) = run(&bin, &repo, src, budget, is_loop)?;
         let mark = if outcome.passed() { "ok  " } else { "FAIL" };
-        println!("  {mark}  {axis:<8} depth {n:<7} {}", outcome.label());
+        let level = match (is_loop, &outcome) {
+            (true, Outcome::BundError) => match loop_level(*n, &text) {
+                Some(l) => format!(" — Tier 0's floor at level {l}"),
+                None => " — level not found in the report".to_string(),
+            },
+            _ => String::new(),
+        };
+        println!("  {mark}  {axis:<8} depth {n:<7} {}{level}", outcome.label());
         println!("        {what}");
         if !outcome.passed() {
             failed.push((*axis).to_string());
@@ -333,8 +378,8 @@ pub fn run_cmd(args: &[String]) -> Result<(), String> {
         ));
     }
     for a in &require {
-        if !["call", "nesting", "class"].contains(&a.as_str()) {
-            return Err(format!("unknown axis `{a}` — expected call, nesting or class"));
+        if !["call", "nesting", "class", "loop"].contains(&a.as_str()) {
+            return Err(format!("unknown axis `{a}` — expected call, nesting, class or loop"));
         }
     }
     Ok(())
@@ -386,6 +431,17 @@ mod tests {
         );
         assert_eq!(missing_word("everything worked"), None);
         assert!(!Outcome::Unsupported("x".into()).passed());
+    }
+
+    /// The counter is the largest integer in the box, whichever row it is on;
+    /// the `0` beside it is `times`'s iteration.
+    #[test]
+    fn the_loop_level_is_read_from_the_stack_box() {
+        let report = "│ Error ┆ machine stack exhausted │\n\
+                      [BUND]  Content of the stack\n\
+                      ╭───────╮\n│ 89077 │\n├╌╌╌╌╌╌╌┤\n│ 0     │\n╰───────╯\n";
+        assert_eq!(loop_level(100_000, report), Some(10_923));
+        assert_eq!(loop_level(100_000, "completed, no report"), None);
     }
 
     #[test]
