@@ -19,10 +19,10 @@
   correctness problems stand between this RFC and Proposed. **§S8's frame
   consumption** now has a mechanism — a stack floor Bund2 measures in Rust and
   compiled code compares against its own stack pointer (§S8, *How the guard
-  reads the stack*) — new in this revision and unreviewed.
+  reads the stack*), read by the seventh and eighth reviews.
   And **§S6's inlining freezes a name** unless every inlined site re-checks
   what the name means — the fifth review's B1, answered in §S6 by a per-site
-  meaning guard that criteria 5 and 17 test.
+  meaning guard that criteria 5 and 17 test, and reviewed since the sixth.
 
   The sixth review's B1 — **no body's `Rc` reached the point where it starts
   running** — was the owner's, and is decided and built: D42 carries the value
@@ -39,6 +39,14 @@
   call through an alias. That review's S1 went to the owner too. D45 makes the
   reporter answer `wants_stack` per severity, which lets values be promoted
   across calls under the CLI's default reporter. D45 is built.
+
+  The eighth review's two blockers are answered. **B1** was the owner's: a
+  lambda's effect is inferred from slots the pre-call check cannot pin, so
+  D46 keeps nothing promoted across a call that resolves to a lambda. **B2**
+  was a Bund2 defect: `execute.` declared a fixed effect while running
+  whatever it was handed (F87, fixed). Criterion 24 now checks every native
+  for that mechanically, and criterion 25 checks that no native reports at
+  `Error` severity.
 - Depends on: RFC-0001 (the value, whose representation §S1 indicts),
   RFC-0002 (`StackEffect`, the word slot table, and the open world that forces
   indirect calls), RFC-0003 (BundIR as a cache over a body, and the frame
@@ -59,7 +67,8 @@
   `Rc` reaches the point where it starts running), **D43** (the registration
   id and stable generation cells §S6's guards need), **D44** (the level at
   which stack exhaustion is reported is not meaning), **D45** (a reporter
-  wants a stack snapshot per severity), **D37** (no panic), **D39** (an
+  wants a stack snapshot per severity), **D46** (nothing stays promoted
+  across a call that resolves to a lambda), **D37** (no panic), **D39** (an
   internal loop must be bounded)
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
   `80377728f45b`; `bundcore` `3b0b8ba219a6`; `rust_dynamic` `ceb27c96fa10`;
@@ -79,9 +88,12 @@ deoptimisation. It changes speed and not meaning: `cargo xtask conform` must
 move by **exactly zero**.
 
 That is the design. §S1's measurement no longer says "not yet" on performance
-grounds — D41 removed that objection — but its two correctness mechanisms are
-new and unreviewed: §S8's stack floor and §S6's meaning guard. The RFC stays
-Draft.
+grounds — D41 removed that objection. Its two correctness mechanisms, §S8's
+stack floor and §S6's meaning guard, are designed and have been reviewed: the
+meaning guard since the sixth review, the floor since the seventh. Only Tier
+0's half of the floor is built. Each review has found the next level of one
+question, what a promoted value's callee can do, and the RFC stays Draft until
+a review finds none.
 
 ## Motivation
 
@@ -523,9 +535,17 @@ the frame holds it, and `100 { drop } times` enters one body under one key a
 hundred times, which `times_enters_one_body_under_one_key` asserts
 (`crates/bund2-stdlib/src/seq.rs`).
 
-**RFC-0004 orders the guards.** A word's declared or inferred `StackEffect`
-gives the arity a guard must check before entry. This is the RFC-0004
-dependency doing real work rather than nominal work.
+**RFC-0004 orders the guards, and only its declared effects are trusted across
+a call.** A compiled body's analysis reads each callee's effect when the body
+is compiled. For a native that is the effect declared in the native's own
+slot (`Registry::effect_of`, `crates/bund2-api/src/lib.rs`), which §S5's
+pre-call check pins. A lambda has no declared effect: `effect_of` returns
+`None` for one, and RFC-0004 §S3 infers its effect by composition from every
+slot its body calls through. That inferred effect is never trusted across a
+call, because nothing stays promoted across a call that resolves to a lambda
+(D46; *What a promoted value must not change*, below). An absent effect is
+`Opaque` (criterion 13). This is the RFC-0004 dependency doing real work
+rather than nominal work.
 
 ## `Opaque` is not a type question, and takes the other rule
 
@@ -541,6 +561,12 @@ it. So opacity takes a second rule:
 > **Promotion stops at an opaque site.** Values held in `Variable`s are synced
 > back to the real stack before the call, and everything after it runs through
 > runtime helpers.
+
+**An opaque site is one whose native says so, so every native that runs a body
+must say so.** `execute.` declared `eff(1, 0)` while running whatever it was
+handed, so promotion would have run straight across arbitrary code. The eighth
+review found it by hand (F87, fixed). Criterion 24 now checks the property
+mechanically for every native.
 
 **The sync writes through the path `Stack::push` uses**, not a bare
 `push_back`, so a synced value carries its D41 stack symbol. A bare write would
@@ -651,8 +677,10 @@ registers would show a short stack. That is Q34's shape, a word observing
 beyond its arity, and the rule is structural: **while the reporter wants a
 snapshot for a severity natives report mid-body, `Warning` or `Notice`, no
 value stays promoted across a call.** Natives return errors rather than
-reporting them (§S11). The embedder's fatal report comes after evaluation has
-returned, by which time every error path has synced.
+reporting them. That was a convention (D45) until criterion 25 made it a
+test: no shipped code in `bund2-stdlib` reports at `Error` severity. The
+embedder's fatal report comes after evaluation has returned, by which time
+every error path has synced.
 
 **The reporter is read at each compiled body's entry.** It is not fixed when
 the `Interp` is built, which an earlier revision claimed. The CLI replaces it
@@ -734,7 +762,10 @@ inlining rules:
 - **`$name` reads its own name's slot, under the same rule.** `$` skips the
   lambda check and resolves one level of alias (§S4, *The chain*). On a direct
   name that level is the name itself, so the check reads that name's slot. On
-  an alias, the body syncs before the call.
+  an alias, the body syncs before the call. The effect trusted is the
+  **native** binding's, since `$` skips the lambda. A lambda registered on the
+  same name bumps that slot's generation, so the check still fails when one
+  arrives.
 - **Never against a saturated slot.** `Slot::touch` stops at `u32::MAX`
   (`crates/bund2-api/src/lib.rs`), so a check compiled against a saturated
   generation can never fail. A callee whose slot is saturated at compile time
@@ -742,11 +773,27 @@ inlining rules:
 - **The third inlining rule, that the registration is recognised, belongs to
   inlining alone.** It asks whether a fragment belongs to the binding in the
   slot, and D43's registration id answers it. The pre-call check trusts only
-  an effect, and the generation pins the binding that effect was read from.
+  an effect. For a native, the generation pins the binding that effect was read
+  from, because a native's effect is declared in its own slot. That is true of
+  natives only, and the next rule is why.
+- **Never across a call that resolves to a lambda (D46).** A lambda's effect
+  is inferred from every slot its body calls through, so pinning the lambda's
+  own slot pins nothing. The eighth review gave two programs. With
+  `:g { drop } register  :f { g } register`, a body `1 2 3 f` promotes `1` and
+  `2` across `f`, which infers as `(1, 0)`; then `:g { drop drop drop }
+  register` leaves `f`'s slot untouched, and `g` pulls three values from a
+  stack holding one. And `:f { :g { drop drop drop } register g } register`
+  rebinds `g` during the call, where no check made before it can look. So the
+  body syncs before any call whose name resolves to a lambda at compile time,
+  as at an opaque site. A name that resolves to a native at compile time and
+  gets a lambda later is caught by the generation, because `register_lambda`
+  touches that name's slot.
 
 This is CLAUDE.md's "follow the call one level further". The check read the
-call slot and stopped there, while dispatch went on to the target. Criterion 22
-checks it, the alias case included.
+call slot and stopped there, while dispatch went on to the target. The eighth
+review took the same question one level further again, from the target's slot
+into the target's body. Criterion 22 checks both, the alias case and the
+lambda case.
 
 # S6. Stack-slot promotion — the actual win, and what withholds it
 
@@ -949,8 +996,9 @@ registry:
   never move when more are added;
 - one **`autoadd` cell** and one **current-stack epoch cell** (§S5), owned by
   the runtime in a single allocation that lives as long as the `Interp`;
-- one **stack-floor cell** for the evaluation thread (§S8), which the check at
-  every compiled body's entry compares `get_stack_pointer` against.
+- one **stack-floor cell** per `Interp` (§S8), holding the floor that `Interp`
+  took from its thread's declared region, which the check at every compiled
+  body's entry compares `get_stack_pointer` against.
 
 At compile time the JIT embeds each cell's address as an immediate. That is
 safe to do because the cells outlive every compiled function: both die with the
@@ -1152,6 +1200,17 @@ The figures move as words land and effects are declared. The fourth review
 counted 116, 61 and 55; since then `if` has gained a site and `#` has appeared.
 That is why the command sits beside the numbers: a count with no derivation
 beside it rots.
+
+**Re-derived after F87, 2026-09-10: still 113, 63 and 50.** Making `execute.`
+opaque did not move the count, although
+`tests/probes/remaining-vocabulary.bund:52` and `:55` call `execute.` and
+`!.`. `bund2 check` abandons that program at an earlier stack switch, and it
+counts only where analysis *stops*, once per program path. A site after the
+first stop is never reached. Stops at a stack switch also fall outside the
+`grep` above, because that report names no word. So the table counts the first
+word-named stop on each analysed path, not every opaque site in the corpus.
+It is a lower bound, and the eighth review's "moves by at least two" assumed
+the probe's calls were reached.
 
 Three things bound promotion:
 
@@ -1429,8 +1488,9 @@ ends.**
 
 **Two floors, and what they promise (D44).**
 
-- **The Tier 1 floor** sits Tier 1's share below the top. A compiled body
-  whose entry finds the stack pointer below it declines. The floor says where
+- **The Tier 1 floor** sits one reserve above the bottom of Tier 1's share:
+  `top − share + STACK_RESERVE`. A compiled body whose entry finds the stack
+  pointer below it declines. The floor says where
   compiled frames may *start*, and it reserves no region for them. The stack
   is LIFO, and its outermost frames are always Tier 0's (`run_cli`,
   `Interp::eval`, the frame loop). So Tier 0 frames also sit above this floor,
@@ -1439,10 +1499,13 @@ ends.**
   native that would run a body synchronously reports a Bund-level error
   instead of nesting further.
 
-The thread is sized at Tier 0's part, which is what Tier 0 has today, plus
-Tier 1's share. Tier 0's part is the main thread's stack, 8 MiB on this machine
-(`ulimit -s`: 8176 KiB). Compiled frames live above the Tier 1 floor, so they
-can never occupy Tier 0's 8 MiB. **Tier 0's capacity with the tier on is
+The thread is sized at Tier 0's part plus Tier 1's share. Tier 0's part is
+`EVAL_STACK`'s 8 MiB (`crates/bund2-cli/src/main.rs`). The main thread's stack
+on this machine, 8176 KiB by `ulimit -s`, is the reason for that default,
+since it is roughly what Tier 0 ran on before F85's fix. It is not the value.
+Compiled frames start only above the Tier 1 floor. The reserve beneath that
+floor holds the last compiled body entered and whatever it calls without
+re-entering evaluation, so compiled frames never reach Tier 0's 8 MiB. **Tier 0's capacity with the tier on is
 therefore never less than with it off**, and it is more whenever compiled
 frames are not using the top part. A program whose native nesting fits today
 still fits.
@@ -1452,8 +1515,8 @@ what runs, so the level at which a program reports `machine stack exhausted`
 can differ with the tier on. An earlier revision also required that level to
 be *the same*, and no fixed floor gives both (the seventh review's B1). The
 owner decided that the level is not meaning (D44). It already differs between
-Bund2's own build profiles: the `loop` axis of `cargo xtask depth` reports at
-level 10,923 in release and 2,371 in dev. And the oracle aborts at every
+Bund2's own build profiles: the `loop` axis reports at level 10,923 in release
+(`cargo xtask depth`) and 2,371 in dev (`cargo xtask depth --dev`). And the oracle aborts at every
 depth (F85). What is meaning is that evaluation nesting never aborts, and that
 the level with the tier on is never lower. Criterion 11 checks both.
 
@@ -1481,16 +1544,33 @@ Proposed defaults: 8 MiB for each part and a 256 KiB reserve. Like §S7's
 knobs, they are defaults with a stated basis, and they change only with a
 measurement behind the change.
 
-**Declining takes the path an interpreted body would have taken.** A compiled
-body that finds the stack pointer below the Tier 1 floor does what Tier 0 does
-with a lambda. At a tail position that is `Vm::tail_lambda`'s request: the
-body goes back to the frame loop and runs on the heap, holding no machine
-frame. At any other position it is `Vm::eval_lambda`: one synchronous boundary
-into Tier 0's part of the stack, below which the body runs flat. Every compiled
-body entered after that point finds the stack pointer still below the Tier 1
-floor and declines in turn, so beneath the floor nothing compiled runs, and the
-recursion continues on the heap. That recovers RFC-0003's guarantee, and it
-never needs OSR.
+**A decline is a return, not a call.** A compiled body is entered from the two
+places Tier 0 starts a body: the frame loop, for a body a tail position handed
+back (`Vm::tail_lambda`), and `Vm::eval_lambda`, for a native running one
+synchronously. Its entry check runs first. Below the Tier 1 floor the function
+returns a *declined* status at once, before it touches the stack or holds any
+promoted value, so its frame is gone by the time the caller acts on the
+status. The frame loop then pushes the body as an interpreted frame and runs
+it on the heap. `Vm::eval_lambda` runs it in the frame `eval_lambda` already
+holds, exactly as it does with the tier off. A level beneath the floor
+therefore costs what it costs with the tier off, plus whatever the feature
+adds to `eval_lambda`'s own frame (a cache lookup). It never keeps a compiled
+frame alive. Every compiled body entered after that point finds the stack
+pointer still below the Tier 1 floor and declines in turn, so beneath the
+floor nothing compiled runs, and the recursion continues on the heap. That
+recovers RFC-0003's guarantee, and it never needs OSR.
+
+**Room is bytes, and criterion 11 counts levels.** D44's second requirement is
+about room: with the tier on, Tier 0 has at least its own part and at most
+both parts. Criterion 11 measures levels, which are room divided by the bytes
+one level spends. The two agree as long as a level costs no more than
+(Tier 0's part + Tier 1's share) / Tier 0's part times what it costs with the
+tier off, which is twice at the proposed 8 MiB each. A decline that returns
+keeps the per-level cost almost unchanged, so the inequality has close to a
+factor of two to spare. A decline that *called* `eval_lambda` would have added
+a compiled prologue and a second `eval_lambda` frame to every level beneath
+the floor, and the argument would then depend on frame sizes. That was the
+eighth review's S2. Criterion 11 measures the result either way.
 
 **§S5's residual path is bounded the same way.** It applies the rest of a body
 through `Vm::apply`, which is synchronous. Each value there that runs a body
@@ -1508,11 +1588,27 @@ point where it was built, and Tier 1 gets no share there, so compiled code does
 not run on that thread. 1 MiB is half of Rust's default for a spawned thread,
 since a constructor is rarely at the very top. `std::thread`'s module
 documentation, *Stack size*, says "Currently, it is 2 MiB on all Tier-1
-platforms" (read in the 1.94.1 `rust-docs` component, with the same sentence
-in the 1.98.1 source). The same section names the `RUST_MIN_STACK` environment
-variable as changing that default. So an embedder whose threads run with
-`RUST_MIN_STACK` below about 1.25 MiB must declare its region, or the assumed
-floor lies past the stack's end.
+platforms". That was read in the 1.94.1 `rust-docs` HTML, and in the `stable`
+toolchain's `rust-src` at `library/std/src/thread/mod.rs`, line 129. The
+pinned 1.95.0 has neither component. The same section names the
+`RUST_MIN_STACK` environment variable, at line 134, as changing that default.
+
+**The arithmetic, for a thread that declares nothing.** The floor is
+`marker − ASSUMED_BUDGET + STACK_RESERVE`, 768 KiB below the point where the
+`Interp` is built (`tier0_floor`, `crates/bund2-interp/src/lib.rs`). The frames
+between one check and the next may run up to one reserve past it. So the
+undeclared case is safe only while at least 1 MiB of stack lies below the
+constructor. On a default 2 MiB thread that leaves 1 MiB for whatever sits
+above the constructor. An embedder that sets `RUST_MIN_STACK` below 1 MiB plus
+that depth, or builds the `Interp` deep in its own call stack, must declare its
+region.
+
+**A declared region is Tier 0's alone.** `set_stack_region` takes a top and a
+size, and nothing in it says how much of that is Tier 1's. So under `jit`, a
+region an embedder declares gets no Tier 1 share, as an undeclared thread
+gets none, and compiled code does not run there. Giving an embedder's thread a
+share needs a declaration that names it. This RFC adds that with the tier,
+rather than guessing a split now.
 
 **What it costs.** Tier 1 pays a stack-pointer read, a load and a compare per
 compiled body entry, under criterion 11's 2 ns bound. Tier 0 pays an address, a
@@ -1540,14 +1636,14 @@ its floor from the declared region, and `Error::context` passes the exhaustion
 through each body wrapper unchanged, so it is reported once rather than
 re-wrapped at every level. `cargo xtask depth`'s new `loop` axis now reports
 instead of aborting, and prints the level at which the floor fired: 10,923 in
-release on 2026-09-10. Tier 1's share of the stack, and its floor, arrive with
+release on 2026-09-10, and 2,371 under `cargo xtask depth --dev`. Tier 1's share of the stack, and its floor, arrive with
 the tier.
 
 ## What this design assumes
 
 *Added 2026-09-10. The seventh review listed six assumptions the text relied on
-without stating them.* Each is stated here, with the place that enforces or
-decides it.
+without stating them, and the eighth review five more.* Each is stated here,
+with the place that enforces or decides it.
 
 1. **One compiled cache, one `JITModule`, one set of cells and one fragment
    table per `Interp`.** §S6, *Addressing*, and criterion 23.
@@ -1564,10 +1660,21 @@ decides it.
 5. **The residual path's `apply` is `Vm::apply`, which is synchronous.**
    Recursion through residual paths spends machine stack until the Tier 1
    floor, and is bounded by §S8's floors rather than by the heap (§S8,
-   *Declining*).
+   *§S5's residual path is bounded the same way*).
 6. **Every call crossed by promotion resolves through one registry `Slot`.**
    This one is enforced rather than assumed. A call through an alias, or
    against a saturated slot, is synced before (§S5).
+7. **Every native's declared effect is honest about running a body.**
+   Enforced by a test since F87: criterion 24.
+8. **No native reports at `Error` severity mid-body.** Enforced by a test:
+   criterion 25.
+9. **A callee's effect is trusted across a call only when it is declared.**
+   Enforced by D46: nothing stays promoted across a call that resolves to a
+   lambda (§S5).
+10. **A declined compiled body keeps no frame.** A decline is a return (§S8,
+    *A decline is a return*).
+11. **The Tier 1 floor sits one reserve above the bottom of Tier 1's share,
+    and an embedder's declared region has no Tier 1 share** (§S8).
 
 # S9. Tier pinning
 
@@ -1673,6 +1780,10 @@ disagrees with interpreted code", and each has a named guard:
 | an eval'd string's inner lambda recompiled on every evaluation | the 1024-body cap (§S7); content-hash keying is the eventual answer (§S3) |
 | a guard widened to boxed values, whose operands might carry a `q` other than 100.0 | no arithmetic word averages `q` (D32 as amended, Q35), so the result is a fresh 100.0 either way; criterion 16 must then include such an operand if one can be built (§S6, constraint 2) |
 | a body compiled under one `Interp` and run by another on the same thread | one cache, `JITModule`, set of cells and fragment table per `Interp`, so another `Interp`'s code is never found (§S6, *Addressing*); criterion 23 |
+| **a lambda callee whose inferred effect changes**, because a word its body calls is rebound before the call or by the callee during it | nothing stays promoted across a call that resolves to a lambda (D46, §S5); criteria 5 and 22 |
+| **a native whose declared effect hides a body it runs** — `execute.` until F87 | every native that runs a body declares `StackEffect::opaque`, checked by running each fixed-effect native against lambdas; criterion 24 |
+| **a native reporting at `Error` severity mid-body**, under a reporter that wants fatal snapshots | no shipped `bund2-stdlib` code reports at `Error`, checked by a source scan; criterion 25 |
+| the per-level stack cost of a declined compiled body below the Tier 1 floor | a decline is a return, so no compiled frame is kept (§S8); criterion 11 |
 
 ## Alternatives considered
 
@@ -1815,6 +1926,11 @@ evidence, and this one is listed as runnable rather than as met.
    caller runs and once mid-body. `<-`'s own generation does not move, which
    is the case §S5's direct-resolution rule exists for.
 
+   **A fourth time through a lambda callee.** A caller that calls `f`, where
+   `f` is `{ g }`, with `g` rebound to a word of a different effect, once
+   before the caller runs and once by `f` itself mid-call. Nothing was
+   promoted across `f` (D46), so the result must match Tier 0's.
+
 6. **The caps hold**, checked by a test per row of §S7's table rather than by
    inspection. With the compiled-function cap set to 4, compiling five distinct
    bodies leaves the fifth interpreted. With the recompile cap set to 2, a
@@ -1942,7 +2058,7 @@ evidence, and this one is listed as runnable rather than as met.
     correctness problem, and the criterion is one that already exists:
 
         cargo xtask depth                       # feature off — Met at 100,000
-        cargo xtask depth --features jit        # must read the same
+        cargo xtask depth --features jit        # loop level no lower (D44)
 
     **`--features` did not exist when this criterion was written**, and
     `xtask depth` shelled out to whichever `bund2` happened to be sitting in
@@ -1973,7 +2089,9 @@ evidence, and this one is listed as runnable rather than as met.
     level at which Tier 0's floor fired: **10,923** in release on 2026-09-10.
 
     **That level is not meaning (D44).** It is 2,371 in the dev profile on the
-    same source, and the oracle aborts at every depth. So the criterion is that
+    same source (`cargo xtask depth --dev`), and the oracle aborts at every
+    depth. In dev the `nesting` axis also aborts, in the parser's recursion,
+    which RFC-0003 excludes. That is why this criterion runs release. So the criterion is that
     the axis reports rather than aborts in both builds, and that **its level
     with the feature on is no lower than with it off**. An earlier revision
     required the two levels to be equal, and no fixed floor can give that and
@@ -2131,15 +2249,19 @@ evidence, and this one is listed as runnable rather than as met.
     that resolves the current stack once, or that syncs to the stack current
     at the sync rather than the one each value came from.
 
-22. **What a promoted value must not change, doesn't.** Four parts, each
+22. **What a promoted value must not change, doesn't.** Five parts, each
     asserted against Tier 0's result:
 
-    - **An error with values promoted.** Compile `1 2 "a" +` with `1` and `2`
+    - **An error with values promoted.** Compile `1 2 true +` with `1`
       promoted. `+`'s type guard declines, and its generic counterpart, the
-      word called through its slot, returns the error. The report and the
-      `[BUND]  Content of the stack` dump must match. Then do the same with a
-      callee that fails. A fragment op cannot be the one that fails, because
-      criterion 19 makes a failure after the guard impossible to construct.
+      word called through its slot, returns `ADD returns error: Incompartible
+      Y argument for the math operations`, as Tier 0 does (checked
+      2026-09-10). The report and the `[BUND]  Content of the stack` dump must
+      match. Then do the same with a callee that fails. A fragment op cannot
+      be the one that fails, because criterion 19 makes a failure after the
+      guard impossible to construct. An earlier wording used `1 2 "a" +`,
+      which succeeds, because `+` joins an `Int` and a string (F64's
+      pass-through family). It constructed no error.
     - **An effect changed at run time.** Promote across a call, and rebind that
       call's name to a word with a different effect, once before the body runs
       and once mid-body through `register`. The stacks must match.
@@ -2147,12 +2269,23 @@ evidence, and this one is listed as runnable rather than as met.
       rebind `stacks_left` to a lambda that consumes two, before the body runs
       and mid-body. The stacks must match. Repeat with `$stacks_left`, and
       with a callee whose slot generation is saturated.
+    - **A lambda callee whose callee is rebound (D46).** With
+      `:g { drop } register  :f { g } register`, run a body `1 2 3 f`, and
+      rebind `g` to `{ drop drop drop }` before the body runs. Then use
+      `:f { :g { drop drop drop } register g } register`, which rebinds `g`
+      during the call. The stacks and diagnostics must match.
     - **The reporter, observed through the diagnostic.** Under
-      `CollectingReporter` with `wants_stack` set, run a promoted body that
-      calls `?error`, whose notice is reported mid-body (`run_error`,
-      `crates/bund2-stdlib/src/conditional.rs`). The notice's snapshot in
-      `CollectingReporter::seen` must equal Tier 0's; that snapshot is the seam
-      that shows whether anything was held across the call. Then, under
+      `CollectingReporter` with `wants_stack` set, run a promoted body
+      `1 2 :x :x alias`. `alias` is `eff(2, 0)` and warns mid-body that `x`
+      resolves back to itself (`alias`, `crates/bund2-stdlib/src/singles.rs`),
+      with `1` and `2` promoted below its arity. The warning's snapshot in
+      `CollectingReporter::seen` must equal Tier 0's, `1` and `2` included.
+      That snapshot is the seam that shows whether anything was held across
+      the call. `alias` is the only fixed-effect native that reports mid-body
+      today; `execute.`, the other, is opaque since F87. An earlier wording
+      used `?error`, which only pushes a CONDITIONAL. Its notice is reported
+      when `!` runs that value, and `!` is opaque, so promotion had already
+      stopped and the part could not fail. Then, under
       `TextReporter::new(true)`, the lowering's side table (criterion 17) must
       record at least one call crossed by promotion in the same body. Under the
       default reporter, promotion across calls must not be zero (D45).
@@ -2166,6 +2299,27 @@ evidence, and this one is listed as runnable rather than as met.
     `Interp`'s cells. After the first `Interp` is dropped, the second must still
     give Tier 0's result. This fails for any cache, module or cell shared
     across `Interp`s (§S6, *Addressing*). Needs a tier.
+
+24. **Every native that runs a body declares `StackEffect::opaque`.**
+    Promotion stops at an opaque site (§S5), so a native that runs a body
+    under a fixed effect lets promotion run straight across arbitrary code.
+    The check runs every native with a fixed effect against a stack and a
+    workbench of lambdas, and asserts through `entry_log` that none starts a
+    body: `no_fixed_effect_native_runs_a_body`
+    (`crates/bund2-stdlib/src/lib.rs`). **Met**, 2026-09-10. Before F87's fix
+    it named `execute.` and nothing else. It passes lambdas only, because a
+    string is a file name to half the library, so a native that runs a body
+    only when handed a name would not be caught. The eighth review's audit of
+    the sixteen functions that re-enter evaluation found none. Runs today:
+    `cargo test -p bund2-stdlib honesty`.
+
+25. **No native reports at `Error` severity.** §S5's reporter rule reads
+    `Warning` and `Notice` because natives return errors rather than
+    reporting them. `no_native_reports_at_error_severity`
+    (`crates/bund2-stdlib/src/lib.rs`) scans the crate's shipped source for
+    `Diagnostic::error` and `Severity::Error`. **Met**, 2026-09-10. A native
+    that must report an error mid-body fails it, and §S5's rule then has to
+    read `Error` too.
 
 ## Open questions
 

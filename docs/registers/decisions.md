@@ -2581,3 +2581,58 @@ notice (`?error` in `conditional.rs`).
   CLI's default reporter
 - Depends on: D36 (the reporter seam)
 - Status: **RESOLVED — built.**
+
+## D46 — nothing stays promoted across a call that resolves to a lambda
+
+RFC-0005's eighth review, B1. §S5 keeps the values below a callee's arity in
+registers across the call, trusting the callee's effect as it was at compile
+time, and before the call compares the callee's slot generation with the one
+it was compiled against. For a native that pins the effect, because a native's
+effect is declared in its own slot. **A lambda has no declared effect.**
+`Registry::effect_of` returns `None` for one, since "a lambda's is inferred
+rather than declared" (`crates/bund2-api/src/lib.rs`, `Registry::effect_of`).
+RFC-0004 §S3 infers it by composition, so it is read from every slot the
+lambda's body calls through, and the check reads one of them.
+
+Two programs break it:
+
+1. **Rebound before the call.** `:g { drop } register  :f { g } register`,
+   and a body `1 2 3 f` that promotes `1` and `2` across `f`, which infers as
+   `(1, 0)`. Then `:g { drop drop drop } register`. `f`'s slot is untouched,
+   the check passes, and `g` pulls three values from a stack holding one.
+2. **Rebound during the call.** `:f { :g { drop drop drop } register g }
+   register`. No check made before the call can see a rebind the callee
+   performs itself.
+
+### Decision
+
+Decided by the repository owner, 2026-09-10: **nothing stays promoted across
+a call whose name resolves to a lambda when the body is compiled.** The body
+syncs every promoted value before such a call, as at an opaque site.
+Promotion crosses calls to natives only. A name that resolves to a native at
+compile time and has a lambda registered later is still caught:
+`register_lambda` touches that name's slot, so the pre-call check fails and the
+body takes the residual path.
+
+### Rejected
+
+**Pin the inference**: record every slot a lambda's inferred effect was read
+from, transitively, check all of their generations before the call, and treat
+as opaque any lambda whose body can rebind a name. That needs a dependency
+list per call and a purity analysis, every future rebinding word has to be
+classified, and D16's computed names mean a body can reach a rebinding word the
+analysis never saw.
+
+### Consequences
+
+- An inferred effect is never trusted across a call. The effects compiled code
+  trusts are declared ones, read from the native's own slot.
+- RFC-0005 criterion 22 gains both programs above.
+- None of RFC-0005 §S6's measured figures depends on promotion across a user
+  word: they measure straight-line runs and native calls.
+
+- Decided by: repository owner, 2026-09-10, on RFC-0005's eighth review (B1)
+- Blocks: nothing; unblocks RFC-0005 §S5
+- Depends on: D16 (the open world), RFC-0004 §S3 (effects are inferred by
+  composition), D43 (the generation cells)
+- Status: **RESOLVED — decided; implemented with the tier.**
