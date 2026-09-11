@@ -133,9 +133,23 @@
   `context`. It pins F112's two untested gates, and F112 records the text
   change. Criterion 30's `input*` case names its harness, and
   `input_loop_reads_no_line_after_an_exit` runs it against the binary. The
-  criterion's `?try` case says what it compares. **S3**: D52 has a further dated note. The scan's test-module
-  limit is assumption 27, and `?try` is named as the only native that
-  catches.
+  criterion's `?try` case says what it compares. **S3**: D52 has a further
+  dated note, and the scan's test-module limit is assumption 27.
+
+  The fifteenth review's blocker is answered with one more condition, in the
+  same function. **B1**: three of the four helpers reach a native through
+  `Interp::dispatch` and so inherit F96's clearing of a failed native's tail
+  request. The adapter calls the `NativeFn` directly and does not, and
+  `execute_value`'s LIST arm reaches that from `bund2-stdlib`. `status_of` now
+  clears the request cell whenever it answers an error, not only an exit (§S5;
+  criterion 26 gains the program; the Preservation row names the adapter; F96
+  has a dated note). **S1**: `#` catches a refusal and discards it, so the
+  "only native that catches" claim is scoped to natives that then do work, in
+  all four places. **S2**: criterion 30's drained-body and residual-path cases
+  have programs, comparisons and a Tier 0 test, and the `?try` case says what
+  its test covers. **S3**: F112's note has a correction, assumption 26 gives
+  the reason the texts actually agree, and Tier 0's request overwriting is
+  filed as F113 with assumption 29.
 
   **Criterion 10 has a first measurement**, from a throwaway lowering outside
   this RFC's gate (2026-09-11, branch `spike/lowering-1`). With §S8's call
@@ -795,12 +809,15 @@ synchronous run returns to Rust: `Vm::eval_lambda`, `Interp::apply` and
 frame does not. Before F112 a body ending in `bund.exit` returned `Ok` to the
 native that ran it, and that native went on in Rust until its next step:
 `map` collected, and `input*` read another line (the thirteenth review's B1).
-Now the native gets the refusal at once and runs only its error path. In
-`bund2-stdlib` one error path does work: `?try`'s. `run_tryexcept`
-(`crates/bund2-stdlib/src/conditional.rs`) is the only re-entering call site
-that catches the result, and it runs its handler, as assumption 25 says.
-Every other native passes the refusal up, wrapped in its own context. The
-claim covers `bund2-stdlib` alone.
+Now the native gets the refusal at once, and in `bund2-stdlib` one error path
+does work afterwards: `?try`'s. `run_tryexcept`
+(`crates/bund2-stdlib/src/conditional.rs`) catches the result and runs its
+handler, as assumption 25 says. `#` and `#.` also catch one —
+`let _ = crate::values::execute_top(vm)`, whose result they discard by design
+(`object_execute_base`, `crates/bund2-stdlib/src/oop.rs`) — but they do
+nothing afterwards and return `Ok`, so that is the `Ok` path assumption 26
+covers. Every other native passes the refusal up, wrapped in its own context.
+The claim covers `bund2-stdlib` alone.
 
 Compiled code has no such step. The three cells it reads after a call record
 no exit, `bund_exit`'s `Ok` becomes the success status, and literal pushes and
@@ -941,13 +958,32 @@ run. So:
   `Vm::eval_lambda` before it returns. So a self-recursive word whose last word
   is a lambda call goes back to the loop, and recurses on the heap as RFC-0003's
   frame loop does.
-- **A request is never lost.** A slot call that starts while the request cell
-  is set returns `Error::internal`, naming the invariant: some earlier call's
-  request was neither drained nor handed back. Tier 0 cannot reach that state
-  since F96, because `Interp::invoke` clears a request when the native that
-  filed it fails. Before F96 an embedder's native could leave one behind, and
-  Tier 0 ran it late (the tenth review's S3.2). Under these rules compiled code
-  cannot reach it either.
+- **A request is never lost at a compiled call site.** A slot call that starts
+  while the request cell is set returns `Error::internal`, naming the
+  invariant: some earlier call's request was neither drained nor handed back.
+  Tier 0 does not leave one behind on a failure, since F96: `Interp::invoke`
+  clears a request when the native that filed it fails. Before F96 a native
+  could leave one, and Tier 0 ran it late (the tenth review's S3.2).
+
+  **Compiled code does not inherit that fix, and `status_of` supplies it**
+  (the fifteenth review's B1). Three helpers reach a native through
+  `Interp::dispatch`, and so through `call_native` and `invoke`: the resolving
+  trampoline, the residual path's `apply`, and the drain helper. **The adapter
+  does not.** §S8 has it call the native's `NativeFn` directly, and `invoke`
+  is private to `Interp`. So a native that files a request through
+  `Vm::tail_lambda` and then fails would keep it, and `?try` would run that
+  body inside its handler. `execute_value`'s LIST arm reaches this from
+  `bund2-stdlib`: it pushes and executes each item, so a LAMBDA item files a
+  request and a later item can fail (`crates/bund2-stdlib/src/values.rs`,
+  `execute_value`; criterion 26 gives the program). **`status_of` therefore
+  clears the request cell whenever it answers an error**, which is what
+  `invoke` does for a native that fails. The same argument as §S5's: one
+  status-maker, so a helper added later cannot forget it.
+
+  This rule is about compiled call sites. It is not a claim that Tier 0 never
+  loses a request: `Interp::request_tail` assigns, so a native that files two
+  overwrites the first, and `[ { 10 } { 20 } ] !` leaves only `20` where the
+  reference leaves `10` beneath it (F113, assumption 29).
 
 The drain helper runs a body synchronously, so it is a third place a body
 starts, beside the frame loop and `Vm::eval_lambda` (§S8, *A decline is a
@@ -963,12 +999,13 @@ and the Tier 1 floor allows, and declined otherwise.
   the helper clears the request before it returns the exhaustion error, as
   `Interp::invoke` clears one a failing native filed (F96). No stale request
   outlives an error.
-- **So does an answered exit.** `status_of` turns a helper's `Ok` into the
-  error status once an exit is recorded, so a request the native filed would
-  outlive that error. `status_of` clears the cell when it answers an exit, as
-  F96 does for a native that fails (the thirteenth review's S3). A stale
-  request could not run anyway, since every later start is refused. The
-  invariant is kept all the same, rather than argued.
+- **So does any error `status_of` answers.** A native that files a request and
+  then fails keeps it, because the adapter does not pass through
+  `Interp::invoke` (above). So `status_of` clears the cell whenever it answers
+  an error, whether it made that error from a recorded exit or is passing the
+  helper's own `Err` through. That covers both the thirteenth review's S3 (an
+  exit, where nothing could run the request anyway, since every later start is
+  refused) and the fifteenth's B1 (a plain failure, where `?try` would run it).
 - **Where the frame loop enters compiled code.** `push_frame` stays the one
   place a body starts. It records the body's key in `entry_log` and in §S7's
   counter, and the frame carries its exit action. The loop calls the compiled
@@ -2136,7 +2173,8 @@ the tier.
 without stating them, the eighth review five more, and the tenth seven more,
 answered in 7 and 14–18. The eleventh named three more, answered in 19–21,
 and D55 and the twelfth review two more, 22 and 23. The thirteenth named two
-more, 24 and 25, and the fourteenth two, 26 and 27.* Each is stated here,
+more, 24 and 25, the fourteenth two, 26 and 27, and the fifteenth two, 28 and
+29.* Each is stated here,
 with the place that enforces or decides it.
 
 1. **One compiled cache, one `JITModule`, one set of cells and one fragment
@@ -2242,18 +2280,39 @@ with the place that enforces or decides it.
     its `except` body refused (`run_tryexcept`,
     `crates/bund2-stdlib/src/conditional.rs`). Both tiers hand it the same
     `Err`, so both leave the same stack (criterion 30). In `bund2-stdlib`,
-    `?try` is the only such native. An embedder's native that catches the
+    `?try` is the only native that catches the refusal **and then does work**.
+    `#` and `#.` catch one and discard it (`object_execute_base`,
+    `crates/bund2-stdlib/src/oop.rs`), doing nothing afterwards, which is the
+    `Ok` path assumption 26 covers. An embedder's native that catches the
     refusal and then does host work does that work in both tiers. D52's
     "nothing more" holds only for natives that pass the error up.
 26. **On the `Ok` path, Tier 0's deferred refusal is made under the same
-    wrappers as the compiled one.** The frame loop is flat, so Tier 0's next
-    step after a helper's `Ok` runs inside the same `run_to`, under the same
-    `Vm::eval_lambda` wrapper. That is why `status_of` substitutes the refusal
-    for `Ok` and leaves an `Err` alone (§S5, *A call may end the program*).
+    wrappers as the compiled one.** Where a next step follows, the frame loop
+    is flat, so that step runs inside the same `run_to`. Where the `Ok` was a
+    body's last word there is no next step: `run_to` pops the frame and
+    returns `Ok`, and the refusal comes from the gate **after** `run_to`. The
+    texts agree because `Vm::eval_lambda` applies one `map_err` to both —
+    `self.run_to(floor).and_then(|()| self.exit_gate()).map_err(…)`
+    (`crates/bund2-interp/src/lib.rs`, `eval_lambda`). Criterion 30's `map`
+    rows and its `?try` control row rest on that chain. If the post-`run_to`
+    gate ever moved outside the `map_err`, the tiers would part while every
+    other stated reason still held. That is why `status_of` substitutes the
+    refusal for `Ok` and leaves an `Err` alone (§S5, *A call may end the
+    program*).
 27. **Every `bund2-stdlib` source file's inline test module comes last.** The
     re-entry scan cuts each file at its first `#[cfg(test)]` module, so
     shipped code after it would go unscanned (§S8). This holds in every file
     on 2026-09-11, and nothing enforces it.
+28. **A list literal does not evaluate its items.** `[ 1 2 + ]` keeps `+` as a
+    CALL value (run 2026-09-11), so `execute_value`'s arms that do Rust work
+    before re-entering evaluation — CLASS, OBJECT, CONDITIONAL — are not
+    reachable from a literal. F112's "no golden moves" rests on this.
+29. **At Tier 0 a second tail request overwrites the first.**
+    `Interp::request_tail` assigns, so `[ { 10 } { 20 } ] !` leaves only `20`
+    where the reference runs each lambda item at once and leaves `10` beneath
+    it (F113). Compiled code calls the same native, so this is not a tier
+    divergence; §S5's "a request is never lost" is a rule about compiled call
+    sites, not a property of Tier 0.
 
 # S9. Tier pinning
 
@@ -2377,7 +2436,7 @@ disagrees with interpreted code", and each has a named guard:
 | **a native reporting at `Error` severity through a spelling the source scan misses** | the effect audit records any `Error` report made while a native runs (criteria 24 and 25) |
 | **a native panicking inside a dependency** — `jarowinkler` in `natural` (F95) — reached from compiled code | caught where the native is called, in both tiers, and reported as `Error::internal` (D49); no panic unwinds through a compiled frame (§S8); criterion 29 |
 | **the call boundary itself**: a `NativeFn` whose ABI and `Result` CLIF cannot carry | a context pointer and an integer status under `CallConv::Tail`, a Rust adapter per native, `Tail` thunks in the slots, and a C-convention entry trampoline (§S8); criteria 4 and 29 |
-| **a stale tail request** left by a native that failed after filing it | `Interp::invoke` clears it (F96), and a refused drain clears the cell (§S5); criterion 26 |
+| **a stale tail request** left by a native that failed after filing it | at Tier 0 `Interp::invoke` clears it (F96). A compiled call does not reach `invoke`, since the adapter calls the `NativeFn` directly, so `status_of` clears the cell whenever it answers an error, and a refused drain clears it too (§S5); criterion 26 |
 | **native nesting through a word other than `loop`**, whose per-level cost makes the margin too small | `m` is set from the largest `δ_p / c_p` over every re-entering path, a set derived by source scan rather than listed (§S8); criterion 11 |
 | **the error value a Rust caller receives after an exit, when the helper that saw it returned `Err`** — `?try` keeps its text in the `error` CONDITIONAL's `context` slot, on a final stack that is meaning | `status_of` parks the helper's own `Err` unchanged, and substitutes `exit_gate`'s refusal only for `Ok`. So the wrappers of the natives inside a compiled body (`MAP:`, `TIMES:`, `Attempt to evaluate value …`) survive as they do at Tier 0; criterion 30's `?try` cases compare the `context` slot |
 | **a compiled body entered from Rust whose last action records an exit** — a native such as `map`, `?try` or `input*` ran it, and acts on the `Result` it gets back | the entry returns the error status `status_of` made, and since F112 Tier 0 returns the same refusal where a synchronous run returns to Rust; a handed-back body is drained by the entry and then gated the same way, so the tier agrees with itself; the state left after the exit is meaning (D52's dated note); criterion 30's mirror cases |
@@ -3061,6 +3120,22 @@ evidence, and this one is listed as runnable rather than as met.
     `a_failed_native_leaves_no_tail_request`
     (`crates/bund2-interp/src/lib.rs`).
 
+    **The second case's program**, from the fifteenth review's B1, reaching a
+    filing native from `bund2-stdlib` rather than from an embedder:
+
+        ?try :try { [ { 10 } 5 ] ! } set :except { "EXCEPT" println } set \
+             :recovery { "RECOVERY" println } set !
+
+    `!` on the LIST files a request for `{ 10 }`, then fails on `5`, which is
+    not executable. At Tier 0 this prints `EXCEPT` and `RECOVERY` and leaves
+    **only** the `error` CONDITIONAL, whose `context` is `Lambda content
+    evaluation returned error: Received value is not of executable type` (run
+    2026-09-11). Compiled, with the `try` body hot at threshold 1, the final
+    stack must be the same: no `10` beneath it. It fails for an adapter whose
+    `status_of` clears the request cell only for an exit. This program's
+    Tier 0 half runs today: `a_failed_list_execute_leaves_no_body_to_run`
+    (`crates/bund2-stdlib/src/host.rs`).
+
 27. **Promotion does not cross a native `bund2-stdlib` did not register
     (D47).** From the test, register a native declaring `eff(1, 1)` that
     replaces its operand with the current depth. Its pair is honest, and it
@@ -3142,8 +3217,18 @@ evidence, and this one is listed as runnable rather than as met.
       through `times`, through `bund.eval` and through a `context` body.
       These compare the final stack, with the `error` CONDITIONAL's id and
       stamp normalised (F14) but its `context` slot compared as text;
-    - a drained body and a residual-path value that reach `exit` through a
-      native, compared the same way;
+    - a drained body that reaches `exit` through a native:
+      `?try :try { { [ 1 ] { 7 exit } map } ! } set :except { "EXCEPT" println } set :recovery { "RECOVERY" println } set !`,
+      where `!` files the outer body for the drain;
+    - a residual-path value that reaches `exit` through a native, the same
+      program with `:scratch to_stack` before the `!`, so the stack switch
+      puts what follows on the residual path.
+
+      Both compare the final stack the same way as the `?try` bullet above:
+      the `error` CONDITIONAL's `context` slot as text, its id and stamp
+      normalised (F14). Tier 0 leaves `MAP: lambda execution returns error: …`
+      inside that text, so a helper whose `status_of` replaced the native's
+      error would fail them;
     - `"p> " { println 7 exit } input*`. **The harness:** the test writes one
       line to the process's stdin and holds the pipe open. It asserts that
       the process exits with code 7 before a second line is written.
@@ -3155,7 +3240,13 @@ evidence, and this one is listed as runnable rather than as met.
       (`crates/bund2-stdlib/src/host.rs`);
     - `?try`, by `try_keeps_the_error_its_body_returned_after_an_exit`
       (same file). It also pins F112's `Interp::apply` and `Vm::scoped_call`
-      gates, whose only visible effect is the text;
+      gates, whose only visible effect is the text. **What it covers:** that
+      the `context` slot ends with the refusal and carries each native's
+      wrapper. It does not compare whole final stacks, which the compiled half
+      must;
+    - the drained-body and residual-path cases, by
+      `a_drained_body_that_exits_through_a_native_keeps_its_error` (same
+      file);
     - `input*`, by `input_loop_reads_no_line_after_an_exit`
       (`crates/bund2-cli/tests/input_exit.rs`).
 

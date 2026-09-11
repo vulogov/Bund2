@@ -752,6 +752,62 @@ mod tests {
         }
     }
 
+    /// RFC-0005 criterion 30's drained-body and residual-path cases, Tier 0's
+    /// half. `!` on a lambda files the body for the loop to drain rather than
+    /// running it, so the exit happens one level further out than in the
+    /// `?try` rows above. `map`'s wrapper must still reach the value `?try`
+    /// leaves. The second body switches stacks first, which is what puts what
+    /// follows on RFC-0005's residual path.
+    #[test]
+    fn a_drained_body_that_exits_through_a_native_keeps_its_error() {
+        use bund2_api::Vm as _;
+        for body in [
+            "{ { [ 1 ] { 7 exit } map } ! }",
+            "{ :scratch to_stack { [ 1 ] { 7 exit } map } ! }",
+        ] {
+            let src = format!(
+                "?try :try {body} set :except {{ \"EXCEPT\" println }} set \
+                 :recovery {{ \"RECOVERY\" println }} set !"
+            );
+            let mut i = interp(HostOptions::default());
+            run(&mut i, &src).expect("an exit is not a failure");
+            assert_eq!(i.exit_requested(), Some(7), "{body}");
+            let top = i.peek().expect("`?try` left its CONDITIONAL");
+            let ctx = top.get("context").and_then(|v| v.as_str()).unwrap_or_default();
+            assert!(
+                ctx.contains("MAP: lambda execution returns error: "),
+                "{body}: the native's wrapper is kept: {ctx}"
+            );
+            assert!(
+                ctx.ends_with("the program asked to exit with code 7"),
+                "{body}: {ctx}"
+            );
+        }
+    }
+
+    /// F96's reach from `bund2-stdlib`, and RFC-0005 criterion 26's program.
+    /// `!` on a LIST files a request for `{ 10 }` through `Vm::tail_lambda`
+    /// and then fails on `5`, which is not executable. `Interp::invoke`
+    /// clears the request, so nothing runs `{ 10 }` inside `?try`'s handler.
+    /// A compiled call reaches the native without passing through `invoke`,
+    /// which is why its adapter must clear the cell on any error.
+    #[test]
+    fn a_failed_list_execute_leaves_no_body_to_run() {
+        use bund2_api::Vm as _;
+        let src = "?try :try { [ { 10 } 5 ] ! } set :except { \"EXCEPT\" println } set \
+                   :recovery { \"RECOVERY\" println } set !";
+        let mut i = interp(HostOptions::default());
+        run(&mut i, src).expect("the error is caught");
+        assert_eq!(i.exit_requested(), None, "nothing asked to exit");
+        assert_eq!(i.depth(), 1, "only `?try`'s CONDITIONAL: no `10` ran");
+        let top = i.peek().expect("`?try` left its CONDITIONAL");
+        let ctx = top.get("context").and_then(|v| v.as_str()).unwrap_or_default();
+        assert!(
+            ctx.contains("Received value is not of executable type"),
+            "{ctx}"
+        );
+    }
+
     #[test]
     fn io_graph_wants_floats() {
         let mut i = interp(HostOptions::default());

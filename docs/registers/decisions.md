@@ -2971,6 +2971,16 @@ stack, which the owner has ruled is meaning. Both tiers leave it, with the same
 `context` text (RFC-0005's assumption 25 and its fourteenth review, S3). An
 embedder's native that catches the refusal likewise runs whatever it does next.
 
+**Dated note, 2026-09-11 (third) — `?try` is the only one that then acts.**
+The note above says every `bund2-stdlib` native but `?try` passes the refusal
+up. `#` and `#.` do neither: they catch one and discard it
+(`let _ = crate::values::execute_top(vm)`, `object_execute_base`,
+`crates/bund2-stdlib/src/oop.rs`), by design, so that a failing `unwrap` does
+not stop `#`. They do nothing afterwards and answer `Ok`, so no state differs
+and no tier can disagree. The claim to keep is narrower: `?try` is the only
+`bund2-stdlib` native that catches the refusal **and then does work**
+(RFC-0005's fifteenth review, S1).
+
 ## D53 — `debug.display_hostinfo` reports Bund2's own crates, an approved deviation
 
 The reference's `debug.display_hostinfo` prints a table

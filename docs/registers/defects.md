@@ -3109,6 +3109,19 @@ request sites return `Ok` straight after filing. An embedder's native can.
 native, clears `pending_tail` when the native fails.
 `a_failed_native_leaves_no_tail_request` shows the stale body not running.
 
+**Dated note, 2026-09-11 — a `bund2-stdlib` native does reach this, and a
+compiled call would not inherit the fix** (RFC-0005's fifteenth review, B1).
+The entry above says no `bund2-stdlib` native files a request and then fails.
+`execute_value`'s LIST arm does (`crates/bund2-stdlib/src/values.rs`): it
+pushes and executes each item in turn, so a LAMBDA item files a request
+through `Vm::tail_lambda` and a later item can fail. Run 2026-09-11,
+`?try :try { [ { 10 } 5 ] ! } set :except { "EXCEPT" println } set :recovery { "RECOVERY" println } set !`
+prints `EXCEPT` and `RECOVERY` and leaves only the `error` CONDITIONAL — no
+`10` — which is `Interp::invoke`'s clearing at work. RFC-0005's per-native
+adapter calls a `NativeFn` directly and so never reaches `invoke`, which is
+why its `status_of` clears the request cell on any error (RFC-0005 §S5,
+criterion 26).
+
 ## F97 — `notifthenelse` does not negate
 
 **An original-implementation defect, reproduced**, found while implementing the
@@ -3463,3 +3476,50 @@ carries that wrapper (`Attempt to evaluate value … returned error: …`,
 `CONTEXT lambda returns: …`). Only `?try` shows it, as the `context` slot of
 the CONDITIONAL it leaves. `try_keeps_the_error_its_body_returned_after_an_exit`
 (`crates/bund2-stdlib/src/host.rs`) pins both gates.
+
+**Correction to the note above, 2026-09-11** (RFC-0005's fifteenth review,
+S3). It says the five natives "return straight after the call". Two do not.
+`eval_source` loops over the parsed stream, applying each value
+(`crates/bund2-stdlib/src/singles.rs`, `eval_source`). The LIST and MAP arms
+of `execute_value` loop and recurse (`crates/bund2-stdlib/src/values.rs`,
+`execute_value`). Before F112, an
+`exit` that was not a `bund.eval` source's last value was refused at the next
+value's `apply_step`, so the wrapper named that value rather than the `exit`;
+and in a LIST the loop went on to the next item. The note's conclusion stands
+for reachable programs, because a list literal does not evaluate its items —
+`[ 1 2 + ]` keeps `+` as a CALL (run 2026-09-11) — so the arms that do Rust
+work before re-entering evaluation cannot appear in one (RFC-0005's
+assumption 28). The reason given was wrong; the outcome was not.
+
+## F113 — a second tail request overwrites the first, so `!` on a list runs only the last lambda
+
+**A Bund2 defect**, found by RFC-0005's fifteenth review (S3) while checking
+the request model.
+
+The reference's `execute` runs a LAMBDA item **at once**: its list loop pushes
+each item and recurses (`reference/rust_multistackvm/src/stdlib/execute.rs:40-48`),
+and the LAMBDA arm is `return vm.lambda_eval(ptr_value)` (`:93-95`). Bund2's
+`execute_value` files each lambda item through `Vm::tail_lambda` instead
+(`crates/bund2-stdlib/src/values.rs`), which is right for a single lambda —
+the body runs after the native returns, costing no Rust frame (RFC-0003 §S4a).
+But `Interp::request_tail` **assigns** (`crates/bund2-interp/src/lib.rs`), so
+a second request in the same native replaces the first, and the first body
+never runs:
+
+| program | Bund2, 2026-09-11 | the reference, from the lines above |
+|---|---|---|
+| `[ { 10 } { 20 } ] !` | `20` | `10` beneath `20` |
+
+One lambda in a list is unaffected, and so is every other request site: the
+other four file once and return.
+
+**Why it matters.** It is not a tier divergence — compiled code calls the same
+native — so RFC-0005's criterion 2 cannot move on it. RFC-0005's §S5 says "a
+request is never lost", which is a rule about compiled call sites; its
+assumption 29 now says this is not a property of Tier 0.
+
+**Status:** OPEN. No golden covers it and `conform` is at its ceiling, so
+nothing fails today. The fix is for the LIST arm to run a lambda item
+synchronously through `Vm::eval_lambda`, as the reference does, rather than
+filing it. That spends a Rust frame per nesting level, which is why it is a
+decision rather than an edit. Until then, `[ { 10 } { 20 } ] !` deviates.
