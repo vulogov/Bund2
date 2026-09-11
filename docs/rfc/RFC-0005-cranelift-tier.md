@@ -124,6 +124,19 @@
   pending request when it answers an exit. `CollectingReporter` has its file,
   and the named-stack row credits `move_from`.
 
+  The fourteenth review's blocker is answered with one condition. **B1**:
+  `status_of` replaced a helper's `Err` with the bare refusal, where Tier 0
+  passes a native's wrapped error up. `?try` keeps that text on the final
+  stack. Now `status_of` substitutes only for `Ok`, and an error passes
+  through unchanged (§S5, assumption 26, a new Preservation row).
+  **S1–S2**: a Tier 0 test runs `?try` through `map`, `times`, `bund.eval` and
+  `context`. It pins F112's two untested gates, and F112 records the text
+  change. Criterion 30's `input*` case names its harness, and
+  `input_loop_reads_no_line_after_an_exit` runs it against the binary. The
+  criterion's `?try` case says what it compares. **S3**: D52 has a further dated note. The scan's test-module
+  limit is assumption 27, and `?try` is named as the only native that
+  catches.
+
   **Criterion 10 has a first measurement**, from a throwaway lowering outside
   this RFC's gate (2026-09-11, branch `spike/lowering-1`). With §S8's call
   boundary on every word and nothing inlined, `1 2 + drop` compiled runs
@@ -782,8 +795,12 @@ synchronous run returns to Rust: `Vm::eval_lambda`, `Interp::apply` and
 frame does not. Before F112 a body ending in `bund.exit` returned `Ok` to the
 native that ran it, and that native went on in Rust until its next step:
 `map` collected, and `input*` read another line (the thirteenth review's B1).
-Now the native gets the refusal at once and runs only its error path. A native
-that catches errors still runs its handler, as assumption 25 says.
+Now the native gets the refusal at once and runs only its error path. In
+`bund2-stdlib` one error path does work: `?try`'s. `run_tryexcept`
+(`crates/bund2-stdlib/src/conditional.rs`) is the only re-entering call site
+that catches the result, and it runs its handler, as assumption 25 says.
+Every other native passes the refusal up, wrapped in its own context. The
+claim covers `bund2-stdlib` alone.
 
 Compiled code has no such step. The three cells it reads after a call record
 no exit, `bund_exit`'s `Ok` becomes the success status, and literal pushes and
@@ -794,16 +811,22 @@ exit` with exit code 3, would print `inside, after exit` under
 source calls `bund.exit` gets the refusal from the `Vm::apply` that ran the
 call, even when it is the source's last value, since F112 (`eval_source`,
 `crates/bund2-stdlib/src/singles.rs`, applies each value through `Vm::apply`).
-`status_of` at the adapter that wraps it would cover it in any case. A direct
-call from compiled code is covered by neither, and needs the rule below.
+`status_of` at the adapter that wraps it passes that error through unchanged,
+as Tier 0 does. A direct call from compiled code gets no refusal at all, and
+needs the rule below.
 
 **The rule adds no cell. A recorded exit becomes the error status at the
 helper that returns to compiled code.** Every Rust function that runs Bund
 code on compiled code's behalf and then returns to it turns its `Result` into
 the status through **one function**, `status_of`, which consults
-`Vm::exit_requested` before anything else. On `Some` it parks `exit_gate`'s
-error in the error slot and answers the error status, whatever the helper's
-own `Result` was. The helpers are:
+`Vm::exit_requested` before anything else. On `Some` it answers the error
+status and clears the request cell. **What it parks in the error slot depends
+on the helper's own `Result`** (the fourteenth review's B1):
+- after `Ok`, `exit_gate`'s refusal, the error Tier 0 would make at its next
+  step;
+- after `Err`, that error unchanged, as Tier 0 passes a native's error up.
+
+The helpers are:
 - the per-native adapter (§S8);
 - the resolving trampoline, after `dispatch`, which does not pass the gate;
 - §S5's drain helper, after `take_pending` and `run_to` (*A call may leave a
@@ -837,8 +860,21 @@ review's B1). In tail position, the error status `status_of` makes travels to
 whatever Rust code started the compiled body. Before F112 Tier 0 answered `Ok`
 at that point, and the native that ran the body acted on the difference.
 `[1] { 7 exit } map` left `[1]` at Tier 0, and would have left `1` compiled.
-Since F112 Tier 0 answers the refusal there too, so `status_of` gives exactly
-what Tier 0 gives. The tail hand-back agrees with the direct tail call for the
+Since F112 Tier 0 answers the refusal there too, so the status agrees.
+
+**So does the error value** (the fourteenth review's B1). Under `?try` the
+error's text becomes a value on the final stack: `run_tryexcept` stores `e.0`
+in its `error` CONDITIONAL's `context` slot. Tier 0 never replaces an error.
+A native whose body was refused passes the refusal up wrapped in its own
+context, as `map` does with `MAP: lambda execution returns error: …`. So
+`status_of` leaves an `Err` as it is, and substitutes the refusal only for
+`Ok`. On the `Ok` path, Tier 0 makes its refusal at its next step. The frame
+loop is flat, so that step runs inside the same `run_to`, under the same
+`Vm::eval_lambda` wrapper as the compiled refusal (assumption 26). Until the
+fourteenth review `status_of` substituted after `Err` too. A `try` body that
+reached `exit` through `map` would then have kept only the short form.
+
+The tail hand-back agrees with the direct tail call for the
 same reason: the entry drains a handed-back body ending in `exit`, and
 `Vm::eval_lambda` consults the gate after the drain. **The state left after an
 exit is meaning** (D52's dated note of 2026-09-11). An embedder such as a TUI
@@ -1983,9 +2019,13 @@ the limit. Two rules close it:
   (`vm.apply(` and `Vm::apply(`), reads a function head whatever its
   qualifiers (`pub(super)`, `const`, `unsafe`, `async`), and descends into
   subdirectories. Until the thirteenth review it did none of the three (S2).
-  None of the three hid a call. **What it cannot see:** a call made through a
-  function pointer or a macro, and anything outside `bund2-stdlib`, which
-  assumption 24 takes up. Within those limits the set cannot go stale. Add
+  None of the three hid a call. **What it cannot see:**
+  - a call made through a function pointer or a macro;
+  - shipped code placed after a file's inline test module, since each file is
+    cut at its first `#[cfg(test)]` module (assumption 27);
+  - anything outside `bund2-stdlib`, which assumption 24 takes up.
+
+  Within those limits the set cannot go stale. Add
   §S5's drain helper. On 2026-09-11 the
   scan finds 21:
   - through `Vm::eval_lambda`: the loop words (`times`, `loop`, `map`,
@@ -2096,7 +2136,7 @@ the tier.
 without stating them, the eighth review five more, and the tenth seven more,
 answered in 7 and 14–18. The eleventh named three more, answered in 19–21,
 and D55 and the twelfth review two more, 22 and 23. The thirteenth named two
-more, 24 and 25.* Each is stated here,
+more, 24 and 25, and the fourteenth two, 26 and 27.* Each is stated here,
 with the place that enforces or decides it.
 
 1. **One compiled cache, one `JITModule`, one set of cells and one fragment
@@ -2201,7 +2241,19 @@ with the place that enforces or decides it.
     pass it up. `?try` first pushes its `error` CONDITIONAL, and only then is
     its `except` body refused (`run_tryexcept`,
     `crates/bund2-stdlib/src/conditional.rs`). Both tiers hand it the same
-    `Err`, so both leave the same stack (criterion 30).
+    `Err`, so both leave the same stack (criterion 30). In `bund2-stdlib`,
+    `?try` is the only such native. An embedder's native that catches the
+    refusal and then does host work does that work in both tiers. D52's
+    "nothing more" holds only for natives that pass the error up.
+26. **On the `Ok` path, Tier 0's deferred refusal is made under the same
+    wrappers as the compiled one.** The frame loop is flat, so Tier 0's next
+    step after a helper's `Ok` runs inside the same `run_to`, under the same
+    `Vm::eval_lambda` wrapper. That is why `status_of` substitutes the refusal
+    for `Ok` and leaves an `Err` alone (§S5, *A call may end the program*).
+27. **Every `bund2-stdlib` source file's inline test module comes last.** The
+    re-entry scan cuts each file at its first `#[cfg(test)]` module, so
+    shipped code after it would go unscanned (§S8). This holds in every file
+    on 2026-09-11, and nothing enforces it.
 
 # S9. Tier pinning
 
@@ -2327,6 +2379,7 @@ disagrees with interpreted code", and each has a named guard:
 | **the call boundary itself**: a `NativeFn` whose ABI and `Result` CLIF cannot carry | a context pointer and an integer status under `CallConv::Tail`, a Rust adapter per native, `Tail` thunks in the slots, and a C-convention entry trampoline (§S8); criteria 4 and 29 |
 | **a stale tail request** left by a native that failed after filing it | `Interp::invoke` clears it (F96), and a refused drain clears the cell (§S5); criterion 26 |
 | **native nesting through a word other than `loop`**, whose per-level cost makes the margin too small | `m` is set from the largest `δ_p / c_p` over every re-entering path, a set derived by source scan rather than listed (§S8); criterion 11 |
+| **the error value a Rust caller receives after an exit, when the helper that saw it returned `Err`** — `?try` keeps its text in the `error` CONDITIONAL's `context` slot, on a final stack that is meaning | `status_of` parks the helper's own `Err` unchanged, and substitutes `exit_gate`'s refusal only for `Ok`. So the wrappers of the natives inside a compiled body (`MAP:`, `TIMES:`, `Attempt to evaluate value …`) survive as they do at Tier 0; criterion 30's `?try` cases compare the `context` slot |
 | **a compiled body entered from Rust whose last action records an exit** — a native such as `map`, `?try` or `input*` ran it, and acts on the `Result` it gets back | the entry returns the error status `status_of` made, and since F112 Tier 0 returns the same refusal where a synchronous run returns to Rust; a handed-back body is drained by the entry and then gated the same way, so the tier agrees with itself; the state left after the exit is meaning (D52's dated note); criterion 30's mirror cases |
 | **a program ended by `bund.exit` (D52) while a compiled body runs** — the native returns `Ok`, and Tier 0 stops only at its next step, which compiled code does not take | every helper that returns to compiled code — the adapter, the resolving trampoline, the drain helper and the residual path's `apply` — makes its status through one function that turns a recorded exit into the error status, the entry trampoline refuses to start a body, and compiled code's error path syncs and returns (§S5, *A call may end the program*); the effect audit records a fixed-effect native that requests an exit; criterion 30 |
 
@@ -3085,15 +3138,28 @@ evidence, and this one is listed as runnable rather than as met.
     **The mirror cases, for the thirteenth review's B1**: a compiled body
     whose caller is a native. Each runs at threshold 1 with the body hot:
     - `[1] { 7 exit } map` and `[1 2] { 7 exit } map`, each leaving `1`;
-    - a `?try` whose `try` body ends in `exit`;
-    - `"p> " { println 7 exit } input*` over two lines of input, which must
-      consume one.
+    - `?try` over `try` bodies that reach `exit` directly, through `map`,
+      through `times`, through `bund.eval` and through a `context` body.
+      These compare the final stack, with the `error` CONDITIONAL's id and
+      stamp normalised (F14) but its `context` slot compared as text;
+    - a drained body and a residual-path value that reach `exit` through a
+      native, compared the same way;
+    - `"p> " { println 7 exit } input*`. **The harness:** the test writes one
+      line to the process's stdin and holds the pipe open. It asserts that
+      the process exits with code 7 before a second line is written.
 
-    Output, exit code, final stack and input consumed must match Tier 0's.
-    Afterwards the request cell must be clear (§S5, *A call may leave a body
-    to run*). Tier 0's half of the `map` cases is **Met** since F112, by
-    `an_exit_ending_a_synchronous_body_stops_the_native_that_ran_it`
-    (`crates/bund2-stdlib/src/host.rs`). The audit's
+    Output, exit code and final stack must match Tier 0's. Afterwards the
+    request cell must be clear (§S5, *A call may leave a body to run*).
+    **Tier 0's halves are Met:**
+    - `map`, by `an_exit_ending_a_synchronous_body_stops_the_native_that_ran_it`
+      (`crates/bund2-stdlib/src/host.rs`);
+    - `?try`, by `try_keeps_the_error_its_body_returned_after_an_exit`
+      (same file). It also pins F112's `Interp::apply` and `Vm::scoped_call`
+      gates, whose only visible effect is the text;
+    - `input*`, by `input_loop_reads_no_line_after_an_exit`
+      (`crates/bund2-cli/tests/input_exit.rs`).
+
+    The audit's
     half runs today: a fixed-effect native that requests an exit is a breach,
     `an_exit_requested_under_a_fixed_effect_is_a_breach`
     (`crates/bund2-interp/src/lib.rs`). The compiled half needs a tier.

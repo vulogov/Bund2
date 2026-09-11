@@ -712,6 +712,46 @@ mod tests {
         assert_eq!(left, vec![Some(1), Some(1)]);
     }
 
+    /// RFC-0005's fourteenth review, B1 and S1. After an exit `?try` still
+    /// pushes its `error` CONDITIONAL, and the `context` slot keeps the error
+    /// its `try` body returned, wrapped by every native between the refusal
+    /// and `?try`. Tier 0 never replaces that error, so compiled code must
+    /// not either. The `bund.eval` and `context` rows pin F112's gates in
+    /// `Interp::apply` and `Vm::scoped_call`: without them, those natives
+    /// returned `Ok` and the refusal came later, without their wrapper.
+    #[test]
+    fn try_keeps_the_error_its_body_returned_after_an_exit() {
+        use bund2_api::Vm as _;
+        let cases = [
+            ("{ 7 exit }", None),
+            ("{ [ 1 ] { 7 exit } map }", Some("MAP: lambda execution returns error: ")),
+            ("{ 1 { 7 exit } times }", Some("TIMES: lambda execution returns error: ")),
+            ("{ \"7 exit\" bund.eval }", Some("Attempt to evaluate value")),
+            (
+                "{ :scratch context :run { 7 exit } set :run swap ! }",
+                Some("CONTEXT lambda returns: "),
+            ),
+        ];
+        for (body, wrapper) in cases {
+            let src = format!(
+                "?try :try {body} set :except {{ \"EXCEPT\" println }} set \
+                 :recovery {{ \"RECOVERY\" println }} set !"
+            );
+            let mut i = interp(HostOptions::default());
+            run(&mut i, &src).expect("an exit is not a failure");
+            assert_eq!(i.exit_requested(), Some(7), "{body}");
+            let top = i.peek().expect("`?try` left its CONDITIONAL");
+            let ctx = top.get("context").and_then(|v| v.as_str()).unwrap_or_default();
+            assert!(
+                ctx.ends_with("the program asked to exit with code 7"),
+                "{body}: {ctx}"
+            );
+            if let Some(w) = wrapper {
+                assert!(ctx.contains(w), "{body}: the native's wrapper is kept: {ctx}");
+            }
+        }
+    }
+
     #[test]
     fn io_graph_wants_floats() {
         let mut i = interp(HostOptions::default());

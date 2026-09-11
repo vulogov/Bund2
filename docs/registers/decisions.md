@@ -2962,6 +2962,15 @@ also ruled that the stacks and workbench left after an exit are part of the
 program's meaning, and the tiers must agree on them. An embedder such as a TUI
 may show them. RFC-0005's criterion 30 compares them.
 
+**Dated note, 2026-09-11 (second) — one native still runs its handler.** The
+note above says "nothing more" includes the native. That holds for every
+native that passes the refusal up, which in `bund2-stdlib` is all of them but
+`?try`. `?try` catches the error, pushes its `error` CONDITIONAL, and only
+then is its `except` body refused. That CONDITIONAL is part of the final
+stack, which the owner has ruled is meaning. Both tiers leave it, with the same
+`context` text (RFC-0005's assumption 25 and its fourteenth review, S3). An
+embedder's native that catches the refusal likewise runs whatever it does next.
+
 ## D53 — `debug.display_hostinfo` reports Bund2's own crates, an approved deviation
 
 The reference's `debug.display_hostinfo` prints a table

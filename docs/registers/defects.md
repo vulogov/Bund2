@@ -3451,3 +3451,15 @@ pushes its `error` CONDITIONAL before its `except` body is refused, which is
 RFC-0005's assumption 25. No golden moves.
 `an_exit_ending_a_synchronous_body_stops_the_native_that_ran_it`
 (`crates/bund2-stdlib/src/host.rs`).
+
+**Note, 2026-09-11 — the fix also changed error text** (RFC-0005's
+fourteenth review, S1). The gates in `Interp::apply` and `Vm::scoped_call`
+change no native's behaviour: `eval_source`, `execute_value`, `apply`, `text`
+and `run_context` return straight after the call. What they change is the
+error that propagates. Before the fix, a `bund.eval`, `use`, `apply`,
+`!`-by-name or `context` body ending in `exit` returned `Ok`. The refusal came
+later, from `Vm::eval_lambda`'s gate, without the native's own wrapper. Now it
+carries that wrapper (`Attempt to evaluate value … returned error: …`,
+`CONTEXT lambda returns: …`). Only `?try` shows it, as the `context` slot of
+the CONDITIONAL it leaves. `try_keeps_the_error_its_body_returned_after_an_exit`
+(`crates/bund2-stdlib/src/host.rs`) pins both gates.
