@@ -270,10 +270,177 @@ fn run_csv(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
     Ok(())
 }
 
+/// `sqlite` — make the conditional
+/// (`reference/Bund/src/stdlib/functions/conditional/conditional_sqlite.rs:48-68`).
+fn sqlite_word(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 1 {
+        return Err(Error("Stack is too shallow for sqlite".into()));
+    }
+    let v = vm
+        .pull()
+        .ok_or_else(|| Error("CONTEXT: No data file name discovered on the stack".into()))?;
+    let name = v.as_str().ok_or_else(|| {
+        Error("CONTEXT: Error name casting: This Dynamic type is not string".into())
+    })?;
+    if !Path::new(&name).is_file() {
+        return Err(Error(format!("SQLITE: sqlite file not found: {name}")));
+    }
+    vm.push(crate::conditional::new_conditional("sqlite").set("name", BundValue::str(name)));
+    Ok(())
+}
+
+/// Compile PRQL to SQLite SQL, as the reference does, through the same
+/// `prqlc` with the same options (`conditional_sqlite.rs:11-34`). `color` is
+/// deprecated in `prqlc`, but the reference sets it, and so does this.
+#[allow(deprecated)]
+fn prql_to_sql(query: &str) -> Result<String, Error> {
+    let opts = prqlc::Options {
+        format: true,
+        signature_comment: false,
+        color: false,
+        display: prqlc::DisplayOptions::Plain,
+        target: prqlc::Target::Sql(Some(prqlc::sql::Dialect::SQLite)),
+    };
+    let pl = prqlc::prql_to_pl(query)
+        .map_err(|e| Error(format!("PRQL.COMPILE(PL) returns: {e}")))?;
+    let rq = prqlc::pl_to_rq(pl).map_err(|e| Error(format!("PRQL.COMPILE(RQ) returns: {e}")))?;
+    prqlc::rq_to_sql(rq, &opts).map_err(|e| Error(format!("PRQL.COMPILE(SQL) returns: {e}")))
+}
+
+/// One result cell as a Bund value (`conditional_sqlite.rs:152-172`).
+///
+/// A BLOB is where the engines part (F109). The reference decodes the bytes
+/// with bincode as a serialised Bund value
+/// (`reference/rust_dynamic/src/bincode.rs:51-77`). Bund2 has the reference's
+/// wire types (`bund2_value::wire`), but nothing yet converts a wire value into
+/// a `BundValue`. So a non-NULL BLOB is refused with a reason, rather than
+/// decoded into something the reference would not produce.
+fn sql_cell(v: &graphitesql::Value) -> Result<BundValue, Error> {
+    use graphitesql::Value as V;
+    Ok(match v {
+        V::Null => BundValue::nodata(),
+        V::Integer(i) => BundValue::int(*i),
+        V::Real(f) => BundValue::float(*f),
+        V::Text(t) => BundValue::str(std::str::from_utf8(t.as_bytes()).map_err(|e| {
+            Error(format!("CONTEXT.RUN error converting string data: {e}"))
+        })?),
+        V::Blob(_) => {
+            return Err(Error(
+                "CONTEXT.RUN: a BLOB column holds a serialised Bund value in the reference, which Bund2 cannot decode"
+                    .into(),
+            ))
+        }
+    })
+}
+
+/// An engine error as rusqlite would show it: SQLite's own message, bare.
+///
+/// graphitesql's `Display` adds a prefix to the message kinds (`error: …`,
+/// `SQL error: …`), and rusqlite shows `sqlite3_errmsg` alone, which
+/// graphitesql's messages already copy word for word. So the message kinds
+/// print their text, and the others keep graphitesql's display.
+fn sql_err(e: &graphitesql::Error) -> String {
+    use graphitesql::Error as E;
+    match e {
+        E::Error(m) | E::ErrorAt(m, _) | E::Parse(m) | E::ParseAt(m, _) | E::Constraint(m) => {
+            m.clone()
+        }
+        other => other.to_string(),
+    }
+}
+
+/// Run a `sqlite` conditional (`conditional_sqlite.rs:70-199`).
+///
+/// The query is `sql`, or else `prql` compiled to SQL. Each result row goes to
+/// the stack as a MAP from column name to value, and the lambda runs once per
+/// row. The first `skip_first` rows are skipped; the count is cast `as usize`
+/// (`:142`), so a negative one skips every row. A NULL is NODATA.
+///
+/// **D51: graphitesql, not rusqlite.** The reference prepares the statement
+/// and then steps it, with a separate message for each stage (`:124-196`).
+/// graphitesql compiles and runs in one call, so any failure is reported with
+/// the compile stage's message. The engine's own text follows, and graphitesql
+/// writes it as `sqlite3` does, which is what rusqlite shows too.
+fn run_sqlite(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
+    let skip_first = match c.get("skip_first") {
+        None => 0,
+        Some(v) => v.as_int().ok_or_else(|| {
+            Error(
+                "CONTEXT.RUN: casting SQLITE skip_first returns error: This Dynamic type is not integer"
+                    .into(),
+            )
+        })?,
+    };
+    let name_v = c.get("name").ok_or_else(|| {
+        Error("CONTEXT.RUN: getting SQLITE file name returns error: Key not found: name".into())
+    })?;
+    let name = name_v.as_str().ok_or_else(|| {
+        Error(
+            "CONTEXT.RUN: casting SQLITE file name returns error: This Dynamic type is not string"
+                .into(),
+        )
+    })?;
+    let sql_v = match c.get("sql") {
+        Some(v) => v,
+        None => match c.get("prql") {
+            Some(p) => {
+                let prql = p.as_str().ok_or_else(|| {
+                    Error("CONTEXT.RUN: PRQL casting returns: This Dynamic type is not string".into())
+                })?;
+                BundValue::str(prql_to_sql(&prql)?)
+            }
+            None => {
+                return Err(Error(
+                    "CONTEXT.RUN: can not get ether SQL or PRQL query: Key not found: prql".into(),
+                ))
+            }
+        },
+    };
+    let sql = sql_v.as_str().ok_or_else(|| {
+        Error("CONTEXT.RUN error casting SQL query: This Dynamic type is not string".into())
+    })?;
+    if !Path::new(&name).is_file() {
+        return Err(Error(format!("SQLITE: sqlite file not found: {name}")));
+    }
+    let lambda = c
+        .get("lambda")
+        .unwrap_or_else(|| BundValue::lambda(Vec::new()));
+    // **Read-only, where the reference opens read-write** (`:36-46`). The
+    // read-write open leaves empty `-journal` and `-wal` files beside the
+    // database, which rusqlite does not do for a query. `query` runs only a
+    // SELECT, so nothing a program can ask for here needs write access.
+    let conn = graphitesql::Connection::open_readonly(&name).map_err(|e| {
+        Error(format!(
+            "CONTEXT.RUN error creating SQLITE connection: Open world operation returns: {}",
+            sql_err(&e)
+        ))
+    })?;
+    let result = conn
+        .query(&sql)
+        .map_err(|e| Error(format!("CONTEXT.RUN error compile SQL statement: {}", sql_err(&e))))?;
+    for row in result.rows.iter().skip(skip_first as usize) {
+        let mut out = BundValue::map(Default::default());
+        for (col, v) in result.columns.iter().zip(row) {
+            out = out.set(col, sql_cell(v)?);
+        }
+        vm.push(out);
+        if lambda.dt() != LAMBDA {
+            return Err(Error(
+                "SQLITE3 processing lambda returns: This is not a lambda".into(),
+            ));
+        }
+        vm.eval_lambda(&lambda)
+            .map_err(|e| Error(format!("SQLITE3 processing lambda returns: {}", e.0)))?;
+    }
+    Ok(())
+}
+
 pub fn register(r: &mut Registry) {
-    // `reference/Bund/src/stdlib/functions/conditional/mod.rs:26,42`.
+    // `reference/Bund/src/stdlib/functions/conditional/mod.rs:26-27,42-43`.
     r.register_native("csv", csv_word, eff(1, 1), WordKind::Sync);
     r.register_conditional("csv", run_csv);
+    r.register_native("sqlite", sqlite_word, eff(1, 1), WordKind::Sync);
+    r.register_conditional("sqlite", run_sqlite);
 }
 
 #[cfg(test)]

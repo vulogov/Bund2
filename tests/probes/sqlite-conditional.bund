@@ -1,0 +1,16 @@
+//
+// PROBE: the sqlite conditional
+// (Bund/src/stdlib/functions/conditional/conditional_sqlite.rs:48-199).
+//
+// sqlite pushes a conditional naming the file; ! runs the query and hands each
+// row to the lambda as a MAP from column name to value, a NULL as NODATA
+// (:153-154). skip_first drops leading rows (:142). A `prql` query is compiled
+// to SQLite SQL by prqlc before it runs (:11-34). The database was written by
+// the sqlite3 command-line tool.
+//
+"probe: each row as a map, typed, with a NULL" println
+"tests/probes/data/scores.db" sqlite :sql "select name, score, ratio, note from scores order by name" set :lambda { println } set !
+"probe: skip_first drops the leading rows" println
+"tests/probes/data/scores.db" sqlite "skip_first" 2 set :sql "select name from scores order by name" set :lambda { println } set !
+"probe: a PRQL query" println
+"tests/probes/data/scores.db" sqlite :prql "from scores | filter score > 15 | select {name, score} | sort name" set :lambda { println } set !

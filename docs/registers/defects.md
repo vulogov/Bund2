@@ -3328,3 +3328,26 @@ way, and fails at the first line with
 `INPUT* returned error from LAMBDA: This is not a lambda`
 (`crates/bund2-stdlib/src/terminal.rs`). The capture feeds no input, so no
 golden reaches the difference.
+
+## F109 — a `sqlite` BLOB cell is a serialised Bund value to the reference
+
+**A Bund2 gap**, found while implementing `sqlite`.
+
+The reference turns a BLOB cell into a value with `Value::from_binary`
+(`reference/Bund/src/stdlib/functions/conditional/conditional_sqlite.rs:169-171`).
+That does not wrap the bytes. It bincode-decodes them as a serialised
+`rust_dynamic::Value`, and parses a JSON-wrapped value as JSON
+(`reference/rust_dynamic/src/bincode.rs:51-77`). So a BLOB that the reference
+wrote itself, as its world file does, comes back as the value it was. Any other
+bytes fail the whole query with the decoder's message, which is how the `?` at
+`:170` propagates it.
+
+Bund2 has the wire types, byte-identical to the reference's
+(`crates/bund2-value/src/wire.rs`, D20), but nothing converts a wire value into
+a `BundValue` yet.
+
+**Status:** OPEN. A non-NULL BLOB is refused with `CONTEXT.RUN: a BLOB column
+holds a serialised Bund value in the reference, which Bund2 cannot decode`
+(`crates/bund2-stdlib/src/data.rs`, `sql_cell`). The fix is the wire-to-value
+conversion, which the world file (D27) will need anyway. No golden reaches a
+BLOB: the probe's `tag` column is all NULL.

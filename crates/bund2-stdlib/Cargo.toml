@@ -146,6 +146,13 @@ sys_metrics = "=0.2.7"
 # D51's substitute for polars under `csv`: the pure-Rust `csv` reader. Pinned
 # at the version already in the build, so the build stays offline.
 csv = "=1.4.0"
+# D51's substitute for rusqlite under `sqlite`: graphitesql, a safe, pure-Rust
+# reimplementation of SQLite that reads the SQLite 3 file format and runs the
+# SQL dialect. It is the one engine found with no C in its build; turso_core
+# and limbo_core both compile C. prqlc is the reference's own PRQL compiler at
+# its locked version (reference/Bund/Cargo.toml:96), and it is pure Rust.
+graphitesql = "=0.1.7"
+prqlc = "=0.13.14"
 bund2-value.workspace = true
 bund2-api.workspace = true
 bund2-ir.workspace = true
