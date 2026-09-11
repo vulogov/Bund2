@@ -2644,3 +2644,54 @@ F93, found by RFC-0005's ninth review (S1). The decision is unaffected, since it
 is stated in terms of what a name *resolves* to. RFC-0005 §S5 classifies
 callees with `Registry::resolve`, and `effect_of` now follows the same order.
 
+## D47 — promotion crosses only the natives `bund2-stdlib` registered
+
+RFC-0005's ninth review, B3. §S5 keeps values in registers across a call to a
+native with a fixed effect. That is sound only if the native runs no body,
+reports nothing at `Error`, observes nothing beyond its operands, and moves the
+stack by what it declares. RFC-0005's criteria 24 and 25 check the first, second
+and fourth for `bund2-stdlib`. They read `bund2_stdlib::register_all` and
+`crates/bund2-stdlib/src/`.
+
+But `Registry::register_native` is public (`crates/bund2-api/src/lib.rs`), and
+D9's resolution gives external crates "`Native` with a declared effect". An
+embedder's `eff(1, 0)` native that calls `vm.eval_lambda`, or reports an error,
+would get wrong answers with `--features jit`, and no criterion could fail. F87
+and F91 show that even the stdlib's own declarations were wrong until a
+sufficient check existed.
+
+### Decision
+
+Decided by the repository owner, 2026-09-10: **promotion crosses a call only
+when the callee's registration id is one `bund2-stdlib` made.** D43 already
+gives every registration an id, and `bund2-stdlib`'s fragments are keyed by the
+ids of the registrations it made. Every other native is synced before, as at an
+opaque site. The body is still compiled, and the call is still made through its
+slot. An embedder's native costs speed, never meaning.
+
+### Rejected
+
+- **An opt-in declaration** on `Native`, by which an external native asserts
+  that it runs no body, reports no error and reads only its operands. It adds to
+  `bund2-api`'s stable surface, and the assertion is as unverifiable as a
+  declared effect is today. It can be proposed later, if an embedder needs the
+  speed.
+- **Trust every declared effect, and document it.** A mis-declared embedder
+  native would then give wrong answers only with the tier on. That breaks "the
+  JIT changes speed, not meaning" for the users least able to diagnose it.
+- **A run-time guard** refusing re-entry from any fixed-effect native. It sees
+  re-entry, but not a report or an observation beyond the operands.
+
+### Consequences
+
+- RFC-0005 §S5 gains the rule, and its assumptions 7 and 8 say
+  "`bund2-stdlib`".
+- RFC-0005 criterion 27 checks that promotion does not cross an embedder's
+  native.
+- D9 is unchanged. External crates still get `Native` with a declared effect,
+  and `bund2 check` still reads it.
+
+- Decided by: repository owner, 2026-09-10, on RFC-0005's ninth review (B3)
+- Blocks: nothing; unblocks RFC-0005 §S5
+- Depends on: D9 (what external crates get), D43 (registration ids)
+- Status: **RESOLVED — decided; implemented with the tier.**
