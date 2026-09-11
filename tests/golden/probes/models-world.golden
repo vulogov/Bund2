@@ -1,0 +1,16 @@
+# golden for tests/probes/models-world.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: load.model under a name no model has pushes all four, in save order
+hello
+{"k":[1,2]}
+{ a=1 }
+[ 1 ::  2.5 ::  x :: ]
+╭╮
+╰╯
+╭╮
+╰╯
