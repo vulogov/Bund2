@@ -959,7 +959,10 @@ pub fn register(r: &mut Registry) {
     // whatever that does. `tests/golden/EFFECTS.txt` records the same thing
     // for the probed column.
     r.register_native("apply", apply, StackEffect::opaque(1), WordKind::Sync);
-    r.register_native("display", display, eff(1, 0), WordKind::Sync);
+    // **Opaque — F91.** A `fmt` CONDITIONAL is rendered by its runner, which
+    // pulls a value per placeholder, and an OBJECT is dispatched as
+    // `:display <obj> !`, which runs its `.display` method.
+    r.register_native("display", display, StackEffect::opaque(1), WordKind::Sync);
     r.register_native("len", len, eff(1, 2), WordKind::Sync);
     r.register_native("++", merge, eff(2, 1), WordKind::Sync);
     r.register_native("merge", merge, eff(2, 1), WordKind::Sync);
@@ -1035,10 +1038,11 @@ pub fn register(r: &mut Registry) {
     // value and the key and leaves nothing (2 -> 0).
     r.register_native("get.,", |vm| getset_inplace(vm, Side::Bench, false), eff(1, 1), WordKind::Sync);
     r.register_native("set.,", |vm| getset_inplace(vm, Side::Bench, true), eff(2, 0), WordKind::Sync);
-    r.register_native("pull", |vm| pull_word(vm, Side::Stack), eff(1, 1), WordKind::Sync);
-    // Names off the workbench, values off the stack, MAP back to the
-    // workbench: it consumes an unknown number of stack cells (one per name)
-    // and produces none, so the pair cannot describe it.
+    // Opaque, both forms: one stack value is pulled per name in the list, so
+    // neither consumes a fixed number. `pull` said `1 -> 1`, true only of an
+    // empty list (F92). `pull.` takes the names off the workbench, values off
+    // the stack, and puts the MAP back on the workbench.
+    r.register_native("pull", |vm| pull_word(vm, Side::Stack), StackEffect::opaque(1), WordKind::Sync);
     r.register_native("pull.", |vm| pull_word(vm, Side::Bench), StackEffect::opaque(0), WordKind::Sync);
     r.register_native("var", var, eff(2, 0), WordKind::Sync);
     r.register_native("var?", var_read, eff(1, 1), WordKind::Sync);

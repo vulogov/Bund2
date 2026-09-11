@@ -540,7 +540,9 @@ pub fn register(r: &mut Registry) {
     // must be on the stack before this runs", which is F18's reading, and a
     // net of zero there would let a bare `dup` pass unremarked.
     w(r, "dup_one", dup_one, eff(1, 2));
-    w(r, "dup_many", dup_many, eff(1, 0));
+    // Opaque: the count is an operand, so the net is its value less one. The
+    // floor is the count and the value copied (F92).
+    w(r, "dup_many", dup_many, StackEffect::opaque(2));
     w(r, "dup_one_in", dup_one_in, eff(1, 0));
     w(r, "dup_many_in", dup_many_in, eff(2, 0));
     w(r, "drop", drop_word, eff(1, 0));
@@ -555,8 +557,15 @@ pub fn register(r: &mut Registry) {
     // out. The declaration said `1 -> 0` until `cargo xtask effects` compared
     // it against the table.
     w(r, "swap", swap_n, eff(2, 2));
-    w(r, "swap_in", swap_in, eff(1, 0));
-    w(r, "clear", clear, eff(0, 0));
+    // `2 -> 0`: the name and the count both come off the current stack, as
+    // the guard says. It declared `1 -> 0` (F92). When the name *is* the
+    // current stack it reorders values below that, which is Q34's case and not
+    // something a pair can say.
+    w(r, "swap_in", swap_in, eff(2, 0));
+    // Opaque: `clear` empties the current stack, however deep. `0 -> 0` said
+    // it touched nothing (F92). The probed column reads `0+` for the same
+    // reason.
+    w(r, "clear", clear, StackEffect::opaque(0));
     w(r, "clear_in", clear_in, eff(1, 0));
     w(r, "current", current, eff(0, 1));
     w(r, "to_current", to_current, eff(1, 0));
@@ -569,7 +578,11 @@ pub fn register(r: &mut Registry) {
         eff(2, 0),
     );
     w(r, "stack_exists", stack_exists, eff(1, 1));
-    w(r, "move", move_word, eff(2, 0));
+    // Opaque: `move` drains the current stack below the name into the named
+    // one (`tests/golden/EFFECTS.txt`), so it consumes everything. `2 -> 0` was
+    // its smallest true case, and a pair that is true only sometimes is one
+    // RFC-0005 §S5 would trust always (F92).
+    w(r, "move", move_word, StackEffect::opaque(2));
     w(r, "move_from", move_from, eff(2, 0));
     // **`0 -> 1` on the main stack, and that is all this shape can say.**
     // `take` needs a value on the **workbench** and puts one on the main
@@ -590,8 +603,13 @@ pub fn register(r: &mut Registry) {
     w(r, "rotate_stack_right", rotate_stack_right, eff(1, 0));
     w(r, "stacks_right", stacks_right, eff(0, 0));
     w(r, "stacks_left", stacks_left, eff(0, 0));
-    w(r, "fold", fold, eff(0, 1));
-    w(r, "fold_stack", fold_stack, eff(1, 1));
+    // Opaque: `fold` takes the whole current stack into one LIST, however
+    // deep. `0 -> 1` counted the LIST and none of what went into it (F92).
+    w(r, "fold", fold, StackEffect::opaque(0));
+    // `1 -> 0` on the current stack: the name comes off it and the LIST goes
+    // to the *named* stack. It declared `1 -> 1` (F92). Folding the current
+    // stack by name is Q34's case, as for `swap_in`.
+    w(r, "fold_stack", fold_stack, eff(1, 0));
 
     // D29: `<-` and `←` are registered aliases whose target was unreachable.
     // Reviving `stacks_left` is what makes them resolve for the first time.

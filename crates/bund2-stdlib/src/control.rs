@@ -10,10 +10,6 @@
 use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
 use bund2_value::{BundValue, LAMBDA};
 
-fn eff(consumes: u8, produces: u8) -> StackEffect {
-    StackEffect::fixed(consumes, produces)
-}
-
 /// Pull the lambda, then the condition, then run the branch when the condition
 /// matches (`reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:12-89`).
 ///
@@ -316,9 +312,10 @@ pub fn register(r: &mut Registry) {
     r.register_native("if.false.in_workbench", if_false_wb, StackEffect::opaque(2), WordKind::Sync);
     r.register_native("ifthenelse.", ifthenelse_wb, StackEffect::opaque(2), WordKind::Sync);
     r.register_native("while.", while_wb, StackEffect::opaque(1), WordKind::Sync);
-    r.register_native("format", format, eff(1, 1), WordKind::Sync);
-    // Opaque: it pulls one stack value per distinct placeholder in the
-    // template, and the template is not known until run time.
+    // Opaque, both forms: each pulls one stack value per distinct placeholder
+    // in the template, and the template is not known until run time. `format`
+    // said `1 -> 1`, true only of a template with no placeholder (F92).
+    r.register_native("format", format, StackEffect::opaque(1), WordKind::Sync);
     r.register_native("format.", format_wb, StackEffect::opaque(0), WordKind::Sync);
 
     // `reference/rust_multistackvm/src/stdlib/create_aliases.rs:9,10,14,15`.

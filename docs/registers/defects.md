@@ -2839,6 +2839,14 @@ against a stack and a workbench of lambdas, and asserts through `entry_log`
 that none starts a body. Before the fix it named `execute.` and nothing else,
 which agrees with the review's hand audit of the sixteen functions that
 re-enter evaluation. Conformance is 79/86, ceiling 79/86, before and after.
+
+**Note, 2026-09-10 (F91).** "Agrees with the review's hand audit" is true of
+the audit and not of the code. `run_init` is one of the sixteen functions, and
+the audit checked the words registered on each. `run_init` is reached one call
+up, from `object`, which declared `eff(1, 1)`. The lambda-only test could not
+reach it either, because `object` needs a registered class name. RFC-0005's
+ninth review found it (B2), and criterion 24 is now an audit over the corpus.
+
 ## F88 — the corpus lexer takes SYMBOL's ASCII members only, so coverage never saw `∅`, `∈` or `→`
 
 **A Bund2 tooling defect**, found while listing the words Bund2 implements and
@@ -2906,4 +2914,90 @@ with the current stack's name, so both rendered `tags: {"stack": "main"}`.
 (`crates/bund2-interp/src/lib.rs`). A value from a stack still carries that
 stack's tag, because pulling never removes it. Conformance 79/86, ceiling
 79/86, before and after.
+
+## F91 — `object` and `display` declare fixed effects and run code
+
+**A Bund2 defect in two declared effects**, RFC-0004's annotation, found by
+RFC-0005's ninth review (B2). The same class as F87.
+
+`object` was registered `eff(1, 1)`. `object_word` looks up the class, and
+`make_object` and `push_and_init` then call `run_init` for the class and every
+parent. `run_init` evaluates `.init`: a LAMBDA through `vm.eval_lambda`, or a
+PTR through `vm.method` followed by a direct call to the method native
+(`crates/bund2-stdlib/src/oop.rs`). So `object` ran arbitrary code, and could
+consume below its operand. `:B class :.init { swap drop } set register` then
+`1 2 :B object` leaves `1` and the object: the `2` is gone. The corpus does
+this. `class_constructors_demo.bund:31` runs five `.init` lambdas.
+
+`display` was registered `eff(1, 0)`. A `fmt` CONDITIONAL is rendered by its
+runner, reached through `vm.conditional("fmt")`, which pulls a value per
+placeholder. An OBJECT is dispatched as `:display <obj> !`, which runs its
+`.display` method (`display`, `crates/bund2-stdlib/src/singles.rs`).
+
+**Why it matters.** RFC-0005 §S5 promotes across any call with a fixed effect,
+so values held in registers would have been invisible to the code these words
+run, and `bund2 check` tracked depth straight across them. F87's test passes
+only lambdas, and `object` needs a registered class name, so it could not see
+either word.
+
+**Status:** FIXED 2026-09-10. Both are `StackEffect::opaque(1)`. RFC-0005
+criterion 24 is now `every_fixed_effect_native_keeps_its_effect_over_the_corpus`
+(`crates/bund2-stdlib/src/lib.rs`). It runs every program `conform` runs, in
+process, with `Interp::effect_audit` on (`crates/bund2-interp/src/lib.rs`). A
+native with a fixed effect may not start a body, file a tail request or
+dispatch a word, and must move the current stack by what it declares. Before
+the fix it named `object` for `format`, `get` and `println` dispatched and a
+body started, in `class_constructors_demo.bund`. `display` was named for its
+depth, and its OBJECT arm is the same shape as `object`'s. Conformance 82/89,
+ceiling 82/89, before and after, on a working tree carrying three uncommitted
+probes (79/86 without them).
+
+## F92 — ten declared effects miscount the current stack
+
+**A Bund2 defect in declared effects**, RFC-0004's annotation, found by the
+first run of RFC-0005 criterion 24's corpus audit (F91).
+
+`StackEffect` is one pair, and RFC-0004 §S1 says what it counts: the main
+stack, with `consumes` a floor rather than a net (`dup_one` is `1 -> 2`). The
+audit compares each fixed-effect native's pair with the depth change it causes
+on the current stack, whenever it returns `Ok` without switching stacks. Ten
+disagreed:
+
+| word | declared | observed | now | why |
+|---|---|---|---|---|
+| `clear` | `0 -> 0` | 2 → 0 | `opaque(0)` | empties the stack; the probed column already reads `0+` |
+| `fold` | `0 -> 1` | 3 → 1 | `opaque(0)` | the whole stack into one LIST |
+| `move` | `2 -> 0` | 4 → 0 | `opaque(2)` | drains below the name; `EFFECTS.txt` already called it variadic |
+| `dup_many` | `1 -> 0` | 2 → 4 | `opaque(2)` | pushes a copy per unit of its count |
+| `format` | `1 -> 1` | 3 → 2 | `opaque(1)` | one value per placeholder; `format.` was already `opaque(0)` |
+| `pull` | `1 -> 1` | 5 → 2 | `opaque(1)` | one value per name in its list; `pull.` was already `opaque(0)` |
+| `fold_stack` | `1 -> 1` | 1 → 0 | `1 -> 0` | the LIST goes to the *named* stack |
+| `swap_in` | `1 -> 0` | 2 → 0 | `2 -> 0` | the name and the count both come off the stack, as its guard says |
+| `print.` | `1 -> 0` | 2 → 2 | `1 -> 1` | F77's floor of one is kept; the value comes off the workbench |
+| `println.` | `1 -> 0` | 1 → 1 | `1 -> 1` | the same |
+
+**Why it matters.** RFC-0005 §S5 models the depth after a call as
+`before − consumes + produces`, and keeps values below `consumes` in
+registers. A pair that is off in either direction misplaces every promoted value
+after the call. `clear` kept values that the program had cleared.
+
+**Status:** FIXED 2026-09-10 (above). The audit passes. Conformance 82/89,
+ceiling 82/89, before and after, on the same working tree as F91.
+
+**Open: `tests/golden/EFFECTS.txt`.** `cargo xtask effects` now reports
+`format` as declared `1->0` against a probed `1->1`. The probe fed a STRING,
+a template with no placeholder, so it measured one arm. The line below belongs
+in `EFFECTS.txt`, and `move`'s existing line should say that it is opaque since
+F92. `tests/golden/` was outside what the session making this fix could edit,
+so both wait for the repository owner:
+
+    format	arm — the probe fed a STRING sentinel, and a string with no placeholder is a template that pulls nothing, so it read 1->1. `format` pulls one stack value per distinct placeholder in its template (`crates/bund2-stdlib/src/control.rs`, `format_base`), which is not known until run time. Declared `StackEffect::opaque(1)` since F92, which the table shows as 1->0.
+
+**Not reached, and not decided here.** Named-stack words whose current-stack
+effect depends on whether the name *is* the current stack: `clear_in`,
+`drop_in`, `drop_stack`, `dup_one_in`, `dup_many_in`, `move_from`, `return_to`,
+`return_from`, `rotate_stack_left` and `rotate_stack_right`. The corpus never
+hands one the current stack's name, so the audit cannot see them. Making them
+opaque would decide Q34's named-stack case, which is open. `fold_stack` and
+`swap_in` above are corrected for the other case only.
 

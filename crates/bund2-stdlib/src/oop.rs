@@ -719,7 +719,11 @@ fn register_wrapped(r: &mut Registry) {
 
 pub fn register(r: &mut Registry) {
     r.register_native("class", class_word, eff(0, 1), WordKind::Sync);
-    r.register_native("object", object_word, eff(1, 1), WordKind::Sync);
+    // **Opaque — F91.** Construction runs the class's `.init`, and every
+    // parent's, through `run_init`: a lambda, or a method native called
+    // directly. What that leaves is the constructor's business, so the pair
+    // `1 -> 1` described only a class with no `.init`.
+    r.register_native("object", object_word, StackEffect::opaque(1), WordKind::Sync);
     r.register_native("?class", is_class_word, eff(1, 1), WordKind::Sync);
     // **1 -> 2, because `?object` peeks.** It leaves the receiver and pushes
     // the answer beside it (`bund_class.rs:39`), unlike `?class`, which

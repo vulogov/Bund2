@@ -99,9 +99,11 @@ mod honesty_tests {
     /// body declares `StackEffect::opaque` and is skipped.
     ///
     /// Operands are lambdas only: a string would be a file name to half the
-    /// library. So a native that runs a body only when handed a *name* is not
-    /// caught here; the reviewer's hand audit of the sixteen re-entering
-    /// functions found none that is not also reached by a lambda.
+    /// library. So a native that runs a body only when handed something else
+    /// is not caught here. `object` was one: it runs a class's `.init` and
+    /// needs a registered class name to get there (F91). The corpus audit
+    /// below catches what the programs reach, and this one covers the words
+    /// they never call.
     #[test]
     fn no_fixed_effect_native_runs_a_body() {
         let mut probe = Interp::new();
@@ -132,6 +134,69 @@ mod honesty_tests {
         assert!(
             offenders.is_empty(),
             "declared a fixed effect but ran a body: {offenders:?}"
+        );
+    }
+
+    /// **Criterion 24, over the corpus.** Every program `conform` runs — each
+    /// line of `tests/golden/HERMETIC.txt`, and each probe with a golden — run
+    /// in process with [`Interp::effect_audit`] on. A native that declares a
+    /// fixed effect may not start a body, file a tail request or dispatch a
+    /// word, and its depth change must match its declaration.
+    ///
+    /// The test above samples operands, and passes only lambdas. This one uses
+    /// the operands the programs actually hand each word, which is how it
+    /// reaches `object`: that word runs a class's `.init`, and needs a
+    /// registered class name to get there (F91). A word the corpus never
+    /// calls is not reached, which is the test above's job.
+    #[test]
+    fn every_fixed_effect_native_keeps_its_effect_over_the_corpus() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let hermetic = std::fs::read_to_string(root.join("tests/golden/HERMETIC.txt"))
+            .expect("HERMETIC.txt reads");
+        let mut programs: Vec<std::path::PathBuf> = hermetic
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .map(|l| root.join(l))
+            .collect();
+        for entry in std::fs::read_dir(root.join("tests/probes")).expect("probes exist") {
+            let path = entry.expect("entry").path();
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            let golden = root.join("tests/golden/probes").join(format!("{stem}.golden"));
+            if path.extension().is_some_and(|x| x == "bund") && golden.exists() {
+                programs.push(path);
+            }
+        }
+        programs.sort();
+        assert!(programs.len() > 80, "found only {} programs", programs.len());
+
+        let mut breaches = Vec::new();
+        for path in &programs {
+            let src = std::fs::read_to_string(path).expect("program reads");
+            // A program that does not parse runs nothing, so it has nothing to
+            // audit; its golden checks the parse error.
+            let Ok(values) = bund2_syntax::compile(&src) else {
+                continue;
+            };
+            let mut i = Interp::new();
+            crate::register_all(&mut i.registry);
+            i.effect_audit = Some(Vec::new());
+            // Failing is fine: many programs fail on purpose.
+            let _ = i.eval(&values);
+            let shown = path.strip_prefix(&root).unwrap_or(path).display().to_string();
+            for b in i.effect_audit.take().unwrap_or_default() {
+                breaches.push(format!("{shown}: {b}"));
+            }
+        }
+        breaches.sort();
+        breaches.dedup();
+        assert!(
+            breaches.is_empty(),
+            "{} breach(es) of a declared effect:\n{}",
+            breaches.len(),
+            breaches.join("\n")
         );
     }
 

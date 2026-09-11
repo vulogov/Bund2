@@ -420,6 +420,22 @@ pub struct Interp {
     /// every frame pushed for a body records that body's `payload_key`, which
     /// is how a test shows one key reaching every iteration of a loop (D42).
     pub entry_log: Option<Vec<usize>>,
+    /// **The effect audit — RFC-0005 criterion 24.** `None` in production,
+    /// so the cost is one branch per native call. When `Some`, every native
+    /// that declares a fixed effect is held to it while it runs: it may not
+    /// start a body, file a tail request or dispatch another word, and when it
+    /// returns `Ok` on the stack it started on, that stack's depth must have
+    /// moved by exactly what it declares. Each breach is recorded as a
+    /// sentence. RFC-0005 §S5 keeps values in registers across such a native,
+    /// so every breach is a value the native could not have seen.
+    pub effect_audit: Option<Vec<String>>,
+    /// The fixed-effect native running now. Only ever `Some` while the audit
+    /// is on, so the checks that read it cost production one branch.
+    audit_inside: Option<Symbol>,
+    /// The innermost native running now, whatever its effect. Only ever `Some`
+    /// while the audit is on. A report at `Error` severity made while one runs
+    /// is a breach: RFC-0005 criterion 25's run-time half.
+    audit_native: Option<Symbol>,
     /// **The Tier 0 floor — RFC-0005 §S8, F85.** The lowest stack address at
     /// which a native may still re-enter evaluation. Below it,
     /// `Vm::eval_lambda`, `Vm::apply` and `Vm::scoped_call` refuse with
@@ -451,6 +467,9 @@ impl Interp {
             frames: Vec::new(),
             pending_tail: None,
             entry_log: None,
+            effect_audit: None,
+            audit_inside: None,
+            audit_native: None,
             stack_floor: tier0_floor(),
         }
     }
@@ -458,6 +477,71 @@ impl Interp {
     /// Is there room above the Tier 0 floor to re-enter evaluation?
     fn stack_ok(&self) -> bool {
         stack_marker() > self.stack_floor
+    }
+
+    /// Call a native, holding it to its declared effect when the audit is on
+    /// ([`Interp::effect_audit`]).
+    ///
+    /// An opaque native is not held to anything, and the words it reaches are
+    /// audited on their own. A fixed-effect native is marked as running, so
+    /// that a body, a tail request or a dispatch it causes is recorded, and its
+    /// depth change is compared with its declaration. The comparison is skipped
+    /// when the native fails, or leaves a different stack current: a switch is
+    /// §S5's epoch, not a depth.
+    fn call_native(&mut self, name: Symbol, n: bund2_api::Native) -> Result<(), Error> {
+        if self.effect_audit.is_none() {
+            return (n.f)(self);
+        }
+        if let Some(outer) = self.audit_inside {
+            let callee = self.registry.interner.name(name).to_string();
+            self.audit_breach(outer, &format!("declares a fixed effect and dispatched `{callee}`"));
+        }
+        let outer_native = self.audit_native.replace(name);
+        let r = self.call_audited(name, n);
+        self.audit_native = outer_native;
+        r
+    }
+
+    /// [`Interp::call_native`]'s audited half: everything but tracking which
+    /// native is innermost.
+    fn call_audited(&mut self, name: Symbol, n: bund2_api::Native) -> Result<(), Error> {
+        let outer = self.audit_inside.take();
+        if n.effect.opaque {
+            let r = (n.f)(self);
+            self.audit_inside = outer;
+            return r;
+        }
+        // **The current stack only.** `StackEffect` has one axis, and RFC-0004
+        // §S1 says what it counts: the main stack, with the workbench axis not
+        // yet built. It is also the only count §S5 relies on, since promotion
+        // holds current-stack values and models the depth after a call from
+        // this pair. The workbench delta is reported beside it, as evidence.
+        let stack = self.current_name();
+        let (main0, wb0) = (self.depth(), self.stacks.workbench.len());
+        self.audit_inside = Some(name);
+        let r = (n.f)(self);
+        self.audit_inside = outer;
+        if r.is_ok() && self.current_name() == stack {
+            let (main1, wb1) = (self.depth(), self.stacks.workbench.len());
+            let (c, p) = (usize::from(n.effect.consumes), usize::from(n.effect.produces));
+            if main0.checked_sub(c).map(|d| d + p) != Some(main1) {
+                self.audit_breach(
+                    name,
+                    &format!(
+                        "declares a fixed effect and declares ({c}, {p}) and moved `{stack}` from {main0} to {main1} and the workbench from {wb0} to {wb1}"
+                    ),
+                );
+            }
+        }
+        r
+    }
+
+    /// Record one breach, while the audit is on: `who` did `what`.
+    fn audit_breach(&mut self, who: Symbol, what: &str) {
+        let line = format!("`{}` {what}", self.registry.interner.name(who));
+        if let Some(log) = self.effect_audit.as_mut() {
+            log.push(line);
+        }
     }
 
     /// Dispatch a call.
@@ -477,7 +561,7 @@ impl Interp {
                 // `resolve` said the slot holds a command; if the binding has
                 // gone in between, that is a broken invariant and not the
                 // program's fault, so it is reported rather than asserted.
-                let f = self
+                let n = self
                     .registry
                     .slot(s)
                     .and_then(|sl| sl.command)
@@ -486,9 +570,8 @@ impl Interp {
                             "`{}` resolved to a command whose binding is absent",
                             self.registry.interner.name(s)
                         ))
-                    })?
-                    .f;
-                f(self)
+                    })?;
+                self.call_native(s, n)
             }
             _ if self.autoadd => {
                 // `apply` appends the name to the value beneath it rather than
@@ -533,7 +616,7 @@ impl Interp {
             }
             Resolved::Native => {
                 let target = self.registry.resolve_target(s);
-                let f = self
+                let n = self
                     .registry
                     .slot(target)
                     .and_then(|sl| sl.native)
@@ -542,9 +625,8 @@ impl Interp {
                             "`{}` resolved to a native whose binding is absent",
                             self.registry.interner.name(target)
                         ))
-                    })?
-                    .f;
-                f(self)
+                    })?;
+                self.call_native(target, n)
             }
             Resolved::Unbound => Err(Error(format!(
                 "{} not registered",
@@ -713,6 +795,9 @@ impl Interp {
     /// call, so depth is bounded by how deeply such natives nest rather than by
     /// how deep the program recurses.
     pub fn request_tail(&mut self, body: BundValue) {
+        if let Some(who) = self.audit_inside {
+            self.audit_breach(who, "declares a fixed effect and filed a tail request");
+        }
         self.pending_tail = Some(body);
     }
 
@@ -726,6 +811,9 @@ impl Interp {
     /// Push a frame for `body` — **the one place a body starts running**, so
     /// the one place its key is observed (D42, RFC-0005 criterion 20).
     fn push_frame(&mut self, body: BundValue, exit: Option<ExitAction>) {
+        if let Some(who) = self.audit_inside {
+            self.audit_breach(who, "declares a fixed effect and started a body");
+        }
         if let (Some(log), Some(k)) = (self.entry_log.as_mut(), body.payload_key()) {
             log.push(k);
         }
@@ -1028,6 +1116,14 @@ impl Vm for Interp {
     }
 
     fn report(&mut self, d: bund2_api::diag::Diagnostic) {
+        // RFC-0005 criterion 25's run-time half: natives return errors, they
+        // do not report them, because a mid-body `Error` report would take a
+        // snapshot of a stack whose values promotion may be holding.
+        if d.severity.is_fatal()
+            && let Some(who) = self.audit_native
+        {
+            self.audit_breach(who, "reported at `Error` severity while it ran");
+        }
         // Collect the stacks only if something will show them, for a
         // diagnostic of this severity (D45).
         let d = if self.reporter.wants_stack(d.severity) {
@@ -1400,5 +1496,56 @@ mod tests {
         assert_eq!(s.peek().map(|v| v.dt()), Some(bund2_value::INTEGER));
         s.rotate_left();
         assert_eq!(s.len(), 3, "rotation moves, it does not consume");
+    }
+
+    /// **The effect audit's report half — RFC-0005 criterion 25.** A native
+    /// that reports at `Error` severity while it runs is a breach whatever its
+    /// effect, opaque included. A warning is not.
+    #[test]
+    fn the_audit_records_an_error_reported_mid_body() {
+        fn reports_error(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.report(bund2_api::diag::Diagnostic::error("mid-body"));
+            Ok(())
+        }
+        fn warns(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.report(bund2_api::diag::Diagnostic::warning("fine"));
+            Ok(())
+        }
+        let mut i = Interp::new();
+        i.registry
+            .register_native("e", reports_error, StackEffect::opaque(0), WordKind::Sync);
+        i.registry.register_native("w", warns, eff(), WordKind::Sync);
+        i.effect_audit = Some(Vec::new());
+        let _ = i.eval(&[BundValue::call("w"), BundValue::call("e")]);
+        assert_eq!(
+            i.effect_audit.take().unwrap_or_default(),
+            vec!["`e` reported at `Error` severity while it ran".to_string()]
+        );
+    }
+
+    /// **The effect audit's depth half — RFC-0005 criterion 24.** A native
+    /// declaring `0 -> 0` that pushes is a breach. With the audit off, nothing
+    /// is recorded and the word runs as it always did.
+    #[test]
+    fn the_audit_records_a_pair_that_miscounts() {
+        fn pushes(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.push(BundValue::int(1));
+            Ok(())
+        }
+        let mut off = Interp::new();
+        off.registry.register_native("p", pushes, eff(), WordKind::Sync);
+        assert!(off.eval(&[BundValue::call("p")]).is_ok());
+        assert!(off.effect_audit.is_none());
+
+        let mut on = Interp::new();
+        on.registry.register_native("p", pushes, eff(), WordKind::Sync);
+        on.effect_audit = Some(Vec::new());
+        assert!(on.eval(&[BundValue::call("p")]).is_ok());
+        let log = on.effect_audit.take().unwrap_or_default();
+        assert_eq!(log.len(), 1, "{log:?}");
+        assert!(
+            log.iter().all(|l| l.starts_with("`p` declares a fixed effect and declares (0, 0)")),
+            "{log:?}"
+        );
     }
 }
