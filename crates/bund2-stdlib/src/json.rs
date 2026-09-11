@@ -19,6 +19,51 @@ fn eff(consumes: u8, produces: u8) -> StackEffect {
     StackEffect::fixed(consumes, produces)
 }
 
+/// `json.path` — query a JSON value with a JSONPath expression
+/// (`reference/rust_multistackvm/src/stdlib/json/json_path.rs:9-64`), through
+/// the reference's own `jsonpath-rust` at the version its lock resolves.
+///
+/// The JSON value is on top and the path beneath it (`:13,18`). Every match is
+/// collected into one JSON array, which is pushed (`:39`).
+///
+/// **It prints to stdout.** The reference `println!`s the `Debug` form of every
+/// matched slice as it collects them (`:37`), and a golden captures that text.
+/// So this prints it too, with the same crate's `Debug` (F99).
+fn json_path(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 2 {
+        return Err(Error("Stack is too shallow for inline json.path".into()));
+    }
+    let j = vm
+        .pull()
+        .ok_or_else(|| Error("JSON.PATH returns: NO DATA #1".into()))?;
+    if j.dt() != JSON {
+        return Err(Error("JSON.PATH: #1 parameter must be JSON".into()));
+    }
+    let value = j
+        .as_json()
+        .ok_or_else(|| Error::internal("a JSON value carried no JSON"))?;
+    let p = vm
+        .pull()
+        .ok_or_else(|| Error("JSON.PATH returns: NO DATA #2".into()))?;
+    let Some(p) = p.as_str() else {
+        return Err(Error(
+            "JSON.PATH casting search path returns: This Dynamic type is not string".into(),
+        ));
+    };
+    let path = jsonpath_rust::JsonPath::<serde_json::Value>::try_from(p.as_str())
+        .map_err(|e| Error(format!("JSON.PATH compilation of search path returns: {e}")))?;
+    let mut found: Vec<serde_json::Value> = Vec::new();
+    for s in path.find_slice(&value) {
+        match &s {
+            jsonpath_rust::JsonPathValue::Slice(v, _) => found.push((*v).clone()),
+            _ => continue,
+        }
+        println!("{:?}", &s);
+    }
+    vm.push(BundValue::json(serde_json::Value::Array(found)));
+    Ok(())
+}
+
 /// `json` — parse a string into a JSON value.
 fn json(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 1 {
@@ -108,4 +153,46 @@ fn json_to_value(vm: &mut dyn Vm) -> Result<(), Error> {
 pub fn register(r: &mut Registry) {
     r.register_native("json", json, eff(1, 1), WordKind::Sync);
     r.register_native("json.to_value", json_to_value, eff(1, 1), WordKind::Sync);
+    // `reference/rust_multistackvm/src/stdlib/json/json_path.rs`, `init_stdlib`.
+    r.register_native("json.path", json_path, eff(2, 1), WordKind::Sync);
+}
+
+#[cfg(test)]
+mod tests {
+    use bund2_api::Vm as _;
+    use bund2_interp::Interp;
+
+    fn run_src(src: &str) -> Result<Interp, String> {
+        let mut i = Interp::new();
+        crate::register_all(&mut i.registry);
+        let stream = bund2_syntax::compile(src).map_err(|e| e.render(src))?;
+        i.eval(&stream).map_err(|e| e.0)?;
+        Ok(i)
+    }
+
+    fn err_of(src: &str) -> String {
+        match run_src(src) {
+            Ok(_) => panic!("{src} was expected to fail"),
+            Err(e) => e,
+        }
+    }
+
+    #[test]
+    fn json_path_wants_json_on_top() {
+        let e = err_of("'$.a' 1 json.path");
+        assert!(e.contains("JSON.PATH: #1 parameter must be JSON"), "{e}");
+    }
+
+    #[test]
+    fn a_path_that_does_not_compile_is_reported() {
+        let e = err_of("'$[' '{}' json json.path");
+        assert!(e.contains("JSON.PATH compilation of search path returns"), "{e}");
+    }
+
+    /// JSON prints as compact `serde_json` text (`conv.rs:677`).
+    #[test]
+    fn json_prints_compact() {
+        let i = run_src("'$.a[*]' '{\"a\": [1, 2]}' json json.path").expect("runs");
+        assert_eq!(i.peek().map(|v| v.display()).as_deref(), Some("[1,2]"));
+    }
 }

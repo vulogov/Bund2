@@ -1,0 +1,34 @@
+//
+// Probe: graph, graph., graph.paths, graph.allpath, graph.transitiveclosure
+// (Bund/src/stdlib/functions/graph/mod.rs:16-65, dijkstra.rs:13-85,
+// allshortpath.rs:13-85, transitiveclosure.rs:13-74).
+//
+// The three algorithms build their rows by iterating a HashMap, so row order
+// changes between runs. Only counts and single-row answers are printed.
+//
+"probe: graph fills in type, nodes and edges on a bare dict" println
+dict graph println
+
+"probe: graph. does the same on the workbench" println
+dict . graph. take println
+
+"probe: graph.paths from A over A->B->C: one row per node" println
+:A [ [ :A :B 1.0 ] [ :B :C 2.0 ] ] [ :A :B :C ] graph! graph.paths len println drop
+
+"probe: graph.allpath over A->B->C: every reachable pair" println
+[ [ :A :B 1.0 ] [ :B :C 2.0 ] ] [ :A :B :C ] graph! graph.allpath len println drop
+
+"probe: graph.transitiveclosure over A->B->C: every connected pair" println
+[ [ :A :B 1.0 ] [ :B :C 2.0 ] ] [ :A :B :C ] graph! graph.transitiveclosure len println drop
+
+"probe: graph.paths on a one-node graph is a single row" println
+:A list [ :A ] graph! graph.paths println
+
+"probe: graph.allpath on a one-node graph is a single row" println
+list [ :A ] graph! graph.allpath println
+
+"probe: graph.transitiveclosure is reflexive: a one-node graph reaches itself" println
+list [ :A ] graph! graph.transitiveclosure println
+
+"probe: an unweighted edge still connects (A->B gives A-A, B-B and A-B)" println
+[ [ :A :B ] ] [ :A :B ] graph! graph.transitiveclosure len println drop

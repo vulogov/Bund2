@@ -1,0 +1,17 @@
+//
+// Probe: math.interpolation (Bund/src/stdlib/functions/math/interp.rs:12-38).
+//
+// X is the top list and Y the next, then xp, which must be a FLOAT (:29).
+// Lists go through conv(FLOAT) element by element (statistics/get_data.rs:149).
+//
+"probe: halfway between the second and third points" println
+2.5 [ 10.0 20.0 30.0 ] [ 1.0 2.0 3.0 ] math.interpolation println
+
+"probe: integer lists convert to float" println
+1.5 [ 10 20 30 ] [ 1 2 3 ] math.interpolation println
+
+"probe: below the first point" println
+0.0 [ 10.0 20.0 30.0 ] [ 1.0 2.0 3.0 ] math.interpolation println
+
+"probe: beyond the last point" println
+5.0 [ 10.0 20.0 30.0 ] [ 1.0 2.0 3.0 ] math.interpolation println

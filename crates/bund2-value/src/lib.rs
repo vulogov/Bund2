@@ -853,6 +853,13 @@ impl BundValue {
                     out.push('}');
                     out
                 }
+                // JSON converts to STRING as compact `serde_json` text
+                // (`reference/rust_dynamic/src/conv.rs:662-679`), so a JSON
+                // array prints `[1,2]`. Found by `json.path`, the first word
+                // whose answer a program prints while it is still JSON.
+                Payload::Json(j) => {
+                    serde_json::to_string(j).unwrap_or_else(|_| self.render(false))
+                }
                 _ => self.render(false),
             },
         }

@@ -311,6 +311,105 @@ fn float_op(vm: &mut dyn Vm, f: fn(f64) -> f64) -> Result<(), Error> {
     Ok(())
 }
 
+/// A series of floats for a statistics-style word, as the reference's
+/// `get_data` takes one in `Consume` mode from the stack
+/// (`reference/Bund/src/stdlib/functions/statistics/get_data.rs:184-222`).
+///
+/// What it takes depends on the **top** value, peeked (`:198`):
+///
+/// - a LIST is pulled and each element converted to FLOAT (`:117-169`);
+/// - a METRICS is pulled and its data read (`:68-104`);
+/// - a NODATA is `END OF DATA` (`:212`);
+/// - anything else starts a **pull of the whole stack**, down to its end or
+///   to a NODATA, converting each value (`:8-42`). So `1 2 3` handed to a
+///   word that wants two series is swallowed entirely by the first.
+fn data_series(vm: &mut dyn Vm, prefix: &str) -> Result<Vec<f64>, Error> {
+    if vm.depth() < 1 {
+        return Err(Error(format!("Stack is too shallow for inline {prefix}")));
+    }
+    let Some(top) = vm.peek() else {
+        return Err(Error(format!("{prefix} returns NO DATA")));
+    };
+    let as_float = |v: &BundValue| -> Result<f64, Error> {
+        let f = crate::convert::conv_value(v, bund2_value::FLOAT)?;
+        match *f.unboxed() {
+            BundValue::Float(x, _) => Ok(x),
+            _ => Err(Error::internal("a conversion to FLOAT answered another kind")),
+        }
+    };
+    let mut res: Vec<f64> = Vec::new();
+    match top.dt() {
+        LIST => {
+            let l = vm
+                .pull()
+                .ok_or_else(|| Error(format!("{prefix} returns NO DATA")))?;
+            let items = l
+                .as_list()
+                .ok_or_else(|| Error(format!("{prefix} did not find a list type on the stack")))?;
+            for v in items {
+                res.push(
+                    as_float(v)
+                        .map_err(|e| Error(format!("{prefix} error FLOAT conversion: {}", e.0)))?,
+                );
+            }
+        }
+        bund2_value::METRICS => {
+            let m = vm
+                .pull()
+                .ok_or_else(|| Error(format!("{prefix} returns NO DATA")))?;
+            let metrics = m
+                .as_metrics()
+                .ok_or_else(|| Error(format!("{prefix} did not find a metric type on the stack")))?;
+            res.extend(metrics.iter().map(|x| x.data));
+        }
+        bund2_value::NODATA => return Err(Error(format!("{prefix} END OF DATA"))),
+        _ => {
+            while let Some(v) = vm.pull() {
+                if v.dt() == bund2_value::NODATA {
+                    break;
+                }
+                res.push(as_float(&v).map_err(|e| {
+                    Error(format!("{prefix} returns during conversion: {}", e.0))
+                })?);
+            }
+        }
+    }
+    Ok(res)
+}
+
+/// `math.interpolation` — linear interpolation of `xp` over the points
+/// `x`, `y` (`reference/Bund/src/stdlib/functions/math/interp.rs:12-38`),
+/// by the reference's own `interp` crate.
+///
+/// X is the top series and Y the next (`:16,22`), then `xp` beneath them,
+/// which must already be a FLOAT (`:29`). So the source reads
+/// `<xp> <y> <x> math.interpolation`.
+fn math_interpolation(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 2 {
+        return Err(Error("Stack is too shallow for MATH.INTERPOLATION".into()));
+    }
+    let x = data_series(vm, "MATH.INTERPOLATION")
+        .map_err(|e| Error(format!("MATH.INTERPOLATION getting X returns: {}", e.0)))?;
+    let y = data_series(vm, "MATH.INTERPOLATION")
+        .map_err(|e| Error(format!("MATH.INTERPOLATION getting Y returns: {}", e.0)))?;
+    let xp_val = vm
+        .pull()
+        .ok_or_else(|| Error("MATH.INTERPOLATION: NO DATA #3".into()))?;
+    let BundValue::Float(xp, _) = *xp_val.unboxed() else {
+        return Err(Error(format!(
+            "MATH.INTERPOLATION error casting XP: This Dynamic type is not float: {}",
+            xp_val.dt()
+        )));
+    };
+    vm.push(BundValue::float(interp::interp(
+        &x,
+        &y,
+        xp,
+        &interp::InterpMode::default(),
+    )));
+    Ok(())
+}
+
 pub fn register(r: &mut Registry) {
     // The seventeen, in the reference's registration order (`:171-187`).
     macro_rules! float_word {
@@ -389,6 +488,14 @@ pub fn register(r: &mut Registry) {
     r.register_native("-.", sub_wb, eff(1, 0), WordKind::Sync);
     r.register_native("*.", mul_wb, eff(1, 0), WordKind::Sync);
     r.register_native("/.", div_wb, eff(1, 0), WordKind::Sync);
+    // `reference/Bund/src/stdlib/functions/math/interp.rs:48`. Opaque: when X
+    // is not a list, the first series swallows the stack (`data_series`).
+    r.register_native(
+        "math.interpolation",
+        math_interpolation,
+        StackEffect::opaque(2),
+        WordKind::Sync,
+    );
 }
 
 #[cfg(test)]
@@ -494,5 +601,13 @@ mod tests {
     fn a_shallow_stack_is_an_error_that_names_the_word() {
         let e = err_of("1 +");
         assert!(e.contains("Stack is too shallow for inline ADD()"), "{e}");
+    }
+
+    /// `xp` is `cast_float`ed, not converted (`interp.rs:29`), so an INTEGER
+    /// is refused even though the lists beside it convert.
+    #[test]
+    fn interpolation_wants_a_float_xp() {
+        let e = err_of("2 [ 10 20 ] [ 1 2 ] math.interpolation");
+        assert!(e.contains("MATH.INTERPOLATION error casting XP"), "{e}");
     }
 }

@@ -1,0 +1,15 @@
+//
+// Probe: json.path (rust_multistackvm/src/stdlib/json/json_path.rs:9-64).
+//
+// The JSON is on top and the path beneath it. Every match lands in one JSON
+// array, and each matched slice is also printed in its Debug form (:37) --
+// output the word writes itself, before anything the program prints.
+//
+"probe: a single match is wrapped in an array" println
+'$.a' '{"a": 1, "b": 2}' json json.path println
+
+"probe: a wildcard matches each element in order" println
+'$.a[*]' '{"a": [10, 20, 30]}' json json.path println
+
+"probe: a path that matches nothing answers an empty array" println
+'$.missing' '{"a": 1}' json json.path println

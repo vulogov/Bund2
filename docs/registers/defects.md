@@ -3148,3 +3148,54 @@ FLOAT, BOOL and MAP. STRING and TEXTBUFFER were already answered through
 `display`. The reference's RESULT, QUEUE, FIFO and MATRIX targets are not
 built, because Bund2 constructs none of those kinds. Conformance 85/93,
 ceiling 85/93, before and after.
+
+## F99 — `json.path` prints every match to stdout
+
+**An original-implementation defect, reproduced**, found while implementing
+`json.path`.
+
+The word collects each `JsonPathValue::Slice` into its answer, then
+`println!("{:?}", &s)` on it (`reference/rust_multistackvm/src/stdlib/json/json_path.rs:30-38`).
+A program that asks for `$.a` on `{"a": 1}` therefore prints
+`Slice(Number(1), "$.['a']")` before anything it prints itself. It looks like a
+debugging line left in. Confirmed against the oracle on 2026-09-11 with
+`tests/probes/json-path.bund`.
+
+**Disposition: reproduce.** The golden captures the line, so a Bund2 that kept
+quiet would fail it. Bund2 prints the same `Debug` form with the same crate
+version, jsonpath-rust 0.7.5, so the text is the crate's and not a copy
+(`crates/bund2-stdlib/src/json.rs`, `json_path`). It is output the word writes,
+not a diagnostic, so the Reporter seam (D36) does not apply.
+
+## F100 — Bund2 printed a JSON value in its raw `Debug` form
+
+**A Bund2 defect**, found by the probe `tests/probes/json-path.bund`.
+
+The reference converts JSON to STRING as compact `serde_json::to_string` text
+(`reference/rust_dynamic/src/conv.rs:662-679`), reached from `conv` at `:705`.
+So `println` of a JSON array prints `[1]`. Bund2's `BundValue::display` had no
+arm for a JSON payload and fell through to `render`, printing
+`Value { id: …, dt: 24, … data: Json(Array [Number(1)]) … }`. No earlier
+golden printed a value while it was still JSON: `json.to_value` converts first.
+
+**Status:** FIXED 2026-09-11. `display` renders a JSON payload with
+`serde_json::to_string` (`crates/bund2-value/src/lib.rs`, `display`).
+Conformance 90/98, ceiling 90/98, before and after.
+
+## F101 — Bund2's `graph.path` builder skipped bad nodes and misread four-element edges
+
+**A Bund2 defect**, found by re-reading `make_graph.rs` for the `algos` graph
+words.
+
+`make_fast_graph` fails on a node that is not a string, with
+`MAKE_FAST_GRAPH: error casting node name` (`reference/Bund/src/stdlib/functions/graph/make_graph.rs:22-26`).
+It takes a weight only from an edge of exactly three elements (`:59`); an edge
+of four or more gets 100. Bund2's `build` (`crates/bund2-stdlib/src/graph.rs`)
+silently skipped a non-string node, and took the third element of any edge
+longer than two as its weight. Neither path is reached by a golden: the two
+graph goldens use string nodes and three-element edges.
+
+**Status:** FIXED 2026-09-11. `build` reports the non-string node and applies
+the exactly-three rule. The new `build_algos` port follows `make_graph`
+(`:78-141`) the same way. Unit tests in `graph.rs` cover both rules.
+Conformance 90/98, ceiling 90/98, before and after.

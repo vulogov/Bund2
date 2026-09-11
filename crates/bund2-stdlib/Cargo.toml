@@ -42,13 +42,16 @@ serde_json = "1"
 # (`.../graph/make_graph.rs:10`) -- so `:A` is `A` but `:my_node` is `My Node`,
 # and matching that renaming is required to find a node at all. Both crates.io,
 # same versions as `reference/Bund/Cargo.toml:85-86`.
-#
-# **Not `algos`.** D38 pinned it for the graph family, but the two graph
-# goldens reach `graph!` and `graph.path`, neither of which uses it: `algos`
-# serves `graph.paths` (dijkstra), `graph.allpath` (johnson) and
-# `graph.transitiveclosure` (warshall), and no golden reaches those.
 convert_case = "0.7"
 fast_paths = "1.0"
+# The reference's own crates for `json.path`, `math.interpolation` and the
+# graph algorithms (`graph.paths` runs dijkstra, `graph.allpath` johnson,
+# `graph.transitiveclosure` warshall), pinned exactly to the versions the
+# oracle's lock resolves (D38). `algos` is a git dependency, pinned to the
+# revision the oracle links.
+jsonpath-rust = "=0.7.5"
+interp = "=2.1.2"
+algos = { git = "https://github.com/Brad-Edwards/algos.git", rev = "4c08437" }
 # The reference's string-algorithm crates, same versions as
 # `reference/Bund/Cargo.toml:44,126`. `distance` computes the edit distances a
 # program prints as numbers, and `srch` compiles the expression language
