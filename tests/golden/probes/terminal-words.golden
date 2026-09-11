@@ -1,0 +1,30 @@
+# golden for tests/probes/terminal-words.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: bund.prompt
+[BUND > 
+probe: io.banner draws a string
+
+
+ █▄▄ █ █ █▄ █ █▀▄
+ █▄█ █▄█ █ ▀█ █▄▀
+
+
+probe: io.banner. converts a number and takes it from the workbench
+
+
+ █ █ ▀█
+ ▀▀█ █▄
+
+
+probe: input at end of input pushes nothing
+probe: input* at end of input never runs its lambda
+done
+╭╮
+╰╯
+╭╮
+╰╯

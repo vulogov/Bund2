@@ -1,0 +1,10 @@
+# golden for tests/probes/bund-exit.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+3
+## output
+probe: exit inside a word stops everything after it
+before the call
+inside, before exit

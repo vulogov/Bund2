@@ -1,0 +1,20 @@
+# golden for tests/probes/sqlite-conditional.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: each row as a map, typed, with a NULL
+{ name=alice :: note=first :: ratio=0.5 :: score=10 }
+{ name=bob :: note=NODATA :: ratio=1.5 :: score=20 }
+{ name=carol :: note=last :: ratio=2.25 :: score=30 }
+probe: skip_first drops the leading rows
+{ name=carol }
+probe: a PRQL query
+{ name=bob :: score=20 }
+{ name=carol :: score=30 }
+╭╮
+╰╯
+╭╮
+╰╯

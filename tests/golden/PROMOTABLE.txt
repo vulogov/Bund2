@@ -3,7 +3,7 @@
 # declared effect. Anything absent is synced before, as an embedder's
 # native is. Written by BUND2_UPDATE_PROMOTABLE=1 cargo test -p
 # bund2-stdlib promotable; never edited by hand.
-# 221 of 259 fixed-effect natives reached.
+# 227 of 267 fixed-effect natives reached.
 !=
 *
 *.
@@ -37,6 +37,7 @@ args
 args.parse
 at
 attribute
+bund.prompt
 car
 car.
 cdr
@@ -61,6 +62,7 @@ convert.to_textbuffer
 convert.to_textbuffer.
 current
 curry
+debug.display_hostinfo
 debug.display_stack
 debug.display_workbench
 dict
@@ -89,6 +91,8 @@ graph.
 head
 id.ulid
 id.uuid
+io.banner
+io.banner.
 lambda
 lambda!
 len
@@ -212,6 +216,8 @@ string.wrap.english.
 swap
 swap_one
 sysinfo.version
+sysinfo.virtualization
+sysinfo.virtualization?
 tag
 tail
 text
@@ -228,6 +234,7 @@ var-
 #
 # Fixed-effect natives the palette never brought to `Ok`:
 # not reached: at.
+# not reached: csv
 # not reached: dup_many_in
 # not reached: dup_one_in
 # not reached: endcontext
@@ -256,6 +263,7 @@ var-
 # not reached: return_to
 # not reached: set,
 # not reached: set.,
+# not reached: sqlite
 # not reached: string.expressionmatch
 # not reached: string.expressionmatch.
 # not reached: swap_in

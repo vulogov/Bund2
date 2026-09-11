@@ -1,0 +1,22 @@
+# golden for tests/probes/csv-conditional.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: each row, typed
+[ alice ::  10 ::  true ::  0.5 :: ]
+[ bob ::  20 ::  false ::  1.5 :: ]
+[ carol ::  true ::  2.0 :: ]
+probe: one column, once
+[ 0.5 ::  1.5 ::  2.0 :: ]
+probe: no header, so every column is strings
+[ name ::  score ::  active ::  ratio :: ]
+[ alice ::  10 ::  true ::  0.5 :: ]
+[ bob ::  20 ::  false ::  1.5 :: ]
+[ carol ::  TRUE ::  2 :: ]
+╭╮
+╰╯
+╭╮
+╰╯
