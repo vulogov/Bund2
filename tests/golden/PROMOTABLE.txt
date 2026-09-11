@@ -3,7 +3,7 @@
 # declared effect. Anything absent is synced before, as an embedder's
 # native is. Written by BUND2_UPDATE_PROMOTABLE=1 cargo test -p
 # bund2-stdlib promotable; never edited by hand.
-# 227 of 267 fixed-effect natives reached.
+# 227 of 269 fixed-effect natives reached.
 !=
 *
 *.
@@ -271,5 +271,7 @@ var-
 # not reached: take
 # not reached: to_current
 # not reached: unwrap
+# not reached: url
+# not reached: url.
 # not reached: var?
 # not reached: wrap
