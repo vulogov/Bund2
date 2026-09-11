@@ -1,0 +1,49 @@
+//
+// PROBE: host words implemented but run by no other golden.
+//
+// Where a word's answer repeats, it is printed. The fs.ls family counts a
+// fixed tree (tests/probes/data/ls: a.txt, sub/, sub/b.txt), because the order
+// of a directory walk is the filesystem's (Bund/src/stdlib/functions/filesystem/ls.rs:55-65).
+// file. and url/url. read a file:// URL built from cwd, as the reference's
+// examples build their paths (filesystem/file.rs:15-78).
+//
+// Where the answer depends on the host or on chance, the word runs and its
+// value is dropped. The capture's closing stack dump still pins that each ran
+// without error and left the stack as its effect says.
+//
+"probe: fs.ls, fs.ls.files and fs.ls.dir count a fixed tree" println
+"tests/probes/data/ls" fs.ls len println drop
+"tests/probes/data/ls" fs.ls.files len println drop
+"tests/probes/data/ls" fs.ls.dir len println drop
+"probe: the workbench forms take the directory from the workbench and answer on the stack" println
+"tests/probes/data/ls" . fs.ls. len println drop
+"tests/probes/data/ls" . fs.ls.files. len println drop
+"tests/probes/data/ls" . fs.ls.dir. len println drop
+"tests/probes/data/ls" . ls. len println drop
+"probe: file. reads onto the workbench" println
+cwd "{A}/tests/probes/data/ls/a.txt" format . file. take println
+"probe: url and url. fetch a file:// URL" println
+cwd "file://{A}/tests/probes/data/ls/a.txt" format url println
+cwd "file://{A}/tests/probes/data/ls/a.txt" format . url. take println
+"probe: words whose answer depends on the host or on chance run, and are dropped" println
+fs.cwd drop
+0 sleep.seconds
+math.random.int drop
+sysinfo.virtualization drop
+sysinfo.virtualization? drop
+"bund2-probe" . system.setproctitle.
+string.random.fullname drop
+string.random.lastname drop
+string.random.ipv4 drop
+string.random.phone drop
+string.random.word drop
+string.random.password drop
+string.random.fullname. take drop
+string.random.lastname. take drop
+string.random.ipv4. take drop
+string.random.phone. take drop
+string.random.word. take drop
+string.random.password. take drop
+string.random.name. take drop
+3 . string.random.lorem. take drop
+"done" println

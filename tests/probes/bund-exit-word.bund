@@ -1,0 +1,8 @@
+//
+// PROBE: bund.exit by its own name (Bund/src/stdlib/functions/bund/bund_exit.rs:10-31).
+// bund-exit.bund runs it through its alias `exit`. With a code of 0 the
+// program ends there and the capture's epilogue never runs (D52).
+//
+"before bund.exit" println
+0 bund.exit
+"after bund.exit" println
