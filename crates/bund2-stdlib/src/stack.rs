@@ -732,6 +732,11 @@ mod tests {
         assert_eq!(i.pull().unwrap().as_int(), Some(9));
     }
 
+    /// The value arrives, and **the destination becomes current**: pushing to
+    /// a stack that does not exist yet creates it, and a created stack is
+    /// current (F89). That is the mechanism behind the reference's hang in
+    /// F70, which Bund2's snapshot drain survives. This test used to assert
+    /// that the current stack stayed empty, which pinned the divergence.
     #[test]
     fn move_sends_a_value_to_a_named_stack() {
         let mut i = interp();
@@ -739,7 +744,8 @@ mod tests {
         i.push(BundValue::str("side"));
         run(&mut i, "move").expect("move");
         assert_eq!(i.depth_of("side"), 1);
-        assert_eq!(i.depth(), 0);
+        assert_eq!(i.depth_of("main"), 0);
+        assert_eq!(i.current_name(), "side");
     }
 
     /// **F23's fix.** The reference's `rotate_stack_right` calls the left

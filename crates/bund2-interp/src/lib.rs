@@ -258,19 +258,22 @@ impl Stacks {
             .or_insert_with_key(|k| Stack::from_rc(Rc::clone(k)))
     }
 
-    /// The current stack's name as a shared handle, for the one caller that
-    /// needs to tag with it — `push_workbench`.
-    fn current_sym_and_name(&self) -> (bund2_value::StackSym, Rc<str>) {
-        let name = match self.order.front() {
-            Some(n) => Rc::clone(n),
-            None => Rc::from("main"),
-        };
-        let sym = self
-            .stacks
-            .get(&name)
-            .map(|s| s.sym)
-            .unwrap_or_else(|| bund2_value::intern_stack_name(&name));
-        (sym, name)
+    /// Put a newly created stack in the ring as the current one — **F89**.
+    ///
+    /// The reference appends a new stack to the back of its deque
+    /// (`reference/rust_multistack/src/ts_add.rs:14`) and reads the current
+    /// stack from the back (`reference/rust_multistack/src/ts_current.rs:7`),
+    /// so creating a stack makes it current. This deque keeps the current
+    /// stack at the front and the others after it in the reference's cyclic
+    /// order. Mirrored, the reference's append is two moves: the old current
+    /// goes from the front to the back, and the new name goes on the front.
+    /// A bare `push_front` gets the current stack right and the ring wrong, and
+    /// `stacks_right` then reaches a different stack than the reference's.
+    fn add_as_current(&mut self, name: Rc<str>) {
+        if !self.order.is_empty() {
+            self.order.rotate_left(1);
+        }
+        self.order.push_front(name);
     }
 
     /// Make a named stack current, creating it if needed.
@@ -283,7 +286,7 @@ impl Stacks {
             .entry(Rc::from(name))
             .or_insert_with_key(|k| Stack::from_rc(Rc::clone(k)));
         if !self.order.iter().any(|n| &**n == name) {
-            self.order.push_front(Rc::from(name));
+            self.add_as_current(Rc::from(name));
             return;
         }
         // **Bounded by the deque's length, so termination is structural.**
@@ -865,13 +868,23 @@ impl Vm for Interp {
         self.stacks.stacks.contains_key(name)
     }
 
+    /// **A stack this creates becomes current — F89.** The reference creates
+    /// through `add_named_stack`, which appends to the back of its deque
+    /// (`reference/rust_multistack/src/ts_add.rs:14`), and its current stack
+    /// *is* the back (`reference/rust_multistack/src/ts_current.rs:7`). A new
+    /// name goes in through `Stacks::add_as_current`, as `Stacks::to_stack`
+    /// puts one. A name that already exists is left where it is, as the
+    /// reference leaves it (`reference/rust_multistack/src/ts_ensure.rs:10-15`).
+    /// Every named push creates through here, as the reference's
+    /// `push_to_stack` does (`reference/rust_multistack/src/ts_push.rs:46`),
+    /// and F70 is the same mechanism seen through `move`.
     fn ensure_stack(&mut self, name: &str) {
         self.stacks
             .stacks
             .entry(Rc::from(name))
             .or_insert_with_key(|k| Stack::from_rc(Rc::clone(k)));
         if !self.stacks.order.iter().any(|n| &**n == name) {
-            self.stacks.order.push_back(Rc::from(name));
+            self.stacks.add_as_current(Rc::from(name));
         }
     }
 
@@ -1111,12 +1124,16 @@ impl Vm for Interp {
     }
 
     fn push_workbench(&mut self, v: BundValue) {
-        // The workbench "does not carry a specific name"
-        // (`…/Introduction_the_art_of_stack_operations.typ:72`), so the tag it
-        // receives is the stack the value came from — which is what makes a
-        // workbench value's tag a fossil rather than a location.
-        let (sym, name) = self.stacks.current_sym_and_name();
-        self.stacks.workbench.push_as(v, sym, &name);
+        // **As it arrives, untagged — F90.** The workbench "does not carry a
+        // specific name" (`…/Introduction_the_art_of_stack_operations.typ:72`),
+        // and the reference pushes to it with no `set_tag`
+        // (`reference/rust_multistack/src/ts_workbench.rs:25-28`). So a value
+        // moved off a stack keeps the tag that stack gave it, a fossil rather
+        // than a location, and a value made on the spot — a conversion's
+        // result, a match's answer — has none and renders `tags: {}`. Tagging
+        // here with the current stack gave the second kind a tag the
+        // reference never writes.
+        self.stacks.workbench.items.push_back(v);
     }
 
     fn pull_workbench(&mut self) -> Option<BundValue> {

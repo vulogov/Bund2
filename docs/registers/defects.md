@@ -2861,3 +2861,49 @@ general-category test, so a symbol outside those blocks is still reported as
 an anomaly. That errs towards reporting, never towards hiding a character the
 oracle rejects.
 
+## F89 — a stack Bund2 creates does not become current, where the reference's does
+
+**A Bund2 defect**, found by the probe `tests/probes/stack-words-by-name.bund`.
+
+The reference creates a stack through `add_named_stack`, which appends it to
+the back of its deque (`reference/rust_multistack/src/ts_add.rs:14`), and its
+current stack *is* the back
+(`reference/rust_multistack/src/ts_current.rs:7`). So `ensure_stack`, and its
+alias `stack`, make a new stack current, and so does every push to a named
+stack that does not exist yet, since `push_to_stack` creates through
+`ensure_stack` (`reference/rust_multistack/src/ts_push.rs:46`). F70 recorded
+this mechanism as the cause of `move`'s hang, but decided only the hang.
+Bund2's `ensure_stack` appended the name at the far end of its ring, so the
+current stack never changed: `"t" stack current` printed `main` where the
+oracle prints `t`.
+
+**Status:** FIXED 2026-09-10. Bund2's ring keeps the current stack at the
+front and the others after it in the reference's cyclic order, so the
+reference's append is two moves: the old current goes from the front to the
+back, and the new name goes on the front (`Stacks::add_as_current`,
+`crates/bund2-interp/src/lib.rs`). `Stacks::to_stack` now creates through the
+same helper. A first attempt put the new name on the front alone. That made
+the right stack current but got the ring wrong, and the captured golden
+`tests/probes/stack-navigation.bund` failed at once, because `stacks_right`
+reached a different stack than the oracle's. That is how the ring-order half
+was found. The unit test `move_sends_a_value_to_a_named_stack` had asserted
+that the current stack stayed put, which pinned the divergence. It now asserts
+that the destination becomes current. Conformance 79/86, ceiling 79/86.
+
+## F90 — Bund2 tags every value pushed to the workbench, where the reference tags none
+
+**A Bund2 defect**, found by the probe
+`tests/probes/workbench-string-variants.bund`.
+
+The reference pushes to the workbench with no `set_tag`
+(`reference/rust_multistack/src/ts_workbench.rs:25-28`). A value moved there
+from a stack keeps the tag that stack gave it, and a value made on the spot has
+none. `string.expressionmatch.`'s answer and `convert.to_textbuffer.`'s result
+render `tags: {}` in the oracle. Bund2's `push_workbench` tagged every value
+with the current stack's name, so both rendered `tags: {"stack": "main"}`.
+
+**Status:** FIXED 2026-09-10. `push_workbench` pushes the value as it arrives
+(`crates/bund2-interp/src/lib.rs`). A value from a stack still carries that
+stack's tag, because pulling never removes it. Conformance 79/86, ceiling
+79/86, before and after.
+
