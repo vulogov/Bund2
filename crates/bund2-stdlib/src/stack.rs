@@ -618,6 +618,8 @@ pub fn register(r: &mut Registry) {
 
     // D29: `<-` and `←` are registered aliases whose target was unreachable.
     // Reviving `stacks_left` is what makes them resolve for the first time.
+    // `reference/rust_multistackvm/src/stdlib/create_aliases.rs:36`.
+    r.register_alias("$", "take");
     r.register_alias("<-", "stacks_left");
     r.register_alias("←", "stacks_left");
     // The aliases the VM layer adds over these.

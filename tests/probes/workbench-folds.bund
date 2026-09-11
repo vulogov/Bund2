@@ -1,0 +1,24 @@
+//
+// PROBE: the rest of the `.` folds -- `**.`, `*-.`, `*/.` and `Σ.` -- and
+// `?false*.`, the workbench form of the non-negating `notifthenelse` (F97).
+//
+// A `.` fold pulls its accumulator from the workbench and every operand from
+// the stack, and puts the accumulator back on the workbench when the stack
+// runs out (reference/rust_multistackvm/src/stdlib/math/math_op.rs:22-76).
+// `take` brings it back to print. `Σ.` aliases `*+.`
+// (reference/rust_multistackvm/src/stdlib/create_aliases.rs:39), and
+// `?false*.` aliases `notifthenelse.`
+// (reference/rust_multistackvm/src/stdlib/create_aliases.rs:17). Its
+// condition is on the workbench, and true runs the lambda on top.
+//
+"probe: **. multiplies into the workbench accumulator" println
+2 3 4 . **. take println
+"probe: *-. subtracts, operands in the order - takes them" println
+10 3 1 . *-. take println
+"probe: */. divides" println
+100 2 5.0 . */. take println
+"probe: Σ. is *+." println
+1 2 3 . Σ. take println
+"probe: ?false*. takes its condition from the workbench and does not negate" println
+true . { "A" } { "B" } ?false*. println
+false . { "A" } { "B" } ?false*. println

@@ -3199,3 +3199,26 @@ graph goldens use string nodes and three-element edges.
 the exactly-three rule. The new `build_algos` port follows `make_graph`
 (`:78-141`) the same way. Unit tests in `graph.rs` cover both rules.
 Conformance 90/98, ceiling 90/98, before and after.
+
+## F102 — the alias `$` can never be called
+
+**An original-implementation defect, reproduced**, found while probing the last
+core aliases.
+
+The reference registers `$` as an alias of `take`
+(`reference/rust_multistackvm/src/stdlib/create_aliases.rs:36`). But `apply`
+tests a call's first character for `$` **before** it resolves aliases, and a
+`$` call means "the internal word named by the rest"
+(`reference/rust_multistackvm/src/multistackvm_apply.rs:30-35`).
+`call_internal_word` drops the first character and calls `i` on the remainder
+(`reference/rust_multistackvm/src/multistackvm_call_internal_word.rs:6-9`). For
+a bare `$` the remainder is the empty string, so `42 . $` fails with
+`i() for stack returned: Inline not registered`. Confirmed against the oracle
+on 2026-09-11. The alias is registered and dead.
+
+**Disposition: reproduce.** Bund2 separates the sigil in `Interner::lookup_call`
+(`crates/bund2-api/src/lib.rs`), so a bare `$` looks up the empty name and
+fails with `$ not registered`, which is the same outcome. Bund2 registers the
+alias anyway (`crates/bund2-stdlib/src/stack.rs`), as the reference does, so
+`bund2 words` lists it. No probe pins it, because the only observable result
+is an error, whose presentation differs by D36.
