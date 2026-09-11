@@ -1,0 +1,21 @@
+//
+// PROBE: save.model and load.model
+// (Bund/src/stdlib/functions/bund/bund_models.rs:10-122,
+// Bund/src/stdlib/helpers/world/models.rs:9-105).
+//
+// Each engine keeps its own kind of world file (SQLite in the reference, redb
+// in Bund2, D27), so the probe removes the file before and after itself: a
+// capture runs twice, and a model left from the first run would be loaded by
+// the second. load.model ignores the name it is given and pushes every model,
+// in the order they were saved (F110). A JSON value goes through the wire as a
+// wrapped string and comes back as JSON.
+//
+"bund2-probe-models.world" fs.rm drop
+"m1" [ 1 2.5 "x" ] "bund2-probe-models" save.model
+"m2" dict "a" 1 set "bund2-probe-models" save.model
+"m3" '{"k": [1, 2]}' json "bund2-probe-models" save.model
+"m4" "hello" "bund2-probe-models" save.model
+"probe: load.model under a name no model has pushes all four, in save order" println
+"no-such-model" "bund2-probe-models" load.model
+println println println println
+"bund2-probe-models.world" fs.rm drop

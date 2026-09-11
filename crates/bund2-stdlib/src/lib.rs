@@ -62,6 +62,8 @@ pub mod random;
 pub mod terminal;
 // `csv`, the data-file conditional.
 pub mod data;
+// The world file: `save.model` and `load.model`.
+pub mod world;
 
 /// Register everything this crate provides.
 pub fn register_all(r: &mut bund2_api::Registry) {
@@ -76,6 +78,7 @@ pub fn register_all_with(r: &mut bund2_api::Registry, opts: &host::HostOptions) 
     random::register(r);
     terminal::register(r, opts);
     data::register(r);
+    world::register(r, opts);
     stack::register(r);
     console::register(r);
     logic::register(r);
@@ -259,13 +262,15 @@ mod honesty_tests {
         // hand `fs.rm` real relative paths. Left unrun, they are not reached,
         // so promotion syncs before them as it does before an embedder's
         // native (D48, dated note 2026-09-11).
-        // `password` waits on the terminal for a line nobody will type.
-        const ACTS_ON_HOST: [&str; 5] = [
+        // `password` waits on the terminal for a line nobody will type, and
+        // `save.model` would write a world file for each palette string.
+        const ACTS_ON_HOST: [&str; 6] = [
             "fs.rm",
             "sleep.seconds",
             "system.setproctitle",
             "system.setproctitle.",
             "password",
+            "save.model",
         ];
         let natives: Vec<(String, bund2_api::StackEffect)> = setup
             .registry

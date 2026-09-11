@@ -156,6 +156,11 @@ graphitesql = "=0.1.7"
 # No default features: no TLS, so `https://` is refused until it is decided,
 # and nothing in the build compiles C.
 ureq = { version = "=3.4.0", default-features = false }
+# The world file (D27): redb, pure Rust and one file, where the reference
+# keeps a SQLite database. sanitize-filename is the reference's own cleaner for
+# the file's name, at its locked version (reference/Bund/Cargo.toml:33).
+redb = "=4.2.0"
+sanitize-filename = "=0.5.0"
 prqlc = "=0.13.14"
 bund2-value.workspace = true
 bund2-api.workspace = true

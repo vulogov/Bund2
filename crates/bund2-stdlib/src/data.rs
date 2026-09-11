@@ -309,12 +309,11 @@ fn prql_to_sql(query: &str) -> Result<String, Error> {
 
 /// One result cell as a Bund value (`conditional_sqlite.rs:152-172`).
 ///
-/// A BLOB is where the engines part (F109). The reference decodes the bytes
-/// with bincode as a serialised Bund value
-/// (`reference/rust_dynamic/src/bincode.rs:51-77`). Bund2 has the reference's
-/// wire types (`bund2_value::wire`), but nothing yet converts a wire value into
-/// a `BundValue`. So a non-NULL BLOB is refused with a reason, rather than
-/// decoded into something the reference would not produce.
+/// A BLOB is decoded as a serialised Bund value, as the reference decodes it
+/// (`reference/rust_dynamic/src/bincode.rs:51-77`), through the same wire
+/// conversion the world file uses (`bund2_value::wire`, F109). Bytes that are
+/// not a serialised value fail the query with the decoder's message, as the
+/// reference's `?` propagates it (`conditional_sqlite.rs:170`).
 fn sql_cell(v: &graphitesql::Value) -> Result<BundValue, Error> {
     use graphitesql::Value as V;
     Ok(match v {
@@ -324,12 +323,7 @@ fn sql_cell(v: &graphitesql::Value) -> Result<BundValue, Error> {
         V::Text(t) => BundValue::str(std::str::from_utf8(t.as_bytes()).map_err(|e| {
             Error(format!("CONTEXT.RUN error converting string data: {e}"))
         })?),
-        V::Blob(_) => {
-            return Err(Error(
-                "CONTEXT.RUN: a BLOB column holds a serialised Bund value in the reference, which Bund2 cannot decode"
-                    .into(),
-            ))
-        }
+        V::Blob(b) => bund2_value::wire::from_binary(b).map_err(Error)?,
     })
 }
 

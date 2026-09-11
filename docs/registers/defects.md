@@ -3351,3 +3351,31 @@ holds a serialised Bund value in the reference, which Bund2 cannot decode`
 (`crates/bund2-stdlib/src/data.rs`, `sql_cell`). The fix is the wire-to-value
 conversion, which the world file (D27) will need anyway. No golden reaches a
 BLOB: the probe's `tag` column is all NULL.
+
+**Status: FIXED 2026-09-11.** `bund2_value::wire` now converts both ways,
+between the reference's byte-identical wire value and `BundValue`
+(`WireValue::from_value`, `into_value`, `to_binary`, `from_binary`). Its tests
+decode seven values the oracle itself saved with `save.model`, taken from its
+SQLite world file, and check that re-encoding keeps every field but the id. A
+decoded value mints a fresh identity, which no golden can see (F14). `sqlite`'s
+`sql_cell` decodes a BLOB through it.
+
+## F110 — `load.model` ignores the model's name
+
+**An original-implementation defect, reproduced**, found while implementing the
+model words.
+
+`load.model` takes a world file and a model name, but the query it runs is
+`SELECT name, model FROM MODELS` with no condition
+(`reference/Bund/src/stdlib/helpers/world/models.rs:22`). It pushes every model
+in the world, in save order, and the name appears only in the error reported
+when there are none (`:69-71`). Confirmed against the oracle on 2026-09-11:
+seven models were saved as `m1` to `m7`, and `"anything" "tst" load.model`
+pushed all seven. Under `--noio`, `load.model`'s stub also reports
+`bund SAVE.MODEL functions disabled with --noio`
+(`reference/Bund/src/stdlib/functions/bund/bund_models.rs:128-130`).
+
+**Disposition: reproduce, both.** Bund2's `load_model` pushes every model in
+save order, and both stubs say `SAVE.MODEL`
+(`crates/bund2-stdlib/src/world.rs`). The probe
+`tests/probes/models-world.bund` records the first.
