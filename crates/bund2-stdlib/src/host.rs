@@ -87,7 +87,8 @@ fn args_parse(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
-fn guard(vm: &dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
+/// The reference's depth guard for a word with a stack and a workbench form.
+pub(crate) fn guard(vm: &dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
     if side.depth(vm) >= 1 {
         return Ok(());
     }

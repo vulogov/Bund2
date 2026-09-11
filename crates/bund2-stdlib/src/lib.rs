@@ -56,6 +56,8 @@ pub mod convert;
 pub mod report;
 // Script arguments, the filesystem, the clock, the process title, `io.graph`.
 pub mod host;
+// Ids, random integers and strings, and `generator`.
+pub mod random;
 
 /// Register everything this crate provides.
 pub fn register_all(r: &mut bund2_api::Registry) {
@@ -67,6 +69,7 @@ pub fn register_all(r: &mut bund2_api::Registry) {
 /// does.
 pub fn register_all_with(r: &mut bund2_api::Registry, opts: &host::HostOptions) {
     host::register(r, opts);
+    random::register(r);
     stack::register(r);
     console::register(r);
     logic::register(r);

@@ -1,0 +1,37 @@
+//
+// PROBE: the random words, where a golden can hold them.
+//
+// Ids are random, but their length is not
+// (Bund/src/stdlib/functions/string/any_id.rs:13-23). Four generator types
+// are fixed sequences from statrs, not draws
+// (Bund/src/stdlib/functions/generators/sawtooth.rs:23-51, and periodic.rs,
+// sinusoidal.rs and square.rs beside it), so their samples repeat exactly.
+//
+// generator.sample* steps a sequence one extra place after each batch
+// (sawtooth.rs:86-89), so the single sample after a batch skips a value (F107).
+//
+"probe: id.uuid is 36 characters and id.ulid 26" println
+id.uuid len println drop
+id.ulid len println drop
+"probe: a sawtooth with the defaults" println
+"saw" dict "type" "sawtooth" set generator
+"saw" generator.sample println
+"saw" generator.sample println
+"saw" 4 generator.sample* println
+"probe: the sample after a batch skips a value" println
+"saw" generator.sample println
+"probe: a sawtooth with its own period, high and low" println
+"saw2" dict "type" "sawtooth" set "Period" 4 set "High" 8.0 set "Low" 2.0 set generator
+"saw2" 6 generator.sample* println
+"probe: square, periodic and sinusoidal with their defaults" println
+"sq" dict "type" "square" set generator
+"sq" 4 generator.sample* println
+"per" dict "type" "periodic" set generator
+"per" 3 generator.sample* println
+"sin" dict "type" "sinusoidal" set generator
+"sin" 3 generator.sample* println
+"probe: a random draw is a float, whatever its value" println
+"norm" dict "type" "normal" set generator
+"norm" 3 generator.sample* len println drop
+"probe: string.random.lorem of zero words" println
+0 string.random.lorem println

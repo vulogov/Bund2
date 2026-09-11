@@ -117,6 +117,24 @@ fs_extra = "=1.3.0"
 spin_sleep = "=1.3.3"
 proctitle = "=0.1.1"
 rasciigraph = "=0.2.0"
+# The random words' crates, pinned the same way. uuid and ulid mint ids;
+# rand_mt (seeded by fastrand) backs `math.random.int` and rand_chacha
+# `math.securerandom.int`; fakeit, passwords and lipsum make the
+# `string.random.*` strings; statrs defines the `generator` distributions and
+# sequences. `rand` 0.8 is the one lipsum and statrs sample with, as the
+# reference's `thread_rng` is. statrs drops its default `nalgebra`, which no
+# generator uses.
+uuid = { version = "=1.25.0", features = ["v4", "fast-rng"] }
+ulid = "=1.2.1"
+rand_mt = "=4.2.2"
+fastrand = "=2.5.0"
+rand_core = { version = "=0.9.5", features = ["os_rng"] }
+rand_chacha = "=0.9.0"
+fakeit = "=1.4.1"
+passwords = "=3.1.18"
+lipsum = "=0.9.1"
+rand = "=0.8.7"
+statrs = { version = "=0.18.0", default-features = false, features = ["rand"] }
 bund2-value.workspace = true
 bund2-api.workspace = true
 bund2-ir.workspace = true

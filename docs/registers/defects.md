@@ -3255,3 +3255,57 @@ index is 0` and exits 101. A one-element list draws.
 `internal error: native io.graph panicked: …` through the reporter and exits 0
 (`crates/bund2-stdlib/src/host.rs`, `io_graph`). No chart is invented for
 these inputs, because the reference never draws one.
+
+## F105 — `generator` crashes on a parameter of the wrong kind
+
+**An original-implementation defect, not reproduced**, found while implementing
+the random words.
+
+`generator` reads its configuration's `type` with `cast_string().unwrap()`
+(`reference/Bund/src/stdlib/functions/generators/generator.rs:24-25`), and
+each kind reads its parameters with `cast_float().unwrap()` or
+`cast_int().unwrap()` (`reference/Bund/src/stdlib/functions/generators/normal.rs:24-25`,
+and the same in each sibling). A parameter of the wrong kind panics:
+`"Mean" 1 set` for a `normal` generator, where the default is the FLOAT `0.0`.
+Confirmed against the oracle on 2026-09-11: it prints ``called
+`Result::unwrap()` on an `Err` value: "This Dynamic type is not float: 2"``
+and exits 101.
+
+**Disposition: Bund2 reports it**, as it does for F68, where the reference also
+crashes. `generator` fails with `GENERATOR: parameter Mean must be a FLOAT, not
+2` (`crates/bund2-stdlib/src/random.rs`, `float_param`). No golden can hold a
+crash, so no conformance number moves.
+
+## F106 — `string.random.lorem` with a negative count runs out of memory
+
+**An original-implementation defect, not reproduced**, found while implementing
+the random words.
+
+The count is cast `n as usize`
+(`reference/Bund/src/stdlib/functions/string/random.rs:59-60`), so `-1` asks
+`lipsum` for nearly `usize::MAX` words, which it keeps allocating until the
+process dies. Not run against the oracle, because it would take the machine's
+memory with it.
+
+**Disposition: Bund2 refuses the count**, with `Error casting in
+STRING.RANDOM.LOREM: a word count cannot be negative, got -1`
+(`crates/bund2-stdlib/src/random.rs`, `lorem`), for the same reason as F105.
+`sleep.seconds` looks alike, but it is different (F103): a negative sleep only
+waits, which the reference really does, so that one is reproduced.
+
+## F107 — `generator.sample*` skips one value of a sequence after each batch
+
+**An original-implementation defect, reproduced**, found while implementing
+the random words.
+
+A sequence generator (`sawtooth`, `periodic`, `sinusoidal`, `square`) keeps a
+position. `generator.sample*` advances it once per value, and then once more
+after the loop (`reference/Bund/src/stdlib/functions/generators/sawtooth.rs:81-89`,
+and the same in each sequence file). So a batch followed by a single sample
+misses a value. Confirmed against the oracle on 2026-09-11 with
+`tests/probes/random-words.bund`. For the default sawtooth, `4
+generator.sample*` answers `0.111…` through `0.444…`, and the next
+`generator.sample` answers `0.666…`, skipping `0.555…`.
+
+**Disposition: reproduce.** The probe's golden captures it
+(`crates/bund2-stdlib/src/random.rs`, `generator_sample_n`).
