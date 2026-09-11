@@ -2779,6 +2779,12 @@ by hand, so a new host-acting native runs for real under `cargo test` until
 it is added. RFC-0005's criterion 28 now states both limits, this and that the
 list certifies the default registration (the eleventh review's S4).
 
+**Dated note, 2026-09-11 (third) — the list certifies more than a pair.**
+*Scope* above says the list "certifies a native's pair, not what else the
+native observes". Since D55 it certifies both: a native that D55's audit sees
+reading beyond its operands is kept off the list. RFC-0005's criterion 28 now
+says so (the twelfth review's S2).
+
 ## D49 — a panic in a native is caught where the native is called, in both tiers
 
 RFC-0005's tenth review, B2. D37 governs Bund2's code, not its dependencies,

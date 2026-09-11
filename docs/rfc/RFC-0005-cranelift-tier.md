@@ -95,6 +95,21 @@
   the palette's six unrun natives and that its list certifies the default
   registration, and §S7 cites *Q22 (cache)*.
 
+  The twelfth review's blocker is answered, with its significant items.
+  **B1**: the exit rule named the adapter and the resolving trampoline, and
+  the drain helper, a boundary but not a call, was one step further on: a
+  body ending in `bund.exit` returns `Ok` from `run_to`. Now every helper that
+  returns to compiled code makes its status through one function that consults
+  `exit_requested` first, so a helper added later cannot forget it (§S5,
+  *A call may end the program*; criterion 30 gains four cases held below the
+  threshold). **S1**: the re-entering set is found by a test,
+  `every_reentering_function_is_named`, which adds `!` and `execute` by name,
+  `apply`, `?.` and `?MOVE`; Tier 0's message names calls by name. **S2–S4**:
+  fifteen operand kinds, criterion 28's list certifies more than a pair since
+  D55, line 669's stop count is refreshed, the stops did not move with F111,
+  and assumptions 22–23 state the audit's skipped tuples and operand
+  positions.
+
   **Criterion 10 has a first measurement**, from a throwaway lowering outside
   this RFC's gate (2026-09-11, branch `spike/lowering-1`). With §S8's call
   boundary on every word and nothing inlined, `1 2 + drop` compiled runs
@@ -667,7 +682,7 @@ same constraint the type rule obeys, applied consistently.
 — "a `Fold` or an `Opaque` site bails to Tier 0" — was a forward-looking claim
 about this RFC, written before it existed. Read as a run-time bail it needs the
 OSR machinery §3.2b denies; read as whole-body exclusion it would refuse every body that branches or
-loops — control flow is 15 of the 74 first stops that §S6's *Where promotion
+loops — control flow is 26 of the 116 first stops that §S6's *Where promotion
 stops* counts. RFC-0004's amendment of 2026-09-09 withdraws it and points here.
 **This is not a deviation**: nothing a program does changes, and the health
 metric must still move by exactly zero.
@@ -759,26 +774,50 @@ exit` with exit code 3, would print `inside, after exit` under
 source calls `bund.exit` is covered already, since its next `Vm::apply` is
 refused and returns an error. The direct call is not.
 
-**The rule adds no cell. A recorded exit becomes the error status at the call
-that recorded it:**
-- the per-native adapter (§S8) checks `Vm::exit_requested` after the native
-  returns, and on `Some` parks `exit_gate`'s error in the error slot and
-  returns the error status, whatever the native returned;
-- the resolving trampoline does the same after `dispatch`, which does not pass
-  the gate either;
+**The rule adds no cell. A recorded exit becomes the error status at the
+helper that returns to compiled code.** Every Rust function that runs Bund
+code on compiled code's behalf and then returns to it turns its `Result` into
+the status through **one function**, `status_of`, which consults
+`Vm::exit_requested` before anything else. On `Some` it parks `exit_gate`'s
+error in the error slot and answers the error status, whatever the helper's
+own `Result` was. The helpers are:
+- the per-native adapter (§S8);
+- the resolving trampoline, after `dispatch`, which does not pass the gate;
+- §S5's drain helper, after `take_pending` and `run_to` (*A call may leave a
+  body to run*, below);
+- the residual path's `apply` (*What a promoted value must not change*,
+  below).
+
+And where Rust enters compiled code:
 - the entry trampoline refuses to start a body once an exit is recorded, as
   `Vm::eval_lambda` does before its cache lookup;
 - the frame loop's compiled entry sits behind `apply_step`'s gate.
 
+**One function, not a list, is what closes the set** (the twelfth review's
+B1). The eleventh review's answer named the adapter and the resolving
+trampoline. The drain helper, a boundary but not a call, was one step further
+on. Tier 0's `Interp::run_to` pops a finished frame with no gate, so when
+`bund.exit` is the last word of a body, `run_to` returns `Ok`; Tier 0 stops
+only because its next action is an `apply_step`
+(`crates/bund2-interp/src/lib.rs`, `run_to`). Compiled code's next action
+after a drain is its own next op. In
+`3 { "tick" println true { "bye" println 7 exit } if "after if" println } times`,
+with the loop body compiled and the branch still interpreted, a drain that
+returned success would print `after if` where Tier 0 exits 7. `bund2-jit`
+defines `status_of` once and gives the helpers no other way to make a status,
+so a helper added later cannot forget the check.
+
 Compiled code's existing error path does the rest. It syncs every promoted
 value and returns (*What a promoted value must not change*, below), and in
-tail position the status travels with the return, so no body runs another op
-after the exit. At the top the embedder reads `exit_requested` and ends the
-program as Tier 0's does. The cost is one load and compare inside the adapter,
-which is Rust already, and nothing in compiled code. The alternative, an exit
-cell read after every call, would be a fourth per-call check under criterion
-17, and in tail position the entry would have to read it instead of the body.
-The status costs less and cannot be skipped.
+tail position the status travels with the return, so no compiled op runs after
+the helper that saw the exit returns. At the top the embedder reads
+`exit_requested` and ends the program as Tier 0's does. The cost is one load
+and compare in `status_of`, which is Rust already, and nothing in compiled
+code. The alternative the twelfth review also offered, an exit cell read after
+every call, needs no enumeration. But it is a fourth per-call check under
+criterion 17, and in tail position the entry would have to read it instead of
+the body. One status-making function closes the set as surely, at no cost in
+compiled code.
 
 A fixed-effect native may not request an exit: the effect audit records one
 that does, as it records a tail request (`Interp::request_exit`). Only
@@ -1431,7 +1470,9 @@ every body that branches or loops.
 **All 21 are names Bund2 does not register at all**: `classifier` 4,
 `sample.analysis`, `internaldb.execute`, `global` and `console.spinner` 2 each,
 and nine singletons from the postponed console, database and AI vocabulary.
-`generator` and `cwd`, 24 of the morning's 48, are registered now. "No effect" there means *no binding at analysis time*, and D16 says
+`generator` and `cwd`, 24 of the morning's 48, are registered now. Re-derived
+again after F111 made six named-stack words opaque, every figure here is
+unchanged: no program reaches the six. "No effect" there means *no binding at analysis time*, and D16 says
 a binding may still arrive at run time; that is why criterion 13 treats an
 absent effect as `Opaque` rather than as zero.
 
@@ -1889,15 +1930,25 @@ the limit. Two rules close it:
   off, and `δ_p` what it spends more beneath the floor with the tier on. The
   paths are every way a native re-enters evaluation, and **the set is derived,
   not listed**, because a list went stale within a day (the eleventh review's
-  S1): every `bund2-stdlib` function that calls `Vm::eval_lambda`,
-  `Vm::apply` or `Vm::scoped_call`, found by a source scan as criterion 25
-  finds `Error` reports, plus §S5's drain helper. On 2026-09-11 that is
-  `times`, `loop`, `map`, `while`, `for`, `*loop`, `input*`, the conditionals,
-  `?try` and the method paths through `Vm::eval_lambda`, `context` through
-  `Vm::scoped_call`, and **`eval_source`** — `bund.eval`, `!!` and `use` —
-  through `Vm::apply`. `eval_source` is a path of its own: a Rust frame, a
-  parse and a loop per level, so its `c_p` is not `Vm::apply`'s alone.
-  Criterion 11 reports `c_p` and `δ_p` for each. Then Tier 0's part is
+  S1), and its prose replacement missed four more (the twelfth's S1). The set
+  is every `bund2-stdlib` function that calls `Vm::eval_lambda`, `Vm::apply`
+  or `Vm::scoped_call`. The test `every_reentering_function_is_named`
+  (`crates/bund2-stdlib/src/lib.rs`) finds it by a source scan, as criterion
+  25's finds `Error` reports, and fails until a new re-entering function is
+  named, so the set cannot go stale. Add §S5's drain helper. On 2026-09-11 the
+  scan finds 21:
+  - through `Vm::eval_lambda`: the loop words (`times`, `loop`, `map`,
+    `while`, `for`, `*loop`, `input*`), the conditional runners, the method
+    paths, and `?.` and `?MOVE` (`conditional_move`);
+  - through `Vm::scoped_call`: `context`;
+  - through `Vm::apply`: **`eval_source`** (`bund.eval`, `!!`, `use`),
+    **`execute_value`** (`!` and `execute` handed a name), **`apply`**, and
+    `text`, which applies a TEXTBUFFER and so cannot recurse.
+
+  `eval_source` and `execute_value` are paths of their own. Each adds its own
+  frame, and `eval_source` a parse and a loop, to `Vm::apply`'s, so their
+  `c_p` is not `Vm::apply`'s alone. Criterion 11 reports `c_p` and `δ_p` for
+  each. Then Tier 0's part is
   `8 MiB + m`, with `m ≥ 8 MiB × max_p(δ_p / c_p)`, and the level with the tier
   on cannot be lower whatever holds the share. An earlier revision took `c` and
   `δ` from `loop` alone, and the native with the smallest `c` need not be
@@ -1971,12 +2022,14 @@ guard*, above). That is a D37 violation with no tier involved at all.
 The Tier 0 floor is its fix. `Vm::eval_lambda`, `Vm::apply` and
 `Vm::scoped_call` check it before re-entering evaluation, and below it they
 return a Bund-level error — reported through `Vm::report` like any other, and
-catchable by `?try` — that names the cause: recursion through `times`, `loop`,
-`map`, `while`, `for`, `*loop`, a conditional, `?try`, a method, `bund.eval` or
-`use` runs on the machine stack, and recursing directly runs on the heap
-instead. (Until the eleventh review the message stopped at the method, so
-recursion through `bund.eval` was blamed on the wrong words;
-`Error::stack_exhausted`, `crates/bund2-api/src/lib.rs`.) **This half does not depend on Tier 1, and
+catchable by `?try` — that names the cause: recursion through a word that
+runs a lambda, evaluates source or calls a word by name — `times`, `loop`,
+`map`, `while`, `for`, `*loop`, a conditional, `?try`, a method, `!` or
+`execute` handed a name, `apply`, `bund.eval` or `use` — runs on the machine
+stack, and recursing directly runs on the heap instead. (The message was
+widened twice: after the eleventh review for `bund.eval`, and after the
+twelfth for `!` by name; `Error::stack_exhausted`,
+`crates/bund2-api/src/lib.rs`.) **This half does not depend on Tier 1, and
 it landed on 2026-09-10**, ahead of this RFC's acceptance. `bund2` spawns its
 evaluation thread at 8 MiB plus the 256 KiB reserve, every `Interp::new` takes
 its floor from the declared region, and `Error::context` passes the exhaustion
@@ -1990,7 +2043,8 @@ the tier.
 
 *Added 2026-09-10. The seventh review listed six assumptions the text relied on
 without stating them, the eighth review five more, and the tenth seven more,
-answered in 7 and 14–18. The eleventh named three more, answered in 19–21.* Each is stated here,
+answered in 7 and 14–18. The eleventh named three more, answered in 19–21,
+and D55 and the twelfth review two more, 22 and 23.* Each is stated here,
 with the place that enforces or decides it.
 
 1. **One compiled cache, one `JITModule`, one set of cells and one fragment
@@ -2014,7 +2068,7 @@ with the place that enforces or decides it.
    against a saturated slot, is synced before (§S5).
 7. **Every native promotion crosses has an honest declared effect.** It runs
    no body and moves the current stack by its pair. Criterion 24 checks this
-   over the corpus, and criterion 28's palette over fourteen operand kinds and
+   over the corpus, and criterion 28's palette over fifteen operand kinds and
    the workbench. Promotion crosses only the natives that palette brought to
    `Ok` (D48). Natives from any other crate are not trusted at all (D47).
 8. **No `bund2-stdlib` native reports at `Error` severity mid-body.**
@@ -2046,13 +2100,16 @@ with the place that enforces or decides it.
     leave a body to run*).
 18. **No native leaves a tail request behind when it fails.** Enforced by
     F96's fix, and a refused drain clears the cell too (§S5).
-19. **Every way a program stops is visible to compiled code at the call that
-    caused it.** A failed `Result` is, through the status. `bund.exit` is not
-    by itself, since it returns `Ok` and Tier 0 stops only at its next step,
-    so the adapter and the resolving trampoline turn a recorded exit into the
-    error status (§S5, *A call may end the program*); criterion 30. Today
-    `exit_gate` is the only state Tier 0 gates per step rather than returns
-    per call, and a second would need the same treatment.
+19. **Every way a program stops is visible to compiled code at the helper that
+    returns to it.** A failed `Result` is, through the status. `bund.exit` is
+    not by itself, since it returns `Ok`, Tier 0 stops only at its next step,
+    and a body ending in it returns `Ok` from `run_to`. So every helper that
+    runs Bund code for compiled code makes its status through one function
+    that consults `exit_requested` first: the adapter, the resolving
+    trampoline, the drain helper and the residual path's `apply` (§S5, *A call
+    may end the program*); criterion 30. Today `exit_gate` is the only state
+    Tier 0 gates per step rather than returns per call, and a second would
+    need the same treatment.
 20. **`PROMOTABLE.txt` certifies the default registration.** It names
     natives, and `--noio` and `--noeval` register failing stubs under the same
     names. D47's id set comes from the registration actually made, and a stub
@@ -2066,7 +2123,16 @@ with the place that enforces or decides it.
     either by returning something different when the values beneath it
     change, or by reading the whole stack or workbench, or a stack's depth by
     name. A native that reads `depth()` and only prints it does neither, and
-    is not caught; none is known (criterion 14).
+    is not caught; none is known (criterion 14). The comparison also skips any
+    operand tuple holding a lambda or an object, whose display carries an id
+    and a stamp (F14); the breach, observation and padding checks still run on
+    those. So a native that observes only when handed a lambda, as `curry`
+    takes one, is compared on its other tuples alone.
+23. **A stack-name operand is among the top two.** The palette varies only
+    the top two operands, and deeper ones are always `7`, so a name in third
+    place or lower is never `"main"`. That holds for every fixed-effect native
+    that takes a name today, all of which consume at most two operands.
+    Nothing enforces it for the next one (criterion 28).
 
 # S9. Tier pinning
 
@@ -2147,7 +2213,7 @@ disagrees with interpreted code", and each has a named guard:
 | a **type** specialisation taking a path the interpreter would not | guard-and-branch, generic counterpart in the same function (§S5) |
 | a compiled call running under `autoadd`, where the reference would collect the name instead | entry guard on the flag, and a per-site check at every inlined fragment; `:` and `;` are opaque sites (§S4, §S6); criterion 18 |
 | **a promoted recursion overflowing the machine stack where Tier 0 runs it on the heap** | a stack floor Bund2 measures on a thread it spawns, compared against `get_stack_pointer` at every compiled body's entry; below it the body declines along the path an interpreted body takes (§S8); `cargo xtask depth` at 100,000 with the feature on, criterion 11 |
-| **native-mediated recursion overflowing the machine stack in Tier 0 itself** — through `times`, `loop`, `map`, a conditional, `?try` or a method — which aborted until 2026-09-10 (F85) | the Tier 0 floor, built, and checked wherever a native re-enters evaluation; below it a Bund-level error, never an abort from evaluation nesting (§S8). A native recursing in Rust on the depth of its data is outside that guarantee (*What this design assumes*, 4); criterion 11's `loop` axis |
+| **native-mediated recursion overflowing the machine stack in Tier 0 itself** — through a word that runs a lambda, evaluates source or calls a word by name, the set `every_reentering_function_is_named` finds (§S8) — which aborted until 2026-09-10 (F85) | the Tier 0 floor, built, and checked wherever a native re-enters evaluation; below it a Bund-level error, never an abort from evaluation nesting (§S8). A native recursing in Rust on the depth of its data is outside that guarantee (*What this design assumes*, 4); criterion 11's `loop` axis |
 | the tier taking stack that Tier 0's native nesting would have had | the thread is sized at Tier 0's part plus Tier 1's share, and compiled frames start only above the Tier 1 floor, so Tier 0 never has less room with the tier on (§S8); criterion 11 checks that the `loop` level is no lower with the feature on |
 | the level at which `machine stack exhausted` is reported, which moves with the build profile and with the feature | not meaning (D44): never an abort, and never lower with the tier on; criterion 11 |
 | a value synced back from a `Variable` losing its D41 stack symbol, so a golden renders `tags: {}` | the sync writes through the same path `Stack::push` uses, not a bare `push_back` (§S5); criterion 12 |
@@ -2170,7 +2236,7 @@ disagrees with interpreted code", and each has a named guard:
 | the lowering and `frag::run` disagreeing about what a fragment means | criterion 16's third leg, required before a lowering ships |
 | a body entered through a loop word, conditional or method path never reaching the tier, because no `Rc` survived to the entry | D42: `Vm::eval_lambda` and `Vm::tail_lambda` take the value, and the frame holds it; criterion 20. `Vm::scoped_call` is the exception: its body is a LIST built per call, so a `context` body has no key and stays at Tier 0 (§S3) |
 | a **current-stack switch** mid-body — `to_stack`, `to_current`, `stacks_left`, `stacks_right`, `endcontext`, a scoped conditional, a CONTEXT literal — while values are promoted | the current-stack epoch, re-read after every call, and a static barrier at a CONTEXT literal; the residual path syncs each value to the stack it came from (§S5); criterion 21 |
-| a named-stack word — `swap_in`, `rotate_stack_*` — reaching the current stack by name while promotion holds its values | a promotion barrier. The palette includes the current stack's name, so D55's differential sees such a word change what it leaves when the values beneath change, and the observation audit records `depth_of`; D55 keeps these natives off `PROMOTABLE.txt` (its first run found `rotate_stack_left` and `rotate_stack_right`, and F111's six miscounted pairs); criterion 14 |
+| a named-stack word — `swap_in`, `rotate_stack_*` — reaching the current stack by name while promotion holds its values | a promotion barrier. The palette includes the current stack's name, so D55's differential sees such a word change what it leaves when the values beneath change, and the observation audit records `depth_of`; D55 keeps these natives off `PROMOTABLE.txt` (its first run found `swap_in`, `rotate_stack_left` and `rotate_stack_right`, and F111's six miscounted pairs); criterion 14 |
 | `autoadd` turned on mid-body, when the reference collects literals as well as calls, and pushes a CONTEXT value rather than switching to it | re-read after every call; the residual path applies the rest through `apply` (§S5); criterion 18, against a reference-captured probe |
 | unregistering a lambda that shadowed a native | the call slot is rewritten to the revealed native, not stubbed (§S4) |
 | a compiled body substituted at `eval_lambda`, whose errors Tier 0 wraps as `Lambda content evaluation returned error: …` and `times` wraps again as `TIMES: lambda execution returns error: …` | the compiled body returns its error unwrapped and the entry wraps it, so both prefixes come from the same code whichever tier ran (`Vm::eval_lambda`; `times_base` in `crates/bund2-stdlib/src/seq.rs`) |
@@ -2179,7 +2245,7 @@ disagrees with interpreted code", and each has a named guard:
 | a body compiled under one `Interp` and run by another on the same thread | one cache, `JITModule`, set of cells and fragment table per `Interp`, so another `Interp`'s code is never found (§S6, *Addressing*); criterion 23 |
 | **a lambda callee whose inferred effect changes**, because a word its body calls is rebound before the call or by the callee during it | nothing stays promoted across a call that resolves to a lambda (D46, §S5); criteria 5 and 22 |
 | **a native whose declared effect hides a body it runs** — `execute.` until F87, `object` and `display` until F91 | every native that runs a body declares `StackEffect::opaque`, checked by criterion 24's audit over the corpus, and by criterion 28's palette for the words and arms the corpus never reaches |
-| **a native whose declared pair miscounts the current stack** — `clear`, `fold`, `move`, `dup_many`, `format`, `pull`, `fold_stack`, `swap_in`, `print.` and `println.` until F92, `drop_stack` until F94 | criterion 24's audit compares each fixed-effect native's depth change with its pair, as RFC-0004 §S1 reads it, and criterion 28's palette does the same over fourteen operand kinds and the workbench; promotion crosses only the natives the palette brought to `Ok` (D48) |
+| **a native whose declared pair miscounts the current stack** — `clear`, `fold`, `move`, `dup_many`, `format`, `pull`, `fold_stack`, `swap_in`, `print.` and `println.` until F92, `drop_stack` until F94 | criterion 24's audit compares each fixed-effect native's depth change with its pair, as RFC-0004 §S1 reads it, and criterion 28's palette does the same over fifteen operand kinds and the workbench; promotion crosses only the natives the palette brought to `Ok` (D48) |
 | **a native reporting at `Error` severity mid-body**, under a reporter that wants fatal snapshots | no shipped `bund2-stdlib` code reports at `Error`, checked by a source scan (criterion 25); no other crate's native is promoted across (D47) |
 | **a native `bund2-stdlib` did not register** — an embedder's, or an external package's under D9 — whose declared effect nothing checks | promotion crosses only natives whose registration id `bund2-stdlib` made (D47, §S5); criterion 27 |
 | **a body a call asked the loop to run** — `!` on a lambda, `if`, `ifthenelse`, a lambda call — running after the next value, or overwritten by a later request | the request cell, read after every call, with a drain for a non-tail call, a hand-back for a tail call, and an internal error if a request is ever pending when a call starts (§S5); criterion 26 |
@@ -2192,7 +2258,7 @@ disagrees with interpreted code", and each has a named guard:
 | **the call boundary itself**: a `NativeFn` whose ABI and `Result` CLIF cannot carry | a context pointer and an integer status under `CallConv::Tail`, a Rust adapter per native, `Tail` thunks in the slots, and a C-convention entry trampoline (§S8); criteria 4 and 29 |
 | **a stale tail request** left by a native that failed after filing it | `Interp::invoke` clears it (F96), and a refused drain clears the cell (§S5); criterion 26 |
 | **native nesting through a word other than `loop`**, whose per-level cost makes the margin too small | `m` is set from the largest `δ_p / c_p` over every re-entering path, a set derived by source scan rather than listed (§S8); criterion 11 |
-| **a program ended by `bund.exit` (D52) while a compiled body runs** — the native returns `Ok`, and Tier 0 stops only at its next step, which compiled code does not take | the adapter and the resolving trampoline turn a recorded exit into the error status, the entry trampoline refuses to start a body, and compiled code's error path syncs and returns (§S5, *A call may end the program*); the effect audit records a fixed-effect native that requests an exit; criterion 30 |
+| **a program ended by `bund.exit` (D52) while a compiled body runs** — the native returns `Ok`, and Tier 0 stops only at its next step, which compiled code does not take | every helper that returns to compiled code — the adapter, the resolving trampoline, the drain helper and the residual path's `apply` — makes its status through one function that turns a recorded exit into the error status, the entry trampoline refuses to start a body, and compiled code's error path syncs and returns (§S5, *A call may end the program*); the effect audit records a fixed-effect native that requests an exit; criterion 30 |
 
 ## Alternatives considered
 
@@ -2577,8 +2643,9 @@ evidence, and this one is listed as runnable rather than as met.
     with nothing compiled above it, so it cannot show this.
 
     **Every re-entering path, not `loop` alone**, for the tenth review's S2.
-    The run reports `c_p` and `δ_p` for each path §S8 lists, and `m` is set
-    from the largest ratio.
+    The run reports `c_p` and `δ_p` for each path in the set
+    `every_reentering_function_is_named` finds (§S8), plus the drain helper,
+    and `m` is set from the largest ratio.
 
 12. **A synced value keeps its stack tag.** §S5's rule writes promoted values
     back to the real stack; **D41 put the stack tag inside the value for
@@ -2883,7 +2950,8 @@ evidence, and this one is listed as runnable rather than as met.
     calls, declared `1 -> 0` while removing the whole current stack (F94). So
     `every_fixed_effect_native_keeps_its_pair_over_the_promotable_palette`
     (`crates/bund2-stdlib/src/lib.rs`) runs every fixed-effect native under
-    the effect audit against fourteen operand kinds. The top two operands take
+    the effect audit against fifteen operand kinds, the current stack's name
+    among them (D55). The top two operands take
     every pair of kinds. A workbench form also runs with every kind on the
     workbench. The test asserts two things: no run breaches its declared
     effect, and the natives some run brought to `Ok` are exactly those
@@ -2892,9 +2960,9 @@ evidence, and this one is listed as runnable rather than as met.
     218 of 263 after D55 and F111 (the list's own header line), which read
     227 of 269 earlier on 2026-09-11.
     **Mutation-checked**: before F94's fix it named `drop_stack` and nothing
-    else, "declares (1, 0) and moved `main` from 4 to 0". The list certifies
-    a pair, not what else a native observes, so a Q34 observer is still
-    criterion 14's. Runs today: `cargo test -p bund2-stdlib promotable`.
+    else, "declares (1, 0) and moved `main` from 4 to 0". Since D55 the list
+    certifies both a native's pair and that D55's audit saw it read nothing
+    beyond its operands (criterion 14). Runs today: `cargo test -p bund2-stdlib promotable`.
 
     **Two limits, stated for the eleventh review's S4.** First, six natives
     that act on the host are never run: `fs.rm`, `sleep.seconds`,
@@ -2929,7 +2997,19 @@ evidence, and this one is listed as runnable rather than as met.
     `bund.exit` directly, through the alias `exit`, and in tail position, each
     followed by a call and by an inlined `+`. Output, exit code and final
     stacks must match Tier 0's. It fails for an adapter that returns success
-    after a recorded exit (§S5, *A call may end the program*). The audit's
+    after a recorded exit (§S5, *A call may end the program*).
+
+    **Four more cases, for the twelfth review's B1.** Each is followed by a
+    `println`, and each runs with the callee held **below the compile
+    threshold**, since threshold 1 compiles the callee and hides the defect:
+    - a compiled caller of a cold lambda whose last word is `exit`;
+    - the same reached as an `if` branch, as in
+      `3 { "tick" println true { "bye" println 7 exit } if "after if" println } times`;
+    - a body on the residual path whose last value is `exit`;
+    - a callee that declines below the Tier 1 floor.
+
+    Each fails for a helper that makes its status other than through
+    `status_of`. The audit's
     half runs today: a fixed-effect native that requests an exit is a breach,
     `an_exit_requested_under_a_fixed_effect_is_a_breach`
     (`crates/bund2-interp/src/lib.rs`). The compiled half needs a tier.

@@ -3413,3 +3413,6 @@ depends on the name it is given.
 **Status:** FIXED 2026-09-11 (`crates/bund2-stdlib/src/stack.rs`). The
 palette passes. `bund2 check` now stops at these six, so RFC-0005's promotion
 stops are re-derived with them.
+
+**Note, 2026-09-11:** re-derived after this fix, the stops are unchanged, at
+189 programs and 137 = 116 + 21, because no program reaches the six.

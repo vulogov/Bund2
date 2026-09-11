@@ -365,11 +365,12 @@ impl Error {
     /// catchable by `?try`.
     pub fn stack_exhausted() -> Self {
         Error(format!(
-            "{STACK_EXHAUSTED}recursion through a word that runs a lambda or evaluates \
-             source — `times`, `loop`, `map`, `while`, `for`, `*loop`, a conditional, \
-             `?try`, a method, `bund.eval` or `use` — spends machine stack at every level, \
-             and this recursion ran out of it. A word that calls itself directly runs on \
-             the heap instead and has no such limit."
+            "{STACK_EXHAUSTED}recursion through a word that runs a lambda, evaluates \
+             source or calls a word by name — such as `times`, `loop`, `map`, `while`, \
+             `for`, `*loop`, a conditional, `?try`, a method, `!` or `execute` handed a \
+             name, `apply`, `bund.eval` or `use` — spends machine stack at every level, and \
+             this recursion ran out of it. A word that calls itself directly runs on the \
+             heap instead and has no such limit."
         ))
     }
 

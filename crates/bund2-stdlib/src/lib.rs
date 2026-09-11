@@ -611,4 +611,85 @@ mod honesty_tests {
         }
         assert!(found.is_empty(), "reports at Error severity: {found:?}");
     }
+
+    /// **Criterion 11's path set — RFC-0005 §S8, the twelfth review's S1.**
+    /// Every function in this crate whose shipped code calls `Vm::eval_lambda`,
+    /// `Vm::apply` or `Vm::scoped_call`. Each re-enters evaluation and spends a
+    /// Rust frame per level, so each is a path criterion 11 measures `c_p` and
+    /// `δ_p` over. A new re-entering function fails this test until it is
+    /// named below, so the set cannot go stale the way a list kept in prose
+    /// did, twice. A source scan, cut at each file's test module as criterion
+    /// 25's is; a closure counts under the function it is written in.
+    #[test]
+    fn every_reentering_function_is_named() {
+        const REENTERING: [&str; 21] = [
+            "conditional.rs: run_context",
+            "conditional.rs: run_error",
+            "conditional.rs: run_ifthenelse",
+            "conditional.rs: run_through",
+            "conditional.rs: run_tryexcept",
+            "control.rs: for_base",
+            "control.rs: while_base",
+            "data.rs: run_csv",
+            "data.rs: run_sqlite",
+            "oop.rs: dispatch_method",
+            "oop.rs: run_init",
+            "seq.rs: loop_base",
+            "seq.rs: loop_over_base",
+            "seq.rs: map_base",
+            "seq.rs: times_base",
+            "singles.rs: apply",
+            "singles.rs: conditional_move",
+            "singles.rs: eval_source",
+            "terminal.rs: input_loop",
+            "values.rs: execute_value",
+            // `text`, a closure in the registration: it applies a TEXTBUFFER,
+            // which pushes, so it cannot recurse.
+            "values.rs: register_words",
+        ];
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut found = std::collections::BTreeSet::new();
+        for entry in std::fs::read_dir(&src).expect("src exists") {
+            let path = entry.expect("entry").path();
+            if path.extension().is_none_or(|x| x != "rs") {
+                continue;
+            }
+            let file = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default()
+                .to_string();
+            let text = std::fs::read_to_string(&path).expect("reads");
+            let shipped = text.split("#[cfg(test)]\nmod ").next().unwrap_or_default();
+            let mut current = String::new();
+            for line in shipped.lines() {
+                let t = line.trim_start();
+                if t.starts_with("//") {
+                    continue;
+                }
+                for prefix in ["pub(crate) fn ", "pub fn ", "fn "] {
+                    if let Some(rest) = t.strip_prefix(prefix) {
+                        current = rest
+                            .split(['(', '<'])
+                            .next()
+                            .unwrap_or_default()
+                            .to_string();
+                        break;
+                    }
+                }
+                if [".eval_lambda(", ".apply(", ".scoped_call("]
+                    .iter()
+                    .any(|m| line.contains(m))
+                {
+                    found.insert(format!("{file}: {current}"));
+                }
+            }
+        }
+        let named: std::collections::BTreeSet<String> =
+            REENTERING.iter().map(|s| (*s).to_string()).collect();
+        assert_eq!(
+            found, named,
+            "criterion 11's path set and the functions that re-enter evaluation differ"
+        );
+    }
 }
