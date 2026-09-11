@@ -154,6 +154,58 @@ fn loop_wb(vm: &mut dyn Vm) -> Result<(), Error> {
     loop_base(vm, crate::wb::Side::Bench)
 }
 
+/// `*loop` — run a lambda over the current stack until it is empty or reaches
+/// a NODATA, which it consumes
+/// (`reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:51-101`).
+///
+/// The lambda runs with the stack as it finds it; it is the lambda's job to
+/// consume. One that consumes nothing spins in the reference, and Bund2 cannot
+/// stop it without changing what the program means. So, as `while` does, it
+/// reports once at ten million turns (D39).
+fn loop_over(vm: &mut dyn Vm) -> Result<(), Error> {
+    loop_over_base(vm, "*LOOP")
+}
+
+/// `*loop.` — **the lambda still comes off the stack.** F78: the reference's
+/// `stdlib_logic_loop_over_workbench` passes `StackOps::FromStack`
+/// (`loop_fun.rs:115-117`), so the word is `*loop` with a different prefix.
+fn loop_over_wb(vm: &mut dyn Vm) -> Result<(), Error> {
+    loop_over_base(vm, "*LOOP.")
+}
+
+fn loop_over_base(vm: &mut dyn Vm, prefix: &str) -> Result<(), Error> {
+    if vm.depth() < 1 {
+        return Err(Error(format!("Stack is too shallow for inline {prefix}()")));
+    }
+    let lambda_val = vm
+        .pull()
+        .ok_or_else(|| Error(format!("{prefix} returns: NO DATA #1")))?;
+    if lambda_val.dt() != LAMBDA {
+        return Err(Error(format!("{prefix}: #1 parameter must be lambda")));
+    }
+    const CHATTER_AT: u64 = 10_000_000;
+    let mut turns: u64 = 0;
+    loop {
+        match vm.peek() {
+            None => return Ok(()),
+            Some(v) if v.dt() == bund2_value::NODATA => {
+                vm.pull();
+                return Ok(());
+            }
+            Some(_) => {}
+        }
+        turns += 1;
+        if turns == CHATTER_AT {
+            vm.report(bund2_api::diag::Diagnostic::warning(format!(
+                "`{}` has run {CHATTER_AT} iterations. It stops when the stack is empty or reaches NODATA, so its lambda must consume what it is handed.",
+                prefix.to_lowercase()
+            )));
+        }
+        vm.eval_lambda(&lambda_val)
+            .map_err(|e| e.context(format!("{prefix}: lambda execution returns error: ")))?;
+    }
+}
+
 fn loop_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     if vm.depth() < if side == crate::wb::Side::Stack { 2 } else { 1 } {
         return Err(Error("Stack is too shallow for inline LOOP".into()));
@@ -257,6 +309,10 @@ pub fn register(r: &mut Registry) {
     // element, so what is left is the body's business. The floors stand.
     r.register_native("times", times, StackEffect::opaque(2), WordKind::Sync);
     r.register_native("loop", loop_word, StackEffect::opaque(2), WordKind::Sync);
+    // `reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:122-123`.
+    // Opaque: each runs a body until the stack is empty or a NODATA.
+    r.register_native("*loop", loop_over, StackEffect::opaque(1), WordKind::Sync);
+    r.register_native("*loop.", loop_over_wb, StackEffect::opaque(1), WordKind::Sync);
     // Each `.` sibling keeps the lambda as a stack operand and moves only its
     // other one, so each consumes one from the stack rather than none.
     r.register_native("times.", times_wb, StackEffect::opaque(1), WordKind::Sync);

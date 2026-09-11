@@ -267,6 +267,61 @@ fn while_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     }
 }
 
+/// `for` — run a lambda, then pull a condition, and repeat while it is true
+/// (`reference/rust_multistackvm/src/stdlib/logic/for_fun.rs:5-49`).
+///
+/// The body runs first and leaves the condition, so it runs at least once. The
+/// condition goes through `cast_bool`, which admits only a BOOL
+/// (`reference/rust_dynamic/src/cast.rs:25-32`). Nothing bounds the loop but
+/// the body, so, as `while` does, it reports once at ten million turns (D39).
+fn for_word(vm: &mut dyn Vm) -> Result<(), Error> {
+    for_base(vm, "FOR", "Stack is too shallow for inline for")
+}
+
+/// `for.` — **and it reads nothing from the workbench.** Both the lambda and
+/// the condition come off the stack (`for_fun.rs:51-97`), so the word is `for`
+/// with other prefixes: F78's third instance.
+fn for_wb(vm: &mut dyn Vm) -> Result<(), Error> {
+    for_base(vm, "FOR.", "Stack is too shallow for inline for.()")
+}
+
+fn for_base(vm: &mut dyn Vm, prefix: &str, shallow: &str) -> Result<(), Error> {
+    if vm.depth() < 1 {
+        return Err(Error(shallow.into()));
+    }
+    let body = vm
+        .pull()
+        .ok_or_else(|| Error(format!("{prefix} returns: NO DATA #1")))?;
+    if body.dt() != LAMBDA {
+        return Err(Error(format!("{prefix}: #1 parameter must be lambda")));
+    }
+    const CHATTER_AT: u64 = 10_000_000;
+    let mut turns: u64 = 0;
+    loop {
+        turns += 1;
+        if turns == CHATTER_AT {
+            vm.report(bund2_api::diag::Diagnostic::warning(format!(
+                "`{}` has run {CHATTER_AT} iterations. If its body never leaves false, nothing will stop it.",
+                prefix.to_lowercase()
+            )));
+        }
+        vm.eval_lambda(&body)
+            .map_err(|e| e.context(format!("{prefix}: lambda execution returns error: ")))?;
+        let cond = vm
+            .pull()
+            .ok_or_else(|| Error(format!("{prefix} returns: NO DATA #2")))?;
+        match cond.unboxed() {
+            BundValue::Bool(true, _) => {}
+            BundValue::Bool(false, _) => return Ok(()),
+            _ => {
+                return Err(Error(format!(
+                    "{prefix} returns error: This Dynamic type is not bool"
+                )));
+            }
+        }
+    }
+}
+
 /// `format` — a `leon` template filled from the stack
 /// (`reference/rust_multistackvm/src/stdlib/string/format.rs:9-68`).
 ///
@@ -362,6 +417,9 @@ pub fn register(r: &mut Registry) {
     r.register_native("notifthenelse", notifthenelse, StackEffect::opaque(3), WordKind::Sync);
     r.register_native("notifthenelse.", notifthenelse_wb, StackEffect::opaque(2), WordKind::Sync);
     r.register_native("if.stack", if_stack, StackEffect::opaque(2), WordKind::Sync);
+    // `reference/rust_multistackvm/src/stdlib/logic/for_fun.rs:101-102`.
+    r.register_native("for", for_word, StackEffect::opaque(1), WordKind::Sync);
+    r.register_native("for.", for_wb, StackEffect::opaque(1), WordKind::Sync);
     // Opaque, both forms: each pulls one stack value per distinct placeholder
     // in the template, and the template is not known until run time. `format`
     // said `1 -> 1`, true only of a template with no placeholder (F92).

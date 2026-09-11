@@ -1,0 +1,23 @@
+//
+// PROBE: the `*` fold family (D12) — `*+`, `*-`, `**`, `*/`, a `.` form, and
+// `Σ` for `*+`.
+//
+// One function serves them all
+// (reference/rust_multistackvm/src/stdlib/math/math_op.rs:22-76). It folds the
+// stack into an accumulator with the ordinary binary operation, operands in
+// the same order `+` takes them, until the stack runs out or reaches a NODATA,
+// which it consumes (:43-50). The `.` form keeps the accumulator on the
+// workbench. `Σ` aliases `*+`
+// (reference/rust_multistackvm/src/stdlib/create_aliases.rs:38).
+//
+"probe: each fold consumes the stack" println
+1 2 3 4 *+ println
+2 3 4 ** println
+100 2 5 */ println
+10 3 1 *- println
+1 2 3 Σ println
+"probe: a NODATA stops the fold and is consumed" println
+10 nodata 2 3 *+ println
+println
+"probe: the . form accumulates on the workbench" println
+1 2 3 . *+. debug.display_workbench

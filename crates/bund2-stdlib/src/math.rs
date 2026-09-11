@@ -212,6 +212,51 @@ fn run_workbench(op: Op, vm: &mut dyn Vm) -> Result<(), Error> {
 fn add(vm: &mut dyn Vm) -> Result<(), Error> {
     run(Op::Add, vm)
 }
+
+/// The `*` fold family — `*+`, `*-`, `**`, `*/`, their `.` forms, and `Σ` and
+/// `Σ.` for `*+` (D12). One function serves all eight
+/// (`reference/rust_multistackvm/src/stdlib/math/math_op.rs:22-76`).
+///
+/// It pulls the accumulator from its side — the stack, or the workbench for the
+/// `.` form — and one operand from the stack, applies the binary operation as
+/// `+` would, and pushes the result back to the accumulator's side (`:36-58`).
+/// It stops when the stack runs out, and at a NODATA, which it consumes
+/// (`:43-50`); either way the accumulator goes back where it came from. Each
+/// turn takes a value off the stack, so the loop always ends.
+///
+/// The prefix is `*` and the operation's, `*ADD` and `*ADD.`
+/// (`reference/rust_multistackvm/src/stdlib/math/add.rs`), and both guards say
+/// "Stack is too shallow", the workbench one included (`:24-34`).
+fn fold(op: Op, vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
+    let prefix = match side {
+        crate::wb::Side::Stack => format!("*{}", op.prefix()),
+        crate::wb::Side::Bench => format!("*{}.", op.prefix()),
+    };
+    let short = match side {
+        crate::wb::Side::Stack => vm.depth() < 2,
+        crate::wb::Side::Bench => vm.depth() < 1 || vm.workbench_depth() < 1,
+    };
+    if short {
+        return Err(Error(format!("Stack is too shallow for inline {prefix}()")));
+    }
+    loop {
+        let Some(x) = side.pull(vm) else {
+            return Err(Error(format!("{prefix} can not get X")));
+        };
+        let Some(y) = vm.pull() else {
+            side.push(vm, x);
+            return Ok(());
+        };
+        if y.dt() == bund2_value::NODATA {
+            side.push(vm, x);
+            return Ok(());
+        }
+        match numeric_op(op, &x, &y) {
+            Ok(v) => side.push(vm, v),
+            Err(e) => return Err(Error(format!("{prefix} returns error: {}", e.0))),
+        }
+    }
+}
 fn add_wb(vm: &mut dyn Vm) -> Result<(), Error> {
     run_workbench(Op::Add, vm)
 }
@@ -319,6 +364,20 @@ pub fn register(r: &mut Registry) {
     // `reference/rust_multistackvm/src/stdlib/create_aliases.rs:30-31`.
     r.register_alias("π", "float.Pi");
     r.register_alias("Pi", "float.Pi");
+    // The folds (D12): opaque, because each consumes the stack down to its end
+    // or a NODATA. Registered at `reference/rust_multistackvm/src/stdlib/math/`
+    // `add.rs:25-26`, `sub.rs:25-26`, `mul.rs:25-26` and `div.rs:25-26`.
+    r.register_native("*+", |vm| fold(Op::Add, vm, crate::wb::Side::Stack), StackEffect::opaque(2), WordKind::Sync);
+    r.register_native("*-", |vm| fold(Op::Sub, vm, crate::wb::Side::Stack), StackEffect::opaque(2), WordKind::Sync);
+    r.register_native("**", |vm| fold(Op::Mul, vm, crate::wb::Side::Stack), StackEffect::opaque(2), WordKind::Sync);
+    r.register_native("*/", |vm| fold(Op::Div, vm, crate::wb::Side::Stack), StackEffect::opaque(2), WordKind::Sync);
+    r.register_native("*+.",|vm| fold(Op::Add, vm, crate::wb::Side::Bench), StackEffect::opaque(1), WordKind::Sync);
+    r.register_native("*-.", |vm| fold(Op::Sub, vm, crate::wb::Side::Bench), StackEffect::opaque(1), WordKind::Sync);
+    r.register_native("**.", |vm| fold(Op::Mul, vm, crate::wb::Side::Bench), StackEffect::opaque(1), WordKind::Sync);
+    r.register_native("*/.", |vm| fold(Op::Div, vm, crate::wb::Side::Bench), StackEffect::opaque(1), WordKind::Sync);
+    // `reference/rust_multistackvm/src/stdlib/create_aliases.rs:38-39`.
+    r.register_alias("Σ", "*+");
+    r.register_alias("Σ.", "*+.");
     r.register_native("+", add, eff(2, 1), WordKind::Sync);
     r.register_native("-", sub, eff(2, 1), WordKind::Sync);
     r.register_native("*", mul, eff(2, 1), WordKind::Sync);

@@ -1397,12 +1397,12 @@ Three things bound promotion:
   and friends consume the whole stack, so the stack depth is not statically
   known across them. ERRATA records that the corpus uses none of them, so the
   barrier costs nothing measurable; it still has to be *represented*, because
-  D16 means one may appear at run time. Bund2 registers none of the ten today,
-  nor their `Σ` aliases (checked against `bund2 words`, 2026-09-10; `*.` is
-  ordinary multiplication's workbench variant, not a fold), so a call to one is
-  a name with no binding, `Opaque` under criterion 13. When one is registered
-  it declares `StackEffect::opaque`, since `StackEffect` has no separate fold
-  kind. D12's "bails to Tier 0" is read as §S5's promotion stop (D12's dated
+  D16 means one may appear at run time. Bund2 registered none of the ten until
+  2026-09-11 (`*.` is ordinary multiplication's workbench variant, not a fold).
+  The eight arithmetic folds, with `Σ` and `Σ.`, and `*loop` and `*loop.` are
+  now registered, and each declares `StackEffect::opaque`, since
+  `StackEffect` has no separate fold kind. So a call to one stops promotion
+  as an opaque site does. D12's "bails to Tier 0" is read as §S5's promotion stop (D12's dated
   note), and a fold bound at run time to a name a body was compiled against is
   caught by §S5's pre-call check.
 - **`Opaque` effects**, counted in *Where promotion stops* above. Promotion

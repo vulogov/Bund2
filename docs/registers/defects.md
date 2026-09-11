@@ -2457,6 +2457,18 @@ the side they name.
   that calls `?false.` today is a program that puts its condition on the stack,
   because nothing else works.
 
+**Note, 2026-09-11: `*loop.` and `for.` are the same shape.** `*loop.` is the
+second of the two this entry's title counts, and was implemented on this date:
+`stdlib_logic_loop_over_workbench` passes `StackOps::FromStack`
+(`reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:115-117`), so its
+lambda comes off the stack. `for.` is a third. Its function reads both the
+lambda and the condition with `vm.stack.pull()` and never consults the
+workbench (`reference/rust_multistackvm/src/stdlib/logic/for_fun.rs:51-97`), so
+it is `for` with other prefixes. Both are preserved
+(`crates/bund2-stdlib/src/seq.rs`, `loop_over_wb`;
+`crates/bund2-stdlib/src/control.rs`, `for_wb`), and
+`tests/probes/stack-loops.bund` records them.
+
 ## F79 — `cargo xtask cite` could not see a citation into `crates/`, so five rotted unnoticed
 
 **This is a defect in Bund2's own tooling, not in the reference.** It is

@@ -1,0 +1,24 @@
+//
+// PROBE: `*loop`, `*loop.`, `for` and `for.`.
+//
+// `*loop` runs a lambda over the stack until it is empty or reaches a NODATA,
+// which it consumes (reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:51-101).
+// `*loop.` passes `FromStack` too (:115-117), so its lambda also comes off the
+// stack (F78).
+//
+// `for` runs a lambda, pulls a BOOL, and repeats while it is true
+// (reference/rust_multistackvm/src/stdlib/logic/for_fun.rs:5-49). `for.` reads
+// nothing from the workbench either (:51-97). Comparisons take their operands
+// in reverse, so `dup 3 >` asks whether 3 is greater than the counter.
+//
+"probe: *loop walks the stack to its end" println
+1 2 3 { println } *loop
+"probe: *loop stops at a NODATA and consumes it" println
+5 nodata 1 2 { println } *loop
+debug.display_stack
+clear
+"probe: *loop. takes its lambda from the stack as well" println
+7 8 { println } *loop.
+"probe: for repeats while its body leaves true" println
+0 { 1 + dup 3 > } for println
+0 { 1 + dup 3 > } for. println
