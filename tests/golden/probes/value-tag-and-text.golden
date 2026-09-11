@@ -1,0 +1,20 @@
+# golden for tests/probes/value-tag-and-text.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: tag sets one tag on a value
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Value { id: "<id>", stamp: <stamp>, dt: 2, q: 100.0, data: I64(42), attr: [], curr: -1, tags: {"k": "v", "stack": "main"} } │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+probe: text pushes an empty TextBuffer
+TextBuffer
+╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Value { id: "<id>", stamp: <stamp>, dt: 22, q: 100.0, data: String(""), attr: [], curr: -1, tags: {"stack": "main"} } │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭╮
+╰╯
+╭╮
+╰╯

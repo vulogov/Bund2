@@ -3,7 +3,7 @@
 # declared effect. Anything absent is synced before, as an embedder's
 # native is. Written by BUND2_UPDATE_PROMOTABLE=1 cargo test -p
 # bund2-stdlib promotable; never edited by hand.
-# 178 of 205 fixed-effect natives reached.
+# 190 of 217 fixed-effect natives reached.
 !=
 *
 *.
@@ -32,6 +32,7 @@
 ?type
 ?word
 alias
+and
 at
 attribute
 car
@@ -67,6 +68,11 @@ dup_one
 ensure_stack
 ensure_stack_with_capacity
 false
+float.+Inf
+float.-Inf
+float.E
+float.NaN
+float.Pi
 fmt
 fold_stack
 head
@@ -108,12 +114,15 @@ move_from
 nl
 nodata
 not
+or
 pair
 print
 print.
 println
 println.
 ptr
+push
+push.
 register
 return
 rotate_current_left
@@ -172,12 +181,15 @@ string.wrap.english.
 swap
 swap_one
 sysinfo.version
+tag
 tail
+text
 to_stack
 true
 type
 type.of
 unalias
+unfold.
 unregister
 valuemap
 var

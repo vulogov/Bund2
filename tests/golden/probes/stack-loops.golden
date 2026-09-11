@@ -1,0 +1,27 @@
+# golden for tests/probes/stack-loops.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: *loop walks the stack to its end
+3
+2
+1
+probe: *loop stops at a NODATA and consumes it
+2
+1
+╭───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Value { id: "<id>", stamp: <stamp>, dt: 2, q: 100.0, data: I64(5), attr: [], curr: -1, tags: {"stack": "main"} } │
+╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+probe: *loop. takes its lambda from the stack as well
+8
+7
+probe: for repeats while its body leaves true
+3
+3
+╭╮
+╰╯
+╭╮
+╰╯

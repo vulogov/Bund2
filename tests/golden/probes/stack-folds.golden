@@ -1,0 +1,25 @@
+# golden for tests/probes/stack-folds.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: each fold consumes the stack
+10
+24
+0
+-12
+6
+probe: a NODATA stops the fold and is consumed
+5
+10
+probe: the . form accumulates on the workbench
+╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Value { id: "<id>", stamp: <stamp>, dt: 2, q: 100.0, data: I64(6), attr: [], curr: -1, tags: {} } │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭╮
+╰╯
+╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Value { id: "<id>", stamp: <stamp>, dt: 2, q: 100.0, data: I64(6), attr: [], curr: -1, tags: {} } │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
