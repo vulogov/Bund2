@@ -9,7 +9,7 @@
 //
 "probe: use loads a library by file:// URL and keeps what it registers" println
 cwd "file://{A}/tests/probes/data/uselib.bund" format use
-lib.answer println
+"lib.answer" bund.eval println
 "probe: use. takes the URL from the workbench" println
 cwd "file://{A}/tests/probes/data/uselib.bund" format . use.
-lib.answer println
+"lib.answer" bund.eval println
