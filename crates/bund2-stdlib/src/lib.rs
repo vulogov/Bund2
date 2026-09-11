@@ -200,6 +200,136 @@ mod honesty_tests {
         );
     }
 
+    /// **Criterion 28 — D48, F94.** Every fixed-effect native, run under the
+    /// effect audit against a palette of fourteen operand kinds, with the top
+    /// two operands drawn from every pair of kinds (deeper ones and three
+    /// padding values are `7`), and — for a workbench form, a name ending in
+    /// `.` or `,` — against every kind on the workbench as well.
+    ///
+    /// Two assertions. **No run breaches its declared effect.** And **the
+    /// natives that some run brought to `Ok` with no breach are exactly the
+    /// ones `tests/golden/PROMOTABLE.txt` lists.** That list is what RFC-0005
+    /// §S5's promotion may cross (D48): a native nothing brought to `Ok` has a
+    /// pair nothing has checked, and compiled code syncs before it as it does
+    /// before an embedder's. Corpus reach is criterion 24's; this one reaches
+    /// the words no program calls. It found `drop_stack` (F94).
+    ///
+    /// `BUND2_UPDATE_PROMOTABLE=1 cargo test -p bund2-stdlib promotable`
+    /// rewrites the list after a deliberate change; the diff is the review.
+    #[test]
+    fn every_fixed_effect_native_keeps_its_pair_over_the_promotable_palette() {
+        const CLASS: &str = ":C1 class :.class_name \"C1\" set register";
+        const KINDS: &str = "7 2.5 true \"zz_nofile\" \"A\" \"C1\" [ 1 2 ] list dict \
+                             { 1 } { drop } nodata `dup :C1 object";
+        let mut setup = Interp::new();
+        crate::register_all(&mut setup.registry);
+        let src = format!("{CLASS}\n{KINDS}");
+        setup
+            .eval(&bund2_syntax::compile(&src).expect("compiles"))
+            .expect("the palette builds");
+        let palette = setup.snapshot();
+        assert_eq!(palette.len(), 14, "fourteen operand kinds");
+        let template = setup.registry.clone();
+        let natives: Vec<(String, bund2_api::StackEffect)> = setup
+            .registry
+            .declared_effects()
+            .into_iter()
+            .filter(|(_, e)| !e.opaque)
+            .collect();
+
+        let k = palette.len();
+        let mut breaches = std::collections::BTreeSet::new();
+        let mut reached = std::collections::BTreeSet::new();
+        for (name, e) in &natives {
+            let depth = usize::from(e.consumes);
+            let bench = name.ends_with('.') || name.ends_with(',');
+            // A workbench form varies its top operand and the workbench; any
+            // other varies its top two operands.
+            let varied = depth.min(if bench { 1 } else { 2 });
+            let tuples: Vec<Vec<usize>> = (0..k.pow(varied as u32))
+                .map(|mut n| {
+                    (0..varied)
+                        .map(|_| {
+                            let d = n % k;
+                            n /= k;
+                            d
+                        })
+                        .collect()
+                })
+                .collect();
+            let wb: Vec<Option<usize>> = if bench {
+                std::iter::once(None).chain((0..k).map(Some)).collect()
+            } else {
+                vec![None]
+            };
+            for t in &tuples {
+                for w in &wb {
+                    // A clone of the prepared registry: every word, and the
+                    // class the OBJECT kind was made from.
+                    let mut i = Interp::new();
+                    i.registry = template.clone();
+                    for _ in 0..3 + depth - varied {
+                        i.push(BundValue::int(7));
+                    }
+                    for &x in t {
+                        i.push(palette[x].clone());
+                    }
+                    if let Some(x) = w {
+                        i.push_workbench(palette[*x].clone());
+                    }
+                    i.effect_audit = Some(Vec::new());
+                    let r = i.eval(&[BundValue::call(name.as_str())]);
+                    let log = i.effect_audit.take().unwrap_or_default();
+                    if r.is_ok() && log.is_empty() {
+                        reached.insert(name.clone());
+                    }
+                    breaches.extend(log);
+                }
+            }
+        }
+        let shown: Vec<&String> = breaches.iter().take(20).collect();
+        assert!(
+            breaches.is_empty(),
+            "{} breach(es) of a declared effect, first 20:\n{shown:#?}",
+            breaches.len()
+        );
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let list = root.join("tests/golden/PROMOTABLE.txt");
+        if std::env::var_os("BUND2_UPDATE_PROMOTABLE").is_some() {
+            let mut out = String::from(
+                "# Natives RFC-0005 §S5's promotion may cross (D48): every fixed-effect\n\
+                 # native criterion 28's palette brought to `Ok` with no breach of its\n\
+                 # declared effect. Anything absent is synced before, as an embedder's\n\
+                 # native is. Written by BUND2_UPDATE_PROMOTABLE=1 cargo test -p\n\
+                 # bund2-stdlib promotable; never edited by hand.\n",
+            );
+            out.push_str(&format!(
+                "# {} of {} fixed-effect natives reached.\n",
+                reached.len(),
+                natives.len()
+            ));
+            for n in &reached {
+                out.push_str(n);
+                out.push('\n');
+            }
+            std::fs::write(&list, out).expect("writes the list");
+            return;
+        }
+        let listed: std::collections::BTreeSet<String> = std::fs::read_to_string(&list)
+            .expect("tests/golden/PROMOTABLE.txt exists")
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+            .map(str::to_string)
+            .collect();
+        let gained: Vec<&String> = reached.difference(&listed).collect();
+        let lost: Vec<&String> = listed.difference(&reached).collect();
+        assert!(
+            gained.is_empty() && lost.is_empty(),
+            "PROMOTABLE.txt is stale: now reached {gained:?}, no longer reached {lost:?}"
+        );
+    }
+
     /// **Criterion 25.** No shipped code in this crate reports at `Error`
     /// severity. Natives return errors; the embedder reports them after
     /// evaluation has returned. A native that reported one mid-body would get

@@ -547,7 +547,12 @@ pub fn register(r: &mut Registry) {
     w(r, "dup_many_in", dup_many_in, eff(2, 0));
     w(r, "drop", drop_word, eff(1, 0));
     w(r, "drop_in", drop_in, eff(1, 0));
-    w(r, "drop_stack", drop_stack, eff(1, 0));
+    // **Opaque, taking nothing — F94.** `drop_stack` takes no operand and
+    // removes the whole current stack, whatever is on it (the function above;
+    // `reference/rust_multistack/src/ts_drop_stack.rs:10-23`), so no pair is
+    // true of it. `1 -> 0` said it consumed one value; `docs/arity.md` has
+    // always read `0+`. Criterion 28's palette found it.
+    w(r, "drop_stack", drop_stack, StackEffect::opaque(0));
     w(r, "swap_one", swap_one, eff(2, 2));
     // `2 -> 2`, the probed column, per **F18's rule**: take what the probe
     // observed wherever it disagrees with the guard, because the guard is a
