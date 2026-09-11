@@ -3122,6 +3122,14 @@ adapter calls a `NativeFn` directly and so never reaches `invoke`, which is
 why its `status_of` clears the request cell on any error (RFC-0005 §S5,
 criterion 26).
 
+**Dated note, 2026-09-11 (second) — the entry above is right again.** F113's
+fix has `execute_value`'s LIST arm run a lambda item at once instead of
+filing it, so no `bund2-stdlib` native files a tail request and then fails.
+The program in the note above now leaves `10` beneath `?try`'s CONDITIONAL
+(`a_list_execute_that_fails_keeps_what_earlier_items_left`,
+`crates/bund2-stdlib/src/host.rs`). An embedder's native remains the case
+F96 and RFC-0005's criterion 26 describe.
+
 ## F97 — `notifthenelse` does not negate
 
 **An original-implementation defect, reproduced**, found while implementing the
@@ -3518,8 +3526,23 @@ native — so RFC-0005's criterion 2 cannot move on it. RFC-0005's §S5 says "a
 request is never lost", which is a rule about compiled call sites; its
 assumption 29 now says this is not a property of Tier 0.
 
-**Status:** OPEN. No golden covers it and `conform` is at its ceiling, so
-nothing fails today. The fix is for the LIST arm to run a lambda item
-synchronously through `Vm::eval_lambda`, as the reference does, rather than
-filing it. That spends a Rust frame per nesting level, which is why it is a
-decision rather than an edit. Until then, `[ { 10 } { 20 } ] !` deviates.
+**Status:** FIXED 2026-09-11 (`crates/bund2-stdlib/src/values.rs`). The
+repository owner chose to match the reference: a LAMBDA item in the LIST arm
+runs at once through `Vm::eval_lambda` rather than being filed. That spends a
+Rust frame per lambda inside a list, bounded by the Tier 0 floor (F85). The
+tail path is untouched where it matters — a bare `{ 10 } !` is the LAMBDA arm,
+which still files — so RFC-0003 §S4a's guarantee stands.
+
+**Confirmed against the oracle**, built out of tree and run 2026-09-11:
+`[ { 10 } { 20 } ] !` leaves `10` beneath `20`, and `[ { 10 } 5 ] !` fails
+with `Received value is not of executable type` while keeping the `10` the
+first item left. Bund2 now does both, and no golden moves — conformance stays
+at its ceiling. Two tests cover it:
+`every_lambda_in_an_executed_list_runs_in_order`
+(`crates/bund2-stdlib/src/values.rs`) and
+`a_list_execute_that_fails_keeps_what_earlier_items_left`
+(`crates/bund2-stdlib/src/host.rs`).
+
+**A consequence for F96.** The LIST arm was the one `bund2-stdlib` native that
+filed a tail request and could then fail. It no longer files, so F96's case is
+an embedder's native again, and RFC-0005's criterion 26 states it that way.

@@ -139,8 +139,9 @@
   The fifteenth review's blocker is answered with one more condition, in the
   same function. **B1**: three of the four helpers reach a native through
   `Interp::dispatch` and so inherit F96's clearing of a failed native's tail
-  request. The adapter calls the `NativeFn` directly and does not, and
-  `execute_value`'s LIST arm reaches that from `bund2-stdlib`. `status_of` now
+  request. The adapter calls the `NativeFn` directly and does not.
+  `execute_value`'s LIST arm reached that from `bund2-stdlib` until F113 was
+  fixed; the case is an embedder's native again. `status_of` now
   clears the request cell whenever it answers an error, not only an exit (§S5;
   criterion 26 gains the program; the Preservation row names the adapter; F96
   has a dated note). **S1**: `#` catches a refusal and discards it, so the
@@ -149,7 +150,7 @@
   have programs, comparisons and a Tier 0 test, and the `?try` case says what
   its test covers. **S3**: F112's note has a correction, assumption 26 gives
   the reason the texts actually agree, and Tier 0's request overwriting is
-  filed as F113 with assumption 29.
+  filed as F113, fixed the same day against the oracle, with assumption 29.
 
   **Criterion 10 has a first measurement**, from a throwaway lowering outside
   this RFC's gate (2026-09-11, branch `spike/lowering-1`). With §S8's call
@@ -972,18 +973,20 @@ run. So:
   does not.** §S8 has it call the native's `NativeFn` directly, and `invoke`
   is private to `Interp`. So a native that files a request through
   `Vm::tail_lambda` and then fails would keep it, and `?try` would run that
-  body inside its handler. `execute_value`'s LIST arm reaches this from
-  `bund2-stdlib`: it pushes and executes each item, so a LAMBDA item files a
-  request and a later item can fail (`crates/bund2-stdlib/src/values.rs`,
-  `execute_value`; criterion 26 gives the program). **`status_of` therefore
+  body inside its handler. When the fifteenth review found this,
+  `execute_value`'s LIST arm reached it from `bund2-stdlib`. F113's fix has
+  that arm run a lambda item at once, as the reference does, so the case is
+  an embedder's native again, as F96 has it. The adapter's gap is the same
+  either way, and criterion 26 gives the shape. **`status_of` therefore
   clears the request cell whenever it answers an error**, which is what
   `invoke` does for a native that fails. The same argument as §S5's: one
   status-maker, so a helper added later cannot forget it.
 
   This rule is about compiled call sites. It is not a claim that Tier 0 never
   loses a request: `Interp::request_tail` assigns, so a native that files two
-  overwrites the first, and `[ { 10 } { 20 } ] !` leaves only `20` where the
-  reference leaves `10` beneath it (F113, assumption 29).
+  loses the first. The one native that did — `execute_value`'s LIST arm, where
+  `[ { 10 } { 20 } ] !` ran only `{ 20 }` — was fixed by F113. An embedder's
+  native still can (assumption 29).
 
 The drain helper runs a body synchronously, so it is a third place a body
 starts, beside the frame loop and `Vm::eval_lambda` (§S8, *A decline is a
@@ -2307,12 +2310,13 @@ with the place that enforces or decides it.
     CALL value (run 2026-09-11), so `execute_value`'s arms that do Rust work
     before re-entering evaluation — CLASS, OBJECT, CONDITIONAL — are not
     reachable from a literal. F112's "no golden moves" rests on this.
-29. **At Tier 0 a second tail request overwrites the first.**
-    `Interp::request_tail` assigns, so `[ { 10 } { 20 } ] !` leaves only `20`
-    where the reference runs each lambda item at once and leaves `10` beneath
-    it (F113). Compiled code calls the same native, so this is not a tier
-    divergence; §S5's "a request is never lost" is a rule about compiled call
-    sites, not a property of Tier 0.
+29. **A native that files two tail requests loses the first.**
+    `Interp::request_tail` assigns. No `bund2-stdlib` native does that now:
+    the one that did, `execute_value`'s LIST arm, runs a lambda item at once
+    since F113, as the reference does (`execute.rs:93-95`). The other request
+    sites file once and return. An embedder's native can still file twice, and
+    nothing detects it. §S5's "a request is never lost" is a rule about
+    compiled call sites, not a property of Tier 0.
 
 # S9. Tier pinning
 
@@ -3120,20 +3124,20 @@ evidence, and this one is listed as runnable rather than as met.
     `a_failed_native_leaves_no_tail_request`
     (`crates/bund2-interp/src/lib.rs`).
 
-    **The second case's program**, from the fifteenth review's B1, reaching a
-    filing native from `bund2-stdlib` rather than from an embedder:
+    **The second case's shape**, from the fifteenth review's B1. Register a
+    native that files a body through `Vm::tail_lambda` and then returns `Err`,
+    as `a_failed_native_leaves_no_tail_request` does
+    (`crates/bund2-interp/src/lib.rs`). Call it from a compiled body under
+    `?try`, at threshold 1. The final stack must hold `?try`'s CONDITIONAL and
+    nothing the filed body would have left, which is what Tier 0 gives
+    through `Interp::invoke`. It fails for an adapter whose `status_of` clears
+    the request cell only for an exit.
 
-        ?try :try { [ { 10 } 5 ] ! } set :except { "EXCEPT" println } set \
-             :recovery { "RECOVERY" println } set !
-
-    `!` on the LIST files a request for `{ 10 }`, then fails on `5`, which is
-    not executable. At Tier 0 this prints `EXCEPT` and `RECOVERY` and leaves
-    **only** the `error` CONDITIONAL, whose `context` is `Lambda content
-    evaluation returned error: Received value is not of executable type` (run
-    2026-09-11). Compiled, with the `try` body hot at threshold 1, the final
-    stack must be the same: no `10` beneath it. It fails for an adapter whose
-    `status_of` clears the request cell only for an exit. This program's
-    Tier 0 half runs today: `a_failed_list_execute_leaves_no_body_to_run`
+    The review's own program was `?try` over `[ { 10 } 5 ] !`, when
+    `execute_value`'s LIST arm filed each lambda item. F113 has that arm run a
+    lambda at once, so it no longer files, and the case is an embedder's
+    native again. What that program does now is
+    `a_list_execute_that_fails_keeps_what_earlier_items_left`
     (`crates/bund2-stdlib/src/host.rs`).
 
 27. **Promotion does not cross a native `bund2-stdlib` did not register

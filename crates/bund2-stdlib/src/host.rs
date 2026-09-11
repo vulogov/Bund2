@@ -785,27 +785,33 @@ mod tests {
         }
     }
 
-    /// F96's reach from `bund2-stdlib`, and RFC-0005 criterion 26's program.
-    /// `!` on a LIST files a request for `{ 10 }` through `Vm::tail_lambda`
-    /// and then fails on `5`, which is not executable. `Interp::invoke`
-    /// clears the request, so nothing runs `{ 10 }` inside `?try`'s handler.
-    /// A compiled call reaches the native without passing through `invoke`,
-    /// which is why its adapter must clear the cell on any error.
+    /// F113, caught under `?try`: `!` on a LIST runs `{ 10 }` at once, then
+    /// fails on `5`, which is not executable. What the lambda left survives
+    /// the failure, as it does in the reference, and `?try`'s CONDITIONAL
+    /// comes to rest above it.
+    ///
+    /// Until F113 this program was RFC-0005 criterion 26's, as the one place
+    /// a `bund2-stdlib` native filed a tail request and then failed. The LIST
+    /// arm no longer files, so F96's case is an embedder's again and the
+    /// criterion cites `a_failed_native_leaves_no_tail_request`
+    /// (`crates/bund2-interp/src/lib.rs`).
     #[test]
-    fn a_failed_list_execute_leaves_no_body_to_run() {
+    fn a_list_execute_that_fails_keeps_what_earlier_items_left() {
         use bund2_api::Vm as _;
         let src = "?try :try { [ { 10 } 5 ] ! } set :except { \"EXCEPT\" println } set \
                    :recovery { \"RECOVERY\" println } set !";
         let mut i = interp(HostOptions::default());
         run(&mut i, src).expect("the error is caught");
         assert_eq!(i.exit_requested(), None, "nothing asked to exit");
-        assert_eq!(i.depth(), 1, "only `?try`'s CONDITIONAL: no `10` ran");
+        assert_eq!(i.depth(), 2, "`10` beneath `?try`'s CONDITIONAL");
         let top = i.peek().expect("`?try` left its CONDITIONAL");
         let ctx = top.get("context").and_then(|v| v.as_str()).unwrap_or_default();
         assert!(
             ctx.contains("Received value is not of executable type"),
             "{ctx}"
         );
+        let left: Vec<Option<i64>> = i.snapshot().iter().map(BundValue::as_int).collect();
+        assert_eq!(left.first().copied(), Some(Some(10)), "`{{ 10 }}` had run");
     }
 
     #[test]

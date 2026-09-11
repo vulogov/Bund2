@@ -333,7 +333,23 @@ fn execute_value(vm: &mut dyn Vm, v: BundValue) -> Result<(), Error> {
                 // (`reference/rust_multistackvm/src/stdlib/execute.rs:41-42`).
                 vm.push(item);
                 let top = crate::pull::operand(vm, "EXECUTE", 1)?;
-                execute_value(vm, top)?;
+                // **A LAMBDA item runs now, not after this native returns
+                // (F113).** The reference's recursion reaches
+                // `vm.lambda_eval(ptr_value)` for each item in turn
+                // (`reference/rust_multistackvm/src/stdlib/execute.rs:93-95`,
+                // from the loop at `:40-48`), so each item sees what the one
+                // before it left, and a later item that fails does not undo
+                // it. Filing each through `Vm::tail_lambda` instead let the
+                // second request overwrite the first — `Interp::request_tail`
+                // assigns — so `[ { 10 } { 20 } ] !` ran only `{ 20 }`.
+                //
+                // The tail path is untouched where it matters: a bare
+                // `{ 10 } !` is the LAMBDA arm above, which still files.
+                if top.dt() == LAMBDA {
+                    vm.eval_lambda(&top)?;
+                } else {
+                    execute_value(vm, top)?;
+                }
             }
             Ok(())
         }
@@ -545,6 +561,27 @@ pub fn register_words(r: &mut Registry) {
 mod tests {
     use super::*;
     use bund2_interp::Interp;
+
+    /// F113: every LAMBDA item in an executed list runs, in order, and an
+    /// item that fails later does not undo what an earlier one left. The
+    /// reference runs each at once from its list loop
+    /// (`reference/rust_multistackvm/src/stdlib/execute.rs:40-48`, `:93-95`);
+    /// filing each as a tail request let the second overwrite the first.
+    #[test]
+    fn every_lambda_in_an_executed_list_runs_in_order() {
+        use bund2_api::Vm as _;
+        let i = run("[ { 10 } { 20 } ] !").expect("runs");
+        let left: Vec<Option<i64>> = i.snapshot().iter().map(BundValue::as_int).collect();
+        assert_eq!(left, vec![Some(10), Some(20)], "both bodies ran, in order");
+
+        // The failing row: `5` is not executable, and `{ 10 }` has already run.
+        let mut j = vm();
+        let stream = bund2_syntax::compile("[ { 10 } 5 ] !").expect("compiles");
+        let e = j.eval(&stream).expect_err("`5` is not executable");
+        assert!(e.0.contains("not of executable type"), "{}", e.0);
+        let left: Vec<Option<i64>> = j.snapshot().iter().map(BundValue::as_int).collect();
+        assert_eq!(left, vec![Some(10)], "the earlier lambda had already run");
+    }
 
     fn vm() -> Interp {
         let mut i = Interp::new();
