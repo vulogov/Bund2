@@ -60,6 +60,69 @@ impl Symbol {
 /// fourth review; it is one of the types `bund2-api` guarantees.
 pub type NativeFn = fn(&mut dyn Vm) -> Result<(), Error>;
 
+/// Run one native, **catching a panic** — D49.
+///
+/// Bund2's own code does not panic (D37), but a native's dependencies can:
+/// `string.distance.jarowinkler` panics inside the `natural` crate on
+/// operands of different lengths (F95). Uncaught, that unwinds out of the
+/// evaluation thread, and under RFC-0005's tier it would unwind into compiled
+/// frames and abort. Every native call goes through this instead, in both
+/// tiers, so a panic is one more returned error: `Err` carries the panic's
+/// message, and the caller names what it was running (`panicked`).
+///
+/// The build unwinds on panic (no profile sets `panic = "abort"`), so the
+/// catch is real. `AssertUnwindSafe`, because the `Vm` a native mutates may be
+/// left half-updated, and the error that follows is `Error::internal`, which
+/// says exactly that.
+///
+/// **A caught panic is reported, not printed.** Rust's panic hook runs before
+/// the catch and would write the message and a backtrace to stderr. So the
+/// first call installs a hook that, while a catch is active on this thread,
+/// prints nothing and keeps the panic's location for the returned message.
+/// Any other panic goes to the hook that was there before, unchanged.
+pub fn catch_panic(f: impl FnOnce() -> Result<(), Error>) -> Result<Result<(), Error>, String> {
+    QUIET_HOOK.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            if CATCHING.with(std::cell::Cell::get) > 0 {
+                let at = info.location().map(|l| format!("{}:{}", l.file(), l.line()));
+                CAUGHT_AT.with(|c| c.replace(at));
+            } else {
+                previous(info);
+            }
+        }));
+    });
+    CATCHING.with(|c| c.set(c.get() + 1));
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+    CATCHING.with(|c| c.set(c.get().saturating_sub(1)));
+    r.map_err(|p| {
+        let message = p
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_string())
+            .or_else(|| p.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "a panic with no message".to_string());
+        match CAUGHT_AT.with(|c| c.take()) {
+            Some(at) => format!("{message} (at {at})"),
+            None => message,
+        }
+    })
+}
+
+static QUIET_HOOK: std::sync::Once = std::sync::Once::new();
+
+thread_local! {
+    /// How many `catch_panic` calls are active on this thread.
+    static CATCHING: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    /// Where the last caught panic happened, for the message.
+    static CAUGHT_AT: std::cell::Cell<Option<String>> = const { std::cell::Cell::new(None) };
+}
+
+/// The error a caught panic becomes (D49): `what` names the native, method or
+/// conditional runner that was running.
+pub fn panicked(what: &str, message: &str) -> Error {
+    Error::internal(format!("{what} panicked: {message}"))
+}
+
 /// What the interpreter offers a native word.
 ///
 /// **The tier merge forces this wider than an external word needs, and

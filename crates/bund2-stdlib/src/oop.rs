@@ -141,7 +141,10 @@ fn run_init(vm: &mut dyn Vm, obj: &BundValue) -> Result<(), Error> {
                 return Ok(());
             };
             match vm.method(&mname) {
-                Some(f) => f(vm),
+                // D49: a method native is a native, called here directly.
+                Some(f) => bund2_api::catch_panic(|| f(vm)).unwrap_or_else(|msg| {
+                    Err(bund2_api::panicked(&format!("method `{mname}`"), &msg))
+                }),
                 None => Ok(()),
             }
         }
@@ -256,7 +259,10 @@ pub fn dispatch_method(vm: &mut dyn Vm, name: &str) -> Result<(), Error> {
                 .as_str()
                 .ok_or_else(|| Error::internal("a PTR slot carried no name"))?;
             match vm.method(&mname) {
-                Some(f) => f(vm),
+                // D49: a method native is a native, called here directly.
+                Some(f) => bund2_api::catch_panic(|| f(vm)).unwrap_or_else(|msg| {
+                    Err(bund2_api::panicked(&format!("method `{mname}`"), &msg))
+                }),
                 None => Err(Error(format!("m({name}) returned: method {mname} not registered"))),
             }
         }

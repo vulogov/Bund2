@@ -490,7 +490,7 @@ impl Interp {
     /// §S5's epoch, not a depth.
     fn call_native(&mut self, name: Symbol, n: bund2_api::Native) -> Result<(), Error> {
         if self.effect_audit.is_none() {
-            return (n.f)(self);
+            return self.invoke(name, n);
         }
         if let Some(outer) = self.audit_inside {
             let callee = self.registry.interner.name(name).to_string();
@@ -507,7 +507,7 @@ impl Interp {
     fn call_audited(&mut self, name: Symbol, n: bund2_api::Native) -> Result<(), Error> {
         let outer = self.audit_inside.take();
         if n.effect.opaque {
-            let r = (n.f)(self);
+            let r = self.invoke(name, n);
             self.audit_inside = outer;
             return r;
         }
@@ -519,7 +519,7 @@ impl Interp {
         let stack = self.current_name();
         let (main0, wb0) = (self.depth(), self.stacks.workbench.len());
         self.audit_inside = Some(name);
-        let r = (n.f)(self);
+        let r = self.invoke(name, n);
         self.audit_inside = outer;
         if r.is_ok() && self.current_name() == stack {
             let (main1, wb1) = (self.depth(), self.stacks.workbench.len());
@@ -532,6 +532,29 @@ impl Interp {
                     ),
                 );
             }
+        }
+        r
+    }
+
+    /// Run a native's function: **the one place Tier 0 calls one.**
+    ///
+    /// - A panic becomes `Error::internal` naming the native (D49), where it
+    ///   used to unwind out of the evaluation thread and end the process with
+    ///   exit 1 (F95).
+    /// - A native that fails leaves no tail request behind (F96). A request it
+    ///   filed before failing would otherwise wait in `pending_tail` and run at
+    ///   the next `take_pending`, after `?try` had caught the error, as a body
+    ///   nobody asked for.
+    fn invoke(&mut self, name: Symbol, n: bund2_api::Native) -> Result<(), Error> {
+        let r = match bund2_api::catch_panic(|| (n.f)(&mut *self)) {
+            Ok(r) => r,
+            Err(msg) => Err(bund2_api::panicked(
+                &format!("native `{}`", self.registry.interner.name(name)),
+                &msg,
+            )),
+        };
+        if r.is_err() {
+            self.pending_tail = None;
         }
         r
     }
@@ -1547,5 +1570,44 @@ mod tests {
             log.iter().all(|l| l.starts_with("`p` declares a fixed effect and declares (0, 0)")),
             "{log:?}"
         );
+    }
+
+    /// **D49 and F95.** A native that panics returns `Error::internal` naming
+    /// it, and evaluation goes on being usable: the panic does not unwind out
+    /// of `eval`.
+    #[test]
+    fn a_panicking_native_is_an_internal_error_not_an_unwind() {
+        fn boom(_: &mut dyn Vm) -> Result<(), Error> {
+            panic!("boom from a dependency");
+        }
+        let mut i = Interp::new();
+        i.registry.register_native("boom", boom, eff(), WordKind::Sync);
+        let e = i.eval(&[BundValue::call("boom")]).expect_err("the panic is an error");
+        // `eval` wraps what it returns, so the internal error is inside it.
+        assert!(
+            e.0.contains("internal error: native `boom` panicked: boom from a dependency"),
+            "{}",
+            e.0
+        );
+        i.eval(&[BundValue::int(1)]).expect("the interpreter still runs");
+        assert_eq!(i.depth(), 1);
+    }
+
+    /// **F96.** A native that files a tail request and then fails leaves no
+    /// request behind. Before the fix the request waited in `pending_tail`, and
+    /// the next evaluation ran the body first — a body nobody asked for, run
+    /// after its caller's error had been dealt with.
+    #[test]
+    fn a_failed_native_leaves_no_tail_request() {
+        fn files_then_fails(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.tail_lambda(BundValue::lambda(vec![BundValue::int(99)]));
+            Err(Error("failed after filing".into()))
+        }
+        let mut i = Interp::new();
+        i.registry.register_native("ff", files_then_fails, StackEffect::opaque(0), WordKind::Sync);
+        assert!(i.eval(&[BundValue::call("ff")]).is_err());
+        i.eval(&[BundValue::int(1)]).expect("runs");
+        assert_eq!(i.depth(), 1, "only the 1: the stale body did not run");
+        assert_eq!(i.pull().and_then(|v| v.as_int()), Some(1));
     }
 }
