@@ -3130,6 +3130,12 @@ The program in the note above now leaves `10` beneath `?try`'s CONDITIONAL
 `crates/bund2-stdlib/src/host.rs`). An embedder's native remains the case
 F96 and RFC-0005's criterion 26 describe.
 
+**Dated note, 2026-09-11 (third) — the note above was premature.** F113's
+first fix reached a lambda that was itself a list item, not one held in a dict
+inside the list, so `execute_value` could still file a request and then fail
+(RFC-0005's sixteenth review, B1). F113 as completed decides by reach, and the
+entry above holds again from that commit.
+
 ## F97 — `notifthenelse` does not negate
 
 **An original-implementation defect, reproduced**, found while implementing the
@@ -3546,3 +3552,30 @@ at its ceiling. Two tests cover it:
 **A consequence for F96.** The LIST arm was the one `bund2-stdlib` native that
 filed a tail request and could then fail. It no longer files, so F96's case is
 an embedder's native again, and RFC-0005's criterion 26 states it that way.
+
+**Dated note, 2026-09-11 — the first fix was not complete** (RFC-0005's
+sixteenth review, B1). It tested whether the *item* was a LAMBDA, so a lambda
+held in a **dict** inside the list still took the general path and reached the
+filing arm. The defect survived in that shape:
+
+| program, with `D` a dict whose `k` holds a lambda | before | now |
+|---|---|---|
+| `[ D(k→{10}) { 20 } ] !` | `20` alone | `10` beneath `20` |
+| `[ D(k→{10}) 5 ] !` | the error, nothing left | the error, `10` left |
+
+Two dicts cannot be posed together: the first member's result comes to rest on
+the second dict's key, and the reference's shape does that too, so the pair
+above uses a dict item and then a plain lambda item.
+
+What decides is **reach**, not the item's type, which is the shape the
+reference has: one function recursing into itself, whose LAMBDA arm runs the
+body at once whichever arm reached it
+(`reference/rust_multistackvm/src/stdlib/execute.rs:93-95`, from the LIST loop
+at `:40-48` and the dict arm at `:55-83`). `execute_value` now carries a
+`Reach`: `Top` files, as the program's own `{ 10 } !` should, and `Nested`
+runs at once. `a_lambda_reached_through_a_dict_in_a_list_runs_at_once`
+(`crates/bund2-stdlib/src/values.rs`) holds both rows. Neither row is
+reachable from Bund source today — `push` converts its operands and a literal
+does not evaluate items — so the values are built through the API, and the
+first word returning a list of dicts would make it reachable without touching
+this file.

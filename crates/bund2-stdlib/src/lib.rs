@@ -647,7 +647,10 @@ mod honesty_tests {
             "singles.rs: conditional_move",
             "singles.rs: eval_source",
             "terminal.rs: input_loop",
-            "values.rs: execute_value",
+            // `execute_value` delegates to this, which holds both calls: a
+            // name through `Vm::apply`, a reached lambda through
+            // `Vm::eval_lambda` (F113).
+            "values.rs: execute_reached",
             // `text`, a closure in the registration: it applies a TEXTBUFFER,
             // which pushes, so it cannot recurse.
             "values.rs: register_words",

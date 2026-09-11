@@ -140,8 +140,8 @@
   same function. **B1**: three of the four helpers reach a native through
   `Interp::dispatch` and so inherit F96's clearing of a failed native's tail
   request. The adapter calls the `NativeFn` directly and does not.
-  `execute_value`'s LIST arm reached that from `bund2-stdlib` until F113 was
-  fixed; the case is an embedder's native again. `status_of` now
+  `execute_value` reached that from `bund2-stdlib` until F113 was fixed; the
+  case is an embedder's native again. `status_of` now
   clears the request cell whenever it answers an error, not only an exit (§S5;
   criterion 26 gains the program; the Preservation row names the adapter; F96
   has a dated note). **S1**: `#` catches a refusal and discards it, so the
@@ -151,6 +151,20 @@
   its test covers. **S3**: F112's note has a correction, assumption 26 gives
   the reason the texts actually agree, and Tier 0's request overwriting is
   filed as F113, fixed the same day against the oracle, with assumption 29.
+
+  The sixteenth review's blocker is F113's own fix, which did not reach as far
+  as the sentences written on the strength of it. **B1**: the first fix tested
+  whether the *item* was a lambda, so a lambda held in a dict inside the list
+  still filed a tail request, and two such items still lost the first. The fix
+  now turns on **reach**: a lambda the program executes itself is a tail
+  position and still files, and a lambda any container reaches runs at once,
+  as the reference does whichever arm reaches it. §S5, assumption 29, criterion
+  26 and this line are corrected, and both register entries carry it.
+  **S1–S4**: §S8's prose named 19 of the scan's 21 paths and now names `csv`
+  and `sqlite`; it also records that `execute_value` has two re-entry costs
+  and recurses on a value's depth (assumption 30); assumption 28 lists every
+  arm; and `execute.rs:93-95` is spelled in full, since `cite` cannot see a
+  bare filename. Assumptions 31–33 record what the review found unstated.
 
   **Criterion 10 has a first measurement**, from a throwaway lowering outside
   this RFC's gate (2026-09-11, branch `spike/lowering-1`). With §S8's call
@@ -974,10 +988,12 @@ run. So:
   is private to `Interp`. So a native that files a request through
   `Vm::tail_lambda` and then fails would keep it, and `?try` would run that
   body inside its handler. When the fifteenth review found this,
-  `execute_value`'s LIST arm reached it from `bund2-stdlib`. F113's fix has
-  that arm run a lambda item at once, as the reference does, so the case is
-  an embedder's native again, as F96 has it. The adapter's gap is the same
-  either way, and criterion 26 gives the shape. **`status_of` therefore
+  `execute_value`'s LIST arm reached it from `bund2-stdlib`. F113's first fix
+  tested the item's own type, which left a lambda held in a dict inside the
+  list still filing (the sixteenth review's B1). F113 as completed runs a
+  lambda at once however a container reaches it, so the case is an embedder's
+  native again, as F96 has it. The adapter's gap is the same either way, and
+  criterion 26 gives the shape. **`status_of` therefore
   clears the request cell whenever it answers an error**, which is what
   `invoke` does for a native that fails. The same argument as §S5's: one
   status-maker, so a helper added later cannot forget it.
@@ -1509,7 +1525,7 @@ a code generator:
 |---|---|---|
 | `Fragment`, `Guard`, `Op` | `crates/bund2-ir/src/fragment.rs` | the arm, naming no code generator |
 | `frag::run` | `crates/bund2-interp/src/frag.rs` | executes one against the real stack, allocating nothing; `Ok(false)` only when the guard declines |
-| `Fragment::new` | `crates/bund2-ir/src/fragment.rs` | the only constructor outside a test-only feature; refuses a fragment whose ops, walked typed against its guard, could fail after it admits |
+| `Fragment::new` | `crates/bund2-ir/src/fragment.rs` | the only constructor outside the `unchecked` feature, which only `bund2-interp`'s `[dev-dependencies]` enables; refuses a fragment whose ops, walked typed against its guard, could fail after it admits |
 | `Vm::peek_at` | `crates/bund2-api/src/lib.rs` | the top *n* without copying the stack — what a guard asks |
 | `int_add`, `dup`, `drop_top` | `crates/bund2-stdlib/src/fragments.rs` | the two measured arms |
 | criterion 16's differential test | same file | the arm against the word, over the arm's boundaries |
@@ -1947,7 +1963,9 @@ ends.**
   instead of nesting further.
 
 The thread is sized at Tier 0's part plus Tier 1's share. Tier 0's part is
-`EVAL_STACK`'s 8 MiB (`crates/bund2-cli/src/main.rs`). The main thread's stack
+8 MiB — `EVAL_STACK` is that plus `bund2_interp::STACK_RESERVE`, which is the
+reserve below the floor rather than part of Tier 0's capacity
+(`crates/bund2-cli/src/main.rs`). The main thread's stack
 on this machine, 8176 KiB by `ulimit -s`, is the reason for that default,
 since it is roughly what Tier 0 ran on before F85's fix. It is not the value.
 Compiled frames start only above the Tier 1 floor. The reserve beneath that
@@ -2070,16 +2088,24 @@ the limit. Two rules close it:
   scan finds 21:
   - through `Vm::eval_lambda`: the loop words (`times`, `loop`, `map`,
     `while`, `for`, `*loop`, `input*`), the conditional runners, the method
-    paths, and `?.` and `?MOVE` (`conditional_move`);
+    paths, `?.` and `?MOVE` (`conditional_move`), and **`csv` and `sqlite`**
+    (`run_csv` and `run_sqlite`, `crates/bund2-stdlib/src/data.rs`), which the
+    prose omitted until the sixteenth review counted it against the test's
+    21;
   - through `Vm::scoped_call`: `context`;
   - through `Vm::apply`: **`eval_source`** (`bund.eval`, `!!`, `use`),
-    **`execute_value`** (`!` and `execute` handed a name), **`apply`**, and
-    `text`, which applies a TEXTBUFFER and so cannot recurse.
+    **`execute_reached`** (the body of `!` and `execute`, handed a name),
+    **`apply`**, and `text`, which applies a TEXTBUFFER and so cannot
+    recurse.
 
-  `eval_source` and `execute_value` are paths of their own. Each adds its own
-  frame, and `eval_source` a parse and a loop, to `Vm::apply`'s, so their
+  `eval_source` and `execute_reached` are paths of their own. Each adds its
+  own frame, and `eval_source` a parse and a loop, to `Vm::apply`'s, so their
   `c_p` is not `Vm::apply`'s alone. Criterion 11 reports `c_p` and `δ_p` for
-  each. Then Tier 0's part is
+  each. **`execute_reached` has two costs, not one**, since F113: a name goes
+  through `Vm::apply`, and a lambda a list or dict reached goes through
+  `Vm::eval_lambda`. Its LIST and MAP arms also recurse into themselves on the
+  depth of the value, with no floor check between those frames, so criterion
+  11 measures its deepest shape (assumption 30). Then Tier 0's part is
   `8 MiB + m`, with `m ≥ 8 MiB × max_p(δ_p / c_p)`, and the level with the tier
   on cannot be lower whatever holds the share. An earlier revision took `c` and
   `δ` from `loop` alone, and the native with the smallest `c` need not be
@@ -2309,14 +2335,42 @@ with the place that enforces or decides it.
 28. **A list literal does not evaluate its items.** `[ 1 2 + ]` keeps `+` as a
     CALL value (run 2026-09-11), so `execute_value`'s arms that do Rust work
     before re-entering evaluation — CLASS, OBJECT, CONDITIONAL — are not
-    reachable from a literal. F112's "no golden moves" rests on this.
+    reachable from a literal, and neither is its MAP arm. Its other arms are
+    LIST, LAMBDA and the name arm. F112's "no golden moves" rests on this.
+    **A literal is not the only way a program gets a LIST**, and the first
+    word that returns a list of dicts makes the MAP arm reachable from source
+    without touching `values.rs` (the sixteenth review's B1).
 29. **A native that files two tail requests loses the first.**
     `Interp::request_tail` assigns. No `bund2-stdlib` native does that now:
-    the one that did, `execute_value`'s LIST arm, runs a lambda item at once
-    since F113, as the reference does (`execute.rs:93-95`). The other request
-    sites file once and return. An embedder's native can still file twice, and
-    nothing detects it. §S5's "a request is never lost" is a rule about
-    compiled call sites, not a property of Tier 0.
+    the one that did, `execute_value`, files only when the program executed a
+    lambda itself, and runs one at once when a list or a dict reached it
+    (F113, completed after the sixteenth review's B1; the reference does the
+    same at
+    `reference/rust_multistackvm/src/stdlib/execute.rs:93-95`). The other
+    request sites file once and return. An embedder's native can still file
+    twice, and nothing detects it. §S5's "a request is never lost" is a rule
+    about compiled call sites, not a property of Tier 0.
+30. **A native may recurse in Rust between two floor checks.** Assumption 4
+    scopes its claim to a leaf native. `execute_value` is not one: its LIST
+    and MAP arms recurse into themselves on the *depth of the value*, and
+    `stack_ok` is consulted only where an arm reaches `Vm::apply` or
+    `Vm::eval_lambda`. A list nested `n` deep therefore spends `n` Rust frames
+    before any floor is asked, and `STACK_RESERVE` carries them (§S8). Nothing
+    measures that depth (the sixteenth review's §4.1).
+31. **The entry trampoline makes no status of its own.** §S5 gives four
+    helpers `status_of` and treats the entry separately, because the entry
+    only converts a body's status rather than making one. An entry path that
+    grew a step after the body returned would bring the twelfth review's B1
+    back at the entry.
+32. **`#` and `#.` are the whole of the discarding family.** Assumption 25
+    names them as the `Ok` path. The spelling is `let _ =` around a
+    re-entering call, and no scan or audit looks for a third
+    (the sixteenth review's §4.3).
+33. **Only `request_tail` and `take_pending` write the request cell**, which
+    §S6's *Addressing* requires of the compiled mirror. `Interp::request_tail`
+    is the only writer today, and nothing enforces it; an assignment to
+    `pending_tail` that bypassed both would desynchronise compiled code from
+    Tier 0 silently.
 
 # S9. Tier pinning
 
@@ -2966,7 +3020,8 @@ evidence, and this one is listed as runnable rather than as met.
 19. **A fragment that could fail after its guard admits cannot be built.**
     By then operands have been pulled, so neither declining nor running the
     word next is safe. `Fragment`'s fields are private and `Fragment::new` is
-    its only constructor outside a test-only feature. It walks the ops,
+    its only constructor outside the `unchecked` feature, which only
+    `bund2-interp`'s `[dev-dependencies]` enables. It walks the ops,
     typed, against what the guard promises, so every consuming op counts —
     `DropTop` and `DupTop` as well as `PopInt` — and every register is written
     before it is read. `frag::run` reports anything that escapes as
@@ -3134,11 +3189,15 @@ evidence, and this one is listed as runnable rather than as met.
     the request cell only for an exit.
 
     The review's own program was `?try` over `[ { 10 } 5 ] !`, when
-    `execute_value`'s LIST arm filed each lambda item. F113 has that arm run a
-    lambda at once, so it no longer files, and the case is an embedder's
-    native again. What that program does now is
-    `a_list_execute_that_fails_keeps_what_earlier_items_left`
-    (`crates/bund2-stdlib/src/host.rs`).
+    `execute_value` filed each lambda a list reached. F113 runs one at once
+    instead, so the arm no longer files and the case is an embedder's native
+    again. F113 took two passes: the first tested the item's own type, and a
+    lambda held in a dict inside the list still filed (the sixteenth review's
+    B1). What those programs do now is
+    `a_list_execute_that_fails_keeps_what_earlier_items_left` and
+    `a_lambda_reached_through_a_dict_in_a_list_runs_at_once`
+    (`crates/bund2-stdlib/src/host.rs` and
+    `crates/bund2-stdlib/src/values.rs`).
 
 27. **Promotion does not cross a native `bund2-stdlib` did not register
     (D47).** From the test, register a native declaring `eff(1, 1)` that
@@ -3187,7 +3246,10 @@ evidence, and this one is listed as runnable rather than as met.
     `Error::internal` naming the native, reported through the reporter, with
     nothing on stderr and no abort. It fails for an adapter that lets the
     panic unwind, which would abort through `extern "C"` or unwind through
-    frames with no unwind tables (§S8). The Tier 0 half is **Met**:
+    frames with no unwind tables (§S8). **The call must not pass through a
+    native that discards its callee's error** — `#` and `#.` do
+    (assumption 32) — or the criterion passes without exercising the adapter.
+    The Tier 0 half is **Met**:
     `a_panicking_native_is_an_internal_error_not_an_unwind`
     (`crates/bund2-interp/src/lib.rs`).
     F95's `jarowinkler` program reports, and exits 0. The compiled half needs

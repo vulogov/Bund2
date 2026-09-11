@@ -309,7 +309,33 @@ fn execute_from_workbench(vm: &mut dyn Vm) -> Result<(), Error> {
     execute_value(vm, v)
 }
 
+/// Where the value being executed came from — **F113**.
+///
+/// The reference executes a value by recursing into one function, whose
+/// LAMBDA arm is `return vm.lambda_eval(ptr_value)`: it runs the body **at
+/// once**, whichever arm reached it
+/// (`reference/rust_multistackvm/src/stdlib/execute.rs:93-95`, from the LIST
+/// loop at `:40-48` and the dict arm at `:55-83`). Bund2 files a body instead
+/// when the program said `!` on a lambda, because that is a tail position and
+/// RFC-0003 §S4a makes it cost no Rust frame. Inside a container it is not a
+/// tail position: the loop goes on, so the body has to have run.
+///
+/// The first fix tested the item's own type, which let a lambda held in a
+/// dict inside a list reach the filing arm (the sixteenth review's B1).
+/// Reach is the property that decides, not the shape of the item.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reach {
+    /// The program executed this value itself.
+    Top,
+    /// A container being executed reached it.
+    Nested,
+}
+
 fn execute_value(vm: &mut dyn Vm, v: BundValue) -> Result<(), Error> {
+    execute_reached(vm, v, Reach::Top)
+}
+
+fn execute_reached(vm: &mut dyn Vm, v: BundValue, reach: Reach) -> Result<(), Error> {
     match v.dt() {
         PTR | STRING | CALL => {
             let name = v
@@ -317,11 +343,18 @@ fn execute_value(vm: &mut dyn Vm, v: BundValue) -> Result<(), Error> {
                 .ok_or_else(|| Error("EXECUTE not returned a proper function name".into()))?;
             vm.apply(BundValue::call(name))
         }
-        LAMBDA => {
-            let body = v.clone();
-            vm.tail_lambda(body);
-            Ok(())
-        }
+        LAMBDA => match reach {
+            // A tail position: the loop runs it before the next value, and no
+            // Rust frame is spent (RFC-0003 §S4a).
+            Reach::Top => {
+                let body = v.clone();
+                vm.tail_lambda(body);
+                Ok(())
+            }
+            // Not a tail position: whatever reached it has more to do, so the
+            // body runs now, as the reference's `lambda_eval` does (F113).
+            Reach::Nested => vm.eval_lambda(&v),
+        },
         LIST => {
             let items = v
                 .as_list()
@@ -333,23 +366,14 @@ fn execute_value(vm: &mut dyn Vm, v: BundValue) -> Result<(), Error> {
                 // (`reference/rust_multistackvm/src/stdlib/execute.rs:41-42`).
                 vm.push(item);
                 let top = crate::pull::operand(vm, "EXECUTE", 1)?;
-                // **A LAMBDA item runs now, not after this native returns
-                // (F113).** The reference's recursion reaches
-                // `vm.lambda_eval(ptr_value)` for each item in turn
-                // (`reference/rust_multistackvm/src/stdlib/execute.rs:93-95`,
-                // from the loop at `:40-48`), so each item sees what the one
-                // before it left, and a later item that fails does not undo
-                // it. Filing each through `Vm::tail_lambda` instead let the
-                // second request overwrite the first — `Interp::request_tail`
-                // assigns — so `[ { 10 } { 20 } ] !` ran only `{ 20 }`.
-                //
-                // The tail path is untouched where it matters: a bare
-                // `{ 10 } !` is the LAMBDA arm above, which still files.
-                if top.dt() == LAMBDA {
-                    vm.eval_lambda(&top)?;
-                } else {
-                    execute_value(vm, top)?;
-                }
+                // Every item is reached, not executed by the program, so a
+                // lambda anywhere under it runs at once — directly, or through
+                // this item's own dict or list (F113, `Reach`). Filing let the
+                // second request overwrite the first, since
+                // `Interp::request_tail` assigns, so `[ { 10 } { 20 } ] !` ran
+                // only `{ 20 }`, and a later item that failed discarded the
+                // first body altogether.
+                execute_reached(vm, top, Reach::Nested)?;
             }
             Ok(())
         }
@@ -361,7 +385,10 @@ fn execute_value(vm: &mut dyn Vm, v: BundValue) -> Result<(), Error> {
                 .as_str()
                 .ok_or_else(|| Error("EXECUTE returned error during DICT key conversion".into()))?;
             match v.get(&key) {
-                Some(inner) => execute_value(vm, inner),
+                // Reached, whatever reached the dict: the reference's dict arm
+                // pushes the member and recurses, so a LAMBDA member runs at
+                // once (F113).
+                Some(inner) => execute_reached(vm, inner, Reach::Nested),
                 None => Err(Error(format!(
                     "EXECUTE returned error during DICT execute: key {key} not found"
                 ))),
@@ -561,6 +588,43 @@ pub fn register_words(r: &mut Registry) {
 mod tests {
     use super::*;
     use bund2_interp::Interp;
+
+    /// F113, through a dict: a lambda a list reaches **through a MAP item**
+    /// runs at once too. The first fix tested the item's own type, so a dict
+    /// item reached the filing arm and the defect survived in that shape (the
+    /// sixteenth review's B1). Values built through the API, because `push`
+    /// converts its operands and `[ … ]` does not evaluate items, so no Bund
+    /// source builds a list of dicts today.
+    #[test]
+    fn a_lambda_reached_through_a_dict_in_a_list_runs_at_once() {
+        use bund2_api::Vm as _;
+        fn dict_of(n: i64) -> BundValue {
+            BundValue::map(Default::default()).set("k", BundValue::lambda(vec![BundValue::int(n)]))
+        }
+        // A dict item and then a plain lambda item. Two dicts cannot be
+        // tested together: the first member's result comes to rest on the
+        // second dict's key, which the reference's shape does too.
+        let mut i = vm();
+        i.push(BundValue::str("k"));
+        i.push(BundValue::list(vec![
+            dict_of(10),
+            BundValue::lambda(vec![BundValue::int(20)]),
+        ]));
+        i.apply(BundValue::call("!")).expect("runs");
+        let left: Vec<Option<i64>> = i.snapshot().iter().map(BundValue::as_int).collect();
+        assert_eq!(left, vec![Some(10), Some(20)], "both ran, in order");
+
+        // The failing row: the dict's lambda has run before `5` is reached.
+        let mut j = vm();
+        j.push(BundValue::str("k"));
+        j.push(BundValue::list(vec![dict_of(10), BundValue::int(5)]));
+        let e = j
+            .apply(BundValue::call("!"))
+            .expect_err("`5` is not executable");
+        assert!(e.0.contains("not of executable type"), "{}", e.0);
+        let left: Vec<Option<i64>> = j.snapshot().iter().map(BundValue::as_int).collect();
+        assert_eq!(left, vec![Some(10)], "the dict's lambda had already run");
+    }
 
     /// F113: every LAMBDA item in an executed list runs, in order, and an
     /// item that fails later does not undo what an earlier one left. The
