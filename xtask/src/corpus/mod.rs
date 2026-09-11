@@ -647,6 +647,31 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
         println!("  preservation target — but it is still in scope and still");
         println!("  needs tests, which is why COVERAGE above is over 497 and");
         println!("  not over {}.\n", core.len());
+
+        // **The core gap, by name, split by what closes it.** A core word
+        // Bund2 registers needs a probe; one it does not register needs
+        // implementing first. The counts above say how far; these say where.
+        let mut core_unprobed: Vec<&str> = Vec::new();
+        let mut core_missing: Vec<&str> = Vec::new();
+        for w in &in_scope {
+            if !core.contains(*w) || covered.contains(w) {
+                continue;
+            }
+            if implemented_set.contains(w) {
+                core_unprobed.push(w);
+            } else {
+                core_missing.push(w);
+            }
+        }
+        println!("## core words implemented, run by no golden: {}\n", core_unprobed.len());
+        for chunk in core_unprobed.chunks(6) {
+            println!("  {}", chunk.join("  "));
+        }
+        println!("\n## core words not implemented: {}\n", core_missing.len());
+        for chunk in core_missing.chunks(6) {
+            println!("  {}", chunk.join("  "));
+        }
+        println!();
     }
 
     // The uncovered set splits into a cheap half and an expensive one.
