@@ -2620,10 +2620,11 @@ evidence, and this one is listed as runnable rather than as met.
     `every_fixed_effect_native_keeps_its_pair_over_the_promotable_palette`
     (`crates/bund2-stdlib/src/lib.rs`), and the flagged natives are listed in
     `PROMOTABLE.txt` as comments. Its first stable run, on 2026-09-11, flags
-    seven. `debug.display_stack` and `debug.display_workbench` read the whole
+    eight. `debug.display_stack` and `debug.display_workbench` read the whole
     stack or workbench. `move_from`, `rotate_current_left`,
     `rotate_current_right`, `rotate_stack_left` and `rotate_stack_right`
-    change the values beneath their operands. The same run found six
+    change the values beneath their operands. `swap_in` reads a stack's depth
+    by name. The same run found six
     named-stack words whose declared pair was wrong on the current stack
     (F111, now opaque). The compiled half needs a tier.
 
@@ -2888,7 +2889,8 @@ evidence, and this one is listed as runnable rather than as met.
     effect, and the natives some run brought to `Ok` are exactly those
     `tests/golden/PROMOTABLE.txt` lists. §S5's promotion crosses only those.
     **Met**, 2026-09-10, when 178 of 205 fixed-effect natives were listed;
-    227 of 269 on 2026-09-11 (the list's own header line).
+    218 of 263 after D55 and F111 (the list's own header line), which read
+    227 of 269 earlier on 2026-09-11.
     **Mutation-checked**: before F94's fix it named `drop_stack` and nothing
     else, "declares (1, 0) and moved `main` from 4 to 0". The list certifies
     a pair, not what else a native observes, so a Q34 observer is still

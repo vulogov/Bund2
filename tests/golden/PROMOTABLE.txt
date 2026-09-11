@@ -1,9 +1,10 @@
-# Natives RFC-0005 §S5's promotion may cross (D48): every fixed-effect
-# native criterion 28's palette brought to `Ok` with no breach of its
-# declared effect. Anything absent is synced before, as an embedder's
-# native is. Written by BUND2_UPDATE_PROMOTABLE=1 cargo test -p
-# bund2-stdlib promotable; never edited by hand.
-# 227 of 269 fixed-effect natives reached.
+# Natives RFC-0005 §S5's promotion may cross (D48, D55): every
+# fixed-effect native criterion 28's palette brought to `Ok` with no
+# breach of its declared effect, and that D55's audit did not see
+# reading beyond its operands. Anything absent is synced before, as an
+# embedder's native is. Written by BUND2_UPDATE_PROMOTABLE=1 cargo
+# test -p bund2-stdlib promotable; never edited by hand.
+# 218 of 263 fixed-effect natives reached; 8 of them observe beyond their operands.
 !=
 *
 *.
@@ -43,7 +44,6 @@ car.
 cdr
 cdr.
 class
-clear_in
 compile
 complex
 conditional
@@ -63,11 +63,8 @@ convert.to_textbuffer.
 current
 curry
 debug.display_hostinfo
-debug.display_stack
-debug.display_workbench
 dict
 drop
-drop_in
 dup_one
 ensure_stack
 ensure_stack_with_capacity
@@ -78,7 +75,6 @@ float.E
 float.NaN
 float.Pi
 fmt
-fold_stack
 fs.cwd
 fs.ls
 fs.ls.
@@ -129,7 +125,6 @@ math.tanh
 merge
 merge.
 metrics
-move_from
 nl
 nodata
 not
@@ -144,10 +139,6 @@ push
 push.
 register
 return
-rotate_current_left
-rotate_current_right
-rotate_stack_left
-rotate_stack_right
 seq
 set
 sort
@@ -221,6 +212,7 @@ sysinfo.virtualization?
 tag
 tail
 text
+to_current
 to_stack
 true
 type
@@ -232,11 +224,19 @@ valuemap
 var
 var-
 #
+# Reached, but seen reading beyond their operands (D55), so never crossed:
+# observes: debug.display_stack — `debug.display_stack` reads the whole current stack
+# observes: debug.display_workbench — `debug.display_workbench` reads the whole workbench
+# observes: move_from — changes the values beneath its operands
+# observes: rotate_current_left — changes the values beneath its operands
+# observes: rotate_current_right — changes the values beneath its operands
+# observes: rotate_stack_left — changes the values beneath its operands
+# observes: rotate_stack_right — changes the values beneath its operands
+# observes: swap_in — `swap_in` reads the depth of a stack by name
+#
 # Fixed-effect natives the palette never brought to `Ok`:
 # not reached: at.
 # not reached: csv
-# not reached: dup_many_in
-# not reached: dup_one_in
 # not reached: endcontext
 # not reached: file
 # not reached: file.
@@ -259,17 +259,14 @@ var-
 # not reached: json.to_value
 # not reached: lambda=
 # not reached: raise
-# not reached: return_from
 # not reached: return_to
 # not reached: set,
 # not reached: set.,
 # not reached: sqlite
 # not reached: string.expressionmatch
 # not reached: string.expressionmatch.
-# not reached: swap_in
 # not reached: tail.
 # not reached: take
-# not reached: to_current
 # not reached: unwrap
 # not reached: url
 # not reached: url.

@@ -3099,13 +3099,14 @@ and only prints it. RFC-0005's assumption 22 names this.
   promotion across calls.
 - **Staging: that rule first, the audit later.**
 
-**First run, 2026-09-11.** Stable over three runs, the audit flags seven
-natives:
+**First run, 2026-09-11.** Stable over three runs, the audit flags eight
+natives, as the regenerated `PROMOTABLE.txt` lists them:
 - `debug.display_stack` and `debug.display_workbench`, which read the whole
   stack or workbench;
 - `move_from`, `rotate_current_left`, `rotate_current_right`,
   `rotate_stack_left` and `rotate_stack_right`, which change the values
-  beneath their operands.
+  beneath their operands;
+- `swap_in`, which reads a stack's depth by name.
 
 Getting there corrected the audit twice:
 - `+.`, `-.`, `*.` and `/.` were flagged for checking an empty workbench with
