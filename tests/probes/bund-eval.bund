@@ -1,0 +1,22 @@
+//
+// PROBE: `bund.eval`, `bund.eval.` and `!!` — evaluate a string of Bund code
+// in this VM, on its stacks and against its word table.
+//
+// The string is parsed and each value applied in turn, exactly as a program's
+// own values are (reference/Bund/src/stdlib/helpers/eval.rs:7-45). So the code
+// sees the stack it was called on, and a word it registers stays registered.
+// `bund.eval.` takes the string from the workbench, and `!!` aliases
+// `bund.eval` (reference/Bund/src/stdlib/functions/create_aliases.rs:13).
+// Only succeeding cases: a failure inside the string is reported with a
+// wrapper Bund2 does not print (D36).
+//
+"probe: bund.eval runs code on the stack it was called on" println
+"1 2 +" bund.eval println
+10 "5 +" bund.eval println
+"probe: a word registered inside the string stays registered" println
+":sq { dup * } register" bund.eval
+7 sq println
+"probe: bund.eval. takes the string from the workbench" println
+"3 4 *" . bund.eval. println
+"probe: !! is bund.eval" println
+"6 7 +" !! println

@@ -279,6 +279,60 @@ fn compile(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// `bund.eval`, spelled `!!`, and `bund.eval.` — parse a string and apply each
+/// of its values into this VM
+/// (`reference/Bund/src/stdlib/functions/bund/bund_eval.rs:10-38,86-93`, through
+/// `reference/Bund/src/stdlib/helpers/eval.rs:7-45`).
+///
+/// The code runs on the stack it was called on and against this word table, so
+/// a word it registers stays registered. That is D3's shape: a token stream
+/// applied straight in, never a compilation unit. NONE is skipped and EXIT
+/// stops the stream (`eval.rs:13-18`). A value that fails is wrapped as
+/// `Attempt to evaluate value … returned error: …` (`:30-33`), with the value
+/// rendered raw as `Interp::eval` renders it, and a parse error passes through
+/// as its own text (`:40-42`). The reference also refuses an ERROR value
+/// (`:19-27`); Bund2's parser produces none.
+fn bund_eval(vm: &mut dyn Vm) -> Result<(), Error> {
+    bund_eval_base(vm, crate::wb::Side::Stack, "BUND.EVAL")
+}
+
+fn bund_eval_wb(vm: &mut dyn Vm) -> Result<(), Error> {
+    bund_eval_base(vm, crate::wb::Side::Bench, "BUND.EVAL.")
+}
+
+fn bund_eval_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Result<(), Error> {
+    match side {
+        crate::wb::Side::Stack if vm.depth() < 1 => {
+            return Err(Error(format!("Stack is too shallow for inline {prefix}")));
+        }
+        crate::wb::Side::Bench if vm.workbench_depth() < 1 => {
+            return Err(Error(format!("Workbench is too shallow for inline {prefix}")));
+        }
+        _ => {}
+    }
+    let v = side
+        .pull(vm)
+        .ok_or_else(|| Error(format!("{prefix} returns: NO DATA")))?;
+    let Some(src) = v.as_str() else {
+        return Err(Error(format!(
+            "{prefix} returns: This Dynamic type is not string"
+        )));
+    };
+    let stream = bund2_syntax::compile(&src).map_err(|e| Error(e.to_string()))?;
+    for word in stream {
+        if word.dt() == bund2_value::NONE {
+            continue;
+        }
+        if word.dt() == EXIT {
+            break;
+        }
+        let shown = word.render(false);
+        vm.apply(word)
+            .map_err(|e| e.context(format!("Attempt to evaluate value {shown} returned error: ")))?;
+    }
+    Ok(())
+}
+
 /// `get,` — read a key and leave the container in place
 /// (`reference/Bund/src/stdlib/functions/values/getsetinplace.rs:16-70`).
 ///
@@ -1154,6 +1208,13 @@ pub fn register(r: &mut Registry) {
     r.register_native("car", car, eff(1, 1), WordKind::Sync);
     r.register_native("cdr", cdr, eff(1, 1), WordKind::Sync);
     r.register_native("compile", compile, eff(1, 1), WordKind::Sync);
+    // `reference/Bund/src/stdlib/functions/bund/bund_eval.rs:124-125`, the
+    // registration made when `--noeval` is not set, and the alias at
+    // `reference/Bund/src/stdlib/functions/create_aliases.rs:13`. Opaque: the
+    // string can do anything.
+    r.register_native("bund.eval", bund_eval, StackEffect::opaque(1), WordKind::Sync);
+    r.register_native("bund.eval.", bund_eval_wb, StackEffect::opaque(0), WordKind::Sync);
+    r.register_alias("!!", "bund.eval");
     r.register_native("get,", |vm| getset_inplace(vm, Side::Stack, false), eff(2, 2), WordKind::Sync);
     r.register_native("set,", |vm| getset_inplace(vm, Side::Stack, true), eff(3, 1), WordKind::Sync);
     // The `.` forms keep the dictionary on the workbench: `get.,` takes the

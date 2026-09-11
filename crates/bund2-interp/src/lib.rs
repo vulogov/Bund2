@@ -7,8 +7,9 @@
 //! allocates and until now had no VM to be measured in.
 //!
 //! **Not blocked on D3.** D3 rules what tier `bund.eval`'s output runs at,
-//! which is a Tier-1 question; nothing here needs it. `bund.eval` itself is
-//! not implemented, and will need it.
+//! which is a Tier-1 question; nothing here needs it. `bund.eval` is
+//! implemented in `bund2-stdlib` (`singles.rs`), and applies each parsed value
+//! through `Vm::apply`, so an eval'd token stream is never a compilation unit.
 
 #![forbid(unsafe_code)]
 #![cfg_attr(
