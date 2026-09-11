@@ -31,7 +31,38 @@ fn version(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// The host's virtualization, as `sys_metrics` names it
+/// (`reference/Bund/src/stdlib/functions/sysinfo/virt.rs:9-11`).
+pub(crate) fn virtualization() -> String {
+    format!("{:?}", sys_metrics::virt::get_virt_info())
+}
+
+/// `sysinfo.virtualization` — push the virtualization's name (`virt.rs:13-16`).
+fn virtualization_word(vm: &mut dyn Vm) -> Result<(), Error> {
+    vm.push(BundValue::str(virtualization()));
+    Ok(())
+}
+
+/// `sysinfo.virtualization?` — whether any virtualization was detected
+/// (`virt.rs:17-27`).
+fn is_virtualized(vm: &mut dyn Vm) -> Result<(), Error> {
+    let known = !matches!(
+        sys_metrics::virt::get_virt_info(),
+        sys_metrics::virt::Virtualization::Unknown
+    );
+    vm.push(BundValue::boolean(known));
+    Ok(())
+}
+
 pub fn register(r: &mut Registry) {
     r.register_native("sysinfo.version", version, eff(0, 1), WordKind::Sync);
+    // `virt.rs:37-38`.
+    r.register_native(
+        "sysinfo.virtualization",
+        virtualization_word,
+        eff(0, 1),
+        WordKind::Sync,
+    );
+    r.register_native("sysinfo.virtualization?", is_virtualized, eff(0, 1), WordKind::Sync);
     r.register_alias("version", "sysinfo.version");
 }

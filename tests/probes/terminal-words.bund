@@ -1,0 +1,21 @@
+//
+// PROBE: the terminal words, as a capture sees them.
+//
+// bund.prompt is a fixed string with fixed colour codes
+// (Bund/src/stdlib/functions/io/input.rs:14-18). io.banner draws with cfonts'
+// tiny font and always answers on the stack
+// (Bund/src/stdlib/functions/io/banner.rs:36-43). The capture gives a program
+// no input, so input and input* meet end-of-file at once: input pushes
+// nothing, and input* runs its lambda on nothing (input.rs:46-51,117-124).
+//
+"probe: bund.prompt" println
+bund.prompt println
+"probe: io.banner draws a string" println
+"Bund" io.banner println
+"probe: io.banner. converts a number and takes it from the workbench" println
+42 . io.banner. println
+"probe: input at end of input pushes nothing" println
+"? " input
+"probe: input* at end of input never runs its lambda" println
+"? " { "never" println } input*
+"done" println

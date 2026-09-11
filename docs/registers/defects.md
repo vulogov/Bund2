@@ -3309,3 +3309,22 @@ generator.sample*` answers `0.111…` through `0.444…`, and the next
 
 **Disposition: reproduce.** The probe's golden captures it
 (`crates/bund2-stdlib/src/random.rs`, `generator_sample_n`).
+
+## F108 — `input*` never checks that its lambda is a lambda
+
+**An original-implementation defect, reproduced**, found while implementing the
+terminal words.
+
+`input*` guards its operand with `if ! lambda_value.type_of() == LAMBDA`
+(`reference/Bund/src/stdlib/functions/io/input.rs:91-93`). In Rust `!` on a
+`u16` is bitwise NOT, so the test compares the inverted tag with `LAMBDA`,
+which is never true, and `INPUT*: #1 must be a LAMBDA` is never reported. Any
+value is accepted. A value that is not a lambda fails only when the first line
+arrives, where `lambda_eval` refuses it with `This is not a lambda`
+(`reference/rust_multistackvm/src/multistackvm_lambda_eval.rs:27-29`).
+
+**Disposition: reproduce.** Bund2's `input_loop` accepts any value in the same
+way, and fails at the first line with
+`INPUT* returned error from LAMBDA: This is not a lambda`
+(`crates/bund2-stdlib/src/terminal.rs`). The capture feeds no input, so no
+golden reaches the difference.

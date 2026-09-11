@@ -128,11 +128,15 @@ fn run_cli() -> ExitCode {
         }
     };
     bund2_stdlib::host::set_args(args.script_args.clone());
-    // Exit 0 either way: a Bund failure is reported, not signalled. Only a
-    // failure to *start* — bad arguments, an unreadable file — is an exit code,
-    // because there is no program to report against.
-    let _ok = run(&src, &args);
-    ExitCode::SUCCESS
+    // Exit 0 unless the program asked otherwise: a Bund failure is reported,
+    // not signalled. Only `bund.exit` (D52) and a failure to *start* — bad
+    // arguments, an unreadable file — set an exit code.
+    match run(&src, &args) {
+        // Unix keeps the low 8 bits of `exit`'s argument, and the reference
+        // passes its code straight to `process::exit`.
+        Some(code) => ExitCode::from((code & 0xff) as u8),
+        None => ExitCode::SUCCESS,
+    }
 }
 
 struct Args {
@@ -169,6 +173,8 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--no-dump-stack" => dump_stack = false,
             "--raw-values" | "--debug-values" => raw_values = true,
             "--noio" => host.noio = true,
+            // `reference/Bund/src/cmd/mod.rs:139-140`.
+            "--nocolor" => host.nocolor = true,
             "--" => {
                 script_args = it.by_ref().cloned().collect();
             }
@@ -349,12 +355,13 @@ fn locate(src: &str, file: &str, span: bund2_syntax::Span) -> bund2_api::diag::L
 
 /// Run a program, reporting anything that goes wrong through the reporter.
 ///
-/// Returns whether evaluation succeeded. **A failure is not an error exit**:
+/// Returns the code a word asked to exit with (D52), if one did. **A failure
+/// is not an error exit**:
 /// the reference prints its report and exits 0
 /// (`reference/Bund/src/stdlib/helpers/run_snippet.rs:85-90` sets no code), and
 /// every golden capturing a failing program pins that. Changing it would be a
 /// deviation nobody has asked for.
-fn run(src: &str, args: &Args) -> bool {
+fn run(src: &str, args: &Args) -> Option<i32> {
     let file = args.file.as_str();
     let mut vm = Interp::new();
     bund2_stdlib::register_all_with(&mut vm.registry, &args.host);
@@ -372,19 +379,16 @@ fn run(src: &str, args: &Args) -> bool {
                 bund2_api::diag::Diagnostic::error(e.what.clone())
                     .at(locate(src, file, e.span)),
             );
-            return false;
+            return None;
         }
     };
     let lowered = bund2_syntax::lower_with_spans(&terms, src.len());
-    match vm.eval_indexed(&lowered.values) {
-        Ok(()) => true,
-        Err((i, e)) => {
-            let mut d = bund2_api::diag::Diagnostic::error(e.0);
-            if let Some(span) = lowered.span_of(i) {
-                d = d.at(locate(src, file, span));
-            }
-            vm.report(d);
-            false
+    if let Err((i, e)) = vm.eval_indexed(&lowered.values) {
+        let mut d = bund2_api::diag::Diagnostic::error(e.0);
+        if let Some(span) = lowered.span_of(i) {
+            d = d.at(locate(src, file, span));
         }
+        vm.report(d);
     }
+    vm.exit_requested()
 }

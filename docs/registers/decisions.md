@@ -2883,3 +2883,63 @@ D27 depends on D31. Decided by the repository owner, 2026-09-11.
 - Blocks: nothing
 - Depends on: D10, D40 (the toolchain rule); D27 and D31 (for the model words)
 - Status: **RESOLVED**
+
+## D52 — `bund.exit` is a request the embedder honours
+
+The reference's `bund.exit` calls `process::exit`: with code 0 when the stack
+is empty, and otherwise with the popped INTEGER, or 0 if the value will not
+cast (`reference/Bund/src/stdlib/functions/bund/bund_exit.rs:10-31`). Bund2's
+shipped code may not end the process (CLAUDE.md, D37). An embedder such as a
+TUI has its own idea of what ending means.
+
+### Decision
+
+Decided by the repository owner, 2026-09-11: **`bund2-api` gains
+`Vm::request_exit(code)`**. `bund.exit` calls it. The interpreter stops at the
+next word boundary and runs nothing more of the program. The embedder reads
+the requested code. The CLI returns it as the process exit code, keeping the
+low 8 bits as Unix `exit` does.
+
+This widens the API, which is why it is recorded here. Every `Vm`
+implementation has to answer the request.
+
+### Rejected
+
+- **A marked `Error` the CLI recognises.** It needs no API change, but it
+  carries the exit as a magic string, and every other embedder would see an
+  ordinary error.
+- **Deferring `bund.exit`.**
+
+- Decided by: repository owner, 2026-09-11
+- Blocks: nothing
+- Depends on: D37 (no process exit in shipped code), D14 (the API surface)
+- Status: **RESOLVED**
+
+## D53 — `debug.display_hostinfo` reports Bund2's own crates, an approved deviation
+
+The reference's `debug.display_hostinfo` prints a table
+(`reference/Bund/src/stdlib/functions/debug_fun/debug_display_hostinfo.rs:12-73`).
+The first six rows give the versions of its internal crates: `rust_dynamic`,
+`rust_multistack`, `rust_multistackvm`, `bundcore`, `bund_language_parser` and
+`internaldb` (`:39-56`). The table then shows distributed mode, hostname, OS
+version, virtualization and kernel version (`:57-71`). Bund2 has none of those
+six crates.
+
+### Decision
+
+Decided by the repository owner, 2026-09-11: **the six version rows name
+Bund2's own crates and versions**. The host rows follow as the reference has
+them. The difference is recorded as an approved deviation, the same way D50
+recorded `sysinfo.version`. The table depends on the host in any case, so no
+golden can hold it and no conformance number moves.
+
+### Rejected
+
+- **Keeping the reference's six row labels with Bund2's version in each.**
+  The table would name crates Bund2 does not contain.
+- **Dropping the version rows.**
+
+- Decided by: repository owner, 2026-09-11
+- Blocks: nothing
+- Depends on: D50 (the same question for `sysinfo.version`)
+- Status: **RESOLVED**

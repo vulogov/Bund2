@@ -32,6 +32,22 @@ fn eff(consumes: u8, produces: u8) -> StackEffect {
 pub struct HostOptions {
     /// `--noio`: register the I/O words as stubs that fail.
     pub noio: bool,
+    /// `--nocolor`: `debug.display_hostinfo` draws its table without colour
+    /// (`reference/Bund/src/stdlib/functions/debug_fun/debug_display_hostinfo.rs:156-160`).
+    pub nocolor: bool,
+}
+
+/// `bund.exit` — end the program (D52)
+/// (`reference/Bund/src/stdlib/functions/bund/bund_exit.rs:10-31`).
+///
+/// With an empty stack the code is 0. Otherwise it is the value on top, and a
+/// value that is not an INTEGER is logged and taken as 0 (`:22-28`). The code
+/// is truncated `as i32` (`:30`). Where the reference calls `process::exit`,
+/// this asks the embedder to end the program, and nothing after it runs.
+fn bund_exit(vm: &mut dyn Vm) -> Result<(), Error> {
+    let code = vm.pull().and_then(|v| v.as_int()).unwrap_or(0);
+    vm.request_exit(code as i32);
+    Ok(())
 }
 
 /// The script's own arguments, the ones after `--`.
@@ -285,6 +301,11 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
     r.register_native("args", args_word, eff(0, 1), WordKind::Sync);
     r.register_native("args.parse", args_parse, eff(0, 1), WordKind::Sync);
     r.register_native("sleep.seconds", sleep_seconds, eff(1, 0), WordKind::Sync);
+    // `reference/Bund/src/stdlib/functions/bund/bund_exit.rs:41`, aliased at
+    // `reference/Bund/src/stdlib/functions/create_aliases.rs:31`. Opaque: it
+    // takes a value only when there is one.
+    r.register_native("bund.exit", bund_exit, StackEffect::opaque(0), WordKind::Sync);
+    r.register_alias("exit", "bund.exit");
     r.register_native(
         "io.graph",
         |vm| io_graph(vm, Side::Stack, "IO.GRAPH"),
@@ -424,7 +445,10 @@ mod tests {
 
     #[test]
     fn noio_replaces_the_io_words_with_the_reference_stubs() {
-        let mut i = interp(HostOptions { noio: true });
+        let mut i = interp(HostOptions {
+            noio: true,
+            ..HostOptions::default()
+        });
         let e = run(&mut i, "fs.cwd").expect_err("stubbed");
         assert!(e.contains("bund FS.CWD functions disabled with --noio"), "{e}");
         let e = run(&mut i, "\"x\" rm").expect_err("stubbed");
@@ -463,6 +487,22 @@ mod tests {
         assert_eq!(m.get("name").map(|v| v.display()).as_deref(), Some("[ x :: ]"));
         assert_eq!(m.get("args").map(|v| v.display()).as_deref(), Some("[ plain :: ]"));
         set_args(Vec::new());
+    }
+
+    /// D52: nothing runs after `exit`, inside a lambda or out of one, and the
+    /// first code stands.
+    #[test]
+    fn exit_stops_the_program_and_keeps_its_code() {
+        use bund2_api::Vm as _;
+        let mut i = interp(HostOptions::default());
+        run(&mut i, ":f { 1 7 exit 2 } register 0 f 3").expect("an exit is not a failure");
+        assert_eq!(i.exit_requested(), Some(7));
+        let left: Vec<i64> = i.snapshot().iter().filter_map(|v| v.as_int()).collect();
+        assert_eq!(left, vec![0, 1], "nothing after the exit ran");
+
+        let mut j = interp(HostOptions::default());
+        run(&mut j, "exit").expect("runs");
+        assert_eq!(j.exit_requested(), Some(0), "an empty stack exits 0");
     }
 
     #[test]

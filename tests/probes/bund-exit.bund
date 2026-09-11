@@ -1,0 +1,13 @@
+//
+// PROBE: bund.exit and its alias exit (Bund/src/stdlib/functions/bund/bund_exit.rs:10-31,
+// Bund/src/stdlib/functions/create_aliases.rs:31).
+//
+// exit ends the program where it stands: the rest of the lambda, the rest of
+// the program, and the capture's own epilogue never run. In Bund2 it is a
+// request the embedder honours (D52).
+//
+"probe: exit inside a word stops everything after it" println
+:f { "inside, before exit" println 3 exit "inside, after exit" println } register
+"before the call" println
+f
+"after the call" println

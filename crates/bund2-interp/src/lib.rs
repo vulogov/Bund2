@@ -449,6 +449,10 @@ pub struct Interp {
     /// `reference/rust_multistackvm/src/multistackvm_apply.rs:17`, before the
     /// `autoadd` test at `:19`.
     pub autoadd: bool,
+    /// The code `bund.exit` asked to end with — D52. Once set, every step
+    /// refuses, so whatever is running unwinds, and the top level returns
+    /// cleanly instead of reporting.
+    exit_code: Option<i32>,
 }
 
 impl Default for Interp {
@@ -472,6 +476,20 @@ impl Interp {
             audit_inside: None,
             audit_native: None,
             stack_floor: tier0_floor(),
+            exit_code: None,
+        }
+    }
+
+    /// Refuse to take another step once an exit has been requested (D52).
+    ///
+    /// The refusal is an error only so that it unwinds: every native between
+    /// here and the top level passes it up, including one that catches errors,
+    /// because that native's next step is refused too. The top level recognises
+    /// it by the request, not by the text, and returns cleanly.
+    fn exit_gate(&self) -> Result<(), Error> {
+        match self.exit_code {
+            Some(code) => Err(Error(format!("the program asked to exit with code {code}"))),
+            None => Ok(()),
         }
     }
 
@@ -707,6 +725,7 @@ impl Interp {
 
     /// Apply one value, leaving any requested body for the caller's loop.
     pub fn apply_step(&mut self, v: BundValue) -> Result<(), Error> {
+        self.exit_gate()?;
         match v.dt() {
             bund2_value::CALL => {
                 let name = v
@@ -792,11 +811,20 @@ impl Interp {
                 bund2_value::EXIT => break,
                 _ => {
                     observe(v);
+                    // A step refused because the program asked to exit is not
+                    // a failure: the program is over, and there is nothing to
+                    // report (D52).
                     if let Err(e) = self.apply_step(v.clone()) {
+                        if self.exit_code.is_some() {
+                            return Ok(());
+                        }
                         return Err((i, e));
                     }
                     // A top-level word may have asked for a body to run.
                     if let Err(e) = self.drain_frames() {
+                        if self.exit_code.is_some() {
+                            return Ok(());
+                        }
                         return Err((i, e));
                     }
                 }
@@ -1089,6 +1117,7 @@ impl Vm for Interp {
     }
 
     fn eval_lambda(&mut self, lambda: &BundValue) -> Result<(), Error> {
+        self.exit_gate()?;
         if frame_items(lambda).is_none() {
             return Err(Error::internal(
                 "eval_lambda was handed a value that carries no body; every caller checks the LAMBDA tag first",
@@ -1233,6 +1262,16 @@ impl Vm for Interp {
 
     fn pop_context(&mut self) -> Option<String> {
         self.contexts.pop().map(|(_, prev)| prev)
+    }
+
+    fn request_exit(&mut self, code: i32) {
+        // The first request stands; a second, made while unwinding, does not
+        // change the code.
+        self.exit_code.get_or_insert(code);
+    }
+
+    fn exit_requested(&self) -> Option<i32> {
+        self.exit_code
     }
 
     fn get_lambda(&self, name: &str) -> Option<BundValue> {

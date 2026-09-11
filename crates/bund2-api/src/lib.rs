@@ -310,6 +310,19 @@ pub trait Vm {
     /// Pop one context, returning the stack to restore to. `None` when no
     /// context is open.
     fn pop_context(&mut self) -> Option<String>;
+
+    // --- ending the program (D52) -------------------------------------------
+    /// Ask the embedder to end the program with `code`, as `bund.exit` does.
+    ///
+    /// The reference calls `process::exit`
+    /// (`reference/Bund/src/stdlib/functions/bund/bund_exit.rs:10-31`), which
+    /// shipped Bund2 code may not do. So this is a request. The interpreter
+    /// runs nothing more of the program once it is made, and the embedder
+    /// decides what ending means: the CLI returns the code from the process,
+    /// and a TUI might close a session. The first request stands.
+    fn request_exit(&mut self, code: i32);
+    /// The code a word asked to exit with, if one has.
+    fn exit_requested(&self) -> Option<i32>;
 }
 
 /// A word's failure. RFC-0003 replaces this with a spanned error value.
@@ -1157,6 +1170,10 @@ mod tests {
         }
         fn push_context(&mut self, _: &str) {}
         fn pop_context(&mut self) -> Option<String> {
+            None
+        }
+        fn request_exit(&mut self, _: i32) {}
+        fn exit_requested(&self) -> Option<i32> {
             None
         }
     }
