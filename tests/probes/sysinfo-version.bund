@@ -1,0 +1,21 @@
+//
+// PROBE: `sysinfo.version` and its alias `version` — the interpreter's own
+// version string.
+//
+// The reference pushes `env!("CARGO_PKG_VERSION")` of the `bund` crate
+// (reference/Bund/src/stdlib/functions/sysinfo/host.rs:9-12), registered as
+// `sysinfo.version` with `version` as its alias
+// (reference/Bund/src/stdlib/functions/create_aliases.rs:32). Bund2 pushes
+// its own crate's version instead, and reporting Bund's from Bund2 would be a
+// claim rather than a preservation.
+//
+// So this golden is an **approved deviation** (D50): the oracle's output is
+// captured as it is, and Bund2 is expected to differ from it on exactly the
+// version string. The probe exists so the word is run against the oracle and
+// the difference is on record rather than implied.
+//
+"probe: sysinfo.version pushes a version string" println
+sysinfo.version type println
+sysinfo.version println
+"probe: version is its alias" println
+version println

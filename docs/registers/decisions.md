@@ -2786,3 +2786,39 @@ that was there before.
 - Blocks: nothing; unblocks RFC-0005 §S8's call boundary
 - Depends on: D37, D36
 - Status: **RESOLVED — built.**
+
+## D50 — `sysinfo.version` reports Bund2's own version, an approved deviation
+
+`sysinfo.version`, and its alias `version`, push the interpreter's version
+string. The reference pushes `env!("CARGO_PKG_VERSION")` of the `bund` crate,
+`0.22.0` at the pinned SHA (`reference/Bund/src/stdlib/functions/sysinfo/host.rs:9-12`).
+Bund2 pushes its own crate's version (`crates/bund2-stdlib/src/sysinfo.rs`,
+`version`). The code has always called this a deviation "with no golden to
+record it against", which kept the word among the five that coverage never
+counts.
+
+### Decision
+
+Decided by the repository owner, 2026-09-11: **Bund2 reports its own
+version**, and the difference is recorded. Reporting `0.22.0` would have Bund2
+claim to be a version of Bund it is not. The probe
+`tests/probes/sysinfo-version.bund` runs both spellings against the oracle.
+Its golden is to be captured with `cargo xtask golden`, and then listed in
+`tests/golden/DEVIATIONS.txt` under this decision with
+`cargo xtask conform --accept-deviation probes/sysinfo-version.golden --reason
+D50`, which records the hash of Bund2's expected output, so an unintended
+change still fails.
+
+### Rejected
+
+- **Report the reference's `0.22.0`.** It would pass the probe, but it is a
+  compatibility claim no one has asked for.
+- **Leave the word unprobed.** The difference stays implied rather than
+  recorded, and coverage never counts the word.
+
+- Decided by: repository owner, 2026-09-11
+- Blocks: nothing
+- Depends on: D21 (probes)
+- Status: **RESOLVED — decided, and the probe is written. Its golden and
+  deviation row wait for the owner, because `tests/golden/` is outside what
+  the session recording this may write.**
