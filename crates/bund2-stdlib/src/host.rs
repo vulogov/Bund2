@@ -692,6 +692,26 @@ mod tests {
         assert_eq!(j.exit_requested(), Some(0), "an empty stack exits 0");
     }
 
+    /// F112: a body a native runs synchronously, ending in `exit`, stops the
+    /// native too. `map` used to see `Ok`, collect, and go on: `[1]` came back
+    /// as a LIST, and `[1 2]` pushed its second item before the refusal.
+    #[test]
+    fn an_exit_ending_a_synchronous_body_stops_the_native_that_ran_it() {
+        use bund2_api::Vm as _;
+        for src in ["[ 1 ] { 7 exit } map", "[ 1 2 ] { 7 exit } map"] {
+            let mut i = interp(HostOptions::default());
+            run(&mut i, src).expect("an exit is not a failure");
+            assert_eq!(i.exit_requested(), Some(7), "{src}");
+            let left: Vec<Option<i64>> = i.snapshot().iter().map(BundValue::as_int).collect();
+            assert_eq!(left, vec![Some(1)], "{src}: `map` stopped at the first item");
+        }
+        // The control: `exit` not last already stopped at the next step.
+        let mut k = interp(HostOptions::default());
+        run(&mut k, "1 [ 1 ] { 7 exit 99 } map").expect("runs");
+        let left: Vec<Option<i64>> = k.snapshot().iter().map(BundValue::as_int).collect();
+        assert_eq!(left, vec![Some(1), Some(1)]);
+    }
+
     #[test]
     fn io_graph_wants_floats() {
         let mut i = interp(HostOptions::default());

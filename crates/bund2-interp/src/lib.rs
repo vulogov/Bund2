@@ -741,7 +741,10 @@ impl Interp {
         let floor = self.frames.len();
         self.apply_step(v)?;
         self.take_pending();
-        self.run_to(floor)
+        self.run_to(floor)?;
+        // F112: a synchronous run that ended by requesting an exit returns
+        // the refusal, not `Ok`, so the native that asked runs nothing more.
+        self.exit_gate()
     }
 
     /// Apply one value, leaving any requested body for the caller's loop.
@@ -1149,7 +1152,9 @@ impl Vm for Interp {
         // assembled per call, so it is wrapped as a LIST value: there is no
         // key worth keeping (D42).
         self.push_frame(BundValue::list(body), Some(ExitAction::ToStack(prev)));
-        self.run_to(floor)
+        self.run_to(floor)?;
+        // F112, as in `Interp::apply`.
+        self.exit_gate()
     }
 
     fn eval_lambda(&mut self, lambda: &BundValue) -> Result<(), Error> {
@@ -1167,7 +1172,13 @@ impl Vm for Interp {
         }
         let floor = self.frames.len();
         self.push_frame(lambda.clone(), None);
+        // **F112.** `run_to` pops a finished frame without the gate, so a body
+        // whose last word is `bund.exit` returns `Ok`, and the native that ran
+        // it went on: `map` collected, `input*` read another line. D52 says
+        // nothing more runs, so the refusal comes here, at the return to Rust,
+        // as it would have at the body's next step.
         self.run_to(floor)
+            .and_then(|()| self.exit_gate())
             .map_err(|e| e.context("Lambda content evaluation returned error: "))
     }
 

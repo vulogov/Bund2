@@ -2952,6 +2952,16 @@ implementation has to answer the request.
 - Depends on: D37 (no process exit in shipped code), D14 (the API surface)
 - Status: **RESOLVED**
 
+**Dated note, 2026-09-11 — "nothing more" includes the native, and the state
+after an exit is meaning.** RFC-0005's thirteenth review found that Tier 0
+did not keep this to the letter. A body a native ran synchronously, ending in
+`bund.exit`, returned `Ok`, and the native went on (F112). The repository
+owner chose to fix Tier 0 rather than have the compiled tier copy it: the
+refusal now also comes where a synchronous run returns to Rust. The owner
+also ruled that the stacks and workbench left after an exit are part of the
+program's meaning, and the tiers must agree on them. An embedder such as a TUI
+may show them. RFC-0005's criterion 30 compares them.
+
 ## D53 — `debug.display_hostinfo` reports Bund2's own crates, an approved deviation
 
 The reference's `debug.display_hostinfo` prints a table

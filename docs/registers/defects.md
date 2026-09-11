@@ -3416,3 +3416,38 @@ stops are re-derived with them.
 
 **Note, 2026-09-11:** re-derived after this fix, the stops are unchanged, at
 189 programs and 137 = 116 + 21, because no program reaches the six.
+
+## F112 — after an exit, the native that ran the body still ran
+
+**A Bund2 defect in Tier 0 against D52**, found by RFC-0005's thirteenth
+review (B1).
+
+D52 says the interpreter "stops at the next word boundary and runs nothing
+more of the program", and `Vm::request_exit`'s documentation says the same.
+The reference ends the process inside the word
+(`reference/Bund/src/stdlib/functions/bund/bund_exit.rs:30`). Tier 0 gated
+only at the top of `apply_step` and of `Vm::eval_lambda`. `Interp::run_to`
+pops a finished frame without the gate, so a body a native ran synchronously,
+whose last word was `bund.exit`, returned `Ok` to that native, which went on
+in Rust until its next step:
+
+| program | before | after |
+|---|---|---|
+| `[1] { 7 exit } map` | exit 7, `[1]` left (`map` collected) | exit 7, `1` left |
+| `[1 2] { 7 exit } map` | exit 7, `2` left (the second item pushed) | exit 7, `1` left |
+| `"p> " { println 7 exit } input*` | read and waited for a second line | stops after the first |
+
+A body in which `exit` was not last already stopped at its next step.
+
+**Why it matters.** RFC-0005's compiled code reports the exit to that native
+as an error, so the tiers would have disagreed on the final stack and on what
+they read from the terminal. Criterion 2 cannot see it, since no golden
+captures anything after an exit.
+
+**Status:** FIXED 2026-09-11 (`crates/bund2-interp/src/lib.rs`).
+`Vm::eval_lambda`, `Interp::apply` and `Vm::scoped_call` consult `exit_gate`
+after `run_to`. A native that catches errors still runs its handler: `?try`
+pushes its `error` CONDITIONAL before its `except` body is refused, which is
+RFC-0005's assumption 25. No golden moves.
+`an_exit_ending_a_synchronous_body_stops_the_native_that_ran_it`
+(`crates/bund2-stdlib/src/host.rs`).

@@ -619,7 +619,12 @@ mod honesty_tests {
     /// `δ_p` over. A new re-entering function fails this test until it is
     /// named below, so the set cannot go stale the way a list kept in prose
     /// did, twice. A source scan, cut at each file's test module as criterion
-    /// 25's is; a closure counts under the function it is written in.
+    /// 25's is; a closure counts under the function it is written in. It
+    /// matches each call in its method form and its path form (`vm.apply(`,
+    /// `Vm::apply(`), reads a function head whatever its qualifiers, and
+    /// descends into subdirectories (the thirteenth review's S2). It cannot
+    /// see a call made through a function pointer or a macro, nor anything
+    /// outside this crate (RFC-0005 assumption 24).
     #[test]
     fn every_reentering_function_is_named() {
         const REENTERING: [&str; 21] = [
@@ -647,41 +652,57 @@ mod honesty_tests {
             // which pushes, so it cannot recurse.
             "values.rs: register_words",
         ];
+        const QUALIFIERS: [&str; 5] = ["pub", "const", "unsafe", "async", "extern"];
+        const CALLS: [&str; 6] = [
+            ".eval_lambda(",
+            ".apply(",
+            ".scoped_call(",
+            "::eval_lambda(",
+            "::apply(",
+            "::scoped_call(",
+        ];
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut found = std::collections::BTreeSet::new();
-        for entry in std::fs::read_dir(&src).expect("src exists") {
-            let path = entry.expect("entry").path();
-            if path.extension().is_none_or(|x| x != "rs") {
-                continue;
-            }
-            let file = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or_default()
-                .to_string();
-            let text = std::fs::read_to_string(&path).expect("reads");
-            let shipped = text.split("#[cfg(test)]\nmod ").next().unwrap_or_default();
-            let mut current = String::new();
-            for line in shipped.lines() {
-                let t = line.trim_start();
-                if t.starts_with("//") {
+        let mut dirs = vec![src.clone()];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).expect("dir reads") {
+                let path = entry.expect("entry").path();
+                if path.is_dir() {
+                    dirs.push(path);
                     continue;
                 }
-                for prefix in ["pub(crate) fn ", "pub fn ", "fn "] {
-                    if let Some(rest) = t.strip_prefix(prefix) {
-                        current = rest
-                            .split(['(', '<'])
-                            .next()
-                            .unwrap_or_default()
-                            .to_string();
-                        break;
-                    }
+                if path.extension().is_none_or(|x| x != "rs") {
+                    continue;
                 }
-                if [".eval_lambda(", ".apply(", ".scoped_call("]
-                    .iter()
-                    .any(|m| line.contains(m))
-                {
-                    found.insert(format!("{file}: {current}"));
+                let file = path
+                    .strip_prefix(&src)
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default();
+                let text = std::fs::read_to_string(&path).expect("reads");
+                let shipped = text.split("#[cfg(test)]\nmod ").next().unwrap_or_default();
+                let mut current = String::new();
+                for line in shipped.lines() {
+                    let t = line.trim_start();
+                    if t.starts_with("//") {
+                        continue;
+                    }
+                    // A head is `fn ` preceded only by qualifiers: `pub(super)`,
+                    // `const`, `unsafe`, `async`, `extern "C"` and the like.
+                    if let Some(at) = t.find("fn ") {
+                        let head_ok = t[..at].split_whitespace().all(|w| {
+                            QUALIFIERS.iter().any(|q| w.starts_with(q)) || w.starts_with('"')
+                        });
+                        if head_ok {
+                            current = t[at + 3..]
+                                .split(['(', '<'])
+                                .next()
+                                .unwrap_or_default()
+                                .to_string();
+                        }
+                    }
+                    if CALLS.iter().any(|m| line.contains(m)) {
+                        found.insert(format!("{file}: {current}"));
+                    }
                 }
             }
         }

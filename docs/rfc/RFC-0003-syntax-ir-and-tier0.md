@@ -1057,3 +1057,14 @@ program can see is that this recursion now fails the way a Bund program is
 allowed to fail — with a diagnostic — instead of killing the process.
 
 - Amended by: repository owner, 2026-09-10, on F85
+
+## Dated note, 2026-09-11 — a synchronous run refuses after an exit (F112)
+
+S4's frame loop pops a finished frame without consulting anything, so
+`Vm::eval_lambda`, `Vm::apply` and `Vm::scoped_call` returned `Ok` when the
+body they ran ended in `bund.exit`. The native that called them then went on.
+D52, which came after this RFC, says nothing more runs after an exit. Since
+F112 each of the three consults the exit gate after the loop returns, and
+answers the refusal. The frame loop itself is unchanged, and so is every
+criterion here. Only a program that exits from inside a native's body can see
+the difference.

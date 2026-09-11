@@ -228,6 +228,11 @@ pub trait Vm {
     ///
     /// Costs one Rust frame per *native*, not per Bund call. Prefer
     /// [`Vm::tail_lambda`] wherever nothing runs after the body.
+    ///
+    /// Once an exit is recorded ([`Vm::request_exit`]) this returns an error,
+    /// including when the body itself recorded it, so the native that called
+    /// it runs nothing more of the program (D52, F112). [`Vm::apply`] and
+    /// [`Vm::scoped_call`] do the same.
     fn eval_lambda(&mut self, lambda: &BundValue) -> Result<(), Error>;
 
     /// Run the body `lambda` carries **after this native returns** — RFC-0003
