@@ -81,6 +81,14 @@
   significant items are answered in §S5 and §S8: D48's id set, a margin over
   every re-entering path, and the request protocol's four edges, one of them a
   Tier 0 defect now fixed (F96).
+
+  **Criterion 10 has a first measurement**, from a throwaway lowering outside
+  this RFC's gate (2026-09-11, branch `spike/lowering-1`). With §S8's call
+  boundary on every word and nothing inlined, `1 2 + drop` compiled runs
+  **1.93×** faster than Tier 0, against the criterion's floor of 1.2×. The
+  question this Status line opened with — whether the tier can earn its keep —
+  now has evidence on the side of yes. The criterion itself stays open until
+  the tier as shipped is measured.
 - Depends on: RFC-0001 (the value, whose representation §S1 indicts),
   RFC-0002 (`StackEffect`, the word slot table, and the open world that forces
   indirect calls), RFC-0003 (BundIR as a cache over a body, and the frame
@@ -2367,6 +2375,42 @@ evidence, and this one is listed as runnable rather than as met.
     Reported per shape, then: inlining alone, and inlining with promotion. The
     1.2× floor above applies to the tier as shipped. It is measured under the
     CLI's default reporter, as criterion 9 is.
+
+    **Measured by a throwaway lowering, 2026-09-11 — outside this RFC's gate.**
+    A spike on the scratch branch `spike/lowering-1` (commit `3138d3c`,
+    `bund2_jit::spike` and `bund2-bench`'s `spike` benchmark under
+    `--features jit`) compiles `1 2 + drop` through Cranelift with §S8's call
+    boundary: a `CallConv::Tail` body taking a context pointer and returning a
+    status, a Rust adapter calling each native under `catch_panic` (D49), an
+    entry trampoline, §S8's entry checks and §S5's post-call loads. It is not
+    the tier and is not proposed for merging. Release build, Apple silicon,
+    Criterion medians, against `Vm::eval_lambda` on the same body:
+
+    | body | Tier 0 | every word a call | literals promoted, `+` and `drop` inline |
+    |---|---|---|---|
+    | `{ 1 2 + drop }` | 111.8 ns | 58.0 ns, **1.93×** | 1.86 ns, 60× |
+    | the four words ×100 in one body | 10.55 µs | 5.68 µs, **1.86×** | 19.6 ns, ≈540× |
+
+    What it shows and what it does not:
+    - **The floor is cleared by removing dispatch alone.** The "every word a
+      call" lowering inlines nothing and keeps §S8's full boundary on every
+      word. It reaches 1.9×, close to the 2.03× inlining ceiling above,
+      although the two are measured on different bases: this one per body
+      entered through `eval_lambda`, that one per `+` in a chain.
+    - **The promoted column is a ceiling for bodies made only of literals.**
+      Cranelift folds `1 2 +`, and merges the meaning guards' cell loads,
+      because no call lies between two guards, so no cell can change: the ×100
+      body is 1,744 bytes, about 16 per group, where the call lowering grows by
+      about 480 per group. That merge is sound, and it means criterion 17's
+      per-site cost is near zero in straight-line code; the cost sits after
+      calls. A body whose operands arrive on the stack pays pulls, type guards
+      and a sync, for which §S6's fragment `promoted` column, about 6.7 ns per
+      `+`, is the better estimate.
+    - **The spike leaves out things that make the tier slower**: call slots and
+      `Tail` thunks, the cache lookup at entry, §S7's counter, the residual
+      path, and type guards. None of them is plausibly worth the 0.9× of
+      headroom above the floor, but this criterion is met only by the tier as
+      shipped, and stays open until then.
 
 11. **A promoted recursion does not overflow the machine stack.** §S8's
     correctness problem, and the criterion is one that already exists:
