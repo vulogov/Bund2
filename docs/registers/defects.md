@@ -3222,3 +3222,36 @@ fails with `$ not registered`, which is the same outcome. Bund2 registers the
 alias anyway (`crates/bund2-stdlib/src/stack.rs`), as the reference does, so
 `bund2 words` lists it. No probe pins it, because the only observable result
 is an error, whose presentation differs by D36.
+
+## F103 — `sleep.seconds` with a negative count waits for about 585 billion years
+
+**An original-implementation defect, reproduced**, found while implementing the
+host words.
+
+`sleep.seconds`, and its alias `sleep`, cast the count with `cast_int` and then
+wait `Duration::new(n as u64, 0)`
+(`reference/Bund/src/stdlib/functions/system/sleep.rs:13-19`). A negative
+count wraps to a count near `u64::MAX` seconds, so `-1 sleep` never returns.
+Not run against the oracle, because it would not return.
+
+**Disposition: reproduce.** The cast is the reference's, and refusing a
+negative count would be a behaviour it does not have. Bund2's `sleep_seconds`
+(`crates/bund2-stdlib/src/host.rs`) waits the same way. No golden can capture
+it.
+
+## F104 — `io.graph` panics inside `rasciigraph` on an empty or all-NaN list
+
+**A Bund2 defect under D37, shared with the reference**, found while probing
+`io.graph`.
+
+`io.graph` hands its floats to `rasciigraph::plot`
+(`reference/Bund/src/stdlib/functions/io/graph.rs:44-47`). `rasciigraph` 0.2.0
+indexes an empty row there (`src/lib.rs:146`) when the series has no finite
+values: for `list io.graph`, and for a list of `float.NaN`. Confirmed against
+the oracle on 2026-09-11: it prints `index out of bounds: the len is 0 but the
+index is 0` and exits 101. A one-element list draws.
+
+**Status:** handled by D49, as F95 is. Bund2 reports
+`internal error: native io.graph panicked: …` through the reporter and exits 0
+(`crates/bund2-stdlib/src/host.rs`, `io_graph`). No chart is invented for
+these inputs, because the reference never draws one.

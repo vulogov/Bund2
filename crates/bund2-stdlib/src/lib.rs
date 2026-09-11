@@ -54,9 +54,19 @@ pub mod sort;
 pub mod convert;
 
 pub mod report;
+// Script arguments, the filesystem, the clock, the process title, `io.graph`.
+pub mod host;
 
 /// Register everything this crate provides.
 pub fn register_all(r: &mut bund2_api::Registry) {
+    register_all_with(r, &host::HostOptions::default());
+}
+
+/// Register every word, with the host words set up as `opts` says: under
+/// `--noio` the I/O words are registered as stubs that fail, as the reference
+/// does.
+pub fn register_all_with(r: &mut bund2_api::Registry, opts: &host::HostOptions) {
+    host::register(r, opts);
     stack::register(r);
     console::register(r);
     logic::register(r);
@@ -230,11 +240,22 @@ mod honesty_tests {
         let palette = setup.snapshot();
         assert_eq!(palette.len(), 14, "fourteen operand kinds");
         let template = setup.registry.clone();
+        // Natives that act on the host are never run here: the palette's `7`
+        // would make `sleep.seconds` wait seven seconds, and its strings would
+        // hand `fs.rm` real relative paths. Left unrun, they are not reached,
+        // so promotion syncs before them as it does before an embedder's
+        // native (D48, dated note 2026-09-11).
+        const ACTS_ON_HOST: [&str; 4] = [
+            "fs.rm",
+            "sleep.seconds",
+            "system.setproctitle",
+            "system.setproctitle.",
+        ];
         let natives: Vec<(String, bund2_api::StackEffect)> = setup
             .registry
             .declared_effects()
             .into_iter()
-            .filter(|(_, e)| !e.opaque)
+            .filter(|(n, e)| !e.opaque && !ACTS_ON_HOST.contains(&n.as_str()))
             .collect();
 
         let k = palette.len();

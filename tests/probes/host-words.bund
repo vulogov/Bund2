@@ -1,0 +1,30 @@
+//
+// PROBE: the host-touching words whose output is the same on every machine.
+//
+// io.graph draws with rasciigraph (Bund/src/stdlib/functions/io/graph.rs:44-47),
+// and always answers on the stack (:48). args is empty when the runner is given
+// no arguments after `--` (Bund/src/stdlib/functions/bund/bund_args.rs:20-36).
+// file on /dev/null reads nothing (Bund/src/stdlib/functions/filesystem/file.rs:37).
+// fs.rm of a path that is not there still answers true
+// (Bund/src/stdlib/functions/filesystem/cp.rs:105-113). sleep and
+// system.setproctitle push nothing.
+//
+// fs.cwd, fs.ls and a real file's contents depend on the machine, so they are
+// unit-tested instead.
+//
+"probe: io.graph plots a list of floats as text" println
+[ 1.0 2.0 3.0 2.0 1.0 ] io.graph println
+"probe: io.graph. takes the list from the workbench and answers on the stack" println
+[ 3.0 1.0 2.0 ] . io.graph. println
+"probe: args with no script arguments is an empty list" println
+args println
+"probe: args.parse with no script arguments" println
+args.parse println
+"probe: sleep of zero seconds pushes nothing" println
+0 sleep
+"probe: file on /dev/null is an empty string" println
+"/dev/null" file println
+"probe: fs.rm of a path that is not there answers true" println
+"/nonexistent/bund2-probe/path" fs.rm println
+"probe: system.setproctitle pushes nothing" println
+"bund2-probe" system.setproctitle

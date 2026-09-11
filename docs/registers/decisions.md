@@ -2746,6 +2746,16 @@ barrier, under RFC-0005 criterion 14.
 - Status: **RESOLVED — the list and its check are built; the tier consumes
   them.**
 
+**Dated note, 2026-09-11 — natives that act on the host are not run.** The
+palette audit calls every fixed-effect native for real. Once the host words
+landed, that meant `sleep.seconds` waited seven seconds on the palette's `7`,
+and `fs.rm` was handed the palette's strings as relative paths to delete.
+`fs.rm`, `sleep.seconds`, `system.setproctitle` and `system.setproctitle.` are
+therefore left out of the run (`crates/bund2-stdlib/src/lib.rs`,
+`ACTS_ON_HOST`). Unrun, they are not reached and not listed, so promotion syncs
+before them. That is the conservative side of this decision and changes no
+answer.
+
 ## D49 — a panic in a native is caught where the native is called, in both tiers
 
 RFC-0005's tenth review, B2. D37 governs Bund2's code, not its dependencies,
@@ -2822,3 +2832,54 @@ deviations; coverage gained the word (265/497).
 - Depends on: D21 (probes)
 - Status: **RESOLVED — the probe, its golden and its deviation row are
   recorded (2026-09-11).**
+
+## D51 — pure-Rust substitutes for the reference's C-compiling crates
+
+Three library words reach crates that compile C at build time:
+
+- `sqlite` reaches rusqlite with `bundled`
+  (`reference/Bund/Cargo.toml:131-133`), which builds SQLite from C source.
+- `csv` reaches polars:
+  `reference/Bund/Cargo.toml:93-95`.
+- `file` and `file.` reach curl:
+  `reference/Bund/Cargo.toml:16`. They fetch a URL through libcurl
+  (`reference/Bund/src/stdlib/helpers/file_helper.rs:42-59`).
+
+D10 and D40 keep a default build free of a C toolchain. `grok` met that by
+becoming an optional feature that is off by default.
+
+### Decision
+
+Decided by the repository owner, 2026-09-11: **these words use pure-Rust
+substitutes and are always built**. They are not feature-gated. `file` reads
+with `std::fs`, `csv` uses the `csv` crate, and `sqlite` uses a pure-Rust
+engine that can read the SQLite file format.
+
+**Every observable difference from the reference is an approved deviation
+under this decision.** Most are in error text, which comes from the library
+that failed. Each difference is recorded where the word is implemented, with a
+probe where one can be run.
+
+`file` is the closest case. The reference turns any curl failure into `None`
+and reports it as `FILE gets no data`
+(`reference/Bund/src/stdlib/functions/filesystem/file.rs:47-48`), and it
+decodes the bytes lossily (`file_helper.rs:54`). A `std::fs` read that does
+both the same way gives the same answers.
+
+### Rejected
+
+- **The reference's crates behind an off-by-default feature**, as D40 did for
+  grok. A default build would then lack `sqlite`, `csv` and `file`.
+- **Deferring the three words.**
+
+### Not covered
+
+`save.model` and `load.model` also reach rusqlite, through the world file
+(`reference/Bund/src/stdlib/helpers/world/mod.rs`). **They are deferred until
+D31 is decided**, because D27 has already moved the world file to redb, and
+D27 depends on D31. Decided by the repository owner, 2026-09-11.
+
+- Decided by: repository owner, 2026-09-11
+- Blocks: nothing
+- Depends on: D10, D40 (the toolchain rule); D27 and D31 (for the model words)
+- Status: **RESOLVED**

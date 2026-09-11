@@ -127,15 +127,22 @@ fn run_cli() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    bund2_stdlib::host::set_args(args.script_args.clone());
     // Exit 0 either way: a Bund failure is reported, not signalled. Only a
     // failure to *start* — bad arguments, an unreadable file — is an exit code,
     // because there is no program to report against.
-    let _ok = run(&src, &args.file, args.dump_stack, args.raw_values);
+    let _ok = run(&src, &args);
     ExitCode::SUCCESS
 }
 
 struct Args {
     file: String,
+    /// `--noio`: the I/O words fail instead of touching the host
+    /// (`reference/Bund/src/cmd/mod.rs:145-146`).
+    host: bund2_stdlib::host::HostOptions,
+    /// Everything after `--`, which `args` answers with. The reference takes
+    /// them the same way (`reference/Bund/src/cmd/mod.rs:233-234`).
+    script_args: Vec<String>,
     /// Whether an error report carries the stack. On by default, as the
     /// reference always dumps; `--no-dump-stack` is for a caller that wants
     /// the reason alone.
@@ -145,12 +152,15 @@ struct Args {
     raw_values: bool,
 }
 
-/// `script --file <path>`, the shape `conform` and the oracle share.
+/// `script --file <path> [-- <args>…]`, the shape `conform` and the oracle
+/// share.
 fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut it = args.iter();
     let mut file = None;
     let mut dump_stack = true;
     let mut raw_values = false;
+    let mut host = bund2_stdlib::host::HostOptions::default();
+    let mut script_args = Vec::new();
     while let Some(a) = it.next() {
         match a.as_str() {
             "script" => {}
@@ -158,11 +168,17 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--dump-stack" => dump_stack = true,
             "--no-dump-stack" => dump_stack = false,
             "--raw-values" | "--debug-values" => raw_values = true,
+            "--noio" => host.noio = true,
+            "--" => {
+                script_args = it.by_ref().cloned().collect();
+            }
             other => return Err(format!("unknown argument `{other}`")),
         }
     }
     Ok(Args {
         file: file.ok_or("expected: bund2 script --file <path>")?,
+        host,
+        script_args,
         dump_stack,
         raw_values,
     })
@@ -338,11 +354,12 @@ fn locate(src: &str, file: &str, span: bund2_syntax::Span) -> bund2_api::diag::L
 /// (`reference/Bund/src/stdlib/helpers/run_snippet.rs:85-90` sets no code), and
 /// every golden capturing a failing program pins that. Changing it would be a
 /// deviation nobody has asked for.
-fn run(src: &str, file: &str, dump_stack: bool, raw_values: bool) -> bool {
+fn run(src: &str, args: &Args) -> bool {
+    let file = args.file.as_str();
     let mut vm = Interp::new();
-    bund2_stdlib::register_all(&mut vm.registry);
-    let mut reporter = bund2_stdlib::report::TextReporter::new(dump_stack);
-    reporter.raw_values = raw_values;
+    bund2_stdlib::register_all_with(&mut vm.registry, &args.host);
+    let mut reporter = bund2_stdlib::report::TextReporter::new(args.dump_stack);
+    reporter.raw_values = args.raw_values;
     vm.reporter = Box::new(reporter);
 
     // No `\n` is appended. The reference appends one at four of its five parse
