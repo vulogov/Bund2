@@ -1494,7 +1494,8 @@ file in a user's directory is exactly the artefact somebody opens with
 - Default: none. **A negative about other people's files is not provable**,
   and adopting "no" by default is the failure mode this register exists to
   prevent.
-- Status: OPEN
+- Status: **RESOLVED 2026-09-11 — no external readers** (see *Resolution*
+  below; was OPEN)
 
 **Recommended resolution: do not answer it — make it moot.** Ship a one-way
 importer, `bund2 world import <sqlite-path>` producing a redb world file. The
