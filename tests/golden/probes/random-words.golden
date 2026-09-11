@@ -1,0 +1,30 @@
+# golden for tests/probes/random-words.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: id.uuid is 36 characters and id.ulid 26
+36
+26
+probe: a sawtooth with the defaults
+1.0
+0.0
+[ 0.11111111111111112 ::  0.22222222222222225 ::  0.33333333333333339 ::  0.4444444444444445 :: ]
+probe: the sample after a batch skips a value
+0.6666666666666667
+probe: a sawtooth with its own period, high and low
+[ 8.0 ::  2.0 ::  4.0 ::  6.0 ::  8.0 ::  2.0 :: ]
+probe: square, periodic and sinusoidal with their defaults
+[ 0.0 ::  1.0 ::  0.0 ::  1.0 :: ]
+[ 9.0 ::  1.0 ::  3.0 :: ]
+[ 2.461708058138718 ::  13.414709848078966 ::  12.738868633442547 :: ]
+probe: a random draw is a float, whatever its value
+3
+probe: string.random.lorem of zero words
+
+╭╮
+╰╯
+╭╮
+╰╯

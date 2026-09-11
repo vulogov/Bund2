@@ -3,7 +3,7 @@
 # declared effect. Anything absent is synced before, as an embedder's
 # native is. Written by BUND2_UPDATE_PROMOTABLE=1 cargo test -p
 # bund2-stdlib promotable; never edited by hand.
-# 201 of 236 fixed-effect natives reached.
+# 221 of 259 fixed-effect natives reached.
 !=
 *
 *.
@@ -87,6 +87,8 @@ fs.ls.files.
 graph
 graph.
 head
+id.ulid
+id.uuid
 lambda
 lambda!
 len
@@ -111,7 +113,9 @@ math.log10
 math.nroot
 math.perimeter
 math.power
+math.random.int
 math.round
+math.securerandom.int
 math.signum
 math.sin
 math.sinh
@@ -168,6 +172,22 @@ string.fuzzymatch.
 string.lower
 string.prefix
 string.prefix.
+string.random.fullname
+string.random.fullname.
+string.random.ipv4
+string.random.ipv4.
+string.random.lastname
+string.random.lastname.
+string.random.lorem
+string.random.lorem.
+string.random.name
+string.random.name.
+string.random.password
+string.random.password.
+string.random.phone
+string.random.phone.
+string.random.word
+string.random.word.
 string.regex
 string.regex.
 string.regex.matches
@@ -213,6 +233,9 @@ var-
 # not reached: endcontext
 # not reached: file
 # not reached: file.
+# not reached: generator
+# not reached: generator.sample
+# not reached: generator.sample*
 # not reached: get
 # not reached: get,
 # not reached: get.,
