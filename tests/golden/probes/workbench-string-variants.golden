@@ -1,0 +1,29 @@
+# golden for tests/probes/workbench-string-variants.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: string.tokenize.lines. takes the workbench and pushes to the stack
+[ one ::  two ::  three :: ]
+probe: string.tokenize.unique folds case and removes duplicates
+[ word :: ]
+[ word :: ]
+probe: string.expressionmatch. answers on the workbench
+╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Value { id: "<id>", stamp: <stamp>, dt: 1, q: 100.0, data: Bool(true), attr: [], curr: -1, tags: {} } │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+probe: convert.to_textbuffer. converts on the workbench
+╭───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Value { id: "<id>", stamp: <stamp>, dt: 1, q: 100.0, data: Bool(true), attr: [], curr: -1, tags: {} }    │
+├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ Value { id: "<id>", stamp: <stamp>, dt: 22, q: 100.0, data: String("42"), attr: [], curr: -1, tags: {} } │
+╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭╮
+╰╯
+╭───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Value { id: "<id>", stamp: <stamp>, dt: 1, q: 100.0, data: Bool(true), attr: [], curr: -1, tags: {} }    │
+├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ Value { id: "<id>", stamp: <stamp>, dt: 22, q: 100.0, data: String("42"), attr: [], curr: -1, tags: {} } │
+╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

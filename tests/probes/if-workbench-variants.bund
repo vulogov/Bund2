@@ -1,0 +1,17 @@
+//
+// PROBE: `if.in_workbench` and `if.false.in_workbench`, by their own names.
+//
+// Both take the lambda from the stack. `if.in_workbench` takes its condition
+// from the workbench
+// (reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:95-97).
+// `if.false.in_workbench` passes `StackOps::FromStack`, so despite its name it
+// takes the condition from the **stack**
+// (reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:103-105). That is
+// F2, and Bund2 reproduces it. No golden spells either name.
+//
+"probe: if.in_workbench runs when the workbench holds true" println
+true . { "if.in_workbench ran" println } if.in_workbench
+false . { "must not run" println } if.in_workbench
+"probe: if.false.in_workbench reads its condition from the stack (F2)" println
+false { "if.false.in_workbench ran" println } if.false.in_workbench
+debug.display_workbench

@@ -1,0 +1,17 @@
+# golden for tests/probes/if-workbench-variants.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: if.in_workbench runs when the workbench holds true
+if.in_workbench ran
+probe: if.false.in_workbench reads its condition from the stack (F2)
+if.false.in_workbench ran
+╭╮
+╰╯
+╭╮
+╰╯
+╭╮
+╰╯

@@ -1,0 +1,36 @@
+//
+// PROBE: five words no golden spells, run by their own names.
+//
+//   - `to_stack` makes a named stack current, creating it first when absent
+//     (reference/rust_multistack/src/stdlib/current.rs:50-56,
+//     reference/rust_multistack/src/ts_to_current.rs:37-43).
+//   - `stack` is an alias for `ensure_stack`
+//     (reference/rust_multistackvm/src/stdlib/create_aliases.rs:35). **A
+//     stack it creates becomes current**: `add_named_stack` appends to the
+//     back of the deque (reference/rust_multistack/src/ts_add.rs:14), and the
+//     current stack is the back (reference/rust_multistack/src/ts_current.rs:7).
+//     A name that already exists is not moved
+//     (reference/rust_multistack/src/ts_ensure.rs:10-15). F89.
+//   - `merge` sets a LIST's items into a MAP by index, merges two MAPs, and
+//     otherwise falls back to `+`
+//     (reference/Bund/src/stdlib/functions/values/merge.rs:11,24,55,73).
+//   - `execute` is the word `!` aliases
+//     (reference/rust_multistackvm/src/stdlib/execute.rs:124).
+//   - `sample` is an alias for `metrics`, which applies an empty METRICS
+//     value (reference/rust_multistackvm/src/stdlib/create_aliases.rs:37,
+//     reference/rust_multistackvm/src/stdlib/artefacts.rs:61-63).
+//
+"probe: to_stack switches to a new stack" println
+1 2 "s" to_stack current println
+"probe: stack creates and switches; an existing name stays where it is" println
+"t" stack current println
+"main" stack current println
+"u" ensure_stack current println
+"probe: merge falls back to +, merges MAPs, and indexes a LIST into a MAP" println
+1 2 merge println
+dict "a" 1 set dict "b" 2 set merge println
+[ 10 20 ] dict merge println
+"probe: execute by its own name" println
+{ "executed by name" println } execute
+"probe: sample is metrics" println
+sample type println

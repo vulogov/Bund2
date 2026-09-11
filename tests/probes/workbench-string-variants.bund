@@ -1,0 +1,33 @@
+//
+// PROBE: the workbench forms of three string and conversion words, and the
+// case-folding de-duplication of `string.tokenize.unique`.
+//
+// Each `.` form takes its operand from the workbench, and they do not agree on
+// where the result goes:
+//
+//   - `string.tokenize.lines.` and `string.tokenize.unique.` pull from the
+//     workbench and push to the **stack**: their shared base pushes with
+//     `vm.stack.push` whatever the operand source
+//     (reference/Bund/src/stdlib/functions/string/tokenize.rs:94,108).
+//   - `string.expressionmatch.` takes the expression from the workbench and
+//     the subject from the stack, and leaves its answer on the **workbench**
+//     (reference/Bund/src/stdlib/functions/string/textexpr_match.rs:29,33,67).
+//   - `convert.to_textbuffer.` converts on the workbench and leaves the result
+//     there (reference/rust_multistackvm/src/stdlib/convert/internal.rs:56-58).
+//
+// `string.tokenize.unique` lowercases and collects into a `HashSet`
+// (reference/Bund/src/stdlib/functions/string/tokenize.rs:49-50), so the
+// order of its tokens changes from run to run. The input here has one distinct
+// token, which is the only shape a golden can hold.
+//
+"probe: string.tokenize.lines. takes the workbench and pushes to the stack" println
+"one
+  two
+three" . string.tokenize.lines. println
+"probe: string.tokenize.unique folds case and removes duplicates" println
+"Word word WORD" string.tokenize.unique println
+"Word word WORD" . string.tokenize.unique. println
+"probe: string.expressionmatch. answers on the workbench" println
+"the answer is 42" 'contains "42"' . string.expressionmatch. debug.display_workbench
+"probe: convert.to_textbuffer. converts on the workbench" println
+42 . convert.to_textbuffer. debug.display_workbench
