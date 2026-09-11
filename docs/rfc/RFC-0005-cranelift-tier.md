@@ -1,6 +1,6 @@
 # RFC-0005: Tier 1 — the Cranelift backend
 
-- Status: **Draft** (2026-09-08, revised 2026-09-09 and 2026-09-10).
+- Status: **Draft** (2026-09-08, revised 2026-09-09, 2026-09-10 and 2026-09-11).
   `docs/research/00-jit-feasibility.md` §2.2 sets a hard gate — "Project B is
   worth doing only if Project A's measurements show that dispatch and boxing
   are still the bottleneck". When this was drafted the gate did **not** pass:
