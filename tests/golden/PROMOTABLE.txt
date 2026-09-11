@@ -182,3 +182,32 @@ unregister
 valuemap
 var
 var-
+#
+# Fixed-effect natives the palette never brought to `Ok`:
+# not reached: at.
+# not reached: dup_many_in
+# not reached: dup_one_in
+# not reached: endcontext
+# not reached: get
+# not reached: get,
+# not reached: get.,
+# not reached: graph.path
+# not reached: head.
+# not reached: is
+# not reached: json
+# not reached: json.to_value
+# not reached: lambda=
+# not reached: raise
+# not reached: return_from
+# not reached: return_to
+# not reached: set,
+# not reached: set.,
+# not reached: string.expressionmatch
+# not reached: string.expressionmatch.
+# not reached: swap_in
+# not reached: tail.
+# not reached: take
+# not reached: to_current
+# not reached: unwrap
+# not reached: var?
+# not reached: wrap

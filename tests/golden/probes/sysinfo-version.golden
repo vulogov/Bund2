@@ -1,0 +1,17 @@
+# golden for tests/probes/sysinfo-version.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: sysinfo.version pushes a version string
+String
+0.22.0
+probe: version is its alias
+0.22.0
+╭─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Value { id: "<id>", stamp: <stamp>, dt: 4, q: 100.0, data: String("0.22.0"), attr: [], curr: -1, tags: {"stack": "main"} } │
+╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭╮
+╰╯
