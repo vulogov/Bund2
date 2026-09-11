@@ -67,6 +67,20 @@
   - **S3:** `bund2` declares a Tier 1 share, and criterion 2 must see compiled
     bodies.
   - **S4:** the effect audit also catches a native reporting at `Error`.
+
+  The tenth review's two blockers are answered, both by the owner's choice
+  among the review's options. **B1**: most declared pairs had been checked only
+  on the operands the corpus passes, and `drop_stack`'s was wrong (F94). A
+  palette audit now runs every fixed-effect native against fourteen operand
+  kinds and the workbench, and promotion crosses only the natives it brought to
+  `Ok`, listed in `tests/golden/PROMOTABLE.txt` (D48, criterion 28). **B2**:
+  a `NativeFn` cannot sit in a call slot. §S8 now specifies the boundary: a
+  context pointer and a status under `CallConv::Tail`, a Rust adapter per
+  native, `Tail` thunks and an entry trampoline. A panic in a native is caught
+  where the native is called, in both tiers (D49), which fixes F95. Its
+  significant items are answered in §S5 and §S8: D48's id set, a margin over
+  every re-entering path, and the request protocol's four edges, one of them a
+  Tier 0 defect now fixed (F96).
 - Depends on: RFC-0001 (the value, whose representation §S1 indicts),
   RFC-0002 (`StackEffect`, the word slot table, and the open world that forces
   indirect calls), RFC-0003 (BundIR as a cache over a body, and the frame
@@ -89,7 +103,9 @@
   which stack exhaustion is reported is not meaning), **D45** (a reporter
   wants a stack snapshot per severity), **D46** (nothing stays promoted
   across a call that resolves to a lambda), **D47** (promotion crosses only
-  the natives `bund2-stdlib` registered), **D37** (no panic), **D39** (an
+  the natives `bund2-stdlib` registered), **D48** (and only those a palette
+  audit has brought to `Ok`), **D49** (a panic in a native is caught where the
+  native is called, in both tiers), **D37** (no panic), **D39** (an
   internal loop must be bounded)
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
   `80377728f45b`; `bundcore` `3b0b8ba219a6`; `rust_dynamic` `ceb27c96fa10`;
@@ -298,7 +314,8 @@ dispatch and in fact measured stdout at ~450 ns per word.
 Conformance did not move across D41 — 73/86, ceiling 79/86, before and after
 — and `BundValue` is still 16 bytes (a test in `crates/bund2-value/src/lib.rs`
 asserts `size_of::<BundValue>() == 16`). Conformance has since reached its ceiling,
-**79/86**, through Tier 0 work unrelated to this RFC (criterion 2).
+**82/89**, through Tier 0 work unrelated to this RFC (criterion 2). It read
+79/86 until three probes were added on 2026-09-10.
 
 So §S2–§S11 are worth designing. The Status line says what still stands
 between them and being built.
@@ -733,14 +750,32 @@ run. So:
   frame loop does.
 - **A request is never lost.** A slot call that starts while the request cell
   is set returns `Error::internal`, naming the invariant: some earlier call's
-  request was neither drained nor handed back. Tier 0 cannot reach that state,
-  and under these rules compiled code cannot either.
+  request was neither drained nor handed back. Tier 0 cannot reach that state
+  since F96, because `Interp::invoke` clears a request when the native that
+  filed it fails. Before F96 an embedder's native could leave one behind, and
+  Tier 0 ran it late (the tenth review's S3.2). Under these rules compiled code
+  cannot reach it either.
 
 The drain helper runs a body synchronously, so it is a third place a body
 starts, beside the frame loop and `Vm::eval_lambda` (§S8, *A decline is a
 return*). It checks the Tier 0 floor before it re-enters, as `Vm::eval_lambda`
 does. A body it starts is entered like any other: compiled if the cache holds it
 and the Tier 1 floor allows, and declined otherwise.
+
+**Three edges, settled** for the tenth review's S3:
+- **The epoch and `autoadd` are read after the drain.** A drained body can
+  switch the current stack, set `autoadd` or `register` a name, so the loads
+  that decide the residual path come after it, not beside the request cell.
+- **A refused drain clears the cell.** If the Tier 0 floor refuses the drain,
+  the helper clears the request before it returns the exhaustion error, as
+  `Interp::invoke` clears one a failing native filed (F96). No stale request
+  outlives an error.
+- **Where the frame loop enters compiled code.** `push_frame` stays the one
+  place a body starts. It records the body's key in `entry_log` and in §S7's
+  counter, and the frame carries its exit action. The loop calls the compiled
+  function when it takes that frame's first step, and pops the frame, running
+  its exit action, when the function returns, whichever tier ran the body. So a
+  compiled entry is counted and observed exactly as an interpreted one.
 
 This is independent of promotion. D46 syncs before a lambda call, and §S5 syncs
 before `!`. After the sync, the call still has to run its body in order, and
@@ -881,14 +916,20 @@ inlining rules:
   as at an opaque site. A name that resolves to a native at compile time and
   gets a lambda later is caught by the generation, because `register_lambda`
   touches that name's slot.
-- **Only across `bund2-stdlib`'s own natives (D47).** Promotion crosses a call
-  only when the callee's registration id (D43) is one `bund2-stdlib` made, the
-  same set its fragments are keyed by. Every other native, whether an
-  embedder's or an external package's under D9, is synced before, as at an
-  opaque site. What promotion trusts about a native is checked only for
-  `bund2-stdlib`: criteria 24 and 25. F87 and F91 showed that a sufficient
-  check is needed even there. An embedder's native costs speed, never meaning.
-  Criterion 27 checks it.
+- **Only across the natives an audit has brought to `Ok` (D47, D48).**
+  Promotion crosses a call only when the callee's registration id (D43) is one
+  `bund2-stdlib`'s `register_all` minted, *and* the native is listed in
+  `tests/golden/PROMOTABLE.txt`, which criterion 28's palette keeps.
+  `register_all` records the ids it mints in the `Registry`, a replay (F32)
+  re-mints and re-records them, and `bund2-jit` reads that set when it
+  compiles, as it reads the fragment table. An earlier revision called the set
+  "the same set its fragments are keyed by", but the fragment table holds three
+  ids (the tenth review's S1). A command carries no D43 id, so no command is
+  ever crossed; `bund2-stdlib` registers none. Every other native is synced
+  before, as at an opaque site: an embedder's, an external package's under D9,
+  or a `bund2-stdlib` native no audit brought to `Ok`. That costs speed, never
+  meaning. F87, F91, F92 and F94 showed that each check was needed. Criteria 27
+  and 28 check it.
 
 This is CLAUDE.md's "follow the call one level further". The check read the
 call slot and stopped there, while dispatch went on to the target. The eighth
@@ -1083,7 +1124,8 @@ until each was recompiled.
 *Added 2026-09-10, answering the sixth review's S2. The costing above said "two
 loads" without saying of what.*
 
-Compiled code receives `&mut dyn Vm` (§S8), and `Vm` exposes no registry, no
+Compiled code receives a context pointer that holds the `&mut dyn Vm` (§S8),
+and `Vm` exposes no registry, no
 generation and no `autoadd`. Nor does a generation have a stable address:
 `Registry` keeps its slots in a `Vec<Slot>` that `slot_mut` grows with
 `resize_with` whenever a new name is registered (`crates/bund2-api/src/lib.rs`,
@@ -1126,10 +1168,12 @@ another `Interp` compiled is a miss, and runs at Tier 0 or is compiled again
 against this `Interp`'s cells. Registration ids are per `Registry` (D43), so
 the fragment table could not be shared in any case. Criterion 23 checks this.
 
-**No new kind of `unsafe`.** The cells are `Cell`s written by safe Rust, and
-compiled code reads them through addresses it was handed as integers. The one
-`unsafe` this tier needs is the one it always needed — calling JIT-emitted code
-at all — and the cells add nothing beside it.
+**The cells add no `unsafe`.** They are `Cell`s written by safe Rust, and
+compiled code reads them through addresses it was handed as integers. The tier
+needs `unsafe` in two places, both in `bund2-jit`: calling JIT-emitted code at
+all, and the native adapter's dereference of its context pointer (§S8's call
+boundary). An earlier revision said the first was the only one. That was
+before the boundary was specified (the tenth review's B2).
 
 **What this changes outside this RFC.** The generation mirror belongs to
 `Registry`, which is `bund2-api`'s, so `Registry` grows an accessor that hands
@@ -1278,18 +1322,24 @@ Re-derive with:
       ./target/debug/bund2 check --file "$PWD/$f" | grep -E '^ +[0-9]+ +`'
     done
 
-On 2026-09-10, after F91 and F92, across 161 programs, it prints **122** sites:
+On 2026-09-10, after F91, F92 and three new probes, across 164 programs, it
+prints **124** sites:
 
 | why analysis stops | sites |
 |---|---|
-| the word's effect is not a fixed pair — `Opaque` or `Fold` | **74** |
+| the word's effect is not a fixed pair — `Opaque` or `Fold` | **76** |
 | the name has no binding when analysed | **48** |
 
-The 74, by word:
+The 76, by word:
 - `object` 24, `!` 15, `times` 7, `format` 6, `loop` 4, `if` 4, `graph!` 4,
   `clear` 3;
-- one each of `pull.`, `map`, `fold`, `display`, `?true*` and `?.`;
+- one each of `pull.`, `map`, `if.in_workbench`, `fold`, `execute`,
+  `display`, `?true*` and `?.`;
 - one user word, `HelloWorld`, whose inferred effect is opaque.
+
+The probes `if-workbench-variants` and `stack-words-by-name` added the first
+stops at `if.in_workbench` and `execute`. F94 added none, since no program
+calls `drop_stack`.
 
 **Fifteen are ordinary control flow**: `times` 7, `if` 4 and `loop` 4. That is
 why whole-body exclusion, RFC-0004 §S1's original reading, would refuse nearly
@@ -1456,26 +1506,55 @@ argv: *mut Value`" — **defeats tail calls**. An earlier draft of this section
 did not mention it, which left §S8 premised on something the study appears to
 withdraw two pages later.
 
-**It does not apply to Bund, and the reason is structural rather than lucky.**
+**The argument count does not apply to Bund, and the reason is structural.**
 §3.2f is about passing *arguments*. A concatenative language passes none: a
-word's operands are already on the VM's stack, which the callee shares. So a
-compiled word's signature is not variadic and never becomes `argc/argv` — it is
-one pointer to the VM and one status, uniformly, which is the shape
-`bund2-api` already has:
+word's operands are already on the VM's stack, which the callee shares. So no
+signature here is variadic, and none becomes `argc/argv`.
+
+**But a native's own signature is not a boundary compiled code can use, and an
+earlier revision said it was** (the tenth review's B2):
 
 ```rust crates/bund2-api/src/lib.rs:61
 pub type NativeFn = fn(&mut dyn Vm) -> Result<(), Error>;
 ```
 
-That matters because `return_call` constrains the callee against the caller.
-Cranelift's verifier requires the two to share a **calling convention** and to
-return **the same types** (`cranelift-codegen` 0.135.0, `src/verifier/mod.rs`,
-`typecheck_tail_call`). Parameters need not match: an earlier revision said the
-signatures must match *exactly*, which overstated the rule. A uniform signature
-satisfies the real rule by construction, and it is uniform precisely because
-operands do not travel in it. §S11's decision
-that errors stay a return-value protocol rather than native unwinding is the
-other half: it keeps the *return* type uniform too.
+That is Rust's unspecified ABI. `&mut dyn Vm` is two words whose layout is not
+stable, and `Error` wraps a `String` (`crates/bund2-api/src/lib.rs`, `Error`),
+so the return is not a status Cranelift can express. `cranelift-codegen`
+0.135.0's `CallConv` has no Rust ABI (`src/isa/call_conv.rs`, `CallConv`).
+`return_call` constrains the callee against the caller: the verifier requires
+both to share a calling convention that supports tail calls, and to return the
+same types. Parameters need not match (`src/verifier/mod.rs`,
+`typecheck_tail_call`). Only `CallConv::Tail` supports tail calls
+(`src/isa/call_conv.rs`, `supports_tail_calls`), and Rust cannot define a
+`Tail` function. So the boundary is four pieces:
+
+1. **One JIT signature**: `fn(ctx: i64) -> i32` under `CallConv::Tail`, a thin
+   pointer to a per-call context and an integer status, `0` for success and `1`
+   for an error. The context is a `bund2-jit` struct. It holds the
+   `&mut dyn Vm` as a stored fat pointer, an error slot, and the cells of §S6's
+   *Addressing*.
+2. **A per-native adapter in Rust**: `extern "C" fn(ctx: *mut Ctx, native:
+   usize) -> i32`. It rebuilds `&mut dyn Vm` from the context and calls the
+   native's `NativeFn` through `bund2_api::catch_panic` (D49). It parks an
+   `Err` in the error slot and returns the status. No panic unwinds out of it,
+   so none reaches a compiled frame.
+3. **A JIT-emitted `Tail` thunk for each native a call slot can hold.** The
+   thunk makes an ordinary call to the adapter. A compiled body is already
+   `Tail` and sits in its slot directly. So every slot target is `Tail`, and
+   `return_call_indirect` is legal from any tail position: body to body, and
+   body to a native's thunk.
+4. **An entry trampoline**, JIT-emitted with the platform's C convention,
+   through which Rust enters a compiled body: from the frame loop, from
+   `Vm::eval_lambda` and from §S5's drain helper. It builds the context, calls
+   the `Tail` body, and turns the status back into a `Result`.
+
+The adapter's dereference of the context pointer is the second `unsafe` this
+tier needs, beside calling JIT-emitted code at all (§S6, *Addressing*). Both
+live in `bund2-jit`. The signature is uniform because operands do not travel
+in it, which is what satisfies the verifier's rule. §S11's return-value
+protocol is the other half: an error travels in the context, never as an
+unwind. Criteria 4 and 29 check the boundary.
 
 **What §3.2f does cost Bund is real, but it is not this.** "Force everything
 onto the stack" lands here as §S5's rule — promoted values must be synced back
@@ -1715,14 +1794,22 @@ the limit. Two rules close it:
 - **The tier adds nothing to a Tier 0 level below the floor.** The cache
   lookup at `Vm::eval_lambda` is a separate `#[inline(never)]` helper that
   returns before `run_to` is called. So no state the tier adds is live across
-  the nesting, and `eval_lambda`'s own frame is the tier-off frame. The Rust
-  compiler still owns frame sizes, so this is a design rule and not a
-  guarantee.
-- **So Tier 0's part carries a margin under `jit`.** Let `c` be the bytes one
-  `loop` level spends with the tier off, and `δ` what it spends more beneath
-  the floor with the tier on, both reported by criterion 11. Then Tier 0's part
-  is `8 MiB + m`, with `m ≥ 8 MiB × δ / c`, and the level with the tier on
-  cannot be lower whatever holds the share. `m` is a measurement taken when the
+  the nesting, and `eval_lambda`'s own frame is the tier-off frame. The same
+  holds for the compiled-entry test the loop makes at a frame's first step
+  (§S5): it is a helper that returns before the loop goes on, so `run_to`'s own
+  frame is the tier-off frame too. The Rust compiler still owns frame sizes,
+  so this is a design rule and not a guarantee.
+- **So Tier 0's part carries a margin under `jit`, over every re-entering
+  path.** Let `c_p` be the bytes one level of path `p` spends with the tier
+  off, and `δ_p` what it spends more beneath the floor with the tier on. The
+  paths are every way a native re-enters evaluation: `times`, `loop`, `map`,
+  `while`, the conditionals, `?try` and the method paths through
+  `Vm::eval_lambda`, and `Vm::apply`, `Vm::scoped_call` and §S5's drain helper.
+  Criterion 11 reports `c_p` and `δ_p` for each. Then Tier 0's part is
+  `8 MiB + m`, with `m ≥ 8 MiB × max_p(δ_p / c_p)`, and the level with the tier
+  on cannot be lower whatever holds the share. An earlier revision took `c` and
+  `δ` from `loop` alone, and the native with the smallest `c` need not be
+  `loop` (the tenth review's S2). `m` is a measurement taken when the
   tier exists, not a number guessed now. It costs address space rather than
   memory, because a thread's stack is committed as it is touched.
 
@@ -1807,7 +1894,8 @@ the tier.
 ## What this design assumes
 
 *Added 2026-09-10. The seventh review listed six assumptions the text relied on
-without stating them, and the eighth review five more.* Each is stated here,
+without stating them, the eighth review five more, and the tenth seven more,
+answered in 7 and 14–18.* Each is stated here,
 with the place that enforces or decides it.
 
 1. **One compiled cache, one `JITModule`, one set of cells and one fragment
@@ -1829,10 +1917,11 @@ with the place that enforces or decides it.
 6. **Every call crossed by promotion resolves through one registry `Slot`.**
    This one is enforced rather than assumed. A call through an alias, or
    against a saturated slot, is synced before (§S5).
-7. **Every `bund2-stdlib` native's declared effect is honest.** It runs no body
-   and moves the current stack by its pair. This is checked by criterion 24's
-   audit over the corpus since F91 and F92, for the natives and operands the
-   corpus reaches. Natives from any other crate are not trusted at all (D47).
+7. **Every native promotion crosses has an honest declared effect.** It runs
+   no body and moves the current stack by its pair. Criterion 24 checks this
+   over the corpus, and criterion 28's palette over fourteen operand kinds and
+   the workbench. Promotion crosses only the natives that palette brought to
+   `Ok` (D48). Natives from any other crate are not trusted at all (D47).
 8. **No `bund2-stdlib` native reports at `Error` severity mid-body.**
    Criterion 25. Other crates' natives are not promoted across (D47).
 9. **A callee's effect is trusted across a call only when it is declared.**
@@ -1851,6 +1940,17 @@ with the place that enforces or decides it.
     design rule and a measurement, not a guarantee, because frame sizes are
     the compiler's (§S8, *When compiled frames already hold the share*);
     criterion 11.
+14. **No panic escapes a native.** It is caught where the native is called,
+    in both tiers, and becomes `Error::internal` (D49); criterion 29.
+15. **`bund2-jit` can obtain the set of registrations `bund2-stdlib` made.**
+    `register_all` records the ids it mints, and a replay re-records them
+    (§S5, D48).
+16. **The margin covers every re-entering path.** `m` comes from the largest
+    `δ_p / c_p` (§S8); criterion 11.
+17. **The epoch and `autoadd` are read after the drain** (§S5, *A call may
+    leave a body to run*).
+18. **No native leaves a tail request behind when it fails.** Enforced by
+    F96's fix, and a refused drain clears the cell too (§S5).
 
 # S9. Tier pinning
 
@@ -1890,8 +1990,9 @@ three that keeps Tier 1 the same build as Tier 0 rather than a second one.
 `--features jit` and `--features aot` are declared in five crates —
 `bund2-jit`, `bund2-runtime`, the umbrella `bund2`, `bund2-cli` and
 `bund2-bench`. `conform --features jit` builds `bund2-cli` with the feature,
-and **criterion 2 has run**: 79/86 with the feature on and 79/86 with it off,
-ceiling 79/86 in both.
+and **criterion 2 has run**: 82/89 with the feature on and 82/89 with it off,
+ceiling 82/89 in both. It read 79/86 before three probes were added on
+2026-09-10.
 
 **D9, as amended 2026-09-09, applies**: no Cranelift type may appear in
 `bund2-stdlib` or `bund2-api`, which is what §S6's fragments are shaped around.
@@ -1911,6 +2012,9 @@ counterpart.
 (§3.2g). Bund2's errors are already `Result`-shaped and route through `Vm::report`
 as `Diagnostic`s (D36); compiled code keeps that convention and does not adopt
 native unwinding. Under D37 this is also the only option that cannot abort.
+A panic in a native is caught where the native is called, in both tiers
+(D49), so nothing unwinds into or through a compiled frame. The error travels
+in the call context (§S8).
 
 ## Preservation analysis
 
@@ -1957,8 +2061,8 @@ disagrees with interpreted code", and each has a named guard:
 | a guard widened to boxed values, whose operands might carry a `q` other than 100.0 | no arithmetic word averages `q` (D32 as amended, Q35), so the result is a fresh 100.0 either way; criterion 16 must then include such an operand if one can be built (§S6, constraint 2) |
 | a body compiled under one `Interp` and run by another on the same thread | one cache, `JITModule`, set of cells and fragment table per `Interp`, so another `Interp`'s code is never found (§S6, *Addressing*); criterion 23 |
 | **a lambda callee whose inferred effect changes**, because a word its body calls is rebound before the call or by the callee during it | nothing stays promoted across a call that resolves to a lambda (D46, §S5); criteria 5 and 22 |
-| **a native whose declared effect hides a body it runs** — `execute.` until F87, `object` and `display` until F91 | every native that runs a body declares `StackEffect::opaque`, checked by criterion 24's audit over the corpus, and against lambdas for the words the corpus never calls |
-| **a native whose declared pair miscounts the current stack** — `clear`, `fold`, `move`, `dup_many`, `format`, `pull`, `fold_stack`, `swap_in`, `print.` and `println.` until F92 | criterion 24's audit compares each fixed-effect native's depth change with its pair, as RFC-0004 §S1 reads it |
+| **a native whose declared effect hides a body it runs** — `execute.` until F87, `object` and `display` until F91 | every native that runs a body declares `StackEffect::opaque`, checked by criterion 24's audit over the corpus, and by criterion 28's palette for the words and arms the corpus never reaches |
+| **a native whose declared pair miscounts the current stack** — `clear`, `fold`, `move`, `dup_many`, `format`, `pull`, `fold_stack`, `swap_in`, `print.` and `println.` until F92, `drop_stack` until F94 | criterion 24's audit compares each fixed-effect native's depth change with its pair, as RFC-0004 §S1 reads it, and criterion 28's palette does the same over fourteen operand kinds and the workbench; promotion crosses only the natives the palette brought to `Ok` (D48) |
 | **a native reporting at `Error` severity mid-body**, under a reporter that wants fatal snapshots | no shipped `bund2-stdlib` code reports at `Error`, checked by a source scan (criterion 25); no other crate's native is promoted across (D47) |
 | **a native `bund2-stdlib` did not register** — an embedder's, or an external package's under D9 — whose declared effect nothing checks | promotion crosses only natives whose registration id `bund2-stdlib` made (D47, §S5); criterion 27 |
 | **a body a call asked the loop to run** — `!` on a lambda, `if`, `ifthenelse`, a lambda call — running after the next value, or overwritten by a later request | the request cell, read after every call, with a drain for a non-tail call, a hand-back for a tail call, and an internal error if a request is ever pending when a call starts (§S5); criterion 26 |
@@ -1967,6 +2071,10 @@ disagrees with interpreted code", and each has a named guard:
 | **a lambda that shadows a native**, whose name `effect_of` answered with the native's effect until F93 | callees are classified by `Registry::resolve`, and `effect_of` follows the same order (§S5, F93); criterion 22 |
 | **the tier never running in `bund2` itself**, because its thread's declared region had no share, so that the meaning criteria pass vacuously | `bund2` declares its share with `set_stack_region_with_share` (§S8); criterion 2 requires compiled bodies, and runs again at threshold 1 |
 | **a native reporting at `Error` severity through a spelling the source scan misses** | the effect audit records any `Error` report made while a native runs (criteria 24 and 25) |
+| **a native panicking inside a dependency** — `jarowinkler` in `natural` (F95) — reached from compiled code | caught where the native is called, in both tiers, and reported as `Error::internal` (D49); no panic unwinds through a compiled frame (§S8); criterion 29 |
+| **the call boundary itself**: a `NativeFn` whose ABI and `Result` CLIF cannot carry | a context pointer and an integer status under `CallConv::Tail`, a Rust adapter per native, `Tail` thunks in the slots, and a C-convention entry trampoline (§S8); criteria 4 and 29 |
+| **a stale tail request** left by a native that failed after filing it | `Interp::invoke` clears it (F96), and a refused drain clears the cell (§S5); criterion 26 |
+| **native nesting through a word other than `loop`**, whose per-level cost makes the margin too small | `m` is set from the largest `δ_p / c_p` over every re-entering path (§S8); criterion 11 |
 
 ## Alternatives considered
 
@@ -2014,7 +2122,7 @@ and 2 gate the RFC's own premise**; the rest are for the implementation.
 toolchain pin was raised to 1.95.0 to match the pinned Cranelift (F80, Q31).
 Before that none of 2, 4, 5, 6, 7, 9, 10, 11 or 12 could be executed at all.
 
-Criterion 2 has since **run and passed** — 79/86 with the feature on and off, ceiling 79/86, on 2026-09-10 —
+Criterion 2 has since **run and passed** — 82/89 with the feature on and off, ceiling 82/89, on 2026-09-10 —
 and is **vacuous until a tier exists**, since the feature gates no code. That
 is worth stating rather than counting: a criterion that cannot fail yet is not
 evidence, and this one is listed as runnable rather than as met.
@@ -2040,8 +2148,8 @@ evidence, and this one is listed as runnable rather than as met.
    All three must read the same N/M **and the same CEILING**. Any movement is a bug,
    per CLAUDE.md — which also requires the ceiling beside the number, since an
    approved deviation can never enter the numerator and N/M alone overstates
-   the remaining work. Today: **79/86, ceiling 79/86**, both ways, measured
-   2026-09-10. This criterion measures the **dev** profile and criterion 11
+   the remaining work. Today: **82/89, ceiling 82/89**, both ways, measured
+   2026-09-10, after three probes were added. This criterion measures the **dev** profile and criterion 11
    measures **release**; the split is deliberate, and stated in both places.
 
    **The two `jit` runs must compile something.** This is the ninth review's
@@ -2105,6 +2213,13 @@ evidence, and this one is listed as runnable rather than as met.
 
    It fails if any lowering path emits a direct call, including one added later
    for a word that looks safely static — and D16 means none is.
+
+   **Two kinds of relocation are allowed**, both from §S8's call boundary: a
+   native's `Tail` thunk calling its Rust adapter, and the entry trampoline
+   calling the body it enters. Both name an external symbol or the trampoline's
+   own target, never a compiled body's `FuncId` from inside another body. The
+   check also asserts that every call slot's target is a `Tail` thunk or a
+   `Tail` body.
 
 5. **A redefined word is observed by compiled callers — called *and*
    inlined.** `register` a word, force promotion of a caller, `register` it
@@ -2303,13 +2418,17 @@ evidence, and this one is listed as runnable rather than as met.
     margin `m` is set. The `loop` axis alone starts at the top of the stack,
     with nothing compiled above it, so it cannot show this.
 
+    **Every re-entering path, not `loop` alone**, for the tenth review's S2.
+    The run reports `c_p` and `δ_p` for each path §S8 lists, and `m` is set
+    from the largest ratio.
+
 12. **A synced value keeps its stack tag.** §S5's rule writes promoted values
     back to the real stack; **D41 put the stack tag inside the value for
     scalars**, so a sync that pushes a bare `BundValue` leaves `StackSym::NONE`
     and the value renders `tags: {}` where the oracle renders
     `tags: {"stack": "main"}`.
 
-    36 of 86 goldens carry exactly that text, and 39 carry some `"stack":`
+    36 of 89 goldens carry exactly that text, and 40 carry some `"stack":`
     tag, so the failure is loud — but only if a
     golden exercises a compiled body with an opaque site in it, which none does
     today. The criterion: a probe that pushes, promotes, syncs and dumps, with
@@ -2535,9 +2654,13 @@ evidence, and this one is listed as runnable rather than as met.
       also found ten miscounted pairs (F92).
 
     It reaches the natives the corpus calls, with the operands the corpus hands
-    them. A word the corpus never calls is left to
-    `no_fixed_effect_native_runs_a_body`, which still runs every fixed-effect
-    native against a stack and a workbench of lambdas. A named-stack word
+    them. A word the corpus never calls, or an arm the corpus never reaches, is
+    criterion 28's: its palette checks the pair as well as body starts.
+    `no_fixed_effect_native_runs_a_body`, beside it, checks body starts only.
+    A dispatch the audit records is one through `Interp::call_native`. A method
+    native or conditional runner that `bund2-stdlib` calls directly
+    (`oop.rs`, `conditional.rs`) is invisible to it, and today only opaque
+    words make such calls. A named-stack word
     handed the current stack's name is Q34's case, and F92 lists the words.
     Runs today: `cargo test -p bund2-stdlib honesty`.
 
@@ -2568,6 +2691,13 @@ evidence, and this one is listed as runnable rather than as met.
     handing the request back, and one whose entry takes a returned request
     late (§S5, *A call may leave a body to run*). Needs a tier.
 
+    Two more cases, for the tenth review's S3. A request filed inside a body
+    the drain started must itself be drained before the drain returns. And a
+    native that files a request and then fails, under `?try`, must leave no
+    body to run afterwards (F96). The second case's Tier 0 half runs today:
+    `a_failed_native_leaves_no_tail_request`
+    (`crates/bund2-interp/src/lib.rs`).
+
 27. **Promotion does not cross a native `bund2-stdlib` did not register
     (D47).** From the test, register a native declaring `eff(1, 1)` that
     replaces its operand with the current depth. Its pair is honest, and it
@@ -2575,6 +2705,34 @@ evidence, and this one is listed as runnable rather than as met.
     and continues. The result must match Tier 0's, and the lowering's side
     table (criterion 17) must record the call as synced, not crossed. Needs a
     tier.
+
+28. **Promotion crosses only natives a palette has checked (D48).** Criterion
+    24 checks the arms the corpus reaches, and `drop_stack`, which no program
+    calls, declared `1 -> 0` while removing the whole current stack (F94). So
+    `every_fixed_effect_native_keeps_its_pair_over_the_promotable_palette`
+    (`crates/bund2-stdlib/src/lib.rs`) runs every fixed-effect native under
+    the effect audit against fourteen operand kinds. The top two operands take
+    every pair of kinds. A workbench form also runs with every kind on the
+    workbench. The test asserts two things: no run breaches its declared
+    effect, and the natives some run brought to `Ok` are exactly those
+    `tests/golden/PROMOTABLE.txt` lists. §S5's promotion crosses only those.
+    **Met**, 2026-09-10: 178 of 205 fixed-effect natives are listed.
+    **Mutation-checked**: before F94's fix it named `drop_stack` and nothing
+    else, "declares (1, 0) and moved `main` from 4 to 0". The list certifies
+    a pair, not what else a native observes, so a Q34 observer is still
+    criterion 14's. Runs today: `cargo test -p bund2-stdlib promotable`.
+
+29. **A native that panics gives Tier 0's result from compiled code (D49).**
+    Register a native that panics. Call it from a compiled body in a non-tail
+    and a tail position, and assert the same observable result Tier 0 gives:
+    `Error::internal` naming the native, reported through the reporter, with
+    nothing on stderr and no abort. It fails for an adapter that lets the
+    panic unwind, which would abort through `extern "C"` or unwind through
+    frames with no unwind tables (§S8). The Tier 0 half is **Met**:
+    `a_panicking_native_is_an_internal_error_not_an_unwind`
+    (`crates/bund2-interp/src/lib.rs`).
+    F95's `jarowinkler` program reports, and exits 0. The compiled half needs
+    a tier.
 
 ## Open questions
 

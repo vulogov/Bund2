@@ -2695,3 +2695,94 @@ slot. An embedder's native costs speed, never meaning.
 - Blocks: nothing; unblocks RFC-0005 §S5
 - Depends on: D9 (what external crates get), D43 (registration ids)
 - Status: **RESOLVED — decided; implemented with the tier.**
+
+**Amended 2026-09-10 by D48, on RFC-0005's tenth review.** "The same set its
+fragments are keyed by" was wrong: the fragment table holds three ids. The set
+is every id `register_all` mints, recorded in the `Registry` and re-recorded on
+a replay (F32). D48 narrows it further, to the natives criterion 28's palette
+brought to `Ok`. A command carries no D43 id, so no command is ever crossed.
+
+## D48 — promotion crosses only the natives an audit has brought to `Ok`
+
+RFC-0005's tenth review, B1. D47 restricted promotion to the natives
+`bund2-stdlib` registered, on the premise that their declared pairs are
+checked. Criterion 24 checks them only on the arms the corpus reaches, and
+`drop_stack`, which no golden runs, declared `1 -> 0` while removing the whole
+current stack (F94).
+
+### Decision
+
+Decided by the repository owner, 2026-09-10: **promotion crosses a native only
+if it is listed in `tests/golden/PROMOTABLE.txt`.** The list holds the
+fixed-effect natives that criterion 28's palette has brought to `Ok` with no
+breach of their declared effect. The palette covers fourteen operand kinds for
+the top two operands and, for a workbench form, every kind on the workbench
+too. Every other native, whether never brought to `Ok` or not `bund2-stdlib`'s
+(D47), is synced before, as at an opaque site. That costs speed, never meaning.
+
+The test writes the list (`BUND2_UPDATE_PROMOTABLE=1`) and otherwise compares
+against it, so the list cannot drift. A native that newly reaches `Ok`, or no
+longer does, fails the test until the list is regenerated and its diff
+reviewed. On 2026-09-10 it lists 178 natives; its header gives the count of
+fixed-effect natives it was drawn from.
+
+### Rejected
+
+- **Widen the audit, then exclude.** It reaches the same end state with more
+  machinery before anything is trusted. The palette is that first step, and it
+  can grow.
+- **Trust declarations.** A wrong pair is a silent wrong answer in compiled
+  code.
+
+### Scope
+
+The list certifies a native's pair, not what else the native observes. A Q34
+observer such as `debug.display_stack` can be listed and is still a promotion
+barrier, under RFC-0005 criterion 14.
+
+- Decided by: repository owner, 2026-09-10, on RFC-0005's tenth review (B1)
+- Blocks: nothing; narrows RFC-0005 §S5
+- Depends on: D47, D43 (registration ids)
+- Status: **RESOLVED — the list and its check are built; the tier consumes
+  them.**
+
+## D49 — a panic in a native is caught where the native is called, in both tiers
+
+RFC-0005's tenth review, B2. D37 governs Bund2's code, not its dependencies,
+and `string.distance.jarowinkler` panics inside `natural` (F95). At Tier 0 the
+panic unwound out of the evaluation thread and the process exited 1. Through
+compiled code it would unwind out of an `extern "C"` shim, which aborts the
+process.
+
+### Decision
+
+Decided by the repository owner, 2026-09-10: **every native call catches a
+panic and returns `Error::internal` naming what was running**, through
+`bund2_api::catch_panic`. That covers `Interp::invoke` for registered natives,
+and the direct calls `bund2-stdlib` makes to method natives (`oop.rs`) and
+conditional runners (`conditional.rs`). RFC-0005's per-native adapter applies
+the same rule, so both tiers agree. A caught panic is reported, not printed.
+While a catch is active, a hook installed on first use prints nothing and
+keeps the panic's location for the message. Every other panic goes to the hook
+that was there before.
+
+### Consequences
+
+- Tier 0 changes. F95's program reports an internal error and exits 0 where it
+  used to exit 1 with a backtrace. `?try` can catch the error, as it can any
+  error. The native may have left the `Vm` half-updated, which is what
+  "internal error" says.
+- The build must keep unwinding: a `panic = "abort"` profile would disable
+  this. Nothing sets one; `Cargo.toml`'s `panic = "deny"` is the clippy lint.
+
+### Rejected
+
+- **Abort in both tiers.** It contradicts D37's "every unrecoverable internal
+  error is handled with a meaningful explanation".
+- **Fix panics case by case.** The next one nobody has found would abort under
+  Tier 1.
+
+- Decided by: repository owner, 2026-09-10, on RFC-0005's tenth review (B2)
+- Blocks: nothing; unblocks RFC-0005 §S8's call boundary
+- Depends on: D37, D36
+- Status: **RESOLVED — built.**

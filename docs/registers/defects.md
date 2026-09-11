@@ -3001,6 +3001,11 @@ hands one the current stack's name, so the audit cannot see them. Making them
 opaque would decide Q34's named-stack case, which is open. `fold_stack` and
 `swap_in` above are corrected for the other case only.
 
+**Note, 2026-09-10 (F94).** `drop_stack` does not belong in that list. It
+takes no name and always removes the current stack, so its pair was wrong on
+every operand, not only when a name happens to be the current stack's. It is
+opaque since F94.
+
 ## F93 — `effect_of` answers with a native's effect for a lambda that shadows it
 
 **A Bund2 defect**, found by RFC-0005's ninth review (S1).
@@ -3029,3 +3034,65 @@ so it still cannot see a `register` inside the program. That is RFC-0004's
 limitation, and this does not change it. RFC-0005 §S5 now classifies each
 callee with `resolve`, and criterion 22 has a shadowing case. Conformance
 82/89, ceiling 82/89, before and after.
+
+## F94 — `drop_stack` declares `1 -> 0` and removes the whole current stack
+
+**A Bund2 defect in a declared effect**, RFC-0004's annotation, found by
+RFC-0005's tenth review (B1) and confirmed by criterion 28's palette.
+
+`drop_stack` takes no operand and removes the current stack by name
+(`drop_stack`, `crates/bund2-stdlib/src/stack.rs`), as the reference's does:
+`stdlib_drop_stack` ignores both operands
+(`reference/rust_multistack/src/stdlib/drop.rs:54`), and `TS::drop_stack`
+removes the current stack outright
+(`reference/rust_multistack/src/ts_drop_stack.rs:10-23`). It was registered
+`eff(1, 0)`, although `docs/arity.md` has always read `0+`. A compiled body
+promoting across it would keep a value in a register that Tier 0 had thrown
+away. No golden runs it, because the reference names the next stack with a
+fresh nanoid on every run, so criterion 24's corpus audit could not see it.
+
+**Status:** FIXED 2026-09-10. `drop_stack` is `StackEffect::opaque(0)`.
+Before the fix, `every_fixed_effect_native_keeps_its_pair_over_the_promotable_palette`
+(`crates/bund2-stdlib/src/lib.rs`) named it and nothing else: "declares (1, 0)
+and moved `main` from 4 to 0". F92 gains a dated note, since its "not
+reached" list filed `drop_stack` among the named-stack words.
+
+## F95 — `string.distance.jarowinkler` panics inside the `natural` crate
+
+**A Bund2 defect under D37, shared with the reference**, found by RFC-0005's
+tenth review (B2).
+
+`string.distance.jarowinkler` and its workbench form hand their operands to
+`natural::distance::jaro_winkler_distance` (`crates/bund2-stdlib/src/singles.rs`,
+`crates/bund2-stdlib/src/library_string.rs`). `natural` 0.5.0 panics there in
+two places: `(max_length / 2) - 1` underflows when the longer string has fewer
+than two characters (`src/distance.rs:19`), and a slice runs past the end of
+the shorter string (`src/distance.rs:41`). The reference links the same crate
+(`reference/Bund/Cargo.toml:58`). `"zz_nofile" "A" string.distance.jarowinkler`
+unwound out of Bund2's evaluation thread, and the process exited 1 with a Rust
+backtrace. The D37 lint cannot see into a dependency.
+
+**Status:** FIXED 2026-09-10, by D49. The program now reports
+`internal error: native string.distance.jarowinkler panicked: start byte index
+2 is out of bounds of A (at …/natural-0.5.0/src/distance.rs:41)` through the
+reporter, prints nothing to stderr, and exits 0 as any reported error does.
+The reference still crashes, so this is a divergence in Bund2's favour with no
+golden, as F85 is. The distance itself stays undefined for those operands:
+computing one would be an answer the reference never gives. Criterion 28's
+palette reaches the panic on many operand pairs and runs on.
+
+## F96 — a native that files a tail request and then fails leaves the request to run later
+
+**A Bund2 defect, latent**, found by RFC-0005's tenth review (S3.2).
+
+`Vm::tail_lambda` files a body in `pending_tail` for the loop to run after the
+current native returns (`Interp::request_tail`, `crates/bund2-interp/src/lib.rs`).
+Nothing cleared it on an error, because `run_to`'s error arm unwinds frames
+only. A native that filed a request and then returned `Err` left it set, and
+after `?try` had caught the error, the next `take_pending` ran the stale body,
+which no caller had asked for. No `bund2-stdlib` native does this: all four
+request sites return `Ok` straight after filing. An embedder's native can.
+
+**Status:** FIXED 2026-09-10. `Interp::invoke`, the one place Tier 0 calls a
+native, clears `pending_tail` when the native fails.
+`a_failed_native_leaves_no_tail_request` shows the stale body not running.
