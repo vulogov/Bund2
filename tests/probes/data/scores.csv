@@ -1,0 +1,4 @@
+name,score,active,ratio
+alice,10,true,0.5
+bob,20,false,1.5
+carol,,TRUE,2

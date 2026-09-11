@@ -1,0 +1,17 @@
+//
+// PROBE: the csv conditional (Bund/src/stdlib/functions/conditional/conditional_csv.rs:9-173).
+//
+// csv pushes a conditional naming the file; ! runs it. Each row reaches the
+// lambda as a list typed by polars' inference: `score` is integers with one
+// empty cell, `active` is booleans in mixed case, `ratio` mixes integers and
+// floats, so it is floats. An empty cell is null, and a null is left out of
+// its row (:144). With `column`, the lambda runs once on that column's cells.
+// With is_header false, the header row is data, and every column mixes kinds,
+// so every column is strings.
+//
+"probe: each row, typed" println
+"tests/probes/data/scores.csv" csv :lambda { println } set !
+"probe: one column, once" println
+"tests/probes/data/scores.csv" csv :column "ratio" set :lambda { println } set !
+"probe: no header, so every column is strings" println
+"tests/probes/data/scores.csv" csv :is_header false set :lambda { println } set !

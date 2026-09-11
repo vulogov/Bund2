@@ -42,7 +42,7 @@ fn slot_items(c: &BundValue, key: &str) -> Vec<BundValue> {
         .unwrap_or_default()
 }
 
-fn new_conditional(ty: &str) -> BundValue {
+pub(crate) fn new_conditional(ty: &str) -> BundValue {
     BundValue::conditional(Default::default()).set("type", BundValue::str(ty))
 }
 

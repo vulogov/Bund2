@@ -60,6 +60,8 @@ pub mod host;
 pub mod random;
 // `input`, `input*`, `password`, `bund.prompt`, `io.banner`, the host table.
 pub mod terminal;
+// `csv`, the data-file conditional.
+pub mod data;
 
 /// Register everything this crate provides.
 pub fn register_all(r: &mut bund2_api::Registry) {
@@ -73,6 +75,7 @@ pub fn register_all_with(r: &mut bund2_api::Registry, opts: &host::HostOptions) 
     host::register(r, opts);
     random::register(r);
     terminal::register(r, opts);
+    data::register(r);
     stack::register(r);
     console::register(r);
     logic::register(r);

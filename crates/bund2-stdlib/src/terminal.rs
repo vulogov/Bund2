@@ -57,7 +57,8 @@ fn input(vm: &mut dyn Vm) -> Result<(), Error> {
 /// `! lambda_value.type_of() == LAMBDA` (`:91`), a bitwise NOT of the tag
 /// compared with `LAMBDA`, which is always false. So anything is accepted, and
 /// a value that is not a lambda fails only when the first line arrives, where
-/// `lambda_eval` refuses it (`reference/rust_multistackvm/src/multistackvm_lambda_eval.rs:27-29`).
+/// the reference's lambda evaluator refuses it:
+/// `reference/rust_multistackvm/src/multistackvm_lambda_eval.rs:27-29`.
 fn input_loop(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 1 {
         return Err(Error("Stack is too shallow for inline INPUT".into()));
