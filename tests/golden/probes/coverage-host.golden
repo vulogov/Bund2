@@ -1,0 +1,30 @@
+# golden for tests/probes/coverage-host.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: fs.ls, fs.ls.files and fs.ls.dir count a fixed tree
+3
+2
+1
+probe: the workbench forms take the directory from the workbench and answer on the stack
+3
+2
+1
+3
+probe: file. reads onto the workbench
+alpha
+
+probe: url and url. fetch a file:// URL
+alpha
+
+alpha
+
+probe: words whose answer depends on the host or on chance run, and are dropped
+done
+╭╮
+╰╯
+╭╮
+╰╯
