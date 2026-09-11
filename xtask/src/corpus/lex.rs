@@ -99,6 +99,7 @@ pub struct Lexed {
 /// create false joins. We exclude it and record an anomaly if one appears.
 fn is_element(c: char) -> bool {
     c.is_alphabetic()
+        || is_unicode_symbol(c)
         || matches!(
             c,
             '.' | ','
@@ -120,6 +121,37 @@ fn is_element(c: char) -> bool {
                 | '~'
                 | '$'
         )
+}
+
+/// SYMBOL's non-ASCII members, as far as this lexer admits them — **F88**.
+///
+/// pest's `SYMBOL` is the Unicode categories Sm, Sc, Sk and So, and Rust's
+/// standard library has no general-category test. So this admits the blocks
+/// whose every assigned character is a symbol: arrows, the mathematical and
+/// supplemental mathematical operators, the supplemental arrows and the
+/// currency signs, plus Latin-1's `¬ ± × ÷`. The reference's own aliases
+/// `∅ ∈ ← → ≠ ⩾ ⩽` all fall inside them
+/// (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:23-42`).
+///
+/// Before this the lexer took SYMBOL's ASCII members only, reported `∅`, `∈`
+/// and `→` as anomalies, and dropped them from the tokens — so coverage never
+/// saw probes that run them. A symbol outside these blocks is still reported:
+/// under-admitting shows up as an anomaly, where over-admitting would hide a
+/// character the oracle rejects.
+fn is_unicode_symbol(c: char) -> bool {
+    matches!(
+        c as u32,
+        0x00AC
+            | 0x00B1
+            | 0x00D7
+            | 0x00F7
+            | 0x20A0..=0x20C0 // Currency Symbols
+            | 0x2190..=0x21FF // Arrows
+            | 0x2200..=0x22FF // Mathematical Operators
+            | 0x27F0..=0x27FF // Supplemental Arrows-A
+            | 0x2900..=0x297F // Supplemental Arrows-B
+            | 0x2A00..=0x2AFF // Supplemental Mathematical Operators
+    )
 }
 
 /// `nelement`, bund.pest:37.

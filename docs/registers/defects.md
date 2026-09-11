@@ -2839,3 +2839,25 @@ against a stack and a workbench of lambdas, and asserts through `entry_log`
 that none starts a body. Before the fix it named `execute.` and nothing else,
 which agrees with the review's hand audit of the sixteen functions that
 re-enter evaluation. Conformance is 79/86, ceiling 79/86, before and after.
+## F88 — the corpus lexer takes SYMBOL's ASCII members only, so coverage never saw `∅`, `∈` or `→`
+
+**A Bund2 tooling defect**, found while listing the words Bund2 implements and
+no golden runs.
+
+The oracle's grammar admits any Unicode `SYMBOL` in a name: `element` is
+`LETTER | SYMBOL | …` (`reference/bund_language_parser/bund.pest:36`), and
+pest's `SYMBOL` is the categories Sm, Sc, Sk and So. `xtask`'s corpus lexer
+took only SYMBOL's ASCII members (`is_element`, `xtask/src/corpus/lex.rs`), so
+`∅`, `∈` and `→`, which the reference registers as aliases
+(`reference/rust_multistackvm/src/stdlib/create_aliases.rs:25,41,42`), were
+reported as "LEX ANOMALY … matches no grammar rule" and dropped from the
+tokens. Three probes already ran them, and coverage counted none of the three.
+
+**Status:** FIXED 2026-09-10. `is_unicode_symbol` admits the Unicode blocks
+whose every assigned character is a symbol: arrows, the mathematical and
+supplemental mathematical operators, the supplemental arrows and the currency
+signs, plus Latin-1's `¬ ± × ÷`. Rust's standard library has no
+general-category test, so a symbol outside those blocks is still reported as
+an anomaly. That errs towards reporting, never towards hiding a character the
+oracle rejects.
+

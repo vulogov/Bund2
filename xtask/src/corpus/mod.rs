@@ -610,6 +610,20 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
     println!("  is the ceiling on COVERAGE until probes are written for the rest.");
     println!("  It is the old numerator, kept as the bound it always was.\n");
 
+    // **The gap, by name.** IMPLEMENTED minus COVERAGE is "probes to write",
+    // and a count of them says what to do without saying to which words. This
+    // is the worklist.
+    let untested: Vec<&str> = implemented
+        .iter()
+        .copied()
+        .filter(|w| !used.contains(w))
+        .collect();
+    println!("## implemented but run by no golden: {}\n", untested.len());
+    for chunk in untested.chunks(6) {
+        println!("  {}", chunk.join("  "));
+    }
+    println!();
+
     // D14 splits the in-scope set into core and library. Coverage stays a
     // number over in-scope, because that is how CLAUDE.md defines it and the
     // library half still needs tests. But only the core half is a
