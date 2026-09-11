@@ -227,8 +227,141 @@ mod honesty_tests {
         );
     }
 
-    /// **Criterion 28 — D48, F94.** Every fixed-effect native, run under the
-    /// effect audit against a palette of fourteen operand kinds, with the top
+    /// One audited run of a native, kept for D55's comparison.
+    struct Run {
+        ok: bool,
+        err: String,
+        top: Vec<String>,
+        kinds: Vec<u16>,
+        wb: Vec<String>,
+        /// The values beneath the operands are still the padding put there.
+        /// A word that returns nothing and reorders what lies beneath —
+        /// `rotate_stack_left` given the current stack's name — changes
+        /// nothing else a run shows.
+        intact: bool,
+        breaches: Vec<String>,
+        observed: Vec<String>,
+    }
+
+    impl Run {
+        /// The same answer: status and error, and on success what it produced
+        /// and what it left on the workbench. After a failure only the error
+        /// counts, since what a failed native left behind is not its answer.
+        fn same(&self, o: &Run) -> bool {
+            self.ok == o.ok
+                && self.err == o.err
+                && (!self.ok || (self.top == o.top && self.wb == o.wb))
+        }
+
+        /// For a native whose answer varies by itself, such as a random one:
+        /// the same status, and on success the same kinds produced.
+        fn same_kind(&self, o: &Run) -> bool {
+            self.ok == o.ok && (!self.ok || self.kinds == o.kinds)
+        }
+    }
+
+    /// Blank what F14 says is not behaviour: ids and stamps, in the reference's
+    /// rendering and in a heap value's `Debug`, whose identity counter and
+    /// stamp cell differ on every run.
+    fn without_ids(s: &str) -> String {
+        let number = |c: char| !(c.is_ascii_digit() || matches!(c, '.' | 'e' | '+' | '-'));
+        let mut s = blank(s, "id: \"", |c| c == '"');
+        for prefix in ["stamp: ", "identity: Cell { value: ", "stamp: Cell { value: "] {
+            s = blank(&s, prefix, number);
+        }
+        s
+    }
+
+    /// After each `prefix`, drop characters up to the first that `stop` accepts.
+    ///
+    /// The prefix is matched **without regard to case**. `string.upper` and
+    /// `string.title` handed a lambda case-convert its rendering, id and stamp
+    /// included, so `ID: "…"` and `Stamp: …` must be blanked too. ASCII
+    /// lowercasing keeps every byte offset, so the search runs on a lowercased
+    /// copy and the text kept is the original.
+    fn blank(s: &str, prefix: &str, stop: impl Fn(char) -> bool) -> String {
+        let lower = s.to_ascii_lowercase();
+        let prefix = prefix.to_ascii_lowercase();
+        let mut out = String::with_capacity(s.len());
+        let mut at = 0;
+        while let Some(i) = lower[at..].find(&prefix) {
+            let keep = at + i + prefix.len();
+            out.push_str(&s[at..keep]);
+            let end = s[keep..].find(&stop).map_or(s.len(), |j| keep + j);
+            at = end;
+        }
+        out.push_str(&s[at..]);
+        out
+    }
+
+    /// Why D55 flagged a native, with the two answers that differed.
+    fn differs_why(a: &Run, b: &Run) -> String {
+        let show = |r: &Run| -> String {
+            let s = if r.ok {
+                format!("Ok {:?} {:?}", r.top, r.wb)
+            } else {
+                format!("Err {}", r.err)
+            };
+            s.chars().take(120).collect()
+        };
+        format!(
+            "answers differently when the values beneath its operands change: {} / {}",
+            show(a),
+            show(b)
+        )
+    }
+
+    /// Run `name` once under the effect audit, with `pad` beneath `ops`.
+    fn run_one(
+        template: &bund2_api::Registry,
+        name: &str,
+        produces: u8,
+        pad: &[BundValue],
+        ops: &[BundValue],
+        wb: Option<&BundValue>,
+    ) -> Run {
+        // A clone of the prepared registry: every word, and the class the
+        // OBJECT kind was made from.
+        let mut i = Interp::new();
+        i.registry = template.clone();
+        for v in pad.iter().chain(ops) {
+            i.push(v.clone());
+        }
+        if let Some(v) = wb {
+            i.push_workbench(v.clone());
+        }
+        i.effect_audit = Some(Vec::new());
+        let r = i.eval_indexed(&[BundValue::call(name)]);
+        let breaches = i.effect_audit.take().unwrap_or_default();
+        let observed = i.observations.take();
+        let snap = i.snapshot();
+        let n = usize::from(produces).min(snap.len());
+        let top = &snap[snap.len() - n..];
+        // A native that switched the current stack is looking at another
+        // stack now; switches are §S5's epoch's business, and the effect audit
+        // skips them too.
+        let switched = i.current_name() != "main";
+        let intact = switched
+            || (snap.len() >= pad.len()
+                && snap.iter().zip(pad).all(|(got, put)| got.display() == put.display()));
+        Run {
+            intact,
+            ok: r.is_ok(),
+            err: r.err().map(|(_, e)| without_ids(&e.0)).unwrap_or_default(),
+            top: top.iter().map(|v| without_ids(&v.display())).collect(),
+            kinds: top.iter().map(BundValue::dt).collect(),
+            wb: i
+                .snapshot_workbench()
+                .iter()
+                .map(|v| without_ids(&v.display()))
+                .collect(),
+            breaches,
+            observed,
+        }
+    }
+
+    /// **Criterion 28 — D48, F94, D55.** Every fixed-effect native, run under
+    /// the effect audit against a palette of fifteen operand kinds, with the top
     /// two operands drawn from every pair of kinds (deeper ones and three
     /// padding values are `7`), and — for a workbench form, a name ending in
     /// `.` or `,` — against every kind on the workbench as well.
@@ -246,7 +379,9 @@ mod honesty_tests {
     #[test]
     fn every_fixed_effect_native_keeps_its_pair_over_the_promotable_palette() {
         const CLASS: &str = ":C1 class :.class_name \"C1\" set register";
-        const KINDS: &str = "7 2.5 true \"zz_nofile\" \"A\" \"C1\" [ 1 2 ] list dict \
+        // `"main"` is the current stack's name, so a word that takes a stack
+        // name is tried on the stack promotion would be holding (D55).
+        const KINDS: &str = "7 2.5 true \"zz_nofile\" \"A\" \"C1\" \"main\" [ 1 2 ] list dict \
                              { 1 } { drop } nodata `dup :C1 object";
         let mut setup = Interp::new();
         crate::register_all(&mut setup.registry);
@@ -255,7 +390,17 @@ mod honesty_tests {
             .eval(&bund2_syntax::compile(&src).expect("compiles"))
             .expect("the palette builds");
         let palette = setup.snapshot();
-        assert_eq!(palette.len(), 14, "fourteen operand kinds");
+        assert_eq!(palette.len(), 15, "fifteen operand kinds");
+        // Kinds that display as their full rendering, id and stamp included:
+        // the lambdas and the object. An answer built from one depends on
+        // identity and time, which F14 says are not behaviour, and a word that
+        // case-converts it respells `id:` in ways no scrubbing keeps up with.
+        // D55's comparison skips tuples holding one; the breach, observation
+        // and intact checks still run on them.
+        let f14_kind: Vec<bool> = palette
+            .iter()
+            .map(|v| v.display().to_ascii_lowercase().contains("stamp"))
+            .collect();
         let template = setup.registry.clone();
         // Natives that act on the host are never run here: the palette's `7`
         // would make `sleep.seconds` wait seven seconds, and its strings would
@@ -282,6 +427,13 @@ mod honesty_tests {
         let k = palette.len();
         let mut breaches = std::collections::BTreeSet::new();
         let mut reached = std::collections::BTreeSet::new();
+        // D55: natives seen reading beyond their operands, with why.
+        let mut observers: std::collections::BTreeMap<String, String> =
+            std::collections::BTreeMap::new();
+        // What lies beneath the operands: the usual padding, and other values
+        // for the comparison.
+        let pad_a = vec![BundValue::int(7); 3];
+        let pad_c = vec![BundValue::str("pad"), BundValue::float(0.5), BundValue::int(-3)];
         for (name, e) in &natives {
             let depth = usize::from(e.consumes);
             let bench = name.ends_with('.') || name.ends_with(',');
@@ -304,29 +456,61 @@ mod honesty_tests {
             } else {
                 vec![None]
             };
+            // D55, decided per native: whether two identical runs ever
+            // differed, and the first difference of each kind.
+            let (mut nondet, mut det_diff, mut kind_diff): (bool, Option<String>, Option<String>) =
+                (false, None, None);
             for t in &tuples {
                 for w in &wb {
-                    // A clone of the prepared registry: every word, and the
-                    // class the OBJECT kind was made from.
-                    let mut i = Interp::new();
-                    i.registry = template.clone();
-                    for _ in 0..3 + depth - varied {
-                        i.push(BundValue::int(7));
-                    }
-                    for &x in t {
-                        i.push(palette[x].clone());
-                    }
-                    if let Some(x) = w {
-                        i.push_workbench(palette[*x].clone());
-                    }
-                    i.effect_audit = Some(Vec::new());
-                    let r = i.eval(&[BundValue::call(name.as_str())]);
-                    let log = i.effect_audit.take().unwrap_or_default();
-                    if r.is_ok() && log.is_empty() {
+                    // The operands: `7`s below the varied ones, up to the
+                    // declared depth, then the varied kinds on top.
+                    let mut ops: Vec<BundValue> = vec![BundValue::int(7); depth - varied];
+                    ops.extend(t.iter().map(|&x| palette[x].clone()));
+                    let wbv = w.map(|x| palette[x].clone());
+                    let run =
+                        |pad: &[BundValue]| run_one(&template, name, e.produces, pad, &ops, wbv.as_ref());
+                    // D55's differential: padded twice, so a deterministic
+                    // native answers alike both times; with nothing beneath
+                    // its operands; and with other values beneath.
+                    let a1 = run(&pad_a);
+                    let a2 = run(&pad_a);
+                    let b = run(&[]);
+                    let c = run(&pad_c);
+                    if a1.ok && a1.breaches.is_empty() {
                         reached.insert(name.clone());
                     }
-                    breaches.extend(log);
+                    for r in [&a1, &a2, &b, &c] {
+                        breaches.extend(r.breaches.iter().cloned());
+                        if let Some(o) = r.observed.first() {
+                            observers.entry(name.clone()).or_insert_with(|| o.clone());
+                        }
+                        if r.ok && !r.intact {
+                            observers.entry(name.clone()).or_insert_with(|| {
+                                "changes the values beneath its operands".to_string()
+                            });
+                        }
+                    }
+                    let compare = !t.iter().any(|&x| f14_kind[x]) && !w.is_some_and(|x| f14_kind[x]);
+                    if compare {
+                        if !a1.same(&a2) {
+                            nondet = true;
+                        }
+                        let other = if a1.same(&b) { &c } else { &b };
+                        if det_diff.is_none() && !a1.same(other) {
+                            det_diff = Some(differs_why(&a1, other));
+                        }
+                        let other = if a1.same_kind(&b) { &c } else { &b };
+                        if kind_diff.is_none() && !a1.same_kind(other) {
+                            kind_diff = Some(differs_why(&a1, other));
+                        }
+                    }
                 }
+            }
+            // A native that answered two identical runs differently even once
+            // is random, and is compared by status and kinds alone everywhere;
+            // one lucky match on a single tuple does not make it deterministic.
+            if let Some(w) = if nondet { kind_diff } else { det_diff } {
+                observers.entry(name.clone()).or_insert(w);
             }
         }
         let shown: Vec<&String> = breaches.iter().take(20).collect();
@@ -336,24 +520,39 @@ mod honesty_tests {
             breaches.len()
         );
 
+        // D55: a native seen reading beyond its operands is never crossed.
+        let promotable: std::collections::BTreeSet<String> = reached
+            .iter()
+            .filter(|n| !observers.contains_key(*n))
+            .cloned()
+            .collect();
+
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let list = root.join("tests/golden/PROMOTABLE.txt");
         if std::env::var_os("BUND2_UPDATE_PROMOTABLE").is_some() {
             let mut out = String::from(
-                "# Natives RFC-0005 §S5's promotion may cross (D48): every fixed-effect\n\
-                 # native criterion 28's palette brought to `Ok` with no breach of its\n\
-                 # declared effect. Anything absent is synced before, as an embedder's\n\
-                 # native is. Written by BUND2_UPDATE_PROMOTABLE=1 cargo test -p\n\
-                 # bund2-stdlib promotable; never edited by hand.\n",
+                "# Natives RFC-0005 §S5's promotion may cross (D48, D55): every\n\
+                 # fixed-effect native criterion 28's palette brought to `Ok` with no\n\
+                 # breach of its declared effect, and that D55's audit did not see\n\
+                 # reading beyond its operands. Anything absent is synced before, as an\n\
+                 # embedder's native is. Written by BUND2_UPDATE_PROMOTABLE=1 cargo\n\
+                 # test -p bund2-stdlib promotable; never edited by hand.\n",
             );
             out.push_str(&format!(
-                "# {} of {} fixed-effect natives reached.\n",
-                reached.len(),
-                natives.len()
+                "# {} of {} fixed-effect natives reached; {} of them observe beyond their operands.\n",
+                promotable.len(),
+                natives.len(),
+                reached.len() - promotable.len()
             ));
-            for n in &reached {
+            for n in &promotable {
                 out.push_str(n);
                 out.push('\n');
+            }
+            out.push_str("#\n# Reached, but seen reading beyond their operands (D55), so never crossed:\n");
+            for (n, why) in &observers {
+                if reached.contains(n) {
+                    out.push_str(&format!("# observes: {n} — {why}\n"));
+                }
             }
             // What the palette never brought to `Ok`, so the list says what it
             // withholds. Comment lines, so the comparison below ignores them.
@@ -372,11 +571,18 @@ mod honesty_tests {
             .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
             .map(str::to_string)
             .collect();
-        let gained: Vec<&String> = reached.difference(&listed).collect();
-        let lost: Vec<&String> = listed.difference(&reached).collect();
+        let gained: Vec<&String> = promotable.difference(&listed).collect();
+        let lost: Vec<&String> = listed.difference(&promotable).collect();
+        // Why each lost native left, when D55 is the reason, so the review of a
+        // stale list does not need the list rewritten first.
+        let why: Vec<String> = lost
+            .iter()
+            .filter_map(|n| observers.get(*n).map(|w| format!("{n}: {w}")))
+            .collect();
         assert!(
             gained.is_empty() && lost.is_empty(),
-            "PROMOTABLE.txt is stale: now reached {gained:?}, no longer reached {lost:?}"
+            "PROMOTABLE.txt is stale: now reached {gained:?}, no longer reached {lost:?}; \
+             of those, D55 observers: {why:#?}"
         );
     }
 

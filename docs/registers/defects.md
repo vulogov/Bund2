@@ -3379,3 +3379,37 @@ pushed all seven. Under `--noio`, `load.model`'s stub also reports
 save order, and both stubs say `SAVE.MODEL`
 (`crates/bund2-stdlib/src/world.rs`). The probe
 `tests/probes/models-world.bund` records the first.
+
+## F111 — six named-stack words declare a pair that is wrong on the current stack
+
+**A Bund2 defect in declared effects**, found by the first run of D55's audit,
+which added the current stack's name, `"main"`, to criterion 28's palette.
+
+Each of these words takes a stack by name and declares that it consumes only
+its operands from the current stack. When the name *is* the current stack's,
+it also acts on the current stack, so its depth change breaks the pair. The
+effect audit recorded it on the first run with `"main"` as the operand:
+
+| word | declared | observed with `"main"` | now | what it does to the current stack |
+|---|---|---|---|---|
+| `clear_in` | `1 -> 0` | 4 → 0 | `opaque(1)` | clears it |
+| `drop_in` | `1 -> 0` | 4 → 2 | `opaque(1)` | drops from it |
+| `dup_one_in` | `1 -> 0` | 4 → 4 | `opaque(1)` | duplicates onto it |
+| `dup_many_in` | `2 -> 0` | 5 → 10 | `opaque(2)` | duplicates onto it, a copy per unit of its count |
+| `fold_stack` | `1 -> 0` | 4 → 1 | `opaque(1)` | folds it into one LIST and leaves the list there |
+| `return_from` | `1 -> 0` | 4 → 2 | `opaque(1)` | moves a value from it to the workbench |
+
+`fold_stack` was corrected by F92 to `1 -> 0` for a *named* stack, which the
+corpus audit saw. The current-stack case is the one no program in the corpus
+reached. It is the same shape as Q34's named-stack case (D55).
+
+**Why it matters.** RFC-0005 §S5 models the depth after a call from the pair
+and keeps the values below `consumes` in registers. A word that empties the
+current stack while claiming to consume one value would leave compiled code
+holding values the program had removed. `opaque` makes each a promotion
+barrier, and makes `bund2 check` stop at it, which is honest: its effect
+depends on the name it is given.
+
+**Status:** FIXED 2026-09-11 (`crates/bund2-stdlib/src/stack.rs`). The
+palette passes. `bund2 check` now stops at these six, so RFC-0005's promotion
+stops are re-derived with them.

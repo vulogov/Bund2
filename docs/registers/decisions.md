@@ -3026,3 +3026,98 @@ it is carried as Q38 so that no default is taken silently.
 - Blocks: nothing
 - Depends on: D51 (no curl), D10 (no C below `bund2 build`)
 - Status: **RESOLVED for the interpreter; the AOT half is Q38.**
+
+## D55 — the words that read beyond their arity are found by audit (Q34)
+
+Q34 asks what identifies a word that reads the stack beyond what it consumes.
+RFC-0005's promotion keeps the values below a callee's operands in registers,
+and puts only the operands on the real stack (§S5). So such a word would see a
+stack shorter or different from Tier 0's. There are three shapes of it:
+- a whole-stack reader, such as `debug.display_stack`, which declares
+  `eff(0, 0)` and reads everything;
+- a depth guard larger than the word's arity;
+- a word that reaches a stack by name, such as `swap_in` or `rotate_stack_*`,
+  when the name is the current stack's.
+
+RFC-0005's criterion 14 needs these words to be barriers, and `StackEffect`
+records what a word consumes, not what it observes.
+
+### Decision
+
+Decided by the repository owner, 2026-09-11: **derive the set by audit, and
+change no API** (option 2 of four).
+
+- **A four-run differential in criterion 28's palette (D48).** Each
+  fixed-effect native, over each operand tuple, runs four times:
+  - with its operands padded beneath as before, twice, which tells a
+    deterministic native from a random one;
+  - with nothing beneath its operands;
+  - with different values beneath.
+
+  If a deterministic native's runs differ in status, error text (ids and
+  stamps normalised, F14), produced values or workbench, it observes beyond
+  its operands. So does a nondeterministic native whose runs differ in status
+  or in the kinds it produces. Whether a native is nondeterministic is decided
+  once, over all its tuples: two identical runs that ever differ make it so.
+  A tuple holding an operand that displays with its id and stamp (a lambda, an
+  object) is left out of the comparison, because an answer built from one
+  depends on identity and time, which F14 says are not behaviour. The other
+  checks still run on it.
+- **The padding must survive.** After a run that returns `Ok` on the same
+  current stack, the values beneath the operands must still be the padding. A
+  word that returns nothing and reorders what lies beneath it, such as
+  `rotate_stack_left` given the current stack's name, shows nothing else a run
+  could compare.
+- **An observation audit.** While the effect audit is on, the interpreter
+  records any fixed-effect native that reads the whole stack or the workbench
+  (`snapshot`, `snapshot_workbench`), or reads a stack's depth by name
+  (`depth_of`). Asking for the current stack's *name* is not recorded: the
+  name is not a value promotion holds. A word that goes on to act on the
+  current stack by name is caught by the differential instead, as F111's six
+  were on the audit's first run. This takes the place of the source scan the
+  option first proposed. A scan finds Rust functions, many
+  of them closures in a registration call, not the words they are registered
+  under; the audit records the word.
+- **The palette gains the current stack's name, `"main"`,** as an operand
+  kind, so a word that takes a stack name is tried on the current stack.
+
+`tests/golden/PROMOTABLE.txt` lists a native only if the palette brought it to
+`Ok` with no breach **and** neither check flagged it. Promotion already syncs
+before any native not on the list, so a flagged native is a barrier with no
+new mechanism. The file lists the flagged natives as comments, each with its
+reason.
+
+**What it cannot see.** An observation that changes nothing a run returns, and
+calls none of the four methods, is missed: say, a native that reads `depth()`
+and only prints it. RFC-0005's assumption 22 names this.
+
+### Rejected
+
+- **A declared "observes" flag on the registration.** It is precise, but it
+  changes `bund2-api` under RFC-0002, which is Accepted, and it is kept by hand.
+- **No value promoted across any call.** It makes the question moot and costs
+  promotion across calls.
+- **Staging: that rule first, the audit later.**
+
+**First run, 2026-09-11.** Stable over three runs, the audit flags seven
+natives:
+- `debug.display_stack` and `debug.display_workbench`, which read the whole
+  stack or workbench;
+- `move_from`, `rotate_current_left`, `rotate_current_right`,
+  `rotate_stack_left` and `rotate_stack_right`, which change the values
+  beneath their operands.
+
+Getting there corrected the audit twice:
+- `+.`, `-.`, `*.` and `/.` were flagged for checking an empty workbench with
+  a whole snapshot. They now ask `workbench_depth()`.
+- An observation hook on `current_name` flagged `current`, which reads no
+  value, and was removed.
+
+The run also found F111: six named-stack words whose declared pair is wrong
+on the current stack, now declared opaque.
+
+- Decided by: repository owner, 2026-09-11
+- Blocks: nothing; answers Q34, and makes RFC-0005's criterion 14 satisfiable
+- Depends on: D48 (the palette and `PROMOTABLE.txt`), D47
+- Status: **RESOLVED — built; `PROMOTABLE.txt` awaits regeneration by the
+  repository owner.**

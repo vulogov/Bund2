@@ -453,6 +453,12 @@ pub struct Interp {
     /// refuses, so whatever is running unwinds, and the top level returns
     /// cleanly instead of reporting.
     exit_code: Option<i32>,
+    /// **D55's observation audit.** While the effect audit holds a
+    /// fixed-effect native, every read beyond its operands — the whole stack,
+    /// the whole workbench, a stack's depth by name — is recorded here as a
+    /// sentence. Empty in production, where `audit_inside`
+    /// is never set; criterion 28's palette reads it.
+    pub observations: std::cell::RefCell<Vec<String>>,
 }
 
 impl Default for Interp {
@@ -477,6 +483,19 @@ impl Interp {
             audit_native: None,
             stack_floor: tier0_floor(),
             exit_code: None,
+            observations: std::cell::RefCell::new(Vec::new()),
+        }
+    }
+
+    /// Record, for D55, that the fixed-effect native running under the audit
+    /// read beyond its operands, and how. Outside the audit this is a single
+    /// branch on `audit_inside`, which production never sets.
+    fn note_observation(&self, how: &str) {
+        let Some(who) = self.audit_inside else {
+            return;
+        };
+        if let Ok(mut log) = self.observations.try_borrow_mut() {
+            log.push(format!("`{}` {how}", self.registry.interner.name(who)));
         }
     }
 
@@ -535,12 +554,14 @@ impl Interp {
         // yet built. It is also the only count §S5 relies on, since promotion
         // holds current-stack values and models the depth after a call from
         // this pair. The workbench delta is reported beside it, as evidence.
-        let stack = self.current_name();
+        // The interpreter's own reads go to the stacks directly, so they are
+        // never taken for the native's (D55).
+        let stack = self.stacks.current_name().to_string();
         let (main0, wb0) = (self.depth(), self.stacks.workbench.len());
         self.audit_inside = Some(name);
         let r = self.invoke(name, n);
         self.audit_inside = outer;
-        if r.is_ok() && self.current_name() == stack {
+        if r.is_ok() && self.stacks.current_name() == stack {
             let (main1, wb1) = (self.depth(), self.stacks.workbench.len());
             let (c, p) = (usize::from(n.effect.consumes), usize::from(n.effect.produces));
             if main0.checked_sub(c).map(|d| d + p) != Some(main1) {
@@ -954,7 +975,14 @@ impl Vm for Interp {
     }
 
     fn depth(&self) -> usize {
-        self.depth_of(&self.current_name())
+        // Not through `depth_of`: a depth guard reads only as far as its
+        // operands, which D55's differential checks, and must not be taken
+        // for a read of a stack by name.
+        self.stacks
+            .stacks
+            .get(self.stacks.current_name())
+            .map(Stack::len)
+            .unwrap_or(0)
     }
 
     fn peek(&self) -> Option<BundValue> {
@@ -972,11 +1000,12 @@ impl Vm for Interp {
     }
 
     fn clear(&mut self) {
-        let name = self.current_name();
+        let name = self.stacks.current_name().to_string();
         self.clear_stack(&name);
     }
 
     fn snapshot(&self) -> Vec<BundValue> {
+        self.note_observation("reads the whole current stack");
         self.stacks
             .stacks
             .get(self.stacks.current_name())
@@ -985,6 +1014,7 @@ impl Vm for Interp {
     }
 
     fn snapshot_workbench(&self) -> Vec<BundValue> {
+        self.note_observation("reads the whole workbench");
         self.stacks.workbench.contents()
     }
 
@@ -997,6 +1027,11 @@ impl Vm for Interp {
     }
 
     fn current_name(&self) -> String {
+        // Not observed: the name is not a value promotion holds, so asking for
+        // it reads nothing a compiled caller might be keeping in registers. A
+        // word that then *acts* on the current stack by name changes what it
+        // answers when the values beneath change, which D55's differential
+        // catches (F111 is what it caught).
         self.stacks.current_name().to_string()
     }
 
@@ -1041,6 +1076,7 @@ impl Vm for Interp {
     }
 
     fn depth_of(&self, name: &str) -> usize {
+        self.note_observation("reads the depth of a stack by name");
         self.stacks.stacks.get(name).map(Stack::len).unwrap_or(0)
     }
 
@@ -1105,7 +1141,7 @@ impl Vm for Interp {
         if !self.stack_ok() {
             return Err(Error::stack_exhausted());
         }
-        let prev = self.current_name();
+        let prev = self.stacks.current_name().to_string();
         let floor = self.frames.len();
         self.to_stack(stack);
         // The exit action is carried by the frame, so the unwinder runs it on a
@@ -1186,13 +1222,23 @@ impl Vm for Interp {
             let w = self.reporter.value_width();
             let raw = self.reporter.wants_raw_values();
             let fmt = |v: &BundValue| if raw { v.render(false) } else { v.summary(w) };
-            let stack = self.snapshot().iter().map(&fmt).collect();
-            let wb = self.snapshot_workbench().iter().map(&fmt).collect();
-            d.on_stack(self.current_name())
+            // Read directly: a report's snapshot is the interpreter's, not the
+            // reporting native's, and D45 already governs it (D55).
+            let stack = self
+                .stacks
+                .stacks
+                .get(self.stacks.current_name())
+                .map(Stack::contents)
+                .unwrap_or_default()
+                .iter()
+                .map(&fmt)
+                .collect();
+            let wb = self.stacks.workbench.contents().iter().map(&fmt).collect();
+            d.on_stack(self.stacks.current_name().to_string())
                 .with_stack(stack)
                 .with_workbench(wb)
         } else {
-            d.on_stack(self.current_name())
+            d.on_stack(self.stacks.current_name().to_string())
         };
         self.reporter.report(&d);
     }
@@ -1256,7 +1302,7 @@ impl Vm for Interp {
 
     fn push_context(&mut self, name: &str) {
         // The stack to come back to is the one current *before* the switch.
-        let prev = self.current_name();
+        let prev = self.stacks.current_name().to_string();
         self.contexts.push((name.to_string(), prev));
     }
 

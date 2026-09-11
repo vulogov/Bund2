@@ -543,10 +543,14 @@ pub fn register(r: &mut Registry) {
     // Opaque: the count is an operand, so the net is its value less one. The
     // floor is the count and the value copied (F92).
     w(r, "dup_many", dup_many, StackEffect::opaque(2));
-    w(r, "dup_one_in", dup_one_in, eff(1, 0));
-    w(r, "dup_many_in", dup_many_in, eff(2, 0));
+    // F111: opaque; given the current stack's name it duplicates onto it.
+    w(r, "dup_one_in", dup_one_in, StackEffect::opaque(1));
+    // F111: opaque; given the current stack's name it duplicates onto it,
+    // a copy per unit of its count.
+    w(r, "dup_many_in", dup_many_in, StackEffect::opaque(2));
     w(r, "drop", drop_word, eff(1, 0));
-    w(r, "drop_in", drop_in, eff(1, 0));
+    // F111: opaque; given the current stack's name it drops from it.
+    w(r, "drop_in", drop_in, StackEffect::opaque(1));
     // **Opaque, taking nothing — F94.** `drop_stack` takes no operand and
     // removes the whole current stack, whatever is on it (the function above;
     // `reference/rust_multistack/src/ts_drop_stack.rs:10-23`), so no pair is
@@ -571,7 +575,9 @@ pub fn register(r: &mut Registry) {
     // it touched nothing (F92). The probed column reads `0+` for the same
     // reason.
     w(r, "clear", clear, StackEffect::opaque(0));
-    w(r, "clear_in", clear_in, eff(1, 0));
+    // F111: opaque, because its effect on the current stack depends on the
+    // name it is handed; given the current stack's own name it clears it.
+    w(r, "clear_in", clear_in, StackEffect::opaque(1));
     w(r, "current", current, eff(0, 1));
     w(r, "to_current", to_current, eff(1, 0));
     w(r, "to_stack", to_stack, eff(1, 0));
@@ -601,7 +607,9 @@ pub fn register(r: &mut Registry) {
     w(r, "take", take, eff(0, 1));
     w(r, "return", return_word, eff(1, 0));
     w(r, "return_to", return_to, eff(1, 0));
-    w(r, "return_from", return_from, eff(1, 0));
+    // F111: opaque; given the current stack's name it moves a value from it
+    // to the workbench.
+    w(r, "return_from", return_from, StackEffect::opaque(1));
     w(r, "rotate_current_left", rotate_current_left, eff(0, 0));
     w(r, "rotate_current_right", rotate_current_right, eff(0, 0));
     w(r, "rotate_stack_left", rotate_stack_left, eff(1, 0));
@@ -614,7 +622,9 @@ pub fn register(r: &mut Registry) {
     // `1 -> 0` on the current stack: the name comes off it and the LIST goes
     // to the *named* stack. It declared `1 -> 1` (F92). Folding the current
     // stack by name is Q34's case, as for `swap_in`.
-    w(r, "fold_stack", fold_stack, eff(1, 0));
+    // F111: opaque; given the current stack's name it folds that stack into
+    // a list and leaves it there. F92 set `1 -> 0` for the other case.
+    w(r, "fold_stack", fold_stack, StackEffect::opaque(1));
 
     // D29: `<-` and `←` are registered aliases whose target was unreachable.
     // Reviving `stacks_left` is what makes them resolve for the first time.

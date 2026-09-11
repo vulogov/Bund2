@@ -127,7 +127,9 @@
   the natives `bund2-stdlib` registered), **D48** (and only those a palette
   audit has brought to `Ok`), **D52** (`bund.exit` is a request the
   embedder honours; compiled code must see it at the call that made it — §S5,
-  *A call may end the program*), **D49** (a panic in a native is caught where the
+  *A call may end the program*), **D55** (the words that read beyond their
+  arity are found by audit and kept off `PROMOTABLE.txt`, so they are
+  barriers — Q34's answer; criterion 14), **D49** (a panic in a native is caught where the
   native is called, in both tiers), **D37** (no panic), **D39** (an
   internal loop must be bounded)
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
@@ -725,7 +727,8 @@ Three rules follow:
   `rotate_stack_right` — do not switch the current stack, so the epoch does
   not move. When the name *is* the current stack's, they read or reorder values
   promotion may be holding. That is Q34's shape, a word observing beyond its
-  arity, and Q34 now lists them.
+  arity. D55's audit keeps such words off `PROMOTABLE.txt`, so compiled code
+  syncs before them.
 
 The cost is one load and compare per cell. After every call three cells are
 read: the epoch, `autoadd` and the request cell (*A call may leave a body to
@@ -2059,6 +2062,11 @@ with the place that enforces or decides it.
     dated notes). An unrun native is not listed and so not crossed, which is
     the safe side; a new host-acting native runs for real under `cargo test`
     until it is added (criterion 28).
+22. **A native that reads beyond its operands shows it to D55's audit**,
+    either by returning something different when the values beneath it
+    change, or by reading the whole stack or workbench, or a stack's depth by
+    name. A native that reads `depth()` and only prints it does neither, and
+    is not caught; none is known (criterion 14).
 
 # S9. Tier pinning
 
@@ -2158,11 +2166,11 @@ disagrees with interpreted code", and each has a named guard:
 | unbounded code memory | caps and permanent demotion (§S7) |
 | a fragment disagreeing with its word | differential test per fragment over the arm's boundaries, identity included (§S6); criterion 16 |
 | an op failing after its guard admitted, with operands already pulled | `Fragment::new`, the only constructor, refuses such a fragment; anything that escapes is `Error::internal`, never a fall-through and never silent success (§S6); criterion 19 |
-| a word reading beyond its declared arity while values are promoted | a promotion barrier (Q34); criterion 14 |
+| a word reading beyond its declared arity while values are promoted | a promotion barrier. D55's audit, a four-run differential and an observation audit inside criterion 28's palette, keeps every such native off `PROMOTABLE.txt`, and promotion syncs before any native not listed; criterion 14 |
 | the lowering and `frag::run` disagreeing about what a fragment means | criterion 16's third leg, required before a lowering ships |
 | a body entered through a loop word, conditional or method path never reaching the tier, because no `Rc` survived to the entry | D42: `Vm::eval_lambda` and `Vm::tail_lambda` take the value, and the frame holds it; criterion 20. `Vm::scoped_call` is the exception: its body is a LIST built per call, so a `context` body has no key and stays at Tier 0 (§S3) |
 | a **current-stack switch** mid-body — `to_stack`, `to_current`, `stacks_left`, `stacks_right`, `endcontext`, a scoped conditional, a CONTEXT literal — while values are promoted | the current-stack epoch, re-read after every call, and a static barrier at a CONTEXT literal; the residual path syncs each value to the stack it came from (§S5); criterion 21 |
-| a named-stack word — `swap_in`, `rotate_stack_*` — reaching the current stack by name while promotion holds its values | a promotion barrier (Q34); criterion 14 |
+| a named-stack word — `swap_in`, `rotate_stack_*` — reaching the current stack by name while promotion holds its values | a promotion barrier. The palette includes the current stack's name, so D55's differential sees such a word change what it leaves when the values beneath change, and the observation audit records `depth_of`; D55 keeps these natives off `PROMOTABLE.txt` (its first run found `rotate_stack_left` and `rotate_stack_right`, and F111's six miscounted pairs); criterion 14 |
 | `autoadd` turned on mid-body, when the reference collects literals as well as calls, and pushes a CONTEXT value rather than switching to it | re-read after every call; the residual path applies the rest through `apply` (§S5); criterion 18, against a reference-captured probe |
 | unregistering a lambda that shadowed a native | the call slot is rewritten to the revealed native, not stubbed (§S4) |
 | a compiled body substituted at `eval_lambda`, whose errors Tier 0 wraps as `Lambda content evaluation returned error: …` and `times` wraps again as `TIMES: lambda execution returns error: …` | the compiled body returns its error unwrapped and the entry wraps it, so both prefixes come from the same code whichever tier ran (`Vm::eval_lambda`; `times_base` in `crates/bund2-stdlib/src/seq.rs`) |
@@ -2602,9 +2610,22 @@ evidence, and this one is listed as runnable rather than as met.
 
     The check: compile a body that promotes, then calls a word which inspects
     the stack beyond its declared arity, and assert the observed depth and
-    contents match Tier 0's. **It fails today by construction**, because
-    nothing identifies that set of words — which is Q34, and why this criterion
-    is written before the mechanism that would satisfy it.
+    contents match Tier 0's. **D55 identifies the set.** Criterion 28's
+    palette runs each fixed-effect native four ways: padded twice, with
+    nothing beneath its operands, and with different values beneath. It also
+    records any native that reads the whole stack or workbench, or a stack's
+    depth by name, while audited. A native either check flags is left
+    off `PROMOTABLE.txt`, so compiled code syncs before it. The Tier 0 half
+    runs today, inside
+    `every_fixed_effect_native_keeps_its_pair_over_the_promotable_palette`
+    (`crates/bund2-stdlib/src/lib.rs`), and the flagged natives are listed in
+    `PROMOTABLE.txt` as comments. Its first stable run, on 2026-09-11, flags
+    seven. `debug.display_stack` and `debug.display_workbench` read the whole
+    stack or workbench. `move_from`, `rotate_current_left`,
+    `rotate_current_right`, `rotate_stack_left` and `rotate_stack_right`
+    change the values beneath their operands. The same run found six
+    named-stack words whose declared pair was wrong on the current stack
+    (F111, now opaque). The compiled half needs a tier.
 
 15. **The dependency direction is not inverted.** §S6's mechanism rests on
     `bund2-jit → bund2-stdlib` being permitted while the reverse is not.
@@ -2932,8 +2953,9 @@ evidence, and this one is listed as runnable rather than as met.
   open question 7 and it is still unanswered.
 - **Q28 — does `s390x` matter?** §S8 degrades tail calls there. If s390x is
   not a target, the degradation path is dead code that will not be tested.
-- **Q34 — which words read beyond their declared arity?** Criterion 14's
-  barrier needs the set, and nothing identifies it yet.
+- **Q34 — answered 2026-09-11 by the owner: D55.** The set is derived by
+  criterion 28's palette, through a four-run differential and an observation
+  audit, and kept off `PROMOTABLE.txt`. Criterion 14 is satisfiable.
 - **Q35 — answered 2026-09-10 by the owner: `q` is kept but not averaged.**
   D32 is amended to match, and §S6's constraint 2 now rests on it.
 - **Q36 — answered 2026-09-10: D42.** The value reaches every entry point;

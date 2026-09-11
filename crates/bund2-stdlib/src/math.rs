@@ -193,7 +193,10 @@ fn run(op: Op, vm: &mut dyn Vm) -> Result<(), Error> {
 /// about the workbench.
 fn run_workbench(op: Op, vm: &mut dyn Vm) -> Result<(), Error> {
     let prefix = format!("{}.", op.prefix());
-    if vm.depth() < 1 || vm.snapshot_workbench().is_empty() {
+    // The depth, not a snapshot: a snapshot reads the whole workbench to
+    // answer a question about its length, and D55's audit counts that as
+    // reading beyond the operands.
+    if vm.depth() < 1 || vm.workbench_depth() < 1 {
         return Err(Error(format!("Stack is too shallow for inline {prefix}()")));
     }
     let x = vm
