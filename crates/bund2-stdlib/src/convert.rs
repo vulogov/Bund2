@@ -128,6 +128,33 @@ pub(crate) fn conv_value(v: &BundValue, target: u16) -> Result<BundValue, Error>
                 _ => Err(Error(format!("Can not convert string to {target}"))),
             }
         }
+        // **A LIST converts to itself, to its length, and to a truth value**
+        // (`value_list_conversion`, `conv.rs:293-341`, reached from `conv`'s
+        // container arm at `:707-708`). There was no arm here at all, so every
+        // conversion *from* a list fell through to the final refusal. `push`
+        // converts both operands with `conv(LIST)`, and `[ 1 2 ] 3 push`
+        // failed where the oracle answers `[3, [1, 2]]`. STRING and TEXTBUFFER
+        // never reach this arm: they short-circuit through `display` above.
+        _ if dt == LIST => {
+            let items = v
+                .as_list()
+                .ok_or_else(|| Error::internal("a LIST value carried no items"))?;
+            match target {
+                LIST => Ok(BundValue::list(items.to_vec())),
+                INTEGER => Ok(BundValue::int(items.len() as i64)),
+                FLOAT => Ok(BundValue::float(items.len() as f64)),
+                BOOL => Ok(BundValue::boolean(!items.is_empty())),
+                // Keyed by position as a string, `"0"`, `"1"`, … (`:334-342`).
+                MAP => Ok(BundValue::map(
+                    items
+                        .iter()
+                        .enumerate()
+                        .map(|(i, x)| (i.to_string(), x.clone()))
+                        .collect::<std::collections::BTreeMap<_, _>>(),
+                )),
+                _ => Err(Error(format!("Can not convert Value from {dt}"))),
+            }
+        }
         // NODATA and NONE convert to their own names and to a one-element list,
         // and to nothing else (`conv.rs:36-72`).
         _ if dt == NODATA => match target {

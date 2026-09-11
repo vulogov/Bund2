@@ -1,0 +1,24 @@
+//
+// PROBE: `push` and `+++`, their `.` forms, and `unfold` and `unfold.`.
+//
+// `push` converts both operands to LISTs and appends the second, whole, as
+// one element of the first
+// (reference/Bund/src/stdlib/functions/values/push.rs:10-53), so
+// `[ 1 2 ] 3 push` is `[3, [1, 2]]`. `+++` and `+++.` alias the two forms
+// (reference/Bund/src/stdlib/functions/create_aliases.rs:34-35). The `.` form
+// takes its receiver from the workbench and answers there.
+//
+// `unfold` spreads a LIST onto the stack, and `unfold.` onto the workbench
+// (reference/Bund/src/stdlib/functions/values/unfold.rs:8-47).
+//
+"probe: push appends its second operand, as one element, to its first" println
+[ 1 2 ] 3 push println
+[ 1 2 ] [ 3 4 ] push println
+[ 1 2 ] 3 +++ println
+"probe: push. takes the receiver from the workbench and answers there" println
+[ 1 2 ] 3 . push. debug.display_workbench
+[ 5 ] 6 . +++. debug.display_workbench
+"probe: unfold spreads a list onto the stack, unfold. onto the workbench" println
+[ 7 8 9 ] unfold debug.display_stack
+clear
+[ 10 11 ] . unfold. debug.display_workbench

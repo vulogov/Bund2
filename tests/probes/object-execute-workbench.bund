@@ -1,0 +1,14 @@
+//
+// PROBE: `#.`, which runs a lambda over the value an object wraps, taking the
+// object from the workbench.
+//
+// `#` pulls the lambda, then the object, unwraps the object and runs the
+// lambda with `!` (reference/Bund/src/stdlib/functions/oop/object_execute.rs:10-45).
+// `#.` takes the object from the workbench instead, and guards a stack depth
+// of one rather than two (:43-45). The object is built as the corpus's own
+// `object_execute.bund` builds it.
+//
+"probe: #. takes the object from the workbench" println
+41 :Integer object .
+{ 1 + } #.
+"Answer is {A}" format println

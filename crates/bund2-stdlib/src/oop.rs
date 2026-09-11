@@ -657,20 +657,35 @@ fn wrap_word(vm: &mut dyn Vm) -> Result<(), Error> {
 /// would change what a program sees. The guard above rejects the non-OBJECT
 /// case, which is the one that actually occurs.
 fn object_execute(vm: &mut dyn Vm) -> Result<(), Error> {
-    if vm.depth() < 2 {
-        return Err(Error("Stack is too shallow for inline #".into()));
+    object_execute_base(vm, crate::wb::Side::Stack)
+}
+
+/// `#.` — `#` with the object taken off the workbench; the lambda still comes
+/// off the stack (`reference/Bund/src/stdlib/functions/oop/object_execute.rs:43-45`,
+/// which guards a stack depth of one, not two).
+fn object_execute_wb(vm: &mut dyn Vm) -> Result<(), Error> {
+    object_execute_base(vm, crate::wb::Side::Bench)
+}
+
+fn object_execute_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
+    let (depth, prefix) = match side {
+        crate::wb::Side::Stack => (2, "#"),
+        crate::wb::Side::Bench => (1, "#."),
+    };
+    if vm.depth() < depth {
+        return Err(Error(format!("Stack is too shallow for inline {prefix}")));
     }
     let Some(body) = vm.pull() else {
-        return Err(Error("# NO DATA IN #1".into()));
+        return Err(Error(format!("{prefix} NO DATA IN #1")));
     };
     if !matches!(body.dt(), LAMBDA | PTR) {
-        return Err(Error("# NO LAMBDA or PTR IN #1".into()));
+        return Err(Error(format!("{prefix} NO LAMBDA or PTR IN #1")));
     }
-    let Some(obj) = vm.pull() else {
-        return Err(Error("# NO DATA IN #2".into()));
+    let Some(obj) = side.pull(vm) else {
+        return Err(Error(format!("{prefix} NO DATA IN #2")));
     };
     if obj.dt() != OBJECT {
-        return Err(Error("# NO OBJECT IN #2".into()));
+        return Err(Error(format!("{prefix} NO OBJECT IN #2")));
     }
     vm.push(obj);
     let _ = unwrap_word(vm);
@@ -721,6 +736,7 @@ fn register_wrapped(r: &mut Registry) {
     // **Opaque.** `#` ends by executing a lambda whose own effect is unknown,
     // so its consumption is not a constant (RFC-0004 §S6).
     r.register_native("#", object_execute, StackEffect::opaque(2), WordKind::Sync);
+    r.register_native("#.", object_execute_wb, StackEffect::opaque(1), WordKind::Sync);
 }
 
 pub fn register(r: &mut Registry) {

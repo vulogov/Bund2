@@ -3117,3 +3117,22 @@ behaved as its name says would fail them. Bund2's `notifthenelse` and
 `notifthenelse.` go through `ifthenelse_base` with their own prefixes
 (`crates/bund2-stdlib/src/control.rs`, `notifthenelse`), and the probe
 `tests/probes/negated-conditionals.bund` records the behaviour.
+
+## F98 — Bund2's `conv` had no arm for a LIST source
+
+**A Bund2 defect**, found by the probe `tests/probes/list-push-and-unfold.bund`.
+
+The reference's `conv` sends a LIST to `value_list_conversion`
+(`reference/rust_dynamic/src/conv.rs:707-708`). That converts it to itself for
+LIST, to its length for INTEGER and FLOAT, to whether it is empty for BOOL, and
+to a MAP keyed by position for MAP (`:293-341`). Bund2's `conv_value`
+(`crates/bund2-stdlib/src/convert.rs`) had no LIST arm, so every conversion from
+a list fell through to `Can not convert Value from 9`. `push` converts both of
+its operands with `conv(LIST)`, and `[ 1 2 ] 3 push` failed where the oracle
+answers `[3, [1, 2]]`.
+
+**Status:** FIXED 2026-09-11. `conv_value` has a LIST arm for LIST, INTEGER,
+FLOAT, BOOL and MAP. STRING and TEXTBUFFER were already answered through
+`display`. The reference's RESULT, QUEUE, FIFO and MATRIX targets are not
+built, because Bund2 constructs none of those kinds. Conformance 85/93,
+ceiling 85/93, before and after.

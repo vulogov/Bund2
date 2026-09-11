@@ -482,6 +482,16 @@ pub fn register_words(r: &mut Registry) {
     r.register_native("type.of", value_type_of, eff(1, 2), WordKind::Sync);
     r.register_native("?type", value_if_type, eff(2, 2), WordKind::Sync);
     r.register_native("valuemap", valuemap, eff(0, 1), WordKind::Sync);
+    // `text` — apply an empty TEXTBUFFER
+    // (`reference/rust_multistackvm/src/stdlib/artefacts.rs:117-119`, registered
+    // at `:142`). Applied, not pushed, as the reference does; for a value that
+    // is not a CALL the two are the same outside `autoadd`.
+    r.register_native(
+        "text",
+        |vm| vm.apply(BundValue::textbuffer("")),
+        eff(0, 1),
+        WordKind::Sync,
+    );
     r.register_native("?alias", is_alias, eff(1, 1), WordKind::Sync);
     r.register_native("?lambda", is_lambda, eff(1, 1), WordKind::Sync);
     r.register_native("?stdlib", is_stdlib, eff(1, 1), WordKind::Sync);

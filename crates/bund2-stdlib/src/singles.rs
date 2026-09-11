@@ -11,6 +11,114 @@
 use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
 use bund2_value::{BundValue, CONDITIONAL, EXIT, LAMBDA, LIST, MAP, OBJECT, PAIR};
 
+/// `push`, spelled `+++`, and `push.` — **append the second operand, as one
+/// element, to the first** (`reference/Bund/src/stdlib/functions/values/push.rs:10-53`).
+///
+/// Both operands go through `conv(LIST)` first (`:32,39`), so a scalar becomes
+/// a one-item LIST, and the second LIST is appended whole: `[ 1 2 ] 3 push` is
+/// `[3, [1, 2]]`, not `[1, 2, 3]`. Confirmed against the oracle. The `.` form
+/// takes the receiver from the workbench and answers there; its guard says
+/// "Workbench" for both of its checks (`:17-24`).
+fn push_list(vm: &mut dyn Vm) -> Result<(), Error> {
+    push_base(vm, crate::wb::Side::Stack, "PUSH")
+}
+
+fn push_list_wb(vm: &mut dyn Vm) -> Result<(), Error> {
+    push_base(vm, crate::wb::Side::Bench, "PUSH.")
+}
+
+fn push_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Result<(), Error> {
+    match side {
+        crate::wb::Side::Stack if vm.depth() < 2 => {
+            return Err(Error(format!("Stack is too shallow for inline {prefix}")));
+        }
+        crate::wb::Side::Bench if vm.workbench_depth() < 1 || vm.depth() < 1 => {
+            return Err(Error(format!("Workbench is too shallow for inline {prefix}")));
+        }
+        _ => {}
+    }
+    let as_list = |v: &BundValue| {
+        crate::convert::conv_value(v, LIST)
+            .map_err(|e| Error(format!("{prefix} casting of list returned: {}", e.0)))
+    };
+    let first = side
+        .pull(vm)
+        .ok_or_else(|| Error(format!("{prefix} returns NO DATA #1")))?;
+    let first = as_list(&first)?;
+    let second = vm
+        .pull()
+        .ok_or_else(|| Error(format!("{prefix} returns NO DATA #2")))?;
+    let second = as_list(&second)?;
+    let mut items = first
+        .as_list()
+        .ok_or_else(|| Error::internal("conv(LIST) answered with something that is not a LIST"))?
+        .to_vec();
+    items.push(second);
+    side.push(vm, BundValue::list(items));
+    Ok(())
+}
+
+/// `unfold` and `unfold.` — spread a LIST's items onto the side it came from
+/// (`reference/Bund/src/stdlib/functions/values/unfold.rs:8-47`). It *casts*
+/// rather than converts (`:29-32`), so anything but a LIST is an error.
+fn unfold(vm: &mut dyn Vm) -> Result<(), Error> {
+    unfold_base(vm, crate::wb::Side::Stack, "UNFOLD")
+}
+
+fn unfold_wb(vm: &mut dyn Vm) -> Result<(), Error> {
+    unfold_base(vm, crate::wb::Side::Bench, "UNFOLD.")
+}
+
+fn unfold_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Result<(), Error> {
+    match side {
+        crate::wb::Side::Stack if vm.depth() < 1 => {
+            return Err(Error(format!("Stack is too shallow for inline {prefix}")));
+        }
+        crate::wb::Side::Bench if vm.workbench_depth() < 1 => {
+            return Err(Error(format!("Workbench is too shallow for inline {prefix}")));
+        }
+        _ => {}
+    }
+    let v = side
+        .pull(vm)
+        .ok_or_else(|| Error(format!("{prefix} returns NO DATA #1")))?;
+    let Some(items) = v.as_list().map(<[BundValue]>::to_vec) else {
+        return Err(Error(format!(
+            "{prefix} casting of list returned: This Dynamic type is not list"
+        )));
+    };
+    for item in items {
+        side.push(vm, item);
+    }
+    Ok(())
+}
+
+/// `tag` — `<value> <key> <text> tag` sets one tag on the value
+/// (`reference/rust_multistackvm/src/stdlib/values/value_tag.rs:24-63`).
+///
+/// The text is pulled and checked first, then the key, then the value, so a
+/// failed check leaves what is beneath it on the stack.
+fn tag_word(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 3 {
+        return Err(Error("Stack is too shallow for inline tag".into()));
+    }
+    let text = crate::pull::operand(vm, "TAG", 1)?;
+    let Some(text) = text.as_str() else {
+        return Err(Error(
+            "TAG value expected to be string: This Dynamic type is not string".into(),
+        ));
+    };
+    let key = crate::pull::operand(vm, "TAG", 2)?;
+    let Some(key) = key.as_str() else {
+        return Err(Error(
+            "TAG key expected to be string: This Dynamic type is not string".into(),
+        ));
+    };
+    let value = crate::pull::operand(vm, "TAG", 3)?;
+    vm.push(value.with_tag(std::rc::Rc::from(key), std::rc::Rc::from(text)));
+    Ok(())
+}
+
 fn eff(consumes: u8, produces: u8) -> StackEffect {
     StackEffect::fixed(consumes, produces)
 }
@@ -970,6 +1078,21 @@ pub fn register(r: &mut Registry) {
     // answer back to the workbench.
     r.register_native("merge.", merge_wb, eff(1, 0), WordKind::Sync);
     r.register_alias("++.", "merge.");
+    // `reference/Bund/src/stdlib/functions/values/push.rs:74-75` and the
+    // aliases at `reference/Bund/src/stdlib/functions/create_aliases.rs:34-35`.
+    // The `.` form takes its receiver off the workbench and answers there, so
+    // it takes one value from the stack and leaves none.
+    r.register_native("push", push_list, eff(2, 1), WordKind::Sync);
+    r.register_native("push.", push_list_wb, eff(1, 0), WordKind::Sync);
+    r.register_alias("+++", "push");
+    r.register_alias("+++.", "push.");
+    // `reference/Bund/src/stdlib/functions/values/unfold.rs:61-62`. Opaque:
+    // it leaves as many values as the list holds. The `.` form spreads onto
+    // the workbench and touches the stack not at all.
+    r.register_native("unfold", unfold, StackEffect::opaque(1), WordKind::Sync);
+    r.register_native("unfold.", unfold_wb, eff(0, 0), WordKind::Sync);
+    // `reference/rust_multistackvm/src/stdlib/values/value_tag.rs:72`.
+    r.register_native("tag", tag_word, eff(3, 1), WordKind::Sync);
     r.register_native(
         "string.distance.levenshtein",
         |vm| distance_word(vm, distance::levenshtein, "STRING.DISTANCE.LEVENSHTEIN"),

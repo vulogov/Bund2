@@ -1,0 +1,16 @@
+//
+// PROBE: `tag`, which sets one tag on a value, and `text`, which pushes an
+// empty TextBuffer.
+//
+// `tag` pulls the tag's text, then its key, then the value it tags
+// (reference/rust_multistackvm/src/stdlib/values/value_tag.rs:24-63). `text`
+// applies an empty TEXTBUFFER
+// (reference/rust_multistackvm/src/stdlib/artefacts.rs:117-119).
+//
+"probe: tag sets one tag on a value" println
+42 "k" "v" tag debug.display_stack
+clear
+"probe: text pushes an empty TextBuffer" println
+text type println
+debug.display_stack
+clear
