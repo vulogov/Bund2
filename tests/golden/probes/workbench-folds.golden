@@ -1,0 +1,22 @@
+# golden for tests/probes/workbench-folds.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: **. multiplies into the workbench accumulator
+24
+probe: *-. subtracts, operands in the order - takes them
+-12
+probe: */. divides
+0.025
+probe: Σ. is *+.
+6
+probe: ?false*. takes its condition from the workbench and does not negate
+B
+A
+╭╮
+╰╯
+╭╮
+╰╯

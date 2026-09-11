@@ -1,0 +1,29 @@
+# golden for tests/probes/host-words.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: io.graph plots a list of floats as text
+ 3.00 ┤ ╭╮  
+ 2.00 ┤╭╯╰╮ 
+ 1.00 ┼╯  ╰
+probe: io.graph. takes the list from the workbench and answers on the stack
+ 3.00 ┼╮  
+ 2.00 ┤│╭ 
+ 1.00 ┤╰╯
+probe: args with no script arguments is an empty list
+[]
+probe: args.parse with no script arguments
+{ args=[] }
+probe: sleep of zero seconds pushes nothing
+probe: file on /dev/null is an empty string
+
+probe: fs.rm of a path that is not there answers true
+true
+probe: system.setproctitle pushes nothing
+╭╮
+╰╯
+╭╮
+╰╯

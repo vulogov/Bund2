@@ -3,7 +3,7 @@
 # declared effect. Anything absent is synced before, as an embedder's
 # native is. Written by BUND2_UPDATE_PROMOTABLE=1 cargo test -p
 # bund2-stdlib promotable; never edited by hand.
-# 192 of 223 fixed-effect natives reached.
+# 201 of 236 fixed-effect natives reached.
 !=
 *
 *.
@@ -33,6 +33,8 @@
 ?word
 alias
 and
+args
+args.parse
 at
 attribute
 car
@@ -75,6 +77,13 @@ float.NaN
 float.Pi
 fmt
 fold_stack
+fs.cwd
+fs.ls
+fs.ls.
+fs.ls.dir
+fs.ls.dir.
+fs.ls.files
+fs.ls.files.
 graph
 graph.
 head
@@ -202,6 +211,8 @@ var-
 # not reached: dup_many_in
 # not reached: dup_one_in
 # not reached: endcontext
+# not reached: file
+# not reached: file.
 # not reached: get
 # not reached: get,
 # not reached: get.,
@@ -210,6 +221,8 @@ var-
 # not reached: graph.paths
 # not reached: graph.transitiveclosure
 # not reached: head.
+# not reached: io.graph
+# not reached: io.graph.
 # not reached: is
 # not reached: json
 # not reached: json.path
