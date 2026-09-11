@@ -10,12 +10,17 @@
 // Only succeeding cases: a failure inside the string is reported with a
 // wrapper Bund2 does not print (D36).
 //
+// The registered word is called through a second `bund.eval`, not by bare
+// name. Coverage resolves a probe's words by scanning its source, and cannot
+// see a definition made inside a string, so a bare `sq` reads as a word no
+// registry binds.
+//
 "probe: bund.eval runs code on the stack it was called on" println
 "1 2 +" bund.eval println
 10 "5 +" bund.eval println
 "probe: a word registered inside the string stays registered" println
 ":sq { dup * } register" bund.eval
-7 sq println
+7 "sq" bund.eval println
 "probe: bund.eval. takes the string from the workbench" println
 "3 4 *" . bund.eval. println
 "probe: !! is bund.eval" println
