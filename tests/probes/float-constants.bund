@@ -1,0 +1,21 @@
+//
+// PROBE: the five `float.*` constants, and `π` and `Pi` for `float.Pi`.
+//
+// Each pushes a FLOAT (reference/rust_multistackvm/src/stdlib/math/float.rs:31-35),
+// and `π` and `Pi` alias `float.Pi`
+// (reference/rust_multistackvm/src/stdlib/create_aliases.rs:30-31). They
+// print as Rust's `f64` does, so the non-finite ones read `NaN`, `inf` and
+// `-inf`, and the stack dump shows `F64(NaN)` and its kin.
+//
+"probe: the constants print as f64 does" println
+float.NaN println
+float.+Inf println
+float.-Inf println
+float.E println
+float.Pi println
+"probe: pi by its other names" println
+π println
+Pi println
+"probe: the non-finite ones on the stack" println
+float.NaN float.+Inf float.-Inf debug.display_stack
+clear

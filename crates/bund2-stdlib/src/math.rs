@@ -295,6 +295,30 @@ pub fn register(r: &mut Registry) {
     float_word!("math.sinh", sinh);
     float_word!("math.cosh", cosh);
     float_word!("math.tanh", tanh);
+    // The five `float.*` constants
+    // (`reference/rust_multistackvm/src/stdlib/math/float.rs:31-35`). Each
+    // pushes a FLOAT, and prints as Rust's `f64` does: `NaN`, `inf`, `-inf`.
+    macro_rules! float_const {
+        ($name:literal, $v:expr) => {
+            r.register_native(
+                $name,
+                |vm| {
+                    vm.push(BundValue::float($v));
+                    Ok(())
+                },
+                eff(0, 1),
+                WordKind::Sync,
+            );
+        };
+    }
+    float_const!("float.NaN", f64::NAN);
+    float_const!("float.+Inf", f64::INFINITY);
+    float_const!("float.-Inf", f64::NEG_INFINITY);
+    float_const!("float.Pi", std::f64::consts::PI);
+    float_const!("float.E", std::f64::consts::E);
+    // `reference/rust_multistackvm/src/stdlib/create_aliases.rs:30-31`.
+    r.register_alias("π", "float.Pi");
+    r.register_alias("Pi", "float.Pi");
     r.register_native("+", add, eff(2, 1), WordKind::Sync);
     r.register_native("-", sub, eff(2, 1), WordKind::Sync);
     r.register_native("*", mul, eff(2, 1), WordKind::Sync);

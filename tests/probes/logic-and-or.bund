@@ -1,0 +1,27 @@
+//
+// PROBE: `and` and `or`, and the mathematical comparison spellings.
+//
+// `and` and `or` pull two values and convert each with `conv(BOOL)`, as `not`
+// does, so an integer is false at zero
+// (reference/rust_multistackvm/src/stdlib/logic/logic_ops_fun.rs:39-130). A
+// string that is no boolean spelling panics the reference (F68), so this
+// probe hands them none.
+//
+// `≠`, `⩾` and `⩽` alias `!=`, `>=` and `<=`
+// (reference/rust_multistackvm/src/stdlib/create_aliases.rs:32-34), and
+// reverse their operands as those do: `1 2 ⩽` asks whether 2 is at most 1.
+//
+"probe: and" println
+true false and println
+true true and println
+1 0 and println
+1 1 and println
+"probe: or" println
+true false or println
+false false or println
+0 0 or println
+"probe: the mathematical spellings" println
+1 2 ≠ println
+1 1 ≠ println
+1 2 ⩽ println
+1 2 ⩾ println

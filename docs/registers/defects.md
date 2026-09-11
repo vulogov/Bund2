@@ -3096,3 +3096,24 @@ request sites return `Ok` straight after filing. An embedder's native can.
 **Status:** FIXED 2026-09-10. `Interp::invoke`, the one place Tier 0 calls a
 native, clears `pending_tail` when the native fails.
 `a_failed_native_leaves_no_tail_request` shows the stale body not running.
+
+## F97 — `notifthenelse` does not negate
+
+**An original-implementation defect, reproduced**, found while implementing the
+uncovered core words.
+
+`notifthenelse` runs through the same base as `ifthenelse`, with
+`TypeCond::IfFalse` in place of `TypeCond::IfTrue`
+(`reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:92-98`). That
+arm reads `if ! cond_bool { else } else { then }` (`:64-70`), which is the
+`IfTrue` arm's choice written the other way round. So both words take the
+`then` lambda when the condition is true, and differ only in their error
+prefix. Confirmed against the oracle on 2026-09-11:
+`true { "A" } { "B" } notifthenelse` leaves `"B"`, the lambda on top, as
+`ifthenelse` does, and `?false*` does the same.
+
+**Disposition: reproduce.** The goldens capture the oracle, and a word that
+behaved as its name says would fail them. Bund2's `notifthenelse` and
+`notifthenelse.` go through `ifthenelse_base` with their own prefixes
+(`crates/bund2-stdlib/src/control.rs`, `notifthenelse`), and the probe
+`tests/probes/negated-conditionals.bund` records the behaviour.

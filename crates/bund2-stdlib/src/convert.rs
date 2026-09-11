@@ -269,6 +269,43 @@ fn not(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// `and` and `or` — pull two, `conv(BOOL)` each, and combine
+/// (`reference/rust_multistackvm/src/stdlib/logic/logic_ops_fun.rs:39-130`).
+///
+/// They convert as `not` does, so `1 0 and` is `false`. **`or` speaks `and`'s
+/// words**: its guard and every error name `and` or `AND` (`:85-130`), a copy
+/// of `and` with only the operator changed. The text is kept, since a golden
+/// would pin it.
+///
+/// A string that is no boolean spelling panics the reference inside
+/// `string_to_bool` (F68). Here the conversion returns an error instead (D37).
+fn and_word(vm: &mut dyn Vm) -> Result<(), Error> {
+    bool_pair(vm, |a, b| a & b)
+}
+
+fn or_word(vm: &mut dyn Vm) -> Result<(), Error> {
+    bool_pair(vm, |a, b| a | b)
+}
+
+fn bool_pair(vm: &mut dyn Vm, op: fn(bool, bool) -> bool) -> Result<(), Error> {
+    if vm.depth() < 2 {
+        return Err(Error("Stack is too shallow for inline and".into()));
+    }
+    let a = crate::pull::operand(vm, "AND", 1)?;
+    let b = crate::pull::operand(vm, "AND", 2)?;
+    let as_bool = |v: &BundValue| -> Result<bool, Error> {
+        let c = conv_value(v, BOOL)
+            .map_err(|e| Error(format!("AND returns error during boolean conversion: {}", e.0)))?;
+        match c.unboxed() {
+            BundValue::Bool(b, _) => Ok(*b),
+            _ => Err(Error("AND returns error: not a boolean".into())),
+        }
+    };
+    let (a, b) = (as_bool(&a)?, as_bool(&b)?);
+    vm.push(BundValue::boolean(op(a, b)));
+    Ok(())
+}
+
 pub fn register_words(r: &mut Registry) {
     // Each `convert.to_X` has a `.` sibling that takes its operand off the
     // workbench and leaves the answer there
@@ -297,6 +334,8 @@ pub fn register_words(r: &mut Registry) {
     conv_word!("convert.to_bool", BOOL, "CONVERT.TO_BOOL");
     conv_word!("convert.to_list", LIST, "CONVERT.TO_LIST");
     r.register_native("not", not, eff(1, 1), WordKind::Sync);
+    r.register_native("and", and_word, eff(2, 1), WordKind::Sync);
+    r.register_native("or", or_word, eff(2, 1), WordKind::Sync);
 }
 
 #[cfg(test)]

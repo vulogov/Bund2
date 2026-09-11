@@ -285,6 +285,14 @@ pub fn register(r: &mut Registry) {
     r.register_native("<", lt, eff(2, 1), WordKind::Sync);
     r.register_native(">=", ge, eff(2, 1), WordKind::Sync);
     r.register_native("<=", le, eff(2, 1), WordKind::Sync);
+    // The mathematical spellings
+    // (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:32-34`).
+    // The grammar admits any Unicode symbol in a name (`bund.pest:36`), so
+    // these parse as words. They reverse their operands as the ASCII forms do:
+    // `1 2 ⩽` asks whether 2 is at most 1.
+    r.register_alias("≠", "!=");
+    r.register_alias("⩾", ">=");
+    r.register_alias("⩽", "<=");
 }
 
 /// The six comparisons, in the order

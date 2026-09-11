@@ -104,36 +104,82 @@ fn if_false_wb(vm: &mut dyn Vm) -> Result<(), Error> {
 /// catch it because they were written from the same wrong reading; the golden
 /// did.
 fn ifthenelse(vm: &mut dyn Vm) -> Result<(), Error> {
-    ifthenelse_base(vm, crate::wb::Side::Stack)
+    ifthenelse_base(vm, crate::wb::Side::Stack, "IFTHENELSE")
 }
 
 /// `ifthenelse.` — **both lambdas still come off the stack**; only the
 /// condition is on the workbench
 /// (`reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:19-25,47-50`).
 fn ifthenelse_wb(vm: &mut dyn Vm) -> Result<(), Error> {
-    ifthenelse_base(vm, crate::wb::Side::Bench)
+    ifthenelse_base(vm, crate::wb::Side::Bench, "IFTHENELSE")
 }
 
-fn ifthenelse_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
+/// `notifthenelse`, spelled `?false*` — **and it does not negate. F97.**
+///
+/// The reference routes it through the same base as `ifthenelse` with
+/// `TypeCond::IfFalse` (`reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:92-94`),
+/// and that arm reads `if ! cond_bool { else } else { then }` (`:64-70`): the
+/// same choice as the `IfTrue` arm, written the other way round. So `true`
+/// runs the `then` lambda, exactly as `ifthenelse` does, and the word differs
+/// from it only in its error prefix. Confirmed against the oracle, and
+/// reproduced, because the goldens capture the oracle.
+fn notifthenelse(vm: &mut dyn Vm) -> Result<(), Error> {
+    ifthenelse_base(vm, crate::wb::Side::Stack, "NOTIFTHENELSE")
+}
+
+/// `notifthenelse.`, spelled `?false*.` — the condition off the workbench, and
+/// F97's non-negation with it (`ifthenelse_fun.rs:96-98`).
+fn notifthenelse_wb(vm: &mut dyn Vm) -> Result<(), Error> {
+    ifthenelse_base(vm, crate::wb::Side::Bench, "NOTIFTHENELSE.")
+}
+
+/// `if.stack`, spelled `?stack` — run the lambda when the named stack is the
+/// current one (`reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:107-139`).
+///
+/// The lambda is pulled and type-checked before the name is pulled, so a
+/// non-lambda leaves the name on the stack (`:111-131`). The name is compared
+/// with the current stack's; any other name runs nothing.
+fn if_stack(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 2 {
+        return Err(Error("Stack is too shallow for inline if.stack".into()));
+    }
+    let lambda_val = crate::pull::operand(vm, "IF.stack", 1)?;
+    if lambda_val.dt() != LAMBDA {
+        return Err(Error("IF.stack: #1 parameter must be lambda".into()));
+    }
+    let cond = crate::pull::operand(vm, "IF.stack", 2)?;
+    let Some(name) = cond.as_str() else {
+        return Err(Error(
+            "IF.stack returns error: This Dynamic type is not string".into(),
+        ));
+    };
+    if vm.current_name() == name {
+        // Tail position, as `if` is: the loop runs the body.
+        vm.tail_lambda(lambda_val);
+    }
+    Ok(())
+}
+
+fn ifthenelse_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Result<(), Error> {
     if vm.depth() < if side == crate::wb::Side::Stack { 3 } else { 2 } {
-        return Err(Error("Stack is too shallow for inline IFTHENELSE".into()));
+        return Err(Error(format!("Stack is too shallow for inline {prefix}")));
     }
     if side == crate::wb::Side::Bench && vm.workbench_depth() < 1 {
-        return Err(Error("Workbench is too shallow for inline IFTHENELSE".into()));
+        return Err(Error(format!("Workbench is too shallow for inline {prefix}")));
     }
-    let then_val = crate::pull::operand(vm, "IFTHENELSE", 1)?;
-    let else_val = crate::pull::operand(vm, "IFTHENELSE", 2)?;
+    let then_val = crate::pull::operand(vm, prefix, 1)?;
+    let else_val = crate::pull::operand(vm, prefix, 2)?;
     // Numbered from the top, as the reference numbers them (`:33`, `:41`).
     for (v, n) in [(&then_val, 1), (&else_val, 2)] {
         if v.dt() != LAMBDA {
-            return Err(Error(format!("IFTHENELSE: #{n} parameter must be lambda")));
+            return Err(Error(format!("{prefix}: #{n} parameter must be lambda")));
         }
     }
     let cond_val = side
         .pull(vm)
-        .ok_or_else(|| Error("IFTHENELSE returns: NO DATA #3".into()))?;
+        .ok_or_else(|| Error(format!("{prefix} returns: NO DATA #3")))?;
     let cond = cast_bool(&cond_val)
-        .ok_or_else(|| Error("IFTHENELSE returns error: can not cast to bool".into()))?;
+        .ok_or_else(|| Error(format!("{prefix} returns error: can not cast to bool")))?;
     let chosen = if cond { then_val } else { else_val };
     let body = chosen.clone();
     vm.tail_lambda(body);
@@ -312,6 +358,10 @@ pub fn register(r: &mut Registry) {
     r.register_native("if.false.in_workbench", if_false_wb, StackEffect::opaque(2), WordKind::Sync);
     r.register_native("ifthenelse.", ifthenelse_wb, StackEffect::opaque(2), WordKind::Sync);
     r.register_native("while.", while_wb, StackEffect::opaque(1), WordKind::Sync);
+    // Opaque, as `ifthenelse` and `if` are: what they leave is the branch's.
+    r.register_native("notifthenelse", notifthenelse, StackEffect::opaque(3), WordKind::Sync);
+    r.register_native("notifthenelse.", notifthenelse_wb, StackEffect::opaque(2), WordKind::Sync);
+    r.register_native("if.stack", if_stack, StackEffect::opaque(2), WordKind::Sync);
     // Opaque, both forms: each pulls one stack value per distinct placeholder
     // in the template, and the template is not known until run time. `format`
     // said `1 -> 1`, true only of a template with no placeholder (F92).
@@ -327,6 +377,10 @@ pub fn register(r: &mut Registry) {
     r.register_alias("?true.", "if.in_workbench");
     r.register_alias("?false.", "if.false.in_workbench");
     r.register_alias("?true*.", "ifthenelse.");
+    // `reference/rust_multistackvm/src/stdlib/create_aliases.rs:11,15,17`.
+    r.register_alias("?stack", "if.stack");
+    r.register_alias("?false*", "notifthenelse");
+    r.register_alias("?false*.", "notifthenelse.");
 }
 
 #[cfg(test)]

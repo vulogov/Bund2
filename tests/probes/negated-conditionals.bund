@@ -1,0 +1,29 @@
+//
+// PROBE: `notifthenelse` and `?false*`, which do not negate (F97), and
+// `if.stack` and `?stack`, which branch on the current stack's name.
+//
+// `notifthenelse` runs through `ifthenelse`'s base with `TypeCond::IfFalse`,
+// and that arm makes the same choice as `IfTrue`
+// (reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:64-70). So
+// `true` runs the lambda on top, as `ifthenelse` would. `?false*` and
+// `?false*.` alias the two forms
+// (reference/rust_multistackvm/src/stdlib/create_aliases.rs:15,17).
+//
+// `if.stack` runs its lambda only when the name beneath it is the current
+// stack's (reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:107-139);
+// `?stack` aliases it (create_aliases.rs:11).
+//
+"probe: notifthenelse picks as ifthenelse does" println
+true { "A" } { "B" } notifthenelse
+false { "A" } { "B" } notifthenelse
+true { "A" } { "B" } ?false*
+debug.display_stack
+clear
+"probe: the workbench form reads its condition from the workbench" println
+false . { "A" } { "B" } notifthenelse.
+debug.display_stack
+clear
+"probe: if.stack runs only on the named stack" println
+"main" { "on main" println } if.stack
+"other" { "never printed" println } if.stack
+"main" { "and by its alias" println } ?stack
