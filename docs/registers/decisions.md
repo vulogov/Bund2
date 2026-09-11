@@ -2803,11 +2803,12 @@ Decided by the repository owner, 2026-09-11: **Bund2 reports its own
 version**, and the difference is recorded. Reporting `0.22.0` would have Bund2
 claim to be a version of Bund it is not. The probe
 `tests/probes/sysinfo-version.bund` runs both spellings against the oracle.
-Its golden is to be captured with `cargo xtask golden`, and then listed in
+The owner captured its golden with `cargo xtask golden` and listed it in
 `tests/golden/DEVIATIONS.txt` under this decision with
 `cargo xtask conform --accept-deviation probes/sysinfo-version.golden --reason
-D50`, which records the hash of Bund2's expected output, so an unintended
-change still fails.
+D50`. The row records the hash of Bund2's expected output, so an unintended
+change still fails. Conformance is 82/90, ceiling 82/90, with eight approved
+deviations; coverage gained the word (265/497).
 
 ### Rejected
 
@@ -2819,6 +2820,5 @@ change still fails.
 - Decided by: repository owner, 2026-09-11
 - Blocks: nothing
 - Depends on: D21 (probes)
-- Status: **RESOLVED — decided, and the probe is written. Its golden and
-  deviation row wait for the owner, because `tests/golden/` is outside what
-  the session recording this may write.**
+- Status: **RESOLVED — the probe, its golden and its deviation row are
+  recorded (2026-09-11).**

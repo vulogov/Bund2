@@ -322,8 +322,9 @@ dispatch and in fact measured stdout at ~450 ns per word.
 Conformance did not move across D41 — 73/86, ceiling 79/86, before and after
 — and `BundValue` is still 16 bytes (a test in `crates/bund2-value/src/lib.rs`
 asserts `size_of::<BundValue>() == 16`). Conformance has since reached its ceiling,
-**82/89**, through Tier 0 work unrelated to this RFC (criterion 2). It read
-79/86 until three probes were added on 2026-09-10.
+**82/90**, through Tier 0 work unrelated to this RFC (criterion 2). It read
+79/86 until three probes were added on 2026-09-10, and 82/89 until a fourth,
+an approved deviation (D50), was added on 2026-09-11.
 
 So §S2–§S11 are worth designing. The Status line says what still stands
 between them and being built.
@@ -1330,7 +1331,7 @@ Re-derive with:
       ./target/debug/bund2 check --file "$PWD/$f" | grep -E '^ +[0-9]+ +`'
     done
 
-On 2026-09-10, after F91, F92 and three new probes, across 164 programs, it
+On 2026-09-11, after F91, F92 and four new probes, across 165 programs, it
 prints **124** sites:
 
 | why analysis stops | sites |
@@ -1347,7 +1348,7 @@ The 76, by word:
 
 The probes `if-workbench-variants` and `stack-words-by-name` added the first
 stops at `if.in_workbench` and `execute`. F94 added none, since no program
-calls `drop_stack`.
+calls `drop_stack`, and neither did the `sysinfo-version` probe.
 
 **Fifteen are ordinary control flow**: `times` 7, `if` 4 and `loop` 4. That is
 why whole-body exclusion, RFC-0004 §S1's original reading, would refuse nearly
@@ -1998,9 +1999,10 @@ three that keeps Tier 1 the same build as Tier 0 rather than a second one.
 `--features jit` and `--features aot` are declared in five crates —
 `bund2-jit`, `bund2-runtime`, the umbrella `bund2`, `bund2-cli` and
 `bund2-bench`. `conform --features jit` builds `bund2-cli` with the feature,
-and **criterion 2 has run**: 82/89 with the feature on and 82/89 with it off,
-ceiling 82/89 in both. It read 79/86 before three probes were added on
-2026-09-10.
+and **criterion 2 has run**: 82/90 with the feature on and 82/90 with it off,
+ceiling 82/90 in both. It read 79/86 before three probes were added on
+2026-09-10, and 82/89 before a fourth, an approved deviation (D50), on
+2026-09-11.
 
 **D9, as amended 2026-09-09, applies**: no Cranelift type may appear in
 `bund2-stdlib` or `bund2-api`, which is what §S6's fragments are shaped around.
@@ -2130,7 +2132,7 @@ and 2 gate the RFC's own premise**; the rest are for the implementation.
 toolchain pin was raised to 1.95.0 to match the pinned Cranelift (F80, Q31).
 Before that none of 2, 4, 5, 6, 7, 9, 10, 11 or 12 could be executed at all.
 
-Criterion 2 has since **run and passed** — 82/89 with the feature on and off, ceiling 82/89, on 2026-09-10 —
+Criterion 2 has since **run and passed** — 82/90 with the feature on and off, ceiling 82/90, on 2026-09-11 —
 and is **vacuous until a tier exists**, since the feature gates no code. That
 is worth stating rather than counting: a criterion that cannot fail yet is not
 evidence, and this one is listed as runnable rather than as met.
@@ -2156,8 +2158,9 @@ evidence, and this one is listed as runnable rather than as met.
    All three must read the same N/M **and the same CEILING**. Any movement is a bug,
    per CLAUDE.md — which also requires the ceiling beside the number, since an
    approved deviation can never enter the numerator and N/M alone overstates
-   the remaining work. Today: **82/89, ceiling 82/89**, both ways, measured
-   2026-09-10, after three probes were added. This criterion measures the **dev** profile and criterion 11
+   the remaining work. Today: **82/90, ceiling 82/90**, both ways, measured
+   2026-09-11, after four probes were added, one of them an approved
+   deviation (D50). This criterion measures the **dev** profile and criterion 11
    measures **release**; the split is deliberate, and stated in both places.
 
    **The two `jit` runs must compile something.** This is the ninth review's
@@ -2472,7 +2475,7 @@ evidence, and this one is listed as runnable rather than as met.
     and the value renders `tags: {}` where the oracle renders
     `tags: {"stack": "main"}`.
 
-    36 of 89 goldens carry exactly that text, and 40 carry some `"stack":`
+    37 of 90 goldens carry exactly that text, and 41 carry some `"stack":`
     tag, so the failure is loud — but only if a
     golden exercises a compiled body with an opaque site in it, which none does
     today. The criterion: a probe that pushes, promotes, syncs and dumps, with
