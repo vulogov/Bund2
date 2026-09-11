@@ -2636,3 +2636,11 @@ analysis never saw.
 - Depends on: D16 (the open world), RFC-0004 §S3 (effects are inferred by
   composition), D43 (the generation cells)
 - Status: **RESOLVED — decided; implemented with the tier.**
+
+**Note, 2026-09-10 (F93).** The premise's "`Registry::effect_of` returns `None`
+for one" was true only of a lambda with no native in the same slot. For a
+lambda that shadows a native, `effect_of` returned the native's effect until
+F93, found by RFC-0005's ninth review (S1). The decision is unaffected, since it
+is stated in terms of what a name *resolves* to. RFC-0005 §S5 classifies
+callees with `Registry::resolve`, and `effect_of` now follows the same order.
+

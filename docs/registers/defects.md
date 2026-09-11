@@ -3001,3 +3001,31 @@ hands one the current stack's name, so the audit cannot see them. Making them
 opaque would decide Q34's named-stack case, which is open. `fold_stack` and
 `swap_in` above are corrected for the other case only.
 
+## F93 — `effect_of` answers with a native's effect for a lambda that shadows it
+
+**A Bund2 defect**, found by RFC-0005's ninth review (S1).
+
+`Registry::effect_of` followed aliases, then returned
+`slot.native.or(slot.command)`. It never looked at the slot's `lambda`, and
+`register_lambda` leaves the native binding in place by design. Its doc comment
+said "`None` when the name resolves … to something with no declared effect — a
+lambda", which held only for a lambda with no native beside it. After
+`:drop { 1 } register`, `5 drop` left `5 1`, because the lambda ran, while
+`:drop ?effect` answered `consumes=1 produces=0`. `$drop` answered `None`,
+because the lookup did not strip the sigil.
+
+**Why it matters.** RFC-0005 §S5 and D46 named `effect_of` as what tells
+compiled code a callee is a native with an effect it may trust. An
+implementation that followed that citation would keep values in registers
+across a lambda shadowing a native, which is the case D46 forbids.
+
+**Status:** FIXED 2026-09-10. `effect_of` resolves the name exactly as
+`Registry::resolve` does, `$` included: `None` for anything that reaches a
+lambda, and the native's effect for `$name`
+(`effect_of_answers_for_what_dispatch_reaches`, `crates/bund2-api/src/lib.rs`).
+`?effect` on a shadowed name now pushes `nodata`, as it does for any lambda.
+`bund2 check` analyses a program against the registry before the program runs,
+so it still cannot see a `register` inside the program. That is RFC-0004's
+limitation, and this does not change it. RFC-0005 §S5 now classifies each
+callee with `resolve`, and criterion 22 has a shadowing case. Conformance
+82/89, ceiling 82/89, before and after.

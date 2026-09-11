@@ -655,18 +655,29 @@ impl Registry {
             .and_then(|v| v.as_lambda().map(<[BundValue]>::to_vec))
     }
 
-    /// The declared effect of one name, following aliases to a fixed point.
+    /// The declared effect of what a call to `name` reaches, in
+    /// [`Registry::resolve`]'s order: the command on the name's own slot, then
+    /// aliases to a fixed point, then the lambda unless the name carries `$`,
+    /// then the native.
     ///
-    /// `None` when the name resolves to nothing, or to something with no
-    /// declared effect — a lambda, a class, a method. `bund2 check` treats
-    /// that as "cannot tell" rather than "takes nothing", because D16 lets a
-    /// name be bound at run time.
+    /// `None` when that is nothing, or something with no declared effect — a
+    /// lambda, a class, a method. `bund2 check` treats that as "cannot tell"
+    /// rather than "takes nothing", because D16 lets a name be bound at run
+    /// time.
+    ///
+    /// **F93: a lambda that shadows a native answers `None`.** This used to
+    /// read the slot's native binding whatever else the slot held, so after
+    /// `:drop { 1 } register` it answered `drop`'s native effect while
+    /// dispatch ran the lambda. RFC-0005 §S5 decides what compiled code may
+    /// keep in registers across a call from this answer.
     pub fn effect_of(&self, name: &str) -> Option<StackEffect> {
-        let &s = self.interner.index.get(name)?;
-        let t = self.follow(s);
-        self.slots
-            .get(t.index())
-            .and_then(|slot| slot.native.or(slot.command).map(|n| n.effect))
+        let (s, sigil) = self.interner.lookup_call(name)?;
+        match self.resolve(s, sigil) {
+            Resolved::Command => self.slots.get(s.index()).and_then(|sl| sl.command),
+            Resolved::Native => self.slots.get(self.follow(s).index()).and_then(|sl| sl.native),
+            Resolved::Lambda | Resolved::Unbound => None,
+        }
+        .map(|n| n.effect)
     }
 
     /// Every native's declared effect, by name, sorted.
@@ -1257,5 +1268,25 @@ mod tests {
         let s = r.interner.intern("dup_one");
         assert_eq!(r.interner.name(s), "dup_one");
         assert_eq!(r.interner.intern("dup_one"), s, "interning is stable");
+    }
+
+    /// **F93.** `effect_of` answers for what dispatch reaches. A lambda that
+    /// shadows a native has no declared effect, so the answer is `None`, and
+    /// `$name`, which skips the lambda, still reaches the native's.
+    #[test]
+    fn effect_of_answers_for_what_dispatch_reaches() {
+        let mut r = Registry::new();
+        r.register_native("drop", noop, StackEffect::fixed(1, 0), WordKind::Sync);
+        assert_eq!(r.effect_of("drop"), Some(StackEffect::fixed(1, 0)));
+        r.register_lambda("drop", BundValue::int(1));
+        assert_eq!(r.effect_of("drop"), None, "the lambda shadows the native");
+        assert_eq!(
+            r.effect_of("$drop"),
+            Some(StackEffect::fixed(1, 0)),
+            "`$` skips the lambda"
+        );
+        r.register_alias("d", "drop");
+        assert_eq!(r.effect_of("d"), None, "an alias reaches the lambda too");
+        assert_eq!(r.effect_of("nothing"), None);
     }
 }
