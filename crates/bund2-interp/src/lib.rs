@@ -613,10 +613,10 @@ impl Interp {
                 // `lambda_eval` applies each element of the body
                 // (`reference/rust_multistackvm/src/multistackvm_lambda_eval.rs:13-14`).
                 //
-                // **This recurses in Rust**, exactly as the reference does, so
-                // Bund call depth is Rust call depth. RFC-0003's S4 replaces it
-                // with a frame loop; the body is cloned out first so the
-                // registry is not borrowed across the call.
+                // The reference recurses in Rust here, so its Bund call depth
+                // is Rust call depth. Bund2 does not: the body is cloned out,
+                // so the registry is not borrowed, and handed to the loop as a
+                // tail request below (RFC-0003 §S4's frame loop).
                 let target = self.registry.resolve_target(s);
                 let body = self
                     .registry

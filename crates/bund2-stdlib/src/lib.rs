@@ -313,6 +313,14 @@ mod honesty_tests {
                 out.push_str(n);
                 out.push('\n');
             }
+            // What the palette never brought to `Ok`, so the list says what it
+            // withholds. Comment lines, so the comparison below ignores them.
+            out.push_str("#\n# Fixed-effect natives the palette never brought to `Ok`:\n");
+            for (n, _) in &natives {
+                if !reached.contains(n) {
+                    out.push_str(&format!("# not reached: {n}\n"));
+                }
+            }
             std::fs::write(&list, out).expect("writes the list");
             return;
         }
