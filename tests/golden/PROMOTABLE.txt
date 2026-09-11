@@ -3,7 +3,7 @@
 # declared effect. Anything absent is synced before, as an embedder's
 # native is. Written by BUND2_UPDATE_PROMOTABLE=1 cargo test -p
 # bund2-stdlib promotable; never edited by hand.
-# 190 of 217 fixed-effect natives reached.
+# 192 of 223 fixed-effect natives reached.
 !=
 *
 *.
@@ -75,6 +75,8 @@ float.NaN
 float.Pi
 fmt
 fold_stack
+graph
+graph.
 head
 lambda
 lambda!
@@ -203,10 +205,14 @@ var-
 # not reached: get
 # not reached: get,
 # not reached: get.,
+# not reached: graph.allpath
 # not reached: graph.path
+# not reached: graph.paths
+# not reached: graph.transitiveclosure
 # not reached: head.
 # not reached: is
 # not reached: json
+# not reached: json.path
 # not reached: json.to_value
 # not reached: lambda=
 # not reached: raise

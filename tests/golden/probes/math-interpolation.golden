@@ -1,0 +1,19 @@
+# golden for tests/probes/math-interpolation.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: halfway between the second and third points
+25.0
+probe: integer lists convert to float
+15.0
+probe: below the first point
+0.0
+probe: beyond the last point
+50.0
+╭╮
+╰╯
+╭╮
+╰╯

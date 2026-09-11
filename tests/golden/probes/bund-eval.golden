@@ -1,0 +1,20 @@
+# golden for tests/probes/bund-eval.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: bund.eval runs code on the stack it was called on
+3
+15
+probe: a word registered inside the string stays registered
+49
+probe: bund.eval. takes the string from the workbench
+12
+probe: !! is bund.eval
+13
+╭╮
+╰╯
+╭╮
+╰╯

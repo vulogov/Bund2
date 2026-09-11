@@ -1,0 +1,21 @@
+# golden for tests/probes/json-path.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: a single match is wrapped in an array
+Slice(Number(1), "$.['a']")
+[1]
+probe: a wildcard matches each element in order
+Slice(Number(10), "$.['a'][0]")
+Slice(Number(20), "$.['a'][1]")
+Slice(Number(30), "$.['a'][2]")
+[10,20,30]
+probe: a path that matches nothing answers an empty array
+[]
+╭╮
+╰╯
+╭╮
+╰╯

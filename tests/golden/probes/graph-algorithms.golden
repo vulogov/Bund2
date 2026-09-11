@@ -1,0 +1,29 @@
+# golden for tests/probes/graph-algorithms.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: graph fills in type, nodes and edges on a bare dict
+{ edges=[] :: nodes=[] :: type=graph }
+probe: graph. does the same on the workbench
+{ edges=[] :: nodes=[] :: type=graph }
+probe: graph.paths from A over A->B->C: one row per node
+3
+probe: graph.allpath over A->B->C: every reachable pair
+6
+probe: graph.transitiveclosure over A->B->C: every connected pair
+6
+probe: graph.paths on a one-node graph is a single row
+[ { node=A :: path=0.0 } :: ]
+probe: graph.allpath on a one-node graph is a single row
+[ { from=A :: itself=true :: to=A :: weight=0.0 } :: ]
+probe: graph.transitiveclosure is reflexive: a one-node graph reaches itself
+[ { from=A :: to=A } :: ]
+probe: an unweighted edge still connects (A->B gives A-A, B-B and A-B)
+3
+╭╮
+╰╯
+╭╮
+╰╯
