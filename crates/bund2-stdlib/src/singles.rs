@@ -318,7 +318,14 @@ fn bund_eval_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Resul
             "{prefix} returns: This Dynamic type is not string"
         )));
     };
-    let stream = bund2_syntax::compile(&src).map_err(|e| Error(e.to_string()))?;
+    eval_source(vm, &src)
+}
+
+/// Parse `src` and apply each value in turn, as the reference's
+/// `bund_compile_and_eval` does (`reference/Bund/src/stdlib/helpers/eval.rs:7-37`).
+/// `bund.eval` and `use` both come here.
+pub(crate) fn eval_source(vm: &mut dyn Vm, src: &str) -> Result<(), Error> {
+    let stream = bund2_syntax::compile(src).map_err(|e| Error(e.to_string()))?;
     for word in stream {
         if word.dt() == bund2_value::NONE {
             continue;

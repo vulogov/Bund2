@@ -93,6 +93,11 @@ pub fn register_all_with(r: &mut bund2_api::Registry, opts: &host::HostOptions) 
     graph::register(r);
     library::register(r);
     library_string::register(r);
+    // Last of all, so the stubs replace `bund.eval`, which `singles`
+    // registers above, and `use`.
+    if opts.noeval {
+        host::register_noeval_stubs(r);
+    }
 }
 
 /// **What RFC-0005 §S5's promotion trusts about natives, checked rather than

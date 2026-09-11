@@ -1,0 +1,4 @@
+// A library for tests/probes/use-word.bund: it announces itself and
+// registers one word.
+"library loaded" println
+:lib.answer { 42 } register

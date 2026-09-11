@@ -35,6 +35,9 @@ pub struct HostOptions {
     /// `--nocolor`: `debug.display_hostinfo` draws its table without colour
     /// (`reference/Bund/src/stdlib/functions/debug_fun/debug_display_hostinfo.rs:156-160`).
     pub nocolor: bool,
+    /// `--noeval`: `bund.eval` and `use` fail instead of evaluating
+    /// (`reference/Bund/src/cmd/mod.rs:142-143`).
+    pub noeval: bool,
 }
 
 /// `bund.exit` — end the program (D52)
@@ -232,27 +235,138 @@ fn setproctitle(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> 
     Ok(())
 }
 
-/// `file` — read a file into a string
-/// (`reference/Bund/src/stdlib/functions/filesystem/file.rs:15-62`).
+/// Decode `%xx` escapes as curl does in a `file://` path. A `%` not followed
+/// by two hex digits is kept as it is.
+fn percent_decode(s: &str) -> Option<String> {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        let hex = |c: u8| (c as char).to_digit(16);
+        match (b.get(i), b.get(i + 1).copied().and_then(hex), b.get(i + 2).copied().and_then(hex)) {
+            (Some(b'%'), Some(h), Some(l)) => {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+            }
+            (Some(c), _, _) => {
+                out.push(*c);
+                i += 1;
+            }
+            (None, _, _) => break,
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// Fetch a URI's contents as text — the reference's `get_file_from_uri`
+/// (`reference/Bund/src/stdlib/helpers/file_helper.rs:32-55`), with the
+/// schemes D54 admits.
 ///
-/// **D51: read with `std::fs`, where the reference fetches through curl.** The
-/// reference builds `file://{path}` and hands it to libcurl
-/// (`reference/Bund/src/stdlib/helpers/file_helper.rs:57-59`). Any failure
-/// becomes `None` (`:46-50`), reported as `FILE gets no data`
-/// (`file.rs:47-48`), and the bytes are decoded lossily (`file_helper.rs:54`).
-/// This does the same with a plain read. The answer goes back to the word's
-/// side (`file.rs:42-45`).
-fn file_word(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
+/// The reference hands every string to libcurl. That is why a bare path never
+/// loads there: curl reads `lib.bund` as a host name, and `/abs/lib.bund` as a
+/// malformed URL, and only `file:///abs/lib.bund` reads a file. Confirmed
+/// against the oracle on 2026-09-11. So:
+///
+/// - **`file://`** takes an absolute path, optionally after the host
+///   `localhost`, and decodes `%xx` as curl does. `file://relative/x` names a
+///   host and fails, as it does under curl.
+/// - **`http://`** is fetched by `ureq` with curl's defaults as the reference
+///   leaves them: no redirect is followed, a 404's body is still the answer,
+///   the body has no size limit, and the user agent is `ZBUS` (`:43`).
+/// - **Anything else fails**, `https://` included until it is decided (D54).
+///
+/// Any failure is `None`, and the bytes are decoded lossily (`:46-54`).
+pub(crate) fn fetch_uri(uri: &str) -> Option<String> {
+    let bytes = if let Some(rest) = uri.strip_prefix("file://") {
+        let path = rest.strip_prefix("localhost").unwrap_or(rest);
+        if !path.starts_with('/') {
+            return None;
+        }
+        std::fs::read(percent_decode(path)?).ok()?
+    } else if uri.starts_with("http://") {
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .max_redirects(0)
+            .max_redirects_will_error(false)
+            .http_status_as_error(false)
+            .user_agent("ZBUS")
+            .build()
+            .into();
+        let mut resp = agent.get(uri).call().ok()?;
+        resp.body_mut()
+            .with_config()
+            .limit(u64::MAX)
+            .read_to_vec()
+            .ok()?
+    } else {
+        return None;
+    };
+    Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// `file` and `url` — read a file, or fetch a URL, into a string
+/// (`reference/Bund/src/stdlib/functions/filesystem/file.rs:15-78`).
+///
+/// `file` builds `file://{path}` and fetches it
+/// (`reference/Bund/src/stdlib/helpers/file_helper.rs:57-59`). So **a relative
+/// path fails**, as `file://relative/x` does under curl. Confirmed against the
+/// oracle on 2026-09-11: `"tests/…/scores.csv" file` fails, and the same file
+/// named absolutely reads. `url` fetches its operand as given. Any failure is
+/// `{prefix} gets no data` (`file.rs:47-48`), and the answer goes back to the
+/// word's side (`:42-45`).
+fn fetch_word(vm: &mut dyn Vm, side: Side, prefix: &str, as_file: bool) -> Result<(), Error> {
     guard(vm, side, prefix)?;
     let v = side
         .pull(vm)
         .ok_or_else(|| Error(format!("{prefix} returns: NO DATA")))?;
-    let path = v.as_str().ok_or_else(|| {
+    let name = v.as_str().ok_or_else(|| {
         Error(format!("{prefix} returns: This Dynamic type is not string"))
     })?;
-    let bytes = std::fs::read(&path).map_err(|_| Error(format!("{prefix} gets no data")))?;
-    side.push(vm, BundValue::str(String::from_utf8_lossy(&bytes).to_string()));
+    let uri = if as_file { format!("file://{name}") } else { name };
+    let text = fetch_uri(&uri).ok_or_else(|| Error(format!("{prefix} gets no data")))?;
+    side.push(vm, BundValue::str(text));
     Ok(())
+}
+
+/// `use` — fetch Bund source and evaluate it in this VM
+/// (`reference/Bund/src/stdlib/functions/bund/bund_use.rs:9-49`).
+///
+/// The operand is a URI for [`fetch_uri`], so a library is named
+/// `file:///abs/lib.bund`, or built from `cwd`. The text is evaluated as
+/// `bund.eval` evaluates a string (`:33`), so what it registers stays
+/// registered, and its top level runs once (D3).
+fn use_word(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
+    guard(vm, side, prefix)?;
+    let v = side
+        .pull(vm)
+        .ok_or_else(|| Error(format!("{prefix} returns: NO DATA")))?;
+    let addr = v.as_str().ok_or_else(|| {
+        Error(format!("{prefix} returns: This Dynamic type is not string"))
+    })?;
+    let src = fetch_uri(&addr).ok_or_else(|| Error(format!("{prefix} can not get from {addr}")))?;
+    crate::singles::eval_source(vm, &src)
+}
+
+/// `--noeval`: the evaluating words become stubs that fail, as the reference
+/// registers them (`reference/Bund/src/stdlib/functions/bund/bund_eval.rs:117-121`,
+/// `bund_use.rs:74-76`). Applied after every other registration, so the stubs
+/// replace the real words, and `!!` follows its target.
+pub fn register_noeval_stubs(r: &mut Registry) {
+    for name in ["bund.eval", "bund.eval."] {
+        r.register_native(
+            name,
+            |_vm| Err(Error("bund EVAL functions disabled with --noeval".into())),
+            StackEffect::opaque(0),
+            WordKind::Sync,
+        );
+    }
+    for name in ["use", "use."] {
+        r.register_native(
+            name,
+            |_vm| Err(Error("bund USE functions disabled with --noeval".into())),
+            StackEffect::opaque(0),
+            WordKind::Sync,
+        );
+    }
 }
 
 /// `io.graph` — draw a list of floats as a text chart with `rasciigraph`
@@ -347,6 +461,8 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
         stub!("system.setproctitle.", "SYSTEM.SETPROCTITLE", eff(0, 0));
         stub!("file", "FILE", eff(1, 1));
         stub!("file.", "FILE", eff(0, 0));
+        stub!("url", "FILE", eff(1, 1));
+        stub!("url.", "FILE", eff(0, 0));
     } else {
         r.register_native("fs.cwd", fs_cwd, eff(0, 1), WordKind::Sync);
         r.register_native(
@@ -400,17 +516,45 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
         );
         r.register_native(
             "file",
-            |vm| file_word(vm, Side::Stack, "FILE"),
+            |vm| fetch_word(vm, Side::Stack, "FILE", true),
             eff(1, 1),
             WordKind::Sync,
         );
         r.register_native(
             "file.",
-            |vm| file_word(vm, Side::Bench, "FILE."),
+            |vm| fetch_word(vm, Side::Bench, "FILE.", true),
+            eff(0, 0),
+            WordKind::Sync,
+        );
+        // `file.rs:102-103`.
+        r.register_native(
+            "url",
+            |vm| fetch_word(vm, Side::Stack, "URL", false),
+            eff(1, 1),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "url.",
+            |vm| fetch_word(vm, Side::Bench, "URL.", false),
             eff(0, 0),
             WordKind::Sync,
         );
     }
+
+    // `reference/Bund/src/stdlib/functions/bund/bund_use.rs:78-79`. Opaque:
+    // the source can do anything. `--noeval` replaces both, afterwards.
+    r.register_native(
+        "use",
+        |vm| use_word(vm, Side::Stack, "USE"),
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "use.",
+        |vm| use_word(vm, Side::Bench, "USE."),
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
 
     // `reference/Bund/src/stdlib/functions/create_aliases.rs:16-19,40`.
     r.register_alias("rm", "fs.rm");
@@ -487,6 +631,49 @@ mod tests {
         assert_eq!(m.get("name").map(|v| v.display()).as_deref(), Some("[ x :: ]"));
         assert_eq!(m.get("args").map(|v| v.display()).as_deref(), Some("[ plain :: ]"));
         set_args(Vec::new());
+    }
+
+    /// D54: what a URI may be, by curl's rules for `file://`.
+    #[test]
+    fn fetch_takes_file_urls_by_curls_rules() {
+        let d = scratch("fetch");
+        let f = d.join("a b.txt");
+        std::fs::write(&f, "hi").expect("write");
+        let abs = f.display().to_string();
+        let encoded = abs.replace(' ', "%20");
+        assert_eq!(fetch_uri(&format!("file://{encoded}")).as_deref(), Some("hi"));
+        assert_eq!(fetch_uri(&format!("file://localhost{encoded}")).as_deref(), Some("hi"));
+        assert_eq!(fetch_uri(&abs), None, "a bare path is not a URL");
+        assert_eq!(fetch_uri("file://relative/x"), None, "a relative file URL names a host");
+        assert_eq!(fetch_uri("https://example.com/"), None, "https is deferred");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn use_evaluates_a_library_and_file_refuses_a_relative_path() {
+        let d = scratch("use");
+        let lib = d.join("lib.bund");
+        std::fs::write(&lib, ":lib.x { 42 } register").expect("write");
+        let mut i = interp(HostOptions::default());
+        run(&mut i, &format!("\"file://{}\" use lib.x", lib.display())).expect("use");
+        assert_eq!(i.peek().and_then(|v| v.as_int()), Some(42));
+        let e = run(&mut i, "\"relative.txt\" file").expect_err("relative");
+        assert!(e.contains("FILE gets no data"), "{e}");
+        let e = run(&mut i, "\"lib.bund\" use").expect_err("bare");
+        assert!(e.contains("USE can not get from lib.bund"), "{e}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn noeval_stubs_the_evaluating_words() {
+        let mut i = interp(HostOptions {
+            noeval: true,
+            ..HostOptions::default()
+        });
+        for src in ["\"1\" bund.eval", "\"1\" !!", "\"file:///x\" use"] {
+            let e = run(&mut i, src).expect_err("stubbed");
+            assert!(e.contains("functions disabled with --noeval"), "{src}: {e}");
+        }
     }
 
     /// D52: nothing runs after `exit`, inside a lambda or out of one, and the

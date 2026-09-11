@@ -152,6 +152,10 @@ csv = "=1.4.0"
 # and limbo_core both compile C. prqlc is the reference's own PRQL compiler at
 # its locked version (reference/Bund/Cargo.toml:96), and it is pure Rust.
 graphitesql = "=0.1.7"
+# `use`'s and `url`'s `http://` fetch (D54), where the reference uses curl.
+# No default features: no TLS, so `https://` is refused until it is decided,
+# and nothing in the build compiles C.
+ureq = { version = "=3.4.0", default-features = false }
 prqlc = "=0.13.14"
 bund2-value.workspace = true
 bund2-api.workspace = true

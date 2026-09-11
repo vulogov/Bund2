@@ -1224,6 +1224,12 @@ encoding is unchanged. Only the container changes.
 - Depends on: D31
 - Status: RESOLVED (conditional on D31)
 
+**Dated note, 2026-09-11 — the condition is met.** D31 resolved "no": nothing
+outside Bund reads a world file. D27 therefore holds without condition. This
+unblocks `save.model` and `load.model`, which D51 deferred to this point. They
+also need the conversion between `bund2_value::wire` and `BundValue` that F109
+names.
+
 ## D28 — only essential features in the default build
 Bund2's default build enables only what the language needs. The heavyweight
 subsystems are feature-gated and **off by default**; nothing is deleted, but
@@ -1510,6 +1516,15 @@ nobody outside this project has run `bund load --world`, this closes as "no",
 D27's condition discharges, and the importer becomes a convenience rather than
 a mitigation. That is knowledge, not analysis, and it is the one input this
 entry cannot gather for itself.
+
+**Resolution, 2026-09-11 — no.** The repository owner confirms that nothing
+outside Bund opens a world file, so switching the format breaks no reader.
+D27's condition is met, and the world file is redb. The importer is no longer
+a mitigation. It stays available as a convenience for a user migrating an old
+world file, and nothing requires it.
+
+- Decided by: repository owner, 2026-09-11
+- Status: **RESOLVED — no external readers; D27 holds unconditionally.**
 
 ## D32 — `q` is reserved for fuzzy math, and its propagation is preserved
 Stated by the repository owner: **`q` is the mechanism for a future "fuzzy
@@ -2866,6 +2881,14 @@ and reports it as `FILE gets no data`
 decodes the bytes lossily (`file_helper.rs:54`). A `std::fs` read that does
 both the same way gives the same answers.
 
+**Dated note, 2026-09-11 — the sentence above held only for absolute paths.**
+`file` fetches `file://{path}`, and curl reads a relative path there as a host
+name. So `"tests/…/scores.csv" file` fails in the reference, and the same file
+named absolutely reads; confirmed against the oracle. A plain `std::fs` read
+accepted the relative path. `file` now goes through the same `file://` fetch
+as `use` (D54, `host.rs` `fetch_uri`), so a relative path fails as it does in
+the reference.
+
 ### Rejected
 
 - **The reference's crates behind an off-by-default feature**, as D40 did for
@@ -2943,3 +2966,55 @@ golden can hold it and no conformance number moves.
 - Blocks: nothing
 - Depends on: D50 (the same question for `sysinfo.version`)
 - Status: **RESOLVED**
+
+## D54 — `use` and `url` fetch `file://` and `http://`; `https://` is deferred
+
+The reference fetches through libcurl in three places:
+- `use` and `use.` evaluate what they fetch
+  (`reference/Bund/src/stdlib/functions/bund/bund_use.rs:31-33`);
+- `url` and `url.` push it
+  (`reference/Bund/src/stdlib/functions/filesystem/file.rs:72-78`);
+- `file` and `file.` fetch `file://{path}`
+  (`reference/Bund/src/stdlib/helpers/file_helper.rs:57-59`).
+
+curl takes every string as a URL. So a bare path never loads a library in the
+reference. Confirmed against the oracle on 2026-09-11:
+- `use "lib.bund"` fails with `Couldn't resolve host name`;
+- `use "/abs/lib.bund"` fails with `URL using bad/illegal format`;
+- `use "file://relative/lib.bund"` fails;
+- `use "file:///abs/lib.bund"` loads.
+
+D51 took curl out of the build.
+
+### Decision
+
+Decided by the repository owner, 2026-09-11: **`file://` and `http://`, not
+`https://` for now.**
+
+- `file://` follows curl's rules. It takes an absolute path, optionally after
+  the host `localhost`, and decodes `%xx`.
+- `http://` is fetched by `ureq` built without TLS. It keeps the defaults
+  curl has as the reference leaves them: no redirect is followed, the body of
+  an error status is still the answer, the body has no size limit, and the
+  user agent is `ZBUS` (`file_helper.rs:43`).
+- **`https://` is deferred.** A TLS stack is the question: rustls's usual
+  crypto providers compile C or assembly, which D10 does not allow below
+  `bund2 build`.
+
+**Approved deviations under this decision:**
+- A string with no scheme is refused. curl would guess `http://` for one, so
+  in the reference `use "example.com/lib.bund"` fetches over HTTP.
+- `https://` is refused.
+
+Implemented in `crates/bund2-stdlib/src/host.rs` (`fetch_uri`), shared by
+`file`, `url` and `use`.
+
+**Not decided here: `use` in a built artefact.** A `use` path can be a
+run-time string (D16), so `bund2 build` cannot always know what to embed, and
+`--emit=bundle` must stay self-contained (D10). That belongs to RFC-0006, and
+it is carried as Q38 so that no default is taken silently.
+
+- Decided by: repository owner, 2026-09-11
+- Blocks: nothing
+- Depends on: D51 (no curl), D10 (no C below `bund2 build`)
+- Status: **RESOLVED for the interpreter; the AOT half is Q38.**

@@ -175,6 +175,8 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--noio" => host.noio = true,
             // `reference/Bund/src/cmd/mod.rs:139-140`.
             "--nocolor" => host.nocolor = true,
+            // `reference/Bund/src/cmd/mod.rs:142-143`.
+            "--noeval" => host.noeval = true,
             "--" => {
                 script_args = it.by_ref().cloned().collect();
             }

@@ -1,0 +1,15 @@
+//
+// PROBE: use and use. (Bund/src/stdlib/functions/bund/bund_use.rs:9-59).
+//
+// use fetches its operand as a URL and evaluates the text in this VM (:31-33),
+// so a word the library registers stays registered. A bare path is not a URL
+// to curl, so a library is named file:///absolute/path; building it from cwd
+// is how the reference's own examples name their data files. The capture runs
+// from the repository root.
+//
+"probe: use loads a library by file:// URL and keeps what it registers" println
+cwd "file://{A}/tests/probes/data/uselib.bund" format use
+lib.answer println
+"probe: use. takes the URL from the workbench" println
+cwd "file://{A}/tests/probes/data/uselib.bund" format . use.
+lib.answer println
