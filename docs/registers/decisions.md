@@ -2772,6 +2772,13 @@ therefore left out of the run (`crates/bund2-stdlib/src/lib.rs`,
 before them. That is the conservative side of this decision and changes no
 answer.
 
+**Dated note, 2026-09-11 (second) — six, not four.** `password`, which waits
+on the terminal, and `save.model`, which would write a world file for each
+palette string, joined the unrun set later that day. The exclusions are kept
+by hand, so a new host-acting native runs for real under `cargo test` until
+it is added. RFC-0005's criterion 28 now states both limits, this and that the
+list certifies the default registration (the eleventh review's S4).
+
 ## D49 — a panic in a native is caught where the native is called, in both tiers
 
 RFC-0005's tenth review, B2. D37 governs Bund2's code, not its dependencies,

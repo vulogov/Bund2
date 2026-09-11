@@ -82,6 +82,19 @@
   every re-entering path, and the request protocol's four edges, one of them a
   Tier 0 defect now fixed (F96).
 
+  The eleventh review's blocker is answered, with its significant items.
+  **B1**: D52 makes `bund.exit` record a code and return `Ok`, and Tier 0
+  stops at its next step; compiled code, which reads three cells after a call
+  and none of them an exit, would have run on. A recorded exit now becomes the
+  error status at the call that made it, and the entry trampoline refuses to
+  start a body (§S5, *A call may end the program*; criterion 30). **S1**:
+  §S8's re-entering paths are a derived set rather than a list, and
+  `eval_source` is a path of its own; Tier 0's exhaustion message now names
+  `bund.eval` and `use`. **S2–S4**: five stale sentences are corrected, every
+  figure is re-derived on 2026-09-11 beside its command, criterion 28 states
+  the palette's six unrun natives and that its list certifies the default
+  registration, and §S7 cites *Q22 (cache)*.
+
   **Criterion 10 has a first measurement**, from a throwaway lowering outside
   this RFC's gate (2026-09-11, branch `spike/lowering-1`). With §S8's call
   boundary on every word and nothing inlined, `1 2 + drop` compiled runs
@@ -112,7 +125,9 @@
   wants a stack snapshot per severity), **D46** (nothing stays promoted
   across a call that resolves to a lambda), **D47** (promotion crosses only
   the natives `bund2-stdlib` registered), **D48** (and only those a palette
-  audit has brought to `Ok`), **D49** (a panic in a native is caught where the
+  audit has brought to `Ok`), **D52** (`bund.exit` is a request the
+  embedder honours; compiled code must see it at the call that made it — §S5,
+  *A call may end the program*), **D49** (a panic in a native is caught where the
   native is called, in both tiers), **D37** (no panic), **D39** (an
   internal loop must be bounded)
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
@@ -322,9 +337,10 @@ dispatch and in fact measured stdout at ~450 ns per word.
 Conformance did not move across D41 — 73/86, ceiling 79/86, before and after
 — and `BundValue` is still 16 bytes (a test in `crates/bund2-value/src/lib.rs`
 asserts `size_of::<BundValue>() == 16`). Conformance has since reached its ceiling,
-**82/90**, through Tier 0 work unrelated to this RFC (criterion 2). It read
-79/86 until three probes were added on 2026-09-10, and 82/89 until a fourth,
-an approved deviation (D50), was added on 2026-09-11.
+**105/113** on 2026-09-11, through Tier 0 work unrelated to this RFC
+(criterion 2). It read 79/86 until three probes were added on 2026-09-10,
+82/89 until a fourth, an approved deviation (D50), and 82/90 until that day's
+words and probes.
 
 So §S2–§S11 are worth designing. The Status line says what still stands
 between them and being built.
@@ -718,6 +734,56 @@ read: the callee's generation (*What a promoted value must not change*, below).
 Criterion 17 bounds these per-call checks as well as the inlined sites' checks.
 Criterion 21 checks the behaviour, and criterion 18 the `autoadd` half.
 
+## A call may end the program
+
+*Added 2026-09-11, answering the eleventh review's B1.*
+
+D52 makes `bund.exit` a request. It records a code through `Vm::request_exit`
+and returns `Ok` (`crates/bund2-stdlib/src/host.rs`, `bund_exit`); nothing
+ends at that moment. Tier 0 stops at its **next step**: `Interp::exit_gate`
+refuses at the top of `Interp::apply_step` and of `Vm::eval_lambda`, the
+refusal unwinds whatever is running, and the top level treats it as the end
+of the program rather than an error (`crates/bund2-interp/src/lib.rs`,
+`exit_gate` and `eval_observed`). Every Tier 0 call passes `apply_step`, so
+the gate sees the step after the exit, whatever made the call.
+
+Compiled code has no such step. The three cells it reads after a call record
+no exit, `bund_exit`'s `Ok` becomes the success status, and literal pushes and
+inlined fragments never pass `apply_step`. So a compiled body would run on past
+`exit`: `tests/probes/bund-exit.bund`, whose golden stops at `inside, before
+exit` with exit code 3, would print `inside, after exit` under
+`--jit-threshold 1`, and criterion 2 would move. A `bund.eval` or `use` whose
+source calls `bund.exit` is covered already, since its next `Vm::apply` is
+refused and returns an error. The direct call is not.
+
+**The rule adds no cell. A recorded exit becomes the error status at the call
+that recorded it:**
+- the per-native adapter (§S8) checks `Vm::exit_requested` after the native
+  returns, and on `Some` parks `exit_gate`'s error in the error slot and
+  returns the error status, whatever the native returned;
+- the resolving trampoline does the same after `dispatch`, which does not pass
+  the gate either;
+- the entry trampoline refuses to start a body once an exit is recorded, as
+  `Vm::eval_lambda` does before its cache lookup;
+- the frame loop's compiled entry sits behind `apply_step`'s gate.
+
+Compiled code's existing error path does the rest. It syncs every promoted
+value and returns (*What a promoted value must not change*, below), and in
+tail position the status travels with the return, so no body runs another op
+after the exit. At the top the embedder reads `exit_requested` and ends the
+program as Tier 0's does. The cost is one load and compare inside the adapter,
+which is Rust already, and nothing in compiled code. The alternative, an exit
+cell read after every call, would be a fourth per-call check under criterion
+17, and in tail position the entry would have to read it instead of the body.
+The status costs less and cannot be skipped.
+
+A fixed-effect native may not request an exit: the effect audit records one
+that does, as it records a tail request (`Interp::request_exit`). Only
+`bund.exit` asks, and it is opaque. Criterion 30 checks the rule. **Is
+`exit_gate` the only state Tier 0 gates per step rather than returns per
+call?** Today it is: it is the only gate in `apply_step`. A second would need
+the same treatment, and assumption 19 says so.
+
 ## A call may leave a body to run
 
 *Added 2026-09-10, answering the ninth review's B1. The repository owner chose
@@ -728,8 +794,11 @@ Tier 0 does not always run a body when it is called. `Vm::tail_lambda` is
 `body` **after the current native returns**" (`Interp::request_tail`,
 `crates/bund2-interp/src/lib.rs`). Only `Interp::take_pending` pushes its
 frame, and Tier 0 calls it straight after each value it applies
-(`Interp::run_to`, `Interp::apply`). Four kinds of call file a request:
+(`Interp::run_to`, `Interp::apply`). Five kinds of call file a request:
 - `!` on a lambda (`execute_value`, `crates/bund2-stdlib/src/values.rs`);
+- `if.stack`, when the stack it names is the current one (`if_stack`,
+  `crates/bund2-stdlib/src/control.rs`; it declares `opaque(2)`, and the
+  eleventh review found it missing here);
 - `if` and `if.false`;
 - `ifthenelse` (`crates/bund2-stdlib/src/control.rs`);
 - every call to a lambda by name (`Interp::dispatch`, its `Resolved::Lambda`
@@ -967,9 +1036,9 @@ not be claimed as such**; criterion 10 measures what is left.
 
 ## Promotion needs inlining, and §S8 is what makes that necessary
 
-§S8's escape from §3.2f is that a compiled word's signature is uniform,
-`fn(&mut dyn Vm)`, **because operands travel on the shared VM stack rather than
-in the call**. That answer is correct and it has a consequence this section
+§S8's escape from §3.2f is that a compiled word's signature is uniform —
+`fn(ctx: i64) -> i32` under `CallConv::Tail`, §S8's call boundary — **because
+operands travel on the shared VM stack rather than in the call**. That answer is correct and it has a consequence this section
 originally did not face: *a value held in a Cranelift `Variable` is invisible to
 every word.*
 
@@ -1331,32 +1400,35 @@ Re-derive with:
       ./target/debug/bund2 check --file "$PWD/$f" | grep -E '^ +[0-9]+ +`'
     done
 
-On 2026-09-11, after F91, F92 and four new probes, across 165 programs, it
-prints **124** sites:
+Re-derived on 2026-09-11, after that day's words and probes, across **189**
+programs, it prints **137** sites (that morning it printed 124 over 165):
 
 | why analysis stops | sites |
 |---|---|
-| the word's effect is not a fixed pair — `Opaque` or `Fold` | **76** |
-| the name has no binding when analysed | **48** |
+| the word's effect is not a fixed pair — `Opaque` or `Fold` | **116** |
+| the name has no binding when analysed | **21** |
 
-The 76, by word:
-- `object` 24, `!` 15, `times` 7, `format` 6, `loop` 4, `if` 4, `graph!` 4,
-  `clear` 3;
-- one each of `pull.`, `map`, `if.in_workbench`, `fold`, `execute`,
-  `display`, `?true*` and `?.`;
-- one user word, `HelloWorld`, whose inferred effect is opaque.
+The 116, by word:
+- `object` 25, `!` 17, `format` 14, `loop` 11, `times` 9, `if` 6, `graph!` 5,
+  `clear` 5;
+- two each of `math.interpolation`, `load.model`, `input` and `?true*`;
+- one each of `unfold`, `**.`, `display`, `map`, `*+`, `?.`, `fold`, `pull.`,
+  `notifthenelse`, `bund.exit`, `bund.eval`, `if.in_workbench`, `execute` and
+  `*loop`;
+- two user words, `HelloWorld` and `f`, whose inferred effects are opaque.
 
 The probes `if-workbench-variants` and `stack-words-by-name` added the first
 stops at `if.in_workbench` and `execute`. F94 added none, since no program
 calls `drop_stack`, and neither did the `sysinfo-version` probe.
 
-**Fifteen are ordinary control flow**: `times` 7, `if` 4 and `loop` 4. That is
+**Twenty-six are ordinary control flow**: `loop` 11, `times` 9 and `if` 6. That is
 why whole-body exclusion, RFC-0004 §S1's original reading, would refuse nearly
 every body that branches or loops.
 
-**All 48 are names Bund2 does not register at all**: `generator` 19, `cwd` 5,
-`classifier` 4, and the rest of the postponed network, database and AI
-vocabulary. "No effect" there means *no binding at analysis time*, and D16 says
+**All 21 are names Bund2 does not register at all**: `classifier` 4,
+`sample.analysis`, `internaldb.execute`, `global` and `console.spinner` 2 each,
+and nine singletons from the postponed console, database and AI vocabulary.
+`generator` and `cwd`, 24 of the morning's 48, are registered now. "No effect" there means *no binding at analysis time*, and D16 says
 a binding may still arrive at run time; that is why criterion 13 treats an
 absent effect as `Opaque` rather than as zero.
 
@@ -1414,9 +1486,9 @@ Three things bound promotion:
   default: it requires mixed-kind comparison to take the generic path, and
   notes that if D33 resolves to option 2 the lowering becomes available.
 
-# S7. Tiering policy: threshold, cap, demotion — Q22, answered here
+# S7. Tiering policy: threshold, cap, demotion — Q22 (cache), answered here
 
-Q22 asks for the compiled-cache promotion threshold and cap and says RFC-0005
+Q22 (cache) asks for the compiled-cache promotion threshold and cap and says RFC-0005
 "must state them as load-bearing for D3, not as tuning". D35 first added
 that the cap was load-bearing for heap as well, because the cache held strong
 references to bodies; its amendment (Q32) moves the cache to a `Weak`, and the
@@ -1657,9 +1729,10 @@ Four ways of doing it were ruled out first:
   (`cranelift-codegen` 0.135.0, `src/isa/x64/abi.rs`,
   `gen_stack_lower_bound_trap`). A trap is a hardware fault: with no signal
   handler it ends the process, which D37 forbids, and it is guard-and-bail in
-  its hardest form (§S5). It also takes its limit only from a `VMContext`
-  parameter (`src/machinst/abi.rs`, `generate_gv`), which Bund2's uniform
-  `fn(&mut dyn Vm)` does not carry.
+  its hardest form (§S5). It takes its limit from a `VMContext` parameter
+  (`src/machinst/abi.rs`, `generate_gv`). The JIT signature's context pointer
+  could be declared as one, so that is no obstacle: the trap alone rules it
+  out.
 - **The `stacker` crate.** It measures remaining stack through `psm`, whose
   build script compiles assembly with a C toolchain. D10 forbids a C toolchain
   anywhere below `bund2 build`.
@@ -1811,9 +1884,16 @@ the limit. Two rules close it:
 - **So Tier 0's part carries a margin under `jit`, over every re-entering
   path.** Let `c_p` be the bytes one level of path `p` spends with the tier
   off, and `δ_p` what it spends more beneath the floor with the tier on. The
-  paths are every way a native re-enters evaluation: `times`, `loop`, `map`,
-  `while`, the conditionals, `?try` and the method paths through
-  `Vm::eval_lambda`, and `Vm::apply`, `Vm::scoped_call` and §S5's drain helper.
+  paths are every way a native re-enters evaluation, and **the set is derived,
+  not listed**, because a list went stale within a day (the eleventh review's
+  S1): every `bund2-stdlib` function that calls `Vm::eval_lambda`,
+  `Vm::apply` or `Vm::scoped_call`, found by a source scan as criterion 25
+  finds `Error` reports, plus §S5's drain helper. On 2026-09-11 that is
+  `times`, `loop`, `map`, `while`, `for`, `*loop`, `input*`, the conditionals,
+  `?try` and the method paths through `Vm::eval_lambda`, `context` through
+  `Vm::scoped_call`, and **`eval_source`** — `bund.eval`, `!!` and `use` —
+  through `Vm::apply`. `eval_source` is a path of its own: a Rust frame, a
+  parse and a loop per level, so its `c_p` is not `Vm::apply`'s alone.
   Criterion 11 reports `c_p` and `δ_p` for each. Then Tier 0's part is
   `8 MiB + m`, with `m ≥ 8 MiB × max_p(δ_p / c_p)`, and the level with the tier
   on cannot be lower whatever holds the share. An earlier revision took `c` and
@@ -1889,8 +1969,11 @@ The Tier 0 floor is its fix. `Vm::eval_lambda`, `Vm::apply` and
 `Vm::scoped_call` check it before re-entering evaluation, and below it they
 return a Bund-level error — reported through `Vm::report` like any other, and
 catchable by `?try` — that names the cause: recursion through `times`, `loop`,
-`map`, a conditional or a method runs on the machine stack, and recursing
-directly runs on the heap instead. **This half does not depend on Tier 1, and
+`map`, `while`, `for`, `*loop`, a conditional, `?try`, a method, `bund.eval` or
+`use` runs on the machine stack, and recursing directly runs on the heap
+instead. (Until the eleventh review the message stopped at the method, so
+recursion through `bund.eval` was blamed on the wrong words;
+`Error::stack_exhausted`, `crates/bund2-api/src/lib.rs`.) **This half does not depend on Tier 1, and
 it landed on 2026-09-10**, ahead of this RFC's acceptance. `bund2` spawns its
 evaluation thread at 8 MiB plus the 256 KiB reserve, every `Interp::new` takes
 its floor from the declared region, and `Error::context` passes the exhaustion
@@ -1904,7 +1987,7 @@ the tier.
 
 *Added 2026-09-10. The seventh review listed six assumptions the text relied on
 without stating them, the eighth review five more, and the tenth seven more,
-answered in 7 and 14–18.* Each is stated here,
+answered in 7 and 14–18. The eleventh named three more, answered in 19–21.* Each is stated here,
 with the place that enforces or decides it.
 
 1. **One compiled cache, one `JITModule`, one set of cells and one fragment
@@ -1960,6 +2043,22 @@ with the place that enforces or decides it.
     leave a body to run*).
 18. **No native leaves a tail request behind when it fails.** Enforced by
     F96's fix, and a refused drain clears the cell too (§S5).
+19. **Every way a program stops is visible to compiled code at the call that
+    caused it.** A failed `Result` is, through the status. `bund.exit` is not
+    by itself, since it returns `Ok` and Tier 0 stops only at its next step,
+    so the adapter and the resolving trampoline turn a recorded exit into the
+    error status (§S5, *A call may end the program*); criterion 30. Today
+    `exit_gate` is the only state Tier 0 gates per step rather than returns
+    per call, and a second would need the same treatment.
+20. **`PROMOTABLE.txt` certifies the default registration.** It names
+    natives, and `--noio` and `--noeval` register failing stubs under the same
+    names. D47's id set comes from the registration actually made, and a stub
+    that is crossed fails, so it takes the error path (criterion 28).
+21. **The natives the palette leaves unrun are the ones that act on the
+    host, and the list of them is kept by hand** (`ACTS_ON_HOST`; D48's
+    dated notes). An unrun native is not listed and so not crossed, which is
+    the safe side; a new host-acting native runs for real under `cargo test`
+    until it is added (criterion 28).
 
 # S9. Tier pinning
 
@@ -1999,10 +2098,10 @@ three that keeps Tier 1 the same build as Tier 0 rather than a second one.
 `--features jit` and `--features aot` are declared in five crates —
 `bund2-jit`, `bund2-runtime`, the umbrella `bund2`, `bund2-cli` and
 `bund2-bench`. `conform --features jit` builds `bund2-cli` with the feature,
-and **criterion 2 has run**: 82/90 with the feature on and 82/90 with it off,
-ceiling 82/90 in both. It read 79/86 before three probes were added on
-2026-09-10, and 82/89 before a fourth, an approved deviation (D50), on
-2026-09-11.
+and **criterion 2 has run**: 105/113 with the feature on and 105/113 with it
+off, ceiling 105/113 in both, re-run on 2026-09-11 after that day's probes.
+It read 79/86 before three probes were added on 2026-09-10, 82/89 before a
+fourth, an approved deviation (D50), and 82/90 on the morning of 2026-09-11.
 
 **D9, as amended 2026-09-09, applies**: no Cranelift type may appear in
 `bund2-stdlib` or `bund2-api`, which is what §S6's fragments are shaped around.
@@ -2050,7 +2149,7 @@ disagrees with interpreted code", and each has a named guard:
 | a diagnostic raised in compiled code carrying no Bund source location | D36 requires a `Diagnostic` with a Bund location; compiled frames have none unless the lowering carries spans, which §S11's return-value protocol must thread |
 | an **opaque** site leaving a stale promoted value behind | promotion stops and syncs to the real stack before the call (§S5); cost checked by criterion 9 |
 | mixed-kind comparison lowered to a machine compare | forbidden while D33 is OPEN (§S6) |
-| a `*`-family word crossing a promoted region — including one bound at run time to a name the body was compiled against | an `opaque` effect (D12; none is registered today), and the pre-call slot-generation check, which syncs before any call whose binding changed (§S5, *What a promoted value must not change*); criterion 22 |
+| a `*`-family word crossing a promoted region — including one bound at run time to a name the body was compiled against | an `opaque` effect (D12; the ten folds are registered, each opaque, since 2026-09-11), and the pre-call slot-generation check, which syncs before any call whose binding changed (§S5, *What a promoted value must not change*); criterion 22 |
 | **a callee reached through an alias or `$name` whose target is rebound while values are promoted across the call**, such as `<-` → `stacks_left` with `stacks_left` rebound to a lambda that consumes two | nothing stays promoted across a call that does not resolve through its own registry `Slot`, or whose slot's generation is saturated: the body syncs before it (§S5); criteria 5 and 22 |
 | an error returned from compiled code while values are promoted, whose report or `[BUND]` stack dump would show a short stack | every error return syncs first (§S5); criterion 22 |
 | a native that reports with a stack snapshot while values below its arity are promoted | the reporter says per severity whether it wants a snapshot (D45); while it wants one for `Warning` or `Notice`, nothing stays promoted across a call, and this is read at each entry (§S5); Q34; criterion 22 |
@@ -2077,14 +2176,15 @@ disagrees with interpreted code", and each has a named guard:
 | **a native `bund2-stdlib` did not register** — an embedder's, or an external package's under D9 — whose declared effect nothing checks | promotion crosses only natives whose registration id `bund2-stdlib` made (D47, §S5); criterion 27 |
 | **a body a call asked the loop to run** — `!` on a lambda, `if`, `ifthenelse`, a lambda call — running after the next value, or overwritten by a later request | the request cell, read after every call, with a drain for a non-tail call, a hand-back for a tail call, and an internal error if a request is ever pending when a call starts (§S5); criterion 26 |
 | the per-level stack cost of a declined compiled body below the Tier 1 floor | a decline is a return, so no compiled frame is kept (§S8); criterion 11 |
-| **native nesting that starts beneath compiled frames holding Tier 1's share**, where any byte the tier adds to a Tier 0 level lowers the level at which exhaustion is reported | the cache lookup returns before `run_to`, and Tier 0's part under `jit` carries a measured margin `m ≥ 8 MiB × δ / c` (§S8); criterion 11's share-held case |
+| **native nesting that starts beneath compiled frames holding Tier 1's share**, where any byte the tier adds to a Tier 0 level lowers the level at which exhaustion is reported | the cache lookup returns before `run_to`, and Tier 0's part under `jit` carries a measured margin `m ≥ 8 MiB × max_p(δ_p / c_p)` over every re-entering path (§S8); criterion 11's share-held case |
 | **a lambda that shadows a native**, whose name `effect_of` answered with the native's effect until F93 | callees are classified by `Registry::resolve`, and `effect_of` follows the same order (§S5, F93); criterion 22 |
 | **the tier never running in `bund2` itself**, because its thread's declared region had no share, so that the meaning criteria pass vacuously | `bund2` declares its share with `set_stack_region_with_share` (§S8); criterion 2 requires compiled bodies, and runs again at threshold 1 |
 | **a native reporting at `Error` severity through a spelling the source scan misses** | the effect audit records any `Error` report made while a native runs (criteria 24 and 25) |
 | **a native panicking inside a dependency** — `jarowinkler` in `natural` (F95) — reached from compiled code | caught where the native is called, in both tiers, and reported as `Error::internal` (D49); no panic unwinds through a compiled frame (§S8); criterion 29 |
 | **the call boundary itself**: a `NativeFn` whose ABI and `Result` CLIF cannot carry | a context pointer and an integer status under `CallConv::Tail`, a Rust adapter per native, `Tail` thunks in the slots, and a C-convention entry trampoline (§S8); criteria 4 and 29 |
 | **a stale tail request** left by a native that failed after filing it | `Interp::invoke` clears it (F96), and a refused drain clears the cell (§S5); criterion 26 |
-| **native nesting through a word other than `loop`**, whose per-level cost makes the margin too small | `m` is set from the largest `δ_p / c_p` over every re-entering path (§S8); criterion 11 |
+| **native nesting through a word other than `loop`**, whose per-level cost makes the margin too small | `m` is set from the largest `δ_p / c_p` over every re-entering path, a set derived by source scan rather than listed (§S8); criterion 11 |
+| **a program ended by `bund.exit` (D52) while a compiled body runs** — the native returns `Ok`, and Tier 0 stops only at its next step, which compiled code does not take | the adapter and the resolving trampoline turn a recorded exit into the error status, the entry trampoline refuses to start a body, and compiled code's error path syncs and returns (§S5, *A call may end the program*); the effect audit records a fixed-effect native that requests an exit; criterion 30 |
 
 ## Alternatives considered
 
@@ -2132,7 +2232,7 @@ and 2 gate the RFC's own premise**; the rest are for the implementation.
 toolchain pin was raised to 1.95.0 to match the pinned Cranelift (F80, Q31).
 Before that none of 2, 4, 5, 6, 7, 9, 10, 11 or 12 could be executed at all.
 
-Criterion 2 has since **run and passed** — 82/90 with the feature on and off, ceiling 82/90, on 2026-09-11 —
+Criterion 2 has since **run and passed** — 105/113 with the feature on and off, ceiling 105/113, re-run on 2026-09-11 after that day's probes —
 and is **vacuous until a tier exists**, since the feature gates no code. That
 is worth stating rather than counting: a criterion that cannot fail yet is not
 evidence, and this one is listed as runnable rather than as met.
@@ -2155,12 +2255,14 @@ evidence, and this one is listed as runnable rather than as met.
         cargo xtask conform --features jit
         cargo xtask conform --features jit --jit-threshold 1
 
-   All three must read the same N/M **and the same CEILING**. Any movement is a bug,
+   The third cannot run yet: `xtask conform` answers `unknown argument
+   --jit-threshold` (2026-09-11), since the flag arrives with the tier. All
+   three must read the same N/M **and the same CEILING**. Any movement is a bug,
    per CLAUDE.md — which also requires the ceiling beside the number, since an
    approved deviation can never enter the numerator and N/M alone overstates
-   the remaining work. Today: **82/90, ceiling 82/90**, both ways, measured
-   2026-09-11, after four probes were added, one of them an approved
-   deviation (D50). This criterion measures the **dev** profile and criterion 11
+   the remaining work. Today: **105/113, ceiling 105/113**, with the feature
+   off and on, re-measured 2026-09-11 after that day's probes (82/90 that
+   morning); eight approved deviations, D50's among them. This criterion measures the **dev** profile and criterion 11
    measures **release**; the split is deliberate, and stated in both places.
 
    **The two `jit` runs must compile something.** This is the ninth review's
@@ -2411,7 +2513,8 @@ evidence, and this one is listed as runnable rather than as met.
       `+`, is the better estimate.
     - **The spike leaves out things that make the tier slower**: call slots and
       `Tail` thunks, the cache lookup at entry, §S7's counter, the residual
-      path, and type guards. None of them is plausibly worth the 0.9× of
+      path, type guards, and the exit check after each native (§S5, *A call
+      may end the program*). None of them is plausibly worth the 0.9× of
       headroom above the floor, but this criterion is met only by the tier as
       shipped, and stays open until then.
 
@@ -2475,8 +2578,8 @@ evidence, and this one is listed as runnable rather than as met.
     and the value renders `tags: {}` where the oracle renders
     `tags: {"stack": "main"}`.
 
-    37 of 90 goldens carry exactly that text, and 41 carry some `"stack":`
-    tag, so the failure is loud — but only if a
+    42 of 113 goldens carry exactly that text, and 46 carry some `"stack":`
+    tag (2026-09-11, `grep -l` over `tests/golden`), so the failure is loud — but only if a
     golden exercises a compiled body with an opaque site in it, which none does
     today. The criterion: a probe that pushes, promotes, syncs and dumps, with
     `cargo xtask conform` green. **This row exists because a reviewer found it
@@ -2484,7 +2587,7 @@ evidence, and this one is listed as runnable rather than as met.
     and this RFC was written the next, without the two being connected.
 
 13. **An absent effect is treated as `Opaque`, never as zero.** §S6's *Where
-    promotion stops* counts **48 sites** whose word declares no effect at all. A defaulted
+    promotion stops* counts **21 sites** (2026-09-11) whose word declares no effect at all. A defaulted
     `StackEffect` would read `Fixed(0, 0)` — "consumes nothing, produces
     nothing" — and a compiled body would keep promoting straight through a call
     that may do anything to the stack.
@@ -2763,11 +2866,26 @@ evidence, and this one is listed as runnable rather than as met.
     workbench. The test asserts two things: no run breaches its declared
     effect, and the natives some run brought to `Ok` are exactly those
     `tests/golden/PROMOTABLE.txt` lists. §S5's promotion crosses only those.
-    **Met**, 2026-09-10: 178 of 205 fixed-effect natives are listed.
+    **Met**, 2026-09-10, when 178 of 205 fixed-effect natives were listed;
+    227 of 269 on 2026-09-11 (the list's own header line).
     **Mutation-checked**: before F94's fix it named `drop_stack` and nothing
     else, "declares (1, 0) and moved `main` from 4 to 0". The list certifies
     a pair, not what else a native observes, so a Q34 observer is still
     criterion 14's. Runs today: `cargo test -p bund2-stdlib promotable`.
+
+    **Two limits, stated for the eleventh review's S4.** First, six natives
+    that act on the host are never run: `fs.rm`, `sleep.seconds`,
+    `system.setproctitle`, `system.setproctitle.`, `password` and
+    `save.model` (`ACTS_ON_HOST`, `crates/bund2-stdlib/src/lib.rs`). So
+    "every fixed-effect native" means every one but those. That is the
+    conservative side, since an unrun native is not listed and not crossed.
+    But the exclusions are kept by hand, so a new host-acting native runs for
+    real under `cargo test` until it is added. Second, the list names natives,
+    so it certifies the **default** registration. `--noio` and `--noeval`
+    register failing stubs under the same names (`register_all_with`), and
+    D47's id set is taken from the registration actually made. A listed stub
+    is therefore crossed under those options, and since every stub fails, the
+    crossing takes the error path, which syncs first.
 
 29. **A native that panics gives Tier 0's result from compiled code (D49).**
     Register a native that panics. Call it from a compiled body in a non-tail
@@ -2780,6 +2898,18 @@ evidence, and this one is listed as runnable rather than as met.
     (`crates/bund2-interp/src/lib.rs`).
     F95's `jarowinkler` program reports, and exits 0. The compiled half needs
     a tier.
+
+30. **A program ended by `bund.exit` ends at the same point in compiled code
+    (D52).** Run `tests/probes/bund-exit.bund` and
+    `tests/probes/bund-exit-word.bund` under criterion 2's three
+    configurations. Then compile, with promotion on, bodies that call
+    `bund.exit` directly, through the alias `exit`, and in tail position, each
+    followed by a call and by an inlined `+`. Output, exit code and final
+    stacks must match Tier 0's. It fails for an adapter that returns success
+    after a recorded exit (§S5, *A call may end the program*). The audit's
+    half runs today: a fixed-effect native that requests an exit is a breach,
+    `an_exit_requested_under_a_fixed_effect_is_a_breach`
+    (`crates/bund2-interp/src/lib.rs`). The compiled half needs a tier.
 
 ## Open questions
 

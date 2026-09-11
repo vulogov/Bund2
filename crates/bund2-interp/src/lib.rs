@@ -1265,6 +1265,14 @@ impl Vm for Interp {
     }
 
     fn request_exit(&mut self, code: i32) {
+        // A native that declares a fixed effect may not end the program: the
+        // stop comes at the next step, after the native returned `Ok`, and a
+        // compiled caller holding promoted values would not see it
+        // (RFC-0005's eleventh review, B1). Only `bund.exit` asks, and it is
+        // opaque; the audit makes that a property rather than an observation.
+        if let Some(who) = self.audit_inside {
+            self.audit_breach(who, "declares a fixed effect and requested an exit");
+        }
         // The first request stands; a second, made while unwinding, does not
         // change the code.
         self.exit_code.get_or_insert(code);
@@ -1649,5 +1657,28 @@ mod tests {
         i.eval(&[BundValue::int(1)]).expect("runs");
         assert_eq!(i.depth(), 1, "only the 1: the stale body did not run");
         assert_eq!(i.pull().and_then(|v| v.as_int()), Some(1));
+    }
+
+    /// RFC-0005 criterion 30's audit half (the eleventh review's B1). A
+    /// native that declares a fixed effect and asks to end the program is a
+    /// breach: compiled code holding promoted values across it would not see
+    /// the stop, which comes at Tier 0's next step. Only `bund.exit` asks, and
+    /// it is opaque; this makes that a property.
+    #[test]
+    fn an_exit_requested_under_a_fixed_effect_is_a_breach() {
+        fn exits(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.request_exit(3);
+            Ok(())
+        }
+        let mut i = Interp::new();
+        i.registry.register_native("ex", exits, StackEffect::fixed(0, 0), WordKind::Sync);
+        i.effect_audit = Some(Vec::new());
+        let _ = i.eval(&[BundValue::call("ex")]);
+        let log = i.effect_audit.take().unwrap_or_default();
+        assert!(
+            log.iter().any(|l| l.contains("requested an exit")),
+            "the audit recorded no breach: {log:?}"
+        );
+        assert_eq!(i.exit_requested(), Some(3), "the exit itself still stands");
     }
 }
