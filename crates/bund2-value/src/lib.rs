@@ -190,6 +190,24 @@ pub enum Payload {
     Scalar(BundValue),
 }
 
+/// One item of the rendering worklist — **F117**.
+///
+/// `Text` is already-formatted output waiting for its turn; `Value` is a value
+/// still to render, with the normalisation flag it inherits. The two together
+/// let the walk that used to be recursion run from the heap, in the same order
+/// and with the same bytes.
+enum RenderStep {
+    Text(String),
+    Value(BundValue, bool),
+}
+
+/// One item of the `display` worklist — **F119**. As [`RenderStep`], without
+/// the normalisation flag, which `display` has no use for.
+enum DisplayStep {
+    Text(String),
+    Value(BundValue),
+}
+
 /// `reference/rust_dynamic/src/metric.rs`, as the value sees it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Metric {
@@ -851,7 +869,27 @@ impl BundValue {
         !matches!(self.dt(), PAIR | CINTEGER | CFLOAT)
     }
 
+    /// **The second renderer, and iterative for the same reason — F119.**
+    ///
+    /// `display` is what `println`, `print`, `pull` and the string conversions
+    /// reach, and it walked a container's members by recursion, so
+    /// `dup println` on a 28,000-deep list aborted the process (27,000 exited
+    /// 0). F117 fixed [`render_into`]; this is the other one. Same shape: a
+    /// heap worklist, the same bytes at every depth.
     pub fn display(&self) -> String {
+        let mut out = String::new();
+        let mut work = vec![DisplayStep::Value(self.clone())];
+        while let Some(step) = work.pop() {
+            match step {
+                DisplayStep::Text(t) => out.push_str(&t),
+                DisplayStep::Value(v) => v.display_step(&mut out, &mut work),
+            }
+        }
+        out
+    }
+
+    fn display_step(&self, out: &mut String, work: &mut Vec<DisplayStep>) {
+        use std::fmt::Write;
         // **Dispatch on the tag before the payload.** `conv` matches the
         // payload arm and then re-checks the tag, sending a `Val::String` to
         // three different conversions depending on whether its `dt` is STRING,
@@ -864,32 +902,54 @@ impl BundValue {
         // tag/payload split from the rendering side, and it is the third place
         // in this crate where taking the payload arm alone was wrong.
         match self.dt() {
-            PTR => return format!("`({})", self.as_str().unwrap_or_default()),
-            CALL => return format!("F({})", self.as_str().unwrap_or_default()),
+            PTR => {
+                let _ = write!(out, "`({})", self.as_str().unwrap_or_default());
+                return;
+            }
+            CALL => {
+                let _ = write!(out, "F({})", self.as_str().unwrap_or_default());
+                return;
+            }
             // NODATA and NONE convert to their *names*, not to nothing
             // (`conv.rs:41-43,60-62`), so `nodata println` prints `NODATA`.
-            NODATA => return "NODATA".to_string(),
-            NONE => return "NONE".to_string(),
+            NODATA => {
+                out.push_str("NODATA");
+                return;
+            }
+            NONE => {
+                out.push_str("NONE");
+                return;
+            }
             _ => {}
         }
         if let Some(s) = self.as_str() {
-            return s;
+            out.push_str(&s);
+            return;
         }
         match self.unboxed() {
-            BundValue::Int(i, _) => i.to_string(),
-            BundValue::Float(f, _) => Self::float_text(*f),
-            BundValue::Bool(b, _) => b.to_string(),
-            BundValue::Nodata(_) | BundValue::None(_) => String::new(),
+            BundValue::Int(i, _) => {
+                let _ = write!(out, "{i}");
+            }
+            BundValue::Float(f, _) => out.push_str(&Self::float_text(*f)),
+            BundValue::Bool(b, _) => {
+                let _ = write!(out, "{b}");
+            }
+            BundValue::Nodata(_) | BundValue::None(_) => {}
             BundValue::Heap(h) => match &*h.payload {
+                // The members go on the worklist, in reverse, instead of
+                // recursing (F119).
                 Payload::List(items) => {
-                    let mut out = "[".to_string();
+                    out.push('[');
+                    let mut steps = Vec::new();
                     for v in items {
-                        out.push(' ');
-                        out.push_str(&v.display());
-                        out.push_str(" :: ");
+                        steps.push(DisplayStep::Text(" ".to_string()));
+                        steps.push(DisplayStep::Value(v.clone()));
+                        steps.push(DisplayStep::Text(" :: ".to_string()));
                     }
-                    out.push(']');
-                    out
+                    steps.push(DisplayStep::Text("]".to_string()));
+                    for step in steps.into_iter().rev() {
+                        work.push(step);
+                    }
                 }
                 // A MAP renders `{ k=v ::  k=v :: }` — the same doubled-space
                 // shape as a LIST, with `k=` before each element
@@ -900,25 +960,26 @@ impl BundValue {
                 // oracle answers `{ a=3 ::  b=2 :: }` where this fell through
                 // to the raw `Debug` form.
                 Payload::Map(m) => {
-                    let mut out = "{".to_string();
+                    out.push('{');
+                    let mut steps = Vec::new();
                     for (k, v) in m {
-                        out.push(' ');
-                        out.push_str(k);
-                        out.push('=');
-                        out.push_str(&v.display());
-                        out.push_str(" :: ");
+                        steps.push(DisplayStep::Text(format!(" {k}=")));
+                        steps.push(DisplayStep::Value(v.clone()));
+                        steps.push(DisplayStep::Text(" :: ".to_string()));
                     }
-                    out.push('}');
-                    out
+                    steps.push(DisplayStep::Text("}".to_string()));
+                    for step in steps.into_iter().rev() {
+                        work.push(step);
+                    }
                 }
                 // JSON converts to STRING as compact `serde_json` text
                 // (`reference/rust_dynamic/src/conv.rs:662-679`), so a JSON
                 // array prints `[1,2]`. Found by `json.path`, the first word
                 // whose answer a program prints while it is still JSON.
                 Payload::Json(j) => {
-                    serde_json::to_string(j).unwrap_or_else(|_| self.render(false))
+                    out.push_str(&serde_json::to_string(j).unwrap_or_else(|_| self.render(false)));
                 }
-                _ => self.render(false),
+                _ => out.push_str(&self.render(false)),
             },
         }
     }
@@ -1350,6 +1411,41 @@ impl Hash for BundValue {
 mod tests {
     use super::*;
 
+    /// **F117.** Rendering walked a value's depth in Rust frames, so
+    /// `debug.display_stack` on a 24,000-deep list aborted the process. The
+    /// walk runs from a worklist now. 30,000 levels is past where it aborted;
+    /// the point is that it returns.
+    #[test]
+    fn a_deeply_nested_value_renders_without_recursing() {
+        let mut v = BundValue::list(vec![BundValue::int(1)]);
+        for _ in 0..30_000 {
+            v = BundValue::list(vec![v]);
+        }
+        let text = v.render(true);
+        assert!(text.starts_with("Value { id: \"<id>\""), "{}", &text[..40]);
+        assert_eq!(text.matches("List([").count(), 30_001, "every level rendered");
+    }
+
+    /// F117's other half: the worklist emits the same bytes the recursion did.
+    /// Written out by hand rather than compared against the old code, which is
+    /// gone — a list holding a scalar and a map, normalised.
+    #[test]
+    fn the_rendered_text_is_unchanged_by_the_worklist() {
+        let mut m = BTreeMap::new();
+        m.insert("k".to_string(), BundValue::int(2));
+        let v = BundValue::list(vec![BundValue::int(1), BundValue::map(m)]);
+        assert_eq!(
+            v.render(true),
+            "Value { id: \"<id>\", stamp: <stamp>, dt: 9, q: 100.0, data: List([\
+             Value { id: \"<id>\", stamp: <stamp>, dt: 2, q: 100.0, data: I64(1), \
+             attr: [], curr: -1, tags: {} }, \
+             Value { id: \"<id>\", stamp: <stamp>, dt: 11, q: 100.0, data: Map({\"k\": \
+             Value { id: \"<id>\", stamp: <stamp>, dt: 2, q: 100.0, data: I64(2), \
+             attr: [], curr: -1, tags: {} }}), attr: [], curr: -1, tags: {} }\
+             ]), attr: [], curr: -1, tags: {} }"
+        );
+    }
+
     /// **F115.** A value holds its members, so the derived drop freed a
     /// nested LIST by recursing on the nesting, and
     /// `list 30000 { drop list push } times` aborted the process *after*
@@ -1657,7 +1753,14 @@ impl BundValue {
         out
     }
 
-    fn render_into(&self, out: &mut String, norm: bool) {
+    /// One step of the rendering walk — **F117**.
+    ///
+    /// A value's depth used to be Rust frames: `render_into` descended through
+    /// `attr` and `render_payload` through a container's members, so
+    /// `debug.display_stack` on a 24,000-deep list aborted the process, which
+    /// D37 forbids. The work is the same work, driven from a heap `Vec`, so
+    /// the text is byte-identical at every depth and no golden can move.
+    fn render_step(&self, out: &mut String, norm: bool, work: &mut Vec<RenderStep>) {
         use std::fmt::Write;
         // A scalar renders through a synthetic header: the reference has no
         // unboxed values, so every rendering is a full `Value { .. }`.
@@ -1676,25 +1779,47 @@ impl BundValue {
             out,
             "Value {{ id: \"{id}\", stamp: {stamp}, dt: {dt}, q: {q:?}, data: "
         );
-        self.render_payload(out, norm);
-        let _ = write!(out, ", attr: [");
+
+        // What follows the payload, built now and run after it: the `attr`
+        // list, then the tags, which carry no values and so are text.
+        let mut tail: Vec<RenderStep> = Vec::new();
+        tail.push(RenderStep::Text(", attr: [".to_string()));
         for (i, a) in self.attr().iter().enumerate() {
             if i > 0 {
-                let _ = write!(out, ", ");
+                tail.push(RenderStep::Text(", ".to_string()));
             }
-            a.render_into(out, norm);
+            tail.push(RenderStep::Value(a.clone(), norm));
         }
-        let _ = write!(out, "], curr: {curr}, tags: {{");
+        let mut tags = String::new();
+        let _ = write!(tags, "], curr: {curr}, tags: {{");
         for (i, (k, v)) in self.tags().iter().enumerate() {
             if i > 0 {
-                let _ = write!(out, ", ");
+                let _ = write!(tags, ", ");
             }
-            let _ = write!(out, "{k:?}: {v:?}");
+            let _ = write!(tags, "{k:?}: {v:?}");
         }
-        let _ = write!(out, "}} }}");
+        let _ = write!(tags, "}} }}");
+        tail.push(RenderStep::Text(tags));
+
+        // `work` is a stack, so the payload's own steps must sit above the
+        // tail: push the tail first, in reverse, then let the payload push.
+        for step in tail.into_iter().rev() {
+            work.push(step);
+        }
+        self.render_payload(out, norm, work);
     }
 
-    fn render_payload(&self, out: &mut String, norm: bool) {
+    fn render_into(&self, out: &mut String, norm: bool) {
+        let mut work = vec![RenderStep::Value(self.clone(), norm)];
+        while let Some(step) = work.pop() {
+            match step {
+                RenderStep::Text(t) => out.push_str(&t),
+                RenderStep::Value(v, n) => v.render_step(out, n, &mut work),
+            }
+        }
+    }
+
+    fn render_payload(&self, out: &mut String, norm: bool, work: &mut Vec<RenderStep>) {
         use std::fmt::Write;
         match self {
             BundValue::Int(i, _) => {
@@ -1708,7 +1833,8 @@ impl BundValue {
             }
             BundValue::Nodata(_) | BundValue::None(_) => out.push_str("Null"),
             BundValue::Heap(h) => match &*h.payload {
-                Payload::Scalar(inner) => inner.render_payload(out, norm),
+                // A boxed scalar is flat, so it renders in place.
+                Payload::Scalar(inner) => inner.render_payload(out, norm, work),
                 Payload::Exit => out.push_str("Exit"),
                 Payload::Str(x) => {
                     let _ = write!(out, "String({x:?})");
@@ -1745,36 +1871,35 @@ impl BundValue {
                     // without moving the payload.
                     let _ = write!(out, "Json({j:?})");
                 }
-                p @ Payload::Lambda(v) => {
+                // The container arms push their members onto `work` instead of
+                // recursing (F117). `work` is a stack, so the steps go on in
+                // reverse and come off in the order they are written.
+                p @ (Payload::Lambda(v) | Payload::List(v)) => {
                     let _ = write!(out, "{}([", p.val_name());
+                    let mut steps = Vec::new();
                     for (i, e) in v.iter().enumerate() {
                         if i > 0 {
-                            let _ = write!(out, ", ");
+                            steps.push(RenderStep::Text(", ".to_string()));
                         }
-                        e.render_into(out, norm);
+                        steps.push(RenderStep::Value(e.clone(), norm));
                     }
-                    out.push_str("])");
-                }
-                p @ Payload::List(v) => {
-                    let _ = write!(out, "{}([", p.val_name());
-                    for (i, e) in v.iter().enumerate() {
-                        if i > 0 {
-                            let _ = write!(out, ", ");
-                        }
-                        e.render_into(out, norm);
+                    steps.push(RenderStep::Text("])".to_string()));
+                    for step in steps.into_iter().rev() {
+                        work.push(step);
                     }
-                    out.push_str("])");
                 }
                 p @ Payload::Map(m) => {
                     let _ = write!(out, "{}({{", p.val_name());
+                    let mut steps = Vec::new();
                     for (i, (k, v)) in m.iter().enumerate() {
-                        if i > 0 {
-                            let _ = write!(out, ", ");
-                        }
-                        let _ = write!(out, "{k:?}: ");
-                        v.render_into(out, norm);
+                        let sep = if i > 0 { ", " } else { "" };
+                        steps.push(RenderStep::Text(format!("{sep}{k:?}: ")));
+                        steps.push(RenderStep::Value(v.clone(), norm));
                     }
-                    out.push_str("})");
+                    steps.push(RenderStep::Text("})".to_string()));
+                    for step in steps.into_iter().rev() {
+                        work.push(step);
+                    }
                 }
                 p @ Payload::ValueMap(m) => {
                     // Ordered by the rendered key. The container hashes, per
@@ -1782,18 +1907,22 @@ impl BundValue {
                     // distinction an earlier draft collapsed by reaching for
                     // one map type to satisfy both requirements.
                     let _ = write!(out, "{}({{", p.val_name());
+                    // Each key is rendered to sort by it, which is a walk of
+                    // its own — and one this driver bounds, since `render`
+                    // starts a fresh worklist (F117).
                     let mut entries: Vec<(String, &BundValue)> =
                         m.iter().map(|(k, v)| (k.render(true), v)).collect();
                     entries.sort_by(|a, b| a.0.cmp(&b.0));
-                    for (i, (k, v)) in entries.iter().enumerate() {
-                        if i > 0 {
-                            let _ = write!(out, ", ");
-                        }
-                        out.push_str(k);
-                        out.push_str(": ");
-                        v.render_into(out, norm);
+                    let mut steps = Vec::new();
+                    for (i, (k, v)) in entries.into_iter().enumerate() {
+                        let sep = if i > 0 { ", " } else { "" };
+                        steps.push(RenderStep::Text(format!("{sep}{k}: ")));
+                        steps.push(RenderStep::Value(v.clone(), norm));
                     }
-                    out.push_str("})");
+                    steps.push(RenderStep::Text("})".to_string()));
+                    for step in steps.into_iter().rev() {
+                        work.push(step);
+                    }
                 }
             },
         }

@@ -1640,11 +1640,49 @@ measurable and worth measuring before deciding.
 decision. `crates/bund2-stdlib/src/logic.rs` pins all four mixed-kind answers
 in a test, so whichever way this resolves the change is one edit and one test.
 
+### Decision
+
+Decided by the repository owner, 2026-09-11: **option 2 — exactness extends to
+ordering.** An integer and a float order by the mathematical values they
+denote, so exactly one of `a < b`, `a == b`, `a > b` holds. **In stack order**,
+where the word compares the value beneath against the top: `2.0 1 <` is true
+and `2.0 1 >`, `2.0 1 >=` are false, while the reference answers true to all
+four. (`1 2 <` is false and `1 2 >` true, in Bund2 and in the oracle alike —
+the operand order reads backwards from the infix spelling.) NaN orders against nothing, so all four answer
+false where the reference answers true.
+
+**The measurement this decision asked for.** The text above said the
+inconsistency might cost little if mixed-kind ordering is rare, and that it was
+worth measuring first. It was measured on 2026-09-11: across `examples/` and
+`tests/probes/`, three files use an ordering operator at all —
+`tests/probes/stack-loops.bund` (`dup 3 >`), `tests/probes/value-builders.bund`
+(`1 2 <=`, `2 1 >=`) and `tests/probes/sqlite-conditional.bund`, whose `>` is
+inside a PRQL string and never reaches Bund's word. **Every one compares an
+integer against an integer.** So option 2's cost in goldens is zero, and the
+argument against it — that option 1 is free and this is not — does not apply.
+
+`numeric_ord` mirrors `numeric_eq`, and `exact_int_float_ord` spells out the
+comparison (`crates/bund2-stdlib/src/logic.rs`): `i as f64` is lossy above 2^53
+and `f as i64` saturates, so the exact route compares in `f64` only where the
+integer converts exactly and by the float's floor above that.
+
+This also unblocks RFC-0005: §S6 forbade lowering a mixed-kind comparison to a
+machine compare while D33 stood, and said the lowering becomes available if
+D33 resolved this way.
+
+### Rejected
+
+- **Option 1, preserve.** It leaves `42 == 42.0` true while `42 < 42.0` and
+  `42 > 42.0` are both true, which no program can reason about.
+- **Option 3, reject mixed kinds.** Internally consistent, but it refuses a
+  comparison the reference answers, breaking programs that get an answer today.
+
+- Decided by: repository owner, 2026-09-11
 - Depends on: D30 (equality, resolved), F47 (the defect), F48 (there is
   currently no way to record the resulting golden disagreement as approved —
-  which applies to D30's two existing deviations already, and would apply to
-  this one too)
-- Status: **OPEN**
+  which applies to D30's two existing deviations already, and applies to this
+  one too)
+- Status: **RESOLVED — ordering is exact; F47 carries the dated note.**
 
 ## D34 — does `( … )` keep hoisting out of an enclosing block?
 

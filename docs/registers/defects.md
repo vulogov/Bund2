@@ -1509,6 +1509,19 @@ gives a usable answer; only the overrides are reachable.
   D33 carries the question; until it resolves, the reference's answers stand
   and `crates/bund2-stdlib/src/logic.rs` pins all four in a test.
 
+**Dated note, 2026-09-11 — D33 resolved, and this is now a corrected
+deviation.** The repository owner took D33's option 2: an integer and a float
+order by the mathematical values they denote, so exactly one of `<`, `==`, `>`
+holds, and NaN orders against nothing. `numeric_ord` mirrors `numeric_eq`
+(`crates/bund2-stdlib/src/logic.rs`), with `exact_int_float_ord` handling the
+two casts neither of which is safe alone — `i as f64` is lossy above 2^53 and
+`f as i64` saturates. `an_int_and_a_float_order_by_their_mathematical_value`
+replaces the test that pinned the reference's four answers. Conformance does
+not move: no corpus program orders across kinds (measured — three files use an
+ordering operator at all, and every one compares int to int). The disagreement
+with the oracle is a deviation with no golden to record it against, which is
+F48's gap, the same one D30's two deviations already sit in.
+
 ## F48 — `conform` cannot express a deviation the owner already approved
 
 D30 mandates two deviations from the reference and names the goldens each one
@@ -3672,6 +3685,56 @@ walk a value's members too, and each still recurses on depth. RFC-0005's
 assumption 36 records the rendering half; none of them is filed yet, and each
 would need its own iterative rewrite and its own test.
 
+## F117 — rendering a deeply nested value aborts the process
+
+**A Bund2 defect against D37**, found by RFC-0005's eighteenth review (B2),
+which measured what that RFC's assumption 36 had called unmeasured.
+
+`BundValue::render_into` and `render_payload` walk a value's members by
+recursing: `render_into` descends through `attr`, and `render_payload` through
+the members of `Lambda`, `List`, `Map` and `ValueMap` — the last twice over,
+since it renders each key to sort by it
+(`crates/bund2-value/src/lib.rs`). Nothing bounds that, so the depth of the
+value is Rust frames. Measured 2026-09-11 on the release binary:
+
+    list
+    24000 { drop list push } times
+    "built" println
+    debug.display_stack
+
+prints `built` and then `thread 'bund2' has overflowed its stack`, `fatal
+runtime error: stack overflow, aborting`, exit 134. At 20,000 the same program
+exits 0.
+
+**Why it matters.** This is the same class as F114, F115 and F116, on a word
+the conformance path runs: the golden capture epilogue calls
+`debug.display_stack`, and RFC-0005's criterion 14 names it. `--raw-values`
+reaches the same renderer. The report path is unaffected, because a
+diagnostic's values go through `BundValue::summary`, which is bounded at depth
+2 by design (D36).
+
+**Status:** FIXED 2026-09-11 (`crates/bund2-value/src/lib.rs`). The repository
+owner chose the iterative renderer, so the text is byte-identical at every
+depth and no golden can move. `render_into` drives a `Vec<RenderStep>`, where a
+step is either already-formatted `Text` or a `Value` still to render;
+`render_step` emits a value's header, queues its `attr` members and its tag
+text, and lets the payload queue its own. The container arms of
+`render_payload` — `Lambda`, `List`, `Map`, `ValueMap` — push their members and
+separators instead of recursing, in reverse, since the worklist is a stack. A
+boxed `Scalar` is flat and renders in place. `ValueMap`'s keys are still
+rendered to sort by them, and each of those is a walk the same driver bounds.
+
+The program above now prints `built` and `rendered` and exits 0, at 24,000 and
+at 30,000. `a_deeply_nested_value_renders_without_recursing` renders 30,000
+levels, and `the_rendered_text_is_unchanged_by_the_worklist` pins the bytes for
+a list holding a scalar and a map. The 49 tests in the crate, several of which
+assert exact rendered text, pass unchanged, and conformance is unmoved.
+
+**The last of the four.** F114 (executing a container), F115 (dropping a
+value), F116 (parsing a run-time string) and F117 (rendering a value) were the
+same defect in four places: Rust recursion driven by the depth of data a
+program chooses. D39's dated note of 2026-09-11 states the rule they share.
+
 ## F116 — parsing a deeply nested run-time string aborts the process
 
 **A Bund2 defect against D37**, found by RFC-0005's seventeenth review (B2).
@@ -3724,3 +3787,77 @@ for. Conformance is unmoved at 105/113: no golden nests past 2.
 — the same disposition F85 took for evaluation nesting, and for the same
 reason: D37 is absolute, and a program's own data must not be able to end the
 process.
+
+## F118 — the wire codec recurses on a value's depth, so `save.model` aborts
+
+**A Bund2 defect against D37**, found by RFC-0005's nineteenth review (B1),
+which read the sentence written a day earlier claiming no wire encoder existed
+to recurse.
+
+`crates/bund2-value/src/wire.rs` is the bincode codec (D4) and it descends per
+level in both directions: `val_of` maps `Payload::List`, `Lambda`, `Map` and
+`ValueMap` through `WireValue::from_value`, which calls `val_of` again, and
+`Payload::Scalar` calls it directly; `into_value` decodes `List` and `Lambda`
+through `decode_all` per item. `bincode`'s derived `Serialize`/`Deserialize`
+on the nested `WireValue` recurse on top of that, and `WireValue`'s derived
+`Drop` once more. `save.model` reaches it (`crates/bund2-stdlib/src/world.rs`,
+`save_model`), and so do `load.model` and the sqlite blob path.
+
+Measured 2026-09-11 and 2026-09-12, release binary:
+
+    list
+    3400 { drop list push } times
+    "built" println
+    "m" swap "wx" save.model
+
+prints `built`, then aborts with a stack overflow, exit 134. **3,350 exits 0
+and 3,400 aborts**, and each iteration adds exactly one level.
+
+**It is the shallowest of the class by an order of magnitude** — F114 needed
+20,000, F115 30,000, F116 16,000, F117 24,000, F119 28,000 — and the depth is
+one a program could reach without meaning to.
+
+**Attributed by measurement, after two false starts.** A probe calling
+`from_value` and `to_binary` directly survived 12,000 levels, which looked
+like an exoneration; it was not. Re-run on smaller threads the threshold
+tracks the stack almost exactly — 2 MiB aborts at 3,400 and survives 1,700,
+4 MiB survives 3,400 and aborts at 6,800, 8 MiB survives 6,800 — so the codec
+spends about **600 bytes of stack per level** and the earlier probe simply had
+more room than the CLI does. Ruled out along the way: redb (a shallow value
+saves fine after the same deep build), the reporter (`--no-dump-stack` still
+aborts), `swap`, and the stack left at exit.
+
+**Not reachable by any existing audit.** `save.model` re-enters no evaluation,
+so it is absent from `every_reentering_function_is_named`'s set and from §S8's
+`c_p`; and it is one of the six `ACTS_ON_HOST` natives criterion 28's palette
+never runs. RFC-0005's assumption 21 calls that exclusion conservative, which
+is true for promotion and false for D37: an unrun native can still abort.
+
+**Status:** OPEN, awaiting a disposition. `val_of` can be flattened onto a
+worklist as F114, F115, F117 and F119 were, but bincode's derived `Serialize`
+recursion is inside the dependency and a worklist cannot reach it, so a bound
+that reports — F116's disposition, at a depth chosen as D39 chooses one — may
+be the only honest fix. Both halves are the repository owner's call.
+
+## F119 — `display` recurses on a value's depth, so `println` aborts
+
+**A Bund2 defect against D37**, found by RFC-0005's nineteenth review (B2).
+
+`BundValue::display` is a second renderer, distinct from the `render_into`
+F117 fixed, and F117 did not touch it. Its `List` and `Map` arms called
+`display` per member (`crates/bund2-value/src/lib.rs`). It is what `println`,
+`print`, `pull` and the string conversions all reach, so it is on every
+conformance path there is.
+
+Measured 2026-09-11, release binary: `dup println` on a nested list **exits 0
+at 27,000 and aborts at 28,000**, exit 134, while the same build without the
+`println` exits 0 at 30,000 and `debug.display_stack` at 30,000 exits 0 — so
+it is `display`, not the build, and not the path F117 fixed.
+
+**Status:** FIXED 2026-09-12 (`crates/bund2-value/src/lib.rs`). `display`
+drives a `Vec<DisplayStep>` — either already-formatted `Text` or a `Value`
+still to render — and `display_step` queues a container's members and their
+separators in reverse instead of recursing, exactly as F117's renderer does.
+The bytes are unchanged at every depth: the crate's 51 tests, several of which
+assert exact printed text, pass unchanged, and conformance stays 105/113 on
+both tiers.

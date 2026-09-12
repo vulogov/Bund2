@@ -186,11 +186,33 @@
   fixed by driving `execute_reached`'s traversal from a heap worklist, so a
   value's depth costs no stack. The same measurement found two more aborts on
   paths §S8's floors do not reach: F115, dropping a deep value, fixed the same
-  way with an iterative `Drop`, and F116, parsing a deep run-time string,
-  which stays open. Assumptions 34 and 35 record both. **S1–S4**: `execute.rs:93-95` is cited for the reached half only,
+  way with an iterative `Drop`, and F116, parsing a deep run-time string, fixed
+  with a parser bound (`MAX_NESTING`, 1024). Assumptions 34 and 35 record both. **S1–S4**: `execute.rs:93-95` is cited for the reached half only,
   and the filed half is stated as the deviation it is; criterion 11's case is
   a number again; `PROMOTABLE.txt`'s header states its own arithmetic; and
   D55's status records the regeneration.
+
+  The eighteenth review found two blockers. **B1**: §S4 required a compiled
+  `$name` call to key on the reference's one-level alias answer. The premise
+  about the reference is right, but Bund2 resolves to a fixed point for every
+  spelling (`Registry::follow`), which is RFC-0002's approved deviation,
+  asserted by its criterion 6a. Built as written, compiled `$a` would have
+  reached `b` where Tier 0 reaches `dup_one` — a meaning difference §S2
+  forbids, which would have moved conformance and un-met an accepted criterion
+  of another RFC under `--features jit`. §S4, the `$name` slot rule and the
+  Preservation row now key on the fixed point and record the reference's
+  behaviour as the deviation it is. **B2**: assumption 36 called the unbounded
+  renderer unmeasured; it aborts at 24,000 levels through
+  `debug.display_stack`, a word the golden capture epilogue runs. That is
+  F117, fixed with an iterative renderer whose output is byte-identical. The
+  set is **six, not four**: the nineteenth review found `display` recursing as
+  well (F119, fixed the same way) and the wire codec recursing on the way to
+  `save.model` (F118, open at 3,400 levels). D39's dated note states the rule
+  all six share. **S1–S4**: F116's status reads FIXED in all three places; assumption
+  35 no longer claims `PartialEq`, `Hash` and a wire format recurse, since two
+  bottom out at `identity()` and the third does not exist; §S8 and §S5 name
+  `execute_one`, which is where the re-entries live, and count its path as two
+  frames; and assumption 33 states the three blind spots of its derivation.
 
   **Criterion 10 has a first measurement**, from a throwaway lowering outside
   this RFC's gate (2026-09-11, branch `spike/lowering-1`). With §S8's call
@@ -213,8 +235,8 @@
   (materialisation points), **D32** as amended 2026-09-10 on Q35's answer (`q` is
   kept on every value and **not** averaged by arithmetic; §S6's constraint 2
   rests on it),
-  **D33** (**OPEN**; §S6 states what it withholds
-  rather than taking its default), **D35** (the cache keys on the body's `Rc`
+  **D33** (**RESOLVED** 2026-09-11 on option 2 — ordering across int and float
+  is exact, which §S6 consumes), **D35** (the cache keys on the body's `Rc`
   pointer; as amended 2026-09-10 on Q32, it holds a `Weak`), **D42** (a body's
   `Rc` reaches the point where it starts running), **D43** (the registration
   id and stable generation cells §S6's guards need), **D44** (the level at
@@ -552,8 +574,29 @@ because `get_alias` answers with one `name_mapping` lookup and never follows the
 chain (`reference/rust_multistackvm/src/multistackvm_alias.rs:31-39`).
 F26 already records that `$` does **not** bypass alias resolution — it skips
 the lambda check only — and this is the finer consequence: it skips one *level*
-of it. A slot keyed on "the resolved target" therefore needs to say which
-resolution, and a compiled `$name` call must key on the one-level answer.
+of it.
+
+**Bund2 does not reproduce that, by decision, and Tier 1 follows Bund2.**
+`Registry::follow` walks the chain until it runs out of links — **or until 64
+of them**, D39's bound against a cycle `alias` can build, after which it
+answers the last link it reached — and `Registry::resolve` calls it for both
+spellings, the sigil selecting only whether `lambda` is consulted
+(`crates/bund2-api/src/lib.rs`, `follow` and `resolve`). A chain past 64 links
+therefore has no fixed point, and what Tier 0 answers there is part of its
+meaning. Tier 1 agrees regardless, because a name reached through an alias
+points at the resolving trampoline and runs the same `dispatch`, and so the
+same `follow`. So on
+`a → b → dup_one` the oracle's `$a` fails where its `a` duplicates, and Bund2's
+`$a` duplicates like its `a` (both run 2026-09-11). That is RFC-0002's approved
+deviation, asserted by its criterion 6a and recorded in its Preservation table
+and in F26's consequence paragraph. **A compiled `$name` call therefore keys on
+the fixed point, exactly as every other call does**, because criterion 2's
+invariant is agreement with Tier 0, not with the reference. Keying on the
+one-level answer — which an earlier revision of this paragraph required — would
+make compiled `$a` reach `b` where Tier 0 reaches `dup_one`, move conformance,
+and un-meet an accepted criterion of another RFC under `--features jit` (the
+eighteenth review's B1). Changing that is a change to Tier 0 and to RFC-0002,
+and belongs in `docs/registers/decisions.md` before either is edited.
 
 ## Step 3 is the one that changes what a call means
 
@@ -968,7 +1011,9 @@ Tier 0 does not always run a body when it is called. `Vm::tail_lambda` is
 `crates/bund2-interp/src/lib.rs`). Only `Interp::take_pending` pushes its
 frame, and Tier 0 calls it straight after each value it applies
 (`Interp::run_to`, `Interp::apply`). Five kinds of call file a request:
-- `!` on a lambda (`execute_value`, `crates/bund2-stdlib/src/values.rs`);
+- `!` on a lambda the program executed itself, `Reach::Top` (`execute_one`,
+  `crates/bund2-stdlib/src/values.rs`; a lambda a container reached runs at
+  once instead, F113);
 - `if.stack`, when the stack it names is the current one (`if_stack`,
   `crates/bund2-stdlib/src/control.rs`; it declares `opaque(2)`, and the
   eleventh review found it missing here);
@@ -1170,9 +1215,10 @@ inlining rules:
   name that is direct at compile time and made an alias later is caught,
   because `register_alias` touches that name's own slot and the check fails.
 - **`$name` reads its own name's slot, under the same rule.** `$` skips the
-  lambda check and resolves one level of alias (§S4, *The chain*). On a direct
-  name that level is the name itself, so the check reads that name's slot. On
-  an alias, the body syncs before the call. The effect trusted is the
+  lambda check; in Bund2 it resolves the alias chain to a fixed point like any
+  other spelling (§S4, *The chain*, and RFC-0002's criterion 6a). On a direct
+  name that fixed point is the name itself, so the check reads that name's
+  slot. On an alias, the body syncs before the call. The effect trusted is the
   **native** binding's, since `$` skips the lambda. A lambda registered on the
   same name bumps that slot's generation, so the check still fails when one
   arrives.
@@ -1693,12 +1739,19 @@ Three things bound promotion:
   caught by §S5's pre-call check.
 - **`Opaque` effects**, counted in *Where promotion stops* above. Promotion
   stops; compilation does not.
-- **D33 is OPEN.** Ordering across int and float currently answers **true to
-  all four of `<`, `>`, `<=`, `>=` at once** (F47), which is not a machine
-  representable order. A mixed-kind comparison therefore **cannot be lowered to
-  a single machine compare** while D33 stands. This RFC does not take D33's
-  default: it requires mixed-kind comparison to take the generic path, and
-  notes that if D33 resolves to option 2 the lowering becomes available.
+- **D33 is RESOLVED, and the lowering is available.** Ordering across int and
+  float answered **true to all four of `<`, `>`, `<=`, `>=` at once** (F47),
+  which is not a machine representable order, so while D33 stood this RFC
+  forbade lowering a mixed-kind comparison and required the generic path. D33
+  took option 2 on 2026-09-11: the two order by the mathematical values they
+  denote, exactly one of `<`, `==`, `>` holding. A mixed-kind comparison may
+  now be lowered, **but not as a single machine compare**.
+  `exact_int_float_ord` (`crates/bund2-stdlib/src/logic.rs`) is a widening
+  compare only where the integer converts exactly; NaN answers false to all
+  four, ±∞ are special-cased, and above 2^53 the comparison goes through the
+  float's floor with a fractional tie-break. So this is a lowerable *fragment*
+  under §S6's constraint 2 — the fast path guarded, the generic branch still
+  the word — and not an `fcmp`.
 
 # S7. Tiering policy: threshold, cap, demotion — Q22 (cache), answered here
 
@@ -2032,7 +2085,7 @@ until the seventeenth review measured it: `execute_reached` recursed on a
 value's depth at about 550 bytes a level, so the 256 KiB reserve carried about
 470 levels and a 20,000-deep list aborted the process (F114, fixed by a heap
 worklist). Two more paths outside this design recursed the same way, and
-§S8's floors reach neither: dropping a deep value (F115, since fixed the same
+§S8's floors reached neither: dropping a deep value (F115, since fixed the same
 way) and parsing a deep run-time string (F116, open), assumptions 34 and 35. Two things come out of
 the reserve and are not measured, though both are small against 256 KiB:
 
@@ -2135,16 +2188,18 @@ the limit. Two rules close it:
     21;
   - through `Vm::scoped_call`: `context`;
   - through `Vm::apply`: **`eval_source`** (`bund.eval`, `!!`, `use`),
-    **`execute_reached`** (the body of `!` and `execute`, handed a name),
-    **`apply`**, and `text`, which applies a TEXTBUFFER and so cannot
-    recurse.
+    **`execute_one`** (the arms of `!` and `execute`, handed a name; the
+    derived set names this, not its callers `execute_value` and
+    `execute_reached`), **`apply`**, and `text`, which applies a TEXTBUFFER
+    and so cannot recurse.
 
-  `eval_source` and `execute_reached` are paths of their own. Each adds its
-  own frame, and `eval_source` a parse and a loop, to `Vm::apply`'s, so their
-  `c_p` is not `Vm::apply`'s alone. Criterion 11 reports `c_p` and `δ_p` for
-  each. **`execute_reached` has two costs, not one**, since F113: a name goes
-  through `Vm::apply`, and a lambda a list or dict reached goes through
-  `Vm::eval_lambda`. Its LIST and MAP arms drive a heap worklist rather than
+  `eval_source` and `execute_one` are paths of their own. Each adds its own
+  frame, and `eval_source` a parse and a loop, to `Vm::apply`'s, so their
+  `c_p` is not `Vm::apply`'s alone. `execute_one` adds two: the worklist in
+  `execute_reached` calls it per value, so a re-entry through `!` spends both
+  frames. Criterion 11 reports `c_p` and `δ_p` for each. **`execute_one` has
+  two costs, not one**, since F113: a name goes through `Vm::apply`, and a
+  lambda a list or dict reached goes through `Vm::eval_lambda`. Its LIST and MAP arms drive a heap worklist rather than
   recursing, since F114, so a value's depth costs no Rust stack and does not
   enter `c_p` at all. Criterion 11 measures its two evaluation re-entries, as
   it does every other path. Then Tier 0's part is
@@ -2378,17 +2433,20 @@ with the place that enforces or decides it.
     shipped code after it would go unscanned (§S8). This holds in every file
     on 2026-09-11, and nothing enforces it.
 28. **A list literal does not evaluate its items.** `[ 1 2 + ]` keeps `+` as a
-    CALL value (run 2026-09-11), so `execute_value`'s arms that do Rust work
+    CALL value (run 2026-09-11), so `execute_one`'s arms that do Rust work
     before re-entering evaluation — CLASS, OBJECT, CONDITIONAL — are not
     reachable from a literal, and neither is its MAP arm. Its other arms are
-    LIST, LAMBDA and the name arm. F112's "no golden moves" rests on this.
+    LIST, LAMBDA and the name arm. (`execute_value` delegates to
+    `execute_reached`, whose worklist calls `execute_one`; the arms are all in
+    the last.) F112's "no golden moves" rests on this.
     **A literal is not the only way a program gets a LIST**, and the first
     word that returns a list of dicts makes the MAP arm reachable from source
     without touching `values.rs` (the sixteenth review's B1).
 29. **A native that files two tail requests loses the first.**
     `Interp::request_tail` assigns. No `bund2-stdlib` native does that now:
-    the one that did, `execute_value`, files only when the program executed a
-    lambda itself, and runs one at once when a list or a dict reached it
+    the one that did, `execute_one`, files only when the program executed a
+    lambda itself — its `Reach::Top` arm — and runs one at once when a list or
+    a dict reached it
     (F113, completed after the sixteenth review's B1). The reached half is the
     reference's — its one LAMBDA arm runs the body at once, whichever arm
     reached it
@@ -2415,7 +2473,9 @@ with the place that enforces or decides it.
     worklist. Data depth now costs no stack on that path. The general claim
     stands: a native that recurses in Rust between floor checks is bounded by
     the reserve and by nothing else, so a new one must not recurse on data a
-    program controls.
+    program controls. **The re-entering frames on this path are
+    `execute_reached`'s and `execute_one`'s**, since the worklist calls the
+    latter per value, so `c_p` counts two (the eighteenth review's S3).
 31. **The entry trampoline makes no status of its own.** §S5 gives four
     helpers `status_of` and treats the entry separately, because the entry
     only converts a body's status rather than making one. An entry path that
@@ -2435,7 +2495,17 @@ with the place that enforces or decides it.
     (`crates/bund2-interp/src/lib.rs`) scans for writes and fails when a fifth
     appears. An earlier revision of this assumption named one writer where the
     code had three, and so could not have caught what it was added for (the
-    seventeenth review's B1).
+    seventeenth review's B1). **What the derivation cannot see**, as every
+    sibling scan in this RFC states for itself: it reads
+    `crates/bund2-interp/src/lib.rs` alone, so a write from that crate's
+    `frag.rs` passes; it cuts at the first `#[cfg(test)]` module, as
+    assumption 27 says for the other scan; and it matches two spellings,
+    `pending_tail =` and `pending_tail.take()`, so `replace`,
+    `get_or_insert_with`, a `mem::swap` or a `&mut` handed to a helper would
+    not be seen. The half no scan can ever cover is `bund2-jit`'s: `status_of`
+    and the drain helper are given `Vm::clear_tail_request` (D56) and nothing
+    derives that they call it, because the crate does not exist yet (the
+    eighteenth review's S4).
 34. **§S8's floors are silent about parse depth, and a bound stands in for
     them.** They bound evaluation nesting and compiled entries. The parse of a
     *run-time string* handed to `bund.eval`, `!!` or `use` recurses on that
@@ -2449,14 +2519,24 @@ with the place that enforces or decides it.
     value dies, long after any check. Dropping a deeply nested value used to
     recurse on its depth, and a 30,000-deep list aborted after the program's
     own work had finished and its output had printed (F115, fixed by an
-    iterative `Drop` for `HeapValue`). Other walks over a value's members —
-    `render`, `PartialEq`, `Hash`, the wire format — still recurse on depth,
-    and assumption 36 covers the rendering half.
-36. **`debug.display_stack` and `--raw-values` render a deep value without a
-    bound.** A report's values go through `BundValue::summary`, which is
-    bounded by design (D36), and these two do not. 20,000 levels rendered
-    here, so this is unmeasured rather than known false (the seventeenth
-    review's §8.5).
+    iterative `Drop` for `HeapValue`). **The walks over a value's members are
+    seven**, and the nineteenth review found the previous revision of this
+    sentence wrong in both directions, so they are listed:
+    `Drop` (F115, iterative), `render_into` (F117, iterative), `display`
+    (F119, iterative), the **wire codec** (`crates/bund2-value/src/wire.rs`,
+    which recurses and aborts `save.model` at 3,400 levels — F118, open),
+    `summarise` (bounded at depth 2 by design, D36), and `PartialEq` and
+    `Hash`, which compare and hash a container by `identity()` and never
+    descend (`crates/bund2-value/src/lib.rs`). Two of the seven recursed when
+    the eighteenth review's answer claimed one did.
+36. **Rendering a value walks its depth, and that walk is on the conformance
+    path.** `debug.display_stack` and `--raw-values` render in full, where a
+    report's values go through `BundValue::summary`, bounded at depth 2 by
+    design (D36). The seventeenth review called the unbounded half unmeasured;
+    the eighteenth measured it, and it aborted at 24,000 levels where 20,000
+    exited 0 — F117, fixed by rendering from a worklist so the output is
+    byte-identical at every depth. The golden capture epilogue calls
+    `debug.display_stack`, so this was never an embedder-only corner.
 
 # S9. Tier pinning
 
@@ -2541,12 +2621,12 @@ disagrees with interpreted code", and each has a named guard:
 | the tier taking stack that Tier 0's native nesting would have had | the thread is sized at Tier 0's part plus Tier 1's share, and compiled frames start only above the Tier 1 floor, so Tier 0 never has less room with the tier on (§S8); criterion 11 checks that the `loop` level is no lower with the feature on |
 | the level at which `machine stack exhausted` is reported, which moves with the build profile and with the feature | not meaning (D44): never an abort, and never lower with the tier on; criterion 11 |
 | a value synced back from a `Variable` losing its D41 stack symbol, so a golden renders `tags: {}` | the sync writes through the same path `Stack::push` uses, not a bare `push_back` (§S5); criterion 12 |
-| a slot naming a spelling rather than the resolved target, when `i` resolves aliases twice | slots key on the resolved name (§S4), **except for `$`**, which is resolved one level shallower and keys on that one-level answer (§S4, *The chain*) |
+| a slot naming a spelling rather than the resolved target, when `i` resolves aliases twice | slots key on the resolved name (§S4), **for every spelling including `$`**: `Registry::follow` walks to a fixed point and `Registry::resolve` calls it either way, so Tier 1 keys on what Tier 0 dispatches to. The reference resolves `$name` one level shallower; not reproducing that is RFC-0002's approved deviation, asserted by its criterion 6a (§S4, *The chain*) |
 | `unregister` against a name a compiled body still calls | the call slot is rewritten to what the name now resolves to — the native a lambda shadowed, if any — and to a failing stub only when nothing resolves; never freed (§S4) |
 | `alias` retargeted after a caller was compiled | a name reached through an alias is never cached: its call slot points at the resolving trampoline (§S4, *Two structures*), so a retarget is seen on the next call and there is nothing to fan out |
 | a diagnostic raised in compiled code carrying no Bund source location | D36 requires a `Diagnostic` with a Bund location; compiled frames have none unless the lowering carries spans, which §S11's return-value protocol must thread |
 | an **opaque** site leaving a stale promoted value behind | promotion stops and syncs to the real stack before the call (§S5); cost checked by criterion 9 |
-| mixed-kind comparison lowered to a machine compare | forbidden while D33 is OPEN (§S6) |
+| mixed-kind comparison lowered to a machine compare | permitted since D33 resolved to exact ordering, but only as a guarded **fragment**, never a bare `fcmp`: `exact_int_float_ord`'s shape is a widening compare where the integer converts exactly, the float's floor above 2^53, ±∞ special-cased, and false to all four operators for NaN (§S6) |
 | a `*`-family word crossing a promoted region — including one bound at run time to a name the body was compiled against | an `opaque` effect (D12; the ten folds are registered, each opaque, since 2026-09-11), and the pre-call slot-generation check, which syncs before any call whose binding changed (§S5, *What a promoted value must not change*); criterion 22 |
 | **a callee reached through an alias or `$name` whose target is rebound while values are promoted across the call**, such as `<-` → `stacks_left` with `stacks_left` rebound to a lambda that consumes two | nothing stays promoted across a call that does not resolve through its own registry `Slot`, or whose slot's generation is saturated: the body syncs before it (§S5); criteria 5 and 22 |
 | an error returned from compiled code while values are promoted, whose report or `[BUND]` stack dump would show a short stack | every error return syncs first (§S5); criterion 22 |
@@ -2580,9 +2660,10 @@ disagrees with interpreted code", and each has a named guard:
 | **a native reporting at `Error` severity through a spelling the source scan misses** | the effect audit records any `Error` report made while a native runs (criteria 24 and 25) |
 | **a native panicking inside a dependency** — `jarowinkler` in `natural` (F95) — reached from compiled code | caught where the native is called, in both tiers, and reported as `Error::internal` (D49); no panic unwinds through a compiled frame (§S8); criterion 29 |
 | **the call boundary itself**: a `NativeFn` whose ABI and `Result` CLIF cannot carry | a context pointer and an integer status under `CallConv::Tail`, a Rust adapter per native, `Tail` thunks in the slots, and a C-convention entry trampoline (§S8); criteria 4 and 29 |
-| **a lambda a container reaches, now run inside `execute_reached` where it used to be filed** (F113) | the answer is the same, since a request runs before the next value (§S5), and the cost is one Rust frame per lambda rather than none. Its traversal spends no stack on the value's depth (F114), and `Vm::eval_lambda` holds the floor; criterion 11 |
+| **a lambda a container reaches, now run inside `execute_one`'s `Reach::Nested` arm where it used to be filed** (F113) | the answer is the same, since a request runs before the next value (§S5), and the cost is one Rust frame per lambda rather than none. Its traversal spends no stack on the value's depth (F114), and `Vm::eval_lambda` holds the floor; criterion 11 |
+| **a deep value rendered by a word on the conformance path** — `debug.display_stack`, which the golden capture epilogue calls, and `--raw-values` | `render_into` and `render_payload` drive a worklist rather than recursing, so the depth costs heap and the text is byte-identical at every depth (F117). A diagnostic's values are bounded at depth 2 by `summary` instead (D36); criterion 14 |
 | **a value's teardown recursing on its depth** — a program that printed its output aborts while its stacks are dropped | nothing in this design: §S8's floors are on evaluation and on compiled entry, and a drop runs where the value dies. `Drop for HeapValue` walks the levels through a worklist instead (F115); assumption 35 |
-| **the parse inside `bund.eval`, `!!` and `use` recursing on the depth of a run-time string** | nothing in this design: the floor `eval_source` checks comes after the parse (F116, OPEN; assumption 34) |
+| **the parse inside `bund.eval`, `!!` and `use` recursing on the depth of a run-time string** | the floor `eval_source` checks comes after the parse, so the parser bounds itself instead: `MAX_NESTING` refuses past 1024 blocks before the frame is spent, and reports (F116; assumption 34) |
 | **a stale tail request** left by a native that failed after filing it | at Tier 0 `Interp::invoke` clears it (F96). A compiled call does not reach `invoke`, since the adapter calls the `NativeFn` directly, so `status_of` clears the cell whenever it answers an error, and a refused drain clears it too (§S5); criterion 26 |
 | **native nesting through a word other than `loop`**, whose per-level cost makes the margin too small | `m` is set from the largest `δ_p / c_p` over every re-entering path, a set derived by source scan rather than listed (§S8); criterion 11 |
 | **the error value a Rust caller receives after an exit, when the helper that saw it returned `Err`** — `?try` keeps its text in the `error` CONDITIONAL's `context` slot, on a final stack that is meaning | `status_of` parks the helper's own `Err` unchanged, and substitutes `exit_gate`'s refusal only for `Ok`. So the wrappers of the natives inside a compiled body (`MAP:`, `TIMES:`, `Attempt to evaluate value …`) survive as they do at Tier 0; criterion 30's `?try` cases compare the `context` slot |

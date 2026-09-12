@@ -136,49 +136,95 @@ fn exact_int_float(i: i64, f: f64) -> bool {
         && (f as i64) == i
 }
 
-/// The ordering comparisons, **preserving a defect** recorded as F47.
+/// The ordering comparisons. **D33 extends D30's exactness to them.**
 ///
-/// `PartialOrd for Value` overrides `lt`, `le`, `gt` and `ge` individually,
-/// and every one of them returns `true` when the two payloads are different
-/// arms (`reference/rust_dynamic/src/ord.rs:16,24,55,63,94,102,133,141`). So
-/// `1 2.0 <` is true and `1 2.0 >` is also true, along with `<=` and `>=`.
-/// All four confirmed against the oracle.
+/// The reference answers `true` to all four operators at once when the payload
+/// arms differ: `PartialOrd for Value` overrides `lt`, `le`, `gt` and `ge`
+/// individually and each falls to `_ => return true`
+/// (`reference/rust_dynamic/src/ord.rs:16,24,55,63,94,102,133,141`). So its
+/// `1 2.0 <` and `1 2.0 >` are both true — F47, confirmed against the oracle.
+/// The sane `cmp` beside it never runs, because Rust's `<` calls
+/// `PartialOrd::lt` and the override shadows the `partial_cmp` that would
+/// delegate (`:6-8`); and `cmp` is no better across kinds, falling back to
+/// comparing **ids** (`:175`), which orders by minting order.
 ///
-/// It is preserved rather than fixed because fixing it is a deviation, and an
-/// unplanned deviation is a decision. D30 settled equality; it did not reach
-/// ordering, and extending it is carried as **D33** for the repository owner.
-/// Preserving costs nothing that a later decision cannot undo — the goldens
-/// pin the current answers either way.
-///
-/// Note that `Ord::cmp` is *not* consulted. Rust's `<` calls
-/// `PartialOrd::lt`, and these overrides shadow the `partial_cmp` that would
-/// otherwise delegate to `cmp` (`reference/rust_dynamic/src/ord.rs:6-8`), so
-/// the sane-looking `cmp` at `:167-203` never runs for these words.
+/// D30 made equality exact because neither truncation nor widening is a valid
+/// relation. Neither gives a valid *order* either, and D33 takes the same step
+/// here: an integer and a float order by the mathematical values they denote,
+/// so exactly one of `a < b`, `a == b`, `a > b` holds. It is the same
+/// deviation, finished rather than extended, and no corpus program orders
+/// across kinds — the measurement D33 asked for before deciding.
 fn numeric_ord(op: Op, a: &BundValue, b: &BundValue) -> bool {
+    let by = |ord: Option<std::cmp::Ordering>| {
+        use std::cmp::Ordering::{Greater, Less};
+        match ord {
+            // NaN against anything: no order holds, so all four are false.
+            // The reference answers true to all four instead (F47).
+            None => false,
+            Some(o) => match op {
+                Op::Gt => o == Greater,
+                Op::Lt => o == Less,
+                Op::Ge => o != Less,
+                Op::Le => o != Greater,
+                // `compare` routes equality elsewhere, so this arm is not
+                // reached. Answering false is a defensible result for an
+                // ordering question that was never asked; aborting is not.
+                _ => false,
+            },
+        }
+    };
     match (a.unboxed(), b.unboxed()) {
-        (BundValue::Int(x, _), BundValue::Int(y, _)) => match op {
-            Op::Gt => x > y,
-            Op::Lt => x < y,
-            Op::Ge => x >= y,
-            Op::Le => x <= y,
-            // `compare` routes equality elsewhere, so this arm is not
-            // reached. Answering false is a defensible result for an ordering
-            // question that was never asked; aborting is not.
-            _ => false,
-        },
-        (BundValue::Float(x, _), BundValue::Float(y, _)) => match op {
-            Op::Gt => x > y,
-            Op::Lt => x < y,
-            Op::Ge => x >= y,
-            Op::Le => x <= y,
-            // `compare` routes equality elsewhere, so this arm is not
-            // reached. Answering false is a defensible result for an ordering
-            // question that was never asked; aborting is not.
-            _ => false,
-        },
-        // F47: mismatched payload arms answer true to every operator.
+        (BundValue::Int(x, _), BundValue::Int(y, _)) => by(Some(x.cmp(y))),
+        (BundValue::Float(x, _), BundValue::Float(y, _)) => by(x.partial_cmp(y)),
+        (BundValue::Int(i, _), BundValue::Float(f, _)) => by(exact_int_float_ord(*i, *f)),
+        (BundValue::Float(f, _), BundValue::Int(i, _)) => {
+            by(exact_int_float_ord(*i, *f).map(std::cmp::Ordering::reverse))
+        }
+        // Reached only if a value carries a numeric `dt` over a non-numeric
+        // payload, which no word can produce, as `numeric_eq`'s last arm
+        // explains. The reference's answer stands for that unreachable case.
         _ => true,
     }
+}
+
+/// Order an integer against a float by the values they denote — D33.
+///
+/// `i as f64` is lossy above 2^53 and `f as i64` saturates, so neither cast is
+/// safe on its own. Where the integer converts exactly, compare in `f64`.
+/// Where it does not, the float's own magnitude decides: any `f` at or beyond
+/// 2^63 is outside `i64`, and otherwise its truncation is exact enough to
+/// compare against, with the fraction breaking a tie.
+fn exact_int_float_ord(i: i64, f: f64) -> Option<std::cmp::Ordering> {
+    use std::cmp::Ordering;
+    if f.is_nan() {
+        return None;
+    }
+    if f == f64::INFINITY {
+        return Some(Ordering::Less);
+    }
+    if f == f64::NEG_INFINITY {
+        return Some(Ordering::Greater);
+    }
+    // 2^53 is where consecutive integers stop being representable.
+    if i.unsigned_abs() <= (1u64 << 53) {
+        #[expect(clippy::cast_precision_loss, reason = "exact below 2^53")]
+        return (i as f64).partial_cmp(&f);
+    }
+    // Above 2^53 the float is compared against the integer through the
+    // float's floor, which is exact for any `f` this large.
+    if f >= 2f64.powi(63) {
+        return Some(Ordering::Less);
+    }
+    if f < -(2f64.powi(63)) {
+        return Some(Ordering::Greater);
+    }
+    #[expect(clippy::cast_possible_truncation, reason = "range-checked above")]
+    let floor = f.floor() as i64;
+    Some(i.cmp(&floor).then(if f.fract() > 0.0 {
+        Ordering::Less
+    } else {
+        Ordering::Equal
+    }))
 }
 
 /// The gate, preserving `stdlib_logic_compare`'s structure operand by operand
@@ -371,16 +417,64 @@ mod tests {
         assert!(!compare(Op::Eq, &f(f64::NAN), &i(0)).unwrap());
     }
 
-    /// F47, preserved: mixed payload arms answer true to all four orderings,
-    /// including the two that cannot both be true.
+    /// **D33**: an int and a float order by the values they denote, so exactly
+    /// one of `<`, `==`, `>` holds. The reference answers true to all four
+    /// operators at once (F47), which is what this replaces.
+    ///
+    /// `compare`'s `v1` is the top of the stack, so `compare(Lt, v1, v2)` is
+    /// the program's `v2 v1 <` — the arguments here read in stack order.
     #[test]
-    fn mixed_number_kinds_answer_true_to_every_ordering() {
-        for op in [Op::Lt, Op::Gt, Op::Le, Op::Ge] {
-            assert!(
-                compare(op, &f(2.0), &i(1)).unwrap(),
-                "F47: {op:?} on mixed kinds is true in the reference"
+    fn an_int_and_a_float_order_by_their_mathematical_value() {
+        // `v1` is the top of the stack, so this pair is the program `2.0 1`,
+        // and `compare(Lt, …)` is its `<`. Only `<` and `<=` hold.
+        for (op, want) in [
+            (Op::Lt, true),
+            (Op::Gt, false),
+            (Op::Le, true),
+            (Op::Ge, false),
+        ] {
+            assert_eq!(
+                compare(op, &i(1), &f(2.0)).unwrap(),
+                want,
+                "1 against 2.0: {op:?}"
             );
         }
+        for (op, want) in [
+            (Op::Lt, false),
+            (Op::Gt, true),
+            (Op::Le, false),
+            (Op::Ge, true),
+        ] {
+            assert_eq!(
+                compare(op, &f(2.0), &i(1)).unwrap(),
+                want,
+                "2.0 against 1: {op:?}"
+            );
+        }
+        // Equal values: both `<=` and `>=`, neither `<` nor `>`.
+        for (op, want) in [
+            (Op::Lt, false),
+            (Op::Gt, false),
+            (Op::Le, true),
+            (Op::Ge, true),
+        ] {
+            assert_eq!(
+                compare(op, &f(42.0), &i(42)).unwrap(),
+                want,
+                "42.0 against 42: {op:?}"
+            );
+        }
+        // NaN orders against nothing.
+        for op in [Op::Lt, Op::Gt, Op::Le, Op::Ge] {
+            assert!(
+                !compare(op, &f(f64::NAN), &i(1)).unwrap(),
+                "NaN against 1: {op:?}"
+            );
+        }
+        // Past 2^53, where `i as f64` is lossy: 2^53+1 against 2^53.0.
+        let big = (1i64 << 53) + 1;
+        assert!(compare(Op::Gt, &i(big), &f(9007199254740992.0)).unwrap());
+        assert!(!compare(Op::Lt, &i(big), &f(9007199254740992.0)).unwrap());
     }
 
     /// Strings compare by content, and only for equality.
