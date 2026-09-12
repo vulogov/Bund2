@@ -21,8 +21,8 @@
 
 use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
 use bund2_value::{
-    BOOL, BundValue, CALL, CLASS, CONDITIONAL, FLOAT, INTEGER, JSON, LAMBDA, LIST, MAP, NODATA,
-    NONE, OBJECT, PTR, STRING, TEXTBUFFER, VALUEMAP,
+    BOOL, BundValue, CALL, CLASS, CONDITIONAL, FLOAT, INTEGER, JSON, LAMBDA, LIST, MAP, MATRIX,
+    NODATA, NONE, OBJECT, PTR, STRING, TEXTBUFFER, VALUEMAP,
 };
 
 fn eff(consumes: u8, produces: u8) -> StackEffect {
@@ -135,11 +135,37 @@ pub(crate) fn conv_value(v: &BundValue, target: u16) -> Result<BundValue, Error>
         // converts both operands with `conv(LIST)`, and `[ 1 2 ] 3 push`
         // failed where the oracle answers `[3, [1, 2]]`. STRING and TEXTBUFFER
         // never reach this arm: they short-circuit through `display` above.
+        // **A MATRIX is its own payload** (D57 as amended): rows are bare
+        // vectors, because that is what the oracle renders and a golden
+        // captures. It converts only to a LIST of its rows
+        // (`value_matrix_conversion`, `reference/rust_dynamic/src/conv.rs:268-290`),
+        // which is the whole of its return path.
+        _ if dt == MATRIX => {
+            let rows = v
+                .as_matrix()
+                .ok_or_else(|| Error::internal("a MATRIX value carried no rows"))?;
+            match target {
+                LIST => Ok(BundValue::list(
+                    rows.iter().map(|r| BundValue::list(r.clone())).collect(),
+                )),
+                // **A MATRIX target is refused, including MATRIX to MATRIX.**
+                // `value_matrix_conversion` accepts LIST and nothing else, so
+                // a second conversion falls to its `_` arm — which says
+                // "list", because the wording is shared with the list
+                // converter (`conv.rs:288`). Confirmed on the oracle:
+                // `[ [ 1 2 ] ] matrix matrix` answers
+                // `CONVERT.TO_MATRIX returned error: Can not convert list to 26`.
+                _ => Err(Error(format!("Can not convert list to {target}"))),
+            }
+        }
         _ if dt == LIST => {
             let items = v
                 .as_list()
                 .ok_or_else(|| Error::internal("a LIST value carried no items"))?;
             match target {
+                // A MATRIX converts to a LIST of its rows, each a LIST
+                // (`value_matrix_conversion`, `conv.rs:268-290`); a LIST
+                // converts to itself.
                 LIST => Ok(BundValue::list(items.to_vec())),
                 INTEGER => Ok(BundValue::int(items.len() as i64)),
                 FLOAT => Ok(BundValue::float(items.len() as f64)),
@@ -152,6 +178,27 @@ pub(crate) fn conv_value(v: &BundValue, target: u16) -> Result<BundValue, Error>
                         .map(|(i, x)| (i.to_string(), x.clone()))
                         .collect::<std::collections::BTreeMap<_, _>>(),
                 )),
+                // **Every row is converted through `conv(LIST)` and cast**,
+                // and the two error texts are the reference's, because a
+                // `?try` can print them (`conv.rs:361-378`). The rows land in
+                // `Payload::Matrix` as bare vectors, so a row keeps no header
+                // of its own — which is what the oracle renders.
+                MATRIX => {
+                    let mut rows: Vec<Vec<BundValue>> = Vec::new();
+                    for r in items {
+                        let row = conv_value(r, LIST).map_err(|e| {
+                            Error(format!("Error converting row into matrix {}", e.0))
+                        })?;
+                        let cells = row.as_list().ok_or_else(|| {
+                            Error(
+                                "Error casting row into matrix This Dynamic type is not list"
+                                    .to_string(),
+                            )
+                        })?;
+                        rows.push(cells.to_vec());
+                    }
+                    Ok(BundValue::matrix(rows))
+                }
                 _ => Err(Error(format!("Can not convert Value from {dt}"))),
             }
         }
@@ -360,6 +407,21 @@ pub fn register_words(r: &mut Registry) {
     conv_word!("convert.to_float", FLOAT, "CONVERT.TO_FLOAT");
     conv_word!("convert.to_bool", BOOL, "CONVERT.TO_BOOL");
     conv_word!("convert.to_list", LIST, "CONVERT.TO_LIST");
+    // **The MATRIX family.** `matrix` and `matrix.` are aliases onto these
+    // two (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:43-44`),
+    // which is the whole of the reference's matrix word surface: there is no
+    // constructor word and no literal.
+    conv_word!("convert.to_matrix", MATRIX, "CONVERT.TO_MATRIX");
+    // **`convert.to_dict` targets MAP here, and MATRIX in the reference.**
+    // Both reference bodies pass `MATRIX` while their error prefixes say
+    // `CONVERT.TO_DICT` (`internal.rs:99-105`), so the oracle's `to_dict`
+    // answers a matrix — confirmed, `dt: 26`. That is F120, and D57 is the
+    // decision to correct it rather than reproduce it: `conv`'s MAP target
+    // exists and keys rows by position (`conv.rs:426-434`), which is what
+    // this reaches.
+    conv_word!("convert.to_dict", MAP, "CONVERT.TO_DICT");
+    r.register_alias("matrix", "convert.to_matrix");
+    r.register_alias("matrix.", "convert.to_matrix.");
     r.register_native("not", not, eff(1, 1), WordKind::Sync);
     r.register_native("and", and_word, eff(2, 1), WordKind::Sync);
     r.register_native("or", or_word, eff(2, 1), WordKind::Sync);
@@ -369,6 +431,71 @@ pub fn register_words(r: &mut Registry) {
 mod tests {
     use super::*;
     use bund2_interp::Interp;
+
+    /// A LIST of LISTs becomes a MATRIX and comes back, as
+    /// `reference/rust_dynamic/tests/conv-test.rs:152-173` asserts for the
+    /// oracle. The rows are the same values; only the tag moves.
+    #[test]
+    fn a_list_of_lists_round_trips_through_matrix() {
+        let i = run("[ [ 42.0 41.0 ] ] matrix").expect("converts");
+        let m = i.peek().expect("a value");
+        assert_eq!(m.dt(), MATRIX, "the tag is MATRIX");
+        // **Rows are bare vectors**, not LIST values: that is D57 as amended,
+        // and it is what the oracle renders.
+        let rows = m.as_matrix().expect("rows");
+        assert_eq!(rows.len(), 1);
+        // No `as_float` on the value; the crate destructures, as
+        // `library.rs` does.
+        let floats: Vec<f64> = rows[0]
+            .iter()
+            .filter_map(|x| match *x.unboxed() {
+                BundValue::Float(f, _) => Some(f),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(floats, vec![42.0, 41.0], "the cells survived");
+
+        let j = run("[ [ 42.0 41.0 ] ] matrix convert.to_list").expect("converts back");
+        let l = j.peek().expect("a value");
+        assert_eq!(l.dt(), LIST);
+        assert_eq!(l.as_list().map(<[BundValue]>::len), Some(1));
+    }
+
+    /// **A MATRIX converts to a LIST and to nothing else.**
+    /// `value_matrix_conversion` accepts a LIST target and falls to its `_`
+    /// arm otherwise (`reference/rust_dynamic/src/conv.rs:268-290`), so
+    /// converting a matrix to a matrix is refused rather than being the
+    /// identity — which is what an earlier draft of this assumed, from
+    /// reading the LIST converter's MATRIX arm instead of the MATRIX
+    /// converter's. Confirmed on the oracle, which answers
+    /// `CONVERT.TO_MATRIX returned error: Can not convert list to 26`.
+    #[test]
+    fn a_matrix_converts_to_a_list_and_refuses_a_second_matrix() {
+        let i = run("[ [ 1 2 ] ] matrix convert.to_list").expect("to a LIST");
+        let l = i.peek().expect("a value");
+        assert_eq!(l.dt(), LIST);
+        let rows = l.as_list().expect("rows");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].as_list().map(<[BundValue]>::len), Some(2));
+
+        // `Interp` has no `Debug`, so the error is matched rather than
+        // `expect_err`-ed.
+        let Err(e) = run("[ [ 1 2 ] ] matrix matrix") else {
+            panic!("a second matrix must be refused");
+        };
+        assert!(e.contains("Can not convert list to 26"), "{e}");
+    }
+
+    /// **D57, the deviation.** `convert.to_dict` answers a MAP keyed by
+    /// position, where the oracle answers a MATRIX (F120).
+    #[test]
+    fn to_dict_answers_a_map_keyed_by_position() {
+        let i = run("[ 7 8 ] convert.to_dict").expect("converts");
+        let m = i.peek().expect("a value");
+        assert_eq!(m.dt(), MAP, "a MAP, not the oracle's MATRIX");
+        assert_eq!(m.get("0").and_then(|v| v.as_int()), Some(7));
+        assert_eq!(m.get("1").and_then(|v| v.as_int()), Some(8));
+    }
 
     fn run(src: &str) -> Result<Interp, String> {
         let mut i = Interp::new();

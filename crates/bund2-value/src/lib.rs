@@ -96,6 +96,19 @@ mod dt {
     pub const VALUEMAP: u16 = 30;
     pub const CLASS: u16 = 31;
     pub const OBJECT: u16 = 32;
+    /// A LIST of LIST rows, tagged apart from a plain LIST
+    /// (`reference/rust_dynamic/src/types.rs:41`).
+    ///
+    /// **The tag is the whole difference.** The reference gives a matrix its
+    /// own payload, `Val::Matrix(Vec<Vec<Value>>)`
+    /// (`reference/rust_dynamic/src/types.rs:75`); Bund2 carries the rows in
+    /// `Payload::List` and distinguishes the kind by `dt`, as it already does
+    /// for PTR and CALL over a string. So every walk over a value's members —
+    /// `Drop`, `render`, `display`, equality, hashing, the wire codec — keeps
+    /// the iterative shape F114 through F119 gave it, with no new arm to get
+    /// wrong. The number matches the reference's, so the wire format is
+    /// unchanged.
+    pub const MATRIX: u16 = 26;
     /// What the parser emits at end of input; the evaluator breaks on it
     /// (`reference/bundcore/src/bundcore_eval.rs:16-18`).
     pub const EXIT: u16 = 93;
@@ -179,6 +192,21 @@ pub enum Payload {
     /// A `HashMap`, not a `BTreeMap`: D30 decided hash-by-content, and a
     /// `BTreeMap` needs a total `Ord` that F12's fix deletes.
     ValueMap(HashMap<BundValue, BundValue>),
+    /// Rows of values — `reference/rust_dynamic/src/types.rs:75`.
+    ///
+    /// **A payload of its own, not a tagged LIST.** D57 first carried a matrix
+    /// as `Payload::List` under `dt = 26`, which kept every walk over a
+    /// value's members free of a new arm. The goldens refused it: the oracle
+    /// renders `data: Matrix([[…]])` with rows as bare vectors, and a tagged
+    /// list renders `data: List([Value { dt: 9, … }])` — a different payload
+    /// name, a level more nesting, and a header per row. `render` is what a
+    /// golden captures, so the representation is observable and has to be the
+    /// reference's.
+    ///
+    /// Every walk below therefore gains a `Matrix` arm, and each is written as
+    /// a worklist rather than a recursion, because F114 through F119 are what
+    /// happens when a container walks its own depth on the Rust stack.
+    Matrix(Vec<Vec<BundValue>>),
     /// The end-of-input marker the parser emits for `EOI`
     /// (`reference/bund_language_parser/src/vm/eoi.rs:8`).
     Exit,
@@ -287,6 +315,13 @@ fn take_members(h: &mut HeapValue, work: &mut Vec<BundValue>) {
                 work.push(v);
             }
         }
+        // Rows flatten into the same worklist: the cells are what hold
+        // further values, and a row is a plain `Vec` with nothing to free.
+        Payload::Matrix(rows) => {
+            for row in std::mem::take(rows) {
+                work.extend(row);
+            }
+        }
         Payload::Scalar(inner) => work.push(std::mem::replace(inner, BundValue::none())),
         Payload::Str(_)
         | Payload::Bin(_)
@@ -363,6 +398,7 @@ impl Payload {
             Payload::List(_) => "List",
             Payload::Map(_) => "Map",
             Payload::ValueMap(_) => "ValueMap",
+            Payload::Matrix(_) => "Matrix",
             Payload::Lambda(_) => "Lambda",
             Payload::Metrics(_) => "Metrics",
             Payload::Json(_) => "Json",
@@ -531,6 +567,22 @@ impl BundValue {
     /// The interior mutability is what makes laziness observable through
     /// `&self` (D1); it is not mutation of the key's value.
     #[allow(clippy::mutable_key_type)]
+    /// Rows of values, tagged `MATRIX` — D57 as amended.
+    pub fn matrix(rows: Vec<Vec<BundValue>>) -> Self {
+        Self::heap(MATRIX, Payload::Matrix(rows))
+    }
+
+    /// The rows this holds, if it holds a matrix.
+    pub fn as_matrix(&self) -> Option<&[Vec<BundValue>]> {
+        match self.unboxed() {
+            BundValue::Heap(h) => match &*h.payload {
+                Payload::Matrix(rows) => Some(rows),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     pub fn valuemap(m: HashMap<BundValue, BundValue>) -> Self {
         Self::heap(VALUEMAP, Payload::ValueMap(m))
     }
@@ -1058,6 +1110,12 @@ impl BundValue {
                         CONTEXT => out.push_str(&format!("@{}", truncate(s, width.saturating_sub(1)))),
                         _ => out.push_str(&format!("\"{}\"", truncate(s, width.saturating_sub(2)))),
                     }
+                }
+                // The shape is the useful fact on a failure path, as "a list
+                // of 900" is: rows by the width of the first row.
+                Payload::Matrix(rows) => {
+                    let cols = rows.first().map_or(0, Vec::len);
+                    out.push_str(&format!("matrix/{}x{cols}", rows.len()));
                 }
                 Payload::Bin(b) => out.push_str(&format!("bin/{}", b.len())),
                 Payload::Exit => out.push_str("exit"),
@@ -1841,6 +1899,31 @@ impl BundValue {
                 }
                 Payload::Bin(b) => {
                     let _ = write!(out, "Binary({b:?})");
+                }
+                // **`Matrix([[…], […]])`** — rows are bare vectors, so a row
+                // has no header of its own, which is the whole difference
+                // from a LIST of LIST values and the reason D57's first
+                // design could not be captured. Queued, not recursed (F117).
+                p @ Payload::Matrix(rows) => {
+                    let _ = write!(out, "{}([", p.val_name());
+                    let mut steps = Vec::new();
+                    for (i, row) in rows.iter().enumerate() {
+                        if i > 0 {
+                            steps.push(RenderStep::Text(", ".to_string()));
+                        }
+                        steps.push(RenderStep::Text("[".to_string()));
+                        for (j, cell) in row.iter().enumerate() {
+                            if j > 0 {
+                                steps.push(RenderStep::Text(", ".to_string()));
+                            }
+                            steps.push(RenderStep::Value(cell.clone(), norm));
+                        }
+                        steps.push(RenderStep::Text("]".to_string()));
+                    }
+                    steps.push(RenderStep::Text("])".to_string()));
+                    for step in steps.into_iter().rev() {
+                        work.push(step);
+                    }
                 }
                 Payload::Metrics(m) => {
                     let _ = write!(out, "Metrics([");

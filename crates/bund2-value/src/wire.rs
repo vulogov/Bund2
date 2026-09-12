@@ -191,6 +191,11 @@ impl WireValue {
                         .map(|(k, x)| (take(k, &mut built), take(x, &mut built)))
                         .collect(),
                 ),
+                Shape::Matrix(rows) => Val::Matrix(
+                    rows.into_iter()
+                        .map(|row| row.into_iter().map(|k| take(k, &mut built)).collect())
+                        .collect(),
+                ),
             };
             let attr = node
                 .attr
@@ -285,6 +290,11 @@ impl WireValue {
                         .map(|(k, x)| (take(k, &mut built), take(x, &mut built)))
                         .collect(),
                 ),
+                WireShape::Matrix(rows) => Payload::Matrix(
+                    rows.into_iter()
+                        .map(|row| row.into_iter().map(|k| take(k, &mut built)).collect())
+                        .collect(),
+                ),
             };
             let attr = node.attr.into_iter().map(|k| take(k, &mut built)).collect();
             built[i] = Some(BundValue::Heap(Rc::new(HeapValue {
@@ -362,6 +372,8 @@ enum WireShape {
     Lambda(Vec<usize>),
     Map(Vec<(String, usize)>),
     ValueMap(Vec<(usize, usize)>),
+    /// Rows of child indices, the decode mirror of [`Shape::Matrix`].
+    Matrix(Vec<Vec<usize>>),
 }
 
 /// Record one `WireValue`, queueing its children — F118.
@@ -392,6 +404,14 @@ fn wire_node_of(mut w: WireValue, queue: &mut Vec<WireValue>) -> Result<WireNode
             pairs
                 .into_iter()
                 .map(|(k, x)| (push(k, queue), push(x, queue)))
+                .collect(),
+        ),
+        // Without this a matrix encodes and never decodes: `leaf_payload`
+        // answers `no_form("Matrix")` for a container, so `load.model` would
+        // refuse what `save.model` had just written.
+        Val::Matrix(rows) => WireShape::Matrix(
+            rows.into_iter()
+                .map(|row| row.into_iter().map(|x| push(x, queue)).collect())
                 .collect(),
         ),
         other => WireShape::Leaf(WireValue::leaf_payload(dt, other)?),
@@ -493,6 +513,7 @@ fn children_of(v: &BundValue) -> Vec<BundValue> {
     if let BundValue::Heap(h) = v.unboxed() {
         match &*h.payload {
             Payload::List(items) | Payload::Lambda(items) => out.extend(items.iter().cloned()),
+            Payload::Matrix(rows) => out.extend(rows.iter().flatten().cloned()),
             Payload::Map(m) => out.extend(m.values().cloned()),
             Payload::ValueMap(m) => {
                 for (k, x) in m {
@@ -531,6 +552,8 @@ enum Shape {
     Lambda(Vec<usize>),
     Map(Vec<(String, usize)>),
     ValueMap(Vec<(usize, usize)>),
+    /// Rows of child indices — `Val::Matrix` is `Vec<Vec<WireValue>>`.
+    Matrix(Vec<Vec<usize>>),
 }
 
 /// Record one value, queueing its children — F118.
@@ -568,6 +591,13 @@ fn node_of(v: &BundValue, queue: &mut Vec<BundValue>) -> Node {
             Payload::List(items) => {
                 Shape::List(items.iter().map(|x| push(x, queue)).collect())
             }
+            // Rows of indices: the cells are queued like any other child, and
+            // the row structure is rebuilt when the node is assembled.
+            Payload::Matrix(rows) => Shape::Matrix(
+                rows.iter()
+                    .map(|row| row.iter().map(|x| push(x, queue)).collect())
+                    .collect(),
+            ),
             Payload::Lambda(items) => {
                 Shape::Lambda(items.iter().map(|x| push(x, queue)).collect())
             }

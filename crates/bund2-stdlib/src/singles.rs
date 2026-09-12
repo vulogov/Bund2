@@ -592,6 +592,12 @@ fn len(vm: &mut dyn Vm) -> Result<(), Error> {
         bund2_value::NODATA => 0,
         bund2_value::STRING => v.as_str().map_or(0, |s| s.len()),
         LIST | PAIR => v.as_list().map_or(0, <[BundValue]>::len),
+        // **The element count, not the shape** — the reference sums the row
+        // lengths (`reference/rust_dynamic/src/len.rs:33-45`), so a 2x2 and a
+        // 1x4 both answer 4 and the shape cannot be recovered from it.
+        bund2_value::MATRIX => v
+            .as_matrix()
+            .map_or(0, |rows| rows.iter().map(Vec::len).sum()),
         MAP | CONDITIONAL | OBJECT | bund2_value::CLASS => v.as_map().map_or(0, |m| m.len()),
         LAMBDA => v.as_lambda().map_or(0, <[BundValue]>::len),
         bund2_value::VALUEMAP => v.as_valuemap().map_or(0, |m| m.len()),

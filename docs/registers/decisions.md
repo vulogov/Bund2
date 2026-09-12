@@ -3261,6 +3261,89 @@ on the current stack, now declared opaque.
   repository owner on 2026-09-11 (`bde0eed`), carrying D55's and F111's
   figures.**
 
+## D57 — `convert.to_dict` is corrected, and a matrix is a tagged list
+
+Two questions arrived together with the MATRIX family, the last six core words
+Bund2 had not implemented, and both are decisions rather than readings.
+
+### `convert.to_dict` converts to a dict
+
+The reference's word converts to a **matrix**: both bodies pass `MATRIX` while
+their error prefixes say `CONVERT.TO_DICT`
+(`reference/rust_multistackvm/src/stdlib/convert/internal.rs:99-105`), so
+`convert.to_dict` and `convert.to_matrix` are one word under two names —
+confirmed on the oracle, `dt: 26` from both. That is F120. The conversion the
+name promises exists one layer down and is never called: `conv`'s MAP target
+keys a container's items by position as strings
+(`reference/rust_dynamic/src/conv.rs:426-434`).
+
+Decided by the repository owner, 2026-09-12: **correct it.**
+`convert.to_dict` and `convert.to_dict.` target MAP, so
+`[ 7 8 ] convert.to_dict` answers `{ "0": 7, "1": 8 }`.
+
+- **Why not reproduce it.** Reproducing would ship two spellings of one word,
+  leave `conv`'s MAP arm dead in Bund2 as well, and give a program no way to
+  reach a conversion the language names. The usual rule — an
+  original-implementation bug is recorded, not fixed — is about behaviour a
+  program can depend on; nothing can depend on this, because no corpus program
+  uses any of the six words and the word does not do what it says.
+- **The cost.** A deviation with no golden to record it against, which is
+  F48's gap, the same one D30's and D33's deviations sit in. Conformance does
+  not move: 105/113 on both tiers, before and after.
+
+### A matrix carries rows of its own
+
+The reference gives a matrix its own payload, `Val::Matrix(Vec<Vec<Value>>)`
+(`reference/rust_dynamic/src/types.rs:75`), tagged `dt = 26`. **Bund2 does the
+same**, as `Payload::Matrix(Vec<Vec<BundValue>>)`.
+
+**A tagged LIST was tried first, and withdrawn.** The attraction was that
+`dt` and payload are independent axes here — as they already are for PTR and
+CALL over a string — so carrying rows in `Payload::List` under `dt = 26` would
+have needed no new arm in `Drop`, `render`, `display`, equality, hashing or
+the wire codec, and could not have reintroduced the recursion F114 through
+F119 removed.
+
+It is wrong all the same, because **`render` is observable**. A golden
+captures `debug.display_stack` byte for byte, and the two shapes do not agree:
+
+| | rendered |
+|---|---|
+| oracle, and Bund2 now | `data: Matrix([[Value { … I64(1) … }]])` |
+| the tagged LIST | `data: List([Value { dt: 9, … data: List([…]) }])` |
+
+A different payload name, one more level of nesting, and a header per row.
+No normaliser reconciles that, so no golden could have been captured for the
+MATRIX family at all. The probe written to cover the family is what found it:
+the design's own claim — that nothing could see the difference — was false.
+
+So every walk gains a `Matrix` arm, and **each is written as a worklist**:
+`take_members` flattens rows into the drop worklist, `render_payload` queues
+row brackets and cells as steps, and both wire directions carry rows of child
+indices. The cost the tagged list was meant to avoid is paid deliberately, in
+the shape F114 through F119 established.
+
+What this still gives up: ragged rows are representable, so rectangularity is
+a property of construction rather than of the type. The reference's is no
+better — `push` appends a row of any width and silently ignores a non-list
+(`reference/rust_dynamic/src/push.rs:50-69`) — and only arithmetic checks
+widths, by returning its left operand unchanged (`math.rs:36-64`).
+
+**A second finding from the same probe.** A MATRIX converts to a LIST and to
+nothing else: `value_matrix_conversion` accepts a LIST target and falls to its
+`_` arm otherwise (`reference/rust_dynamic/src/conv.rs:268-290`), so
+`[ [ 1 2 ] ] matrix matrix` is refused with `Can not convert list to 26` —
+"list", because the wording is shared with the list converter. An earlier
+draft had it as the identity, read from the LIST converter's MATRIX arm
+instead of the MATRIX converter's. Bund2 refuses it with the same text.
+
+- Decided by: repository owner, 2026-09-12
+- Blocks: nothing; closes the last of the core words (`core words not
+  implemented` reads 0)
+- Depends on: D48 and D55 (the palette runs the four new fixed-effect
+  natives), F48 (no way to record the deviation against a golden), F120
+- Status: **RESOLVED**
+
 ## D56 — a caller that runs a native can discard the tail request it filed
 
 `Vm::tail_lambda` files a body for the loop to run after the current native

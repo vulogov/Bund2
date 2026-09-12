@@ -3910,6 +3910,45 @@ read, because the recursion is inside bincode. D31 ruled that nothing outside
 Bund reads or writes a world file, which is what makes a write-side bound
 sufficient here; if that ever changes, this needs revisiting.
 
+## F120 — `convert.to_dict` converts to a matrix, not a dict
+
+**An original-implementation defect**, found while reviewing the MATRIX family
+for implementation.
+
+Both bodies of the word pass `MATRIX` as the conversion target while their
+error prefixes say `CONVERT.TO_DICT`:
+
+```rust reference/rust_multistackvm/src/stdlib/convert/internal.rs:100
+pub fn stdlib_convert_to_map_in_workbench(vm: &mut VM) -> Result<&mut VM, Error> {
+```
+
+with `MATRIX` as the target on the line below (`:101`), and
+`stdlib_convert_to_map_in_stack` the same at `:103-104`, both registered at
+`:122-123`. So `convert.to_dict` and `convert.to_matrix` are the same word
+under two names. Confirmed against the oracle, 2026-09-12:
+
+| program | oracle |
+|---|---|
+| `[ [ 1 2 ] [ 3 4 ] ] convert.to_dict` | `dt: 26` (MATRIX) |
+| `[ [ 1 2 ] [ 3 4 ] ] convert.to_matrix` | `dt: 26` (MATRIX) |
+| `[ [ 1 2 ] [ 3 4 ] ] convert.to_list` | `dt: 9` (LIST) |
+
+**The intended conversion exists and is unreachable.** `conv` has a working
+MAP target that keys a list's items by position as strings — `"0"`, `"1"`, … —
+at `reference/rust_dynamic/src/conv.rs:426-434`, with the identical arm for
+the other container source at `:331-339`. Nothing calls it with a MAP target
+from the word layer, so the code is live but orphaned.
+
+**Disposition: CORRECTED, per D57.** Bund2's `convert.to_dict` targets MAP.
+This is a deviation rather than a reproduction, which is why it needed a
+decision: reproducing it would have shipped two spellings of one word and left
+`conv`'s MAP arm as dead code in Bund2 too. No golden covers either word — no
+corpus program uses any of the six MATRIX-family words — so conformance does
+not move, and there is no golden to record the disagreement against, which is
+F48's gap.
+
+`to_dict_answers_a_map_keyed_by_position` (`crates/bund2-stdlib/src/convert.rs`).
+
 ## F119 — `display` recurses on a value's depth, so `println` aborts
 
 **A Bund2 defect against D37**, found by RFC-0005's nineteenth review (B2).

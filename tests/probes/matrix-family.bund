@@ -1,0 +1,85 @@
+// The MATRIX family — the last of the core words, and the smallest word
+// surface in the language.
+//
+// There is no matrix literal and no constructor word. The reference's whole
+// matrix surface is two conversions and two aliases onto them:
+//
+//   convert.to_matrix    convert.to_matrix.
+//   matrix               matrix.
+//
+// registered at `reference/rust_multistackvm/src/stdlib/convert/internal.rs:120-121`
+// and aliased at `create_aliases.rs:43-44`. So a matrix is only ever something
+// a LIST of LISTs is converted into, and this probe is that conversion in
+// every shape a program can write it.
+//
+// **A matrix carries rows of its own** — `Payload::Matrix`, the reference's
+// shape (D57 as amended). An earlier design tagged a LIST instead, which is
+// invisible from Bund but not from a golden: the oracle renders
+// `data: Matrix([[…]])` with bare rows, where a tagged list renders
+// `data: List([Value { dt: 9, … }])` — a different payload name, one more
+// level, and a header per row. `render` is what a golden captures, so the
+// representation is observable and has to be the reference's.
+//
+// Not covered here, deliberately:
+//   convert.to_dict / convert.to_dict. — the reference's word converts to a
+//   MATRIX, not a dict (F120: both bodies pass MATRIX while their prefixes say
+//   CONVERT.TO_DICT). Bund2 corrects that to a MAP per D57, so a golden
+//   captured from the oracle would disagree by design. F120 is the record.
+
+// --- convert.to_matrix: a LIST of LISTs becomes a MATRIX ---
+// The rows survive as LIST values; only the outer tag moves, to 26.
+[ [ 1 2 ] [ 3 4 ] ] convert.to_matrix
+
+// --- the `matrix` alias reaches the same word ---
+[ [ 5 6 ] [ 7 8 ] ] matrix
+
+// --- a single row, and an empty list ---
+// An empty LIST converts to an empty MATRIX rather than failing: the row loop
+// simply has nothing to run (`conv.rs:361-378`).
+[ [ 9 ] ] matrix
+list matrix
+
+// --- a row that is not a LIST is wrapped, not refused ---
+// Each row goes through `conv(LIST)` before it is cast, and an INTEGER
+// converts to a one-element LIST (`conv.rs:82`), so `[ 1 2 ]` is a matrix of
+// two one-cell rows rather than an error. That is the arm a reader expects to
+// fail and which does not.
+[ 1 2 ] matrix
+
+// --- floats, as the oracle's own round-trip test uses ---
+// `reference/rust_dynamic/tests/conv-test.rs:164-173` converts exactly this
+// shape and reads the cell back.
+[ [ 42.0 41.0 ] ] matrix
+
+// --- back to a LIST: a MATRIX converts to a LIST of its rows ---
+// `value_matrix_conversion` (`conv.rs:268-290`) is the only conversion a
+// MATRIX source has, so this is the whole of the return path.
+[ [ 1 2 ] [ 3 4 ] ] matrix convert.to_list
+
+// Not covered here either:
+//   `matrix matrix` — converting a MATRIX to a MATRIX. The oracle refuses it:
+//   `value_matrix_conversion` (`conv.rs:268-290`) accepts a LIST target and
+//   nothing else, so a MATRIX source with a MATRIX target falls to its `_`
+//   arm. Bund2 refuses it the same way, with the reference's text, but a
+//   refusal on its own line would end the capture, so it lives in a unit test
+//   rather than here.
+
+// --- the length of a matrix ---
+// `len` sums the row lengths rather than counting rows
+// (`reference/rust_dynamic/src/len.rs:33-45`), so a 2x2 answers 4 and a 1x4
+// answers 4 as well: the shape is not recoverable from it.
+[ [ 1 2 ] [ 3 4 ] ] matrix len println
+[ [ 1 2 3 4 ] ] matrix len println
+
+// --- convert.to_matrix.: the operand comes off the workbench, and the
+// --- answer goes back to it ---
+// `stdlib_convert_base`'s workbench arm guards the workbench and pushes back
+// there (`internal.rs:14-15,21,29`), so the value has to be `return`ed first
+// and `take`n afterwards to be visible.
+[ [ 1 2 ] [ 3 4 ] ] return convert.to_matrix. take
+
+// --- the `matrix.` alias, the same way ---
+[ [ 5 6 ] ] return matrix. take
+
+// --- a workbench matrix converted back, still on the workbench ---
+[ [ 7 8 ] ] return matrix. convert.to_list. take
