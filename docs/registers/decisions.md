@@ -2160,6 +2160,30 @@ useful approximation — a loop whose condition cannot change — is RFC-0004's
 - Status: **RESOLVED — internal loops bounded and linted; program loops warned,
   never stopped.**
 
+**Dated note, 2026-09-11 — a third shape: recursion on a program's data.**
+This decision drew the line between a loop Bund2 runs on its own behalf and a
+loop the program wrote. F114, F115 and F116 are neither: they are Rust
+recursion whose depth is a *value the program built*, and each ended the
+process, which D37 forbids.
+
+Two were removed rather than bounded, because nothing is lost by walking the
+same work on the heap: executing a nested container (F114) and dropping a
+nested value (F115) now drive worklists. The parser could not be, since a
+recursive descent is the parse, so F116 takes **an explicit bound**:
+`bund2_syntax::MAX_NESTING`, 1024 blocks, refused before the frame is entered
+and reported as an ordinary parse error.
+
+The threshold is chosen as this decision's others are — `while`'s 10,000,000,
+`follow`'s 64 — far past any real program and far below where it breaks. The
+deepest nesting anywhere in the corpus is 2; a debug build aborted between
+2,000 and 4,000 levels and a release build between 12,000 and 16,000. The
+safety net is the same one: `conform` folds stderr into captured output, so a
+golden would fail immediately if one ever reached the bound.
+
+The rule this adds: **no Rust recursion may be driven by the depth of a value
+a program controls.** Where the work can be moved to the heap, move it; where
+it cannot, bound it and report.
+
 ## D40 — `string.grok` brings a C dependency, and that reaches the AOT milestone
 
 D38 settled *how* to take a crate the reference reaches (pin it, do not vendor

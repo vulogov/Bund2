@@ -3689,6 +3689,38 @@ which an author writes; this depth comes from a value the program built, so a
 program can choose it. D37 applies either way. RFC-0005's assumption 34
 records that its floors do not reach this path.
 
-**Status:** OPEN. The fix is a depth bound in `crates/bund2-syntax` that
-reports a Bund-level error, as `Error::stack_exhausted` does for evaluation
-nesting (F85), rather than an unbounded recursive descent.
+**Status:** FIXED 2026-09-11 (`crates/bund2-syntax/src/lib.rs`). The parser
+carries the nesting depth and refuses past `MAX_NESTING`, which is **1024**.
+The check sits in `Parser::nested`, before the frame for the refused level is
+entered, so a program never spends more than the bound — the refusal is not a
+rescue after the fact. All three bracket forms go through it. The program
+above now reports
+
+    nesting deeper than 1024 blocks, which Bund2 will not parse
+
+with the opening bracket's line and column, as any other parse failure does,
+and it is catchable by `?try` because `bund.eval` returns it as an ordinary
+error. The script itself ends with exit 0, since the error is reported rather
+than fatal.
+
+**Why 1024**, chosen as D39 chooses a threshold — far past any real program,
+far below where it breaks (all measured 2026-09-11):
+
+| | nesting |
+|---|---|
+| deepest in the corpus, its probes and its examples | **2** |
+| a debug build aborted between | 2,000 and 4,000 |
+| a release build aborted between | 12,000 and 16,000 |
+| the bound | **1,024** |
+
+`nesting_past_the_bound_is_reported_not_fatal`
+(`crates/bund2-syntax/src/lib.rs`) parses at the bound and refuses one past
+it, for all three forms;
+`evaluating_a_too_deeply_nested_string_reports_instead_of_aborting`
+(`crates/bund2-stdlib/src/host.rs`) is the `bund.eval` case F116 was filed
+for. Conformance is unmoved at 105/113: no golden nests past 2.
+
+**A deviation from the reference**, which has no such bound and aborts instead
+— the same disposition F85 took for evaluation nesting, and for the same
+reason: D37 is absolute, and a program's own data must not be able to end the
+process.

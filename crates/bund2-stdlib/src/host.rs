@@ -814,6 +814,19 @@ mod tests {
         assert_eq!(left.first().copied(), Some(Some(10)), "`{{ 10 }}` had run");
     }
 
+    /// **F116**, where it bites: the source `bund.eval` parses is a value the
+    /// program built, so its depth is the program's choice. A 16,000-deep
+    /// literal aborted the process; now the parser refuses and the refusal
+    /// arrives as an ordinary Bund error, catchable by `?try`.
+    #[test]
+    fn evaluating_a_too_deeply_nested_string_reports_instead_of_aborting() {
+        let n = bund2_syntax::MAX_NESTING + 1;
+        let src = format!("\"{}1{}\" bund.eval", "[ ".repeat(n), " ]".repeat(n));
+        let mut i = interp(HostOptions::default());
+        let e = run(&mut i, &src).expect_err("refused, not fatal");
+        assert!(e.contains("nesting deeper than"), "{e}");
+    }
+
     #[test]
     fn io_graph_wants_floats() {
         let mut i = interp(HostOptions::default());

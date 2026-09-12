@@ -2436,12 +2436,14 @@ with the place that enforces or decides it.
     appears. An earlier revision of this assumption named one writer where the
     code had three, and so could not have caught what it was added for (the
     seventeenth review's B1).
-34. **§S8's floors are silent about parse depth.** They bound evaluation
-    nesting and compiled entries. The parse of a *run-time string* handed to
-    `bund.eval`, `!!` or `use` recurses on that string's depth with no floor
-    between, and a 16,000-deep literal aborts the process (F116, OPEN).
-    RFC-0003 excludes the parser's recursion over a source file; this is not
-    that, because the string is a value the program built.
+34. **§S8's floors are silent about parse depth, and a bound stands in for
+    them.** They bound evaluation nesting and compiled entries. The parse of a
+    *run-time string* handed to `bund.eval`, `!!` or `use` recurses on that
+    string's depth with no floor between, and a 16,000-deep literal aborted
+    the process. F116 bounds the parser at `MAX_NESTING`, 1024 blocks, refused
+    before the frame is spent, which is 512× the deepest nesting anywhere in
+    the corpus. RFC-0003 excludes the parser's recursion over a source file;
+    this was never that, because the string is a value the program built.
 35. **§S8's floors are silent about a value's teardown, and nothing on that
     path may recurse.** No floor can be put there: a drop runs wherever the
     value dies, long after any check. Dropping a deeply nested value used to

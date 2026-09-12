@@ -158,12 +158,29 @@ fn is_nelement(c: char) -> bool {
     is_element(c) || c.is_ascii_digit()
 }
 
+/// How deeply `{ … }`, `[ … ]` and `( … )` may nest — **F116**.
+///
+/// The parser is a recursive descent, so one level of nesting is one Rust
+/// frame, and the source can be a *value* the program built: `bund.eval` of a
+/// 16,000-deep literal overflowed the stack and aborted, which D37 forbids. No
+/// floor helps, because the parse happens before evaluation starts.
+///
+/// The number is chosen the way D39 chooses thresholds — far past any real
+/// program, far below where it breaks. The deepest nesting anywhere in the
+/// corpus, its probes and its examples is **2**. A debug build aborts between
+/// 2,000 and 4,000 levels and a release build between 12,000 and 16,000
+/// (measured 2026-09-11), and the refusal happens *before* the frame is spent,
+/// so a program never reaches even this many.
+pub const MAX_NESTING: usize = 1024;
+
 struct Parser<'a> {
     src: &'a str,
     /// Byte offsets of every char, plus the source length, so a span is a byte
     /// range even though scanning is by `char`.
     chars: Vec<(usize, char)>,
     i: usize,
+    /// Bracket forms open and not yet closed (F116).
+    depth: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -172,7 +189,30 @@ impl<'a> Parser<'a> {
             src,
             chars: src.char_indices().collect(),
             i: 0,
+            depth: 0,
         }
+    }
+
+    /// Parse a bracket form one level down, refusing past [`MAX_NESTING`].
+    ///
+    /// The check is here rather than in `terms_until` so that the frame for
+    /// the level being refused is never entered.
+    fn nested(
+        &mut self,
+        start: usize,
+        close: char,
+        build: fn(Vec<Term>, Span) -> Term,
+    ) -> Result<Term, ParseError> {
+        if self.depth >= MAX_NESTING {
+            return self.err(
+                start,
+                format!("nesting deeper than {MAX_NESTING} blocks, which Bund2 will not parse"),
+            );
+        }
+        self.depth += 1;
+        let inner = self.terms_until(close);
+        self.depth -= 1;
+        Ok(build(inner?, self.span_from(start)))
     }
 
     fn peek(&self) -> Option<char> {
@@ -290,20 +330,19 @@ impl<'a> Parser<'a> {
         };
 
         // Bracket forms first: they are not atomic, so trivia nests inside.
+        // Each descends through `nested`, which refuses past `MAX_NESTING`
+        // before spending the frame (F116).
         if c == '{' {
             self.bump();
-            let inner = self.terms_until('}')?;
-            return Ok(Term::Lambda(inner, self.span_from(start)));
+            return self.nested(start, '}', Term::Lambda);
         }
         if c == '[' {
             self.bump();
-            let inner = self.terms_until(']')?;
-            return Ok(Term::List(inner, self.span_from(start)));
+            return self.nested(start, ']', Term::List);
         }
         if c == '(' {
             self.bump();
-            let inner = self.terms_until(')')?;
-            return Ok(Term::Ctx(inner, self.span_from(start)));
+            return self.nested(start, ')', Term::Ctx);
         }
         if c == '"' {
             return self.string(start);
@@ -701,6 +740,37 @@ mod tests {
 
     fn names(src: &str) -> Vec<Term> {
         parse(src).expect("parses")
+    }
+
+    /// **F116.** The parser is a recursive descent, so nesting is Rust frames,
+    /// and the source can be a value the program built. A debug build aborted
+    /// between 2,000 and 4,000 levels. `MAX_NESTING` refuses first, and
+    /// reports the way every other parse failure does.
+    #[test]
+    fn nesting_past_the_bound_is_reported_not_fatal() {
+        let at = format!("{}1{}", "[ ".repeat(MAX_NESTING), " ]".repeat(MAX_NESTING));
+        let terms = parse(&at).expect("the bound itself parses");
+        assert_eq!(terms.len(), 1, "one outermost LIST");
+
+        let over = format!(
+            "{}1{}",
+            "[ ".repeat(MAX_NESTING + 1),
+            " ]".repeat(MAX_NESTING + 1)
+        );
+        let e = parse(&over).expect_err("one level past the bound is refused");
+        assert!(e.what.contains("nesting deeper than"), "{}", e.what);
+        assert!(e.what.contains(&MAX_NESTING.to_string()), "{}", e.what);
+
+        // The other two bracket forms take the same path.
+        for (open, close) in [("{ ", " }"), ("( ", " )")] {
+            let over = format!(
+                "{}1{}",
+                open.repeat(MAX_NESTING + 1),
+                close.repeat(MAX_NESTING + 1)
+            );
+            let e = parse(&over).expect_err("refused");
+            assert!(e.what.contains("nesting deeper than"), "{}: {}", open, e.what);
+        }
     }
 
     #[test]
