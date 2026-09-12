@@ -2245,6 +2245,23 @@ asserting the path was safe. And **the audits do not reach this class**: a
 native that re-enters no evaluation is outside the re-entry scan, and one that
 acts on the host is outside criterion 28's palette, which is where F118 lived.
 
+**Dated note, 2026-09-12 (second) — where "move it to the heap" runs out.**
+F118 is the first instance of this shape whose recursion is not Bund2's to
+move: bincode's derived `Serialize` and `Deserialize` walk the nested
+`WireValue`, and a decode cannot be checked at all, since the tree is built
+before any Bund2 code runs. So F118 took **both** halves of this decision's
+rule — the arena for the part Bund2 owns, which moved `save.model`'s ceiling
+from 3,400 to ~39,000, and a bound for the part it does not:
+`bund2_value::wire::MAX_WIRE_DEPTH`, 256, refusing to *write* a value that
+could not be read back.
+
+That adds a third clause to the rule. Where the work can be moved to the heap,
+move it; where it cannot, bound it and report — and **where the recursion is a
+dependency's, bound the side you control, and say which side that is.** A
+bound on writing is not a bound on reading: a blob from another writer deeper
+than 256 still aborts, and only D31's ruling that nothing outside Bund touches
+a world file makes that acceptable.
+
 ## D40 — `string.grok` brings a C dependency, and that reaches the AOT milestone
 
 D38 settled *how* to take a crate the reference reaches (pin it, do not vendor

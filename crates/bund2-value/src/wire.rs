@@ -114,6 +114,31 @@ use super::{
 /// it.
 pub const JSON_WRAPPED: u16 = 25;
 
+/// How deeply a value may nest and still be written to the wire — **F118**.
+///
+/// Bund2's own walk is a heap arena and has no limit, but `bincode`'s derived
+/// `Serialize` and `Deserialize` recurse per level **inside the dependency**,
+/// and a decode cannot be bounded at all: bincode builds the whole nested
+/// `WireValue` before any code here runs. So the bound is on **writing**, and
+/// a value too deep to read back is refused before it is stored. The owner
+/// chose this over recording the limit, because the alternative is the worse
+/// failure: `save.model` succeeding on a value `load.model` then aborts on.
+///
+/// **256, from the worst case rather than the best.** Decoding aborts at
+/// (measured 2026-09-12, nested one-element lists):
+///
+/// | build | thread | aborts at |
+/// |---|---|---|
+/// | debug | 2 MiB — an embedder's default | **512** |
+/// | debug | 8 MiB | 2,048 |
+/// | release | 8 MiB — what `bund2` gives evaluation | 6,000 |
+///
+/// The deepest nesting anywhere in the corpus is 2, so 256 is 128× what any
+/// real program has needed and stays clear of the shallowest abort. D39
+/// chooses thresholds this way: far past any real program, far below where it
+/// breaks.
+pub const MAX_WIRE_DEPTH: usize = 256;
+
 impl WireValue {
     /// A Bund2 value as the reference's `Value`, field for field.
     ///
@@ -443,6 +468,49 @@ fn take_wire_children(w: &mut WireValue, work: &mut Vec<WireValue>) {
     }
 }
 
+/// How deeply a value nests, counted on the heap — F118.
+///
+/// Stops as soon as the bound is exceeded: the answer only has to be large
+/// enough to refuse, and a value can be arbitrarily deep.
+fn depth_of(v: &BundValue) -> usize {
+    let mut deepest = 0;
+    let mut work: Vec<(BundValue, usize)> = vec![(v.clone(), 1)];
+    while let Some((cur, d)) = work.pop() {
+        deepest = deepest.max(d);
+        if deepest > MAX_WIRE_DEPTH {
+            return deepest;
+        }
+        for child in children_of(&cur) {
+            work.push((child, d + 1));
+        }
+    }
+    deepest
+}
+
+/// A value's members, whatever container holds them.
+fn children_of(v: &BundValue) -> Vec<BundValue> {
+    let mut out: Vec<BundValue> = v.attr().to_vec();
+    if let BundValue::Heap(h) = v.unboxed() {
+        match &*h.payload {
+            Payload::List(items) | Payload::Lambda(items) => out.extend(items.iter().cloned()),
+            Payload::Map(m) => out.extend(m.values().cloned()),
+            Payload::ValueMap(m) => {
+                for (k, x) in m {
+                    out.push(k.clone());
+                    out.push(x.clone());
+                }
+            }
+            Payload::Str(_)
+            | Payload::Bin(_)
+            | Payload::Exit
+            | Payload::Metrics(_)
+            | Payload::Json(_)
+            | Payload::Scalar(_) => {}
+        }
+    }
+    out
+}
+
 /// One value's header and the shape of its children — F118's arena.
 struct Node {
     id: String,
@@ -543,6 +611,16 @@ fn node_of(v: &BundValue, queue: &mut Vec<BundValue>) -> Node {
 /// level is wrapped; a JSON value nested in a list is written as JSON, which
 /// then cannot be read back, in the reference and here alike.
 pub fn to_binary(v: &BundValue) -> Result<Vec<u8>, String> {
+    // F118: refuse a value too deep for the codec to read back, before it is
+    // written. The check is its own walk, on the heap, so measuring the depth
+    // cannot itself overflow.
+    let depth = depth_of(v);
+    if depth > MAX_WIRE_DEPTH {
+        return Err(format!(
+            "the value nests {depth} deep, and {MAX_WIRE_DEPTH} is the most the wire format \
+             can carry"
+        ));
+    }
     let w = if v.dt() == JSON {
         WireValue {
             id: format_id(mint()),
@@ -631,28 +709,62 @@ mod conversion_tests {
         assert_eq!(v[6].dt(), NODATA);
     }
 
-    /// **F118.** Encoding walked a value's depth in Rust frames, so
-    /// `save.model` aborted at 3,400 levels on the release binary. Both
-    /// directions build from an arena now.
-    ///
-    /// **Run on a thread this test sizes**, because the depth that fits is a
-    /// property of the build and of the stack: a debug frame is several times
-    /// a release one, and the test harness gives a thread 2 MiB. 8 MiB here
-    /// matches what `bund2` gives evaluation, so the numbers mean something.
-    /// The depths stay under bincode's own recursion, which is inside the
-    /// dependency and is what still caps the codec (see F118).
+    /// **F118's bound.** A value past `MAX_WIRE_DEPTH` is refused where it
+    /// would be written, because a decode cannot be bounded — bincode builds
+    /// the nested tree before any code here runs. Refusing to write is the
+    /// better failure: the alternative is a `save.model` that succeeds on a
+    /// value `load.model` then aborts on.
     #[test]
-    fn a_deeply_nested_value_survives_the_wire() {
+    fn a_value_too_deep_for_the_wire_is_refused_not_written() {
+        let mut v = BundValue::list(vec![BundValue::int(1)]);
+        for _ in 0..MAX_WIRE_DEPTH {
+            v = BundValue::list(vec![v]);
+        }
+        let e = to_binary(&v).expect_err("past the bound");
+        assert!(e.contains(&MAX_WIRE_DEPTH.to_string()), "{e}");
+        assert!(e.contains("nests"), "{e}");
+
+        // At the bound it is written, and comes back.
+        let mut ok = BundValue::int(7);
+        for _ in 0..MAX_WIRE_DEPTH - 1 {
+            ok = BundValue::list(vec![ok]);
+        }
+        let bytes = to_binary(&ok).expect("at the bound");
+        let back = from_binary(&bytes).expect("decodes");
+        let mut levels = 0;
+        let mut cur = back;
+        while let Some(items) = cur.as_list().map(<[BundValue]>::to_vec) {
+            if items.is_empty() {
+                break;
+            }
+            levels += 1;
+            cur = items[0].clone();
+        }
+        assert_eq!(levels, MAX_WIRE_DEPTH - 1, "every level came back");
+        assert_eq!(cur.as_int(), Some(7));
+    }
+
+    /// **F118's arena, on the smallest stack that matters.**
+    ///
+    /// Encoding and decoding walked a value's depth in Rust frames, so
+    /// `save.model` aborted at 3,400 levels on the release binary; both build
+    /// from a heap arena now. The depth a *dependency* can still take is what
+    /// `MAX_WIRE_DEPTH` bounds, and the test above covers that. What this one
+    /// covers is that a value at the bound survives a full round trip on a
+    /// **2 MiB** thread — an embedder's default, and the worst case the bound
+    /// was chosen against.
+    #[test]
+    fn a_value_at_the_bound_survives_the_wire_on_a_small_thread() {
         let done = std::thread::Builder::new()
-            .stack_size(8 * 1024 * 1024)
+            .stack_size(2 * 1024 * 1024)
             .spawn(|| {
-                let mut v = BundValue::list(vec![BundValue::int(7)]);
-                for _ in 0..1_000 {
+                let mut v = BundValue::int(7);
+                for _ in 0..MAX_WIRE_DEPTH - 1 {
                     v = BundValue::list(vec![v]);
                 }
-                let bytes = to_binary(&v).expect("encodes");
-                assert!(bytes.len() > 1_000, "every level was written");
-                let back = from_binary(&bytes).expect("decodes");
+                let bytes = to_binary(&v).expect("encodes at the bound");
+                assert!(bytes.len() > MAX_WIRE_DEPTH, "every level was written");
+                let back = from_binary(&bytes).expect("decodes at the bound");
                 let mut levels = 0;
                 let mut cur = back;
                 while let Some(items) = cur.as_list().map(<[BundValue]>::to_vec) {
@@ -662,12 +774,12 @@ mod conversion_tests {
                     levels += 1;
                     cur = items[0].clone();
                 }
-                assert_eq!(levels, 1_001, "every level came back");
+                assert_eq!(levels, MAX_WIRE_DEPTH - 1, "every level came back");
                 assert_eq!(cur.as_int(), Some(7));
             })
             .expect("spawns")
             .join();
-        assert!(done.is_ok(), "the round trip aborted");
+        assert!(done.is_ok(), "the round trip aborted at the bound");
     }
 
     fn without_ids(mut w: WireValue) -> WireValue {

@@ -207,8 +207,10 @@
   F117, fixed with an iterative renderer whose output is byte-identical. The
   set is **six, not four**: the nineteenth review found `display` recursing as
   well (F119, fixed the same way) and the wire codec recursing on the way to
-  `save.model` (F118, open at 3,400 levels). D39's dated note states the rule
-  all six share. **S1–S4**: F116's status reads FIXED in all three places; assumption
+  `save.model` (F118, which aborted at 3,400 levels). F118 is the first of the
+  six whose recursion is partly a dependency's, so it took an arena for
+  Bund2's half and a 256-level bound on writing for bincode's; D39's dated
+  notes state the rule all six share and the third clause F118 added to it. **S1–S4**: F116's status reads FIXED in all three places; assumption
   35 no longer claims `PartialEq`, `Hash` and a wire format recurse, since two
   bottom out at `identity()` and the third does not exist; §S8 and §S5 name
   `execute_one`, which is where the re-entries live, and count its path as two
@@ -2523,8 +2525,10 @@ with the place that enforces or decides it.
     seven**, and the nineteenth review found the previous revision of this
     sentence wrong in both directions, so they are listed:
     `Drop` (F115, iterative), `render_into` (F117, iterative), `display`
-    (F119, iterative), the **wire codec** (`crates/bund2-value/src/wire.rs`,
-    which recurses and aborts `save.model` at 3,400 levels — F118, open),
+    (F119, iterative), the **wire codec** (`crates/bund2-value/src/wire.rs` —
+    F118, an arena for the half Bund2 owns, which moved `save.model`'s ceiling
+    from 3,400 levels to about 39,000, and `MAX_WIRE_DEPTH` refusing to
+    *write* past 256 for bincode's half, which cannot be checked on read),
     `summarise` (bounded at depth 2 by design, D36), and `PartialEq` and
     `Hash`, which compare and hash a container by `identity()` and never
     descend (`crates/bund2-value/src/lib.rs`). Two of the seven recursed when
@@ -2662,6 +2666,7 @@ disagrees with interpreted code", and each has a named guard:
 | **the call boundary itself**: a `NativeFn` whose ABI and `Result` CLIF cannot carry | a context pointer and an integer status under `CallConv::Tail`, a Rust adapter per native, `Tail` thunks in the slots, and a C-convention entry trampoline (§S8); criteria 4 and 29 |
 | **a lambda a container reaches, now run inside `execute_one`'s `Reach::Nested` arm where it used to be filed** (F113) | the answer is the same, since a request runs before the next value (§S5), and the cost is one Rust frame per lambda rather than none. Its traversal spends no stack on the value's depth (F114), and `Vm::eval_lambda` holds the floor; criterion 11 |
 | **a deep value rendered by a word on the conformance path** — `debug.display_stack`, which the golden capture epilogue calls, and `--raw-values` | `render_into` and `render_payload` drive a worklist rather than recursing, so the depth costs heap and the text is byte-identical at every depth (F117). A diagnostic's values are bounded at depth 2 by `summary` instead (D36); criterion 14 |
+| **the wire codec walking a value's depth**, which `save.model`, `load.model` and the sqlite blob path reach — and which no audit sees, since the word re-enters no evaluation and is `ACTS_ON_HOST` | an arena for both directions, and `MAX_WIRE_DEPTH` refusing to *write* past 256 levels, because bincode's derived `Deserialize` builds the tree before a check could run (F118); D31 is what makes a write-side bound sufficient |
 | **a value's teardown recursing on its depth** — a program that printed its output aborts while its stacks are dropped | nothing in this design: §S8's floors are on evaluation and on compiled entry, and a drop runs where the value dies. `Drop for HeapValue` walks the levels through a worklist instead (F115); assumption 35 |
 | **the parse inside `bund.eval`, `!!` and `use` recursing on the depth of a run-time string** | the floor `eval_source` checks comes after the parse, so the parser bounds itself instead: `MAX_NESTING` refuses past 1024 blocks before the frame is spent, and reports (F116; assumption 34) |
 | **a stale tail request** left by a native that failed after filing it | at Tier 0 `Interp::invoke` clears it (F96). A compiled call does not reach `invoke`, since the adapter calls the `NativeFn` directly, so `status_of` clears the cell whenever it answers an error, and a refused drain clears it too (§S5); criterion 26 |

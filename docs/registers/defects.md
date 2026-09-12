@@ -3864,11 +3864,51 @@ The bytes are unchanged: `wire_fixtures/*.hex` and
 `a_bund2_value_survives_the_wire` pass untouched, and conformance does not
 move.
 
-**What remains for the owner.** Either the codec takes a bound that reports on
-both directions, as F116's parser does, at a depth under the measured decode
-limit; or that limit is recorded as a known ceiling and a value deeper than it
-aborts on `load.model`. Until one is chosen, a world file written by a program
-that builds past ~5,500 levels cannot be read back.
+**Status:** FIXED 2026-09-12. The repository owner chose to bound the codec.
+
+**The bound is on writing, because a decode cannot be bounded.** bincode
+builds the whole nested `WireValue` before any Bund2 code runs, so there is no
+point at which a depth check could refuse a blob. `to_binary` therefore
+measures the value's depth first — on the heap, so the measuring cannot itself
+overflow — and refuses past `bund2_value::wire::MAX_WIRE_DEPTH`, **256**. A
+value too deep to read back is never stored. The alternative was the worse
+failure: `save.model` succeeding on a value `load.model` then aborts on.
+
+**256 comes from the worst case, not the best.** Decoding aborts at (measured
+2026-09-12, nested one-element lists):
+
+| build | thread | aborts at |
+|---|---|---|
+| debug | 2 MiB — an embedder's default | 512 |
+| debug | 8 MiB | 2,048 |
+| release | 8 MiB — what `bund2` gives evaluation | 6,000 |
+
+The deepest nesting anywhere in the corpus is 2, so the bound is 128× what any
+program has needed and clear of the shallowest abort, which is how D39 chooses
+a threshold.
+
+What a program sees, run 2026-09-12 at depth 300:
+
+    SAVE.MODEL returns: Error compiling mode: the value nests 257 deep,
+    and 256 is the most the wire format can carry
+
+with the source line and the stack, as any other word's error is reported. The
+script exits 0, because the error is reported rather than fatal — the same
+shape F116's parser refusal has. (`Error compiling mode` is the reference's
+own wording, typo included, reproduced by `save_model`.)
+
+`a_value_too_deep_for_the_wire_is_refused_not_written` holds the refusal and
+the at-bound round trip, and
+`a_value_at_the_bound_survives_the_wire_on_a_small_thread` runs a value at the
+bound through both directions on a **2 MiB** thread, the worst case the number
+was chosen against. `save.model` at 255 saves; at 300 and at 3,400 it reports.
+Conformance does not move.
+
+**The caveat, stated rather than left implicit.** A blob produced somewhere
+else — the oracle, or a future writer — deeper than the bound still aborts on
+read, because the recursion is inside bincode. D31 ruled that nothing outside
+Bund reads or writes a world file, which is what makes a write-side bound
+sufficient here; if that ever changes, this needs revisiting.
 
 ## F119 — `display` recurses on a value's depth, so `println` aborts
 
