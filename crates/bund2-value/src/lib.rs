@@ -249,6 +249,64 @@ pub struct HeapValue {
     payload: Rc<Payload>,
 }
 
+/// Take one level's members onto `work`, leaving the level empty — F115.
+///
+/// **Only where this value owns them.** Both `Rc`s can be shared: `dup` bumps
+/// the payload on a different schedule from the header. `Rc::get_mut` answers
+/// `None` when another value still holds the payload, and then its members are
+/// not this value's to free.
+fn take_members(h: &mut HeapValue, work: &mut Vec<BundValue>) {
+    work.append(&mut h.attr);
+    let Some(payload) = Rc::get_mut(&mut h.payload) else {
+        return;
+    };
+    match payload {
+        Payload::List(items) | Payload::Lambda(items) => work.append(items),
+        Payload::Map(m) => work.extend(std::mem::take(m).into_values()),
+        Payload::ValueMap(m) => {
+            for (k, v) in std::mem::take(m) {
+                work.push(k);
+                work.push(v);
+            }
+        }
+        Payload::Scalar(inner) => work.push(std::mem::replace(inner, BundValue::none())),
+        Payload::Str(_)
+        | Payload::Bin(_)
+        | Payload::Exit
+        | Payload::Metrics(_)
+        | Payload::Json(_) => {}
+    }
+}
+
+/// **A value's depth costs heap, not Rust stack — F115.**
+///
+/// A value holds its members, so the derived drop freed a nested LIST by
+/// recursing on the nesting: `list 30000 { drop list push } times` printed its
+/// output and *then* aborted with a stack overflow, which D37 forbids. No
+/// floor can be put on that path, because a drop runs wherever the value dies.
+///
+/// So the members come off level by level through a worklist. Each level's
+/// members are taken **before** that level is dropped, so the drop the loop
+/// triggers finds nothing left to descend into and is shallow. A payload
+/// another value still shares is left untouched: `take_members` asks
+/// `Rc::get_mut` first.
+impl Drop for HeapValue {
+    fn drop(&mut self) {
+        let mut work: Vec<BundValue> = Vec::new();
+        take_members(self, &mut work);
+        while let Some(v) = work.pop() {
+            let BundValue::Heap(rc) = v else { continue };
+            // `None` when another value still holds this level: then it is not
+            // being freed, and its members are not ours to take.
+            if let Some(mut level) = Rc::into_inner(rc) {
+                take_members(&mut level, &mut work);
+                // `level` drops here, already emptied, so its own `Drop` walks
+                // nothing.
+            }
+        }
+    }
+}
+
 impl HeapValue {
     fn new(dt: u16, payload: Payload) -> Self {
         Self {
@@ -1291,6 +1349,38 @@ impl Hash for BundValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **F115.** A value holds its members, so the derived drop freed a
+    /// nested LIST by recursing on the nesting, and
+    /// `list 30000 { drop list push } times` aborted the process *after*
+    /// printing its output. `Drop for HeapValue` walks the levels through a
+    /// worklist instead, so depth costs heap. 100,000 levels is far past what
+    /// aborted; the point is that it returns at all.
+    #[test]
+    fn a_deeply_nested_value_drops_without_recursing() {
+        let mut v = BundValue::list(Vec::new());
+        for _ in 0..100_000 {
+            v = BundValue::list(vec![v]);
+        }
+        drop(v);
+    }
+
+    /// **F115's other half.** A payload two values share is not one value's to
+    /// free: `Rc::get_mut` answers `None` while the other holds it. A `dup`
+    /// shares the payload on a different schedule from the header (D13), which
+    /// is exactly the case the worklist must not descend into.
+    #[test]
+    fn dropping_one_owner_leaves_a_shared_payload_intact() {
+        let inner = BundValue::list(vec![BundValue::int(1), BundValue::int(2)]);
+        let outer = BundValue::list(vec![inner.clone()]);
+        let shared = inner.clone();
+        drop(outer);
+        drop(inner);
+        let items = shared.as_list().expect("still a LIST");
+        assert_eq!(items.len(), 2, "the shared payload survived");
+        assert_eq!(items[0].as_int(), Some(1));
+        assert_eq!(items[1].as_int(), Some(2));
+    }
 
     /// RFC-0001 criterion D1.
     #[test]

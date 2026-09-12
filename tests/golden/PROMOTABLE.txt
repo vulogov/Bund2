@@ -4,7 +4,8 @@
 # reading beyond its operands. Anything absent is synced before, as an
 # embedder's native is. Written by BUND2_UPDATE_PROMOTABLE=1 cargo
 # test -p bund2-stdlib promotable; never edited by hand.
-# 218 of 263 fixed-effect natives reached; 8 of them observe beyond their operands.
+# 218 promotable of 226 reached, of 263 fixed-effect natives; 8 reached natives
+# observe beyond their operands (D55) and are never crossed.
 !=
 *
 *.

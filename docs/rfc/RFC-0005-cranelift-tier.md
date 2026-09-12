@@ -184,10 +184,10 @@
   `list 20000 { drop list push } times !` aborted the process, about 470
   levels past `STACK_RESERVE` at roughly 550 bytes a level. That is F114,
   fixed by driving `execute_reached`'s traversal from a heap worklist, so a
-  value's depth costs no stack. Two further aborts the same measurement found
-  are filed OPEN — F115, dropping a deep value, and F116, parsing a deep
-  run-time string — with assumptions 34 and 35 saying that §S8's floors reach
-  neither. **S1–S4**: `execute.rs:93-95` is cited for the reached half only,
+  value's depth costs no stack. The same measurement found two more aborts on
+  paths §S8's floors do not reach: F115, dropping a deep value, fixed the same
+  way with an iterative `Drop`, and F116, parsing a deep run-time string,
+  which stays open. Assumptions 34 and 35 record both. **S1–S4**: `execute.rs:93-95` is cited for the reached half only,
   and the filed half is stated as the deviation it is; criterion 11's case is
   a number again; `PROMOTABLE.txt`'s header states its own arithmetic; and
   D55's status records the regeneration.
@@ -2031,9 +2031,9 @@ that path recurses on data the program controls**. That proviso was missing
 until the seventeenth review measured it: `execute_reached` recursed on a
 value's depth at about 550 bytes a level, so the 256 KiB reserve carried about
 470 levels and a 20,000-deep list aborted the process (F114, fixed by a heap
-worklist). Two paths outside this design still recurse that way, and §S8's
-floors do not reach either: dropping a deep value (F115) and parsing a deep
-run-time string (F116), assumptions 34 and 35. Two things come out of
+worklist). Two more paths outside this design recursed the same way, and
+§S8's floors reach neither: dropping a deep value (F115, since fixed the same
+way) and parsing a deep run-time string (F116, open), assumptions 34 and 35. Two things come out of
 the reserve and are not measured, though both are small against 256 KiB:
 
 - the thread-entry frames, because the declared top is `stack_marker()` called
@@ -2442,11 +2442,14 @@ with the place that enforces or decides it.
     between, and a 16,000-deep literal aborts the process (F116, OPEN).
     RFC-0003 excludes the parser's recursion over a source file; this is not
     that, because the string is a value the program built.
-35. **§S8's floors are silent about a value's construction and teardown.**
-    Dropping a deeply nested value recurses on its depth, and a 30,000-deep
-    list aborts after the program's own work has finished and its output has
-    been printed (F115, OPEN). No floor is on that path, and none can be: the
-    drop runs where the value dies.
+35. **§S8's floors are silent about a value's teardown, and nothing on that
+    path may recurse.** No floor can be put there: a drop runs wherever the
+    value dies, long after any check. Dropping a deeply nested value used to
+    recurse on its depth, and a 30,000-deep list aborted after the program's
+    own work had finished and its output had printed (F115, fixed by an
+    iterative `Drop` for `HeapValue`). Other walks over a value's members —
+    `render`, `PartialEq`, `Hash`, the wire format — still recurse on depth,
+    and assumption 36 covers the rendering half.
 36. **`debug.display_stack` and `--raw-values` render a deep value without a
     bound.** A report's values go through `BundValue::summary`, which is
     bounded by design (D36), and these two do not. 20,000 levels rendered
@@ -2576,7 +2579,7 @@ disagrees with interpreted code", and each has a named guard:
 | **a native panicking inside a dependency** — `jarowinkler` in `natural` (F95) — reached from compiled code | caught where the native is called, in both tiers, and reported as `Error::internal` (D49); no panic unwinds through a compiled frame (§S8); criterion 29 |
 | **the call boundary itself**: a `NativeFn` whose ABI and `Result` CLIF cannot carry | a context pointer and an integer status under `CallConv::Tail`, a Rust adapter per native, `Tail` thunks in the slots, and a C-convention entry trampoline (§S8); criteria 4 and 29 |
 | **a lambda a container reaches, now run inside `execute_reached` where it used to be filed** (F113) | the answer is the same, since a request runs before the next value (§S5), and the cost is one Rust frame per lambda rather than none. Its traversal spends no stack on the value's depth (F114), and `Vm::eval_lambda` holds the floor; criterion 11 |
-| **a value's construction and teardown recursing on its depth** — a program that printed its output aborts while its stacks are dropped | nothing in this design: §S8's floors are on evaluation and on compiled entry, and a drop runs where the value dies (F115, OPEN; assumption 35) |
+| **a value's teardown recursing on its depth** — a program that printed its output aborts while its stacks are dropped | nothing in this design: §S8's floors are on evaluation and on compiled entry, and a drop runs where the value dies. `Drop for HeapValue` walks the levels through a worklist instead (F115); assumption 35 |
 | **the parse inside `bund.eval`, `!!` and `use` recursing on the depth of a run-time string** | nothing in this design: the floor `eval_source` checks comes after the parse (F116, OPEN; assumption 34) |
 | **a stale tail request** left by a native that failed after filing it | at Tier 0 `Interp::invoke` clears it (F96). A compiled call does not reach `invoke`, since the adapter calls the `NativeFn` directly, so `status_of` clears the cell whenever it answers an error, and a refused drain clears it too (§S5); criterion 26 |
 | **native nesting through a word other than `loop`**, whose per-level cost makes the margin too small | `m` is set from the largest `δ_p / c_p` over every re-entering path, a set derived by source scan rather than listed (§S8); criterion 11 |
@@ -2637,7 +2640,9 @@ evidence, and this one is listed as runnable rather than as met.
 
 1. **The gate is passed before implementation begins.**
    `cargo bench -p bund2-bench -- value/push_pull` reports **under 20 ns**.
-   **Met**: 9.8 ns, after D41.
+   **Met**: 9.8 ns, after D41; re-run at **9.47 ns** on 2026-09-11, after
+   F115 put a `Drop` impl on `HeapValue`, which is the hottest type this
+   criterion guards. The change was an improvement of 3.4%, not a cost.
 
    An earlier version also required "`dispatch/*` re-measured shows the
    dispatch loop, not the value layer, as the dominant term". **That half is

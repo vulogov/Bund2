@@ -3646,10 +3646,31 @@ word. It is not a tier divergence — no compiled code is involved — so
 RFC-0005's criterion 2 cannot move on it, which is why RFC-0005 records it as
 assumption 35 rather than leaving it to conformance.
 
-**Status:** OPEN. The fix is an iterative `Drop` for the container payloads in
-`crates/bund2-value`, walking members onto a heap worklist instead of letting
-the compiler's recursive drop run. That is a change to the value type every
-crate depends on, so it is separate work.
+**Status:** FIXED 2026-09-11 (`crates/bund2-value/src/lib.rs`). The repository
+owner chose the iterative drop. `Drop for HeapValue` takes each level's
+members onto a heap worklist and frees them level by level, so a value's depth
+costs heap rather than stack. Each level is emptied **before** it is dropped,
+so the drop the loop triggers finds nothing to descend into. A payload another
+value still shares is left alone: `take_members` asks `Rc::get_mut` first, and
+answers `None` while a second owner holds it — which is the case `dup` makes,
+sharing the payload on a different schedule from the header (D13). `attr` and
+every member-bearing payload are covered: `List`, `Lambda`, `Map`, `ValueMap`
+and `Scalar`.
+
+The program above now prints `built` and exits 0.
+`a_deeply_nested_value_drops_without_recursing` drops 100,000 levels, and
+`dropping_one_owner_leaves_a_shared_payload_intact` holds the sharing rule
+(both in `crates/bund2-value/src/lib.rs`).
+
+**The cost was measured**, because a `Drop` impl on the hottest type in the
+system is what RFC-0005's criterion 1 bounds. `value/push_pull/balanced` reads
+**9.47 ns** against the criterion's 20 ns floor, 3.4% faster than the previous
+run rather than slower. No golden moves.
+
+**What it does not reach.** `render`, `PartialEq`, `Hash` and the wire format
+walk a value's members too, and each still recurses on depth. RFC-0005's
+assumption 36 records the rendering half; none of them is filed yet, and each
+would need its own iterative rewrite and its own test.
 
 ## F116 — parsing a deeply nested run-time string aborts the process
 
