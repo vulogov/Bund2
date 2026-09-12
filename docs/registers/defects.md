@@ -3833,11 +3833,42 @@ so it is absent from `every_reentering_function_is_named`'s set and from §S8's
 never runs. RFC-0005's assumption 21 calls that exclusion conservative, which
 is true for promotion and false for D37: an unrun native can still abort.
 
-**Status:** OPEN, awaiting a disposition. `val_of` can be flattened onto a
-worklist as F114, F115, F117 and F119 were, but bincode's derived `Serialize`
-recursion is inside the dependency and a worklist cannot reach it, so a bound
-that reports — F116's disposition, at a depth chosen as D39 chooses one — may
-be the only honest fix. Both halves are the repository owner's call.
+**Status:** PARTLY FIXED 2026-09-12 (`crates/bund2-value/src/wire.rs`), the
+remainder awaiting a disposition. The repository owner chose to flatten what
+Bund2 owns and then measure the residual.
+
+**What was flattened.** `from_value` and `into_value` both build from an
+arena: each value is given an index on the way down and its children are
+queued, then the tree is assembled bottom-up, so a parent finds its children
+already built. `WireValue` gains an iterative `Drop`, as `HeapValue` did in
+F115 — it holds `WireValue`s in `attr` and in five `Val` variants, so the
+derived drop recursed too. `decode_all` went with the recursive decoder.
+Adding `Drop` makes `WireValue` non-destructurable, so three sites now take
+their fields with `mem::take`/`replace` instead of moving out.
+
+**What it bought, measured on the release binary:**
+
+| direction | before | after |
+|---|---|---|
+| `save.model` (encode) | aborts at **3,400** | survives 38,000, aborts at **40,000** |
+| `load.model` (decode) | — | aborts at **6,000**, survives 5,500 |
+
+The encode ceiling moved by an order of magnitude and is now bincode's own
+`Serialize` recursion. **The decode side is the binding limit**: bincode's
+derived `Deserialize` builds the nested `WireValue` before any Bund2 code
+runs, at roughly 1.4 KB of stack a level on an 8 MiB thread — reproducible,
+5,500 passing twice and 6,000, 6,500 and 8,000 aborting twice each. A worklist
+cannot reach inside the dependency.
+
+The bytes are unchanged: `wire_fixtures/*.hex` and
+`a_bund2_value_survives_the_wire` pass untouched, and conformance does not
+move.
+
+**What remains for the owner.** Either the codec takes a bound that reports on
+both directions, as F116's parser does, at a depth under the measured decode
+limit; or that limit is recorded as a known ceiling and a value deeper than it
+aborts on `load.model`. Until one is chosen, a world file written by a program
+that builds past ~5,500 levels cannot be read back.
 
 ## F119 — `display` recurses on a value's depth, so `println` aborts
 

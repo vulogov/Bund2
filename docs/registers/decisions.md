@@ -2222,6 +2222,29 @@ The rule this adds: **no Rust recursion may be driven by the depth of a value
 a program controls.** Where the work can be moved to the heap, move it; where
 it cannot, bound it and report.
 
+**Dated note, 2026-09-12 — the shape had six instances, not three.** The note
+above named F114, F115 and F116. RFC-0005's eighteenth and nineteenth reviews
+found three more of the same kind, each measured before it was believed:
+**F117**, rendering a value through `debug.display_stack` (aborted at 24,000
+levels); **F119**, the second renderer `display`, which `println` reaches
+(28,000); and **F118**, the bincode wire codec, which `save.model` reaches
+(3,400 — the shallowest of the six by an order of magnitude).
+
+F117 and F119 took the worklist, as F114 and F115 had. F118 took it as far as
+Bund2 owns the code: encoding and decoding now build from an arena and
+`WireValue` has an iterative `Drop`, which moved `save.model`'s ceiling from
+3,400 to ~39,000. **The rest is not ours to move** — bincode's derived
+`Serialize` and `Deserialize` recurse inside the dependency, and decoding caps
+at ~5,500 levels on an 8 MiB thread. That is the first instance of this shape
+where "move it to the heap" runs out, and the choice between bounding the
+codec and recording the ceiling is still open.
+
+Two lessons the six share, worth stating once. **Each was found by measuring,
+not by reading** — three of them falsified a sentence written the day before
+asserting the path was safe. And **the audits do not reach this class**: a
+native that re-enters no evaluation is outside the re-entry scan, and one that
+acts on the host is outside criterion 28's palette, which is where F118 lived.
+
 ## D40 — `string.grok` brings a C dependency, and that reaches the AOT milestone
 
 D38 settled *how* to take a crate the reference reaches (pin it, do not vendor

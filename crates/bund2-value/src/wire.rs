@@ -120,22 +120,85 @@ impl WireValue {
     /// **Serialising materialises the identity and the stamp** (D20). A value
     /// that has not been asked for either is given both here, as the reference
     /// gave them at construction.
+    /// **Built from an arena, not by recursion — F118.**
+    ///
+    /// Encoding descended per level, so `save.model` on a 3,400-deep value
+    /// aborted the process at about 600 bytes of stack a level, which D37
+    /// forbids. The walk now runs from a `Vec`: each value is given an index
+    /// on the way down, its children are queued, and the `WireValue`s are
+    /// assembled bottom-up once every child has one. A child always takes a
+    /// higher index than its parent, so assembling in reverse index order
+    /// means a parent finds its children already built.
+    ///
+    /// The bytes are unchanged: this builds the same tree in a different
+    /// order, and `wire_fixtures/*.hex` pin it against the reference.
     pub fn from_value(v: &BundValue) -> WireValue {
-        let (id, _) = v.id_string();
-        let (stamp, _) = v.timestamp();
+        let mut nodes: Vec<Node> = Vec::new();
+        let mut queue: Vec<BundValue> = vec![v.clone()];
+        let mut at = 0usize;
+        while at < queue.len() {
+            let cur = queue[at].clone();
+            at += 1;
+            let node = node_of(&cur, &mut queue);
+            nodes.push(node);
+        }
+        // Bottom-up: the last node has no children left to wait for.
+        let mut built: Vec<Option<WireValue>> = (0..nodes.len()).map(|_| None).collect();
+        for (i, node) in nodes.into_iter().enumerate().rev() {
+            let take = |idx: usize, built: &mut Vec<Option<WireValue>>| {
+                built[idx].take().unwrap_or_else(WireValue::placeholder)
+            };
+            let data = match node.shape {
+                Shape::Leaf(val) => val,
+                Shape::List(ids) => Val::List(ids.into_iter().map(|k| take(k, &mut built)).collect()),
+                Shape::Lambda(ids) => {
+                    Val::Lambda(ids.into_iter().map(|k| take(k, &mut built)).collect())
+                }
+                Shape::Map(entries) => Val::Map(
+                    entries
+                        .into_iter()
+                        .map(|(k, idx)| (k, take(idx, &mut built)))
+                        .collect(),
+                ),
+                Shape::ValueMap(pairs) => Val::ValueMap(
+                    pairs
+                        .into_iter()
+                        .map(|(k, x)| (take(k, &mut built), take(x, &mut built)))
+                        .collect(),
+                ),
+            };
+            let attr = node
+                .attr
+                .into_iter()
+                .map(|k| take(k, &mut built))
+                .collect();
+            built[i] = Some(WireValue {
+                id: node.id,
+                stamp: node.stamp,
+                dt: node.dt,
+                q: node.q,
+                data,
+                attr,
+                curr: node.curr,
+                tags: node.tags,
+            });
+        }
+        built[0].take().unwrap_or_else(WireValue::placeholder)
+    }
+
+    /// A value that cannot occur: every index is filled before it is taken.
+    /// Returning one is a wrong answer where aborting is not an answer at all
+    /// (CLAUDE.md, D37).
+    fn placeholder() -> WireValue {
         WireValue {
-            id,
-            stamp,
-            dt: v.dt(),
-            q: v.q(),
-            data: val_of(v),
-            attr: v.attr().iter().map(WireValue::from_value).collect(),
-            curr: v.curr(),
-            tags: v
-                .tags()
-                .iter()
-                .map(|(k, x)| (k.to_string(), x.to_string()))
-                .collect(),
+            id: String::new(),
+            stamp: 0.0,
+            dt: NONE,
+            q: 0.0,
+            data: Val::Null,
+            attr: Vec::new(),
+            curr: -1,
+            tags: HashMap::new(),
         }
     }
 
@@ -153,17 +216,71 @@ impl WireValue {
     /// `Error`, `Matrix`, `Queue`, `Time`, `Operator`, `Embedding`). A value
     /// holding one is refused with its name, not coerced into something the
     /// reference did not write.
+    /// **Decoded from an arena, not by recursion — F118.**
+    ///
+    /// The mirror of [`WireValue::from_value`]: a `save` then `load` of a
+    /// 12,000-deep value aborted on the way back while the save itself
+    /// survived 20,000. The tree is walked iteratively, each node given an
+    /// index and its children queued, and the `BundValue`s are built bottom-up
+    /// so a parent finds its children already decoded. A child that has no
+    /// Bund2 form fails the whole decode with its own message, as before.
     pub fn into_value(self) -> Result<BundValue, String> {
-        let WireValue {
-            id: _,
-            stamp,
-            dt,
-            q,
-            data,
-            attr,
-            curr,
-            tags,
-        } = self;
+        let mut nodes: Vec<WireNode> = Vec::new();
+        let mut queue: Vec<WireValue> = vec![self];
+        let mut at = 0usize;
+        while at < queue.len() {
+            let cur = std::mem::replace(&mut queue[at], WireValue::placeholder());
+            at += 1;
+            nodes.push(wire_node_of(cur, &mut queue)?);
+        }
+        let mut built: Vec<Option<BundValue>> = (0..nodes.len()).map(|_| None).collect();
+        for (i, node) in nodes.into_iter().enumerate().rev() {
+            let take = |idx: usize, built: &mut Vec<Option<BundValue>>| {
+                built[idx]
+                    .take()
+                    .unwrap_or_else(|| BundValue::None(StackSym::NONE))
+            };
+            let payload = match node.shape {
+                WireShape::Leaf(p) => p,
+                WireShape::List(ids) => {
+                    Payload::List(ids.into_iter().map(|k| take(k, &mut built)).collect())
+                }
+                WireShape::Lambda(ids) => {
+                    Payload::Lambda(ids.into_iter().map(|k| take(k, &mut built)).collect())
+                }
+                WireShape::Map(entries) => Payload::Map(
+                    entries
+                        .into_iter()
+                        .map(|(k, idx)| (k, take(idx, &mut built)))
+                        .collect(),
+                ),
+                WireShape::ValueMap(pairs) => Payload::ValueMap(
+                    pairs
+                        .into_iter()
+                        .map(|(k, x)| (take(k, &mut built), take(x, &mut built)))
+                        .collect(),
+                ),
+            };
+            let attr = node.attr.into_iter().map(|k| take(k, &mut built)).collect();
+            built[i] = Some(BundValue::Heap(Rc::new(HeapValue {
+                identity: Cell::new(0),
+                stamp: Cell::new(node.stamp),
+                dt: node.dt,
+                q: node.q,
+                curr: node.curr,
+                tags: node.tags,
+                attr,
+                payload: Rc::new(payload),
+            })));
+        }
+        Ok(built[0]
+            .take()
+            .unwrap_or_else(|| BundValue::None(StackSym::NONE)))
+    }
+
+    /// The old recursive body, kept for one value's payload: everything that
+    /// is not a container decodes without looking at a child.
+    fn leaf_payload(dt: u16, data: Val) -> Result<Payload, String> {
         let payload = match data {
             Val::Null => match dt {
                 NODATA => Payload::Scalar(BundValue::Nodata(StackSym::NONE)),
@@ -176,19 +293,11 @@ impl WireValue {
             Val::Exit => Payload::Exit,
             Val::String(s) => Payload::Str(s),
             Val::Binary(b) => Payload::Bin(b),
-            Val::List(items) => Payload::List(decode_all(items)?),
-            Val::Lambda(items) => Payload::Lambda(decode_all(items)?),
-            Val::Map(m) => Payload::Map(
-                m.into_iter()
-                    .map(|(k, x)| x.into_value().map(|v| (k, v)))
-                    .collect::<Result<_, _>>()?,
-            ),
-            Val::ValueMap(pairs) => Payload::ValueMap(
-                pairs
-                    .into_iter()
-                    .map(|(k, x)| Ok((k.into_value()?, x.into_value()?)))
-                    .collect::<Result<_, String>>()?,
-            ),
+            // The four container arms never reach here: `wire_node_of` turns
+            // them into child indices before this is called.
+            Val::List(_) | Val::Lambda(_) | Val::Map(_) | Val::ValueMap(_) => {
+                return Err("a container reached the leaf decoder".to_string())
+            }
             Val::Metrics(ms) => Payload::Metrics(
                 ms.into_iter()
                     .map(|m| Metric {
@@ -206,66 +315,222 @@ impl WireValue {
             Val::Operator(_) => return Err(no_form("Operator")),
             Val::Embedding(_) => return Err(no_form("Embedding")),
         };
-        Ok(BundValue::Heap(Rc::new(HeapValue {
-            identity: Cell::new(0),
-            stamp: Cell::new(stamp),
-            dt,
-            q,
-            curr,
-            tags: tags
-                .into_iter()
-                .map(|(k, x)| (Rc::from(k.as_str()), Rc::from(x.as_str())))
-                .collect(),
-            attr: decode_all(attr)?,
-            payload: Rc::new(payload),
-        })))
+        Ok(payload)
     }
+}
+
+/// One decoded value's header and the shape of its children — F118's arena,
+/// the decode side.
+struct WireNode {
+    stamp: f64,
+    dt: u16,
+    q: f64,
+    curr: i32,
+    tags: super::Tags,
+    shape: WireShape,
+    attr: Vec<usize>,
+}
+
+enum WireShape {
+    Leaf(Payload),
+    List(Vec<usize>),
+    Lambda(Vec<usize>),
+    Map(Vec<(String, usize)>),
+    ValueMap(Vec<(usize, usize)>),
+}
+
+/// Record one `WireValue`, queueing its children — F118.
+fn wire_node_of(mut w: WireValue, queue: &mut Vec<WireValue>) -> Result<WireNode, String> {
+    // `WireValue` owns a `Drop` since F118, so its fields are taken rather
+    // than destructured.
+    let (stamp, dt, q, curr) = (w.stamp, w.dt, w.q, w.curr);
+    let data = std::mem::replace(&mut w.data, Val::Null);
+    let attr = std::mem::take(&mut w.attr);
+    let tags = std::mem::take(&mut w.tags);
+    let push = |child: WireValue, queue: &mut Vec<WireValue>| {
+        queue.push(child);
+        queue.len() - 1
+    };
+    let shape = match data {
+        Val::List(items) => {
+            WireShape::List(items.into_iter().map(|x| push(x, queue)).collect())
+        }
+        Val::Lambda(items) => {
+            WireShape::Lambda(items.into_iter().map(|x| push(x, queue)).collect())
+        }
+        Val::Map(m) => WireShape::Map(
+            m.into_iter()
+                .map(|(k, x)| (k, push(x, queue)))
+                .collect(),
+        ),
+        Val::ValueMap(pairs) => WireShape::ValueMap(
+            pairs
+                .into_iter()
+                .map(|(k, x)| (push(k, queue), push(x, queue)))
+                .collect(),
+        ),
+        other => WireShape::Leaf(WireValue::leaf_payload(dt, other)?),
+    };
+    Ok(WireNode {
+        stamp,
+        dt,
+        q,
+        curr,
+        tags: tags
+            .into_iter()
+            .map(|(k, x)| (Rc::from(k.as_str()), Rc::from(x.as_str())))
+            .collect(),
+        shape,
+        attr: attr.into_iter().map(|a| push(a, queue)).collect(),
+    })
 }
 
 fn no_form(kind: &str) -> String {
     format!("the value holds a {kind}, which Bund2 has no form for")
 }
 
-fn decode_all(items: Vec<WireValue>) -> Result<Vec<BundValue>, String> {
-    items.into_iter().map(WireValue::into_value).collect()
+// `decode_all` went with the recursive decoder: the arena in
+// `WireValue::into_value` queues children by index instead (F118).
+
+/// **`Drop` walks the levels on the heap — F118.**
+///
+/// `WireValue` holds `WireValue`s, in `attr` and inside five `Val` variants,
+/// so the derived drop recursed on a decoded value's depth exactly as
+/// `HeapValue`'s did before F115. Same fix: take each level's children onto a
+/// worklist and free them level by level, each emptied before it is dropped,
+/// so the drop the loop triggers finds nothing to descend into.
+impl Drop for WireValue {
+    fn drop(&mut self) {
+        let mut work: Vec<WireValue> = Vec::new();
+        take_wire_children(self, &mut work);
+        while let Some(mut level) = work.pop() {
+            take_wire_children(&mut level, &mut work);
+        }
+    }
 }
 
-/// The `Val` a Bund2 value's payload is on the wire.
-fn val_of(v: &BundValue) -> Val {
-    match v {
-        BundValue::Int(i, _) => Val::I64(*i),
-        BundValue::Float(f, _) => Val::F64(*f),
-        BundValue::Bool(b, _) => Val::Bool(*b),
-        BundValue::Nodata(_) | BundValue::None(_) => Val::Null,
-        BundValue::Heap(h) => match &*h.payload {
-            Payload::Str(s) => Val::String(s.clone()),
-            Payload::Bin(b) => Val::Binary(b.clone()),
-            Payload::List(items) => Val::List(items.iter().map(WireValue::from_value).collect()),
-            Payload::Lambda(items) => {
-                Val::Lambda(items.iter().map(WireValue::from_value).collect())
+/// Move one `WireValue`'s children onto `work`, leaving it empty.
+fn take_wire_children(w: &mut WireValue, work: &mut Vec<WireValue>) {
+    work.append(&mut w.attr);
+    match &mut w.data {
+        Val::List(items) | Val::Lambda(items) | Val::Queue(items) => work.append(items),
+        Val::Matrix(rows) => {
+            for row in std::mem::take(rows) {
+                work.extend(row);
             }
-            Payload::Map(m) => Val::Map(
-                m.iter()
-                    .map(|(k, x)| (k.clone(), WireValue::from_value(x)))
-                    .collect(),
-            ),
-            Payload::ValueMap(m) => Val::ValueMap(
-                m.iter()
-                    .map(|(k, x)| (WireValue::from_value(k), WireValue::from_value(x)))
-                    .collect(),
-            ),
-            Payload::Exit => Val::Exit,
-            Payload::Metrics(ms) => Val::Metrics(
+        }
+        Val::Map(m) => work.extend(std::mem::take(m).into_values()),
+        Val::ValueMap(pairs) => {
+            for (k, x) in std::mem::take(pairs) {
+                work.push(k);
+                work.push(x);
+            }
+        }
+        Val::Null
+        | Val::Exit
+        | Val::Token(_)
+        | Val::Error(_)
+        | Val::Bool(_)
+        | Val::I64(_)
+        | Val::F64(_)
+        | Val::String(_)
+        | Val::Binary(_)
+        | Val::Time(_)
+        | Val::Metrics(_)
+        | Val::Operator(_)
+        | Val::Json(_)
+        | Val::Embedding(_) => {}
+    }
+}
+
+/// One value's header and the shape of its children — F118's arena.
+struct Node {
+    id: String,
+    stamp: f64,
+    dt: u16,
+    q: f64,
+    curr: i32,
+    tags: HashMap<String, String>,
+    shape: Shape,
+    attr: Vec<usize>,
+}
+
+/// What a node's `data` is: either finished, or the indices of the children
+/// it is assembled from.
+enum Shape {
+    Leaf(Val),
+    List(Vec<usize>),
+    Lambda(Vec<usize>),
+    Map(Vec<(String, usize)>),
+    ValueMap(Vec<(usize, usize)>),
+}
+
+/// Record one value, queueing its children — F118.
+///
+/// Every child pushed onto `queue` is given the index it will occupy, which is
+/// where it lands in the queue, because the queue is walked in order and one
+/// node is produced per entry.
+fn node_of(v: &BundValue, queue: &mut Vec<BundValue>) -> Node {
+    let (id, _) = v.id_string();
+    let (stamp, _) = v.timestamp();
+    let push = |child: &BundValue, queue: &mut Vec<BundValue>| {
+        queue.push(child.clone());
+        queue.len() - 1
+    };
+    // A boxed scalar is the value it boxes, as far as the wire is concerned.
+    let inner = v.unboxed();
+    let shape = match inner {
+        BundValue::Int(i, _) => Shape::Leaf(Val::I64(*i)),
+        BundValue::Float(f, _) => Shape::Leaf(Val::F64(*f)),
+        BundValue::Bool(b, _) => Shape::Leaf(Val::Bool(*b)),
+        BundValue::Nodata(_) | BundValue::None(_) => Shape::Leaf(Val::Null),
+        BundValue::Heap(h) => match &*h.payload {
+            Payload::Str(s) => Shape::Leaf(Val::String(s.clone())),
+            Payload::Bin(b) => Shape::Leaf(Val::Binary(b.clone())),
+            Payload::Exit => Shape::Leaf(Val::Exit),
+            Payload::Json(j) => Shape::Leaf(Val::Json(j.clone())),
+            Payload::Metrics(ms) => Shape::Leaf(Val::Metrics(
                 ms.iter()
                     .map(|m| WireMetric {
                         stamp: m.stamp,
                         data: m.data,
                     })
                     .collect(),
+            )),
+            Payload::List(items) => {
+                Shape::List(items.iter().map(|x| push(x, queue)).collect())
+            }
+            Payload::Lambda(items) => {
+                Shape::Lambda(items.iter().map(|x| push(x, queue)).collect())
+            }
+            Payload::Map(m) => Shape::Map(
+                m.iter()
+                    .map(|(k, x)| (k.clone(), push(x, queue)))
+                    .collect(),
             ),
-            Payload::Json(j) => Val::Json(j.clone()),
-            Payload::Scalar(inner) => val_of(inner),
+            Payload::ValueMap(m) => Shape::ValueMap(
+                m.iter()
+                    .map(|(k, x)| (push(k, queue), push(x, queue)))
+                    .collect(),
+            ),
+            // `unboxed` has already followed every `Scalar`, so a value that
+            // is still one carries a container, which cannot happen.
+            Payload::Scalar(_) => Shape::Leaf(Val::Null),
         },
+    };
+    Node {
+        id,
+        stamp,
+        dt: v.dt(),
+        q: v.q(),
+        curr: v.curr(),
+        tags: v
+            .tags()
+            .iter()
+            .map(|(k, x)| (k.to_string(), x.to_string()))
+            .collect(),
+        shape,
+        attr: v.attr().iter().map(|a| push(a, queue)).collect(),
     }
 }
 
@@ -304,11 +569,12 @@ pub fn to_binary(v: &BundValue) -> Result<Vec<u8>, String> {
 /// reference's is. Its text is bincode 2's rather than `bincode2`'s, the one
 /// part of the round trip that is not the reference's.
 pub fn from_binary(bytes: &[u8]) -> Result<BundValue, String> {
-    let (w, _): (WireValue, usize) =
+    let (mut w, _): (WireValue, usize) =
         bincode::serde::decode_from_slice(bytes, bincode::config::legacy())
             .map_err(|e| e.to_string())?;
     if w.dt == JSON_WRAPPED {
-        let Val::String(text) = w.data else {
+        // Taken, not moved out: `WireValue` has a `Drop` since F118.
+        let Val::String(text) = std::mem::replace(&mut w.data, Val::Null) else {
             return Err("This Dynamic type is not string".to_string());
         };
         let j: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
@@ -365,10 +631,52 @@ mod conversion_tests {
         assert_eq!(v[6].dt(), NODATA);
     }
 
+    /// **F118.** Encoding walked a value's depth in Rust frames, so
+    /// `save.model` aborted at 3,400 levels on the release binary. Both
+    /// directions build from an arena now.
+    ///
+    /// **Run on a thread this test sizes**, because the depth that fits is a
+    /// property of the build and of the stack: a debug frame is several times
+    /// a release one, and the test harness gives a thread 2 MiB. 8 MiB here
+    /// matches what `bund2` gives evaluation, so the numbers mean something.
+    /// The depths stay under bincode's own recursion, which is inside the
+    /// dependency and is what still caps the codec (see F118).
+    #[test]
+    fn a_deeply_nested_value_survives_the_wire() {
+        let done = std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                let mut v = BundValue::list(vec![BundValue::int(7)]);
+                for _ in 0..1_000 {
+                    v = BundValue::list(vec![v]);
+                }
+                let bytes = to_binary(&v).expect("encodes");
+                assert!(bytes.len() > 1_000, "every level was written");
+                let back = from_binary(&bytes).expect("decodes");
+                let mut levels = 0;
+                let mut cur = back;
+                while let Some(items) = cur.as_list().map(<[BundValue]>::to_vec) {
+                    if items.is_empty() {
+                        break;
+                    }
+                    levels += 1;
+                    cur = items[0].clone();
+                }
+                assert_eq!(levels, 1_001, "every level came back");
+                assert_eq!(cur.as_int(), Some(7));
+            })
+            .expect("spawns")
+            .join();
+        assert!(done.is_ok(), "the round trip aborted");
+    }
+
     fn without_ids(mut w: WireValue) -> WireValue {
         w.id = String::new();
-        w.attr = w.attr.into_iter().map(without_ids).collect();
-        w.data = match w.data {
+        // Taken, not moved out: `WireValue` has a `Drop` since F118.
+        let attr = std::mem::take(&mut w.attr);
+        w.attr = attr.into_iter().map(without_ids).collect();
+        let data = std::mem::replace(&mut w.data, Val::Null);
+        w.data = match data {
             Val::List(v) => Val::List(v.into_iter().map(without_ids).collect()),
             Val::Lambda(v) => Val::Lambda(v.into_iter().map(without_ids).collect()),
             Val::Map(m) => Val::Map(m.into_iter().map(|(k, x)| (k, without_ids(x))).collect()),
