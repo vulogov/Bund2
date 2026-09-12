@@ -241,7 +241,8 @@
   `follow` follows 65 links, not 64. **Minors**: criterion 11's bound must
   stay under 2 ns rather than inviting reconsideration, and criterion 12's
   re-derivation needs `grep -rl`. **S5** (a resume index per call site) and
-  **S6** (the workbench as a promotion source) are still open.
+  **S6** (the workbench as a promotion source) are answered below, as
+  assumptions 38 and 39.
 
   The twenty-first review found the same two blockers standing. **B1** is
   measured and worse than recorded: `sqlite` decodes every BLOB in any SQLite
@@ -276,6 +277,25 @@
   question this Status line opened with — whether the tier can earn its keep —
   now has evidence on the side of yes. The criterion itself stays open until
   the tier as shipped is measured.
+
+  **The twentieth review's S5 and S6 are answered, 2026-09-12.** S5: the
+  residual path's obligation on the lowering is stated where the path is
+  described and as assumption 38 — a compiled body carries a map from each
+  call site to the source-body index at which interpretation resumes, and no
+  folded or inlined region spans a call site — with criterion 21 asserting the
+  side table rather than only the stacks. S6: §S6 now says the workbench is
+  never a promotion source, and assumption 39 states why it cannot be — a
+  workbench operand was never in a `Variable`, and the guard reads the current
+  stack alone (`crates/bund2-interp/src/frag.rs`, `frag::run`). **One of S6's
+  figures does not reproduce.** It counts 59 `.`-suffixed natives on
+  `PROMOTABLE.txt`; the file today holds 222 non-comment entries of which
+  **52** end in `.`, and none end in `,`, the palette's other spelling for a
+  workbench form (`crates/bund2-stdlib/src/lib.rs`,
+  `every_fixed_effect_native_keeps_its_pair_over_the_promotable_palette`).
+  The list has been both larger and smaller — criterion 28 records a
+  227-entry reading on 2026-09-11 — so whether 59 was right when written is
+  not decidable from here. 52 is what the file says, and no part of the
+  design rests on the count.
 - Depends on: RFC-0001 (the value, whose representation §S1 indicts),
   RFC-0002 (`StackEffect`, the word slot table, and the open world that forces
   indirect calls), RFC-0003 (BundIR as a cache over a body, and the frame
@@ -911,6 +931,20 @@ would. That is guard-and-branch, not guard-and-bail: the residual path is
 compiled into the same function as the generic counterpart of everything after
 the call, and control never leaves compiled code. No OSR.
 
+**"The rest of the body's values" is an index, and the lowering must carry
+it.** It is a position in the body's `Vec<BundValue>`, and the compiled ops are
+not in bijection with those values: §S6 inlines fragments, promotion elides
+pushes, and criterion 10's spike records Cranelift folding `1 2 +` outright and
+merging the guards' cell loads between them. So a compiled body carries **a map
+from each call site to the index in its source body at which the residual path
+resumes**, and **no folded or inlined region spans a call site**. The second
+half is what makes the first implementable rather than a wish: residual entry
+is only ever *after a call*, and at a call every promoted value below the
+callee's arity is either synced or provably live — so a folded region cannot
+straddle one, and the index is always a real position in the source body.
+Assumption 38 states it and criterion 21 asserts the side table (the twentieth
+review's S5).
+
 The sixth review's example is `1 2 "s" to_stack +`. `to_stack` bumps the epoch;
 the body syncs `1` and `2` back to `main` and applies `+` through the runtime
 on `s`, which fails `Stack is too shallow for inline ADD()` — as Tier 0 and the
@@ -1360,6 +1394,14 @@ So `1 2 +` skips materialising a `BundValue` only if `+` is **inlined** into the
 compiled body. If `+` is *called* — through a slot, with the uniform signature —
 it reads its operands off the real stack, and they have to be there. **Promotion
 across a word therefore requires a lowering for that word, not a call to it.**
+
+**And the workbench is never a promotion source.** A `Variable` holds only what
+the body would have on the current stack. A workbench operand is on the
+workbench when the native runs — it was never promoted, so there is nothing to
+sync and no epoch to guard. `PROMOTABLE.txt`'s 52 `.`-suffixed natives are
+crossed on exactly that understanding, and assumption 39 states it, because
+§S5's "the stack it was taken from" otherwise reads as though the workbench
+were one more stack promotion draws from.
 
 ### The apparent trap, and why it is not one
 
@@ -2374,7 +2416,8 @@ answered in 7 and 14–18. The eleventh named three more, answered in 19–21,
 and D55 and the twelfth review two more, 22 and 23. The thirteenth named two
 more, 24 and 25, the fourteenth two, 26 and 27, and the fifteenth two, 28 and
 29. The sixteenth added 30 and 31, the seventeenth 32 and 33, F116 and F115
-added 34 and 35, F117 added 36, and the twentieth review's B2 added 37.* Each
+added 34 and 35, F117 added 36, the twentieth review's B2 added 37, and its S5
+and S6 added 38 and 39.* Each
 is stated here, with the place that enforces or decides it.
 
 1. **One compiled cache, one `JITModule`, one set of cells and one fragment
@@ -2392,7 +2435,8 @@ is stated here, with the place that enforces or decides it.
 5. **The residual path's `apply` is `Vm::apply`, which is synchronous.**
    Recursion through residual paths spends machine stack until the Tier 1
    floor, and is bounded by §S8's floors rather than by the heap (§S8,
-   *§S5's residual path is bounded the same way*).
+   *§S5's residual path is bounded the same way*). **Where it resumes** is
+   assumption 38's.
 6. **Every call crossed by promotion resolves through one registry `Slot`.**
    This one is enforced rather than assumed. A call through an alias, or
    against a saturated slot, is synced before (§S5).
@@ -2647,6 +2691,42 @@ is stated here, with the place that enforces or decides it.
     exited 0 — F117, fixed by rendering from a worklist so the output is
     byte-identical at every depth. The golden capture epilogue calls
     `debug.display_stack`, so this was never an embedder-only corner.
+38. **A compiled body carries a resume index per call site.** §S5's residual
+    path applies "the rest of the body's values", which is a position in the
+    body's `Vec<BundValue>` — and the compiled ops are not in bijection with
+    those values, since §S6 inlines fragments, promotion elides pushes, and
+    criterion 10's spike records Cranelift folding `1 2 +` outright. So the
+    lowering carries, for every point at which the residual path can be
+    entered, the index into the source body at which interpretation resumes,
+    **and no folded or inlined region spans a call site**. The second half is
+    what makes the first implementable: residual entry is only ever after a
+    call, and at a call every promoted value below the callee's arity is
+    either synced or provably live, so a folded region cannot straddle one.
+    Criterion 21 asserts the side table and not only the stacks; without that
+    it would pass a lowering that resumed at the wrong index on a seventh
+    program (the twentieth review's S5).
+39. **The workbench is never a promotion source.** Promotion is described
+    throughout in terms of stacks — "the stack it was taken from", the
+    current-stack epoch, `Stack::push`'s path for the tag — and the workbench
+    appears only as something *audited*. That silence is now a statement: a
+    compiled body promotes only values it would have on the **current stack**,
+    so a `.`-family native's workbench operand is on the workbench when it
+    runs, always, because it was never in a `Variable` and so has nothing to
+    sync. The guard cannot reach it either — `Fragment::admits_with` is asked
+    through `i.depth()` and `i.peek_at(n)`, both the current stack
+    (`crates/bund2-interp/src/frag.rs`, `frag::run`), and no op on that path
+    touches the workbench. This matters because "the stack it was taken
+    from" reads naturally as including the workbench, and a reader
+    implementing §S5 from that phrase could promote a value destined for the
+    workbench and find no epoch, no sync rule and no barrier for it.
+    `tests/golden/PROMOTABLE.txt` lists **52** `.`-suffixed natives among its
+    222 entries, every one of which takes or leaves a workbench operand; `+.`
+    declares `eff(1, 0)`
+    (`crates/bund2-stdlib/src/math.rs`, `add_wb`'s registration), honest
+    about the current stack and silent about the workbench, which is the
+    convention the audits check. Nothing derives this — it is a constraint
+    on a lowering that does not exist yet, and criterion 22 is where a
+    breach would surface (the twentieth review's S6).
 
 # S9. Tier pinning
 
@@ -3340,6 +3420,12 @@ evidence, and this one is listed as runnable rather than as met.
     program's stacks and diagnostics match Tier 0's. It fails on any lowering
     that resolves the current stack once, or that syncs to the stack current
     at the sync rather than the one each value came from.
+    It also asserts the **resume index** (assumption 38): that the compiled
+    body's side table maps every call site to the source-body index at which
+    the residual path resumes, and that no inlined or folded region spans a
+    call site. Stacks alone would pass a lowering that resumed at the wrong
+    index on a seventh program, which is why the side table is asserted
+    directly rather than through its effects.
 
 22. **What a promoted value must not change, doesn't.** Six parts, each
     asserted against Tier 0's result:
