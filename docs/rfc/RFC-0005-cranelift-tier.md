@@ -257,6 +257,18 @@
   267; §S6's loop re-derives 137 sites over **190** programs; the Status date
   line and the assumptions preamble are current.
 
+  **B1 is answered**, by the owner's disposition rather than by this RFC:
+  D58 records a **stated exception to D37** for bytes read from a file Bund2
+  did not write — bincode builds the nested value before any depth check could
+  run, so there is no point at which one could refuse — and `sqlite` refuses a
+  BLOB over `MAX_BLOB_BYTES`, 16 KiB, which is the write-side bound read
+  through size at a measured 58 bytes a level. The Preservation row is split in
+  two: the codec on a value Bund2 wrote, bounded at write, and the codec on
+  bytes it did not, bounded by length. Its three wrong reasons are corrected —
+  `run_sqlite` does re-enter evaluation, `sqlite` is `eff(1, 1)` and not in
+  `ACTS_ON_HOST`, and `load.model` is skipped by the palette for being opaque.
+  Assumption 35 now separates the encode check from the decode sites.
+
   **Criterion 10 has a first measurement**, from a throwaway lowering outside
   this RFC's gate (2026-09-11, branch `spike/lowering-1`). With §S8's call
   boundary on every word and nothing inlined, `1 2 + drop` compiled runs
@@ -2613,9 +2625,16 @@ is stated here, with the place that enforces or decides it.
     sentence wrong in both directions, so they are listed:
     `Drop` (F115, iterative), `render_into` (F117, iterative), `display`
     (F119, iterative), the **wire codec** (`crates/bund2-value/src/wire.rs` —
-    F118, an arena for the half Bund2 owns, which moved `save.model`'s ceiling
-    from 3,400 levels to about 39,000, and `MAX_WIRE_DEPTH` refusing to
-    *write* past 256 for bincode's half, which cannot be checked on read),
+    F118: an arena for the half Bund2 owns, and a bound for bincode's, which
+    cannot be checked on read because the nested value is built before any
+    Bund2 code runs. **Encoding** refuses past `MAX_WIRE_DEPTH`, 256, in
+    `to_binary`'s own `depth_of` walk, so `save.model` reports at 257 and never
+    reaches bincode's encode recursion — the arena's ~39,000 is what the
+    encoder could take, not what a program can reach. **Decoding** has no depth
+    check: `load.model` reads a world file Bund2 wrote and therefore bounded,
+    while `sql_cell` reads a BLOB from a file Bund2 did not write and refuses
+    one over `MAX_BLOB_BYTES`, 16 KiB, with D58 recording the residue as a
+    stated exception to D37),
     `summarise` (bounded at depth 2 by design, D36), and `PartialEq` and
     `Hash`, which compare and hash a container by `identity()` and never
     descend (`crates/bund2-value/src/lib.rs`). Two of the seven recursed when
@@ -2753,7 +2772,8 @@ disagrees with interpreted code", and each has a named guard:
 | **the call boundary itself**: a `NativeFn` whose ABI and `Result` CLIF cannot carry | a context pointer and an integer status under `CallConv::Tail`, a Rust adapter per native, `Tail` thunks in the slots, and a C-convention entry trampoline (§S8); criteria 4 and 29 |
 | **a lambda a container reaches, now run inside `execute_one`'s `Reach::Nested` arm where it used to be filed** (F113) | the answer is the same, since a request runs before the next value (§S5), and the cost is one Rust frame per lambda rather than none. Its traversal spends no stack on the value's depth (F114), and `Vm::eval_lambda` holds the floor; criterion 11 |
 | **a deep value rendered by a word on the conformance path** — `debug.display_stack`, which the golden capture epilogue calls, and `--raw-values` | `render_into` and `render_payload` drive a worklist rather than recursing, so the depth costs heap and the text is byte-identical at every depth (F117). A diagnostic's values are bounded at depth 2 by `summary` instead (D36); criterion 14 |
-| **the wire codec walking a value's depth**, which `save.model`, `load.model` and the sqlite blob path reach — and which no audit sees, since the word re-enters no evaluation and is `ACTS_ON_HOST` | an arena for both directions, and `MAX_WIRE_DEPTH` refusing to *write* past 256 levels, because bincode's derived `Deserialize` builds the tree before a check could run (F118); D31 is what makes a write-side bound sufficient |
+| **the wire codec walking a value's depth on a value Bund2 wrote** — `save.model` encoding, `load.model` decoding a redb world file | an arena for both directions, and `MAX_WIRE_DEPTH` refusing to *write* past 256 levels, so a world file never holds a value deeper than the decoder takes (F118). Neither word is audited: `save.model` is in `ACTS_ON_HOST` and `load.model` is `opaque(2)`, which the palette filters |
+| **the same codec on bytes Bund2 did not write** — `sqlite` decoding a BLOB from any SQLite file a program names (`sql_cell`) | no write side exists to bound, and bincode's derived `Deserialize` builds the nested value before a depth check could run: a 174 KB BLOB nested 3,000 deep aborts (measured). `sqlite` refuses a BLOB over `MAX_BLOB_BYTES`, 16 KiB — the write-side bound read through size, at 58 bytes a level — and D58 records the residue as a stated exception to D37. `sqlite` is `eff(1, 1)` and `run_sqlite` *does* re-enter evaluation, so this path is inside §S8's re-entering set and still outside every audit that would see the decode |
 | **a value's teardown recursing on its depth** — a program that printed its output aborts while its stacks are dropped | nothing in this design: §S8's floors are on evaluation and on compiled entry, and a drop runs where the value dies. `Drop for HeapValue` walks the levels through a worklist instead (F115); assumption 35 |
 | **the parse inside `bund.eval`, `!!` and `use` recursing on the depth of a run-time string** | the floor `eval_source` checks comes after the parse, so the parser bounds itself instead: `MAX_NESTING` refuses past 1024 blocks before the frame is spent, and reports (F116; assumption 34) |
 | **a stale tail request** left by a native that failed after filing it | at Tier 0 `Interp::invoke` clears it (F96). A compiled call does not reach `invoke`, since the adapter calls the `NativeFn` directly, so `status_of` clears the cell whenever it answers an error, and a refused drain clears it too (§S5); criterion 26 |

@@ -323,9 +323,39 @@ fn sql_cell(v: &graphitesql::Value) -> Result<BundValue, Error> {
         V::Text(t) => BundValue::str(std::str::from_utf8(t.as_bytes()).map_err(|e| {
             Error(format!("CONTEXT.RUN error converting string data: {e}"))
         })?),
-        V::Blob(b) => bund2_value::wire::from_binary(b).map_err(Error)?,
+        V::Blob(b) => {
+            // **A BLOB is third-party input — D58.** `from_binary` cannot
+            // bound its own recursion: bincode builds the nested `WireValue`
+            // before any Bund2 code runs, so a deep BLOB aborts the process,
+            // which D37 forbids. A 174 KB BLOB nested 3,000 deep did
+            // (F118, measured 2026-09-12).
+            //
+            // Bund2 wrote neither this file nor this value, so there is no
+            // write side to bound, and the only check available before the
+            // decoder runs is the length. At 58 bytes a level — measured on
+            // hand-built nested BLOBs — `MAX_WIRE_DEPTH`'s 256 levels is
+            // about 14.8 KB, so the cap is the same bound read through size.
+            // A wide, shallow BLOB over the cap is refused too; that is the
+            // conservative side, and it reports instead of aborting.
+            if b.len() > MAX_BLOB_BYTES {
+                return Err(Error(format!(
+                    "CONTEXT.RUN error decoding BLOB: {} bytes is more than the {MAX_BLOB_BYTES} \
+                     a stored value may occupy",
+                    b.len()
+                )));
+            }
+            bund2_value::wire::from_binary(b).map_err(Error)?
+        }
     })
 }
+
+/// The most a BLOB may occupy before `sqlite` refuses to decode it — D58.
+///
+/// 16 KiB, from the worst case rather than the typical one: a BLOB that is all
+/// depth costs about 58 bytes a level, so this is `MAX_WIRE_DEPTH`'s 256
+/// levels with a little room, and far below the 174 KB that aborted a debug
+/// build. A deeper file than that is refused before bincode sees it.
+const MAX_BLOB_BYTES: usize = 16 * 1024;
 
 /// An engine error as rusqlite would show it: SQLite's own message, bare.
 ///
@@ -462,5 +492,28 @@ mod tests {
         assert_eq!(k(&[Kind::Int, Kind::Float]), Kind::Float);
         assert_eq!(k(&[Kind::Int, Kind::Bool]), Kind::Str);
         assert_eq!(k(&[]), Kind::Str);
+    }
+
+    /// **D58.** A BLOB Bund2 did not write is refused by length before
+    /// bincode sees it, because bincode builds the nested value before any
+    /// depth check could run: a 174 KB BLOB nested 3,000 deep aborted the
+    /// process (F118, measured 2026-09-12).
+    #[test]
+    fn a_blob_over_the_cap_is_refused_before_it_is_decoded() {
+        let big = graphitesql::Value::Blob(vec![0u8; MAX_BLOB_BYTES + 1]);
+        let Err(e) = sql_cell(&big) else {
+            panic!("a BLOB past the cap was decoded");
+        };
+        assert!(e.0.contains("more than the"), "{}", e.0);
+        assert!(e.0.contains(&MAX_BLOB_BYTES.to_string()), "{}", e.0);
+
+        // Under the cap the length check passes and the decoder decides.
+        // These bytes are not a serialised value, so it reports its own
+        // message rather than the cap's.
+        let small = graphitesql::Value::Blob(vec![0u8; 8]);
+        let Err(e) = sql_cell(&small) else {
+            panic!("eight zero bytes are not a serialised value");
+        };
+        assert!(!e.0.contains("more than the"), "the cap did not fire: {}", e.0);
     }
 }

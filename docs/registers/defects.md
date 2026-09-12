@@ -3910,6 +3910,24 @@ read, because the recursion is inside bincode. D31 ruled that nothing outside
 Bund reads or writes a world file, which is what makes a write-side bound
 sufficient here; if that ever changes, this needs revisiting.
 
+**Dated note, 2026-09-12 — the caveat had a live path, and it is now bounded
+and recorded.** RFC-0005's twenty-first review found the third decode site the
+write-side bound never covered: `sqlite` decodes every BLOB in any SQLite file
+a program names (`sql_cell`, `crates/bund2-stdlib/src/data.rs`), and D31
+cannot justify it, since a SQLite database is not a world file and has not
+been one since D27 made world files redb. Reproduced 2026-09-12 on the dev
+binary, with BLOBs hand-built in bincode's legacy layout: depths 10, 256 and
+1,000 (630 B to 58 KB) decode and run the lambda; **depth 3,000, a 174 KB
+BLOB, aborts with a stack overflow, exit 134**.
+
+The repository owner's disposition is D58: `sqlite` refuses a BLOB over
+`MAX_BLOB_BYTES`, 16 KiB — the write-side bound read through size, at a
+measured 58 bytes a level, so `MAX_WIRE_DEPTH`'s 256 levels is about 14.8 KB —
+and D37 gains a stated exception for bytes read from a file Bund2 did not
+write, because bincode builds the nested value before any check could run. A
+wide, shallow BLOB over the cap is refused too, which is the conservative
+side. No corpus program reads a BLOB, so conformance does not move.
+
 ## F121 — two of a `Slot`'s six fields are never written
 
 **A Bund2 defect, latent**, found by RFC-0005's twentieth review (S2) while
