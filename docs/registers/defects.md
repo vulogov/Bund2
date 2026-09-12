@@ -3910,6 +3910,35 @@ read, because the recursion is inside bincode. D31 ruled that nothing outside
 Bund reads or writes a world file, which is what makes a write-side bound
 sufficient here; if that ever changes, this needs revisiting.
 
+## F121 — two of a `Slot`'s six fields are never written
+
+**A Bund2 defect, latent**, found by RFC-0005's twentieth review (S2) while
+checking what §S6's meaning guard covers.
+
+`Slot` declares six binding fields — `command`, `alias`, `lambda`, `native`,
+`class`, `method` (`crates/bund2-api/src/lib.rs`, `Slot`). Only the first four
+are ever written. There is no `.class =` or `.method =` anywhere in the
+workspace: `register_class` writes `self.classes` and bumps
+`class_generation`, `register_method` writes `self.methods` and bumps
+`method_generation`, and `oop_generation` hands out that pair. So class and
+method resolution does not pass through a `Slot`, and two fields sit on the
+struct carrying nothing.
+
+**Why it matters, and why it is latent.** Nothing reads them, so no program
+can see it today. The cost is to reasoning: RFC-0005 §S4 described the `Slot`
+as holding "six independent bindings", and §S6 builds its meaning guard on the
+claim that every writer of a binding §S4's chain consults bumps that slot's
+generation. That is true and tight for the four live fields. If a later change
+made `class` or `method` real on the `Slot`, the slot's generation would cover
+them by accident while `class_generation` and `method_generation` kept
+counting separately — two uncoordinated counters for one binding, which is the
+shape RFC-0005's assumption 37 exists to prevent.
+
+**Status:** OPEN. The fix is to delete the two fields, or to move class and
+method resolution onto the `Slot` and retire the separate counters — a
+question for RFC-0009's territory rather than this register. Until then
+RFC-0005 says four, and names where class and method actually live.
+
 ## F120 — `convert.to_dict` converts to a matrix, not a dict
 
 **An original-implementation defect**, found while reviewing the MATRIX family

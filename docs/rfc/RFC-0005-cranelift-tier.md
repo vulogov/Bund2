@@ -1,6 +1,7 @@
 # RFC-0005: Tier 1 — the Cranelift backend
 
-- Status: **Draft** (2026-09-08, revised 2026-09-09, 2026-09-10 and 2026-09-11).
+- Status: **Draft** (2026-09-08, revised 2026-09-09, 2026-09-10, 2026-09-11 and
+  2026-09-12).
   `docs/research/00-jit-feasibility.md` §2.2 sets a hard gate — "Project B is
   worth doing only if Project A's measurements show that dispatch and boxing
   are still the bottleneck". When this was drafted the gate did **not** pass:
@@ -215,6 +216,46 @@
   bottom out at `identity()` and the third does not exist; §S8 and §S5 name
   `execute_one`, which is where the re-entries live, and count its path as two
   frames; and assumption 33 states the three blind spots of its derivation.
+
+  The nineteenth review's answer is folded into the paragraph above, and the
+  **twentieth review had no entry here at all** until now — a whole review
+  missing from the ledger, which its successor caught (the twenty-first's S1).
+  Both are recorded together.
+
+  The twentieth review found two blockers. **B2 is answered here**: §S6 and
+  D43 said the generation mirror is written "by the same `touch()`", which
+  could not be built — `Slot::touch` took `&mut self` alone, with no `Symbol`
+  and no `Registry`, so it could not find the cell. `touch` now lives on
+  `Registry` as `touch(&mut self, s: Symbol)`, the one function that bumps a
+  generation, with `Slot::bump` private to it, so the mirror write has one home
+  beside the bump. That is the structural answer CLAUDE.md prefers, and it
+  makes the set one function rather than six. Assumption 37 states the
+  property, `every_writer_of_a_slot_generation_is_named` derives it, and D43
+  carries a dated note. **B1 is open and is the owner's**: the codec's decode
+  side still aborts, and the twenty-first review measured it through a path
+  the write-side bound does not reach. Of its significant items, **S2**: a
+  `Slot` holds four live bindings, not six — `class` and `method` are declared
+  and never written, filed as F121, with class and method resolution living in
+  `Registry::classes`/`methods` under their own counters. **S3**: assumption
+  33 gains its fourth blind spot, the exact-match head parser. **S4**:
+  `follow` follows 65 links, not 64. **Minors**: criterion 11's bound must
+  stay under 2 ns rather than inviting reconsideration, and criterion 12's
+  re-derivation needs `grep -rl`. **S5** (a resume index per call site) and
+  **S6** (the workbench as a promotion source) are still open.
+
+  The twenty-first review found the same two blockers standing. **B1** is
+  measured and worse than recorded: `sqlite` decodes every BLOB in any SQLite
+  file a program names, through the same `from_binary`, and a 174 KB BLOB
+  nested 3,000 deep aborts the process — reproduced here at depths 10, 256 and
+  1,000 decoding cleanly and 3,000 aborting. D31 cannot justify that path: it
+  governs world files, which have been redb since D27, so a SQLite database is
+  never one. The Preservation row's three reasons are also wrong — `run_sqlite`
+  *does* re-enter evaluation, `sqlite` is `eff(1, 1)` and not in
+  `ACTS_ON_HOST`, and `load.model` is skipped by the palette for being opaque.
+  The disposition is the owner's and the row is not rewritten until it is
+  taken. **Figures**: criterion 28 now reads 222 promotable of 230 reached of
+  267; §S6's loop re-derives 137 sites over **190** programs; the Status date
+  line and the assumptions preamble are current.
 
   **Criterion 10 has a first measurement**, from a throwaway lowering outside
   this RFC's gate (2026-09-11, branch `spike/lowering-1`). With §S8's call
@@ -579,9 +620,12 @@ the lambda check only — and this is the finer consequence: it skips one *level
 of it.
 
 **Bund2 does not reproduce that, by decision, and Tier 1 follows Bund2.**
-`Registry::follow` walks the chain until it runs out of links — **or until 64
-of them**, D39's bound against a cycle `alias` can build, after which it
-answers the last link it reached — and `Registry::resolve` calls it for both
+`Registry::follow` walks the chain until it runs out of links — **or until 65
+of them**, D39's bound against a cycle `alias` can build: the guard increments
+after taking a link and breaks on `guard > 64`, so the sixty-fifth link is
+followed and the sixty-sixth is not, after which it answers the last link it
+reached (the twentieth review's S4; D39's note names the threshold as 64, which
+is the constant rather than the count) — and `Registry::resolve` calls it for both
 spellings, the sigil selecting only whether `lambda` is consulted
 (`crates/bund2-api/src/lib.rs`, `follow` and `resolve`). A chain past 64 links
 therefore has no fixed point, and what Tier 0 answers there is part of its
@@ -667,8 +711,14 @@ Therefore:
   orphaned; its pages are never reclaimed.
 - **Unregistering rewrites the call slot to whatever the name now resolves
   to**, and writes a failing stub only when nothing does. Bund2's registry
-  `Slot` holds six independent bindings (`crates/bund2-api/src/lib.rs`,
-  `Slot`), and the `unregister` word clears the lambda alone
+  `Slot` declares six fields and holds **four live bindings** —
+  `command`, `alias`, `lambda`, `native` (`crates/bund2-api/src/lib.rs`,
+  `Slot`). `class` and `method` are declared and never written: classes live
+  in `Registry::classes` and methods in `Registry::methods`, each with its own
+  counter read through `oop_generation`, so class and method resolution does
+  not pass through a `Slot` at all (F121; the twentieth review's S2). §S6's
+  meaning guard therefore covers exactly the four, which is what §S4's chain
+  consults. The `unregister` word clears the lambda alone
   (`crates/bund2-stdlib/src/values.rs`, `unregister`). So unregistering a
   lambda that shadowed a native **reveals the native**, and Tier 0 runs it; a
   stub there would diverge. The call slot itself is never freed, because
@@ -1465,8 +1515,13 @@ So the guards read **runtime-owned cells at stable addresses**, not the
 registry:
 
 - a **generation cell per name**, mirrored from the registry `Slot`'s counter
-  by the same `touch()` that bumps it, and allocated in fixed-size chunks that
-  never move when more are added;
+  by `Registry::touch`, the one function that bumps it, and allocated in
+  fixed-size chunks that never move when more are added. **The mechanism is
+  the name.** An earlier revision said "the same `touch()`", which could not
+  be built: `Slot::touch` took `&mut self` alone, so it had no `Symbol` and no
+  `Registry` and could not find the cell (the twentieth review's B2). `touch`
+  now lives on `Registry` and takes the symbol, so one function bumps the
+  counter and writes the mirror, and assumption 37 states what that buys;
 - one **`autoadd` cell** and one **current-stack epoch cell** (§S5), owned by
   the runtime in a single allocation that lives as long as the `Interp`;
 - one **request cell** (§S5, *A call may leave a body to run*), mirroring
@@ -1660,8 +1715,9 @@ Re-derive with:
       ./target/debug/bund2 check --file "$PWD/$f" | grep -E '^ +[0-9]+ +`'
     done
 
-Re-derived on 2026-09-11, after that day's words and probes, across **189**
-programs, it prints **137** sites (that morning it printed 124 over 165):
+Re-derived on 2026-09-12, after the MATRIX family's probe, across **190**
+programs, it prints **137** sites (on 2026-09-11 the same 137 over 189, and
+that morning 124 over 165):
 
 | why analysis stops | sites |
 |---|---|
@@ -2305,8 +2361,9 @@ without stating them, the eighth review five more, and the tenth seven more,
 answered in 7 and 14–18. The eleventh named three more, answered in 19–21,
 and D55 and the twelfth review two more, 22 and 23. The thirteenth named two
 more, 24 and 25, the fourteenth two, 26 and 27, and the fifteenth two, 28 and
-29.* Each is stated here,
-with the place that enforces or decides it.
+29. The sixteenth added 30 and 31, the seventeenth 32 and 33, F116 and F115
+added 34 and 35, F117 added 36, and the twentieth review's B2 added 37.* Each
+is stated here, with the place that enforces or decides it.
 
 1. **One compiled cache, one `JITModule`, one set of cells and one fragment
    table per `Interp`.** §S6, *Addressing*, and criterion 23.
@@ -2434,6 +2491,29 @@ with the place that enforces or decides it.
     re-entry scan cuts each file at its first `#[cfg(test)]` module, so
     shipped code after it would go unscanned (§S8). This holds in every file
     on 2026-09-11, and nothing enforces it.
+37. **No code bumps a `Slot`'s generation without writing that name's mirror
+    cell.** §S6 gives compiled code a cell per name, and a write that reaches
+    the `Slot` alone leaves an inlined fragment running a meaning the name no
+    longer has — which moves `conform` under `--features jit`, where a stale
+    request cell only ran a body late. The property is **structural rather
+    than enumerated**: `Registry::touch(&mut self, s: Symbol)` is the only
+    function that bumps a generation, so the mirror write has one home beside
+    the bump, and `Slot::bump` is private to it.
+    `every_writer_of_a_slot_generation_is_named`
+    (`crates/bund2-api/src/lib.rs`) holds that set to one function and fails
+    when a second appears. **What the scan cannot see**, as assumption 33's
+    does: it reads `crates/bund2-api/src/lib.rs` alone, cuts at the first
+    `#[cfg(test)]` module, and matches the spellings `.bump()` and
+    `self.generation =`. The seventeenth review's B1 is why this is derived and
+    not asserted: an enumerated mirror-writer set went stale within a day.
+
+    **The boundary, stated.** This is a `Slot`'s generation and nothing else.
+    `Registry` carries a second pair, `class_generation` and
+    `method_generation` (`crates/bund2-api/src/lib.rs`), written by
+    `register_class`, `unregister_class` and `register_method` and read through
+    `oop_generation`. §S6 mirrors the per-name cell alone, so those two are
+    outside this assumption — and a lowering that ever inlines a method
+    dispatch owes them the same mirror argument before it does.
 28. **A list literal does not evaluate its items.** `[ 1 2 + ]` keeps `+` as a
     CALL value (run 2026-09-11), so `execute_one`'s arms that do Rust work
     before re-entering evaluation — CLASS, OBJECT, CONDITIONAL — are not
@@ -2504,7 +2584,14 @@ with the place that enforces or decides it.
     assumption 27 says for the other scan; and it matches two spellings,
     `pending_tail =` and `pending_tail.take()`, so `replace`,
     `get_or_insert_with`, a `mem::swap` or a `&mut` handed to a helper would
-    not be seen. The half no scan can ever cover is `bund2-jit`'s: `status_of`
+    not be seen. **A fourth:** its head parser matches qualifiers by exact
+    equality — `["pub", "const", "unsafe", "async", "extern"].contains(&w)` —
+    so a write inside a `pub(crate) fn` or `pub(super) fn` is attributed to
+    whichever function was parsed last, silently rather than as a failure.
+    §S8's re-entry scan and assumption 37's use `starts_with` and do not have
+    this gap, which makes it easy to carry the wrong property across (the
+    twentieth review's S3). `crates/bund2-interp/src/lib.rs` holds only `fn `
+    and `pub fn ` heads today, and nothing enforces that. The half no scan can ever cover is `bund2-jit`'s: `status_of`
     and the drain helper are given `Vm::clear_tail_request` (D56) and nothing
     derives that they call it, because the crate does not exist yet (the
     eighteenth review's S4).
@@ -3030,8 +3117,10 @@ evidence, and this one is listed as runnable rather than as met.
 
     Reported with the result: **both floors**, **the depth at which compiled
     bodies begin declining**, and the per-entry cost of the Tier 1 check
-    measured in `crates/bund2-bench`. A check costing more than 2 ns per body
-    entry should be reconsidered against simply not promoting bodies that can
+    measured in `crates/bund2-bench`. The check **must stay under 2 ns per
+    body entry**, as criterion 17's identical bound does; above it the design
+    fails this criterion and is reconsidered against simply not promoting
+    bodies that can
     recurse — which D16 makes undecidable, so the check is the expected answer
     and the number is what says whether it is affordable.
 
@@ -3071,7 +3160,8 @@ evidence, and this one is listed as runnable rather than as met.
     `tags: {"stack": "main"}`.
 
     42 of 113 goldens carry exactly that text, and 46 carry some `"stack":`
-    tag (2026-09-11, `grep -l` over `tests/golden`), so the failure is loud — but only if a
+    tag (2026-09-11, `grep -rl` over `tests/golden` — recursively, or the
+    count reads 29 and 33 across four subdirectories), so the failure is loud — but only if a
     golden exercises a compiled body with an opaque site in it, which none does
     today. The criterion: a probe that pushes, promotes, syncs and dumps, with
     `cargo xtask conform` green. **This row exists because a reviewer found it
@@ -3396,8 +3486,8 @@ evidence, and this one is listed as runnable rather than as met.
     effect, and the natives some run brought to `Ok` are exactly those
     `tests/golden/PROMOTABLE.txt` lists. §S5's promotion crosses only those.
     **Met**, 2026-09-10, when 178 of 205 fixed-effect natives were listed;
-    218 promotable of 226 reached, of 263 fixed-effect natives, after D55 and
-    F111. The list's header line said "218 of 263 … 8 of them observe" until
+    222 promotable of 230 reached, of 267 fixed-effect natives, after D55,
+    F111 and the MATRIX family's four convert words. The list's header line said "218 of 263 … 8 of them observe" until
     the seventeenth review's S3 found that arithmetic mis-stated — the 8
     observers are the difference between reached and promotable, not part of
     the 218 — so the generator now writes the three figures separately, and

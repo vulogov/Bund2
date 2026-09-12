@@ -518,7 +518,7 @@ impl Slot {
     /// stale inline cache match a generation it should not. A saturated slot
     /// stops caching instead, trading a fast path for correctness on a path
     /// no program is likely to reach.
-    fn touch(&mut self) {
+    fn bump(&mut self) {
         self.generation = self.generation.saturating_add(1);
     }
 
@@ -899,10 +899,29 @@ impl Registry {
         kind: WordKind,
     ) -> Symbol {
         let s = self.interner.intern(name);
-        let slot = self.slot_mut(s);
-        slot.native = Some(Native { f, effect, kind });
-        slot.touch();
+        self.slot_mut(s).native = Some(Native { f, effect, kind });
+        self.touch(s);
         s
+    }
+
+    /// Bump a name's generation — **the one place it moves**.
+    ///
+    /// RFC-0005 §S6 gives compiled code a generation cell per name, mirrored
+    /// from this counter, and a write that reaches the `Slot` without reaching
+    /// the mirror leaves an inlined fragment running a meaning the name no
+    /// longer has. The twentieth review's B2 found the RFC promising that
+    /// "the same `touch()`" writes both, which `Slot::touch` could not do: it
+    /// had no `Symbol` and no `Registry`, so it could not find the cell.
+    ///
+    /// Taking the name here is what makes that promise buildable, and makes
+    /// the invariant structural rather than enumerated (CLAUDE.md's first
+    /// preference): the mirror write belongs in this function, beside the
+    /// bump, and nothing else may bump. `every_writer_of_a_slot_generation_is_named`
+    /// holds the set to this one function.
+    fn touch(&mut self, s: Symbol) {
+        self.slot_mut(s).bump();
+        // The mirror cell is written here when RFC-0005's tier adds it. One
+        // function, both writes.
     }
 
     /// Register a lambda. **Does not disturb the native binding**, matching
@@ -910,18 +929,16 @@ impl Registry {
     /// (`reference/rust_multistackvm/src/multistackvm_lambdas.rs:8,13`).
     pub fn register_lambda(&mut self, name: &str, body: BundValue) -> Symbol {
         let s = self.interner.intern(name);
-        let slot = self.slot_mut(s);
-        slot.lambda = Some(body);
-        slot.touch();
+        self.slot_mut(s).lambda = Some(body);
+        self.touch(s);
         s
     }
 
     pub fn register_alias(&mut self, alias: &str, target: &str) -> Symbol {
         let t = self.interner.intern(target);
         let a = self.interner.intern(alias);
-        let slot = self.slot_mut(a);
-        slot.alias = Some(t);
-        slot.touch();
+        self.slot_mut(a).alias = Some(t);
+        self.touch(a);
         a
     }
 
@@ -930,9 +947,8 @@ impl Registry {
         let Some(&a) = self.interner.index.get(alias) else {
             return;
         };
-        let slot = self.slot_mut(a);
-        slot.alias = None;
-        slot.touch();
+        self.slot_mut(a).alias = None;
+        self.touch(a);
     }
 
     /// Would resolving this name walk in a circle?
@@ -982,9 +998,8 @@ impl Registry {
         kind: WordKind,
     ) -> Symbol {
         let s = self.interner.intern(name);
-        let slot = self.slot_mut(s);
-        slot.command = Some(Native { f, effect, kind });
-        slot.touch();
+        self.slot_mut(s).command = Some(Native { f, effect, kind });
+        self.touch(s);
         s
     }
 
@@ -994,9 +1009,8 @@ impl Registry {
     /// `unregister` is bound twice and the class variant wins.
     pub fn unregister_lambda(&mut self, s: Symbol) {
         if self.slots.len() > s.index() {
-            let slot = &mut self.slots[s.index()];
-            slot.lambda = None;
-            slot.touch();
+            self.slots[s.index()].lambda = None;
+            self.touch(s);
         }
     }
 
@@ -1317,8 +1331,70 @@ mod tests {
             generation: u32::MAX,
             ..Slot::default()
         };
-        slot.touch();
+        slot.bump();
         assert_eq!(slot.generation, u32::MAX);
+    }
+
+    /// **RFC-0005's assumption 37, the twentieth review's B2.** §S6 mirrors
+    /// each name's generation into a cell compiled code reads, and a bump that
+    /// misses the mirror leaves an inlined fragment running a meaning the name
+    /// has lost — a `conform` movement under `--features jit`, where a stale
+    /// request cell only ran a body late.
+    ///
+    /// The request cell got assumption 33 and a scan because an enumerated
+    /// writer set went stale within a day. This is the same mirror with a
+    /// heavier failure, so it gets the same treatment — except that the set
+    /// here is **two by construction**: `Slot::bump` performs the write, and
+    /// `Registry::touch` is its only caller, which is what makes the mirror
+    /// write structural rather than enumerated. A third name fails this until
+    /// it is added, and adding one is the moment to ask whether it should call
+    /// `touch` instead.
+    ///
+    /// **A `Slot`'s generation, not every counter named `generation`.**
+    /// `class_generation` and `method_generation` are a separate pair, written
+    /// by `register_class`, `unregister_class` and `register_method` and
+    /// handed out by `oop_generation`. RFC-0005 mirrors the per-name cell and
+    /// says nothing about those two, so they are outside this scan and outside
+    /// assumption 37 — and a tier that ever inlines a method dispatch owes
+    /// them the same argument.
+    ///
+    /// Blind spots, as assumption 33 states its own: one file, cut at the
+    /// first inline test module, and two spellings.
+    #[test]
+    fn every_writer_of_a_slot_generation_is_named() {
+        const WRITERS: [&str; 2] = ["bump", "touch"];
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs");
+        let text = std::fs::read_to_string(&path).expect("reads");
+        let shipped = text.split("#[cfg(test)]\nmod ").next().unwrap_or_default();
+        let mut found = std::collections::BTreeSet::new();
+        let mut current = String::new();
+        for line in shipped.lines() {
+            let t = line.trim_start();
+            if t.starts_with("//") {
+                continue;
+            }
+            if let Some(at) = t.find("fn ") {
+                let head_ok = t[..at]
+                    .split_whitespace()
+                    .all(|w| ["pub", "const", "unsafe", "async", "extern"].iter().any(|q| w.starts_with(q)));
+                if head_ok {
+                    current = t[at + 3..]
+                        .split(['(', '<'])
+                        .next()
+                        .unwrap_or_default()
+                        .to_string();
+                }
+            }
+            if t.contains(".bump()") || t.contains("self.generation = ") {
+                found.insert(current.clone());
+            }
+        }
+        let named: std::collections::BTreeSet<String> =
+            WRITERS.iter().map(|s| (*s).to_string()).collect();
+        assert_eq!(
+            found, named,
+            "a slot's generation is written outside `Registry::touch` and `Slot::bump`"
+        );
     }
 
     /// The deviation RFC-0002 records: fixed-point resolution, where the

@@ -2565,7 +2565,14 @@ amendment.
    `(registration id, Fragment)` table is built at registration time.
 2. **Stable per-name generation cells**: a mirror of each registry `Slot`'s
    generation, written by the same `touch()`, in fixed-size chunks that never
-   move, handed out by a `Registry` accessor. `slots: Vec<Slot>` reallocates on
+   move, handed out by a `Registry` accessor. *(Dated note, 2026-09-12: "the
+   same `touch()`" could not be built as written — `Slot::touch` took `&mut
+   self` alone, with no `Symbol` and no `Registry`, so it could not reach the
+   cell. RFC-0005's twentieth review found it. `touch` now lives on `Registry`
+   as `touch(&mut self, s: Symbol)`, the one function that bumps a generation,
+   and `Slot::bump` is private to it; the mirror write belongs there. RFC-0005's
+   assumption 37 states the property and
+   `every_writer_of_a_slot_generation_is_named` derives it.)* `slots: Vec<Slot>` reallocates on
    a new name, so nothing may point into it.
 
 Rejected: comparing function addresses (a guarantee Rust does not make);
