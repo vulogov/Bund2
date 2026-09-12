@@ -1140,6 +1140,13 @@ impl Vm for Interp {
         Interp::request_tail(self, lambda);
     }
 
+    /// D56. One of the four places `pending_tail` is written, and the only one
+    /// reachable from outside this crate: RFC-0005's adapter calls a native
+    /// directly, so it cannot go through [`Interp::invoke`]'s clear (F96).
+    fn clear_tail_request(&mut self) {
+        self.pending_tail = None;
+    }
+
     fn scoped_call(&mut self, stack: &str, body: Vec<BundValue>) -> Result<(), Error> {
         if !self.stack_ok() {
             return Err(Error::stack_exhausted());
@@ -1702,6 +1709,57 @@ mod tests {
     /// request behind. Before the fix the request waited in `pending_tail`, and
     /// the next evaluation ran the body first — a body nobody asked for, run
     /// after its caller's error had been dealt with.
+    #[test]
+    fn every_writer_of_the_request_cell_is_named() {
+        // **RFC-0005 assumption 33, the seventeenth review's B1.** Every
+        // function whose shipped code writes `pending_tail`. RFC-0005's
+        // compiled tier mirrors that cell, and a write from anywhere else
+        // leaves the mirror behind Tier 0 with nothing to notice. The RFC
+        // stated this set wrongly twice, so it is derived here, in the shape
+        // criterion 25's scan and criterion 11's path set already use.
+        const WRITERS: [&str; 4] = [
+            // D56: the clear for a caller that cannot reach `invoke`.
+            "clear_tail_request",
+            // F96: clears one a failing native filed.
+            "invoke",
+            "request_tail",
+            "take_pending",
+        ];
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs");
+        let text = std::fs::read_to_string(&path).expect("reads");
+        let shipped = text.split("#[cfg(test)]\nmod ").next().unwrap_or_default();
+        let mut found = std::collections::BTreeSet::new();
+        let mut current = String::new();
+        for line in shipped.lines() {
+            let t = line.trim_start();
+            if t.starts_with("//") {
+                continue;
+            }
+            if let Some(at) = t.find("fn ") {
+                let head_ok = t[..at]
+                    .split_whitespace()
+                    .all(|w| ["pub", "const", "unsafe", "async", "extern"].contains(&w));
+                if head_ok {
+                    current = t[at + 3..]
+                        .split(['(', '<'])
+                        .next()
+                        .unwrap_or_default()
+                        .to_string();
+                }
+            }
+            // A write, not a read: an assignment, or the `take` that clears it.
+            if t.contains("pending_tail =") || t.contains("pending_tail.take()") {
+                found.insert(current.clone());
+            }
+        }
+        let named: std::collections::BTreeSet<String> =
+            WRITERS.iter().map(|s| (*s).to_string()).collect();
+        assert_eq!(
+            found, named,
+            "the request cell's writers and RFC-0005 assumption 33 differ"
+        );
+    }
+
     #[test]
     fn a_failed_native_leaves_no_tail_request() {
         fn files_then_fails(vm: &mut dyn Vm) -> Result<(), Error> {

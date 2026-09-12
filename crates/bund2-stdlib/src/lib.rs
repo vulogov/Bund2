@@ -539,8 +539,10 @@ mod honesty_tests {
                  # test -p bund2-stdlib promotable; never edited by hand.\n",
             );
             out.push_str(&format!(
-                "# {} of {} fixed-effect natives reached; {} of them observe beyond their operands.\n",
+                "# {} promotable of {} reached, of {} fixed-effect natives; {} reached natives\n\
+                 # observe beyond their operands (D55) and are never crossed.\n",
                 promotable.len(),
+                reached.len(),
                 natives.len(),
                 reached.len() - promotable.len()
             ));
@@ -647,10 +649,11 @@ mod honesty_tests {
             "singles.rs: conditional_move",
             "singles.rs: eval_source",
             "terminal.rs: input_loop",
-            // `execute_value` delegates to this, which holds both calls: a
-            // name through `Vm::apply`, a reached lambda through
+            // `execute_value` delegates to `execute_reached`, whose worklist
+            // (F114) calls this for one value at a time. It holds both calls:
+            // a name through `Vm::apply`, a reached lambda through
             // `Vm::eval_lambda` (F113).
-            "values.rs: execute_reached",
+            "values.rs: execute_one",
             // `text`, a closure in the registration: it applies a TEXTBUFFER,
             // which pushes, so it cannot recurse.
             "values.rs: register_words",

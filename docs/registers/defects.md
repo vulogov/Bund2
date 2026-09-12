@@ -3515,7 +3515,8 @@ each item and recurses (`reference/rust_multistackvm/src/stdlib/execute.rs:40-48
 and the LAMBDA arm is `return vm.lambda_eval(ptr_value)` (`:93-95`). Bund2's
 `execute_value` files each lambda item through `Vm::tail_lambda` instead
 (`crates/bund2-stdlib/src/values.rs`), which is right for a single lambda —
-the body runs after the native returns, costing no Rust frame (RFC-0003 §S4a).
+the body runs after the native returns, costing no Rust frame (RFC-0003 §S4,
+*The flat frame loop*).
 But `Interp::request_tail` **assigns** (`crates/bund2-interp/src/lib.rs`), so
 a second request in the same native replaces the first, and the first body
 never runs:
@@ -3537,7 +3538,9 @@ repository owner chose to match the reference: a LAMBDA item in the LIST arm
 runs at once through `Vm::eval_lambda` rather than being filed. That spends a
 Rust frame per lambda inside a list, bounded by the Tier 0 floor (F85). The
 tail path is untouched where it matters — a bare `{ 10 } !` is the LAMBDA arm,
-which still files — so RFC-0003 §S4a's guarantee stands.
+which still files — so RFC-0003 §S4's frame loop keeps its guarantee. (Both
+citations here read `§S4a` until the seventeenth review's S1: §S4a is about
+`endcontext`, not about tail requests.)
 
 **Confirmed against the oracle**, built out of tree and run 2026-09-11:
 `[ { 10 } { 20 } ] !` leaves `10` beneath `20`, and `[ { 10 } 5 ] !` fails
@@ -3579,3 +3582,92 @@ reachable from Bund source today — `push` converts its operands and a literal
 does not evaluate items — so the values are built through the API, and the
 first word returning a list of dicts would make it reachable without touching
 this file.
+
+## F114 — executing a deeply nested list aborted the process
+
+**A Bund2 defect against D37**, found by RFC-0005's seventeenth review (B2),
+which measured what the RFC's assumption 30 had asserted without a number.
+
+`execute_reached` walked a container by recursing into itself, so the depth of
+the *value* bought Rust frames, and the Tier 0 floor was consulted only where
+an arm reached `Vm::apply` or `Vm::eval_lambda` — never between two of those
+frames. RFC-0005 §S8 promises that a compiled body "and anything it calls
+without re-entering evaluation" stays inside `STACK_RESERVE`, which is 256 KiB
+(`crates/bund2-interp/src/lib.rs`). At roughly 550 bytes a level that carries
+about 470 levels, not the depth a program chooses. Measured 2026-09-11 on the
+release binary:
+
+    list
+    20000 { drop list push } times
+    "built" println
+    !
+    "executed" println
+
+printed `built`, then `thread 'bund2' has overflowed its stack`, `fatal
+runtime error: stack overflow, aborting`, exit 134. Without the `!` the same
+program exited 0, so the abort was the traversal and nothing else.
+
+**Status:** FIXED 2026-09-11 (`crates/bund2-stdlib/src/values.rs`). The
+traversal is driven from a `Vec` worklist on the heap, so a value's depth
+costs no stack at all: the program above now prints `built` and `executed` and
+exits 0. Evaluation nesting still spends a Rust frame per level and is still
+bounded by the floor in `Vm::eval_lambda`. Order is unchanged — an item is
+finished, with everything under it, before the next begins — and the tag write
+each item passes through still happens when the item is reached.
+`a_deeply_nested_list_executes_without_touching_the_stack_floor`
+(`crates/bund2-stdlib/src/values.rs`). No golden moves.
+
+**What it does not reach.** The same measurement found two more aborts on
+paths with no floor at all: F115 (dropping a deep value) and F116 (parsing a
+deep run-time string). RFC-0005's assumptions 34 and 35 record that §S8's
+floors are silent about both.
+
+## F115 — dropping a deeply nested value aborts the process
+
+**A Bund2 defect against D37**, found by RFC-0005's seventeenth review (B2)
+while measuring the reserve.
+
+A value holds its members, so dropping one drops them, and a nested LIST drops
+on the depth of the nesting. Nothing bounds that recursion, and no floor can
+be put on it: the drop runs wherever the value dies. Measured 2026-09-11 on
+the release binary:
+
+    list
+    30000 { drop list push } times
+    "built" println
+
+prints `built` — the program's own work is finished — and then
+`thread 'bund2' has overflowed its stack`, `fatal runtime error: stack
+overflow, aborting`, exit 134. At 20,000 the same program exits 0.
+
+**Why it matters.** D37 is absolute: shipped code does not abort. The stack
+this takes with it is the user's, and the trace names Rust frames and no Bund
+word. It is not a tier divergence — no compiled code is involved — so
+RFC-0005's criterion 2 cannot move on it, which is why RFC-0005 records it as
+assumption 35 rather than leaving it to conformance.
+
+**Status:** OPEN. The fix is an iterative `Drop` for the container payloads in
+`crates/bund2-value`, walking members onto a heap worklist instead of letting
+the compiler's recursive drop run. That is a change to the value type every
+crate depends on, so it is separate work.
+
+## F116 — parsing a deeply nested run-time string aborts the process
+
+**A Bund2 defect against D37**, found by RFC-0005's seventeenth review (B2).
+
+`bund.eval`, `!!` and `use` parse a string the program produced at run time
+(`eval_source`, `crates/bund2-stdlib/src/singles.rs`). `eval_source` checks
+the Tier 0 floor before it re-enters evaluation, but the *parse* happens
+first, on the same thread, and the parser recurses on the nesting depth of
+what it is reading. Measured 2026-09-11 on the release binary: a 16,000-deep
+list literal, built as a string and handed to `bund.eval`, aborts with the
+same stack overflow, exit 134.
+
+**Why it matters.** RFC-0003's parse-reach criterion covers a source *file*,
+which an author writes; this depth comes from a value the program built, so a
+program can choose it. D37 applies either way. RFC-0005's assumption 34
+records that its floors do not reach this path.
+
+**Status:** OPEN. The fix is a depth bound in `crates/bund2-syntax` that
+reports a Bund-level error, as `Error::stack_exhausted` does for evaluation
+nesting (F85), rather than an unbounded recursive descent.

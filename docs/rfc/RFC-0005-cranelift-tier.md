@@ -156,15 +156,41 @@
   as the sentences written on the strength of it. **B1**: the first fix tested
   whether the *item* was a lambda, so a lambda held in a dict inside the list
   still filed a tail request, and two such items still lost the first. The fix
-  now turns on **reach**: a lambda the program executes itself is a tail
-  position and still files, and a lambda any container reaches runs at once,
-  as the reference does whichever arm reaches it. §S5, assumption 29, criterion
-  26 and this line are corrected, and both register entries carry it.
+  now turns on **reach**: a lambda any container reaches runs at once, as the
+  reference does
+  (`reference/rust_multistackvm/src/stdlib/execute.rs:93-95`), and a lambda
+  the program executes itself is filed, which is a deviation — the reference
+  runs that one at once too, having no request mechanism. §S5's "a request
+  means *run this before the next value*" is why the two orderings agree, and
+  RFC-0003's frame loop (§S4) is why filing costs no Rust frame. §S5,
+  assumption 29, criterion 26 and this line are corrected, and both register
+  entries carry it.
   **S1–S4**: §S8's prose named 19 of the scan's 21 paths and now names `csv`
-  and `sqlite`; it also records that `execute_value` has two re-entry costs
-  and recurses on a value's depth (assumption 30); assumption 28 lists every
+  and `sqlite`; it also records that `execute_reached` has two re-entry costs
+  (assumption 30); assumption 28 lists every
   arm; and `execute.rs:93-95` is spelled in full, since `cite` cannot see a
   bare filename. Assumptions 31–33 record what the review found unstated.
+
+  The seventeenth review found two blockers, one of them a live abort.
+  **B1**: assumption 33 named one writer of the request cell where the code
+  had three, so it could not enforce what it was added for, and it left
+  undecided whether `status_of`'s clear reaches Tier 0's `pending_tail` or
+  only the compiled mirror — mirror-only would leave the fifteenth review's
+  blocker standing. The owner's answer is D56: `bund2-api` gains
+  `Vm::clear_tail_request`, since `Interp::invoke` is private and a compiled
+  call never reaches it. §S6's *Addressing* names every writer, assumption 33
+  states the property, and `every_writer_of_the_request_cell_is_named`
+  enforces it. **B2**: §S8's reserve invariant was falsified by measurement.
+  `list 20000 { drop list push } times !` aborted the process, about 470
+  levels past `STACK_RESERVE` at roughly 550 bytes a level. That is F114,
+  fixed by driving `execute_reached`'s traversal from a heap worklist, so a
+  value's depth costs no stack. Two further aborts the same measurement found
+  are filed OPEN — F115, dropping a deep value, and F116, parsing a deep
+  run-time string — with assumptions 34 and 35 saying that §S8's floors reach
+  neither. **S1–S4**: `execute.rs:93-95` is cited for the reached half only,
+  and the filed half is stated as the deviation it is; criterion 11's case is
+  a number again; `PROMOTABLE.txt`'s header states its own arithmetic; and
+  D55's status records the regeneration.
 
   **Criterion 10 has a first measurement**, from a throwaway lowering outside
   this RFC's gate (2026-09-11, branch `spike/lowering-1`). With §S8's call
@@ -1396,8 +1422,16 @@ registry:
 - one **`autoadd` cell** and one **current-stack epoch cell** (§S5), owned by
   the runtime in a single allocation that lives as long as the `Interp`;
 - one **request cell** (§S5, *A call may leave a body to run*), mirroring
-  whether a tail request is pending: set by `request_tail`, cleared by
-  `take_pending`, and in the same allocation as the two above;
+  whether a tail request is pending, and in the same allocation as the two
+  above. **The cell and `Interp::pending_tail` are written together, by one
+  set of writers** (the seventeenth review's B1): `request_tail` sets both,
+  `take_pending` clears both, `Interp::invoke` clears both when a native fails
+  (F96), the drain helper clears both when the floor refuses it, and
+  `status_of` clears both whenever it answers an error. The last two reach
+  `pending_tail` through `Vm::clear_tail_request` (D56), since `Interp::invoke`
+  is private to `Interp` and a compiled call never passes through it. A clear
+  that reached the mirror alone would leave Tier 0 holding a body its next
+  `take_pending` would run, which is the fifteenth review's B1 unfixed;
 - one **stack-floor cell** per `Interp` (§S8), holding the floor that `Interp`
   took from its thread's declared region, which the check at every compiled
   body's entry compares `get_stack_pointer` against.
@@ -1992,7 +2026,14 @@ error is reported, the stack has unwound (`STACK_RESERVE`,
 of its part. The Tier 0 floor is at `top − size + STACK_RESERVE`
 (`tier0_floor`, same file). The Tier 1 floor is one reserve above the bottom of
 Tier 1's share, so a compiled body entered just above it, and anything it calls
-without re-entering evaluation, stays inside that share. Two things come out of
+without re-entering evaluation, stays inside that share **provided nothing on
+that path recurses on data the program controls**. That proviso was missing
+until the seventeenth review measured it: `execute_reached` recursed on a
+value's depth at about 550 bytes a level, so the 256 KiB reserve carried about
+470 levels and a 20,000-deep list aborted the process (F114, fixed by a heap
+worklist). Two paths outside this design still recurse that way, and §S8's
+floors do not reach either: dropping a deep value (F115) and parsing a deep
+run-time string (F116), assumptions 34 and 35. Two things come out of
 the reserve and are not measured, though both are small against 256 KiB:
 
 - the thread-entry frames, because the declared top is `stack_marker()` called
@@ -2103,9 +2144,10 @@ the limit. Two rules close it:
   `c_p` is not `Vm::apply`'s alone. Criterion 11 reports `c_p` and `δ_p` for
   each. **`execute_reached` has two costs, not one**, since F113: a name goes
   through `Vm::apply`, and a lambda a list or dict reached goes through
-  `Vm::eval_lambda`. Its LIST and MAP arms also recurse into themselves on the
-  depth of the value, with no floor check between those frames, so criterion
-  11 measures its deepest shape (assumption 30). Then Tier 0's part is
+  `Vm::eval_lambda`. Its LIST and MAP arms drive a heap worklist rather than
+  recursing, since F114, so a value's depth costs no Rust stack and does not
+  enter `c_p` at all. Criterion 11 measures its two evaluation re-entries, as
+  it does every other path. Then Tier 0's part is
   `8 MiB + m`, with `m ≥ 8 MiB × max_p(δ_p / c_p)`, and the level with the tier
   on cannot be lower whatever holds the share. An earlier revision took `c` and
   `δ` from `loop` alone, and the native with the smallest `c` need not be
@@ -2139,7 +2181,10 @@ pinned 1.95.0 has neither component. The same section names the
 **The arithmetic, for a thread that declares nothing.** The floor is
 `marker − ASSUMED_BUDGET + STACK_RESERVE`, 768 KiB below the point where the
 `Interp` is built (`tier0_floor`, `crates/bund2-interp/src/lib.rs`). The frames
-between one check and the next may run up to one reserve past it. So the
+between one check and the next may run up to one reserve past it, which holds
+only while no frame on that path recurses on data a program chooses — an
+embedder has less room here than `bund2` does, not more, so F114's measurement
+applies with a smaller margin. So the
 undeclared case is safe only while at least 1 MiB of stack lies below the
 constructor. On a default 2 MiB thread that leaves 1 MiB for whatever sits
 above the constructor. An embedder that sets `RUST_MIN_STACK` below 1 MiB plus
@@ -2344,19 +2389,33 @@ with the place that enforces or decides it.
     `Interp::request_tail` assigns. No `bund2-stdlib` native does that now:
     the one that did, `execute_value`, files only when the program executed a
     lambda itself, and runs one at once when a list or a dict reached it
-    (F113, completed after the sixteenth review's B1; the reference does the
-    same at
-    `reference/rust_multistackvm/src/stdlib/execute.rs:93-95`). The other
+    (F113, completed after the sixteenth review's B1). The reached half is the
+    reference's — its one LAMBDA arm runs the body at once, whichever arm
+    reached it
+    (`reference/rust_multistackvm/src/stdlib/execute.rs:93-95`). The filed
+    half is a deviation from it, taken because the frame loop makes a tail
+    position cost no Rust frame, and unobservable in ordering because a
+    request runs before the next value (§S5). The other
     request sites file once and return. An embedder's native can still file
-    twice, and nothing detects it. §S5's "a request is never lost" is a rule
-    about compiled call sites, not a property of Tier 0.
-30. **A native may recurse in Rust between two floor checks.** Assumption 4
-    scopes its claim to a leaf native. `execute_value` is not one: its LIST
-    and MAP arms recurse into themselves on the *depth of the value*, and
-    `stack_ok` is consulted only where an arm reaches `Vm::apply` or
-    `Vm::eval_lambda`. A list nested `n` deep therefore spends `n` Rust frames
-    before any floor is asked, and `STACK_RESERVE` carries them (§S8). Nothing
-    measures that depth (the sixteenth review's §4.1).
+    twice. The effect audit records a tail request filed by a native that
+    declares a *fixed* effect (`Interp::request_tail`'s `audit_breach`), so
+    the case nothing detects is an opaque native filing twice. §S5's "a
+    request is never lost" is a rule about compiled call sites, not a property
+    of Tier 0.
+30. **A native may recurse in Rust between two floor checks, and the reserve
+    does not carry an unbounded one.** Assumption 4 scopes its claim to a leaf
+    native. `execute_reached` was not one: its LIST and MAP arms recursed into
+    themselves on the *depth of the value*, with `stack_ok` consulted only
+    where an arm reached `Vm::apply` or `Vm::eval_lambda`. An earlier revision
+    of this assumption said `STACK_RESERVE` carried those frames. **It does
+    not**: the seventeenth review measured about 550 bytes a level, so the
+    256 KiB reserve carries about 470 levels, and
+    `list 20000 { drop list push } times !` aborted the process — a D37
+    violation, filed as F114 and fixed by driving the traversal from a heap
+    worklist. Data depth now costs no stack on that path. The general claim
+    stands: a native that recurses in Rust between floor checks is bounded by
+    the reserve and by nothing else, so a new one must not recurse on data a
+    program controls.
 31. **The entry trampoline makes no status of its own.** §S5 gives four
     helpers `status_of` and treats the entry separately, because the entry
     only converts a body's status rather than making one. An entry path that
@@ -2366,11 +2425,33 @@ with the place that enforces or decides it.
     names them as the `Ok` path. The spelling is `let _ =` around a
     re-entering call, and no scan or audit looks for a third
     (the sixteenth review's §4.3).
-33. **Only `request_tail` and `take_pending` write the request cell**, which
-    §S6's *Addressing* requires of the compiled mirror. `Interp::request_tail`
-    is the only writer today, and nothing enforces it; an assignment to
-    `pending_tail` that bypassed both would desynchronise compiled code from
-    Tier 0 silently.
+33. **No code writes `pending_tail` outside the named set.** The set is
+    `request_tail`, `take_pending`, `Interp::invoke` (F96) and
+    `Vm::clear_tail_request` (D56), and §S6's *Addressing* requires the
+    compiled mirror to be written wherever `pending_tail` is. A write from
+    anywhere else would leave the mirror behind Tier 0 with nothing to
+    notice. This is derived rather than asserted:
+    `every_writer_of_the_request_cell_is_named`
+    (`crates/bund2-interp/src/lib.rs`) scans for writes and fails when a fifth
+    appears. An earlier revision of this assumption named one writer where the
+    code had three, and so could not have caught what it was added for (the
+    seventeenth review's B1).
+34. **§S8's floors are silent about parse depth.** They bound evaluation
+    nesting and compiled entries. The parse of a *run-time string* handed to
+    `bund.eval`, `!!` or `use` recurses on that string's depth with no floor
+    between, and a 16,000-deep literal aborts the process (F116, OPEN).
+    RFC-0003 excludes the parser's recursion over a source file; this is not
+    that, because the string is a value the program built.
+35. **§S8's floors are silent about a value's construction and teardown.**
+    Dropping a deeply nested value recurses on its depth, and a 30,000-deep
+    list aborts after the program's own work has finished and its output has
+    been printed (F115, OPEN). No floor is on that path, and none can be: the
+    drop runs where the value dies.
+36. **`debug.display_stack` and `--raw-values` render a deep value without a
+    bound.** A report's values go through `BundValue::summary`, which is
+    bounded by design (D36), and these two do not. 20,000 levels rendered
+    here, so this is unmeasured rather than known false (the seventeenth
+    review's §8.5).
 
 # S9. Tier pinning
 
@@ -2494,6 +2575,9 @@ disagrees with interpreted code", and each has a named guard:
 | **a native reporting at `Error` severity through a spelling the source scan misses** | the effect audit records any `Error` report made while a native runs (criteria 24 and 25) |
 | **a native panicking inside a dependency** — `jarowinkler` in `natural` (F95) — reached from compiled code | caught where the native is called, in both tiers, and reported as `Error::internal` (D49); no panic unwinds through a compiled frame (§S8); criterion 29 |
 | **the call boundary itself**: a `NativeFn` whose ABI and `Result` CLIF cannot carry | a context pointer and an integer status under `CallConv::Tail`, a Rust adapter per native, `Tail` thunks in the slots, and a C-convention entry trampoline (§S8); criteria 4 and 29 |
+| **a lambda a container reaches, now run inside `execute_reached` where it used to be filed** (F113) | the answer is the same, since a request runs before the next value (§S5), and the cost is one Rust frame per lambda rather than none. Its traversal spends no stack on the value's depth (F114), and `Vm::eval_lambda` holds the floor; criterion 11 |
+| **a value's construction and teardown recursing on its depth** — a program that printed its output aborts while its stacks are dropped | nothing in this design: §S8's floors are on evaluation and on compiled entry, and a drop runs where the value dies (F115, OPEN; assumption 35) |
+| **the parse inside `bund.eval`, `!!` and `use` recursing on the depth of a run-time string** | nothing in this design: the floor `eval_source` checks comes after the parse (F116, OPEN; assumption 34) |
 | **a stale tail request** left by a native that failed after filing it | at Tier 0 `Interp::invoke` clears it (F96). A compiled call does not reach `invoke`, since the adapter calls the `NativeFn` directly, so `status_of` clears the cell whenever it answers an error, and a refused drain clears it too (§S5); criterion 26 |
 | **native nesting through a word other than `loop`**, whose per-level cost makes the margin too small | `m` is set from the largest `δ_p / c_p` over every re-entering path, a set derived by source scan rather than listed (§S8); criterion 11 |
 | **the error value a Rust caller receives after an exit, when the helper that saw it returned `Err`** — `?try` keeps its text in the `error` CONDITIONAL's `context` slot, on a final stack that is meaning | `status_of` parks the helper's own `Err` unchanged, and substitutes `exit_gate`'s refusal only for `Ok`. So the wrappers of the natives inside a compiled body (`MAP:`, `TIMES:`, `Attempt to evaluate value …`) survive as they do at Tier 0; criterion 30's `?try` cases compare the `context` slot |
@@ -3219,7 +3303,15 @@ evidence, and this one is listed as runnable rather than as met.
     effect, and the natives some run brought to `Ok` are exactly those
     `tests/golden/PROMOTABLE.txt` lists. §S5's promotion crosses only those.
     **Met**, 2026-09-10, when 178 of 205 fixed-effect natives were listed;
-    218 of 263 after D55 and F111 (the list's own header line), which read
+    218 promotable of 226 reached, of 263 fixed-effect natives, after D55 and
+    F111. The list's header line said "218 of 263 … 8 of them observe" until
+    the seventeenth review's S3 found that arithmetic mis-stated — the 8
+    observers are the difference between reached and promotable, not part of
+    the 218 — so the generator now writes the three figures separately, and
+    the file carries them from its next regeneration
+    (`BUND2_UPDATE_PROMOTABLE=1 cargo test -p bund2-stdlib promotable`, the
+    repository owner's to run). The comparison ignores comment lines either
+    way, which read
     227 of 269 earlier on 2026-09-11.
     **Mutation-checked**: before F94's fix it named `drop_stack` and nothing
     else, "declares (1, 0) and moved `main` from 4 to 0". Since D55 the list

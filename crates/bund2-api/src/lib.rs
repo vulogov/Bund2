@@ -248,6 +248,18 @@ pub trait Vm {
     /// [`Vm::eval_lambda`], and the reason both exist.
     fn tail_lambda(&mut self, lambda: BundValue);
 
+    /// Discard a tail request that has not run yet — D56.
+    ///
+    /// The interpreter does this itself when a native fails after filing one
+    /// (F96), in the one place it calls a native. RFC-0005's compiled tier
+    /// calls a native's [`NativeFn`] directly and never reaches that place, so
+    /// it needs the same clearing through the public API. A caller that runs
+    /// a native and then answers an error calls this before returning, and
+    /// Tier 0's next `take_pending` finds nothing to run.
+    ///
+    /// Clearing when nothing is filed does nothing.
+    fn clear_tail_request(&mut self);
+
     /// Run `body` on `stack`, returning to the current stack **however the
     /// body leaves** — RFC-0003 §S4's exit action.
     ///
@@ -1125,6 +1137,7 @@ mod tests {
             Ok(())
         }
         fn tail_lambda(&mut self, _: BundValue) {}
+        fn clear_tail_request(&mut self) {}
         fn scoped_call(&mut self, _: &str, _: Vec<BundValue>) -> Result<(), Error> {
             Ok(())
         }

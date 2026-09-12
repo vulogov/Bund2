@@ -335,7 +335,46 @@ fn execute_value(vm: &mut dyn Vm, v: BundValue) -> Result<(), Error> {
     execute_reached(vm, v, Reach::Top)
 }
 
+/// **The traversal is a heap worklist, not Rust recursion — F114.**
+///
+/// A container's items were executed by recursing into this function, so the
+/// depth of the *value* bought Rust frames, and nothing checked a floor
+/// between them: `list 20000 { drop list push } times !` aborted the process
+/// at about 470 levels past `STACK_RESERVE`, which D37 forbids. The work is
+/// the same work, driven from a `Vec` that grows on the heap, so a value's
+/// depth costs no stack at all. Evaluation nesting still costs a Rust frame
+/// per level and is still bounded by the Tier 0 floor, in `Vm::eval_lambda`.
+///
+/// Order is the recursion's: an item is finished, with everything under it,
+/// before the next item begins, so `work` is a stack and items go on in
+/// reverse. `tagged` says whether a value has passed through `push`'s tag
+/// write, which the reference does per item and this must do at the moment
+/// the item is reached, not when it is queued.
 fn execute_reached(vm: &mut dyn Vm, v: BundValue, reach: Reach) -> Result<(), Error> {
+    let mut work = vec![(v, reach, true)];
+    while let Some((v, reach, tagged)) = work.pop() {
+        if !tagged {
+            // Pushed and pulled so the item passes through `push`'s tag write,
+            // which is what the reference's recursion does
+            // (`reference/rust_multistackvm/src/stdlib/execute.rs:41-42`).
+            vm.push(v);
+            let top = crate::pull::operand(vm, "EXECUTE", 1)?;
+            work.push((top, reach, true));
+            continue;
+        }
+        execute_one(vm, v, reach, &mut work)?;
+    }
+    Ok(())
+}
+
+/// One value's arm. A container adds its members to `work` instead of
+/// recursing (F114); everything else is unchanged.
+fn execute_one(
+    vm: &mut dyn Vm,
+    v: BundValue,
+    reach: Reach,
+    work: &mut Vec<(BundValue, Reach, bool)>,
+) -> Result<(), Error> {
     match v.dt() {
         PTR | STRING | CALL => {
             let name = v
@@ -360,20 +399,18 @@ fn execute_reached(vm: &mut dyn Vm, v: BundValue, reach: Reach) -> Result<(), Er
                 .as_list()
                 .ok_or_else(|| Error::internal("a LIST value carried no items"))?
                 .to_vec();
-            for item in items {
-                // Pushed and pulled so the item passes through `push`'s tag
-                // write, which is what the reference's recursion does
-                // (`reference/rust_multistackvm/src/stdlib/execute.rs:41-42`).
-                vm.push(item);
-                let top = crate::pull::operand(vm, "EXECUTE", 1)?;
-                // Every item is reached, not executed by the program, so a
-                // lambda anywhere under it runs at once — directly, or through
-                // this item's own dict or list (F113, `Reach`). Filing let the
-                // second request overwrite the first, since
-                // `Interp::request_tail` assigns, so `[ { 10 } { 20 } ] !` ran
-                // only `{ 20 }`, and a later item that failed discarded the
-                // first body altogether.
-                execute_reached(vm, top, Reach::Nested)?;
+            // Every item is reached, not executed by the program, so a lambda
+            // anywhere under it runs at once — directly, or through this
+            // item's own dict or list (F113, `Reach`). Filing let the second
+            // request overwrite the first, since `Interp::request_tail`
+            // assigns, so `[ { 10 } { 20 } ] !` ran only `{ 20 }`, and a later
+            // item that failed discarded the first body altogether.
+            //
+            // Reversed, because `work` is a stack: the first item has to come
+            // off it first. Each goes on untagged, so `push`'s tag write
+            // happens when the item is reached rather than now (F114).
+            for item in items.into_iter().rev() {
+                work.push((item, Reach::Nested, false));
             }
             Ok(())
         }
@@ -387,8 +424,13 @@ fn execute_reached(vm: &mut dyn Vm, v: BundValue, reach: Reach) -> Result<(), Er
             match v.get(&key) {
                 // Reached, whatever reached the dict: the reference's dict arm
                 // pushes the member and recurses, so a LAMBDA member runs at
-                // once (F113).
-                Some(inner) => execute_reached(vm, inner, Reach::Nested),
+                // once (F113). The member goes on `work` already tagged: the
+                // reference hands it straight to its recursion, with no push
+                // of its own (`:64-72`).
+                Some(inner) => {
+                    work.push((inner, Reach::Nested, true));
+                    Ok(())
+                }
                 None => Err(Error(format!(
                     "EXECUTE returned error during DICT execute: key {key} not found"
                 ))),
@@ -588,6 +630,24 @@ pub fn register_words(r: &mut Registry) {
 mod tests {
     use super::*;
     use bund2_interp::Interp;
+
+    /// F114: a value's depth costs heap, not Rust stack. Before the worklist,
+    /// `execute_reached` recursed per level, and about 470 levels exhausted
+    /// `STACK_RESERVE` — `list 20000 { drop list push } times !` aborted the
+    /// process, which D37 forbids. 10,000 nested empty lists execute to
+    /// nothing here; the point is that they execute at all.
+    #[test]
+    fn a_deeply_nested_list_executes_without_touching_the_stack_floor() {
+        use bund2_api::Vm as _;
+        let mut v = BundValue::list(Vec::new());
+        for _ in 0..10_000 {
+            v = BundValue::list(vec![v]);
+        }
+        let mut i = vm();
+        i.push(v);
+        i.apply(BundValue::call("!")).expect("no abort, no error");
+        assert_eq!(i.depth(), 0, "nested empty lists leave nothing behind");
+    }
 
     /// F113, through a dict: a lambda a list reaches **through a MAP item**
     /// runs at once too. The first fix tested the item's own type, so a dict
