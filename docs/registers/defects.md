@@ -3928,6 +3928,49 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F122 — the `$` alias is registered behind a path that never reaches it
+
+**An original-implementation defect**, found while trying to write a golden
+for the last core word that had none.
+
+`create_aliases.rs` binds `$` to `take`:
+
+```rust reference/rust_multistackvm/src/stdlib/create_aliases.rs:36
+    let _ = vm.register_alias("$".to_string(), "take".to_string());
+```
+
+but `apply` tests the sigil **before** it resolves aliases, and says so in its
+own comment — "If function name starts with '$' we are forcing to call
+internal function without lambda check or alias resolution"
+(`reference/rust_multistackvm/src/multistackvm_apply.rs:33-34`). The sigil
+branch calls `call_internal_word`, which strips the first character and
+dispatches what is left
+(`reference/rust_multistackvm/src/multistackvm_call_internal_word.rs:7-8`).
+For a bare `$` what is left is the **empty name**, so the alias is dead by
+construction: no spelling of `$` can reach `take`.
+
+Confirmed against the oracle, 2026-09-12. `42 return $ println` reports
+`i() for stack returned: Inline  not registered` — the doubled space is the
+empty name the sigil left behind.
+
+This is F71's shape with a different mechanism. F71 is a registration that
+binds only one of two forms; this is a registration that is correct in
+isolation and unreachable because an earlier branch consumes the name.
+
+**Disposition: REPRODUCED.** Bund2 refuses it the same way and for the same
+reason: `Interner::lookup_call` (`crates/bund2-api/src/lib.rs`) strips a
+leading `$` and looks up the remainder, which for `$` is `""` and is never
+interned, so dispatch answers `$ not registered`. The message differs from
+the oracle's — Bund2 names `$`, the reference names the empty string — but
+both refuse, and the path is unreachable in both, so no program can observe
+the difference and no golden can pin it.
+
+**Consequence for coverage.** `$` is one of the four core words `cargo xtask
+coverage` reports as run by no golden, and it can never have one. With
+`convert.to_dict` and `convert.to_dict.` deviating by decision (D57, F120) and
+`drop_stack` unreproducible by construction (Q22), **core coverage 282/286 is
+a ceiling and not remaining work**, which RFC-0000's D14 bullet now records.
+
 ## F121 — two of a `Slot`'s six fields are never written
 
 **A Bund2 defect, latent**, found by RFC-0005's twentieth review (S2) while

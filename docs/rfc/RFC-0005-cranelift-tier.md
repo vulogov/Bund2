@@ -2678,7 +2678,19 @@ is stated here, with the place that enforces or decides it.
     check: `load.model` reads a world file Bund2 wrote and therefore bounded,
     while `sql_cell` reads a BLOB from a file Bund2 did not write and refuses
     one over `MAX_BLOB_BYTES`, 16 KiB, with D58 recording the residue as a
-    stated exception to D37),
+    stated exception to D37. **`depth_of` undercounts a JSON payload, so the
+    walk it measures is not the walk bincode makes.** `children_of` gives
+    `Payload::Json` no members, so a JSON value counts as **one** level
+    however deeply its own structure nests, while bincode's encode descends
+    `serde_json::Value` in full — the reference wraps only a *top-level* JSON
+    value as `JSON_WRAPPED` text, and one nested in a list "is written as
+    JSON", as `to_binary`'s own comment records. What bounds that path is
+    therefore not `MAX_WIRE_DEPTH` but **serde_json's parser, which refuses
+    past 127 levels**: `json` on a string of 128 nested arrays reports
+    `recursion limit exceeded at line 1 column 128`, where 127 parses and
+    prints, measured 2026-09-12. The bound holds, but it is a different
+    bound than the one this assumption names, and only the shallower walk is
+    checked (the twenty-first review's S3)),
     `summarise` (bounded at depth 2 by design, D36), and `PartialEq` and
     `Hash`, which compare and hash a container by `identity()` and never
     descend (`crates/bund2-value/src/lib.rs`). Two of the seven recursed when

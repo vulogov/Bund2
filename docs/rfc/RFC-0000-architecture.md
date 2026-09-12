@@ -307,7 +307,7 @@ duplicate them:
 
 - `docs/registers/decisions.md` — 58 entries, of which 2 are OPEN. Append-only; a status may
   change, an entry may not be deleted or renumbered.
-- `docs/registers/defects.md` — 121 entries. The roadmap's §5 listed eleven;
+- `docs/registers/defects.md` — 122 entries. The roadmap's §5 listed eleven;
   the rest were found by running the oracle rather than reading it. F14, F15 and
   F17 are why 18 of 77 hermetic programs could not be captured, and
   `tests/golden/UNSTABLE.txt` tags each row with which: **13 F14, 2 F15, 3
@@ -541,6 +541,17 @@ The full narrowing is regenerated into `tests/golden/HERMETIC.txt` on every
 - **D14 is RESOLVED** — method B″, core 286 of 497. B2 keeps reporting over
   the in-scope 497, which is how CLAUDE.md defines coverage; the core figure,
   **121/286**, is the M6 denominator and is printed beside it.
+  **Corrected 2026-09-12:** core coverage reads **282/286**, and those four
+  are a *ceiling* rather than remaining work — none of them can have a
+  golden. `$` is unreachable in the oracle, which strips the `$` sigil and
+  calls the empty name before alias resolution is ever attempted (**F122**);
+  `convert.to_dict` and `convert.to_dict.` answer a MAP where the reference
+  answers a MATRIX, by decision (D57, and F120 for why the reference's own
+  word contradicts its name), so an oracle-captured golden would disagree
+  with Bund2 by design; and `drop_stack` removes the current stack, after
+  which the reference names the next one with a fresh nanoid, so two runs
+  differ and `cargo xtask golden` refuses the capture (Q22). `core words not
+  implemented` is 0, so M6's remaining work is not word implementation.
 - **D29 is RESOLVED** — revive `stacks_left` alone; `dup_in`,
   `from_workbench` and `push_to` are omitted. The in-scope set goes 497 to 498
   once the word is implemented.
