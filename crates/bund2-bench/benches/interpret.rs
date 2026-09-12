@@ -35,7 +35,7 @@
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 
-use bund2_api::Vm as _;
+use bund2_api::{Error, StackEffect, Vm, WordKind};
 use bund2_interp::Interp;
 use bund2_value::BundValue;
 
@@ -268,5 +268,75 @@ fn rendering(c: &mut Criterion) {
     g.finish();
 }
 
-criterion_group!(benches, startup, value, dispatch, arith, lambda, corpus, rendering);
+/// An empty native body: a word's own work, set to exactly zero.
+///
+/// Not a language word and not registered by `bund2-stdlib`. It exists so the
+/// two arms below can differ in their dispatch and in nothing else.
+fn nop(_: &mut dyn Vm) -> Result<(), Error> {
+    Ok(())
+}
+
+/// **Dispatch, isolated — §S1's gate, constructed rather than subtracted.**
+///
+/// The `dispatch` group above can only *bound* dispatch, because it differences
+/// two programs that differ in their work as well as in their dispatch: `1
+/// drop` minus a bare literal leaves a dispatch and a `VecDeque::pop_back`
+/// together, which is why §S1 has to say "at most". These two arms run the
+/// **same empty native body** 1000 times and differ in nothing else:
+///
+/// - `resolved/w1000` — a stream of 1000 calls to it. The eval loop walks the
+///   stream, resolves each name through the registry, and dispatches.
+/// - `direct/w1000` — the same `NativeFn`, called 1000 times through its
+///   pointer. The body, and nothing around it.
+///
+/// So `resolved − direct` is the eval loop step plus name resolution plus
+/// dispatch, with the word's work held at zero — the quantity §S1 could
+/// previously only bound from above. `direct` is the floor no lowering can pass
+/// while still calling the native at all.
+///
+/// Registration happens in the setup closure, outside the timed region, as this
+/// file's one rule requires.
+fn dispatch_isolated(c: &mut Criterion) {
+    let mut g = c.benchmark_group("dispatch_isolated");
+    // 1000 words, every one of them the nop.
+    let stream = compiled(&"benchnop ".repeat(1000));
+    let with_nop = || {
+        let mut i = interp();
+        i.registry
+            .register_native("benchnop", nop, StackEffect::fixed(0, 0), WordKind::Sync);
+        i
+    };
+    g.bench_function("resolved/w1000", |b| {
+        b.iter_batched(
+            with_nop,
+            |mut i| black_box(i.eval(black_box(&stream))).is_ok(),
+            BatchSize::SmallInput,
+        );
+    });
+    g.bench_function("direct/w1000", |b| {
+        b.iter_batched(
+            with_nop,
+            |mut i| {
+                for _ in 0..1000 {
+                    let _ = black_box(nop(&mut i));
+                }
+                black_box(i.depth())
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    g.finish();
+}
+
+criterion_group!(
+    benches,
+    startup,
+    value,
+    dispatch,
+    dispatch_isolated,
+    arith,
+    lambda,
+    corpus,
+    rendering
+);
 criterion_main!(benches);

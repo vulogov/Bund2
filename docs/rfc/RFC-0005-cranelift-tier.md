@@ -278,6 +278,28 @@
   now has evidence on the side of yes. The criterion itself stays open until
   the tier as shipped is measured.
 
+  **The gate's second prerequisite is answered, 2026-09-12** — the half this
+  Status line has called unsettled since 2026-09-08. §S1 said the split
+  between dispatch and a word's own work could not be made by these
+  benchmarks, and that is true of *subtracting* them; `fragment.rs`
+  constructs it instead, in one harness over one program, and says so in its
+  preamble. Decomposed over two runs, a word is **83.8%**
+  dispatch-plus-value-traffic on `Int + Int` and **88.6%** on `dup drop`
+  (83.5% and 88.2% on the first run), leaving 11–17% for the addition and the
+  pop themselves — which is the study's condition, over both terms as it
+  states it. The second run was 5–8% faster on every arm and moved those
+  shares by under half a point, which is the case for quoting shares and not
+  absolutes. **A new benchmark measures dispatch outright**: `dispatch_isolated`
+  runs an empty native body 1000 times through the eval loop and then through
+  its own pointer, giving **22.44 ns** of loop-plus-resolution-plus-dispatch
+  per word with the work held at zero — conservative, since `black_box`
+  inflates the floor it is measured against. What carries the gate is still
+  the measured floor rather than the constructed shares: `promoted` is
+  8.7–9.5 ns, within noise of one push and pull. Prerequisite 1 re-confirmed
+  at 9.53 ns against its 20 ns bar. The crossing noted on criterion 10 —
+  arithmetic's inlining ceiling reading 1.77× and 1.81× here against 2.03×
+  before — is machine-dependent and recorded as such.
+
   **The twentieth review's S5 and S6 are answered, 2026-09-12.** S5: the
   residual path's obligation on the lowering is stated where the path is
   described and as assumption 38 — a compiled body carries a map from each
@@ -431,6 +453,10 @@ one of them under an earlier name cannot now be established: the bench crate is
 not yet under version control, so it has no history to consult. The figure is
 kept because this subsection records the state that motivated the gate; it is
 not a figure anything later rests on.
+**Corrected 2026-09-12:** the bench crate *is* under version control — seven
+tracked files, `benches/fragment.rs` among them. What remains true is that it
+was not tracked when 73.1 ns was recorded, so there is still no history from
+that date to consult, and the figure stays unattributable rather than wrong.
 
 **`with_tag` was 58% of a push/pull round trip and roughly 60–75% of an average
 word.** It was not incidental. `Stack::push_as` did not store the value it was
@@ -540,6 +566,95 @@ words and probes.
 
 So §S2–§S11 are worth designing. The Status line says what still stands
 between them and being built.
+
+### Update, 2026-09-12 — prerequisite 2 is answered, by construction
+
+**The separation this section calls impossible is impossible *by subtraction*,
+and `crates/bund2-bench/benches/fragment.rs` does not subtract.** Its own
+preamble says so — "§S1 says dispatch and work cannot be separated by
+subtracting benchmarks; here they are not subtracted but constructed, in one
+harness against one program" — and its four arms are one program with
+successive costs removed rather than two programs differenced. That harness
+postdates the paragraph above, which is why the paragraph was not wrong when
+written and is superseded now.
+
+**Absolutes are this machine's; the gate turns on the shares.** Two runs of
+`cargo bench -p bund2-bench --bench fragment` on 2026-09-12, medians from
+Criterion's own `estimates.json` for 1000 operations, divided by 1000. The
+second run came in 5–8% faster across every arm — Criterion reported
+"Performance has improved" against its own baseline, which is machine state
+and not a change in Bund2 — and **the shares below moved by less than half a
+percentage point**. That is the whole reason a share is quotable here and an
+absolute is not:
+
+| | `tier0` | `inlined` | `lowered` | `promoted` |
+|---|---|---|---|---|
+| `Int + Int` | 54.81 ns | 37.61 ns | 30.28 ns | 8.90 ns |
+| `dup drop` | 76.64 ns | 27.83 ns | 21.45 ns | 8.74 ns |
+
+The first run read 56.57 / 38.94 / 32.02 / 9.33 and 80.05 / 28.99 / 22.89 /
+9.46 for the same eight cells.
+
+Reading the columns as a decomposition of one word — dispatch is what
+`tier0 → lowered` removes, value traffic is what `lowered → promoted` removes,
+and what remains is the work itself:
+
+| | dispatch | value traffic | the work | dispatch + value |
+|---|---|---|---|---|
+| `Int + Int` | 44.8% | 39.0% | **16.2%** | **83.8%** |
+| `dup drop` | 72.0% | 16.6% | **11.4%** | **88.6%** |
+
+The first run put the last column at 83.5% and 88.2%.
+
+**That is prerequisite 2's answer.** The study asked whether "dispatch and
+boxing are still the bottleneck" — one condition over both, not two
+conditions — and on both shapes they are 83–89% of a word, with the actual
+addition and the actual stack pop accounting for 11–17%.
+
+**Dispatch also has a measured figure now, not only a share.**
+`dispatch_isolated` was added on 2026-09-12 for exactly this: it registers a
+native whose body is empty and runs it 1000 times two ways, so the two arms
+differ in their dispatch and in nothing else.
+
+| arm | per word | what it is |
+|---|---|---|
+| `resolved/w1000` | 31.33 ns | the eval loop walks the stream, resolves each name through the registry, dispatches |
+| `direct/w1000` | 8.89 ns | the same `NativeFn` through its pointer — the body alone |
+| difference | **22.44 ns** | loop step + name resolution + dispatch, **work held at zero** |
+
+This is what the `dispatch/*` family could only bound. It is a *measurement*
+of dispatch rather than a ceiling, and it is smaller than the bound — 22.4
+against ~27.9 — because the bound had a `VecDeque::pop_back` folded into it.
+**One caveat, stated because it cuts against the number:** `direct` wraps the
+call in `black_box`, which forces a pointer reload per iteration, so 8.89 ns
+overstates the floor and the 22.44 ns difference is therefore conservative —
+real dispatch is that or more, not that or less.
+
+**What carries the claim is the residual, not the shares.** `lowered` and
+`promoted` are hand-written Rust standing in for perfect lowerings, so each
+share is an *upper* bound on what a real lowering could recover — the wrong
+direction for "dispatch dominates" on its own. The measured floor is
+`promoted`: whatever Tier 1 does, 8.7–9.5 ns of these words survives it across
+the two runs. That floor is small, it is measured rather than constructed, and
+it is what makes the decomposition load-bearing. Note too that it sits within
+noise of `value/push_pull/balanced` at 9.53 ns, which is the same claim from
+the other side: a promoted word costs about one push and pull.
+
+The `dispatch/*` family, re-run the same day, agrees on the bound it can
+support: a literal alone is 15.9 ns, `1 drop` is 43.8, `1 dup drop` 85.1 and
+`1 2 + drop` 95.5, so a `drop`'s dispatch-and-pop is ~27.9 ns. That is still
+"at most", and still coarser than the two tables above.
+
+**Prerequisite 1 re-confirmed**: `value/push_pull/balanced` reads **9.53 ns**
+against the 20 ns requirement. (It has read 9.47, 9.53, 9.8 and 10.1 across
+runs and machines; the requirement is met by a wide enough margin that the
+spread does not matter.)
+
+**One caution for anyone re-running this.** `target/criterion/` keeps
+directories for benchmarks that no longer exist — `dispatch/dup_drop_1000`,
+`dispatch/native_call_1000` and `dispatch/nop_nl_w1000`, the last being the
+`nl` benchmark that measured stdout. They are stale artefacts of removed
+benchmarks, not results; the live names are the four in `dispatch()`.
 
 # S2. What Tier 1 is, and the one invariant
 
@@ -1706,6 +1821,40 @@ without it, not because it pays on its own. On operand-free arms — `dup drop`,
 it clears it by a hair before compiled code pays anything, and criterion 10
 expects the lowering to fall under it. Promotion follows,
 and criterion 10 is where it has to earn its machinery.
+
+**Re-measured 2026-09-12, twice, and two ratios moved enough to record.** Same
+command, same machine, two consecutive runs; medians from Criterion's
+`estimates.json`. The second was 5–8% faster on every arm, which is machine
+state rather than a change in Bund2:
+
+| | `tier0` | `inlined` | `lowered` | `promoted` |
+|---|---|---|---|---|
+| `Int + Int`, run 1 | 56.57 ns | 38.94 ns | 32.02 ns | 9.33 ns |
+| `Int + Int`, run 2 | 54.81 ns | 37.61 ns | 30.28 ns | 8.90 ns |
+| `dup drop`, run 1 | 80.05 ns | 28.99 ns | 22.89 ns | 9.46 ns |
+| `dup drop`, run 2 | 76.64 ns | 27.83 ns | 21.45 ns | 8.74 ns |
+
+| | inlining alone | promotion on top | together |
+|---|---|---|---|
+| `Int + Int` | **1.77× / 1.81×** | 3.43× / 3.40× | 6.06× / 6.16× |
+| `dup drop` | **3.50× / 3.57×** | 2.42× / 2.45× | 8.46× / 8.77× |
+
+Arithmetic inlining's ceiling fell from 2.03× to **1.77× and 1.81×** — under
+criterion 10's stop rule rather than over it, on both runs, so it is
+reproducible here and not run-to-run noise. The dated note on that criterion
+says what that does and does not settle. Promotion's own multiplier on
+`dup drop` also fell, 4.3× to ~2.4×, because `lowered` improved more than
+`promoted` did. And the two `inlined` cells are no longer equal: 38.94 and
+37.61 against 28.99 and 27.83, where both read 44.7 before — so the earlier
+observation that `frag::run`'s fixed cost dominated both arms equally no
+longer holds, and the arms now separate by about 10 ns.
+
+The table above is not replaced, because the conclusion it draws is unchanged
+and stronger — the prize is promotion, inlining is its prerequisite — and
+because two readings of the same ceiling on either side of a threshold is
+exactly the kind of thing a later reader needs to see rather than have tidied
+away. **Absolutes here are one machine's; the shares in §S1's update are what
+the gate turns on, and they moved by under half a point across the two runs.**
 
 ### What has been built, 2026-09-09 and 2026-09-10
 
@@ -3159,6 +3308,21 @@ evidence, and this one is listed as runnable rather than as met.
     (59.2 / 29.2), and the sixth review's re-run read 2.04×. What the ceiling
     does say is that there is almost no room. A lowering that adds more than
     about 0.4 ns per `+` to the 29.2 ns `lowered` measures will land under 2×.
+    **Dated note, 2026-09-12: on this machine the ceiling triggers the rule by
+    itself, across two runs.** `Int + Int` reads `tier0` / `lowered` of
+    56.57 / 32.02 and then 54.81 / 30.28, ceilings of **1.77×** and
+    **1.81×** — both *below* the 2× stop rule, where the 2.03× above sits just
+    over it. Two runs on the same side make this reproducible here rather than
+    run-to-run noise, so the sentence "the ceiling cannot trigger the rule" is
+    false on this hardware and true on the hardware that produced 2.03×: the
+    crossing is machine-dependent, and the threshold sits inside the spread
+    between machines. This does not change the criterion, and it strengthens
+    rather than settles the RFC's own prediction that arithmetic inlining
+    alone will not clear the rule — the prediction now has the ceiling on its
+    side on at least one machine. The operand-free arm still has room —
+    `dup drop` reads 3.50× and 3.57× — and the decision stays this criterion's
+    measurement of a real lowering, not the ceiling's (§S1, *Update,
+    2026-09-12*).
     So this RFC **predicts** arithmetic inlining alone will not clear the rule,
     does not propose it as a performance feature on the strength of that
     prediction, and leaves the decision to this criterion's measurement. An
