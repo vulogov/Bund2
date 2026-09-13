@@ -342,6 +342,44 @@ pub trait Vm {
     fn exit_requested(&self) -> Option<i32>;
 }
 
+/// **Where Tier 1 attaches — RFC-0005's seam.**
+///
+/// `Interp` holds one of these as an `Option`, so Tier 0 costs a single branch
+/// per body entry when none is installed. `bund2-runtime` installs the
+/// implementation, which is what keeps `bund2-interp` free of `bund2-jit` and
+/// Tier 1 optional by *structure* rather than by feature flag alone — the
+/// reason RFC-0000's second boundary rule exists.
+///
+/// It follows the pattern `entry_log` set, which criterion 20 calls "Tier 0's
+/// seam": an `Option` field, consulted where a body starts.
+///
+/// # Where it is asked
+///
+/// At **`push_frame`**, which D42 calls "the one place a body starts running,
+/// so the one place its key is observed". §S8 names three entry points — the
+/// frame loop, `Vm::eval_lambda` and §S5's drain helper — and all three reach
+/// `push_frame`, so hooking it covers them by construction rather than by
+/// keeping a list in step.
+///
+/// # The contract
+///
+/// - `None` means the tier declined: Tier 0 pushes the frame and interprets,
+///   exactly as it would with no tier installed.
+/// - `Some(Ok(()))` means compiled code **ran the body to completion**. No
+///   frame is pushed, and the caller's `run_to` therefore finds nothing to do.
+/// - `Some(Err(e))` means compiled code ran it and it failed. The error is the
+///   caller's, as an interpreted failure would have been.
+///
+/// **A body with no key is never offered**, which is not a special case but the
+/// same rule the cache keys on: `Vm::scoped_call` wraps a freshly built `Vec`
+/// as a LIST per call (§S3), so it has no stable key and never reaches the
+/// tier. That matters beyond caching — such a frame carries an exit action that
+/// restores the stack, and a tier that ran the body would bypass it.
+pub trait Tier {
+    /// A body is about to start running. See the trait docs for the contract.
+    fn enter(&mut self, body: &BundValue, vm: &mut dyn Vm) -> Option<Result<(), Error>>;
+}
+
 /// A word's failure. RFC-0003 replaces this with a spanned error value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Error(pub String);

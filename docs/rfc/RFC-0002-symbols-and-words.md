@@ -1009,3 +1009,58 @@ Nothing a program does changes.
 
 - Amended by: repository owner, 2026-09-10, on Q36 and Q37 (RFC-0005's sixth
   review)
+
+## Amendment, 2026-09-13 — `Tier`, where RFC-0005 attaches
+
+**Decided by the repository owner.** `bund2-api` gains one trait:
+
+```rust
+pub trait Tier {
+    fn enter(&mut self, body: &BundValue, vm: &mut dyn Vm) -> Option<Result<(), Error>>;
+}
+```
+
+`Interp` holds an `Option<Box<dyn Tier>>`; `bund2-runtime` installs the
+implementation. Nothing else changes, and a build with no tier installed pays
+one branch per body entry.
+
+**Why a trait rather than a dependency.** RFC-0005 §S8 says Rust enters compiled
+code "from the frame loop, from `Vm::eval_lambda` and from §S5's drain helper" —
+all three in `bund2-interp`, which would then have to name `bund2-jit`.
+RFC-0000's two boundary rules permit that, but the reason the second exists is
+to keep Tier 1 *genuinely* optional, and a mandatory crate naming the optional
+one keeps that true only by feature flag rather than by structure. The trait
+keeps the direction honest: `bund2-interp` knows a tier might exist and nothing
+about what one is.
+
+**Why `push_frame`.** D42 calls it "the one place a body starts running, so the
+one place its key is observed", and §S8's three entry points all reach it — so
+hooking it covers them by construction rather than by keeping a list in step.
+This follows the pattern `entry_log` set, which RFC-0005 criterion 20 calls
+"Tier 0's seam".
+
+**The contract, and the two bodies never offered.** `None` declines and Tier 0
+interprets; `Some(Ok(()))` means compiled code ran the body, so no frame is
+pushed and the caller's `run_to` finds nothing to do; `Some(Err(e))` is the
+caller's error, as an interpreted failure would have been. A body is offered
+only when it has a `payload_key` **and** carries no exit action. Both
+exclusions are the same rule rather than special cases: `Vm::scoped_call` wraps
+a per-call `Vec` as a LIST (RFC-0005 §S3), so it has no stable key and never
+reaches the tier — and it carries `ExitAction::ToStack`, which must run when
+the frame leaves (F57), so a tier running that body would leave the stack
+unrestored.
+
+**`push_frame` and `take_pending` now return `Result`**, because a tier that
+runs a body can fail, and an interpreted body's failure arrives later, from
+`run_to`. Every caller unwinds to the floor it recorded, as `run_to`'s error
+arm does, so a tier failure leaks no frames.
+
+**The tier is taken and replaced while it runs**, since `enter` needs a
+`&mut dyn Vm` that is the `Interp` holding it. A re-entrant body entry while it
+is out sees `None` and is interpreted — correct rather than merely convenient:
+nothing is lost but a compilation opportunity.
+
+Nothing a program does changes, and no golden moves.
+
+- Amended by: repository owner, 2026-09-13, on RFC-0005's `Interp` seam
+- Consumes: D42 (the key reaches the entry point), RFC-0005 §S8 and criterion 20

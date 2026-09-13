@@ -459,6 +459,17 @@ pub struct Interp {
     /// sentence. Empty in production, where `audit_inside`
     /// is never set; criterion 28's palette reads it.
     pub observations: std::cell::RefCell<Vec<String>>,
+    /// **Where Tier 1 attaches — RFC-0005's seam.** `None` in a plain
+    /// interpreter, so Tier 0 costs one branch per body entry; `bund2-runtime`
+    /// installs the implementation, which is what keeps this crate free of
+    /// `bund2-jit`. Consulted in [`Interp::push_frame`], the one place a body
+    /// starts running (D42). See [`bund2_api::Tier`] for the contract.
+    ///
+    /// **Taken and replaced while it runs**, because the tier needs a
+    /// `&mut dyn Vm` that is this very `Interp`. A re-entrant body entry while
+    /// the tier is out finds `None` and is interpreted, which is correct rather
+    /// than merely convenient: nothing is lost but a compilation opportunity.
+    pub tier: Option<Box<dyn bund2_api::Tier>>,
 }
 
 impl Default for Interp {
@@ -484,6 +495,7 @@ impl Interp {
             stack_floor: tier0_floor(),
             exit_code: None,
             observations: std::cell::RefCell::new(Vec::new()),
+            tier: None,
         }
     }
 
@@ -740,7 +752,14 @@ impl Interp {
         }
         let floor = self.frames.len();
         self.apply_step(v)?;
-        self.take_pending();
+        // `take_pending` reaches `push_frame`, where a tier may run the body and
+        // answer an error. Unwind to the floor this call recorded, as `run_to`'s
+        // error arm does, rather than leaving frames above it for the next
+        // caller to find.
+        if let Err(e) = self.take_pending() {
+            self.unwind_to(floor);
+            return Err(e);
+        }
         self.run_to(floor)?;
         // F112: a synchronous run that ended by requesting an exit returns
         // the refusal, not `Ok`, so the native that asked runs nothing more.
@@ -878,22 +897,54 @@ impl Interp {
     }
 
     /// Push a frame for whatever the last native requested, if anything.
-    fn take_pending(&mut self) {
+    fn take_pending(&mut self) -> Result<(), Error> {
         if let Some(body) = self.pending_tail.take() {
-            self.push_frame(body, None);
+            return self.push_frame(body, None);
         }
+        Ok(())
     }
 
     /// Push a frame for `body` — **the one place a body starts running**, so
-    /// the one place its key is observed (D42, RFC-0005 criterion 20).
-    fn push_frame(&mut self, body: BundValue, exit: Option<ExitAction>) {
+    /// the one place its key is observed (D42, RFC-0005 criterion 20), and
+    /// therefore **the one place Tier 1 is offered it** (RFC-0005's seam).
+    ///
+    /// Returns `Err` only when a tier ran the body and it failed; an
+    /// interpreted body's failure comes later, from `run_to`.
+    fn push_frame(&mut self, body: BundValue, exit: Option<ExitAction>) -> Result<(), Error> {
         if let Some(who) = self.audit_inside {
             self.audit_breach(who, "declares a fixed effect and started a body");
         }
         if let (Some(log), Some(k)) = (self.entry_log.as_mut(), body.payload_key()) {
             log.push(k);
         }
+
+        // **The seam.** Offered only for a body with a key and no exit action:
+        // a keyless body is `scoped_call`'s per-call LIST, which §S3 says never
+        // reaches the tier, and an exit action must run when the frame leaves
+        // (F57) — a tier that ran the body would bypass it and leave the stack
+        // unrestored. Both conditions are cheap and neither is a special case:
+        // they are the same rule the cache keys on.
+        //
+        // The tier is **taken and replaced** because `enter` needs a
+        // `&mut dyn Vm` that is this `Interp`. While it is out, a re-entrant
+        // body entry sees `None` and is interpreted — correct, and it costs
+        // only a compilation opportunity.
+        if exit.is_none()
+            && body.payload_key().is_some()
+            && let Some(mut tier) = self.tier.take()
+        {
+            let answered = tier.enter(&body, self);
+            self.tier = Some(tier);
+            if let Some(outcome) = answered {
+                // Compiled code ran it. No frame: the caller's `run_to` finds
+                // nothing to do, which is how a body that ran without a frame
+                // stays invisible to the loop.
+                return outcome;
+            }
+        }
+
         self.frames.push(Frame { body, ip: 0, exit });
+        Ok(())
     }
 
     /// Pop frames down to `floor`, running every exit action on the way. This
@@ -944,8 +995,12 @@ impl Interp {
                     ));
                 }
             };
-            match self.apply_step(v) {
-                Ok(()) => self.take_pending(),
+            match self.apply_step(v).and_then(|()| self.take_pending()) {
+                // `take_pending` can now fail: it reaches `push_frame`, where a
+                // tier may run the body and answer an error. That failure takes
+                // the same path an interpreted one does — unwind to the floor,
+                // running every exit action — or frames would leak above it.
+                Ok(()) => {}
                 Err(e) => {
                     self.unwind_to(floor);
                     return Err(e);
@@ -963,7 +1018,7 @@ impl Interp {
 
     /// Drive any frame the top level's last word requested.
     fn drain_frames(&mut self) -> Result<(), Error> {
-        self.take_pending();
+        self.take_pending()?;
         self.run_to(0)
     }
 }
@@ -1158,7 +1213,9 @@ impl Vm for Interp {
         // failure just as the loop runs it on success. F57. The body is
         // assembled per call, so it is wrapped as a LIST value: there is no
         // key worth keeping (D42).
-        self.push_frame(BundValue::list(body), Some(ExitAction::ToStack(prev)));
+        // Carries an exit action and a keyless LIST body, so the tier declines
+        // it by construction — see `push_frame`.
+        self.push_frame(BundValue::list(body), Some(ExitAction::ToStack(prev)))?;
         self.run_to(floor)?;
         // F112, as in `Interp::apply`.
         self.exit_gate()
@@ -1178,7 +1235,10 @@ impl Vm for Interp {
             return Err(Error::stack_exhausted());
         }
         let floor = self.frames.len();
-        self.push_frame(lambda.clone(), None);
+        // If a tier ran the body, no frame was pushed and `run_to` below finds
+        // nothing to do — the body having run without a frame is exactly what
+        // the seam's contract promises.
+        self.push_frame(lambda.clone(), None)?;
         // **F112.** `run_to` pops a finished frame without the gate, so a body
         // whose last word is `bund.exit` returns `Ok`, and the native that ran
         // it went on: `map` collected, `input*` read another line. D52 says
@@ -1795,5 +1855,140 @@ mod tests {
             "the audit recorded no breach: {log:?}"
         );
         assert_eq!(i.exit_requested(), Some(3), "the exit itself still stands");
+    }
+
+    // --- RFC-0005's seam: where Tier 1 attaches --------------------------
+
+    /// A tier that records every body it is offered and answers as told.
+    ///
+    /// Recording is the point: two of the seam's clauses are about bodies that
+    /// must **never** be offered, and that is invisible from outside.
+    struct FakeTier {
+        /// The `payload_key` of each body offered, in order.
+        offered: std::rc::Rc<std::cell::RefCell<Vec<usize>>>,
+        answer: Option<Result<(), Error>>,
+    }
+
+    impl bund2_api::Tier for FakeTier {
+        fn enter(&mut self, body: &BundValue, vm: &mut dyn Vm) -> Option<Result<(), Error>> {
+            if let Some(k) = body.payload_key() {
+                self.offered.borrow_mut().push(k);
+            }
+            // A tier that claims the body leaves its effect behind, so the test
+            // can tell "ran by the tier" from "interpreted".
+            if matches!(self.answer, Some(Ok(()))) {
+                vm.push(BundValue::int(99));
+            }
+            self.answer.clone()
+        }
+    }
+
+    fn with_tier(answer: Option<Result<(), Error>>) -> (Interp, std::rc::Rc<std::cell::RefCell<Vec<usize>>>) {
+        let offered = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut i = Interp::new();
+        i.tier = Some(Box::new(FakeTier {
+            offered: std::rc::Rc::clone(&offered),
+            answer,
+        }));
+        (i, offered)
+    }
+
+    /// **A declining tier changes nothing.** This is the clause that keeps the
+    /// seam honest for every build that has no tier: `None` must leave Tier 0
+    /// exactly as it was.
+    #[test]
+    fn a_declining_tier_leaves_interpretation_unchanged() {
+        // **A registered lambda called by name**, so the body reaches
+        // `push_frame` the way a program does: dispatch resolves it,
+        // `request_tail` files it, and `drain_frames` takes it. An earlier
+        // version wrote `{ 1 } !` against a bare `Interp`, where `!` is not
+        // registered — nothing ran, and the test passed its first assertion
+        // while proving nothing. `bund2-interp` cannot dev-depend on
+        // `bund2-stdlib` to get `!`, since that crate dev-depends on this one.
+        let body = BundValue::lambda(vec![BundValue::int(1)]);
+        let (mut with, offered) = with_tier(None);
+        with.registry.register_lambda("f", body.clone());
+        with.eval(&[BundValue::call("f")]).expect("runs");
+
+        let mut without = Interp::new();
+        without.registry.register_lambda("f", body);
+        without.eval(&[BundValue::call("f")]).expect("runs");
+
+        assert_eq!(
+            with.snapshot().len(),
+            without.snapshot().len(),
+            "a declined body must be interpreted exactly as with no tier"
+        );
+        assert!(!offered.borrow().is_empty(), "and it was actually offered");
+    }
+
+    /// **`Some(Ok(()))` means compiled code ran it**: no frame is pushed, so the
+    /// caller's `run_to` finds nothing to do, and the body's own values never
+    /// run — the tier's effect is what is left behind.
+    #[test]
+    fn a_tier_that_runs_the_body_leaves_no_frame_and_the_body_does_not_run() {
+        let (mut i, offered) = with_tier(Some(Ok(())));
+        let body = BundValue::lambda(vec![BundValue::int(1)]);
+        i.eval_lambda(&body).expect("the tier ran it");
+
+        assert_eq!(offered.borrow().len(), 1, "offered once");
+        let stack = i.snapshot();
+        assert_eq!(stack.len(), 1, "only the tier's own effect: {stack:?}");
+        assert_eq!(
+            stack[0].as_int(),
+            Some(99),
+            "the tier's 99, not the body's 1 — the body must not have run"
+        );
+        assert_eq!(i.frames.len(), 0, "and no frame was left behind");
+    }
+
+    /// **`Some(Err)` is the caller's error**, and leaves no frames above the
+    /// floor — the same path an interpreted failure takes.
+    #[test]
+    fn a_tier_failure_propagates_and_leaves_no_frames() {
+        let (mut i, _) = with_tier(Some(Err(Error("the tier failed".into()))));
+        let body = BundValue::lambda(vec![BundValue::int(1)]);
+        let e = i.eval_lambda(&body).expect_err("the tier's error");
+        assert!(e.0.contains("the tier failed"), "{}", e.0);
+        assert_eq!(i.frames.len(), 0, "no frames above the floor");
+    }
+
+    /// **`scoped_call`'s body is never offered.** It is a per-call LIST with no
+    /// `payload_key` (RFC-0005 §S3) *and* carries `ExitAction::ToStack`, which
+    /// must run when the frame leaves (F57) — a tier running it would leave the
+    /// stack unrestored. Both exclusions are the same rule, and this is the only
+    /// way to see it.
+    #[test]
+    fn a_scoped_call_body_is_never_offered_to_the_tier() {
+        let (mut i, offered) = with_tier(Some(Ok(())));
+        i.scoped_call("side", vec![BundValue::int(1)])
+            .expect("it ran at Tier 0");
+        assert!(
+            offered.borrow().is_empty(),
+            "a keyless body carrying an exit action must never reach the tier"
+        );
+        assert_eq!(
+            i.stacks.current_name(),
+            "main",
+            "and the exit action restored the stack"
+        );
+    }
+
+    /// **Criterion 20's precondition, arriving at a real consumer.** A body run
+    /// by a loop word reaches the tier under *one* key — which `entry_log`
+    /// already showed for Tier 0, and which the tier now sees for itself.
+    #[test]
+    fn a_body_run_repeatedly_reaches_the_tier_under_one_key() {
+        let (mut i, offered) = with_tier(None);
+        let body = BundValue::lambda(vec![BundValue::int(1)]);
+        for _ in 0..5 {
+            i.eval_lambda(&body).expect("runs");
+        }
+        let seen = offered.borrow();
+        assert_eq!(seen.len(), 5, "offered once per entry");
+        assert!(
+            seen.windows(2).all(|w| w[0] == w[1]),
+            "every entry must carry the same key: {seen:?}"
+        );
     }
 }
