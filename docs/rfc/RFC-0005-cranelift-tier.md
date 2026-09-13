@@ -1,7 +1,26 @@
 # RFC-0005: Tier 1 — the Cranelift backend
 
-- Status: **Draft** (2026-09-08, revised 2026-09-09, 2026-09-10, 2026-09-11 and
-  2026-09-12).
+- Status: **Proposed** (2026-09-12, on the owner's authorisation — D59), after
+  twenty-one adversarial reviews. Drafted 2026-09-08, revised 2026-09-09,
+  2026-09-10, 2026-09-11 and 2026-09-12.
+  **The gate is answered on both halves and §S2–§S11 are authorised to be
+  built.** D43's `bund2-api` additions — the registration id and the stable
+  per-name generation cells — were explicitly held until this status, and are
+  now unblocked.
+
+  **Proposed rather than Accepted, for the reason RFC-0001 gives.** Most of the
+  thirty acceptance criteria **cannot run**, because the code they describe
+  does not exist: there is no `bund2-jit`. What the criteria section marks
+  **Met** is **1, 11, 24, 25 and 28**, with **19** met at the model level and
+  **29**'s Tier 0 half met; **2** has run on both tiers and reads the same;
+  and **8** and **15** are recorded as passing today rather than as met, since
+  each re-decides on every run. That is the whole of what can be checked
+  before a lowering exists. RFC-0000's bar for Accepted is a review pass that
+  finds nothing — its own came after four, "the fourth is the last that found
+  anything" — and this RFC's twenty-first pass still found two blockers. Both
+  are answered since, but **no pass has yet found nothing**, so Accepted would
+  be a claim the record does not support.
+- The gate, and how it was answered:
   `docs/research/00-jit-feasibility.md` §2.2 sets a hard gate — "Project B is
   worth doing only if Project A's measurements show that dispatch and boxing
   are still the bottleneck". When this was drafted the gate did **not** pass:
@@ -16,9 +35,22 @@
   dispatched (§S1). Criterion 10 makes that an experiment that can fail rather
   than a claim.
 
-  So §S2–§S11 are worth designing and are not yet authorised to be built. Two
-  correctness problems stand between this RFC and Proposed. **§S8's frame
-  consumption** now has a mechanism — a stack floor Bund2 measures in Rust and
+  **Corrected 2026-09-12 — the paragraph above is superseded, and kept because
+  the reasoning it records is why the second half took four days to answer.**
+  What could not be done was separating dispatch from work *by subtracting*
+  benchmarks. `crates/bund2-bench/benches/fragment.rs` constructs the
+  separation instead, in one harness over one program, and a word decomposes
+  **83.8%** dispatch-plus-value-traffic on `Int + Int` and **88.6%** on
+  `dup drop`, leaving 11–17% for the addition and the pop themselves — the
+  study's condition, over both its terms. `dispatch_isolated`, added the same
+  day, measures dispatch outright rather than bounding it: **22.44 ns** a word
+  with the work held at exactly zero. Absolutes are one machine's; the shares
+  moved under half a point across two runs, and they are what the gate turns
+  on (§S1, *Update, 2026-09-12*).
+
+  So §S2–§S11 are authorised to be built. Two correctness problems stood
+  between this RFC and Proposed and both have mechanisms. **§S8's frame
+  consumption** now has one — a stack floor Bund2 measures in Rust and
   compiled code compares against its own stack pointer (§S8, *How the guard
   reads the stack*), read by the seventh and eighth reviews.
   And **§S6's inlining freezes a name** unless every inlined site re-checks
@@ -300,6 +332,16 @@
   arithmetic's inlining ceiling reading 1.77× and 1.81× here against 2.03×
   before — is machine-dependent and recorded as such.
 
+  **RFC-0005 is Proposed as of 2026-09-12, and §S2–§S11 are authorised to be
+  built** — the owner's decision on the gate's answer, recorded as D59. That
+  unblocks D43's `bund2-api` additions, which were held until this status, and
+  it ends the sequencing question this Status line opened with on 2026-09-08.
+  It does not pre-empt criterion 10: the stop rule still governs the lowering
+  as shipped, and the note on that criterion records that arithmetic's
+  inlining ceiling reads under 2× on this machine. Accepted remains out of
+  reach until a review pass finds nothing and the criteria that need a
+  `bund2-jit` can run.
+
   **The twentieth review's S5 and S6 are answered, 2026-09-12.** S5: the
   residual path's obligation on the lowering is stated where the path is
   described and as assumption 38 — a compiled body carries a map from each
@@ -564,8 +606,10 @@ asserts `size_of::<BundValue>() == 16`). Conformance has since reached its ceili
 82/89 until a fourth, an approved deviation (D50), and 82/90 until that day's
 words and probes.
 
-So §S2–§S11 are worth designing. The Status line says what still stands
-between them and being built.
+So §S2–§S11 are worth designing — and, since 2026-09-12, worth building: the
+owner authorised them on this section's answer to the gate, and the RFC is
+**Proposed** (D59). The Status line says what Proposed does and does not
+claim.
 
 ### Update, 2026-09-12 — prerequisite 2 is answered, by construction
 

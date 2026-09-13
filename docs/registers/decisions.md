@@ -3428,6 +3428,50 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D59 — the JIT feasibility gate is answered, and Tier 1 is authorised
+
+**Decided by the repository owner, 2026-09-12.** RFC-0005 moves from Draft to
+**Proposed**, and §S2–§S11 are authorised to be built.
+
+- Blocks: nothing. It **unblocks** D43's `bund2-api` additions, which that
+  entry held "to be built when this RFC reaches Proposed"
+- Status: **RESOLVED — authorised.**
+
+`docs/research/00-jit-feasibility.md:271-273` made Project B conditional:
+"Project B is worth doing only if Project A's measurements show that dispatch
+and boxing are still the bottleneck. The recommendation is to sequence them
+and put a hard decision gate between them." RFC-0005 §S1 split that into two
+prerequisites and had carried "half met" since 2026-09-08.
+
+**Both halves are now answered by measurement.** Prerequisite 1 asked for
+`value/push_pull/balanced` under 20 ns; D41 delivered 9.53 ns. Prerequisite 2
+asked whether dispatch had become the bottleneck, and §S1 had said these
+benchmarks could not show it — true of *subtracting* them, and not true of
+`crates/bund2-bench/benches/fragment.rs`, which constructs the separation in
+one harness over one program. Decomposed, a word is **83.8%**
+dispatch-plus-value-traffic on `Int + Int` and **88.6%** on `dup drop`, with
+11–17% left for the addition and the pop. `dispatch_isolated`, added the same
+day, measures dispatch outright at **22.44 ns** a word with the work held at
+zero, where the older family could only bound it at ~27.9.
+
+**What this decision does not do.** It does not pre-empt **criterion 10**,
+which remains the experiment that can fail: a speedup below 1.2× on
+`1 2 + drop` reopens the gate rather than being explained. It does not
+authorise promotion independently of inlining — Q33's staging stands, inlining
+first because promotion cannot exist without it. And it does not make the RFC
+Accepted: RFC-0000's bar there is a review pass that finds nothing, the
+twenty-first pass found two blockers, and most of the thirty criteria cannot
+run until a `bund2-jit` exists.
+
+**A measurement that cuts against building, recorded here so the decision is
+not read as unanimous evidence.** Arithmetic's inlining ceiling — `tier0` over
+`lowered` on `Int + Int` — reads **1.77× and 1.81×** across two runs on this
+machine, *below* criterion 10's 2× stop rule, where RFC-0005 records 2.03×
+just above it. The crossing is machine-dependent and reproducible here. It
+strengthens the RFC's own prediction that arithmetic inlining alone will not
+clear the rule, and it is the concrete shape the stop rule may take: the
+operand-free arm has room at 3.50×/3.57×, arithmetic may not.
+
 ## D56 — a caller that runs a native can discard the tail request it filed
 
 `Vm::tail_lambda` files a body for the loop to run after the current native
