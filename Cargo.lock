@@ -343,6 +343,8 @@ dependencies = [
 name = "bund2-jit"
 version = "0.0.0"
 dependencies = [
+ "bund2-api",
+ "bund2-interp",
  "bund2-ir",
  "bund2-value",
  "cranelift-codegen",

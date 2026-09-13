@@ -334,6 +334,21 @@
   arithmetic's inlining ceiling reading 1.77× and 1.81× here against 2.03×
   before — is machine-dependent and recorded as such.
 
+  **The first lowering is built, 2026-09-12, and criterion 16's third leg now
+  runs.** `crates/bund2-jit/src/lower.rs` compiles one fragment's ops to
+  machine code and runs it against a real `dyn Vm`, and its tests compare that
+  code against `frag::run` over the criterion's own boundaries — both operand
+  orders, the `i64::MAX` wrap, `dup`'s fresh identity, a declined guard
+  touching nothing. The leg the criterion called owed and unwritable "before
+  one exists" is therefore closed, with a `norm` property test and a mutation
+  check standing behind it so the agreement is not vacuous. Three of §S6's
+  claims now have running code rather than a design: the fragment
+  representation has a consumer, the register file costs nothing at run time,
+  and an error travels in the context. **It is not §S8's boundary** — the entry
+  is C-convention, not `Tail` — and §S6 says so where the lowering is
+  described. conform holds 106/114 on both tiers, which is the invariant a tier
+  must not move.
+
   **RFC-0005 is Proposed as of 2026-09-12, and §S2–§S11 are authorised to be
   built** — the owner's decision on the gate's answer, recorded as D59. That
   unblocks D43's `bund2-api` additions, which were held until this status, and
@@ -1702,6 +1717,29 @@ site. **`bund2-api` carries no `Fragment` type.** Its only addition is the
 opaque registration id on `Native`, which names no code generator and no IR.
 External packages therefore cannot publish fragments: D9's amendment gives them
 `Native` with a declared effect and no more, and this keeps it so.
+
+**A lowering exists, 2026-09-12, and it is not this section's whole mechanism.**
+`crates/bund2-jit/src/lower.rs` emits machine code for one fragment's ops: the
+register file is a **compile-time renaming** over CLIF `Variable`s, so
+`Op::PopInt`'s "shift the file and write slot 0" costs nothing at run time and
+`Op::AddInt` becomes a single `iadd` between SSA values. Stack traffic — the
+pops, the pushes, `DupTop`'s `.dup()` and `DropTop` — goes through four
+`extern "C"` helpers over a `bund2-jit`-owned context holding the `&mut dyn Vm`
+and an error slot, so an error travels in the context and never as an unwind
+(§S11). The guard is asked before entry, exactly as `frag::run` asks it, so the
+emitted code may assume admission and every helper's non-zero status branches to
+a single failure block.
+
+**What it is not, stated so the entry is not mistaken for the boundary.** It is
+**not §S8's call boundary**: the entry is emitted under the host's *default C
+convention* so Rust can call it, where §S8 specifies `CallConv::Tail`, a `Tail`
+thunk per native, `return_call_indirect` from tail positions, and a
+C-convention *entry trampoline* precisely because Rust can neither define nor
+call a `Tail` function. It is also not inlining, not promotion, and not the
+meaning guard: there is no cache, no `Interp` integration and no compiled body.
+Its purpose is to give criterion 16's third leg something to certify.
+`bund2-jit` gains `bund2-api` as a dependency for `dyn Vm`; criterion 15's
+direction still holds, checked with the feature on as well as off.
 
 **Built 2026-09-12**: `fragments::published(&Registry)` returns the three pairs,
 keyed by the ids the registry's slots hold when it is called — "at registration
@@ -3580,7 +3618,27 @@ evidence, and this one is listed as runnable rather than as met.
     leg is required before any lowering ships, and cannot be written before one
     exists.
 
-    Runs today: `cargo test -p bund2-stdlib fragments`.
+    **The third leg exists and runs, 2026-09-12.**
+    `crates/bund2-jit/src/lower.rs` lowers a fragment to machine code and its
+    tests compare the lowered arm against `frag::run` over the same
+    hand-chosen boundaries: `Int + Int` across
+    `i64::MAX`, `i64::MIN` and their neighbours in **both operand orders** —
+    addition commuting is what would hide a reversed register file, and
+    `Op::PopInt`'s numbering is the whole difficulty — the `i64::MAX 1 +` wrap
+    pinned on the lowered path as well as the model's, `dup` and `drop` over
+    four payload shapes, F13's fresh identity asserted directly, and a declined
+    guard consuming nothing on either path.
+
+    **Two guards keep the leg from being vacuous**, because the comparison is a
+    normalised render and a `norm` that collapsed distinct values would make
+    every assertion above pass while checking nothing. `norm` is asserted as a
+    property — two independently built `int(1)`s normalise *equal*, `int(1)` and
+    `int(2)` do not — and the comparison is **mutation-checked**: an arm that
+    subtracts where the model adds gives 7 against 13, and the test asserts the
+    renders differ.
+
+    Runs today: `cargo test -p bund2-stdlib fragments` for the first two legs,
+    and `cargo test -p bund2-jit --features jit` for the third.
 
 17. **Every inlined site carries its meaning guard.** §S6: an inlined
     fragment is entered only while the site's slot still holds the binding it

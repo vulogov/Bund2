@@ -10,11 +10,24 @@ rust-version.workspace = true
 [dependencies]
 bund2-value.workspace = true
 bund2-ir.workspace = true
+# **The permitted direction.** RFC-0005 §S6 rests on `bund2-jit -> bund2-api`
+# and `bund2-jit -> bund2-stdlib` being allowed while the reverse is not, and
+# criterion 15 checks the half that matters: `cargo tree -p bund2-stdlib` must
+# list neither `bund2-jit` nor any `cranelift-*` crate. §S8's call boundary
+# needs `dyn Vm` by name — the context holds it as a stored fat pointer — and
+# D49's adapter needs `catch_panic`.
+bund2-api.workspace = true
 cranelift-codegen  = { workspace = true, optional = true }
 cranelift-frontend = { workspace = true, optional = true }
 cranelift-module   = { workspace = true, optional = true }
 cranelift-jit      = { workspace = true, optional = true }
 cranelift-object   = { workspace = true, optional = true }
+
+[dev-dependencies]
+# Criterion 16's third leg runs the lowered arm against `frag::run`, the model
+# it has to agree with. A dev-dependency only: the shipped crate does not reach
+# for the interpreter, and `bund2-interp` never reaches for this one.
+bund2-interp.workspace = true
 
 [features]
 default = []

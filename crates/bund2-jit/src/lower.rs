@@ -1,0 +1,713 @@
+//! **BundIR to CLIF — the first lowering.** RFC-0005 §S6, criterion 16.
+//!
+//! # What this is, and what it is not
+//!
+//! This lowers a [`Fragment`]'s ops to machine code and runs them against a
+//! real `dyn Vm`. It is the thing criterion 16's **third leg** needs: "the
+//! lowered code against `frag::run` over the same boundaries. That leg is
+//! required before any lowering ships, and cannot be written before one
+//! exists."
+//!
+//! It is **not §S8's call boundary**, and nothing here should be read as
+//! claiming it. §S8 specifies one signature `fn(ctx: i64) -> i32` under
+//! `CallConv::Tail`, `Tail` thunks per native, `return_call_indirect` from tail
+//! positions, and a C-convention *entry trampoline* because Rust cannot define
+//! or call a `Tail` function at all. This module emits a function under the
+//! host's **default C convention** so Rust can call it directly, which is the
+//! trampoline's job done the short way while there is only one function to
+//! call. When §S8's boundary lands, this entry becomes the thing the trampoline
+//! wraps.
+//!
+//! Nor is it inlining, promotion, or the meaning guard. There is no cache, no
+//! `Interp` integration, and no compiled body — one fragment, compiled and
+//! called, so the representation has a consumer and the third leg can run.
+//!
+//! # The rule it inherits
+//!
+//! **A fragment is entered only when its guard admits the stack**, and the word
+//! runs otherwise ([`crate::lower::Compiled::run`] asks
+//! `Fragment::admits_with`, exactly as `bund2_interp::frag::run` does). So the
+//! emitted code may assume admission, and a failure after it is a broken
+//! invariant rather than a fact about the program — which is why every helper
+//! returns a status and the arm branches out on the first one that is not zero.
+//!
+//! # Why the register file costs nothing at run time
+//!
+//! `Op::PopInt`'s numbering — "each pop shifts the file up one slot and writes
+//! slot 0" — is **static over a fixed op sequence**, so the shift is a renaming
+//! performed *here*, while lowering, over a `Vec<Variable>`. Nothing rotates at
+//! run time, and `Op::AddInt` becomes one `iadd` between two SSA values.
+
+use bund2_api::{Error, Vm};
+use bund2_ir::{Fragment, Op};
+use bund2_value::BundValue;
+
+use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, types};
+use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
+use cranelift_jit::{JITBuilder, JITModule};
+use cranelift_module::{Linkage, Module, default_libcall_names};
+
+/// §S8's per-call context, as far as this step needs it.
+///
+/// §S8 gives it "the `&mut dyn Vm` as a stored fat pointer, an error slot, and
+/// the cells of §S6's *Addressing*". The cells belong to the meaning guard,
+/// which does not exist yet, so this holds the first two. Compiled code sees it
+/// only as an opaque pointer.
+pub struct Ctx<'a> {
+    vm: &'a mut dyn Vm,
+    /// Where a helper parks an `Err`. §S11: an error travels in the context,
+    /// never as an unwind.
+    err: Option<Error>,
+}
+
+/// A helper's status: `0` success, `1` error parked in [`Ctx::err`].
+const OK: i32 = 0;
+const FAIL: i32 = 1;
+
+/// Rebuild the context from the pointer compiled code was handed.
+///
+/// # Safety
+///
+/// `ctx` must be the pointer [`Compiled::run`] passed to the entry, which
+/// borrows a live `Ctx` for the duration of the call and hands out no other
+/// reference to it.
+unsafe fn ctx<'a>(ctx: *mut Ctx<'a>) -> Option<&'a mut Ctx<'a>> {
+    if ctx.is_null() {
+        return None;
+    }
+    // SAFETY: the caller's contract, above.
+    Some(unsafe { &mut *ctx })
+}
+
+/// `Op::PopInt` — pull an unboxed int into a register.
+///
+/// Writes the value through `out` and answers a status, rather than returning
+/// the value, because a pull can find an empty stack or a value that is not an
+/// unboxed int. After the guard admitted, either is a broken invariant.
+extern "C" fn jit_pop_int(c: *mut Ctx<'_>, out: *mut i64) -> i32 {
+    // SAFETY: `Compiled::run`'s contract.
+    let Some(c) = (unsafe { ctx(c) }) else {
+        return FAIL;
+    };
+    if out.is_null() {
+        c.err = Some(Error::internal("jit_pop_int was handed no place to write"));
+        return FAIL;
+    }
+    match c.vm.pull().and_then(|v| v.as_int()) {
+        Some(v) => {
+            // SAFETY: checked non-null above; the lowering points it at a slot
+            // of the emitted function's own frame.
+            unsafe { out.write(v) };
+            OK
+        }
+        None => {
+            c.err = Some(Error::internal(
+                "lowered fragment op PopInt found no unboxed integer after its guard admitted; \
+                 the guard and the op list disagree about the arm's domain",
+            ));
+            FAIL
+        }
+    }
+}
+
+/// `Op::PushInt` — push a register's value as a fresh value at `q` 100.0.
+///
+/// `BundValue::int` is what `frag::run` pushes, so the arm and the model agree
+/// on the tag and on `q` by construction (§S6, constraint 2).
+extern "C" fn jit_push_int(c: *mut Ctx<'_>, v: i64) -> i32 {
+    // SAFETY: `Compiled::run`'s contract.
+    let Some(c) = (unsafe { ctx(c) }) else {
+        return FAIL;
+    };
+    c.vm.push(BundValue::int(v));
+    OK
+}
+
+/// `Op::DupTop` — **`.dup()`, not a clone.**
+///
+/// `dup` gives the copy a fresh header and therefore a fresh identity (F13),
+/// and the differential test asserts that directly. A `clone` would share the
+/// `Rc` and the identity with it, which is not the arm `dup` implements.
+extern "C" fn jit_dup_top(c: *mut Ctx<'_>) -> i32 {
+    // SAFETY: `Compiled::run`'s contract.
+    let Some(c) = (unsafe { ctx(c) }) else {
+        return FAIL;
+    };
+    match c.vm.peek() {
+        Some(v) => {
+            let copy = v.dup();
+            c.vm.push(copy);
+            OK
+        }
+        None => {
+            c.err = Some(Error::internal(
+                "lowered fragment op DupTop found an empty stack after its guard admitted",
+            ));
+            FAIL
+        }
+    }
+}
+
+/// `Op::DropTop` — discard the top, and fail rather than succeed silently.
+///
+/// Silent success here was the sixth review's S3: `drop drop` on a one-deep
+/// stack would drop once and report success, where the words fail "too
+/// shallow".
+extern "C" fn jit_drop_top(c: *mut Ctx<'_>) -> i32 {
+    // SAFETY: `Compiled::run`'s contract.
+    let Some(c) = (unsafe { ctx(c) }) else {
+        return FAIL;
+    };
+    if c.vm.pull().is_none() {
+        c.err = Some(Error::internal(
+            "lowered fragment op DropTop found an empty stack after its guard admitted",
+        ));
+        return FAIL;
+    }
+    OK
+}
+
+/// The entry's type: an opaque context in, a status out.
+type Entry = unsafe extern "C" fn(*mut Ctx<'_>) -> i32;
+
+/// One compiled fragment, and the module whose memory holds its code.
+///
+/// The `JITModule` is kept because dropping it frees the code; the entry
+/// pointer would dangle.
+pub struct Compiled {
+    /// Held for its code memory. Never read directly.
+    _module: JITModule,
+    entry: Entry,
+    fragment: Fragment,
+}
+
+impl Compiled {
+    /// Run the arm if its guard admits, exactly as `frag::run` decides it.
+    ///
+    /// `Ok(false)` means **the guard declined and the stack was not touched**,
+    /// so the caller falls through to the word. `Ok(true)` means the arm ran to
+    /// completion. An `Err` is a broken invariant reported through the context,
+    /// never an unwind (§S11).
+    pub fn run(&self, vm: &mut dyn Vm) -> Result<bool, Error> {
+        let depth = vm.depth();
+        if !self
+            .fragment
+            .admits_with(depth, |n| vm.peek_at(n))
+        {
+            return Ok(false);
+        }
+        let mut c = Ctx { vm, err: None };
+        // SAFETY: the entry is the address `finalize_definitions` published for
+        // a function this module emitted under the host's own calling
+        // convention, and `&mut c` is live for the whole call. The emitted code
+        // treats the pointer as opaque and hands it back to the helpers above.
+        let status = unsafe { (self.entry)(&raw mut c) };
+        match c.err {
+            Some(e) => Err(e),
+            None if status == OK => Ok(true),
+            None => Err(Error::internal(
+                "a lowered fragment returned a failing status with no error in the context",
+            )),
+        }
+    }
+}
+
+/// Lower one fragment to machine code.
+///
+/// Returns the error rather than panicking: a fragment that cannot be lowered
+/// is a defect in Bund2 or an op this module has not learned, and shipped code
+/// may not `expect` (D37).
+pub fn compile(fragment: &Fragment) -> Result<Compiled, String> {
+    let mut builder =
+        JITBuilder::new(default_libcall_names()).map_err(|e| format!("JIT builder: {e}"))?;
+    builder.symbol("jit_pop_int", jit_pop_int as *const u8);
+    builder.symbol("jit_push_int", jit_push_int as *const u8);
+    builder.symbol("jit_dup_top", jit_dup_top as *const u8);
+    builder.symbol("jit_drop_top", jit_drop_top as *const u8);
+    let mut module = JITModule::new(builder);
+
+    // Captured before the function builder borrows the context: `finalize`
+    // wants the frontend config, and `module` is not reachable while the
+    // builder holds `ctx_codegen.func`.
+    let frontend = module.target_config();
+    let ptr = frontend.pointer_type();
+    let conv = module.isa().default_call_conv();
+
+    // The four helper signatures, declared as imports.
+    let mut sig_pop = Signature::new(conv);
+    sig_pop.params.push(AbiParam::new(ptr));
+    sig_pop.params.push(AbiParam::new(ptr));
+    sig_pop.returns.push(AbiParam::new(types::I32));
+
+    let mut sig_push = Signature::new(conv);
+    sig_push.params.push(AbiParam::new(ptr));
+    sig_push.params.push(AbiParam::new(types::I64));
+    sig_push.returns.push(AbiParam::new(types::I32));
+
+    let mut sig_bare = Signature::new(conv);
+    sig_bare.params.push(AbiParam::new(ptr));
+    sig_bare.returns.push(AbiParam::new(types::I32));
+
+    let pop_id = module
+        .declare_function("jit_pop_int", Linkage::Import, &sig_pop)
+        .map_err(|e| format!("declare jit_pop_int: {e}"))?;
+    let push_id = module
+        .declare_function("jit_push_int", Linkage::Import, &sig_push)
+        .map_err(|e| format!("declare jit_push_int: {e}"))?;
+    let dup_id = module
+        .declare_function("jit_dup_top", Linkage::Import, &sig_bare)
+        .map_err(|e| format!("declare jit_dup_top: {e}"))?;
+    let drop_id = module
+        .declare_function("jit_drop_top", Linkage::Import, &sig_bare)
+        .map_err(|e| format!("declare jit_drop_top: {e}"))?;
+
+    // The arm itself: opaque context in, status out.
+    let mut sig_arm = Signature::new(conv);
+    sig_arm.params.push(AbiParam::new(ptr));
+    sig_arm.returns.push(AbiParam::new(types::I32));
+    let arm_id = module
+        .declare_function("bund2_arm", Linkage::Export, &sig_arm)
+        .map_err(|e| format!("declare bund2_arm: {e}"))?;
+
+    let mut ctx_codegen = module.make_context();
+    ctx_codegen.func.signature = sig_arm;
+    let mut fb_ctx = FunctionBuilderContext::new();
+    {
+        let mut f = FunctionBuilder::new(&mut ctx_codegen.func, &mut fb_ctx);
+
+        let pop = module.declare_func_in_func(pop_id, f.func);
+        let push = module.declare_func_in_func(push_id, f.func);
+        let dup = module.declare_func_in_func(dup_id, f.func);
+        let drop_ = module.declare_func_in_func(drop_id, f.func);
+
+        let entry = f.create_block();
+        let fail = f.create_block();
+        f.append_block_params_for_function_params(entry);
+        f.switch_to_block(entry);
+
+        let ctx_val = f.block_params(entry)[0];
+
+        // A slot for a helper to write a popped int into. One is enough: each
+        // pop's value is moved into its own `Variable` before the next.
+        let slot = f.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+            cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+            8,
+            3,
+        ));
+
+        // The register file, as a compile-time renaming. `PopInt` rotates it
+        // right and writes slot 0, exactly as `Op::PopInt` documents and
+        // `frag::run` performs at run time — here it costs nothing.
+        let live = usize::from(fragment.registers());
+        let mut file: Vec<Variable> = Vec::with_capacity(live);
+        for _ in 0..live {
+            let v = f.declare_var(types::I64);
+            let zero = f.ins().iconst(types::I64, 0);
+            f.def_var(v, zero);
+            file.push(v);
+        }
+
+        let mut emitted_any_call = false;
+        for op in fragment.ops() {
+            match op {
+                Op::PopInt => {
+                    let addr = f.ins().stack_addr(ptr, slot, 0);
+                    let call = f.ins().call(pop, &[ctx_val, addr]);
+                    let status = f.inst_results(call)[0];
+                    let next = f.create_block();
+                    f.ins().brif(status, fail, &[], next, &[]);
+                    f.switch_to_block(next);
+                    emitted_any_call = true;
+                    // `stack_load(pointer_type, loaded_type, slot, offset)` —
+                    // the generated builder takes both types, and the vendored
+                    // `src/` does not carry these signatures at all: they live
+                    // in `target/debug/build/cranelift-codegen-*/out/inst_builder.rs`.
+                    let v = f.ins().stack_load(ptr, types::I64, slot, 0);
+                    if file.is_empty() {
+                        return Err(
+                            "a fragment popped into a register file it declared as empty".into()
+                        );
+                    }
+                    file.rotate_right(1);
+                    let Some(&dst) = file.first() else {
+                        return Err("the register file lost its first slot".into());
+                    };
+                    f.def_var(dst, v);
+                }
+                Op::PushInt(r) => {
+                    let Some(&src) = file.get(usize::from(*r)) else {
+                        return Err(format!(
+                            "fragment op PushInt names register {r}, outside a file of {live}"
+                        ));
+                    };
+                    let v = f.use_var(src);
+                    let call = f.ins().call(push, &[ctx_val, v]);
+                    let status = f.inst_results(call)[0];
+                    let next = f.create_block();
+                    f.ins().brif(status, fail, &[], next, &[]);
+                    f.switch_to_block(next);
+                    emitted_any_call = true;
+                }
+                Op::DupTop | Op::DropTop => {
+                    let callee = if matches!(op, Op::DupTop) { dup } else { drop_ };
+                    let call = f.ins().call(callee, &[ctx_val]);
+                    let status = f.inst_results(call)[0];
+                    let next = f.create_block();
+                    f.ins().brif(status, fail, &[], next, &[]);
+                    f.switch_to_block(next);
+                    emitted_any_call = true;
+                }
+                Op::AddInt { dst, a, b } | Op::SubInt { dst, a, b } => {
+                    let (Some(&va), Some(&vb)) =
+                        (file.get(usize::from(*a)), file.get(usize::from(*b)))
+                    else {
+                        return Err(format!(
+                            "fragment op names registers {a} and {b}, outside a file of {live}"
+                        ));
+                    };
+                    let x = f.use_var(va);
+                    let y = f.use_var(vb);
+                    // Wrapping, as D4's `i64` arithmetic and the word are: a
+                    // trapping or checked add is where a lowering would part
+                    // company with `frag::run` at `i64::MAX`.
+                    let r = if matches!(op, Op::AddInt { .. }) {
+                        f.ins().iadd(x, y)
+                    } else {
+                        f.ins().isub(x, y)
+                    };
+                    let Some(&slot_dst) = file.get(usize::from(*dst)) else {
+                        return Err(format!(
+                            "fragment op names destination register {dst}, outside a file of {live}"
+                        ));
+                    };
+                    f.def_var(slot_dst, r);
+                }
+            }
+        }
+
+        let ok = f.ins().iconst(types::I32, i64::from(OK));
+        f.ins().return_(&[ok]);
+
+        f.switch_to_block(fail);
+        let bad = f.ins().iconst(types::I32, i64::from(FAIL));
+        f.ins().return_(&[bad]);
+        f.seal_all_blocks();
+        f.finalize(frontend);
+
+        // An arm with no call at all would leave `fail` unreachable, which is
+        // fine, but it would also mean nothing touched the stack — not a
+        // fragment this module should have been handed.
+        if !emitted_any_call {
+            return Err("a fragment with no stack traffic has nothing to lower".into());
+        }
+    }
+
+    module
+        .define_function(arm_id, &mut ctx_codegen)
+        .map_err(|e| format!("define bund2_arm: {e}"))?;
+    module.clear_context(&mut ctx_codegen);
+    module
+        .finalize_definitions()
+        .map_err(|e| format!("finalize: {e}"))?;
+
+    let addr = module.get_finalized_function(arm_id);
+    if addr.is_null() {
+        return Err("the finalized arm has no address".into());
+    }
+    // SAFETY: `addr` is the entry of a function this module just emitted with
+    // the signature `sig_arm` — one pointer-sized parameter, one `i32` result,
+    // under the host's default calling convention — which is exactly `Entry`.
+    let entry: Entry = unsafe { std::mem::transmute::<*const u8, Entry>(addr) };
+
+    Ok(Compiled {
+        _module: module,
+        entry,
+        fragment: fragment.clone(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bund2_interp::{Interp, frag};
+    use bund2_ir::{Guard, Op};
+
+    /// **Criterion 16's third leg.** The two legs already in
+    /// `crates/bund2-stdlib/src/fragments.rs` compare the *model* — the arm as
+    /// `frag::run` executes it — against the word. This one compares the
+    /// **lowered code** against that model, over the same boundaries, which the
+    /// criterion requires "before any lowering ships" and could not be written
+    /// until a lowering existed.
+    ///
+    /// The comparison is `fragments.rs`'s: `dt`, and a render with identity and
+    /// stamp blanked. The render carries the value, `dt`, `q` and D41's stack
+    /// tag in one string, so it covers everything the criterion names except
+    /// identity — which is asserted separately for `dup`, because `norm` is
+    /// exactly what hides it.
+    fn norm(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        let mut rest = s;
+        loop {
+            let Some(i) = rest.find("id: \"") else {
+                out.push_str(rest);
+                return out;
+            };
+            let after = i + 5;
+            out.push_str(&rest[..after]);
+            let Some(end) = rest[after..].find('"') else {
+                out.push_str(&rest[after..]);
+                return out;
+            };
+            out.push_str("<id>");
+            rest = &rest[after + end..];
+            // And the stamp, which moves per run.
+            if let Some(j) = rest.find("stamp: ") {
+                let head = j + 7;
+                out.push_str(&rest[..head]);
+                let tail = rest[head..]
+                    .find(',')
+                    .map_or(rest.len(), |k| head + k);
+                out.push_str("<stamp>");
+                rest = &rest[tail..];
+            }
+        }
+    }
+
+    fn interp_with(start: &[BundValue]) -> Interp {
+        let mut i = Interp::new();
+        for v in start {
+            i.push(v.clone());
+        }
+        i
+    }
+
+    /// One run's outcome: what the call answered, and the stack it left.
+    type Outcome = (Result<bool, Error>, Vec<BundValue>);
+
+    /// Run the same fragment over the same starting stack both ways.
+    fn both(f: &Fragment, start: &[BundValue]) -> (Outcome, Outcome) {
+        let mut model = interp_with(start);
+        let by_model = frag::run(&mut model, f);
+
+        let compiled = compile(f).expect("the arm lowers");
+        let mut lowered = interp_with(start);
+        let by_lowered = compiled.run(&mut lowered);
+
+        (
+            (by_model, model.snapshot()),
+            (by_lowered, lowered.snapshot()),
+        )
+    }
+
+    fn assert_agree(f: &Fragment, start: &[BundValue], label: &str) {
+        let ((rm, sm), (rl, sl)) = both(f, start);
+        assert_eq!(
+            rm.is_ok(),
+            rl.is_ok(),
+            "{label}: one path failed and the other did not"
+        );
+        assert_eq!(
+            rm.unwrap_or(false),
+            rl.unwrap_or(false),
+            "{label}: the guard decided differently"
+        );
+        assert_eq!(sm.len(), sl.len(), "{label}: depth");
+        for (m, l) in sm.iter().zip(sl.iter()) {
+            assert_eq!(m.dt(), l.dt(), "{label}: dt");
+            assert_eq!(
+                norm(&m.render(false)),
+                norm(&l.render(false)),
+                "{label}: value, q or stack tag"
+            );
+        }
+    }
+
+    fn add_arm() -> Fragment {
+        Fragment::new(
+            Guard::TopAreInt(2),
+            vec![
+                Op::PopInt,
+                Op::PopInt,
+                Op::AddInt { dst: 0, a: 0, b: 1 },
+                Op::PushInt(0),
+            ],
+            2,
+        )
+        .expect("well-formed")
+    }
+
+    fn dup_arm() -> Fragment {
+        Fragment::new(Guard::Depth(1), vec![Op::DupTop], 0).expect("well-formed")
+    }
+
+    fn drop_arm() -> Fragment {
+        Fragment::new(Guard::Depth(1), vec![Op::DropTop], 0).expect("well-formed")
+    }
+
+    /// **The arm's boundaries, chosen by hand** — criterion 16 is explicit that
+    /// they are not generated, and names `i64::MAX`, `i64::MIN` and their
+    /// neighbours.
+    const EDGES: [i64; 8] = [0, 1, -1, 2, i64::MAX, i64::MAX - 1, i64::MIN, i64::MIN + 1];
+
+    #[test]
+    fn the_lowered_int_add_agrees_with_frag_run_at_every_boundary() {
+        let f = add_arm();
+        for a in EDGES {
+            for b in EDGES {
+                // Both orders: `PopInt`'s numbering is the whole difficulty,
+                // and addition commuting is what hides a reversed file here.
+                // `SubInt` would not forgive it.
+                assert_agree(
+                    &f,
+                    &[BundValue::int(a), BundValue::int(b)],
+                    &format!("{a} + {b}"),
+                );
+            }
+        }
+    }
+
+    /// **The wrap pin.** Criterion 16: "a separate assertion pins
+    /// `i64::MAX 1 +` to `i64::MIN` — wrap-around is where a lowering using a
+    /// trapping or checked add would part company with the word."
+    #[test]
+    fn the_lowered_add_wraps_at_i64_max_as_the_word_does() {
+        let f = add_arm();
+        let start = [BundValue::int(i64::MAX), BundValue::int(1)];
+        assert_agree(&f, &start, "i64::MAX 1 +");
+
+        let compiled = compile(&f).expect("lowers");
+        let mut vm = interp_with(&start);
+        assert_eq!(compiled.run(&mut vm), Ok(true), "the arm ran");
+        assert_eq!(
+            vm.snapshot().first().and_then(BundValue::as_int),
+            Some(i64::MIN),
+            "the lowered add must wrap, not trap"
+        );
+    }
+
+    #[test]
+    fn the_lowered_dup_and_drop_agree_with_frag_run() {
+        let shapes = [
+            BundValue::int(7),
+            BundValue::float(2.5),
+            BundValue::str("s"),
+            BundValue::list(vec![BundValue::int(1), BundValue::int(2)]),
+        ];
+        for v in shapes {
+            assert_agree(&dup_arm(), std::slice::from_ref(&v), "dup");
+            assert_agree(&drop_arm(), std::slice::from_ref(&v), "drop");
+        }
+    }
+
+    /// **F13, asserted directly**, because `norm` blanks the identities the
+    /// render would otherwise show. `Op::DupTop` is `.dup()` and not a clone,
+    /// so the two values left behind have *different* identities. A lowering
+    /// that pushed a clone would pass the render comparison above and fail
+    /// here — which is how the model's own version of this test found the bug.
+    #[test]
+    fn the_lowered_dup_mints_a_fresh_identity() {
+        let compiled = compile(&dup_arm()).expect("lowers");
+        for v in [
+            BundValue::int(7),
+            BundValue::list(vec![BundValue::int(1)]),
+        ] {
+            let mut vm = interp_with(std::slice::from_ref(&v));
+            assert_eq!(compiled.run(&mut vm), Ok(true));
+            let stack = vm.snapshot();
+            assert_eq!(stack.len(), 2, "dup left {} values", stack.len());
+            let (below, _) = stack[0].identity();
+            let (top, _) = stack[1].identity();
+            assert_ne!(
+                below, top,
+                "the lowered dup shared one identity — that is a clone, not F13's dup"
+            );
+        }
+    }
+
+    /// **`norm` does what the comparison needs, and no more.**
+    ///
+    /// Every test above rests on this function, so it is asserted rather than
+    /// assumed: a `norm` that collapsed distinct values into equal strings
+    /// would make the whole third leg pass while checking nothing. Two
+    /// independently built `int(1)`s carry different identities and stamps and
+    /// must normalise **equal**; `int(1)` and `int(2)` must not.
+    #[test]
+    fn norm_hides_identity_and_stamp_and_nothing_else() {
+        let a = BundValue::int(1).render(false);
+        let b = BundValue::int(1).render(false);
+        let c = BundValue::int(2).render(false);
+        assert_eq!(
+            norm(&a),
+            norm(&b),
+            "two renders of the same value must normalise equal — identity and stamp differ per value"
+        );
+        assert_ne!(
+            norm(&a),
+            norm(&c),
+            "norm must not collapse different values, or every comparison above is vacuous"
+        );
+    }
+
+    /// **Mutation check: the comparison can fail.**
+    ///
+    /// The repo's own habit (criterion 28 is "mutation-checked") is to show that
+    /// a test would catch the defect it exists for. Here the model adds and the
+    /// lowered arm subtracts — `10 3` gives 13 one way and 7 the other — so the
+    /// renders must differ. If they did not, the five tests above would be
+    /// agreeing about nothing.
+    #[test]
+    fn the_comparison_catches_an_arm_that_computes_the_wrong_thing() {
+        let start = [BundValue::int(10), BundValue::int(3)];
+
+        let mut model = interp_with(&start);
+        let by_model = frag::run(&mut model, &add_arm());
+        assert_eq!(by_model, Ok(true), "the model ran");
+
+        let wrong = Fragment::new(
+            Guard::TopAreInt(2),
+            vec![
+                Op::PopInt,
+                Op::PopInt,
+                Op::SubInt { dst: 0, a: 0, b: 1 },
+                Op::PushInt(0),
+            ],
+            2,
+        )
+        .expect("well-formed");
+        let compiled = compile(&wrong).expect("lowers");
+        let mut lowered = interp_with(&start);
+        assert_eq!(compiled.run(&mut lowered), Ok(true), "the wrong arm ran");
+
+        let (sm, sl) = (model.snapshot(), lowered.snapshot());
+        assert_eq!(sm.len(), 1);
+        assert_eq!(sl.len(), 1);
+        assert_eq!(sm[0].as_int(), Some(13), "the model added");
+        assert_eq!(sl[0].as_int(), Some(7), "the wrong arm subtracted");
+        assert_ne!(
+            norm(&sm[0].render(false)),
+            norm(&sl[0].render(false)),
+            "the comparison the third leg uses must be able to fail"
+        );
+    }
+
+    /// **The rule the lowering inherits.** A fragment is entered only when its
+    /// guard admits, and the word runs otherwise. A declined guard must consume
+    /// nothing: `Ok(false)`, and the stack exactly as the program built it.
+    #[test]
+    fn a_declined_guard_touches_neither_stack() {
+        let f = add_arm();
+        // A float on top: `TopAreInt(2)` does not admit it.
+        let start = [BundValue::int(1), BundValue::float(2.5)];
+        assert_agree(&f, &start, "declined");
+
+        let compiled = compile(&f).expect("lowers");
+        let mut vm = interp_with(&start);
+        assert_eq!(compiled.run(&mut vm), Ok(false), "the guard declined");
+        assert_eq!(vm.depth(), 2, "a declined guard consumed nothing");
+
+        // And too shallow, which is the other way the guard declines.
+        let mut shallow = interp_with(&[BundValue::int(1)]);
+        assert_eq!(compiled.run(&mut shallow), Ok(false));
+        assert_eq!(shallow.depth(), 1);
+    }
+}
