@@ -217,6 +217,12 @@ pub fn introduced_types(src: &str) -> BTreeSet<String> {
 const KNOWN: &[&str] = &[
     "String", "Vec", "Option", "Result", "Box", "Rc", "Arc", "Cell", "RefCell", "BTreeMap",
     "HashMap", "BTreeSet", "HashSet", "VecDeque", "Error", "Ordering", "Value", "Symbol",
+    // `Weak` belongs beside `Rc` and `Arc`: the standard library's non-owning
+    // handle, which RFC-0001's 2026-09-13 amendment returns from
+    // `payload_weak` and RFC-0005's cache and counter hold (D35 as amended).
+    // A document cannot "introduce" it, and writing `type Weak = …` to satisfy
+    // this check would state a design that does not exist.
+    "Weak",
     // Reference types RFC-0001 carries over verbatim rather than defining.
     "Metric", "Operator",
 ];
@@ -665,6 +671,22 @@ mod tests {
     fn known_types_are_not_flagged() {
         let src = "```rust\nstruct V { a: Vec<String>, b: BTreeMap<String, Value> }\n```\n";
         assert!(undefined_types(src, &BTreeSet::new()).is_empty());
+    }
+
+    /// **`Weak` sits beside `Rc` and `Arc` in [`KNOWN`].** RFC-0001's
+    /// `payload_weak` returns one, and no document can *introduce* a standard
+    /// library type: `introduced_types` reads `struct`/`enum`/`type`
+    /// declarations only, so a `use` line in the block never satisfied it. The
+    /// allowlist entry is asserted here rather than merely added, because a
+    /// silent widening is how a check stops meaning anything.
+    #[test]
+    fn a_standard_library_weak_is_known() {
+        let src = "```rust\npub fn payload_weak(&self) -> Option<Weak<Payload>>\n```\n";
+        let introduced: BTreeSet<String> = ["Payload".to_string()].into_iter().collect();
+        assert!(
+            undefined_types(src, &introduced).is_empty(),
+            "`Weak` must be known, as `Rc` is"
+        );
     }
 
     /// A name another RFC defines is not this one's to define. The RFCs are

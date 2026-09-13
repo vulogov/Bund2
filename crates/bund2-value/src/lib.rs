@@ -1272,6 +1272,35 @@ impl BundValue {
         }
     }
 
+    /// **A `Weak` to the payload [`payload_key`](Self::payload_key) addresses**
+    /// — RFC-0005's compiled cache and promotion counter, D35 as amended.
+    ///
+    /// D35's amendment (Q32) has both structures hold a `Weak` rather than a
+    /// strong reference: a `Weak` keeps the allocation out of reuse just as
+    /// surely, so an entry can never answer for a *different* body at a reused
+    /// address, and it pins nothing. D42 supplies the liveness instead — every
+    /// running frame holds its own clone of its body's value.
+    ///
+    /// **It points at the same allocation the key names**, which is the whole
+    /// point: a cache keyed on `payload_key` and holding a `Weak` of something
+    /// else would test one object's liveness while keying on another's address.
+    /// So an entry whose `Weak` no longer upgrades is dead, and RFC-0005's
+    /// criteria 3 and 6 read exactly that.
+    ///
+    /// **Not a materialisation point.** D20 lists where lazy identity ends;
+    /// this touches neither `id` nor `stamp`, and a body promoted to Tier 1
+    /// still never mints an identity it did not otherwise need — which is the
+    /// objection D35 raised against identity keying in the first place.
+    ///
+    /// `None` for an unboxed scalar, which has no payload to point at, exactly
+    /// as `payload_key` answers.
+    pub fn payload_weak(&self) -> Option<std::rc::Weak<Payload>> {
+        match self {
+            BundValue::Heap(h) => Some(Rc::downgrade(&h.payload)),
+            _ => None,
+        }
+    }
+
     pub fn identity(&self) -> (u64, Option<BundValue>) {
         match self {
             BundValue::Heap(h) => (h.identity(), None),
@@ -2565,5 +2594,71 @@ mod q_tests {
         let v = BundValue::none().with_q(0.0);
         assert_eq!(v.q(), 0.0);
         assert!(v.render(true).contains("q: 0.0"));
+    }
+}
+
+#[cfg(test)]
+mod payload_weak_tests {
+    use super::*;
+
+    /// **D35 as amended (Q32).** The `Weak` upgrades while the body lives, and
+    /// points at the allocation `payload_key` addresses — so a cache keyed on
+    /// one and holding the other cannot disagree about which body it means.
+    #[test]
+    fn the_weak_points_at_the_allocation_the_key_names() {
+        let body = BundValue::lambda(vec![BundValue::int(1)]);
+        let key = body.payload_key().expect("a heap value has a key");
+        let weak = body.payload_weak().expect("and a weak");
+
+        let upgraded = weak.upgrade().expect("upgrades while the body lives");
+        assert_eq!(
+            Rc::as_ptr(&upgraded) as *const () as usize,
+            key,
+            "the weak and the key must name one allocation"
+        );
+    }
+
+    /// **The property criteria 3 and 6 rest on**: when the last strong
+    /// reference goes, the entry is dead and cannot answer for anything. A
+    /// cache holding this can never serve a *different* body at a reused
+    /// address, because the allocation is not freed while the `Weak` lives —
+    /// which is what let D35's amendment drop the strong reference.
+    #[test]
+    fn the_weak_stops_upgrading_when_the_last_strong_reference_goes() {
+        let weak = {
+            let body = BundValue::lambda(vec![BundValue::int(1)]);
+            let weak = body.payload_weak().expect("a weak");
+            assert!(weak.upgrade().is_some(), "alive while `body` is in scope");
+            weak
+        };
+        assert!(
+            weak.upgrade().is_none(),
+            "the payload must drop with the body's last strong reference"
+        );
+    }
+
+    /// **`dup` shares a payload, so it shares a `Weak`** — the property that
+    /// made pointer keying beat identity keying in D35: an identity-keyed cache
+    /// could never hit for a `dup`'d lambda.
+    #[test]
+    fn a_dup_shares_the_originals_payload() {
+        let body = BundValue::lambda(vec![BundValue::int(1)]);
+        let copy = body.dup();
+        assert_eq!(
+            body.payload_key(),
+            copy.payload_key(),
+            "dup shares the payload, so it shares the key"
+        );
+        let a = body.payload_weak().expect("a weak");
+        let b = copy.payload_weak().expect("a weak");
+        assert!(std::rc::Weak::ptr_eq(&a, &b), "and therefore the allocation");
+    }
+
+    /// An unboxed scalar has no payload, and answers the same way for both.
+    #[test]
+    fn an_unboxed_scalar_has_neither_key_nor_weak() {
+        let v = BundValue::int(1);
+        assert_eq!(v.payload_key(), None);
+        assert!(v.payload_weak().is_none());
     }
 }

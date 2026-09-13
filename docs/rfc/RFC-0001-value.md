@@ -1784,3 +1784,48 @@ path a program takes calls it.
 averaged, and no golden moves. What D32 reserves `q` for — a future fuzzy-math
 feature — is unaffected as a reservation: how `q` combines is designed when
 that feature is, as new behaviour.
+
+## Amendment, 2026-09-13 — `payload_weak`, for RFC-0005's cache and counter
+
+**Decided by the repository owner.** `BundValue` gains one accessor, returning
+`std::rc::Weak` — the standard library's non-owning handle, which upgrades to an
+`Rc` while the allocation lives and to `None` once its last strong reference is
+gone:
+
+```rust
+pub fn payload_weak(&self) -> Option<Weak<Payload>>
+```
+
+It hands out a `Weak` to the same allocation `payload_key` addresses, and
+`None` for an unboxed scalar, exactly as that method answers.
+
+**Why it is needed, and why nothing else would do.** D35 as amended (Q32) has
+RFC-0005's compiled cache and promotion counter hold a `Weak` rather than a
+strong reference: a `Weak` keeps the allocation out of reuse, so an entry can
+never answer for a *different* body at a reused address, while pinning nothing —
+D42's frames supply the liveness. But `payload_key` yields a `usize` and
+`HeapValue.payload` is private, so **the `Weak` those structures are specified
+to hold was not obtainable from outside this crate**. RFC-0005's §S3, §S7 and
+criteria 3 and 6 all rest on it, and none of them could be implemented. This is
+the same shape as D43's `bund2-api` additions and is recorded the same way.
+
+**A `Weak<HeapValue>` was rejected.** It is the smaller addition, but the cache
+keys on the *payload's* address, and a structure keying on one allocation while
+testing another's liveness is a defect waiting for the case where the two differ
+— which `dup` creates by design, since it shares a payload under a fresh header.
+Criterion 3 reads "its entry no longer upgrades"; that has to be the allocation
+the key names.
+
+**Not a new materialisation point.** D20 enumerates where lazy identity ends.
+This touches neither `id` nor `stamp`, so a body promoted to Tier 1 still mints
+no identity it would not otherwise need — which was D35's own objection to
+identity keying, and it would be self-defeating to reintroduce here.
+
+**Nothing a program does changes**, and no golden moves: this adds a read-only
+accessor and no behaviour. `payload_weak_tests`
+(`crates/bund2-value/src/lib.rs`) holds four properties — the `Weak` names the
+allocation the key names, it stops upgrading when the last strong reference
+goes, a `dup` shares both, and an unboxed scalar has neither.
+
+- Amended by: repository owner, 2026-09-13, on RFC-0005's cache and counter
+- Consumes: D35 as amended (Q32), D42, D20 (unaffected)
