@@ -343,6 +343,24 @@
   arithmetic's inlining ceiling reading 1.77× and 1.81× here against 2.03×
   before — is machine-dependent and recorded as such.
 
+  **The compiled cache and the promotion counter are built, 2026-09-13, and
+  criteria 3 and 6 run.** `Tiering` (`crates/bund2-jit/src/cache.rs`) holds two
+  maps over the same bodies, keyed on `payload_key` and each holding a
+  `payload_weak` — so a dead entry answers for nothing, which is the false hit
+  §S3 calls the worst failure available here, and neither map pins a body. All
+  four of §S7's knobs are configurable, as that section requires and criterion 6
+  depends on: it sets the function cap to 4, the recompile cap to 2 and the
+  counter cap to 8 rather than exercising a thousand bodies. The caps behave
+  oppositely on purpose — the function cap **refuses**, since code memory is
+  never reclaimed, while the counter cap **evicts** coldest-first — and the
+  recompile cap counts per slot while demoting the body live at the time, on the
+  owner's decision. §S7 gains a dated note for the one thing it never said: what
+  calls the sweep. Still absent, and the reason this is not yet a tier: nothing
+  consults the cache when a word runs, and **criterion 23 is not met** — it
+  wants one cache and one `JITModule` per `Interp`, where each lowering builds
+  its own module. Thirty-five tests under `--features jit`; conform unmoved at
+  106/114.
+
   **A compiled body is a real Bund word, 2026-09-13 — and it is a shape, not a
   speedup.** `compile_word_body` lowers a body's values, each through its own
   `Tail` thunk called indirectly through the slot table, and a differential
@@ -1870,6 +1888,24 @@ same place.
 in the adapter meanwhile. The obligation is the adapter's either way, and a gap
 held open for a future helper is still a gap.
 
+**The cache and the counter exist, 2026-09-13**
+(`crates/bund2-jit/src/cache.rs`).
+Two maps over the same bodies, keyed on `payload_key` (D35) and each holding a
+`payload_weak` (D35 as amended by Q32, and RFC-0001's amendment of the same day,
+which added the accessor because the `Weak` those structures are specified to
+hold was not obtainable). **Criterion 3 and criterion 6 both run**: a dead entry
+answers for nothing and is gone after a sweep; the function cap leaves the body
+past it interpreted; a third redefinition demotes the body live at the time;
+nine bodies leave a counter capped at eight; and the counter does not pin what
+it counts. A `dup`'d body finds its original's entry, which is D35's argument
+for pointer keying made into a property rather than a paragraph.
+
+**Not `Interp` integration, and not criterion 23.** Nothing consults `Tiering`
+when a word runs — its caller today is its tests. And criterion 23 wants one
+cache, one `JITModule` and one set of cells *per `Interp`*, where `lower`'s
+entry points each build a module of their own; that stays open and is named
+here rather than implied away.
+
 **A body that is a real Bund word, 2026-09-13.** `compile_word_body` lowers a
 body's *values* — literals, `CALL`s, `CONTEXT`s — each through its own `Tail`
 thunk, called indirectly through the slot table. `{ 1 2 + }` compiles and runs,
@@ -2373,6 +2409,28 @@ body.
 
 **D39 applies**: the sweep is an internal loop and is bounded on data already
 taken. It runs over the map as it stands, never until a condition holds.
+
+**Dated note, 2026-09-13 — what calls the sweep, which this section never
+said.** Four passages describe what the sweep does and none names a trigger,
+while criteria 3 and 6 both assert state "after the sweep" and therefore need it
+callable. Built as: `Tiering::sweep` is **public**, so a caller — and a test —
+can ask for it; and `Tiering::observe` calls it when the counter reaches its
+cap, *before* evicting a live entry, because dropping a dead entry is free where
+evicting a live one costs a recount. Chosen rather than specified. It changes no
+observable behaviour — only when memory is given back — which is why it is
+recorded here as implementation policy and not taken to the decision register.
+
+**The caps are built, 2026-09-13** (`crates/bund2-jit/src/cache.rs`,
+`Tiering`), with this section's four knobs configurable as it requires, and each
+row of the table above asserted by a test at small values, as criterion 6 asks.
+Two behaviours worth stating because they are opposite and easy to transpose:
+the **function cap refuses** — a body past it stays interpreted, since code
+memory is never reclaimed and evicting would orphan a function — while the
+**counter cap evicts**, coldest first, because an evicted count costs only a
+recount. The **recompile cap counts per slot and demotes the body live at the
+time** (the owner's decision, 2026-09-13): the two keys differ because a
+redefinition replaces one body with another, so the slot is what persists across
+it and the body is what a demotion can name.
 
 # S8. Tail calls, and why §3.2f does not take them away
 

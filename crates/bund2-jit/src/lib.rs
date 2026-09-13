@@ -22,3 +22,10 @@
 // optional and the portability story the interpreter's (§S10).
 #[cfg(feature = "jit")]
 pub mod lower;
+
+/// The compiled cache and the promotion counter — §S3, §S7, D35 as amended.
+///
+/// Behind the feature because it holds [`lower::CompiledWord`], which names
+/// Cranelift types through the code it owns.
+#[cfg(feature = "jit")]
+pub mod cache;
