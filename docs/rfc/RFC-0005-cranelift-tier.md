@@ -334,6 +334,21 @@
   arithmetic's inlining ceiling reading 1.77× and 1.81× here against 2.03×
   before — is machine-dependent and recorded as such.
 
+  **§S8's boundary has its first two pieces, 2026-09-13.** The arm now carries
+  `CallConv::Tail` and Rust enters compiled code only through a JIT-emitted
+  entry trampoline under the platform's convention — pieces 1 and 4. The
+  C-convention entry the previous day's commit used as a stand-in is gone, and
+  the transmute points at the trampoline rather than the arm, since calling a
+  `Tail` function from Rust is the one thing §S8 rules out. Pieces 2 and 3, the
+  per-native adapter and its `Tail` thunks, wait on a compiled body with a call
+  site, and criterion 29 waits with them. **A correction came out of building
+  it**: §S8's s390x degradation has no trigger at the pinned Cranelift — every
+  backend lowers `return_call` at 0.135.0, and `supports_tail_calls` is a
+  property of the convention rather than the target — so the lowering emits
+  `Tail` unconditionally instead of carrying a branch no target can take. The
+  first draft did carry one, on a constant `true`. conform holds 106/114 on both
+  tiers.
+
   **The first lowering is built, 2026-09-12, and criterion 16's third leg now
   runs.** `crates/bund2-jit/src/lower.rs` compiles one fragment's ops to
   machine code and runs it against a real `dyn Vm`, and its tests compare that
@@ -1730,14 +1745,29 @@ and an error slot, so an error travels in the context and never as an unwind
 emitted code may assume admission and every helper's non-zero status branches to
 a single failure block.
 
-**What it is not, stated so the entry is not mistaken for the boundary.** It is
-**not §S8's call boundary**: the entry is emitted under the host's *default C
-convention* so Rust can call it, where §S8 specifies `CallConv::Tail`, a `Tail`
-thunk per native, `return_call_indirect` from tail positions, and a
-C-convention *entry trampoline* precisely because Rust can neither define nor
-call a `Tail` function. It is also not inlining, not promotion, and not the
-meaning guard: there is no cache, no `Interp` integration and no compiled body.
-Its purpose is to give criterion 16's third leg something to certify.
+**Two of §S8's four boundary pieces are built, 2026-09-13.** The arm is emitted
+under **`CallConv::Tail`** (§S8's first piece), and Rust enters it only through
+a JIT-emitted **entry trampoline** under the platform's own convention (§S8's
+fourth), which takes the context, makes an ordinary `call` into the arm, and
+hands the status back. The trampoline is not a convenience: Rust can neither
+define nor call a `Tail` function, so it is the only seam available. That a
+plain `call` may cross conventions is what makes it work — the verifier has no
+`typecheck_call` at all, and only `typecheck_tail_call` requires caller and
+callee to agree (`src/verifier/mod.rs`). The direct call it makes is the second
+of the two relocations criterion 4 permits.
+
+An earlier revision of this passage said the entry was C-convention *in place
+of* the boundary. That stand-in is gone; the entry is the boundary's trampoline
+now, and the transmute points at it rather than at the arm — pointing it at the
+arm would have Rust calling a `Tail` function directly, the one thing §S8
+establishes is impossible.
+
+**What is still not built.** §S8's **second and third** pieces — the per-native
+Rust adapter through `catch_panic` (D49) and a `Tail` thunk per native a call
+slot can hold — need a compiled body with a call site to a native, which does
+not exist: there is no cache, no `Interp` integration and no body. **Criterion
+29** likewise waits on them, since it calls a *panicking native* from compiled
+code. And this is still not inlining, not promotion and not the meaning guard.
 `bund2-jit` gains `bund2-api` as a dependency for `dyn Vm`; criterion 15's
 direction still holds, checked with the feature on as well as off.
 
@@ -2211,6 +2241,24 @@ taken. It runs over the map as it stands, never until a condition holds.
 `CallConv::Tail` with `return_call` / `return_call_indirect` is supported on
 x86-64, aarch64 and riscv64 (§3.1); **s390x historically lacked it**, so the
 lowering must degrade to an ordinary call there rather than assume it.
+
+**Dated note, 2026-09-13 — the degradation has no trigger at the pinned
+version, and the lowering therefore has no branch for it.** At
+`cranelift-codegen` 0.135.0 every backend carries lowering rules for
+`return_call` and `return_call_indirect`, s390x included: the section "Rules for
+`return_call` and `return_call_indirect`" appears in `src/isa/s390x/lower.isle`
+and in `aarch64`, `x64` and `riscv64` alike. Nor is there a per-target
+capability to consult — `supports_tail_calls` is a property of the *convention*,
+answering `true` for `CallConv::Tail` and nothing else on every target
+(`src/isa/call_conv.rs`). So "historically lacked it" is now history, and the
+first lowering emits `Tail` unconditionally and says why.
+
+The first draft of that lowering did branch, on
+`CallConv::Tail.supports_tail_calls()` — a constant `true`, so a check that read
+like a capability test and tested nothing. It was removed rather than repaired:
+a branch no target can take is worse than none, because it looks covered. If a
+target without tail calls is ever added, this is the sentence to come back to,
+and **Q28** is where the question of whether s390x is a target belongs.
 
 ## The objection this section has to answer
 
@@ -4024,6 +4072,12 @@ evidence, and this one is listed as runnable rather than as met.
   open question 7 and it is still unanswered.
 - **Q28 — does `s390x` matter?** §S8 degrades tail calls there. If s390x is
   not a target, the degradation path is dead code that will not be tested.
+  **Narrowed 2026-09-13:** the question is now about *targets*, not tail calls.
+  At `cranelift-codegen` 0.135.0 s390x lowers `return_call` like every other
+  backend, so there is no degradation path to test and the first lowering
+  carries no branch for one (§S8, dated note). What remains of Q28 is whether
+  s390x is a platform Bund2 ships for at all, which §S10's portability story
+  answers for the interpreter and RFC-0006 will answer for AOT.
 - **Q34 — answered 2026-09-11 by the owner: D55.** The set is derived by
   criterion 28's palette, through a four-run differential and an observation
   audit, and kept off `PROMOTABLE.txt`. Criterion 14 is satisfiable.

@@ -43,6 +43,7 @@ use bund2_ir::{Fragment, Op};
 use bund2_value::BundValue;
 
 use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, types};
+use cranelift_codegen::isa::CallConv;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{Linkage, Module, default_libcall_names};
@@ -167,7 +168,12 @@ extern "C" fn jit_drop_top(c: *mut Ctx<'_>) -> i32 {
     OK
 }
 
-/// The entry's type: an opaque context in, a status out.
+/// The **entry trampoline's** type: an opaque context in, a status out.
+///
+/// §S8's fourth piece. Rust enters compiled code only through this, because it
+/// can neither define nor call a `CallConv::Tail` function: "0.135.0's
+/// `CallConv` has no Rust ABI". So the trampoline carries the platform's own
+/// convention and the arm behind it carries `Tail`.
 type Entry = unsafe extern "C" fn(*mut Ctx<'_>) -> i32;
 
 /// One compiled fragment, and the module whose memory holds its code.
@@ -179,6 +185,26 @@ pub struct Compiled {
     _module: JITModule,
     entry: Entry,
     fragment: Fragment,
+    arm_conv: CallConv,
+    entry_conv: CallConv,
+}
+
+impl Compiled {
+    /// The convention the **arm** was emitted under — `CallConv::Tail` wherever
+    /// the target supports tail calls.
+    ///
+    /// Exposed so §S8's boundary shape is *checkable* rather than described. A
+    /// signature is not observable in the finished code, so the lowering
+    /// records what it chose and a test reads it back.
+    pub fn arm_call_conv(&self) -> CallConv {
+        self.arm_conv
+    }
+
+    /// The convention the **entry trampoline** was emitted under: the
+    /// platform's own, which is what makes it callable from Rust.
+    pub fn entry_call_conv(&self) -> CallConv {
+        self.entry_conv
+    }
 }
 
 impl Compiled {
@@ -261,13 +287,45 @@ pub fn compile(fragment: &Fragment) -> Result<Compiled, String> {
         .declare_function("jit_drop_top", Linkage::Import, &sig_bare)
         .map_err(|e| format!("declare jit_drop_top: {e}"))?;
 
-    // The arm itself: opaque context in, status out.
-    let mut sig_arm = Signature::new(conv);
+    // **§S8's first piece: one JIT signature, `fn(ctx) -> i32` under
+    // `CallConv::Tail`.** A `Tail` arm is what makes `return_call_indirect`
+    // legal from a tail position later; the verifier's `typecheck_tail_call`
+    // requires the callee's convention to support tail calls *and* to match the
+    // caller's, so every target a compiled body can reach has to be `Tail`.
+    //
+    // **On the degradation §S8 asks for: at this pinned version it has no
+    // trigger, so there is no branch here.** §S8 says tail calls are supported
+    // "on x86-64, aarch64 and riscv64; s390x historically lacked it, so the
+    // lowering must degrade to an ordinary call there rather than assume it".
+    // At `cranelift-codegen` 0.135.0 that history has moved on: `return_call`
+    // and `return_call_indirect` have lowering rules in **every** backend,
+    // s390x included (`src/isa/s390x/lower.isle`, "Rules for `return_call` and
+    // `return_call_indirect`", and the same section in `aarch64`, `x64` and
+    // `riscv64`). There is also no per-target predicate to ask:
+    // `supports_tail_calls` is a property of the *convention* and answers
+    // `true` for `CallConv::Tail` and nothing else, on every target.
+    //
+    // An earlier draft of this function branched on
+    // `CallConv::Tail.supports_tail_calls()`, which is a constant `true` — a
+    // check that reads like a capability test and tests nothing. Emitting
+    // `Tail` unconditionally and saying why is honest; a branch no target can
+    // take would be worse than none, because it would look covered.
+    let arm_conv = CallConv::Tail;
+    let mut sig_arm = Signature::new(arm_conv);
     sig_arm.params.push(AbiParam::new(ptr));
     sig_arm.returns.push(AbiParam::new(types::I32));
     let arm_id = module
         .declare_function("bund2_arm", Linkage::Export, &sig_arm)
         .map_err(|e| format!("declare bund2_arm: {e}"))?;
+
+    // **§S8's fourth piece: the entry trampoline**, under the platform's own
+    // convention, because Rust cannot call a `Tail` function at all.
+    let mut sig_entry = Signature::new(conv);
+    sig_entry.params.push(AbiParam::new(ptr));
+    sig_entry.returns.push(AbiParam::new(types::I32));
+    let entry_id = module
+        .declare_function("bund2_entry", Linkage::Export, &sig_entry)
+        .map_err(|e| format!("declare bund2_entry: {e}"))?;
 
     let mut ctx_codegen = module.make_context();
     ctx_codegen.func.signature = sig_arm;
@@ -406,23 +464,61 @@ pub fn compile(fragment: &Fragment) -> Result<Compiled, String> {
         .define_function(arm_id, &mut ctx_codegen)
         .map_err(|e| format!("define bund2_arm: {e}"))?;
     module.clear_context(&mut ctx_codegen);
+
+    // The trampoline: take the context, call the arm, hand its status back.
+    //
+    // **This is a direct call, and it is the one criterion 4 allows.** That
+    // criterion requires the module's relocations to contain no entry targeting
+    // a function, with exactly two exceptions "both from §S8's call boundary: a
+    // native's `Tail` thunk calling its Rust adapter, and the entry trampoline
+    // calling the body it enters". This is the second of those. Calls *between*
+    // compiled bodies stay indirect, through a slot.
+    //
+    // A plain `call` may cross conventions: the verifier has no
+    // `typecheck_call`, and only `typecheck_tail_call` demands that caller and
+    // callee agree. That is precisely why the trampoline can be the seam.
+    ctx_codegen.func.signature = sig_entry;
+    {
+        let mut f = FunctionBuilder::new(&mut ctx_codegen.func, &mut fb_ctx);
+        let arm = module.declare_func_in_func(arm_id, f.func);
+        let block = f.create_block();
+        f.append_block_params_for_function_params(block);
+        f.switch_to_block(block);
+        let ctx_val = f.block_params(block)[0];
+        let call = f.ins().call(arm, &[ctx_val]);
+        let status = f.inst_results(call)[0];
+        f.ins().return_(&[status]);
+        f.seal_all_blocks();
+        f.finalize(frontend);
+    }
+    module
+        .define_function(entry_id, &mut ctx_codegen)
+        .map_err(|e| format!("define bund2_entry: {e}"))?;
+    module.clear_context(&mut ctx_codegen);
+
     module
         .finalize_definitions()
         .map_err(|e| format!("finalize: {e}"))?;
 
-    let addr = module.get_finalized_function(arm_id);
+    // **The trampoline's address, never the arm's.** Transmuting the arm would
+    // have Rust calling a `Tail` function directly, which is the one thing §S8
+    // establishes is impossible.
+    let addr = module.get_finalized_function(entry_id);
     if addr.is_null() {
-        return Err("the finalized arm has no address".into());
+        return Err("the finalized entry trampoline has no address".into());
     }
     // SAFETY: `addr` is the entry of a function this module just emitted with
-    // the signature `sig_arm` — one pointer-sized parameter, one `i32` result,
-    // under the host's default calling convention — which is exactly `Entry`.
+    // the signature `sig_entry` — one pointer-sized parameter, one `i32`
+    // result, under the host's default calling convention — which is exactly
+    // `Entry`. The arm it calls carries `Tail` and is never called from Rust.
     let entry: Entry = unsafe { std::mem::transmute::<*const u8, Entry>(addr) };
 
     Ok(Compiled {
         _module: module,
         entry,
         fragment: fragment.clone(),
+        arm_conv,
+        entry_conv: conv,
     })
 }
 
@@ -622,6 +718,63 @@ mod tests {
                 "the lowered dup shared one identity — that is a clone, not F13's dup"
             );
         }
+    }
+
+    /// **§S8's boundary shape, pieces 1 and 4.** The arm carries `Tail` and the
+    /// entry carries the platform's own convention — which is the whole reason
+    /// the trampoline exists, since Rust can neither define nor call a `Tail`
+    /// function.
+    ///
+    /// A signature is not observable in finished machine code, so the lowering
+    /// records what it chose and this reads it back. It would fail for a
+    /// lowering that emitted the arm under the default convention and quietly
+    /// let Rust call it, which is what this step replaced.
+    #[test]
+    fn the_arm_is_tail_and_the_entry_is_the_platform_convention() {
+        let compiled = compile(&add_arm()).expect("lowers");
+
+        // The arm: `Tail`, which is the only convention the verifier's
+        // `typecheck_tail_call` will accept for a `return_call_indirect` target.
+        assert_eq!(
+            compiled.arm_call_conv(),
+            CallConv::Tail,
+            "the arm a compiled body will tail-call must be Tail"
+        );
+        assert!(
+            compiled.arm_call_conv().supports_tail_calls(),
+            "and must therefore support tail calls"
+        );
+
+        // The entry: **not** `Tail`, which is the whole reason it exists. Rust
+        // can neither define nor call a `Tail` function, so asserting the
+        // trampoline is anything else is asserting the seam is real. Compared
+        // against the convention the module itself chose rather than a triple
+        // re-derived here, which would only restate `default_call_conv`.
+        assert_ne!(
+            compiled.entry_call_conv(),
+            CallConv::Tail,
+            "a Tail trampoline could not be called from Rust at all"
+        );
+        assert!(
+            !compiled.entry_call_conv().supports_tail_calls(),
+            "the entry is the platform's own convention, which is not a tail-call one"
+        );
+    }
+
+    /// **The trampoline is what runs, and it still agrees with the model.**
+    ///
+    /// Pieces 1 and 4 changed how the code is entered — a `Tail` arm behind a
+    /// C-convention trampoline, where before Rust called the arm directly. If
+    /// that seam were wrong the arm would not run at all, or would run with the
+    /// context in the wrong register. The third leg above is the real check;
+    /// this one says so in one place.
+    #[test]
+    fn the_boundary_did_not_change_what_the_arm_computes() {
+        assert_agree(
+            &add_arm(),
+            &[BundValue::int(2), BundValue::int(3)],
+            "through the trampoline",
+        );
     }
 
     /// **`norm` does what the comparison needs, and no more.**
