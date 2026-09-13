@@ -2609,7 +2609,32 @@ designed without one.
 - Blocks: RFC-0005's meaning guard (§S6) and criterion 17
 - Depends on: D9 as amended (no Cranelift type in `bund2-api`), F32 (replayed
   registrations)
-- Status: **RESOLVED — decided; implementation deferred to RFC-0005 Proposed.**
+- Status: **RESOLVED — decided 2026-09-10, built 2026-09-12.**
+
+*Dated note, 2026-09-12 — built, on D59's authorisation.* Both additions are in
+`crates/bund2-api/src/lib.rs`. `RegistrationId` is an opaque per-`Registry`
+counter value carried as `Native::id`: `register_native` mints one and
+`register_command` leaves `None`, which is RFC-0005 §S5's rule that a command
+carries no D43 id rather than an omission. `Registry::generation_cell` hands
+out one `Cell<u32>` per symbol from fixed-size boxed chunks of 256, so growing
+the `Vec` of chunks never moves a cell already handed out — the property
+`slots: Vec<Slot>` cannot offer. `Registry::touch` writes the mirror beside the
+bump and stays the only function that moves a generation, which
+`every_writer_of_a_slot_generation_is_named` derives.
+
+Two consequences worth recording. The cells **deep-copy** with `Registry`'s
+`Clone`, which the three cloning callers need — the CLI's per-word observer,
+`check`'s `prebind` and the effect palette's template each want an independent
+registry — so no two registries share a cell and no guard can observe a
+foreign registry's rewrites. And an address therefore does not outlive the
+registry it came from: `vm.registry = other.clone()` replaces the cells
+wholesale.
+
+**Not built, deliberately.** §S5 also wants `register_all` to record the ids it
+mints *in the `Registry`*, for D47 and D48's crossing set. That is consumer
+surface for `bund2-jit`, which is still a twelve-line placeholder, and this
+entry's own caution is that surface added with no consumer is surface designed
+without one.
 
 ## D44 — the level at which evaluation reports stack exhaustion is not part of a program's meaning
 

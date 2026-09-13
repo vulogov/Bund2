@@ -975,6 +975,36 @@ the value it already holds, and no longer copies the body to do so.
 generation cell at a stable address, mirrored by `touch()`. Both are additions
 and change no existing behaviour. They land when RFC-0005 reaches Proposed.
 
+**Built 2026-09-12 (D43), when RFC-0005 reached Proposed (D59).** Both are in
+`crates/bund2-api/src/lib.rs`:
+
+- **`RegistrationId`**, an opaque per-`Registry` counter value carried as
+  `Native::id`. `register_native` mints one; `register_command` leaves `None`,
+  because RFC-0005 §S5 says a command carries no D43 id and is therefore never
+  crossed by promotion. It names no code generator and no IR, so `bund2-api`
+  still carries no `Fragment` type and D9's amendment still holds: an external
+  package gets `Native` with a declared effect and no more. F32's replay mints
+  a *fresh* id rather than reusing the old one, which is what lets a consumer
+  tell "the registration I compiled against" from "the name it had".
+- **`Registry::generation_cell(Symbol) -> &Cell<u32>`**, one cell per symbol in
+  fixed-size chunks of 256. The chunks are boxed, so growing the `Vec` that
+  holds them never moves a cell already handed out — which is the property
+  `slots: Vec<Slot>` cannot offer, since `slot_mut` grows it with
+  `resize_with`. `Registry::touch` writes the mirror beside the bump, and
+  remains the only function that moves a generation;
+  `every_writer_of_a_slot_generation_is_named` holds that set.
+
+The cells deep-copy with `Registry`'s `Clone`, so the three callers that clone
+one — the CLI's per-word observer, `check`'s `prebind`, and the effect
+palette's template — each get an independent registry whose cells no other
+registry can write.
+
+**Not built, and deliberately**: RFC-0005 §S5 also wants `register_all` to
+record the ids it mints *in the `Registry`*, for D47 and D48's "promotion
+crosses only these natives" set. That is consumer surface for `bund2-jit`,
+which is still a placeholder, and D43's own caution is that surface added with
+no consumer is surface designed without one.
+
 Nothing a program does changes.
 
 - Amended by: repository owner, 2026-09-10, on Q36 and Q37 (RFC-0005's sixth

@@ -478,6 +478,12 @@ pub struct Native {
     pub f: NativeFn,
     pub effect: StackEffect,
     pub kind: WordKind,
+    /// **Which registration this is — D43, RFC-0005 §S6.**
+    ///
+    /// `None` for a command. RFC-0005 is explicit that "a command carries no
+    /// D43 id, so no command is ever crossed", and `bund2-stdlib` registers
+    /// none, so the absence is the rule rather than an omission.
+    pub id: Option<RegistrationId>,
 }
 
 impl std::fmt::Debug for Native {
@@ -485,7 +491,36 @@ impl std::fmt::Debug for Native {
         f.debug_struct("Native")
             .field("effect", &self.effect)
             .field("kind", &self.kind)
+            .field("id", &self.id)
             .finish_non_exhaustive()
+    }
+}
+
+/// A registration's identity — **D43, and RFC-0005 §S6's first addition**.
+///
+/// A name cannot show that a slot holds `bund2-stdlib`'s *own* `+` rather than
+/// another native registered under the same name, and a function address
+/// cannot either: Rust guarantees neither that two distinct functions have
+/// distinct addresses nor that one function has only one
+/// (`std::ptr::fn_addr_eq`'s documentation). So a `Native` carries an identity
+/// of its own, and `bund2-stdlib` publishes its fragments keyed by the ids of
+/// the registrations it made.
+///
+/// **Opaque, and deliberately so.** It names no code generator and no IR, so
+/// `bund2-api` still carries no `Fragment` type and an external package still
+/// gets `Native` with a declared effect and no more (D9 as amended).
+///
+/// **Per `Registry`, never static.** A fresh `Interp` mints new ones, and
+/// F32's replay gives a re-registration a *fresh* id rather than reusing the
+/// old — which is what makes "the registration the JIT compiled against" a
+/// different thing from "the name it had".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RegistrationId(u64);
+
+impl RegistrationId {
+    /// The underlying counter value, for a consumer that needs to key a table.
+    pub fn get(self) -> u64 {
+        self.0
     }
 }
 
@@ -625,6 +660,14 @@ impl Interner {
     }
 }
 
+/// How many generation cells share one chunk — **D43**.
+///
+/// Chunks are boxed, so growing the `Vec` that holds them never moves a cell
+/// that has already been handed out. The size trades a little slack at the end
+/// of the last chunk against how often a chunk is allocated; 256 covers the
+/// stdlib's several hundred names in a handful of allocations.
+const CELLS_PER_CHUNK: usize = 256;
+
 /// The word table.
 #[derive(Debug, Default, Clone)]
 pub struct Registry {
@@ -668,6 +711,13 @@ pub struct Registry {
     /// dispatch cache keyed on a class needs its own.
     class_generation: u32,
     method_generation: u32,
+    /// **The generation mirror — D43, RFC-0005 §S6.** One `Cell` per symbol,
+    /// in fixed-size chunks so an address survives later registrations. See
+    /// [`Registry::generation_cell`].
+    cells: Vec<Box<[std::cell::Cell<u32>]>>,
+    /// **The registration counter — D43.** Minted by
+    /// [`Registry::register_native`], per `Registry`, never reused.
+    next_registration: u64,
 }
 
 /// A conditional handler: it receives the CONDITIONAL value itself, because
@@ -899,9 +949,57 @@ impl Registry {
         kind: WordKind,
     ) -> Symbol {
         let s = self.interner.intern(name);
-        self.slot_mut(s).native = Some(Native { f, effect, kind });
+        let id = Some(self.mint_registration());
+        self.slot_mut(s).native = Some(Native { f, effect, kind, id });
         self.touch(s);
         s
+    }
+
+    /// Mint the next registration id — **D43**.
+    ///
+    /// **Saturating, for the reason `Slot::bump` is.** At `u64::MAX` two
+    /// registrations would share an id, and a fragment inlined against one
+    /// would match the other. The counter is per `Registry` and moves once per
+    /// registration, so reaching that takes 2^64 registrations; saturating
+    /// rather than wrapping means the failure, if it were ever reached, is a
+    /// stuck id rather than a recycled one.
+    fn mint_registration(&mut self) -> RegistrationId {
+        let id = RegistrationId(self.next_registration);
+        self.next_registration = self.next_registration.saturating_add(1);
+        id
+    }
+
+    /// This name's generation cell — **D43, and RFC-0005 §S6's second
+    /// addition**.
+    ///
+    /// §S6's meaning guard needs a generation at a **stable address**, and a
+    /// registry `Slot` has none: `slots` is a `Vec<Slot>` that `slot_mut`
+    /// grows with `resize_with`, so a pointer into it dangles after the next
+    /// `register`. The cells therefore live in **fixed-size chunks that never
+    /// move** — pushing a chunk grows the `Vec` of boxes, and the boxed
+    /// contents stay where they are — so an address handed out here survives
+    /// every later registration.
+    ///
+    /// **Takes `&mut self` because it may allocate a chunk**, and returns a
+    /// `Cell` so a later holder can write through a shared reference.
+    ///
+    /// **A clone gets its own cells.** `Registry` is `Clone` and three callers
+    /// use it — the CLI's per-word observer, `check`'s `prebind`, and the
+    /// palette's template — each wanting an independent registry with the same
+    /// vocabulary. Cells deep-copy with it, so two registries never share one
+    /// cell; a guard reading this one can never observe another registry's
+    /// rewrites. It also means an address does not outlive the registry it
+    /// came from: `vm.registry = other.clone()` replaces the cells wholesale.
+    pub fn generation_cell(&mut self, s: Symbol) -> &std::cell::Cell<u32> {
+        let chunk = s.index() / CELLS_PER_CHUNK;
+        let within = s.index() % CELLS_PER_CHUNK;
+        while self.cells.len() <= chunk {
+            self.cells
+                .push(vec![std::cell::Cell::new(0); CELLS_PER_CHUNK].into_boxed_slice());
+        }
+        // The loop above establishes the chunk, and `within` is a remainder of
+        // `CELLS_PER_CHUNK`, so both indices are in range by construction.
+        &self.cells[chunk][within]
     }
 
     /// Bump a name's generation — **the one place it moves**.
@@ -920,8 +1018,11 @@ impl Registry {
     /// holds the set to this one function.
     fn touch(&mut self, s: Symbol) {
         self.slot_mut(s).bump();
-        // The mirror cell is written here when RFC-0005's tier adds it. One
-        // function, both writes.
+        // The mirror, written here and nowhere else — D43, built 2026-09-12.
+        // One function, both writes, which is what makes the invariant
+        // structural rather than a list to keep in step.
+        let g = self.slot(s).map_or(0, Slot::generation);
+        self.generation_cell(s).set(g);
     }
 
     /// Register a lambda. **Does not disturb the native binding**, matching
@@ -998,7 +1099,10 @@ impl Registry {
         kind: WordKind,
     ) -> Symbol {
         let s = self.interner.intern(name);
-        self.slot_mut(s).command = Some(Native { f, effect, kind });
+        // **No D43 id.** RFC-0005 §S5: "A command carries no D43 id, so no
+        // command is ever crossed." Promotion syncs before one, as before an
+        // embedder's native.
+        self.slot_mut(s).command = Some(Native { f, effect, kind, id: None });
         self.touch(s);
         s
     }
@@ -1464,5 +1568,132 @@ mod tests {
         r.register_alias("d", "drop");
         assert_eq!(r.effect_of("d"), None, "an alias reaches the lambda too");
         assert_eq!(r.effect_of("nothing"), None);
+    }
+
+    /// **D43.** Every native registration mints an id, and no two share one.
+    ///
+    /// **F32's replay is the point.** The reference binds `unregister` twice
+    /// in consecutive statements and the second wins, so Bund2 replays rather
+    /// than dedupes — and a re-registration under the same name must mint a
+    /// *fresh* id, not reuse the old. That is what lets a consumer tell "the
+    /// registration I compiled against" from "the name it had".
+    #[test]
+    fn every_native_registration_mints_a_fresh_id() {
+        let mut r = Registry::new();
+        let a = r.register_native("dup", noop, StackEffect::fixed(0, 0), WordKind::Sync);
+        let first = r.slot(a).and_then(|s| s.native.as_ref()).and_then(|n| n.id);
+        assert!(first.is_some(), "a native registration carries an id");
+
+        let b = r.register_native("drop", noop, StackEffect::fixed(1, 0), WordKind::Sync);
+        let other = r.slot(b).and_then(|s| s.native.as_ref()).and_then(|n| n.id);
+        assert_ne!(first, other, "two registrations never share an id");
+
+        // The replay: same name, same function, new registration.
+        r.register_native("dup", noop, StackEffect::fixed(0, 0), WordKind::Sync);
+        let again = r.slot(a).and_then(|s| s.native.as_ref()).and_then(|n| n.id);
+        assert_ne!(first, again, "a replayed registration mints a fresh id (F32)");
+    }
+
+    /// **D43, and RFC-0005 §S5's rule.** "A command carries no D43 id, so no
+    /// command is ever crossed." The absence is the rule, not an oversight.
+    #[test]
+    fn a_command_carries_no_registration_id() {
+        let mut r = Registry::new();
+        let s = r.register_command("c", noop, StackEffect::fixed(0, 0), WordKind::Sync);
+        let id = r.slot(s).and_then(|sl| sl.command.as_ref()).and_then(|n| n.id);
+        assert_eq!(id, None, "a command is never crossed, so it needs no id");
+    }
+
+    /// **D43.** The mirror tracks the slot through every kind of registration.
+    ///
+    /// `touch` is the one writer, so this is really a test that every
+    /// registration path goes through it — a path that wrote a binding without
+    /// touching would leave a compiled guard reading a meaning the name no
+    /// longer has.
+    #[test]
+    fn the_generation_cell_mirrors_the_slot_through_every_registration() {
+        let mut r = Registry::new();
+        let s = r.register_native("w", noop, StackEffect::fixed(0, 0), WordKind::Sync);
+        let slot_gen = |r: &Registry| r.slot(s).map_or(0, Slot::generation);
+
+        let expect = slot_gen(&r);
+        assert_eq!(r.generation_cell(s).get(), expect, "after register_native");
+
+        r.register_lambda("w", BundValue::int(1));
+        let expect = slot_gen(&r);
+        assert_eq!(r.generation_cell(s).get(), expect, "after register_lambda");
+
+        r.register_alias("w", "w");
+        let expect = slot_gen(&r);
+        assert_eq!(r.generation_cell(s).get(), expect, "after register_alias");
+
+        r.unregister_alias("w");
+        let expect = slot_gen(&r);
+        assert_eq!(r.generation_cell(s).get(), expect, "after unregister_alias");
+
+        r.register_command("w", noop, StackEffect::fixed(0, 0), WordKind::Sync);
+        let expect = slot_gen(&r);
+        assert_eq!(r.generation_cell(s).get(), expect, "after register_command");
+    }
+
+    /// **D43, and the whole reason the cells exist.** A `Slot`'s address is
+    /// not stable — `slot_mut` grows `slots` with `resize_with`, so a pointer
+    /// into it dangles after the next `register`. A cell's address must
+    /// survive exactly that.
+    ///
+    /// Registers past a chunk boundary (256) so the chunk `Vec` itself grows,
+    /// which is the case a single flat `Vec<Cell<u32>>` would fail.
+    #[test]
+    fn a_generation_cell_keeps_its_address_across_later_registrations() {
+        let mut r = Registry::new();
+        let s = r.register_native("first", noop, StackEffect::fixed(0, 0), WordKind::Sync);
+        let addr = std::ptr::from_ref(r.generation_cell(s));
+
+        for i in 0..(CELLS_PER_CHUNK * 3) {
+            r.register_native(
+                &format!("filler{i}"),
+                noop,
+                StackEffect::fixed(0, 0),
+                WordKind::Sync,
+            );
+        }
+
+        assert_eq!(
+            std::ptr::from_ref(r.generation_cell(s)),
+            addr,
+            "a cell handed out must not move when later names are registered"
+        );
+        let expect = r.slot(s).map_or(0, Slot::generation);
+        assert_eq!(r.generation_cell(s).get(), expect, "and still mirrors");
+    }
+
+    /// **D43.** A cloned `Registry` gets its own cells.
+    ///
+    /// Three callers clone a registry — the CLI's per-word observer, `check`'s
+    /// `prebind`, and the effect palette's template — and each wants an
+    /// independent registry with the same vocabulary. If the cells were shared
+    /// behind an `Rc`, a guard reading one registry's cell would observe
+    /// another's rewrites.
+    #[test]
+    fn a_cloned_registry_does_not_share_its_cells() {
+        let mut r = Registry::new();
+        let s = r.register_native("w", noop, StackEffect::fixed(0, 0), WordKind::Sync);
+        let mut copy = r.clone();
+
+        let before = r.generation_cell(s).get();
+        assert_eq!(copy.generation_cell(s).get(), before, "the clone starts equal");
+        assert_ne!(
+            std::ptr::from_ref(r.generation_cell(s)),
+            std::ptr::from_ref(copy.generation_cell(s)),
+            "and at its own address"
+        );
+
+        copy.register_lambda("w", BundValue::int(1));
+        assert!(copy.generation_cell(s).get() > before, "the clone's cell moved");
+        assert_eq!(
+            r.generation_cell(s).get(),
+            before,
+            "and the original's did not"
+        );
     }
 }

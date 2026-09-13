@@ -10,7 +10,9 @@
 
   **Proposed rather than Accepted, for the reason RFC-0001 gives.** Most of the
   thirty acceptance criteria **cannot run**, because the code they describe
-  does not exist: there is no `bund2-jit`. What the criteria section marks
+  does not exist: `crates/bund2-jit` is a twelve-line placeholder — a module
+  doc comment and lint attributes, no types and no lowering. What the criteria
+  section marks
   **Met** is **1, 11, 24, 25 and 28**, with **19** met at the model level and
   **29**'s Tier 0 half met; **2** has run on both tiers and reads the same;
   and **8** and **15** are recorded as passing today rather than as met, since
@@ -1785,7 +1787,13 @@ before the boundary was specified (the tenth review's B2).
 `Registry`, which is `bund2-api`'s, so `Registry` grows an accessor that hands
 out a name's cell. With the registration id above, that is an addition to
 RFC-0002's surface — **decided as D43** (Q37), and built when this RFC reaches
-Proposed.
+Proposed. **Built 2026-09-12**, on D59's authorisation: `Native::id` carries an
+opaque `RegistrationId` minted per `Registry` by `register_native` (and left
+`None` by `register_command`, since no command is crossed), and
+`Registry::generation_cell` hands out one `Cell<u32>` per symbol from boxed
+chunks of 256, written by `touch` beside the bump. RFC-0002's amendment records
+the surface. The id *set* §S5 wants `register_all` to record is not built:
+`bund2-jit` is still a placeholder, and it is that consumer's to shape.
 
 **So both halves of this design carry risk.** Inlining carries the
 *redefinition* risk, closed by this guard. Promotion carries the
