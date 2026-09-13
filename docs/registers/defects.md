@@ -3149,6 +3149,22 @@ inside the list, so `execute_value` could still file a request and then fail
 (RFC-0005's sixteenth review, B1). F113 as completed decides by reach, and the
 entry above holds again from that commit.
 
+**Dated note, 2026-09-13 — the compiled half is closed.** RFC-0005's per-native
+adapter exists (`crates/bund2-jit/src/lower.rs`, `jit_call_native`) and calls
+`Vm::clear_tail_request` whenever it answers an error, so a native that files a
+body and then fails leaves nothing for the next `take_pending`. D56 put that
+method on the trait for exactly this caller, and this is its first consumer. The
+note above expected `status_of` to do it; `status_of` does not exist yet, so the
+clearing sits in the adapter, where the obligation is either way.
+
+**Two tests, because one passes without meaning anything.**
+`a_failing_native_leaves_no_tail_request_behind_compiled_code` is this entry's
+Tier 0 test run through compiled code. The second is a **positive control** —
+`a_succeeding_native_keeps_the_tail_request_it_filed` — because an adapter that
+cleared unconditionally would satisfy the first while discarding every tail
+request a compiled call ever filed: the same place as F96 and a worse defect.
+Both in `crates/bund2-jit/src/lower.rs`.
+
 ## F97 — `notifthenelse` does not negate
 
 **An original-implementation defect, reproduced**, found while implementing the

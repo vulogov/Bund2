@@ -3540,4 +3540,22 @@ assumption 33 states the property that test enforces.
 - Decided by: repository owner, 2026-09-11
 - Blocks: nothing
 - Depends on: D14 (the API surface), F96
-- Status: **RESOLVED**
+- Status: **RESOLVED — and in use since 2026-09-13.**
+
+*Dated note, 2026-09-13 — first consumer.* The sentence above — "RFC-0005's
+adapter calls it whenever it answers an error, so a compiled call leaves exactly
+what a Tier 0 call leaves" — was a statement about code that did not exist. It
+exists now: `jit_call_native` (`crates/bund2-jit/src/lower.rs`) calls
+`Vm::clear_tail_request` on any error from the native it ran, closing F96's
+parity gap for compiled code. This method was added with no consumer, which
+D43's caution warns against; the caution was right about the *risk* and the
+decision was right about the *need*, and the gap between them was two days.
+
+Two things this note should be honest about. **The call is in the adapter, not
+in `status_of`**, which RFC-0005 §S5 nominates and which does not exist yet —
+the obligation is the adapter's either way. And **the compiled mirror this entry
+rejected clearing *only*** is still not built at all: §S5's request cell has no
+reader until a drain helper exists, so "clears both" is, today, "clears the one
+that exists". `every_writer_of_the_request_cell_is_named` still derives four
+writers and still passes: the adapter writes `pending_tail` through the trait,
+not directly.

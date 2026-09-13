@@ -343,6 +343,21 @@
   arithmetic's inlining ceiling reading 1.77× and 1.81× here against 2.03×
   before — is machine-dependent and recorded as such.
 
+  **F96's parity gap is closed, 2026-09-13, and the request cell is not what
+  closed it.** The adapter now calls `Vm::clear_tail_request` when the native it
+  ran answers an error, which is what D56 put on the trait for a caller that
+  cannot reach the private `Interp::invoke` — its first consumer. Two tests:
+  Tier 0's F96 test through compiled code, and a **positive control** showing a
+  *succeeding* native's filed body still runs, because an adapter that cleared
+  unconditionally would pass the first while discarding every tail request a
+  compiled call ever filed. **§S5's request cell is still not built**, and this
+  entry says so rather than letting the closed gap imply otherwise: the cell is
+  the mirror compiled code loads after every call to decide whether to drain,
+  and nothing reads it — no drain helper, no `status_of`, no epoch or `autoadd`
+  cell, no body that continues past a call. §S5 also assigns this clearing to
+  `status_of`; until that helper exists it sits in the adapter. Nineteen tests
+  under `--features jit`; conform unmoved at 106/114 on both tiers.
+
   **§S8's boundary is complete, and criterion 29 is Met, 2026-09-13.** The
   per-native adapter (piece 2) and a `Tail` thunk per native (piece 3) now have
   a call site: a compiled body that loads each thunk's address from a slot table
@@ -1381,6 +1396,19 @@ run. So:
   `invoke` does for a native that fails. The same argument as §S5's: one
   status-maker, so a helper added later cannot forget it.
 
+  **Built 2026-09-13, in the adapter rather than in `status_of`.** `status_of`
+  does not exist; the adapter does, and it calls `Vm::clear_tail_request` (D56)
+  on any error from the native it ran, so F96's rule now holds through a
+  compiled call. When `status_of` arrives the clearing moves there, for the
+  reason this passage gives — one status-maker — and the adapter's call becomes
+  that helper's. Until then the obligation is discharged where the error is
+  answered. **What "clears the request cell" cannot yet mean** is the mirror:
+  §S5's cell has no reader — no drain helper, no epoch or `autoadd` cell, no
+  compiled body that continues past a call — so today this clears Tier 0's
+  `pending_tail` alone, which is the half the defect lives in. D56 rejected
+  clearing *only* the mirror; clearing only Tier 0's is the opposite and is
+  correct while the mirror does not exist.
+
   This rule is about compiled call sites. It is not a claim that Tier 0 never
   loses a request: `Interp::request_tail` assigns, so a native that files two
   loses the first. The one native that did — `execute_value`'s LIST arm, where
@@ -1804,13 +1832,34 @@ criterion 4 is about. The table is filled from `get_finalized_function` once the
 thunks exist; nothing in Rust ever reads it, and it is held only to keep the
 allocation alive.
 
-**What is still not built.** This body is a fixed sequence of calls, not a
-compiled Bund word: there is no cache, no `Interp` integration, no promotion and
-no meaning guard. And **one Tier 0 behaviour is not yet reproduced** — F96's
-rule that a native which fails leaves no tail request behind. `Interp::invoke`
-clears `pending_tail`; the adapter has no request cell to clear, because §S5's
-mirror does not exist yet. That is the next thing the boundary owes, and it is
-named here rather than left to be discovered.
+**F96's parity is closed, 2026-09-13.** The debt named here yesterday is paid:
+the adapter calls `Vm::clear_tail_request` when the native it ran answers an
+error, so a native that files a body and then fails leaves nothing for the next
+`take_pending` to run. D56 put that method on the trait for precisely this
+caller — "RFC-0005's compiled tier calls a native's `NativeFn` directly and
+never reaches that place" — and this is its first consumer.
+
+**Two tests, because one would have been enough to pass and not enough to
+mean anything.** `a_failing_native_leaves_no_tail_request_behind_compiled_code`
+is Tier 0's `a_failed_native_leaves_no_tail_request` through compiled code, and
+`a_succeeding_native_keeps_the_tail_request_it_filed` is the positive control: a
+native that files a request and *succeeds* must still leave the body to run. An
+adapter that cleared unconditionally would satisfy the first while discarding
+every tail request a compiled call ever filed — a worse defect than F96, in the
+same place.
+
+**§S5 assigns this clearing to `status_of`, which does not exist**, so it sits
+in the adapter meanwhile. The obligation is the adapter's either way, and a gap
+held open for a future helper is still a gap.
+
+**What is still not built — and the request *cell* is part of it.** §S5's cell
+is the mirror compiled code loads *after every call*, beside the epoch and
+`autoadd`, to decide whether to drain. **Nothing reads it yet**: there is no
+drain helper, no `status_of`, no epoch or `autoadd` cell, and no compiled body
+that continues past a call — this body's calls are its whole content. Adding the
+cell now would be surface with no consumer, which is the argument that deferred
+D43's id set, so it waits for the reader that gives it meaning. Nor is any of
+this a tier: no cache, no `Interp` integration, no promotion, no meaning guard.
 `bund2-jit` gains `bund2-api` as a dependency for `dyn Vm`; criterion 15's
 direction still holds, checked with the feature on as well as off.
 

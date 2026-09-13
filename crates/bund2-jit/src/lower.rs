@@ -217,6 +217,25 @@ extern "C" fn jit_call_native(c: *mut Ctx<'_>, native: usize) -> i32 {
     match r {
         Ok(()) => OK,
         Err(e) => {
+            // **F96's parity, through D56.** Tier 0 clears a tail request when
+            // the native that filed one then fails — `Interp::invoke` does it,
+            // and that is the one place Tier 0 calls a native. This adapter
+            // calls the `NativeFn` directly and never reaches `invoke`, which
+            // is precisely why `Vm::clear_tail_request` is on the public trait:
+            // "a caller that runs a native and then answers an error calls this
+            // before returning, and Tier 0's next `take_pending` finds nothing
+            // to run."
+            //
+            // Without it a native that filed a body and then failed would leave
+            // it pending, and the next `take_pending` would run a body nobody
+            // asked for — after `?try` had already dealt with the error. That is
+            // F96 reintroduced by the tier rather than inherited.
+            //
+            // **§S5 assigns this to `status_of`, which does not exist yet.** The
+            // clearing belongs there once the boundary has a status helper; it
+            // is here in the meantime because the obligation is the adapter's
+            // either way, and a gap left for a future helper is still a gap.
+            c.vm.clear_tail_request();
             c.err = Some(e);
             FAIL
         }
@@ -1239,6 +1258,78 @@ mod tests {
     #[test]
     fn a_body_that_calls_nothing_is_refused() {
         assert!(compile_body(0, LastCall::Ordinary).is_err());
+    }
+
+    /// Files a body for the loop to run, then fails — F96's shape exactly, and
+    /// the same native Tier 0's `a_failed_native_leaves_no_tail_request` uses.
+    fn files_then_fails(vm: &mut dyn Vm) -> Result<(), Error> {
+        vm.tail_lambda(BundValue::lambda(vec![BundValue::int(99)]));
+        Err(Error("failed after filing".to_string()))
+    }
+
+    /// Files a body and succeeds. The **positive control** for the test below.
+    fn files_then_succeeds(vm: &mut dyn Vm) -> Result<(), Error> {
+        vm.tail_lambda(BundValue::lambda(vec![BundValue::int(99)]));
+        Ok(())
+    }
+
+    /// **F96's parity, closed for compiled code.**
+    ///
+    /// Tier 0 clears a tail request when the native that filed one then fails —
+    /// `Interp::invoke` does it, and that is the one place Tier 0 calls a
+    /// native. The adapter calls a `NativeFn` directly and never reaches
+    /// `invoke`, so without `Vm::clear_tail_request` (D56) the stale body would
+    /// wait in `pending_tail` and the next `take_pending` would run it: a body
+    /// nobody asked for, after the error had already been dealt with.
+    ///
+    /// The assertion is that the body did **not** run. Evaluating a `1` through
+    /// the same `Interp` afterwards is what gives `take_pending` its chance;
+    /// depth 1 rather than 2 is the proof, exactly as Tier 0's test reads it.
+    #[test]
+    fn a_failing_native_leaves_no_tail_request_behind_compiled_code() {
+        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
+        let mut vm = Interp::new();
+        let e = body
+            .run(&mut vm, &[("ff", files_then_fails)])
+            .expect_err("the native failed");
+        assert_eq!(e.0, "failed after filing");
+
+        // The loop's next chance to run a pending body.
+        vm.eval(&[BundValue::int(1)]).expect("the interpreter still runs");
+        assert_eq!(
+            vm.depth(),
+            1,
+            "only the 1: the stale body must not have run (F96)"
+        );
+        assert_eq!(vm.pull().and_then(|v| v.as_int()), Some(1));
+    }
+
+    /// **The positive control, so the clearing above is specific rather than
+    /// blanket.**
+    ///
+    /// A native that files a request and *succeeds* must still leave the body
+    /// to run — the adapter clears on failure only. Without this, an adapter
+    /// that cleared unconditionally would pass the test above while silently
+    /// discarding every tail request a compiled call ever filed, which is a
+    /// worse defect than F96 and in the same place.
+    #[test]
+    fn a_succeeding_native_keeps_the_tail_request_it_filed() {
+        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
+        let mut vm = Interp::new();
+        body.run(&mut vm, &[("fs", files_then_succeeds)])
+            .expect("the native succeeded");
+
+        vm.eval(&[BundValue::int(1)]).expect("runs");
+        let stack = vm.snapshot();
+        assert_eq!(
+            stack.len(),
+            2,
+            "the filed body ran as well as the 1: {stack:?}"
+        );
+        assert!(
+            stack.iter().any(|v| v.as_int() == Some(99)),
+            "the body the native filed must still run: {stack:?}"
+        );
     }
 
     /// **`norm` does what the comparison needs, and no more.**
