@@ -9,19 +9,28 @@
   now unblocked.
 
   **Proposed rather than Accepted, for the reason RFC-0001 gives.** Most of the
-  thirty acceptance criteria **cannot run**, because the code they describe
-  does not exist: `crates/bund2-jit` is a twelve-line placeholder — a module
-  doc comment and lint attributes, no types and no lowering. What the criteria
-  section marks
-  **Met** is **1, 11, 24, 25 and 28**, with **19** met at the model level and
-  **29**'s Tier 0 half met; **2** has run on both tiers and reads the same;
-  and **8** and **15** are recorded as passing today rather than as met, since
-  each re-decides on every run. That is the whole of what can be checked
-  before a lowering exists. RFC-0000's bar for Accepted is a review pass that
-  finds nothing — its own came after four, "the fourth is the last that found
-  anything" — and this RFC's twenty-first pass still found two blockers. Both
-  are answered since, but **no pass has yet found nothing**, so Accepted would
-  be a claim the record does not support.
+  thirty acceptance criteria still **cannot run**, because the code they
+  describe does not exist — but the reason has narrowed, and this paragraph is
+  kept current because it is the first thing a reader checks the RFC against.
+  **As of 2026-09-13 `crates/bund2-jit` is no longer a placeholder**: it holds
+  a lowering from BundIR to CLIF, §S8's four-piece call boundary, and seventeen
+  tests under `--features jit`. What does not exist is a *tier* — no cache, no
+  `Interp` integration, no compiled Bund word, no promotion and no meaning
+  guard — and that is what the unrunnable criteria are waiting for.
+
+  What the criteria section marks **Met** is **1, 11, 24, 25, 28 and 29**, with
+  **19** met at the model level; **2** has run on both tiers and reads the same;
+  **16**'s third leg runs, which it could not before a lowering existed; and
+  **8** and **15** are recorded as passing today rather than as met, since each
+  re-decides on every run. **4** is a special case worth naming here: its
+  relocation check cannot run against a `JITModule` at all, because only
+  `cranelift-object` exposes relocations, so it belongs to RFC-0006's AOT path.
+
+  RFC-0000's bar for Accepted is a review pass that finds nothing — its own came
+  after four, "the fourth is the last that found anything" — and this RFC's
+  twenty-first pass still found two blockers. Both are answered since, but **no
+  pass has yet found nothing**, so Accepted would be a claim the record does not
+  support.
 - The gate, and how it was answered:
   `docs/research/00-jit-feasibility.md` §2.2 sets a hard gate — "Project B is
   worth doing only if Project A's measurements show that dispatch and boxing
@@ -333,6 +342,20 @@
   at 9.53 ns against its 20 ns bar. The crossing noted on criterion 10 —
   arithmetic's inlining ceiling reading 1.77× and 1.81× here against 2.03×
   before — is machine-dependent and recorded as such.
+
+  **§S8's boundary is complete, and criterion 29 is Met, 2026-09-13.** The
+  per-native adapter (piece 2) and a `Tail` thunk per native (piece 3) now have
+  a call site: a compiled body that loads each thunk's address from a slot table
+  and calls through it, indirectly, with `return_call_indirect` for a last call
+  in tail position. A panicking native called from that body gives **Tier 0's
+  exact text** in both tail and non-tail positions, which is criterion 29's
+  compiled half and D49's claim that the two tiers agree. Seventeen tests under
+  `--features jit`; conform unmoved at 106/114 on both tiers. **Two things are
+  recorded rather than claimed**: criterion 4's relocation check cannot run
+  against a `JITModule` at all — only `cranelift-object` exposes relocations, so
+  it is RFC-0006's — and the adapter does not yet clear a tail request on
+  failure as `Interp::invoke` does (F96), because §S5's request cell does not
+  exist. That is the boundary's outstanding debt.
 
   **§S8's boundary has its first two pieces, 2026-09-13.** The arm now carries
   `CallConv::Tail` and Rust enters compiled code only through a JIT-emitted
@@ -1762,12 +1785,32 @@ now, and the transmute points at it rather than at the arm — pointing it at th
 arm would have Rust calling a `Tail` function directly, the one thing §S8
 establishes is impossible.
 
-**What is still not built.** §S8's **second and third** pieces — the per-native
-Rust adapter through `catch_panic` (D49) and a `Tail` thunk per native a call
-slot can hold — need a compiled body with a call site to a native, which does
-not exist: there is no cache, no `Interp` integration and no body. **Criterion
-29** likewise waits on them, since it calls a *panicking native* from compiled
-code. And this is still not inlining, not promotion and not the meaning guard.
+**All four boundary pieces are built, 2026-09-13.** The **second** is
+`jit_call_native`, an `extern "C" fn(*mut Ctx, usize) -> i32` that rebuilds the
+`&mut dyn Vm` from the context, runs the native through `bund2_api::catch_panic`
+and parks any `Err` in the error slot — reaching `bund2_api::panicked` exactly
+as `Interp::invoke` does, so a caught panic is worded identically in both tiers
+rather than merely being internal in both (D49). The **third** is a `Tail` thunk
+per native, which makes that ordinary call to the adapter — the other of the two
+relocations criterion 4 permits.
+
+**The call site is a compiled body, and its calls are indirect by
+construction.** The body loads each thunk's address from a **slot table**
+allocated before compilation, whose base is embedded as an immediate (§S6,
+*Addressing*), and calls through it with `call_indirect` — or
+`return_call_indirect` for a last call in tail position, which is §S8's claimed
+tail call. No call between compiled functions names a `FuncId`, which is what
+criterion 4 is about. The table is filled from `get_finalized_function` once the
+thunks exist; nothing in Rust ever reads it, and it is held only to keep the
+allocation alive.
+
+**What is still not built.** This body is a fixed sequence of calls, not a
+compiled Bund word: there is no cache, no `Interp` integration, no promotion and
+no meaning guard. And **one Tier 0 behaviour is not yet reproduced** — F96's
+rule that a native which fails leaves no tail request behind. `Interp::invoke`
+clears `pending_tail`; the adapter has no request cell to clear, because §S5's
+mirror does not exist yet. That is the next thing the boundary owes, and it is
+named here rather than left to be discovered.
 `bund2-jit` gains `bund2-api` as a dependency for `dyn Vm`; criterion 15's
 direction still holds, checked with the feature on as well as off.
 
@@ -2290,6 +2333,13 @@ same types. Parameters need not match (`src/verifier/mod.rs`,
 `typecheck_tail_call`). Only `CallConv::Tail` supports tail calls
 (`src/isa/call_conv.rs`, `supports_tail_calls`), and Rust cannot define a
 `Tail` function. So the boundary is four pieces:
+
+*Built 2026-09-13 — all four, in `crates/bund2-jit/src/lower.rs`. The context
+holds the `&mut dyn Vm`, an error slot and the table of natives the body may
+call; it does **not** yet hold §S6's cells or §S5's request mirror, neither of
+which exists. The natives table carries each native's **name** beside its
+function, because D49's parity claim is about the message and Tier 0's names the
+word.*
 
 1. **One JIT signature**: `fn(ctx: i64) -> i32` under `CallConv::Tail`, a thin
    pointer to a per-call context and an integer status, `0` for success and `1`
@@ -3319,6 +3369,20 @@ evidence, and this one is listed as runnable rather than as met.
    It fails if any lowering path emits a direct call, including one added later
    for a word that looks safely static — and D16 means none is.
 
+   **The relocation check is not reachable from a `JITModule`, 2026-09-13.**
+   `cranelift-jit` consumes relocations internally when it finalises a
+   definition (`src/backend.rs`, `perform_relocations`) and exposes no accessor;
+   `cranelift-object` is the one that keeps them, behind `relocs()`. So **this
+   criterion belongs to the AOT path** — RFC-0006's — and cannot be run against
+   the JIT as it stands. Saying so is better than quietly reading the CLIF
+   instead, which is the inspection this criterion was rewritten to avoid.
+
+   What *is* established meanwhile, by construction rather than by assertion: a
+   compiled body reaches a native only by loading a thunk's address from a slot
+   table and calling through it (§S6), so no inter-function call in emitted code
+   names a `FuncId`. The two permitted relocations are the only direct calls
+   emitted — thunk to adapter, trampoline to body.
+
    **Two kinds of relocation are allowed**, both from §S8's call boundary: a
    native's `Tail` thunk calling its Rust adapter, and the entry trampoline
    calling the body it enters. Both name an external symbol or the trampoline's
@@ -3982,8 +4046,25 @@ evidence, and this one is listed as runnable rather than as met.
     The Tier 0 half is **Met**:
     `a_panicking_native_is_an_internal_error_not_an_unwind`
     (`crates/bund2-interp/src/lib.rs`).
-    F95's `jarowinkler` program reports, and exits 0. The compiled half needs
-    a tier.
+    F95's `jarowinkler` program reports, and exits 0.
+
+    **The compiled half is Met, 2026-09-13.** A compiled body calls a panicking
+    native through its `Tail` thunk and the Rust adapter, in a **non-tail**
+    position and in a **tail** position, and both give Tier 0's result:
+    `a_panicking_native_in_a_non_tail_position_matches_tier_zero` and
+    `a_panicking_native_in_a_tail_position_matches_tier_zero`
+    (`crates/bund2-jit/src/lower.rs`). The assertion is against Tier 0's
+    **text** — `internal error: native `boom` panicked: boom from a
+    dependency` — and not merely against the error being internal, because
+    D49's claim is that the two tiers word one failure the same way. Nothing
+    reaches stderr and the process survives: the test runs a second compiled
+    body afterwards and it works.
+
+    **The caveat the criterion names does not apply here.** "The call must not
+    pass through a native that discards its callee's error" — the body calls the
+    native directly through its thunk, with no `#` or `#.` between them.
+
+    Runs today: `cargo test -p bund2-jit --features jit`.
 
 30. **A program ended by `bund.exit` ends at the same point in compiled code
     (D52).** Run `tests/probes/bund-exit.bund` and

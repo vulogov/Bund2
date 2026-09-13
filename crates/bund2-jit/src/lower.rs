@@ -42,7 +42,10 @@ use bund2_api::{Error, Vm};
 use bund2_ir::{Fragment, Op};
 use bund2_value::BundValue;
 
-use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, types};
+// `MemFlagsData`, not `MemFlags`: `load` takes `Into<MemFlagsData>`, and
+// `trusted()` is a constructor on `MemFlagsData` — the two are separate structs
+// at 0.135 and only one of them has it.
+use cranelift_codegen::ir::{AbiParam, InstBuilder, MemFlagsData, Signature, types};
 use cranelift_codegen::isa::CallConv;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_jit::{JITBuilder, JITModule};
@@ -59,6 +62,14 @@ pub struct Ctx<'a> {
     /// Where a helper parks an `Err`. §S11: an error travels in the context,
     /// never as an unwind.
     err: Option<Error>,
+    /// The natives this body may call, by index — **name and function**.
+    ///
+    /// The name is not decoration. D49 requires both tiers to word a caught
+    /// panic identically, and Tier 0's `Interp::invoke` produces
+    /// `native `<name>` panicked: <message>` through `bund2_api::panicked`. An
+    /// adapter holding only a function pointer could not reproduce that, and
+    /// criterion 29 compares against Tier 0's observable result.
+    natives: &'a [(&'a str, bund2_api::NativeFn)],
 }
 
 /// A helper's status: `0` success, `1` error parked in [`Ctx::err`].
@@ -168,6 +179,50 @@ extern "C" fn jit_drop_top(c: *mut Ctx<'_>) -> i32 {
     OK
 }
 
+/// **§S8's second piece: the per-native adapter.**
+///
+/// §S8: "A per-native adapter in Rust: `extern "C" fn(ctx: *mut Ctx, native:
+/// usize) -> i32`. It rebuilds `&mut dyn Vm` from the context and calls the
+/// native's `NativeFn` through `bund2_api::catch_panic` (D49). It parks an `Err`
+/// in the error slot and returns the status. No panic unwinds out of it, so none
+/// reaches a compiled frame."
+///
+/// **The wording of a caught panic is Tier 0's, deliberately.** D49 says "every
+/// native call catches a panic and returns `Error::internal` naming what was
+/// running", and that both tiers agree. Tier 0's `Interp::invoke` builds the
+/// message as `panicked(&format!("native `{}`", name), &msg)`; this does the
+/// same, with the same helper, so criterion 29 can compare the two results
+/// rather than two spellings of one failure.
+///
+/// `native` indexes [`Ctx::natives`]. An index outside it is a broken invariant
+/// in the lowering, not a fact about the program, so it is `Error::internal`.
+extern "C" fn jit_call_native(c: *mut Ctx<'_>, native: usize) -> i32 {
+    // SAFETY: `CompiledBody::run`'s contract.
+    let Some(c) = (unsafe { ctx(c) }) else {
+        return FAIL;
+    };
+    let Some(&(name, f)) = c.natives.get(native) else {
+        c.err = Some(Error::internal(format!(
+            "a compiled body called native index {native}, outside the {} it was given",
+            c.natives.len()
+        )));
+        return FAIL;
+    };
+    // The catch is here, at the call, which is where Tier 0's is.
+    let outcome = bund2_api::catch_panic(|| f(&mut *c.vm));
+    let r = match outcome {
+        Ok(r) => r,
+        Err(msg) => Err(bund2_api::panicked(&format!("native `{name}`"), &msg)),
+    };
+    match r {
+        Ok(()) => OK,
+        Err(e) => {
+            c.err = Some(e);
+            FAIL
+        }
+    }
+}
+
 /// The **entry trampoline's** type: an opaque context in, a status out.
 ///
 /// §S8's fourth piece. Rust enters compiled code only through this, because it
@@ -222,7 +277,12 @@ impl Compiled {
         {
             return Ok(false);
         }
-        let mut c = Ctx { vm, err: None };
+        let mut c = Ctx {
+            vm,
+            err: None,
+            // A fragment's arm calls no native: its ops are the whole of it.
+            natives: &[],
+        };
         // SAFETY: the entry is the address `finalize_definitions` published for
         // a function this module emitted under the host's own calling
         // convention, and `&mut c` is live for the whole call. The emitted code
@@ -522,6 +582,275 @@ pub fn compile(fragment: &Fragment) -> Result<Compiled, String> {
     })
 }
 
+/// Where a body's last call sits — §S8 claims tail position for it alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LastCall {
+    /// An ordinary call, then a return. Costs a frame.
+    Ordinary,
+    /// `return_call_indirect`: §S8's claimed tail call, which "saves a frame
+    /// per body call, and matters most for self-recursive words".
+    Tail,
+}
+
+/// One compiled body that calls natives, and the code memory behind it.
+pub struct CompiledBody {
+    /// Held for its code memory. Never read directly.
+    _module: JITModule,
+    entry: Entry,
+    /// **The call slots — the indirection criterion 4 requires.**
+    ///
+    /// Boxed and allocated *before* the body is compiled, so its base address
+    /// is stable and can be embedded as an immediate (§S6, *Addressing*: "the
+    /// JIT embeds each cell's address as an immediate"). Filled from
+    /// `get_finalized_function` once the thunks exist. A body loads its slot at
+    /// run time and calls through it, so no call between compiled code names a
+    /// `FuncId` — which is what criterion 4 is about.
+    ///
+    /// **Underscored because nothing in Rust reads it, and that is the point.**
+    /// The reader is the emitted code, through an address taken before this box
+    /// was filled. It is held here only to keep the allocation alive: drop it
+    /// and the body loads freed memory. Same reason as `_module`, one field up.
+    _slots: Box<[*const u8]>,
+    calls: usize,
+    last: LastCall,
+}
+
+impl CompiledBody {
+    /// Run the body, calling `natives` by index in order.
+    ///
+    /// An `Err` is the failure the adapter parked, never an unwind (§S11), and
+    /// for a panic it is worded exactly as Tier 0 words it (D49).
+    pub fn run(
+        &self,
+        vm: &mut dyn Vm,
+        natives: &[(&str, bund2_api::NativeFn)],
+    ) -> Result<(), Error> {
+        let mut c = Ctx {
+            vm,
+            err: None,
+            natives,
+        };
+        // SAFETY: the entry is the trampoline's published address, under the
+        // platform's convention, and `&mut c` is live for the whole call. The
+        // emitted code treats the pointer as opaque and hands it to the adapter.
+        let status = unsafe { (self.entry)(&raw mut c) };
+        match c.err {
+            Some(e) => Err(e),
+            None if status == OK => Ok(()),
+            None => Err(Error::internal(
+                "a compiled body returned a failing status with no error in the context",
+            )),
+        }
+    }
+
+    /// How many calls the body makes.
+    pub fn calls(&self) -> usize {
+        self.calls
+    }
+
+    /// Where the last one sits.
+    pub fn last_call(&self) -> LastCall {
+        self.last
+    }
+}
+
+/// **Compile a body that calls `calls` natives in order — §S8's pieces 2 and 3
+/// wired to a call site.**
+///
+/// Emits, per native, a `Tail` **thunk** (§S8's third piece) that makes an
+/// ordinary call to the Rust adapter; a `Tail` **body** that loads each thunk's
+/// address from its slot and calls through it; and the C-convention **entry
+/// trampoline** Rust enters. Every call from the body is `call_indirect`, or
+/// `return_call_indirect` for the last when `last` is [`LastCall::Tail`].
+///
+/// **What this is not.** There is no cache, no `Interp` integration, no
+/// promotion and no meaning guard: the body is a fixed sequence of calls, not a
+/// compiled Bund word. Its purpose is to give the adapter and the thunks a call
+/// site, so criterion 29 can run and §S8's boundary is exercised end to end.
+pub fn compile_body(calls: usize, last: LastCall) -> Result<CompiledBody, String> {
+    if calls == 0 {
+        return Err("a body that calls nothing has no call site to exercise".into());
+    }
+
+    let mut builder =
+        JITBuilder::new(default_libcall_names()).map_err(|e| format!("JIT builder: {e}"))?;
+    builder.symbol("jit_call_native", jit_call_native as *const u8);
+    let mut module = JITModule::new(builder);
+
+    let frontend = module.target_config();
+    let ptr = frontend.pointer_type();
+    let conv = module.isa().default_call_conv();
+
+    // The slots, allocated before anything is compiled so the base address the
+    // body embeds is final.
+    let mut slots: Box<[*const u8]> = vec![std::ptr::null(); calls].into_boxed_slice();
+    let slots_base = slots.as_ptr() as i64;
+
+    // The adapter: `(ctx, native) -> status`, under the platform's convention,
+    // because it is a Rust function.
+    let mut sig_adapter = Signature::new(conv);
+    sig_adapter.params.push(AbiParam::new(ptr));
+    sig_adapter.params.push(AbiParam::new(ptr));
+    sig_adapter.returns.push(AbiParam::new(types::I32));
+    let adapter_id = module
+        .declare_function("jit_call_native", Linkage::Import, &sig_adapter)
+        .map_err(|e| format!("declare jit_call_native: {e}"))?;
+
+    // Thunks and the body are `Tail`, so `return_call_indirect` is legal from
+    // any tail position: "body to body, and body to a native's thunk".
+    let mut sig_tail = Signature::new(CallConv::Tail);
+    sig_tail.params.push(AbiParam::new(ptr));
+    sig_tail.returns.push(AbiParam::new(types::I32));
+
+    let mut thunk_ids = Vec::with_capacity(calls);
+    for i in 0..calls {
+        let id = module
+            .declare_function(&format!("bund2_thunk_{i}"), Linkage::Export, &sig_tail)
+            .map_err(|e| format!("declare thunk {i}: {e}"))?;
+        thunk_ids.push(id);
+    }
+    let body_id = module
+        .declare_function("bund2_body", Linkage::Export, &sig_tail)
+        .map_err(|e| format!("declare bund2_body: {e}"))?;
+
+    let mut sig_entry = Signature::new(conv);
+    sig_entry.params.push(AbiParam::new(ptr));
+    sig_entry.returns.push(AbiParam::new(types::I32));
+    let entry_id = module
+        .declare_function("bund2_entry", Linkage::Export, &sig_entry)
+        .map_err(|e| format!("declare bund2_entry: {e}"))?;
+
+    let mut cg = module.make_context();
+    let mut fb_ctx = FunctionBuilderContext::new();
+
+    // --- the thunks: one ordinary call to the adapter, with the index baked in
+    for (i, &id) in thunk_ids.iter().enumerate() {
+        cg.func.signature = sig_tail.clone();
+        {
+            let mut f = FunctionBuilder::new(&mut cg.func, &mut fb_ctx);
+            let adapter = module.declare_func_in_func(adapter_id, f.func);
+            let block = f.create_block();
+            f.append_block_params_for_function_params(block);
+            f.switch_to_block(block);
+            let ctx_val = f.block_params(block)[0];
+            let idx = f.ins().iconst(ptr, i as i64);
+            // The one relocation criterion 4 allows on this side: "a native's
+            // `Tail` thunk calling its Rust adapter".
+            let call = f.ins().call(adapter, &[ctx_val, idx]);
+            let status = f.inst_results(call)[0];
+            f.ins().return_(&[status]);
+            f.seal_all_blocks();
+            f.finalize(frontend);
+        }
+        module
+            .define_function(id, &mut cg)
+            .map_err(|e| format!("define thunk {i}: {e}"))?;
+        module.clear_context(&mut cg);
+    }
+
+    // --- the body: load each slot, call through it
+    cg.func.signature = sig_tail.clone();
+    {
+        let mut f = FunctionBuilder::new(&mut cg.func, &mut fb_ctx);
+        let tail_sig = f.import_signature(sig_tail.clone());
+        let block = f.create_block();
+        let fail = f.create_block();
+        f.append_block_params_for_function_params(block);
+        f.switch_to_block(block);
+        let ctx_val = f.block_params(block)[0];
+        let base = f.ins().iconst(ptr, slots_base);
+
+        let width = i32::try_from(ptr.bytes()).map_err(|_| "pointer too wide".to_string())?;
+        for i in 0..calls {
+            // The slot's offset rides in `load`'s own `Offset32`, rather than an
+            // `iadd_imm` before it: one instruction fewer per call, and
+            // `iadd_imm` is deprecated at 0.135 in favour of the explicitly
+            // sign- or zero-extending forms.
+            let off = i32::try_from(i)
+                .map_err(|_| "call index does not fit an offset".to_string())?
+                .checked_mul(width)
+                .ok_or_else(|| "the slot table's offset overflows".to_string())?;
+            let callee = f.ins().load(ptr, MemFlagsData::trusted(), base, off);
+            let is_last = i + 1 == calls;
+            if is_last && last == LastCall::Tail {
+                // §S8's claimed tail call. A terminator: nothing follows it,
+                // and the thunk's status becomes the body's.
+                f.ins().return_call_indirect(tail_sig, callee, &[ctx_val]);
+            } else {
+                let call = f.ins().call_indirect(tail_sig, callee, &[ctx_val]);
+                let status = f.inst_results(call)[0];
+                let next = f.create_block();
+                f.ins().brif(status, fail, &[], next, &[]);
+                f.switch_to_block(next);
+            }
+        }
+        if last == LastCall::Ordinary {
+            let ok = f.ins().iconst(types::I32, i64::from(OK));
+            f.ins().return_(&[ok]);
+        }
+        f.switch_to_block(fail);
+        let bad = f.ins().iconst(types::I32, i64::from(FAIL));
+        f.ins().return_(&[bad]);
+        f.seal_all_blocks();
+        f.finalize(frontend);
+    }
+    module
+        .define_function(body_id, &mut cg)
+        .map_err(|e| format!("define bund2_body: {e}"))?;
+    module.clear_context(&mut cg);
+
+    // --- the entry trampoline
+    cg.func.signature = sig_entry;
+    {
+        let mut f = FunctionBuilder::new(&mut cg.func, &mut fb_ctx);
+        let body = module.declare_func_in_func(body_id, f.func);
+        let block = f.create_block();
+        f.append_block_params_for_function_params(block);
+        f.switch_to_block(block);
+        let ctx_val = f.block_params(block)[0];
+        let call = f.ins().call(body, &[ctx_val]);
+        let status = f.inst_results(call)[0];
+        f.ins().return_(&[status]);
+        f.seal_all_blocks();
+        f.finalize(frontend);
+    }
+    module
+        .define_function(entry_id, &mut cg)
+        .map_err(|e| format!("define bund2_entry: {e}"))?;
+    module.clear_context(&mut cg);
+
+    module
+        .finalize_definitions()
+        .map_err(|e| format!("finalize: {e}"))?;
+
+    // Now the thunks have addresses: fill the slots the body already reads.
+    for (i, &id) in thunk_ids.iter().enumerate() {
+        let addr = module.get_finalized_function(id);
+        if addr.is_null() {
+            return Err(format!("thunk {i} has no address"));
+        }
+        if let Some(s) = slots.get_mut(i) {
+            *s = addr;
+        }
+    }
+
+    let addr = module.get_finalized_function(entry_id);
+    if addr.is_null() {
+        return Err("the finalized entry trampoline has no address".into());
+    }
+    // SAFETY: the trampoline was emitted with `sig_entry` — one pointer
+    // parameter, one `i32` result, the platform's convention — which is `Entry`.
+    let entry: Entry = unsafe { std::mem::transmute::<*const u8, Entry>(addr) };
+
+    Ok(CompiledBody {
+        _module: module,
+        entry,
+        _slots: slots,
+        calls,
+        last,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -775,6 +1104,141 @@ mod tests {
             &[BundValue::int(2), BundValue::int(3)],
             "through the trampoline",
         );
+    }
+
+    // --- §S8's pieces 2 and 3: the adapter, the thunks, and a call site ----
+
+    fn pushes_seven(vm: &mut dyn Vm) -> Result<(), Error> {
+        vm.push(BundValue::int(7));
+        Ok(())
+    }
+
+    fn fails(_: &mut dyn Vm) -> Result<(), Error> {
+        Err(Error("deliberate failure".to_string()))
+    }
+
+    /// The same body, and the same message, as Tier 0's own test uses.
+    fn boom(_: &mut dyn Vm) -> Result<(), Error> {
+        panic!("boom from a dependency");
+    }
+
+    /// **A compiled body reaches a native through its `Tail` thunk.**
+    ///
+    /// End to end: Rust calls the C-convention trampoline, which calls the
+    /// `Tail` body, which loads the thunk's address from its slot and calls
+    /// through it, and the thunk calls the Rust adapter, which runs the native.
+    /// Every one of §S8's four pieces is on that path.
+    #[test]
+    fn a_compiled_body_calls_a_native_through_its_thunk() {
+        let body = compile_body(1, LastCall::Ordinary).expect("the body lowers");
+        let mut vm = Interp::new();
+        body.run(&mut vm, &[("push7", pushes_seven)]).expect("it ran");
+        assert_eq!(vm.depth(), 1, "the native ran exactly once");
+        assert_eq!(vm.snapshot().first().and_then(BundValue::as_int), Some(7));
+    }
+
+    /// Several calls, in order, each through its own slot and thunk.
+    #[test]
+    fn a_compiled_body_calls_each_native_in_order() {
+        let body = compile_body(3, LastCall::Ordinary).expect("lowers");
+        assert_eq!(body.calls(), 3);
+        let mut vm = Interp::new();
+        body.run(
+            &mut vm,
+            &[("a", pushes_seven), ("b", pushes_seven), ("c", pushes_seven)],
+        )
+        .expect("it ran");
+        assert_eq!(vm.depth(), 3, "one push per call");
+    }
+
+    /// **§S11: the error travels in the context, never as an unwind.** And the
+    /// body stops at the first failure rather than running the rest.
+    #[test]
+    fn a_failing_native_stops_the_body_and_reaches_rust_through_the_context() {
+        let body = compile_body(2, LastCall::Ordinary).expect("lowers");
+        let mut vm = Interp::new();
+        let e = body
+            .run(&mut vm, &[("fails", fails), ("push7", pushes_seven)])
+            .expect_err("the first native failed");
+        assert_eq!(e.0, "deliberate failure");
+        assert_eq!(vm.depth(), 0, "the second native must not have run");
+    }
+
+    /// **Criterion 29's compiled half, in a non-tail position.**
+    ///
+    /// "Register a native that panics. Call it from a compiled body in a
+    /// non-tail and a tail position, and assert the same observable result
+    /// Tier 0 gives: `Error::internal` naming the native […] with nothing on
+    /// stderr and no abort."
+    ///
+    /// The text is compared against Tier 0's, not merely checked for being an
+    /// internal error: D49 requires both tiers to word one failure the same
+    /// way, and the adapter reaches `bund2_api::panicked` exactly as
+    /// `Interp::invoke` does.
+    #[test]
+    fn a_panicking_native_in_a_non_tail_position_matches_tier_zero() {
+        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
+        let mut vm = Interp::new();
+        let e = body.run(&mut vm, &[("boom", boom)]).expect_err("the panic is an error");
+        assert!(e.is_internal(), "{}", e.0);
+        assert!(
+            e.0.contains("internal error: native `boom` panicked: boom from a dependency"),
+            "{}",
+            e.0
+        );
+        // And the process is still here, which is the other half of the claim.
+        let mut after = Interp::new();
+        compile_body(1, LastCall::Ordinary)
+            .expect("lowers")
+            .run(&mut after, &[("push7", pushes_seven)])
+            .expect("compiled code still runs after a caught panic");
+        assert_eq!(after.depth(), 1);
+    }
+
+    /// **Criterion 29's compiled half, in a tail position** — the same claim
+    /// through `return_call_indirect`, where the thunk's status becomes the
+    /// body's return value directly.
+    #[test]
+    fn a_panicking_native_in_a_tail_position_matches_tier_zero() {
+        let body = compile_body(1, LastCall::Tail).expect("lowers");
+        assert_eq!(body.last_call(), LastCall::Tail);
+        let mut vm = Interp::new();
+        let e = body.run(&mut vm, &[("boom", boom)]).expect_err("the panic is an error");
+        assert!(
+            e.0.contains("internal error: native `boom` panicked: boom from a dependency"),
+            "{}",
+            e.0
+        );
+    }
+
+    /// **§S8's claimed tail call, exercised.** A single call in tail position is
+    /// also the shape where the body's failure block has no predecessor at all,
+    /// so this is what puts the verifier's opinion of an unreachable block on
+    /// the record rather than leaving it to the builder's assertions.
+    #[test]
+    fn a_tail_call_body_runs_and_leaves_no_unreachable_block_behind() {
+        let body = compile_body(1, LastCall::Tail).expect("a tail-call body lowers");
+        let mut vm = Interp::new();
+        body.run(&mut vm, &[("push7", pushes_seven)]).expect("it ran");
+        assert_eq!(vm.depth(), 1);
+    }
+
+    /// A native index the body was not given is a broken invariant in the
+    /// lowering, not a fact about the program — so it is an internal error.
+    #[test]
+    fn calling_past_the_natives_given_is_an_internal_error() {
+        let body = compile_body(2, LastCall::Ordinary).expect("lowers");
+        let mut vm = Interp::new();
+        let e = body
+            .run(&mut vm, &[("only_one", pushes_seven)])
+            .expect_err("the second index is out of range");
+        assert!(e.is_internal(), "{}", e.0);
+        assert!(e.0.contains("outside the 1 it was given"), "{}", e.0);
+    }
+
+    #[test]
+    fn a_body_that_calls_nothing_is_refused() {
+        assert!(compile_body(0, LastCall::Ordinary).is_err());
     }
 
     /// **`norm` does what the comparison needs, and no more.**
