@@ -13,6 +13,13 @@ bund2-api.workspace = true
 bund2-ir.workspace = true
 bund2-interp.workspace = true
 bund2-stdlib.workspace = true
+# `Runtime::eval_str` parses a source string, which is what makes this crate
+# the "instance construction, bootstrap" role RFC-0000 gives it.
+bund2-syntax.workspace = true
+# **The only crate that names both tiers.** `bund2-interp` knows a tier might
+# exist and nothing about what one is; `bund2-jit` knows how to compile a body
+# and nothing about when. Optional, so a build without the feature has no
+# Cranelift in its tree at all (§S10).
 bund2-jit = { workspace = true, optional = true }
 
 [features]

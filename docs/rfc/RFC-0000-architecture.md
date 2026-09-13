@@ -185,6 +185,13 @@ mapping from the reference is deliberate rather than incidental:
 | `bund2-api` | — (new) | the stable surface a word package compiles against |
 | `bund2-jit` | — (new) | Tier 1; optional, feature-gated |
 | `bund2-runtime` | `bundcore` | instance construction, bootstrap, the world file |
+<!-- Dated note, 2026-09-13: this row is left as written and extended here.
+     The crate now also assembles the tiers — it owns the `Interp` and installs
+     RFC-0005's `Tier`, and is the only crate that names both `bund2-interp` and
+     `bund2-jit`. The phrase "tiering policy" appears in the crate's own
+     description and in `docs/research/01-extensibility-async.md`, but never in
+     this table; it does now, in fact if not in the row above. -->
+
 | `bund2-async` | — (new) | optional; reconciles with the existing bus layer per RFC-0007 |
 | `bund2` | — | the façade that composes the above |
 | `bund2-cli` | `Bund/src/cmd` | argument parsing and the REPL; no language logic |

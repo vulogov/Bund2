@@ -343,6 +343,20 @@
   arithmetic's inlining ceiling reading 1.77× and 1.81× here against 2.03×
   before — is machine-dependent and recorded as such.
 
+  **The seam is filled and a hot body now runs compiled, 2026-09-13.**
+  `bund2-runtime` owns the `Interp` and installs a `JitTier` holding the
+  `Tiering`; a body past the threshold is compiled, filed, and run compiled on
+  the next entry. It is the only crate naming both tiers, which is what keeps
+  Tier 1 optional by structure. **conform is 106/114 on both tiers with a tier
+  actually installed** — the first run where compiled bodies could execute
+  during the corpus, and §S2's one invariant says that number must not move.
+  The recursion guard is the part worth stating: the seam takes the tier out
+  while it runs, so a body entered during compiled execution interprets, and a
+  self-recursive word therefore spends no Rust frame per Bund level. A test
+  recurses 2,000 levels with the tier installed. **Criterion 23 remains
+  unmet** — the cache is per-`Interp` now, but each lowering still builds its
+  own `JITModule`. Four runtime tests; thirty-five in `bund2-jit`.
+
   **The compiled cache and the promotion counter are built, 2026-09-13, and
   criteria 3 and 6 run.** `Tiering` (`crates/bund2-jit/src/cache.rs`) holds two
   maps over the same bodies, keyed on `payload_key` and each holding a
@@ -1887,6 +1901,36 @@ same place.
 **§S5 assigns this clearing to `status_of`, which does not exist**, so it sits
 in the adapter meanwhile. The obligation is the adapter's either way, and a gap
 held open for a future helper is still a gap.
+
+**The seam is filled, 2026-09-13** (`crates/bund2-runtime/src/tier.rs`).
+`bund2-runtime` owns the `Interp` and installs a `JitTier` that holds the
+`Tiering` — inside the tier, not beside the interpreter, because `Interp` owns
+the `Box<dyn Tier>` and a cache held as a sibling would be unreachable while it
+was installed. A body past the threshold is compiled and filed; the next entry
+runs compiled code. It is the only crate that names both tiers: `bund2-interp`
+knows a tier might exist and nothing about what one is, `bund2-jit` knows how to
+compile and nothing about when.
+
+**A compiling entry still interprets.** `Decision::Compile` files the code and
+returns `None`, so the body runs interpreted that time and the next entry hits
+the cache. The threshold is a tuning knob (§S7), not a semantic boundary, and
+the fewer behaviours that hang off it the better.
+
+**The recursion guard is a correctness property, not a lost optimisation.** The
+seam takes the tier out of the `Interp` while `enter` runs, so a body entered
+*during* compiled execution finds `None` and is interpreted. Without that, a
+self-recursive word would enter compiled code, whose `jit_apply` calls
+`Vm::apply`, which reaches `push_frame`, which would enter compiled code again —
+one Rust frame per Bund level, breaking RFC-0003's criterion 2 and making this
+exactly the "conformance change, not an optimisation" §S8 warns of. At most one
+compiled body runs at a time. A test recurses 2,000 levels with the tier
+installed to say so.
+
+**Criterion 23 is still not met**, and the wiring does not change that: it wants
+one cache, one `JITModule` and one set of cells *per `Interp`*, and while the
+cache is now per-`Interp`, each `compile_word_body` still builds a module of its
+own. Sharing one module across compilations is a `lower.rs` refactor and is not
+done here.
 
 **The cache and the counter exist, 2026-09-13**
 (`crates/bund2-jit/src/cache.rs`).
@@ -4056,6 +4100,19 @@ evidence, and this one is listed as runnable rather than as met.
     `Interp`'s cells. After the first `Interp` is dropped, the second must still
     give Tier 0's result. This fails for any cache, module or cell shared
     across `Interp`s (§S6, *Addressing*). Needs a tier.
+
+    **Dated note, 2026-09-13 — a tier exists, and this is still not met.** The
+    *cache* half is now satisfiable: `bund2-runtime` installs a `JitTier` per
+    `Runtime`, each holding its own `Tiering`, so two `Interp`s share no cache.
+    The *module* half is not: each `compile_word_body` builds a `JITModule` of
+    its own, so there is one module per compiled body rather than one per
+    `Interp`. That is stricter than the criterion asks in the direction that
+    matters — no module is shared *across* `Interp`s, so the failure it names
+    cannot occur — but it is not what §S6's *Addressing* describes, and the
+    cells it wants one set of do not exist at all. Sharing a module across
+    compilations is a `lower.rs` refactor: the module must outlive individual
+    compilations and hand out finalised pointers as each is defined. The
+    criterion runs when that lands.
 
 24. **Every `bund2-stdlib` native with a fixed effect keeps it.** Promotion
     stops at an opaque site (§S5), and after any other call it models the
