@@ -28,6 +28,12 @@ cranelift-object   = { workspace = true, optional = true }
 # it has to agree with. A dev-dependency only: the shipped crate does not reach
 # for the interpreter, and `bund2-interp` never reaches for this one.
 bund2-interp.workspace = true
+# A body lowering is tested against real words — `{ 1 2 + }` needs `+`
+# registered — so the differential has a vocabulary to run against. The
+# permitted direction: §S6 has `bund2-jit` depending on `bund2-stdlib` (D9
+# amended), and criterion 15 forbids only the reverse, which `cargo tree -p
+# bund2-stdlib` still shows clean with the feature on and off.
+bund2-stdlib.workspace = true
 
 [features]
 default = []

@@ -343,6 +343,24 @@
   arithmetic's inlining ceiling reading 1.77× and 1.81× here against 2.03×
   before — is machine-dependent and recorded as such.
 
+  **A compiled body is a real Bund word, 2026-09-13 — and it is a shape, not a
+  speedup.** `compile_word_body` lowers a body's values, each through its own
+  `Tail` thunk called indirectly through the slot table, and a differential
+  asserts the compiled word leaves the same stack as `Interp::eval` over the
+  same body — `{ 1 2 + }`, `4 4 + 2 *`, a lambda call that files and drains a
+  tail request, a failure that stops the body. Every value goes through
+  `Vm::apply`, which *is* Tier 0's path, so the body reproduces Tier 0 exactly
+  rather than approximately. That is forced, not chosen: **§S4's step 3** says a
+  `CALL` under `autoadd` is not a call at all, guarding it wants §S6's `autoadd`
+  cell, and `autoadd` is not readable through the `Vm` trait — so a test pins
+  that the compiled word and Tier 0 agree under `autoadd` instead. The cost is
+  that this is slower than interpreting; what it buys is the structure §S6's
+  fragments are inlined into, and **criterion 10 measures the tier as shipped,
+  not this**. Still absent: the cache, `Interp` integration, promotion, inlining
+  and the meaning guard — nothing consults a compiled body when a word runs, and
+  `compile_word_body` has no caller outside tests. Twenty-seven tests under
+  `--features jit`; conform unmoved at 106/114 on both tiers.
+
   **F96's parity gap is closed, 2026-09-13, and the request cell is not what
   closed it.** The adapter now calls `Vm::clear_tail_request` when the native it
   ran answers an error, which is what D56 put on the trait for a caller that
@@ -1852,16 +1870,44 @@ same place.
 in the adapter meanwhile. The obligation is the adapter's either way, and a gap
 held open for a future helper is still a gap.
 
+**A body that is a real Bund word, 2026-09-13.** `compile_word_body` lowers a
+body's *values* — literals, `CALL`s, `CONTEXT`s — each through its own `Tail`
+thunk, called indirectly through the slot table. `{ 1 2 + }` compiles and runs,
+and a differential asserts the compiled word leaves the same stack as
+`Interp::eval` over the same body.
+
+**Every value goes through `Vm::apply`, and that is the design rather than a
+shortcut.** `Interp::apply` is the Tier 0 floor check, `apply_step`,
+`take_pending`, `run_to` and the exit gate, so a compiled body reproduces Tier 0
+*exactly* — which it must, because the semantics a body owes are not yet
+expressible in compiled code. **§S4's step 3 is the reason**: under `autoadd` a
+`CALL` is not a call, the flag is VM-wide and toggled by `:` and `;` as
+commands, and it changes what happens to *every* value applied. §S4 requires a
+compiled body to guard on it at entry and re-read it after every call; that
+guard wants §S6's `autoadd` cell, which does not exist, and **`autoadd` is not
+readable through the `Vm` trait at all**. A test pins the consequence: with
+`autoadd` set, the compiled word and Tier 0 agree that the `CALL` was appended
+rather than run.
+
+**This is a shape, not a speedup, and the RFC should not be read as claiming
+otherwise.** It wraps an entry trampoline, a slot table and a status protocol
+around work the interpreter already does, and is slower than Tier 0 for it.
+What it buys is the structure §S6's fragments are inlined *into*. **Criterion 10
+measures the tier as shipped and this is not that measurement.**
+
 **What is still not built — and the request *cell* is part of it.** §S5's cell
 is the mirror compiled code loads *after every call*, beside the epoch and
 `autoadd`, to decide whether to drain. **Nothing reads it yet**: there is no
-drain helper, no `status_of`, no epoch or `autoadd` cell, and no compiled body
-that continues past a call — this body's calls are its whole content. Adding the
+drain helper, no `status_of`, and no epoch or `autoadd` cell — this body drains
+inside `apply`, where Tier 0 drains, rather than deciding for itself. Adding the
 cell now would be surface with no consumer, which is the argument that deferred
-D43's id set, so it waits for the reader that gives it meaning. Nor is any of
-this a tier: no cache, no `Interp` integration, no promotion, no meaning guard.
-`bund2-jit` gains `bund2-api` as a dependency for `dyn Vm`; criterion 15's
-direction still holds, checked with the feature on as well as off.
+D43's id set, so it waits for the reader that gives it meaning. Nor is this a
+tier: **no cache and no `Interp` integration** — nothing consults a compiled
+body when a word runs, and `compile_word_body` is called by tests alone — no
+promotion, no inlining, no meaning guard. `bund2-jit` gains `bund2-api` as a
+dependency for `dyn Vm` and `bund2-stdlib` as a *dev*-dependency so the
+differential has real words to run; criterion 15's direction still holds,
+checked default, with the feature, and over dev edges.
 
 **Built 2026-09-12**: `fragments::published(&Registry)` returns the three pairs,
 keyed by the ids the registry's slots hold when it is called — "at registration
@@ -3558,6 +3604,13 @@ evidence, and this one is listed as runnable rather than as met.
     earning its keep** and §S1's gate should be reopened rather than the number
     explained. This is the criterion that decides whether Tier 1 was worth
     building, and it is deliberately the one that can fail.
+
+    **The first compiled body is not this measurement, 2026-09-13.**
+    `compile_word_body` (§S6) applies each of a body's values through
+    `Vm::apply`, which is Tier 0's own path, so it is *slower* than interpreting
+    and measuring it would answer a question this criterion does not ask. It is
+    the structure fragments are inlined into; the A/B this criterion requires
+    waits for a lowering that inlines them.
 
     §S6's prototype puts ceilings on what this can report (*Measured*,
     2026-09-10): **inlining alone at most 2.0× on `Int + Int` and 3.0× on

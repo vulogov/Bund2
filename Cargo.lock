@@ -346,6 +346,7 @@ dependencies = [
  "bund2-api",
  "bund2-interp",
  "bund2-ir",
+ "bund2-stdlib",
  "bund2-value",
  "cranelift-codegen",
  "cranelift-frontend",

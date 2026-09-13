@@ -70,6 +70,13 @@ pub struct Ctx<'a> {
     /// adapter holding only a function pointer could not reproduce that, and
     /// criterion 29 compares against Tier 0's observable result.
     natives: &'a [(&'a str, bund2_api::NativeFn)],
+    /// The values a compiled **body** applies, in order.
+    ///
+    /// A body is a `Vec<BundValue>` — literals, `CALL`s, `CONTEXT`s — and
+    /// [`jit_apply`] hands each one to `Vm::apply`, which is Tier 0's own path.
+    /// Empty for a fragment arm, which applies no values: its ops are the whole
+    /// of it.
+    body: &'a [BundValue],
 }
 
 /// A helper's status: `0` success, `1` error parked in [`Ctx::err`].
@@ -242,6 +249,60 @@ extern "C" fn jit_call_native(c: *mut Ctx<'_>, native: usize) -> i32 {
     }
 }
 
+/// **Apply one of the body's values — the first lowering of a real Bund word.**
+///
+/// `index` names a value in [`Ctx::body`], and this hands it to `Vm::apply`,
+/// which is `Interp::apply`: the Tier 0 floor check, `apply_step`,
+/// `take_pending`, `run_to` and the exit gate. So a compiled body reproduces
+/// Tier 0 **exactly** rather than approximately — and it has to, because the
+/// semantics a body must honour are not all expressible in compiled code yet:
+///
+/// - **Under `autoadd` a `CALL` is not a call** (§S4, *Step 3*). The flag is
+///   VM-wide, toggled by `:` and `;` as *commands*, and it changes what happens
+///   to *every* value applied: a literal and a `CALL` are both appended into the
+///   value beneath, and a `CONTEXT` is pushed rather than switching stacks. §S4
+///   requires a compiled body to guard on it at entry and re-read it after every
+///   call; that guard needs §S6's `autoadd` cell, which does not exist, and
+///   `autoadd` is not readable through the `Vm` trait at all. Going through
+///   `apply` honours the mode by construction instead.
+/// - **A `CONTEXT` switches stacks and pushes onto the nesting stack**
+///   (`apply_step`'s CONTEXT arm), and **`bund.exit` gates every step** (F112).
+/// - **A `CALL` to a lambda files a tail request** that `apply` then drains, so
+///   Bund depth stays on the heap as RFC-0003's frame loop requires.
+///
+/// **This is a shape, not a speedup**, and the RFC should not be read as
+/// claiming otherwise: it wraps an entry trampoline, a slot table and a status
+/// protocol around work the interpreter already does. What it buys is the
+/// structure §S6's fragments are inlined *into*; criterion 10 measures the tier
+/// as shipped, not this.
+extern "C" fn jit_apply(c: *mut Ctx<'_>, index: usize) -> i32 {
+    // SAFETY: `CompiledWord::run`'s contract.
+    let Some(c) = (unsafe { ctx(c) }) else {
+        return FAIL;
+    };
+    let Some(v) = c.body.get(index).cloned() else {
+        c.err = Some(Error::internal(format!(
+            "a compiled body applied value {index}, outside the {} it was given",
+            c.body.len()
+        )));
+        return FAIL;
+    };
+    match c.vm.apply(v) {
+        Ok(()) => OK,
+        Err(e) => {
+            // Same obligation as the native adapter's, for the same reason: a
+            // value that filed a body and then failed must leave nothing behind
+            // (F96, D56). `apply` reaches `Interp::invoke` for a native, which
+            // clears it — but a `CALL` to a lambda files through `request_tail`
+            // and `run_to`'s error arm unwinds frames only, so clearing here is
+            // what makes the compiled path match Tier 0's on every arm.
+            c.vm.clear_tail_request();
+            c.err = Some(e);
+            FAIL
+        }
+    }
+}
+
 /// The **entry trampoline's** type: an opaque context in, a status out.
 ///
 /// §S8's fourth piece. Rust enters compiled code only through this, because it
@@ -299,8 +360,10 @@ impl Compiled {
         let mut c = Ctx {
             vm,
             err: None,
-            // A fragment's arm calls no native: its ops are the whole of it.
+            // A fragment's arm calls no native and applies no value: its ops
+            // are the whole of it.
             natives: &[],
+            body: &[],
         };
         // SAFETY: the entry is the address `finalize_definitions` published for
         // a function this module emitted under the host's own calling
@@ -648,6 +711,7 @@ impl CompiledBody {
             vm,
             err: None,
             natives,
+            body: &[],
         };
         // SAFETY: the entry is the trampoline's published address, under the
         // platform's convention, and `&mut c` is live for the whole call. The
@@ -673,6 +737,99 @@ impl CompiledBody {
     }
 }
 
+/// Which Rust adapter a body's thunks call.
+///
+/// The thunk-and-slot machinery is the same either way — §S8's third piece with
+/// §S6's slot-table indirection — and only the adapter behind it differs, so the
+/// two lowerings share one emitter rather than drifting apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Adapter {
+    /// [`jit_call_native`]: call the native at that index.
+    Native,
+    /// [`jit_apply`]: apply the body's value at that index, through
+    /// `Vm::apply`.
+    Apply,
+}
+
+impl Adapter {
+    /// The symbol the thunks import, and the function behind it.
+    fn symbol(self) -> (&'static str, *const u8) {
+        match self {
+            Adapter::Native => ("jit_call_native", jit_call_native as *const u8),
+            Adapter::Apply => ("jit_apply", jit_apply as *const u8),
+        }
+    }
+}
+
+/// One compiled Bund word, and the code memory behind it.
+///
+/// The body it runs is supplied at [`CompiledWord::run`], not held here: the
+/// `Rc`-keyed cache is what will own the association between a body and its
+/// code, and this type predates it.
+pub struct CompiledWord {
+    inner: CompiledBody,
+}
+
+impl CompiledWord {
+    /// Apply the body's values in order, through Tier 0's own `apply`.
+    ///
+    /// `body` must be the same length the word was compiled for; a shorter one
+    /// is a broken invariant and reported as such rather than silently short.
+    pub fn run(&self, vm: &mut dyn Vm, body: &[BundValue]) -> Result<(), Error> {
+        if body.len() != self.inner.calls {
+            return Err(Error::internal(format!(
+                "a compiled word was built for {} values and handed {}",
+                self.inner.calls,
+                body.len()
+            )));
+        }
+        let mut c = Ctx {
+            vm,
+            err: None,
+            natives: &[],
+            body,
+        };
+        // SAFETY: as `CompiledBody::run`'s — the trampoline's published address
+        // under the platform's convention, with `&mut c` live for the call.
+        let status = unsafe { (self.inner.entry)(&raw mut c) };
+        match c.err {
+            Some(e) => Err(e),
+            None if status == OK => Ok(()),
+            None => Err(Error::internal(
+                "a compiled word returned a failing status with no error in the context",
+            )),
+        }
+    }
+
+    /// How many values the word applies.
+    pub fn values(&self) -> usize {
+        self.inner.calls
+    }
+
+    /// Where the last one sits.
+    pub fn last_call(&self) -> LastCall {
+        self.inner.last
+    }
+}
+
+/// **Compile a Bund word's body — the first lowering of a real word.**
+///
+/// `values` is the body's length. Each value gets a `Tail` thunk that calls
+/// [`jit_apply`] with its index, and the body calls each thunk indirectly
+/// through its slot, exactly as the native lowering does — so criterion 4's
+/// property holds here too: no call between compiled functions names a `FuncId`.
+///
+/// See [`jit_apply`] for why every value goes through `Vm::apply` rather than
+/// being lowered directly, and for what that does and does not buy.
+pub fn compile_word_body(values: usize, last: LastCall) -> Result<CompiledWord, String> {
+    if values == 0 {
+        return Err("a word with an empty body has nothing to lower".into());
+    }
+    Ok(CompiledWord {
+        inner: emit_body(values, last, Adapter::Apply)?,
+    })
+}
+
 /// **Compile a body that calls `calls` natives in order — §S8's pieces 2 and 3
 /// wired to a call site.**
 ///
@@ -690,10 +847,25 @@ pub fn compile_body(calls: usize, last: LastCall) -> Result<CompiledBody, String
     if calls == 0 {
         return Err("a body that calls nothing has no call site to exercise".into());
     }
+    emit_body(calls, last, Adapter::Native)
+}
+
+/// The shared emitter behind [`compile_body`] and [`compile_word_body`].
+///
+/// Everything below the adapter is the same for both — §S8's `Tail` thunks, the
+/// slot table §S6 addresses, the entry trampoline, the status protocol — so the
+/// two lowerings share one emitter and cannot drift apart in the parts criteria
+/// 4 and 29 are about.
+fn emit_body(
+    calls: usize,
+    last: LastCall,
+    adapter: Adapter,
+) -> Result<CompiledBody, String> {
+    let (adapter_name, adapter_ptr) = adapter.symbol();
 
     let mut builder =
         JITBuilder::new(default_libcall_names()).map_err(|e| format!("JIT builder: {e}"))?;
-    builder.symbol("jit_call_native", jit_call_native as *const u8);
+    builder.symbol(adapter_name, adapter_ptr);
     let mut module = JITModule::new(builder);
 
     let frontend = module.target_config();
@@ -712,8 +884,8 @@ pub fn compile_body(calls: usize, last: LastCall) -> Result<CompiledBody, String
     sig_adapter.params.push(AbiParam::new(ptr));
     sig_adapter.returns.push(AbiParam::new(types::I32));
     let adapter_id = module
-        .declare_function("jit_call_native", Linkage::Import, &sig_adapter)
-        .map_err(|e| format!("declare jit_call_native: {e}"))?;
+        .declare_function(adapter_name, Linkage::Import, &sig_adapter)
+        .map_err(|e| format!("declare {adapter_name}: {e}"))?;
 
     // Thunks and the body are `Tail`, so `return_call_indirect` is legal from
     // any tail position: "body to body, and body to a native's thunk".
@@ -1330,6 +1502,158 @@ mod tests {
             stack.iter().any(|v| v.as_int() == Some(99)),
             "the body the native filed must still run: {stack:?}"
         );
+    }
+
+    // --- the first lowering of a real Bund word -----------------------------
+
+    /// An `Interp` with the real vocabulary, so `+` means `+`.
+    fn with_stdlib() -> Interp {
+        let mut i = Interp::new();
+        bund2_stdlib::register_all(&mut i.registry);
+        i
+    }
+
+    /// `{ 1 2 + }` — a real word's body, as the parser would leave it.
+    fn add_body() -> Vec<BundValue> {
+        vec![BundValue::int(1), BundValue::int(2), BundValue::call("+")]
+    }
+
+    /// **The differential that makes the claim checkable.** The same body, run
+    /// through Tier 0 and through the compiled word, must leave the same stack.
+    fn assert_matches_tier0(body: &[BundValue], label: &str) {
+        let mut tier0 = with_stdlib();
+        let by_tier0 = tier0.eval(body);
+
+        let word = compile_word_body(body.len(), LastCall::Ordinary).expect("lowers");
+        let mut compiled = with_stdlib();
+        let by_compiled = word.run(&mut compiled, body);
+
+        assert_eq!(
+            by_tier0.is_ok(),
+            by_compiled.is_ok(),
+            "{label}: one path failed and the other did not: {by_tier0:?} vs {by_compiled:?}"
+        );
+        let (a, b) = (tier0.snapshot(), compiled.snapshot());
+        assert_eq!(a.len(), b.len(), "{label}: depth");
+        for (x, y) in a.iter().zip(b.iter()) {
+            assert_eq!(x.dt(), y.dt(), "{label}: dt");
+            assert_eq!(
+                norm(&x.render(false)),
+                norm(&y.render(false)),
+                "{label}: value, q or stack tag"
+            );
+        }
+    }
+
+    /// A compiled body that is a real word: literals pushed, a native called.
+    #[test]
+    fn a_compiled_word_runs_a_real_body() {
+        let word = compile_word_body(3, LastCall::Ordinary).expect("lowers");
+        assert_eq!(word.values(), 3);
+        let mut vm = with_stdlib();
+        word.run(&mut vm, &add_body()).expect("it ran");
+        assert_eq!(vm.depth(), 1, "1 and 2 consumed, the sum left");
+        assert_eq!(vm.snapshot().first().and_then(BundValue::as_int), Some(3));
+    }
+
+    /// The differential over several shapes a body can take.
+    #[test]
+    fn a_compiled_word_matches_tier_zero() {
+        assert_matches_tier0(&add_body(), "1 2 +");
+        assert_matches_tier0(&[BundValue::int(7)], "a lone literal");
+        assert_matches_tier0(
+            &[BundValue::int(4), BundValue::int(4), BundValue::call("+"),
+              BundValue::int(2), BundValue::call("*")],
+            "4 4 + 2 *",
+        );
+        assert_matches_tier0(
+            &[BundValue::str("s"), BundValue::call("dup")],
+            "a string and dup",
+        );
+    }
+
+    /// **§S4's step 3, honoured because `apply` honours it.** Under `autoadd` a
+    /// CALL is *not* a call: it is appended into the value beneath. A compiled
+    /// body that lowered calls directly would need §S6's `autoadd` cell and a
+    /// residual path to get this right; going through `Vm::apply` gets it for
+    /// free, and this test is what says so rather than the comment above it.
+    #[test]
+    fn a_compiled_word_honours_autoadd_because_apply_does() {
+        let body = add_body();
+
+        let mut tier0 = with_stdlib();
+        tier0.autoadd = true;
+        let by_tier0 = tier0.eval(&body);
+
+        let word = compile_word_body(body.len(), LastCall::Ordinary).expect("lowers");
+        let mut compiled = with_stdlib();
+        compiled.autoadd = true;
+        let by_compiled = word.run(&mut compiled, &body);
+
+        assert_eq!(by_tier0.is_ok(), by_compiled.is_ok(), "autoadd: outcome");
+        let (a, b) = (tier0.snapshot(), compiled.snapshot());
+        assert_eq!(a.len(), b.len(), "autoadd: depth — a CALL was appended, not run");
+        for (x, y) in a.iter().zip(b.iter()) {
+            assert_eq!(norm(&x.render(false)), norm(&y.render(false)), "autoadd");
+        }
+    }
+
+    /// A `CALL` to a lambda files a tail request, which `apply` drains — so
+    /// Bund depth stays on the heap and the body runs before the next value.
+    #[test]
+    fn a_compiled_word_runs_a_lambda_call_in_order() {
+        let mut vm = with_stdlib();
+        vm.registry
+            .register_lambda("ten", BundValue::lambda(vec![BundValue::int(10)]));
+        let body = vec![BundValue::call("ten"), BundValue::int(20)];
+
+        let word = compile_word_body(2, LastCall::Ordinary).expect("lowers");
+        word.run(&mut vm, &body).expect("it ran");
+
+        let stack = vm.snapshot();
+        assert_eq!(stack.len(), 2, "{stack:?}");
+        assert_eq!(stack[0].as_int(), Some(10), "the body ran before the 20");
+        assert_eq!(stack[1].as_int(), Some(20));
+    }
+
+    /// A failing value stops the body, and the error arrives through the
+    /// context rather than as an unwind (§S11).
+    #[test]
+    fn a_compiled_word_stops_at_the_first_failure() {
+        let word = compile_word_body(2, LastCall::Ordinary).expect("lowers");
+        let mut vm = with_stdlib();
+        // `+` on an empty stack fails; the `99` after it must not run.
+        let body = vec![BundValue::call("+"), BundValue::int(99)];
+        let e = word.run(&mut vm, &body).expect_err("the call failed");
+        assert!(!e.0.is_empty());
+        assert_eq!(vm.depth(), 0, "the value after the failure must not run");
+    }
+
+    /// The tail-position variant runs the same body the same way.
+    #[test]
+    fn a_compiled_word_in_tail_position_runs_the_same_body() {
+        let word = compile_word_body(3, LastCall::Tail).expect("lowers");
+        assert_eq!(word.last_call(), LastCall::Tail);
+        let mut vm = with_stdlib();
+        word.run(&mut vm, &add_body()).expect("it ran");
+        assert_eq!(vm.snapshot().first().and_then(BundValue::as_int), Some(3));
+    }
+
+    /// A body of a different length than the word was built for is a broken
+    /// invariant in the caller, not a fact about the program.
+    #[test]
+    fn a_word_handed_the_wrong_body_length_is_an_internal_error() {
+        let word = compile_word_body(3, LastCall::Ordinary).expect("lowers");
+        let mut vm = with_stdlib();
+        let e = word
+            .run(&mut vm, &[BundValue::int(1)])
+            .expect_err("length mismatch");
+        assert!(e.is_internal(), "{}", e.0);
+    }
+
+    #[test]
+    fn a_word_with_an_empty_body_is_refused() {
+        assert!(compile_word_body(0, LastCall::Ordinary).is_err());
     }
 
     /// **`norm` does what the comparison needs, and no more.**
