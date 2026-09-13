@@ -61,6 +61,72 @@ pub fn drop_top() -> Result<Fragment, String> {
     Fragment::new(Guard::Depth(1), vec![Op::DropTop], 0)
 }
 
+/// The words whose arms this crate publishes, and the fragment for each.
+///
+/// **`dup_one`, not `dup`.** `dup` is an alias
+/// (`crates/bund2-stdlib/src/stack.rs`, `register`), and an alias holds no
+/// `Native` and therefore no registration id, so keying the arm by `dup` would
+/// put an entry in the table that can never match a callee. The native is
+/// `dup_one`. `+` and `drop` are registered under their own names.
+const PUBLISHED: [(&str, Build); 3] = [("+", int_add), ("dup_one", dup), ("drop", drop_top)];
+
+/// How an arm is built — each constructor validates, so each can refuse.
+type Build = fn() -> Result<Fragment, String>;
+
+/// **The `(registration id, Fragment)` table — RFC-0005 §S6, D43.**
+///
+/// §S6 puts the association here: "`bund2-stdlib` publishes
+/// `(registration id, Fragment)` pairs from `crate::fragments`, and
+/// `bund2-jit` — which may depend on `bund2-stdlib` (D9 amended) — reads them
+/// when it compiles a site." `bund2-api` carries no `Fragment` type, so the id
+/// is the only thing crossing that boundary, and an external package still
+/// cannot publish an arm.
+///
+/// # Take this at registration time
+///
+/// The ids are whatever the registry's slots hold **now**, so this must be
+/// called once the vocabulary is registered and the result kept. §S6: the
+/// table is "built per registry, at registration time, never as a static".
+///
+/// **A later re-registration is supposed to stop matching.** `register` is a
+/// word, so a program can rebind `+`; F32's replay mints a *fresh* id, the
+/// entry taken earlier no longer matches the slot, and a consumer declines to
+/// inline the arm. That is the meaning guard working rather than a stale table
+/// — and it is why the fragment is keyed by the registration and not by the
+/// name.
+///
+/// # Why a `Result`
+///
+/// Each constructor validates, and a malformed fragment is a defect in Bund2
+/// rather than a fact about the program being run. Shipped code may not
+/// `expect` (D37), so the error travels to the caller, which is the consumer
+/// best placed to report it.
+///
+/// A word this crate did not register — under `--noio` or `--noeval`, say, or
+/// in a registry built by hand — is simply absent from the table. None of the
+/// three is ever stubbed, so in a default registry all three are present.
+pub fn published(
+    r: &bund2_api::Registry,
+) -> Result<Vec<(bund2_api::RegistrationId, Fragment)>, String> {
+    let mut out = Vec::with_capacity(PUBLISHED.len());
+    for (name, build) in PUBLISHED {
+        // `Interner::lookup_call` rather than `intern`: this takes
+        // `&Registry`, and the crate's rule is that looking up a miss must not
+        // retain a slot. None of the three names carries a `$`, so the sigil
+        // half is moot. `Registry` has no by-name symbol lookup of its own —
+        // its `&self` accessors answer with a *binding* — so this goes through
+        // the public `interner`, as `bund2-interp`'s `dispatch_name` does.
+        let Some((s, _)) = r.interner.lookup_call(name) else {
+            continue;
+        };
+        let Some(id) = r.slot(s).and_then(|sl| sl.native.as_ref()).and_then(|n| n.id) else {
+            continue;
+        };
+        out.push((id, build()?));
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,6 +299,13 @@ mod tests {
     }
 
     /// **Criterion 16 for `dup` and `drop`**, everything but identity.
+    ///
+    /// **`"dup"` here is deliberate and differs from [`PUBLISHED`]'s
+    /// `"dup_one"`.** This test dispatches *by name*, and dispatch resolves the
+    /// alias, so `"dup"` reaches the same native and is the spelling a program
+    /// writes. The published table keys by *registration id*, which an alias
+    /// does not have. Both are right for what they do; making them agree would
+    /// break one of them.
     #[test]
     fn the_dup_and_drop_arms_agree_with_their_words() {
         for v in shapes() {
@@ -272,5 +345,92 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn noop(_: &mut dyn bund2_api::Vm) -> Result<(), bund2_api::Error> {
+        Ok(())
+    }
+
+    fn stdlib_registry() -> bund2_api::Registry {
+        let mut r = bund2_api::Registry::new();
+        crate::register_all(&mut r);
+        r
+    }
+
+    fn id_of(r: &bund2_api::Registry, name: &str) -> Option<bund2_api::RegistrationId> {
+        let (s, _) = r.interner.lookup_call(name)?;
+        r.slot(s).and_then(|sl| sl.native.as_ref()).and_then(|n| n.id)
+    }
+
+    /// **RFC-0005 §S6, D43.** The table names three registrations, each the one
+    /// `register_all` minted for that word, and no two share an id.
+    #[test]
+    fn the_published_table_keys_each_arm_by_its_registration() {
+        let r = stdlib_registry();
+        let table = published(&r).expect("the published fragments are well-formed");
+        assert_eq!(table.len(), 3, "§S5: the fragment table holds three ids");
+
+        let ids: std::collections::BTreeSet<_> = table.iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids.len(), 3, "two arms must not share a registration id");
+
+        for name in ["+", "dup_one", "drop"] {
+            let id = id_of(&r, name).unwrap_or_else(|| panic!("{name} is registered as a native"));
+            assert!(ids.contains(&id), "{name}'s registration is in the table");
+        }
+    }
+
+    /// **The alias trap, pinned.** `dup` is an alias, so it holds no `Native`
+    /// and no registration id; the arm belongs to `dup_one`. Keying by `dup`
+    /// would put an entry in the table that no callee could ever match, and
+    /// nothing else in the build would complain.
+    #[test]
+    fn the_dup_arm_is_keyed_by_the_native_and_not_by_its_alias() {
+        let r = stdlib_registry();
+        assert_eq!(id_of(&r, "dup"), None, "`dup` is an alias: no Native, no id");
+        let native = id_of(&r, "dup_one").expect("`dup_one` is the native");
+
+        let table = published(&r).expect("well-formed");
+        let dup_arm = dup().expect("well-formed");
+        let found = table.iter().find(|(_, f)| *f == dup_arm);
+        let (id, _) = found.expect("the dup arm is published");
+        assert_eq!(*id, native, "keyed by `dup_one`'s registration");
+    }
+
+    /// **Why the key is the registration and not the name.** `register` is a
+    /// word, so a program can rebind `+`. F32's replay mints a *fresh* id, so a
+    /// table taken earlier stops matching the slot and a consumer declines to
+    /// inline the arm. That is the meaning guard working — the stale entry is
+    /// the mechanism, not a leak.
+    #[test]
+    fn a_rebound_word_no_longer_matches_the_table_taken_before_it() {
+        let mut r = stdlib_registry();
+        let table = published(&r).expect("well-formed");
+        let before = id_of(&r, "+").expect("`+` is a native");
+
+        r.register_native(
+            "+",
+            noop,
+            bund2_api::StackEffect::fixed(2, 1),
+            bund2_api::WordKind::Sync,
+        );
+        let after = id_of(&r, "+").expect("still a native");
+
+        assert_ne!(before, after, "a re-registration mints a fresh id (F32)");
+        assert!(
+            table.iter().any(|(id, _)| *id == before),
+            "the table still holds the registration it was taken from"
+        );
+        assert!(
+            !table.iter().any(|(id, _)| *id == after),
+            "and does not match the new one, so the arm is not inlined"
+        );
+    }
+
+    /// A registry this crate never registered publishes nothing — the table is
+    /// built from what is there, not from a static list of names.
+    #[test]
+    fn an_empty_registry_publishes_no_arms() {
+        let r = bund2_api::Registry::new();
+        assert!(published(&r).expect("well-formed").is_empty());
     }
 }

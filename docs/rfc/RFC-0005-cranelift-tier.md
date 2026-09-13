@@ -1703,6 +1703,21 @@ opaque registration id on `Native`, which names no code generator and no IR.
 External packages therefore cannot publish fragments: D9's amendment gives them
 `Native` with a declared effect and no more, and this keeps it so.
 
+**Built 2026-09-12**: `fragments::published(&Registry)` returns the three pairs,
+keyed by the ids the registry's slots hold when it is called — "at registration
+time, never as a static", as above. It returns a `Result`, because each arm
+validates and a malformed one is a Bund2 defect rather than a fact about the
+program, and shipped code may not `expect` (D37).
+
+**The arm for `dup` is keyed by `dup_one`.** `dup` is an *alias*
+(`crates/bund2-stdlib/src/stack.rs`, `register`), so it holds no `Native` and
+therefore no registration id; keying by the name a program writes would have
+put an entry in the table that no callee could ever match, and nothing else in
+the build would have complained. `+` and `drop` are registered under their own
+names. Criterion 16's differential test still dispatches by the name `dup`,
+because dispatch resolves the alias — the two spellings are right for different
+jobs and `fragments.rs` says so beside each.
+
 **What it costs**: two loads and two compares per inlined site, both
 predictable — addressed as *Addressing* below describes. Criterion 17 checks that every inlined region carries the guard
 and measures what it costs. Criterion 5, extended, checks that it works — for
