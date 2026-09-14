@@ -83,6 +83,25 @@ pub struct Ctx<'a> {
 const OK: i32 = 0;
 const FAIL: i32 = 1;
 
+/// **Run a filed tail request, after a non-tail call** — §S5's drain helper,
+/// on the compiled side.
+///
+/// `r` is what the call answered. A failure is returned as it is and nothing is
+/// drained: Tier 0 discards a failing native's request rather than running it
+/// (F96), and `status_of` does the clearing. After a success the request is
+/// drained **here, before the next value**, because a compiled call gets
+/// control back before the body has run — and because `request_tail` assigns,
+/// so a later request would overwrite one left pending and it would never run
+/// at all.
+///
+/// The drain's own failure becomes the call's result, so a body that failed or
+/// ended the program reaches `status_of` rather than being reported as the
+/// native's success.
+fn drained(vm: &mut dyn Vm, r: Result<(), Error>) -> Result<(), Error> {
+    r?;
+    vm.drain_tail_request()
+}
+
 /// **The one function that turns a helper's `Result` into a status** —
 /// RFC-0005 §S5, *A call may end the program*.
 ///
@@ -289,11 +308,39 @@ extern "C" fn jit_call_native(c: *mut Ctx<'_>, native: usize) -> i32 {
         Ok(r) => r,
         Err(msg) => Err(bund2_api::panicked(&format!("native `{name}`"), &msg)),
     };
-    // **Through `status_of`, which §S5 makes the one status-maker.** It carries
-    // F96's parity — Tier 0 clears a tail request when the native that filed
-    // one then fails, in `Interp::invoke`, which this adapter never reaches
-    // (D56) — and D52's rule that a recorded exit becomes the error status,
-    // since compiled code has no next step at which Tier 0's gate would fire.
+    // **Non-tail: drain before the status.** §S5 — a compiled call gets control
+    // back before a filed body has run, so the body must run *here*, before the
+    // next value. Sequenced into a local because the drain borrows the context's
+    // `Vm` and `status_of` takes the context itself. Then `status_of`, which
+    // carries F96's parity (D56) and D52's rule that a recorded exit becomes
+    // the error status.
+    let r = drained(&mut *c.vm, r);
+    status_of(c, r)
+}
+
+/// A body's last call **hands the request back rather than draining it** — §S5.
+///
+/// Same native, same catch, same status protocol; only the drain is absent.
+/// The compiled function returns with the request pending and whatever entered
+/// the body takes it at once, so a self-recursive word goes back to the frame
+/// loop instead of spending a Rust frame per level.
+extern "C" fn jit_call_native_tail(c: *mut Ctx<'_>, native: usize) -> i32 {
+    // SAFETY: `CompiledBody::run`'s contract.
+    let Some(c) = (unsafe { ctx(c) }) else {
+        return FAIL;
+    };
+    let Some(&(name, f)) = c.natives.get(native) else {
+        c.err = Some(Error::internal(format!(
+            "a compiled body called native index {native}, outside the {} it was given",
+            c.natives.len()
+        )));
+        return FAIL;
+    };
+    let outcome = bund2_api::catch_panic(|| f(&mut *c.vm));
+    let r = match outcome {
+        Ok(r) => r,
+        Err(msg) => Err(bund2_api::panicked(&format!("native `{name}`"), &msg)),
+    };
     status_of(c, r)
 }
 
@@ -342,6 +389,29 @@ extern "C" fn jit_apply(c: *mut Ctx<'_>, index: usize) -> i32 {
     // The substitution matters for the arm where `apply` answers `Ok` with an
     // exit recorded — and the clearing for a `CALL` to a lambda, which files
     // through `request_tail` where `run_to`'s error arm unwinds frames only.
+    //
+    // **The drain is a no-op on this path today** and is called anyway: `apply`
+    // drains its own request before it returns, so nothing is normally left.
+    // Calling it keeps the rule at the call site rather than resting on what
+    // `apply` happens to do, which is what §S5 asks of a non-tail call.
+    let r = drained(&mut *c.vm, r);
+    status_of(c, r)
+}
+
+/// [`jit_apply`] in tail position: no drain, for §S5's reason.
+extern "C" fn jit_apply_tail(c: *mut Ctx<'_>, index: usize) -> i32 {
+    // SAFETY: `CompiledWord::run`'s contract.
+    let Some(c) = (unsafe { ctx(c) }) else {
+        return FAIL;
+    };
+    let Some(v) = c.body.get(index).cloned() else {
+        c.err = Some(Error::internal(format!(
+            "a compiled body applied value {index}, outside the {} it was given",
+            c.body.len()
+        )));
+        return FAIL;
+    };
+    let r = c.vm.apply(v);
     status_of(c, r)
 }
 
@@ -795,10 +865,29 @@ enum Adapter {
 
 impl Adapter {
     /// The symbol the thunks import, and the function behind it.
+    ///
+    /// This is the **non-tail** adapter: it drains a filed request before it
+    /// returns, because compiled code that went on would run the body after the
+    /// next value (§S5).
     fn symbol(self) -> (&'static str, *const u8) {
         match self {
             Adapter::Native => ("jit_call_native", jit_call_native as *const u8),
             Adapter::Apply => ("jit_apply", jit_apply as *const u8),
+        }
+    }
+
+    /// The **tail-position** adapter, which does not drain.
+    ///
+    /// §S5: "A body's last call does not drain. The compiled function returns
+    /// with the request pending, and each entry takes it at once." Draining
+    /// here instead would spend a Rust frame per level, which is what
+    /// RFC-0003's frame loop exists to avoid — so the position has to reach the
+    /// adapter, and it does by the last thunk importing this symbol rather than
+    /// the one above.
+    fn tail_symbol(self) -> (&'static str, *const u8) {
+        match self {
+            Adapter::Native => ("jit_call_native_tail", jit_call_native_tail as *const u8),
+            Adapter::Apply => ("jit_apply_tail", jit_apply_tail as *const u8),
         }
     }
 }
@@ -883,13 +972,7 @@ impl Compiler {
             return Err("a word with an empty body has nothing to lower".into());
         }
         let seq = self.words.len();
-        let (entry, slots) = emit_into(
-            &mut self.module,
-            seq,
-            values,
-            last,
-            Adapter::Apply.symbol().0,
-        )?;
+        let (entry, slots) = emit_into(&mut self.module, seq, values, last, Adapter::Apply)?;
         self.words.push(Word {
             entry,
             _slots: slots,
@@ -981,7 +1064,7 @@ pub fn compile_body(calls: usize, last: LastCall) -> Result<CompiledBody, String
 /// 4 and 29 are about.
 fn emit_body(calls: usize, last: LastCall, adapter: Adapter) -> Result<CompiledBody, String> {
     let mut module = new_module(adapter)?;
-    let (entry, slots) = emit_into(&mut module, 0, calls, last, adapter.symbol().0)?;
+    let (entry, slots) = emit_into(&mut module, 0, calls, last, adapter)?;
     Ok(CompiledBody {
         _module: module,
         entry,
@@ -998,9 +1081,13 @@ fn emit_body(calls: usize, last: LastCall, adapter: Adapter) -> Result<CompiledB
 /// body emitted into a module shares its adapter.
 fn new_module(adapter: Adapter) -> Result<JITModule, String> {
     let (name, ptr) = adapter.symbol();
+    let (tail_name, tail_ptr) = adapter.tail_symbol();
     let mut builder =
         JITBuilder::new(default_libcall_names()).map_err(|e| format!("JIT builder: {e}"))?;
     builder.symbol(name, ptr);
+    // Both, because a body's thunks reach two adapters: the last one under
+    // `LastCall::Tail` hands the request back rather than draining it (§S5).
+    builder.symbol(tail_name, tail_ptr);
     Ok(JITModule::new(builder))
 }
 
@@ -1019,8 +1106,10 @@ fn emit_into(
     seq: usize,
     calls: usize,
     last: LastCall,
-    adapter_name: &str,
+    adapter: Adapter,
 ) -> Result<(Entry, Box<[*const u8]>), String> {
+    let adapter_name = adapter.symbol().0;
+    let tail_adapter_name = adapter.tail_symbol().0;
     let frontend = module.target_config();
     let ptr = frontend.pointer_type();
     let conv = module.isa().default_call_conv();
@@ -1039,6 +1128,13 @@ fn emit_into(
     let adapter_id = module
         .declare_function(adapter_name, Linkage::Import, &sig_adapter)
         .map_err(|e| format!("declare {adapter_name}: {e}"))?;
+    // **The tail adapter**, for a last call under `LastCall::Tail`: same
+    // signature, and it hands a filed request back instead of draining it
+    // (§S5). Declared always; imported only by the thunk that needs it, and an
+    // import nothing calls costs nothing.
+    let tail_adapter_id = module
+        .declare_function(tail_adapter_name, Linkage::Import, &sig_adapter)
+        .map_err(|e| format!("declare {tail_adapter_name}: {e}"))?;
 
     // Thunks and the body are `Tail`, so `return_call_indirect` is legal from
     // any tail position: "body to body, and body to a native's thunk".
@@ -1072,7 +1168,17 @@ fn emit_into(
         cg.func.signature = sig_tail.clone();
         {
             let mut f = FunctionBuilder::new(&mut cg.func, &mut fb_ctx);
-            let adapter = module.declare_func_in_func(adapter_id, f.func);
+            // **The position reaches the adapter here.** Only the body's last
+            // call is in tail position, and only when `last` says so; every
+            // other call drains. The adapter cannot see where it was called
+            // from, so the thunk decides by importing one symbol or the other.
+            let is_last = i + 1 == calls;
+            let which = if is_last && last == LastCall::Tail {
+                tail_adapter_id
+            } else {
+                adapter_id
+            };
+            let adapter = module.declare_func_in_func(which, f.func);
             let block = f.create_block();
             f.append_block_params_for_function_params(block);
             f.switch_to_block(block);
@@ -1626,11 +1732,18 @@ mod tests {
     /// **The positive control, so the clearing above is specific rather than
     /// blanket.**
     ///
-    /// A native that files a request and *succeeds* must still leave the body
-    /// to run — the adapter clears on failure only. Without this, an adapter
-    /// that cleared unconditionally would pass the test above while silently
-    /// discarding every tail request a compiled call ever filed, which is a
-    /// worse defect than F96 and in the same place.
+    /// A native that files a request and *succeeds* must have its body run —
+    /// the clearing is for failure only. Without this, a helper that cleared
+    /// unconditionally would pass the test above while silently discarding
+    /// every tail request a compiled call ever filed, which is a worse defect
+    /// than F96 and in the same place.
+    ///
+    /// **Amended when §S5's drain landed, because it had started passing for a
+    /// different reason than it was written for.** As written, it ran a further
+    /// `eval` and checked the `99` was on the stack — which was evidence that
+    /// Tier 0's *next* `take_pending` found the request. A non-tail call now
+    /// drains, so the `99` is pushed during `run`, and the later `eval` proved
+    /// nothing. The assertion is now made where the work happens.
     #[test]
     fn a_succeeding_native_keeps_the_tail_request_it_filed() {
         let body = compile_body(1, LastCall::Ordinary).expect("lowers");
@@ -1638,17 +1751,155 @@ mod tests {
         body.run(&mut vm, &[("fs", files_then_succeeds)])
             .expect("the native succeeded");
 
+        let stack = vm.snapshot();
+        assert_eq!(stack.len(), 1, "the filed body ran at the drain: {stack:?}");
+        assert_eq!(
+            stack[0].as_int(),
+            Some(99),
+            "the body the native filed must run, not be discarded: {stack:?}"
+        );
+        assert!(!vm.cells().request(), "and nothing is left pending");
+    }
+
+    // --- §S5's drain helper: a call may leave a body to run -----------------
+
+    /// **Criterion 26's shape, at the adapter.** A non-tail call must run a
+    /// filed body *before the next value*: Tier 0's `{ 10 } ! 20` leaves `10`
+    /// beneath `20`, and a compiled body that went on would leave them the
+    /// other way round.
+    ///
+    /// The body here files `99` and the second call pushes `7`, so the order on
+    /// the stack is what says whether the drain happened at the right moment.
+    #[test]
+    fn a_non_tail_call_drains_before_the_next_value() {
+        let body = compile_body(2, LastCall::Ordinary).expect("lowers");
+        let mut vm = Interp::new();
+        body.run(&mut vm, &[("fs", files_then_succeeds), ("p7", pushes_seven)])
+            .expect("it ran");
+
+        let stack = vm.snapshot();
+        assert_eq!(stack.len(), 2, "{stack:?}");
+        assert_eq!(
+            stack[0].as_int(),
+            Some(99),
+            "the filed body ran before the next call: {stack:?}"
+        );
+        assert_eq!(stack[1].as_int(), Some(7), "{stack:?}");
+        assert!(!vm.cells().request(), "and nothing is left pending");
+    }
+
+    /// **A body's last call hands the request back rather than draining it** —
+    /// §S5. Draining in tail position would spend a Rust frame per level, which
+    /// is what RFC-0003's frame loop exists to prevent.
+    ///
+    /// So after a tail call the request is still pending when compiled code
+    /// returns, and whatever entered the body takes it. Here that is the test
+    /// itself: the body leaves nothing, and the next evaluation runs it.
+    #[test]
+    fn a_tail_call_hands_the_request_back_instead_of_draining() {
+        let body = compile_body(1, LastCall::Tail).expect("lowers");
+        let mut vm = Interp::new();
+        body.run(&mut vm, &[("fs", files_then_succeeds)])
+            .expect("it ran");
+
+        assert_eq!(vm.depth(), 0, "the tail call did not drain");
+        assert!(
+            vm.cells().request(),
+            "the request is handed back, still pending in the mirror"
+        );
+
+        // The entry takes it at once, as Tier 0's loop does.
         vm.eval(&[BundValue::int(1)]).expect("runs");
         let stack = vm.snapshot();
-        assert_eq!(
-            stack.len(),
-            2,
-            "the filed body ran as well as the 1: {stack:?}"
-        );
         assert!(
             stack.iter().any(|v| v.as_int() == Some(99)),
-            "the body the native filed must still run: {stack:?}"
+            "the handed-back body ran: {stack:?}"
         );
+    }
+
+    /// **A request filed inside a drained body is drained before the drain
+    /// returns** — the tenth review's S3, through criterion 26.
+    ///
+    /// The frame loop is flat, so the body the drain starts runs its own filed
+    /// body in the same `run_to`. Nothing may be left pending when the adapter
+    /// returns.
+    #[test]
+    fn a_request_filed_inside_a_drained_body_is_drained_too() {
+        /// Reached by name from the drained body, and files a body of its own.
+        fn inner(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.tail_lambda(BundValue::lambda(vec![BundValue::int(42)]));
+            Ok(())
+        }
+        /// The native the compiled call reaches: it files a body that pushes
+        /// `7` and then calls `inner`, so the drain starts a body that files.
+        fn files_outer(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.tail_lambda(BundValue::lambda(vec![
+                BundValue::int(7),
+                BundValue::call("inner"),
+            ]));
+            Ok(())
+        }
+
+        let mut vm = Interp::new();
+        vm.registry.register_native(
+            "inner",
+            inner,
+            bund2_api::StackEffect::opaque(0),
+            bund2_api::WordKind::Sync,
+        );
+
+        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
+        body.run(&mut vm, &[("fo", files_outer)]).expect("it ran");
+
+        let stack = vm.snapshot();
+        assert!(
+            stack.iter().any(|v| v.as_int() == Some(7)),
+            "the drained body ran: {stack:?}"
+        );
+        assert!(
+            stack.iter().any(|v| v.as_int() == Some(42)),
+            "and the body it filed ran too, before the drain returned: {stack:?}"
+        );
+        assert!(!vm.cells().request(), "nothing left pending");
+    }
+
+    /// **A refused drain clears the request** — §S5's second settled edge. With
+    /// the Tier 0 floor above the stack pointer, the drain cannot re-enter
+    /// evaluation, so it answers the exhaustion error and leaves nothing
+    /// pending: "no stale request outlives an error".
+    #[test]
+    fn a_drain_refused_below_the_floor_clears_the_request() {
+        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
+
+        let here = bund2_interp::stack_marker();
+        // A floor above us, as `bund2-interp`'s own floor test builds it.
+        bund2_interp::set_stack_region(
+            here + 4 * bund2_interp::STACK_RESERVE,
+            bund2_interp::STACK_RESERVE,
+        );
+        let mut vm = Interp::new();
+        bund2_interp::set_stack_region(here, 8 * 1024 * 1024);
+
+        let e = body
+            .run(&mut vm, &[("fs", files_then_succeeds)])
+            .expect_err("the drain was refused");
+        assert!(e.is_stack_exhausted(), "{}", e.0);
+        assert!(
+            !vm.cells().request(),
+            "the refused drain cleared the request rather than leaving it stale"
+        );
+    }
+
+    /// **Draining when nothing was filed does nothing**, and reports success.
+    /// Without this the four tests above would pass against a drain that always
+    /// ran something or always failed.
+    #[test]
+    fn a_call_that_files_nothing_drains_nothing() {
+        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
+        let mut vm = Interp::new();
+        body.run(&mut vm, &[("p7", pushes_seven)]).expect("it ran");
+        assert_eq!(vm.depth(), 1, "only what the native pushed");
+        assert!(!vm.cells().request());
     }
 
     // --- `status_of`: D52's exit, and §S5's one status-maker ----------------
@@ -1745,9 +1996,16 @@ mod tests {
     }
 
     /// **The positive control for `status_of` itself.** A succeeding native
-    /// with no exit recorded must still report success and keep the body it
-    /// filed — otherwise the four tests above would pass against a helper that
+    /// with no exit recorded must report success, and the body it filed must
+    /// run — otherwise the four tests above would pass against a helper that
     /// failed everything.
+    ///
+    /// **Amended when §S5's drain landed.** This asserted the request was
+    /// *still pending* afterwards, which was right while the adapter only
+    /// cleared on failure. A non-tail call now drains, so the body has already
+    /// run by the time `run` returns and the cell is correctly clear. The
+    /// control's point is unchanged — a succeeding native's body is not
+    /// discarded — but the evidence moved from "still pending" to "ran".
     #[test]
     fn status_of_reports_success_when_nothing_ended_or_failed() {
         let body = compile_body(1, LastCall::Ordinary).expect("lowers");
@@ -1755,13 +2013,13 @@ mod tests {
         body.run(&mut vm, &[("fs", files_then_succeeds)])
             .expect("no exit, no error");
         assert!(
-            vm.cells().request(),
-            "the filed body is still pending, in the mirror too"
-        );
-        vm.eval(&[BundValue::int(1)]).expect("runs");
-        assert!(
             vm.snapshot().iter().any(|v| v.as_int() == Some(99)),
-            "and it still runs"
+            "the filed body ran, at the drain: {:?}",
+            vm.snapshot()
+        );
+        assert!(
+            !vm.cells().request(),
+            "and nothing is left pending once it has run"
         );
     }
 

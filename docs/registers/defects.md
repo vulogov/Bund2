@@ -3944,6 +3944,57 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F123 — `PROMOTABLE.txt` cannot satisfy both feature sets, so the palette audit fails in one of them
+
+**A Bund2 defect**, in the audit rather than in the language. Found while
+regenerating the list after RFC-0005's cell work.
+
+`every_fixed_effect_native_keeps_its_pair_over_the_promotable_palette` compares
+the palette's result against the file as a **symmetric set difference** and
+asserts both halves are empty (`crates/bund2-stdlib/src/lib.rs`):
+
+```rust
+let gained: Vec<&String> = promotable.difference(&listed).collect();
+let lost: Vec<&String> = listed.difference(&promotable).collect();
+assert!(gained.is_empty() && lost.is_empty(), …);
+```
+
+Nothing in the audit is feature-aware: the palette is drawn from whatever
+`register_all` bound, and `string.grok` and `string.grok.` are registered only
+under the `grok` feature (`crates/bund2-stdlib/src/library_string.rs`, behind
+`#[cfg(feature = "grok")]`; D10 and D40 keep it off by default).
+
+So the file has no configuration that passes both:
+
+- regenerated **without** `--all-features` — the state today, 279 lines, no
+  `grok` entries — `cargo test --workspace --all-features` fails with
+  `now reached ["string.grok", "string.grok."]`;
+- regenerated **with** `--all-features`, the default build would fail the same
+  assertion from the other side, with `no longer reached` naming the same two.
+
+D48 says the list is regenerated and its diff reviewed, and gives the
+regeneration command without a feature list; it never contemplated a
+feature-gated native. The list is `tests/golden/`'s, so the fix is the
+repository owner's to choose and not something to patch around.
+
+**Dispositions, for the owner.** Each is a decision, not an edit:
+
+- make the audit feature-aware — skip a native the current build did not
+  register, comparing only what both can see;
+- record the feature-gated names in the file as comments, which the comparison
+  already ignores, so neither build counts them;
+- own the file at `--all-features` and run the audit only there.
+
+**What it does not affect.** Conformance and coverage are unmoved — the audit
+is an honesty check on promotion's eligibility list, and promotion does not
+exist yet, so nothing reads `PROMOTABLE.txt` at run time. The two `grok` words
+are correctly promotable under the feature; the defect is that the file cannot
+say so and stay true for the default build.
+
+- Found: 2026-09-13, regenerating after the cell work
+- Status: **OPEN — needs the owner's disposition**
+- Depends on: D48 (the list), D40 and D10 (why `grok` is optional)
+
 ## F122 — the `$` alias is registered behind a path that never reaches it
 
 **An original-implementation defect**, found while trying to write a golden

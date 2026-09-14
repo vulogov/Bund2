@@ -1514,6 +1514,27 @@ return*). It checks the Tier 0 floor before it re-enters, as `Vm::eval_lambda`
 does. A body it starts is entered like any other: compiled if the cache holds it
 and the Tier 1 floor allows, and declined otherwise.
 
+**Built 2026-09-13 (D64).** The helper is `Vm::drain_tail_request`, because
+`Interp::take_pending`, `run_to` and `unwind_to` are private and `bund2-jit`
+holds only `&mut dyn Vm`. `Interp`'s implementation is `Interp::apply`'s tail
+without the value and without the gate: the floor check, the recorded frame
+count, `take_pending`, the unwind on error, `run_to`. It writes no
+`pending_tail` itself — `take_pending` and `clear_tail_request` do — so
+assumption 33's named set stays at four and the mirror stays paired.
+
+**It does not consult the exit gate**, deliberately: `status_of` already
+substitutes the refusal after an `Ok`, and doing both would substitute twice. A
+drained body that ends the program therefore drains successfully and the
+refusal is the status-maker's to make, which a Tier 0 test pins.
+
+**Position reaches the adapter through the thunk.** A non-tail call drains; a
+body's last call under `LastCall::Tail` hands the request back, because draining
+there would spend a Rust frame per level and break RFC-0003's criterion 2. The
+adapter cannot see where it was called from, so there are two adapter symbols —
+`jit_call_native`/`jit_apply` and `jit_call_native_tail`/`jit_apply_tail` — and
+`emit_into` gives the last thunk the tail symbol when the body claims a tail
+call. Both are bound on the module; an import nothing calls costs nothing.
+
 **Three edges, settled** for the tenth review's S3:
 - **The epoch and `autoadd` are read after the drain.** A drained body can
   switch the current stack, set `autoadd` or `register` a name, so the loads
@@ -2146,6 +2167,17 @@ rather than merely keep it in step. **The other three are still unread**:
 `autoadd`, the epoch and the floor are written and never loaded, because no
 lowering emits a guard, a residual path or an entry check. The paragraph above
 holds for them.
+
+**Dated note, 2026-09-13 (4) — the request cell is now acted on, not only
+cleared.** §S5's drain helper is built: `Vm::drain_tail_request` on the trait,
+`Interp`'s implementation, and a `drained` step in the compiled boundary that
+runs a filed body after every **non-tail** call, before the next value. So the
+cell's whole contract is exercised — filed, drained, cleared — rather than
+mirrored and discarded. **The load is still Rust's, not CLIF's**: compiled code
+calls the adapter unconditionally and the adapter asks the `Vm`, where §S6 has
+compiled code load the cell itself and branch. That is the remaining half, and
+it arrives with the guards. The other three cells are unchanged: written, never
+read (D64).
 
 - one **stack-floor cell** per `Interp` (§S8), holding the floor that `Interp`
   took from its thread's declared region, which the check at every compiled

@@ -1413,6 +1413,38 @@ impl Vm for Interp {
         self.cells.set_request(false);
     }
 
+    /// See [`bund2_api::Vm::drain_tail_request`] for the contract.
+    ///
+    /// This is `Interp::apply`'s tail, without the value and without the gate:
+    /// the floor check, the recorded frame count, `take_pending`, the unwind on
+    /// error, and `run_to`. Compiled code has no `apply_step` to precede it,
+    /// which is the whole reason it is a separate entry point.
+    ///
+    /// **Writes no `pending_tail` of its own** — `take_pending` and
+    /// `clear_tail_request` do, and both are already in RFC-0005 assumption
+    /// 33's named set, so the mirror stays paired without widening it.
+    fn drain_tail_request(&mut self) -> Result<(), Error> {
+        if self.pending_tail.is_none() {
+            return Ok(());
+        }
+        // Running a body here spends machine stack, as `eval_lambda` does.
+        // §S5: a refused drain clears the request before it returns the error,
+        // so nothing stale outlives it (F96's rule, at this boundary).
+        if !self.stack_ok() {
+            Vm::clear_tail_request(self);
+            return Err(Error::stack_exhausted());
+        }
+        let floor = self.frames.len();
+        // As `Interp::apply` does: a tier may run the body and answer an error
+        // from inside `push_frame`, so unwind to the floor this call recorded
+        // rather than leaving frames above it for the next caller.
+        if let Err(e) = self.take_pending() {
+            self.unwind_to(floor);
+            return Err(e);
+        }
+        self.run_to(floor)
+    }
+
     fn scoped_call(&mut self, stack: &str, body: Vec<BundValue>) -> Result<(), Error> {
         if !self.stack_ok() {
             return Err(Error::stack_exhausted());
@@ -2129,6 +2161,67 @@ mod tests {
             mirrored, named,
             "every writer of `pending_tail` must write RFC-0005 §S6's mirror beside it"
         );
+    }
+
+    /// **`drain_tail_request` runs a filed body now** — RFC-0005 §S5's drain
+    /// helper, Tier 0's half. The compiled tier calls this after a non-tail
+    /// call, where Tier 0 would have drained inside `Interp::apply`.
+    #[test]
+    fn draining_runs_the_filed_body() {
+        let mut i = Interp::new();
+        i.request_tail(BundValue::lambda(vec![BundValue::int(99)]));
+        assert!(i.cells().request(), "filed");
+
+        Vm::drain_tail_request(&mut i).expect("the body ran");
+        assert_eq!(i.pull().and_then(|v| v.as_int()), Some(99), "it ran now");
+        assert!(!i.cells().request(), "and the mirror is clear");
+    }
+
+    /// Draining with nothing filed is a no-op, not an error.
+    #[test]
+    fn draining_nothing_does_nothing() {
+        let mut i = Interp::new();
+        Vm::drain_tail_request(&mut i).expect("nothing to do");
+        assert_eq!(i.depth(), 0);
+    }
+
+    /// **A refused drain clears the request** — §S5: "no stale request outlives
+    /// an error". With the floor above the stack pointer the drain cannot
+    /// re-enter evaluation, so it reports exhaustion and leaves nothing behind
+    /// for the next `take_pending` to run.
+    #[test]
+    fn a_drain_below_the_floor_clears_the_request() {
+        let here = stack_marker();
+        set_stack_region(here + 4 * STACK_RESERVE, STACK_RESERVE);
+        let mut i = Interp::new();
+        STACK_REGION.with(|r| r.set(None));
+
+        i.request_tail(BundValue::lambda(vec![BundValue::int(99)]));
+        let e = Vm::drain_tail_request(&mut i).expect_err("refused below the floor");
+        assert!(e.is_stack_exhausted(), "{}", e.0);
+        assert!(!i.cells().request(), "the mirror is clear");
+        assert_eq!(i.depth(), 0, "and nothing ran");
+    }
+
+    /// **The drain does not consult the exit gate.** RFC-0005 §S5 gives that to
+    /// the compiled tier's one status-making function, which substitutes the
+    /// refusal after an `Ok`; doing it here as well would substitute twice.
+    ///
+    /// So a body that records an exit drains successfully, and the refusal is
+    /// the caller's to make.
+    #[test]
+    fn draining_leaves_the_exit_to_the_status_maker() {
+        fn exits(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.request_exit(7);
+            Ok(())
+        }
+        let mut i = Interp::new();
+        i.registry
+            .register_native("ex", exits, StackEffect::opaque(0), WordKind::Sync);
+        i.request_tail(BundValue::lambda(vec![BundValue::call("ex")]));
+
+        Vm::drain_tail_request(&mut i).expect("the drain itself does not refuse");
+        assert_eq!(i.exit_requested(), Some(7), "the exit is recorded");
     }
 
     /// **The cells are reachable through `&mut dyn Vm`, which is how a tier

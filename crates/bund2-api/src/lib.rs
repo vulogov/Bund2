@@ -373,6 +373,37 @@ pub trait Vm {
     /// Clearing when nothing is filed does nothing.
     fn clear_tail_request(&mut self);
 
+    /// **Run a filed tail request now — RFC-0005 §S5's drain helper.**
+    ///
+    /// Tier 0 drains after every value it applies, inside `Interp::apply`. A
+    /// compiled call gets control back *before* the filed body has run, so
+    /// compiled code must drain after every non-tail call or the body would run
+    /// after the next value — and since `request_tail` assigns, a later request
+    /// would overwrite it and the first would never run at all.
+    ///
+    /// This does what `Interp::apply` does after `apply_step`: `take_pending`,
+    /// then run frames back down to the count it found. A request the drained
+    /// body files itself is drained before this returns, because the frame loop
+    /// is flat.
+    ///
+    /// **Only in non-tail position.** A body's last call hands the request back
+    /// instead: the compiled function returns with it pending, and whatever
+    /// entered the body takes it at once. Draining in tail position would spend
+    /// a Rust frame per level and break RFC-0003's criterion 2.
+    ///
+    /// **It checks the Tier 0 floor first**, as [`Vm::eval_lambda`] does, since
+    /// running a body here spends machine stack. Below the floor it clears the
+    /// request and answers [`Error::stack_exhausted`] — §S5: "no stale request
+    /// outlives an error".
+    ///
+    /// **It does not consult the exit gate.** RFC-0005 §S5 gives that to the
+    /// one status-making function, which turns a recorded exit into the error
+    /// status after an `Ok`; doing it here as well would substitute the refusal
+    /// twice.
+    ///
+    /// Draining when nothing is filed does nothing and answers `Ok`.
+    fn drain_tail_request(&mut self) -> Result<(), Error>;
+
     /// Run `body` on `stack`, returning to the current stack **however the
     /// body leaves** — RFC-0003 §S4's exit action.
     ///
@@ -1462,6 +1493,9 @@ mod tests {
         }
         fn tail_lambda(&mut self, _: BundValue) {}
         fn clear_tail_request(&mut self) {}
+        fn drain_tail_request(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
         fn cells(&self) -> Option<&Cells> {
             None
         }

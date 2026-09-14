@@ -3453,6 +3453,53 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D64 — the drain helper is a `Vm` method, and tail position reaches the adapter through its thunk
+
+**Decided by the repository owner, 2026-09-13.** RFC-0005 §S5's drain helper is
+built, and two shapes it needed were not specified.
+
+- Blocks: nothing. It gives §S6's request cell its first acting reader
+- Status: **RESOLVED — built.**
+
+**The helper had to widen `Vm`.** §S5 says the drain does "what `Interp::apply`
+does after `apply_step`: `take_pending`, then `run_to` down to the frame count
+it found" — and all three of `take_pending`, `run_to` and `unwind_to` are
+private to `Interp`, while `bund2-jit` holds only `&mut dyn Vm`. So the helper
+cannot live in `bund2-jit` alone: `Vm::drain_tail_request` is the seam, with
+`Interp`'s implementation carrying the floor check, the unwind on error and the
+`run_to`.
+
+It **writes no `pending_tail` of its own** — `take_pending` and
+`clear_tail_request` do that, and both are already in assumption 33's named set
+— so the request cell's writer set stays at four and the mirror stays paired
+without widening the scan.
+
+**It does not consult the exit gate.** `status_of` substitutes the refusal
+after an `Ok`; a second consultation here would substitute twice for one exit.
+A drained body that records an exit therefore drains successfully, and the
+refusal is made by the one status-maker. `draining_leaves_the_exit_to_the_status_maker`
+(`crates/bund2-interp/src/lib.rs`) pins it.
+
+**Tail position reaches the adapter through the thunk, because the adapter
+cannot see its caller.** §S5 has a non-tail call drain and a body's last call
+hand the request back — draining in tail position would spend a Rust frame per
+level and break RFC-0003's criterion 2. The adapter is one Rust function shared
+by every call site, so the *lowering* carries the distinction: two adapter
+symbols per lowering (`jit_call_native`/`jit_apply` and their `_tail` twins),
+both bound on the module, and `emit_into` imports the tail symbol for the last
+thunk when the body claims a tail call.
+
+**Rejected: one adapter with a position argument.** It would widen the boundary
+signature that §S8 fixes at `(ctx, index) -> status`, and the verifier's rule
+rests on that uniformity. Two symbols cost an import nothing calls.
+
+**What this does not decide.** The cell's *load* is still Rust's: compiled code
+calls the adapter unconditionally and the adapter asks the `Vm`, where §S6 has
+compiled code load the cell and branch. That arrives with the guards. The
+resolving trampoline and the residual path's `apply` are unbuilt, and criterion
+26 stays unmet — its cases need a compiled body that continues past a call.
+Conform is unmoved at 106/114, ceiling 106/114.
+
 ## D63 — both tiers make the exit refusal through one constructor
 
 **Decided by the repository owner, 2026-09-13.** RFC-0005 §S5's `status_of` is
