@@ -3739,6 +3739,22 @@ evidence, and this one is listed as runnable rather than as met.
    first evaluation. That is the strongest test of meaning the corpus can give,
    and it is why §S7 makes the threshold configurable and recorded.
 
+   **Dated note, 2026-09-14 — the flag is built, and it found what it was for.**
+   `bund2 --stats` reports compiled bodies and inlined sites on stderr. Its
+   first use found **F124**: the CLI constructed an `Interp` directly and never
+   reached `bund2-runtime`, the only crate that installs a tier — so
+   `--features jit` had been enabling a feature on code that never ran, and this
+   criterion's comparison had been running Tier 0 against itself. Fixed the same
+   day; `conform --features jit` now reads 106/114, ceiling 106/114, with a tier
+   actually installed.
+
+   **The second `jit` run is still not runnable.** `--jit-threshold` is
+   specified here and in §S5, and built nowhere (**F125**), so the corpus is
+   only exercised at the default threshold of 64 — where most programs are too
+   short to compile anything. Measured: a 200-iteration loop compiles no body;
+   1000 compiles two. Until the flag exists this criterion's stronger half is
+   unavailable, and that is a gap in the evidence rather than a passing test.
+
    **Once a tier exists, this criterion exercises promotion across calls
    under the CLI's default reporter.** D45 made `TextReporter` want a snapshot
    only for a fatal report, which is made after evaluation returns. Before
@@ -4012,6 +4028,52 @@ evidence, and this one is listed as runnable rather than as met.
       may end the program*). None of them is plausibly worth the 0.9× of
       headroom above the floor, but this criterion is met only by the tier as
       shipped, and stays open until then.
+
+    **Measured 2026-09-14, on the shipped lowering, and it is below the stop
+    rule.** §S6's inlining join exists: a body's `CALL`s are planned against
+    the published table, and an admitted site runs the arm inline behind the
+    type, generation and `autoadd` guards. The A/B this criterion asks for can
+    now be run, and the figures are **attributed** — `bund2 --stats` reports
+    compiled bodies *and* inlined sites, so a timing can no longer be confused
+    with a body that compiled and inlined nothing.
+
+    | program | sites inlined | Tier 0 | with the tier | |
+    |---|---|---|---|---|
+    | `1 2 + drop` ×10⁶ (this criterion's own shape) | 3 | 0.31 s | 0.31 s | **1.00×** |
+    | a fixed-point Julia step ×2×10⁵ | 7 | 0.49 s | 0.465 s | **≈1.04×** |
+
+    Release profile, ten alternating pairs for the first and six for the
+    second, medians quoted; alternating because a straight A-then-B run on this
+    machine drifts by more than the difference being measured. Both programs
+    are `register`ed words called in a `for` loop, so §S7's threshold is passed
+    early and the body is compiled for nearly the whole run.
+
+    **So the stop rule fires.** "A speedup below 1.2× on `1 2 + drop` means the
+    tier is not earning its keep and §S1's gate should be reopened rather than
+    the number explained." It reads 1.00×. This entry does not explain it away.
+
+    **What the number is not.** It is not evidence that the *machinery* is
+    wrong: criterion 17's dominance holds, the guards are taken, and
+    conformance is unmoved at 106/114 with the feature on. It is evidence about
+    **inlining without promotion**, which is what exists today — and §S6
+    predicted it in terms: "For inlining alone on arithmetic it is almost
+    certainly not [worth it], and criterion 10's measurement decides." D59
+    recorded the same conclusion from the other side, measuring this machine's
+    `Int + Int` ceiling at **1.77× and 1.81×**, already below the 2× rule
+    before any compiled code existed. The measurement agrees with the RFC's own
+    prediction rather than upsetting it.
+
+    **Why a compiled body still costs what it does.** Every value that is not
+    an inlined site goes through `Vm::apply` — Tier 0's own path — plus the
+    boundary: an entry trampoline, a slot load and an indirect call per value,
+    the request-cell load after each, and three guards per site. Three inlined
+    sites in `1 2 + drop` remove three dispatches and add all of that. The
+    remaining headroom is promotion, which §S6 calls "the prize" and which
+    needs the residual path and assumption 38's resume index.
+
+    **What this criterion still cannot report**: the corpus-wide figure
+    criterion 2 wants at threshold 1, because `--jit-threshold` is specified
+    and unbuilt (F125).
 
 11. **A promoted recursion does not overflow the machine stack.** §S8's
     correctness problem, and the criterion is one that already exists:

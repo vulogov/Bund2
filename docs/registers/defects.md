@@ -3944,6 +3944,47 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F125 — `--jit-threshold` is specified in three places and built in none
+
+**A Bund2 defect**, the sibling of F124 and found the same way: by trying to
+take a measurement the RFC already asks for.
+
+RFC-0005 names the flag three times, and criterion 2 depends on it:
+
+- criterion 2's second `jit` run is `cargo xtask conform --features jit
+  --jit-threshold 1`, "so every body compiles on its first evaluation. That is
+  the strongest test of meaning the corpus can give, and it is why §S7 makes
+  the threshold configurable and recorded";
+- §S5's exit passage reasons about a program's behaviour "under
+  `--jit-threshold 1`";
+- a dated note of 2026-09-11 says the flag "arrives with the tier".
+
+The tier has arrived. The flag has not: `threshold` does not appear in
+`crates/bund2-cli/src/main.rs`, and `Caps::default` fixes it at 64 with no way
+to override it from a run.
+
+**What it costs.** Criterion 2's strongest configuration cannot be run, so the
+corpus is only ever exercised at the default threshold — where most programs
+are too short to compile anything. Measured today: a loop of 200 iterations
+compiles **0** bodies; 1000 compiles 2. So "the same N/M with the feature on
+and off" is currently a comparison in which the feature does very little over
+most of the corpus, which is the weaker half of what criterion 2 intends.
+
+It also blocks the honest form of criterion 10's A/B over the corpus rather
+than over hand-written kernels.
+
+**Disposition.** A `--jit-threshold <n>` flag on the CLI, threaded into
+`Caps` where `Runtime::with_options` builds the tier, and `xtask conform`
+passing it through as criterion 2 spells it.
+
+**What it does not affect.** Nothing about meaning: conformance is unmoved at
+106/114, ceiling 106/114, with the feature on and off. The threshold is a
+tuning knob (§S7), not a semantic boundary.
+
+- Found: 2026-09-14, while measuring criterion 10 on the shipped lowering
+- Status: **OPEN**
+- Depends on: D59, criterion 2, §S7's knobs
+
 ## F124 — `bund2` never installs a tier, so every `--features jit` measurement compares Tier 0 with itself
 
 **A Bund2 defect**, found while trying to benchmark the JIT on a fractal.
@@ -3998,8 +4039,29 @@ changed. Every unit test of the tier is unaffected: those construct `Runtime`
 or `Compiler` directly and do exercise Tier 1.
 
 - Found: 2026-09-14, benchmarking a Julia set through the CLI
-- Status: **OPEN**
+- Status: **RESOLVED — fixed 2026-09-14.**
 - Depends on: D59 (Tier 1 authorised), D62 (the share), criterion 2
+
+**The fix, and the evidence that it is one.** `run` constructs a
+`bund2_runtime::Runtime` rather than an `Interp`, so the tier is installed on
+the path every program takes; `bund2-cli` depends on `bund2-runtime` directly
+and chains `jit`/`aot` through it rather than through the facade that
+re-exports nothing. Criterion 2's statistics flag is built: `--stats` reports
+compiled bodies **and** inlined sites, on stderr so no golden is disturbed.
+
+The same program, the same flag, the two builds:
+
+    bund2-jit      script … --stats  ->  tier compiled 2 bodies, inlined 3 sites
+    bund2-default  script … --stats  ->  no tier (built without `jit`)
+
+That distinction is what the defect was: before, both said the same thing by
+doing the same thing. `conform --features jit` now reads 106/114, ceiling
+106/114, with a tier genuinely installed — the invariant that a tier moves
+meaning by zero, tested for the first time rather than passing vacuously.
+
+**Its sibling stays open.** `--jit-threshold` is still unbuilt (F125), so
+criterion 2's second `jit` run — every body compiled on first evaluation —
+cannot be performed.
 
 ## F123 — `PROMOTABLE.txt` cannot satisfy both feature sets, so the palette audit fails in one of them
 
