@@ -761,25 +761,118 @@ impl Adapter {
     }
 }
 
-/// One compiled Bund word, and the code memory behind it.
+/// **Where a compiled word lives: a handle into its [`Compiler`].**
 ///
-/// The body it runs is supplied at [`CompiledWord::run`], not held here: the
-/// `Rc`-keyed cache is what will own the association between a body and its
-/// code, and this type predates it.
-pub struct CompiledWord {
-    inner: CompiledBody,
+/// Deliberately *not* a pointer to code. A compiled word's entry is only valid
+/// while the module that emitted it is alive, so a self-contained value holding
+/// that pointer would be a dangling reference waiting for its module to be
+/// dropped — and nothing in the type system would say so.
+///
+/// **What a handle does and does not guarantee.** It is an index, so it can
+/// only ever reach a word of the compiler it is used against: never freed code,
+/// never another module's address, and out of range it answers `None`. It is
+/// *not* an identity — every compiler numbers from zero, so a handle from one
+/// compiler used against another names that other compiler's word instead.
+/// Nothing here mixes them: the cache that stores handles lives in the same
+/// `JitTier` as the compiler that issued them, which is the structural reason
+/// the question does not arise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WordHandle(usize);
+
+/// One compiled word's code, as its [`Compiler`] records it.
+struct Word {
+    entry: Entry,
+    /// The call slots. Held to keep the allocation alive, never read from Rust
+    /// — see [`CompiledBody::_slots`], which explains the same field at length.
+    _slots: Box<[*const u8]>,
+    values: usize,
+    last: LastCall,
 }
 
-impl CompiledWord {
+/// **One `JITModule`, and every word compiled into it.**
+///
+/// *One compiler per `Interp`*, which is what makes it one module per `Interp`:
+/// `JitTier` owns a `Compiler`, `Interp` owns the tier, so an interpreter's
+/// compiled code is emitted into a single module that lives exactly as long as
+/// the interpreter does. Two `Interp`s share no code and no cache — criterion
+/// 23 — and neither can be served the other's pointers, because a
+/// [`WordHandle`] is only meaningful to the compiler that issued it.
+///
+/// **Why the module is shared rather than one per body.** A module is a code
+/// allocator: each one reserves and finalises its own memory, and none of it is
+/// ever reclaimed (§S4, and `free_memory` is an `unsafe fn` taking `self` that
+/// nothing here is in a position to call). A module per compiled body would
+/// multiply that fixed cost by the compiled-function cap. Cranelift supports
+/// the sharing directly: `finalize_definitions` takes the pending list rather
+/// than reprocessing it, so calling it once per compilation finalises only the
+/// functions that compilation defined and leaves every earlier body's code
+/// untouched and still executable.
+pub struct Compiler {
+    module: JITModule,
+    words: Vec<Word>,
+}
+
+impl Compiler {
+    /// A compiler with an empty module, ready to take bodies.
+    pub fn new() -> Result<Self, String> {
+        Ok(Self {
+            module: new_module(Adapter::Apply)?,
+            words: Vec::new(),
+        })
+    }
+
+    /// **Compile a Bund word's body — the first lowering of a real word.**
+    ///
+    /// `values` is the body's length. Each value gets a `Tail` thunk that calls
+    /// [`jit_apply`] with its index, and the body calls each thunk indirectly
+    /// through its slot, exactly as the native lowering does — so criterion 4's
+    /// property holds here too: no call between compiled functions names a
+    /// `FuncId`.
+    ///
+    /// See [`jit_apply`] for why every value goes through `Vm::apply` rather
+    /// than being lowered directly, and for what that does and does not buy.
+    ///
+    /// **Never call this while compiled code is running.** Emitting into the
+    /// module finalises it, and the seam guarantees the quiet moment: `Interp`
+    /// takes the tier out for the duration of a compiled body, so nothing
+    /// reaches a compiler that is already inside one of its own words.
+    pub fn compile_word(&mut self, values: usize, last: LastCall) -> Result<WordHandle, String> {
+        if values == 0 {
+            return Err("a word with an empty body has nothing to lower".into());
+        }
+        let seq = self.words.len();
+        let (entry, slots) = emit_into(
+            &mut self.module,
+            seq,
+            values,
+            last,
+            Adapter::Apply.symbol().0,
+        )?;
+        self.words.push(Word {
+            entry,
+            _slots: slots,
+            values,
+            last,
+        });
+        Ok(WordHandle(seq))
+    }
+
     /// Apply the body's values in order, through Tier 0's own `apply`.
     ///
     /// `body` must be the same length the word was compiled for; a shorter one
     /// is a broken invariant and reported as such rather than silently short.
-    pub fn run(&self, vm: &mut dyn Vm, body: &[BundValue]) -> Result<(), Error> {
-        if body.len() != self.inner.calls {
+    /// A handle this compiler never issued is the same kind of invariant, and
+    /// is reported rather than indexed with.
+    pub fn run(&self, word: WordHandle, vm: &mut dyn Vm, body: &[BundValue]) -> Result<(), Error> {
+        let Some(w) = self.words.get(word.0) else {
+            return Err(Error::internal(
+                "a compiled word was run against a compiler that never issued its handle",
+            ));
+        };
+        if body.len() != w.values {
             return Err(Error::internal(format!(
                 "a compiled word was built for {} values and handed {}",
-                self.inner.calls,
+                w.values,
                 body.len()
             )));
         }
@@ -790,8 +883,9 @@ impl CompiledWord {
             body,
         };
         // SAFETY: as `CompiledBody::run`'s — the trampoline's published address
-        // under the platform's convention, with `&mut c` live for the call.
-        let status = unsafe { (self.inner.entry)(&raw mut c) };
+        // under the platform's convention, with `&mut c` live for the call. The
+        // code is alive because `self` owns the module that emitted it.
+        let status = unsafe { (w.entry)(&raw mut c) };
         match c.err {
             Some(e) => Err(e),
             None if status == OK => Ok(()),
@@ -802,32 +896,19 @@ impl CompiledWord {
     }
 
     /// How many values the word applies.
-    pub fn values(&self) -> usize {
-        self.inner.calls
+    pub fn values(&self, word: WordHandle) -> Option<usize> {
+        self.words.get(word.0).map(|w| w.values)
     }
 
     /// Where the last one sits.
-    pub fn last_call(&self) -> LastCall {
-        self.inner.last
+    pub fn last_call(&self, word: WordHandle) -> Option<LastCall> {
+        self.words.get(word.0).map(|w| w.last)
     }
-}
 
-/// **Compile a Bund word's body — the first lowering of a real word.**
-///
-/// `values` is the body's length. Each value gets a `Tail` thunk that calls
-/// [`jit_apply`] with its index, and the body calls each thunk indirectly
-/// through its slot, exactly as the native lowering does — so criterion 4's
-/// property holds here too: no call between compiled functions names a `FuncId`.
-///
-/// See [`jit_apply`] for why every value goes through `Vm::apply` rather than
-/// being lowered directly, and for what that does and does not buy.
-pub fn compile_word_body(values: usize, last: LastCall) -> Result<CompiledWord, String> {
-    if values == 0 {
-        return Err("a word with an empty body has nothing to lower".into());
+    /// How many words this compiler has emitted.
+    pub fn compiled_words(&self) -> usize {
+        self.words.len()
     }
-    Ok(CompiledWord {
-        inner: emit_body(values, last, Adapter::Apply)?,
-    })
 }
 
 /// **Compile a body that calls `calls` natives in order — §S8's pieces 2 and 3
@@ -850,24 +931,54 @@ pub fn compile_body(calls: usize, last: LastCall) -> Result<CompiledBody, String
     emit_body(calls, last, Adapter::Native)
 }
 
-/// The shared emitter behind [`compile_body`] and [`compile_word_body`].
+/// The shared emitter behind [`compile_body`] and [`Compiler::compile_word`].
 ///
 /// Everything below the adapter is the same for both — §S8's `Tail` thunks, the
 /// slot table §S6 addresses, the entry trampoline, the status protocol — so the
 /// two lowerings share one emitter and cannot drift apart in the parts criteria
 /// 4 and 29 are about.
-fn emit_body(
-    calls: usize,
-    last: LastCall,
-    adapter: Adapter,
-) -> Result<CompiledBody, String> {
-    let (adapter_name, adapter_ptr) = adapter.symbol();
+fn emit_body(calls: usize, last: LastCall, adapter: Adapter) -> Result<CompiledBody, String> {
+    let mut module = new_module(adapter)?;
+    let (entry, slots) = emit_into(&mut module, 0, calls, last, adapter.symbol().0)?;
+    Ok(CompiledBody {
+        _module: module,
+        entry,
+        _slots: slots,
+        calls,
+        last,
+    })
+}
 
+/// A fresh module with `adapter`'s symbol bound.
+///
+/// The symbol must be bound on the *builder*, before the module exists, which
+/// is why an adapter is chosen once per module rather than once per body: every
+/// body emitted into a module shares its adapter.
+fn new_module(adapter: Adapter) -> Result<JITModule, String> {
+    let (name, ptr) = adapter.symbol();
     let mut builder =
         JITBuilder::new(default_libcall_names()).map_err(|e| format!("JIT builder: {e}"))?;
-    builder.symbol(adapter_name, adapter_ptr);
-    let mut module = JITModule::new(builder);
+    builder.symbol(name, ptr);
+    Ok(JITModule::new(builder))
+}
 
+/// **Emit one body into an existing module**, returning its entry and the slot
+/// table the emitted code reads.
+///
+/// `seq` distinguishes this body's functions from every other body's in the
+/// same module. Cranelift's `declare_function` *merges* a duplicate name into
+/// the existing `FuncId` rather than failing, so without the suffix a second
+/// body would silently redefine the first's — the failure would be a wrong
+/// answer, not an error. The adapter import is the one name deliberately left
+/// unsuffixed: merging is exactly right for it, since every body imports the
+/// same Rust function.
+fn emit_into(
+    module: &mut JITModule,
+    seq: usize,
+    calls: usize,
+    last: LastCall,
+    adapter_name: &str,
+) -> Result<(Entry, Box<[*const u8]>), String> {
     let frontend = module.target_config();
     let ptr = frontend.pointer_type();
     let conv = module.isa().default_call_conv();
@@ -896,20 +1007,20 @@ fn emit_body(
     let mut thunk_ids = Vec::with_capacity(calls);
     for i in 0..calls {
         let id = module
-            .declare_function(&format!("bund2_thunk_{i}"), Linkage::Export, &sig_tail)
+            .declare_function(&format!("bund2_thunk_{seq}_{i}"), Linkage::Export, &sig_tail)
             .map_err(|e| format!("declare thunk {i}: {e}"))?;
         thunk_ids.push(id);
     }
     let body_id = module
-        .declare_function("bund2_body", Linkage::Export, &sig_tail)
-        .map_err(|e| format!("declare bund2_body: {e}"))?;
+        .declare_function(&format!("bund2_body_{seq}"), Linkage::Export, &sig_tail)
+        .map_err(|e| format!("declare bund2_body_{seq}: {e}"))?;
 
     let mut sig_entry = Signature::new(conv);
     sig_entry.params.push(AbiParam::new(ptr));
     sig_entry.returns.push(AbiParam::new(types::I32));
     let entry_id = module
-        .declare_function("bund2_entry", Linkage::Export, &sig_entry)
-        .map_err(|e| format!("declare bund2_entry: {e}"))?;
+        .declare_function(&format!("bund2_entry_{seq}"), Linkage::Export, &sig_entry)
+        .map_err(|e| format!("declare bund2_entry_{seq}: {e}"))?;
 
     let mut cg = module.make_context();
     let mut fb_ctx = FunctionBuilderContext::new();
@@ -987,7 +1098,7 @@ fn emit_body(
     }
     module
         .define_function(body_id, &mut cg)
-        .map_err(|e| format!("define bund2_body: {e}"))?;
+        .map_err(|e| format!("define bund2_body_{seq}: {e}"))?;
     module.clear_context(&mut cg);
 
     // --- the entry trampoline
@@ -1033,13 +1144,7 @@ fn emit_body(
     // parameter, one `i32` result, the platform's convention — which is `Entry`.
     let entry: Entry = unsafe { std::mem::transmute::<*const u8, Entry>(addr) };
 
-    Ok(CompiledBody {
-        _module: module,
-        entry,
-        _slots: slots,
-        calls,
-        last,
-    })
+    Ok((entry, slots))
 }
 
 #[cfg(test)]
@@ -1524,9 +1629,10 @@ mod tests {
         let mut tier0 = with_stdlib();
         let by_tier0 = tier0.eval(body);
 
-        let word = compile_word_body(body.len(), LastCall::Ordinary).expect("lowers");
+        let mut c = Compiler::new().expect("a compiler");
+        let word = c.compile_word(body.len(), LastCall::Ordinary).expect("lowers");
         let mut compiled = with_stdlib();
-        let by_compiled = word.run(&mut compiled, body);
+        let by_compiled = c.run(word, &mut compiled, body);
 
         assert_eq!(
             by_tier0.is_ok(),
@@ -1548,10 +1654,11 @@ mod tests {
     /// A compiled body that is a real word: literals pushed, a native called.
     #[test]
     fn a_compiled_word_runs_a_real_body() {
-        let word = compile_word_body(3, LastCall::Ordinary).expect("lowers");
-        assert_eq!(word.values(), 3);
+        let mut c = Compiler::new().expect("a compiler");
+        let word = c.compile_word(3, LastCall::Ordinary).expect("lowers");
+        assert_eq!(c.values(word), Some(3));
         let mut vm = with_stdlib();
-        word.run(&mut vm, &add_body()).expect("it ran");
+        c.run(word, &mut vm, &add_body()).expect("it ran");
         assert_eq!(vm.depth(), 1, "1 and 2 consumed, the sum left");
         assert_eq!(vm.snapshot().first().and_then(BundValue::as_int), Some(3));
     }
@@ -1582,13 +1689,14 @@ mod tests {
         let body = add_body();
 
         let mut tier0 = with_stdlib();
-        tier0.autoadd = true;
+        tier0.set_autoadd(true);
         let by_tier0 = tier0.eval(&body);
 
-        let word = compile_word_body(body.len(), LastCall::Ordinary).expect("lowers");
+        let mut c = Compiler::new().expect("a compiler");
+        let word = c.compile_word(body.len(), LastCall::Ordinary).expect("lowers");
         let mut compiled = with_stdlib();
-        compiled.autoadd = true;
-        let by_compiled = word.run(&mut compiled, &body);
+        compiled.set_autoadd(true);
+        let by_compiled = c.run(word, &mut compiled, &body);
 
         assert_eq!(by_tier0.is_ok(), by_compiled.is_ok(), "autoadd: outcome");
         let (a, b) = (tier0.snapshot(), compiled.snapshot());
@@ -1607,8 +1715,9 @@ mod tests {
             .register_lambda("ten", BundValue::lambda(vec![BundValue::int(10)]));
         let body = vec![BundValue::call("ten"), BundValue::int(20)];
 
-        let word = compile_word_body(2, LastCall::Ordinary).expect("lowers");
-        word.run(&mut vm, &body).expect("it ran");
+        let mut c = Compiler::new().expect("a compiler");
+        let word = c.compile_word(2, LastCall::Ordinary).expect("lowers");
+        c.run(word, &mut vm, &body).expect("it ran");
 
         let stack = vm.snapshot();
         assert_eq!(stack.len(), 2, "{stack:?}");
@@ -1620,11 +1729,12 @@ mod tests {
     /// context rather than as an unwind (§S11).
     #[test]
     fn a_compiled_word_stops_at_the_first_failure() {
-        let word = compile_word_body(2, LastCall::Ordinary).expect("lowers");
+        let mut c = Compiler::new().expect("a compiler");
+        let word = c.compile_word(2, LastCall::Ordinary).expect("lowers");
         let mut vm = with_stdlib();
         // `+` on an empty stack fails; the `99` after it must not run.
         let body = vec![BundValue::call("+"), BundValue::int(99)];
-        let e = word.run(&mut vm, &body).expect_err("the call failed");
+        let e = c.run(word, &mut vm, &body).expect_err("the call failed");
         assert!(!e.0.is_empty());
         assert_eq!(vm.depth(), 0, "the value after the failure must not run");
     }
@@ -1632,10 +1742,11 @@ mod tests {
     /// The tail-position variant runs the same body the same way.
     #[test]
     fn a_compiled_word_in_tail_position_runs_the_same_body() {
-        let word = compile_word_body(3, LastCall::Tail).expect("lowers");
-        assert_eq!(word.last_call(), LastCall::Tail);
+        let mut c = Compiler::new().expect("a compiler");
+        let word = c.compile_word(3, LastCall::Tail).expect("lowers");
+        assert_eq!(c.last_call(word), Some(LastCall::Tail));
         let mut vm = with_stdlib();
-        word.run(&mut vm, &add_body()).expect("it ran");
+        c.run(word, &mut vm, &add_body()).expect("it ran");
         assert_eq!(vm.snapshot().first().and_then(BundValue::as_int), Some(3));
     }
 
@@ -1643,17 +1754,50 @@ mod tests {
     /// invariant in the caller, not a fact about the program.
     #[test]
     fn a_word_handed_the_wrong_body_length_is_an_internal_error() {
-        let word = compile_word_body(3, LastCall::Ordinary).expect("lowers");
+        let mut c = Compiler::new().expect("a compiler");
+        let word = c.compile_word(3, LastCall::Ordinary).expect("lowers");
         let mut vm = with_stdlib();
-        let e = word
-            .run(&mut vm, &[BundValue::int(1)])
+        let e = c
+            .run(word, &mut vm, &[BundValue::int(1)])
             .expect_err("length mismatch");
         assert!(e.is_internal(), "{}", e.0);
     }
 
     #[test]
     fn a_word_with_an_empty_body_is_refused() {
-        assert!(compile_word_body(0, LastCall::Ordinary).is_err());
+        let mut c = Compiler::new().expect("a compiler");
+        assert!(c.compile_word(0, LastCall::Ordinary).is_err());
+    }
+
+    /// **Two words in one module stay distinct.** `declare_function` *merges* a
+    /// duplicate name into the existing `FuncId` rather than failing, so
+    /// unsuffixed function names would let a second word silently redefine the
+    /// first's body — and the symptom would be a wrong answer, not an error.
+    ///
+    /// It also pins the property the shared module rests on: finalising a later
+    /// definition must leave code already published alone, which is why the
+    /// first word is run again *after* the second is emitted.
+    #[test]
+    fn two_words_compiled_into_one_module_stay_distinct() {
+        let mut c = Compiler::new().expect("a compiler");
+        let sum = c.compile_word(3, LastCall::Ordinary).expect("the first lowers");
+        let lone = c.compile_word(1, LastCall::Ordinary).expect("the second lowers");
+        assert_eq!(c.compiled_words(), 2);
+        assert_ne!(sum, lone, "distinct words get distinct handles");
+
+        let mut vm = with_stdlib();
+        c.run(sum, &mut vm, &add_body()).expect("the first ran");
+        assert_eq!(vm.snapshot().first().and_then(BundValue::as_int), Some(3));
+
+        let mut vm = with_stdlib();
+        c.run(lone, &mut vm, &[BundValue::int(7)])
+            .expect("the second ran");
+        assert_eq!(vm.snapshot().first().and_then(BundValue::as_int), Some(7));
+
+        let mut vm = with_stdlib();
+        c.run(sum, &mut vm, &add_body())
+            .expect("and the first still runs");
+        assert_eq!(vm.snapshot().first().and_then(BundValue::as_int), Some(3));
     }
 
     /// **`norm` does what the comparison needs, and no more.**

@@ -123,6 +123,119 @@ pub fn panicked(what: &str, message: &str) -> Error {
     Error::internal(format!("{what} panicked: {message}"))
 }
 
+/// **The cells compiled code reads — RFC-0005 §S6, *Addressing*.**
+///
+/// §S6's guards cannot read the interpreter's own state: `Vm` exposes no
+/// `autoadd` and no current stack epoch, and nothing in `Interp` has an address
+/// worth embedding, since its fields move whenever the `Interp` does. So the
+/// runtime owns **one allocation** whose address is stable for the `Interp`'s
+/// life, and compiled code loads each cell through an address handed to it as
+/// an immediate at compile time. A check is then one load and one compare.
+///
+/// **This adds no `unsafe`.** They are `Cell`s written by safe Rust; the
+/// unsafety, when a lowering reads them, is in the lowering.
+///
+/// **Each cell mirrors something Tier 0 already owns, and a mirror that can
+/// drift is worse than no mirror at all** — it would let a guard admit a body
+/// whose meaning had changed. So each is written where the truth is written,
+/// not beside it:
+///
+/// - `autoadd` is written by `Interp::set_autoadd`, the only writer, because
+///   the field behind it is private;
+/// - `epoch` is published from `Stacks`'s own counter, which is bumped inside
+///   the type that owns the current stack, at every site that can move it;
+/// - `request` is written in the same four functions that write
+///   `pending_tail` (assumption 33), paired with each write.
+///
+/// **No compiled code reads these yet.** There is no residual path, no drain
+/// helper and no `status_of`, so today the value of the cells is that the
+/// mirrors provably track the truth — which is the part a later lowering
+/// cannot check for itself, and the part that is testable now.
+#[derive(Debug, Default)]
+pub struct Cells {
+    /// `autoadd`, as `0` or `1`. §S5's guard reads it after every call and at
+    /// every inlined site.
+    pub autoadd: std::cell::Cell<u32>,
+    /// **The current stack's epoch**, bumped on every change of *which* stack
+    /// is current. Not a depth and not a name: compiled code only needs to know
+    /// that the stack it resolved against is still the one in force, so a
+    /// counter that never repeats answers it in one compare.
+    ///
+    /// `u64`, so it cannot wrap back onto a value a guard is holding. At one
+    /// bump per nanosecond that is some hundreds of years.
+    pub epoch: std::cell::Cell<u64>,
+    /// Whether a tail request is pending, as `0` or `1` — §S5's request cell.
+    /// Compiled code loads it after every call and drains when it is set.
+    pub request: std::cell::Cell<u32>,
+    /// **The Tier 1 floor — §S8.** The address below which a compiled body
+    /// declines rather than starting: every compiled body's entry compares
+    /// CLIF's `get_stack_pointer` against this and returns a declined status
+    /// if it is beneath.
+    ///
+    /// **Not the Tier 0 floor**, which is a different and lower address.
+    /// §S8 defines this one as `top − share + STACK_RESERVE`, one reserve above
+    /// the bottom of *Tier 1's share*, while Tier 0's sits one reserve above
+    /// the stack's end. Mirroring the wrong one would admit compiled frames
+    /// into Tier 0's part, which is what D44's "never less" forbids.
+    ///
+    /// **Written once, at construction, and never again.** The floor is a
+    /// property of the thread the `Interp` was built on, so unlike the other
+    /// three cells this one needs no writer discipline: there is nothing for it
+    /// to drift from.
+    ///
+    /// **A thread with no share gets a floor above its own top**, because the
+    /// share is zero and the reserve is added to the top. Every stack pointer
+    /// is then beneath it and every compiled body declines — the tier is inert
+    /// on that thread by arithmetic rather than by a special case, which is
+    /// what §S8 means by "compiled code does not run there".
+    pub floor: std::cell::Cell<u64>,
+}
+
+impl Cells {
+    /// Set `autoadd`, as a flag.
+    pub fn set_autoadd(&self, on: bool) {
+        self.autoadd.set(u32::from(on));
+    }
+
+    /// Is `autoadd` on, as the mirror has it?
+    pub fn autoadd(&self) -> bool {
+        self.autoadd.get() != 0
+    }
+
+    /// Set whether a tail request is pending.
+    pub fn set_request(&self, pending: bool) {
+        self.request.set(u32::from(pending));
+    }
+
+    /// Is a tail request pending, as the mirror has it?
+    pub fn request(&self) -> bool {
+        self.request.get() != 0
+    }
+
+    /// Publish the current stack's epoch.
+    pub fn set_epoch(&self, epoch: u64) {
+        self.epoch.set(epoch);
+    }
+
+    /// Set the Tier 1 floor. Called once, when the `Interp` is built.
+    pub fn set_floor(&self, floor: usize) {
+        self.floor.set(floor as u64);
+    }
+
+    /// The Tier 1 floor, as an address.
+    ///
+    /// `usize`, because that is what a stack address is in Rust and what
+    /// `stack_marker` returns; the cell holds `u64` so a lowering loads the
+    /// same width on every target.
+    pub fn floor(&self) -> usize {
+        // On a 32-bit target the stored address cannot exceed `usize`, because
+        // it was a `usize` when it was written. `try_into` rather than `as`
+        // says so without a lossy cast, and the saturating fallback is
+        // unreachable rather than merely unlikely.
+        usize::try_from(self.floor.get()).unwrap_or(usize::MAX)
+    }
+}
+
 /// What the interpreter offers a native word.
 ///
 /// **The tier merge forces this wider than an external word needs, and
@@ -340,6 +453,29 @@ pub trait Vm {
     fn request_exit(&mut self, code: i32);
     /// The code a word asked to exit with, if one has.
     fn exit_requested(&self) -> Option<i32>;
+
+    // --- the compiled tier's cells (RFC-0005 §S6) ----------------------------
+    /// **The cells compiled code reads**, if this `Vm` keeps any.
+    ///
+    /// A tier needs each cell's *address* at compile time, to embed it as an
+    /// immediate — which is why this hands back the allocation rather than the
+    /// values in it. §S6 observes that `Vm` exposes no `autoadd` and no epoch;
+    /// this does not change that, because a [`Cells`] is not the interpreter's
+    /// state but a mirror of it, and a native that read one would learn nothing
+    /// it could act on.
+    ///
+    /// `None` says this `Vm` keeps no cells — a test double, an embedder's own
+    /// — and a tier that finds `None` compiles no guard and may not hold state
+    /// across a call.
+    ///
+    /// **Required rather than defaulted, deliberately.** A `None` default made
+    /// this free to forget: an implementor with cells that did not write this
+    /// method would compile clean and answer `None`, and a tier would silently
+    /// decline to guard against state it could in fact see. That is a wrong
+    /// answer behind a green build, which is the failure this whole section
+    /// exists to prevent. The cost is one line in each test double, which is
+    /// the right side to pay on.
+    fn cells(&self) -> Option<&Cells>;
 }
 
 /// **Where Tier 1 attaches — RFC-0005's seam.**
@@ -1294,6 +1430,9 @@ mod tests {
         }
         fn tail_lambda(&mut self, _: BundValue) {}
         fn clear_tail_request(&mut self) {}
+        fn cells(&self) -> Option<&Cells> {
+            None
+        }
         fn scoped_call(&mut self, _: &str, _: Vec<BundValue>) -> Result<(), Error> {
             Ok(())
         }

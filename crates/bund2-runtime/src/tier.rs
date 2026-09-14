@@ -6,7 +6,7 @@
 
 use bund2_api::{Error, Tier, Vm};
 use bund2_jit::cache::{Caps, Decision, Tiering};
-use bund2_jit::lower::{LastCall, compile_word_body};
+use bund2_jit::lower::{Compiler, LastCall};
 use bund2_value::BundValue;
 
 /// A body's values, whichever container carries it.
@@ -23,6 +23,16 @@ fn items(body: &BundValue) -> Option<&[BundValue]> {
 /// held beside the `Interp` would be unreachable while the tier was installed.
 pub struct JitTier {
     tiering: Tiering,
+    /// **The code, and the one `JITModule` behind it.**
+    ///
+    /// One compiler per tier, one tier per `Interp`, so one module per `Interp`
+    /// — criterion 23. The cache holds handles into *this* compiler, which is
+    /// why the two must live together: a handle is meaningless without it.
+    ///
+    /// `None` until the first body earns compilation. A program that never goes
+    /// hot never reserves code memory, and a compiler that cannot be built
+    /// leaves the tier interpreting rather than failing the program.
+    compiler: Option<Compiler>,
 }
 
 impl Default for JitTier {
@@ -35,12 +45,18 @@ impl JitTier {
     pub fn new(caps: Caps) -> Self {
         Self {
             tiering: Tiering::new(caps),
+            compiler: None,
         }
     }
 
     /// The cache and counter, for a test or an embedder that wants the figures.
     pub fn tiering(&self) -> &Tiering {
         &self.tiering
+    }
+
+    /// How many words this tier has compiled into its module.
+    pub fn compiled_words(&self) -> usize {
+        self.compiler.as_ref().map_or(0, Compiler::compiled_words)
     }
 }
 
@@ -75,12 +91,22 @@ impl Tier for JitTier {
                 // compiles; Tier 0 will report whatever is wrong with it.
                 let len = items(body)?.len();
                 if len > 0 {
+                    // The module is built on the first promotion and kept for
+                    // the tier's life. Failing to build one is treated exactly
+                    // as a failed compilation, one line down.
+                    let compiler = match self.compiler {
+                        Some(ref mut c) => c,
+                        None => match Compiler::new() {
+                            Ok(c) => self.compiler.insert(c),
+                            Err(_) => return None,
+                        },
+                    };
                     // A failure to compile is not the program's fault and not
                     // its problem: the body is interpreted, as it would have
                     // been with no tier at all. It is dropped rather than
                     // reported because there is no diagnostic a *user* could
                     // act on, and the body still runs correctly.
-                    if let Ok(code) = compile_word_body(len, LastCall::Ordinary) {
+                    if let Ok(code) = compiler.compile_word(len, LastCall::Ordinary) {
                         self.tiering.insert(body, code);
                     }
                 }
@@ -88,8 +114,12 @@ impl Tier for JitTier {
             }
             Decision::Compiled => {
                 let values = items(body)?;
+                // The handle is `Copy` and inert; the code it names lives in
+                // this tier's own compiler, which is what makes running it
+                // safe. A cache without its compiler simply interprets.
                 let code = self.tiering.compiled(body)?;
-                Some(code.run(vm, values))
+                let compiler = self.compiler.as_ref()?;
+                Some(compiler.run(code, vm, values))
             }
         }
     }
@@ -202,7 +232,80 @@ mod tests {
         );
     }
 
-    /// A body with no values is never compiled — `compile_word_body` refuses an
+    /// **Criterion 23, first half: two `Interp`s share no compiled code.**
+    ///
+    /// One module per `Interp` means one compiler per tier, so the *same body*
+    /// — the same payload, hence the same cache key — driven past one tier's
+    /// threshold leaves the other tier with nothing: no compiled word, and a
+    /// cache that misses. A shared module would make the second tier's cache a
+    /// place another interpreter's code could be found.
+    #[test]
+    fn two_interps_share_no_compiled_code() {
+        let hot = Caps {
+            threshold: 1,
+            ..Caps::default()
+        };
+        let mut first = JitTier::new(hot);
+        let second = JitTier::new(hot);
+
+        // A vocabulary to run against, with its own tier removed so the only
+        // tier in play is the one under test.
+        let mut host = crate::Runtime::new();
+        host.take_tier();
+
+        let body = BundValue::lambda(vec![
+            BundValue::int(1),
+            BundValue::int(2),
+            BundValue::call("+"),
+        ]);
+        for _ in 0..3 {
+            let _ = first.enter(&body, &mut host.interp);
+        }
+
+        assert!(first.compiled_words() >= 1, "the first tier compiled it");
+        assert_eq!(second.compiled_words(), 0, "the second compiled nothing");
+        assert!(
+            second.tiering().compiled(&body).is_none(),
+            "and its cache misses the very body the first tier compiled"
+        );
+    }
+
+    /// **Criterion 23, second half: dropping an `Interp` drops its code, and
+    /// another `Interp` running the same body is unaffected.**
+    ///
+    /// The body value is shared, so both interpreters key on the same payload —
+    /// which is exactly the case where a shared module would let the survivor
+    /// reach the dead interpreter's code. It must instead compile its own, and
+    /// whatever it does, it must still leave Tier 0's answer.
+    #[test]
+    fn a_dropped_interps_code_does_not_serve_another() {
+        let body = BundValue::lambda(vec![
+            BundValue::int(1),
+            BundValue::int(2),
+            BundValue::call("+"),
+        ]);
+
+        let mut first = runtime_with(1);
+        first.interp.registry.register_lambda("f", body.clone());
+        let mut second = runtime_with(1);
+        second.interp.registry.register_lambda("f", body.clone());
+
+        for _ in 0..5 {
+            first.eval_str("f").expect("runs");
+        }
+        drop(first);
+
+        for _ in 0..5 {
+            second.eval_str("f").expect("the survivor still runs");
+        }
+        let stack = second.interp.snapshot();
+        assert_eq!(stack.len(), 5, "one sum per call: {stack:?}");
+        for v in &stack {
+            assert_eq!(v.as_int(), Some(3), "Tier 0's answer: {stack:?}");
+        }
+    }
+
+    /// A body with no values is never compiled — `compile_word` refuses an
     /// empty body, and the tier must not treat that refusal as a reason to stop
     /// interpreting.
     #[test]

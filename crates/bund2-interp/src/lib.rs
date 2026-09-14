@@ -220,6 +220,25 @@ pub struct Stacks {
     order: VecDeque<Rc<str>>,
     /// "a circular stack that … does not carry a specific name" (`:72`).
     workbench: Stack,
+    /// **The current stack's epoch — RFC-0005 §S6, *Addressing*.**
+    ///
+    /// Bumped on every change of *which* stack is current, and on nothing else:
+    /// pushing, pulling and clearing leave it alone, because compiled code
+    /// holding promoted values only needs to know that the stack it resolved
+    /// against is still in force.
+    ///
+    /// **It lives here, in the type that owns `order`, because that is what
+    /// makes it a property rather than a list to keep in step.** Three writers
+    /// used to reach past this type into `order` directly — `drop_stack` and
+    /// the two rotations, on `Interp`'s `Vm` impl — and any of them could have
+    /// moved the front while leaving an epoch held elsewhere untouched. `order`
+    /// is now private to this type's own mutators, each of which bumps, so a
+    /// switch that does not bump cannot be written. Same shape as
+    /// `Registry::touch`, for the same reason (assumption 37).
+    ///
+    /// A plain counter, not a `Cell`: `Interp` publishes it to §S6's cell,
+    /// which is one read at one place rather than a cell write at six.
+    epoch: u64,
 }
 
 impl Default for Stacks {
@@ -231,6 +250,7 @@ impl Default for Stacks {
             stacks,
             order: VecDeque::from([main]),
             workbench: Stack::named("main"),
+            epoch: 0,
         }
     }
 }
@@ -275,6 +295,76 @@ impl Stacks {
             self.order.rotate_left(1);
         }
         self.order.push_front(name);
+        // A new stack becomes current, so the epoch always moves here.
+        self.bump_epoch();
+    }
+
+    /// The current stack's epoch — RFC-0005 §S6. See [`Stacks::epoch`].
+    pub fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    /// Move the epoch on. Saturating, so it can never wrap onto a value a
+    /// guard is holding; at `u64` that bound is unreachable in practice, and
+    /// saturating rather than wrapping makes it unreachable by construction.
+    fn bump_epoch(&mut self) {
+        self.epoch = self.epoch.saturating_add(1);
+    }
+
+    /// Drop a named stack, restoring `main` if that emptied the ring.
+    ///
+    /// **Sealed here rather than done through `order` from outside**, so the
+    /// epoch cannot be forgotten: this is one of the three writers that used to
+    /// reach past this type.
+    ///
+    /// **The bump is exact, not conservative.** `retain` moves the front only
+    /// when the dropped name *is* the front, and the `main` restored below only
+    /// changes it when the ring had emptied. Bumping unconditionally would fire
+    /// every guard in a compiled body on a drop that touched some other stack.
+    fn drop_named(&mut self, name: &str) {
+        let before = self.current_name().to_string();
+        self.stacks.remove(name);
+        self.order.retain(|n| &**n != name);
+        if self.order.is_empty() {
+            let main: Rc<str> = Rc::from("main");
+            self.order.push_back(Rc::clone(&main));
+            self.stacks
+                .entry(main)
+                .or_insert_with_key(|k| Stack::from_rc(Rc::clone(k)));
+        }
+        if self.current_name() != before {
+            self.bump_epoch();
+        }
+    }
+
+    /// Rotate the ring one step left, as `stacks_left` does.
+    ///
+    /// Sealed for the epoch, as [`Stacks::drop_named`] is. **A ring of one does
+    /// not move**, so it does not bump: the front name is unchanged and a guard
+    /// that fired on it would be reacting to nothing.
+    fn rotate_left(&mut self) {
+        if self.order.len() > 1 {
+            self.order.rotate_left(1);
+            self.bump_epoch();
+        }
+    }
+
+    /// Rotate the ring one step right, as `stacks_right` does.
+    fn rotate_right(&mut self) {
+        if self.order.len() > 1 {
+            self.order.rotate_right(1);
+            self.bump_epoch();
+        }
+    }
+
+    /// Whether a stack of this name exists.
+    fn has(&self, name: &str) -> bool {
+        self.stacks.contains_key(name)
+    }
+
+    /// Whether the ring already carries this name.
+    fn in_ring(&self, name: &str) -> bool {
+        self.order.iter().any(|n| &**n == name)
     }
 
     /// Make a named stack current, creating it if needed.
@@ -304,11 +394,17 @@ impl Stacks {
         // (`reference/rust_multistack/src/ts_to_current.rs:24-26`). This bounds
         // it instead: at most one full rotation, after which the deque is back
         // where it started and nothing has been lost.
+        let before = self.current_name().to_string();
         for _ in 0..self.order.len() {
             if self.current_name() == name {
                 break;
             }
             self.order.rotate_left(1);
+        }
+        // Exact, as in `drop_named`: `to_stack` to the stack already current
+        // rotates zero times and changes nothing, and must not bump.
+        if self.current_name() != before {
+            self.bump_epoch();
         }
     }
 
@@ -325,10 +421,16 @@ impl Stacks {
 
 thread_local! {
     /// The machine stack this thread runs on, if whoever started the thread
-    /// said so: `(top, size)` in bytes. `bund2`'s evaluation thread declares
-    /// it; a thread that has not is treated conservatively (see
+    /// said so: `(top, size, share)` in bytes. `bund2`'s evaluation thread
+    /// declares it; a thread that has not is treated conservatively (see
     /// [`ASSUMED_BUDGET`]).
-    static STACK_REGION: std::cell::Cell<Option<(usize, usize)>> =
+    ///
+    /// **`share` is Tier 1's part of the region, and it is declared rather
+    /// than inferred** — RFC-0005 §S8, the ninth review's S3. A region
+    /// declared through [`set_stack_region`] has a share of zero and is
+    /// Tier 0's alone: a default split would take room from every embedder's
+    /// Tier 0 without asking, against D44's "never less".
+    static STACK_REGION: std::cell::Cell<Option<(usize, usize, usize)>> =
         const { std::cell::Cell::new(None) };
 }
 
@@ -346,7 +448,27 @@ const ASSUMED_BUDGET: usize = 1024 * 1024;
 /// in the thread's entry function, and its size in bytes. Every `Interp` built
 /// on this thread afterwards takes its floor from it. RFC-0005 §S8.
 pub fn set_stack_region(top: usize, size: usize) {
-    STACK_REGION.with(|r| r.set(Some((top, size))));
+    STACK_REGION.with(|r| r.set(Some((top, size, 0))));
+}
+
+/// Declare the stack this thread runs on **and the part of it that is
+/// Tier 1's** — RFC-0005 §S8, the ninth review's S3.
+///
+/// `share` is Tier 1's part, in bytes, and it is *added to* Tier 0's part
+/// rather than taken out of it: the region should be sized at Tier 0's part
+/// plus the share. That is what makes D44's second requirement hold — a
+/// program whose native nesting fits with the tier off still fits with it on —
+/// because the Tier 0 floor moves *down* by the share while the Tier 1 floor
+/// sits one reserve above the share's bottom.
+///
+/// **A share is declared, never inferred.** [`set_stack_region`] leaves it at
+/// zero, which puts the Tier 1 floor above the thread's own top, so every
+/// compiled body declines and compiled code does not run on that thread. An
+/// embedder opts in by calling this instead; one that does not keeps its whole
+/// region for Tier 0. A default split was rejected because it would take room
+/// from every embedder's Tier 0 without asking.
+pub fn set_stack_region_with_share(top: usize, size: usize, share: usize) {
+    STACK_REGION.with(|r| r.set(Some((top, size, share))));
 }
 
 /// The address of a local in this call's frame, as an integer: the stack
@@ -362,10 +484,34 @@ pub fn stack_marker() -> usize {
 /// The Tier 0 floor for an `Interp` built on the current thread.
 fn tier0_floor() -> usize {
     match STACK_REGION.with(std::cell::Cell::get) {
-        Some((top, size)) => top.saturating_sub(size).saturating_add(STACK_RESERVE),
+        Some((top, size, _)) => top.saturating_sub(size).saturating_add(STACK_RESERVE),
         None => stack_marker()
             .saturating_sub(ASSUMED_BUDGET)
             .saturating_add(STACK_RESERVE),
+    }
+}
+
+/// **The Tier 1 floor for an `Interp` built on the current thread** —
+/// RFC-0005 §S8, `top − share + STACK_RESERVE`.
+///
+/// One reserve above the bottom of Tier 1's share, which is a *higher* address
+/// than [`tier0_floor`]: the Tier 0 floor sits one reserve above the stack's
+/// end. A compiled body whose entry finds the stack pointer below this floor
+/// declines, and the body runs interpreted on the heap instead.
+///
+/// **With no share — every thread that did not call
+/// [`set_stack_region_with_share`] — this is `top + STACK_RESERVE`**, above the
+/// thread's own top, so no stack pointer is ever above it and every compiled
+/// body declines. That is §S8's "compiled code does not run there", reached by
+/// arithmetic rather than by a flag, which is why an undeclared thread needs no
+/// separate case here: it has no top to speak of, and `stack_marker` stands in
+/// for one, giving the same always-decline answer.
+fn tier1_floor() -> usize {
+    match STACK_REGION.with(std::cell::Cell::get) {
+        Some((top, _, share)) => top.saturating_sub(share).saturating_add(STACK_RESERVE),
+        // Undeclared: no share, so the floor sits above the construction point
+        // and nothing compiled runs, as with a declared region of zero share.
+        None => stack_marker().saturating_add(STACK_RESERVE),
     }
 }
 
@@ -448,7 +594,13 @@ pub struct Interp {
     /// command check — `is_command` returns at
     /// `reference/rust_multistackvm/src/multistackvm_apply.rs:17`, before the
     /// `autoadd` test at `:19`.
-    pub autoadd: bool,
+    ///
+    /// **Private, because RFC-0005 §S6 mirrors it.** A `pub` field would let
+    /// any writer set the mode without reaching the mirror, and compiled code
+    /// guarding on the cell would then run the wrong arm — the failure §S6
+    /// calls a stale guard. [`Interp::set_autoadd`] is the only writer, and it
+    /// writes both, so the pairing is structural rather than remembered.
+    autoadd: bool,
     /// The code `bund.exit` asked to end with — D52. Once set, every step
     /// refuses, so whatever is running unwinds, and the top level returns
     /// cleanly instead of reporting.
@@ -459,6 +611,17 @@ pub struct Interp {
     /// sentence. Empty in production, where `audit_inside`
     /// is never set; criterion 28's palette reads it.
     pub observations: std::cell::RefCell<Vec<String>>,
+    /// **The cells compiled code reads — RFC-0005 §S6, *Addressing*.**
+    ///
+    /// Boxed for a **stable address**: §S6 has the JIT embed each cell's
+    /// address as an immediate, and a field of `Interp` moves whenever the
+    /// `Interp` does. The box does not, so an address handed out at compile
+    /// time stays good for this interpreter's life — the same argument
+    /// `Registry`'s chunked generation cells rest on (D43).
+    ///
+    /// One allocation per `Interp`, which is the half of criterion 23 that
+    /// concerns cells.
+    cells: Box<bund2_api::Cells>,
     /// **Where Tier 1 attaches — RFC-0005's seam.** `None` in a plain
     /// interpreter, so Tier 0 costs one branch per body entry; `bund2-runtime`
     /// installs the implementation, which is what keeps this crate free of
@@ -495,8 +658,49 @@ impl Interp {
             stack_floor: tier0_floor(),
             exit_code: None,
             observations: std::cell::RefCell::new(Vec::new()),
+            cells: {
+                // §S8's floor cell, set once: the floor is a property of the
+                // thread this `Interp` was built on and never moves, so unlike
+                // the other three cells it has nothing to drift from.
+                let cells = bund2_api::Cells::default();
+                cells.set_floor(tier1_floor());
+                Box::new(cells)
+            },
             tier: None,
         }
+    }
+
+    /// **The cells compiled code reads** — RFC-0005 §S6. See [`Interp::cells`].
+    pub fn cells(&self) -> &bund2_api::Cells {
+        &self.cells
+    }
+
+    /// Publish the current stack's epoch into §S6's cell.
+    ///
+    /// Called wherever a switch can have happened. It is a *publish*, not a
+    /// bump: `Stacks` decides whether the epoch moved, and this copies whatever
+    /// it decided. So an extra call costs a store and can never invent a
+    /// change, which is why the `Vm` methods call it unconditionally rather
+    /// than each deciding for itself whether its path switched.
+    fn publish_epoch(&mut self) {
+        self.cells.set_epoch(self.stacks.epoch());
+    }
+
+    /// **Set `autoadd` — the only writer**, so the mode and RFC-0005 §S6's
+    /// mirror are written together and cannot drift.
+    ///
+    /// `:` and `;` will call this when they are bound; today its callers are
+    /// tests and the lowering's differential, which is why the field is private
+    /// now rather than when those words land: the invariant is cheap to make
+    /// structural while there are few writers, and expensive afterwards.
+    pub fn set_autoadd(&mut self, on: bool) {
+        self.autoadd = on;
+        self.cells.set_autoadd(on);
+    }
+
+    /// Whether `autoadd` is on.
+    pub fn autoadd(&self) -> bool {
+        self.autoadd
     }
 
     /// Record, for D55, that the fixed-effect native running under the audit
@@ -607,6 +811,9 @@ impl Interp {
         };
         if r.is_err() {
             self.pending_tail = None;
+            // F96's clear reaches the mirror too, or compiled code would drain
+            // a body Tier 0 has already discarded.
+            self.cells.set_request(false);
         }
         r
     }
@@ -648,7 +855,7 @@ impl Interp {
                     })?;
                 self.call_native(s, n)
             }
-            _ if self.autoadd => {
+            _ if self.autoadd() => {
                 // `apply` appends the name to the value beneath it rather than
                 // executing (`:20-27`). The name is what a `CALL` carries, so
                 // this needs the interner — which is why `autoadd` is a
@@ -894,11 +1101,16 @@ impl Interp {
             self.audit_breach(who, "declares a fixed effect and filed a tail request");
         }
         self.pending_tail = Some(body);
+        // RFC-0005 §S6's mirror, written with the truth (assumption 33).
+        self.cells.set_request(true);
     }
 
     /// Push a frame for whatever the last native requested, if anything.
     fn take_pending(&mut self) -> Result<(), Error> {
         if let Some(body) = self.pending_tail.take() {
+            // Cleared **before** the body runs, not after: the body may file a
+            // request of its own, and clearing afterwards would erase it.
+            self.cells.set_request(false);
             return self.push_frame(body, None);
         }
         Ok(())
@@ -1095,10 +1307,11 @@ impl Vm for Interp {
 
     fn to_stack(&mut self, name: &str) {
         self.stacks.to_stack(name);
+        self.publish_epoch();
     }
 
     fn stack_exists(&self, name: &str) -> bool {
-        self.stacks.stacks.contains_key(name)
+        self.stacks.has(name)
     }
 
     /// **A stack this creates becomes current — F89.** The reference creates
@@ -1116,9 +1329,10 @@ impl Vm for Interp {
             .stacks
             .entry(Rc::from(name))
             .or_insert_with_key(|k| Stack::from_rc(Rc::clone(k)));
-        if !self.stacks.order.iter().any(|n| &**n == name) {
+        if !self.stacks.in_ring(name) {
             self.stacks.add_as_current(Rc::from(name));
         }
+        self.publish_epoch();
     }
 
     fn ensure_stack_with_capacity(&mut self, name: &str, cap: usize) {
@@ -1156,28 +1370,18 @@ impl Vm for Interp {
     }
 
     fn drop_stack(&mut self, name: &str) {
-        self.stacks.stacks.remove(name);
-        self.stacks.order.retain(|n| &**n != name);
-        if self.stacks.order.is_empty() {
-            let main: Rc<str> = Rc::from("main");
-            self.stacks.order.push_back(Rc::clone(&main));
-            self.stacks
-                .stacks
-                .entry(main)
-                .or_insert_with_key(|k| Stack::from_rc(Rc::clone(k)));
-        }
+        self.stacks.drop_named(name);
+        self.publish_epoch();
     }
 
     fn rotate_stacks_left(&mut self) {
-        if !self.stacks.order.is_empty() {
-            self.stacks.order.rotate_left(1);
-        }
+        self.stacks.rotate_left();
+        self.publish_epoch();
     }
 
     fn rotate_stacks_right(&mut self) {
-        if !self.stacks.order.is_empty() {
-            self.stacks.order.rotate_right(1);
-        }
+        self.stacks.rotate_right();
+        self.publish_epoch();
     }
 
     fn apply(&mut self, v: BundValue) -> Result<(), Error> {
@@ -1200,6 +1404,9 @@ impl Vm for Interp {
     /// directly, so it cannot go through [`Interp::invoke`]'s clear (F96).
     fn clear_tail_request(&mut self) {
         self.pending_tail = None;
+        // D56's clear is the one a compiled call site reaches, so the mirror
+        // matters most here: it is the path that has no `invoke` behind it.
+        self.cells.set_request(false);
     }
 
     fn scoped_call(&mut self, stack: &str, body: Vec<BundValue>) -> Result<(), Error> {
@@ -1406,6 +1613,18 @@ impl Vm for Interp {
         self.exit_code
     }
 
+    /// **RFC-0005 §S6's cells.** `Some`, always: an `Interp` owns them for its
+    /// whole life, and their address is stable because they are boxed.
+    ///
+    /// This exists because a tier reaches the interpreter as `&mut dyn Vm` and
+    /// nothing else on this trait would give it the addresses. When the trait
+    /// method carried a `None` default, `Interp` inherited it and answered
+    /// `None` while holding cells — compiling clean and guarding nothing. The
+    /// method is required now, so that cannot recur.
+    fn cells(&self) -> Option<&bund2_api::Cells> {
+        Some(&self.cells)
+    }
+
     fn get_lambda(&self, name: &str) -> Option<BundValue> {
         self.registry
             .interner
@@ -1526,7 +1745,7 @@ mod tests {
         let s = i
             .registry
             .register_command("c", marker, eff(), WordKind::Sync);
-        i.autoadd = true;
+        i.set_autoadd(true);
         i.dispatch(s, false).expect("commands precede autoadd");
         assert_eq!(i.pull(), Some(BundValue::int(7)));
     }
@@ -1558,10 +1777,80 @@ mod tests {
         assert_eq!(i.stack_floor, 2 * 1024 * 1024 + STACK_RESERVE);
     }
 
+    /// **RFC-0005 §S8's two floors are different addresses**, and the Tier 1
+    /// floor is the higher one: `top - share + reserve` against Tier 0's
+    /// `top - size + reserve`. Mirroring Tier 0's into the cell would admit
+    /// compiled frames into Tier 0's part, which D44's "never less" forbids.
+    #[test]
+    fn a_declared_share_puts_the_tier_one_floor_above_the_tier_zero_floor() {
+        const TOP: usize = 20 * 1024 * 1024;
+        const SIZE: usize = 16 * 1024 * 1024;
+        const SHARE: usize = 8 * 1024 * 1024;
+        set_stack_region_with_share(TOP, SIZE, SHARE);
+        let i = Interp::new();
+        STACK_REGION.with(|r| r.set(None));
+
+        assert_eq!(
+            i.stack_floor,
+            TOP - SIZE + STACK_RESERVE,
+            "Tier 0's floor is one reserve above the stack's end"
+        );
+        assert_eq!(
+            i.cells().floor(),
+            TOP - SHARE + STACK_RESERVE,
+            "Tier 1's floor is one reserve above the share's bottom"
+        );
+        assert!(
+            i.cells().floor() > i.stack_floor,
+            "the Tier 1 floor is the higher address: {} vs {}",
+            i.cells().floor(),
+            i.stack_floor
+        );
+    }
+
+    /// **A region declared without a share is Tier 0's alone** — §S8, the
+    /// ninth review's S3. The share is zero, so the Tier 1 floor lands one
+    /// reserve *above* the thread's own top: no stack pointer is ever above it,
+    /// every compiled body declines, and compiled code does not run there.
+    ///
+    /// This is the property that makes a default split unnecessary, and it is
+    /// reached by arithmetic rather than by a flag.
+    #[test]
+    fn a_region_declared_without_a_share_keeps_compiled_code_out() {
+        const TOP: usize = 20 * 1024 * 1024;
+        set_stack_region(TOP, 16 * 1024 * 1024);
+        let i = Interp::new();
+        STACK_REGION.with(|r| r.set(None));
+
+        assert_eq!(
+            i.cells().floor(),
+            TOP + STACK_RESERVE,
+            "no share puts the floor above the region's top"
+        );
+        assert!(
+            i.cells().floor() > TOP,
+            "so every stack pointer in the region is beneath it"
+        );
+    }
+
+    /// An undeclared thread gets no share either, by the same rule: the floor
+    /// sits above the construction point, so nothing compiled runs.
+    #[test]
+    fn an_undeclared_thread_keeps_compiled_code_out() {
+        STACK_REGION.with(|r| r.set(None));
+        let here = stack_marker();
+        let i = Interp::new();
+        assert!(
+            i.cells().floor() > here,
+            "the floor is above the point the Interp was built at: {} vs {here}",
+            i.cells().floor()
+        );
+    }
+
     #[test]
     fn autoadd_appends_the_name_instead_of_running_it() {
         let (mut i, s) = with_native("w");
-        i.autoadd = true;
+        i.set_autoadd(true);
         i.push(BundValue::int(1));
         i.dispatch(s, false).expect("autoadd");
         assert_eq!(i.pull().map(|v| v.dt()), Some(bund2_value::CALL));
@@ -1789,6 +2078,7 @@ mod tests {
         let text = std::fs::read_to_string(&path).expect("reads");
         let shipped = text.split("#[cfg(test)]\nmod ").next().unwrap_or_default();
         let mut found = std::collections::BTreeSet::new();
+        let mut mirrored = std::collections::BTreeSet::new();
         let mut current = String::new();
         for line in shipped.lines() {
             let t = line.trim_start();
@@ -1811,6 +2101,12 @@ mod tests {
             if t.contains("pending_tail =") || t.contains("pending_tail.take()") {
                 found.insert(current.clone());
             }
+            // **The mirror, RFC-0005 §S6.** Every writer of `pending_tail`
+            // must also write the request cell, or Tier 0 and compiled code
+            // disagree about whether a body is waiting to run.
+            if t.contains("cells.set_request(") {
+                mirrored.insert(current.clone());
+            }
         }
         let named: std::collections::BTreeSet<String> =
             WRITERS.iter().map(|s| (*s).to_string()).collect();
@@ -1818,6 +2114,187 @@ mod tests {
             found, named,
             "the request cell's writers and RFC-0005 assumption 33 differ"
         );
+        // **The pairing, not just the set.** §S6's *Addressing* requires the
+        // mirror to be written wherever `pending_tail` is; a writer that
+        // updated one and not the other would leave compiled code draining a
+        // body Tier 0 had discarded, or missing one it had filed. Asserting
+        // the two sets are equal catches a half-write in either direction —
+        // including a mirror write in a function that no longer writes the
+        // truth.
+        assert_eq!(
+            mirrored, named,
+            "every writer of `pending_tail` must write RFC-0005 §S6's mirror beside it"
+        );
+    }
+
+    /// **The cells are reachable through `&mut dyn Vm`, which is how a tier
+    /// sees them.** RFC-0005 §S6 has the JIT take each cell's address at
+    /// compile time, and a tier holds the interpreter only as `&mut dyn Vm`.
+    ///
+    /// This is written against the trait object on purpose: `Vm::cells` once
+    /// carried a `None` default, and `Interp` inherited it while owning cells,
+    /// so every guard would have been skipped with the build green. Asking
+    /// through `Interp` directly would not have caught it.
+    #[test]
+    fn a_tier_reaches_the_cells_through_the_trait() {
+        let mut i = Interp::new();
+        let vm: &mut dyn Vm = &mut i;
+        assert!(
+            vm.cells().is_some(),
+            "an interpreter must offer its cells through the trait a tier holds"
+        );
+    }
+
+    /// **The `autoadd` mirror cannot drift, because the field is private.**
+    #[test]
+    fn the_autoadd_mirror_tracks_the_mode() {
+        let mut i = Interp::new();
+        assert!(!i.cells().autoadd(), "off at construction");
+        i.set_autoadd(true);
+        assert!(i.autoadd(), "the mode");
+        assert!(i.cells().autoadd(), "and the mirror");
+        i.set_autoadd(false);
+        assert!(!i.cells().autoadd(), "and back");
+    }
+
+    /// **The epoch moves on a switch and on nothing else.**
+    ///
+    /// Pushing and pulling leave it alone — compiled code holding promoted
+    /// values cares which stack is current, not how deep it is — and a
+    /// `to_stack` to the stack already current is not a switch.
+    #[test]
+    fn the_epoch_moves_only_when_the_current_stack_changes() {
+        let mut i = Interp::new();
+        let start = i.cells().epoch.get();
+
+        i.push(BundValue::int(1));
+        i.pull();
+        assert_eq!(i.cells().epoch.get(), start, "depth is not a switch");
+
+        Vm::to_stack(&mut i, "main");
+        assert_eq!(
+            i.cells().epoch.get(),
+            start,
+            "to_stack to the stack already current is not a switch"
+        );
+
+        Vm::to_stack(&mut i, "s");
+        let after = i.cells().epoch.get();
+        assert!(after > start, "a real switch bumps: {start} -> {after}");
+
+        Vm::to_stack(&mut i, "main");
+        assert!(i.cells().epoch.get() > after, "and switching back bumps");
+    }
+
+    /// **Every path that can move the front of the ring bumps the epoch**, and
+    /// the ones that cannot do not.
+    ///
+    /// `drop_stack` and the rotations used to reach past `Stacks` into `order`
+    /// directly, which is why `order` is now sealed: a switch that did not bump
+    /// would leave a compiled body guarding on a stale epoch. A rotation of a
+    /// one-stack ring moves nothing and must not bump, or every guard in a
+    /// compiled body would fire on a program with a single stack.
+    #[test]
+    fn every_way_the_current_stack_changes_moves_the_epoch() {
+        let mut i = Interp::new();
+
+        let one = i.cells().epoch.get();
+        i.rotate_stacks_left();
+        assert_eq!(i.cells().epoch.get(), one, "a ring of one does not rotate");
+        i.rotate_stacks_right();
+        assert_eq!(i.cells().epoch.get(), one, "in either direction");
+
+        Vm::to_stack(&mut i, "s");
+        let two = i.cells().epoch.get();
+        i.rotate_stacks_left();
+        assert!(i.cells().epoch.get() > two, "a ring of two rotates");
+
+        let before_drop = i.cells().epoch.get();
+        i.ensure_stack("keep");
+        let after_ensure = i.cells().epoch.get();
+        assert!(
+            after_ensure > before_drop,
+            "a created stack becomes current — F89"
+        );
+
+        // Dropping a stack that is not current moves nothing.
+        let held = i.current_name();
+        let other = if held == "s" { "main" } else { "s" };
+        let before = i.cells().epoch.get();
+        i.drop_stack(other);
+        assert_eq!(
+            i.cells().epoch.get(),
+            before,
+            "dropping a stack that is not current is not a switch"
+        );
+
+        // Dropping the current one does.
+        let current = i.current_name();
+        i.drop_stack(&current);
+        assert!(
+            i.cells().epoch.get() > before,
+            "dropping the current stack switches"
+        );
+    }
+
+    /// **The request mirror tracks `pending_tail` through a real program**, not
+    /// only through direct calls: a native files a request, the loop drains it,
+    /// and the mirror is clear at the end.
+    #[test]
+    fn the_request_mirror_tracks_the_pending_body() {
+        fn files(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.tail_lambda(BundValue::lambda(vec![BundValue::int(7)]));
+            Ok(())
+        }
+        let mut i = Interp::new();
+        i.registry
+            .register_native("f", files, StackEffect::opaque(0), WordKind::Sync);
+
+        assert!(!i.cells().request(), "clear before anything runs");
+        i.eval(&[BundValue::call("f")]).expect("runs");
+        assert!(
+            !i.cells().request(),
+            "and clear again once the body has been drained"
+        );
+        assert_eq!(i.pull().and_then(|v| v.as_int()), Some(7), "the body ran");
+    }
+
+    /// **A failing native's request is cleared in the mirror too — F96.**
+    ///
+    /// Tier 0 discards the body; if the mirror kept it, compiled code would
+    /// drain a body Tier 0 had already thrown away, which is the half of F96
+    /// that only exists once a mirror does.
+    #[test]
+    fn a_failed_natives_request_clears_the_mirror() {
+        fn files_then_fails(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.tail_lambda(BundValue::lambda(vec![BundValue::int(99)]));
+            Err(Error("failed after filing".into()))
+        }
+        let mut i = Interp::new();
+        i.registry.register_native(
+            "ff",
+            files_then_fails,
+            StackEffect::opaque(0),
+            WordKind::Sync,
+        );
+        assert!(i.eval(&[BundValue::call("ff")]).is_err());
+        assert!(
+            !i.cells().request(),
+            "F96 clears the mirror as well as the truth"
+        );
+    }
+
+    /// **`Vm::clear_tail_request` clears both — D56.** This is the path a
+    /// compiled call site reaches, the one with no `invoke` behind it.
+    #[test]
+    fn clearing_through_the_trait_clears_the_mirror() {
+        let mut i = Interp::new();
+        i.request_tail(BundValue::lambda(vec![BundValue::int(1)]));
+        assert!(i.cells().request(), "filed");
+        Vm::clear_tail_request(&mut i);
+        assert!(!i.cells().request(), "and cleared in the mirror");
+        i.eval(&[BundValue::int(5)]).expect("runs");
+        assert_eq!(i.depth(), 1, "the discarded body did not run");
     }
 
     #[test]

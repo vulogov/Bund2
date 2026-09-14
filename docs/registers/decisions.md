@@ -3453,6 +3453,146 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D62 — `bund2` declares an 8 MiB Tier 1 share, and Tier 0's part carries no margin yet
+
+**Decided by the repository owner, 2026-09-13.** §S8's stack-floor cell is
+built, and the CLI adopts §S8's proposed default for the share.
+
+- Blocks: nothing. It completes §S6's cell families and answers the ninth
+  review's S3 in code
+- Status: **RESOLVED — built.**
+
+**The mechanism was already decided; this adopts the number.** §S8 resolved the
+ninth review's S3 with "a share is declared, never inferred":
+`set_stack_region_with_share(top, size, share)` names Tier 1's part, plain
+`set_stack_region` leaves it at zero, and a default split was rejected because
+it would take room from every embedder's Tier 0 without asking. That function
+now exists, and `bund2`'s evaluation thread declares through it under `jit`.
+Without that, §S8's own warning holds: criterion 2 would pass with no compiled
+code having run.
+
+**The share is 8 MiB, §S8's proposed default**, added *above* Tier 0's part
+rather than carved out of it, so `EVAL_STACK` is `8 MiB + 8 MiB + STACK_RESERVE`
+under `jit` and unchanged without it. Adding rather than carving is what keeps
+D44's second requirement: a program whose native nesting fits with the tier off
+still fits with it on.
+
+**Tier 0's part stays at 8 MiB, not `8 MiB + m`.** §S8 has it carry a margin
+`m ≥ 8 MiB × max_p(δ_p / c_p)` over every re-entering path under `jit`, and
+says `m` is "a measurement taken when the tier exists, not a number guessed
+now". Criterion 11 measures it. Guessing a margin here would be the guess the
+RFC forbids, so the part is left as it is and the gap is recorded rather than
+filled.
+
+**The floor cell holds the Tier 1 floor, `top − share + STACK_RESERVE`, not
+Tier 0's.** They are different addresses and the Tier 1 floor is the higher:
+Tier 0's sits one reserve above the stack's *end*. Mirroring the wrong one
+would admit compiled frames into Tier 0's part. It is written once, at
+construction, because the floor is a property of the thread and never moves —
+so unlike the epoch and the two flags it needs no writer discipline.
+
+**A thread with no share gets a floor above its own top**, since the share is
+zero and the reserve is added to the top. Every stack pointer is then beneath
+it and every compiled body declines. §S8's "compiled code does not run there"
+is therefore arithmetic rather than a flag, and an undeclared thread reaches the
+same answer through `stack_marker`.
+
+**What this does not decide.** It does not measure `m`. It gives the cell no
+reader: no compiled body entry compares `get_stack_pointer` against it yet,
+because no lowering emits that check. And it changes no meaning — conform is
+unmoved at 106/114 with a ceiling of 106/114.
+
+## D61 — the current-stack ring is sealed, and `Vm::cells` is required
+
+**Decided by the repository owner, 2026-09-13.** Two shapes chosen while
+building RFC-0005 §S6's cells, neither specified by the RFC.
+
+- Blocks: nothing. It builds three of §S6's four cell families
+- Status: **RESOLVED — built.**
+
+**`Stacks::order` is private, and every current-stack change goes through a
+mutator that bumps the epoch.** §S6 wants an epoch "bumped on every change of
+current stack", and the obvious reading — bump at each call site — was already
+violated: `drop_stack`, `rotate_stacks_left` and `rotate_stacks_right` reached
+past `Stacks` into its `order` deque from `Interp`'s `Vm` impl. Instrumenting
+`Stacks`'s own methods would have left three switches silent, and a silent
+switch is a compiled body holding values from a stack no longer in force. The
+ring is therefore sealed behind `drop_named`, `rotate_left` and `rotate_right`,
+each bumping, which makes the invariant structural in the sense CLAUDE.md
+prefers and assumption 37 already uses for generations. Assumption 40 states it.
+
+The bump is **exact, not conservative**: a `to_stack` to the stack already
+current, a rotation of a one-stack ring, and a drop of some other stack all
+leave it alone. A conservative bump would be correct but would fire every guard
+in a compiled body on programs that never switched, which defeats the
+optimisation the cell exists to enable.
+
+**`Vm::cells` is a required method, not a defaulted one — and the default was a
+real bug, not a hypothetical.** It was first written with a `None` default so a
+test double would owe nothing. `Interp` then inherited that default while owning
+cells: the workspace compiled clean, and a tier asking through `&mut dyn Vm`
+would have been told there were no cells and compiled no guard. A wrong answer
+behind a green build is the exact failure this section exists to prevent, so the
+method is required and each test double writes one line.
+
+`a_tier_reaches_the_cells_through_the_trait` (`crates/bund2-interp/src/lib.rs`)
+is written against `&mut dyn Vm` rather than against `Interp` deliberately:
+asking `Interp` directly would have passed throughout, because the inherent
+accessor was always correct. Only the trait object saw the bug.
+
+**`Interp::autoadd` is private.** A `pub` field cannot be mirrored — any writer
+bypasses the cell — so it has one writer, `Interp::set_autoadd`, which writes
+the mode and the mirror together. This cost five call sites, all tests, because
+`:` and `;` are unbound; it would cost much more after they land.
+
+**What this does not decide.** It does not build §S8's stack-floor cell, the
+fourth family §S6 lists. It gives the cells no reader: there is still no
+residual path, no drain helper and no `status_of`, so nothing in compiled code
+loads them. And it changes no meaning — conform is unmoved at 106/114 with a
+ceiling of 106/114.
+
+## D60 — compiled code is owned by a per-`Interp` compiler, and callers hold handles
+
+**Decided by the repository owner, 2026-09-13.** One `JITModule` per `Interp`,
+which is criterion 23's module half.
+
+- Blocks: nothing. It closes the module half of RFC-0005's criterion 23
+- Status: **RESOLVED — built.**
+
+A module is a code allocator: each one reserves and finalises its own memory,
+and §S4 never reclaims any of it. A module per compiled body multiplies that
+fixed cost by the compiled-function cap, so the module is shared and the words
+are emitted into it.
+
+**The ownership follows from a lifetime, not from taste.** A compiled word's
+entry pointer is valid only while the module that emitted it is alive. A
+self-contained compiled value holding that pointer is therefore a dangling
+reference waiting for its module to drop, with nothing in the type system
+saying so. So the code lives in a `Compiler` and callers receive a
+`WordHandle` — an index, which can only ever reach a word of the compiler it is
+used against, and out of range answers `None`. It is deliberately **not** an
+identity: every compiler numbers from zero, so a handle from one compiler used
+against another names that other compiler's word. Nothing mixes them, because
+the cache that stores handles lives in the same `JitTier` as the compiler that
+issued them.
+
+**Two Cranelift behaviours make the sharing correct**, both read against the
+vendored 0.135 source rather than assumed. `JITModule::finalize_definitions`
+drains its pending list with `mem::take`, so calling it once per compilation
+finalises only that compilation's functions and leaves earlier code untouched
+and executable. `declare_function` **merges** a duplicate name into the
+existing `FuncId` and returns it rather than failing — right for the adapter
+import, which every body shares, and a hazard for everything else: each body's
+thunks, body and trampoline carry a sequence suffix, because without one a
+second word would silently redefine the first and the symptom would be a wrong
+answer rather than an error.
+
+**What this does not decide.** It does not build §S6's cells, so criterion 23's
+"one set of cells per `Interp`" is unbuilt rather than satisfied. It does not
+change the two test-only entry points, `compile` and `compile_body`, which
+still build a module each; neither is on an `Interp`'s path. And it changes no
+meaning: conform is unmoved at 106/114 with a ceiling of 106/114.
+
 ## D59 — the JIT feasibility gate is answered, and Tier 1 is authorised
 
 **Decided by the repository owner, 2026-09-12.** RFC-0005 moves from Draft to

@@ -25,7 +25,7 @@ pub mod lower;
 
 /// The compiled cache and the promotion counter — §S3, §S7, D35 as amended.
 ///
-/// Behind the feature because it holds [`lower::CompiledWord`], which names
-/// Cranelift types through the code it owns.
+/// Behind the feature because its entries are [`lower::WordHandle`]s, which
+/// only a [`lower::Compiler`] — and so only Cranelift — can issue.
 #[cfg(feature = "jit")]
 pub mod cache;

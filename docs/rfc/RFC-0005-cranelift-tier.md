@@ -375,6 +375,15 @@
   its own module. Thirty-five tests under `--features jit`; conform unmoved at
   106/114.
 
+  **Dated note, 2026-09-13 — criterion 23 is met but for its cells.** The seam
+  consults the cache at `Interp::push_frame`, and `lower`'s `Compiler` holds
+  one `JITModule` per tier, hence per `Interp`; the cache holds handles into it
+  rather than code. Two tests run the criterion: two tiers over one body share
+  nothing, and a dropped `Runtime` leaves another still giving Tier 0's result.
+  §S6's cells remain unbuilt, so that noun of the criterion is absent rather
+  than per-`Interp`. Thirty-six tests in `bund2-jit` and six in `bund2-runtime`
+  under `--features jit`; conform unmoved at 106/114.
+
   **A compiled body is a real Bund word, 2026-09-13 — and it is a shape, not a
   speedup.** `compile_word_body` lowers a body's values, each through its own
   `Tail` thunk called indirectly through the slot table, and a differential
@@ -1950,6 +1959,16 @@ cache, one `JITModule` and one set of cells *per `Interp`*, where `lower`'s
 entry points each build a module of their own; that stays open and is named
 here rather than implied away.
 
+**Dated note, 2026-09-13.** Both halves of that paragraph are now closed except
+the cells. `Tiering` is consulted when a word runs, through the `Tier` seam at
+`Interp::push_frame`; and `lower`'s `Compiler` holds one `JITModule` for every
+word a tier compiles, so it is one module per `Interp`. The cache stores
+`WordHandle`s into that compiler rather than code. **The cells are still
+absent**, so criterion 23's third noun is unbuilt rather than shared. The two
+test-only entry points, `compile` and `compile_body`, still build a module
+each: neither is on an `Interp`'s path, and both exist to give the fragment
+lowering and §S8's boundary a call site.
+
 **A body that is a real Bund word, 2026-09-13.** `compile_word_body` lowers a
 body's *values* — literals, `CALL`s, `CONTEXT`s — each through its own `Tail`
 thunk, called indirectly through the slot table. `{ 1 2 + }` compiles and runs,
@@ -2051,9 +2070,64 @@ registry:
   is private to `Interp` and a compiled call never passes through it. A clear
   that reached the mirror alone would leave Tier 0 holding a body its next
   `take_pending` would run, which is the fifteenth review's B1 unfixed;
+**Dated note, 2026-09-13 — three of the four cell families are built, and
+nothing reads them yet.** `bund2_api::Cells` is the single allocation this
+section describes: `autoadd`, the current-stack `epoch` and the `request`
+mirror, `Cell`s written by safe Rust, owned by `Interp` in a `Box` so the
+address is stable for the interpreter's life, and reached by a tier through
+`Vm::cells`. D43's generation cells already existed; the **stack-floor cell is
+still unbuilt**.
+
+**Each mirror is written where its truth is written, not beside it**, because a
+mirror that can drift is worse than no mirror — it would let a guard admit a
+body whose meaning had changed:
+
+- `autoadd` is now a **private** field with one writer, `Interp::set_autoadd`,
+  which writes the mode and the cell together. It was `pub`, and a public field
+  cannot be mirrored: any writer would bypass the cell. Privatising it cost five
+  call sites, all tests, because `:` and `;` are still unbound — cheap now and
+  expensive once they land, which is why it was done now;
+- the **epoch** is published from a counter inside `Stacks`, bumped at every
+  site that can change which stack is current, and **exact rather than
+  conservative**: a `to_stack` to the stack already current, a rotation of a
+  one-stack ring, and a drop of a stack that is not current all leave it alone,
+  so a guard cannot fire on a program that never switched. Assumption 40 records
+  what makes it a property;
+- the **request mirror** is written in the four writers this section names, and
+  `every_writer_of_the_request_cell_is_named` now asserts the mirrored set
+  *equals* the named set, so a half-write in either direction fails the scan
+  rather than shipping. `take_pending` clears the mirror **before** it pushes
+  the frame, since the body it runs may file a request of its own.
+
+**What this does not yet do.** No compiled code reads any of it: there is no
+residual path, no drain helper and no `status_of`. The value of the cells today
+is that the mirrors provably track the truth, which is the part a later lowering
+cannot check for itself, and the part that is testable now.
+
 - one **stack-floor cell** per `Interp` (§S8), holding the floor that `Interp`
   took from its thread's declared region, which the check at every compiled
   body's entry compares `get_stack_pointer` against.
+
+**Dated note, 2026-09-13 (2) — the floor cell is built, and §S6's four cell
+families are complete.** `Cells::floor` holds the **Tier 1** floor,
+`top − share + STACK_RESERVE`, set once in `Interp::new` from `tier1_floor()`.
+It is the only one of the four with no writer discipline, and needs none: the
+floor is a property of the thread the `Interp` was built on and never moves, so
+there is nothing for it to drift from.
+
+**It is not the Tier 0 floor**, which is a different and lower address —
+`top − size + STACK_RESERVE`, one reserve above the stack's *end*. Mirroring
+that one into the cell would admit compiled frames into Tier 0's part, against
+D44's "never less"; a test asserts the Tier 1 floor is the higher of the two.
+
+**A thread with no share gets a floor above its own top**, since the share is
+zero and the reserve is added to the top. Every stack pointer is then beneath
+it, every compiled body declines, and the tier is inert on that thread — §S8's
+"compiled code does not run there" as arithmetic rather than a flag. An
+undeclared thread reaches the same answer through `stack_marker`.
+
+**Still no reader.** No lowering emits the entry comparison yet, so the cell
+records the floor without anything consulting it. D62.
 
 At compile time the JIT embeds each cell's address as an immediate. That is
 safe to do because the cells outlive every compiled function: both die with the
@@ -2923,6 +2997,21 @@ that does not keeps all of its region for Tier 0. A default split was rejected:
 it would take room from every embedder's Tier 0 without asking, against D44's
 "never less". The function is added with the tier.
 
+**Built 2026-09-13 (D62).** `bund2_interp::set_stack_region_with_share(top,
+size, share)` exists, the thread-local region carries the share as a third
+number, and `bund2`'s evaluation thread declares through it under `jit` with
+§S8's proposed default of 8 MiB. The share is added *above* Tier 0's part
+rather than carved out of it — `EVAL_STACK` is `8 MiB + 8 MiB + STACK_RESERVE`
+under `jit`, and unchanged without it — which is what keeps D44's second
+requirement. Plain `set_stack_region` sets a share of zero, so an embedder that
+does not opt in keeps its whole region for Tier 0, and three tests pin the
+three cases: a declared share, a declared region without one, and an undeclared
+thread.
+
+**Tier 0's part is still 8 MiB, not `8 MiB + m`.** The margin is a measurement
+criterion 11 takes once the tier exists, and guessing it here is what this
+section forbids. The gap is recorded in D62 rather than filled.
+
 **What it costs.** Tier 1 pays a stack-pointer read, a load and a compare per
 compiled body entry, under criterion 11's 2 ns bound. Tier 0 pays an address, a
 load and a compare each time a native re-enters evaluation — `Vm::eval_lambda`,
@@ -2966,7 +3055,7 @@ and D55 and the twelfth review two more, 22 and 23. The thirteenth named two
 more, 24 and 25, the fourteenth two, 26 and 27, and the fifteenth two, 28 and
 29. The sixteenth added 30 and 31, the seventeenth 32 and 33, F116 and F115
 added 34 and 35, F117 added 36, the twentieth review's B2 added 37, and its S5
-and S6 added 38 and 39.* Each
+and S6 added 38 and 39. Building §S6's cells added 40.* Each
 is stated here, with the place that enforces or decides it.
 
 1. **One compiled cache, one `JITModule`, one set of cells and one fragment
@@ -3288,6 +3377,26 @@ is stated here, with the place that enforces or decides it.
     convention the audits check. Nothing derives this — it is a constraint
     on a lowering that does not exist yet, and criterion 22 is where a
     breach would surface (the twentieth review's S6).
+40. **No code changes which stack is current without moving the epoch.**
+    §S6's guards re-read the epoch after every call, and a switch that did not
+    move it would leave a compiled body holding values promoted from a stack
+    that is no longer in force — the sixth review's `1 2 "s" to_stack +` with
+    the check defeated. The property is **structural rather than enumerated**,
+    as assumption 37 is: `Stacks::order` is private to `Stacks`, and every
+    mutator that can move its front bumps the epoch, so a switch that does not
+    bump cannot be written.
+
+    It had to be made structural rather than asserted, because it was already
+    violated in the direction that matters: `drop_stack`, `rotate_stacks_left`
+    and `rotate_stacks_right` on `Interp`'s `Vm` impl reached *past* `Stacks`
+    into `order` directly. Instrumenting only `Stacks`'s own methods would have
+    left three silent switches. They now call sealed mutators.
+
+    **The bump is exact.** `to_stack` to the stack already current, a rotation
+    of a one-stack ring, and a drop of a stack that is not current change no
+    front and do not bump; a compiled body must not take a guard failure from a
+    program that never switched. `every_way_the_current_stack_changes_moves_the_epoch`
+    (`crates/bund2-interp/src/lib.rs`) asserts both halves.
 
 # S9. Tier pinning
 
@@ -4113,6 +4222,52 @@ evidence, and this one is listed as runnable rather than as met.
     compilations is a `lower.rs` refactor: the module must outlive individual
     compilations and hand out finalised pointers as each is defined. The
     criterion runs when that lands.
+
+    **Dated note, 2026-09-13 (2) — it landed, and the criterion runs.** `lower`
+    gained a `Compiler`: one `JITModule`, every word emitted into it, and a
+    `WordHandle` handed back in place of a self-contained compiled value. A
+    `JitTier` owns one, so it is one module per tier and one tier per `Interp`.
+    The cache stores handles rather than code, which is what makes the two
+    halves inseparable — a handle is meaningless without the compiler beside it
+    — and no compiled word can outlive the module that emitted it.
+
+    Two Cranelift facts carry the sharing, both read rather than assumed:
+    `finalize_definitions` takes its pending list with `mem::take`, so calling
+    it once per compilation finalises only that compilation's functions and
+    leaves earlier code executable; and `declare_function` **merges** a
+    duplicate name into the existing `FuncId` instead of failing, which is why
+    each body's functions carry a sequence suffix. Without it a second word
+    would silently redefine the first and the symptom would be a wrong answer,
+    not an error — so a test compiles two words into one module, runs both, and
+    runs the first again after the second was emitted.
+
+    Two tests in `crates/bund2-runtime/src/tier.rs` run the criterion itself:
+    the same body driven past one tier's threshold leaves the other tier with
+    no compiled word and a missing cache entry, and a `Runtime` dropped after
+    compiling the shared body leaves a second `Runtime` still giving Tier 0's
+    result. **The cells remain absent**, so the criterion's "one set of cells"
+    is still nothing rather than something shared; that half is §S6's work and
+    is not claimed here.
+
+    **Dated note, 2026-09-13 (3) — the cells exist, one set per `Interp`.**
+    `bund2_api::Cells` holds `autoadd`, the current-stack epoch and the request
+    mirror in one allocation, owned by `Interp` in a `Box` and reached through
+    `Vm::cells`. All three of this criterion's nouns — cache, module, cells —
+    are now per-`Interp`, so the paragraph above is superseded except for the
+    **stack-floor cell**, which §S6 also lists and which is still unbuilt.
+
+    **Dated note, 2026-09-13 (4) — the floor cell landed too, so every noun of
+    this criterion is per-`Interp`.** `Cells::floor` holds the Tier 1 floor,
+    set once in `Interp::new` from the thread's declared share (D62). §S6's
+    four cell families are complete: generation cells (D43), `autoadd`, the
+    epoch, the request mirror, and the floor. Two `Interp`s on one thread get
+    their own `Cells`, so neither can be compiled against the other's floor.
+
+    **This does not change the criterion's behaviour**, and the two tests above
+    still carry it: nothing in compiled code loads a cell yet, because there is
+    no residual path, no drain helper and no `status_of`. What changed is that a
+    second `Interp` now has cells of its own to be compiled against rather than
+    none at all — which is the condition the criterion was written to protect.
 
 24. **Every `bund2-stdlib` native with a fixed effect keeps it.** Promotion
     stops at an opaque site (§S5), and after any other call it models the

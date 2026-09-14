@@ -31,7 +31,7 @@ use std::rc::Weak;
 use bund2_api::Symbol;
 use bund2_value::{BundValue, Payload};
 
-use crate::lower::CompiledWord;
+use crate::lower::WordHandle;
 
 /// §S7's knobs, with its defaults.
 ///
@@ -104,7 +104,11 @@ pub struct Tiering {
     /// §S7's promotion counter: how many times each body has been evaluated.
     counter: HashMap<usize, Entry<u32>>,
     /// §S3's compiled cache.
-    cache: HashMap<usize, Entry<CompiledWord>>,
+    ///
+    /// It holds **handles**, not code: the code lives in the `Compiler` the
+    /// tier owns, one module per `Interp`. So a cache entry is inert on its
+    /// own, and this map neither owns code memory nor can outlive it usefully.
+    cache: HashMap<usize, Entry<WordHandle>>,
     /// Redefinitions per **slot** — a `Symbol`, not a body. §S7's recompile cap
     /// is per slot while demotion is per body, and this is the half that counts.
     redefinitions: HashMap<Symbol, u32>,
@@ -194,7 +198,7 @@ impl Tiering {
     /// Refused past the function cap, so a caller that ignored [`Decision`]
     /// cannot grow code memory past the bound. Refused for a demoted body, so
     /// demotion is permanent in fact and not only in intent.
-    pub fn insert(&mut self, body: &BundValue, code: CompiledWord) -> bool {
+    pub fn insert(&mut self, body: &BundValue, code: WordHandle) -> bool {
         let (Some(key), Some(weak)) = (body.payload_key(), body.payload_weak()) else {
             return false;
         };
@@ -210,13 +214,13 @@ impl Tiering {
     ///
     /// The `Weak` is what makes the second half true: a dead entry answers for
     /// nothing, so a reused address cannot be served another body's code.
-    pub fn compiled(&self, body: &BundValue) -> Option<&CompiledWord> {
+    pub fn compiled(&self, body: &BundValue) -> Option<WordHandle> {
         let key = body.payload_key()?;
         let entry = self.cache.get(&key)?;
         if entry.is_dead() {
             return None;
         }
-        Some(&entry.value)
+        Some(entry.value)
     }
 
     /// **A slot was redefined — §S7's recompile cap.**
@@ -309,14 +313,19 @@ impl Tiering {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lower::{LastCall, compile_word_body};
+    use crate::lower::{Compiler, LastCall};
 
     fn body(n: i64) -> BundValue {
         BundValue::lambda(vec![BundValue::int(n)])
     }
 
-    fn code() -> CompiledWord {
-        compile_word_body(1, LastCall::Ordinary).expect("lowers")
+    /// A real compiled word, from a real compiler.
+    ///
+    /// The cache never dereferences a handle, so a fabricated one would pass
+    /// these tests — which is exactly why they use the real thing instead: what
+    /// the cache files has to be what the tier would file.
+    fn code(c: &mut Compiler) -> WordHandle {
+        c.compile_word(1, LastCall::Ordinary).expect("lowers")
     }
 
     /// Small caps, as criterion 6 requires: "with the compiled-function cap set
@@ -336,10 +345,11 @@ mod tests {
     #[test]
     fn a_cache_entry_cannot_answer_for_a_different_body() {
         let mut t = Tiering::new(small());
+        let mut c = Compiler::new().expect("a compiler");
         let key = {
             let b = body(1);
             let key = b.payload_key().expect("a body has a key");
-            assert!(t.insert(&b, code()), "filed");
+            assert!(t.insert(&b, code(&mut c)), "filed");
             assert!(t.compiled(&b).is_some(), "and answers while it lives");
             key
         };
@@ -367,14 +377,15 @@ mod tests {
     #[test]
     fn the_function_cap_leaves_the_body_past_it_interpreted() {
         let mut t = Tiering::new(small());
+        let mut c = Compiler::new().expect("a compiler");
         let held: Vec<BundValue> = (0..5).map(body).collect();
         for b in held.iter().take(4) {
-            assert!(t.insert(b, code()), "the first four are compiled");
+            assert!(t.insert(b, code(&mut c)), "the first four are compiled");
         }
         assert_eq!(t.compiled_count(), 4);
 
         let fifth = &held[4];
-        assert!(!t.insert(fifth, code()), "the fifth is refused");
+        assert!(!t.insert(fifth, code(&mut c)), "the fifth is refused");
         assert!(t.compiled(fifth).is_none(), "and stays interpreted");
 
         // And `observe` agrees, rather than saying `Compile` for a body the
@@ -393,13 +404,14 @@ mod tests {
     #[test]
     fn the_third_redefinition_demotes_the_body_live_at_the_time() {
         let mut t = Tiering::new(small());
+        let mut c = Compiler::new().expect("a compiler");
         let mut r = bund2_api::Registry::new();
         // `Registry` has no by-name symbol method of its own; interning goes
         // through the public `interner`, as `bund2-interp`'s dispatch does.
         let slot = r.interner.intern("w");
 
         let first = body(1);
-        assert!(t.insert(&first, code()));
+        assert!(t.insert(&first, code(&mut c)));
 
         t.redefined(slot, Some(&first));
         t.redefined(slot, Some(&first));
@@ -409,7 +421,7 @@ mod tests {
         t.redefined(slot, Some(&first));
         assert!(t.is_demoted(&first), "the third exceeds it");
         assert!(t.compiled(&first).is_none(), "the code is dropped");
-        assert!(!t.insert(&first, code()), "and it is never promoted again");
+        assert!(!t.insert(&first, code(&mut c)), "and it is never promoted again");
 
         // **Per slot, not per body**: a different slot has its own count.
         let other = r.interner.intern("x");
@@ -462,10 +474,11 @@ mod tests {
     #[test]
     fn the_threshold_decides_when_a_body_has_earned_compilation() {
         let mut t = Tiering::new(small());
+        let mut c = Compiler::new().expect("a compiler");
         let b = body(1);
         assert_eq!(t.observe(&b), Decision::Interpret, "first evaluation");
         assert_eq!(t.observe(&b), Decision::Compile, "at the threshold of 2");
-        assert!(t.insert(&b, code()));
+        assert!(t.insert(&b, code(&mut c)));
         assert_eq!(t.observe(&b), Decision::Compiled, "and after it is filed");
     }
 
@@ -476,8 +489,9 @@ mod tests {
     #[test]
     fn a_dup_shares_the_originals_cache_entry() {
         let mut t = Tiering::new(small());
+        let mut c = Compiler::new().expect("a compiler");
         let original = body(1);
-        assert!(t.insert(&original, code()));
+        assert!(t.insert(&original, code(&mut c)));
         let copy = original.dup();
         assert!(
             t.compiled(&copy).is_some(),
@@ -490,10 +504,11 @@ mod tests {
     #[test]
     fn an_unboxed_scalar_is_not_a_body() {
         let mut t = Tiering::new(small());
+        let mut c = Compiler::new().expect("a compiler");
         let scalar = BundValue::int(7);
         assert_eq!(t.observe(&scalar), Decision::Interpret);
         assert_eq!(t.counted(), 0);
-        assert!(!t.insert(&scalar, code()));
+        assert!(!t.insert(&scalar, code(&mut c)));
         assert!(!t.is_demoted(&scalar));
     }
 }
