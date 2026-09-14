@@ -4089,16 +4089,48 @@ most of the corpus, which is the weaker half of what criterion 2 intends.
 It also blocks the honest form of criterion 10's A/B over the corpus rather
 than over hand-written kernels.
 
-**Disposition.** A `--jit-threshold <n>` flag on the CLI, threaded into
-`Caps` where `Runtime::with_options` builds the tier, and `xtask conform`
-passing it through as criterion 2 spells it.
+**Disposition: FIXED, 2026-09-14.** Two knobs, with a stated precedence:
 
-**What it does not affect.** Nothing about meaning: conformance is unmoved at
-106/114, ceiling 106/114, with the feature on and off. The threshold is a
-tuning knob (§S7), not a semantic boundary.
+- `--jit-threshold <n>` on `bund2 script`, parsed in `parse_args` and threaded
+  through `Runtime::with_options_and_threshold` into `Caps`;
+- `BUND2_JIT_THRESHOLD` in the environment, read by `threshold_from_env`;
+- **the flag wins**, because it is the more specific statement: a command line
+  is about *this* run, an environment variable about the shell it ran in.
+  Neither set falls back to §S7's default of 64.
+
+`xtask` gained `take_jit_threshold` beside `take_features`, `golden::run_once`
+gained an `extra` argument list — **empty for every oracle run**, since the
+oracle has never heard of the flag and passing it would turn a capture into a
+refusal — and `conform` threads it through and names it in the `measured:`
+line.
+
+**A malformed value is refused on the command line and ignored in the
+environment**, and the asymmetry is deliberate: `parse_args` can report and
+exits **2**, while `threshold_from_env` runs inside a constructor that cannot.
+So an ignored environment value would be a silent misconfiguration — the shape
+of F124, F127 and F128 — and `bund2 --stats` therefore prints the threshold the
+tier *actually adopted*, not the one that was asked for. `BUND2_JIT_THRESHOLD=banana`
+reports `at threshold 64`.
+
+A build without the `jit` feature accepts the flag and ignores it. Refusing it
+would make a uniform `conform` command line fail on the run that has no tier to
+configure.
+
+**Criterion 2's third run, measured for the first time.** All three now read
+the same number:
+
+    cargo xtask conform                                    106/114, ceiling 106/114
+    cargo xtask conform --features jit                     106/114, ceiling 106/114
+    cargo xtask conform --features jit --jit-threshold 1   106/114, ceiling 106/114
+
+At threshold 1 every body compiles on its first evaluation, which is the
+strongest test of meaning the corpus can give — and it moves conformance by
+exactly zero, which is what §S2 requires. The knob is a tuning parameter (§S7),
+not a semantic boundary, and this is the first evidence for that rather than an
+assertion of it.
 
 - Found: 2026-09-14, while measuring criterion 10 on the shipped lowering
-- Status: **OPEN**
+- Status: **RESOLVED — built.**
 - Depends on: D59, criterion 2, §S7's knobs
 
 ## F124 — `bund2` never installs a tier, so every `--features jit` measurement compares Tier 0 with itself

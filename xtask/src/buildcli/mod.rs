@@ -41,6 +41,36 @@ pub fn take_features(args: &[String]) -> (String, Vec<String>) {
     (features, rest)
 }
 
+/// Pull `--jit-threshold <n>` out of an argument vector, leaving the rest.
+///
+/// **RFC-0005 criterion 2's third run needs it** — `cargo xtask conform
+/// --features jit --jit-threshold 1`, so every body compiles on its first
+/// evaluation. Parsed here beside `--features` for the same reason: every
+/// subcommand that measures the binary should spell it one way.
+///
+/// A value that is not a number is refused rather than ignored. This is a
+/// command line, which *can* report — unlike `BUND2_JIT_THRESHOLD`, which the
+/// runtime reads in a constructor and must ignore when malformed.
+pub fn take_jit_threshold(args: &[String]) -> Result<(Option<u32>, Vec<String>), String> {
+    let mut threshold = None;
+    let mut rest = Vec::new();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--jit-threshold" {
+            let v = it
+                .next()
+                .ok_or("--jit-threshold needs a number, as in `--jit-threshold 1`")?;
+            threshold = Some(
+                v.parse::<u32>()
+                    .map_err(|_| format!("--jit-threshold takes a number, not `{v}`"))?,
+            );
+        } else {
+            rest.push(a.clone());
+        }
+    }
+    Ok((threshold, rest))
+}
+
 /// Build `bund2-cli` and return the binary, or say why not.
 ///
 /// **Builds, never finds.** A path that happens to exist is not evidence about
@@ -88,13 +118,26 @@ pub fn bund2(repo: &Path, release: bool, features: &str) -> Result<PathBuf, Stri
 /// A number without this is not attributable, which is the whole lesson of
 /// F80 and of the `conform --features` defect above.
 pub fn provenance(release: bool, features: &str) -> String {
+    provenance_with(release, features, None)
+}
+
+/// [`provenance`], naming §S7's threshold when a run overrode it.
+///
+/// The same number at threshold 64 and at threshold 1 means two different
+/// things — at 64 most corpus programs compile nothing — so a report that
+/// quotes one without the other is not attributable (F125).
+pub fn provenance_with(release: bool, features: &str, threshold: Option<u32>) -> String {
     format!(
-        "bund2-cli, {} profile, features: {}",
+        "bund2-cli, {} profile, features: {}{}",
         if release { "release" } else { "dev" },
         if features.is_empty() {
             "(none)"
         } else {
             features
+        },
+        match threshold {
+            Some(n) => format!(", jit-threshold: {n}"),
+            None => String::new(),
         }
     )
 }

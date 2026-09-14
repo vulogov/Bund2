@@ -348,13 +348,26 @@ pub(crate) struct Run {
 
 const RUN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
-pub(crate) fn run_once(exe: &Path, program_file: &Path, cwd: &Path) -> Result<Run, String> {
+/// `extra` is appended after `--file <path>`.
+///
+/// **Empty for every oracle run.** This function drives both the oracle, during
+/// capture, and `bund2`, during `conform` — and the oracle has never heard of
+/// `--jit-threshold`. Passing a flag it does not know would turn a capture into
+/// a refusal, so the extra arguments belong to the caller that knows which
+/// binary it is running (F125).
+pub(crate) fn run_once(
+    exe: &Path,
+    program_file: &Path,
+    cwd: &Path,
+    extra: &[String],
+) -> Result<Run, String> {
     use std::io::Read;
 
     let mut child = std::process::Command::new(exe)
         .arg("script")
         .arg("--file")
         .arg(program_file)
+        .args(extra)
         .current_dir(cwd)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
@@ -533,7 +546,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             return Err(format!("writing capture copy: {e}"));
         }
 
-        let first = match run_once(&oracle, &capture_file, cwd) {
+        let first = match run_once(&oracle, &capture_file, cwd, &[]) {
             Ok(r) => r,
             Err(e) => {
                 refused.push(Refusal {
@@ -543,7 +556,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 continue;
             }
         };
-        let second = match run_once(&oracle, &capture_file, cwd) {
+        let second = match run_once(&oracle, &capture_file, cwd, &[]) {
             Ok(r) => r,
             Err(e) => {
                 refused.push(Refusal {

@@ -1729,6 +1729,34 @@ inlining rules:
   or a `bund2-stdlib` native no audit brought to `Ok`. That costs speed, never
   meaning. F87, F91, F92 and F94 showed that each check was needed. Criteria 27
   and 28 check it.
+- **Only across a callee that produces nothing (D68).** The three rules above
+  are about *what the callee may do*; this one is about *what the stack looks
+  like afterwards*, and it was missing. A sync pushes, and pushing only
+  appends — so promoted values must be the **top** of the abstract stack when
+  they are synced. A callee with a `produces` above zero leaves its result
+  above them permanently: `1 2 3 f` with `f` at `eff(1, 1)` ends with the real
+  stack `[…, r]` and the abstract stack `[…, 1, 2, r]`, and syncing then gives
+  `[…, r, 1, 2]`. Wrong silently, with no guard that could catch it.
+
+  So promotion crosses a call only when the callee's **declared `produces` is
+  0**, and **the values the callee consumes are never promoted** — they are
+  pushed, and what stays in registers is what lies below them. After such a
+  call the promoted values are the top of the abstract stack again and the sync
+  is sound.
+
+  **What the real invariant is.** Not that promoted values form a suffix — they
+  need not — but that the values *on the real stack appear in abstract order*.
+  That is why `3` may be pushed alone while `1` and `2` stay in registers: those
+  two sit below everything the real stack holds. Q39 filed the stronger version
+  and D68 corrects it.
+
+  **56 of `PROMOTABLE.txt`'s 222 natives survive**, and they are the mid-run
+  effectful words — `println`, `print`, `nl`, `space`, `drop`, `return`,
+  `to_stack`, `to_current`, `stacks_left`, `stacks_right`, `register`,
+  `unregister`, `alias`, `unalias`, `var`, `ensure_stack`, and the whole
+  `.`-suffixed workbench family. The 166 excluded are value-producing
+  arithmetic and conversions, and the arithmetic is what *inlining* takes,
+  where there is no call to cross.
 
 This is CLAUDE.md's "follow the call one level further". The check read the
 call slot and stopped there, while dispatch went on to the target. The eighth
@@ -3714,14 +3742,17 @@ evidence, and this one is listed as runnable rather than as met.
         cargo xtask conform --features jit
         cargo xtask conform --features jit --jit-threshold 1
 
-   The third cannot run yet: `xtask conform` answers `unknown argument
-   --jit-threshold` (2026-09-11), since the flag arrives with the tier. All
+   **All three run as of 2026-09-14** (F125); the dated note below carries the
+   figures. An earlier revision recorded here that the third answered `unknown
+   argument --jit-threshold` (2026-09-11), since the flag arrived with the
+   tier — it no longer does. All
    three must read the same N/M **and the same CEILING**. Any movement is a bug,
    per CLAUDE.md — which also requires the ceiling beside the number, since an
    approved deviation can never enter the numerator and N/M alone overstates
-   the remaining work. Today: **105/113, ceiling 105/113**, with the feature
-   off and on, re-measured 2026-09-11 after that day's probes (82/90 that
-   morning); eight approved deviations, D50's among them. This criterion measures the **dev** profile and criterion 11
+   the remaining work. Today: **106/114, ceiling 106/114**, across all three
+   runs, re-measured 2026-09-14 (105/113 on 2026-09-11 after that day's
+   probes, and 82/90 that morning); eight approved deviations, D50's among
+   them. This criterion measures the **dev** profile and criterion 11
    measures **release**; the split is deliberate, and stated in both places.
 
    **The two `jit` runs must compile something.** This is the ninth review's
@@ -3748,12 +3779,25 @@ evidence, and this one is listed as runnable rather than as met.
    day; `conform --features jit` now reads 106/114, ceiling 106/114, with a tier
    actually installed.
 
-   **The second `jit` run is still not runnable.** `--jit-threshold` is
-   specified here and in §S5, and built nowhere (**F125**), so the corpus is
-   only exercised at the default threshold of 64 — where most programs are too
-   short to compile anything. Measured: a 200-iteration loop compiles no body;
-   1000 compiles two. Until the flag exists this criterion's stronger half is
-   unavailable, and that is a gap in the evidence rather than a passing test.
+   **All three runs are measured, 2026-09-14 (F125 fixed).** The flag exists:
+   `--jit-threshold <n>` on `bund2 script`, with `BUND2_JIT_THRESHOLD` in the
+   environment and the flag winning over it.
+
+       cargo xtask conform                                    106/114, ceiling 106/114
+       cargo xtask conform --features jit                     106/114, ceiling 106/114
+       cargo xtask conform --features jit --jit-threshold 1   106/114, ceiling 106/114
+
+   **The same N/M and the same CEILING across all three**, which is what this
+   criterion asks. At threshold 1 every body compiles on its first evaluation,
+   so the corpus is exercised with the tier doing as much as it can — the
+   strongest test of meaning available — and conformance moves by exactly zero.
+   Until today only the first two could be run, and the default threshold of 64
+   leaves most corpus programs compiling nothing at all: a 200-iteration loop
+   compiles no body, 1000 compiles two. So the stronger half was a gap in the
+   evidence, and it is now a passing test rather than an assertion.
+
+   The `measured:` line names the threshold when a run overrides it, because
+   the same number at 64 and at 1 says two different things.
 
    **Once a tier exists, this criterion exercises promotion across calls
    under the CLI's default reporter.** D45 made `TextReporter` want a snapshot
@@ -4170,9 +4214,12 @@ evidence, and this one is listed as runnable rather than as met.
     1.2× judgement should be taken against. Until then §S1's gate stays open on
     the strength of this number, not closed by it.
 
-    **What this criterion still cannot report**: the corpus-wide figure
-    criterion 2 wants at threshold 1, because `--jit-threshold` is specified
-    and unbuilt (F125).
+    **The corpus-wide figure is now available and has not been taken.**
+    `--jit-threshold` was specified and unbuilt (F125) when this note was
+    written; it exists as of 2026-09-14, so an A/B over the corpus at threshold
+    1 — rather than over the two hand-written kernels above — can be run. That
+    is the honest form of this criterion's measurement, and the gap is now
+    "not yet measured" rather than "cannot be measured".
 
 11. **A promoted recursion does not overflow the machine stack.** §S8's
     correctness problem, and the criterion is one that already exists:

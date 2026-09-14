@@ -47,6 +47,22 @@ impl Default for Runtime {
     }
 }
 
+/// `BUND2_JIT_THRESHOLD`, when it names a number — F125.
+///
+/// **A malformed value is ignored rather than refused**, because this is read
+/// in a constructor that cannot report. That would be a silent
+/// misconfiguration, which is the failure mode F124, F127 and F128 all share —
+/// so `Runtime::jit_threshold` reports what was *actually* adopted, and `bund2
+/// --stats` prints it. The knob is observable even when the value was not
+/// understood.
+fn threshold_from_env() -> Option<u32> {
+    std::env::var("BUND2_JIT_THRESHOLD")
+        .ok()?
+        .trim()
+        .parse::<u32>()
+        .ok()
+}
+
 impl Runtime {
     /// An interpreter with the full vocabulary and, under `--features jit`, a
     /// tier installed with §S7's default caps.
@@ -57,6 +73,35 @@ impl Runtime {
     /// As [`Runtime::new`], with the host options the CLI passes — `--noio`,
     /// `--noeval` and the rest register failing stubs under the same names.
     pub fn with_options(opts: &bund2_stdlib::host::HostOptions) -> Self {
+        Self::with_options_and_threshold(opts, None)
+    }
+
+    /// As [`Runtime::with_options`], with §S7's promotion threshold overridden.
+    ///
+    /// **`--jit-threshold`, which criterion 2's third run needs** (F125). The
+    /// threshold is how many evaluations of one body earn it compilation;
+    /// `Caps::default` fixes it at 64, and most corpus programs are far too
+    /// short to reach that — so the corpus was only ever exercised at a setting
+    /// where the tier does almost nothing. At 1 every body compiles on its
+    /// first evaluation, which is the strongest test of *meaning* the corpus
+    /// can give.
+    ///
+    /// **It is a tuning knob, not a semantic boundary** (§S7). If conformance
+    /// moves when it changes, that is a defect the flag has found, not a defect
+    /// in the flag.
+    ///
+    /// `None` keeps §S7's default. The parameter is taken even without the
+    /// `jit` feature, where it is ignored: a build with no tier still has to
+    /// accept the same command line, or a uniform `conform` invocation would
+    /// fail on the run that has no tier to configure.
+    pub fn with_options_and_threshold(
+        opts: &bund2_stdlib::host::HostOptions,
+        threshold: Option<u32>,
+    ) -> Self {
+        // **Flag, then environment, then §S7's default.** The flag wins because
+        // it is the more specific statement: a command line is about *this*
+        // run, an environment variable about the shell it happened to run in.
+        let threshold = threshold.or_else(threshold_from_env);
         let mut interp = Interp::new();
         bund2_stdlib::register_all_with(&mut interp.registry, opts);
         #[cfg(feature = "jit")]
@@ -68,12 +113,33 @@ impl Runtime {
             // why. `published` takes a `&Registry`, which this crate has and a
             // tier does not (D9 keeps `Fragment` out of `bund2-api`).
             let table = bund2_stdlib::fragments::published(&interp.registry).unwrap_or_default();
-            interp.tier = Some(Box::new(JitTier::with_fragments(
-                bund2_jit::cache::Caps::default(),
-                table,
-            )));
+            let caps = bund2_jit::cache::Caps {
+                threshold: threshold.unwrap_or(bund2_jit::cache::Caps::default().threshold),
+                ..bund2_jit::cache::Caps::default()
+            };
+            interp.tier = Some(Box::new(JitTier::with_fragments(caps, table)));
         }
+        #[cfg(not(feature = "jit"))]
+        let _ = threshold;
         Self { interp }
+    }
+
+    /// **The threshold the tier is actually using**, so a report can name it.
+    ///
+    /// `None` without the feature. A run whose threshold came from the
+    /// environment, or whose `BUND2_JIT_THRESHOLD` was malformed and ignored,
+    /// is otherwise indistinguishable from one at the default — and a knob that
+    /// looks set and is not is the shape of F124, F127 and F128. `bund2
+    /// --stats` prints this beside the compiled-body count.
+    #[cfg(feature = "jit")]
+    pub fn jit_threshold(&self) -> Option<u32> {
+        self.interp.tier.as_ref().and_then(|t| t.threshold())
+    }
+
+    /// `None` without the feature: there is no tier to configure.
+    #[cfg(not(feature = "jit"))]
+    pub fn jit_threshold(&self) -> Option<u32> {
+        None
     }
 
     /// Run a source string.

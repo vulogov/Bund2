@@ -688,6 +688,16 @@ pub trait Tier {
     fn promoted_values(&self) -> Option<usize> {
         None
     }
+
+    /// **The promotion threshold this tier is using** — §S7's knob, F125.
+    ///
+    /// How many evaluations of one body earn it compilation. Reported so a
+    /// measurement can name it: the same number at two thresholds says
+    /// something quite different from the same number twice, and a threshold
+    /// that arrived from an environment variable is otherwise invisible.
+    fn threshold(&self) -> Option<u32> {
+        None
+    }
 }
 
 /// A word's failure. RFC-0003 replaces this with a spanned error value.

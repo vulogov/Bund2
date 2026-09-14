@@ -187,6 +187,18 @@ struct Args {
     /// it the only evidence a tier ran is timing, which cannot tell a compiled
     /// body from a fast interpreted one. F124 is what that gap allowed.
     stats: bool,
+    /// `--jit-threshold <n>`: how many evaluations of one body earn it
+    /// compilation — §S7's knob, and what RFC-0005 criterion 2's third run
+    /// needs (F125).
+    ///
+    /// `None` falls back to `BUND2_JIT_THRESHOLD`, then to §S7's default of 64.
+    /// The flag wins over the environment because it is the more specific
+    /// statement: a command line is about *this* run.
+    ///
+    /// Accepted, and ignored, in a build without the `jit` feature — there is
+    /// no tier to configure, and a uniform `conform` command line must not fail
+    /// on the run that has none.
+    jit_threshold: Option<u32>,
 }
 
 /// `script --file <path> [-- <args>…]`, the shape `conform` and the oracle
@@ -197,6 +209,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut dump_stack = true;
     let mut raw_values = false;
     let mut stats = false;
+    let mut jit_threshold: Option<u32> = None;
     let mut host = bund2_stdlib::host::HostOptions::default();
     let mut script_args = Vec::new();
     while let Some(a) = it.next() {
@@ -207,6 +220,19 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--no-dump-stack" => dump_stack = false,
             "--raw-values" | "--debug-values" => raw_values = true,
             "--stats" => stats = true,
+            // Refused rather than ignored when it is not a number: this is a
+            // command line, which can report. `BUND2_JIT_THRESHOLD` cannot —
+            // the runtime reads it in a constructor — so that one is ignored
+            // when malformed and `--stats` prints what was actually adopted.
+            "--jit-threshold" => {
+                let v = it
+                    .next()
+                    .ok_or("--jit-threshold needs a number, as in `--jit-threshold 1`")?;
+                jit_threshold = Some(
+                    v.parse::<u32>()
+                        .map_err(|_| format!("--jit-threshold takes a number, not `{v}`"))?,
+                );
+            }
             "--noio" => host.noio = true,
             // `reference/Bund/src/cmd/mod.rs:139-140`.
             "--nocolor" => host.nocolor = true,
@@ -225,6 +251,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
         dump_stack,
         raw_values,
         stats,
+        jit_threshold,
     })
 }
 
@@ -407,7 +434,8 @@ fn run(src: &str, args: &Args) -> Option<i32> {
     // so criterion 2 compared one interpreter with itself. `Runtime` registers
     // the same vocabulary with the same host options and adds the tier when the
     // feature is on; everything below reaches the interpreter through it.
-    let mut rt = bund2_runtime::Runtime::with_options(&args.host);
+    let mut rt =
+        bund2_runtime::Runtime::with_options_and_threshold(&args.host, args.jit_threshold);
     let vm = &mut rt.interp;
     let mut reporter = bund2_stdlib::report::TextReporter::new(args.dump_stack);
     reporter.raw_values = args.raw_values;
@@ -454,10 +482,19 @@ fn run(src: &str, args: &Args) -> Option<i32> {
             // every value through `Vm::apply`; a body that inlined but promoted
             // nothing still pushes and pops every literal. A timing of either
             // answers a different question from the one criterion 10 asks.
+            // **The threshold is part of the figure, not context for it.** The
+            // same count at 64 and at 1 says two different things — at 64 most
+            // corpus programs compile nothing — and a threshold that arrived
+            // from `BUND2_JIT_THRESHOLD`, or was dropped because that variable
+            // was malformed, is invisible otherwise (F125).
             (Some(bodies), Some(sites), Some(promoted)) => {
+                let at = match rt.jit_threshold() {
+                    Some(n) => format!(" at threshold {n}"),
+                    None => String::new(),
+                };
                 eprintln!(
                     "bund2: tier compiled {bodies} bodies, inlined {sites} sites, \
-                     promoted {promoted} values"
+                     promoted {promoted} values{at}"
                 );
             }
             (Some(bodies), Some(sites), None) => {

@@ -3453,6 +3453,77 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D68 — promotion crosses a call only when the callee produces nothing
+
+**Decided by the repository owner, 2026-09-14**, resolving Q39.
+
+- Blocks: nothing; it is the fourth gate on §S5's promotion across calls
+- Depends on: D46 (not across a lambda), D47 (stdlib natives only), D48
+  (`PROMOTABLE.txt`), D66/D67 (promotion as built)
+- Status: **RESOLVED — decided. Not yet built**, because promotion across calls
+  is not yet built: D66/D67 sync before every call. The rule is settled for
+  when it is.
+
+**The invariant, stated properly.** Q39 as filed said the promoted set is a
+strict suffix of the abstract stack, so any callee consuming promoted values
+forces a full sync. That was too strong, and the correction matters because it
+is what makes the rule narrow rather than fatal. The real invariant is weaker:
+**values on the real stack must appear in abstract order** — they need not be
+contiguous. So `1 2 3 f` may push `3` alone while `1` and `2` stay in
+registers, because those two sit below everything the real stack holds.
+
+**What actually breaks is the final sync.** Pushing only appends, so promoted
+values must be the *top* of the abstract stack at the moment they are synced. A
+callee that produces output leaves its result above them permanently. `1 2 3 f`
+with `f` at `eff(1, 1)` ends with real `[…, r]` and abstract `[…, 1, 2, r]`;
+syncing gives `[…, r, 1, 2]`. Wrong silently, and no guard catches it.
+
+### Decision
+
+**Promotion crosses a call only when the callee's declared effect produces
+nothing, and the values the callee consumes are never promoted** — they are
+pushed, and what stays in registers is what lies below them. After a
+`produces == 0` callee returns, the promoted values are the top of the abstract
+stack again and the sync is sound.
+
+**56 of `PROMOTABLE.txt`'s 222 natives survive this**, and they are the ones
+that matter: `println`, `print`, `nl`, `space`, `drop`, `return`, `to_stack`,
+`to_current`, `stacks_left`, `stacks_right`, `register`, `unregister`, `alias`,
+`unalias`, `var`, `ensure_stack`, and the whole `.`-suffixed workbench family.
+The 166 excluded are value-producing arithmetic and conversions — and the
+arithmetic is what *inlining* takes, where there is no call to cross.
+
+### Rejected
+
+- **Pull the callee's outputs back into registers.** Sound, and it would lift
+  the restriction entirely, but a produced value may be any type while the
+  register file holds `i64`. It needs a `BundValue`-in-slot register class and
+  `2p` stack operations per call.
+- **Widen the register file to `BundValue`.** A different feature, and it loses
+  `iadd` on promoted ints, which is what promotion exists for.
+- **Sync at depth**: insert promoted values beneath the callee's output. Needs a
+  new `Stack` operation, is O(depth), and must preserve D41's tagging.
+- **Abandon promotion across calls.** Today's built state, and the cheapest — but
+  it supersedes parts of D46, D47, D48 and criterion 22 rather than narrowing
+  them.
+
+**The measurement is why the cheap option wins.** Criterion 10 read
+**1.055–1.073×** on `1 2 + drop` after chaining against **1.057–1.067×**
+before it: keeping results in registers across inlined sites — removing exactly
+the value traffic promotion exists to remove — bought nothing measurable. The
+rejected options are larger versions of the same bet. If a later measurement
+contradicts that, pulling outputs back is the upgrade path, and this decision
+does not block it.
+
+### Consequences
+
+- §S5 gains the rule as a fourth gate beside D46, D47 and D48.
+- Criterion 22's promotion-across-a-call parts already use qualifying callees —
+  `f` inferring as `(1, 0)` and `alias` at `eff(2, 0)` — so no example changes.
+- `PROMOTABLE.txt`'s audit gains the check, or the lowering reads `produces`
+  from the callee's slot at compile time. The latter is cheaper and needs no
+  file change.
+
 ## D67 — the residual path applies the rest of the body, and never rejoins
 
 **Decided by the repository owner, 2026-09-14.** RFC-0005 §S5's residual, built,

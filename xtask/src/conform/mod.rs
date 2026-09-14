@@ -179,6 +179,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // off", which needs this. Without it the builder below rebuilt without
     // features and measured that, whatever had been built beforehand.
     let (features, args) = crate::buildcli::take_features(args);
+    // RFC-0005 criterion 2's third run — `--jit-threshold 1`, so every body
+    // compiles on its first evaluation, which is the strongest test of meaning
+    // the corpus can give. Unavailable until F125 built the flag.
+    let (jit_threshold, args) = crate::buildcli::take_jit_threshold(&args)?;
+    let threshold_args: Vec<String> = match jit_threshold {
+        Some(n) => vec!["--jit-threshold".to_string(), n.to_string()],
+        None => Vec::new(),
+    };
     let args = args.as_slice();
 
     let accept = args.iter().any(|a| a == "--accept");
@@ -252,7 +260,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         )
         .map_err(|e| format!("writing case copy: {e}"))?;
 
-        match golden::run_once(&bund2, &case_file, cwd) {
+        match golden::run_once(&bund2, &case_file, cwd, &threshold_args) {
             Ok(got) => {
                 // The scaffold exits 70 with a message. Distinguish that from
                 // a real mismatch so the report says "unimplemented", not
@@ -372,7 +380,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // has run: 73/86 with the feature on" from a run that had silently rebuilt
     // without the feature. A report that does not say what it measured invites
     // exactly that.
-    println!("\n  measured: {}", crate::buildcli::provenance(false, &features));
+    println!(
+        "\n  measured: {}",
+        crate::buildcli::provenance_with(false, &features, jit_threshold)
+    );
     if approved_hits.is_empty() {
         println!("  CONFORMANCE  {passed}/{total}\n");
     } else {

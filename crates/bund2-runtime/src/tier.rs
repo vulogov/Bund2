@@ -102,6 +102,10 @@ impl Tier for JitTier {
         Some(self.compiler.as_ref().map_or(0, Compiler::promoted_total))
     }
 
+    fn threshold(&self) -> Option<u32> {
+        Some(self.tiering.caps().threshold)
+    }
+
     /// See `bund2_api::Tier` for the contract. In short: `None` interprets,
     /// `Some(..)` means compiled code ran the body.
     ///
@@ -296,6 +300,107 @@ mod tests {
         assert_eq!(bare.compiled_bodies(), None, "no tier, not an empty one");
         assert_eq!(bare.inlined_sites(), None);
         assert_eq!(bare.promoted_values(), None);
+    }
+
+    /// **§S7's threshold knob, and its precedence** — F125.
+    ///
+    /// The flag, the environment variable and the default were verified by hand
+    /// at a shell when they were built, which is precisely how F124, F127 and
+    /// F128 each passed for a while: a knob nothing asserts is a knob that can
+    /// stop working silently. `Runtime::jit_threshold` reports what was
+    /// *adopted*, not what was asked for, so this can check the resolution
+    /// rather than the intent.
+    ///
+    /// **Serialised through one test** because it sets a process-wide
+    /// environment variable; two tests doing that in parallel would race.
+    #[test]
+    fn the_threshold_takes_the_flag_then_the_environment_then_the_default() {
+        let default = Caps::default().threshold;
+
+        // SAFETY: `set_var`/`remove_var` are unsafe since Rust 2024 because
+        // they race with other threads reading the environment. This test owns
+        // the variable — no other test in this crate touches it — and restores
+        // it before returning.
+        unsafe { std::env::remove_var("BUND2_JIT_THRESHOLD") };
+
+        let plain = crate::Runtime::new();
+        assert_eq!(
+            plain.jit_threshold(),
+            Some(default),
+            "with neither knob set, §S7's default stands"
+        );
+
+        let flagged = crate::Runtime::with_options_and_threshold(
+            &bund2_stdlib::host::HostOptions::default(),
+            Some(1),
+        );
+        assert_eq!(flagged.jit_threshold(), Some(1), "the flag is adopted");
+
+        unsafe { std::env::set_var("BUND2_JIT_THRESHOLD", "2") };
+        let from_env = crate::Runtime::new();
+        assert_eq!(
+            from_env.jit_threshold(),
+            Some(2),
+            "the environment is adopted when no flag is given"
+        );
+
+        // **The flag wins.** A command line is about this run; an environment
+        // variable is about the shell it happened to run in.
+        let both = crate::Runtime::with_options_and_threshold(
+            &bund2_stdlib::host::HostOptions::default(),
+            Some(1),
+        );
+        assert_eq!(both.jit_threshold(), Some(1), "the flag beats the environment");
+
+        // **A malformed value is ignored, not adopted and not fatal** — the
+        // runtime reads this in a constructor that cannot report. What keeps
+        // that from being a silent misconfiguration is that the *adopted*
+        // threshold is what gets reported, here and by `bund2 --stats`.
+        unsafe { std::env::set_var("BUND2_JIT_THRESHOLD", "banana") };
+        let malformed = crate::Runtime::new();
+        assert_eq!(
+            malformed.jit_threshold(),
+            Some(default),
+            "a value that is not a number falls back to the default"
+        );
+
+        unsafe { std::env::remove_var("BUND2_JIT_THRESHOLD") };
+    }
+
+    /// The threshold is a **tuning knob, not a semantic boundary** (§S7): the
+    /// same program must leave the same stack at any threshold.
+    ///
+    /// This is criterion 2's third run in miniature. Over the corpus it reads
+    /// 106/114 at threshold 1 and at 64 alike; here it is one body, so the
+    /// assertion can be exact rather than a count.
+    #[test]
+    fn the_threshold_changes_speed_and_not_meaning() {
+        let mut hot = inlining_runtime_with(1);
+        register_body(&mut hot);
+        let mut cold = inlining_runtime_with(64);
+        register_body(&mut cold);
+
+        for _ in 0..5 {
+            hot.eval_str("f").expect("runs");
+            cold.eval_str("f").expect("runs");
+        }
+
+        assert!(
+            hot.compiled_bodies().unwrap_or(0) > 0,
+            "threshold 1 must compile, or this compares two interpreters"
+        );
+        assert_eq!(
+            cold.compiled_bodies(),
+            Some(0),
+            "threshold 64 must not compile in five calls, or the two are the same run"
+        );
+
+        let (a, b) = (hot.interp.snapshot(), cold.interp.snapshot());
+        assert_eq!(a.len(), b.len(), "depth");
+        for (x, y) in a.iter().zip(b.iter()) {
+            assert_eq!(x.as_int(), y.as_int(), "value");
+            assert_eq!(x.dt(), y.dt(), "dt");
+        }
     }
 
     // --- criterion 21: a current-stack switch mid-body ----------------------
