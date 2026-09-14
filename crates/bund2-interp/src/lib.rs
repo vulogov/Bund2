@@ -723,7 +723,11 @@ impl Interp {
     /// it by the request, not by the text, and returns cleanly.
     fn exit_gate(&self) -> Result<(), Error> {
         match self.exit_code {
-            Some(code) => Err(Error(format!("the program asked to exit with code {code}"))),
+            // **One constructor, shared with the compiled tier.** RFC-0005
+            // §S5's `status_of` makes this same refusal where compiled code has
+            // no next step to make it at, and criterion 30 compares the two as
+            // text. A second spelling a crate away would drift silently.
+            Some(code) => Err(Error::exited(code)),
             None => Ok(()),
         }
     }

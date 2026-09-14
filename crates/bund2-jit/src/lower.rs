@@ -83,6 +83,74 @@ pub struct Ctx<'a> {
 const OK: i32 = 0;
 const FAIL: i32 = 1;
 
+/// **The one function that turns a helper's `Result` into a status** —
+/// RFC-0005 §S5, *A call may end the program*.
+///
+/// Every Rust function that runs Bund code on compiled code's behalf and then
+/// returns to it comes through here: the per-native adapter, and — when they
+/// exist — the resolving trampoline, §S5's drain helper and the residual path's
+/// `apply`. The entry trampoline is not one of them; it converts a body's
+/// status rather than making one (assumption 31).
+///
+/// # Why one function rather than a rule each helper follows
+///
+/// `bund.exit` records a code and returns `Ok` (D52). Tier 0 stops at its
+/// **next step**, because `exit_gate` refuses at the top of `apply_step` and of
+/// `Vm::eval_lambda`. Compiled code has no next step: the three cells it reads
+/// after a call record no exit, so a helper that reported the native's `Ok`
+/// would let the body run on past `exit`. §S5 puts the check in one place so
+/// that "a helper added later cannot forget it" — the twelfth review's B1,
+/// where the drain helper was exactly such a later addition.
+///
+/// # What it parks, and why the two arms differ
+///
+/// The substitution happens **only after `Ok`** (the fourteenth review's B1).
+/// After an `Err` the error passes through unchanged, because Tier 0 never
+/// replaces one: a native whose body was refused wraps the refusal in its own
+/// context, as `map` does with `MAP: lambda execution returns error: …`, and
+/// `?try` puts that whole text in its `error` CONDITIONAL's `context` slot,
+/// where criterion 30 compares it as text. Substituting after `Err` too would
+/// keep only the short form and fail that comparison while every other stated
+/// reason still held.
+///
+/// # The clearing
+///
+/// It clears the tail request on **every** error it answers, whether it made
+/// that error from a recorded exit or is passing a helper's own `Err` through
+/// (§S5's third settled edge). Tier 0 does this in `Interp::invoke`, which a
+/// compiled call never reaches, so D56 put `Vm::clear_tail_request` on the
+/// trait for it. Before this helper existed the clearing sat inlined in each
+/// adapter, which §S5 called a gap left for a future helper; this is that
+/// helper, and the clearing has moved here.
+///
+/// **This is §S6's request cell's first reader.** The cell is written beside
+/// `pending_tail` by Tier 0's four named writers; `clear_tail_request` is one
+/// of them, so clearing through it writes the mirror as well as the truth.
+fn status_of(c: &mut Ctx<'_>, r: Result<(), Error>) -> i32 {
+    let exited = c.vm.exit_requested();
+    match (exited, r) {
+        // No exit, and the helper succeeded: the only path that reports
+        // success.
+        (None, Ok(())) => OK,
+        // The helper failed. The error is the program's answer whether or not
+        // an exit was also recorded — Tier 0 passes a native's error up
+        // unchanged, and under `?try` its text becomes a value.
+        (_, Err(e)) => {
+            c.vm.clear_tail_request();
+            c.err = Some(e);
+            FAIL
+        }
+        // The helper succeeded, but the program asked to end. This is the
+        // error Tier 0 would make at its next step, made here because compiled
+        // code does not take one.
+        (Some(code), Ok(())) => {
+            c.vm.clear_tail_request();
+            c.err = Some(Error::exited(code));
+            FAIL
+        }
+    }
+}
+
 /// Rebuild the context from the pointer compiled code was handed.
 ///
 /// # Safety
@@ -221,32 +289,12 @@ extern "C" fn jit_call_native(c: *mut Ctx<'_>, native: usize) -> i32 {
         Ok(r) => r,
         Err(msg) => Err(bund2_api::panicked(&format!("native `{name}`"), &msg)),
     };
-    match r {
-        Ok(()) => OK,
-        Err(e) => {
-            // **F96's parity, through D56.** Tier 0 clears a tail request when
-            // the native that filed one then fails — `Interp::invoke` does it,
-            // and that is the one place Tier 0 calls a native. This adapter
-            // calls the `NativeFn` directly and never reaches `invoke`, which
-            // is precisely why `Vm::clear_tail_request` is on the public trait:
-            // "a caller that runs a native and then answers an error calls this
-            // before returning, and Tier 0's next `take_pending` finds nothing
-            // to run."
-            //
-            // Without it a native that filed a body and then failed would leave
-            // it pending, and the next `take_pending` would run a body nobody
-            // asked for — after `?try` had already dealt with the error. That is
-            // F96 reintroduced by the tier rather than inherited.
-            //
-            // **§S5 assigns this to `status_of`, which does not exist yet.** The
-            // clearing belongs there once the boundary has a status helper; it
-            // is here in the meantime because the obligation is the adapter's
-            // either way, and a gap left for a future helper is still a gap.
-            c.vm.clear_tail_request();
-            c.err = Some(e);
-            FAIL
-        }
-    }
+    // **Through `status_of`, which §S5 makes the one status-maker.** It carries
+    // F96's parity — Tier 0 clears a tail request when the native that filed
+    // one then fails, in `Interp::invoke`, which this adapter never reaches
+    // (D56) — and D52's rule that a recorded exit becomes the error status,
+    // since compiled code has no next step at which Tier 0's gate would fire.
+    status_of(c, r)
 }
 
 /// **Apply one of the body's values — the first lowering of a real Bund word.**
@@ -287,20 +335,14 @@ extern "C" fn jit_apply(c: *mut Ctx<'_>, index: usize) -> i32 {
         )));
         return FAIL;
     };
-    match c.vm.apply(v) {
-        Ok(()) => OK,
-        Err(e) => {
-            // Same obligation as the native adapter's, for the same reason: a
-            // value that filed a body and then failed must leave nothing behind
-            // (F96, D56). `apply` reaches `Interp::invoke` for a native, which
-            // clears it — but a `CALL` to a lambda files through `request_tail`
-            // and `run_to`'s error arm unwinds frames only, so clearing here is
-            // what makes the compiled path match Tier 0's on every arm.
-            c.vm.clear_tail_request();
-            c.err = Some(e);
-            FAIL
-        }
-    }
+    let r = c.vm.apply(v);
+    // Same helper, same two obligations. `Vm::apply` is `Interp::apply`, which
+    // already consults the exit gate after `run_to` (F112), so a value that
+    // ended the program arrives here as an `Err` and passes through unchanged.
+    // The substitution matters for the arm where `apply` answers `Ok` with an
+    // exit recorded — and the clearing for a `CALL` to a lambda, which files
+    // through `request_tail` where `run_to`'s error arm unwinds frames only.
+    status_of(c, r)
 }
 
 /// The **entry trampoline's** type: an opaque context in, a status out.
@@ -1606,6 +1648,120 @@ mod tests {
         assert!(
             stack.iter().any(|v| v.as_int() == Some(99)),
             "the body the native filed must still run: {stack:?}"
+        );
+    }
+
+    // --- `status_of`: D52's exit, and §S5's one status-maker ----------------
+
+    /// A native that records an exit and returns `Ok`, as `bund.exit` does
+    /// (D52): "it records a code through `Vm::request_exit` and returns `Ok`;
+    /// nothing ends at that moment".
+    fn exits_then_succeeds(vm: &mut dyn Vm) -> Result<(), Error> {
+        vm.request_exit(7);
+        Ok(())
+    }
+
+    /// A native that records an exit and then fails on its own account.
+    fn exits_then_fails(vm: &mut dyn Vm) -> Result<(), Error> {
+        vm.request_exit(7);
+        Err(Error("the native's own error".into()))
+    }
+
+    /// **D52 through the compiled boundary.** A native that asks to end the
+    /// program returns `Ok`, and Tier 0 stops at its *next step* — which
+    /// compiled code never takes. Without `status_of` the adapter would report
+    /// success and the body would run on past `exit`.
+    ///
+    /// The error is the one Tier 0 would make, from the one constructor both
+    /// tiers use, so criterion 30 can compare the texts rather than two
+    /// spellings of one refusal.
+    #[test]
+    fn a_recorded_exit_becomes_the_error_status() {
+        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
+        let mut vm = Interp::new();
+        let e = body
+            .run(&mut vm, &[("ex", exits_then_succeeds)])
+            .expect_err("an exit stops the body");
+
+        assert!(e.is_exited(), "{}", e.0);
+        assert_eq!(e, Error::exited(7), "the text Tier 0 would make");
+        assert_eq!(vm.exit_requested(), Some(7), "and the code is recorded");
+    }
+
+    /// **The substitution is for `Ok` alone** — the fourteenth review's B1.
+    ///
+    /// Tier 0 never replaces a native's error: it wraps it, and under `?try`
+    /// that whole text becomes a value on the stack, which criterion 30
+    /// compares as text. A `status_of` that substituted after `Err` too would
+    /// keep only the short refusal and fail that comparison.
+    #[test]
+    fn an_error_is_not_replaced_by_the_refusal() {
+        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
+        let mut vm = Interp::new();
+        let e = body
+            .run(&mut vm, &[("exf", exits_then_fails)])
+            .expect_err("the native failed");
+
+        assert_eq!(e.0, "the native's own error", "passed through unchanged");
+        assert!(!e.is_exited(), "not replaced by the refusal: {}", e.0);
+        assert_eq!(vm.exit_requested(), Some(7), "the exit is still recorded");
+    }
+
+    /// **Every error `status_of` answers clears the request** — §S5's third
+    /// settled edge. A native that files a body and then ends the program
+    /// leaves nothing for Tier 0's next `take_pending` to run.
+    #[test]
+    fn an_exit_clears_a_request_the_native_filed() {
+        fn files_then_exits(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.tail_lambda(BundValue::lambda(vec![BundValue::int(99)]));
+            vm.request_exit(7);
+            Ok(())
+        }
+        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
+        let mut vm = Interp::new();
+        let e = body
+            .run(&mut vm, &[("fx", files_then_exits)])
+            .expect_err("the exit stops it");
+        assert!(e.is_exited(), "{}", e.0);
+        assert!(
+            !vm.cells().request(),
+            "§S6's mirror is clear as well as Tier 0's pending_tail"
+        );
+    }
+
+    /// **The mirror tracks the truth through the compiled boundary.** A
+    /// failing native's request is cleared in both, which is F96's parity and
+    /// §S6's pairing seen from the compiled side.
+    #[test]
+    fn a_failing_natives_request_clears_the_mirror_through_the_adapter() {
+        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
+        let mut vm = Interp::new();
+        body.run(&mut vm, &[("ff", files_then_fails)])
+            .expect_err("the native failed");
+        assert!(
+            !vm.cells().request(),
+            "the request cell is clear after the adapter answered an error"
+        );
+    }
+
+    /// **The positive control for `status_of` itself.** A succeeding native
+    /// with no exit recorded must still report success and keep the body it
+    /// filed — otherwise the four tests above would pass against a helper that
+    /// failed everything.
+    #[test]
+    fn status_of_reports_success_when_nothing_ended_or_failed() {
+        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
+        let mut vm = Interp::new();
+        body.run(&mut vm, &[("fs", files_then_succeeds)])
+            .expect("no exit, no error");
+        assert!(
+            vm.cells().request(),
+            "the filed body is still pending, in the mirror too"
+        );
+        vm.eval(&[BundValue::int(1)]).expect("runs");
+        assert!(
+            vm.snapshot().iter().any(|v| v.as_int() == Some(99)),
+            "and it still runs"
         );
     }
 

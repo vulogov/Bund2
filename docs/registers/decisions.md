@@ -3453,6 +3453,47 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D63 — both tiers make the exit refusal through one constructor
+
+**Decided by the repository owner, 2026-09-13.** RFC-0005 §S5's `status_of` is
+built, and the refusal it substitutes comes from `Error::exited(code)` in
+`bund2-api` rather than from a format string in each tier.
+
+- Blocks: nothing. It is the precondition for `status_of` agreeing with
+  `Interp::exit_gate` under criterion 30
+- Status: **RESOLVED — built.**
+
+**The text is compared, not merely shown.** D52 makes `bund.exit` record a code
+and return `Ok`; Tier 0 refuses at its next step, in `Interp::exit_gate`.
+Compiled code has no next step, so §S5 has `status_of` make the same refusal.
+Criterion 30 compares `?try`'s `error` CONDITIONAL `context` slot **as text**
+across the two tiers, and `crates/bund2-stdlib/src/host.rs` pins the wording
+with `ends_with`. Spelling the message in `Interp` and again in `bund2-jit`
+would put two literals one crate apart that must agree forever, and the failure
+would be a criterion-30 mismatch with every other stated reason still holding.
+
+**So there is one constructor**, `Error::exited`, with an `is_exited`
+predicate and a shared prefix constant, in the style `stack_exhausted` and
+`internal` already use. `exit_gate` returns it; `status_of` substitutes it.
+This is the same structural argument as `Registry::touch` for the generation
+mirror and `Interp::set_autoadd` for the `autoadd` cell: one writer, so the
+invariant cannot be forgotten rather than merely documented.
+
+**`status_of` is also the request cell's first reader.** It clears the tail
+request on every error it answers, through `Vm::clear_tail_request` — one of
+the four writers that write §S6's mirror beside `pending_tail` — which moved
+the clearing out of both adapters, where §S5 had recorded it as a gap left for
+this helper.
+
+**What this does not decide.** It does not build the other three helpers §S5
+names: the resolving trampoline, the drain helper and the residual path's
+`apply`. The drain helper in particular needs a `Vm` method, since
+`take_pending`, `run_to` and `drain_frames` are private to `Interp`, and
+draining writes `pending_tail` — so it falls inside assumption 33's named-writer
+set and §S6's pairing rule. Criterion 30 stays unmet: its cases need a compiled
+body that continues past a call. Conform is unmoved at 106/114, ceiling
+106/114.
+
 ## D62 — `bund2` declares an 8 MiB Tier 1 share, and Tier 0's part carries no margin yet
 
 **Decided by the repository owner, 2026-09-13.** §S8's stack-floor cell is

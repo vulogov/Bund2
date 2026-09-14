@@ -570,6 +570,31 @@ impl Error {
         self.0.starts_with(STACK_EXHAUSTED)
     }
 
+    /// **The program asked to end, and something tried to run anyway** — D52,
+    /// and RFC-0005 §S5's *A call may end the program*.
+    ///
+    /// `bund.exit` records a code and returns `Ok`; nothing ends at that
+    /// moment. Tier 0 refuses at its next step and this is the refusal, made by
+    /// `Interp::exit_gate`. The compiled tier has no next step, so §S5 has
+    /// every helper that returns to compiled code make its status through one
+    /// function, which substitutes this after an `Ok`.
+    ///
+    /// **One constructor because the text is compared, not just shown.**
+    /// Criterion 30 compares `?try`'s `error` CONDITIONAL `context` slot **as
+    /// text** across the two tiers, and `crates/bund2-stdlib/src/host.rs` pins
+    /// the wording with `ends_with`. Spelling it in `Interp` and again in
+    /// `bund2-jit` would put two literals a crate apart that must agree
+    /// forever; this makes them one by construction, as `Registry::touch` does
+    /// for the generation mirror.
+    pub fn exited(code: i32) -> Self {
+        Error(format!("{EXITED}{code}"))
+    }
+
+    /// Whether this is [`Error::exited`].
+    pub fn is_exited(&self) -> bool {
+        self.0.starts_with(EXITED)
+    }
+
     /// Prefix this error with the word that ran the failing body, as a native
     /// reporting a failure inside its lambda does — **except a stack
     /// exhaustion, which passes through unchanged.**
@@ -591,6 +616,13 @@ impl Error {
 /// The prefix that identifies [`Error::stack_exhausted`], as `internal error: `
 /// identifies [`Error::internal`].
 const STACK_EXHAUSTED: &str = "machine stack exhausted: ";
+
+/// The prefix that identifies [`Error::exited`].
+///
+/// The whole message is this plus the code, so the text ends with the number —
+/// which is what `crates/bund2-stdlib/src/host.rs` asserts with `ends_with`,
+/// and what criterion 30 compares between the tiers.
+const EXITED: &str = "the program asked to exit with code ";
 
 /// How a native word may block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

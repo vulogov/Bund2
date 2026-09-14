@@ -417,6 +417,18 @@
   `status_of`; until that helper exists it sits in the adapter. Nineteen tests
   under `--features jit`; conform unmoved at 106/114 on both tiers.
 
+  **Dated note, 2026-09-13 (2) — `status_of` exists, and the request cell has
+  its first reader.** The clearing has moved out of both adapters into one
+  helper, as this entry said it would. `status_of` consults
+  `Vm::exit_requested` first, substitutes `Error::exited` after an `Ok`, passes
+  an `Err` through unchanged, and clears the tail request on every error it
+  answers — through `Vm::clear_tail_request`, which is one of the four writers
+  that write §S6's mirror beside `pending_tail`. So the sentence above is
+  superseded in one respect: the cell is now read and written on the compiled
+  path, rather than only mirrored. **The other half stands** — no compiled body
+  continues past a call, so nothing *loads* the cell to decide whether to
+  drain. Forty-one tests under `--features jit`; conform unmoved at 106/114.
+
   **§S8's boundary is complete, and criterion 29 is Met, 2026-09-13.** The
   per-native adapter (piece 2) and a `Tail` thunk per native (piece 3) now have
   a call site: a compiled body that loads each thunk's address from a slot table
@@ -1342,6 +1354,18 @@ returned success would print `after if` where Tier 0 exits 7. `bund2-jit`
 defines `status_of` once and gives the helpers no other way to make a status,
 so a helper added later cannot forget the check.
 
+**Built 2026-09-13.** `status_of` is in `crates/bund2-jit/src/lower.rs`, and
+the per-native adapter and the body's `apply` adapter both return through it;
+neither makes a status of its own. **One of the four helpers this section names
+exists**, so "gives the helpers no other way" is enforced by there being no
+other way to write one rather than by a scan: the resolving trampoline, the
+drain helper and the residual path's `apply` are unbuilt, and each will route
+here when it lands. Three tests cover the arms — a recorded exit after `Ok`
+becomes `Error::exited`, an `Err` is passed through unchanged rather than
+replaced, and a run with neither reports success — and `Error::exited` is the
+single constructor `Interp::exit_gate` also uses, so the two tiers cannot
+spell the refusal differently (D63).
+
 **The Rust side of the boundary gets what Tier 0 gives it** (the thirteenth
 review's B1). In tail position, the error status `status_of` makes travels to
 whatever Rust code started the compiled body. Before F112 Tier 0 answered `Ok`
@@ -1467,6 +1491,16 @@ run. So:
   `pending_tail` alone, which is the half the defect lives in. D56 rejected
   clearing *only* the mirror; clearing only Tier 0's is the opposite and is
   correct while the mirror does not exist.
+
+  **Built 2026-09-13 (2) — `status_of` has arrived, and the clearing moved
+  there.** Both adapters now return `status_of(c, r)` and neither clears on its
+  own, which is what this passage promised. The mirror exists too, so
+  `Vm::clear_tail_request` writes Tier 0's `pending_tail` *and* §S6's request
+  cell, in the one function that writes both (assumption 33's pairing). A test
+  asserts the cell is clear after the adapter answers an error, and another
+  that a succeeding native's filed body still runs — the positive control,
+  without which a helper that cleared unconditionally would pass every other
+  case while discarding every tail request a compiled call ever filed.
 
   This rule is about compiled call sites. It is not a claim that Tier 0 never
   loses a request: `Interp::request_tail` assigns, so a native that files two
@@ -2103,6 +2137,15 @@ body whose meaning had changed:
 residual path, no drain helper and no `status_of`. The value of the cells today
 is that the mirrors provably track the truth, which is the part a later lowering
 cannot check for itself, and the part that is testable now.
+
+**Dated note, 2026-09-13 (3) — the request cell has a reader.** `status_of`
+(§S5, *A call may end the program*) clears the request on every error it
+answers, through `Vm::clear_tail_request`, which writes the mirror beside
+`pending_tail`. That is the first code on the compiled path to touch a cell
+rather than merely keep it in step. **The other three are still unread**:
+`autoadd`, the epoch and the floor are written and never loaded, because no
+lowering emits a guard, a residual path or an entry check. The paragraph above
+holds for them.
 
 - one **stack-floor cell** per `Interp` (§S8), holding the floor that `Interp`
   took from its thread's declared region, which the check at every compiled
