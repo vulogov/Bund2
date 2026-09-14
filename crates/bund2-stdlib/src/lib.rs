@@ -417,11 +417,37 @@ mod honesty_tests {
             "password",
             "save.model",
         ];
+        // **Natives a feature gate may or may not have registered — F123.**
+        //
+        // `PROMOTABLE.txt` is one file and there are two builds. `string.grok`
+        // and `string.grok.` exist only under `--features grok`, which D10 and
+        // D40 keep off by default, so a list regenerated without the feature
+        // fails `--all-features` with `now reached ["string.grok",
+        // "string.grok."]`, and a list regenerated with it fails the default
+        // build from the other side. No content of the file satisfies both.
+        //
+        // **Excluded at the source rather than subtracted afterwards.**
+        // Filtering here means the audit never *claims* to have checked them;
+        // subtracting after the run would measure them under `--all-features`
+        // and then discard the result, which is a measurement taken and thrown
+        // away. Unreached is also the conservative answer: promotion syncs
+        // before an unlisted native exactly as it does before an embedder's, so
+        // the two words cost speed and never meaning.
+        //
+        // Kept by hand, as `ACTS_ON_HOST` is, and for the same reason: a new
+        // feature-gated native runs for real until it is named here. `grok` is
+        // the only feature this crate has today, and it binds exactly these
+        // two.
+        const FEATURE_GATED: [&str; 2] = ["string.grok", "string.grok."];
         let natives: Vec<(String, bund2_api::StackEffect)> = setup
             .registry
             .declared_effects()
             .into_iter()
-            .filter(|(n, e)| !e.opaque && !ACTS_ON_HOST.contains(&n.as_str()))
+            .filter(|(n, e)| {
+                !e.opaque
+                    && !ACTS_ON_HOST.contains(&n.as_str())
+                    && !FEATURE_GATED.contains(&n.as_str())
+            })
             .collect();
 
         let k = palette.len();
@@ -536,7 +562,16 @@ mod honesty_tests {
                  # breach of its declared effect, and that D55's audit did not see\n\
                  # reading beyond its operands. Anything absent is synced before, as an\n\
                  # embedder's native is. Written by BUND2_UPDATE_PROMOTABLE=1 cargo\n\
-                 # test -p bund2-stdlib promotable; never edited by hand.\n",
+                 # test -p bund2-stdlib promotable; never edited by hand.\n\
+                 #\n\
+                 # **One file, two builds — F123.** A native behind a Cargo feature is\n\
+                 # registered in one build and not the other, so no content here could\n\
+                 # be true for both: listed, the default build reports it `no longer\n\
+                 # reached`; absent, `--all-features` reports it `now reached`. Such\n\
+                 # natives are excluded from the audit in both builds (`FEATURE_GATED`,\n\
+                 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the\n\
+                 # conservative answer: promotion syncs before them as before an\n\
+                 # embedder's native, which costs speed and never meaning.\n",
             );
             out.push_str(&format!(
                 "# {} promotable of {} reached, of {} fixed-effect natives; {} reached natives\n\
@@ -563,6 +598,18 @@ mod honesty_tests {
                 if !reached.contains(n) {
                     out.push_str(&format!("# not reached: {n}\n"));
                 }
+            }
+            // **The feature-gated names the header promises** — F123. Written
+            // whichever build regenerates the file, because the exclusion is a
+            // property of the audit rather than of the build that ran it: a
+            // reader must be able to see what was withheld without opening
+            // `lib.rs`.
+            out.push_str(
+                "#\n# Excluded in both builds because a Cargo feature decides whether they\n\
+                 # exist at all (F123); never crossed by promotion:\n",
+            );
+            for n in FEATURE_GATED {
+                out.push_str(&format!("# feature-gated: {n}\n"));
             }
             std::fs::write(&list, out).expect("writes the list");
             return;

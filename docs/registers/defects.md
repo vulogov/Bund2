@@ -4258,8 +4258,42 @@ exist yet, so nothing reads `PROMOTABLE.txt` at run time. The two `grok` words
 are correctly promotable under the feature; the defect is that the file cannot
 say so and stay true for the default build.
 
+**Disposition: FIXED, 2026-09-14 — the owner took the first option, making the
+audit feature-aware.**
+
+`FEATURE_GATED` (`crates/bund2-stdlib/src/lib.rs`) names `string.grok` and
+`string.grok.` and is filtered out where the native list is built, beside
+`ACTS_ON_HOST` and in the same shape: kept by hand, so a new feature-gated
+native is audited for real until it is named there, and conservative, since an
+excluded native is unlisted and promotion syncs before it exactly as before an
+embedder's — speed, never meaning. `grok` is the only feature this crate has,
+and it binds exactly those two words.
+
+**Excluded at the source rather than subtracted after the run.** Filtering
+where the list is built means the audit never *claims* to have checked them.
+Subtracting from both sides of the set difference afterwards would run them
+under `--all-features` and then discard the result, which is a measurement
+taken and thrown away.
+
+**`tests/golden/PROMOTABLE.txt` was not regenerated, and did not need to be.**
+Once the audit stopped drawing the gated pair, the existing **222** entries
+were already correct for both builds — default passes, `--all-features`
+passes, same file, untouched. That is the better outcome, since the file is the
+owner's to own. The generator's header and a new `# feature-gated:` block will
+record the exclusion in the file from its next regeneration onward, whenever
+one is next warranted for some other reason.
+
+**Verified both ways**: `cargo test --workspace` and `cargo test --workspace
+--all-features` are both green, where the latter was the failing command this
+entry was filed for. Clippy clean under both feature sets. Conformance is
+unmoved, as predicted — the audit is an honesty check on promotion's
+eligibility list and nothing reads the file at run time.
+
+D48 carries a dated note recording the same, and RFC-0005's criterion 28 now
+states **three** limits rather than two.
+
 - Found: 2026-09-13, regenerating after the cell work
-- Status: **OPEN — needs the owner's disposition**
+- Status: **RESOLVED — fixed.**
 - Depends on: D48 (the list), D40 and D10 (why `grok` is optional)
 
 ## F122 — the `$` alias is registered behind a path that never reaches it

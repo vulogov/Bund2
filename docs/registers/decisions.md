@@ -2933,6 +2933,29 @@ by hand, so a new host-acting native runs for real under `cargo test` until
 it is added. RFC-0005's criterion 28 now states both limits, this and that the
 list certifies the default registration (the eleventh review's S4).
 
+**Dated note, 2026-09-14 — a feature-gated native is excluded in every build
+(F123).** This decision's regeneration command carries no feature list, and its
+scope paragraph says the list "certifies a native's pair" — neither
+contemplated a native whose *existence* depends on a Cargo feature.
+`string.grok` and `string.grok.` are registered only under `--features grok`
+(D10, D40), so the audit drew them in one build and not the other, and no
+content of the file satisfied both: listed, the default build reported them
+`no longer reached`; absent, `--all-features` reported them `now reached`.
+`cargo test --workspace --all-features` failed on it.
+
+The owner chose F123's first disposition, 2026-09-14: **make the audit
+feature-aware.** `FEATURE_GATED` (`crates/bund2-stdlib/src/lib.rs`) excludes
+such natives where the native list is built, in both builds, beside
+`ACTS_ON_HOST` and for the same reasons — kept by hand, so a new one is
+audited for real until it is named; conservative, since unlisted means
+promotion syncs before it as before an embedder's native.
+
+**The list did not change.** The existing 222 entries were already correct for
+both builds once the audit stopped drawing the gated pair, so
+`PROMOTABLE.txt` was not regenerated. The regeneration command in this
+decision therefore still stands as written, and needs no feature list: it
+produces the same content under either build.
+
 **Dated note, 2026-09-11 (third) — the list certifies more than a pair.**
 *Scope* above says the list "certifies a native's pair, not what else the
 native observes". Since D55 it certifies both: a native that D55's audit sees

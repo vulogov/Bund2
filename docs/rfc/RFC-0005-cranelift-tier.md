@@ -4788,7 +4788,8 @@ evidence, and this one is listed as runnable rather than as met.
     certifies both a native's pair and that D55's audit saw it read nothing
     beyond its operands (criterion 14). Runs today: `cargo test -p bund2-stdlib promotable`.
 
-    **Two limits, stated for the eleventh review's S4.** First, six natives
+    **Three limits.** The first two were stated for the eleventh review's S4;
+    the third is F123, found 2026-09-13 and fixed 2026-09-14. First, six natives
     that act on the host are never run: `fs.rm`, `sleep.seconds`,
     `system.setproctitle`, `system.setproctitle.`, `password` and
     `save.model` (`ACTS_ON_HOST`, `crates/bund2-stdlib/src/lib.rs`). So
@@ -4801,6 +4802,30 @@ evidence, and this one is listed as runnable rather than as met.
     D47's id set is taken from the registration actually made. A listed stub
     is therefore crossed under those options, and since every stub fails, the
     crossing takes the error path, which syncs first.
+
+    **Third, a native behind a Cargo feature is excluded in every build**
+    (`FEATURE_GATED`, `crates/bund2-stdlib/src/lib.rs`): `string.grok` and
+    `string.grok.`, which exist only under `--features grok` (D10, D40). This
+    list is one file and there are two builds, so no content of it could be
+    true for both — listed, the default build reports the pair `no longer
+    reached`; absent, `--all-features` reports it `now reached`. That is F123,
+    and `cargo test --workspace --all-features` failed on it until the audit
+    stopped drawing those names at all.
+
+    **Excluded at the source rather than subtracted after the run.** Filtering
+    where the native list is built means the audit never *claims* to have
+    checked them; subtracting afterwards would measure them under
+    `--all-features` and discard the result, which is a measurement taken and
+    thrown away. Unlisted is also the conservative answer — promotion syncs
+    before them as before an embedder's native — so the two words cost speed
+    and never meaning.
+
+    **The list itself did not change.** Filtering at the source left the
+    existing 222 entries correct for both builds, so `PROMOTABLE.txt` was not
+    regenerated; the generator's header and a `# feature-gated:` block record
+    the exclusion from its next regeneration onward. Like `ACTS_ON_HOST`, the
+    set is kept by hand: a new feature-gated native is audited for real until
+    it is named there, and `grok` is the only feature this crate has.
 
 29. **A native that panics gives Tier 0's result from compiled code (D49).**
     Register a native that panics. Call it from a compiled body in a non-tail
