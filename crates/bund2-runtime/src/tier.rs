@@ -98,6 +98,10 @@ impl Tier for JitTier {
         Some(self.compiler.as_ref().map_or(0, Compiler::inlined_total))
     }
 
+    fn promoted_values(&self) -> Option<usize> {
+        Some(self.compiler.as_ref().map_or(0, Compiler::promoted_total))
+    }
+
     /// See `bund2_api::Tier` for the contract. In short: `None` interprets,
     /// `Some(..)` means compiled code ran the body.
     ///
@@ -192,6 +196,35 @@ mod tests {
         r
     }
 
+    /// A runtime whose tier **can inline**, at a low threshold.
+    ///
+    /// [`runtime_with`] installs `JitTier::new`, whose own documentation says
+    /// it is "a tier that inlines nothing" — its table is empty. Every tier
+    /// test in this file used it, so **no test here has ever exercised §S6's
+    /// inlining through the seam**; the lowering's own tests cover it, and the
+    /// wiring between `register_all` and the table was covered only by the CLI
+    /// (which is how F124 went unnoticed). This is that fixture.
+    ///
+    /// The table must be taken **after** registration, because it is keyed by
+    /// the registration ids `register_all` mints — the same ordering
+    /// `Runtime::with_options` documents.
+    fn inlining_runtime_with(threshold: u32) -> crate::Runtime {
+        let mut r = crate::Runtime::new();
+        let table = bund2_stdlib::fragments::published(&r.interp.registry).unwrap_or_default();
+        assert!(
+            !table.is_empty(),
+            "the fixture must publish fragments, or it tests the absence of inlining"
+        );
+        r.install_tier(Box::new(JitTier::with_fragments(
+            Caps {
+                threshold,
+                ..Caps::default()
+            },
+            table,
+        )));
+        r
+    }
+
     /// `{ 1 2 + }` bound to a name, so calling it reaches `push_frame` the way
     /// a program does — dispatch, `request_tail`, `take_pending`.
     fn register_body(r: &mut crate::Runtime) -> BundValue {
@@ -227,6 +260,42 @@ mod tests {
         for v in &stack {
             assert_eq!(v.as_int(), Some(3), "every call left 3: {stack:?}");
         }
+    }
+
+    /// **What `--stats` reports, asserted** — RFC-0005 criterion 10.
+    ///
+    /// `a_hot_body_is_compiled_and_then_run_compiled` says "the counter itself
+    /// is not readable through `dyn Tier`, so the observable result is the
+    /// evidence rather than a count". That was true when it was written and is
+    /// no longer: three figures now come through the trait, and criterion 10's
+    /// attribution rests on them — a timing that cannot tell "the lowering does
+    /// not pay" from "the lowering did not happen" is the confusion those
+    /// figures exist to prevent. So they need a test of their own, or the
+    /// measurement rests on an unasserted number.
+    #[test]
+    fn the_tier_reports_what_it_compiled_inlined_and_promoted() {
+        let mut r = inlining_runtime_with(2);
+        register_body(&mut r);
+        for _ in 0..5 {
+            r.eval_str("f").expect("runs");
+        }
+
+        assert_eq!(r.compiled_bodies(), Some(1), "one body: `{{ 1 2 + }}`");
+        assert_eq!(r.inlined_sites(), Some(1), "the `+`");
+        assert_eq!(
+            r.promoted_values(),
+            Some(2),
+            "both literals promoted; the `+` is a call, not a literal"
+        );
+
+        // **`None` and `Some(0)` say different things**, which is the
+        // distinction the CLI's match arms turn on: no tier at all, against a
+        // tier that compiled nothing.
+        let mut bare = crate::Runtime::new();
+        bare.take_tier();
+        assert_eq!(bare.compiled_bodies(), None, "no tier, not an empty one");
+        assert_eq!(bare.inlined_sites(), None);
+        assert_eq!(bare.promoted_values(), None);
     }
 
     /// **A tier moves conformance by exactly zero** (§S2's one invariant), at

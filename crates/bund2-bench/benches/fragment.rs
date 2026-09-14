@@ -284,9 +284,16 @@ fn fragment(c: &mut Criterion) {
 //
 // # What the `promoted` column is, and is not
 //
-// There is no lowering that promotes, so this column is **hand-written Rust
-// standing for one** — the same construction `fragment/int_add/promoted` uses,
-// plus the sync the rule requires. It is a *ceiling*: real compiled code pays
+// This column is **hand-written Rust standing for a lowering** — the same
+// construction `fragment/int_add/promoted` uses, plus the sync the rule
+// requires.
+//
+// **A real promoting lowering exists as of 2026-09-14 (D66)**, and this column
+// was not rewritten against it: the crossover of 4 recorded for criterion 9 was
+// measured against the construction below, not against emitted code. The
+// asymmetry described next is what keeps that measurement usable — it vetoes
+// lengths, it does not certify them — but a figure quoted from here should say
+// which of the two it came from. It is a *ceiling*: real compiled code pays
 // an entry, an exit, a guard per site and a helper call per sync, none of
 // which is here. So a length that fails this band cannot pass in a real
 // lowering, while one that passes here may still fail there. The criterion is

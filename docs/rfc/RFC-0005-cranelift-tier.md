@@ -4110,6 +4110,66 @@ evidence, and this one is listed as runnable rather than as met.
     remaining headroom is promotion, which §S6 calls "the prize" and which
     needs the residual path and assumption 38's resume index.
 
+    **Re-measured against promotion's first stage, 2026-09-14 (D66).** An int
+    literal now becomes an `iconst` in a `Variable` and never reaches the stack,
+    and an inlined site whose operands are all promoted reads them from
+    registers rather than calling the pop helper, so `1 2 +` lowers to two
+    `iconst`s and an `iadd`. `bund2 --stats` gained a **third** figure for this
+    measurement — promoted values — because a body that compiled *and* inlined
+    may still have promoted nothing, and a timing of that answers a different
+    question. The same argument that added `inlined_sites` one stage earlier.
+
+    | program | bodies / sites / promoted | Tier 0 | with the tier | |
+    |---|---|---|---|---|
+    | `1 2 + drop` ×10⁶ (this criterion's own shape), batch 1 | 2 / 3 / 4 | 0.3160 s | 0.2992 s | **1.057×** |
+    | the same, batch 2 | 2 / 3 / 4 | 0.3177 s | 0.2978 s | **1.067×** |
+    | a fixed-point Julia step ×2×10⁵ | 4 / 7 / 9 | 0.5049 s | 0.4558 s | **1.108×** |
+
+    **Re-measured again after the residual path and chaining (D67), same day.**
+    A site's result now stays in a register and feeds the next site, so
+    `1 2 + 3 +` never round-trips its first sum through the stack:
+
+    | program | bodies / sites / promoted | Tier 0 | with the tier | |
+    |---|---|---|---|---|
+    | `1 2 + drop` ×10⁶, batch 1 | 2 / 3 / 4 | 0.3106 s | 0.2895 s | **1.073×** |
+    | the same, batch 2 | 2 / 3 / 4 | 0.3077 s | 0.2918 s | **1.055×** |
+    | a fixed-point Julia step ×2×10⁵ | 4 / 7 / 9 | 0.5005 s | 0.4565 s | **1.097×** |
+
+    **Chaining bought nothing measurable.** The two batches after bracket the
+    two before — 1.055× and 1.073× against 1.057× and 1.067× — so they are one
+    population, and the Julia step moved the wrong way. The change is correct
+    (62 tests, conformance unmoved, output byte-identical with the feature and
+    without) and it removed exactly the traffic it was built to remove. The
+    figure did not follow.
+
+    So the remaining cost is **not** value traffic between inlined sites. It is
+    the boundary — entry trampoline, a slot load and an indirect call per value,
+    the request-cell load after each — plus `Vm::apply` for every value that is
+    not a site. In `1 2 + drop`, three of four values are sites and the fourth
+    is a literal in a register, so almost nothing is left for promotion to take:
+    what is left is the machinery around it. A future attempt at the 1.2× floor
+    has to attack that, not the operands.
+
+    Release profile, ten alternating pairs per row, medians quoted, under the
+    CLI's default reporter as this criterion requires. Output is byte-identical
+    with the feature and without, on both programs. **All thirty pairs favour
+    the tier** — the columns do not overlap on the first batch — so the
+    direction is a result rather than drift, which the 1.00× reading could not
+    claim.
+
+    **The stop rule still fires, and this entry does not explain it away.**
+    1.06× is not 1.2×. Promotion moved the figure off 1.00×, which says the
+    mechanism works and that `Vm::apply` dispatch was indeed part of what a
+    compiled body was paying — but it did not move it far. The remaining cost
+    is what this stage deliberately left standing: **the result of every
+    inlined site is synced** rather than kept in a register, and **nothing stays
+    promoted across a call**, so `1 2 + drop`'s sum makes a round trip through
+    the stack between `+` and `drop`, and each of the four literals is still
+    pushed once. The full residual — values promoted across a call, behind the
+    callee's generation check, with assumption 38's resume index — is what the
+    1.2× judgement should be taken against. Until then §S1's gate stays open on
+    the strength of this number, not closed by it.
+
     **What this criterion still cannot report**: the corpus-wide figure
     criterion 2 wants at threshold 1, because `--jit-threshold` is specified
     and unbuilt (F125).
@@ -4364,6 +4424,32 @@ evidence, and this one is listed as runnable rather than as met.
     call site. Stacks alone would pass a lowering that resumed at the wrong
     index on a seventh program, which is why the side table is asserted
     directly rather than through its effects.
+
+    **Half met, 2026-09-14 (D67), and the half is stated so the gap is not
+    mistaken for coverage.**
+
+    *Met*: the **resume index** exists and is asserted directly.
+    `Compiler::resume_table` and `Compiler::resume_index` expose assumption 38's
+    map, and `every_inlined_site_records_where_its_residual_resumes`
+    (`crates/bund2-jit/src/lower.rs`) checks that `1 2 + 3 +` records one entry
+    per inlined site, at the site's own body position, and that every recorded
+    index is a real position in the source body. The index is the site's own
+    position rather than the next: a guard refuses *before* its value has run,
+    so the value is still owed and the residual re-applies it. Two other tests
+    reach the residual for real — `autoadd_sends_an_inlined_site_to_the_residual`
+    through guard three, and `a_rebound_name_syncs_the_operands_it_promoted`
+    through the generation guard — each asserting its site count first, so
+    neither can pass vacuously (F127).
+
+    *Not met*: **none of the six stack-switch programs is written.**
+    `1 2 "s" to_stack +`, and the variants with `to_current`, `stacks_left`,
+    `endcontext`, a CONTEXT literal, and a conditional running its body on
+    another stack. Those are what test "the stack it came from" against "the
+    stack current at the sync", and they are the half this criterion leads
+    with. Today a `CONTEXT` literal and every stack-switching word are
+    `Plan::Call`, and a sync precedes every call, so the two readings coincide
+    by construction — but *by construction* is an argument, not a test, and
+    this criterion exists because the argument is the thing that can be wrong.
 
 22. **What a promoted value must not change, doesn't.** Six parts, each
     asserted against Tier 0's result:

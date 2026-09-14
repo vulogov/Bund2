@@ -674,6 +674,20 @@ pub trait Tier {
     fn inlined_sites(&self) -> Option<usize> {
         None
     }
+
+    /// **How many values this tier promoted**, across every body it compiled —
+    /// RFC-0005 §S5, D66.
+    ///
+    /// The third figure for the same reason as the second. A body that compiled
+    /// *and* inlined may still have promoted nothing, in which case every
+    /// literal went through `Vm::apply` and a timing of it answers a different
+    /// question from the one criterion 10 asks. Without this, a re-measurement
+    /// after promotion could not tell "promotion does not pay" from "promotion
+    /// did not happen" — which is the confusion `inlined_sites` was added to
+    /// prevent one stage earlier.
+    fn promoted_values(&self) -> Option<usize> {
+        None
+    }
 }
 
 /// A word's failure. RFC-0003 replaces this with a spanned error value.

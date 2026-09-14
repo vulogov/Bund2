@@ -444,15 +444,26 @@ fn run(src: &str, args: &Args) -> Option<i32> {
     // without the feature — against a tier that compiled nothing, which over a
     // corpus is the failure criterion 2 asks this flag to catch.
     if args.stats {
-        match (rt.compiled_bodies(), rt.inlined_sites()) {
-            // **Both figures, because one without the other says little.** A
-            // body that compiled but inlined nothing still applies every value
-            // through `Vm::apply`, so a timing of it answers a different
-            // question from the one criterion 10 asks.
-            (Some(bodies), Some(sites)) => {
+        match (
+            rt.compiled_bodies(),
+            rt.inlined_sites(),
+            rt.promoted_values(),
+        ) {
+            // **All three figures, because each without the others says
+            // little.** A body that compiled but inlined nothing still applies
+            // every value through `Vm::apply`; a body that inlined but promoted
+            // nothing still pushes and pops every literal. A timing of either
+            // answers a different question from the one criterion 10 asks.
+            (Some(bodies), Some(sites), Some(promoted)) => {
+                eprintln!(
+                    "bund2: tier compiled {bodies} bodies, inlined {sites} sites, \
+                     promoted {promoted} values"
+                );
+            }
+            (Some(bodies), Some(sites), None) => {
                 eprintln!("bund2: tier compiled {bodies} bodies, inlined {sites} sites");
             }
-            (Some(bodies), None) => eprintln!("bund2: tier compiled {bodies} bodies"),
+            (Some(bodies), None, _) => eprintln!("bund2: tier compiled {bodies} bodies"),
             _ => eprintln!("bund2: no tier (built without `jit`)"),
         }
     }

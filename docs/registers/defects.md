@@ -3944,6 +3944,82 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F127 — the lowering's differential helper compiled with an empty fragment table, so no test routed through it reached an inlined site
+
+**A Bund2 test defect**, found while building §S5's residual (D67) and recorded
+because of what it silently withheld rather than what it broke.
+
+`assert_matches_tier0` (`crates/bund2-jit/src/lower.rs`) builds its compiler
+with `Compiler::new(Vec::new())`. An empty table publishes no fragment, so
+`plan_body` inlines nothing, and **every body compared through that helper was
+compiled with zero sites**. The helper is the differential the lowering's tests
+lean on, so its coverage stopped at the generic path and literal promotion.
+
+Four tests added the same day inherited it. The worst was
+`a_rebound_name_syncs_the_operands_it_promoted`: it rebinds `+` after
+compiling, and its name claims it forces the meaning guard to refuse and the
+residual to run. With no fragment for `+` there was no site, no generation
+guard, and no residual — the test asserted a path it could not take, and
+passed. A test that names a path it never reaches is worse than an absent one,
+because it is counted as coverage.
+
+**Disposition: FIXED.** The rebound-name test now compiles with
+`with_fragments()` and asserts `inlined_sites(word) == Some(1)` *before*
+rebinding, so the site must exist or the test fails rather than passing
+vacuously. Three tests were added against the same fixture — chaining, the
+`autoadd` residual, and the resume table — each asserting its site count.
+`assert_matches_tier0` keeps its empty table on purpose: it is the
+generic-path differential, and `without_a_table_the_same_body_takes_the_generic_path`
+is the test that pins that reading.
+
+**The same shape, one layer up, on the same day.** `bund2-runtime`'s tier tests
+all used `runtime_with`, which installs `JitTier::new` — documented in its own
+source as "a tier that inlines nothing". So no test in that crate had ever
+exercised inlining through the seam either; `inlining_runtime_with` is the
+fixture that does, and it asserts its table is non-empty. This is F124's
+lesson repeating: F124 was the CLI never installing a tier, so every
+`--features jit` measurement compared Tier 0 with itself. Both were fixtures
+that looked like they exercised a feature and did not, and both were found by
+trying to *measure* rather than by reading.
+
+## F126 — promotion baked a body's literals into code that fetches every other value at run time
+
+**A Bund2 defect**, introduced and caught within one session while building
+D66's promotion, and recorded because the way it was caught is the point.
+
+`Plan::Literal` lowered an int literal to an `iconst` carrying the constant
+*seen while planning*. But a compiled word does not own its body: every other
+value is fetched from `Ctx::body` at run time, by index, in `jit_apply`
+(`crates/bund2-jit/src/lower.rs`). So a word is otherwise indifferent to which
+body of the right length it is handed, and the test helper `word_in` relied on
+exactly that — it compiled `0 1 2` and let callers run some *other* three-value
+body through the result.
+
+The symptom was a compiled body that pushed 0, 1, 2 and ignored the `1 2 +` it
+was given: depth 3 where 1 was expected, and depth 1 where 3 was. Eight tests
+failed at once.
+
+**Why it was nevertheless sound in production, and why that is not enough.**
+`Tiering`'s cache keys on `BundValue::payload_key` — the payload's `Rc` pointer,
+D35's option 4 — and `Tiering::compiled` rejects a dead entry through its
+`Weak`, so a cache hit names the same payload allocation, and a lambda's payload
+*is* its body. Every real caller therefore hands a compiled word the identical
+values it was compiled from. The assumption was true; it was never *checked*,
+and it is an invariant belonging to a different crate, which nothing in the
+lowering would notice changing. The failure mode if it did change is a wrong
+number pushed silently, not an error.
+
+**Disposition: FIXED.** `Word::literals` records each baked `(index, constant)`
+pair and `Compiler::run` compares them against the body it is handed, refusing a
+mismatch as `Error::internal` — D37's third way out, a named broken invariant
+rather than a silent wrong answer. `word_in` now takes the body it compiles.
+
+**What this says about the method.** `jit_apply` was read in the same session,
+before the promotion was written, and it is the single function that defines
+the contract the design broke. The tests caught it; the reasoning did not. It
+is the shape CLAUDE.md's *follow the call one level further* warns about,
+applied to a helper rather than to the reference.
+
 ## F125 — `--jit-threshold` is specified in three places and built in none
 
 **A Bund2 defect**, the sibling of F124 and found the same way: by trying to

@@ -3453,6 +3453,136 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D67 — the residual path applies the rest of the body, and never rejoins
+
+**Decided by the repository owner, 2026-09-14.** RFC-0005 §S5's residual, built,
+with assumption 38's resume index. It supersedes D66's closing restriction: a
+site's result now stays in a register.
+
+- Blocks: nothing; it is what criterion 21 asserts and what D66 deferred
+- Depends on: D66 (promotion's first stage), D43 (generation cells), D65 (the
+  cells' address)
+- Status: **RESOLVED — built.**
+
+**The residual is not "take the generic call and rejoin".** That reading is what
+forced D66 to sync every inlined site's result: the region left the sum in a
+`Variable`, the generic path left it on the stack, and two register models
+meeting at one join is unsound. §S5 says something different — the residual
+"syncs every promoted value … and then applies the rest of the body's values one
+at a time through the runtime's `apply`, exactly as Tier 0 would". **It never
+comes back.** With no join to merge at, the fast path owes nothing, and a
+site's result stays promoted: `1 2 + 3 +` keeps the first sum in a register and
+feeds it to the second `+` as an operand.
+
+**Still guard-and-branch.** `jit_residual` is a runtime helper called from the
+emitted body, like `jit_apply`; the body returns its status. Control never
+leaves compiled code, so there is no OSR and no frame handed back to Tier 0.
+
+**The resume index is the site's own position, not the next one.** A guard
+refuses *before* its value has run, so the value is still owed and the residual
+re-applies it — which is exactly the generic call that block used to emit
+inline. `Word::resumes` carries the map, and `Compiler::resume_table` exposes
+it, because criterion 21 requires the table to be asserted directly: "stacks
+alone would pass a lowering that resumed at the wrong index on a seventh
+program."
+
+**Every value goes through `status_of` inside the loop**, not just the last. It
+is §S5's one status-maker — it substitutes `Error::exited` after an `Ok` with an
+exit recorded, passes an `Err` through unchanged, and clears a tail request on
+every error. A loop testing only `is_err` would run the value after
+`bund.exit`.
+
+**What it did not buy, measured rather than assumed.** Criterion 10 reads
+**1.073× and 1.055×** on `1 2 + drop` after chaining, against **1.057× and
+1.067×** before it. Four batches of ten alternating pairs, and the two after
+*bracket* the two before — one population, not a movement. The Julia step reads
+**1.097×** against 1.108×, which is marginally *worse*. Chaining removed the
+stack round trip it was built to remove, and the figure did not move.
+
+That is a result about where the cost is, not a failure to tune. What remains is
+the boundary itself — an entry trampoline, a slot load and an indirect call per
+value, the request-cell load after each — and `Vm::apply` for every value that
+is not an inlined site. `1 2 + drop` has four values and three sites, so what
+promotion and inlining could reach was already small beside what the boundary
+costs. The stop rule still fires at 1.2× and this entry does not explain that
+away. See Q39 for the restriction that blocks promotion across calls, which is
+the next place the cost could come from.
+
+Conform is unmoved at **106/114, ceiling 106/114**, identical with `--features
+jit` and without.
+
+## D66 — promotion keeps a site's operands in registers and syncs its result
+
+**Decided by the repository owner, 2026-09-14.** RFC-0005 §S5's promotion, built
+in its first stage: an int literal in a compiled body becomes an `iconst` in a
+Cranelift `Variable` and never reaches the stack, and an inlined site whose
+operands are all promoted reads them from those registers instead of calling
+the pop helper. `1 2 +` lowers to two `iconst`s and an `iadd`.
+
+- Blocks: nothing; it is the "prize" §S6 names and criterion 10's remaining
+  headroom
+- Depends on: D43 (generation cells), D46/D47/D48 (what promotion may cross),
+  D65 (the cells' layout and address)
+- Status: **RESOLVED — built, in the stage described below.**
+
+**Superseded in this part by D67, 2026-09-14 (same day).** The paragraph below
+is correct about *why* a result could not stay promoted while the residual
+rejoined the fast path — and wrong about the premise. §S5's residual does not
+rejoin: it applies the rest of the body and returns. With no join there is no
+merge, and D67 keeps the result in a register. The reasoning is kept because it
+is the argument that had to be answered, not deleted.
+
+**The result is synced; only the operands stay promoted.** An inlined site keeps
+its residual path, because a name can be rebound however its operands arrive.
+The region leaves the sum in a `Variable` and the residual leaves it on the
+stack, and **two different register models meeting at one join is unsound**. The
+obvious repair — pop the residual's result back into a register — needs proof
+that the rebound name returned an `Int`, which is precisely what the meaning
+guard has just said cannot be proven. So the arm pushes its result like any
+other, and what promotion removes is the *operand* traffic. Chaining (`1 2 + 3
++` folding whole) is a later stage.
+
+**A sync precedes every call.** That is the structural form of §S5's rule, and
+it buys three properties rather than one: the promoted model is empty at every
+edge that can branch to `fail`, so the error paths are correct by construction
+rather than by enumeration; nothing stays promoted across a call, so D46, D47
+and D48 are satisfied without a check; and only a `CALL` or a `CONTEXT` literal
+can move the current stack, both of which are `Plan::Call` and therefore sync
+first — so "the stack current at the sync" and "the stack the value came from"
+are the same stack, which is what criterion 21 tests.
+
+**The excess is synced before a site, and that is arithmetic rather than a
+check.** A site consumes the top `needs` values; anything promoted below them is
+pushed first, or the result would land beneath a value still in a register. No
+guard would catch that misordering.
+
+**A promoted site asks two guards, not three.** The type guard is discharged at
+compile time — every operand is a known int literal, so `Guard::TopAreInt`
+is answered statically — and calling `jit_admits` would be *wrong* rather than
+merely redundant, since with the operands held back it would interrogate a stack
+that is missing them. The meaning guards (generation, `autoadd`) still run.
+
+**A literal needs no meaning guard of its own.** `Interp::apply_step` sends
+`CALL` to `dispatch_name` and `CONTEXT` to the context switch; every other kind
+falls to a default arm that is `self.push(v)` and nothing else. `autoadd` lives
+inside `dispatch_name` and cannot reach a literal.
+
+**What is not built, and is not claimed.** Assumption 38's **resume index is not
+implemented and criterion 21 is not satisfied.** The resume index exists for a
+residual that applies "the rest of the body's values" after values stayed
+promoted *across* a call; in this stage nothing does, so at every call site the
+model is already empty and there is nothing to resume with. The full residual,
+the epoch guard at call sites, and promotion across natives on
+`PROMOTABLE.txt` all remain ahead.
+
+**Promotion is not gated on a body length.** Criterion 9 measured a crossover of
+4 for *compiled bodies against interpretation*; promotion is a different
+question — it removes a slot call and adds no per-use cost — and borrowing that
+number for a claim it never made would be adopting a measurement by analogy.
+
+Conform is unmoved at **106/114, ceiling 106/114**, identical with `--features
+jit` and without. Coverage 383/497, implemented 391/497.
+
 ## D65 — the cells have a guaranteed layout, and a lowering is given their address
 
 **Decided by the repository owner, 2026-09-13.** RFC-0005 §S6's *Addressing* is

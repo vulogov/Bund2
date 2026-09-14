@@ -39,7 +39,7 @@
 //! run time, and `Op::AddInt` becomes one `iadd` between two SSA values.
 
 use bund2_api::{Error, Vm};
-use bund2_ir::{Fragment, Op};
+use bund2_ir::{Fragment, Guard, Op};
 use bund2_value::BundValue;
 
 // `MemFlagsData`, not `MemFlags`: `load` takes `Into<MemFlagsData>`, and
@@ -221,6 +221,8 @@ fn emit_fragment_ops(
     f: &mut FunctionBuilder<'_>,
     fragment: &Fragment,
     site: &FragmentSite,
+    promoted: &mut Vec<Variable>,
+    keep_result: bool,
 ) -> Result<bool, String> {
     let (ptr, slot, ctx_val, fail) = (site.ptr, site.slot, site.ctx_val, site.fail);
     let live = usize::from(fragment.registers());
@@ -236,18 +238,28 @@ fn emit_fragment_ops(
     for op in fragment.ops() {
         match op {
             Op::PopInt => {
-                let addr = f.ins().stack_addr(ptr, slot, 0);
-                let call = f.ins().call(site.pop, &[ctx_val, addr]);
-                let status = f.inst_results(call)[0];
-                let next = f.create_block();
-                f.ins().brif(status, fail, &[], next, &[]);
-                f.switch_to_block(next);
-                emitted_any_call = true;
-                // `stack_load(pointer_type, loaded_type, slot, offset)` —
-                // the generated builder takes both types, and the vendored
-                // `src/` does not carry these signatures at all: they live
-                // in `target/debug/build/cranelift-codegen-*/out/inst_builder.rs`.
-                let v = f.ins().stack_load(ptr, types::I64, slot, 0);
+                // **A promoted operand is read, not popped.** `promoted` models
+                // the stack *top* at compile time, so taking from its end and
+                // falling through to the helper when it is empty is the operand
+                // order the stack would have given: what is promoted is above
+                // what is not. This is the whole of promotion's saving — the
+                // value never reached the stack, so nothing fetches it back.
+                let v = if let Some(src) = promoted.pop() {
+                    f.use_var(src)
+                } else {
+                    let addr = f.ins().stack_addr(ptr, slot, 0);
+                    let call = f.ins().call(site.pop, &[ctx_val, addr]);
+                    let status = f.inst_results(call)[0];
+                    let next = f.create_block();
+                    f.ins().brif(status, fail, &[], next, &[]);
+                    f.switch_to_block(next);
+                    emitted_any_call = true;
+                    // `stack_load(pointer_type, loaded_type, slot, offset)` —
+                    // the generated builder takes both types, and the vendored
+                    // `src/` does not carry these signatures at all: they live
+                    // in `target/debug/build/cranelift-codegen-*/out/inst_builder.rs`.
+                    f.ins().stack_load(ptr, types::I64, slot, 0)
+                };
                 if file.is_empty() {
                     return Err("a fragment popped into a register file it declared as empty".into());
                 }
@@ -263,13 +275,26 @@ fn emit_fragment_ops(
                         "fragment op PushInt names register {r}, outside a file of {live}"
                     ));
                 };
-                let v = f.use_var(src);
-                let call = f.ins().call(site.push, &[ctx_val, v]);
-                let status = f.inst_results(call)[0];
-                let next = f.create_block();
-                f.ins().brif(status, fail, &[], next, &[]);
-                f.switch_to_block(next);
-                emitted_any_call = true;
+                // **Promoted, when the caller has somewhere for it to live.**
+                // An inlined site under §S5's residual has no join to satisfy,
+                // so the result stays in a `Variable` and the next site reads
+                // it as an operand — the chaining `1 2 + 3 +` needs. A
+                // standalone arm has no such caller: it returns to Rust, which
+                // can only see the stack, so it pushes.
+                if keep_result {
+                    let held = f.declare_var(types::I64);
+                    let v = f.use_var(src);
+                    f.def_var(held, v);
+                    promoted.push(held);
+                } else {
+                    let v = f.use_var(src);
+                    let call = f.ins().call(site.push, &[ctx_val, v]);
+                    let status = f.inst_results(call)[0];
+                    let next = f.create_block();
+                    f.ins().brif(status, fail, &[], next, &[]);
+                    f.switch_to_block(next);
+                    emitted_any_call = true;
+                }
             }
             Op::DupTop | Op::DropTop => {
                 let callee = if matches!(op, Op::DupTop) {
@@ -311,6 +336,65 @@ fn emit_fragment_ops(
         }
     }
     Ok(emitted_any_call)
+}
+
+/// **Sync the deepest `n` promoted values back to the stack** — RFC-0005 §S5.
+///
+/// Promotion holds values in `Variable`s that the stack has never seen. Before
+/// anything could observe them they are pushed, deepest first, so the stack is
+/// exactly what it would have been had each literal been applied in turn.
+///
+/// **Through `site.push`, never a bare write.** The helper reaches
+/// `Stack::push`, which is what applies D41's stack symbol; a direct write
+/// would leave `StackSym::NONE` and render `tags: {}` where the oracle renders
+/// `tags: {"stack": "main"}` — criterion 12.
+///
+/// **A prefix, because the deepest values sync first.** A promoted site
+/// consumes the *top* `needs` values; anything below them must already be on
+/// the stack, or the site's result would land beneath a value still sitting in
+/// a register. Syncing the prefix is what keeps the order right.
+fn emit_sync_n(
+    f: &mut FunctionBuilder<'_>,
+    promoted: &mut Vec<Variable>,
+    n: usize,
+    site: &FragmentSite,
+) {
+    let n = n.min(promoted.len());
+    if n == 0 {
+        return;
+    }
+    let live: Vec<Variable> = promoted.drain(..n).collect();
+    for var in live {
+        let v = f.use_var(var);
+        let call = f.ins().call(site.push, &[site.ctx_val, v]);
+        let status = f.inst_results(call)[0];
+        let next = f.create_block();
+        f.ins().brif(status, site.fail, &[], next, &[]);
+        f.switch_to_block(next);
+    }
+}
+
+/// **Can this fragment take its operands from registers?**
+///
+/// Two conditions, and both are about what the ops address rather than what
+/// they compute:
+///
+/// - the guard is [`Guard::TopAreInt`], so a model holding known int literals
+///   answers it **statically**. A promoted site asks `jit_admits` nothing: with
+///   the operands held back in registers the guard would be interrogating a
+///   stack that is missing them, and a `Depth` guard is a claim about the stack
+///   itself that promotion cannot discharge;
+/// - every op is register-only. `Op::DupTop` and `Op::DropTop` address the
+///   stack directly through their helpers, so a fragment using either must see
+///   its operands there.
+fn takes_registers(fragment: &Fragment) -> bool {
+    matches!(fragment.guard(), Guard::TopAreInt(_))
+        && fragment.ops().iter().all(|o| {
+            matches!(
+                o,
+                Op::PopInt | Op::PushInt(_) | Op::AddInt { .. } | Op::SubInt { .. }
+            )
+        })
 }
 
 /// **Does this site's fragment admit the stack as it stands?** — RFC-0005 §S6.
@@ -642,6 +726,57 @@ extern "C" fn jit_apply(c: *mut Ctx<'_>, index: usize) -> i32 {
     status_of(c, r)
 }
 
+/// **§S5's residual path: apply the rest of the body, one value at a time.**
+///
+/// The residual is *not* "take the generic call and rejoin the fast path". §S5:
+/// it "applies the rest of the body's values one at a time through the
+/// runtime's `apply`, exactly as Tier 0 would". It never comes back, and that
+/// is what makes it affordable — a guard that refuses leaves the fast path for
+/// good, so the fast path owes no merge and may keep values promoted across
+/// the site that failed.
+///
+/// **Still guard-and-branch, not guard-and-bail.** Control never leaves
+/// compiled code: this is a runtime helper called from the emitted body, like
+/// [`jit_apply`], and the body returns its status. There is no OSR and no
+/// frame handed back to Tier 0.
+///
+/// `index` is assumption 38's **resume index** — the position in the source
+/// body at which interpretation resumes. The caller has already synced every
+/// promoted value, so the stack here is what Tier 0 would have built.
+///
+/// **It stops at the first failure**, as a body does: the values after a
+/// failing one must not run, which is the property
+/// `a_compiled_word_stops_at_the_first_failure` pins for the fast path.
+extern "C" fn jit_residual(c: *mut Ctx<'_>, index: usize) -> i32 {
+    // SAFETY: `CompiledWord::run`'s contract, as `jit_apply`'s.
+    let Some(c) = (unsafe { ctx(c) }) else {
+        return FAIL;
+    };
+    if index > c.body.len() {
+        c.err = Some(Error::internal(format!(
+            "a compiled body resumed at value {index}, outside the {} it was given",
+            c.body.len()
+        )));
+        return FAIL;
+    }
+    // Cloned up front: `c.vm` is borrowed mutably by `apply`, so the slice
+    // cannot stay borrowed from `c` across the loop.
+    let rest: Vec<BundValue> = c.body[index..].to_vec();
+    for v in rest {
+        let r = c.vm.apply(v);
+        // **Every value goes through `status_of`**, not just the last. It is
+        // §S5's one status-maker: it substitutes `Error::exited` after an `Ok`
+        // with an exit recorded, passes an `Err` through unchanged, and clears
+        // a tail request on every error. A loop that checked only `is_err`
+        // would run the value after `bund.exit`.
+        let status = status_of(c, r);
+        if status != OK {
+            return status;
+        }
+    }
+    OK
+}
+
 /// The **entry trampoline's** type: an opaque context in, a status out.
 ///
 /// §S8's fourth piece. Rust enters compiled code only through this, because it
@@ -850,6 +985,13 @@ pub fn compile(fragment: &Fragment) -> Result<Compiled, String> {
                 dup,
                 drop_,
             },
+            // **A standalone arm promotes nothing.** It is entered from Rust
+            // with the operands already on the stack (`Compiled::run` asks
+            // `admits_with` first), so every operand comes from the helper —
+            // and its result must reach the stack, because Rust is what reads
+            // it next and a `Variable` dies with the function.
+            &mut Vec::new(),
+            false,
         )?;
 
         let ok = f.ins().iconst(types::I32, i64::from(OK));
@@ -1087,6 +1229,33 @@ struct Word {
     /// guard is a question about the stack as it stands, so the fragment has to
     /// outlive compilation. Empty for a word that inlined nothing.
     sites: Vec<Fragment>,
+    /// **The literals this word baked, by body index** — §S5's promotion.
+    ///
+    /// A [`Plan::Literal`] becomes an `iconst`, so its value is fixed when the
+    /// word is compiled rather than fetched from [`Ctx::body`] the way
+    /// [`jit_apply`] fetches every other value. That is sound because a
+    /// compiled word is only ever run against the body it was compiled from:
+    /// `Tiering`'s cache keys on `BundValue::payload_key` — the payload's `Rc`
+    /// pointer, D35 — and a lambda's payload *is* its body, so a cache hit
+    /// names the same allocation.
+    ///
+    /// **Recorded anyway, and checked in [`Compiler::run`].** That soundness
+    /// rests on how a *different crate* keys a cache, and nothing here would
+    /// notice if it changed: the promoted values would simply be the wrong
+    /// ones, silently. Keeping the pairs turns "true because of somebody
+    /// else's invariant" into one this crate states and enforces.
+    literals: Vec<(usize, i64)>,
+    /// **Assumption 38's resume index, per inlined site** — §S5's residual.
+    ///
+    /// Site index paired with the position in the source body at which that
+    /// site's residual path resumes interpretation. The index is the site's
+    /// *own* position, because a guard refuses before its value has run, so the
+    /// value is still owed and the residual re-applies it through `Vm::apply`.
+    ///
+    /// Criterion 21 asserts this table directly rather than through the stacks
+    /// it produces: "stacks alone would pass a lowering that resumed at the
+    /// wrong index on a seventh program".
+    resumes: Vec<(usize, usize)>,
 }
 
 /// **What the lowering decided about one value of a body** — §S6's join.
@@ -1100,6 +1269,18 @@ struct Word {
 enum Plan {
     /// Dispatched: load the slot, call through it, then §S5's request check.
     Call,
+    /// **Promoted: an int literal that never reaches the stack.**
+    ///
+    /// `Interp::apply_step` sends `CALL` to `dispatch_name` and `CONTEXT` to
+    /// the context switch; **every other kind falls to a default arm that is
+    /// `self.push(v)` and nothing else**. `autoadd` lives inside
+    /// `dispatch_name`, so it cannot reach a literal — which is what makes an
+    /// int literal promotable with no meaning guard of its own.
+    ///
+    /// The value becomes an `iconst` in a `Variable` and is synced to the stack
+    /// before the first thing that could observe it (*A sync precedes every
+    /// call*, in the body emitter).
+    Literal(i64),
     /// Inlined, guarded. `site` indexes the word's fragment table.
     Inline {
         site: usize,
@@ -1196,14 +1377,27 @@ impl Compiler {
             i64::try_from(cells).map_err(|_| "the cells' address does not fit".to_string())?;
         let seq = self.words.len();
         let (plan, sites) = self.plan_body(body, vm);
-        let (entry, slots) =
+        let (entry, slots, resumes) =
             emit_into(&mut self.module, seq, &plan, &sites, last, Adapter::Apply, cells)?;
+        // The constants the emitted code baked, paired with the body positions
+        // they came from. `Compiler::run` compares them against the body it is
+        // handed — see [`Word::literals`].
+        let literals = plan
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| match p {
+                Plan::Literal(n) => Some((i, *n)),
+                _ => None,
+            })
+            .collect();
         self.words.push(Word {
             entry,
             _slots: slots,
             values,
             last,
             sites,
+            literals,
+            resumes,
         });
         Ok(WordHandle(seq))
     }
@@ -1251,7 +1445,20 @@ impl Compiler {
                         cell,
                     });
                 }
-                None => plan.push(Plan::Call),
+                // **Not a site — but possibly a promotion.** An int literal is
+                // an unconditional push (`Interp::apply_step`'s default arm),
+                // so it can live in a register until something could observe
+                // it. Every other kind, `CONTEXT` included, stays a call: a
+                // CONTEXT literal switches stacks with no call at all, which
+                // §S5 makes a static barrier, and routing it through the slot
+                // is how the sync lands before the switch.
+                None => match (v.dt() == bund2_value::INTEGER)
+                    .then(|| v.as_int())
+                    .flatten()
+                {
+                    Some(n) => plan.push(Plan::Literal(n)),
+                    None => plan.push(Plan::Call),
+                },
             }
         }
         (plan, sites)
@@ -1275,6 +1482,23 @@ impl Compiler {
                 w.values,
                 body.len()
             )));
+        }
+        // **The promoted literals must be the ones that were baked.** Every
+        // other value is fetched from `Ctx::body` at run time by [`jit_apply`],
+        // so a compiled word is otherwise indifferent to which body of the
+        // right length it is given; a [`Plan::Literal`] is not, because its
+        // value is an `iconst`. The cache makes this true already — it keys on
+        // the payload's `Rc` pointer, so a hit is the same body — but that is
+        // another crate's invariant, and a body that disagreed would otherwise
+        // push the wrong numbers with nothing to say so.
+        for &(i, n) in &w.literals {
+            if body.get(i).and_then(BundValue::as_int) != Some(n) {
+                return Err(Error::internal(format!(
+                    "a compiled word baked the literal {n} at body position {i} and was handed a \
+                     body holding {} there",
+                    body.get(i).map_or("nothing".to_string(), |v| v.summary(40))
+                )));
+            }
         }
         let mut c = Ctx {
             vm,
@@ -1334,6 +1558,42 @@ impl Compiler {
     pub fn inlined_total(&self) -> usize {
         self.words.iter().map(|w| w.sites.len()).sum()
     }
+
+    /// **How many values this word promoted** — §S5, and the figure that makes
+    /// promotion's firing checkable.
+    ///
+    /// A body whose literals all went to registers and a body that promoted
+    /// nothing produce the *same answers*, because the unpromoted path is the
+    /// old one and is correct. So a green differential is no evidence that
+    /// promotion ran at all. This counts what [`Plan::Literal`] planned, which
+    /// is exactly what the emitter turned into an `iconst`.
+    pub fn promoted_values(&self, word: WordHandle) -> Option<usize> {
+        self.words.get(word.0).map(|w| w.literals.len())
+    }
+
+    /// Promoted values across every word this compiler emitted.
+    pub fn promoted_total(&self) -> usize {
+        self.words.iter().map(|w| w.literals.len()).sum()
+    }
+
+    /// **Where site `site`'s residual resumes in the source body** —
+    /// assumption 38, asserted by criterion 21.
+    ///
+    /// `None` for a word this compiler never issued, or a site it never
+    /// inlined. The criterion wants the table itself, not its consequences.
+    pub fn resume_index(&self, word: WordHandle, site: usize) -> Option<usize> {
+        self.words
+            .get(word.0)?
+            .resumes
+            .iter()
+            .find(|(s, _)| *s == site)
+            .map(|(_, at)| *at)
+    }
+
+    /// Every resume index this word carries, by site — the whole side table.
+    pub fn resume_table(&self, word: WordHandle) -> Option<&[(usize, usize)]> {
+        self.words.get(word.0).map(|w| w.resumes.as_slice())
+    }
 }
 
 /// **Compile a body that calls `calls` natives in order — §S8's pieces 2 and 3
@@ -1373,7 +1633,9 @@ fn emit_body(
     // The native-calling lowering inlines nothing: its "values" are natives to
     // call, not a Bund body to plan over. Every site is generic.
     let plan = vec![Plan::Call; calls];
-    let (entry, slots) = emit_into(&mut module, 0, &plan, &[], last, adapter, cells)?;
+    // A body compiled this way inlines nothing — it is given no fragments — so
+    // it has no site whose residual could resume, and the table is empty.
+    let (entry, slots, _resumes) = emit_into(&mut module, 0, &plan, &[], last, adapter, cells)?;
     Ok(CompiledBody {
         _module: module,
         entry,
@@ -1408,8 +1670,19 @@ fn new_module(adapter: Adapter) -> Result<JITModule, String> {
     builder.symbol("jit_push_int", jit_push_int as *const u8);
     builder.symbol("jit_dup_top", jit_dup_top as *const u8);
     builder.symbol("jit_drop_top", jit_drop_top as *const u8);
+    // §S5's residual path. Bound unconditionally for the same reason the five
+    // above are: a symbol nothing imports costs nothing.
+    builder.symbol("jit_residual", jit_residual as *const u8);
     Ok(JITModule::new(builder))
 }
+
+/// What [`emit_into`] hands back: the entry trampoline, the slot table the
+/// emitted code reads, and assumption 38's resume index per inlined site.
+///
+/// A named type because the triple is wide enough that clippy's
+/// `type_complexity` is right about it, and because the third member is a side
+/// table criterion 21 asserts rather than an implementation detail.
+type Emitted = (Entry, Box<[*const u8]>, Vec<(usize, usize)>);
 
 /// **Emit one body into an existing module**, returning its entry and the slot
 /// table the emitted code reads.
@@ -1429,7 +1702,7 @@ fn emit_into(
     last: LastCall,
     adapter: Adapter,
     cells: i64,
-) -> Result<(Entry, Box<[*const u8]>), String> {
+) -> Result<Emitted, String> {
     // One value, one call slot — whether or not the value is inlined, because
     // an inlined site keeps its generic path beside it and reaches it through
     // that slot when a guard refuses.
@@ -1503,6 +1776,15 @@ fn emit_into(
     let mut sig_bare = Signature::new(conv);
     sig_bare.params.push(AbiParam::new(ptr));
     sig_bare.returns.push(AbiParam::new(types::I32));
+    // §S5's residual: `(ctx, resume index) -> status`, the same shape the
+    // apply adapter takes, because it answers the same kind of question.
+    let mut sig_residual = Signature::new(conv);
+    sig_residual.params.push(AbiParam::new(ptr));
+    sig_residual.params.push(AbiParam::new(ptr));
+    sig_residual.returns.push(AbiParam::new(types::I32));
+    let residual_id = module
+        .declare_function("jit_residual", Linkage::Import, &sig_residual)
+        .map_err(|e| format!("declare jit_residual: {e}"))?;
     let pop_id = module
         .declare_function("jit_pop_int", Linkage::Import, &sig_pop)
         .map_err(|e| format!("declare jit_pop_int: {e}"))?;
@@ -1561,6 +1843,9 @@ fn emit_into(
     let mut fb_ctx = FunctionBuilderContext::new();
     // Filled by the body emitter, read by the dominance check after it.
     let side_table: Vec<(Block, Block)>;
+    // Assumption 38's map, escaping the builder's block the way `side_table`
+    // does: site index, and the source-body index its residual resumes at.
+    let resume_table: Vec<(usize, usize)>;
 
     // --- the thunks: one ordinary call to the adapter, with the index baked in
     for (i, &id) in thunk_ids.iter().enumerate() {
@@ -1629,6 +1914,10 @@ fn emit_into(
         let push = module.declare_func_in_func(push_id, f.func);
         let dup = module.declare_func_in_func(dup_id, f.func);
         let drop_ = module.declare_func_in_func(drop_id, f.func);
+        // §S5's residual path, reached when an inlined site's meaning guard
+        // refuses. Imported whether or not this body inlines, for the same
+        // reason the four above are.
+        let residual = module.declare_func_in_func(residual_id, f.func);
         let pop_slot = f.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
             cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
             8,
@@ -1638,6 +1927,38 @@ fn emit_into(
         // Criterion 17's side table: for each inlined region, the block its
         // guard was decided in and the block its ops begin in.
         let mut regions: Vec<(Block, Block)> = Vec::with_capacity(inlined);
+
+        // **Assumption 38's side table**: for each inlined site, the index in
+        // the source body at which its residual path resumes. Criterion 21
+        // asserts this directly rather than through its effects, because
+        // "stacks alone would pass a lowering that resumed at the wrong index".
+        let mut resumes: Vec<(usize, usize)> = Vec::with_capacity(inlined);
+
+        // The helpers an arm or a sync reaches, gathered once. Hoisted out of
+        // the loop because a *sync* needs them at points where no site is being
+        // emitted at all — before a call, before a tail call, before the return.
+        let helpers = FragmentSite {
+            ptr,
+            slot: pop_slot,
+            ctx_val,
+            fail,
+            pop,
+            push,
+            dup,
+            drop_,
+        };
+
+        // **§S5's promotion, at compile time.** The values an int literal would
+        // have pushed, held in `Variable`s instead. The end of this vector is
+        // the top of the modelled stack.
+        //
+        // **A sync precedes every call**, so the model is empty at every edge
+        // that can branch to `fail` — which makes the error paths correct by
+        // construction rather than by enumerating them. It is also what keeps
+        // "the stack a value is synced to" and "the stack it came from" the
+        // same stack (criterion 21): only a `CALL` or a `CONTEXT` literal can
+        // move the current stack, both are [`Plan::Call`], and both sync first.
+        let mut promoted: Vec<Variable> = Vec::new();
 
         let width = i32::try_from(ptr.bytes()).map_err(|_| "pointer too wide".to_string())?;
         let drain_off = i32::try_from(drain_slot)
@@ -1656,6 +1977,24 @@ fn emit_into(
             let is_last = i + 1 == calls;
             let tail_here = is_last && last == LastCall::Tail;
 
+            // **A promoted literal emits nothing but an `iconst`.** No slot
+            // load, no indirect call, no `Vm::apply` — the saving promotion
+            // exists for. Its slot and thunk are still allocated and filled;
+            // they are simply never read, which costs eight bytes and keeps
+            // every other index in this loop meaning what it meant.
+            //
+            // A literal in tail position is not promoted: the body must end in
+            // `return_call_indirect`, and an `iconst` is not a terminator.
+            if let Some(Plan::Literal(n)) = plan.get(i)
+                && !tail_here
+            {
+                let var = f.declare_var(types::I64);
+                let v = f.ins().iconst(types::I64, *n);
+                f.def_var(var, v);
+                promoted.push(var);
+                continue;
+            }
+
             // **A tail-position value is never inlined.** `return_call_indirect`
             // is a terminator and an inlined region falls through to the next
             // value; the two cannot occupy the same position. Such a value takes
@@ -1670,6 +2009,14 @@ fn emit_into(
             };
 
             let Some((site, generation, cell)) = inline_here else {
+                // **The sync, before the call that could observe it.** A slot
+                // call reaches `Vm::apply`, which can run arbitrary code: read
+                // the stack, switch it, report. Every promoted value goes back
+                // first, deepest last, so what the callee sees is what Tier 0
+                // would have left it. This is the point §S5 calls an opaque
+                // site, and a `CONTEXT` literal reaches it too — which is what
+                // makes the barrier static.
+                emit_sync_n(&mut f, &mut promoted, usize::MAX, &helpers);
                 let callee = f.ins().load(ptr, MemFlagsData::trusted(), base, off);
                 if tail_here {
                     // §S8's claimed tail call. A terminator: nothing follows it,
@@ -1695,18 +2042,60 @@ fn emit_into(
                 continue;
             };
 
+            let Some(fragment) = sites.get(site) else {
+                return Err(format!(
+                    "the lowering planned site {site}, outside the {} fragments it was given",
+                    sites.len()
+                ));
+            };
+
+            // **Is this site's type guard already answered?** It is when every
+            // operand the fragment needs is a promoted int literal and the ops
+            // address registers rather than the stack. Then `jit_admits` is not
+            // merely redundant, it is *wrong to call*: with the operands held
+            // back in `Variable`s it would interrogate a stack that is missing
+            // them and decline a site that must admit.
+            let from_registers = takes_registers(fragment) && promoted.len() >= fragment.needs();
+
+            if from_registers {
+                // **Sync the excess first.** A promoted site consumes the top
+                // `needs` values; anything promoted below them must already be
+                // on the stack, or the result would be pushed *beneath* a value
+                // still sitting in a register. Nothing guards stack order, so
+                // this is arithmetic rather than a check.
+                let excess = promoted.len() - fragment.needs();
+                emit_sync_n(&mut f, &mut promoted, excess, &helpers);
+            } else {
+                // Not promotable here: the operands belong on the stack, which
+                // is where the type guard will look for them.
+                emit_sync_n(&mut f, &mut promoted, usize::MAX, &helpers);
+            }
+
             // **§S6's inlined site: three guards, then the arm.** Each guard
             // that refuses branches to the generic path — the very call this
             // value would otherwise have made, emitted below — so a refusal
             // costs nothing but the speed it was trying to buy. There is no
             // bail and no OSR: control never leaves compiled code.
-            let admits_off = i32::try_from(admits_slot_base + site)
-                .map_err(|_| "the guard slot index does not fit an offset".to_string())?
-                .checked_mul(width)
-                .ok_or_else(|| "the guard slot's offset overflows".to_string())?;
-            let guard_callee = f.ins().load(ptr, MemFlagsData::trusted(), base, admits_off);
-            let verdict_call = f.ins().call_indirect(tail_sig, guard_callee, &[ctx_val]);
-            let verdict = f.inst_results(verdict_call)[0];
+            //
+            // **A promoted site asks two rather than three.** The type guard is
+            // discharged at compile time, above; the *meaning* guards are not,
+            // because a name can be rebound however its operands arrive.
+            let generic = f.create_block();
+            let join = f.create_block();
+            if !from_registers {
+                let admits_off = i32::try_from(admits_slot_base + site)
+                    .map_err(|_| "the guard slot index does not fit an offset".to_string())?
+                    .checked_mul(width)
+                    .ok_or_else(|| "the guard slot's offset overflows".to_string())?;
+                let guard_callee = f.ins().load(ptr, MemFlagsData::trusted(), base, admits_off);
+                let verdict_call = f.ins().call_indirect(tail_sig, guard_callee, &[ctx_val]);
+                let verdict = f.inst_results(verdict_call)[0];
+                let meaning = f.create_block();
+                // **On the verdict, not on a status.** `ADMIT` is `FAIL`'s
+                // value: an is-error test here would invert the guard.
+                f.ins().brif(verdict, meaning, &[], generic, &[]);
+                f.switch_to_block(meaning);
+            }
 
             // The block the guard is decided in — criterion 17's dominance is
             // asserted from here to the region's first block.
@@ -1714,18 +2103,10 @@ fn emit_into(
                 .current_block()
                 .ok_or_else(|| "the guard was emitted outside a block".to_string())?;
 
-            let meaning = f.create_block();
-            let generic = f.create_block();
-            let join = f.create_block();
-            // **On the verdict, not on a status.** `ADMIT` is `FAIL`'s value:
-            // an is-error test here would invert the guard.
-            f.ins().brif(verdict, meaning, &[], generic, &[]);
-
             // **Guard two: the slot still holds the binding we inlined
             // against.** §S6, *Inlining freezes a name* — an inlined fragment
             // goes through no slot, so a redefinition would otherwise be
             // invisible to it.
-            f.switch_to_block(meaning);
             let cell_addr = f.ins().iconst(ptr, cell);
             let now = f.ins().uload32(MemFlagsData::trusted(), cell_addr, 0);
             // **`_u`, because the generation is unsigned.** `uload32` brings
@@ -1755,51 +2136,46 @@ fn emit_into(
             // only the four stack helpers, none of which files a tail request,
             // so §S5's after-every-call load belongs to the generic path alone.
             f.switch_to_block(region);
-            let Some(fragment) = sites.get(site) else {
-                return Err(format!(
-                    "the lowering planned site {site}, outside the {} fragments it was given",
-                    sites.len()
-                ));
-            };
-            emit_fragment_ops(
-                &mut f,
-                fragment,
-                &FragmentSite {
-                    ptr,
-                    slot: pop_slot,
-                    ctx_val,
-                    fail,
-                    pop,
-                    push,
-                    dup,
-                    drop_,
-                },
-            )?;
+            // **The region keeps its result in a register.** §S5's residual
+            // never rejoins the fast path, so there is no join at which two
+            // register models could meet — which is exactly what forced the
+            // earlier stage to sync every site's result. Without that merge the
+            // arm's trailing `PushInt` defines a `Variable` instead of calling
+            // the push helper, and `1 2 + 3 +` chains: the sum stays promoted
+            // and becomes the next site's operand.
+            let snapshot = promoted.clone();
+            emit_fragment_ops(&mut f, fragment, &helpers, &mut promoted, true)?;
             f.ins().jump(join, &[]);
             regions.push((guard_block, region));
 
-            // The generic path, beside the region rather than instead of it.
+            // **§S5's residual path.** A refusing guard does not take the
+            // generic call and rejoin: it syncs every promoted value and then
+            // applies the rest of the body through `Vm::apply`, "exactly as
+            // Tier 0 would", and returns that status. Control never leaves
+            // compiled code — `jit_residual` is a runtime helper like any
+            // other — so this is still guard-and-branch and needs no OSR.
+            //
+            // **The resume index is `i`, not `i + 1`.** The guard refused
+            // *before* this value ran, so the value itself is still owed. The
+            // residual re-applies it through the runtime, which is precisely
+            // the generic path this block used to emit inline.
             f.switch_to_block(generic);
-            let callee = f.ins().load(ptr, MemFlagsData::trusted(), base, off);
-            emit_generic_call(
-                &mut f,
-                &GenericCall {
-                    tail_sig,
-                    callee,
-                    ctx_val,
-                    fail,
-                    ptr,
-                    base,
-                    drain_off,
-                    cells_base,
-                    request_off,
-                },
-                Some(join),
-            );
+            let mut in_residual = snapshot;
+            emit_sync_n(&mut f, &mut in_residual, usize::MAX, &helpers);
+            let resume = f.ins().iconst(ptr, i as i64);
+            let residual_call = f.ins().call(residual, &[ctx_val, resume]);
+            let residual_status = f.inst_results(residual_call)[0];
+            f.ins().return_(&[residual_status]);
+            resumes.push((site, i));
 
             f.switch_to_block(join);
         }
         if last == LastCall::Ordinary {
+            // **The last sync.** A body may end in a literal — `{ 1 2 }` is
+            // two promotions and no call — and those values have to be on the
+            // stack before the body returns, or the word would leave nothing
+            // where Tier 0 leaves two.
+            emit_sync_n(&mut f, &mut promoted, usize::MAX, &helpers);
             let ok = f.ins().iconst(types::I32, i64::from(OK));
             f.ins().return_(&[ok]);
         }
@@ -1809,6 +2185,7 @@ fn emit_into(
         f.seal_all_blocks();
         f.finalize(frontend);
         side_table = regions;
+        resume_table = resumes;
     }
 
     // **Criterion 17, as a refusal rather than an assertion.** "Every inlined
@@ -1882,7 +2259,7 @@ fn emit_into(
     // parameter, one `i32` result, the platform's convention — which is `Entry`.
     let entry: Entry = unsafe { std::mem::transmute::<*const u8, Entry>(addr) };
 
-    Ok((entry, slots))
+    Ok((entry, slots, resume_table))
 }
 
 #[cfg(test)]
@@ -2928,10 +3305,23 @@ mod tests {
     /// The body is `values` literals, which inline nothing: a literal is not a
     /// `CALL` and so never a site. Tests that want inlining build a real body
     /// and call [`Compiler::compile_word`] directly.
-    fn word_in(c: &mut Compiler, vm: &mut Interp, values: usize, last: LastCall) -> WordHandle {
+    ///
+    /// **It takes the body rather than inventing one.** An earlier version
+    /// compiled `0 1 2` and let callers run some *other* body of the same
+    /// length through the result, which worked while every value was fetched
+    /// from `Ctx::body` at run time. §S5's promotion bakes an int literal into
+    /// an `iconst`, so a word is now tied to the body it was planned from —
+    /// which is what the cache guarantees for every real caller (D35's
+    /// payload-pointer key) and what [`Compiler::run`] now checks.
+    fn word_in(c: &mut Compiler, vm: &mut Interp, body: &[BundValue], last: LastCall) -> WordHandle {
         let cells = vm.cells().base();
-        let body: Vec<BundValue> = (0..values).map(|n| BundValue::int(n as i64)).collect();
-        c.compile_word(&body, last, cells, vm).expect("lowers")
+        c.compile_word(body, last, cells, vm).expect("lowers")
+    }
+
+    /// `values` distinct int literals — the generic body `word_in` used to
+    /// invent, now named so a caller runs the same one it compiled.
+    fn literal_body(values: usize) -> Vec<BundValue> {
+        (0..values).map(|n| BundValue::int(n as i64)).collect()
     }
 
     /// `{ 1 2 + }` — a real word's body, as the parser would leave it.
@@ -2947,7 +3337,7 @@ mod tests {
 
         let mut c = Compiler::new(Vec::new()).expect("a compiler");
         let mut compiled = with_stdlib();
-        let word = word_in(&mut c, &mut compiled, body.len(), LastCall::Ordinary);
+        let word = word_in(&mut c, &mut compiled, body, LastCall::Ordinary);
         let by_compiled = c.run(word, &mut compiled, body);
 
         assert_eq!(
@@ -2972,7 +3362,7 @@ mod tests {
     fn a_compiled_word_runs_a_real_body() {
         let mut c = Compiler::new(Vec::new()).expect("a compiler");
         let mut vm = with_stdlib();
-        let word = word_in(&mut c, &mut vm, 3, LastCall::Ordinary);
+        let word = word_in(&mut c, &mut vm, &add_body(), LastCall::Ordinary);
         assert_eq!(c.values(word), Some(3));
         c.run(word, &mut vm, &add_body()).expect("it ran");
         assert_eq!(vm.depth(), 1, "1 and 2 consumed, the sum left");
@@ -3010,7 +3400,7 @@ mod tests {
 
         let mut c = Compiler::new(Vec::new()).expect("a compiler");
         let mut compiled = with_stdlib();
-        let word = word_in(&mut c, &mut compiled, body.len(), LastCall::Ordinary);
+        let word = word_in(&mut c, &mut compiled, &body, LastCall::Ordinary);
         compiled.set_autoadd(true);
         let by_compiled = c.run(word, &mut compiled, &body);
 
@@ -3032,7 +3422,7 @@ mod tests {
         let body = vec![BundValue::call("ten"), BundValue::int(20)];
 
         let mut c = Compiler::new(Vec::new()).expect("a compiler");
-        let word = word_in(&mut c, &mut vm, 2, LastCall::Ordinary);
+        let word = word_in(&mut c, &mut vm, &body, LastCall::Ordinary);
         c.run(word, &mut vm, &body).expect("it ran");
 
         let stack = vm.snapshot();
@@ -3047,9 +3437,9 @@ mod tests {
     fn a_compiled_word_stops_at_the_first_failure() {
         let mut c = Compiler::new(Vec::new()).expect("a compiler");
         let mut vm = with_stdlib();
-        let word = word_in(&mut c, &mut vm, 2, LastCall::Ordinary);
         // `+` on an empty stack fails; the `99` after it must not run.
         let body = vec![BundValue::call("+"), BundValue::int(99)];
+        let word = word_in(&mut c, &mut vm, &body, LastCall::Ordinary);
         let e = c.run(word, &mut vm, &body).expect_err("the call failed");
         assert!(!e.0.is_empty());
         assert_eq!(vm.depth(), 0, "the value after the failure must not run");
@@ -3060,7 +3450,7 @@ mod tests {
     fn a_compiled_word_in_tail_position_runs_the_same_body() {
         let mut c = Compiler::new(Vec::new()).expect("a compiler");
         let mut vm = with_stdlib();
-        let word = word_in(&mut c, &mut vm, 3, LastCall::Tail);
+        let word = word_in(&mut c, &mut vm, &add_body(), LastCall::Tail);
         assert_eq!(c.last_call(word), Some(LastCall::Tail));
         c.run(word, &mut vm, &add_body()).expect("it ran");
         assert_eq!(vm.snapshot().first().and_then(BundValue::as_int), Some(3));
@@ -3072,7 +3462,7 @@ mod tests {
     fn a_word_handed_the_wrong_body_length_is_an_internal_error() {
         let mut c = Compiler::new(Vec::new()).expect("a compiler");
         let mut vm = with_stdlib();
-        let word = word_in(&mut c, &mut vm, 3, LastCall::Ordinary);
+        let word = word_in(&mut c, &mut vm, &literal_body(3), LastCall::Ordinary);
         let e = c
             .run(word, &mut vm, &[BundValue::int(1)])
             .expect_err("length mismatch");
@@ -3102,8 +3492,8 @@ mod tests {
     fn two_words_compiled_into_one_module_stay_distinct() {
         let mut c = Compiler::new(Vec::new()).expect("a compiler");
         let mut host = with_stdlib();
-        let sum = word_in(&mut c, &mut host, 3, LastCall::Ordinary);
-        let lone = word_in(&mut c, &mut host, 1, LastCall::Ordinary);
+        let sum = word_in(&mut c, &mut host, &add_body(), LastCall::Ordinary);
+        let lone = word_in(&mut c, &mut host, &[BundValue::int(7)], LastCall::Ordinary);
         assert_eq!(c.compiled_words(), 2);
         assert_ne!(sum, lone, "distinct words get distinct handles");
 
@@ -3207,5 +3597,276 @@ mod tests {
         let mut shallow = interp_with(&[BundValue::int(1)]);
         assert_eq!(compiled.run(&mut shallow), Ok(false));
         assert_eq!(shallow.depth(), 1);
+    }
+
+    // --- §S5's promotion ----------------------------------------------------
+
+    /// **Promotion fires at all.**
+    ///
+    /// Every other test here would pass unchanged if `Plan::Literal` were never
+    /// planned, because the unpromoted path is the old one and is correct. So a
+    /// green differential is not evidence that promotion ran. This asserts the
+    /// count directly, which is the only thing that separates "the lowering
+    /// does not pay" from "the lowering did not happen".
+    #[test]
+    fn a_compiled_word_promotes_its_int_literals() {
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
+        let mut vm = with_stdlib();
+        let word = word_in(&mut c, &mut vm, &add_body(), LastCall::Ordinary);
+        assert_eq!(
+            c.promoted_values(word),
+            Some(2),
+            "`1 2 +` promotes both literals; the `+` is a call"
+        );
+        assert_eq!(c.promoted_total(), 2);
+
+        // A CONTEXT literal is §S5's static barrier and never a promotion, and
+        // a string is not an int.
+        let mixed = vec![
+            BundValue::str("s"),
+            BundValue::named_context("other"),
+            BundValue::int(5),
+        ];
+        let w2 = word_in(&mut c, &mut vm, &mixed, LastCall::Ordinary);
+        assert_eq!(
+            c.promoted_values(w2),
+            Some(1),
+            "only the int; a CONTEXT switches stacks with no call and must sync before it"
+        );
+    }
+
+    /// **The excess sync.** Three promoted values meet a site needing two. The
+    /// deepest must be pushed *before* the arm runs, or the sum lands beneath
+    /// a value still sitting in a register — a silent misordering that no guard
+    /// would catch.
+    #[test]
+    fn a_promoted_value_below_the_operands_is_synced_first() {
+        assert_matches_tier0(
+            &[
+                BundValue::int(1),
+                BundValue::int(2),
+                BundValue::int(3),
+                BundValue::call("+"),
+            ],
+            "1 2 3 +",
+        );
+        assert_matches_tier0(
+            &[
+                BundValue::int(1),
+                BundValue::int(2),
+                BundValue::int(3),
+                BundValue::int(4),
+                BundValue::call("+"),
+                BundValue::call("+"),
+            ],
+            "1 2 3 4 + +",
+        );
+    }
+
+    /// **The final sync.** A body that ends in a literal has values in
+    /// registers when it returns, and they have to reach the stack first.
+    #[test]
+    fn a_body_ending_in_a_literal_syncs_before_it_returns() {
+        assert_matches_tier0(&[BundValue::int(1), BundValue::int(2)], "1 2");
+        assert_matches_tier0(
+            &[BundValue::int(1), BundValue::int(2), BundValue::call("+"), BundValue::int(9)],
+            "1 2 + 9",
+        );
+    }
+
+    /// **Chaining: a site's result stays in a register and feeds the next.**
+    ///
+    /// `1 2 + 3 +` is two sites. Under the earlier stage each one pushed its
+    /// sum and the next popped it straight back; with §S5's residual there is
+    /// no join to merge at, so the first `+` leaves its result in a `Variable`
+    /// and the second reads it as an operand. The whole body should touch the
+    /// stack once, at the final sync.
+    ///
+    /// The differential is what makes it checkable — a chained lowering and an
+    /// unchained one must leave the same stack, so this asserts agreement with
+    /// Tier 0 and the site count, not the instruction sequence.
+    #[test]
+    fn a_sites_result_feeds_the_next_site_from_a_register() {
+        let body = vec![
+            BundValue::int(1),
+            BundValue::int(2),
+            BundValue::call("+"),
+            BundValue::int(3),
+            BundValue::call("+"),
+        ];
+
+        let (mut vm, table) = with_fragments();
+        let mut c = Compiler::new(table).expect("a compiler");
+        let cells = vm.cells().base();
+        let word = c
+            .compile_word(&body, LastCall::Ordinary, cells, &mut vm)
+            .expect("lowers");
+
+        assert_eq!(c.inlined_sites(word), Some(2), "both `+`s are sites");
+        assert_eq!(
+            c.promoted_values(word),
+            Some(3),
+            "three int literals; the two `+`s are calls, not literals"
+        );
+
+        c.run(word, &mut vm, &body).expect("the compiled word ran");
+
+        let mut tier0 = with_stdlib();
+        tier0.eval(&body).expect("Tier 0 runs the same body");
+
+        let (a, b) = (tier0.snapshot(), vm.snapshot());
+        assert_eq!(a.len(), b.len(), "depth: {a:?} vs {b:?}");
+        for (x, y) in a.iter().zip(b.iter()) {
+            assert_eq!(
+                norm(&x.render(false)),
+                norm(&y.render(false)),
+                "value or stack tag: {a:?} vs {b:?}"
+            );
+        }
+        assert_eq!(b.first().and_then(BundValue::as_int), Some(6), "1 + 2 + 3");
+    }
+
+    /// **Assumption 38's side table, asserted directly** — criterion 21.
+    ///
+    /// The criterion is explicit that stacks alone would pass a lowering that
+    /// resumed at the wrong index, so the map itself is the assertion. The
+    /// resume index for a site is the site's **own** body position: a guard
+    /// refuses before its value has run, so the value is still owed and the
+    /// residual re-applies it.
+    #[test]
+    fn every_inlined_site_records_where_its_residual_resumes() {
+        let body = vec![
+            BundValue::int(1),
+            BundValue::int(2),
+            BundValue::call("+"),
+            BundValue::int(3),
+            BundValue::call("+"),
+        ];
+
+        let (mut vm, table) = with_fragments();
+        let mut c = Compiler::new(table).expect("a compiler");
+        let cells = vm.cells().base();
+        let word = c
+            .compile_word(&body, LastCall::Ordinary, cells, &mut vm)
+            .expect("lowers");
+
+        let side = c.resume_table(word).expect("the word exists");
+        assert_eq!(side.len(), 2, "one entry per inlined site: {side:?}");
+        assert_eq!(
+            c.resume_index(word, 0),
+            Some(2),
+            "site 0 is the `+` at body index 2"
+        );
+        assert_eq!(
+            c.resume_index(word, 1),
+            Some(4),
+            "site 1 is the `+` at body index 4"
+        );
+        assert_eq!(
+            c.resume_index(word, 2),
+            None,
+            "a site this word never inlined has no entry"
+        );
+
+        // Every recorded index is a real position in the source body —
+        // assumption 38's "the index is always a real position".
+        for &(site, at) in side {
+            assert!(at < body.len(), "site {site} resumes past the body at {at}");
+        }
+    }
+
+    /// **`autoadd` sends an inlined site to the residual.** Guard three: under
+    /// `autoadd` a `CALL` is appended into the value beneath rather than run
+    /// (§S4's step 3), so the arm would be the wrong thing entirely. The
+    /// residual syncs and resumes, and the result must match Tier 0's.
+    #[test]
+    fn autoadd_sends_an_inlined_site_to_the_residual() {
+        let body = add_body();
+
+        let mut tier0 = with_stdlib();
+        tier0.set_autoadd(true);
+        let by_tier0 = tier0.eval(&body);
+
+        let (mut compiled, table) = with_fragments();
+        let mut c = Compiler::new(table).expect("a compiler");
+        let cells = compiled.cells().base();
+        let word = c
+            .compile_word(&body, LastCall::Ordinary, cells, &mut compiled)
+            .expect("lowers");
+        assert_eq!(c.inlined_sites(word), Some(1), "`+` is a site");
+
+        // Set *after* compiling: the guard is emitted against the state at
+        // compile time and reads the cell at run time.
+        compiled.set_autoadd(true);
+        let by_compiled = c.run(word, &mut compiled, &body);
+
+        assert_eq!(by_tier0.is_ok(), by_compiled.is_ok(), "autoadd: outcome");
+        let (a, b) = (tier0.snapshot(), compiled.snapshot());
+        assert_eq!(a.len(), b.len(), "autoadd: depth {a:?} vs {b:?}");
+        for (x, y) in a.iter().zip(b.iter()) {
+            assert_eq!(
+                norm(&x.render(false)),
+                norm(&y.render(false)),
+                "autoadd: {a:?} vs {b:?}"
+            );
+        }
+    }
+
+    /// **The residual.** A rebound `+` fails the generation guard, so control
+    /// reaches §S5's residual path with the operands still in registers — and
+    /// the residual must sync them before it resumes.
+    ///
+    /// The rebinding is registered *after* the word is compiled, which is the
+    /// only ordering that leaves the compiled generation stale (§S6, *Inlining
+    /// freezes a name*).
+    ///
+    /// **It compiles with the fragment table.** An earlier version of this test
+    /// used `Compiler::new(Vec::new())`, so `+` was never a site, no generation
+    /// guard was emitted, and the residual it names was unreachable — the test
+    /// asserted a path it could not take. `inlined_sites` is asserted here so
+    /// that cannot recur silently.
+    #[test]
+    fn a_rebound_name_syncs_the_operands_it_promoted() {
+        let body = add_body();
+
+        let mut tier0 = with_stdlib();
+        let (mut compiled, table) = with_fragments();
+
+        let mut c = Compiler::new(table).expect("a compiler");
+        let cells = compiled.cells().base();
+        let word = c
+            .compile_word(&body, LastCall::Ordinary, cells, &mut compiled)
+            .expect("lowers");
+        assert_eq!(
+            c.inlined_sites(word),
+            Some(1),
+            "`+` must be a site, or the generation guard this test needs is never emitted"
+        );
+        assert_eq!(c.promoted_values(word), Some(2), "both literals promoted");
+
+        // `+` now drops instead of adding. Tier 0 sees the same rebinding, so
+        // the two must still agree — which they can only do if the residual
+        // put `1` and `2` back on the stack.
+        let rebound = BundValue::lambda(vec![BundValue::call("drop")]);
+        tier0.registry.register_lambda("+", rebound.clone());
+        compiled.registry.register_lambda("+", rebound);
+
+        let by_tier0 = tier0.eval(&body);
+        let by_compiled = c.run(word, &mut compiled, &body);
+        assert_eq!(
+            by_tier0.is_ok(),
+            by_compiled.is_ok(),
+            "{by_tier0:?} vs {by_compiled:?}"
+        );
+
+        let (a, b) = (tier0.snapshot(), compiled.snapshot());
+        assert_eq!(a.len(), b.len(), "depth after the residual");
+        for (x, y) in a.iter().zip(b.iter()) {
+            assert_eq!(
+                norm(&x.render(false)),
+                norm(&y.render(false)),
+                "value or stack tag after the residual"
+            );
+        }
     }
 }
