@@ -49,10 +49,10 @@
 //! no `q` average either: D32, amended on Q35's answer, says no word averages
 //! it.
 
-use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 
-use bund2_api::Vm as _;
+use bund2_api::{Error, StackEffect, Vm, WordKind};
 use bund2_interp::{Interp, frag};
 use bund2_value::BundValue;
 
@@ -268,5 +268,163 @@ fn fragment(c: &mut Criterion) {
     g.finish();
 }
 
-criterion_group!(benches, fragment);
+// --- criterion 9: is the sync worth its cost? -----------------------------
+//
+// §S5's second rule requires promoted values to be written back — each to the
+// stack it was taken from — before an opaque call. RFC-0005 criterion 9 says
+// plainly that this is **not established**: "For a short straight-line run the
+// sync may cost more than the promotion saved", and "If no length passes,
+// §S5's second rule is wrong."
+//
+// The criterion: a body with an opaque site in the middle against the same
+// body interpreted, at straight-line lengths of 1, 4, 16 and 64 words before
+// the site, with the compiled form no more than **5% slower** at each. The
+// shortest passing length is the crossover, and promotion is skipped beneath
+// it.
+//
+// # What the `promoted` column is, and is not
+//
+// There is no lowering that promotes, so this column is **hand-written Rust
+// standing for one** — the same construction `fragment/int_add/promoted` uses,
+// plus the sync the rule requires. It is a *ceiling*: real compiled code pays
+// an entry, an exit, a guard per site and a helper call per sync, none of
+// which is here. So a length that fails this band cannot pass in a real
+// lowering, while one that passes here may still fail there. The criterion is
+// therefore usable as a **veto** and not as a certificate, and that asymmetry
+// is the point of running it before building the residual path.
+//
+// # The opaque site is synthetic, and deliberately
+//
+// Every opaque native the stdlib registers is expensive or destructive:
+// `for`, `while.`, `times.`, `loop.`, `map.` and `apply` evaluate a lambda,
+// `object` runs a class's `.init`, `format` parses a `leon::Template`, and
+// `drop_stack` destroys the current stack. Any of them would cost microseconds
+// and swallow the sync entirely — the benchmark would be measuring `format`,
+// not §S5's rule. So this file registers a no-op native with an `Opaque`
+// effect. It is not a word any program calls, and naming it `bench.opaque`
+// says so.
+//
+// # The reporter is the CLI's, as the criterion requires
+//
+// "It runs under the CLI's default reporter, `TextReporter` with its stack
+// dump on, which is the configuration `bund2 script` uses and which permits
+// promotion across calls under D45." `Interp::new` installs a `SilentReporter`,
+// which is a *different* configuration — under a reporter that wants mid-body
+// snapshots, §S5 keeps nothing promoted across a call at all. Nothing here
+// raises a diagnostic, so the reporter prints nothing; it is installed because
+// the criterion names it.
+
+/// The opaque site. It does nothing: the criterion is about what surrounds it.
+fn bench_opaque(_: &mut dyn Vm) -> Result<(), Error> {
+    Ok(())
+}
+
+/// The interpreter these benchmarks measure: the full stdlib, the synthetic
+/// opaque site, and the CLI's reporter.
+fn interp_with_site() -> Interp {
+    let mut i = Interp::new();
+    bund2_stdlib::register_all(&mut i.registry);
+    i.registry.register_native(
+        "bench.opaque",
+        bench_opaque,
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
+    i.reporter = Box::new(bund2_stdlib::report::TextReporter::new(true));
+    i
+}
+
+/// How many times each length's body is repeated inside one timed iteration.
+///
+/// **Not decoration: without it this group cannot decide its own criterion.**
+/// Every `iter_batched` here builds an `Interp`, and `startup/registry` puts
+/// `register_all` at **5.08 µs**. The existing `fragment` group hides that
+/// under `N = 1000` operations, where the signal is 84% of the span. This group
+/// measures lengths of 1 to 64, so a single body is at most a few microseconds
+/// against a ~9 µs pedestal — and the pedestal was measured wobbling **18.6%**
+/// across three runs, against criterion 9's **5%** band. A first version
+/// reported a crossover at length 1 that was entirely that artefact.
+///
+/// At `R = 1000` the signal is 84% of the span at length 1, the worst case, and
+/// 96–100% at the rest. The comparison the criterion asks for is unchanged: the
+/// same body, the same site, at the same four lengths.
+const R: usize = 1000;
+
+fn sync(c: &mut Criterion) {
+    let mut g = c.benchmark_group("sync");
+
+    for len in [1usize, 4, 16, 64] {
+        // `1 +` repeated, then the opaque call. Both columns re-seed the
+        // accumulator per repeat and clear the stack after it, so the two do
+        // the same bookkeeping and only the straight-line run and the sync
+        // differ.
+        let src = format!("{}bench.opaque", "1 + ".repeat(len));
+        let stream = bund2_syntax::compile(&src).unwrap_or_default();
+
+        g.bench_with_input(BenchmarkId::new("tier0", len), &stream, |b, stream| {
+            b.iter_batched(
+                interp_with_site,
+                |mut i| {
+                    for _ in 0..R {
+                        i.push(BundValue::int(0));
+                        let ok = black_box(i.eval(black_box(stream))).is_ok();
+                        black_box(ok);
+                        i.clear();
+                    }
+                },
+                BatchSize::SmallInput,
+            );
+        });
+
+        g.bench_with_input(BenchmarkId::new("promoted", len), &len, |b, &len| {
+            b.iter_batched(
+                interp_with_site,
+                |mut i| {
+                    for _ in 0..R {
+                        i.push(BundValue::int(0));
+
+                        // **Promote.** The value leaves the stack and its
+                        // origin is remembered — §S5 syncs "to the stack it was
+                        // taken from, recorded when the value was promoted, not
+                        // the stack current now". D41 put that origin inside
+                        // the value.
+                        let v = i.pull().unwrap_or_else(|| BundValue::int(0));
+                        let origin = v.stack_sym();
+                        let mut acc = v.as_int().unwrap_or(0);
+
+                        // The straight-line run, with the literal pushes
+                        // elided — which is what promotion buys.
+                        for _ in 0..len {
+                            acc = acc.wrapping_add(black_box(1));
+                        }
+
+                        // **Sync, before the opaque call.** Through
+                        // `push`/`push_to` rather than a bare write, so the
+                        // value carries its D41 stack symbol: a bare push would
+                        // leave `StackSym::NONE` and render `tags: {}` where
+                        // the oracle renders `tags: {"stack": "main"}`
+                        // (criterion 12).
+                        let out = BundValue::int(acc);
+                        match bund2_value::stack_name(origin) {
+                            Some(name) => i.push_to(&name, out),
+                            None => i.push(out),
+                        }
+
+                        // The same dispatch both columns make, so the
+                        // difference measured is the straight-line run and the
+                        // sync alone.
+                        let ok = black_box(i.apply(BundValue::call("bench.opaque"))).is_ok();
+                        black_box(ok);
+                        i.clear();
+                    }
+                },
+                BatchSize::SmallInput,
+            );
+        });
+    }
+
+    g.finish();
+}
+
+criterion_group!(benches, fragment, sync);
 criterion_main!(benches);

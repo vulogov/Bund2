@@ -3929,6 +3929,45 @@ evidence, and this one is listed as runnable rather than as met.
    Recorded as a criterion rather than an assumption because it is the one place
    §S5's rule could be wrong in a way that no correctness test would catch.
 
+   **Measured 2026-09-14 — the rule survives, and the crossover is 4 words.**
+   `crates/bund2-bench/benches/fragment.rs`, the `sync` group, under
+   `TextReporter` with the dump on as this criterion requires:
+
+   | words before the site | Tier 0 | promoted + synced | | verdict |
+   |---|---|---|---|---|
+   | 1 | 104.6 µs | 112.4 µs | **0.93×** | **fails** the band, +7.4% |
+   | 4 | 265.3 µs | 112.8 µs | **2.35×** | passes |
+   | 16 | 838.1 µs | 116.9 µs | **7.17×** | passes |
+   | 64 | 3117.6 µs | 127.8 µs | **24.4×** | passes |
+
+   Re-run for the decisive pair: length 1 at +8.8%, length 4 at 2.32×. The
+   failure at 1 reproduces well clear of the ±2.5% spread, so it is a result
+   rather than noise. **The crossover is 4**, and promotion is skipped beneath
+   it.
+
+   The shape is the explanation: `promoted` is nearly flat — 112 to 128 µs
+   across a 64× increase in work — because register adds cost almost nothing,
+   while Tier 0 scales with dispatches. The sync is a **fixed cost per body**,
+   so it loses only where there is no straight-line run to amortise it over.
+
+   **This is a veto, not a certificate.** The `promoted` column is hand-written
+   Rust standing for a lowering that does not exist: no entry, no exit, no
+   guard per site, no helper call per sync. A real lowering sits above it, so a
+   length failing here could not pass there — while one passing here may still
+   fail. What the measurement settles is the question this criterion was
+   written to ask: whether §S5's second rule is wrong. It is not. Three lengths
+   pass, the fallback to whole-body exclusion is not reached, and the rule
+   stands as written with a recorded crossover.
+
+   **A first version of this benchmark reported a crossover of 1, and was
+   wrong.** It built an `Interp` per iteration inside `iter_batched`, and
+   `startup/registry` puts `register_all` at 5.08 µs — so both columns sat on a
+   ~9 µs pedestal that wobbled 18.6% across runs, against a 5% band, with the
+   signal at length 1 being a single addition. Repeating each body 1,000 times
+   inside one timed iteration puts the signal at 84% of the span in the worst
+   case. The correction is recorded because the artefact was in the direction
+   that flattered the rule.
+
 10. **The dispatch share is measured, not estimated.** §S1 withdraws an Amdahl
     bound rather than correcting it, because no benchmark here separates
     dispatching a word from the work the word does once dispatched:

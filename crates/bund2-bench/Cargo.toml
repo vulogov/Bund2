@@ -19,12 +19,18 @@ test = false
 bench = false
 
 [features]
-# **Inert today, and deliberately present.** RFC-0005 criterion 7 is an A/B
-# across this feature — `cargo bench -p bund2-bench --features jit -- --baseline
-# off` — and the command could not run at all while the feature did not exist,
-# which made the criterion unrunnable rather than merely unmet. It forwards to
-# the tier `bund2-runtime` gates; there is no tier behind it yet, so with the
-# feature on the benchmarks measure the same thing and the A/B reads zero.
+# RFC-0005 criterion 7 is an A/B across this feature — `cargo bench -p
+# bund2-bench --features jit -- --baseline off` — and the command could not run
+# at all while the feature did not exist, which made the criterion unrunnable
+# rather than merely unmet. It forwards to the tier `bund2-runtime` gates.
+#
+# **No longer inert, 2026-09-14.** This comment said "there is no tier behind it
+# yet, so with the feature on the benchmarks measure the same thing and the A/B
+# reads zero". A tier now exists and `Runtime` installs it. The benchmarks here
+# still build a bare `Interp` rather than a `Runtime`, so most groups are
+# unaffected either way — but the A/B no longer reads zero *by construction*,
+# and a group that wants the tier has to ask for it. F124 is what happens when
+# a feature is assumed inert and is not checked.
 jit = ["dep:bund2-runtime", "bund2-runtime/jit"]
 aot = ["dep:bund2-runtime", "bund2-runtime/aot"]
 
