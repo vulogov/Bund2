@@ -1535,6 +1535,23 @@ adapter cannot see where it was called from, so there are two adapter symbols �
 `emit_into` gives the last thunk the tail symbol when the body claims a tail
 call. Both are bound on the module; an import nothing calls costs nothing.
 
+**Built 2026-09-13 (2) — the branch moved into the emitted code (D65).** The
+paragraph above described the shape while the decision was Rust's. It is now
+CLIF's: after a non-tail call the body loads the request cell through the
+address embedded at compile time and `brif`s to a drain block, which calls
+`jit_drain` **through its own slot** — one extra slot table entry beyond the
+calls, so criterion 4's rule is untouched and the only relocations remain "a
+thunk calling its adapter" and "the trampoline calling the body". A tail call
+emits no load at all, which is how position is expressed now. The two `_tail`
+adapter symbols are gone: one drain adapter serves both lowerings, because a
+drain does not depend on what the call was.
+
+**What the branch costs, and what is still Rust's.** The check is one load and
+one compare, as this section claims throughout, and it is taken only when a
+request is actually filed — where the earlier shape called into Rust after
+every non-tail call whether or not anything was pending. The drain *helper*
+remains Rust (`Vm::drain_tail_request`), which is right: it runs Bund code.
+
 **Three edges, settled** for the tenth review's S3:
 - **The epoch and `autoadd` are read after the drain.** A drained body can
   switch the current stack, set `autoadd` or `register` a name, so the loads
@@ -2203,6 +2220,25 @@ undeclared thread reaches the same answer through `stack_marker`.
 
 **Still no reader.** No lowering emits the entry comparison yet, so the cell
 records the floor without anything consulting it. D62.
+
+**Dated note, 2026-09-13 (3) — this section is built for the request cell.**
+A lowering now takes the cells' base as a parameter, embeds it with `iconst`,
+and emits `uload32` of the request cell followed by `brif` after every non-tail
+call — the load-and-compare this section describes, in machine code rather than
+in Rust. Two things made it sound, both D65: `Cells` is `#[repr(C)]`, because a
+default-repr struct may be reordered and a compiled base-plus-offset load
+against it is undefined; and the offsets come from `std::mem::offset_of!`, so a
+lowering cannot disagree with the layout it reads. A zero base is refused, since
+a body lowered without cells would read address zero from emitted code.
+
+**The other three cells are still not loaded, and that is deliberate.** The
+`autoadd` and generation guards protect an *inlined region*, which criterion 17
+requires to exist, record in a side table, and check for dominance — and the
+body lowering inlines nothing, so every site already is the generic slot call a
+failing guard would branch to. The epoch's second path is §S5's residual path,
+which needs promotion and assumption 38's resume index. Emitting those guards
+now would produce two branches to identical code and let criterion 17 pass
+vacuously. They arrive with fragment inlining.
 
 At compile time the JIT embeds each cell's address as an immediate. That is
 safe to do because the cells outlive every compiled function: both die with the

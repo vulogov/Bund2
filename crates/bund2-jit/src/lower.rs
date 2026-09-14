@@ -83,23 +83,30 @@ pub struct Ctx<'a> {
 const OK: i32 = 0;
 const FAIL: i32 = 1;
 
-/// **Run a filed tail request, after a non-tail call** — §S5's drain helper,
-/// on the compiled side.
+/// **§S5's drain helper, as a callee compiled code reaches** — *A call may
+/// leave a body to run*.
 ///
-/// `r` is what the call answered. A failure is returned as it is and nothing is
-/// drained: Tier 0 discards a failing native's request rather than running it
-/// (F96), and `status_of` does the clearing. After a success the request is
-/// drained **here, before the next value**, because a compiled call gets
-/// control back before the body has run — and because `request_tail` assigns,
-/// so a later request would overwrite one left pending and it would never run
-/// at all.
+/// A compiled call gets control back before a filed body has run. If the body
+/// went unrun the next value would run first, and since `request_tail` assigns,
+/// a later request would overwrite it and it would never run at all. So after
+/// every **non-tail** call the body loads §S6's request cell and, when it is
+/// set, calls through here.
 ///
-/// The drain's own failure becomes the call's result, so a body that failed or
-/// ended the program reaches `status_of` rather than being reported as the
-/// native's success.
-fn drained(vm: &mut dyn Vm, r: Result<(), Error>) -> Result<(), Error> {
-    r?;
-    vm.drain_tail_request()
+/// **The branch is in the emitted code, not in Rust.** An earlier shape drained
+/// unconditionally inside the native adapter, which cost a call on every
+/// non-tail call whether or not a request was filed, and left the cell mirrored
+/// rather than read. §S6 has compiled code load the cell and branch, which is
+/// what this is the callee of.
+///
+/// The second parameter is unused: the boundary's signature is uniform at
+/// `(ctx, index) -> status` (§S8), and a drain has no index.
+extern "C" fn jit_drain(c: *mut Ctx<'_>, _unused: usize) -> i32 {
+    // SAFETY: the entry's contract, as every other adapter's.
+    let Some(c) = (unsafe { ctx(c) }) else {
+        return FAIL;
+    };
+    let r = c.vm.drain_tail_request();
+    status_of(c, r)
 }
 
 /// **The one function that turns a helper's `Result` into a status** —
@@ -308,41 +315,14 @@ extern "C" fn jit_call_native(c: *mut Ctx<'_>, native: usize) -> i32 {
         Ok(r) => r,
         Err(msg) => Err(bund2_api::panicked(&format!("native `{name}`"), &msg)),
     };
-    // **Non-tail: drain before the status.** §S5 — a compiled call gets control
-    // back before a filed body has run, so the body must run *here*, before the
-    // next value. Sequenced into a local because the drain borrows the context's
-    // `Vm` and `status_of` takes the context itself. Then `status_of`, which
+    // **The drain is no longer here.** Compiled code loads §S6's request cell
+    // after a non-tail call and calls [`jit_drain`] when it is set, so this
+    // adapter does one thing: run the native and answer a status. `status_of`
     // carries F96's parity (D56) and D52's rule that a recorded exit becomes
     // the error status.
-    let r = drained(&mut *c.vm, r);
     status_of(c, r)
 }
 
-/// A body's last call **hands the request back rather than draining it** — §S5.
-///
-/// Same native, same catch, same status protocol; only the drain is absent.
-/// The compiled function returns with the request pending and whatever entered
-/// the body takes it at once, so a self-recursive word goes back to the frame
-/// loop instead of spending a Rust frame per level.
-extern "C" fn jit_call_native_tail(c: *mut Ctx<'_>, native: usize) -> i32 {
-    // SAFETY: `CompiledBody::run`'s contract.
-    let Some(c) = (unsafe { ctx(c) }) else {
-        return FAIL;
-    };
-    let Some(&(name, f)) = c.natives.get(native) else {
-        c.err = Some(Error::internal(format!(
-            "a compiled body called native index {native}, outside the {} it was given",
-            c.natives.len()
-        )));
-        return FAIL;
-    };
-    let outcome = bund2_api::catch_panic(|| f(&mut *c.vm));
-    let r = match outcome {
-        Ok(r) => r,
-        Err(msg) => Err(bund2_api::panicked(&format!("native `{name}`"), &msg)),
-    };
-    status_of(c, r)
-}
 
 /// **Apply one of the body's values — the first lowering of a real Bund word.**
 ///
@@ -390,28 +370,11 @@ extern "C" fn jit_apply(c: *mut Ctx<'_>, index: usize) -> i32 {
     // exit recorded — and the clearing for a `CALL` to a lambda, which files
     // through `request_tail` where `run_to`'s error arm unwinds frames only.
     //
-    // **The drain is a no-op on this path today** and is called anyway: `apply`
-    // drains its own request before it returns, so nothing is normally left.
-    // Calling it keeps the rule at the call site rather than resting on what
-    // `apply` happens to do, which is what §S5 asks of a non-tail call.
-    let r = drained(&mut *c.vm, r);
-    status_of(c, r)
-}
-
-/// [`jit_apply`] in tail position: no drain, for §S5's reason.
-extern "C" fn jit_apply_tail(c: *mut Ctx<'_>, index: usize) -> i32 {
-    // SAFETY: `CompiledWord::run`'s contract.
-    let Some(c) = (unsafe { ctx(c) }) else {
-        return FAIL;
-    };
-    let Some(v) = c.body.get(index).cloned() else {
-        c.err = Some(Error::internal(format!(
-            "a compiled body applied value {index}, outside the {} it was given",
-            c.body.len()
-        )));
-        return FAIL;
-    };
-    let r = c.vm.apply(v);
+    // **The drain is in the emitted code**, after this returns: `Vm::apply`
+    // drains its own request before it returns, so the cell is normally clear
+    // and the branch is not taken. Keeping the load at the call site rather
+    // than resting on what `apply` happens to do is what §S5 asks of a non-tail
+    // call.
     status_of(c, r)
 }
 
@@ -876,19 +839,14 @@ impl Adapter {
         }
     }
 
-    /// The **tail-position** adapter, which does not drain.
+    /// **§S5's drain helper, the same for either adapter.**
     ///
-    /// §S5: "A body's last call does not drain. The compiled function returns
-    /// with the request pending, and each entry takes it at once." Draining
-    /// here instead would spend a Rust frame per level, which is what
-    /// RFC-0003's frame loop exists to avoid — so the position has to reach the
-    /// adapter, and it does by the last thunk importing this symbol rather than
-    /// the one above.
-    fn tail_symbol(self) -> (&'static str, *const u8) {
-        match self {
-            Adapter::Native => ("jit_call_native_tail", jit_call_native_tail as *const u8),
-            Adapter::Apply => ("jit_apply_tail", jit_apply_tail as *const u8),
-        }
+    /// The drain does not depend on what the call was: it runs whatever body
+    /// the call left filed. So one symbol serves both lowerings, and the
+    /// *position* is decided where it belongs — in the emitted code, which
+    /// loads the request cell after a non-tail call and not after a tail one.
+    fn drain_symbol() -> (&'static str, *const u8) {
+        ("jit_drain", jit_drain as *const u8)
     }
 }
 
@@ -967,12 +925,25 @@ impl Compiler {
     /// module finalises it, and the seam guarantees the quiet moment: `Interp`
     /// takes the tier out for the duration of a compiled body, so nothing
     /// reaches a compiler that is already inside one of its own words.
-    pub fn compile_word(&mut self, values: usize, last: LastCall) -> Result<WordHandle, String> {
+    /// `cells` is [`bund2_api::Cells::base`] for the `Interp` this compiler
+    /// serves — §S6's addressing. The emitted body loads the request cell
+    /// through it after every non-tail call, so a body compiled against one
+    /// interpreter's cells must never be run by another; the per-`Interp`
+    /// compiler is what guarantees that (criterion 23).
+    pub fn compile_word(
+        &mut self,
+        values: usize,
+        last: LastCall,
+        cells: usize,
+    ) -> Result<WordHandle, String> {
         if values == 0 {
             return Err("a word with an empty body has nothing to lower".into());
         }
+        let cells =
+            i64::try_from(cells).map_err(|_| "the cells' address does not fit".to_string())?;
         let seq = self.words.len();
-        let (entry, slots) = emit_into(&mut self.module, seq, values, last, Adapter::Apply)?;
+        let (entry, slots) =
+            emit_into(&mut self.module, seq, values, last, Adapter::Apply, cells)?;
         self.words.push(Word {
             entry,
             _slots: slots,
@@ -1049,11 +1020,12 @@ impl Compiler {
 /// promotion and no meaning guard: the body is a fixed sequence of calls, not a
 /// compiled Bund word. Its purpose is to give the adapter and the thunks a call
 /// site, so criterion 29 can run and §S8's boundary is exercised end to end.
-pub fn compile_body(calls: usize, last: LastCall) -> Result<CompiledBody, String> {
+pub fn compile_body(calls: usize, last: LastCall, cells: usize) -> Result<CompiledBody, String> {
     if calls == 0 {
         return Err("a body that calls nothing has no call site to exercise".into());
     }
-    emit_body(calls, last, Adapter::Native)
+    let cells = i64::try_from(cells).map_err(|_| "the cells' address does not fit".to_string())?;
+    emit_body(calls, last, Adapter::Native, cells)
 }
 
 /// The shared emitter behind [`compile_body`] and [`Compiler::compile_word`].
@@ -1062,9 +1034,14 @@ pub fn compile_body(calls: usize, last: LastCall) -> Result<CompiledBody, String
 /// slot table §S6 addresses, the entry trampoline, the status protocol — so the
 /// two lowerings share one emitter and cannot drift apart in the parts criteria
 /// 4 and 29 are about.
-fn emit_body(calls: usize, last: LastCall, adapter: Adapter) -> Result<CompiledBody, String> {
+fn emit_body(
+    calls: usize,
+    last: LastCall,
+    adapter: Adapter,
+    cells: i64,
+) -> Result<CompiledBody, String> {
     let mut module = new_module(adapter)?;
-    let (entry, slots) = emit_into(&mut module, 0, calls, last, adapter)?;
+    let (entry, slots) = emit_into(&mut module, 0, calls, last, adapter, cells)?;
     Ok(CompiledBody {
         _module: module,
         entry,
@@ -1081,13 +1058,13 @@ fn emit_body(calls: usize, last: LastCall, adapter: Adapter) -> Result<CompiledB
 /// body emitted into a module shares its adapter.
 fn new_module(adapter: Adapter) -> Result<JITModule, String> {
     let (name, ptr) = adapter.symbol();
-    let (tail_name, tail_ptr) = adapter.tail_symbol();
+    let (drain_name, drain_ptr) = Adapter::drain_symbol();
     let mut builder =
         JITBuilder::new(default_libcall_names()).map_err(|e| format!("JIT builder: {e}"))?;
     builder.symbol(name, ptr);
-    // Both, because a body's thunks reach two adapters: the last one under
-    // `LastCall::Tail` hands the request back rather than draining it (§S5).
-    builder.symbol(tail_name, tail_ptr);
+    // §S5's drain helper, which the body reaches through its own slot when the
+    // request cell is set.
+    builder.symbol(drain_name, drain_ptr);
     Ok(JITModule::new(builder))
 }
 
@@ -1107,17 +1084,31 @@ fn emit_into(
     calls: usize,
     last: LastCall,
     adapter: Adapter,
+    cells: i64,
 ) -> Result<(Entry, Box<[*const u8]>), String> {
     let adapter_name = adapter.symbol().0;
-    let tail_adapter_name = adapter.tail_symbol().0;
+    let drain_adapter_name = Adapter::drain_symbol().0;
+    // **A body must know where its cells are.** §S6 has the lowering embed the
+    // address as an immediate; without one the emitted load would read address
+    // zero. Refused rather than emitted, because the failure would be a fault
+    // in machine code rather than an error a caller can act on.
+    if cells == 0 {
+        return Err("a body cannot be lowered without the address of its cells".into());
+    }
     let frontend = module.target_config();
     let ptr = frontend.pointer_type();
     let conv = module.isa().default_call_conv();
 
     // The slots, allocated before anything is compiled so the base address the
     // body embeds is final.
-    let mut slots: Box<[*const u8]> = vec![std::ptr::null(); calls].into_boxed_slice();
+    // **`calls + 1`**: one slot per call, and one more for §S5's drain thunk.
+    // The body reaches the drain through a slot like any other callee, so
+    // criterion 4's rule holds unchanged — no call between compiled functions
+    // names a `FuncId`, and the only relocations stay "a thunk calling its
+    // adapter" and "the trampoline calling the body".
+    let mut slots: Box<[*const u8]> = vec![std::ptr::null(); calls + 1].into_boxed_slice();
     let slots_base = slots.as_ptr() as i64;
+    let drain_slot = calls;
 
     // The adapter: `(ctx, native) -> status`, under the platform's convention,
     // because it is a Rust function.
@@ -1128,13 +1119,11 @@ fn emit_into(
     let adapter_id = module
         .declare_function(adapter_name, Linkage::Import, &sig_adapter)
         .map_err(|e| format!("declare {adapter_name}: {e}"))?;
-    // **The tail adapter**, for a last call under `LastCall::Tail`: same
-    // signature, and it hands a filed request back instead of draining it
-    // (§S5). Declared always; imported only by the thunk that needs it, and an
-    // import nothing calls costs nothing.
-    let tail_adapter_id = module
-        .declare_function(tail_adapter_name, Linkage::Import, &sig_adapter)
-        .map_err(|e| format!("declare {tail_adapter_name}: {e}"))?;
+    // **§S5's drain helper**, same signature, reached through its own thunk
+    // when the request cell says a body is waiting.
+    let drain_adapter_id = module
+        .declare_function(drain_adapter_name, Linkage::Import, &sig_adapter)
+        .map_err(|e| format!("declare {drain_adapter_name}: {e}"))?;
 
     // Thunks and the body are `Tail`, so `return_call_indirect` is legal from
     // any tail position: "body to body, and body to a native's thunk".
@@ -1142,13 +1131,18 @@ fn emit_into(
     sig_tail.params.push(AbiParam::new(ptr));
     sig_tail.returns.push(AbiParam::new(types::I32));
 
-    let mut thunk_ids = Vec::with_capacity(calls);
+    // One thunk per call, then the drain thunk last — the slot table's shape.
+    let mut thunk_ids = Vec::with_capacity(calls + 1);
     for i in 0..calls {
         let id = module
             .declare_function(&format!("bund2_thunk_{seq}_{i}"), Linkage::Export, &sig_tail)
             .map_err(|e| format!("declare thunk {i}: {e}"))?;
         thunk_ids.push(id);
     }
+    let drain_thunk_id = module
+        .declare_function(&format!("bund2_drain_{seq}"), Linkage::Export, &sig_tail)
+        .map_err(|e| format!("declare bund2_drain_{seq}: {e}"))?;
+    thunk_ids.push(drain_thunk_id);
     let body_id = module
         .declare_function(&format!("bund2_body_{seq}"), Linkage::Export, &sig_tail)
         .map_err(|e| format!("declare bund2_body_{seq}: {e}"))?;
@@ -1168,13 +1162,13 @@ fn emit_into(
         cg.func.signature = sig_tail.clone();
         {
             let mut f = FunctionBuilder::new(&mut cg.func, &mut fb_ctx);
-            // **The position reaches the adapter here.** Only the body's last
-            // call is in tail position, and only when `last` says so; every
-            // other call drains. The adapter cannot see where it was called
-            // from, so the thunk decides by importing one symbol or the other.
-            let is_last = i + 1 == calls;
-            let which = if is_last && last == LastCall::Tail {
-                tail_adapter_id
+            // **One adapter for every call.** Position is not the adapter's
+            // business: the emitted body decides whether to drain, by loading
+            // the request cell after a non-tail call and not after a tail one.
+            // The last thunk in this vector is the drain thunk, which imports
+            // the drain adapter instead.
+            let which = if i == drain_slot {
+                drain_adapter_id
             } else {
                 adapter_id
             };
@@ -1209,8 +1203,18 @@ fn emit_into(
         f.switch_to_block(block);
         let ctx_val = f.block_params(block)[0];
         let base = f.ins().iconst(ptr, slots_base);
+        // **§S6's cells, addressed as an immediate.** The allocation outlives
+        // every compiled function — both die with the `Interp` — which is what
+        // makes embedding its address safe.
+        let cells_base = f.ins().iconst(ptr, cells);
+        let request_off = i32::try_from(bund2_api::Cells::request_offset())
+            .map_err(|_| "the request cell's offset does not fit".to_string())?;
 
         let width = i32::try_from(ptr.bytes()).map_err(|_| "pointer too wide".to_string())?;
+        let drain_off = i32::try_from(drain_slot)
+            .map_err(|_| "the drain slot index does not fit an offset".to_string())?
+            .checked_mul(width)
+            .ok_or_else(|| "the drain slot's offset overflows".to_string())?;
         for i in 0..calls {
             // The slot's offset rides in `load`'s own `Offset32`, rather than an
             // `iadd_imm` before it: one instruction fewer per call, and
@@ -1232,6 +1236,26 @@ fn emit_into(
                 let next = f.create_block();
                 f.ins().brif(status, fail, &[], next, &[]);
                 f.switch_to_block(next);
+
+                // **§S5's request check, in the emitted code.** "After every
+                // call, compiled code loads it beside the epoch and `autoadd`.
+                // If it is set, compiled code calls a drain helper." Only after
+                // a non-tail call: a body's last call hands the request back
+                // instead, so this arm is the only one that reads the cell.
+                let pending = f
+                    .ins()
+                    .uload32(MemFlagsData::trusted(), cells_base, request_off);
+                let drain = f.create_block();
+                let after = f.create_block();
+                f.ins().brif(pending, drain, &[], after, &[]);
+
+                f.switch_to_block(drain);
+                let drain_callee = f.ins().load(ptr, MemFlagsData::trusted(), base, drain_off);
+                let drain_call = f.ins().call_indirect(tail_sig, drain_callee, &[ctx_val]);
+                let drain_status = f.inst_results(drain_call)[0];
+                f.ins().brif(drain_status, fail, &[], after, &[]);
+
+                f.switch_to_block(after);
             }
         }
         if last == LastCall::Ordinary {
@@ -1274,6 +1298,8 @@ fn emit_into(
         .map_err(|e| format!("finalize: {e}"))?;
 
     // Now the thunks have addresses: fill the slots the body already reads.
+    // `thunk_ids` ends with the drain thunk, and `slots` has the matching extra
+    // entry, so one loop fills both.
     for (i, &id) in thunk_ids.iter().enumerate() {
         let addr = module.get_finalized_function(id);
         if addr.is_null() {
@@ -1552,6 +1578,17 @@ mod tests {
 
     // --- §S8's pieces 2 and 3: the adapter, the thunks, and a call site ----
 
+    /// **Lower a native-calling body against `vm`'s cells** — §S6's addressing.
+    ///
+    /// The emitted body loads the request cell through an address embedded at
+    /// compile time, so the `Interp` it will run against has to exist *first*.
+    /// Every test below therefore builds its interpreter before it compiles,
+    /// which is the order a tier uses too: `JitTier::enter` has the `Vm` in
+    /// hand and takes the address from it.
+    fn lowered(vm: &Interp, calls: usize, last: LastCall) -> CompiledBody {
+        compile_body(calls, last, vm.cells().base()).expect("lowers")
+    }
+
     fn pushes_seven(vm: &mut dyn Vm) -> Result<(), Error> {
         vm.push(BundValue::int(7));
         Ok(())
@@ -1574,8 +1611,8 @@ mod tests {
     /// Every one of §S8's four pieces is on that path.
     #[test]
     fn a_compiled_body_calls_a_native_through_its_thunk() {
-        let body = compile_body(1, LastCall::Ordinary).expect("the body lowers");
         let mut vm = Interp::new();
+        let body = lowered(&vm, 1, LastCall::Ordinary);
         body.run(&mut vm, &[("push7", pushes_seven)]).expect("it ran");
         assert_eq!(vm.depth(), 1, "the native ran exactly once");
         assert_eq!(vm.snapshot().first().and_then(BundValue::as_int), Some(7));
@@ -1584,9 +1621,9 @@ mod tests {
     /// Several calls, in order, each through its own slot and thunk.
     #[test]
     fn a_compiled_body_calls_each_native_in_order() {
-        let body = compile_body(3, LastCall::Ordinary).expect("lowers");
-        assert_eq!(body.calls(), 3);
         let mut vm = Interp::new();
+        let body = lowered(&vm, 3, LastCall::Ordinary);
+        assert_eq!(body.calls(), 3);
         body.run(
             &mut vm,
             &[("a", pushes_seven), ("b", pushes_seven), ("c", pushes_seven)],
@@ -1599,8 +1636,8 @@ mod tests {
     /// body stops at the first failure rather than running the rest.
     #[test]
     fn a_failing_native_stops_the_body_and_reaches_rust_through_the_context() {
-        let body = compile_body(2, LastCall::Ordinary).expect("lowers");
         let mut vm = Interp::new();
+        let body = lowered(&vm, 2, LastCall::Ordinary);
         let e = body
             .run(&mut vm, &[("fails", fails), ("push7", pushes_seven)])
             .expect_err("the first native failed");
@@ -1621,8 +1658,8 @@ mod tests {
     /// `Interp::invoke` does.
     #[test]
     fn a_panicking_native_in_a_non_tail_position_matches_tier_zero() {
-        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
         let mut vm = Interp::new();
+        let body = lowered(&vm, 1, LastCall::Ordinary);
         let e = body.run(&mut vm, &[("boom", boom)]).expect_err("the panic is an error");
         assert!(e.is_internal(), "{}", e.0);
         assert!(
@@ -1632,8 +1669,7 @@ mod tests {
         );
         // And the process is still here, which is the other half of the claim.
         let mut after = Interp::new();
-        compile_body(1, LastCall::Ordinary)
-            .expect("lowers")
+        lowered(&after, 1, LastCall::Ordinary)
             .run(&mut after, &[("push7", pushes_seven)])
             .expect("compiled code still runs after a caught panic");
         assert_eq!(after.depth(), 1);
@@ -1644,9 +1680,9 @@ mod tests {
     /// body's return value directly.
     #[test]
     fn a_panicking_native_in_a_tail_position_matches_tier_zero() {
-        let body = compile_body(1, LastCall::Tail).expect("lowers");
-        assert_eq!(body.last_call(), LastCall::Tail);
         let mut vm = Interp::new();
+        let body = lowered(&vm, 1, LastCall::Tail);
+        assert_eq!(body.last_call(), LastCall::Tail);
         let e = body.run(&mut vm, &[("boom", boom)]).expect_err("the panic is an error");
         assert!(
             e.0.contains("internal error: native `boom` panicked: boom from a dependency"),
@@ -1661,8 +1697,8 @@ mod tests {
     /// the record rather than leaving it to the builder's assertions.
     #[test]
     fn a_tail_call_body_runs_and_leaves_no_unreachable_block_behind() {
-        let body = compile_body(1, LastCall::Tail).expect("a tail-call body lowers");
         let mut vm = Interp::new();
+        let body = lowered(&vm, 1, LastCall::Tail);
         body.run(&mut vm, &[("push7", pushes_seven)]).expect("it ran");
         assert_eq!(vm.depth(), 1);
     }
@@ -1671,8 +1707,8 @@ mod tests {
     /// lowering, not a fact about the program — so it is an internal error.
     #[test]
     fn calling_past_the_natives_given_is_an_internal_error() {
-        let body = compile_body(2, LastCall::Ordinary).expect("lowers");
         let mut vm = Interp::new();
+        let body = lowered(&vm, 2, LastCall::Ordinary);
         let e = body
             .run(&mut vm, &[("only_one", pushes_seven)])
             .expect_err("the second index is out of range");
@@ -1682,7 +1718,61 @@ mod tests {
 
     #[test]
     fn a_body_that_calls_nothing_is_refused() {
-        assert!(compile_body(0, LastCall::Ordinary).is_err());
+        // The arity check fires before the address is used, so any live
+        // interpreter's cells serve.
+        let vm = Interp::new();
+        assert!(compile_body(0, LastCall::Ordinary, vm.cells().base()).is_err());
+    }
+
+    /// **A body cannot be lowered without the address of its cells.** §S6 has
+    /// the emitted code load the request cell through an embedded immediate; a
+    /// zero base would make that a read of address zero, so the lowering
+    /// refuses rather than emitting a fault into machine code.
+    #[test]
+    fn a_body_without_cells_is_refused() {
+        assert!(compile_body(1, LastCall::Ordinary, 0).is_err());
+    }
+
+    /// **The cell is loaded by the emitted code, not asked of the `Vm`** — §S6,
+    /// *Addressing*: "At compile time the JIT embeds each cell's address as an
+    /// immediate."
+    ///
+    /// This is the test that separates the two designs. Every other drain test
+    /// here would pass just as well against a lowering that called into Rust
+    /// and asked `Vm::drain_tail_request` unconditionally, because they observe
+    /// only the outcome. This one compiles against **one** interpreter's cells
+    /// and then runs the body against a **different** interpreter: the address
+    /// is baked in, so the body reads the first `Interp`'s request cell and
+    /// finds it clear, and the second interpreter's filed body is left pending.
+    ///
+    /// That is not a behaviour to rely on — it is why criterion 23 forbids
+    /// running a body compiled for one `Interp` under another, and why the
+    /// compiler is per-`Interp`. It is asserted here because it is the only
+    /// cheap evidence that the load is in the machine code at all.
+    #[test]
+    fn the_request_cell_is_read_from_the_address_compiled_in() {
+        let owner = Interp::new();
+        let body = lowered(&owner, 1, LastCall::Ordinary);
+
+        // A different interpreter, with its own cells at a different address.
+        let mut other = Interp::new();
+        assert_ne!(
+            owner.cells().base(),
+            other.cells().base(),
+            "two Interps must not share one allocation"
+        );
+
+        body.run(&mut other, &[("fs", files_then_succeeds)])
+            .expect("the native succeeded");
+
+        // The body consulted `owner`'s cell, which nothing set, so it did not
+        // drain — and `other`'s request is still pending.
+        assert!(
+            other.cells().request(),
+            "the filed request is untouched, because the body read another \
+             Interp's cell: the address is compiled in"
+        );
+        assert_eq!(other.depth(), 0, "and the body has not run");
     }
 
     /// Files a body for the loop to run, then fails — F96's shape exactly, and
@@ -1712,8 +1802,8 @@ mod tests {
     /// depth 1 rather than 2 is the proof, exactly as Tier 0's test reads it.
     #[test]
     fn a_failing_native_leaves_no_tail_request_behind_compiled_code() {
-        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
         let mut vm = Interp::new();
+        let body = lowered(&vm, 1, LastCall::Ordinary);
         let e = body
             .run(&mut vm, &[("ff", files_then_fails)])
             .expect_err("the native failed");
@@ -1746,8 +1836,8 @@ mod tests {
     /// nothing. The assertion is now made where the work happens.
     #[test]
     fn a_succeeding_native_keeps_the_tail_request_it_filed() {
-        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
         let mut vm = Interp::new();
+        let body = lowered(&vm, 1, LastCall::Ordinary);
         body.run(&mut vm, &[("fs", files_then_succeeds)])
             .expect("the native succeeded");
 
@@ -1772,8 +1862,8 @@ mod tests {
     /// the stack is what says whether the drain happened at the right moment.
     #[test]
     fn a_non_tail_call_drains_before_the_next_value() {
-        let body = compile_body(2, LastCall::Ordinary).expect("lowers");
         let mut vm = Interp::new();
+        let body = lowered(&vm, 2, LastCall::Ordinary);
         body.run(&mut vm, &[("fs", files_then_succeeds), ("p7", pushes_seven)])
             .expect("it ran");
 
@@ -1797,8 +1887,8 @@ mod tests {
     /// itself: the body leaves nothing, and the next evaluation runs it.
     #[test]
     fn a_tail_call_hands_the_request_back_instead_of_draining() {
-        let body = compile_body(1, LastCall::Tail).expect("lowers");
         let mut vm = Interp::new();
+        let body = lowered(&vm, 1, LastCall::Tail);
         body.run(&mut vm, &[("fs", files_then_succeeds)])
             .expect("it ran");
 
@@ -1848,7 +1938,7 @@ mod tests {
             bund2_api::WordKind::Sync,
         );
 
-        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
+        let body = lowered(&vm, 1, LastCall::Ordinary);
         body.run(&mut vm, &[("fo", files_outer)]).expect("it ran");
 
         let stack = vm.snapshot();
@@ -1869,16 +1959,20 @@ mod tests {
     /// pending: "no stale request outlives an error".
     #[test]
     fn a_drain_refused_below_the_floor_clears_the_request() {
-        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
-
         let here = bund2_interp::stack_marker();
-        // A floor above us, as `bund2-interp`'s own floor test builds it.
+        // A floor above us, as `bund2-interp`'s own floor test builds it. The
+        // `Interp` must be built **while the raised region is in force**, since
+        // that is where its floor comes from — so the compile follows it rather
+        // than preceding it, which is the opposite order from every other test
+        // here and the whole point of this one.
         bund2_interp::set_stack_region(
             here + 4 * bund2_interp::STACK_RESERVE,
             bund2_interp::STACK_RESERVE,
         );
         let mut vm = Interp::new();
         bund2_interp::set_stack_region(here, 8 * 1024 * 1024);
+
+        let body = lowered(&vm, 1, LastCall::Ordinary);
 
         let e = body
             .run(&mut vm, &[("fs", files_then_succeeds)])
@@ -1895,8 +1989,8 @@ mod tests {
     /// ran something or always failed.
     #[test]
     fn a_call_that_files_nothing_drains_nothing() {
-        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
         let mut vm = Interp::new();
+        let body = lowered(&vm, 1, LastCall::Ordinary);
         body.run(&mut vm, &[("p7", pushes_seven)]).expect("it ran");
         assert_eq!(vm.depth(), 1, "only what the native pushed");
         assert!(!vm.cells().request());
@@ -1928,8 +2022,8 @@ mod tests {
     /// spellings of one refusal.
     #[test]
     fn a_recorded_exit_becomes_the_error_status() {
-        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
         let mut vm = Interp::new();
+        let body = lowered(&vm, 1, LastCall::Ordinary);
         let e = body
             .run(&mut vm, &[("ex", exits_then_succeeds)])
             .expect_err("an exit stops the body");
@@ -1947,8 +2041,8 @@ mod tests {
     /// keep only the short refusal and fail that comparison.
     #[test]
     fn an_error_is_not_replaced_by_the_refusal() {
-        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
         let mut vm = Interp::new();
+        let body = lowered(&vm, 1, LastCall::Ordinary);
         let e = body
             .run(&mut vm, &[("exf", exits_then_fails)])
             .expect_err("the native failed");
@@ -1968,8 +2062,8 @@ mod tests {
             vm.request_exit(7);
             Ok(())
         }
-        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
         let mut vm = Interp::new();
+        let body = lowered(&vm, 1, LastCall::Ordinary);
         let e = body
             .run(&mut vm, &[("fx", files_then_exits)])
             .expect_err("the exit stops it");
@@ -1985,8 +2079,8 @@ mod tests {
     /// §S6's pairing seen from the compiled side.
     #[test]
     fn a_failing_natives_request_clears_the_mirror_through_the_adapter() {
-        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
         let mut vm = Interp::new();
+        let body = lowered(&vm, 1, LastCall::Ordinary);
         body.run(&mut vm, &[("ff", files_then_fails)])
             .expect_err("the native failed");
         assert!(
@@ -2008,8 +2102,8 @@ mod tests {
     /// discarded — but the evidence moved from "still pending" to "ran".
     #[test]
     fn status_of_reports_success_when_nothing_ended_or_failed() {
-        let body = compile_body(1, LastCall::Ordinary).expect("lowers");
         let mut vm = Interp::new();
+        let body = lowered(&vm, 1, LastCall::Ordinary);
         body.run(&mut vm, &[("fs", files_then_succeeds)])
             .expect("no exit, no error");
         assert!(
@@ -2032,6 +2126,13 @@ mod tests {
         i
     }
 
+    /// Compile a word against `vm`'s cells — the `compile_word` counterpart of
+    /// [`lowered`], and the same ordering rule: the interpreter first.
+    fn word_in(c: &mut Compiler, vm: &Interp, values: usize, last: LastCall) -> WordHandle {
+        c.compile_word(values, last, vm.cells().base())
+            .expect("lowers")
+    }
+
     /// `{ 1 2 + }` — a real word's body, as the parser would leave it.
     fn add_body() -> Vec<BundValue> {
         vec![BundValue::int(1), BundValue::int(2), BundValue::call("+")]
@@ -2044,8 +2145,8 @@ mod tests {
         let by_tier0 = tier0.eval(body);
 
         let mut c = Compiler::new().expect("a compiler");
-        let word = c.compile_word(body.len(), LastCall::Ordinary).expect("lowers");
         let mut compiled = with_stdlib();
+        let word = word_in(&mut c, &compiled, body.len(), LastCall::Ordinary);
         let by_compiled = c.run(word, &mut compiled, body);
 
         assert_eq!(
@@ -2069,9 +2170,9 @@ mod tests {
     #[test]
     fn a_compiled_word_runs_a_real_body() {
         let mut c = Compiler::new().expect("a compiler");
-        let word = c.compile_word(3, LastCall::Ordinary).expect("lowers");
-        assert_eq!(c.values(word), Some(3));
         let mut vm = with_stdlib();
+        let word = word_in(&mut c, &vm, 3, LastCall::Ordinary);
+        assert_eq!(c.values(word), Some(3));
         c.run(word, &mut vm, &add_body()).expect("it ran");
         assert_eq!(vm.depth(), 1, "1 and 2 consumed, the sum left");
         assert_eq!(vm.snapshot().first().and_then(BundValue::as_int), Some(3));
@@ -2107,8 +2208,8 @@ mod tests {
         let by_tier0 = tier0.eval(&body);
 
         let mut c = Compiler::new().expect("a compiler");
-        let word = c.compile_word(body.len(), LastCall::Ordinary).expect("lowers");
         let mut compiled = with_stdlib();
+        let word = word_in(&mut c, &compiled, body.len(), LastCall::Ordinary);
         compiled.set_autoadd(true);
         let by_compiled = c.run(word, &mut compiled, &body);
 
@@ -2130,7 +2231,7 @@ mod tests {
         let body = vec![BundValue::call("ten"), BundValue::int(20)];
 
         let mut c = Compiler::new().expect("a compiler");
-        let word = c.compile_word(2, LastCall::Ordinary).expect("lowers");
+        let word = word_in(&mut c, &vm, 2, LastCall::Ordinary);
         c.run(word, &mut vm, &body).expect("it ran");
 
         let stack = vm.snapshot();
@@ -2144,8 +2245,8 @@ mod tests {
     #[test]
     fn a_compiled_word_stops_at_the_first_failure() {
         let mut c = Compiler::new().expect("a compiler");
-        let word = c.compile_word(2, LastCall::Ordinary).expect("lowers");
         let mut vm = with_stdlib();
+        let word = word_in(&mut c, &vm, 2, LastCall::Ordinary);
         // `+` on an empty stack fails; the `99` after it must not run.
         let body = vec![BundValue::call("+"), BundValue::int(99)];
         let e = c.run(word, &mut vm, &body).expect_err("the call failed");
@@ -2157,9 +2258,9 @@ mod tests {
     #[test]
     fn a_compiled_word_in_tail_position_runs_the_same_body() {
         let mut c = Compiler::new().expect("a compiler");
-        let word = c.compile_word(3, LastCall::Tail).expect("lowers");
-        assert_eq!(c.last_call(word), Some(LastCall::Tail));
         let mut vm = with_stdlib();
+        let word = word_in(&mut c, &vm, 3, LastCall::Tail);
+        assert_eq!(c.last_call(word), Some(LastCall::Tail));
         c.run(word, &mut vm, &add_body()).expect("it ran");
         assert_eq!(vm.snapshot().first().and_then(BundValue::as_int), Some(3));
     }
@@ -2169,8 +2270,8 @@ mod tests {
     #[test]
     fn a_word_handed_the_wrong_body_length_is_an_internal_error() {
         let mut c = Compiler::new().expect("a compiler");
-        let word = c.compile_word(3, LastCall::Ordinary).expect("lowers");
         let mut vm = with_stdlib();
+        let word = word_in(&mut c, &vm, 3, LastCall::Ordinary);
         let e = c
             .run(word, &mut vm, &[BundValue::int(1)])
             .expect_err("length mismatch");
@@ -2180,7 +2281,8 @@ mod tests {
     #[test]
     fn a_word_with_an_empty_body_is_refused() {
         let mut c = Compiler::new().expect("a compiler");
-        assert!(c.compile_word(0, LastCall::Ordinary).is_err());
+        let vm = Interp::new();
+        assert!(c.compile_word(0, LastCall::Ordinary, vm.cells().base()).is_err());
     }
 
     /// **Two words in one module stay distinct.** `declare_function` *merges* a
@@ -2194,8 +2296,9 @@ mod tests {
     #[test]
     fn two_words_compiled_into_one_module_stay_distinct() {
         let mut c = Compiler::new().expect("a compiler");
-        let sum = c.compile_word(3, LastCall::Ordinary).expect("the first lowers");
-        let lone = c.compile_word(1, LastCall::Ordinary).expect("the second lowers");
+        let host = with_stdlib();
+        let sum = word_in(&mut c, &host, 3, LastCall::Ordinary);
+        let lone = word_in(&mut c, &host, 1, LastCall::Ordinary);
         assert_eq!(c.compiled_words(), 2);
         assert_ne!(sum, lone, "distinct words get distinct handles");
 

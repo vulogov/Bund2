@@ -325,7 +325,14 @@ mod tests {
     /// these tests — which is exactly why they use the real thing instead: what
     /// the cache files has to be what the tier would file.
     fn code(c: &mut Compiler) -> WordHandle {
-        c.compile_word(1, LastCall::Ordinary).expect("lowers")
+        // **An `Interp` purely for its cells' address** — §S6 has a lowering
+        // embed it, so `compile_word` requires one even here, where the handle
+        // is filed in the cache and never run. Building one per call is the
+        // honest way to get a real address: a fabricated one would compile and
+        // then read arbitrary memory if anything ever did run it.
+        let vm = bund2_interp::Interp::new();
+        c.compile_word(1, LastCall::Ordinary, vm.cells().base())
+            .expect("lowers")
     }
 
     /// Small caps, as criterion 6 requires: "with the compiled-function cap set

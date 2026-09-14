@@ -151,6 +151,14 @@ pub fn panicked(what: &str, message: &str) -> Error {
 /// helper and no `status_of`, so today the value of the cells is that the
 /// mirrors provably track the truth — which is the part a later lowering
 /// cannot check for itself, and the part that is testable now.
+/// **`repr(C)`, because compiled code loads these by address.** §S6 has the
+/// JIT embed a cell's address as an immediate and load it directly, which is a
+/// base-plus-offset read of this struct's fields from machine code. Rust's
+/// default representation may reorder fields between compiler versions, so a
+/// layout this code depends on has to be one the language guarantees. The
+/// offsets themselves are never written by hand — see [`Cells::request_offset`]
+/// and its siblings.
+#[repr(C)]
 #[derive(Debug, Default)]
 pub struct Cells {
     /// `autoadd`, as `0` or `1`. §S5's guard reads it after every call and at
@@ -215,6 +223,40 @@ impl Cells {
     /// Publish the current stack's epoch.
     pub fn set_epoch(&self, epoch: u64) {
         self.epoch.set(epoch);
+    }
+
+    /// The address of this allocation, as the immediate a lowering embeds.
+    ///
+    /// §S6: "At compile time the JIT embeds each cell's address as an
+    /// immediate. That is safe to do because the cells outlive every compiled
+    /// function: both die with the runtime."
+    pub fn base(&self) -> usize {
+        std::ptr::from_ref(self) as usize
+    }
+
+    /// Byte offset of [`Cells::autoadd`] from [`Cells::base`].
+    ///
+    /// **Computed by the compiler, never by hand.** `offset_of!` asks the same
+    /// compiler that laid the struct out, so a lowering cannot disagree with
+    /// the layout it is reading — which a hand-written constant eventually
+    /// would, silently, inside emitted machine code.
+    pub const fn autoadd_offset() -> usize {
+        std::mem::offset_of!(Cells, autoadd)
+    }
+
+    /// Byte offset of [`Cells::epoch`].
+    pub const fn epoch_offset() -> usize {
+        std::mem::offset_of!(Cells, epoch)
+    }
+
+    /// Byte offset of [`Cells::request`] — the one §S5's drain branch loads.
+    pub const fn request_offset() -> usize {
+        std::mem::offset_of!(Cells, request)
+    }
+
+    /// Byte offset of [`Cells::floor`].
+    pub const fn floor_offset() -> usize {
+        std::mem::offset_of!(Cells, floor)
     }
 
     /// Set the Tier 1 floor. Called once, when the `Interp` is built.
@@ -1914,6 +1956,49 @@ mod tests {
     ///
     /// Three callers clone a registry — the CLI's per-word observer, `check`'s
     /// `prebind`, and the effect palette's template — and each wants an
+    /// **RFC-0005 §S6's cells are laid out for compiled code to load.**
+    ///
+    /// A lowering embeds [`Cells::base`] as an immediate and reads a field at
+    /// its offset, from machine code. Two things make that sound, and this
+    /// asserts both: `repr(C)`, so the order is the language's rather than the
+    /// compiler's choice of the day; and offsets taken with `offset_of!`, so
+    /// the number a lowering uses is produced by the compiler that laid the
+    /// struct out. A hand-written offset would be right on one build and wrong
+    /// on another, silently, inside emitted code.
+    #[test]
+    fn the_cells_have_a_layout_compiled_code_can_load() {
+        let size = std::mem::size_of::<Cells>();
+        let offsets = [
+            ("autoadd", Cells::autoadd_offset()),
+            ("epoch", Cells::epoch_offset()),
+            ("request", Cells::request_offset()),
+            ("floor", Cells::floor_offset()),
+        ];
+
+        for (name, off) in offsets {
+            assert!(
+                off < size,
+                "{name} at {off} lies outside a {size}-byte Cells"
+            );
+        }
+        for (i, (an, ao)) in offsets.iter().enumerate() {
+            for (bn, bo) in offsets.iter().skip(i + 1) {
+                assert_ne!(ao, bo, "{an} and {bn} share offset {ao}");
+            }
+        }
+
+        // The base is the allocation's own address, which is what a lowering
+        // embeds. Taking it twice from the same value must answer alike, or the
+        // immediate would name something that had moved.
+        let cells = Cells::default();
+        assert_eq!(cells.base(), cells.base());
+        assert_eq!(
+            cells.base(),
+            std::ptr::from_ref(&cells) as usize,
+            "the base is the address of the cells themselves"
+        );
+    }
+
     /// independent registry with the same vocabulary. If the cells were shared
     /// behind an `Rc`, a guard reading one registry's cell would observe
     /// another's rewrites.

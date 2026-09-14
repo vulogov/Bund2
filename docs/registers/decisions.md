@@ -3453,6 +3453,43 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D65 — the cells have a guaranteed layout, and a lowering is given their address
+
+**Decided by the repository owner, 2026-09-13.** RFC-0005 §S6's *Addressing* is
+built for the request cell: compiled code loads it through an address embedded
+at compile time and branches, rather than calling into Rust to ask.
+
+- Blocks: nothing. It is the prerequisite every §S6 guard needs
+- Status: **RESOLVED — built.**
+
+**A latent layout defect had to be fixed first.** `Cells` was a plain
+`#[derive(Debug, Default)] struct` with no `repr`, and Rust may reorder such
+fields between compiler versions. A base-plus-offset load emitted into machine
+code against that layout is undefined: it would work on the machine that built
+it and could break elsewhere, silently, with no Rust-level symptom. `Cells` is
+now `#[repr(C)]`, and the offsets are taken with `std::mem::offset_of!` rather
+than written by hand — so the number a lowering uses is produced by the same
+compiler that laid the struct out, and cannot drift from it.
+
+**The address reaches the lowering as a parameter.** `Compiler::compile_word`
+and `compile_body` take the base from `Cells::base`, and `JitTier::enter`
+supplies it because it holds the `&mut dyn Vm` that the per-`Interp` compiler
+serves. A zero base is **refused** rather than emitted: a body lowered without
+cells would read address zero from machine code, which is a fault rather than
+an error a caller can act on.
+
+**What this makes possible, and what it does not.** The request cell is now
+loaded and branched on in emitted code, which is what §S5 specifies for a
+non-tail call. The **`autoadd`, epoch and generation guards are not built**, and
+deliberately: criterion 17 requires an inlined region for the guard to protect,
+recorded in a side table and checked for dominance; the body lowering inlines
+nothing, so every site already *is* the generic slot call. A guard emitted now
+would compile to a load, a compare, and two branches to identical code, and
+criterion 17 would pass on it vacuously — the exact failure the fifth review's
+B1 had it rewritten to prevent. They land with fragment inlining.
+
+Conform is unmoved at 106/114, ceiling 106/114.
+
 ## D64 — the drain helper is a `Vm` method, and tail position reaches the adapter through its thunk
 
 **Decided by the repository owner, 2026-09-13.** RFC-0005 §S5's drain helper is
@@ -3460,6 +3497,19 @@ built, and two shapes it needed were not specified.
 
 - Blocks: nothing. It gives §S6's request cell its first acting reader
 - Status: **RESOLVED — built.**
+
+**Dated note, 2026-09-13 (2) — the two-adapter split is superseded by D65.**
+This entry gave the lowering two adapter symbols per kind, because "the adapter
+cannot see where it was called from" and a non-tail call had to drain where a
+tail call did not. That reasoning stood only while the decision was made in
+Rust. With §S6's addressing built, the *emitted body* loads the request cell
+after a non-tail call and not after a tail one, so position is decided where it
+was always known — at emit time, in CLIF. `jit_call_native_tail` and
+`jit_apply_tail` are removed, one `jit_drain` adapter serves both lowerings, and
+the body reaches it through its own slot, which keeps criterion 4's relocation
+rule intact. The rest of this entry — `Vm::drain_tail_request`, the writer set
+staying at four, and the drain leaving the exit gate to the status-maker —
+stands unchanged.
 
 **The helper had to widen `Vm`.** §S5 says the drain does "what `Interp::apply`
 does after `apply_step`: `take_pending`, then `run_to` down to the frame count

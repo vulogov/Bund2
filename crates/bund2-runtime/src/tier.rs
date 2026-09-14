@@ -101,12 +101,17 @@ impl Tier for JitTier {
                             Err(_) => return None,
                         },
                     };
+                    // **§S6's addressing.** The emitted body loads the request
+                    // cell through this address, so a `Vm` that keeps no cells
+                    // gets no compiled body — the lowering refuses a zero base
+                    // rather than emitting a load from null.
+                    let cells = vm.cells().map(bund2_api::Cells::base)?;
                     // A failure to compile is not the program's fault and not
                     // its problem: the body is interpreted, as it would have
                     // been with no tier at all. It is dropped rather than
                     // reported because there is no diagnostic a *user* could
                     // act on, and the body still runs correctly.
-                    if let Ok(code) = compiler.compile_word(len, LastCall::Ordinary) {
+                    if let Ok(code) = compiler.compile_word(len, LastCall::Ordinary, cells) {
                         self.tiering.insert(body, code);
                     }
                 }
