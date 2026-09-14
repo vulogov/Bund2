@@ -18,11 +18,20 @@ bund2-interp.workspace = true
 bund2-api.workspace = true
 bund2-value.workspace = true
 bund2.workspace = true
+# **The crate that installs the tier — F124.** `Runtime::with_options` is the
+# only code that builds §S6's fragment table, declares §S8's Tier 1 share and
+# installs a `JitTier`, and RFC-0000's crate table gives it that job. Until
+# this dependency existed the CLI built an `Interp` directly, so
+# `--features jit` enabled a feature on code that never ran and every
+# measurement compared Tier 0 with itself.
+bund2-runtime.workspace = true
 
 [features]
 default = []
-aot   = ["bund2/aot"]
-jit   = ["bund2/jit"]
+# Chained through `bund2-runtime` rather than the `bund2` facade: the facade
+# re-exports nothing, so a feature routed through it reached no code (F124).
+aot   = ["bund2/aot", "bund2-runtime/aot"]
+jit   = ["bund2/jit", "bund2-runtime/jit"]
 async = ["bund2/async"]
 
 [lints]

@@ -3944,6 +3944,63 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F124 — `bund2` never installs a tier, so every `--features jit` measurement compares Tier 0 with itself
+
+**A Bund2 defect**, found while trying to benchmark the JIT on a fractal.
+
+`bund2 script --features jit` runs **Tier 0**. The feature is enabled, the
+binary differs, and nothing in it ever reaches Tier 1.
+
+Four independent places say so:
+
+- `crates/bund2-cli/src/main.rs`, `run` — builds the interpreter directly:
+  `Interp::new()` then `register_all_with`, then evaluates. The word `tier`
+  appears nowhere in the file outside a comment about `EVAL_STACK`;
+- `crates/bund2-cli/Cargo.toml` — its `jit` feature was `["bund2/jit"]`,
+  routed through the facade; and `crates/bund2/src/lib.rs` is **twelve lines of
+  attributes with no re-exports**, so the feature enabled something on a crate
+  whose code never runs;
+- `Runtime::with_options` (`crates/bund2-runtime/src/lib.rs`) is the only code
+  that installs a `JitTier`, builds §S6's fragment table and declares §S8's
+  Tier 1 share — and **nothing outside tests constructs a `Runtime`**;
+- RFC-0000's crate table, dated note of 2026-09-13, assigns exactly this job to
+  `bund2-runtime`: it "owns the `Interp` and installs RFC-0005's `Tier`".
+
+**What it invalidates.** `cargo xtask conform` takes `--features`, builds the
+binary with them (`xtask/src/conform/mod.rs`, `take_features` and
+`bund2_binary`), and criterion 2 compares N/M with the feature on and off. Both
+sides are the same interpreter, so the criterion has been passing without
+exercising a tier at all. The measured 106/114 is correct as a Tier 0 number and
+says nothing about Tier 1.
+
+Timing confirms it: a 300,000-iteration loop measures 0.057 s on the default
+binary and 0.059 s with `--features jit` — a dead heat, because the same code
+ran twice.
+
+**Why nothing caught it.** Criterion 2 anticipated vacuity and asked for the
+guard: "`bund2` reports how many bodies it compiled when asked, through a
+statistics flag… A `jit` run that compiles no body over the corpus fails." That
+flag was never built, so the only evidence available was timing — which is
+exactly the evidence the criterion was written to replace.
+
+**Disposition.** Two pieces, in order:
+
+1. `run` constructs a `Runtime` rather than an `Interp`, so the tier is
+   installed on the path every program takes. The CLI needs `eval_indexed` for
+   its span-accurate error reporting, which `Runtime` does not expose, so either
+   it gains that or the CLI reaches through `Runtime::interp`.
+2. The statistics flag criterion 2 specifies, reporting compiled bodies, so a
+   run that compiled nothing says so instead of being inferred.
+
+**What it does not affect.** Conformance and coverage are unmoved — 106/114,
+ceiling 106/114 — because Tier 0's behaviour is what they measure and it has not
+changed. Every unit test of the tier is unaffected: those construct `Runtime`
+or `Compiler` directly and do exercise Tier 1.
+
+- Found: 2026-09-14, benchmarking a Julia set through the CLI
+- Status: **OPEN**
+- Depends on: D59 (Tier 1 authorised), D62 (the share), criterion 2
+
 ## F123 — `PROMOTABLE.txt` cannot satisfy both feature sets, so the palette audit fails in one of them
 
 **A Bund2 defect**, in the audit rather than in the language. Found while

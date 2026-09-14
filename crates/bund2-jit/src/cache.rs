@@ -330,9 +330,18 @@ mod tests {
         // is filed in the cache and never run. Building one per call is the
         // honest way to get a real address: a fabricated one would compile and
         // then read arbitrary memory if anything ever did run it.
-        let vm = bund2_interp::Interp::new();
-        c.compile_word(1, LastCall::Ordinary, vm.cells().base())
-            .expect("lowers")
+        let mut vm = bund2_interp::Interp::new();
+        let cells = vm.cells().base();
+        // A one-literal body: a literal is not a `CALL`, so it plans as a
+        // generic site and this compiler's empty table would refuse it anyway.
+        // What the cache stores is the handle, which is all these tests touch.
+        c.compile_word(
+            &[bund2_value::BundValue::int(1)],
+            LastCall::Ordinary,
+            cells,
+            &mut vm,
+        )
+        .expect("lowers")
     }
 
     /// Small caps, as criterion 6 requires: "with the compiled-function cap set
@@ -352,7 +361,7 @@ mod tests {
     #[test]
     fn a_cache_entry_cannot_answer_for_a_different_body() {
         let mut t = Tiering::new(small());
-        let mut c = Compiler::new().expect("a compiler");
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
         let key = {
             let b = body(1);
             let key = b.payload_key().expect("a body has a key");
@@ -384,7 +393,7 @@ mod tests {
     #[test]
     fn the_function_cap_leaves_the_body_past_it_interpreted() {
         let mut t = Tiering::new(small());
-        let mut c = Compiler::new().expect("a compiler");
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
         let held: Vec<BundValue> = (0..5).map(body).collect();
         for b in held.iter().take(4) {
             assert!(t.insert(b, code(&mut c)), "the first four are compiled");
@@ -411,7 +420,7 @@ mod tests {
     #[test]
     fn the_third_redefinition_demotes_the_body_live_at_the_time() {
         let mut t = Tiering::new(small());
-        let mut c = Compiler::new().expect("a compiler");
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
         let mut r = bund2_api::Registry::new();
         // `Registry` has no by-name symbol method of its own; interning goes
         // through the public `interner`, as `bund2-interp`'s dispatch does.
@@ -481,7 +490,7 @@ mod tests {
     #[test]
     fn the_threshold_decides_when_a_body_has_earned_compilation() {
         let mut t = Tiering::new(small());
-        let mut c = Compiler::new().expect("a compiler");
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
         let b = body(1);
         assert_eq!(t.observe(&b), Decision::Interpret, "first evaluation");
         assert_eq!(t.observe(&b), Decision::Compile, "at the threshold of 2");
@@ -496,7 +505,7 @@ mod tests {
     #[test]
     fn a_dup_shares_the_originals_cache_entry() {
         let mut t = Tiering::new(small());
-        let mut c = Compiler::new().expect("a compiler");
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
         let original = body(1);
         assert!(t.insert(&original, code(&mut c)));
         let copy = original.dup();
@@ -511,7 +520,7 @@ mod tests {
     #[test]
     fn an_unboxed_scalar_is_not_a_body() {
         let mut t = Tiering::new(small());
-        let mut c = Compiler::new().expect("a compiler");
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
         let scalar = BundValue::int(7);
         assert_eq!(t.observe(&scalar), Decision::Interpret);
         assert_eq!(t.counted(), 0);

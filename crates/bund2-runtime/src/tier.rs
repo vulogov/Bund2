@@ -33,9 +33,22 @@ pub struct JitTier {
     /// hot never reserves code memory, and a compiler that cannot be built
     /// leaves the tier interpreting rather than failing the program.
     compiler: Option<Compiler>,
+    /// **§S6's published fragments, carried down to the compiler.**
+    ///
+    /// Built by [`crate::Runtime`] rather than fetched here:
+    /// `bund2_stdlib::fragments::published` takes a `&Registry`, and a tier
+    /// holds only a `&mut dyn Vm`, which §S6 deliberately gives no registry. A
+    /// `Vm` method answering with fragments would put `Fragment` into
+    /// `bund2-api`, which D9 forbids.
+    ///
+    /// Empty means no inlining — every site takes the generic path, which is
+    /// correct and merely slower.
+    table: Vec<(bund2_api::RegistrationId, bund2_ir::Fragment)>,
 }
 
 impl Default for JitTier {
+    /// A tier that inlines nothing. [`JitTier::with_fragments`] is what a
+    /// `Runtime` uses, because only it can build the table.
     fn default() -> Self {
         Self::new(Caps::default())
     }
@@ -43,9 +56,18 @@ impl Default for JitTier {
 
 impl JitTier {
     pub fn new(caps: Caps) -> Self {
+        Self::with_fragments(caps, Vec::new())
+    }
+
+    /// A tier with §S6's fragment table, so a compiled body can inline.
+    pub fn with_fragments(
+        caps: Caps,
+        table: Vec<(bund2_api::RegistrationId, bund2_ir::Fragment)>,
+    ) -> Self {
         Self {
             tiering: Tiering::new(caps),
             compiler: None,
+            table,
         }
     }
 
@@ -60,7 +82,22 @@ impl JitTier {
     }
 }
 
+impl JitTier {
+    /// The figure [`bund2_api::Tier::compiled_bodies`] reports.
+    fn compiled(&self) -> usize {
+        self.compiled_words()
+    }
+}
+
 impl Tier for JitTier {
+    fn compiled_bodies(&self) -> Option<usize> {
+        Some(self.compiled())
+    }
+
+    fn inlined_sites(&self) -> Option<usize> {
+        Some(self.compiler.as_ref().map_or(0, Compiler::inlined_total))
+    }
+
     /// See `bund2_api::Tier` for the contract. In short: `None` interprets,
     /// `Some(..)` means compiled code ran the body.
     ///
@@ -96,7 +133,10 @@ impl Tier for JitTier {
                     // as a failed compilation, one line down.
                     let compiler = match self.compiler {
                         Some(ref mut c) => c,
-                        None => match Compiler::new() {
+                        // The table is cloned rather than moved: the tier may
+                        // outlive a compiler that failed to build, and §S6's
+                        // fragments are small and built once per `Runtime`.
+                        None => match Compiler::new(self.table.clone()) {
                             Ok(c) => self.compiler.insert(c),
                             Err(_) => return None,
                         },
@@ -111,7 +151,14 @@ impl Tier for JitTier {
                     // been with no tier at all. It is dropped rather than
                     // reported because there is no diagnostic a *user* could
                     // act on, and the body still runs correctly.
-                    if let Ok(code) = compiler.compile_word(len, LastCall::Ordinary, cells) {
+                    // **The body itself, not just its length** — §S6's join
+                    // decides per value whether to inline, which needs the
+                    // values. `items` answered `Some` above, and the body is
+                    // cloned because planning borrows `vm` mutably to ask
+                    // `inline_site` while `body` borrows it immutably.
+                    let values: Vec<BundValue> = items(body)?.to_vec();
+                    if let Ok(code) = compiler.compile_word(&values, LastCall::Ordinary, cells, vm)
+                    {
                         self.tiering.insert(body, code);
                     }
                 }

@@ -45,7 +45,20 @@ use bund2_value::BundValue;
 // `MemFlagsData`, not `MemFlags`: `load` takes `Into<MemFlagsData>`, and
 // `trusted()` is a constructor on `MemFlagsData` — the two are separate structs
 // at 0.135 and only one of them has it.
-use cranelift_codegen::ir::{AbiParam, InstBuilder, MemFlagsData, Signature, types};
+// `Block`, `FuncRef`, `StackSlot`, `Type` and `Value` are named only by the
+// fragment emitter's signature — every other use in this file infers them.
+// They are `ir::entities` types re-exported from `ir`, except `Type`, which
+// `ir` re-exports from `ir::types`.
+use cranelift_codegen::ir::{
+    AbiParam, Block, FuncRef, InstBuilder, MemFlagsData, Signature, StackSlot, Type, Value, types,
+};
+// Criterion 17's dominance check: "every inlined region in the emitted code is
+// preceded, on every path into it, by a load and compare". Both are public
+// modules of `cranelift-codegen` 0.135; `block_dominates` takes two blocks and
+// needs no `Layout`, which the `ProgramPoint` form would.
+use cranelift_codegen::dominator_tree::DominatorTree;
+use cranelift_codegen::flowgraph::ControlFlowGraph;
+use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::isa::CallConv;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_jit::{JITBuilder, JITModule};
@@ -77,11 +90,262 @@ pub struct Ctx<'a> {
     /// Empty for a fragment arm, which applies no values: its ops are the whole
     /// of it.
     body: &'a [BundValue],
+    /// **The fragments this body inlines, by site index** — RFC-0005 §S6.
+    ///
+    /// The type guard is asked at run time, against the stack as it stands, so
+    /// the table has to travel with the running body rather than being consumed
+    /// at compile time. [`jit_admits`] indexes it with the site number the
+    /// lowering baked into the call.
+    ///
+    /// Empty for a body that inlines nothing, which is every body until the
+    /// join lands — and for a fragment arm, whose single fragment *is* the
+    /// whole of it and needs no table.
+    sites: &'a [Fragment],
 }
 
 /// A helper's status: `0` success, `1` error parked in [`Ctx::err`].
 const OK: i32 = 0;
 const FAIL: i32 = 1;
+
+/// **A type guard's verdict — a different protocol from a status, on the same
+/// two values.**
+///
+/// [`jit_admits`] does not report success or failure: it answers whether the
+/// fragment's guard admits, and *both* answers are ordinary outcomes. Nothing
+/// is parked in the context either way, because declining is not an error —
+/// §S6 has the site "branch to the slot call, the generic path", which is
+/// always correct and merely slower.
+///
+/// **The two protocols collide on both values, in opposite directions.**
+/// `ADMIT` is `FAIL`'s value and `DECLINE` is `OK`'s. So a `brif` copied from
+/// the status pattern — `brif status, fail, next` — would run the inlined ops
+/// exactly when the guard refused them, and a status-style error check would
+/// read an admission as a failure. Neither mistake changes a type or trips a
+/// test that only inspects results, which is why
+/// `the_admit_verdict_is_not_a_status` asserts the collision rather than
+/// trusting a comment.
+const ADMIT: i32 = 1;
+const DECLINE: i32 = 0;
+
+/// Everything one generic call site needs — the path a value takes when it is
+/// not inlined, and the path every guard falls back to.
+struct GenericCall {
+    tail_sig: cranelift_codegen::ir::SigRef,
+    callee: Value,
+    ctx_val: Value,
+    fail: Block,
+    ptr: Type,
+    base: Value,
+    drain_off: i32,
+    cells_base: Value,
+    request_off: i32,
+}
+
+/// **Emit one dispatched call and §S5's request check after it.**
+///
+/// `join` is where control goes when the call is done: `None` for a value that
+/// simply continues in the current block, `Some(block)` for the generic arm of
+/// an inlined site, which has to rejoin the path the region took.
+fn emit_generic_call(f: &mut FunctionBuilder<'_>, c: &GenericCall, join: Option<Block>) {
+    let call = f.ins().call_indirect(c.tail_sig, c.callee, &[c.ctx_val]);
+    let status = f.inst_results(call)[0];
+    let next = f.create_block();
+    f.ins().brif(status, c.fail, &[], next, &[]);
+    f.switch_to_block(next);
+
+    // **§S5's request check, in the emitted code.** "After every call, compiled
+    // code loads it beside the epoch and `autoadd`. If it is set, compiled code
+    // calls a drain helper."
+    let pending = f
+        .ins()
+        .uload32(MemFlagsData::trusted(), c.cells_base, c.request_off);
+    let drain = f.create_block();
+    let after = f.create_block();
+    f.ins().brif(pending, drain, &[], after, &[]);
+
+    f.switch_to_block(drain);
+    let drain_callee = f
+        .ins()
+        .load(c.ptr, MemFlagsData::trusted(), c.base, c.drain_off);
+    let drain_call = f.ins().call_indirect(c.tail_sig, drain_callee, &[c.ctx_val]);
+    let drain_status = f.inst_results(drain_call)[0];
+    f.ins().brif(drain_status, c.fail, &[], after, &[]);
+
+    f.switch_to_block(after);
+    if let Some(join) = join {
+        f.ins().jump(join, &[]);
+    }
+}
+
+/// Everything a fragment's ops need from the function they are emitted into.
+///
+/// Grouped rather than passed loose because the list is long and every field is
+/// the caller's: [`emit_fragment_ops`] creates no blocks of its own beyond the
+/// per-op continuations, and owns none of this.
+struct FragmentSite {
+    ptr: Type,
+    /// Where a pop helper writes the int it produced. One slot is enough: each
+    /// pop's value moves into its own `Variable` before the next.
+    slot: StackSlot,
+    ctx_val: Value,
+    /// Where any helper's non-zero status goes. The caller decides what that
+    /// block does — return `FAIL` for a whole arm, take the generic path for an
+    /// inlined site.
+    fail: Block,
+    pop: FuncRef,
+    push: FuncRef,
+    dup: FuncRef,
+    drop_: FuncRef,
+}
+
+/// **Emit one fragment's ops into the function being built**, and say whether
+/// any of them touched the stack.
+///
+/// Factored out of [`compile`] so an *inlined site* can emit the same ops in
+/// the middle of a compiled body (§S6). The two callers differ in what
+/// surrounds the ops, not in the ops themselves, which is the point: an arm and
+/// an inlined region must compute the same thing or criterion 16's differential
+/// is measuring two lowerings rather than one.
+///
+/// **It stops at the end of the op loop.** The `OK` return, the `fail` block's
+/// body, `seal_all_blocks` and `finalize` belong to the caller, because a whole
+/// arm *returns* where an inlined site *falls through* to the next value. A
+/// version of this that emitted the return would be unusable at a site, and the
+/// mistake would show up as unreachable code rather than as a failure.
+///
+/// **The register file is a compile-time renaming.** `PopInt` rotates the file
+/// and writes slot 0, exactly as `Op::PopInt` documents and `frag::run`
+/// performs at run time — here it costs nothing, because the "file" is a
+/// `Vec<Variable>` the emitter walks rather than storage the code touches.
+fn emit_fragment_ops(
+    f: &mut FunctionBuilder<'_>,
+    fragment: &Fragment,
+    site: &FragmentSite,
+) -> Result<bool, String> {
+    let (ptr, slot, ctx_val, fail) = (site.ptr, site.slot, site.ctx_val, site.fail);
+    let live = usize::from(fragment.registers());
+    let mut file: Vec<Variable> = Vec::with_capacity(live);
+    for _ in 0..live {
+        let v = f.declare_var(types::I64);
+        let zero = f.ins().iconst(types::I64, 0);
+        f.def_var(v, zero);
+        file.push(v);
+    }
+
+    let mut emitted_any_call = false;
+    for op in fragment.ops() {
+        match op {
+            Op::PopInt => {
+                let addr = f.ins().stack_addr(ptr, slot, 0);
+                let call = f.ins().call(site.pop, &[ctx_val, addr]);
+                let status = f.inst_results(call)[0];
+                let next = f.create_block();
+                f.ins().brif(status, fail, &[], next, &[]);
+                f.switch_to_block(next);
+                emitted_any_call = true;
+                // `stack_load(pointer_type, loaded_type, slot, offset)` —
+                // the generated builder takes both types, and the vendored
+                // `src/` does not carry these signatures at all: they live
+                // in `target/debug/build/cranelift-codegen-*/out/inst_builder.rs`.
+                let v = f.ins().stack_load(ptr, types::I64, slot, 0);
+                if file.is_empty() {
+                    return Err("a fragment popped into a register file it declared as empty".into());
+                }
+                file.rotate_right(1);
+                let Some(&dst) = file.first() else {
+                    return Err("the register file lost its first slot".into());
+                };
+                f.def_var(dst, v);
+            }
+            Op::PushInt(r) => {
+                let Some(&src) = file.get(usize::from(*r)) else {
+                    return Err(format!(
+                        "fragment op PushInt names register {r}, outside a file of {live}"
+                    ));
+                };
+                let v = f.use_var(src);
+                let call = f.ins().call(site.push, &[ctx_val, v]);
+                let status = f.inst_results(call)[0];
+                let next = f.create_block();
+                f.ins().brif(status, fail, &[], next, &[]);
+                f.switch_to_block(next);
+                emitted_any_call = true;
+            }
+            Op::DupTop | Op::DropTop => {
+                let callee = if matches!(op, Op::DupTop) {
+                    site.dup
+                } else {
+                    site.drop_
+                };
+                let call = f.ins().call(callee, &[ctx_val]);
+                let status = f.inst_results(call)[0];
+                let next = f.create_block();
+                f.ins().brif(status, fail, &[], next, &[]);
+                f.switch_to_block(next);
+                emitted_any_call = true;
+            }
+            Op::AddInt { dst, a, b } | Op::SubInt { dst, a, b } => {
+                let (Some(&va), Some(&vb)) = (file.get(usize::from(*a)), file.get(usize::from(*b)))
+                else {
+                    return Err(format!(
+                        "fragment op names registers {a} and {b}, outside a file of {live}"
+                    ));
+                };
+                let x = f.use_var(va);
+                let y = f.use_var(vb);
+                // Wrapping, as D4's `i64` arithmetic and the word are: a
+                // trapping or checked add is where a lowering would part
+                // company with `frag::run` at `i64::MAX`.
+                let r = if matches!(op, Op::AddInt { .. }) {
+                    f.ins().iadd(x, y)
+                } else {
+                    f.ins().isub(x, y)
+                };
+                let Some(&slot_dst) = file.get(usize::from(*dst)) else {
+                    return Err(format!(
+                        "fragment op names destination register {dst}, outside a file of {live}"
+                    ));
+                };
+                f.def_var(slot_dst, r);
+            }
+        }
+    }
+    Ok(emitted_any_call)
+}
+
+/// **Does this site's fragment admit the stack as it stands?** — RFC-0005 §S6.
+///
+/// `admits_with` takes a Rust closure over the stack, so compiled code cannot
+/// ask the guard itself; it calls here. The standalone fragment lowering has
+/// Rust ask the guard *before* entering the arm ("the emitted code may assume
+/// admission"), but an inlined site is reached mid-body with no Rust in
+/// between, so the question has to be asked from the emitted code — §S6, after
+/// the type guard admits and before the first op.
+///
+/// **It peeks and never pulls**, exactly as `frag::run` does: a declining guard
+/// must leave the stack as it found it, or the generic path it falls back to
+/// would run against a stack the guard had already eaten.
+///
+/// A site index the lowering never created is a broken invariant, and the
+/// answer is still [`DECLINE`] rather than an error: the generic path is
+/// correct for every site, so a lowering bug costs speed instead of meaning.
+extern "C" fn jit_admits(c: *mut Ctx<'_>, site: usize) -> i32 {
+    // SAFETY: the entry's contract, as every other adapter's.
+    let Some(c) = (unsafe { ctx(c) }) else {
+        return DECLINE;
+    };
+    let Some(fragment) = c.sites.get(site) else {
+        return DECLINE;
+    };
+    // Immutable reborrow: the guard reads depth and peeks, and both take
+    // `&self`, so nothing here can disturb what it is deciding about.
+    let vm = &*c.vm;
+    if fragment.admits_with(vm.depth(), |n| vm.peek_at(n)) {
+        ADMIT
+    } else {
+        DECLINE
+    }
+}
 
 /// **§S5's drain helper, as a callee compiled code reaches** — *A call may
 /// leave a body to run*.
@@ -439,6 +703,9 @@ impl Compiled {
             // are the whole of it.
             natives: &[],
             body: &[],
+            // Its guard is asked by Rust before entry, so the arm needs no
+            // site table of its own.
+            sites: &[],
         };
         // SAFETY: the entry is the address `finalize_definitions` published for
         // a function this module emitted under the host's own calling
@@ -570,95 +837,20 @@ pub fn compile(fragment: &Fragment) -> Result<Compiled, String> {
             3,
         ));
 
-        // The register file, as a compile-time renaming. `PopInt` rotates it
-        // right and writes slot 0, exactly as `Op::PopInt` documents and
-        // `frag::run` performs at run time — here it costs nothing.
-        let live = usize::from(fragment.registers());
-        let mut file: Vec<Variable> = Vec::with_capacity(live);
-        for _ in 0..live {
-            let v = f.declare_var(types::I64);
-            let zero = f.ins().iconst(types::I64, 0);
-            f.def_var(v, zero);
-            file.push(v);
-        }
-
-        let mut emitted_any_call = false;
-        for op in fragment.ops() {
-            match op {
-                Op::PopInt => {
-                    let addr = f.ins().stack_addr(ptr, slot, 0);
-                    let call = f.ins().call(pop, &[ctx_val, addr]);
-                    let status = f.inst_results(call)[0];
-                    let next = f.create_block();
-                    f.ins().brif(status, fail, &[], next, &[]);
-                    f.switch_to_block(next);
-                    emitted_any_call = true;
-                    // `stack_load(pointer_type, loaded_type, slot, offset)` —
-                    // the generated builder takes both types, and the vendored
-                    // `src/` does not carry these signatures at all: they live
-                    // in `target/debug/build/cranelift-codegen-*/out/inst_builder.rs`.
-                    let v = f.ins().stack_load(ptr, types::I64, slot, 0);
-                    if file.is_empty() {
-                        return Err(
-                            "a fragment popped into a register file it declared as empty".into()
-                        );
-                    }
-                    file.rotate_right(1);
-                    let Some(&dst) = file.first() else {
-                        return Err("the register file lost its first slot".into());
-                    };
-                    f.def_var(dst, v);
-                }
-                Op::PushInt(r) => {
-                    let Some(&src) = file.get(usize::from(*r)) else {
-                        return Err(format!(
-                            "fragment op PushInt names register {r}, outside a file of {live}"
-                        ));
-                    };
-                    let v = f.use_var(src);
-                    let call = f.ins().call(push, &[ctx_val, v]);
-                    let status = f.inst_results(call)[0];
-                    let next = f.create_block();
-                    f.ins().brif(status, fail, &[], next, &[]);
-                    f.switch_to_block(next);
-                    emitted_any_call = true;
-                }
-                Op::DupTop | Op::DropTop => {
-                    let callee = if matches!(op, Op::DupTop) { dup } else { drop_ };
-                    let call = f.ins().call(callee, &[ctx_val]);
-                    let status = f.inst_results(call)[0];
-                    let next = f.create_block();
-                    f.ins().brif(status, fail, &[], next, &[]);
-                    f.switch_to_block(next);
-                    emitted_any_call = true;
-                }
-                Op::AddInt { dst, a, b } | Op::SubInt { dst, a, b } => {
-                    let (Some(&va), Some(&vb)) =
-                        (file.get(usize::from(*a)), file.get(usize::from(*b)))
-                    else {
-                        return Err(format!(
-                            "fragment op names registers {a} and {b}, outside a file of {live}"
-                        ));
-                    };
-                    let x = f.use_var(va);
-                    let y = f.use_var(vb);
-                    // Wrapping, as D4's `i64` arithmetic and the word are: a
-                    // trapping or checked add is where a lowering would part
-                    // company with `frag::run` at `i64::MAX`.
-                    let r = if matches!(op, Op::AddInt { .. }) {
-                        f.ins().iadd(x, y)
-                    } else {
-                        f.ins().isub(x, y)
-                    };
-                    let Some(&slot_dst) = file.get(usize::from(*dst)) else {
-                        return Err(format!(
-                            "fragment op names destination register {dst}, outside a file of {live}"
-                        ));
-                    };
-                    f.def_var(slot_dst, r);
-                }
-            }
-        }
+        let emitted_any_call = emit_fragment_ops(
+            &mut f,
+            fragment,
+            &FragmentSite {
+                ptr,
+                slot,
+                ctx_val,
+                fail,
+                pop,
+                push,
+                dup,
+                drop_,
+            },
+        )?;
 
         let ok = f.ins().iconst(types::I32, i64::from(OK));
         f.ins().return_(&[ok]);
@@ -787,6 +979,7 @@ impl CompiledBody {
             err: None,
             natives,
             body: &[],
+            sites: &[],
         };
         // SAFETY: the entry is the trampoline's published address, under the
         // platform's convention, and `&mut c` is live for the whole call. The
@@ -848,6 +1041,18 @@ impl Adapter {
     fn drain_symbol() -> (&'static str, *const u8) {
         ("jit_drain", jit_drain as *const u8)
     }
+
+    /// **§S6's type guard**, the same for either adapter: it asks whether a
+    /// site's fragment admits the stack, and that question does not depend on
+    /// what the surrounding body is doing.
+    ///
+    /// Reached through a slot like every other callee, so criterion 4's rule
+    /// holds: the only relocations stay "a thunk calling its adapter" and "the
+    /// trampoline calling the body". Each inlined site gets its own thunk,
+    /// baking its site index, exactly as each call gets one baking its index.
+    fn admits_symbol() -> (&'static str, *const u8) {
+        ("jit_admits", jit_admits as *const u8)
+    }
 }
 
 /// **Where a compiled word lives: a handle into its [`Compiler`].**
@@ -876,6 +1081,36 @@ struct Word {
     _slots: Box<[*const u8]>,
     values: usize,
     last: LastCall,
+    /// **The fragments this word inlined, by site index** — §S6.
+    ///
+    /// Read at run time by [`jit_admits`], through [`Ctx::sites`]: the type
+    /// guard is a question about the stack as it stands, so the fragment has to
+    /// outlive compilation. Empty for a word that inlined nothing.
+    sites: Vec<Fragment>,
+}
+
+/// **What the lowering decided about one value of a body** — §S6's join.
+///
+/// Every value is either applied through `Vm::apply` at run time, exactly as
+/// before, or inlined behind three guards. A value is only ever inlined when
+/// all of §S6's rules hold, and the generic path stays emitted beside it: a
+/// guard that refuses falls through to the very call the value would otherwise
+/// have made, so nothing is lost but speed.
+#[derive(Debug, Clone)]
+enum Plan {
+    /// Dispatched: load the slot, call through it, then §S5's request check.
+    Call,
+    /// Inlined, guarded. `site` indexes the word's fragment table.
+    Inline {
+        site: usize,
+        /// The slot's generation when the fragment was inlined against it. The
+        /// emitted guard compares the cell against this and takes the generic
+        /// path when they differ (§S6, *Inlining freezes a name*).
+        generation: u32,
+        /// The address of that name's generation cell, embedded as an
+        /// immediate (§S6, *Addressing*).
+        cell: i64,
+    },
 }
 
 /// **One `JITModule`, and every word compiled into it.**
@@ -899,14 +1134,30 @@ struct Word {
 pub struct Compiler {
     module: JITModule,
     words: Vec<Word>,
+    /// **The fragment table — `(registration id, Fragment)` pairs** §S6 has
+    /// `bund2-stdlib` publish and this crate read.
+    ///
+    /// **Handed in rather than fetched**, because `fragments::published` takes
+    /// a `&Registry` and the tier holds only a `&mut dyn Vm` — §S6 designs the
+    /// `Vm` trait to expose no registry, and a `Vm` method returning fragments
+    /// would put `Fragment` into `bund2-api`, which D9 forbids. `bund2-runtime`
+    /// builds the table, since it constructs the `Interp` and has its registry
+    /// in hand, and passes it down.
+    ///
+    /// Empty is a valid table: every site then takes the generic path.
+    table: Vec<(bund2_api::RegistrationId, Fragment)>,
 }
 
 impl Compiler {
     /// A compiler with an empty module, ready to take bodies.
-    pub fn new() -> Result<Self, String> {
+    ///
+    /// `table` is §S6's published fragments. Pass an empty one to compile with
+    /// no inlining at all, which is what a `Vm` that publishes nothing gets.
+    pub fn new(table: Vec<(bund2_api::RegistrationId, Fragment)>) -> Result<Self, String> {
         Ok(Self {
             module: new_module(Adapter::Apply)?,
             words: Vec::new(),
+            table,
         })
     }
 
@@ -932,25 +1183,78 @@ impl Compiler {
     /// compiler is what guarantees that (criterion 23).
     pub fn compile_word(
         &mut self,
-        values: usize,
+        body: &[BundValue],
         last: LastCall,
         cells: usize,
+        vm: &mut dyn Vm,
     ) -> Result<WordHandle, String> {
+        let values = body.len();
         if values == 0 {
             return Err("a word with an empty body has nothing to lower".into());
         }
         let cells =
             i64::try_from(cells).map_err(|_| "the cells' address does not fit".to_string())?;
         let seq = self.words.len();
+        let (plan, sites) = self.plan_body(body, vm);
         let (entry, slots) =
-            emit_into(&mut self.module, seq, values, last, Adapter::Apply, cells)?;
+            emit_into(&mut self.module, seq, &plan, &sites, last, Adapter::Apply, cells)?;
         self.words.push(Word {
             entry,
             _slots: slots,
             values,
             last,
+            sites,
         });
         Ok(WordHandle(seq))
+    }
+
+    /// **Plan a body's values — §S6's join, at compile time.**
+    ///
+    /// Each value becomes either [`Plan::Call`], dispatched through its slot as
+    /// every value is today, or [`Plan::Inline`] behind three guards. A value
+    /// is inlined only when every one of §S6's rules holds, and each rule that
+    /// does not simply yields a call:
+    ///
+    /// - the value is a `CALL` naming a word — a literal or a `CONTEXT` is not
+    ///   a site at all;
+    /// - [`Vm::inline_site`] answers, which is where §S6's three rules live:
+    ///   a direct resolution, an unsaturated slot, and a registration id;
+    /// - this compiler's table publishes a fragment for **that registration**,
+    ///   not merely for that name.
+    ///
+    /// The fragments collected here travel with the word, because the type
+    /// guard is asked at run time against the stack as it stands.
+    fn plan_body(&self, body: &[BundValue], vm: &mut dyn Vm) -> (Vec<Plan>, Vec<Fragment>) {
+        let mut plan = Vec::with_capacity(body.len());
+        let mut sites = Vec::new();
+        for v in body {
+            let inlined = (v.dt() == bund2_value::CALL)
+                .then(|| v.as_str())
+                .flatten()
+                .and_then(|name| vm.inline_site(&name))
+                .and_then(|s| {
+                    let fragment = self
+                        .table
+                        .iter()
+                        .find(|(id, _)| *id == s.registration)
+                        .map(|(_, f)| f.clone())?;
+                    let cell = i64::try_from(s.cell).ok()?;
+                    Some((fragment, s.generation, cell))
+                });
+            match inlined {
+                Some((fragment, generation, cell)) => {
+                    let site = sites.len();
+                    sites.push(fragment);
+                    plan.push(Plan::Inline {
+                        site,
+                        generation,
+                        cell,
+                    });
+                }
+                None => plan.push(Plan::Call),
+            }
+        }
+        (plan, sites)
     }
 
     /// Apply the body's values in order, through Tier 0's own `apply`.
@@ -977,6 +1281,9 @@ impl Compiler {
             err: None,
             natives: &[],
             body,
+            // The word's own fragments, so `jit_admits` can ask each site's
+            // guard against the stack as it stands.
+            sites: &w.sites,
         };
         // SAFETY: as `CompiledBody::run`'s — the trampoline's published address
         // under the platform's convention, with `&mut c` live for the call. The
@@ -1004,6 +1311,28 @@ impl Compiler {
     /// How many words this compiler has emitted.
     pub fn compiled_words(&self) -> usize {
         self.words.len()
+    }
+
+    /// **How many of a word's values were inlined** — §S6's join, as a number a
+    /// test can read.
+    ///
+    /// Without this, "did it inline?" could only be inferred from timing, which
+    /// is precisely the evidence that cannot distinguish an inlined arm from a
+    /// fast generic call. `None` for a handle this compiler never issued.
+    pub fn inlined_sites(&self, word: WordHandle) -> Option<usize> {
+        self.words.get(word.0).map(|w| w.sites.len())
+    }
+
+    /// **Inlined sites across every word this compiler emitted.**
+    ///
+    /// What `bund2 --stats` reports beside the body count, and the figure that
+    /// makes a timing attributable: a compiled body that inlined nothing is
+    /// still routing every value through `Vm::apply`, which is the shape
+    /// criterion 10's dated note excludes from its A/B. Without this, a
+    /// measurement cannot tell "the lowering does not pay" from "the lowering
+    /// did not happen".
+    pub fn inlined_total(&self) -> usize {
+        self.words.iter().map(|w| w.sites.len()).sum()
     }
 }
 
@@ -1041,7 +1370,10 @@ fn emit_body(
     cells: i64,
 ) -> Result<CompiledBody, String> {
     let mut module = new_module(adapter)?;
-    let (entry, slots) = emit_into(&mut module, 0, calls, last, adapter, cells)?;
+    // The native-calling lowering inlines nothing: its "values" are natives to
+    // call, not a Bund body to plan over. Every site is generic.
+    let plan = vec![Plan::Call; calls];
+    let (entry, slots) = emit_into(&mut module, 0, &plan, &[], last, adapter, cells)?;
     Ok(CompiledBody {
         _module: module,
         entry,
@@ -1065,6 +1397,17 @@ fn new_module(adapter: Adapter) -> Result<JITModule, String> {
     // §S5's drain helper, which the body reaches through its own slot when the
     // request cell is set.
     builder.symbol(drain_name, drain_ptr);
+    // **§S6's type guard and the four fragment helpers.** A body that inlines
+    // an arm reaches all five: `jit_admits` to ask whether the guard admits,
+    // and the stack helpers the arm's ops call. Bound unconditionally — a
+    // symbol nothing imports costs nothing, and binding them per-body would
+    // mean deciding at module construction what a later body may inline.
+    let (admits_name, admits_ptr) = Adapter::admits_symbol();
+    builder.symbol(admits_name, admits_ptr);
+    builder.symbol("jit_pop_int", jit_pop_int as *const u8);
+    builder.symbol("jit_push_int", jit_push_int as *const u8);
+    builder.symbol("jit_dup_top", jit_dup_top as *const u8);
+    builder.symbol("jit_drop_top", jit_drop_top as *const u8);
     Ok(JITModule::new(builder))
 }
 
@@ -1081,11 +1424,20 @@ fn new_module(adapter: Adapter) -> Result<JITModule, String> {
 fn emit_into(
     module: &mut JITModule,
     seq: usize,
-    calls: usize,
+    plan: &[Plan],
+    sites: &[Fragment],
     last: LastCall,
     adapter: Adapter,
     cells: i64,
 ) -> Result<(Entry, Box<[*const u8]>), String> {
+    // One value, one call slot — whether or not the value is inlined, because
+    // an inlined site keeps its generic path beside it and reaches it through
+    // that slot when a guard refuses.
+    let calls = plan.len();
+    let inlined = plan
+        .iter()
+        .filter(|p| matches!(p, Plan::Inline { .. }))
+        .count();
     let adapter_name = adapter.symbol().0;
     let drain_adapter_name = Adapter::drain_symbol().0;
     // **A body must know where its cells are.** §S6 has the lowering embed the
@@ -1106,9 +1458,15 @@ fn emit_into(
     // criterion 4's rule holds unchanged — no call between compiled functions
     // names a `FuncId`, and the only relocations stay "a thunk calling its
     // adapter" and "the trampoline calling the body".
-    let mut slots: Box<[*const u8]> = vec![std::ptr::null(); calls + 1].into_boxed_slice();
+    //
+    // **And one per inlined site**, for §S6's type guard: an inlined site asks
+    // `jit_admits` through a slot for the same reason a call reaches its
+    // adapter through one.
+    let mut slots: Box<[*const u8]> =
+        vec![std::ptr::null(); calls + 1 + inlined].into_boxed_slice();
     let slots_base = slots.as_ptr() as i64;
     let drain_slot = calls;
+    let admits_slot_base = calls + 1;
 
     // The adapter: `(ctx, native) -> status`, under the platform's convention,
     // because it is a Rust function.
@@ -1124,6 +1482,39 @@ fn emit_into(
     let drain_adapter_id = module
         .declare_function(drain_adapter_name, Linkage::Import, &sig_adapter)
         .map_err(|e| format!("declare {drain_adapter_name}: {e}"))?;
+    // **§S6's type guard**, same `(ctx, index) -> status` shape: the index is
+    // the site, and the answer is a verdict rather than a status (see `ADMIT`).
+    let admits_adapter_name = Adapter::admits_symbol().0;
+    let admits_adapter_id = module
+        .declare_function(admits_adapter_name, Linkage::Import, &sig_adapter)
+        .map_err(|e| format!("declare {admits_adapter_name}: {e}"))?;
+
+    // The four stack helpers an inlined arm's ops call. Declared whether or not
+    // this body inlines: an import nothing references costs nothing, and
+    // deciding here would mean knowing at module level what a later body wants.
+    let mut sig_pop = Signature::new(conv);
+    sig_pop.params.push(AbiParam::new(ptr));
+    sig_pop.params.push(AbiParam::new(ptr));
+    sig_pop.returns.push(AbiParam::new(types::I32));
+    let mut sig_push = Signature::new(conv);
+    sig_push.params.push(AbiParam::new(ptr));
+    sig_push.params.push(AbiParam::new(types::I64));
+    sig_push.returns.push(AbiParam::new(types::I32));
+    let mut sig_bare = Signature::new(conv);
+    sig_bare.params.push(AbiParam::new(ptr));
+    sig_bare.returns.push(AbiParam::new(types::I32));
+    let pop_id = module
+        .declare_function("jit_pop_int", Linkage::Import, &sig_pop)
+        .map_err(|e| format!("declare jit_pop_int: {e}"))?;
+    let push_id = module
+        .declare_function("jit_push_int", Linkage::Import, &sig_push)
+        .map_err(|e| format!("declare jit_push_int: {e}"))?;
+    let dup_id = module
+        .declare_function("jit_dup_top", Linkage::Import, &sig_bare)
+        .map_err(|e| format!("declare jit_dup_top: {e}"))?;
+    let drop_id = module
+        .declare_function("jit_drop_top", Linkage::Import, &sig_bare)
+        .map_err(|e| format!("declare jit_drop_top: {e}"))?;
 
     // Thunks and the body are `Tail`, so `return_call_indirect` is legal from
     // any tail position: "body to body, and body to a native's thunk".
@@ -1143,6 +1534,18 @@ fn emit_into(
         .declare_function(&format!("bund2_drain_{seq}"), Linkage::Export, &sig_tail)
         .map_err(|e| format!("declare bund2_drain_{seq}: {e}"))?;
     thunk_ids.push(drain_thunk_id);
+    // One guard thunk per inlined site, each baking its site index, exactly as
+    // each call thunk bakes its call index.
+    for k in 0..inlined {
+        let id = module
+            .declare_function(
+                &format!("bund2_admits_{seq}_{k}"),
+                Linkage::Export,
+                &sig_tail,
+            )
+            .map_err(|e| format!("declare bund2_admits_{seq}_{k}: {e}"))?;
+        thunk_ids.push(id);
+    }
     let body_id = module
         .declare_function(&format!("bund2_body_{seq}"), Linkage::Export, &sig_tail)
         .map_err(|e| format!("declare bund2_body_{seq}: {e}"))?;
@@ -1156,6 +1559,8 @@ fn emit_into(
 
     let mut cg = module.make_context();
     let mut fb_ctx = FunctionBuilderContext::new();
+    // Filled by the body emitter, read by the dominance check after it.
+    let side_table: Vec<(Block, Block)>;
 
     // --- the thunks: one ordinary call to the adapter, with the index baked in
     for (i, &id) in thunk_ids.iter().enumerate() {
@@ -1167,17 +1572,22 @@ fn emit_into(
             // the request cell after a non-tail call and not after a tail one.
             // The last thunk in this vector is the drain thunk, which imports
             // the drain adapter instead.
-            let which = if i == drain_slot {
-                drain_adapter_id
+            // Three kinds now: the call thunks, the one drain thunk, and a
+            // guard thunk per inlined site. The index each bakes differs too —
+            // a call thunk's is its call, a guard thunk's is its *site*.
+            let (which, baked) = if i < calls {
+                (adapter_id, i)
+            } else if i == drain_slot {
+                (drain_adapter_id, 0)
             } else {
-                adapter_id
+                (admits_adapter_id, i - admits_slot_base)
             };
             let adapter = module.declare_func_in_func(which, f.func);
             let block = f.create_block();
             f.append_block_params_for_function_params(block);
             f.switch_to_block(block);
             let ctx_val = f.block_params(block)[0];
-            let idx = f.ins().iconst(ptr, i as i64);
+            let idx = f.ins().iconst(ptr, baked as i64);
             // The one relocation criterion 4 allows on this side: "a native's
             // `Tail` thunk calling its Rust adapter".
             let call = f.ins().call(adapter, &[ctx_val, idx]);
@@ -1209,6 +1619,25 @@ fn emit_into(
         let cells_base = f.ins().iconst(ptr, cells);
         let request_off = i32::try_from(bund2_api::Cells::request_offset())
             .map_err(|_| "the request cell's offset does not fit".to_string())?;
+        let autoadd_off = i32::try_from(bund2_api::Cells::autoadd_offset())
+            .map_err(|_| "the autoadd cell's offset does not fit".to_string())?;
+
+        // What an inlined arm's ops need: the four helpers, and one slot for a
+        // popped int. Created whether or not this body inlines — an unused
+        // import references nothing and an unused slot is eight bytes.
+        let pop = module.declare_func_in_func(pop_id, f.func);
+        let push = module.declare_func_in_func(push_id, f.func);
+        let dup = module.declare_func_in_func(dup_id, f.func);
+        let drop_ = module.declare_func_in_func(drop_id, f.func);
+        let pop_slot = f.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+            cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+            8,
+            3,
+        ));
+
+        // Criterion 17's side table: for each inlined region, the block its
+        // guard was decided in and the block its ops begin in.
+        let mut regions: Vec<(Block, Block)> = Vec::with_capacity(inlined);
 
         let width = i32::try_from(ptr.bytes()).map_err(|_| "pointer too wide".to_string())?;
         let drain_off = i32::try_from(drain_slot)
@@ -1224,39 +1653,151 @@ fn emit_into(
                 .map_err(|_| "call index does not fit an offset".to_string())?
                 .checked_mul(width)
                 .ok_or_else(|| "the slot table's offset overflows".to_string())?;
-            let callee = f.ins().load(ptr, MemFlagsData::trusted(), base, off);
             let is_last = i + 1 == calls;
-            if is_last && last == LastCall::Tail {
-                // §S8's claimed tail call. A terminator: nothing follows it,
-                // and the thunk's status becomes the body's.
-                f.ins().return_call_indirect(tail_sig, callee, &[ctx_val]);
-            } else {
-                let call = f.ins().call_indirect(tail_sig, callee, &[ctx_val]);
-                let status = f.inst_results(call)[0];
-                let next = f.create_block();
-                f.ins().brif(status, fail, &[], next, &[]);
-                f.switch_to_block(next);
+            let tail_here = is_last && last == LastCall::Tail;
 
-                // **§S5's request check, in the emitted code.** "After every
-                // call, compiled code loads it beside the epoch and `autoadd`.
-                // If it is set, compiled code calls a drain helper." Only after
-                // a non-tail call: a body's last call hands the request back
-                // instead, so this arm is the only one that reads the cell.
-                let pending = f
-                    .ins()
-                    .uload32(MemFlagsData::trusted(), cells_base, request_off);
-                let drain = f.create_block();
-                let after = f.create_block();
-                f.ins().brif(pending, drain, &[], after, &[]);
+            // **A tail-position value is never inlined.** `return_call_indirect`
+            // is a terminator and an inlined region falls through to the next
+            // value; the two cannot occupy the same position. Such a value takes
+            // the generic path, and its guard thunk is emitted but never called.
+            let inline_here = match plan.get(i) {
+                Some(Plan::Inline {
+                    site,
+                    generation,
+                    cell,
+                }) if !tail_here => Some((*site, *generation, *cell)),
+                _ => None,
+            };
 
-                f.switch_to_block(drain);
-                let drain_callee = f.ins().load(ptr, MemFlagsData::trusted(), base, drain_off);
-                let drain_call = f.ins().call_indirect(tail_sig, drain_callee, &[ctx_val]);
-                let drain_status = f.inst_results(drain_call)[0];
-                f.ins().brif(drain_status, fail, &[], after, &[]);
+            let Some((site, generation, cell)) = inline_here else {
+                let callee = f.ins().load(ptr, MemFlagsData::trusted(), base, off);
+                if tail_here {
+                    // §S8's claimed tail call. A terminator: nothing follows it,
+                    // and the thunk's status becomes the body's.
+                    f.ins().return_call_indirect(tail_sig, callee, &[ctx_val]);
+                } else {
+                    emit_generic_call(
+                        &mut f,
+                        &GenericCall {
+                            tail_sig,
+                            callee,
+                            ctx_val,
+                            fail,
+                            ptr,
+                            base,
+                            drain_off,
+                            cells_base,
+                            request_off,
+                        },
+                        None,
+                    );
+                }
+                continue;
+            };
 
-                f.switch_to_block(after);
-            }
+            // **§S6's inlined site: three guards, then the arm.** Each guard
+            // that refuses branches to the generic path — the very call this
+            // value would otherwise have made, emitted below — so a refusal
+            // costs nothing but the speed it was trying to buy. There is no
+            // bail and no OSR: control never leaves compiled code.
+            let admits_off = i32::try_from(admits_slot_base + site)
+                .map_err(|_| "the guard slot index does not fit an offset".to_string())?
+                .checked_mul(width)
+                .ok_or_else(|| "the guard slot's offset overflows".to_string())?;
+            let guard_callee = f.ins().load(ptr, MemFlagsData::trusted(), base, admits_off);
+            let verdict_call = f.ins().call_indirect(tail_sig, guard_callee, &[ctx_val]);
+            let verdict = f.inst_results(verdict_call)[0];
+
+            // The block the guard is decided in — criterion 17's dominance is
+            // asserted from here to the region's first block.
+            let guard_block = f
+                .current_block()
+                .ok_or_else(|| "the guard was emitted outside a block".to_string())?;
+
+            let meaning = f.create_block();
+            let generic = f.create_block();
+            let join = f.create_block();
+            // **On the verdict, not on a status.** `ADMIT` is `FAIL`'s value:
+            // an is-error test here would invert the guard.
+            f.ins().brif(verdict, meaning, &[], generic, &[]);
+
+            // **Guard two: the slot still holds the binding we inlined
+            // against.** §S6, *Inlining freezes a name* — an inlined fragment
+            // goes through no slot, so a redefinition would otherwise be
+            // invisible to it.
+            f.switch_to_block(meaning);
+            let cell_addr = f.ins().iconst(ptr, cell);
+            let now = f.ins().uload32(MemFlagsData::trusted(), cell_addr, 0);
+            // **`_u`, because the generation is unsigned.** `uload32` brings
+            // the cell in zero-extended, and `Slot::bump` saturates at
+            // `u32::MAX` rather than wrapping — so a generation above
+            // `i32::MAX` is reachable, and the sign-extending form would
+            // compare it against a negative immediate and never match. The
+            // bare `icmp_imm` is deprecated at 0.135 for exactly this
+            // ambiguity, as `iadd_imm` was.
+            let unchanged = f
+                .ins()
+                .icmp_imm_u(IntCC::Equal, now, i64::from(generation));
+            let mode = f.create_block();
+            f.ins().brif(unchanged, mode, &[], generic, &[]);
+
+            // **Guard three: `autoadd` is clear.** Under it a `CALL` is not a
+            // call at all (§S4's step 3), so an inlined arm would be the wrong
+            // thing entirely rather than merely stale.
+            f.switch_to_block(mode);
+            let aa = f
+                .ins()
+                .uload32(MemFlagsData::trusted(), cells_base, autoadd_off);
+            let region = f.create_block();
+            f.ins().brif(aa, generic, &[], region, &[]);
+
+            // The arm itself. **No request check follows it**: a fragment calls
+            // only the four stack helpers, none of which files a tail request,
+            // so §S5's after-every-call load belongs to the generic path alone.
+            f.switch_to_block(region);
+            let Some(fragment) = sites.get(site) else {
+                return Err(format!(
+                    "the lowering planned site {site}, outside the {} fragments it was given",
+                    sites.len()
+                ));
+            };
+            emit_fragment_ops(
+                &mut f,
+                fragment,
+                &FragmentSite {
+                    ptr,
+                    slot: pop_slot,
+                    ctx_val,
+                    fail,
+                    pop,
+                    push,
+                    dup,
+                    drop_,
+                },
+            )?;
+            f.ins().jump(join, &[]);
+            regions.push((guard_block, region));
+
+            // The generic path, beside the region rather than instead of it.
+            f.switch_to_block(generic);
+            let callee = f.ins().load(ptr, MemFlagsData::trusted(), base, off);
+            emit_generic_call(
+                &mut f,
+                &GenericCall {
+                    tail_sig,
+                    callee,
+                    ctx_val,
+                    fail,
+                    ptr,
+                    base,
+                    drain_off,
+                    cells_base,
+                    request_off,
+                },
+                Some(join),
+            );
+
+            f.switch_to_block(join);
         }
         if last == LastCall::Ordinary {
             let ok = f.ins().iconst(types::I32, i64::from(OK));
@@ -1267,7 +1808,30 @@ fn emit_into(
         f.ins().return_(&[bad]);
         f.seal_all_blocks();
         f.finalize(frontend);
+        side_table = regions;
     }
+
+    // **Criterion 17, as a refusal rather than an assertion.** "Every inlined
+    // region in the emitted code is preceded, on every path into it, by a load
+    // and compare" — a dominance property. Checking it here, before the
+    // function is defined, makes a lowering that could skip a guard *fail to
+    // compile* rather than ship and be caught by a test; and it cannot panic,
+    // which a `debug_assert` in emitted-code territory would.
+    if !side_table.is_empty() {
+        let cfg = ControlFlowGraph::with_function(&cg.func);
+        let mut domtree = DominatorTree::new();
+        domtree.compute(&cg.func, &cfg);
+        for (guard, region) in &side_table {
+            if !domtree.block_dominates(*guard, *region) {
+                return Err(format!(
+                    "an inlined region at {region} is reachable by a path that does not pass \
+                     its guard at {guard}: RFC-0005 criterion 17 requires the guard to \
+                     dominate every path into the region"
+                ));
+            }
+        }
+    }
+
     module
         .define_function(body_id, &mut cg)
         .map_err(|e| format!("define bund2_body_{seq}: {e}"))?;
@@ -1851,6 +2415,237 @@ mod tests {
         assert!(!vm.cells().request(), "and nothing is left pending");
     }
 
+    // --- §S6's join: a body that inlines a published arm --------------------
+
+    /// An `Interp` with the vocabulary, and §S6's fragment table taken from it.
+    ///
+    /// The table is keyed by the registration ids `register_all` just minted,
+    /// so it has to be taken from *this* registry — a table from another
+    /// `Interp` would match nothing, which is D43's point.
+    fn with_fragments() -> (Interp, Vec<(bund2_api::RegistrationId, Fragment)>) {
+        let vm = with_stdlib();
+        let table = bund2_stdlib::fragments::published(&vm.registry).expect("well-formed");
+        (vm, table)
+    }
+
+    /// **The join, end to end: a real body inlines a real arm, and agrees with
+    /// Tier 0.**
+    ///
+    /// `{ 1 2 + }` has one inlinable value. The two literals are not `CALL`s
+    /// and so are not sites at all; `+` resolves directly to a native whose
+    /// registration the table publishes, so it becomes an inlined region behind
+    /// three guards. The count is asserted rather than inferred, because timing
+    /// cannot tell an inlined arm from a quick call.
+    ///
+    /// The differential is the one that matters: whatever the lowering did, the
+    /// stack it leaves must be the stack `Interp::eval` leaves.
+    #[test]
+    fn a_body_inlines_a_published_arm_and_agrees_with_tier_zero() {
+        let (mut vm, table) = with_fragments();
+        let mut c = Compiler::new(table).expect("a compiler");
+        let body = add_body();
+        let cells = vm.cells().base();
+        let word = c
+            .compile_word(&body, LastCall::Ordinary, cells, &mut vm)
+            .expect("lowers");
+
+        assert_eq!(
+            c.inlined_sites(word),
+            Some(1),
+            "`+` publishes an arm and resolves directly, so it is a site; the \
+             two literals are not `CALL`s and never are"
+        );
+
+        c.run(word, &mut vm, &body).expect("the compiled word ran");
+
+        let mut tier0 = with_stdlib();
+        tier0.eval(&body).expect("Tier 0 runs the same body");
+
+        let (a, b) = (tier0.snapshot(), vm.snapshot());
+        assert_eq!(a.len(), b.len(), "depth: {a:?} vs {b:?}");
+        for (x, y) in a.iter().zip(b.iter()) {
+            assert_eq!(x.as_int(), y.as_int(), "value: {a:?} vs {b:?}");
+            assert_eq!(x.dt(), y.dt(), "dt");
+        }
+        assert_eq!(b.first().and_then(BundValue::as_int), Some(3));
+    }
+
+    /// **An empty table inlines nothing**, and the same body still computes the
+    /// same answer through the generic path. Without this, the test above could
+    /// pass against a lowering that ignored the table and always inlined.
+    #[test]
+    fn without_a_table_the_same_body_takes_the_generic_path() {
+        let mut vm = with_stdlib();
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
+        let body = add_body();
+        let cells = vm.cells().base();
+        let word = c
+            .compile_word(&body, LastCall::Ordinary, cells, &mut vm)
+            .expect("lowers");
+
+        assert_eq!(c.inlined_sites(word), Some(0), "nothing published, nothing inlined");
+        c.run(word, &mut vm, &body).expect("it ran");
+        assert_eq!(vm.snapshot().first().and_then(BundValue::as_int), Some(3));
+    }
+
+    /// **`dup` is an alias, so §S6's direct-resolution rule refuses it.**
+    ///
+    /// The arm is published for `dup_one`, the native; `dup` reaches it through
+    /// a second slot whose rewrite would not touch the first's generation, so
+    /// there would be two generations to guard rather than one. The site is
+    /// called, not inlined — and that is the rule working, not a gap.
+    #[test]
+    fn an_aliased_name_is_called_rather_than_inlined() {
+        let (mut vm, table) = with_fragments();
+        let mut c = Compiler::new(table).expect("a compiler");
+        let cells = vm.cells().base();
+
+        let aliased = vec![BundValue::int(7), BundValue::call("dup")];
+        let word = c
+            .compile_word(&aliased, LastCall::Ordinary, cells, &mut vm)
+            .expect("lowers");
+        assert_eq!(
+            c.inlined_sites(word),
+            Some(0),
+            "`dup` is an alias for `dup_one`, so it resolves through a second slot"
+        );
+
+        let direct = vec![BundValue::int(7), BundValue::call("dup_one")];
+        let word = c
+            .compile_word(&direct, LastCall::Ordinary, cells, &mut vm)
+            .expect("lowers");
+        assert_eq!(
+            c.inlined_sites(word),
+            Some(1),
+            "the native under its own name is a direct resolution"
+        );
+    }
+
+    // --- §S6's type guard: the verdict, and its polarity --------------------
+
+    /// A context over `vm` with `sites` as its fragment table, for calling
+    /// [`jit_admits`] directly. The guard is the one thing a site asks before
+    /// anything is emitted, so it is tested on its own before any site exists.
+    fn admits_for(vm: &mut dyn Vm, sites: &[Fragment], site: usize) -> i32 {
+        let mut c = Ctx {
+            vm,
+            err: None,
+            natives: &[],
+            body: &[],
+            sites,
+        };
+        jit_admits(&raw mut c, site)
+    }
+
+    /// **The verdict's polarity, asserted from the specification rather than
+    /// from the code.**
+    ///
+    /// Every other helper answers a *status*: [`OK`] is `0` and means the call
+    /// succeeded, [`FAIL`] is `1` and means an error is parked. [`jit_admits`]
+    /// answers a *verdict*: [`ADMIT`] is `1`, [`DECLINE`] is `0`, and neither
+    /// is a failure.
+    ///
+    /// **The two protocols collide on both values, in opposite directions**, so
+    /// there is no value a confused branch could land on and still be right:
+    /// `ADMIT == FAIL`, so a status-style error check reads an admission as a
+    /// failure; `DECLINE == OK`, so `brif status, fail, next` copied from the
+    /// call pattern runs the inlined ops exactly when the guard refused them.
+    /// Both mistakes typecheck, and both leave every result-inspecting test
+    /// green. This is the test that does not.
+    #[test]
+    fn the_admit_verdict_is_not_a_status() {
+        assert_eq!(OK, 0, "a status: zero means success");
+        assert_eq!(FAIL, 1, "a status: one means an error is parked");
+        assert_eq!(ADMIT, 1, "a verdict: one means the guard admits");
+        assert_eq!(DECLINE, 0, "a verdict: zero means take the generic path");
+
+        assert_eq!(
+            ADMIT, FAIL,
+            "the collision is real: an emitted branch must test the verdict \
+             for ADMIT, never reuse a status's is-error test"
+        );
+        assert_eq!(
+            DECLINE, OK,
+            "and the other way: a decline is not a success, so a status's \
+             is-ok test would inline against a guard that refused"
+        );
+    }
+
+    /// The guard admits when it holds, and declines when it does not — the
+    /// behavioural half of the polarity, against `Int + Int`'s real fragment.
+    #[test]
+    fn the_guard_admits_only_what_the_fragment_promises() {
+        let sites = [add_arm()];
+
+        let mut vm = Interp::new();
+        vm.push(BundValue::int(1));
+        vm.push(BundValue::int(2));
+        assert_eq!(
+            admits_for(&mut vm, &sites, 0),
+            ADMIT,
+            "two unboxed ints are exactly what TopAreInt(2) promises"
+        );
+
+        let mut shallow = Interp::new();
+        shallow.push(BundValue::int(1));
+        assert_eq!(
+            admits_for(&mut shallow, &sites, 0),
+            DECLINE,
+            "one value is too few"
+        );
+
+        let mut wrong = Interp::new();
+        wrong.push(BundValue::int(1));
+        wrong.push(BundValue::str("s"));
+        assert_eq!(
+            admits_for(&mut wrong, &sites, 0),
+            DECLINE,
+            "a string on top is not an unboxed int"
+        );
+    }
+
+    /// **A declining guard leaves the stack as it found it.** `frag::run` peeks
+    /// and never pulls until the guard holds, and the emitted site must too:
+    /// the generic path it falls back to reads the same operands, and a guard
+    /// that had eaten them would leave the word running against a short stack.
+    #[test]
+    fn asking_the_guard_does_not_disturb_the_stack() {
+        let sites = [add_arm()];
+        let mut vm = Interp::new();
+        vm.push(BundValue::int(1));
+        vm.push(BundValue::str("s"));
+
+        let before = vm.snapshot();
+        assert_eq!(admits_for(&mut vm, &sites, 0), DECLINE);
+        let after = vm.snapshot();
+
+        assert_eq!(before.len(), after.len(), "depth unchanged: {after:?}");
+        for (a, b) in before.iter().zip(after.iter()) {
+            assert_eq!(a.render(false), b.render(false), "value unchanged");
+        }
+    }
+
+    /// A site index the lowering never created declines rather than failing.
+    /// The generic path is correct for every site, so a lowering bug costs
+    /// speed and not meaning — and nothing is parked in the context, because a
+    /// decline is not an error.
+    #[test]
+    fn an_unknown_site_declines_rather_than_erroring() {
+        let mut vm = Interp::new();
+        vm.push(BundValue::int(1));
+        vm.push(BundValue::int(2));
+        assert_eq!(
+            admits_for(&mut vm, &[], 0),
+            DECLINE,
+            "no table at all: decline"
+        );
+        assert_eq!(
+            admits_for(&mut vm, &[add_arm()], 7),
+            DECLINE,
+            "past the end of the table: decline"
+        );
+    }
+
     // --- §S5's drain helper: a call may leave a body to run -----------------
 
     /// **Criterion 26's shape, at the adapter.** A non-tail call must run a
@@ -2128,9 +2923,15 @@ mod tests {
 
     /// Compile a word against `vm`'s cells — the `compile_word` counterpart of
     /// [`lowered`], and the same ordering rule: the interpreter first.
-    fn word_in(c: &mut Compiler, vm: &Interp, values: usize, last: LastCall) -> WordHandle {
-        c.compile_word(values, last, vm.cells().base())
-            .expect("lowers")
+    /// Compile a word of `values` generic values against `vm`'s cells.
+    ///
+    /// The body is `values` literals, which inline nothing: a literal is not a
+    /// `CALL` and so never a site. Tests that want inlining build a real body
+    /// and call [`Compiler::compile_word`] directly.
+    fn word_in(c: &mut Compiler, vm: &mut Interp, values: usize, last: LastCall) -> WordHandle {
+        let cells = vm.cells().base();
+        let body: Vec<BundValue> = (0..values).map(|n| BundValue::int(n as i64)).collect();
+        c.compile_word(&body, last, cells, vm).expect("lowers")
     }
 
     /// `{ 1 2 + }` — a real word's body, as the parser would leave it.
@@ -2144,9 +2945,9 @@ mod tests {
         let mut tier0 = with_stdlib();
         let by_tier0 = tier0.eval(body);
 
-        let mut c = Compiler::new().expect("a compiler");
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
         let mut compiled = with_stdlib();
-        let word = word_in(&mut c, &compiled, body.len(), LastCall::Ordinary);
+        let word = word_in(&mut c, &mut compiled, body.len(), LastCall::Ordinary);
         let by_compiled = c.run(word, &mut compiled, body);
 
         assert_eq!(
@@ -2169,9 +2970,9 @@ mod tests {
     /// A compiled body that is a real word: literals pushed, a native called.
     #[test]
     fn a_compiled_word_runs_a_real_body() {
-        let mut c = Compiler::new().expect("a compiler");
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
         let mut vm = with_stdlib();
-        let word = word_in(&mut c, &vm, 3, LastCall::Ordinary);
+        let word = word_in(&mut c, &mut vm, 3, LastCall::Ordinary);
         assert_eq!(c.values(word), Some(3));
         c.run(word, &mut vm, &add_body()).expect("it ran");
         assert_eq!(vm.depth(), 1, "1 and 2 consumed, the sum left");
@@ -2207,9 +3008,9 @@ mod tests {
         tier0.set_autoadd(true);
         let by_tier0 = tier0.eval(&body);
 
-        let mut c = Compiler::new().expect("a compiler");
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
         let mut compiled = with_stdlib();
-        let word = word_in(&mut c, &compiled, body.len(), LastCall::Ordinary);
+        let word = word_in(&mut c, &mut compiled, body.len(), LastCall::Ordinary);
         compiled.set_autoadd(true);
         let by_compiled = c.run(word, &mut compiled, &body);
 
@@ -2230,8 +3031,8 @@ mod tests {
             .register_lambda("ten", BundValue::lambda(vec![BundValue::int(10)]));
         let body = vec![BundValue::call("ten"), BundValue::int(20)];
 
-        let mut c = Compiler::new().expect("a compiler");
-        let word = word_in(&mut c, &vm, 2, LastCall::Ordinary);
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
+        let word = word_in(&mut c, &mut vm, 2, LastCall::Ordinary);
         c.run(word, &mut vm, &body).expect("it ran");
 
         let stack = vm.snapshot();
@@ -2244,9 +3045,9 @@ mod tests {
     /// context rather than as an unwind (§S11).
     #[test]
     fn a_compiled_word_stops_at_the_first_failure() {
-        let mut c = Compiler::new().expect("a compiler");
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
         let mut vm = with_stdlib();
-        let word = word_in(&mut c, &vm, 2, LastCall::Ordinary);
+        let word = word_in(&mut c, &mut vm, 2, LastCall::Ordinary);
         // `+` on an empty stack fails; the `99` after it must not run.
         let body = vec![BundValue::call("+"), BundValue::int(99)];
         let e = c.run(word, &mut vm, &body).expect_err("the call failed");
@@ -2257,9 +3058,9 @@ mod tests {
     /// The tail-position variant runs the same body the same way.
     #[test]
     fn a_compiled_word_in_tail_position_runs_the_same_body() {
-        let mut c = Compiler::new().expect("a compiler");
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
         let mut vm = with_stdlib();
-        let word = word_in(&mut c, &vm, 3, LastCall::Tail);
+        let word = word_in(&mut c, &mut vm, 3, LastCall::Tail);
         assert_eq!(c.last_call(word), Some(LastCall::Tail));
         c.run(word, &mut vm, &add_body()).expect("it ran");
         assert_eq!(vm.snapshot().first().and_then(BundValue::as_int), Some(3));
@@ -2269,9 +3070,9 @@ mod tests {
     /// invariant in the caller, not a fact about the program.
     #[test]
     fn a_word_handed_the_wrong_body_length_is_an_internal_error() {
-        let mut c = Compiler::new().expect("a compiler");
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
         let mut vm = with_stdlib();
-        let word = word_in(&mut c, &vm, 3, LastCall::Ordinary);
+        let word = word_in(&mut c, &mut vm, 3, LastCall::Ordinary);
         let e = c
             .run(word, &mut vm, &[BundValue::int(1)])
             .expect_err("length mismatch");
@@ -2280,9 +3081,13 @@ mod tests {
 
     #[test]
     fn a_word_with_an_empty_body_is_refused() {
-        let mut c = Compiler::new().expect("a compiler");
-        let vm = Interp::new();
-        assert!(c.compile_word(0, LastCall::Ordinary, vm.cells().base()).is_err());
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
+        let mut vm = Interp::new();
+        let cells = vm.cells().base();
+        assert!(
+            c.compile_word(&[], LastCall::Ordinary, cells, &mut vm)
+                .is_err()
+        );
     }
 
     /// **Two words in one module stay distinct.** `declare_function` *merges* a
@@ -2295,10 +3100,10 @@ mod tests {
     /// first word is run again *after* the second is emitted.
     #[test]
     fn two_words_compiled_into_one_module_stay_distinct() {
-        let mut c = Compiler::new().expect("a compiler");
-        let host = with_stdlib();
-        let sum = word_in(&mut c, &host, 3, LastCall::Ordinary);
-        let lone = word_in(&mut c, &host, 1, LastCall::Ordinary);
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
+        let mut host = with_stdlib();
+        let sum = word_in(&mut c, &mut host, 3, LastCall::Ordinary);
+        let lone = word_in(&mut c, &mut host, 1, LastCall::Ordinary);
         assert_eq!(c.compiled_words(), 2);
         assert_ne!(sum, lone, "distinct words get distinct handles");
 

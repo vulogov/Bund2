@@ -1649,6 +1649,55 @@ impl Vm for Interp {
         self.exit_code
     }
 
+    /// See [`bund2_api::Vm::inline_site`] for the contract. This applies
+    /// RFC-0005 §S6's three inlining rules, in the order that makes each
+    /// refusal cheap, and answers `None` at the first one that bites — which
+    /// means "call this name, do not inline it", always correct and merely
+    /// slower.
+    fn inline_site(&mut self, name: &str) -> Option<bund2_api::InlineSite> {
+        let (s, sigil) = self.registry.interner.lookup_call(name)?;
+        // **A sigil is not a direct resolution.** `$name` skips the lambda and
+        // alias checks entirely (`dispatch`, D16), so what it reaches is not
+        // what an unsigiled site would reach, and a fragment inlined here would
+        // be guarding the wrong question.
+        if sigil {
+            return None;
+        }
+        // **The alias rule.** A name reached through an alias resolves through
+        // a *second* slot, whose rewrite would not touch this one's generation,
+        // so there would be two generations to guard rather than one.
+        if self.registry.resolve_target(s) != s {
+            return None;
+        }
+        let slot = self.registry.slot(s)?;
+        // **A command or a lambda in the slot is not a native site.** §S4's
+        // chain puts both ahead of the native binding, so what runs here is not
+        // the native the fragment specialises.
+        if slot.command.is_some() || slot.lambda.is_some() {
+            return None;
+        }
+        // **The registration, not the name** — a command carries no id, and
+        // neither does anything but a registered native.
+        let registration = slot.native.as_ref()?.id?;
+        let generation = slot.generation();
+        // **The saturation rule.** `Slot::bump` saturates so a stale inline
+        // cache cannot match a wrapped counter; a slot pinned at the maximum
+        // keeps that value through every later rewrite, so a guard against it
+        // would never fire.
+        if generation == u32::MAX {
+            return None;
+        }
+        // Taken last, because it is the only step that may allocate: the cells
+        // grow in fixed-size chunks so an address handed out here survives
+        // every later registration (D43).
+        let cell = self.registry.generation_cell(s).as_ptr() as usize;
+        Some(bund2_api::InlineSite {
+            registration,
+            generation,
+            cell,
+        })
+    }
+
     /// **RFC-0005 §S6's cells.** `Some`, always: an `Interp` owns them for its
     /// whole life, and their address is stable because they are boxed.
     ///

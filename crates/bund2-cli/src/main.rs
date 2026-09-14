@@ -180,6 +180,13 @@ struct Args {
     /// Show raw `Debug` values in the dump. For a debug session; the default
     /// is a compact summary that fits the terminal.
     raw_values: bool,
+    /// `--stats`: report what the tier did, on **stderr** — RFC-0005
+    /// criterion 2's statistics flag.
+    ///
+    /// The criterion asks for it so a `jit` run cannot pass vacuously: without
+    /// it the only evidence a tier ran is timing, which cannot tell a compiled
+    /// body from a fast interpreted one. F124 is what that gap allowed.
+    stats: bool,
 }
 
 /// `script --file <path> [-- <args>…]`, the shape `conform` and the oracle
@@ -189,6 +196,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut file = None;
     let mut dump_stack = true;
     let mut raw_values = false;
+    let mut stats = false;
     let mut host = bund2_stdlib::host::HostOptions::default();
     let mut script_args = Vec::new();
     while let Some(a) = it.next() {
@@ -198,6 +206,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--dump-stack" => dump_stack = true,
             "--no-dump-stack" => dump_stack = false,
             "--raw-values" | "--debug-values" => raw_values = true,
+            "--stats" => stats = true,
             "--noio" => host.noio = true,
             // `reference/Bund/src/cmd/mod.rs:139-140`.
             "--nocolor" => host.nocolor = true,
@@ -215,6 +224,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
         script_args,
         dump_stack,
         raw_values,
+        stats,
     })
 }
 
@@ -391,8 +401,14 @@ fn locate(src: &str, file: &str, span: bund2_syntax::Span) -> bund2_api::diag::L
 /// deviation nobody has asked for.
 fn run(src: &str, args: &Args) -> Option<i32> {
     let file = args.file.as_str();
-    let mut vm = Interp::new();
-    bund2_stdlib::register_all_with(&mut vm.registry, &args.host);
+    // **Through `Runtime`, which is what installs the tier — F124.** Building
+    // an `Interp` here directly is what made `--features jit` inert: the
+    // feature was enabled, the binary differed, and Tier 1 was never reached,
+    // so criterion 2 compared one interpreter with itself. `Runtime` registers
+    // the same vocabulary with the same host options and adds the tier when the
+    // feature is on; everything below reaches the interpreter through it.
+    let mut rt = bund2_runtime::Runtime::with_options(&args.host);
+    let vm = &mut rt.interp;
     let mut reporter = bund2_stdlib::report::TextReporter::new(args.dump_stack);
     reporter.raw_values = args.raw_values;
     vm.reporter = Box::new(reporter);
@@ -418,5 +434,27 @@ fn run(src: &str, args: &Args) -> Option<i32> {
         }
         vm.report(d);
     }
-    vm.exit_requested()
+    let code = vm.exit_requested();
+
+    // **On stderr, deliberately.** Every golden captures stdout, so a stats
+    // line there would move `conform` by the whole corpus at once. RFC-0005
+    // criterion 2 wants the figure reported, not the programs changed.
+    //
+    // `None` and `Some(0)` say different things: no tier at all — a build
+    // without the feature — against a tier that compiled nothing, which over a
+    // corpus is the failure criterion 2 asks this flag to catch.
+    if args.stats {
+        match (rt.compiled_bodies(), rt.inlined_sites()) {
+            // **Both figures, because one without the other says little.** A
+            // body that compiled but inlined nothing still applies every value
+            // through `Vm::apply`, so a timing of it answers a different
+            // question from the one criterion 10 asks.
+            (Some(bodies), Some(sites)) => {
+                eprintln!("bund2: tier compiled {bodies} bodies, inlined {sites} sites");
+            }
+            (Some(bodies), None) => eprintln!("bund2: tier compiled {bodies} bodies"),
+            _ => eprintln!("bund2: no tier (built without `jit`)"),
+        }
+    }
+    code
 }

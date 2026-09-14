@@ -278,6 +278,40 @@ impl Cells {
     }
 }
 
+/// **What a lowering needs to know about a name, to inline against it** —
+/// RFC-0005 §S6, *Inlining freezes a name*.
+///
+/// §S6 gives three rules for inlining a fragment at a site, and all three are
+/// questions about the *registry* that a compiled body cannot ask at run time:
+/// the answer has to be taken once, at compile time, and guarded against
+/// afterwards. This is that answer.
+///
+/// **It names no `Fragment` and no code generator.** D9 as amended keeps
+/// Cranelift out of `bund2-api` entirely, and the fragment table lives in
+/// `bund2-jit`; what crosses this boundary is an opaque [`RegistrationId`] and
+/// two numbers. An external package still gets `Native` with a declared effect
+/// and no more.
+///
+/// **A site that answers `None` is called, not inlined** — which is always
+/// correct, merely slower.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InlineSite {
+    /// **Which registration the slot holds** — §S6's third rule, "recognise
+    /// the registration, not the name, and not the address". A lowering
+    /// compares this against the id its fragment was published under: a
+    /// different native registered under the same name has a different id, and
+    /// a function address could not tell them apart, since Rust guarantees
+    /// neither that two functions differ in address nor that one has only one.
+    pub registration: RegistrationId,
+    /// The slot's generation **as it stands now**. The emitted site compares
+    /// the cell against this and takes the generic path when they differ.
+    pub generation: u32,
+    /// The address of this name's generation cell — a stable address, because
+    /// the cells live in fixed-size chunks that never move (D43). The lowering
+    /// embeds it as an immediate; §S6, *Addressing*.
+    pub cell: usize,
+}
+
 /// What the interpreter offers a native word.
 ///
 /// **The tier merge forces this wider than an external word needs, and
@@ -549,6 +583,29 @@ pub trait Vm {
     /// exists to prevent. The cost is one line in each test double, which is
     /// the right side to pay on.
     fn cells(&self) -> Option<&Cells>;
+
+    /// **May a lowering inline against `name`, and against what?** — RFC-0005
+    /// §S6, *Inlining freezes a name*.
+    ///
+    /// `None` means "call it, do not inline it", which is always correct. The
+    /// three rules §S6 gives are all reasons to answer `None`:
+    ///
+    /// - **not a direct resolution** — an alias on the path, or a lambda or
+    ///   command binding in the slot. A name reached through an alias resolves
+    ///   through a *second* slot, whose rewrite would not touch the first, so
+    ///   there would be two generations to guard rather than one;
+    /// - **a saturated slot** — `Slot::bump` saturates at `u32::MAX` so a stale
+    ///   inline cache cannot match a wrapped counter, and a slot pinned there
+    ///   keeps that value through every later rewrite, so a fragment inlined
+    ///   against it would never see one;
+    /// - **no registration id** — a command carries none, and nothing without
+    ///   one can be recognised as the registration a fragment was published
+    ///   for.
+    ///
+    /// **`&mut self` because taking the cell's address may allocate a chunk.**
+    /// The generation cells grow in fixed-size blocks so that an address handed
+    /// out here survives every later registration (D43).
+    fn inline_site(&mut self, name: &str) -> Option<InlineSite>;
 }
 
 /// **Where Tier 1 attaches — RFC-0005's seam.**
@@ -587,6 +644,36 @@ pub trait Vm {
 pub trait Tier {
     /// A body is about to start running. See the trait docs for the contract.
     fn enter(&mut self, body: &BundValue, vm: &mut dyn Vm) -> Option<Result<(), Error>>;
+
+    /// **How many bodies this tier has compiled** — RFC-0005 criterion 2's
+    /// statistics, reported by `bund2 --stats`.
+    ///
+    /// The criterion asks for it by name, and for a reason worth keeping in
+    /// view: without it the only evidence a tier ran is timing, which cannot
+    /// distinguish a compiled body from a fast interpreted one. F124 is what
+    /// that gap allowed — `--features jit` enabled a feature on code the CLI
+    /// never reached, and every measurement compared Tier 0 with itself while
+    /// looking like it had two configurations.
+    ///
+    /// **Defaulted to `None`**, so a tier that counts nothing owes nothing: a
+    /// test double stays two lines. This is the narrowest way to reach the
+    /// figure, because a `Box<dyn Tier>` cannot be narrowed back to its
+    /// concrete type — the alternative was `Any`, which is a larger surface for
+    /// the same answer.
+    fn compiled_bodies(&self) -> Option<usize> {
+        None
+    }
+
+    /// **How many sites this tier inlined**, across every body it compiled.
+    ///
+    /// Reported beside [`Tier::compiled_bodies`], and the figure that makes a
+    /// timing mean something: a body that compiled but inlined nothing still
+    /// routes every value through `Vm::apply`, so measuring it answers a
+    /// different question from the one RFC-0005 criterion 10 asks. `None` when
+    /// the tier does not inline at all.
+    fn inlined_sites(&self) -> Option<usize> {
+        None
+    }
 }
 
 /// A word's failure. RFC-0003 replaces this with a spanned error value.
@@ -1539,6 +1626,9 @@ mod tests {
             Ok(())
         }
         fn cells(&self) -> Option<&Cells> {
+            None
+        }
+        fn inline_site(&mut self, _: &str) -> Option<InlineSite> {
             None
         }
         fn scoped_call(&mut self, _: &str, _: Vec<BundValue>) -> Result<(), Error> {

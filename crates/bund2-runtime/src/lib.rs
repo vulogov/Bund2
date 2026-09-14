@@ -61,7 +61,17 @@ impl Runtime {
         bund2_stdlib::register_all_with(&mut interp.registry, opts);
         #[cfg(feature = "jit")]
         {
-            interp.tier = Some(Box::new(JitTier::default()));
+            // **§S6's fragment table, built here and nowhere else.** It is
+            // keyed by the registration ids `register_all_with` just minted, so
+            // it must be taken *after* registration — taken earlier it would be
+            // empty, every site would compile generic, and nothing would report
+            // why. `published` takes a `&Registry`, which this crate has and a
+            // tier does not (D9 keeps `Fragment` out of `bund2-api`).
+            let table = bund2_stdlib::fragments::published(&interp.registry).unwrap_or_default();
+            interp.tier = Some(Box::new(JitTier::with_fragments(
+                bund2_jit::cache::Caps::default(),
+                table,
+            )));
         }
         Self { interp }
     }
@@ -83,6 +93,35 @@ impl Runtime {
     #[cfg(feature = "jit")]
     pub fn take_tier(&mut self) -> Option<Box<dyn bund2_api::Tier>> {
         self.interp.tier.take()
+    }
+
+    /// **How many bodies the tier has compiled** — RFC-0005 criterion 2's
+    /// statistics, which `bund2 --stats` reports.
+    ///
+    /// Criterion 2 asks for this by name: "`bund2` reports how many bodies it
+    /// compiled when asked, through a statistics flag… A `jit` run that
+    /// compiles no body over the corpus fails." Without it the only evidence a
+    /// tier ran is timing, which cannot tell a compiled body from a fast
+    /// interpreted one — and F124 is what that gap allowed.
+    ///
+    /// Asked here rather than after [`Runtime::take_tier`], because a
+    /// `Box<dyn Tier>` cannot be narrowed back to a `JitTier`: the trait has
+    /// one method and no `Any`, and widening it would put a reporting concern
+    /// into `bund2-api` for every implementor.
+    ///
+    /// `None` without the feature, which is different from `Some(0)`: no tier
+    /// at all, rather than a tier that compiled nothing.
+    pub fn compiled_bodies(&self) -> Option<usize> {
+        // Asked through the trait object the `Interp` holds: a `Box<dyn Tier>`
+        // cannot be narrowed back to a `JitTier`, so the figure comes from a
+        // defaulted trait method rather than a downcast.
+        self.interp.tier.as_ref().and_then(|t| t.compiled_bodies())
+    }
+
+    /// **How many sites the tier inlined** — the figure that makes a timing
+    /// attributable. See [`bund2_api::Tier::inlined_sites`].
+    pub fn inlined_sites(&self) -> Option<usize> {
+        self.interp.tier.as_ref().and_then(|t| t.inlined_sites())
     }
 
     /// Install a tier, replacing any already there.

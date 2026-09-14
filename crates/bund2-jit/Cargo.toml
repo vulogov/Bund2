@@ -17,6 +17,18 @@ bund2-ir.workspace = true
 # needs `dyn Vm` by name — the context holds it as a stored fat pointer — and
 # D49's adapter needs `catch_panic`.
 bund2-api.workspace = true
+# **The fragment table — RFC-0005 §S6, D43.** `bund2-stdlib` publishes
+# `(RegistrationId, Fragment)` pairs from `crate::fragments`, and this crate
+# reads them when it compiles a site: §S6 puts that association here, and D9 as
+# amended permits the direction — "`bund2-jit` may depend on `bund2-stdlib`".
+# Criterion 15 checks only the half that matters, that `cargo tree -p
+# bund2-stdlib` lists neither this crate nor any `cranelift-*`.
+#
+# **A real dependency since the inlining join, not a dev one.** It was
+# dev-only while the differential tests were the sole consumer; shipped code
+# now needs `fragments::published` to know which registration an inlined arm
+# belongs to.
+bund2-stdlib.workspace = true
 cranelift-codegen  = { workspace = true, optional = true }
 cranelift-frontend = { workspace = true, optional = true }
 cranelift-module   = { workspace = true, optional = true }

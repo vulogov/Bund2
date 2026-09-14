@@ -317,6 +317,7 @@ dependencies = [
  "bund2",
  "bund2-api",
  "bund2-interp",
+ "bund2-runtime",
  "bund2-stdlib",
  "bund2-syntax",
  "bund2-value",
