@@ -298,6 +298,221 @@ mod tests {
         assert_eq!(bare.promoted_values(), None);
     }
 
+    // --- criterion 21: a current-stack switch mid-body ----------------------
+
+    /// A reporter that keeps every diagnostic where the test can still read it.
+    ///
+    /// `CollectingReporter` is moved into the `Box` the `Interp` owns, so its
+    /// `seen` is unreachable afterwards. This shares the vector instead.
+    ///
+    /// **`wants_stack` is left at its default, `false`.** That is the CLI's
+    /// configuration — `TextReporter` wants a snapshot only for a fatal report
+    /// — and §S5 makes it load-bearing: while a reporter wants one for a
+    /// severity natives emit mid-body, *nothing stays promoted across a call*.
+    /// A test that flipped it on would be measuring a different lowering from
+    /// the one `bund2 script` runs.
+    #[derive(Clone, Default)]
+    struct SharedReporter(std::rc::Rc<std::cell::RefCell<Vec<bund2_api::diag::Diagnostic>>>);
+
+    impl bund2_api::diag::Reporter for SharedReporter {
+        fn report(&mut self, d: &bund2_api::diag::Diagnostic) {
+            self.0.borrow_mut().push(d.clone());
+        }
+    }
+
+    /// Everything observable about a runtime after a program has ended.
+    ///
+    /// **Every stack, not just the current one.** Criterion 21 is about a body
+    /// that switches stacks, so a comparison that read only the current stack
+    /// would miss values left on the one the program switched away from — which
+    /// is exactly the failure it exists to catch.
+    ///
+    /// The walk switches to each stack in turn and snapshots it. That mutates
+    /// the current-stack epoch, which is harmless *here* because the program has
+    /// already ended, and is done identically on both sides.
+    #[derive(Debug, PartialEq)]
+    struct Observed {
+        outcome: Result<(), String>,
+        current: String,
+        stacks: Vec<(String, Vec<String>)>,
+        workbench: Vec<String>,
+        diagnostics: Vec<(String, String, Option<String>)>,
+    }
+
+    /// Render a value with the parts that move between runs blanked.
+    ///
+    /// `id` is a nanoid and `stamp` is wall-clock, so a raw comparison of two
+    /// runs of the *same* binary fails. F14 normalises both in every golden for
+    /// this reason, and a CLI-level `diff` of this program's output was briefly
+    /// mistaken for a tier defect before the normalisation was applied.
+    fn norm(v: &BundValue) -> String {
+        format!("dt={} {}", v.dt(), v.summary(80))
+    }
+
+    /// Blank the parts of a **message** that move between runs.
+    ///
+    /// **This is F14, reproduced deliberately.** `Interp::eval`'s wrapper
+    /// renders the offending value into its message — the reproduced form of
+    /// the reference's `bail!("Attempt to evaluate value {:?} …")` — and that
+    /// rendering carries `id` and `stamp`. So two runs of the *same* binary
+    /// produce error strings a millisecond apart. F14 is the record, and the
+    /// golden capture normalises the same two fields for the same reason; a
+    /// differential that compares error text without doing so is comparing the
+    /// clock. Found here the way F14 was found: by diffing two runs.
+    fn norm_msg(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        for part in s.split_inclusive(',') {
+            if let Some(i) = part.find("stamp: ") {
+                out.push_str(&part[..i + 7]);
+                out.push_str("<stamp>");
+                if part.ends_with(',') {
+                    out.push(',');
+                }
+            } else if let Some(i) = part.find("id: \"") {
+                out.push_str(&part[..i + 5]);
+                out.push_str("<id>\"");
+                if part.ends_with(',') {
+                    out.push(',');
+                }
+            } else {
+                out.push_str(part);
+            }
+        }
+        out
+    }
+
+    fn observe(r: &mut crate::Runtime, outcome: Result<(), Error>, seen: &SharedReporter) -> Observed {
+        let names: Vec<String> = r.interp.stacks.names().map(str::to_string).collect();
+        let current = bund2_api::Vm::current_name(&r.interp);
+        let mut stacks = Vec::with_capacity(names.len());
+        for n in &names {
+            bund2_api::Vm::to_stack(&mut r.interp, n);
+            stacks.push((
+                n.clone(),
+                bund2_api::Vm::snapshot(&r.interp).iter().map(norm).collect(),
+            ));
+        }
+        Observed {
+            outcome: outcome.map_err(|e| norm_msg(&e.0)),
+            current,
+            stacks,
+            workbench: bund2_api::Vm::snapshot_workbench(&r.interp)
+                .iter()
+                .map(norm)
+                .collect(),
+            diagnostics: seen
+                .0
+                .borrow()
+                .iter()
+                .map(|d| {
+                    (
+                        format!("{:?}", d.severity),
+                        d.reason.clone(),
+                        d.stack_name.clone(),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    /// **Criterion 21's differential.** `body` is registered as a word and
+    /// called until the tier has compiled it; the same source runs with no tier
+    /// at all; and every observable must match.
+    ///
+    /// The tier's own counters are asserted first, so a program cannot pass by
+    /// never being compiled — F127's lesson, where a fixture that inlined
+    /// nothing made four tests assert paths they could not reach.
+    fn assert_switch_matches_tier0(body: &str, calls: usize, label: &str) {
+        // **`:main to_stack` is not decoration.** `ensure_stack` makes the
+        // named stack *current* when it is new (`Interp::ensure_stack` calls
+        // `add_as_current`), so without the return every body would already be
+        // running on `s` and the switch inside it would be a switch to the
+        // stack already current — a no-op. The six programs then pass while
+        // testing nothing, which is exactly what the first version did.
+        let src = format!(":s ensure_stack :main to_stack\n:w {{ {body} }} register\n");
+
+        let tier_seen = SharedReporter::default();
+        let mut tiered = inlining_runtime_with(1);
+        tiered.interp.reporter = Box::new(tier_seen.clone());
+        tiered.eval_str(&src).expect("setup runs");
+        // **The guard that keeps this criterion honest.** If the body starts on
+        // the stack it is about to switch to, the switch is a no-op and all six
+        // programs pass while exercising nothing. That is what the first
+        // version did, so the precondition is asserted rather than assumed.
+        assert_eq!(
+            bund2_api::Vm::current_name(&tiered.interp),
+            "main",
+            "{label}: the body must start on `main`, or its switch is a no-op"
+        );
+        let mut tier_outcome = Ok(());
+        for _ in 0..calls {
+            if tier_outcome.is_ok() {
+                tier_outcome = tiered.eval_str("w");
+            }
+        }
+
+        assert!(
+            tiered.compiled_bodies().unwrap_or(0) > 0,
+            "{label}: nothing compiled, so this asserts a path the tier never took"
+        );
+
+        let plain_seen = SharedReporter::default();
+        let mut plain = crate::Runtime::new();
+        plain.take_tier();
+        plain.interp.reporter = Box::new(plain_seen.clone());
+        plain.eval_str(&src).expect("setup runs");
+        assert_eq!(
+            bund2_api::Vm::current_name(&plain.interp),
+            "main",
+            "{label}: the untiered body must start on `main` too"
+        );
+        let mut plain_outcome = Ok(());
+        for _ in 0..calls {
+            if plain_outcome.is_ok() {
+                plain_outcome = plain.eval_str("w");
+            }
+        }
+
+        let a = observe(&mut tiered, tier_outcome, &tier_seen);
+        let b = observe(&mut plain, plain_outcome, &plain_seen);
+        assert_eq!(a.outcome, b.outcome, "{label}: outcome");
+        assert_eq!(a.current, b.current, "{label}: current stack");
+        assert_eq!(a.stacks, b.stacks, "{label}: stacks");
+        assert_eq!(a.workbench, b.workbench, "{label}: workbench");
+        assert_eq!(a.diagnostics, b.diagnostics, "{label}: diagnostics");
+    }
+
+    /// **Criterion 21, the six programs.** A body that switches the current
+    /// stack mid-run must give Tier 0's result — "it fails on any lowering that
+    /// resolves the current stack once, or that syncs to the stack current at
+    /// the sync rather than the one each value came from".
+    ///
+    /// Each program pushes two literals on `main`, switches, and then does
+    /// something that can only be right if the switch was seen. The Tier 0
+    /// answers were taken from the oracle-equivalent run before these were
+    /// written, so the assertions are against observed behaviour and not
+    /// against what the words are assumed to do:
+    ///
+    /// - `to_stack` and `to_current` leave `3` on `s`;
+    /// - `stacks_left` rotates to an empty stack and `+` fails there;
+    /// - `@s` — a CONTEXT literal, §S5's *static barrier* — leaves `3` on `s`;
+    /// - `endcontext` drops `s` and leaves `9` on the **workbench**;
+    /// - `ifthenelse` runs the lambda **on top** (F97), so the switch in it
+    ///   happens and `1 2 9` end up on `s`.
+    #[test]
+    fn a_current_stack_switch_mid_body_gives_tier_zeros_result() {
+        for (body, label) in [
+            ("1 2 :s to_stack +", "to_stack"),
+            ("1 2 :s to_current +", "to_current"),
+            ("1 2 stacks_left +", "stacks_left"),
+            ("1 2 @s 9 endcontext", "a CONTEXT literal and endcontext"),
+            ("1 2 @s +", "a CONTEXT literal"),
+            ("1 2 true { 7 } { @s 9 } ifthenelse", "a conditional on another stack"),
+        ] {
+            assert_switch_matches_tier0(body, 3, label);
+        }
+    }
+
     /// **A tier moves conformance by exactly zero** (§S2's one invariant), at
     /// the smallest scale it can be checked: the same program, with a tier and
     /// without, leaves the same stack.

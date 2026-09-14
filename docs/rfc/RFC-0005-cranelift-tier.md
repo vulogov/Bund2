@@ -4425,8 +4425,13 @@ evidence, and this one is listed as runnable rather than as met.
     index on a seventh program, which is why the side table is asserted
     directly rather than through its effects.
 
-    **Half met, 2026-09-14 (D67), and the half is stated so the gap is not
-    mistaken for coverage.**
+    **Met, 2026-09-14 (D67), in both halves — and they are met by different
+    means, which is worth keeping distinct.**
+
+    *The side table* is asserted **directly**, as this criterion demands.
+    *The six programs* are a **differential** against Tier 0: they cannot prove
+    the index is right, only that the observable result is, which is exactly
+    why the criterion asks for both.
 
     *Met*: the **resume index** exists and is asserted directly.
     `Compiler::resume_table` and `Compiler::resume_index` expose assumption 38's
@@ -4441,15 +4446,61 @@ evidence, and this one is listed as runnable rather than as met.
     through the generation guard — each asserting its site count first, so
     neither can pass vacuously (F127).
 
-    *Not met*: **none of the six stack-switch programs is written.**
-    `1 2 "s" to_stack +`, and the variants with `to_current`, `stacks_left`,
-    `endcontext`, a CONTEXT literal, and a conditional running its body on
-    another stack. Those are what test "the stack it came from" against "the
-    stack current at the sync", and they are the half this criterion leads
-    with. Today a `CONTEXT` literal and every stack-switching word are
-    `Plan::Call`, and a sync precedes every call, so the two readings coincide
-    by construction — but *by construction* is an argument, not a test, and
-    this criterion exists because the argument is the thing that can be wrong.
+    **The six stack-switch programs are written, 2026-09-14.**
+    `a_current_stack_switch_mid_body_gives_tier_zeros_result`
+    (`crates/bund2-runtime/src/tier.rs`) runs each as a registered word, called
+    until the tier has compiled it, against the same source with no tier at
+    all:
+
+    | program | what Tier 0 does |
+    |---|---|
+    | `1 2 :s to_stack +` | **fails** `Stack is too shallow for inline ADD()`; `1 2` stranded on `main`, `s` empty |
+    | `1 2 :s to_current +` | the same failure, by the other switching word |
+    | `1 2 stacks_left +` | the same failure, by rotation rather than by name |
+    | `1 2 @s 9 endcontext` | current back to `main`, `1 2` on `main`, `s` dropped, `9` on the **workbench** tagged `s` |
+    | `1 2 @s +` | the same failure — the CONTEXT literal is §S5's static barrier |
+    | `1 2 true { 7 } { @s 9 } ifthenelse` | current `s` holding `9`, `1 2` left on `main` |
+
+    Each answer was taken from a run before the test was written, so the
+    assertions are against observed behaviour rather than against what the
+    words are assumed to do. The last one runs the lambda **on top** (F97), so
+    the switch is in the branch that executes.
+
+    **Four of the six fail, and that is the point.** The two literals are
+    pushed on `main`; the switch makes an *empty* stack current; `+` finds
+    nothing there. This is §S5's own sixth-review example — `1 2 "s" to_stack +`
+    failing on `s` — and it is precisely what a wrong lowering would hide: one
+    that synced promoted values to the stack current *at the sync* rather than
+    to the stack each came from would add `1` and `2` and push `3`, turning a
+    failure into an answer. A criterion whose programs all succeeded could not
+    catch that.
+
+    **The first version of these tests passed while testing nothing**, and the
+    reason is worth recording. The fixture's setup line was `:s ensure_stack`,
+    and `Interp::ensure_stack` calls `add_as_current` for a name not yet in the
+    ring — so `s` was already current before the body ran, and the switch
+    inside each body was a switch to the stack already current: a no-op. All six
+    passed, four with answers (`3` on `s`) that the corrected setup shows to be
+    failures. The fixture now returns to `main` after the setup, and asserts
+    that it did. This is the third vacuous-fixture bug in this area (F124's
+    tier that was never installed, F127's empty fragment table), and all three
+    were found by probing what the test actually reached rather than by reading
+    it.
+
+    **The comparison is every stack, the workbench and the diagnostics** — not
+    just the current stack, which is the whole point: a body that switches away
+    can leave values behind on the stack it left, and a comparison reading only
+    what is current would miss exactly that. It also asserts the tier compiled
+    something first, so a program cannot pass by never reaching compiled code
+    (F127's lesson).
+
+    **Error text must be normalised before it is compared.** The first run
+    failed on `stacks_left` with two strings differing only in a `stamp` one
+    millisecond apart: `Interp::eval`'s message renders the offending value,
+    which carries `id` and `stamp`. That is **F14**, reproduced from the
+    reference, and the golden capture normalises the same two fields. A
+    CLI-level `diff` of the `to_stack` program was briefly mistaken for a tier
+    defect for the same reason before the normalisation was applied.
 
 22. **What a promoted value must not change, doesn't.** Six parts, each
     asserted against Tier 0's result:

@@ -3944,6 +3944,46 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F128 — criterion 21's six programs passed while testing nothing, because `ensure_stack` left the wrong stack current
+
+**A Bund2 test defect**, found by probing what the tests reached rather than by
+reading them, and recorded because it is the *third* instance of one pattern.
+
+Criterion 21's programs each push two literals, switch the current stack, and
+then do something that can only be right if the switch was seen. The fixture's
+setup line was `:s ensure_stack`. But `Interp::ensure_stack` calls
+`add_as_current` for a name not yet in the ring, so **`s` was already current
+before the body ran** — and every switch inside every body was a switch to the
+stack already current. A no-op.
+
+All six passed. Four of them recorded answers (`3` on `s`) that the corrected
+setup shows to be **failures**: with the body genuinely starting on `main`, the
+two literals stay there, the switch makes an empty stack current, and `+` fails
+with `Stack is too shallow for inline ADD()`. That failure is §S5's own
+sixth-review example, and it is the case the criterion exists to protect — a
+lowering that synced promoted values to the stack current *at the sync* rather
+than to the stack each value came from would add `1` and `2` and push `3`,
+turning a failure into an answer. A criterion whose programs all succeeded
+could not catch it.
+
+**Disposition: FIXED.** The fixture returns to `main` after the setup
+(`:s ensure_stack :main to_stack`) and **asserts that it did**, on both the
+tiered and the untiered runtime, so a later change to the setup cannot restore
+the no-op silently. The six Tier 0 answers were re-derived under the corrected
+setup and the RFC's table replaced.
+
+**The pattern, three times in one area.** F124: the CLI never installed a tier,
+so every `--features jit` measurement compared Tier 0 with itself. F127: the
+lowering's differential helper compiled with an empty fragment table, so no
+test through it reached an inlined site. This one: the fixture left the body on
+the stack it was about to switch to. Each looked like it exercised a feature,
+none did, and **none was found by reading the test** — F124 by trying to take a
+measurement, F127 and F128 by instrumenting the fixture to print what it
+actually reached. The lesson is narrow enough to act on: a test that asserts a
+*path* must assert that the path was taken, in the test, not in a comment.
+`inlined_sites`, `promoted_values` and the current-stack guard are those
+assertions here.
+
 ## F127 — the lowering's differential helper compiled with an empty fragment table, so no test routed through it reached an inlined site
 
 **A Bund2 test defect**, found while building §S5's residual (D67) and recorded
