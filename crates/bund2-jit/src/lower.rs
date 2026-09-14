@@ -3869,4 +3869,93 @@ mod tests {
             );
         }
     }
+
+    /// **Criterion 12 — a synced value keeps its stack tag.**
+    ///
+    /// §S5 writes promoted values back to the real stack, and **D41 put the
+    /// stack tag inside the value for scalars**. A sync that pushed a bare
+    /// `BundValue` would leave `StackSym::NONE`, and the value would render
+    /// `tags: {}` where the oracle renders `tags: {"stack": "main"}`. 42 of
+    /// 113 goldens carry exactly that text, so the failure would be loud —
+    /// but only once a golden exercises a compiled body with an opaque site
+    /// in it, and none does. That is why this is a test rather than a golden.
+    ///
+    /// **The tag is asserted directly, not through `render`.** `norm` blanks
+    /// `id` and `stamp` and leaves the rest as one string, so a differential
+    /// against Tier 0 would pass on two values that were *both* untagged.
+    /// `BundValue::tags` answers the question the criterion actually asks.
+    ///
+    /// The body promotes two literals, inlines `+`, and then calls a native —
+    /// which is what forces the sync, since a sync precedes every call. The
+    /// value the native leaves and the values it saw must all carry the tag.
+    #[test]
+    fn a_synced_value_keeps_its_stack_tag() {
+        /// Sees the stack the sync built, and leaves a value of its own.
+        fn observes(vm: &mut dyn Vm) -> Result<(), Error> {
+            let seen = vm.depth() as i64;
+            vm.push(BundValue::int(seen));
+            Ok(())
+        }
+
+        let (mut vm, table) = with_fragments();
+        vm.registry
+            .register_native("obs", observes, bund2_api::StackEffect::fixed(0, 1), bund2_api::WordKind::Sync);
+
+        // `1 2 +` promotes both literals and inlines the site; `obs` is the
+        // call the promoted result must be synced before.
+        let body = vec![
+            BundValue::int(1),
+            BundValue::int(2),
+            BundValue::call("+"),
+            BundValue::call("obs"),
+        ];
+
+        let mut c = Compiler::new(table).expect("a compiler");
+        let cells = vm.cells().base();
+        let word = c
+            .compile_word(&body, LastCall::Ordinary, cells, &mut vm)
+            .expect("lowers");
+        assert_eq!(c.inlined_sites(word), Some(1), "`+` is a site");
+        assert_eq!(c.promoted_values(word), Some(2), "both literals promoted");
+
+        c.run(word, &mut vm, &body).expect("the compiled word ran");
+
+        let stack = vm.snapshot();
+        assert_eq!(stack.len(), 2, "the sum and what `obs` left: {stack:?}");
+        assert_eq!(stack[0].as_int(), Some(3), "1 + 2, synced before the call");
+
+        // **The sum was synced by compiled code.** It must carry the current
+        // stack's name, exactly as a value Tier 0 pushed would.
+        assert_eq!(
+            stack[0].tags().get("stack").map(|s| &**s),
+            Some("main"),
+            "a synced value rendered `tags: {{}}`, which is D41's tag lost: {:?}",
+            stack[0]
+        );
+
+        // And the native saw a stack of depth one — the sync happened *before*
+        // the call, not after it.
+        assert_eq!(
+            stack[1].as_int(),
+            Some(1),
+            "the sync must precede the call, or `obs` saw an empty stack"
+        );
+
+        // The differential, as the rest of this module does it: Tier 0's
+        // answer, tags included.
+        let mut tier0 = with_stdlib();
+        tier0
+            .registry
+            .register_native("obs", observes, bund2_api::StackEffect::fixed(0, 1), bund2_api::WordKind::Sync);
+        tier0.eval(&body).expect("Tier 0 runs the same body");
+        let want = tier0.snapshot();
+        assert_eq!(want.len(), stack.len(), "depth");
+        for (x, y) in want.iter().zip(stack.iter()) {
+            assert_eq!(
+                norm(&x.render(false)),
+                norm(&y.render(false)),
+                "value or stack tag: {want:?} vs {stack:?}"
+            );
+        }
+    }
 }

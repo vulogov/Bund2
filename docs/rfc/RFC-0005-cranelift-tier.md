@@ -8,15 +8,64 @@
   per-name generation cells — were explicitly held until this status, and are
   now unblocked.
 
-  **Proposed rather than Accepted, for the reason RFC-0001 gives.** Most of the
-  thirty acceptance criteria still **cannot run**, because the code they
-  describe does not exist — but the reason has narrowed, and this paragraph is
-  kept current because it is the first thing a reader checks the RFC against.
-  **As of 2026-09-13 `crates/bund2-jit` is no longer a placeholder**: it holds
-  a lowering from BundIR to CLIF, §S8's four-piece call boundary, and seventeen
-  tests under `--features jit`. What does not exist is a *tier* — no cache, no
-  `Interp` integration, no compiled Bund word, no promotion and no meaning
-  guard — and that is what the unrunnable criteria are waiting for.
+  **Proposed rather than Accepted, for the reason RFC-0001 gives.** This
+  paragraph is kept current because it is the first thing a reader checks the
+  RFC against, and on **2026-09-14 an audit of all thirty criteria found it
+  wrong in both directions.**
+
+  It had said most criteria "cannot run, because the code they describe does not
+  exist", and that what was missing was *a tier* — "no cache, no `Interp`
+  integration, no compiled Bund word, no promotion and no meaning guard".
+  Every clause of that is now false. A tier exists and is installed by
+  `bund2-runtime`; bodies are compiled, cached per `Interp`, inlined behind
+  §S6's three guards, and promoted; §S5's residual path applies the rest of a
+  body and never rejoins. `crates/bund2-jit` carries **63** tests under
+  `--features jit`, not the seventeen this paragraph claimed.
+
+  **The audit's result: 17 met, 2 measured, 3 partial, 5 not met, 3 deferred
+  behind a named blocker.** Each criterion carries a dated note of its own; the
+  summary here is the map. The distinction between *not met* and *deferred* is
+  load-bearing: a deferral names what must happen first and is a plan, while an
+  unmet criterion is work nobody has done.
+
+  - **Met** — 1, 2, 3, 6, 8, 11, 12, 15, 16, 19, 21, 23, 24, 25, 26, 28, 29.
+  - **Measured** — 9 (the sync's crossover is 4 words), 10 (1.06× on the
+    shipped lowering, **below the 1.2× stop rule**, which is why the gate stays
+    open).
+  - **Partial** — 5, 17, 30: each has a half met and a half outstanding, or a
+    bound stated and unmeasured.
+  - **Not met** — 7, 14, 20, 22, 27, and 4's reachable remainder.
+  - **Deferred, with a named blocker** — 13 (waits on D68's implementation),
+    18 and 20's probe (wait on `:` and `;` being bound).
+
+  **Two verdicts moved while the notes were being written, and the movement is
+  the point of writing them.** Criterion 18 was first recorded met, on two
+  `autoadd` tests that assert a CALL is *not run* — which its own text
+  distinguishes from what it asks, namely that calls and literals are appended
+  *into* the value beneath. Criterion 29 was first recorded partial and its
+  compiled half was already marked met on 2026-09-13. An audit that reads the
+  criterion rather than the test name catches both; one that greps for a
+  marker catches neither.
+
+  **Two are properties of shipped code that nothing checks**, which is worse
+  than unbuilt: criterion 12 was one until this date, and is now met by
+  `a_synced_value_keeps_its_stack_tag`. Criterion 4's relocation half is
+  *unreachable* from a `JITModule` by construction and belongs to RFC-0006;
+  its slot-target half is reachable and deliberately unbuilt, for a reason its
+  own note gives.
+
+  **Three are deferrals with a stated blocker, not oversights** — criterion 13
+  waits on D68's implementation (the lowering consults no `StackEffect` at
+  all today, so there is no path that could treat an absent one wrongly);
+  criterion 20's probe cannot be captured until `:` and `;` are bound, since
+  capturing it now would add a golden Tier 0 cannot pass; criterion 7 has no
+  saved baseline because its A/B has never been run.
+
+  **What still blocks Accepted**: criterion 10 reads below its own stop rule,
+  and criteria 22 and 27 — the six-part promotion invariant and the
+  embedder-native barrier — closed with "Needs a tier" when no tier existed.
+  One exists now, so they are unmet with the blocker removed rather than
+  unrunnable.
 
   What the criteria section marks **Met** is **1, 11, 24, 25, 28 and 29**, with
   **19** met at the model level; **2** has run on both tiers and reads the same;
@@ -3814,6 +3863,12 @@ evidence, and this one is listed as runnable rather than as met.
    review found it still carrying a private one — and `conform` prints the line
    `measured: bund2-cli, dev profile, features: jit` above its result.
 
+   **Met, 2026-09-14**, by `a_cache_entry_cannot_answer_for_a_different_body`
+   (`crates/bund2-jit/src/cache.rs`), beside `a_dup_shares_the_originals_cache_entry`
+   and `an_unboxed_scalar_is_not_a_body` in the same module. The `Weak` D35's
+   amendment requires is what makes the entry answer for nothing once its body
+   is gone.
+
 3. **A cache entry cannot answer for a different body.** D35 requires this as
    a test, not a comment, and names the failure: an entry whose body was freed
    can be answered for a *different* body at the reused address — wrong code
@@ -3867,6 +3922,27 @@ evidence, and this one is listed as runnable rather than as met.
    check also asserts that every call slot's target is a `Tail` thunk or a
    `Tail` body.
 
+   **Audited 2026-09-14 — still not runnable against the JIT, and the reason
+   is unchanged.** The relocation half remains unreachable: `cranelift-jit`
+   consumes relocations in `perform_relocations` and exposes no accessor, so
+   this belongs to RFC-0006's AOT path as the note above records.
+
+   **The slot-target half is reachable and is deliberately not built.**
+   Asserting that every entry in a word's slot table is a `Tail` thunk or a
+   `Tail` body would mean reading `Word::_slots`, whose own documentation says
+   it is "held to keep the allocation alive, never read from Rust". Adding an
+   accessor for a test would change shipped surface to observe a property
+   `declare_function` already fixes: the thunks, the drain and the body are
+   declared under one `sig_tail` (`CallConv::Tail`), and nothing else is ever
+   written into the table. That is the same by-construction standing this
+   criterion already grants the relocation half, and it is recorded here so
+   the gap is visible rather than assumed closed.
+
+   An audit on this date first read the comments citing this criterion in
+   `lower.rs` as an evasion of it. They are not: they are the by-construction
+   argument the paragraph above sanctions. The correction is kept because the
+   misreading is the easy one to make.
+
 5. **A redefined word is observed by compiled callers — called *and*
    inlined.** `register` a word, force promotion of a caller, `register` it
    again with different behaviour, and assert the caller's next result
@@ -3890,6 +3966,24 @@ evidence, and this one is listed as runnable rather than as met.
    `f` is `{ g }`, with `g` rebound to a word of a different effect, once
    before the caller runs and once by `f` itself mid-call. Nothing was
    promoted across `f` (D46), so the result must match Tier 0's.
+
+   **Met, 2026-09-14.** Every row of §S7's table has its test in
+   `crates/bund2-jit/src/cache.rs`: `the_function_cap_leaves_the_body_past_it_interpreted`,
+   `the_third_redefinition_demotes_the_body_live_at_the_time`,
+   `the_counter_cap_holds`, and `the_counter_does_not_pin_the_bodies_it_counts`
+   for the half that asks the counter to hold an entry without keeping the body
+   alive. `the_threshold_decides_when_a_body_has_earned_compilation` covers the
+   knob F125 later exposed to the command line.
+
+   **Partially met, 2026-09-14.** Two of the chain's cases are covered:
+   `an_aliased_name_is_called_rather_than_inlined` shows §S6's
+   direct-resolution rule refusing an alias, and
+   `a_rebound_name_syncs_the_operands_it_promoted` shows a re-registered
+   lambda failing the generation guard and taking the residual — both in
+   `crates/bund2-jit/src/lower.rs`, both asserting `inlined_sites` first so
+   neither can pass vacuously (F127). Unwritten: `unregister`, registration as
+   a **command**, and every **mid-body** variant, which is the half the fifth
+   review's B1 added and the half a slot-less inlined fragment would miss.
 
 6. **The caps hold**, checked by a test per row of §S7's table rather than by
    inspection. With the compiled-function cap set to 4, compiling five distinct
@@ -3932,6 +4026,13 @@ evidence, and this one is listed as runnable rather than as met.
    ordinary program evaluates in ~9 µs against a 2.3 ms process floor — so a
    percentage taken there measures process spawn. `cargo xtask bench` keeps
    only its regression role: catching a startup collapse.
+
+   **Not met, 2026-09-14 — the A/B has never been run.** `target/criterion`
+   holds the benchmark groups but no saved `off` baseline, so neither half of
+   the pair above has been taken against the shipped lowering. The tolerance is
+   stated and unmeasured, which is the one state a criterion with a *stated
+   band* must not be left in: it reads as a passing test to anyone scanning for
+   a number.
 
 8. **`cite` and `lint` clean**, with `cargo xtask cite` resolving every
    `path:line` in this document. **Note what this now checks and did not
@@ -4293,6 +4394,29 @@ evidence, and this one is listed as runnable rather than as met.
     and the Preservation table did not**; the tag moved into the value one day
     and this RFC was written the next, without the two being connected.
 
+    **Met, 2026-09-14**, by `a_synced_value_keeps_its_stack_tag`
+    (`crates/bund2-jit/src/lower.rs`) rather than by a probe. The body
+    `1 2 + obs` promotes both literals, inlines the `+`, and calls a native —
+    the call being what forces the sync, since a sync precedes every call. The
+    synced sum carries `tags: {"stack": "main"}`.
+
+    **The tag is asserted through `BundValue::tags`, not through `render`.**
+    The differential this module uses elsewhere compares `norm(render(false))`
+    against Tier 0, and `norm` leaves the whole value as one string — so two
+    values that were *both* untagged would compare equal and the criterion
+    would pass while the tag was lost on both sides. Asking `tags()` for the
+    stack name is the question this row actually poses. The differential is
+    kept beside it, for everything else the rendering covers.
+
+    **It also pins the ordering**, which the tag alone would not: the native
+    reports the depth it saw, and the test asserts it saw `1`. A lowering that
+    synced *after* the call would leave the same tag on the same value and be
+    wrong about when.
+
+    Until this landed the property was believed by reading `jit_push_int` —
+    which calls `Vm::push`, hence `Stack::push`, hence `push_as` with the
+    stack's own symbol. That reasoning was right, and it was not a test.
+
 13. **An absent effect is treated as `Opaque`, never as zero.** §S6's *Where
     promotion stops* counts **21 sites** (2026-09-11) whose word declares no effect at all. A defaulted
     `StackEffect` would read `Fixed(0, 0)` — "consumes nothing, produces
@@ -4303,6 +4427,15 @@ evidence, and this one is listed as runnable rather than as met.
     assert the lowering stops promoting at that site exactly as it does for
     `!`. It fails silently otherwise, which is why it is a criterion and not a
     remark.
+
+    **Deferred behind D68, 2026-09-14 — there is no path that could get this
+    wrong yet.** `bund2-jit` does not consult a `StackEffect` anywhere outside
+    a test fixture: promotion across calls is decided but unbuilt (D68), and an
+    effect is what it would read. So "treated as `Opaque`, never as zero" has
+    nothing to be true or false of. This is a deferral with a named blocker
+    rather than an untested property, and it becomes runnable with D68's
+    implementation — at which point the absent-effect arm must exist *before*
+    the first effect is trusted, not after.
 
 14. **A word that reads beyond its arity is a promotion barrier.** Q34. `debug.display_stack` declares `eff(0, 0)` and calls `vm.snapshot()`;
     it runs in the golden capture epilogue, so it is on the conformance path.
@@ -4327,6 +4460,15 @@ evidence, and this one is listed as runnable rather than as met.
     named-stack words whose declared pair was wrong on the current stack
     (F111, now opaque). The compiled half needs a tier.
 
+    **Not met, 2026-09-14, and the blocker is gone.** A tier exists, so "the
+    compiled half needs a tier" no longer explains the absence. What exists is
+    the *identification* half: `Interp::note_observation` records a native that
+    reads the whole stack, the whole workbench or a stack's depth by name, and
+    D55's audit collects those into `observers` so criterion 28 keeps them off
+    `PROMOTABLE.txt`. **Nothing asserts the barrier itself** — that a compiled
+    body syncs before such a native. That is a different claim from "the list
+    identifies them", and it is the one this criterion makes.
+
 15. **The dependency direction is not inverted.** §S6's mechanism rests on
     `bund2-jit → bund2-stdlib` being permitted while the reverse is not.
     RFC-0000's B3 already checks one half:
@@ -4338,6 +4480,14 @@ evidence, and this one is listed as runnable rather than as met.
     that reached for a Cranelift type would pull the optional subsystem into
     the mandatory crate, and B3 as written would not catch it because the
     dependency would be on `cranelift-frontend` rather than on `bund2-jit`.
+
+    **Met, 2026-09-14.** `cargo tree -p bund2-stdlib` lists neither `bund2-jit`
+    nor any `cranelift-*` crate, and the same holds under `--all-features` —
+    the stronger run, since a feature is exactly how the optional subsystem
+    could arrive by a path the default build never takes. The permitted
+    direction is exercised in the other sense at the same time: `bund2-jit`
+    depends on `bund2-stdlib` for `fragments::published`, which is what §S6
+    needs and what D9's amendment allows.
 
 16. **Every BundIR fragment agrees with the word it specialises.** A
     differential test per fragment runs the arm and the word on **the same
@@ -4406,6 +4556,17 @@ evidence, and this one is listed as runnable rather than as met.
     In a body that promotes, calls are far more common than inlined sites, and
     until the seventh review nothing bounded their checks.
 
+    **Partially met, 2026-09-14 — the dominance half is built and asserted,
+    the cost half is unmeasured.** `ControlFlowGraph::with_function` and
+    `DominatorTree::compute` run at lowering time and `block_dominates` refuses
+    the definition, so a region a guard does not dominate **fails to compile**
+    rather than shipping; `every_inlined_site_records_where_its_residual_resumes`
+    asserts the side table directly. What no benchmark takes is the **cost per
+    site**, or the 2 ns per-call bound above: `crates/bund2-bench`'s `fragment`
+    group measures arm shapes and the `sync` group measures the second rule,
+    and neither isolates a guard. A bound stated and unmeasured is the same
+    failure mode as criterion 7's.
+
 18. **Compiled code honours `autoadd`** — at entry, after every call, and for
     every kind of value the mode affects. Bind `:` and `;`, compile a body that
     turns the mode on mid-body through `!`, and assert two things. The calls
@@ -4429,6 +4590,24 @@ evidence, and this one is listed as runnable rather than as met.
     captured when they are bound — capturing it now would add a golden Tier 0
     cannot pass — and F84 is fixed with them.
 
+    **Deferred, 2026-09-14 — the blocker above is still in force.** An audit
+    on this date first recorded this row as **met**, citing
+    `a_compiled_word_honours_autoadd_because_apply_does` and
+    `autoadd_sends_an_inlined_site_to_the_residual`
+    (`crates/bund2-jit/src/lower.rs`). Those are real and they are not this
+    criterion: they assert that under `autoadd` a CALL is **not run** — the
+    first through `Vm::apply`, the second through §S6's third guard sending an
+    inlined site to the residual. This row asks something else, and says so
+    three paragraphs up: that calls *and literals* are **appended into the
+    value beneath**, and that a CONTEXT value is pushed as a value of its own.
+    Neither can be probed while `:` and `;` are unbound, and F84 means Tier 0
+    is not the oracle for it.
+
+    What the two tests do establish is worth keeping distinct: compiled code
+    reads the `autoadd` cell at the points §S6 requires and behaves as Tier 0
+    does at each. That is the *mechanism* this criterion needs, checked; the
+    criterion itself is the reference's collecting behaviour, and it waits.
+
 19. **A fragment that could fail after its guard admits cannot be built.**
     By then operands have been pulled, so neither declining nor running the
     word next is safe. `Fragment`'s fields are private and `Fragment::new` is
@@ -4450,7 +4629,26 @@ evidence, and this one is listed as runnable rather than as met.
     it: no path in the emitted code leads from a failed op back to the slot
     call.
 
-20. **A body run by a loop word reaches the counter under one key.** Run a
+    **Met, 2026-09-14**, and the lowering keeps the rule. The three named tests
+    exist — `every_consuming_op_counts_and_registers_are_written_before_read`
+    (`crates/bund2-ir/src/fragment.rs`),
+    `new_refuses_the_fragments_that_could_fail_after_the_guard` and
+    `a_post_guard_failure_is_an_internal_error`
+    (`crates/bund2-interp/src/frag.rs`). On the lowering's side the property is
+    structural: `emit_fragment_ops` sends every helper's non-zero status to the
+    caller's `fail` block, and for an inlined site that block returns `FAIL`
+    rather than re-entering the slot call.
+
+20. **Not met, 2026-09-14 — the counter exists and the assertion does not.**
+    §S7's counter is built (`Tiering`, `crates/bund2-jit/src/cache.rs`) and the
+    precondition below holds, so the only thing between this row and a verdict
+    is a test that runs a lambda through `times` 100 times and asks the counter
+    what it holds. `the_counter_cap_holds` and
+    `the_threshold_decides_when_a_body_has_earned_compilation` exercise the
+    counter's *capacity* and *threshold*, not the one-key-per-loop-body
+    property this row is about. Writable now; nothing blocks it.
+
+    **A body run by a loop word reaches the counter under one key.** Run a
     lambda through `times` 100 times and assert §S7's counter holds one entry
     for it, at 100. **Its precondition is met**: under D42 the key reaches the
     entry point, and `times_enters_one_body_under_one_key`
@@ -4598,6 +4796,20 @@ evidence, and this one is listed as runnable rather than as met.
 
     Needs a tier.
 
+    **Not met, 2026-09-14 — one part of six, and it is the wrong part.** A
+    tier exists, so the closing line above no longer accounts for the gap.
+    `a_compiled_word_stops_at_the_first_failure`
+    (`crates/bund2-jit/src/lower.rs`) covers a *failing callee*, which is the
+    second half of this row's first bullet; the error-with-values-promoted
+    case, the effect changed at run time, the rebound alias, D46's lambda
+    callee, F93's shadowing lambda and the reporter's mid-body snapshot are
+    all unwritten.
+
+    **Its last two bullets are blocked, not merely unwritten.** Both ask the
+    side table to record a call *crossed by promotion*, and D66/D67 sync before
+    every call — nothing is crossed today, and D68 settles the rule for when
+    something is. The other four are writable now.
+
 23. **A body compiled for one `Interp` is never run by another.** On one
     thread, build two `Interp`s, evaluate a body under the first until it is
     compiled, and evaluate the same `Rc` under the second. The second's cache
@@ -4664,6 +4876,23 @@ evidence, and this one is listed as runnable rather than as met.
     no residual path, no drain helper and no `status_of`. What changed is that a
     second `Interp` now has cells of its own to be compiled against rather than
     none at all — which is the condition the criterion was written to protect.
+
+    **Met, 2026-09-14 — and the paragraph above is now stale in its premise.**
+    It says "nothing in compiled code loads a cell yet, because there is no
+    residual path, no drain helper and no `status_of`". All three exist:
+    `jit_residual` applies the rest of a body (D67), `jit_drain` is reached
+    through its own slot (§S5), and `status_of` is the one status-maker. So the
+    condition is no longer hypothetical, and both halves hold:
+    `two_interps_share_no_compiled_code` and
+    `a_dropped_interps_code_does_not_serve_another`
+    (`crates/bund2-runtime/src/tier.rs`).
+
+    The *module* half is met too, by D60: one `JITModule` per `Interp`, owned
+    by the `Compiler` the tier holds, so two `Interp`s share no code memory and
+    a `WordHandle` is meaningless to the compiler that did not issue it. An
+    earlier note here recorded the module half as unmet because each
+    `compile_word_body` built a module of its own; that is no longer how the
+    tier compiles.
 
 24. **Every `bund2-stdlib` native with a fixed effect keeps it.** Promotion
     stops at an opaque site (§S5), and after any other call it models the
@@ -4742,6 +4971,20 @@ evidence, and this one is listed as runnable rather than as met.
     through `Interp::invoke`. It fails for an adapter whose `status_of` clears
     the request cell only for an exit.
 
+    **Met, 2026-09-14.** Nine tests in `crates/bund2-jit/src/lower.rs` cover
+    the row and its additions: `a_non_tail_call_drains_before_the_next_value`,
+    `a_tail_call_hands_the_request_back_instead_of_draining`,
+    `a_request_filed_inside_a_drained_body_is_drained_too` for the tenth
+    review's S3, `a_drain_refused_below_the_floor_clears_the_request`,
+    `a_call_that_files_nothing_drains_nothing`,
+    `a_succeeding_native_keeps_the_tail_request_it_filed`,
+    `a_failing_native_leaves_no_tail_request_behind_compiled_code`,
+    `a_failing_natives_request_clears_the_mirror_through_the_adapter`, and
+    `a_recorded_exit_becomes_the_error_status`. The three positions the row
+    names — non-tail, tail, and a second request following the first — are
+    each covered, and the drain is reached through its own slot rather than a
+    direct call, so criterion 4's rule holds across it.
+
     The review's own program was `?try` over `[ { 10 } 5 ] !`, when
     `execute_value` filed each lambda a list reached. F113 runs one at once
     instead, so the arm no longer files and the case is an embedder's native
@@ -4752,6 +4995,16 @@ evidence, and this one is listed as runnable rather than as met.
     `a_lambda_reached_through_a_dict_in_a_list_runs_at_once`
     (`crates/bund2-stdlib/src/host.rs` and
     `crates/bund2-stdlib/src/values.rs`).
+
+    **Not met, 2026-09-14, and the blocker is gone.** This row closed "Needs a
+    tier" and one exists. No test registers an embedder's native and asserts a
+    compiled body syncs before it. **It is also blocked in part**: the row asks
+    the side table to record the call as *synced, not crossed*, and nothing is
+    crossed today — D66/D67 sync before every call. The half that is writable
+    now is the differential: an embedder's native with an honest pair that
+    still observes beyond its operand must give Tier 0's result from compiled
+    code. D47's rule that makes this matter — promotion crosses only
+    registrations `bund2-stdlib` minted — is decided and unexercised.
 
 27. **Promotion does not cross a native `bund2-stdlib` did not register
     (D47).** From the test, register a native declaring `eff(1, 1)` that
@@ -4924,6 +5177,28 @@ evidence, and this one is listed as runnable rather than as met.
     half runs today: a fixed-effect native that requests an exit is a breach,
     `an_exit_requested_under_a_fixed_effect_is_a_breach`
     (`crates/bund2-interp/src/lib.rs`). The compiled half needs a tier.
+
+    **Partially met, 2026-09-14, and the blocker is gone.** A tier exists, so
+    "the compiled half needs a tier" no longer accounts for the absence. Two
+    things are established. The **probes** run clean: `bund-exit.bund` and
+    `bund-exit-word.bund` give byte-identical output with no tier and with the
+    tier at `--jit-threshold 1`, which is the strongest of criterion 2's three
+    configurations and the one that compiles every body on first evaluation.
+    And the **status protocol** is asserted from compiled code:
+    `a_recorded_exit_becomes_the_error_status`,
+    `an_error_is_not_replaced_by_the_refusal` and
+    `an_exit_clears_a_request_the_native_filed`
+    (`crates/bund2-jit/src/lower.rs`) pin §S5's `status_of` — an `Ok` after a
+    recorded exit becomes `Error::exited`, an `Err` passes through unchanged,
+    and a tail request is cleared on every error.
+
+    **What is unwritten** is this row's own list: compiled bodies calling
+    `bund.exit` directly, through the alias `exit`, and in tail position, each
+    followed by a call and by an inlined `+`, with the four cases the twelfth
+    review's B1 added — each run with the callee **below the compile
+    threshold**, since threshold 1 compiles the callee and hides the defect.
+    That last condition is now expressible, because the threshold is a flag
+    (F125); it was not when this row was written.
 
 ## Open questions
 
