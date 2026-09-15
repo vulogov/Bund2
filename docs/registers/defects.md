@@ -3944,6 +3944,66 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F133 — a body with no inlinable site is compiled anyway, and always loses
+
+**A Bund2 defect**, found by restating criterion 7's `arith` to measure steady
+state (D69).
+
+A compiled body runs every value that is **not** an inlined site through
+`jit_apply`, which calls `Vm::apply` — Tier 0's own path — and adds the
+boundary around it: an entry trampoline, a slot load and an indirect call per
+value, plus the request-cell load after each. Inlining and promotion are what
+repay that. A body with **no** inlinable sites repays none of it and is
+guaranteed to lose, yet §S7's threshold admits it on entry count alone.
+
+**Measured.** `arith/float_mul/1000` — `1.0 1.000001 * …`, registered as a word
+and entered on a warm interpreter — against the same fixture with the feature
+off:
+
+| run | change |
+|---|---|
+| 1 | **+24.63%** |
+| 2 | **+22.66%** |
+| 3 | **+26.43%** |
+
+all p = 0.00, against a suite floor of ±1.5%. `bund2 --stats` attributes it:
+**2 bodies compiled, 0 sites inlined, 0 values promoted.** The body compiles and
+gains nothing.
+
+**The contrast is the proof.** The same program measured *cold* — as a
+straight-line stream rather than a word — moves +1.0% to +1.2%, because a stream
+is never a body and never compiles (§S3). The regression appears exactly when
+the body is compiled. And `arith/int_add/1000`, identical in shape but on ints,
+reads **1000 sites inlined, 1001 values promoted** and runs 46× faster. Same
+harness, same length, opposite outcome, and the attribution separates them.
+
+**Why floats get nothing.** D66 promotes int literals — `Plan::Literal` carries
+an `i64` — and §S6's published fragment table (`bund2_stdlib::fragments`) has no
+arm for float multiplication. So every value of a float body plans as a generic
+call. Nothing here is wrong with the lowering; the defect is that a body it
+cannot help is compiled regardless.
+
+**The shape of a fix, not taken.** `Compiler::plan_body` already knows the
+answer before any code is emitted: it returns the plan and the sites. A body
+whose plan admits no site and promotes nothing could be refused there, or by
+`JitTier::enter` on the counts, leaving it interpreted — which is what §S7's
+function cap already does for a body past the cap, so the machinery for
+"compiled code is not available, interpret" exists and is exercised. That would
+also stop the body consuming one of §S7's 1024 function slots to no purpose.
+
+**This is not F132 returning.** F132 proposed refusing compilation by body
+*size*, was withdrawn when the measurement behind it turned out to be a
+cold-start artifact, and would have refused the bodies that gain most. This
+refuses by *attribution* — zero sites, zero promoted — which is measured per
+body, already computed, and is the direct statement of "the tier cannot help
+this body".
+
+- Found: 2026-09-15, restating criterion 7's `arith` under D69
+- Status: **OPEN**. The rule changes which bodies compile, so it is §S7's to
+  state and the repository owner's to decide; no rule has been added.
+- Depends on: §S6 (the fragment table and the inlining join), §S7 (the
+  threshold), D66 (int literals promote), D69
+
 ## F132 — WITHDRAWN: the benchmark rebuilt the interpreter, so every timed entry ran cold
 
 **Not a Bund2 defect. A defect in the benchmark that found it**, and the fifth

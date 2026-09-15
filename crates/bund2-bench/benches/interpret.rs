@@ -261,14 +261,83 @@ fn value(c: &mut Criterion) {
     g.finish();
 }
 
+/// **One `Interp` for the whole benchmark, and the program is a registered
+/// word** — the warm counterpart to [`timed_eval`].
+///
+/// `timed_eval` passes [`interp`] as `iter_batched`'s setup, so every iteration
+/// starts with an empty cache and a body that crosses §S7's threshold within one
+/// eval **recompiles on every iteration**. That is a real cost, but it is a
+/// cold-start cost: no session recompiles a body on each call. F130 measured
+/// what it costs — one compilation of order 125–141 µs — and criterion 7's
+/// `arith` rows were dominated by it.
+///
+/// Here the program is `register`ed once and entered repeatedly on one warmed
+/// interpreter, so the timed region is steady-state execution.
+///
+/// **The trailing `clear` is load-bearing.** `0 1 + 1 + …` leaves a value per
+/// eval and `1000 { 1 + } times drop` leaves 999, so on a long-lived `Interp`
+/// the stack would grow without bound and this would become an allocation
+/// benchmark. The balance is asserted rather than assumed.
+fn warm_eval(
+    g: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+    name: &str,
+    body: &str,
+) {
+    let setup = compiled(&format!(":w {{ {body} clear }} register"));
+    let call = compiled("w");
+    g.bench_function(name, |b| {
+        let mut i = interp();
+        if i.eval(&setup).is_err() {
+            eprintln!("bench: warm_eval setup failed for {name}; measuring nothing");
+        }
+        // Past §S7's threshold, outside the timed region: every timed entry
+        // finds compiled code and none pays for compilation.
+        for _ in 0..(bund2_runtime_threshold() + 8) {
+            let _ = i.eval(&call);
+        }
+        debug_assert_eq!(i.depth(), 0, "the body must be stack-balanced");
+        b.iter(|| black_box(i.eval(black_box(&call))).is_ok());
+    });
+}
+
 /// Arithmetic, the classic JIT target: no allocation, all in the value layer.
+///
+/// **Restated 2026-09-15 to measure what a session does.** Each program now runs
+/// through [`warm_eval`] — registered once, entered repeatedly on one warm
+/// interpreter — beside the original cold row it replaces. The `/cold` rows are
+/// kept, not deleted: they are the only thing that measures first-entry cost,
+/// which a short-lived process really pays, and keeping them is what stops the
+/// restatement from being a failure redefined away. See RFC-0005 criterion 7
+/// and D69.
+///
+/// **What each warm row turned out to measure**, by `bund2 --stats`:
+///
+/// - `int_add` — 1000 sites inlined, 1001 values promoted, so Cranelift folds
+///   the literal chain to a constant. It reads −97.9%, and that is **folding,
+///   not arithmetic**: the row cannot speak for arithmetic throughput, and a
+///   non-foldable shape is owed before it can.
+/// - `float_mul` — **0 sites, 0 promoted**. The body compiles, pays the
+///   boundary on every value through `jit_apply` and `Vm::apply`, and is repaid
+///   nothing: +22.7% to +26.4%, the live half of criterion 7's failure (F133).
+/// - `times_body` — straddles zero, which is what F130 predicted once the
+///   per-iteration compilation left the timed region.
 fn arith(c: &mut Criterion) {
     let mut g = c.benchmark_group("arith");
-    timed_eval(&mut g, "int_add/1000", &format!("0 {}", "1 + ".repeat(1000)));
-    timed_eval(&mut g, "float_mul/1000", &format!("1.0 {}", "1.000001 * ".repeat(1000)));
+
+    let int_add = format!("0 {}", "1 + ".repeat(1000));
+    let float_mul = format!("1.0 {}", "1.000001 * ".repeat(1000));
     // `times` runs a body N times through the interpreter's own loop, which is
     // closer to how a real program spends its time than a straight-line stream.
-    timed_eval(&mut g, "times_body/1000", "1000 { 1 + } times drop");
+    let times_body = "1000 { 1 + } times drop";
+
+    warm_eval(&mut g, "int_add/1000", &int_add);
+    warm_eval(&mut g, "float_mul/1000", &float_mul);
+    warm_eval(&mut g, "times_body/1000", times_body);
+
+    timed_eval(&mut g, "int_add/1000/cold", &int_add);
+    timed_eval(&mut g, "float_mul/1000/cold", &float_mul);
+    timed_eval(&mut g, "times_body/1000/cold", times_body);
+
     g.finish();
 }
 

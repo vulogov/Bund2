@@ -39,12 +39,17 @@
   - **Partial** — 5, 17, 30: each has a half met and a half outstanding, or a
     bound stated and unmeasured.
   - **Not met** — 14, 20, 22, 27, and 4's reachable remainder.
-  - **Failed, measured; cause identified** — 7, on **one** group. The cause is
-    **one Cranelift compilation, of order 125–141 µs**, paid once per iteration
-    because the harness rebuilds the `Interp` in setup — ~85% of the figure,
-    with F131's per-entry probe accounting for most of the rest. Whether a
-    benchmark that recompiles per call is measuring what this criterion
-    protects is a question about the criterion, and F130 leaves it open.
+  - **Failed, measured; cause identified** — 7, on **one** group, `arith`, and
+    the reason changed on 2026-09-15 when D69 restated what that group measures.
+    The old headline, `times_body` at **+121%**, was **one Cranelift
+    compilation of order 125–141 µs paid once per Criterion iteration** because
+    the harness rebuilt the `Interp` in setup (F130); warm, that row straddles
+    zero. What fails now is **`float_mul` at +22.7% to +26.4%** on a warm
+    interpreter — a steady-state regression the cold fixture had hidden, with
+    `--stats` attributing it to **0 sites inlined and 0 values promoted**, so
+    the body pays the compiled boundary and is repaid nothing (F133). The cold
+    rows are kept beside the warm ones; the criterion was restated, not
+    excused. `int_add`'s −97.9% is constant folding and is not quoted as a win.
     `arith/times_body/1000` regresses **~+121%**, reproduced across five
     consecutive runs against one baseline on 2026-09-15 (+116.87%, +121.82%,
     +117.83%, +127.46%, +121.08%, every one p = 0.00). It is in the
@@ -4073,8 +4078,42 @@ evidence, and this one is listed as runnable rather than as met.
    | `startup` | +0.25% (p = 0.28), −1.02% | **met** — inside the band, one not significant |
    | `value` | −2.68% to +0.01% across five, two not significant | **met** |
    | `dispatch` | +3.82%, +9.96%, +11.94%, +12.62% single-run; **+2–3% on repetition** | **met** — the single-run failure is withdrawn below |
-   | `arith` | +8.06%, +9.59%, **+136.56%**; **~+121% on repetition** | **FAILS** |
+   | `arith` (cold fixture) | +8.06%, +9.59%, **+136.56%**; **~+121% on repetition** | **FAILS** — restated below under D69 |
    | `corpus` | +3.81%, −0.79% (p = 0.31), +0.57% (p = 0.31) | inside the band |
+
+   **`arith` restated to measure a session, 2026-09-15 (D69) — and it still
+   FAILS.** Each program is now `register`ed once and entered repeatedly on one
+   warmed interpreter, which is criterion 10's shape; the original rows are kept
+   as `/cold`, because they are the only measurement of first-entry cost and
+   deleting them would make this a failure redefined away. Feature-off baseline,
+   three feature-on runs, `bund2 --stats` attributing each row:
+
+   | row | bodies / sites / promoted | three runs | |
+   |---|---|---|---|
+   | `int_add/1000` warm | 2 / 1000 / 1001 | −97.84%, −97.85%, −97.87% | **folding, not arithmetic** |
+   | `float_mul/1000` warm | 2 / **0 / 0** | +24.63%, +22.66%, +26.43% | **FAILS** — F133 |
+   | `times_body/1000` warm | — | −0.53%, +0.58%, −0.89% | inside the band |
+   | `int_add/1000/cold` | — | +1.81%, +1.49%, −0.13% | inside the band |
+   | `float_mul/1000/cold` | — | +1.16%, +1.19%, +0.97% | inside the band |
+   | `times_body/1000/cold` | — | +120.45%, +122.26%, +121.16% | the compilation, per iteration |
+
+   Three readings, and the first two matter more than the verdict.
+
+   **`times_body`'s +121% was compilation**, as F130 concluded: warm, the same
+   program straddles zero. That row is now explained rather than open.
+
+   **`float_mul` is a real steady-state regression that the cold fixture hid.**
+   Cold, it reads +1.2%, because a straight-line stream is never a body and
+   never compiles (§S3); warm, registered as a word, it compiles and loses
+   ~24%. `--stats` says why — **0 sites inlined, 0 values promoted** — so the
+   body pays the boundary on every value through `jit_apply` and `Vm::apply`
+   and is repaid nothing. F133 carries it.
+
+   **`int_add`'s −97.9% is not a win to quote.** With 1000 sites inlined and
+   1001 values promoted the chain folds to a constant, so the row measures
+   Cranelift's constant folding, which §S6's spike already reported at 60× and
+   ≈540×. A non-foldable arithmetic row is owed here before this shape can say
+   anything about arithmetic throughput.
 
    **An earlier attempt the same day reported quite different numbers and was
    discarded.** It read `startup` +7.3%/+12.2%, `value` +8.8% to +37.6% and

@@ -3476,6 +3476,58 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D69 — criterion 7's `arith` measures a warm session, and keeps its cold rows beside it
+
+**Decided by the repository owner, 2026-09-15.**
+
+- Blocks: nothing; it restates what one acceptance criterion measures
+
+### The problem
+
+`arith`'s three programs ran through `timed_eval`, which passes `interp` as
+`iter_batched`'s setup, so **every Criterion iteration built a fresh `Interp`
+with an empty cache**. `1000 { 1 + } times drop` crosses §S7's threshold of 64
+within a single eval, so each iteration paid one full Cranelift compilation —
+of order 125–141 µs, F130 — and the row read **+121%**. No session recompiles a
+body on every call, so the criterion's headline failure was substantially a
+property of the harness.
+
+### The decision
+
+`arith` measures the **steady state**: each program is `register`ed once and
+entered repeatedly on one warmed interpreter (`warm_eval`), which is criterion
+10's shape and a session's.
+
+**The cold rows are kept, renamed `/cold`, not deleted.** They are the only
+thing that measures first-entry cost, which a short-lived process genuinely
+pays, and keeping them is what stops this from being a failure redefined away.
+RFC-0005 says in terms that "a criterion whose failure can be explained away by
+changing its denominator would not be worth having"; both denominators now
+appear, and the entry below records what each one showed.
+
+### Why this is not an exemption
+
+Restating did not clear the criterion. `times_body` warm straddles zero, which
+confirms its +121% was compilation — but `float_mul` warm regresses **+22.7% to
++26.4%** across three runs, a steady-state failure that the cold fixture had
+hidden, because a straight-line stream never becomes a body and never compiles.
+The criterion still **FAILS**, now on a row whose cause is attributed: 0 sites
+inlined and 0 values promoted (F133).
+
+`int_add` warm reads −97.9%, and that is **not** a speedup to claim: with 1000
+sites inlined and 1001 values promoted, Cranelift folds the literal chain to a
+constant, so the row measures folding rather than arithmetic. It is recorded
+with that caveat rather than quoted as a win.
+
+### Consequences
+
+- RFC-0005 criterion 7 carries both sets of rows and the verdict is taken on the
+  warm ones, with the cold ones retained as first-entry evidence.
+- F130's +121% is explained rather than outstanding; F133 is opened for the
+  steady-state regression the restatement exposed.
+- `timed_eval` is unchanged and still serves `dispatch`, `lambda` and `corpus`:
+  this decision restates one group, not four.
+
 ## D68 — promotion crosses a call only when the callee produces nothing
 
 **Decided by the repository owner, 2026-09-14**, resolving Q39.
