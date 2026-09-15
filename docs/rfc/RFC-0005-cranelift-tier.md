@@ -44,10 +44,12 @@
     three feature-on runs, tier confirmed installed — puts **every row of all
     five groups inside the 5% band**, judged under D70, which repaired the
     significance clause F134 showed no build could satisfy. The single exception
-    is `value/promote/scalar`, and it fails its **own no-tier control** by more
-    than it moves with the tier (−4.69% to −9.46% with nothing changed): F135, a
-    defect in that benchmark. The criterion is therefore **not declared met**,
-    because `value` is a protected group and its row cannot currently answer.
+    is `value`, whose **whole group** fails its own no-tier control: the same
+    binary against a warm feature-off baseline, nothing changed, moves −5.85% to
+    +25.56% across three runs on three of its five rows. F135, a defect in the
+    instrument. The criterion is therefore **not declared met**,
+    because `value` is a protected group and its instrument cannot currently
+    answer.
     `arith`'s `/cold` rows stay at ~+122% as D69's first-entry evidence, outside
     the verdict.
 
@@ -4185,7 +4187,8 @@ evidence, and this one is listed as runnable rather than as met.
    withdrawable earlier the same day. One run would have recorded a regression
    that does not exist.
 
-   **`value/promote/scalar` is the row to distrust, again.** +1.51%, +2.26%,
+   **`value/promote/scalar` was the row to distrust; it is the whole group**
+   (F135, rewritten the same day). +1.51%, +2.26%,
    then **−5.58%** — an eight-point swing on a row no tier touches. It was also
    the lone outlier at −5.5% in the 2026-09-14 drift floor, measured with *no
    tier on either side*. Twice, same row, same magnitude: a property of that
@@ -4198,25 +4201,31 @@ evidence, and this one is listed as runnable rather than as met.
    groups is inside the band**, in both directions, except
    `value/promote/scalar` at −5.58% in run 3.
 
-   That row does not survive its own control. Feature-**off** against its own
-   baseline, no tier in either half, nothing changed:
+   That row does not survive its own control — and neither does its group. The
+   same binary against a **warm** feature-off baseline, no tier in either half,
+   nothing changed:
 
-   | | three runs |
-   |---|---|
-   | no tier vs no tier | **−4.69%, −9.46%, −8.85%** (all p = 0.00) |
-   | tier vs no tier | −3.92%, −3.94%, +0.99% |
+   | row | control 1 | control 2 | control 3 |
+   |---|---|---|---|
+   | `with_tag/scalar_unique` | −5.85% | +1.52% | −5.74% |
+   | `with_tag/heap_shared` | −3.55% | **+25.56%** | **+22.49%** |
+   | `promote/scalar` | −5.49% | +2.00% | −2.65% |
+   | `clone/scalar` | −1.77% | −0.78% | −1.72% |
+   | `push_pull/balanced` | −1.56% | −0.85% | −3.37% |
 
-   **The control drifts further than the measurement**, and in one direction:
-   42.23 ns in the baseline, then 40.00, 38.37, 38.65. A row whose own noise
-   exceeds the band it polices cannot answer this criterion's question, and
-   whatever produces the drift is present with no compiled code at all. F135
-   carries it.
+   **Three of five rows exceed the band against themselves**, and the worst is
+   not the row that triggered the investigation. Whatever produces this is
+   present with no compiled code on either side, so it is not the tier's; a
+   stale baseline does not explain it, because re-baselining warm did not remove
+   it; and the cause is **not known**. F135 carries it, and names no mechanism —
+   an allocator-warming account was offered, appeared to saturate across six
+   runs, and was refuted by the next baseline.
 
-   **So the criterion is met on every row that can answer, and held on one that
-   cannot.** It is not declared met here: `value` is a protected group, F135 is
-   its row, and deciding what that benchmark should measure is worth doing
-   deliberately rather than by adjusting a fixture until the verdict lands —
-   which is the same discipline D69 applied to `arith`.
+   **So the criterion is met on every group that can answer, and held on one
+   that cannot.** It is not declared met here: `value` is a protected group, its
+   instrument currently fails its own control, and deciding what those rows
+   should measure is worth doing deliberately rather than by adjusting a fixture
+   until the verdict lands — the same discipline D69 applied to `arith`.
 
    **An earlier attempt the same day reported quite different numbers and was
    discarded.** It read `startup` +7.3%/+12.2%, `value` +8.8% to +37.6% and

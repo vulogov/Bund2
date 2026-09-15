@@ -3944,50 +3944,95 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
-## F135 — `value/promote/scalar` drifts further with no tier than with one
+## F135 — the whole `value` group's no-tier control exceeds the band it polices
 
-**A defect in a benchmark**, found taking criterion 7's verdict under D70. The
-sixth of this kind after F124, F127, F128, F129 and F132.
+**A defect in a benchmark group**, found taking criterion 7's verdict under D70.
+The sixth of this kind after F124, F127, F128, F129 and F132.
 
-The row sits in `value`, a group criterion 7 protects because the tier must not
-disturb work beneath it, and it has been the outlier twice: **−5.5%** in the
-2026-09-14 drift floor with no tier on either side, and **−5.58%** in
-2026-09-15's run 3 after +1.51% and +2.26%.
+`value` is a group criterion 7 **protects**: D41's work sits below the tier and
+the tier must not disturb it, so a move beyond 5% in either direction fails. The
+group cannot currently answer that question about itself.
 
-**The control settles it.** The feature-**off** binary against its own `c7`
-baseline — nothing changed, no tier in either half:
+### The measurement
 
-| | three runs |
-|---|---|
-| no tier vs no tier (control) | **−4.69%, −9.46%, −8.85%**, all p = 0.00 |
-| tier vs no tier (the A/B) | −3.92%, −3.94%, +0.99% |
+A feature-**off** binary against a feature-off baseline — the same binary, no
+tier in either half, **nothing changed** — re-baselined with the allocator
+settled and run three times:
 
-**The control drifts further than the measurement.** A row whose own noise
-exceeds the 5% band it is meant to police cannot answer the question criterion 7
-asks of it.
+| row | control 1 | control 2 | control 3 |
+|---|---|---|---|
+| `with_tag/scalar_unique` | −5.85% | +1.52% | −5.74% |
+| `with_tag/heap_shared` | −3.55% | **+25.56%** | **+22.49%** |
+| `promote/scalar` | −5.49% | +2.00% | −2.65% |
+| `clone/scalar` | −1.77% | −0.78% | −1.72% |
+| `push_pull/balanced` | −1.56% | −0.85% | −3.37% |
 
-**It drifts in one direction, which is the tell.** Across the session the same
-benchmark reads 42.23 ns (baseline), then 40.00, 38.37, 38.65 — monotonically
-downward, not scattered. That is a benchmark warming up, or a machine state it
-is sensitive to, rather than run-to-run noise around a true value. Whatever the
-mechanism, it is present with **no tier compiled**, so it is not the tier's.
+Nearly all p = 0.00. **Three of five rows exceed ±5% against themselves**, and
+`with_tag/heap_shared` — which had looked steady at 41.0–42.0 ns all session —
+swings **+25%**.
 
-**What this does not say.** `value/promote/scalar` measures something real —
-D41's promotion path — and the other four `value` rows are steady across the
-same runs (`clone/scalar` moved +0.90%, +1.69%, +0.82%). The defect is in this
-row's stability, not in the group.
+### Two claims in this entry's first draft are withdrawn
 
-**Why it is filed rather than fixed.** Making the row stable means changing what
-it measures — a longer sample, a different fixture, or a warm-up outside the
-timed region as `hot_body` does — and this session has already shown that
-changing a fixture can change a verdict (D69, F132). The row currently blocks a
-verdict on criterion 7's `value` group, so what it should measure is worth
-deciding rather than adjusting quietly.
+**"The defect is in this row's stability, not in the group."** False. It was
+filed against `value/promote/scalar` alone, on the grounds that the other four
+rows were steady: `clone/scalar` had read +0.90%, +1.69%, +0.82%. Under a fresh
+baseline `heap_shared` is the worst row in the group and `clone/scalar` moves
+consistently negative. The group is the unit, not the row.
+
+**"It drifts in one direction, which is the tell."** Also false, and it was the
+basis of a diagnosis this entry no longer makes. `promote/scalar` read 42.23,
+40.00, 38.37, 38.65 ns and then appeared to settle across six consecutive runs
+at 39.0–39.9 — which looked like an allocator warming to a plateau. The next
+baseline taken immediately afterwards read **42.46 ns**, above where the session
+began. The apparent saturation was six runs inside one quiet window, not a
+property of the benchmark. **Allocator warm-up is withdrawn as the cause.**
+
+### The cause is not known
+
+What is established: the movement is present with **no compiled code on either
+side**, so it is not the tier's; it is far larger than the ±1.5% floor the same
+suite shows elsewhere; and it is not explained by a stale baseline, because
+re-baselining warm did not remove it. Machine state, thermal behaviour, or
+something in the process are all candidates and **none has been tested**. This
+entry names no mechanism: three diagnoses were fitted to numbers in this
+register on 2026-09-15 alone (F130's probes, F132's cold start, this entry's
+allocator), and each survived several consistent runs before failing.
+
+**A smaller observation, recorded and not chased.** Criterion's own
+`change/estimates.json` disagrees with its printed intervals on these rows —
+`clone_scalar` at −1.72% mean against −2.97% median, `heap_shared` +22.49% mean
+against +25.53% median. Worth knowing before either figure is quoted.
+
+### What it costs
+
+Criterion 7 cannot take a verdict on `value` as the criterion is written. Every
+other group passed the band across three runs; this one's control fails it. The
+`< 5%` band is sound (D70) and the tier is not implicated — the instrument is.
+
+### Dispositions, none taken
+
+- **A — make the rows measurable.** Longer samples, or a fixture that does not
+  allocate per iteration, or warm-up outside the timed region as `hot_body`
+  does. Changes what the rows measure, and this session has twice shown a
+  fixture change moving a verdict (D69, F132).
+- **B — judge `value` against a same-session control** rather than a fixed band:
+  the group passes when the A/B sits inside the spread its own no-tier control
+  showed that day. This is option C of F134, which was declined **for the
+  criterion as a whole** — applying it to one group that demonstrably needs it is
+  a narrower decision and a different one.
+- **C — find the cause first.** Nothing here is fixed while the mechanism is
+  unknown, and a fix aimed at the wrong cause is how F130's first diagnosis and
+  this entry's own first draft went.
+
+**Not taken.** `value` is a protected group and what it should measure is the
+repository owner's to decide.
 
 - Found: 2026-09-15, taking criterion 7's verdict under D70
+- Rewritten: 2026-09-15, after a fresh warm baseline showed the group, not the
+  row, and withdrew the allocator diagnosis
 - Status: **OPEN**. Blocks the `value` group's verdict under D70's band; every
-  other row in every group passed across three runs.
-- Depends on: criterion 7, D41 (the promotion path it times), D70 (the band it
+  other group passed across three runs.
+- Depends on: criterion 7, D41 (the work the group protects), D70 (the band it
   exceeds), F134
 
 ## F134 — criterion 7's "no statistically significant difference" clause cannot be satisfied by any build — RESOLVED as D70
@@ -4088,7 +4133,8 @@ and why A and C were declined.
 **It made a verdict possible, and one row still blocks it** — but not for this
 entry's reason. Under D70 every row of all five groups is inside the band across
 three runs **except** `value/promote/scalar`, whose own no-tier control drifts
-−4.69% to −9.46%. That is F135, a defect in the benchmark rather than in the
+−5.85% to +25.56% across the group on a warm baseline, worst on a row that had
+looked steady all session. That is F135, a defect in the benchmark rather than in the
 criterion or the tier.
 
 - Found: 2026-09-15, running criterion 7 in full for the first time since F131,
