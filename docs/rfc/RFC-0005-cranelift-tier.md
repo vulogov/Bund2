@@ -4079,7 +4079,7 @@ evidence, and this one is listed as runnable rather than as met.
 
    | group | requirement |
    |---|---|
-   | `startup` | **no change**: Criterion reports no statistically significant difference, and the point estimate moves by **< 5%** |
+   | `startup` | **no change**: Criterion reports no statistically significant difference, and the point estimate moves by **< 5%** — the significance half is **F134**, and cannot be satisfied by any build |
    | `value` | no change, same tolerance — D41's work is below the tier and the tier must not disturb it |
    | `dispatch`, `arith`, `corpus` — the `bund2-bench` group, not `cargo xtask corpus` | free to improve; a **regression beyond 5%** on any of them fails |
 
@@ -4147,6 +4147,47 @@ evidence, and this one is listed as runnable rather than as met.
    Cranelift's constant folding, which §S6's spike already reported at 60× and
    ≈540×. A non-foldable arithmetic row is owed here before this shape can say
    anything about arithmetic throughput.
+
+   **Run in full, 2026-09-15 — every row passes the band, and no verdict is
+   taken.** The first five-group A/B since F131's fix, D69's restatement and
+   F133's rule: one feature-off baseline (`c7`), three feature-on runs, the tier
+   confirmed installed each time.
+
+   | group | run 1 | run 2 | run 3 |
+   |---|---|---|---|
+   | `startup` (2 rows) | +0.95%, −0.19% | +1.25%, −0.77% | +0.50%, −1.31% |
+   | `value` (5 rows) | −1.17% to +1.88% | +0.46% to +2.26% | −5.58% to +2.56% |
+   | `dispatch` (4 rows) | −0.33% to +0.64% | −2.07% to +0.80% | −1.39% to +0.08% |
+   | `arith` warm (3 rows) | −97.87%, +0.30%, −1.94% | −97.87%, −0.83%, −0.62% | −97.87%, +1.12%, −2.27% |
+   | `corpus` (3 rows) | +3.28%, −3.65%, −1.33% | +0.67%, −2.74%, +1.40% | +0.36%, −4.10%, −1.82% |
+   | `arith/times_body/1000/cold` | +121.70% | +124.57% | +121.87% |
+
+   **No row regresses beyond 5% in any run.** `float_mul` holds after F133;
+   `times_body` warm is slightly faster than Tier 0; the cold row reproduces at
+   ~+122%, which D69 keeps as first-entry compilation cost rather than counting
+   toward the verdict.
+
+   **`corpus/mixed` is why three runs were taken.** It read +3.28% (p = 0.00,
+   "regressed"), then +0.67% (p = 0.30), then +0.36% (p = 0.57) — the suite's
+   floor reported as significance, the same shape that made `dispatch`'s failure
+   withdrawable earlier the same day. One run would have recorded a regression
+   that does not exist.
+
+   **`value/promote/scalar` is the row to distrust, again.** +1.51%, +2.26%,
+   then **−5.58%** — an eight-point swing on a row no tier touches. It was also
+   the lone outlier at −5.5% in the 2026-09-14 drift floor, measured with *no
+   tier on either side*. Twice, same row, same magnitude: a property of that
+   benchmark rather than of the tier, though that is not yet proven.
+
+   **Why the criterion is still not declared met: F134.** Its `startup` and
+   `value` rows ask for "no statistically significant difference" *and* < 5%.
+   The band passes everywhere. The significance clause **cannot be satisfied by
+   any build** — the feature-off control, one binary against its own baseline
+   with nothing changed, reports −1.02% at p = 0.00 — so reading it literally
+   fails every build forever, and reading it loosely makes the reading the
+   reader's rather than this document's. Choosing between those is a decision
+   about what the criterion means, and it is the repository owner's; F134 lists
+   the dispositions and takes none.
 
    **An earlier attempt the same day reported quite different numbers and was
    discarded.** It read `startup` +7.3%/+12.2%, `value` +8.8% to +37.6% and

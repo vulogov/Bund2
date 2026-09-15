@@ -3944,6 +3944,98 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F134 — criterion 7's "no statistically significant difference" clause cannot be satisfied by any build
+
+**A defect in an acceptance criterion's wording**, not in Bund2. Found by
+running criterion 7 in full on 2026-09-15 and having no defensible way to
+declare it met or unmet.
+
+### The clause
+
+RFC-0005 criterion 7 asks two different things of its two protected groups:
+
+| group | requirement |
+|---|---|
+| `startup` | **no change**: Criterion reports no statistically significant difference, and the point estimate moves by **< 5%** |
+| `value` | no change, same tolerance |
+
+The `< 5%` half is a band and works. The **significance** half is the defect.
+
+### Why no build can satisfy it
+
+Criterion's significance test asks whether a difference is *distinguishable from
+zero* given the observed variance — **not** whether it is large. With 100
+samples of a microbenchmark, differences far below any band are reliably
+detectable: binary layout, allocator state and code placement differ between two
+builds and are perfectly systematic, so they register as significant however
+small they are.
+
+**This is measured, not argued.** The feature-**off** control — one binary
+against its own baseline, *nothing changed* — reads:
+
+| benchmark | three runs |
+|---|---|
+| `dispatch/dup_drop/w3000` | −0.28% (p = 0.57), +0.06% (p = 0.88), −0.85% (p = 0.05) |
+| `dispatch/native_call/w4000` | **−1.02% (p = 0.00)**, −0.51% (p = 0.09), −0.02% (p = 0.98) |
+
+A binary compared with itself reports a statistically significant change. A
+clause that this fails cannot be met by a *different* binary, which is what the
+criterion actually compares.
+
+The full criterion 7 run the same day shows the same thing on the protected
+groups, at movements nobody would call a regression:
+
+| row | three runs |
+|---|---|
+| `startup/registry/register_all` | +0.95% (p = 0.00), +1.25% (p = 0.00), +0.50% (p = 0.16) |
+| `value/clone/scalar` | +0.90% (p = 0.01), +1.69% (p = 0.00), +0.82% (p = 0.02) |
+| `value/push_pull/balanced` | +1.88% (p = 0.00), +1.28% (p = 0.00), +2.56% (p = 0.00) |
+
+Every one is inside the 5% band by a wide margin. Every one is "statistically
+significant" more often than not.
+
+### Why this matters rather than being pedantry
+
+A criterion that **cannot be met** stops working as a gate. It is either read
+literally and fails forever — in which case it says nothing about any particular
+build, and a real regression in `startup` would be indistinguishable from the
+permanent failure — or it is read loosely, in which case the reading is the
+reader's and not the RFC's. Both outcomes remove the protection the criterion
+exists to provide, and the second invites exactly the move this RFC forbids
+elsewhere: explaining a failure away at the point of reporting it.
+
+It also blocked a verdict today. On the band, criterion 7 passes on every row of
+all five groups across three runs. On the significance clause it cannot pass.
+The criterion was left unresolved rather than decided either way, because
+choosing a reading is a decision about what the criterion means.
+
+### Dispositions, none taken
+
+- **A — drop the significance clause**, keep `< 5%`. The band is what every
+  other row in the table uses, and it is the thing with a stated basis (§S1's
+  run-to-run spread). Simplest, and makes the two halves of the table
+  consistent.
+- **B — require significance only above the band.** "A change beyond 5% that is
+  also statistically significant fails." Significance then filters false alarms
+  rather than generating them, which is the role it can actually play.
+- **C — compare against the day's own drift floor.** Criterion 7 already
+  measures a no-tier control before the A/B; the requirement becomes "inside the
+  control spread measured in the same session". Strictest and most honest, and
+  the most work: it needs the control taken every time, which the procedure
+  already does.
+
+**Not taken here.** Rewriting an acceptance criterion so that it can be passed
+is the move this RFC warns about in terms — "a criterion whose failure can be
+explained away by changing its denominator would not be worth having" — so the
+choice is the repository owner's, and the criterion stays unresolved until then.
+
+- Found: 2026-09-15, running criterion 7 in full for the first time since F131,
+  D69 and F133
+- Status: **OPEN**. Blocks a verdict on criterion 7's `startup` and `value`
+  groups; the `< 5%` band is unaffected and those groups pass it.
+- Depends on: RFC-0005 criterion 7, §S1 (the run-to-run spread the band rests
+  on), F132 (the same suite's floor, measured)
+
 ## F133 — a body with no inlinable site is compiled anyway, and always loses — RESOLVED
 
 **A Bund2 defect**, found by restating criterion 7's `arith` to measure steady
