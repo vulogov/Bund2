@@ -4567,6 +4567,15 @@ verified: that is exactly how its first diagnosis went wrong. What both shapes
 agree on is the magnitude: **a compilation of a four-value body costs of order
 125–141 µs**, three orders above an interpreted entry of the same body.
 
+**Per-entry cost is now zero by measurement, not merely "not detectable"**
+(2026-09-15). `hot_body` run across six body lengths lets slope and intercept be
+read apart: Tier 0 fits 18.08 ns per value on a 34.78 ns intercept, the tier
+7.26 ns per value on 34.21 ns, both at R² ≈ 0.9999. **The intercepts differ by
+−0.57 ns** — nothing, against 34 ns — because that intercept is `Interp::eval`'s
+own overhead, paid with no tier installed. The boundary is entirely per value.
+A three-point fit of the same group had reported "~7 ns of fixed entry cost";
+that was the residual of too few points and RFC-0005 criterion 10 withdraws it.
+
 **Per-entry cost was excluded first, by the `entry` group.** It warms past the
 threshold and times entries only: +1.74%, +3.74%, −0.05% (p = 0.78), −0.65%,
 +1.94% across five runs, straddling zero. That is what left compilation as the

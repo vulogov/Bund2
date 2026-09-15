@@ -4702,13 +4702,47 @@ evidence, and this one is listed as runnable rather than as met.
     entry**, the body alone. A gain confined to the body is diluted at program
     scale, which is what separates 2.40× from 1.06× without either being wrong.
 
-    **It sharpens the diagnosis above rather than replacing it.** Fitting the
-    three rows gives about **11 ns saved per value** against roughly **7 ns of
-    fixed entry cost**, so the boundary is a constant the body amortises: it
-    dominates a four-value body, which is why this criterion's own shape reads
-    barely over 1×, and it is nearly irrelevant at 64 values. "A future attempt
-    at the 1.2× floor has to attack that, not the operands" is confirmed and now
-    has a number on it.
+    **The two costs, separated — 2026-09-15, and the fixed entry cost is zero.**
+    An earlier reading of these three rows put "about 11 ns saved per value
+    against roughly 7 ns of fixed entry cost", and reasoned that the boundary was
+    a constant a short body could not amortise. **The second half of that was an
+    artifact of fitting three points**, and it is withdrawn. `hot_body` now runs
+    **six** lengths against a Tier 0 baseline, which lets slope and intercept be
+    read separately instead of inferred:
+
+    | | per value | per entry | R² |
+    |---|---|---|---|
+    | Tier 0 | **18.08 ns** | 34.78 ns | 0.99996 |
+    | with the tier | **7.26 ns** | 34.21 ns | 0.99997 |
+    | difference | **10.82 ns saved** | **−0.57 ns** | |
+
+    **Both arms intercept at ~34.5 ns**, and the difference between them is
+    −0.57 ns — nothing, against a 34 ns intercept. That intercept is
+    `Interp::eval`'s own fixed cost, paid identically with no tier installed, so
+    it was never the tier's boundary. **There is no per-entry penalty to
+    amortise.**
+
+    **Linearity is now demonstrated rather than assumed.** Per-value increments
+    hold flat across every doubling — Tier 0 at 18.56, 19.32, 18.24, 17.87,
+    18.03 ns and the tier at 7.98, 6.97, 7.06, 7.32, 7.30 ns — and the fitted
+    line agrees with the measured points to within 0.2% at five of the tier's
+    six lengths. The three-point fit assumed the shape it was used to establish.
+
+    **So the boundary is entirely per-value, at 7.26 ns**: a slot load, a
+    `call_indirect`, the request-cell load after it, and a second indirect call
+    to `jit_admits` at an inlined site. Against Tier 0's 18.08 ns the tier
+    removes 10.82 ns — 60% — on **every** value, with no fixed cost to earn back.
+
+    **This revises where the 1.2× shortfall lives.** The reasoning above said the
+    boundary dominates a four-value body, which is why this criterion's shape
+    reads barely over 1×. That cannot be right: a four-value body pays
+    4 × 7.26 ≈ 29 ns of boundary beside 34.5 ns of `eval` overhead **Tier 0 pays
+    too**, and the tier is ahead on the body itself at every length measured. The
+    dilution is the program's, not the body's — the loop machinery, the frame
+    push and the call around it. "A future attempt at the 1.2× floor has to
+    attack that, not the operands" still stands, but *that* now means the 7.26 ns
+    per value, whose four components are separately nameable and separately
+    measurable, rather than an entry cost that does not exist.
 
     **The stop rule is untouched.** This criterion is stated on the tier as
     shipped, measured under the CLI's default reporter on a program, and that

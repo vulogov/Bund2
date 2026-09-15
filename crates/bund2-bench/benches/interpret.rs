@@ -580,11 +580,40 @@ fn size_crossover(c: &mut Criterion) {
 /// repeatedly, which is criterion 10's shape. With the feature off the same
 /// fixture interprets, so criterion 7's A/B — `--save-baseline off` then
 /// `--baseline off` — reads compiled against interpreted at each body size.
+///
+/// # What six lengths bought that three could not
+///
+/// Timing against body length separates the two costs a compiled entry pays:
+/// the **slope** is per value, the **intercept** is per entry. Measured
+/// 2026-09-15 across 2, 4, 8, 16, 32 and 64 values:
+///
+/// | | per value | per entry | R² |
+/// |---|---|---|---|
+/// | Tier 0 | 18.08 ns | 34.78 ns | 0.99996 |
+/// | with the tier | 7.26 ns | 34.21 ns | 0.99997 |
+///
+/// **The per-entry costs cancel** — a difference of −0.57 ns against a 34 ns
+/// intercept — because that intercept is `Interp::eval`'s own overhead, paid
+/// with no tier installed. The boundary is *entirely* per value, at 7.26 ns.
+/// An earlier three-point fit of this same group reported "~7 ns of fixed entry
+/// cost"; that was the residual of too few points, and RFC-0005 criterion 10
+/// carries its withdrawal.
 fn hot_body(c: &mut Criterion) {
     let t = bund2_runtime_threshold();
     let mut g = c.benchmark_group("hot_body");
 
-    for pairs in [1usize, 4, 32] {
+    // **Six lengths, to separate the two costs rather than fit one number.**
+    // A compiled entry pays a per-*entry* cost — the trampoline, context setup,
+    // the cache lookup that found the code — and a per-*value* cost: a slot
+    // load, a `call_indirect`, and the request-cell load after it, plus a
+    // second indirect call to `jit_admits` at an inlined site. Timing against
+    // body length separates them: the **slope** is per value, the **intercept**
+    // is per entry. Three points fit a line but cannot show it is one; six can.
+    //
+    // `hot_body` previously ran 2, 8 and 64, and the ~11 ns per value against
+    // ~7 ns fixed quoted in F130 and criterion 10 was fitted from those three.
+    // That fit assumed linearity rather than testing it.
+    for pairs in [1usize, 2, 4, 8, 16, 32] {
         let values = pairs * 2;
         let setup = compiled(&format!(":w {{ {}}} register", "1 drop ".repeat(pairs)));
         let call = compiled("w");
@@ -601,9 +630,25 @@ fn hot_body(c: &mut Criterion) {
             for _ in 0..(t + 8) {
                 let _ = probe.eval(&call);
             }
+            // **Exactly one body, at every length.** The count is the premise of
+            // the fit: a program whose driver lambda also compiles would fold a
+            // second entry cost into the intercept. `:w { 1 } register` with
+            // `100 { w drop } times` reports 2 for that reason, which is why the
+            // call here is a bare `w` and why this is printed per size rather
+            // than assumed once.
+            let bodies = compiled_bodies(&probe);
+            // **The warning is for the tier's half only.** With the feature off
+            // there is no tier and zero bodies compile *by construction*, so
+            // flagging that would cry wolf on every baseline run — which the
+            // first version of this line did.
+            let want = if cfg!(feature = "jit") { 1 } else { 0 };
             eprintln!(
-                "bench: hot_body v{values} compiled bodies {}",
-                compiled_bodies(&probe)
+                "bench: hot_body v{values} compiled bodies {bodies}{}",
+                if bodies == want {
+                    ""
+                } else {
+                    "  <-- unexpected, the fit's premise fails here"
+                }
             );
         }
 
