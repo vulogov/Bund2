@@ -556,6 +556,92 @@ fn hot_body(c: &mut Criterion) {
     g.finish();
 }
 
+/// **F130's compile time, re-taken warm.**
+///
+/// The `compile` group measures a compilation through the tier, but it rebuilds
+/// the `Interp` per iteration, so its ~128 µs carries the cold-start pedestal
+/// F132 was withdrawn over. The difference of two identically-cold arms should
+/// largely cancel — and the no-tier control says the gap appears only when a
+/// compilation happens — but the *magnitude* was never trustworthy, and F130
+/// says so.
+///
+/// This times `Compiler::compile_word` directly, with the compiler **reused
+/// across iterations**, so the module, its tables and the allocator are warm and
+/// nothing per-iteration is built outside the timed region. The fragment table
+/// comes from `bund2_stdlib::fragments::published`, which is the call
+/// `bund2_runtime`'s tier makes — not a table assembled here, which is how
+/// F124, F127, F128 and F129 each went wrong.
+///
+/// `iter_custom` bounds a batch to 256 compilations: one `JITModule` accumulates
+/// a function per compile, and code memory is never reclaimed (§S4), so an
+/// unbounded run would measure an ever-growing module. Batch setup and eight
+/// warm-up compilations sit outside the timed region — the first compilation
+/// into a fresh module pays for pages and tables the rest reuse, which is not
+/// what F130 asks about.
+///
+/// The body is `1 2 + drop`, the same four values the `compile` group compiles,
+/// so the two figures answer the same question and can be compared.
+#[cfg(feature = "jit")]
+fn compile_warm(c: &mut Criterion) {
+    use bund2_jit::lower::{Compiler, LastCall};
+    use std::time::{Duration, Instant};
+
+    let mut g = c.benchmark_group("compile_warm");
+    let body = compiled("1 2 + drop");
+
+    g.bench_function("1_2_add_drop", |b| {
+        b.iter_custom(|iters| {
+            let mut total = Duration::ZERO;
+            // **The batch depth is a knob because it is a suspect.** Every
+            // compilation in a batch adds a function to the *same* `JITModule`,
+            // so if finalisation cost grows with what the module already holds,
+            // a deep batch reports more than one compilation costs. Sweeping
+            // this says whether the number is the compiler's or the harness's.
+            let depth: u64 = std::env::var("BUND2_BENCH_COMPILE_BATCH")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(256);
+            let mut done = 0u64;
+            while done < iters {
+                let batch = (iters - done).min(depth.max(1));
+
+                // Untimed: the interpreter, the published table and the
+                // compiler the batch will reuse.
+                let mut vm = bund2_runtime::Runtime::new().interp;
+                let table = bund2_stdlib::fragments::published(&vm.registry).unwrap_or_default();
+                let Ok(mut comp) = Compiler::new(table) else {
+                    eprintln!("bench: no compiler could be built; measuring nothing");
+                    return total;
+                };
+                let cells = vm.cells().base();
+
+                for _ in 0..8 {
+                    let _ = comp.compile_word(&body, LastCall::Ordinary, cells, &mut vm);
+                }
+
+                let t0 = Instant::now();
+                for _ in 0..batch {
+                    let _ = black_box(comp.compile_word(
+                        black_box(&body),
+                        LastCall::Ordinary,
+                        cells,
+                        &mut vm,
+                    ));
+                }
+                total += t0.elapsed();
+                done += batch;
+            }
+            total
+        });
+    });
+
+    g.finish();
+}
+
+/// Without the feature there is no compiler to time.
+#[cfg(not(feature = "jit"))]
+fn compile_warm(_: &mut Criterion) {}
+
 /// How many bodies this interpreter's tier has compiled; 0 where there is no
 /// tier, which is what the feature-off half of the A/B sees.
 #[cfg(feature = "jit")]
@@ -722,6 +808,7 @@ criterion_group!(
     arith,
     entry,
     compile,
+    compile_warm,
     size_crossover,
     hot_body,
     lambda,

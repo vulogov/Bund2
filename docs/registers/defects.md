@@ -4003,12 +4003,14 @@ entry against criterion 10's 1.06× per program, two measurements of the same
 tier disagreeing in sign. Reconciling those, rather than trusting the newer one,
 is what found the pedestal.
 
-**F130's ~128 µs compile time is not withdrawn but is qualified.** It is a
-difference between two arms with the same cold setup, so the pedestal largely
-cancels, and the no-tier control (all three arms at 9.2–9.8 µs) still shows the
-gap appears only when a compilation happens. Its *magnitude* may be inflated by
-the same cold-start effect and should be re-taken on a warm interpreter before
-anything is built on the exact number.
+**F130's compile time is not withdrawn, and the qualification first written
+here has itself been corrected by measurement.** This entry said the magnitude
+"may be inflated by the same cold-start effect" and should be re-taken warm. It
+was, the same day: `compile_warm` drives the compiler directly on a warm module
+and reads **140.6–141.4 µs**, *higher* than the cold subtraction's
+125.4–126.2 µs. So the pedestal did not distort that figure — a difference of
+two identically-cold arms cancels it — and the suspicion recorded here was
+wrong. See F130's *Re-taken warm*.
 
 - Found: 2026-09-15, in the `compile` group written for F130
 - Withdrawn: 2026-09-15, by `hot_body` and the reconciliation against
@@ -4185,7 +4187,9 @@ name alone, and the size is the tell.
 
 ### The cause, measured directly
 
-**Compilation is the cost, and it is ~128 µs per body.** The `compile` group in
+**Compilation is the cost, and it is of order 125–141 µs per body** — two
+shapes sharing no harness, bracketed in *Re-taken warm* below; the ~128 µs this
+section first recorded is the lower shape's figure. The `compile` group in
 `crates/bund2-bench/benches/interpret.rs` times the single entry that crosses
 §S7's threshold against the identical entry one before it, with all warming in
 `iter_batched`'s untimed setup. The body is `1 2 + drop` — one frame per call,
@@ -4208,6 +4212,43 @@ at **9.2–9.8 µs** and `crossing_entry` is indistinguishable from its siblings
 The difference appears only when a compilation happens. The benchmark prints its
 premise every run — `crossing entry 0 -> 1 bodies … ordinary entry -> 0` with
 the tier, `0 -> 0` without — so this is not another F129.
+
+### Re-taken warm, 2026-09-15 — the figure holds, and was not a cold-start artifact
+
+F132's withdrawal cast doubt on every number taken through `iter_batched`'s
+setup, this one included, so it was re-taken in a shape that shares none of that
+harness. `compile_warm` drives `Compiler::compile_word` directly with the
+compiler **reused across iterations**, so the module, its tables and the
+allocator are warm; the fragment table comes from
+`bund2_stdlib::fragments::published`, the call `bund2-runtime`'s tier itself
+makes, rather than one assembled in the benchmark.
+
+| shape | per compilation of `1 2 + drop` |
+|---|---|
+| warm, direct (`compile_warm`), three runs | **140.64, 141.38, 140.70 µs** |
+| cold, by subtraction (`compile`), two runs same session | **125.35, 126.23 µs** |
+
+**The cold figure was not inflated.** It is if anything ~12% *lower* than the
+warm one, so the pedestal that sank F132 did not distort this measurement — the
+difference of two identically-cold arms cancels it, as the entry argued it
+would.
+
+**A batch-depth sweep refutes the obvious objection.** Every compilation in a
+batch adds a function to the same `JITModule`, so a deep batch would report
+inflated times if finalisation cost grew with what the module already holds.
+It does not: 142.02, 141.80, 141.70, 140.74 µs at depths 8, 32, 128 and 256,
+where the module holds 16 functions at the shallow end and 264 at the deep one.
+The knob stays in the benchmark (`BUND2_BENCH_COMPILE_BATCH`) because the
+question will be asked again.
+
+**The 12% gap between the two shapes is unexplained and is left that way.** The
+cold subtraction covers compilation *and* the cache insert, so it should be the
+larger of the two and is the smaller. Candidate causes — a difference in what
+each shape hands `compile_word`, or in the interpreter state `plan_body`
+consults — were not tested, and this entry will not name one it has not
+verified: that is exactly how its first diagnosis went wrong. What both shapes
+agree on is the magnitude: **a compilation of a four-value body costs of order
+125–141 µs**, three orders above an interpreted entry of the same body.
 
 **Per-entry cost was excluded first, by the `entry` group.** It warms past the
 threshold and times entries only: +1.74%, +3.74%, −0.05% (p = 0.78), −0.65%,
@@ -4254,9 +4295,12 @@ D35 as amended by Q32 always meant.
   rows are withdrawn as unreproducible, and the per-entry path is excluded by
   the `entry` group rather than merely unproven. One suspect remains —
   compilation inside the timed region.
-- Cause established: 2026-09-15. One Cranelift compilation, ~128 µs, measured
-  directly by the `compile` group and confirmed by a no-tier control. It is
-  ~85% of the figure; the rest is F131's probe.
+- Cause established: 2026-09-15. One Cranelift compilation, **of order
+  125–141 µs**, measured two ways that share no harness — by subtraction
+  through the tier (125.4, 126.2 µs) and directly on a warm reused compiler
+  (140.6–141.4 µs) — with a no-tier control and a batch-depth sweep behind
+  them. It is ~85% of the figure; the rest is F131's probe. The ~12% spread
+  between the two shapes is recorded above as unexplained.
 - Status: **OPEN — the cause is known, the disposition is not.** Two diagnoses
   were offered and both are withdrawn above: the per-entry `HashMap` arithmetic
   (falsified by a neutral fix) and per-entry cost in general (refuted by the

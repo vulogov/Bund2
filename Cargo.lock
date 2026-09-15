@@ -303,6 +303,7 @@ version = "0.0.0"
 dependencies = [
  "bund2-api",
  "bund2-interp",
+ "bund2-jit",
  "bund2-runtime",
  "bund2-stdlib",
  "bund2-syntax",

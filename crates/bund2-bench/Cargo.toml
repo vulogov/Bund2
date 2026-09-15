@@ -31,7 +31,14 @@ bench = false
 # unaffected either way — but the A/B no longer reads zero *by construction*,
 # and a group that wants the tier has to ask for it. F124 is what happens when
 # a feature is assumed inert and is not checked.
-jit = ["dep:bund2-runtime", "bund2-runtime/jit"]
+#
+# **`bund2-jit` rides along** so `compile_warm` can time `Compiler::compile_word`
+# with the compiler reused across iterations — F130's figure re-taken warm. The
+# tier's own path cannot be timed that way: it compiles a body once, so a warm
+# measurement has to drive the compiler directly. The fragment table still comes
+# from `bund2_stdlib::fragments::published`, the call `bund2-runtime` makes, so
+# this is the shipped compiler and not a lookalike.
+jit = ["dep:bund2-runtime", "bund2-runtime/jit", "dep:bund2-jit", "bund2-jit/jit"]
 aot = ["dep:bund2-runtime", "bund2-runtime/aot"]
 
 # A regular dependency, not a dev one: Cargo forbids optional
@@ -39,6 +46,7 @@ aot = ["dep:bund2-runtime", "bund2-runtime/aot"]
 # anything.
 [dependencies]
 bund2-runtime = { workspace = true, optional = true }
+bund2-jit = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }

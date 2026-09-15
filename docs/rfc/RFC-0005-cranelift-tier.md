@@ -40,7 +40,7 @@
     bound stated and unmeasured.
   - **Not met** — 14, 20, 22, 27, and 4's reachable remainder.
   - **Failed, measured; cause identified** — 7, on **one** group. The cause is
-    **one Cranelift compilation, ~128 µs**, paid once per Criterion iteration
+    **one Cranelift compilation, of order 125–141 µs**, paid once per iteration
     because the harness rebuilds the `Interp` in setup — ~85% of the figure,
     with F131's per-entry probe accounting for most of the rest. Whether a
     benchmark that recompiles per call is measuring what this criterion
@@ -4197,7 +4197,13 @@ evidence, and this one is listed as runnable rather than as met.
    one before it: **~128 µs for one Cranelift compilation** of `1 2 + drop`,
    against 9.6 µs for the same entry interpreted — reproduced across four runs
    at 124.6–130.2 µs, with a no-tier control in which all three arms agree at
-   9.2–9.8 µs.
+   9.2–9.8 µs. **Re-taken 2026-09-15 in a shape sharing none of that harness**,
+   after F132's withdrawal cast doubt on everything measured through
+   `iter_batched`'s setup: `compile_warm` drives `Compiler::compile_word` on a
+   warm reused compiler and reads **140.6–141.4 µs**, flat across batch depths
+   8 to 256. The cold figure was not inflated — it is the *lower* of the two —
+   and the ~12% spread between the shapes is recorded in F130 as unexplained.
+   Both agree the cost is of order **125–141 µs**.
 
    **So this row is ~85% compilation, paid once per Criterion iteration.**
    `timed_eval` rebuilds the `Interp` in setup, so every iteration starts with
