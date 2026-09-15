@@ -272,6 +272,85 @@ fn arith(c: &mut Criterion) {
     g.finish();
 }
 
+/// **Entry into an already-compiled body, with compilation outside the timed
+/// region** — F130.
+///
+/// # Why the `arith/times_body` row could not answer this
+///
+/// [`timed_eval`] passes [`interp`] as `iter_batched`'s *setup*, so **every
+/// iteration builds a fresh `Interp` with an empty cache**. One eval of
+/// `1000 { 1 + } times drop` crosses §S7's threshold of 64 within itself, so
+/// each iteration pays 64 interpreted entries, **one full Cranelift
+/// compilation**, and ~936 compiled entries. Its +136% is the sum of those
+/// three, and F130's first diagnosis — three hash probes per entry — was an
+/// arithmetic fitted to that sum rather than derived from it. Removing two of
+/// those probes measured neutral, which is how the diagnosis was falsified.
+///
+/// # What this group does instead
+///
+/// **One `Interp` for the whole benchmark**, as `value/push_pull/balanced`
+/// does and for the same reason: `iter_batched`'s teardown falls inside the
+/// measured region, and here it would drop a registry of 261 words per
+/// iteration.
+///
+/// **The body is a registered word, not a literal.** Three copies of the same
+/// source text are three different bodies — `BundValue::lambda` allocates a
+/// fresh `Rc` per occurrence and D35 keys the cache on the payload pointer, so
+/// re-evaluating a *stream* recompiles while re-entering a *word* hits. Checked
+/// with `--stats`: three top-level copies compile 3 bodies, one registered word
+/// entered three times compiles 1.
+///
+/// **It is warmed past the threshold before timing starts**, so every timed
+/// entry finds compiled code and none of them pays for compilation.
+///
+/// **It is stack-balanced.** `1000 { 1 + } times drop` leaves 999 values per
+/// eval — 2997 after three — which on a long-lived `Interp` would grow the
+/// stack until this timed allocation rather than entry. The trailing `clear`
+/// is what makes a single interpreter safe here, and the balance is asserted
+/// below rather than assumed.
+fn entry(c: &mut Criterion) {
+    let mut g = c.benchmark_group("entry");
+
+    // The word under test, and the call that enters it.
+    let setup = compiled(":w { 1000 { 1 + } times drop clear } register");
+    let call = compiled("w");
+
+    g.bench_function("compiled_body/e1", |b| {
+        let mut i = interp();
+        if i.eval(&setup).is_err() {
+            eprintln!("bench: entry setup failed; measuring nothing");
+        }
+        // **Warm past §S7's threshold, outside the timed region.** After this
+        // the body is compiled and filed, so every `iter` below enters
+        // compiled code and pays no compilation.
+        for _ in 0..(bund2_runtime_threshold() + 8) {
+            let _ = i.eval(&call);
+        }
+        // The balance this group rests on: if the body leaked values, a
+        // long-lived `Interp` would turn this into an allocation benchmark.
+        debug_assert_eq!(i.depth(), 0, "the body must be stack-balanced");
+        b.iter(|| black_box(i.eval(black_box(&call))).is_ok());
+    });
+
+    g.finish();
+}
+
+/// §S7's default threshold, so the warm-up above outlasts it without this file
+/// hard-coding a number that lives in `bund2-jit`.
+///
+/// Without the feature there is no tier and no threshold; the warm-up is then
+/// merely a few extra interpreted entries, which is harmless and keeps the two
+/// halves of the A/B doing the same work.
+#[cfg(feature = "jit")]
+fn bund2_runtime_threshold() -> u32 {
+    bund2_runtime::Runtime::new().jit_threshold().unwrap_or(64)
+}
+
+#[cfg(not(feature = "jit"))]
+fn bund2_runtime_threshold() -> u32 {
+    64
+}
+
 /// Call overhead — RFC-0003's frame loop, and what tail calls act on.
 fn lambda(c: &mut Criterion) {
     let mut g = c.benchmark_group("lambda");
@@ -405,6 +484,7 @@ criterion_group!(
     dispatch,
     dispatch_isolated,
     arith,
+    entry,
     lambda,
     corpus,
     rendering

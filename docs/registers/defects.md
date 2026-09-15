@@ -3944,25 +3944,36 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
-## F130 — the tier loses on hot short bodies, and the cause is not known
+## F130 — a body compiled once per iteration costs +121%, and the cause is not known
 
 **A Bund2 defect**, found by running RFC-0005 criterion 7 for the first time
 (F129 is why it could not be run before).
 
-**The measurement, which stands.** On a quiet machine, against a same-day drift
-floor of ±1.8% taken from two no-tier runs of identical code:
+**The measurement, narrowed to what reproduces.** `arith/times_body/1000` —
+`1000 { 1 + } times drop` — regresses **~+121%**, and that is the whole of the
+defect. Five consecutive feature-on runs against one 72.596 µs baseline on
+2026-09-15: **+116.87%, +121.82%, +117.83%, +127.46%, +121.08%**, every one
+p = 0.00. `bund2 --stats` confirms the body compiles (1 body, 1 inlined site,
+1 promoted value).
 
-- `arith/times_body/1000` — `1000 { 1 + } times drop` — **+136.56%**
-  (69.409 → 163.79 µs, p = 0.00);
-- `dispatch/dup_drop/w3000` **+9.96%**, `native_call/w4000` **+12.62%**,
-  `literal_push/w2000` **+11.94%**;
-- `dispatch/literal_only/w1000`, which pushes a thousand literals and
-  **dispatches nothing**, moves **+3.82%** and stays inside the band.
+**The `dispatch` half of this entry is withdrawn.** It claimed
+`dup_drop/w3000` +9.96%, `native_call/w4000` +12.62%, `literal_push/w2000`
++11.94%, with `literal_only/w1000` at +3.82% as a control that stayed put while
+its siblings moved. Each was one run. Three runs against one baseline read
++2–3% on every program in the quiet two and +7–12% on all six at once in the
+third — a whole-run excursion. **The control argument was false**:
+`literal_only` moves with its siblings every time. And none of these programs
+compiles a body even at `--jit-threshold 1`, because a straight-line stream
+never reaches `push_frame` and the tier is consulted only for a body with a
+payload key — so there was never a mechanism for the cost this entry attributed
+to them.
 
-That last row is the control, and it is what makes this a real effect rather
-than drift: the three siblings that enter compiled bodies move, the one that
-never enters does not. `bund2 --stats` confirms the body compiles (1 body,
-1 inlined site, 1 promoted value).
+**This suite labels noise "significant", which is how that happened.** Three
+feature-**off** runs of one binary against its own baseline: `dup_drop` −0.28%
+(p = 0.57), +0.06% (p = 0.88), −0.85% (p = 0.05); `native_call` **−1.02% at
+p = 0.00**, then −0.51%, −0.02%. The floor is ~±1.5% and p < 0.05 occurs inside
+it with nothing changed. A single run within the band is not evidence, and this
+entry recorded four of them as a failure.
 
 ### The first diagnosis was wrong, and is withdrawn
 
@@ -4007,14 +4018,29 @@ name alone, and the size is the tell.
 
 ### What is left
 
-The effect is real and the cause is **unknown**. The strongest remaining
-hypothesis — untested — is that the Criterion figure is dominated by the
-per-iteration compilation the harness forces, in which case criterion 7's
-`arith` failure is partly an artefact of how the benchmark is written rather
-than a property of the tier. Settling it needs a benchmark that **compiles once
-outside the timed region** and then measures entries only. The `dispatch` rows,
-which do not build a lambda body at all, are not explained by that hypothesis
-and need their own account.
+The effect is real and the cause is **unknown**, but it is now one effect
+rather than four, and one hypothesis rather than two.
+
+**Per-entry cost is excluded by measurement, not by retraction.** The `entry`
+group in `crates/bund2-bench/benches/interpret.rs` compiles the body once in
+setup, warms it past the threshold, and then times `eval` of a single call, so
+no compilation falls inside the timed region. It reads **no measurable cost**:
++1.74%, +3.74%, −0.05% (p = 0.78), −0.65%, +1.94% across five runs against one
+baseline — straddling zero, and inside the ±1.5% floor. Entering an
+already-compiled body is free. A pre-flight assertion in that benchmark checks
+the word really compiled (1 body, 1 site, 1 promoted value) and that it stays
+stack-balanced at depth 0, so this is not another F129.
+
+**What is left is the compilation itself.** `timed_eval` passes `interp` as
+`iter_batched`'s setup, so every Criterion iteration starts with an empty cache
+and one eval of `1000 { 1 + } times drop` crosses §S7's threshold within
+itself: 64 interpreted entries, **one full Cranelift compilation**, ~936
+compiled entries. With entry free and the interpreted prefix common to both
+arms, the compilation is what is left to account for the +121%. That makes
+criterion 7's `arith` failure **partly a property of how the benchmark is
+written** — a program compiled once per iteration and run 1000 times is not how
+a session executes — and the next step is to measure compile time for this body
+directly rather than to infer it by subtraction.
 
 **What this is not.** Not a defect in the lowering: it computes correctly,
 inlines behind §S6's guards, and promotes as §S5 specifies. Conformance is
@@ -4029,11 +4055,16 @@ swallowed it into interpretation. One lookup now decides both, which is what
 D35 as amended by Q32 always meant.
 
 - Found: 2026-09-14, running criterion 7 on the fixed harness
+- Narrowed: 2026-09-15. Scope went from four benchmarks to one: the `dispatch`
+  rows are withdrawn as unreproducible, and the per-entry path is excluded by
+  the `entry` group rather than merely unproven. One suspect remains —
+  compilation inside the timed region.
 - Status: **OPEN — the effect is measured, the cause is not.** The first
-  diagnosis is withdrawn above. Next step is a benchmark that separates
-  compilation from entry; until then no disposition should be chosen, because
-  the options that were listed here (cache the decision, hold the handle, weigh
-  the threshold by body size) all presuppose the cause that has been falsified.
+  diagnosis is withdrawn above; the second (per-entry cost) is now refuted by
+  measurement. No disposition should be chosen while the remaining suspect is
+  a property of the benchmark rather than of the tier: if compile time is the
+  whole of the +121%, the fix is to state what `arith` measures, not to change
+  the tier. Measure this body's compile time directly before choosing.
 - Depends on: D35 (the payload-pointer key), §S7 (the threshold), F129
 
 ## F129 — `bund2-bench` built a bare `Interp`, so criterion 7's A/B measured no tier
