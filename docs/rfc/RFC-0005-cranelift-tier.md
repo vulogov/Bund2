@@ -81,7 +81,10 @@
     **This suite reports "significant" on comparisons where nothing changed.**
     Three feature-**off** runs of the same binary against its own baseline read
     −0.28% (p = 0.57), +0.06% (p = 0.88), −0.85% (p = 0.05) on `dup_drop`, and
-    on `native_call` **−1.02% at p = 0.00**. The floor is ~±1.5% and p < 0.05
+    on `native_call` **−1.02% at p = 0.00**. That ~±1.5% is a **µs-scale** figure
+    — taken on `dispatch/dup_drop` at 88 µs — and does not generalise: on rows of
+    tens of nanoseconds the same suite's cross-process spread is ~5–8% (F135).
+    Read at its own magnitude, the floor is ~±1.5% and p < 0.05
     appears within it, so a single run inside the band decides nothing. That is
     why the surviving verdicts above are stated from repeated runs.
 
@@ -4715,6 +4718,14 @@ evidence, and this one is listed as runnable rather than as met.
     | Tier 0 | **18.08 ns** | 34.78 ns | 0.99996 |
     | with the tier | **7.26 ns** | 34.21 ns | 0.99997 |
     | difference | **10.82 ns saved** | **−0.57 ns** | |
+
+    **Taken before the host was restarted onto Darwin 27.0.0, and the absolute
+    figures have not been re-taken since** (F135). On the new host the same
+    `value/promote/scalar` row moved from ~40 ns to ~33 ns, so every nanosecond
+    figure in this table is host-specific. The *structure* — a per-value slope
+    with intercepts that cancel — rests on six lengths at R² ≈ 0.9999 and is not
+    in doubt; the numbers are, and must be re-measured before being quoted
+    anywhere a magnitude matters.
 
     **Both arms intercept at ~34.5 ns**, and the difference between them is
     −0.57 ns — nothing, against a 34 ns intercept. That intercept is

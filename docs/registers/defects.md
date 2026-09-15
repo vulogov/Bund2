@@ -4003,6 +4003,62 @@ allocator), and each survived several consistent runs before failing.
 `clone_scalar` at −1.72% mean against −2.97% median, `heap_shared` +22.49% mean
 against +25.53% median. Worth knowing before either figure is quoted.
 
+### Narrowed by a discriminator, 2026-09-15 (after a host restart)
+
+Three byte-identical copies of `promote/scalar` were added to the group:
+`scalar`, `scalar_adjacent` (immediately after it) and `scalar_late` (after the
+rest of the group). Within one process, `scalar` against `_adjacent` is variance
+at the same moment and against `_late` is drift across the run; across
+processes, `scalar` against `scalar` carries everything fixed at process start.
+Twelve processes, load sampled before each:
+
+| | within-process spread | cross-process spread |
+|---|---|---|
+| runs 1–6, load **12.7–14.8** | ≤1.3% | 32.08–34.25 ns = **6.8%** |
+| runs 7–12, load **2.9–5.3** | 0.3–6.0% | 31.57–33.08 ns = **4.8%** |
+| all twelve | ≤6.0% | 31.57–34.25 ns = **8.5%** |
+
+**Process-start causes are excluded.** In the pre-restart data one process began
+at 40.07 ns and climbed to 56.44 ns *inside itself* — a 41% move with address
+layout, allocator arena and binary all fixed. ASLR and arena placement cannot do
+that.
+
+**Machine load is excluded, and this entry withdraws it.** Between the
+observations above and this section, load was the working explanation for the
+±25% excursions. Runs 1–6 above sat at load 13–15 with CoreServices at up to
+254% CPU and produced a *tighter* spread than runs 7–12 at load 3–5. On an
+18-core host the competing work lands on other cores. That is a fourth
+hypothesis offered and refuted in this register in one day, after F130's probes,
+F132's cold start and this entry's allocator.
+
+**The fixture is not noisy.** Adjacent identical copies agree to −0.28%, −0.02%,
++0.55%, +0.57% in quiet runs. `promote` is measured steadily; what moves is
+between processes.
+
+**What is left**, untested and named as candidates rather than causes: per-core
+frequency scaling, thermal state, and scheduler placement of the benchmark's own
+thread. Nothing here claims one of them.
+
+### The floor this suite actually has, which is the finding beyond F135
+
+The residual cross-process spread is **~5–8% on a 33 ns row**, consistent across
+both load regimes. The **±1.5% floor quoted elsewhere in these registers and in
+RFC-0005 was measured on `dispatch/dup_drop` at 88 µs** — three orders of
+magnitude larger — and it does not transfer to rows of tens of nanoseconds.
+
+That is why `value` cannot police a 5% band across processes: the band is inside
+the instrument's own noise at this magnitude. It also bounds any future
+measurement of the same size — the boundary decomposition's components are
+1–3 ns, so they cannot be resolved by comparing separate processes at all.
+
+### Everything measured before the restart is incomparable
+
+The host was restarted mid-investigation and came up on Darwin 27.0.0. The same
+row moved from ~40 ns to ~33 ns. The saved baselines `c7`, `warm` and `len` are
+dead, and **absolute** figures taken before the restart — including the boundary
+split in RFC-0005 criterion 10 — must be re-taken on this host before they are
+quoted again. The ratios are likely to hold; the nanosecond figures are not.
+
 ### What it costs
 
 Criterion 7 cannot take a verdict on `value` as the criterion is written. Every
@@ -4028,6 +4084,11 @@ other group passed the band across three runs; this one's control fails it. The
 repository owner's to decide.
 
 - Found: 2026-09-15, taking criterion 7's verdict under D70
+- Narrowed: 2026-09-15, by a three-copy discriminator over twelve processes.
+  Process-start causes excluded; machine load excluded and withdrawn as this
+  entry's working explanation; the fixture shown steady within a process. The
+  ±25% figure is superseded by ~8.5% — the earlier controls were excursions
+  sampled without checking load. Cause still unknown.
 - Rewritten: 2026-09-15, after a fresh warm baseline showed the group, not the
   row, and withdrew the allocator diagnosis
 - Status: **OPEN**. Blocks the `value` group's verdict under D70's band; every
@@ -4458,7 +4519,12 @@ to them.
 feature-**off** runs of one binary against its own baseline: `dup_drop` −0.28%
 (p = 0.57), +0.06% (p = 0.88), −0.85% (p = 0.05); `native_call` **−1.02% at
 p = 0.00**, then −0.51%, −0.02%. The floor is ~±1.5% and p < 0.05 occurs inside
-it with nothing changed. A single run within the band is not evidence, and this
+it with nothing changed.
+
+**That ±1.5% is a µs-scale figure and does not generalise** (F135). It was taken
+on `dispatch/dup_drop` at 88 µs. On rows of tens of nanoseconds the same suite's
+cross-process spread is **~5–8%**, so the floor must be read at the magnitude it
+was measured at, not as a property of the harness. A single run within the band is not evidence, and this
 entry recorded four of them as a failure.
 
 ### The first diagnosis was wrong, and is withdrawn
@@ -4569,7 +4635,8 @@ agree on is the magnitude: **a compilation of a four-value body costs of order
 
 **Per-entry cost is now zero by measurement, not merely "not detectable"**
 (2026-09-15). `hot_body` run across six body lengths lets slope and intercept be
-read apart: Tier 0 fits 18.08 ns per value on a 34.78 ns intercept, the tier
+read apart (**on the pre-restart host; the absolutes are superseded, F135**):
+Tier 0 fits 18.08 ns per value on a 34.78 ns intercept, the tier
 7.26 ns per value on 34.21 ns, both at R² ≈ 0.9999. **The intercepts differ by
 −0.57 ns** — nothing, against 34 ns — because that intercept is `Interp::eval`'s
 own overhead, paid with no tier installed. The boundary is entirely per value.

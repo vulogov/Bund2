@@ -242,6 +242,26 @@ fn value(c: &mut Criterion) {
     g.bench_function("promote/scalar", |b| {
         b.iter(|| black_box(black_box(BundValue::int(42)).promote()));
     });
+    // **F135's discriminator: three byte-identical copies of the row above.**
+    //
+    // The `value` group's no-tier control swings −5.85% to +25.56% on code that
+    // did not change, and the cause is unknown — an allocator-warming account
+    // was offered and refuted. These separate *where* the variance lives before
+    // any mechanism is named.
+    //
+    // `_adjacent` runs immediately after the original, `_late` after the rest of
+    // the group. So within one process: `scalar` vs `_adjacent` is variance at
+    // the same moment, `scalar` vs `_late` is drift across the run. Across
+    // processes: `scalar` vs `scalar` is everything fixed at process start —
+    // address layout, allocator arena placement, the CPU state the process
+    // inherited.
+    //
+    // If the adjacent pair agrees while the same id swings between processes,
+    // the cause is process-level and thermal drift and Criterion's own method
+    // are out. They are deleted once F135 has an answer.
+    g.bench_function("promote/scalar_adjacent", |b| {
+        b.iter(|| black_box(black_box(BundValue::int(42)).promote()));
+    });
     g.bench_function("clone/scalar", |b| {
         let v = BundValue::int(42);
         b.iter(|| black_box(black_box(&v).clone()));
@@ -257,6 +277,12 @@ fn value(c: &mut Criterion) {
             i.push(black_box(BundValue::int(42)));
             black_box(i.pull())
         });
+    });
+    // The third copy — same code as `promote/scalar`, run last. Its distance
+    // from the first measures drift **within** one process, against which the
+    // cross-process spread can be read. See the note above.
+    g.bench_function("promote/scalar_late", |b| {
+        b.iter(|| black_box(black_box(BundValue::int(42)).promote()));
     });
     g.finish();
 }
