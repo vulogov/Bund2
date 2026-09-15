@@ -4199,10 +4199,19 @@ evidence, and this one is listed as runnable rather than as met.
    `timed_eval` rebuilds the `Interp` in setup, so every iteration starts with
    an empty cache and recompiles. The threshold knob confirms the split: at a
    threshold of 1,000,000 the tier is installed and compiles nothing, and
-   `times_body` reads ~85.4 µs — **+18%** over the no-tier baseline for
-   `observe`'s probe alone (F131) — while the default threshold reads ~159 µs.
-   A threshold of 1 lands at the same place as 64, which it must, since both
-   pay one compilation.
+   `times_body` read ~85.4 µs — **+18%** over the no-tier baseline for
+   `observe`'s probe alone — while the default threshold reads ~159 µs. A
+   threshold of 1 lands at the same place as 64, which it must, since both pay
+   one compilation.
+
+   **That +18% was F131 and is now fixed**: `observe` no longer downgrades an
+   `Rc` per entry, tests the counter's cap before probing it, skips hashing into
+   maps that are empty, and hashes pointer keys with a multiply rather than
+   SipHash. The same configuration now reads **+1.45% to +1.80%**, ~15 ns per
+   entry down to ~1 ns, and `times_body` at the default threshold improved from
+   ~+121% to ~+119% — the share F131 was contributing, and no more. Compilation
+   is unchanged, which is the control that says the entry path moved and the
+   compiler did not.
 
    **What follows is a question about this criterion, not about the tier.** No
    session recompiles a body on every call, so a benchmark that does is not

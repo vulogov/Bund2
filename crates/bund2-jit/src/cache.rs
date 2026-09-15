@@ -26,12 +26,64 @@
 //! module of their own. That is recorded in §S6 rather than implied away here.
 
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::rc::Weak;
 
 use bund2_api::Symbol;
 use bund2_value::{BundValue, Payload};
 
 use crate::lower::WordHandle;
+
+/// 2^64 divided by the golden ratio: the odd multiplier Fibonacci hashing uses.
+const GOLDEN: u64 = 0x9E37_79B9_7F4A_7C15;
+
+/// **A hasher for keys that are already addresses** — F131.
+///
+/// These three maps key on `BundValue::payload_key`, which is a pointer (D35).
+/// The standard library's default is SipHash, chosen so that a map keyed on
+/// attacker-supplied data cannot be made to collide. These keys come from the
+/// allocator, and F131 measured what the default costs here: **~15 ns per
+/// entry**, against ~22 ns to interpret a whole word — paid on every body
+/// entered, including the great majority that never reach the threshold and can
+/// never repay it.
+///
+/// Multiply by `GOLDEN` and keep the result: the multiply carries entropy
+/// upward, and `finish` folds the top half down because a hash map wants bits
+/// at both ends — the high bits pick the control byte and the low bits the
+/// bucket. A pointer used unmixed would be worse than SipHash rather than
+/// better: allocations are aligned, so the low bits are constant and every body
+/// would land in a handful of buckets.
+///
+/// **This changes no semantics.** D35 fixes the *key* — the payload address —
+/// and says nothing about how a map hashes it; the entries, the liveness rule
+/// and the answers are identical either way.
+#[derive(Default, Clone, Copy)]
+pub struct AddrHasher(u64);
+
+impl Hasher for AddrHasher {
+    fn finish(&self) -> u64 {
+        // Fold the high half down: the multiply put the entropy there, and the
+        // low bits choose the bucket.
+        self.0 ^ (self.0 >> 32)
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        // A `usize` key reaches `write_usize` below and never arrives here, but
+        // a `Hasher` answers for whatever it is handed.
+        for b in bytes {
+            self.0 = (self.0 ^ u64::from(*b)).wrapping_mul(GOLDEN);
+        }
+    }
+
+    fn write_usize(&mut self, n: usize) {
+        // Widening on every target Bund2 builds for; `unwrap_or` rather than a
+        // cast keeps D37's no-panic rule structural instead of argued.
+        self.0 = u64::try_from(n).unwrap_or(u64::MAX).wrapping_mul(GOLDEN);
+    }
+}
+
+/// A map from a body's payload address to whatever that map holds.
+type AddrMap<T> = HashMap<usize, Entry<T>, BuildHasherDefault<AddrHasher>>;
 
 /// §S7's knobs, with its defaults.
 ///
@@ -117,20 +169,20 @@ impl<T> Entry<T> {
 pub struct Tiering {
     caps: Caps,
     /// §S7's promotion counter: how many times each body has been evaluated.
-    counter: HashMap<usize, Entry<u32>>,
+    counter: AddrMap<u32>,
     /// §S3's compiled cache.
     ///
     /// It holds **handles**, not code: the code lives in the `Compiler` the
     /// tier owns, one module per `Interp`. So a cache entry is inert on its
     /// own, and this map neither owns code memory nor can outlive it usefully.
-    cache: HashMap<usize, Entry<WordHandle>>,
+    cache: AddrMap<WordHandle>,
     /// Redefinitions per **slot** — a `Symbol`, not a body. §S7's recompile cap
     /// is per slot while demotion is per body, and this is the half that counts.
     redefinitions: HashMap<Symbol, u32>,
     /// Bodies demoted permanently. Holds a `Weak` for the same reason the other
     /// two maps do: a demoted body's address must not be reused under another
     /// body that would inherit the demotion.
-    demoted: HashMap<usize, Entry<()>>,
+    demoted: AddrMap<()>,
 }
 
 impl Default for Tiering {
@@ -143,10 +195,10 @@ impl Tiering {
     pub fn new(caps: Caps) -> Self {
         Self {
             caps,
-            counter: HashMap::new(),
-            cache: HashMap::new(),
+            counter: AddrMap::default(),
+            cache: AddrMap::default(),
             redefinitions: HashMap::new(),
-            demoted: HashMap::new(),
+            demoted: AddrMap::default(),
         }
     }
 
@@ -162,10 +214,20 @@ impl Tiering {
     /// reason (§S3), and never reaches here because its caller has no key to
     /// offer.
     pub fn observe(&mut self, body: &BundValue) -> Decision {
-        let (Some(key), Some(weak)) = (body.payload_key(), body.payload_weak()) else {
+        let Some(key) = body.payload_key() else {
             return Decision::Interpret;
         };
-        if self.demoted.contains_key(&key) {
+        // **The `Weak` is not taken here** — F131. It used to be, beside the
+        // key, on every entry: `Rc::downgrade` writes the weak count and the
+        // `Weak` is dropped a few lines later, which writes it again, on every
+        // path except the one that files a new counter entry. It is taken at
+        // that insertion instead. `payload_weak` answers `Some` for exactly the
+        // values `payload_key` does — both are the `Heap` arm — so nothing that
+        // used to be counted is now missed.
+        //
+        // **Demotion is rare and the map is usually empty.** Testing that first
+        // costs a length compare and saves hashing the key.
+        if !self.demoted.is_empty() && self.demoted.contains_key(&key) {
             return Decision::Interpret;
         }
         // **One lookup, and it carries the handle out** — F130. This was
@@ -177,7 +239,11 @@ impl Tiering {
         // A dead entry is not answered for: its address may be reused by a
         // different body, so it falls through to the counter below exactly as
         // an unseen body would.
-        if let Some(entry) = self.cache.get(&key)
+        // The empty test is F131's again: until something has been compiled
+        // there is nothing here to find, and that is the state every body below
+        // the threshold is looked up in.
+        if !self.cache.is_empty()
+            && let Some(entry) = self.cache.get(&key)
             && !entry.is_dead()
         {
             return Decision::Compiled(entry.value);
@@ -187,7 +253,13 @@ impl Tiering {
         // the opposite of the function cap's behaviour, deliberately: this map
         // holds counts, not code, so evicting one costs a recount rather than
         // orphaning a compiled function.
-        if !self.counter.contains_key(&key) && self.counter.len() >= self.caps.counter {
+        //
+        // **The cap is tested before the membership probe** — F131. Written the
+        // other way round, `!contains_key(&key) && len() >= cap`, Rust evaluates
+        // the probe first, so every entry paid a whole lookup to guard a
+        // condition that is false until the counter fills. The length compare
+        // is free and answers the same question.
+        if self.counter.len() >= self.caps.counter && !self.counter.contains_key(&key) {
             self.sweep();
             if self.counter.len() >= self.caps.counter {
                 self.evict_coldest();
@@ -202,6 +274,12 @@ impl Tiering {
                 e.value
             }
             None => {
+                // First sight of this body, and the only place the `Weak` is
+                // needed: it is what keeps the address out of reuse, so an
+                // entry can never answer for a different body later.
+                let Some(weak) = body.payload_weak() else {
+                    return Decision::Interpret;
+                };
                 self.counter.insert(key, Entry { weak, value: 1 });
                 1
             }
@@ -379,6 +457,51 @@ mod tests {
             recompiles: 2,
             counter: 8,
         }
+    }
+
+    /// **F131's lazy downgrade must not cost the counter its `Weak`.**
+    ///
+    /// `observe` used to take `payload_weak` on every entry and drop it again
+    /// unless the body was new; it now takes one only where an entry is filed.
+    /// The entry must still hold it, because that `Weak` is what keeps the
+    /// address out of reuse — without it the counter would key on an address
+    /// the allocator could hand to another body, which is the false hit §S3
+    /// calls the worst failure available here.
+    #[test]
+    fn a_counted_body_is_still_swept_when_its_body_dies() {
+        let mut t = Tiering::new(small());
+        {
+            let b = body(7);
+            // Below `small()`'s threshold of 2, so this counts and nothing else.
+            assert_eq!(t.observe(&b), Decision::Interpret, "counted, not compiled");
+            assert_eq!(t.counted(), 1, "and the counter holds it");
+        }
+        // The body is gone, so the entry is dead and the sweep must drop it.
+        t.sweep();
+        assert_eq!(t.counted(), 0, "a dead counter entry is swept");
+    }
+
+    /// **F131's hasher must spread aligned addresses.**
+    ///
+    /// A payload address is aligned, so neighbouring allocations share their low
+    /// bits — and the low bits are what choose a bucket. A hasher that returned
+    /// the pointer unmixed would be faster than SipHash and far worse, piling
+    /// every body into a handful of buckets. This asserts the mixing, not the
+    /// speed: the speed is F131's benchmark.
+    #[test]
+    fn the_address_hasher_spreads_aligned_neighbours() {
+        use std::hash::BuildHasher;
+        let bh = BuildHasherDefault::<AddrHasher>::default();
+        let a = bh.hash_one(0x1000_usize);
+        let b = bh.hash_one(0x1010_usize);
+        let c = bh.hash_one(0x1020_usize);
+        assert_ne!(a, b, "neighbouring allocations must not collide");
+        assert_ne!(b, c, "nor the next pair");
+        assert_ne!(
+            a & 0x3f,
+            b & 0x3f,
+            "and they must not share a bucket either"
+        );
     }
 
     /// **Criterion 3.** "Drop every strong reference to a compiled body and

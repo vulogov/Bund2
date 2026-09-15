@@ -3974,7 +3974,7 @@ values is compiled and loses ~4% every time.
   register entry that would move.
 - Depends on: §S7 (the threshold), F130
 
-## F131 — an installed tier that compiles nothing still costs ~18%
+## F131 — an installed tier that compiles nothing still costs ~18% — RESOLVED
 
 **A Bund2 defect**, found while decomposing F130 with the `BUND2_JIT_THRESHOLD`
 knob.
@@ -3999,10 +3999,71 @@ Recorded here rather than in F130 because it is independent of compilation: it
 is present when the tier is installed and no compilation ever occurs, which is
 the configuration in which it was measured.
 
+### Fixed, 2026-09-15 — ~15 ns per entry down to ~1 ns
+
+Four changes in `Tiering::observe` (`crates/bund2-jit/src/cache.rs`), none of
+which alters a decision the cache returns:
+
+1. **`payload_weak` is taken only where an entry is filed.** It was taken beside
+   the key on every entry: `Rc::downgrade` writes the weak count, and on every
+   path but the first sight of a body the `Weak` is dropped a few lines later,
+   writing it again. `payload_weak` answers `Some` for exactly the values
+   `payload_key` does — both are the `Heap` arm — so nothing counted before is
+   missed now.
+2. **The counter's cap test precedes its membership probe.** Written
+   `!contains_key(&key) && len() >= cap`, Rust evaluates the probe first, so
+   every entry paid a full lookup to guard a condition false until the counter
+   fills. The length compare answers it for nothing.
+3. **`demoted` and `cache` are tested for emptiness before being hashed.**
+   Demotion is rare and the cache is empty until something compiles, which is
+   the state every body below the threshold is looked up in.
+4. **The three pointer-keyed maps use `AddrHasher`**, a Fibonacci multiply, in
+   place of SipHash. D35 fixes the *key* — the payload address — and says
+   nothing about how a map hashes it, so this is an implementation change and
+   not a decision. The high half is folded down in `finish` because a map wants
+   bits at both ends, and an unmixed pointer would be worse than SipHash rather
+   than better: allocations are aligned, so their low bits are constant.
+
+**Measured, three runs each side in one session on one machine**, in the
+configuration this defect was found in — threshold 1,000,000, so the tier is
+installed, consulted on every entry, and compiles nothing — against the same
+72.596 µs no-tier baseline:
+
+| | runs | absolute | over baseline |
+|---|---|---|---|
+| before | +19.98%, +20.71%, +20.28% | ~87.5 µs | ~14.9 µs / 1000 entries |
+| after | +1.80%, +1.70%, +1.45% | ~73.7 µs | **~1.1 µs / 1000 entries** |
+
+**~15 ns per entry to ~1 ns.** Two controls: compilation is unchanged at
+137.31 and 138.47 µs (`compile/crossing_entry`, against 133.87–140.01 before),
+so the entry path moved and the compiler did not; and `arith/times_body` at the
+default threshold went from ~+121% to +119.19%, +118.29%, +120.11% — an
+improvement of about the share F131 was contributing, which is what the
+decomposition predicted and is the honest size of it. F130 is untouched, as it
+must be: compilation is ~85% of that figure and this defect was never part of it.
+
+**The residue is real and is not claimed away.** +1.45% to +1.80% at p = 0.00,
+positive in every run and outside the suite's ±1.5% floor. An installed tier
+still costs ~1 ns per entry, which is the map probe that genuinely has to
+happen. Driving it to zero means not probing at all for bodies that cannot
+benefit, and that is F132's question about §S7, not this one.
+
+Two tests pin what the changes could have broken:
+`a_counted_body_is_still_swept_when_its_body_dies` — the lazy downgrade must
+leave the counter holding a `Weak`, or the map would key on an address the
+allocator could reuse, which is §S3's false hit — and
+`the_address_hasher_spreads_aligned_neighbours`, which asserts aligned
+neighbours land in different buckets rather than asserting the speed.
+
 - Found: 2026-09-15, decomposing F130 by threshold
-- Status: **OPEN**. The obvious directions — a cheaper key than a hash probe,
-  or not consulting the tier for bodies below some size — both touch D35's
-  cache key and §S7, so neither is taken here.
+- Status: **RESOLVED**, 2026-09-15. ~93% of the cost removed; the ~1 ns residue
+  is recorded above rather than rounded to nothing. **Conformance unmoved and at
+  its ceiling** — `CONFORMANCE 106/114` with 8 approved deviations,
+  `CEILING 106/114`, 0 goldens still to reach it, nothing failing. This is the
+  invariant the tier exists under: it changes speed, not meaning, so any
+  movement here would have been a bug rather than a result.
+  (`tests/golden/CONFORMANCE.txt` still records the older 105/113 high-water
+  mark; `conform --accept` is the repository owner's to run.)
 - Depends on: D35 (the payload-pointer key), §S7 (the threshold), F130
 
 ## F130 — a body compiled once per iteration costs +121%, and the cause is one Cranelift compilation
