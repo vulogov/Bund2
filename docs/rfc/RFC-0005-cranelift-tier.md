@@ -35,17 +35,19 @@
   - **Partial** — 5, 17, 30: each has a half met and a half outstanding, or a
     bound stated and unmeasured.
   - **Not met** — 14, 20, 22, 27, and 4's reachable remainder.
-  - **Failed, measured** — 7, on **two** groups. `arith/times_body/1000`
-    regressed **+134.86%** (69.409 → 162.63 µs, p = 0.00) and three of four
-    `dispatch` rows regressed +9.96% to +12.62%; both groups are in the
-    must-not-regress-beyond-5% set. The cause is traced and is not the
-    lowering: **three `HashMap` probes and a `Weak` upgrade per entry** into a
-    compiled body, paid once per entry against a body whose interpreted cost is
-    two stack operations (F130). `dispatch/literal_only/w1000` is the control —
-    it dispatches nothing and moves +3.82%, inside the band — which is what
-    makes this a cause rather than a correlation. `startup` and `value` are
-    **met**, inside a same-day drift floor of ±1.8%. This is criterion 10's
-    1.06× with a named cause.
+  - **Failed, measured; cause unknown** — 7, on **two** groups.
+    `arith/times_body/1000` regressed **+136.56%** (69.409 → 163.79 µs,
+    p = 0.00) and three of four `dispatch` rows regressed +9.96% to +12.62%;
+    both groups are in the must-not-regress-beyond-5% set.
+    `dispatch/literal_only/w1000` is the control — it dispatches nothing and
+    moves +3.82%, inside the band — so the effect is real rather than drift.
+    `startup` and `value` are **met**, inside a same-day drift floor of ±1.8%.
+
+    **A first diagnosis was offered and has been withdrawn.** It named three
+    `HashMap` probes per entry; the fix that removed two of them measured
+    neutral, and the benchmark it rested on recompiles the body every Criterion
+    iteration. F130 carries the retraction and what is left to test. The
+    failure stands; the explanation does not.
   - **Deferred, with a named blocker** — 13 (waits on D68's implementation),
     18 and 20's probe (wait on `:` and `;` being bound).
 
@@ -4046,7 +4048,7 @@ evidence, and this one is listed as runnable rather than as met.
    | `startup` | +0.25% (p = 0.28), −1.02% | **met** — inside the band, one not significant |
    | `value` | −2.68% to +0.01% across five, two not significant | **met** |
    | `dispatch` | +3.82%, **+9.96%**, **+11.94%**, **+12.62%** | **FAILS** — three of four |
-   | `arith` | +8.06%, +9.59%, **+134.86%** | **FAILS** |
+   | `arith` | +8.06%, +9.59%, **+136.56%** | **FAILS** |
    | `corpus` | +3.81%, −0.79% (p = 0.31), +0.57% (p = 0.31) | inside the band |
 
    **An earlier attempt the same day reported quite different numbers and was
@@ -4089,36 +4091,42 @@ evidence, and this one is listed as runnable rather than as met.
    rather than assuming one. `value/promote/scalar` is the row to distrust: it
    alone sits at the band's edge with no tier on either side.
 
-   **`times_body` is not noise, and its cause is traced.** **69.409 µs →
-   162.63 µs, +134.86%**, p = 0.00, against a same-day drift floor of −1.1% on
+   **`times_body` is not noise, and its cause is not known.** **69.409 µs →
+   163.79 µs, +136.56%**, p = 0.00, against a same-day drift floor of −1.1% on
    that very benchmark. An earlier contaminated run read 76.6 → 168.5 µs
-   (+121%) and reproduced in isolation at 167.6 µs; the clean figure is larger,
-   not smaller, so the quiet machine strengthened this row rather than
-   dissolving it. The program is
-   `1000 { 1 + } times drop`; `--stats` confirms the body compiles (1 body,
-   1 inlined site, 1 promoted value). Every *entry* into that compiled body
-   pays, before reaching any emitted code: `payload_key` and `payload_weak`, a
-   `demoted` probe, a `cache` probe, `items(body)` again, then
-   `tiering.compiled(body)` — a third hash probe with a `Weak` upgrade — then
-   `Ctx` construction and the trampoline. Three `HashMap` probes per entry,
-   against a body whose interpreted cost is two stack operations. `times`
-   enters it a thousand times, so the fixed cost is paid a thousand times and
-   never amortises.
+   (+121%); the clean figure is of the same size, so the quiet machine
+   confirmed this row rather than dissolving it. The program is
+   `1000 { 1 + } times drop`, and `--stats` confirms the body compiles
+   (1 body, 1 inlined site, 1 promoted value).
 
-   Two measurements show the cost is **entry-count-driven, not
-   body-content-driven**: holding entries at 1000 while making the body five
-   times heavier *narrows* the gap, and raising inner iterations with the entry
-   count fixed moves the ratio 1.63× → 1.58× → 1.28×.
+   **What this benchmark actually times, which the first diagnosis missed.**
+   `timed_eval` passes `interp` as `iter_batched`'s *setup*, so **every
+   Criterion iteration builds a fresh `Interp` with an empty cache**. One eval
+   of this program crosses §S7's threshold of 64 within itself. So each
+   iteration pays 64 interpreted entries, **one full Cranelift compilation**,
+   and ~936 compiled entries — and the +136% is the sum of the three. Any
+   account of it that speaks only of per-entry cost is unsupported by this
+   measurement.
 
-   **`dispatch` is the same mechanism, and its own control proves it.** Three
-   of its four rows regress past the band — `dup_drop/w3000` 84.760 → 93.051 µs
+   **A per-entry diagnosis was offered here and is withdrawn** (F130). It named
+   three `HashMap` probes and a `Weak` upgrade per entry, with an arithmetic of
+   "~93 ns × 1000 entries" that was fitted to the figure rather than derived.
+   `Decision::Compiled` now carries the `WordHandle`, removing the second key
+   computation and the third probe; measured with both binaries built at one
+   profile in one session, it is **neutral** — 0.0057 → 0.0052 s at 20k
+   entries, and this benchmark moved +141.89% → +136.56%, inside its own
+   spread. The per-entry path was not the bottleneck.
+
+   **`dispatch` regresses too, and its own control says the effect is real.**
+   Three of its four rows pass the band — `dup_drop/w3000` 84.760 → 93.051 µs
    (+9.96%), `native_call/w4000` 94.049 → 106.60 µs (+12.62%),
    `literal_push/w2000` 44.148 → 49.294 µs (+11.94%). The fourth,
    `literal_only/w1000`, **makes no call at all** — it pushes a thousand
    literals and dispatches nothing — and moves 15.827 → 16.458 µs, +3.82%,
-   inside the band. A control that stays put while its siblings move is what
-   turns a correlation into a cause: the cost arrives with entry into compiled
-   bodies, not with executing them.
+   inside the band. A control that stays put while its siblings move rules out
+   drift. It does not identify the mechanism, and these three rows build no
+   lambda body, so the per-iteration compilation above does not explain them
+   either. They need their own account.
 
    **`corpus` does not improve, and an earlier reading that it did was noise.**
    Today: +3.81%, then two rows not significant (p = 0.31 both). The
@@ -4128,15 +4136,22 @@ evidence, and this one is listed as runnable rather than as met.
    evidence, and the earlier version overstated it.
 
    Either way the shape agrees with criterion 10's 1.06×, below its own 1.2×
-   stop rule, with a named cause rather than a shrug.
+   stop rule.
 
    **What this does not say.** It is not a verdict on the *lowering*, which
-   computes correctly and inlines and promotes as §S6 and §S5 specify. It is a
-   verdict on the **per-entry path**, which is `Tiering::observe` plus
-   `Decision::Compiled`'s second and third lookups. A body must be entered few
-   enough times, or do enough per entry, for compiled code to win — and §S7's
-   threshold does not model that, because it counts entries rather than
-   weighing them.
+   computes correctly and inlines and promotes as §S6 and §S5 specify, and
+   conformance is unmoved at 106/114 across all three configurations. **Nor is
+   it a verdict on any particular mechanism**: the first attempt to name one is
+   withdrawn, and F130 records what would settle it — a benchmark that compiles
+   once *outside* the timed region and then measures entries only, plus a
+   separate account for the three `dispatch` rows, which build no lambda body.
+
+   **Two intermediate readings during that investigation were wrong and are
+   recorded so they are not repeated.** A "~5× improvement" from the handle
+   change compared a 19 MB release binary against an 80 MB one built at a
+   different profile; a "3.5× faster than Tier 0" used a 67 MB stale Tier 0
+   artefact. Both were CLI medians on a ~2.3 ms process floor. A stale binary in
+   a scratch directory looks exactly like a fresh one; its size is the tell.
 
 8. **`cite` and `lint` clean**, with `cargo xtask cite` resolving every
    `path:line` in this document. **Note what this now checks and did not

@@ -76,8 +76,23 @@ pub enum Decision {
     Interpret,
     /// It has crossed the threshold and has no code yet.
     Compile,
-    /// Compiled code is held for it.
-    Compiled,
+    /// **Compiled code is held for it, and this is the handle** — F130.
+    ///
+    /// The handle rides on the decision because the caller would otherwise ask
+    /// for it again: `observe` found the entry, and `Decision::Compiled` alone
+    /// made `JitTier::enter` call [`Tiering::compiled`], which recomputed
+    /// `payload_key` and probed the same map a second time. Entering a compiled
+    /// body cost three hash probes and two key computations, ~93 ns, against
+    /// 22.44 ns for a whole interpreted word — so a hot short body lost more at
+    /// the door than the lowering saved inside.
+    ///
+    /// **The liveness check moved here with it, and that is a correction.**
+    /// This arm used to answer on a bare `contains_key` while `compiled` did
+    /// the `Weak` test afterwards, so a body whose payload had been dropped
+    /// reported `Compiled` and then quietly did not run compiled. Now one
+    /// lookup decides both, and a dead entry answers `Interpret` — which is
+    /// what D35 as amended by Q32 always meant.
+    Compiled(WordHandle),
 }
 
 /// One body's entry in either map: the `Weak` that decides whether it is still
@@ -153,8 +168,19 @@ impl Tiering {
         if self.demoted.contains_key(&key) {
             return Decision::Interpret;
         }
-        if self.cache.contains_key(&key) {
-            return Decision::Compiled;
+        // **One lookup, and it carries the handle out** — F130. This was
+        // `contains_key`, which forced the caller to ask again through
+        // `compiled`, recomputing the key and probing this map a second time.
+        // The liveness test lives here now rather than in that second call: a
+        // dead entry is not compiled code, and saying so here is what keeps a
+        // dropped body from reporting `Compiled` and then not running as one.
+        // A dead entry is not answered for: its address may be reused by a
+        // different body, so it falls through to the counter below exactly as
+        // an unseen body would.
+        if let Some(entry) = self.cache.get(&key)
+            && !entry.is_dead()
+        {
+            return Decision::Compiled(entry.value);
         }
 
         // The counter is capped, and at the cap the coldest go first — which is
@@ -494,8 +520,16 @@ mod tests {
         let b = body(1);
         assert_eq!(t.observe(&b), Decision::Interpret, "first evaluation");
         assert_eq!(t.observe(&b), Decision::Compile, "at the threshold of 2");
-        assert!(t.insert(&b, code(&mut c)));
-        assert_eq!(t.observe(&b), Decision::Compiled, "and after it is filed");
+        let filed = code(&mut c);
+        assert!(t.insert(&b, filed));
+        // **The handle comes back on the decision** — F130. Asserting the
+        // handle and not merely the variant is what would catch a hit path
+        // that answered `Compiled` for the wrong entry.
+        assert_eq!(
+            t.observe(&b),
+            Decision::Compiled(filed),
+            "and after it is filed, with the handle it was filed under"
+        );
     }
 
     /// **D35's argument for pointer keying, as a property.** A `dup`'d lambda

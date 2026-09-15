@@ -172,12 +172,17 @@ impl Tier for JitTier {
                 }
                 None
             }
-            Decision::Compiled => {
+            // **The handle arrives with the decision** — F130. This used to
+            // call `self.tiering.compiled(body)`, which recomputed
+            // `payload_key` and probed the cache a second time for the entry
+            // `observe` had just found. That cost ~93 ns per entry against
+            // 22.44 ns for a whole interpreted word, and it is why criterion 7
+            // failed on `arith` and `dispatch`.
+            Decision::Compiled(code) => {
                 let values = items(body)?;
                 // The handle is `Copy` and inert; the code it names lives in
                 // this tier's own compiler, which is what makes running it
                 // safe. A cache without its compiler simply interprets.
-                let code = self.tiering.compiled(body)?;
                 let compiler = self.compiler.as_ref()?;
                 Some(compiler.run(code, vm, values))
             }

@@ -3944,60 +3944,96 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
-## F130 — entering a compiled body costs three hash probes, and a hot short body never amortises them
+## F130 — the tier loses on hot short bodies, and the cause is not known
 
 **A Bund2 defect**, found by running RFC-0005 criterion 7 for the first time
 (F129 is why it could not be run before).
 
-`arith/times_body/1000` — the program `1000 { 1 + } times drop` — runs
-**+134.86% slower** with the tier than without it: 69.409 µs to 162.63 µs,
-p = 0.00, measured on a quiet machine against a same-day drift floor of −1.1%
-on that benchmark. **Three `dispatch` rows carry the same cost**:
-`dup_drop/w3000` +9.96%, `native_call/w4000` +12.62%, `literal_push/w2000`
-+11.94% — while `literal_only/w1000`, which dispatches nothing, moves +3.82%
-and stays inside the band. That control is what makes this a cause rather than
-a correlation.
+**The measurement, which stands.** On a quiet machine, against a same-day drift
+floor of ±1.8% taken from two no-tier runs of identical code:
 
-An earlier contaminated run read +121% (76.6 → 168.5 µs), p = 0.00,
-reproduced in isolation at 167.6 µs. `bund2 --stats` confirms the body compiles
-(1 body, 1 inlined site, 1 promoted value), so compiled code is what runs.
+- `arith/times_body/1000` — `1000 { 1 + } times drop` — **+136.56%**
+  (69.409 → 163.79 µs, p = 0.00);
+- `dispatch/dup_drop/w3000` **+9.96%**, `native_call/w4000` **+12.62%**,
+  `literal_push/w2000` **+11.94%**;
+- `dispatch/literal_only/w1000`, which pushes a thousand literals and
+  **dispatches nothing**, moves **+3.82%** and stays inside the band.
 
-**The cost is on the way in, not in the emitted code.** Every entry pays,
-before reaching the trampoline:
+That last row is the control, and it is what makes this a real effect rather
+than drift: the three siblings that enter compiled bodies move, the one that
+never enters does not. `bund2 --stats` confirms the body compiles (1 body,
+1 inlined site, 1 promoted value).
 
-- `BundValue::payload_key` and `payload_weak`;
-- a `demoted` probe and a `cache` probe, in `Tiering::observe`
-  (`crates/bund2-jit/src/cache.rs`);
-- `items(body)` again, then `Tiering::compiled(body)` — a **third** hash probe
-  with a `Weak` upgrade — in `Decision::Compiled`
-  (`crates/bund2-runtime/src/tier.rs`);
-- `Ctx` construction, then the entry trampoline.
+### The first diagnosis was wrong, and is withdrawn
 
-Three `HashMap` probes and a `Weak` upgrade, against a body whose interpreted
-cost is two stack operations. `times` enters it a thousand times, so the fixed
-cost is paid a thousand times and never amortises.
+This entry previously claimed the cost was **three `HashMap` probes and a
+`Weak` upgrade per entry** — `payload_key` and `payload_weak` in
+`Tiering::observe`, then `Tiering::compiled` recomputing the key and probing
+the cache again from `Decision::Compiled`. The arithmetic offered was
+"~93 ns × 1000 entries". **That was fitted to the number, not derived, and it
+is false.**
 
-**Measured to be entry-count-driven, not body-content-driven.** Holding entries
-at 1000 and making the body five times heavier *narrows* the gap; raising inner
-iterations with the entry count fixed moves the ratio 1.63× → 1.58× → 1.28×.
-More work per entry helps; more entries do not.
+Two errors produced it.
 
-**`corpus` improved in the same run** — −5.9% (p = 0.00), −6.5%, −0.9% — because
-whole programs amortise the entry cost over real work. The tier helps where
-entry is rare and hurts where it is hot, which is criterion 10's 1.06× against
-its 1.2× stop rule with a cause attached rather than a shrug.
+**The evidence benchmark measures compilation, not entry.** `timed_eval`
+(`crates/bund2-bench/benches/interpret.rs`) passes `interp` as
+`iter_batched`'s *setup* closure, so **every Criterion iteration builds a fresh
+`Interp` with an empty cache**. One eval of `1000 { 1 + } times drop` crosses
+§S7's threshold of 64 within itself, so each iteration pays 64 interpreted
+entries, **one full Cranelift compilation**, and ~936 compiled entries. The
++136% is a sum of those three, and attributing all of it to per-entry cost was
+unjustified.
+
+**The fix that followed changed nothing.** `Decision::Compiled` now carries the
+`WordHandle`, removing the second key computation and the third probe. Measured
+fairly — both binaries built at the same release profile in one session,
+19,306,448 against 19,306,256 bytes — it is **neutral**:
+
+| | 20k entries | 80k entries |
+|---|---|---|
+| Tier 0, no feature | 0.0055 s | 0.0092 s |
+| pre-fix | 0.0057 s | 0.0085 s |
+| post-fix | 0.0052 s | 0.0081 s |
+
+and Criterion's `times_body` moved +141.89% → +136.56%, inside its own spread.
+So the per-entry path was not the bottleneck.
+
+**Two intermediate readings were also wrong and are recorded so they are not
+repeated.** A "~5× improvement" compared a 19 MB release binary against an
+80 MB one from a different build profile; a "3.5× faster than Tier 0" used a
+67 MB stale Tier 0 artefact. Both were CLI medians on a ~2.3 ms process floor.
+Stale binaries in a scratch directory are indistinguishable from fresh ones by
+name alone, and the size is the tell.
+
+### What is left
+
+The effect is real and the cause is **unknown**. The strongest remaining
+hypothesis — untested — is that the Criterion figure is dominated by the
+per-iteration compilation the harness forces, in which case criterion 7's
+`arith` failure is partly an artefact of how the benchmark is written rather
+than a property of the tier. Settling it needs a benchmark that **compiles once
+outside the timed region** and then measures entries only. The `dispatch` rows,
+which do not build a lambda body at all, are not explained by that hypothesis
+and need their own account.
 
 **What this is not.** Not a defect in the lowering: it computes correctly,
-inlines behind §S6's guards and promotes as §S5 specifies. The per-entry path
-is the subject, and §S7's threshold does not model it — the threshold counts
-entries rather than weighing what each one buys, so a body entered a thousand
-times for two stack operations crosses it and loses.
+inlines behind §S6's guards, and promotes as §S5 specifies. Conformance is
+unmoved at 106/114 across all three configurations.
+
+**The handle-carrying change is kept, on correctness grounds and not
+performance.** `observe` used to answer `Decision::Compiled` on a bare
+`contains_key` while the liveness test happened afterwards in
+`Tiering::compiled`, so a body whose payload had been dropped reported
+`Compiled` and then quietly did not run compiled — `JitTier::enter`'s `?`
+swallowed it into interpretation. One lookup now decides both, which is what
+D35 as amended by Q32 always meant.
 
 - Found: 2026-09-14, running criterion 7 on the fixed harness
-- Status: **OPEN — needs the owner's disposition.** It is a performance
-  decision, not a correctness one: conformance is unmoved, and the options
-  (cache the decision per body, hold the handle across entries, weigh the
-  threshold by body size) are design choices this defect does not make.
+- Status: **OPEN — the effect is measured, the cause is not.** The first
+  diagnosis is withdrawn above. Next step is a benchmark that separates
+  compilation from entry; until then no disposition should be chosen, because
+  the options that were listed here (cache the decision, hold the handle, weigh
+  the threshold by body size) all presuppose the cause that has been falsified.
 - Depends on: D35 (the payload-pointer key), §S7 (the threshold), F129
 
 ## F129 — `bund2-bench` built a bare `Interp`, so criterion 7's A/B measured no tier
