@@ -3944,6 +3944,101 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F130 — entering a compiled body costs three hash probes, and a hot short body never amortises them
+
+**A Bund2 defect**, found by running RFC-0005 criterion 7 for the first time
+(F129 is why it could not be run before).
+
+`arith/times_body/1000` — the program `1000 { 1 + } times drop` — runs
+**+121% slower** with the tier than without it: 76.6 µs to 168.5 µs, p = 0.00,
+reproduced in isolation at 167.6 µs. `bund2 --stats` confirms the body compiles
+(1 body, 1 inlined site, 1 promoted value), so compiled code is what runs.
+
+**The cost is on the way in, not in the emitted code.** Every entry pays,
+before reaching the trampoline:
+
+- `BundValue::payload_key` and `payload_weak`;
+- a `demoted` probe and a `cache` probe, in `Tiering::observe`
+  (`crates/bund2-jit/src/cache.rs`);
+- `items(body)` again, then `Tiering::compiled(body)` — a **third** hash probe
+  with a `Weak` upgrade — in `Decision::Compiled`
+  (`crates/bund2-runtime/src/tier.rs`);
+- `Ctx` construction, then the entry trampoline.
+
+Three `HashMap` probes and a `Weak` upgrade, against a body whose interpreted
+cost is two stack operations. `times` enters it a thousand times, so the fixed
+cost is paid a thousand times and never amortises.
+
+**Measured to be entry-count-driven, not body-content-driven.** Holding entries
+at 1000 and making the body five times heavier *narrows* the gap; raising inner
+iterations with the entry count fixed moves the ratio 1.63× → 1.58× → 1.28×.
+More work per entry helps; more entries do not.
+
+**`corpus` improved in the same run** — −5.9% (p = 0.00), −6.5%, −0.9% — because
+whole programs amortise the entry cost over real work. The tier helps where
+entry is rare and hurts where it is hot, which is criterion 10's 1.06× against
+its 1.2× stop rule with a cause attached rather than a shrug.
+
+**What this is not.** Not a defect in the lowering: it computes correctly,
+inlines behind §S6's guards and promotes as §S5 specifies. The per-entry path
+is the subject, and §S7's threshold does not model it — the threshold counts
+entries rather than weighing what each one buys, so a body entered a thousand
+times for two stack operations crosses it and loses.
+
+- Found: 2026-09-14, running criterion 7 on the fixed harness
+- Status: **OPEN — needs the owner's disposition.** It is a performance
+  decision, not a correctness one: conformance is unmoved, and the options
+  (cache the decision per body, hold the handle across entries, weigh the
+  threshold by body size) are design choices this defect does not make.
+- Depends on: D35 (the payload-pointer key), §S7 (the threshold), F129
+
+## F129 — `bund2-bench` built a bare `Interp`, so criterion 7's A/B measured no tier
+
+**A Bund2 defect, in the benchmark harness** — the third instance of one
+pattern, after F124 and F127.
+
+RFC-0005 criterion 7 is an A/B across the `jit` feature. Every group in
+`crates/bund2-bench` built its interpreter with `Interp::new` plus
+`register_all`, and **only `bund2_runtime::Runtime` installs a tier**. So
+`--features jit` changed the binary and changed nothing the benchmarks
+executed.
+
+The first run of the criterion reported **26 "regressions"** — in `boxing`,
+which never touches an `Interp`; in `value/clone/scalar`, which is
+allocation-free; in `startup/parse/mixed`, which is `bund2_syntax::compile`
+alone. In the same run `value/push_pull/balanced` reported *no significant
+difference*. Both cannot be true of one tier, and neither was: the two halves
+ran under different machine load, and the feature was inert.
+
+**Disposition: FIXED.** `interp()` is feature-gated — under `jit` it returns
+`Runtime::new().interp`, otherwise the previous construction — so `timed_eval`,
+and with it `dispatch`, `arith`, `corpus`, `lambda` and `rendering`, route
+through a real tier. The two arms register the same vocabulary, since
+`register_all` *is* `register_all_with(r, &HostOptions::default())`, which is
+what `Runtime::with_options` calls; if they differed the A/B would compare two
+word tables rather than two tiers.
+
+`startup` deliberately keeps its bare `Interp`: it times `register_all`, the
+fixed cost the criterion forbids the tier to move, and routing it through
+`Runtime` would fold tier construction into the number being protected.
+
+**And the benchmark now says which half it is.** `say_whether_the_tier_is_installed`
+prints `bench: tier installed (threshold …)` or a warning naming this defect,
+above every number in the run. A benchmark cannot assert, so it reports — and
+an A/B whose feature-on half reached no tier is not a passing criterion, it is
+the absence of a measurement that looks exactly like one.
+
+**The pattern, three times.** F124: the CLI never installed a tier, so every
+`--features jit` measurement compared Tier 0 with itself. F127: the lowering's
+differential helper used an empty fragment table, so no test through it reached
+an inlined site. F129: the benchmarks built a bare `Interp`. **None was found by
+reading the code** — each was found by trying to take a measurement and asking
+what it had actually touched.
+
+- Found: 2026-09-14, running criterion 7
+- Status: **RESOLVED — fixed.**
+- Depends on: F124 (the same defect in the CLI), criterion 7
+
 ## F128 — criterion 21's six programs passed while testing nothing, because `ensure_stack` left the wrong stack current
 
 **A Bund2 test defect**, found by probing what the tests reached rather than by

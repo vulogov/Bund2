@@ -39,11 +39,75 @@ use bund2_api::{Error, StackEffect, Vm, WordKind};
 use bund2_interp::Interp;
 use bund2_value::BundValue;
 
-/// A registry with the full stdlib, which is what a real run has.
+/// A registry with the full stdlib, which is what a real run has — **and,
+/// under `--features jit`, a tier installed.**
+///
+/// # Why this is feature-gated rather than one constructor
+///
+/// RFC-0005 criterion 7 is an A/B across the `jit` feature, and until
+/// 2026-09-14 it could not measure anything: every group here built a bare
+/// `Interp`, and **only `bund2_runtime::Runtime` installs a tier**. So
+/// `--features jit` changed the binary and changed nothing the benchmarks
+/// executed, and the comparison reported noise with a straight face — 26
+/// "regressions" in groups the tier cannot reach, including `boxing` and
+/// `value/clone/scalar`, against `value/push_pull/balanced` reporting no
+/// significant difference in the same run.
+///
+/// That is **F124's shape one layer down**: the CLI had the same defect, where
+/// `--features jit` enabled a feature on code that never ran, so criterion 2
+/// had been comparing Tier 0 with itself.
+///
+/// # The two arms register the same vocabulary
+///
+/// `register_all` *is* `register_all_with(r, &HostOptions::default())`
+/// — `register_all` (`crates/bund2-stdlib/src/lib.rs`).
+/// And the runtime registers through the same function with the options it was
+/// given, which for a default build are those defaults —
+/// `Runtime::with_options` (`crates/bund2-runtime/src/lib.rs`).
+///
+/// So the feature-off and feature-on runs differ in the tier and in nothing
+/// else. If they differed in the word table, the A/B would be comparing two
+/// languages rather than two tiers.
+#[cfg(feature = "jit")]
+fn interp() -> Interp {
+    bund2_runtime::Runtime::new().interp
+}
+
+/// Without the feature there is no tier to install, and this is the
+/// construction every group used before the gate existed.
+#[cfg(not(feature = "jit"))]
 fn interp() -> Interp {
     let mut i = Interp::new();
     bund2_stdlib::register_all(&mut i.registry);
     i
+}
+
+/// **Refuse to measure a tier that is not there** — the guard F124, F127 and
+/// F128 each cost a session for want of.
+///
+/// A benchmark cannot assert, so this reports and the reader sees it beside the
+/// numbers. An A/B whose feature-on half never reached compiled code is not a
+/// passing criterion 7; it is the absence of a measurement, and it looks
+/// exactly like a pass.
+#[cfg(feature = "jit")]
+fn say_whether_the_tier_is_installed() {
+    let rt = bund2_runtime::Runtime::new();
+    match rt.compiled_bodies() {
+        Some(_) => eprintln!(
+            "bench: tier installed (threshold {:?}) — criterion 7's A/B measures it",
+            rt.jit_threshold()
+        ),
+        None => eprintln!(
+            "bench: WARNING — `--features jit` is on and no tier is installed. \
+             Every group below measures Tier 0 against itself, and any difference \
+             is noise. This is F124's shape; do not record the result."
+        ),
+    }
+}
+
+#[cfg(not(feature = "jit"))]
+fn say_whether_the_tier_is_installed() {
+    eprintln!("bench: no tier (built without `jit`) — this is criterion 7's baseline half");
 }
 
 /// Parse once, here, so no benchmark below pays for it.
@@ -63,6 +127,12 @@ fn compiled(src: &str) -> Vec<BundValue> {
 
 /// Registration and parsing — the fixed cost. A JIT must leave these alone.
 fn startup(c: &mut Criterion) {
+    // First group in `criterion_group!`, so this prints above every number in
+    // the run. It says whether the half being measured has a tier at all —
+    // without which criterion 7's A/B compares Tier 0 with itself and reports
+    // noise as a result.
+    say_whether_the_tier_is_installed();
+
     let mut g = c.benchmark_group("startup");
 
     // The single biggest cost in an end-to-end run: 2.3 ms of the 2.7 ms mean

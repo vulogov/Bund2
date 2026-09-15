@@ -34,7 +34,15 @@
     open).
   - **Partial** — 5, 17, 30: each has a half met and a half outstanding, or a
     bound stated and unmeasured.
-  - **Not met** — 7, 14, 20, 22, 27, and 4's reachable remainder.
+  - **Not met** — 14, 20, 22, 27, and 4's reachable remainder.
+  - **Failed, measured** — 7. `arith/times_body/1000` regressed **+121%**
+    (76.6 → 168.5 µs, p = 0.00, reproduced in isolation), and `arith` is in the
+    must-not-regress-beyond-5% set. The cause is traced and is not the
+    lowering: **three `HashMap` probes and a `Weak` upgrade per entry** into a
+    compiled body, paid a thousand times by `times` against a body whose
+    interpreted cost is two stack operations (F130). `corpus` — whole programs
+    — improved, because it amortises that cost over real work. This is
+    criterion 10's 1.06× with a named cause.
   - **Deferred, with a named blocker** — 13 (waits on D68's implementation),
     18 and 20's probe (wait on `:` and `;` being bound).
 
@@ -4027,12 +4035,72 @@ evidence, and this one is listed as runnable rather than as met.
    percentage taken there measures process spawn. `cargo xtask bench` keeps
    only its regression role: catching a startup collapse.
 
-   **Not met, 2026-09-14 — the A/B has never been run.** `target/criterion`
-   holds the benchmark groups but no saved `off` baseline, so neither half of
-   the pair above has been taken against the shipped lowering. The tolerance is
-   stated and unmeasured, which is the one state a criterion with a *stated
-   band* must not be left in: it reads as a passing test to anyone scanning for
-   a number.
+   **Measured 2026-09-14, and it FAILS.** `arith` regressed **+121%** on
+   `times_body/1000`, and `arith` is in the must-not-regress-beyond-5% set.
+
+   | group | result | verdict |
+   |---|---|---|
+   | `startup` | `register_all` +7.3%, `parse/mixed` +12.2% | at/above the drift floor, see below |
+   | `value` | +8.8% to +37.6% across five | at/above the drift floor |
+   | `dispatch` | +10.4% to +39.1% across four | above the floor; same cause as `arith` |
+   | `arith` | `int_add` +7.6%, `float_mul` +7.5%, **`times_body` +121%** | **FAILS** |
+   | `corpus` | −0.9% (p=0.35), −6.5% (p=0.07), **−5.9% (p=0.00)** | improves |
+
+   **The harness had to be fixed before any of this could be measured.**
+   `bund2-bench`'s `interp()` built a bare `Interp`, and **only
+   `bund2_runtime::Runtime` installs a tier** — so `--features jit` changed the
+   binary and changed nothing the benchmarks executed. The first A/B run that
+   day reported 26 "regressions" in groups the tier cannot reach, including
+   `boxing` and `value/clone/scalar`, while `value/push_pull/balanced` in the
+   same run reported no significant difference. That was noise against noise.
+   **This is F124's shape one layer down**, and it is why `interp()` is now
+   feature-gated to build a `Runtime`, and why the bench prints
+   `bench: tier installed (threshold …)` or a warning naming this defect. The
+   run behind the table above printed `tier installed (threshold Some(64))`.
+
+   **`startup` still builds its own `Interp` deliberately.** It times
+   `register_all`, the fixed cost this criterion forbids the tier to move;
+   routing it through `Runtime` would fold tier construction into the number
+   being protected. A reader should not mistake that for the defect above.
+
+   **The drift floor, measured rather than assumed.** Two *no-tier* baselines
+   of identical code, taken 20 minutes apart, differ by **2.6% to 7.3%** on
+   value-layer microbenchmarks (`clone/scalar` 3.86→3.96 ns, `promote/scalar`
+   40.85→43.82 ns, `with_tag/scalar_unique` 57.9→59.4 ns). So this machine's
+   run-to-run spread sits *at* the 5% band, and every `startup`, `value` and
+   sub-10% `dispatch`/`arith` figure above is at or near it. **Those rows are
+   not evidence of a tier effect**, and the band is too tight for this machine
+   to resolve — which is itself a finding about the criterion.
+
+   **`times_body` is not noise, and its cause is traced.** 76.6 µs → 168.5 µs,
+   p = 0.00, reproduced in isolation at 167.6 µs. The program is
+   `1000 { 1 + } times drop`; `--stats` confirms the body compiles (1 body,
+   1 inlined site, 1 promoted value). Every *entry* into that compiled body
+   pays, before reaching any emitted code: `payload_key` and `payload_weak`, a
+   `demoted` probe, a `cache` probe, `items(body)` again, then
+   `tiering.compiled(body)` — a third hash probe with a `Weak` upgrade — then
+   `Ctx` construction and the trampoline. Three `HashMap` probes per entry,
+   against a body whose interpreted cost is two stack operations. `times`
+   enters it a thousand times, so the fixed cost is paid a thousand times and
+   never amortises.
+
+   Two measurements show the cost is **entry-count-driven, not
+   body-content-driven**: holding entries at 1000 while making the body five
+   times heavier *narrows* the gap, and raising inner iterations with the entry
+   count fixed moves the ratio 1.63× → 1.58× → 1.28×.
+
+   **`corpus` improving is the same story from the other side.** Whole programs
+   amortise the entry cost over real work and gain a few percent; hot short
+   bodies pay it every time and lose. That is criterion 10's 1.06× — below its
+   own 1.2× stop rule — with a named cause rather than a shrug.
+
+   **What this does not say.** It is not a verdict on the *lowering*, which
+   computes correctly and inlines and promotes as §S6 and §S5 specify. It is a
+   verdict on the **per-entry path**, which is `Tiering::observe` plus
+   `Decision::Compiled`'s second and third lookups. A body must be entered few
+   enough times, or do enough per entry, for compiled code to win — and §S7's
+   threshold does not model that, because it counts entries rather than
+   weighing them.
 
 8. **`cite` and `lint` clean**, with `cargo xtask cite` resolving every
    `path:line` in this document. **Note what this now checks and did not
