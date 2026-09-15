@@ -35,14 +35,17 @@
   - **Partial** — 5, 17, 30: each has a half met and a half outstanding, or a
     bound stated and unmeasured.
   - **Not met** — 14, 20, 22, 27, and 4's reachable remainder.
-  - **Failed, measured** — 7. `arith/times_body/1000` regressed **+121%**
-    (76.6 → 168.5 µs, p = 0.00, reproduced in isolation), and `arith` is in the
+  - **Failed, measured** — 7, on **two** groups. `arith/times_body/1000`
+    regressed **+134.86%** (69.409 → 162.63 µs, p = 0.00) and three of four
+    `dispatch` rows regressed +9.96% to +12.62%; both groups are in the
     must-not-regress-beyond-5% set. The cause is traced and is not the
     lowering: **three `HashMap` probes and a `Weak` upgrade per entry** into a
-    compiled body, paid a thousand times by `times` against a body whose
-    interpreted cost is two stack operations (F130). `corpus` — whole programs
-    — improved, because it amortises that cost over real work. This is
-    criterion 10's 1.06× with a named cause.
+    compiled body, paid once per entry against a body whose interpreted cost is
+    two stack operations (F130). `dispatch/literal_only/w1000` is the control —
+    it dispatches nothing and moves +3.82%, inside the band — which is what
+    makes this a cause rather than a correlation. `startup` and `value` are
+    **met**, inside a same-day drift floor of ±1.8%. This is criterion 10's
+    1.06× with a named cause.
   - **Deferred, with a named blocker** — 13 (waits on D68's implementation),
     18 and 20's probe (wait on `:` and `;` being bound).
 
@@ -4035,16 +4038,24 @@ evidence, and this one is listed as runnable rather than as met.
    percentage taken there measures process spawn. `cargo xtask bench` keeps
    only its regression role: catching a startup collapse.
 
-   **Measured 2026-09-14, and it FAILS.** `arith` regressed **+121%** on
-   `times_body/1000`, and `arith` is in the must-not-regress-beyond-5% set.
+   **Measured 2026-09-14 on a quiet machine, and it FAILS on two groups.**
+   Both `arith` and `dispatch` are in the must-not-regress-beyond-5% set.
 
    | group | result | verdict |
    |---|---|---|
-   | `startup` | `register_all` +7.3%, `parse/mixed` +12.2% | at/above the drift floor, see below |
-   | `value` | +8.8% to +37.6% across five | at/above the drift floor |
-   | `dispatch` | +10.4% to +39.1% across four | above the floor; same cause as `arith` |
-   | `arith` | `int_add` +7.6%, `float_mul` +7.5%, **`times_body` +121%** | **FAILS** |
-   | `corpus` | −0.9% (p=0.35), −6.5% (p=0.07), **−5.9% (p=0.00)** | improves |
+   | `startup` | +0.25% (p = 0.28), −1.02% | **met** — inside the band, one not significant |
+   | `value` | −2.68% to +0.01% across five, two not significant | **met** |
+   | `dispatch` | +3.82%, **+9.96%**, **+11.94%**, **+12.62%** | **FAILS** — three of four |
+   | `arith` | +8.06%, +9.59%, **+134.86%** | **FAILS** |
+   | `corpus` | +3.81%, −0.79% (p = 0.31), +0.57% (p = 0.31) | inside the band |
+
+   **An earlier attempt the same day reported quite different numbers and was
+   discarded.** It read `startup` +7.3%/+12.2%, `value` +8.8% to +37.6% and
+   `arith/times_body` +121%, taken while another project's test binary held
+   **eleven of eighteen cores**. Two no-tier baselines from that period differ
+   from each other by **23–35%** — the machine, not the tier. The figures above
+   replace them; the earlier ones are recorded here only so the difference
+   between a measurement and a reading is on the page.
 
    **The harness had to be fixed before any of this could be measured.**
    `bund2-bench`'s `interp()` built a bare `Interp`, and **only
@@ -4063,17 +4074,27 @@ evidence, and this one is listed as runnable rather than as met.
    routing it through `Runtime` would fold tier construction into the number
    being protected. A reader should not mistake that for the defect above.
 
-   **The drift floor, measured rather than assumed.** Two *no-tier* baselines
-   of identical code, taken 20 minutes apart, differ by **2.6% to 7.3%** on
-   value-layer microbenchmarks (`clone/scalar` 3.86→3.96 ns, `promote/scalar`
-   40.85→43.82 ns, `with_tag/scalar_unique` 57.9→59.4 ns). So this machine's
-   run-to-run spread sits *at* the 5% band, and every `startup`, `value` and
-   sub-10% `dispatch`/`arith` figure above is at or near it. **Those rows are
-   not evidence of a tier effect**, and the band is too tight for this machine
-   to resolve — which is itself a finding about the criterion.
+   **The drift floor is measured as part of the run, not reconstructed after
+   it.** Two *no-tier* baselines are taken back to back before the A/B; their
+   difference is pure environment, since the code is identical and neither has
+   a tier. On 2026-09-14, across all seventeen named-group benchmarks:
+   **sixteen inside ±1.8%**, the seventeenth (`value/promote/scalar`) at
+   −5.5%. `clone/scalar` 3.8202 → 3.8252 ns, `with_tag/scalar_unique`
+   58.475 → 58.502 ns, `times_body` 70.162 → 69.409 µs.
 
-   **`times_body` is not noise, and its cause is traced.** 76.6 µs → 168.5 µs,
-   p = 0.00, reproduced in isolation at 167.6 µs. The program is
+   So the 5% band **is** resolvable on this machine when it is quiet, and a
+   figure above it is a verdict rather than weather. That was not true earlier
+   the same day, when the floor read 2.6–7.3% under load and 23–35% under heavy
+   contention — and it is why the procedure now measures the floor every time
+   rather than assuming one. `value/promote/scalar` is the row to distrust: it
+   alone sits at the band's edge with no tier on either side.
+
+   **`times_body` is not noise, and its cause is traced.** **69.409 µs →
+   162.63 µs, +134.86%**, p = 0.00, against a same-day drift floor of −1.1% on
+   that very benchmark. An earlier contaminated run read 76.6 → 168.5 µs
+   (+121%) and reproduced in isolation at 167.6 µs; the clean figure is larger,
+   not smaller, so the quiet machine strengthened this row rather than
+   dissolving it. The program is
    `1000 { 1 + } times drop`; `--stats` confirms the body compiles (1 body,
    1 inlined site, 1 promoted value). Every *entry* into that compiled body
    pays, before reaching any emitted code: `payload_key` and `payload_weak`, a
@@ -4089,10 +4110,25 @@ evidence, and this one is listed as runnable rather than as met.
    times heavier *narrows* the gap, and raising inner iterations with the entry
    count fixed moves the ratio 1.63× → 1.58× → 1.28×.
 
-   **`corpus` improving is the same story from the other side.** Whole programs
-   amortise the entry cost over real work and gain a few percent; hot short
-   bodies pay it every time and lose. That is criterion 10's 1.06× — below its
-   own 1.2× stop rule — with a named cause rather than a shrug.
+   **`dispatch` is the same mechanism, and its own control proves it.** Three
+   of its four rows regress past the band — `dup_drop/w3000` 84.760 → 93.051 µs
+   (+9.96%), `native_call/w4000` 94.049 → 106.60 µs (+12.62%),
+   `literal_push/w2000` 44.148 → 49.294 µs (+11.94%). The fourth,
+   `literal_only/w1000`, **makes no call at all** — it pushes a thousand
+   literals and dispatches nothing — and moves 15.827 → 16.458 µs, +3.82%,
+   inside the band. A control that stays put while its siblings move is what
+   turns a correlation into a cause: the cost arrives with entry into compiled
+   bodies, not with executing them.
+
+   **`corpus` does not improve, and an earlier reading that it did was noise.**
+   Today: +3.81%, then two rows not significant (p = 0.31 both). The
+   contaminated run read −5.9%, −6.5%, −0.9% and the note then built an
+   argument on whole programs amortising the entry cost. The argument may still
+   be right — `corpus` is the only group that does not regress — but it is not
+   evidence, and the earlier version overstated it.
+
+   Either way the shape agrees with criterion 10's 1.06×, below its own 1.2×
+   stop rule, with a named cause rather than a shrug.
 
    **What this does not say.** It is not a verdict on the *lowering*, which
    computes correctly and inlines and promotes as §S6 and §S5 specify. It is a

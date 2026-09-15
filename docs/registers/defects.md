@@ -3950,7 +3950,15 @@ side. No corpus program reads a BLOB, so conformance does not move.
 (F129 is why it could not be run before).
 
 `arith/times_body/1000` — the program `1000 { 1 + } times drop` — runs
-**+121% slower** with the tier than without it: 76.6 µs to 168.5 µs, p = 0.00,
+**+134.86% slower** with the tier than without it: 69.409 µs to 162.63 µs,
+p = 0.00, measured on a quiet machine against a same-day drift floor of −1.1%
+on that benchmark. **Three `dispatch` rows carry the same cost**:
+`dup_drop/w3000` +9.96%, `native_call/w4000` +12.62%, `literal_push/w2000`
++11.94% — while `literal_only/w1000`, which dispatches nothing, moves +3.82%
+and stays inside the band. That control is what makes this a cause rather than
+a correlation.
+
+An earlier contaminated run read +121% (76.6 → 168.5 µs), p = 0.00,
 reproduced in isolation at 167.6 µs. `bund2 --stats` confirms the body compiles
 (1 body, 1 inlined site, 1 promoted value), so compiled code is what runs.
 
