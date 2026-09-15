@@ -357,6 +357,32 @@ impl Tiering {
         self.demoted.insert(key, Entry { weak, value: () });
     }
 
+    /// **Demote `body` permanently, on the caller's judgement** — F133.
+    ///
+    /// [`Tiering::redefined`] demotes on §S7's recompile cap. This is the same
+    /// permanence reached by a different route: the tier asks for it when
+    /// compiling a body could not pay — no inlinable site and nothing to
+    /// promote — so the body stays at Tier 0 for good.
+    ///
+    /// **The record is the point, not the refusal.** Refusing without it would
+    /// leave the counter past the threshold, so every later entry would re-plan
+    /// the body and refuse again, paying `plan_body` forever to learn what was
+    /// already known. A demoted body is answered at the top of
+    /// [`Tiering::observe`] and never reaches planning again.
+    ///
+    /// Like every other entry here it holds a `Weak`, so a demoted body's
+    /// address cannot be reused under a different body that would inherit the
+    /// demotion.
+    pub fn demote(&mut self, body: &BundValue) -> bool {
+        let (Some(key), Some(weak)) = (body.payload_key(), body.payload_weak()) else {
+            return false;
+        };
+        self.cache.remove(&key);
+        self.counter.remove(&key);
+        self.demoted.insert(key, Entry { weak, value: () });
+        true
+    }
+
     /// Whether `body` has been demoted permanently.
     pub fn is_demoted(&self, body: &BundValue) -> bool {
         body.payload_key()

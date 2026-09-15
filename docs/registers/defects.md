@@ -3944,7 +3944,7 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
-## F133 — a body with no inlinable site is compiled anyway, and always loses
+## F133 — a body with no inlinable site is compiled anyway, and always loses — RESOLVED
 
 **A Bund2 defect**, found by restating criterion 7's `arith` to measure steady
 state (D69).
@@ -3998,9 +3998,66 @@ refuses by *attribution* — zero sites, zero promoted — which is measured per
 body, already computed, and is the direct statement of "the tier cannot help
 this body".
 
+### Fixed, 2026-09-15 — the tier refuses a body it cannot help
+
+Three pieces, each where it belongs.
+
+**The answer comes from the planner.** `Compiler::would_gain`
+(`crates/bund2-jit/src/lower.rs`) runs `plan_body` and reports whether the plan
+holds any inlined site or any promoted literal. It is the *same* planning that
+decides what gets emitted, so the rule cannot drift from the lowering it guards
+— which is how F127 went wrong, with a fixture that merely resembled the real
+path.
+
+**The decision belongs to the tier.** `JitTier::enter`
+(`crates/bund2-runtime/src/tier.rs`) asks before compiling and leaves the body
+interpreted when the answer is no. Putting the refusal in `compile_word` would
+have been wrong twice over: §S7's policy lives in the tier, and the lowering's
+own tests deliberately compile site-free bodies through an empty fragment table.
+
+**The refusal is recorded, not re-decided.** `Tiering::demote`
+(`crates/bund2-jit/src/cache.rs`) marks the body permanently, reusing the
+demotion `redefined` already had. Without it the counter would stay hot and
+every later entry would re-plan the body to reach the same answer, paying
+`plan_body` forever to learn what was known. It also keeps a useless body out of
+§S7's 1024 function slots.
+
+**Measured, three runs each side against one feature-off baseline**, same
+session and machine:
+
+| row | before | after |
+|---|---|---|
+| `arith/float_mul/1000` warm | +24.63%, +22.66%, +26.43% | **−0.26% (p = 0.18), −2.33%, −3.11%** |
+| `arith/int_add/1000` warm | −97.84%, −97.85%, −97.87% | −97.91%, −97.90%, −97.91% |
+| `arith/times_body/1000` warm | −0.53%, +0.58%, −0.89% | +0.29% (p = 0.34), −0.94%, −1.17% |
+
+**`--stats` on the same build attributes it at the source**: the float body now
+reads **0 bodies compiled** where it read 2, and the int body is untouched at
+**1 body, 1000 sites, 1001 promoted**. The rule refuses exactly what it was
+meant to and leaves everything else alone.
+
+**One reading is not claimed as a win.** `float_mul` warm now measures −2.33%
+and −3.11% on two of three runs, and a body that is no longer compiled should
+read ~0%, not faster than Tier 0. The feature-on and feature-off binaries differ
+in ways unrelated to this body and the suite's floor is ±1.5%, but −3.11% sits
+outside that, so it is recorded as measured and unexplained rather than
+described as an improvement.
+
+Three tests pin the rule, in `crates/bund2-runtime/src/tier.rs`:
+`a_body_with_nothing_to_gain_is_not_compiled` (a float body stays at Tier 0),
+`a_body_with_a_site_still_compiles` (the other direction, so the rule cannot
+"fix" the regression by turning the tier off), and
+`a_refused_body_is_demoted_rather_than_re_planned` (forty entries, still zero
+compiled). The first uses `inlining_runtime_with`, not `runtime_with`, because
+the latter installs an empty table under which *every* body has zero sites and
+the test would pass for the wrong reason.
+
+Conformance unmoved: **CONFORMANCE 106/114** with 8 approved deviations,
+**CEILING 106/114**, 0 goldens still to reach it, nothing failing.
+
 - Found: 2026-09-15, restating criterion 7's `arith` under D69
-- Status: **OPEN**. The rule changes which bodies compile, so it is §S7's to
-  state and the repository owner's to decide; no rule has been added.
+- Status: **RESOLVED**, 2026-09-15. The regression is gone and the attribution
+  confirms the mechanism rather than only the timing.
 - Depends on: §S6 (the fragment table and the inlining join), §S7 (the
   threshold), D66 (int literals promote), D69
 

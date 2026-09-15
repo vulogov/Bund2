@@ -1464,6 +1464,28 @@ impl Compiler {
         (plan, sites)
     }
 
+    /// **Would compiling this body buy anything at all?** — F133.
+    ///
+    /// A compiled body runs every value that is *not* an inlined site through
+    /// [`jit_apply`], which calls `Vm::apply` — Tier 0's own path — and adds the
+    /// boundary around it: an entry trampoline, a slot load and an indirect call
+    /// per value, plus the request-cell load after each. Inlining and promotion
+    /// are what repay that. A body with neither is strictly slower compiled than
+    /// interpreted, measured at **+24%** on `arith/float_mul/1000`, whose
+    /// `--stats` read 0 sites inlined and 0 values promoted.
+    ///
+    /// **The answer is [`plan_body`](Self::plan_body)'s own, not a second
+    /// opinion.** The planning that decides what gets emitted decides whether to
+    /// emit at all, so the rule cannot drift from the lowering it guards — which
+    /// is how F127 went wrong, with a fixture that resembled the real path.
+    ///
+    /// Whether to *act* on this is §S7's policy and belongs to the tier, not
+    /// here: `bund2-jit` stays the mechanism.
+    pub fn would_gain(&self, body: &[BundValue], vm: &mut dyn Vm) -> bool {
+        let (plan, sites) = self.plan_body(body, vm);
+        !sites.is_empty() || plan.iter().any(|p| matches!(p, Plan::Literal(_)))
+    }
+
     /// Apply the body's values in order, through Tier 0's own `apply`.
     ///
     /// `body` must be the same length the word was compiled for; a shorter one

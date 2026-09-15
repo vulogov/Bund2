@@ -165,6 +165,23 @@ impl Tier for JitTier {
                     // cloned because planning borrows `vm` mutably to ask
                     // `inline_site` while `body` borrows it immutably.
                     let values: Vec<BundValue> = items(body)?.to_vec();
+                    // **F133: a body the tier cannot help is not compiled.**
+                    // Every value that is not an inlined site goes through
+                    // `Vm::apply` anyway — Tier 0's own path — with the boundary
+                    // added around it, so a body with no site and nothing to
+                    // promote is strictly slower compiled: **+24%** measured on
+                    // `arith/float_mul/1000`, at 0 sites and 0 promoted.
+                    //
+                    // The demotion is what makes this affordable. Refusing alone
+                    // would leave the counter hot, so every later entry would
+                    // re-plan the body to reach the same answer; demoted, it is
+                    // turned away at the top of `observe` instead. It also keeps
+                    // the body out of §S7's 1024 function slots, which it would
+                    // otherwise occupy to no purpose.
+                    if !compiler.would_gain(&values, vm) {
+                        self.tiering.demote(body);
+                        return None;
+                    }
                     if let Ok(code) = compiler.compile_word(&values, LastCall::Ordinary, cells, vm)
                     {
                         self.tiering.insert(body, code);
@@ -244,6 +261,105 @@ mod tests {
         ]);
         r.interp.registry.register_lambda("f", body.clone());
         body
+    }
+
+    /// **F133: a body the tier cannot help is left interpreted.**
+    ///
+    /// The body is `{ 1.0 1.000001 * }`. Nothing in it is a site — §S6 publishes
+    /// no fragment for float multiplication — and nothing in it promotes, since
+    /// D66's `Plan::Literal` carries an `i64` and a float literal is not one. So
+    /// a compiled form would run every value through `Vm::apply`, Tier 0's own
+    /// path, and add the boundary around it: measured at **+24%** on
+    /// `arith/float_mul/1000` before this rule existed.
+    ///
+    /// **The fixture must be the inlining one.** `runtime_with` installs an
+    /// empty table, under which *every* body has zero sites, so it would pass
+    /// this test for the wrong reason — the same shape as F127, where a fixture
+    /// that could not inline was used to assert something about inlining.
+    #[test]
+    fn a_body_with_nothing_to_gain_is_not_compiled() {
+        let mut r = inlining_runtime_with(2);
+        let body = BundValue::lambda(vec![
+            BundValue::float(1.0),
+            BundValue::float(1.000001),
+            BundValue::call("*"),
+        ]);
+        r.interp.registry.register_lambda("f", body.clone());
+
+        for _ in 0..6 {
+            r.interp
+                .eval(&[BundValue::call("f")])
+                .expect("the body runs");
+            r.interp.clear();
+        }
+
+        assert_eq!(
+            r.compiled_bodies(),
+            Some(0),
+            "a body with no site and nothing to promote must stay at Tier 0"
+        );
+    }
+
+    /// **The other half of F133's rule, or it is only half tested.**
+    ///
+    /// The same path, the same fixture, a body that *does* inline: `{ 1 2 + }`
+    /// has a published fragment for `+` and two int literals to promote. A rule
+    /// that refused this too would "fix" the regression by turning the tier off,
+    /// which is why both directions are asserted.
+    #[test]
+    fn a_body_with_a_site_still_compiles() {
+        let mut r = inlining_runtime_with(2);
+        register_body(&mut r);
+
+        for _ in 0..6 {
+            r.interp
+                .eval(&[BundValue::call("f")])
+                .expect("the body runs");
+            r.interp.clear();
+        }
+
+        assert_eq!(
+            r.compiled_bodies(),
+            Some(1),
+            "a body with an inlinable site must still be compiled"
+        );
+    }
+
+    /// **The refusal is remembered, not re-decided.**
+    ///
+    /// Refusing without recording it would leave the counter past the threshold,
+    /// so every later entry would re-plan the body to reach the same answer —
+    /// paying `plan_body` forever to learn what was already known. The tier
+    /// demotes instead, and `observe` turns a demoted body away before planning.
+    /// Asserted through the seam: the result never changes and nothing is ever
+    /// compiled, however many times it is entered.
+    #[test]
+    fn a_refused_body_is_demoted_rather_than_re_planned() {
+        let mut r = inlining_runtime_with(1);
+        let body = BundValue::lambda(vec![
+            BundValue::float(2.5),
+            BundValue::float(4.0),
+            BundValue::call("*"),
+        ]);
+        r.interp.registry.register_lambda("f", body.clone());
+
+        for _ in 0..40 {
+            r.interp
+                .eval(&[BundValue::call("f")])
+                .expect("the body runs");
+            assert_eq!(
+                r.interp.depth(),
+                1,
+                "the product is the one value the body leaves"
+            );
+            r.interp.clear();
+        }
+
+        assert_eq!(
+            r.compiled_bodies(),
+            Some(0),
+            "forty entries must not compile a body that cannot gain"
+        );
     }
 
     /// **The whole chain, end to end.** Seam, counter, threshold, cache,

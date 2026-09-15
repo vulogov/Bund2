@@ -39,8 +39,17 @@
   - **Partial** — 5, 17, 30: each has a half met and a half outstanding, or a
     bound stated and unmeasured.
   - **Not met** — 14, 20, 22, 27, and 4's reachable remainder.
-  - **Failed, measured; cause identified** — 7, on **one** group, `arith`, and
-    the reason changed on 2026-09-15 when D69 restated what that group measures.
+  - **Not yet re-measured as a whole; its one failing row is fixed** — 7. On
+    2026-09-15 `arith`'s warm rows came inside the band after F133, so no row
+    measured that day fails. **The criterion is not declared met**: `startup`,
+    `value`, `dispatch` and `corpus` were last measured on 2026-09-14, before
+    F131's fix, D69's restatement and F133's rule, and a verdict resting on four
+    stale groups would repeat the single-run mistake this RFC spent a day
+    withdrawing. A full five-group A/B is what would settle it.
+
+    The history, since the reason changed twice — 7 failed on **one** group,
+    `arith`, and the reason changed on 2026-09-15 when D69 restated what that
+    group measures.
     The old headline, `times_body` at **+121%**, was **one Cranelift
     compilation of order 125–141 µs paid once per Criterion iteration** because
     the harness rebuilt the `Interp` in setup (F130); warm, that row straddles
@@ -2778,6 +2787,26 @@ time** (the owner's decision, 2026-09-13): the two keys differ because a
 redefinition replaces one body with another, so the slot is what persists across
 it and the body is what a demotion can name.
 
+**A fifth rule, 2026-09-15 — a body the tier cannot help is not compiled**
+(F133). The four knobs above admit a body on **entry count alone**, and entry
+count does not say whether compiling it can pay. A compiled body runs every
+value that is not an inlined site through `Vm::apply`, Tier 0's own path, and
+adds the boundary around it, so a body with **no inlinable site and nothing to
+promote** is strictly slower compiled than interpreted — measured at **+24%**
+on `arith/float_mul/1000`, a float body whose `--stats` read 0 sites and 0
+promoted, against **−0.3% to −3.1%** once refused.
+
+Built as: `JitTier::enter` asks `Compiler::would_gain`, which is `plan_body`'s
+own answer rather than a second opinion, and **demotes** a body it refuses. The
+demotion is the load-bearing half — without it the counter stays hot and every
+later entry re-plans the body to reach the same answer — and it keeps a body
+that can never benefit out of the 1024 function slots.
+
+This is a **policy** rule, like the sweep's trigger above and unlike the caps:
+it changes which bodies compile and nothing about what any program means.
+Conformance is unmoved at 106/114. It is recorded as D69's consequence and
+F133's fix.
+
 # S8. Tail calls, and why §3.2f does not take them away
 
 `CallConv::Tail` with `return_call` / `return_call_indirect` is supported on
@@ -4091,7 +4120,7 @@ evidence, and this one is listed as runnable rather than as met.
    | row | bodies / sites / promoted | three runs | |
    |---|---|---|---|
    | `int_add/1000` warm | 2 / 1000 / 1001 | −97.84%, −97.85%, −97.87% | **folding, not arithmetic** |
-   | `float_mul/1000` warm | 2 / **0 / 0** | +24.63%, +22.66%, +26.43% | **FAILS** — F133 |
+   | `float_mul/1000` warm | 2 / **0 / 0** → **0 / 0 / 0** | +24.63%, +22.66%, +26.43% → **−0.26%, −2.33%, −3.11%** | **fixed**, F133 |
    | `times_body/1000` warm | — | −0.53%, +0.58%, −0.89% | inside the band |
    | `int_add/1000/cold` | — | +1.81%, +1.49%, −0.13% | inside the band |
    | `float_mul/1000/cold` | — | +1.16%, +1.19%, +0.97% | inside the band |
@@ -4102,12 +4131,16 @@ evidence, and this one is listed as runnable rather than as met.
    **`times_body`'s +121% was compilation**, as F130 concluded: warm, the same
    program straddles zero. That row is now explained rather than open.
 
-   **`float_mul` is a real steady-state regression that the cold fixture hid.**
-   Cold, it reads +1.2%, because a straight-line stream is never a body and
-   never compiles (§S3); warm, registered as a word, it compiles and loses
-   ~24%. `--stats` says why — **0 sites inlined, 0 values promoted** — so the
-   body pays the boundary on every value through `jit_apply` and `Vm::apply`
-   and is repaid nothing. F133 carries it.
+   **`float_mul` was a real steady-state regression that the cold fixture hid,
+   and it is now fixed.** Cold, it reads +1.2%, because a straight-line stream
+   is never a body and never compiles (§S3); warm, registered as a word, it
+   compiled and lost ~24%. `--stats` said why — **0 sites inlined, 0 values
+   promoted** — so the body paid the boundary on every value through
+   `jit_apply` and `Vm::apply` and was repaid nothing. §S7's fifth rule refuses
+   such a body: the same `--stats` now reads **0 bodies compiled**, and the row
+   measures **−0.26% (p = 0.18), −2.33%, −3.11%**. F133 carries the fix, and
+   records the two negative readings as measured-but-unexplained rather than as
+   a win.
 
    **`int_add`'s −97.9% is not a win to quote.** With 1000 sites inlined and
    1001 values promoted the chain folds to a constant, so the row measures

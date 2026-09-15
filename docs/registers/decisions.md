@@ -3525,6 +3525,16 @@ with that caveat rather than quoted as a win.
   warm ones, with the cold ones retained as first-entry evidence.
 - F130's +121% is explained rather than outstanding; F133 is opened for the
   steady-state regression the restatement exposed.
+
+**What it exposed, and what came of it — 2026-09-15.** The restatement paid for
+itself the same day. `float_mul`'s +24% was invisible under the cold fixture,
+because a straight-line stream never becomes a body and never compiles; warm, it
+was a body the tier could not help being compiled anyway. §S7 gained a fifth
+rule — refuse a body with no inlinable site and nothing to promote, and demote
+it so the refusal is not re-decided — and the row now reads −0.26% to −3.11%,
+with `--stats` confirming 0 bodies compiled where it had been 2. F133 is
+RESOLVED. This is the point of the decision: restating what a benchmark measures
+found a real defect, rather than retiring a number that was inconvenient.
 - `timed_eval` is unchanged and still serves `dispatch`, `lambda` and `corpus`:
   this decision restates one group, not four.
 
