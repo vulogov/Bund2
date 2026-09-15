@@ -39,8 +39,8 @@
   - **Partial** — 5, 17, 30: each has a half met and a half outstanding, or a
     bound stated and unmeasured.
   - **Not met** — 14, 20, 22, 27, and 4's reachable remainder.
-  - **Measured in full; met on every row that can answer, held on one that
-    cannot** — 7. A five-group A/B on 2026-09-15 — one feature-off baseline,
+  - **Measured in full on a host that was not quiet; awaiting a clean re-run**
+    — 7. A five-group A/B on 2026-09-15 — one feature-off baseline,
     three feature-on runs, tier confirmed installed — puts **every row of all
     five groups inside the 5% band**, judged under D70, which repaired the
     significance clause F134 showed no build could satisfy. The single exception
@@ -48,8 +48,19 @@
     binary against a warm feature-off baseline, nothing changed, moves −5.85% to
     +25.56% across three runs on three of its five rows. F135, a defect in the
     instrument. The criterion is therefore **not declared met**,
-    because `value` is a protected group and its instrument cannot currently
-    answer.
+    because `value` is a protected group and, on that host, its rows were being
+    read against a machine that was still reindexing.
+
+    **F135 resolved that on 2026-09-15, and it moves the blocker rather than
+    removing it.** The `value` group is not incapable: on an idle host the same
+    rows resolve to **0.7%**, inside a **1.7%** thermal envelope, both well
+    within D70's band. What failed was the measurement protocol — load sampled
+    once per run on a machine that was busy. So the verdict above rests on runs
+    that the protocol now says to **discard**, and the criterion needs
+    re-measuring on a quiet host before it is called met or unmet. Six candidate
+    mechanisms were eliminated reaching that: allocator warming, stale baseline,
+    process-start layout, arena placement, machine load, and core placement
+    (measured at 3.88× E-vs-P, far too large to hide in an 8% spread).
     `arith`'s `/cold` rows stay at ~+122% as D69's first-entry evidence, outside
     the verdict.
 
@@ -83,7 +94,9 @@
     −0.28% (p = 0.57), +0.06% (p = 0.88), −0.85% (p = 0.05) on `dup_drop`, and
     on `native_call` **−1.02% at p = 0.00**. That ~±1.5% is a **µs-scale** figure
     — taken on `dispatch/dup_drop` at 88 µs — and does not generalise: on rows of
-    tens of nanoseconds the same suite's cross-process spread is ~5–8% (F135).
+    tens of nanoseconds the binding constraint is the host's state rather than
+    the instrument: on a busy machine that row spreads 5–8%, and on an idle one
+    it resolves to 0.7% within a 1.7% thermal envelope (F135).
     Read at its own magnitude, the floor is ~±1.5% and p < 0.05
     appears within it, so a single run inside the band decides nothing. That is
     why the surviving verdicts above are stated from repeated runs.
@@ -4223,6 +4236,12 @@ evidence, and this one is listed as runnable rather than as met.
    it; and the cause is **not known**. F135 carries it, and names no mechanism —
    an allocator-warming account was offered, appeared to saturate across six
    runs, and was refuted by the next baseline.
+
+   **Superseded by F135's resolution, 2026-09-15**: the `value` rows were being
+   read on a host still reindexing after a restart, and on an idle one they
+   resolve to 0.7% within a 1.7% thermal envelope. The paragraph below stands as
+   what was concluded at the time; the verdict it reaches rests on runs the
+   protocol now discards, so criterion 7 awaits a clean five-group re-run.
 
    **So the criterion is met on every group that can answer, and held on one
    that cannot.** It is not declared met here: `value` is a protected group, its

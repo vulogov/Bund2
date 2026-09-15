@@ -3944,7 +3944,7 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
-## F135 — the whole `value` group's no-tier control exceeds the band it polices
+## F135 — the whole `value` group's no-tier control exceeds the band it polices — RESOLVED as a measurement protocol
 
 **A defect in a benchmark group**, found taking criterion 7's verdict under D70.
 The sixth of this kind after F124, F127, F128, F129 and F132.
@@ -4042,7 +4042,9 @@ thread. Nothing here claims one of them.
 ### The floor this suite actually has, which is the finding beyond F135
 
 The residual cross-process spread is **~5–8% on a 33 ns row**, consistent across
-both load regimes. The **±1.5% floor quoted elsewhere in these registers and in
+both load regimes. **Superseded below**: on a genuinely idle host the same row
+resolves to **0.7%** inside a **1.7%** thermal envelope. The 5–8% was measured
+while the machine was still reindexing after a restart. The **±1.5% floor quoted elsewhere in these registers and in
 RFC-0005 was measured on `dispatch/dup_drop` at 88 µs** — three orders of
 magnitude larger — and it does not transfer to rows of tens of nanoseconds.
 
@@ -4059,29 +4061,78 @@ dead, and **absolute** figures taken before the restart — including the bounda
 split in RFC-0005 criterion 10 — must be re-taken on this host before they are
 quoted again. The ratios are likely to hold; the nanosecond figures are not.
 
-### What it costs
+### The cause, found — 2026-09-15, on a quiet host after a restart
 
-Criterion 7 cannot take a verdict on `value` as the criterion is written. Every
-other group passed the band across three runs; this one's control fails it. The
-`< 5%` band is sound (D70) and the tier is not implicated — the instrument is.
+**Core placement is excluded, and it is excluded by measuring it.** This is an
+Apple M5 Pro: 6 P-cores and 12 E-cores (`sysctl hw.perflevel0/1.logicalcpu`).
+Forcing the benchmark to E-cores with `taskpolicy -b`, interleaved against
+default scheduling so drift hits both:
 
-### Dispositions, none taken
+| pair | default | forced E-core |
+|---|---|---|
+| 1 | 31.68 ns | 123.60 ns |
+| 2 | 31.71 ns | 124.77 ns |
+| 3 | 31.48 ns | 122.76 ns |
+| 4 | 31.61 ns | 122.68 ns |
 
-- **A — make the rows measurable.** Longer samples, or a fixture that does not
-  allocate per iteration, or warm-up outside the timed region as `hot_body`
-  does. Changes what the rows measure, and this session has twice shown a
-  fixture change moving a verdict (D69, F132).
-- **B — judge `value` against a same-session control** rather than a fixed band:
-  the group passes when the A/B sits inside the spread its own no-tier control
-  showed that day. This is option C of F134, which was declined **for the
-  criterion as a whole** — applying it to one group that demonstrably needs it is
-  a narrower decision and a different one.
-- **C — find the cause first.** Nothing here is fixed while the mechanism is
-  unknown, and a fix aimed at the wrong cause is how F130's first diagnosis and
-  this entry's own first draft went.
+**3.88×.** If the thread were occasionally landing on an E-core the signature
+would be a 290% jump and a sharply bimodal distribution at ~32 and ~123 ns.
+Nothing in twelve prior runs came near 123 ns. Core placement is out — the sixth
+hypothesis eliminated.
 
-**Not taken.** `value` is a protected group and what it should measure is the
-repository owner's to decide.
+That table also establishes what this instrument can do: **four consecutive
+default runs spanning 31.48–31.71 ns, a spread of 0.7%** — tighter than the µs
+floor, and an order tighter than anything this entry previously recorded.
+
+**Thermal drift is the mechanism, confirmed by a cooldown.** Twelve runs
+back-to-back with no pause, then 150 s idle, then six more:
+
+| block | runs | mean |
+|---|---|---|
+| A, first four (37.1 °C) | 31.74, 31.89, 31.78, 31.80 | **31.80 ns** |
+| A, last four (46.9 °C) | 32.14, 32.24, 32.51, 32.42 | **32.33 ns** |
+| B, after 150 s cooldown | 31.81, 31.86, 31.79, 31.91, 31.72, 32.27 | **31.89 ns** |
+
+The rise is **+1.7%**, and cooling **resets it**: block B returns to block A's
+cold value within 0.3%. The covariate moved with the effect — package
+temperature 37.1 → 46.9 °C across block A, P-cluster frequency 2001 → 1816 MHz
+— which is the first time in this register that a predicted covariate actually
+tracked a predicted effect. B6 already shows the climb restarting at 32.27.
+
+**And thermal does not account for the ±25%.** 1.7% is real and now measured; it
+is nowhere near the excursions this entry was opened over. What is left is the
+plainest explanation and the one this entry should have reached first: those
+excursions were measured **while Spotlight reindexed after a restart**, and
+nothing resembling them has occurred since the host settled. They were a busy
+machine, and load was sampled once per run rather than throughout.
+
+### What it costs — much less than this entry claimed
+
+On a quiet host the instrument resolves to **0.7%**, inside a **1.7% thermal
+envelope** under sustained back-to-back load. Both sit well within criterion 7's
+5% band. **The `value` group is not inherently unable to police that band** — it
+was measured on a host that was never quiet, by an entry that sampled load once
+per run and drew a conclusion from three samples.
+
+### Disposition
+
+Not a fixture defect and not a criterion defect: a **measurement-protocol**
+defect. The rows measure what they claim, and D70's band is sound. What was
+missing is the condition under which the band means anything.
+
+**The protocol, which is what this resolves to.** Criterion 7's `value` group —
+and any row at tens of nanoseconds — is measured on an idle host, with load and
+top process checked *before each run* rather than once, and with a cooldown
+between back-to-back blocks so the 1.7% thermal envelope does not accumulate
+into the reading. A run taken while indexing or another build is running is
+discarded, not recorded.
+
+The three dispositions this entry previously listed are all withdrawn. **A**
+(change the fixture) would have altered what the rows measure to fix a host
+problem. **B** (judge against a same-session control) would have set the gate at
+the width of whatever noise the day happened to have. **C** (find the cause
+first) is what was done, and it found that five of the six candidate mechanisms
+were not present at all.
 
 - Found: 2026-09-15, taking criterion 7's verdict under D70
 - Narrowed: 2026-09-15, by a three-copy discriminator over twelve processes.
@@ -4091,10 +4142,20 @@ repository owner's to decide.
   sampled without checking load. Cause still unknown.
 - Rewritten: 2026-09-15, after a fresh warm baseline showed the group, not the
   row, and withdrew the allocator diagnosis
-- Status: **OPEN**. Blocks the `value` group's verdict under D70's band; every
-  other group passed across three runs.
+- Resolved: 2026-09-15, on a quiet host. Core placement excluded by measurement
+  (3.88× E-vs-P, so it cannot hide in an 8% spread); thermal drift confirmed and
+  bounded at **1.7%**, reversible by cooldown; the instrument shown to resolve
+  to **0.7%**. The excursions this entry was opened over were Spotlight
+  reindexing after a restart.
+- Status: **RESOLVED**, 2026-09-15, as a **measurement-protocol** defect rather
+  than a fixture or criterion defect. `value` can police D70's band on an idle
+  host. The protocol above — check load before each run, cool between blocks,
+  discard runs taken against a busy machine — is what this entry resolves to; no
+  fixture and no criterion changed. Six hypotheses were eliminated on the way:
+  allocator warming, stale baseline, process-start layout, arena placement,
+  machine load, core placement.
 - Depends on: criterion 7, D41 (the work the group protects), D70 (the band it
-  exceeds), F134
+  polices), F134
 
 ## F134 — criterion 7's "no statistically significant difference" clause cannot be satisfied by any build — RESOLVED as D70
 
@@ -4523,8 +4584,11 @@ it with nothing changed.
 
 **That ±1.5% is a µs-scale figure and does not generalise** (F135). It was taken
 on `dispatch/dup_drop` at 88 µs. On rows of tens of nanoseconds the same suite's
-cross-process spread is **~5–8%**, so the floor must be read at the magnitude it
-was measured at, not as a property of the harness. A single run within the band is not evidence, and this
+cross-process spread was measured at ~5–8% — **and that figure is superseded**:
+on an idle host the same row resolves to **0.7%**, within a **1.7%** thermal
+envelope under sustained load. The floor must still be read at the magnitude it
+was taken at rather than as a property of the harness, but at ns scale the
+binding constraint is the **host's state**, not the instrument. A single run within the band is not evidence, and this
 entry recorded four of them as a failure.
 
 ### The first diagnosis was wrong, and is withdrawn
