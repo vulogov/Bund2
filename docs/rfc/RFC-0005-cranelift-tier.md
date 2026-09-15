@@ -31,7 +31,11 @@
   - **Met** — 1, 2, 3, 6, 8, 11, 12, 15, 16, 19, 21, 23, 24, 25, 26, 28, 29.
   - **Measured** — 9 (the sync's crossover is 4 words), 10 (1.06× on the
     shipped lowering, **below the 1.2× stop rule**, which is why the gate stays
-    open).
+    open). That figure is **per program**; per *entry* the same lowering reads
+    1.32× on a two-value body and 2.40× on a sixty-four-value one (`hot_body`,
+    2026-09-15), the gain being diluted at program scale by everything an
+    iteration does besides the body. The stop rule is stated on the program
+    figure and stays unmet.
   - **Partial** — 5, 17, 30: each has a half met and a half outstanding, or a
     bound stated and unmeasured.
   - **Not met** — 14, 20, 22, 27, and 4's reachable remainder.
@@ -4515,6 +4519,45 @@ evidence, and this one is listed as runnable rather than as met.
     1 — rather than over the two hand-written kernels above — can be run. That
     is the honest form of this criterion's measurement, and the gap is now
     "not yet measured" rather than "cannot be measured".
+
+    **Reconciled against the per-entry figure, 2026-09-15.** A benchmark written
+    for F132 read the tier **slower** per entry — 0.93× on this criterion's own
+    shape, worsening to 0.70× on a 64-value body — which cannot sit beside
+    1.06× without one of them being wrong. It was: that benchmark rebuilt the
+    `Interp` in `iter_batched`'s setup, so every timed entry met cold caches and
+    a `JITModule` emitted microseconds earlier, on a pedestal ~147× the
+    difference being measured. F132 is withdrawn, and `hot_body` measures the
+    same bodies on one warmed interpreter — this criterion's own shape:
+
+    | body | Tier 0 | with the tier | |
+    |---|---|---|---|
+    | `1 drop` (2 values) | 66.87 ns | 50.81 ns | **1.32×** |
+    | ×4 (8 values) | 183.97 ns | 89.22 ns | **2.06×** |
+    | ×32 (64 values) | 1.2014 µs | 501.3 ns | **2.40×** |
+
+    Three feature-on runs each against one feature-off baseline, all p = 0.00,
+    `compiled bodies` reported 1 and 0 respectively.
+
+    **The two figures measure different denominators and are consistent.** This
+    criterion's 1.06× is **per program**: a registered word called 10⁶ times in
+    a `for` loop, ~310 ns per iteration, of which the body is one part beside
+    the loop's own machinery, the frame push and the call. `hot_body` is **per
+    entry**, the body alone. A gain confined to the body is diluted at program
+    scale, which is what separates 2.40× from 1.06× without either being wrong.
+
+    **It sharpens the diagnosis above rather than replacing it.** Fitting the
+    three rows gives about **11 ns saved per value** against roughly **7 ns of
+    fixed entry cost**, so the boundary is a constant the body amortises: it
+    dominates a four-value body, which is why this criterion's own shape reads
+    barely over 1×, and it is nearly irrelevant at 64 values. "A future attempt
+    at the 1.2× floor has to attack that, not the operands" is confirmed and now
+    has a number on it.
+
+    **The stop rule is untouched.** This criterion is stated on the tier as
+    shipped, measured under the CLI's default reporter on a program, and that
+    number is 1.06×. Nothing above raises it; the per-entry table explains where
+    the gain goes, and a criterion whose failure can be explained away by
+    changing its denominator would not be worth having.
 
 11. **A promoted recursion does not overflow the machine stack.** §S8's
     correctness problem, and the criterion is one that already exists:

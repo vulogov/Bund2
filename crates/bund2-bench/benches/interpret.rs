@@ -421,6 +421,141 @@ fn compile(c: &mut Criterion) {
     g.finish();
 }
 
+/// **Cold entry, and the reason F132 was withdrawn.**
+///
+/// This group was written to find a crossover: the body size beneath which
+/// compiling does not repay. It found none — compiled lost at every size, worse
+/// with length, up to +41% at 64 values — and that reading was **an artifact of
+/// this group's own shape**, which is why the group is kept rather than deleted.
+///
+/// `interp` is `iter_batched`'s setup, and it builds a whole `Runtime`:
+/// `register_all`, a fresh `Interp`, and with the feature a fresh `JITModule`.
+/// Setup is untimed but its effects are not, so every timed entry runs against
+/// cold caches and, on the tier side, compiled code emitted microseconds earlier
+/// that no instruction cache has seen. One entry of the two-value body reads
+/// ~9.7 µs here and ~66.9 ns in `hot_body` — a pedestal **147×** the difference
+/// being measured.
+///
+/// So what this measures is **the first entry into a cold interpreter**, which
+/// is a real cost for a short-lived process and is not what F132 claimed. For
+/// the steady state — criterion 10's shape, and the tier's actual behaviour —
+/// see `hot_body`, where the same bodies read 1.32× to 2.40× *faster* compiled
+/// and the slope runs the other way.
+///
+/// Each size builds a body of `1 drop` pairs, so the value count is exact and
+/// the body is stack-balanced. `interpreted/vN` is warmed to one entry below the
+/// threshold; `compiled/vN` past it.
+fn size_crossover(c: &mut Criterion) {
+    let t = bund2_runtime_threshold();
+    if t < 3 {
+        eprintln!("bench: threshold {t} is too low to warm an interpreted arm; skipping");
+        return;
+    }
+
+    let mut g = c.benchmark_group("size_crossover");
+
+    for pairs in [1usize, 2, 4, 8, 16, 32] {
+        // `1 drop` is two values, so the body holds exactly `pairs * 2`.
+        let values = pairs * 2;
+        let setup = compiled(&format!(":w {{ {}}} register", "1 drop ".repeat(pairs)));
+        let call = compiled("w");
+
+        let warmed = |entries: u32| {
+            let mut i = interp();
+            if i.eval(&setup).is_err() {
+                eprintln!("bench: size_crossover setup failed at v{values}; measuring nothing");
+            }
+            for _ in 0..entries {
+                let _ = i.eval(&call);
+            }
+            i
+        };
+
+        // Say whether the compiled arm actually compiled, per size. A silent
+        // failure here would report the two arms as equal and read as a
+        // crossover of 1 — F129's shape.
+        let hot = warmed(t + 8);
+        eprintln!("bench: v{values} compiled bodies {}", compiled_bodies(&hot));
+
+        g.bench_function(format!("interpreted/v{values}"), |b| {
+            b.iter_batched(
+                || warmed(t - 2),
+                |mut i| black_box(i.eval(black_box(&call))).is_ok(),
+                BatchSize::SmallInput,
+            );
+        });
+        g.bench_function(format!("compiled/v{values}"), |b| {
+            b.iter_batched(
+                || warmed(t + 8),
+                |mut i| black_box(i.eval(black_box(&call))).is_ok(),
+                BatchSize::SmallInput,
+            );
+        });
+    }
+
+    g.finish();
+}
+
+/// **The same question with a long-lived `Interp`** — the control that
+/// reconciles F132 with criterion 10.
+///
+/// `compile` and `size_crossover` rebuild the `Interp` in `iter_batched`'s
+/// setup, so every timed iteration enters a **freshly built `JITModule`** whose
+/// code no instruction cache has seen, while Tier 0's interpreter loop is the
+/// same hot code on every iteration. Criterion 10 measures the opposite: one
+/// process, one registered word called 10⁶ times in a `for` loop, where
+/// compiled code is hot — and it reads a speedup where those two read a loss.
+/// They disagree in sign, so at most one of them is a property of the tier.
+///
+/// Here one `Interp` is warmed past the threshold once and then entered
+/// repeatedly, which is criterion 10's shape. With the feature off the same
+/// fixture interprets, so criterion 7's A/B — `--save-baseline off` then
+/// `--baseline off` — reads compiled against interpreted at each body size.
+fn hot_body(c: &mut Criterion) {
+    let t = bund2_runtime_threshold();
+    let mut g = c.benchmark_group("hot_body");
+
+    for pairs in [1usize, 4, 32] {
+        let values = pairs * 2;
+        let setup = compiled(&format!(":w {{ {}}} register", "1 drop ".repeat(pairs)));
+        let call = compiled("w");
+
+        // **Said once, here, and not inside the routine.** Criterion invokes the
+        // routine closure many times over warm-up and measurement, so an
+        // `eprintln!` in there prints thousands of lines and buries the numbers
+        // it was added to qualify.
+        {
+            let mut probe = interp();
+            if probe.eval(&setup).is_err() {
+                eprintln!("bench: hot_body setup failed at v{values}; measuring nothing");
+            }
+            for _ in 0..(t + 8) {
+                let _ = probe.eval(&call);
+            }
+            eprintln!(
+                "bench: hot_body v{values} compiled bodies {}",
+                compiled_bodies(&probe)
+            );
+        }
+
+        g.bench_function(format!("v{values}"), |b| {
+            let mut i = interp();
+            if i.eval(&setup).is_err() {
+                eprintln!("bench: hot_body setup failed at v{values}; measuring nothing");
+            }
+            // Warmed once, outside the timed region, so every entry below finds
+            // compiled code and none pays for compilation.
+            for _ in 0..(t + 8) {
+                let _ = i.eval(&call);
+            }
+            debug_assert_eq!(i.depth(), 0, "the body must be stack-balanced");
+            b.iter(|| black_box(i.eval(black_box(&call))).is_ok());
+        });
+    }
+
+    g.finish();
+}
+
 /// How many bodies this interpreter's tier has compiled; 0 where there is no
 /// tier, which is what the feature-off half of the A/B sees.
 #[cfg(feature = "jit")]
@@ -587,6 +722,8 @@ criterion_group!(
     arith,
     entry,
     compile,
+    size_crossover,
+    hot_body,
     lambda,
     corpus,
     rendering

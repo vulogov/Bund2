@@ -3944,35 +3944,80 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
-## F132 — entering a compiled body costs more than interpreting it, when the body is small
+## F132 — WITHDRAWN: the benchmark rebuilt the interpreter, so every timed entry ran cold
 
-**A Bund2 defect**, found while measuring F130's compile time.
+**Not a Bund2 defect. A defect in the benchmark that found it**, and the fifth
+of that kind after F124, F127, F128 and F129.
 
-The `compile` group's third arm enters a body that is already compiled; its
-second enters the same body interpreted, one entry earlier. On `1 2 + drop`
-the compiled arm is **consistently dearer** across four runs — 10.56, 10.31,
-9.89, 9.96 µs against 9.85, 9.83, 9.56, 9.24 µs — about **+4%**, positive every
-time and outside the ±1.5% floor the same suite shows on a null comparison.
+### What was claimed
 
-**This is why the `entry` group read zero.** Its fixture is
-`1000 { 1 + } times drop`, a thousand-iteration loop per entry, so one entry's
-overhead is amortised across the loop and disappears. A three-value body has
-nothing to amortise it against. Both readings are correct and they measure
-different things: entering compiled code is free *per unit of work inside the
-body*, and it is not free *per entry*.
+That entering a compiled body costs **more** than interpreting it on a small
+body: `compile`'s third arm against its second on `1 2 + drop`, +4% across four
+runs, positive every time. A size sweep then appeared to make it worse with
+length — `size_crossover` read +1.4% at 2 values rising to **+41%** at 64, and
+`--stats` confirmed the lowering was working on exactly those bodies (32 inlined
+sites, 32 promoted values at v64). On that reading the tier lost at every size
+and lost hardest where it did most work, which would have put criterion 10 and
+§S1's gate in question.
 
-Not a correctness defect: §S7's threshold exists precisely so that only bodies
-entered often enough to repay the tier are compiled. What this says is that the
-threshold's **repayment model is about work per entry, not entries**, and §S7
-counts only entries. A word entered ten thousand times whose body is three
-values is compiled and loses ~4% every time.
+### Why it was wrong
+
+Both groups pass `interp` to `iter_batched` as its **setup**, and `interp()`
+builds a whole `bund2_runtime::Runtime` — `register_all`, a fresh `Interp`, and
+with the feature a fresh `JITModule`. Setup is not timed, but its *effects* are:
+every timed entry then ran against cold data caches and, on the tier side,
+compiled code no instruction cache had seen, freshly emitted microseconds
+earlier. Tier 0's interpreter loop is the same hot code on every iteration and
+pays none of that.
+
+The absolute numbers say it plainly. One entry of the same two-value body reads
+**9.7 µs** under `size_crossover` and **66.9 ns** under `hot_body`, which warms
+one `Interp` and keeps it — a factor of **147**. The measurement was dominated
+by a pedestal 147× the size of the thing being compared.
+
+### What is true instead
+
+`hot_body` is criterion 10's shape: one `Interp`, warmed past the threshold
+once, then entered repeatedly. Feature-off baseline against three feature-on
+runs, `compiled bodies` reported as 0 and 1 respectively:
+
+| body | Tier 0 | with the tier | three runs | |
+|---|---|---|---|---|
+| `1 drop` (2 values) | 66.87 ns | 50.81 ns | −24.6%, −25.5%, −24.6% | **1.32×** |
+| ×4 (8 values) | 183.97 ns | 89.22 ns | −51.9%, −52.1%, −50.6% | **2.06×** |
+| ×32 (64 values) | 1.2014 µs | 501.3 ns | −58.3%, −58.3%, −57.9% | **2.40×** |
+
+All p = 0.00. **The slope reverses**: cold, the loss grew with body length;
+hot, the gain does — 18.8 ns per value interpreted against 7.8 ns compiled at
+64 values. That is the tier doing what it was built to do, and it agrees in
+direction with criterion 10 rather than contradicting it.
+
+### What this does not excuse
+
+The claim survived four runs of `compile` and three of `size_crossover`, all
+consistent, all p = 0.00. **Repetition did not catch it**, because a systematic
+harness fault reproduces perfectly — this session had just finished using
+repetition to withdraw `dispatch`'s failure, and that success did not transfer.
+What caught it was a figure that made no sense against a known one: 0.93× per
+entry against criterion 10's 1.06× per program, two measurements of the same
+tier disagreeing in sign. Reconciling those, rather than trusting the newer one,
+is what found the pedestal.
+
+**F130's ~128 µs compile time is not withdrawn but is qualified.** It is a
+difference between two arms with the same cold setup, so the pedestal largely
+cancels, and the no-tier control (all three arms at 9.2–9.8 µs) still shows the
+gap appears only when a compilation happens. Its *magnitude* may be inflated by
+the same cold-start effect and should be re-taken on a warm interpreter before
+anything is built on the exact number.
 
 - Found: 2026-09-15, in the `compile` group written for F130
-- Status: **OPEN**. No disposition: weighing the threshold by body size was one
-  of the options F130 listed and then withdrew when its premise was falsified,
-  and it should not be revived without the owner's decision. §S7 is the
-  register entry that would move.
-- Depends on: §S7 (the threshold), F130
+- Withdrawn: 2026-09-15, by `hot_body` and the reconciliation against
+  criterion 10
+- Status: **RESOLVED — withdrawn.** No rule was added to §S7 and none is
+  needed. A minimum-body-size rule was the fix under consideration, and on the
+  real numbers it would have been precisely backwards: it would have refused
+  compilation to the bodies that gain **2.40×**.
+- Depends on: §S7 (the threshold), F130, criterion 10
 
 ## F131 — an installed tier that compiles nothing still costs ~18% — RESOLVED
 
