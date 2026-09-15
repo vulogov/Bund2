@@ -3944,7 +3944,53 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
-## F134 — criterion 7's "no statistically significant difference" clause cannot be satisfied by any build
+## F135 — `value/promote/scalar` drifts further with no tier than with one
+
+**A defect in a benchmark**, found taking criterion 7's verdict under D70. The
+sixth of this kind after F124, F127, F128, F129 and F132.
+
+The row sits in `value`, a group criterion 7 protects because the tier must not
+disturb work beneath it, and it has been the outlier twice: **−5.5%** in the
+2026-09-14 drift floor with no tier on either side, and **−5.58%** in
+2026-09-15's run 3 after +1.51% and +2.26%.
+
+**The control settles it.** The feature-**off** binary against its own `c7`
+baseline — nothing changed, no tier in either half:
+
+| | three runs |
+|---|---|
+| no tier vs no tier (control) | **−4.69%, −9.46%, −8.85%**, all p = 0.00 |
+| tier vs no tier (the A/B) | −3.92%, −3.94%, +0.99% |
+
+**The control drifts further than the measurement.** A row whose own noise
+exceeds the 5% band it is meant to police cannot answer the question criterion 7
+asks of it.
+
+**It drifts in one direction, which is the tell.** Across the session the same
+benchmark reads 42.23 ns (baseline), then 40.00, 38.37, 38.65 — monotonically
+downward, not scattered. That is a benchmark warming up, or a machine state it
+is sensitive to, rather than run-to-run noise around a true value. Whatever the
+mechanism, it is present with **no tier compiled**, so it is not the tier's.
+
+**What this does not say.** `value/promote/scalar` measures something real —
+D41's promotion path — and the other four `value` rows are steady across the
+same runs (`clone/scalar` moved +0.90%, +1.69%, +0.82%). The defect is in this
+row's stability, not in the group.
+
+**Why it is filed rather than fixed.** Making the row stable means changing what
+it measures — a longer sample, a different fixture, or a warm-up outside the
+timed region as `hot_body` does — and this session has already shown that
+changing a fixture can change a verdict (D69, F132). The row currently blocks a
+verdict on criterion 7's `value` group, so what it should measure is worth
+deciding rather than adjusting quietly.
+
+- Found: 2026-09-15, taking criterion 7's verdict under D70
+- Status: **OPEN**. Blocks the `value` group's verdict under D70's band; every
+  other row in every group passed across three runs.
+- Depends on: criterion 7, D41 (the promotion path it times), D70 (the band it
+  exceeds), F134
+
+## F134 — criterion 7's "no statistically significant difference" clause cannot be satisfied by any build — RESOLVED as D70
 
 **A defect in an acceptance criterion's wording**, not in Bund2. Found by
 running criterion 7 in full on 2026-09-15 and having no defensible way to
@@ -4029,10 +4075,26 @@ is the move this RFC warns about in terms — "a criterion whose failure can be
 explained away by changing its denominator would not be worth having" — so the
 choice is the repository owner's, and the criterion stays unresolved until then.
 
+### Resolved, 2026-09-15 — option B, as D70
+
+The repository owner chose **B**: a change beyond 5% fails only if Criterion
+also reports it significant. Significance now filters movements that already
+exceed the band instead of firing on movements far inside it, and the band
+governs in **either direction** for `startup` and `value`, since a protected row
+moving 5% *faster* with the tier on is as much a sign of disturbance as one
+moving slower. Criterion 7's table states this once; D70 carries the reasoning
+and why A and C were declined.
+
+**It made a verdict possible, and one row still blocks it** — but not for this
+entry's reason. Under D70 every row of all five groups is inside the band across
+three runs **except** `value/promote/scalar`, whose own no-tier control drifts
+−4.69% to −9.46%. That is F135, a defect in the benchmark rather than in the
+criterion or the tier.
+
 - Found: 2026-09-15, running criterion 7 in full for the first time since F131,
   D69 and F133
-- Status: **OPEN**. Blocks a verdict on criterion 7's `startup` and `value`
-  groups; the `< 5%` band is unaffected and those groups pass it.
+- Status: **RESOLVED as D70**, 2026-09-15. The `< 5%` band was always sound and
+  is unchanged; only the significance clause's role moved.
 - Depends on: RFC-0005 criterion 7, §S1 (the run-to-run spread the band rests
   on), F132 (the same suite's floor, measured)
 

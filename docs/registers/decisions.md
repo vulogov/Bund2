@@ -3476,6 +3476,56 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D70 — criterion 7's significance test filters false alarms; it does not generate them
+
+**Decided by the repository owner, 2026-09-15**, resolving F134. Option B of the
+three that entry set out.
+
+- Blocks: nothing; it repairs a clause in one acceptance criterion
+
+### The clause it replaces
+
+Criterion 7 asked its two protected groups for "no statistically significant
+difference" **and** a point estimate under 5%. The second half is a band with a
+stated basis. The first half **cannot be satisfied by any build**: Criterion's
+test asks whether a difference is distinguishable from zero given the observed
+variance, not whether it is large, and two builds differ systematically in
+binary layout, code placement and allocator state. Measured: a feature-off
+binary against its own baseline, nothing changed, reports **−1.02% at p = 0.00**.
+
+### The decision
+
+**A change beyond 5% fails only if Criterion also reports it significant.**
+Significance becomes a filter on movements that already exceed the band, which
+is the role it can play, instead of a second gate that fires on movements far
+inside it.
+
+The band is unchanged and still governs, in **either direction** for `startup`
+and `value`: those groups exist because the tier must not disturb work beneath
+it, and a protected row moving 5% *faster* with the tier on is as much a sign of
+disturbance as one moving slower.
+
+### Why not the alternatives
+
+**Dropping the significance clause entirely** (option A) would leave a bare
+band, so a single sample landing at 4.9% would pass and one at 5.1% would fail,
+with nothing to say whether either was noise. The filter costs little and
+catches exactly that.
+
+**Comparing against the day's own drift floor** (option C) is stricter and more
+faithful to the machine, and it was declined for what it does to the record: it
+makes "criterion 7 met" a statement about one afternoon's noise. This RFC
+already carries enough figures whose meaning depends on which machine produced
+them — §S1's ceiling crosses the 2× rule on one machine and not another — and a
+gate that moves with the weather is harder to quote than one that does not.
+
+### Consequences
+
+- Criterion 7's table states the band once, in both directions, with
+  significance as a filter above it.
+- A verdict on the criterion becomes possible; F134 is resolved.
+- Nothing about the 5% number changes, so §S1's basis for it still stands.
+
 ## D69 — criterion 7's `arith` measures a warm session, and keeps its cold rows beside it
 
 **Decided by the repository owner, 2026-09-15.**

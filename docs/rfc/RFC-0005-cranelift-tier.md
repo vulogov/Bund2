@@ -39,13 +39,17 @@
   - **Partial** — 5, 17, 30: each has a half met and a half outstanding, or a
     bound stated and unmeasured.
   - **Not met** — 14, 20, 22, 27, and 4's reachable remainder.
-  - **Not yet re-measured as a whole; its one failing row is fixed** — 7. On
-    2026-09-15 `arith`'s warm rows came inside the band after F133, so no row
-    measured that day fails. **The criterion is not declared met**: `startup`,
-    `value`, `dispatch` and `corpus` were last measured on 2026-09-14, before
-    F131's fix, D69's restatement and F133's rule, and a verdict resting on four
-    stale groups would repeat the single-run mistake this RFC spent a day
-    withdrawing. A full five-group A/B is what would settle it.
+  - **Measured in full; met on every row that can answer, held on one that
+    cannot** — 7. A five-group A/B on 2026-09-15 — one feature-off baseline,
+    three feature-on runs, tier confirmed installed — puts **every row of all
+    five groups inside the 5% band**, judged under D70, which repaired the
+    significance clause F134 showed no build could satisfy. The single exception
+    is `value/promote/scalar`, and it fails its **own no-tier control** by more
+    than it moves with the tier (−4.69% to −9.46% with nothing changed): F135, a
+    defect in that benchmark. The criterion is therefore **not declared met**,
+    because `value` is a protected group and its row cannot currently answer.
+    `arith`'s `/cold` rows stay at ~+122% as D69's first-entry evidence, outside
+    the verdict.
 
     The history, since the reason changed twice — 7 failed on **one** group,
     `arith`, and the reason changed on 2026-09-15 when D69 restated what that
@@ -4079,9 +4083,17 @@ evidence, and this one is listed as runnable rather than as met.
 
    | group | requirement |
    |---|---|
-   | `startup` | **no change**: Criterion reports no statistically significant difference, and the point estimate moves by **< 5%** — the significance half is **F134**, and cannot be satisfied by any build |
-   | `value` | no change, same tolerance — D41's work is below the tier and the tier must not disturb it |
-   | `dispatch`, `arith`, `corpus` — the `bund2-bench` group, not `cargo xtask corpus` | free to improve; a **regression beyond 5%** on any of them fails |
+   | `startup` | **no change**: the point estimate moves by **< 5%**, in either direction. A move beyond 5% fails **only if Criterion also reports it significant** — D70, resolving F134 |
+   | `value` | no change, same tolerance and the same filter — D41's work is below the tier and the tier must not disturb it |
+   | `dispatch`, `arith`, `corpus` — the `bund2-bench` group, not `cargo xtask corpus` | free to improve; a **regression beyond 5%** that is **also significant** fails. `arith`'s `/cold` rows are first-entry evidence, not verdict rows (D69) |
+
+   **The significance test filters, it does not generate** (D70). It was
+   previously asked as a second requirement — "no statistically significant
+   difference" *and* under 5% — which no build could satisfy: Criterion's test
+   asks whether a difference is distinguishable from zero, not whether it is
+   large, and two builds differ systematically in layout and allocator state. A
+   feature-**off** binary compared against its own baseline reports −1.02% at
+   p = 0.00. F134 carries the measurement and the reasoning.
 
    The 5% band is not arbitrary. Run-to-run spread on one machine is already a
    few percent — `fragment/int_add/tier0` read 57.9 and 59.2 ns in two runs on
@@ -4179,15 +4191,32 @@ evidence, and this one is listed as runnable rather than as met.
    tier on either side*. Twice, same row, same magnitude: a property of that
    benchmark rather than of the tier, though that is not yet proven.
 
-   **Why the criterion is still not declared met: F134.** Its `startup` and
-   `value` rows ask for "no statistically significant difference" *and* < 5%.
-   The band passes everywhere. The significance clause **cannot be satisfied by
-   any build** — the feature-off control, one binary against its own baseline
-   with nothing changed, reports −1.02% at p = 0.00 — so reading it literally
-   fails every build forever, and reading it loosely makes the reading the
-   reader's rather than this document's. Choosing between those is a decision
-   about what the criterion means, and it is the repository owner's; F134 lists
-   the dispositions and takes none.
+   **The verdict under D70: every row passes but one, and that one is a broken
+   benchmark.** F134's significance clause was repaired on 2026-09-15 — a change
+   beyond 5% fails only if Criterion also reports it significant — which made a
+   verdict possible. Applying it to the three runs above: **every row of all five
+   groups is inside the band**, in both directions, except
+   `value/promote/scalar` at −5.58% in run 3.
+
+   That row does not survive its own control. Feature-**off** against its own
+   baseline, no tier in either half, nothing changed:
+
+   | | three runs |
+   |---|---|
+   | no tier vs no tier | **−4.69%, −9.46%, −8.85%** (all p = 0.00) |
+   | tier vs no tier | −3.92%, −3.94%, +0.99% |
+
+   **The control drifts further than the measurement**, and in one direction:
+   42.23 ns in the baseline, then 40.00, 38.37, 38.65. A row whose own noise
+   exceeds the band it polices cannot answer this criterion's question, and
+   whatever produces the drift is present with no compiled code at all. F135
+   carries it.
+
+   **So the criterion is met on every row that can answer, and held on one that
+   cannot.** It is not declared met here: `value` is a protected group, F135 is
+   its row, and deciding what that benchmark should measure is worth doing
+   deliberately rather than by adjusting a fixture until the verdict lands —
+   which is the same discipline D69 applied to `arith`.
 
    **An earlier attempt the same day reported quite different numbers and was
    discarded.** It read `startup` +7.3%/+12.2%, `value` +8.8% to +37.6% and
