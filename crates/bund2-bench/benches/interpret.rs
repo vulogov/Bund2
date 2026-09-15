@@ -335,6 +335,107 @@ fn entry(c: &mut Criterion) {
     g.finish();
 }
 
+/// **Compilation, priced on its own** — F130's one remaining suspect.
+///
+/// The `entry` group shows that entering an already-compiled body costs nothing
+/// measurable, while `arith/times_body` regresses ~+121% and recompiles once
+/// per Criterion iteration. What is left to price is the compilation, and it is
+/// priced here without a second harness: the warming runs in `iter_batched`'s
+/// **setup**, which is not timed, so the timed region is one `eval` either side
+/// of §S7's threshold.
+///
+/// - `crossing_entry` — the entry that reaches the threshold. It compiles.
+/// - `ordinary_entry` — the entry just before it. Same work, no compilation.
+/// - `compiled_entry` — the steady state, well past the threshold.
+///
+/// `crossing_entry − ordinary_entry` **is** the compilation, measured through
+/// the shipped path. The alternative — calling `Compiler::compile_word` from
+/// here — would mean a new dependency and rebuilding §S6's fragment table by
+/// hand, and F124, F127, F128 and F129 were every one of them a fixture that
+/// looked like the real path and was not.
+///
+/// The body is `1 2 + drop`: one frame per call and no inner loop, so entries
+/// equal calls and the threshold arithmetic below is exact.
+fn compile(c: &mut Criterion) {
+    let t = bund2_runtime_threshold();
+    // `t - 2` must exist. A threshold of 1 compiles on the first entry and
+    // leaves no "one before it" to compare against.
+    if t < 3 {
+        eprintln!("bench: threshold {t} is too low to isolate the crossing entry; skipping `compile`");
+        return;
+    }
+
+    let mut g = c.benchmark_group("compile");
+    let setup = compiled(":c { 1 2 + drop } register");
+    let call = compiled("c");
+
+    // An interpreter that has entered `c` exactly `entries` times.
+    let warmed = |entries: u32| {
+        let mut i = interp();
+        if i.eval(&setup).is_err() {
+            eprintln!("bench: compile setup failed; measuring nothing");
+        }
+        for _ in 0..entries {
+            let _ = i.eval(&call);
+        }
+        i
+    };
+
+    // **Pre-flight, printed rather than assumed.** Two arms that do the same
+    // thing report a difference of zero, which looks exactly like a result.
+    // This says whether the crossing entry compiles and the ordinary one does
+    // not — the whole premise of the subtraction.
+    let mut probe = warmed(t - 1);
+    let before = compiled_bodies(&probe);
+    let _ = probe.eval(&call);
+    let crossing = compiled_bodies(&probe);
+    let mut earlier = warmed(t - 2);
+    let _ = earlier.eval(&call);
+    let ordinary = compiled_bodies(&earlier);
+    eprintln!(
+        "bench: crossing entry {before} -> {crossing} bodies (want 0 -> 1), ordinary entry -> {ordinary} (want 0)"
+    );
+
+    g.bench_function("crossing_entry", |b| {
+        b.iter_batched(
+            || warmed(t - 1),
+            |mut i| black_box(i.eval(black_box(&call))).is_ok(),
+            BatchSize::SmallInput,
+        );
+    });
+    g.bench_function("ordinary_entry", |b| {
+        b.iter_batched(
+            || warmed(t - 2),
+            |mut i| black_box(i.eval(black_box(&call))).is_ok(),
+            BatchSize::SmallInput,
+        );
+    });
+    g.bench_function("compiled_entry", |b| {
+        b.iter_batched(
+            || warmed(t + 8),
+            |mut i| black_box(i.eval(black_box(&call))).is_ok(),
+            BatchSize::SmallInput,
+        );
+    });
+
+    g.finish();
+}
+
+/// How many bodies this interpreter's tier has compiled; 0 where there is no
+/// tier, which is what the feature-off half of the A/B sees.
+#[cfg(feature = "jit")]
+fn compiled_bodies(i: &Interp) -> usize {
+    i.tier
+        .as_ref()
+        .and_then(|t| bund2_api::Tier::compiled_bodies(t.as_ref()))
+        .unwrap_or(0)
+}
+
+#[cfg(not(feature = "jit"))]
+fn compiled_bodies(_: &Interp) -> usize {
+    0
+}
+
 /// §S7's default threshold, so the warm-up above outlasts it without this file
 /// hard-coding a number that lives in `bund2-jit`.
 ///
@@ -485,6 +586,7 @@ criterion_group!(
     dispatch_isolated,
     arith,
     entry,
+    compile,
     lambda,
     corpus,
     rendering

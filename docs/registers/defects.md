@@ -3944,7 +3944,68 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
-## F130 — a body compiled once per iteration costs +121%, and the cause is not known
+## F132 — entering a compiled body costs more than interpreting it, when the body is small
+
+**A Bund2 defect**, found while measuring F130's compile time.
+
+The `compile` group's third arm enters a body that is already compiled; its
+second enters the same body interpreted, one entry earlier. On `1 2 + drop`
+the compiled arm is **consistently dearer** across four runs — 10.56, 10.31,
+9.89, 9.96 µs against 9.85, 9.83, 9.56, 9.24 µs — about **+4%**, positive every
+time and outside the ±1.5% floor the same suite shows on a null comparison.
+
+**This is why the `entry` group read zero.** Its fixture is
+`1000 { 1 + } times drop`, a thousand-iteration loop per entry, so one entry's
+overhead is amortised across the loop and disappears. A three-value body has
+nothing to amortise it against. Both readings are correct and they measure
+different things: entering compiled code is free *per unit of work inside the
+body*, and it is not free *per entry*.
+
+Not a correctness defect: §S7's threshold exists precisely so that only bodies
+entered often enough to repay the tier are compiled. What this says is that the
+threshold's **repayment model is about work per entry, not entries**, and §S7
+counts only entries. A word entered ten thousand times whose body is three
+values is compiled and loses ~4% every time.
+
+- Found: 2026-09-15, in the `compile` group written for F130
+- Status: **OPEN**. No disposition: weighing the threshold by body size was one
+  of the options F130 listed and then withdrew when its premise was falsified,
+  and it should not be revived without the owner's decision. §S7 is the
+  register entry that would move.
+- Depends on: §S7 (the threshold), F130
+
+## F131 — an installed tier that compiles nothing still costs ~18%
+
+**A Bund2 defect**, found while decomposing F130 with the `BUND2_JIT_THRESHOLD`
+knob.
+
+Set the threshold to 1,000,000 and the tier is installed, consulted on every
+entry, and compiles nothing. `arith/times_body/1000` — a program with a
+thousand body entries — then reads **~85.4 µs against a 72.596 µs no-tier
+baseline**, +17.2% and +19.7% on two quiet runs. Nothing has been compiled and
+nothing has been run compiled; the whole of it is `Tiering::observe` being
+asked, per entry, whether this body is known.
+
+That is roughly **13 ns per entry**, against ~22 ns for a whole interpreted
+word — so the question "should this run compiled?" costs over half of what
+running it interpreted costs, and is paid by every body every time, including
+the overwhelming majority that never reach the threshold.
+
+**It is charged to programs that can never benefit.** A body entered once pays
+the probe once and is never compiled. The cost falls hardest on exactly the
+shape the tier cannot help.
+
+Recorded here rather than in F130 because it is independent of compilation: it
+is present when the tier is installed and no compilation ever occurs, which is
+the configuration in which it was measured.
+
+- Found: 2026-09-15, decomposing F130 by threshold
+- Status: **OPEN**. The obvious directions — a cheaper key than a hash probe,
+  or not consulting the tier for bodies below some size — both touch D35's
+  cache key and §S7, so neither is taken here.
+- Depends on: D35 (the payload-pointer key), §S7 (the threshold), F130
+
+## F130 — a body compiled once per iteration costs +121%, and the cause is one Cranelift compilation
 
 **A Bund2 defect**, found by running RFC-0005 criterion 7 for the first time
 (F129 is why it could not be run before).
@@ -4016,31 +4077,59 @@ repeated.** A "~5× improvement" compared a 19 MB release binary against an
 Stale binaries in a scratch directory are indistinguishable from fresh ones by
 name alone, and the size is the tell.
 
-### What is left
+### The cause, measured directly
 
-The effect is real and the cause is **unknown**, but it is now one effect
-rather than four, and one hypothesis rather than two.
+**Compilation is the cost, and it is ~128 µs per body.** The `compile` group in
+`crates/bund2-bench/benches/interpret.rs` times the single entry that crosses
+§S7's threshold against the identical entry one before it, with all warming in
+`iter_batched`'s untimed setup. The body is `1 2 + drop` — one frame per call,
+no inner loop, so entries equal calls and the threshold arithmetic is exact.
+Four runs with the tier on:
 
-**Per-entry cost is excluded by measurement, not by retraction.** The `entry`
-group in `crates/bund2-bench/benches/interpret.rs` compiles the body once in
-setup, warms it past the threshold, and then times `eval` of a single call, so
-no compilation falls inside the timed region. It reads **no measurable cost**:
-+1.74%, +3.74%, −0.05% (p = 0.78), −0.65%, +1.94% across five runs against one
-baseline — straddling zero, and inside the ±1.5% floor. Entering an
-already-compiled body is free. A pre-flight assertion in that benchmark checks
-the word really compiled (1 body, 1 site, 1 promoted value) and that it stays
-stack-balanced at depth 0, so this is not another F129.
+| arm | run 1 | run 2 | run 3 | run 4 |
+|---|---|---|---|---|
+| `crossing_entry` — compiles | 140.01 µs | 137.64 µs | 137.94 µs | 133.87 µs |
+| `ordinary_entry` — does not | 9.85 µs | 9.83 µs | 9.56 µs | 9.24 µs |
+| `compiled_entry` — steady state | 10.56 µs | 10.31 µs | 9.89 µs | 9.96 µs |
 
-**What is left is the compilation itself.** `timed_eval` passes `interp` as
-`iter_batched`'s setup, so every Criterion iteration starts with an empty cache
-and one eval of `1000 { 1 + } times drop` crosses §S7's threshold within
-itself: 64 interpreted entries, **one full Cranelift compilation**, ~936
-compiled entries. With entry free and the interpreted prefix common to both
-arms, the compilation is what is left to account for the +121%. That makes
-criterion 7's `arith` failure **partly a property of how the benchmark is
-written** — a program compiled once per iteration and run 1000 times is not how
-a session executes — and the next step is to measure compile time for this body
-directly rather than to infer it by subtraction.
+The difference is **124.6–130.2 µs**, one Cranelift compilation, about **13×**
+a whole interpreted entry of the same body.
+
+**The no-tier control is what makes it compilation rather than setup.** The
+three arms warm different amounts (`t-1`, `t-2`, `t+8`), so they leave different
+heap state. With the feature off and no tier to compile anything, all three sit
+at **9.2–9.8 µs** and `crossing_entry` is indistinguishable from its siblings.
+The difference appears only when a compilation happens. The benchmark prints its
+premise every run — `crossing entry 0 -> 1 bodies … ordinary entry -> 0` with
+the tier, `0 -> 0` without — so this is not another F129.
+
+**Per-entry cost was excluded first, by the `entry` group.** It warms past the
+threshold and times entries only: +1.74%, +3.74%, −0.05% (p = 0.78), −0.65%,
++1.94% across five runs, straddling zero. That is what left compilation as the
+only remaining term.
+
+**The decomposition of `times_body`'s +121%,** by the `BUND2_JIT_THRESHOLD`
+knob F125 added, against the 72.596 µs no-tier baseline:
+
+| configuration | time | share |
+|---|---|---|
+| threshold 1,000,000 — tier installed, **never compiles** | ~85.4 µs | +18% — `observe`'s probe, see F131 |
+| threshold 64 (default) — one compilation per iteration | ~159 µs | the remaining ~+101% |
+| threshold 1 — compiles at the first entry | ~154–158 µs | same, as it must be: also one compilation |
+
+Threshold 1 and threshold 64 agree because both pay exactly one compilation;
+only the interpreted-to-compiled split differs, and that split is nearly free.
+So **compilation is roughly 85% of criterion 7's `arith` failure**, and the
+benchmark pays it **once per Criterion iteration** because `timed_eval` rebuilds
+the `Interp` in setup. No session recompiles a body on every call.
+
+**What this means for the criterion, stated rather than acted on.** The `arith`
+figure is substantially a property of how the benchmark is written, not of the
+tier in use. That is an argument for saying what `arith` measures — not for
+changing the tier — but it is a decision about a criterion's meaning and it is
+not taken here. Two real costs did surface on the way and are filed separately:
+F131 (the probe on every entry) and F132 (compiled entry is dearer than
+interpreted on a small body).
 
 **What this is not.** Not a defect in the lowering: it computes correctly,
 inlines behind §S6's guards, and promotes as §S5 specifies. Conformance is
@@ -4059,12 +4148,16 @@ D35 as amended by Q32 always meant.
   rows are withdrawn as unreproducible, and the per-entry path is excluded by
   the `entry` group rather than merely unproven. One suspect remains —
   compilation inside the timed region.
-- Status: **OPEN — the effect is measured, the cause is not.** The first
-  diagnosis is withdrawn above; the second (per-entry cost) is now refuted by
-  measurement. No disposition should be chosen while the remaining suspect is
-  a property of the benchmark rather than of the tier: if compile time is the
-  whole of the +121%, the fix is to state what `arith` measures, not to change
-  the tier. Measure this body's compile time directly before choosing.
+- Cause established: 2026-09-15. One Cranelift compilation, ~128 µs, measured
+  directly by the `compile` group and confirmed by a no-tier control. It is
+  ~85% of the figure; the rest is F131's probe.
+- Status: **OPEN — the cause is known, the disposition is not.** Two diagnoses
+  were offered and both are withdrawn above: the per-entry `HashMap` arithmetic
+  (falsified by a neutral fix) and per-entry cost in general (refuted by the
+  `entry` group). What remains is a question about criterion 7's meaning rather
+  than a fault in the tier — a benchmark that recompiles per iteration measures
+  something no session does — and that is the owner's decision, not a change to
+  make quietly. F131 and F132 carry the two real costs found on the way.
 - Depends on: D35 (the payload-pointer key), §S7 (the threshold), F129
 
 ## F129 — `bund2-bench` built a bare `Interp`, so criterion 7's A/B measured no tier

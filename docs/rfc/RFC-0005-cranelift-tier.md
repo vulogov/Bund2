@@ -35,7 +35,12 @@
   - **Partial** — 5, 17, 30: each has a half met and a half outstanding, or a
     bound stated and unmeasured.
   - **Not met** — 14, 20, 22, 27, and 4's reachable remainder.
-  - **Failed, measured; cause unknown** — 7, on **one** group.
+  - **Failed, measured; cause identified** — 7, on **one** group. The cause is
+    **one Cranelift compilation, ~128 µs**, paid once per Criterion iteration
+    because the harness rebuilds the `Interp` in setup — ~85% of the figure,
+    with F131's per-entry probe accounting for most of the rest. Whether a
+    benchmark that recompiles per call is measuring what this criterion
+    protects is a question about the criterion, and F130 leaves it open.
     `arith/times_body/1000` regresses **~+121%**, reproduced across five
     consecutive runs against one baseline on 2026-09-15 (+116.87%, +121.82%,
     +117.83%, +127.46%, +121.08%, every one p = 0.00). It is in the
@@ -4180,14 +4185,32 @@ evidence, and this one is listed as runnable rather than as met.
    computes correctly and inlines and promotes as §S6 and §S5 specify, and
    conformance is unmoved at 106/114 across all three configurations. **Nor is
    it a verdict on any particular mechanism**: the first attempt to name one is
-   withdrawn, and F130 records what would settle it. One half of that is now
-   done: the `entry` group compiles the body once *outside* the timed region
-   and then measures entries only, and it reads **no measurable cost** — five
-   runs at +1.74%, +3.74%, −0.05% (p = 0.78), −0.65%, +1.94%, straddling zero.
-   So the per-entry path is exonerated by measurement and not merely by
-   retraction, and what is left to explain is the compilation the harness
-   forces per iteration. The `dispatch` rows are no longer part of this
-   question: they compile nothing, and their failure is withdrawn above.
+   withdrawn, and F130 now records the cause, measured rather than inferred.
+   Two benchmarks settled it. The `entry` group compiles *outside* the timed
+   region and measures entries only: **no measurable cost**, five runs at
+   +1.74%, +3.74%, −0.05% (p = 0.78), −0.65%, +1.94%, straddling zero. The
+   `compile` group then times the entry that crosses the threshold against the
+   one before it: **~128 µs for one Cranelift compilation** of `1 2 + drop`,
+   against 9.6 µs for the same entry interpreted — reproduced across four runs
+   at 124.6–130.2 µs, with a no-tier control in which all three arms agree at
+   9.2–9.8 µs.
+
+   **So this row is ~85% compilation, paid once per Criterion iteration.**
+   `timed_eval` rebuilds the `Interp` in setup, so every iteration starts with
+   an empty cache and recompiles. The threshold knob confirms the split: at a
+   threshold of 1,000,000 the tier is installed and compiles nothing, and
+   `times_body` reads ~85.4 µs — **+18%** over the no-tier baseline for
+   `observe`'s probe alone (F131) — while the default threshold reads ~159 µs.
+   A threshold of 1 lands at the same place as 64, which it must, since both
+   pay one compilation.
+
+   **What follows is a question about this criterion, not about the tier.** No
+   session recompiles a body on every call, so a benchmark that does is not
+   measuring what criterion 7 exists to protect. Restating what `arith`
+   measures is the change this points to; that is a decision about the
+   criterion's meaning and it is not taken here. The `dispatch` rows are no
+   longer part of the question at all: they compile nothing, and their failure
+   is withdrawn above.
 
    **Two intermediate readings during that investigation were wrong and are
    recorded so they are not repeated.** A "~5× improvement" from the handle
