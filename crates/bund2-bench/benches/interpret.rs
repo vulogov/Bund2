@@ -752,6 +752,86 @@ fn entry_anchored(c: &mut Criterion) {
     g.finish();
 }
 
+/// **Where the per-value cost goes: the three regimes a value can take.**
+///
+/// Criterion 10's shortfall is a per-value cost of ~7 ns, and the emitter says
+/// what a value pays: a slot load, a `call_indirect`, the request-cell load
+/// after it (§S5, *A call may leave a body to run*), and at an inlined site a
+/// **second** indirect call to `jit_admits` through its own guard slot.
+///
+/// **Those four are not separable by a benchmark.** The first three are emitted
+/// together for every value that is not a site, so no program exercises one
+/// without the others; splitting them needs emitter variants with pieces
+/// disabled, or instruction-level profiling. What a fixture *can* separate is
+/// the three regimes a value falls into, which is where the 7 ns actually goes:
+///
+/// - `literal/vN` — N int literals. **0 sites, N promoted.** Each becomes an
+///   `iconst` in a `Variable` (D66) and is synced before return, so this is
+///   promotion's cost with no call at all.
+/// - `generic/vN` — one literal then N `clear` calls. **0 sites, 1 promoted.**
+///   `clear` publishes no fragment, so every call takes the generic path: slot,
+///   `call_indirect`, request-cell load.
+/// - `inlined/vN` — one literal then N `dup_one` calls. **N sites, 1 promoted.**
+///
+/// **`dup_one`, not `dup`.** §S6's table publishes `("dup_one", dup)`, and
+/// `dup` is an alias holding no `Native` and therefore no registration id — so a
+/// body of `dup` calls inlines **nothing**, checked with `--stats` before this
+/// was written. That distinction would have measured the generic regime twice
+/// while looking correct.
+///
+/// The leading literal exists because **F133 refuses a body with no site and
+/// nothing to promote**: a body of bare `clear` calls compiles 0 bodies. It is
+/// one value at every length, so it lands in the intercept and leaves the slope
+/// clean.
+///
+/// The call is `w clear`, balanced at every length in every family, with
+/// `clear` running at Tier 0 in both arms as a constant that cancels.
+fn regimes(c: &mut Criterion) {
+    let t = bund2_runtime_threshold();
+    let mut g = c.benchmark_group("regimes");
+    let call = compiled("w clear");
+
+    let families: [(&str, &dyn Fn(usize) -> String); 3] = [
+        ("literal", &|n: usize| "1 ".repeat(n)),
+        ("generic", &|n: usize| format!("1 {}", "clear ".repeat(n))),
+        ("inlined", &|n: usize| format!("1 {}", "dup_one ".repeat(n))),
+    ];
+
+    for (name, body_of) in families {
+        for n in [1usize, 2, 4, 8, 12, 16] {
+            let setup = compiled(&format!(":w {{ {}}} register", body_of(n)));
+
+            {
+                let mut probe = interp();
+                if probe.eval(&setup).is_err() {
+                    eprintln!("bench: regimes {name}/v{n} setup failed; measuring nothing");
+                }
+                for _ in 0..(t + 8) {
+                    let _ = probe.eval(&call);
+                }
+                eprintln!(
+                    "bench: regimes {name}/v{n} bodies {}",
+                    compiled_bodies(&probe)
+                );
+            }
+
+            g.bench_function(format!("{name}/v{n}"), |b| {
+                let mut i = interp();
+                if i.eval(&setup).is_err() {
+                    eprintln!("bench: regimes {name}/v{n} setup failed; measuring nothing");
+                }
+                for _ in 0..(t + 8) {
+                    let _ = i.eval(&call);
+                }
+                debug_assert_eq!(i.depth(), 0, "the body must be stack-balanced");
+                b.iter(|| black_box(i.eval(black_box(&call))).is_ok());
+            });
+        }
+    }
+
+    g.finish();
+}
+
 /// **F130's compile time, re-taken warm.**
 ///
 /// The `compile` group measures a compilation through the tier, but it rebuilds
@@ -1008,6 +1088,7 @@ criterion_group!(
     size_crossover,
     hot_body,
     entry_anchored,
+    regimes,
     lambda,
     corpus,
     rendering

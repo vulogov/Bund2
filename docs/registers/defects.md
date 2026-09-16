@@ -3944,6 +3944,70 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F136 — F133's rule asks whether a body gains *anything*, not whether it gains *enough*
+
+**A Bund2 defect**, found by decomposing criterion 10's per-value cost into the
+three regimes a value can take.
+
+F133 gave the tier a rule: refuse a body with **no** inlinable site and **nothing**
+to promote, because such a body pays the boundary and is repaid nothing. That
+fixed a measured +24% regression and was right as far as it went. It tests the
+gain against **zero**. It does not test the gain against the **cost**.
+
+### The measurement
+
+`regimes` times the three paths a value can take, matched lengths, same call,
+two Tier 0 blocks and two tier blocks, every window `CLEAN`, R² ≥ 0.996:
+
+| regime | Tier 0 | with the tier | delta |
+|---|---|---|---|
+| promoted literal | 7.85 ns | 6.73 ns | **−1.13 ns** |
+| generic call | 34.01 ns | 39.14 ns | **+5.13 ns** |
+| inlined site | 38.81 ns | 14.62 ns | **−24.19 ns** |
+
+**A generic call is 5.13 ns dearer compiled than interpreted.** `jit_apply`
+calls `Vm::apply`, which is Tier 0's own path, and the boundary — slot load,
+`call_indirect`, request-cell load, status protocol — is added around it.
+
+### The hole
+
+A body of **one int literal and twenty `clear` calls** has one promoted value,
+so `would_gain` answers true and the tier compiles it. It then pays
+20 × 5.13 ≈ **103 ns per entry** to save 1.13 ns. F133's rule admits it because
+the rule asks "is the gain non-zero?" when the question is "does the gain
+exceed the cost?".
+
+This is not hypothetical arithmetic: the `generic` family above **is** that
+shape, one literal and N calls, and it compiles at every length measured
+(`bodies 1`, checked per size).
+
+### What a sufficient rule would weigh
+
+`plan_body` already computes everything needed before a byte is emitted — the
+site count, the promoted count, and the number of generic calls. The measured
+coefficients give the comparison directly:
+
+    24.19 × sites  +  1.13 × promoted   >   5.13 × generic_calls
+
+**Not proposed as those constants.** They are one host's numbers, they move with
+the machine, and baking measured nanoseconds into a compilation rule would make
+the tier's behaviour depend on the laptop it was profiled on. A ratio test — a
+body must inline some fraction of its values — is the shape that survives
+re-measurement, and picking the fraction is a §S7 decision.
+
+### Why it is filed rather than fixed
+
+It changes which bodies compile, which is §S7's to state and the repository
+owner's to decide, exactly as F133 was. F133 is **not withdrawn**: refusing
+zero-gain bodies was correct and remains correct; this is a strengthening of the
+same rule, from a test against zero to a test against cost.
+
+- Found: 2026-09-16, decomposing criterion 10's per-value cost
+- Status: **OPEN**. No rule changed. The tier currently compiles bodies that
+  lose, provided they contain at least one literal.
+- Depends on: F133 (the rule this strengthens), §S6 (the fragment table that
+  decides what inlines), §S7 (where the policy lives), criterion 10
+
 ## F135 — the whole `value` group's no-tier control exceeds the band it polices — RESOLVED as a measurement protocol
 
 **A defect in a benchmark group**, found taking criterion 7's verdict under D70.
@@ -4772,6 +4836,14 @@ Anchored, the two arms' fitted intercepts agree to **−0.08 ns** (61.82 against
 first reported "~7 ns of fixed entry cost" and the six-point fits that reported
 −0.57 and +6.28 ns are all withdrawn: the quantity is **under ~1.4 ns and
 indistinguishable from zero**, which is a bound rather than a value.
+
+**And the per-value cost is three numbers, not one** (2026-09-16). Decomposed by
+regime: a promoted literal saves **1.13 ns**, a generic call **costs 5.13 ns**,
+an inlined site saves **24.19 ns**. The boundary this entry discusses is that
++5.13 ns — `jit_apply` runs `Vm::apply`, Tier 0's own path, with a slot load, a
+`call_indirect`, the request-cell load and the status protocol around it. The
+tier's advantage is dispatch removal and nothing else. F136 files what that
+implies for F133's rule; criterion 10 carries the table.
 
 **Per-entry cost was excluded first, by the `entry` group.** It warms past the
 threshold and times entries only: +1.74%, +3.74%, −0.05% (p = 0.78), −0.65%,

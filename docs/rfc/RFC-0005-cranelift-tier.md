@@ -4849,6 +4849,49 @@ evidence, and this one is listed as runnable rather than as met.
     dispatch, not in handling values — so a single "ns saved per value" is only
     meaningful beside the body it was measured on.
 
+    ### The per-value cost decomposed — three regimes, 2026-09-16
+
+    "~7 ns per value" is an average over values that behave nothing alike. A
+    value takes one of three paths, and `regimes` measures each on matched
+    lengths with the same call (`w clear`) and the same leading literal, so the
+    slopes are directly comparable. Two Tier 0 blocks and two tier blocks, every
+    window `CLEAN`, all eight fits at R² ≥ 0.996:
+
+    | regime | Tier 0 | with the tier | delta |
+    |---|---|---|---|
+    | **promoted literal** — `1` ×N, 0 sites, N promoted | 7.85 ns | 6.73 ns | **−1.13 ns** |
+    | **generic call** — `clear` ×N, 0 sites | 34.01 ns | 39.14 ns | **+5.13 ns** |
+    | **inlined site** — `dup_one` ×N, N sites | 38.81 ns | 14.62 ns | **−24.19 ns** |
+
+    **The +5.13 ns is the boundary, isolated.** A compiled generic call runs
+    `jit_apply` → `Vm::apply`, which is Tier 0's whole path, and wraps it in a
+    slot load, a `call_indirect`, the request-cell load and the status protocol.
+    Compiled code therefore does everything the interpreter does **plus** that,
+    and 5.13 ns is what it costs. This is the figure a future attempt at the
+    1.2× floor has to attack; §S5's *A call may leave a body to run* is what
+    makes the request-cell load non-negotiable, so the attackable part is
+    smaller than 5.13.
+
+    **Inlining is where the tier's advantage lives** — 24.19 ns a site, against
+    1.13 ns for promotion and under 1.4 ns for entry. Not promotion, not entry:
+    dispatch removal.
+
+    **What the four components would need.** Slot load, `call_indirect` and the
+    request-cell load are emitted together for every non-inlined value, so no
+    program varies one without the others. Separating them needs emitter
+    variants with pieces disabled — a change to shipped lowering — or
+    instruction-level profiling. This section stops at three regimes because
+    that is what a benchmark can honestly resolve.
+
+    **The control that makes these numbers trustworthy.** The literal regime
+    reads 7.85 / 6.73 here against `entry_anchored`'s 7.84 / 6.69 — agreement to
+    **0.01 and 0.04 ns** on a different fixture, in a different sweep, an hour
+    apart. And `dup_one` is used rather than `dup`: §S6's table publishes
+    `("dup_one", dup)`, `dup` is an alias holding no registration id, and a body
+    of `dup` calls inlines **nothing** (checked with `--stats`). That
+    substitution would have measured the generic regime twice while appearing
+    correct.
+
     **Linearity is now demonstrated rather than assumed.** Per-value increments
     hold flat across every doubling — Tier 0 at 18.56, 19.32, 18.24, 17.87,
     18.03 ns and the tier at 7.98, 6.97, 7.06, 7.32, 7.30 ns — and the fitted
