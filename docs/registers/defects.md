@@ -3944,7 +3944,7 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
-## F136 — F133's rule asks whether a body gains *anything*, not whether it gains *enough*
+## F136 — F133's rule asks whether a body gains *anything*, not whether it gains *enough* — RESOLVED
 
 **A Bund2 defect**, found by decomposing criterion 10's per-value cost into the
 three regimes a value can take.
@@ -4038,9 +4038,54 @@ owner's to decide, exactly as F133 was. F133 is **not withdrawn**: refusing
 zero-gain bodies was correct and remains correct; this is a strengthening of the
 same rule, from a test against zero to a test against cost.
 
+### Fixed, 2026-09-16 — the rule tests for a site, not for any gain
+
+The repository owner chose the narrow form over the ratio test: **a body with no
+inlinable site is refused, whatever it promotes.** `Compiler::would_gain`
+(`crates/bund2-jit/src/lower.rs`) drops the literal clause and asks `plan_body`
+for sites alone.
+
+**It refuses pure-literal bodies too, and that is deliberate.** Those do gain
+1.13 ns a value — but set against F130's compile cost of **125–141 µs**, a body
+whose whole gain is promotion needs on the order of forty thousand entries to
+repay being compiled, where one with a site repays in a few thousand. The
+per-value figures alone understate the case for this rule; compile cost settles
+it.
+
+**Measured on the corpus, before and after.** The 57 hermetic programs at
+threshold 1, compiled bodies **10 → 7**, and exactly the three net-negative
+bodies are gone:
+
+| program | before | after |
+|---|---|---|
+| `conditional_move_to_workbench` | 1 body, 0 sites, 1 generic (**−4.0 ns**) | **0 bodies** |
+| `tryexcept_demo_divide_to_0` | 1 body, 0 sites, 1 generic (**−4.0 ns**) | **0 bodies** |
+| `application_logic_demos` | 2 bodies, 1 site, 6 generic (**−3.2 ns**) | **1 body**, 1 site, 1 generic |
+
+**No winner was touched.** The third row is better than the corpus model
+predicted: that program kept the body that inlines and lost only the site-free
+one, because the rule acts per body where the model treated programs as units.
+
+**Conformance is unmoved** — `CONFORMANCE 106/114`, `CEILING 106/114` — which is
+§S2's invariant for any tier change: it changed which bodies compile and moved
+meaning by exactly zero.
+
+**Two tests broke, and both broke correctly.** `two_interps_share_no_compiled_code`
+built its tier with `JitTier::new`, documented as "a tier that inlines nothing",
+so its `{ 1 2 + }` planned zero sites; it now takes `with_fragments`, which is
+F127's lesson applied once more. Two of criterion 21's six stack-switch bodies —
+the `endcontext` and `ifthenelse` rows — are built only from unpublished words
+and stopped compiling; each gained a trailing `drop`, which is published, runs in
+both arms, and leaves the differential comparing like with like. The
+precondition that caught them is criterion 21's own anti-F128 guard, and it
+fired exactly as designed rather than letting the rows pass while exercising
+nothing.
+
 - Found: 2026-09-16, decomposing criterion 10's per-value cost
-- Status: **OPEN**. No rule changed. The tier currently compiles bodies that
-  lose, provided they contain at least one literal.
+- Status: **RESOLVED**, 2026-09-16, by the narrow rule. The ratio test sketched
+  below is **not** taken: on the corpus it refused the same bodies at every
+  fraction from 1/8 to 1/4 and began refusing winners at 1/3, where one wrong
+  refusal costs more than the entire loss it would prevent.
 - Depends on: F133 (the rule this strengthens), §S6 (the fragment table that
   decides what inlines), §S7 (where the policy lives), criterion 10
 

@@ -1481,9 +1481,32 @@ impl Compiler {
     ///
     /// Whether to *act* on this is §S7's policy and belongs to the tier, not
     /// here: `bund2-jit` stays the mechanism.
+    ///
+    /// # The test is a site, not any gain at all — F136
+    ///
+    /// This first answered "does the body gain **anything**": a site *or* a
+    /// promoted literal. That refused the body F133 found (0 sites, 0 promoted,
+    /// +24%) and admitted one that still loses — a body of one literal and
+    /// twenty generic calls has a promoted value, so it compiled, then paid
+    /// 20 × 5.13 ns to save 1.13. Two of the corpus's nine compiled bodies are
+    /// exactly that shape, at −4.0 ns an entry.
+    ///
+    /// **An inlined site is the only gain that pays for compiling.** Criterion
+    /// 10's decomposition: a site saves **24.19 ns** per entry, a promoted
+    /// literal **1.13 ns**, and a generic value **costs 5.13 ns**. Set beside
+    /// F130's compile cost of **125–141 µs**, a body whose whole gain is
+    /// promotion needs on the order of forty thousand entries to repay being
+    /// compiled; one with a site repays it in a few thousand. So a body with no
+    /// site is refused whatever it promotes.
+    ///
+    /// **This refuses pure-literal bodies too**, which do gain 1.13 ns a value.
+    /// That is deliberate, on the compile-cost argument above, and it is the
+    /// rule the repository owner chose over a ratio test — which on the corpus
+    /// refused the same bodies at every fraction from 1/8 to 1/4 and began
+    /// refusing winners at 1/3.
     pub fn would_gain(&self, body: &[BundValue], vm: &mut dyn Vm) -> bool {
-        let (plan, sites) = self.plan_body(body, vm);
-        !sites.is_empty() || plan.iter().any(|p| matches!(p, Plan::Literal(_)))
+        let (_plan, sites) = self.plan_body(body, vm);
+        !sites.is_empty()
     }
 
     /// Apply the body's values in order, through Tier 0's own `apply`.

@@ -2816,6 +2816,15 @@ time** (the owner's decision, 2026-09-13): the two keys differ because a
 redefinition replaces one body with another, so the slot is what persists across
 it and the body is what a demotion can name.
 
+**Strengthened 2026-09-16 (F136): the test is an inlined site, not any gain.**
+The rule below first asked whether a body gained *anything* — a site or a
+promoted literal — which admitted bodies that still lose, since a generic value
+costs 5.13 ns against a promoted literal's 1.13 ns gain. It now refuses a body
+with **no site**, whatever it promotes: set against a compile cost of
+125–141 µs, promotion alone needs tens of thousands of entries to repay being
+compiled. On the corpus this took compiled bodies from 10 to 7, removing exactly
+the three that were net losses and touching no winner, with conformance unmoved.
+
 **A fifth rule, 2026-09-15 — a body the tier cannot help is not compiled**
 (F133). The four knobs above admit a body on **entry count alone**, and entry
 count does not say whether compiling it can pay. A compiled body runs every

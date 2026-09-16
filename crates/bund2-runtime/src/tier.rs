@@ -741,15 +741,52 @@ mod tests {
     /// - `endcontext` drops `s` and leaves `9` on the **workbench**;
     /// - `ifthenelse` runs the lambda **on top** (F97), so the switch in it
     ///   happens and `1 2 9` end up on `s`.
+    ///
+    /// **Two rows gained a trailing `drop` on 2026-09-16, and it is F136's
+    /// doing.** Every other body here ends in `+`, which §S6 publishes, so it
+    /// plans an inlined site. The `endcontext` and `ifthenelse` bodies are built
+    /// only from unpublished words, so once the tier began refusing zero-site
+    /// bodies they stopped being compiled — and the precondition above caught
+    /// that rather than letting the rows pass while exercising nothing, which is
+    /// what it exists for. `drop` restores the site and runs in **both** arms,
+    /// so the differential still compares like with like: with it the bodies
+    /// plan 1 site / 3 promoted and 1 site / 2 promoted respectively, where
+    /// before they planned nothing at all.
+    ///
+    /// The two bullets above describe the bodies **as first written**. What the
+    /// amended ones leave is not restated here, because the `script` path prints
+    /// no stack dump to a pipe and it has not been observed directly — and this
+    /// register has had to withdraw enough claims made from memory. The test
+    /// does not depend on it: it asserts that the tiered and untiered arms agree
+    /// on outcome, current stack, every stack, the workbench and the
+    /// diagnostics, whatever those turn out to be.
     #[test]
     fn a_current_stack_switch_mid_body_gives_tier_zeros_result() {
         for (body, label) in [
             ("1 2 :s to_stack +", "to_stack"),
             ("1 2 :s to_current +", "to_current"),
             ("1 2 stacks_left +", "stacks_left"),
-            ("1 2 @s 9 endcontext", "a CONTEXT literal and endcontext"),
+            // **The trailing `drop` is F136's doing, not decoration.** Every
+            // other body here ends in `+`, which §S6 publishes, so it plans a
+            // site and still compiles. This one's words are all unpublished, so
+            // under the rule that refuses zero-site bodies it would no longer be
+            // compiled at all — and the guard above caught exactly that rather
+            // than letting the row pass while testing nothing. `drop` is
+            // published, so it restores the site; it runs in **both** arms, so
+            // the differential is unchanged; and it drops the `9` from the
+            // workbench after `endcontext` has already moved it there, which is
+            // the switch this row exists to observe.
+            ("1 2 @s 9 endcontext drop", "a CONTEXT literal and endcontext"),
             ("1 2 @s +", "a CONTEXT literal"),
-            ("1 2 true { 7 } { @s 9 } ifthenelse", "a conditional on another stack"),
+            // The same F136 fix as the row above, for the same reason: `true`
+            // and `ifthenelse` are unpublished, so the outer body planned zero
+            // sites and stopped being compiled. The lambdas are separate bodies
+            // and are unaffected. `drop` runs in both arms, so the differential
+            // still compares like with like.
+            (
+                "1 2 true { 7 } { @s 9 } ifthenelse drop",
+                "a conditional on another stack",
+            ),
         ] {
             assert_switch_matches_tier0(body, 3, label);
         }
@@ -823,8 +860,17 @@ mod tests {
             threshold: 1,
             ..Caps::default()
         };
-        let mut first = JitTier::new(hot);
-        let second = JitTier::new(hot);
+        // **The inlining fixture, not `JitTier::new`** — F136. `new` is
+        // documented as "a tier that inlines nothing": its table is empty, so
+        // `{ 1 2 + }` plans zero sites and the rule now refuses it. This test is
+        // about code *isolation between tiers*, not about inlining, so it takes
+        // a populated table and asserts what it always asserted. F127's lesson
+        // applied once more: a fixture that cannot inline cannot stand in for
+        // one that does.
+        let table = bund2_stdlib::fragments::published(&crate::Runtime::new().interp.registry)
+            .unwrap_or_default();
+        let mut first = JitTier::with_fragments(hot, table.clone());
+        let second = JitTier::with_fragments(hot, table);
 
         // A vocabulary to run against, with its own tier removed so the only
         // tier in play is the one under test.
