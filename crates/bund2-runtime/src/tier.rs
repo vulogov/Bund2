@@ -443,6 +443,195 @@ mod tests {
         assert_eq!(bare.compiled_values(), None);
     }
 
+    /// **Criterion 22's differential.** A body that promotes is run with a tier
+    /// and without one, and every observable must match.
+    ///
+    /// The sibling of [`assert_switch_matches_tier0`], which serves criterion 21
+    /// and prepends its own stack-switch preamble. Criterion 22's bullets are
+    /// about promotion surviving a *rebinding*, not about switching stacks, so
+    /// they need the same five-channel comparison without that setup.
+    ///
+    /// # The precondition, which is the whole point
+    ///
+    /// **Promotion is asserted before the comparison**, not assumed. A body that
+    /// promoted nothing would make this a differential of Tier 0 against itself
+    /// and every bullet would pass while exercising nothing — F127's shape, and
+    /// how four earlier tests passed for a while. Two figures are checked: a
+    /// body compiled at all, and at least one value promoted in it.
+    ///
+    /// The literals and the inlinable call must live **inside** the registered
+    /// body. A body of literals alone is refused by F136's rule, and one whose
+    /// literals sit in the caller promotes nothing — under `times`, the figure
+    /// that comes back is the loop driver's, not the body's.
+    fn assert_promoted_matches_tier0(setup: &str, calls: usize, label: &str) {
+        let tier_seen = SharedReporter::default();
+        let mut tiered = inlining_runtime_with(1);
+        tiered.interp.reporter = Box::new(tier_seen.clone());
+        tiered.eval_str(setup).expect("setup runs");
+
+        let mut tier_outcome = Ok(());
+        for _ in 0..calls {
+            if tier_outcome.is_ok() {
+                tier_outcome = tiered.eval_str("w");
+            }
+        }
+
+        assert!(
+            tiered.compiled_bodies().unwrap_or(0) > 0,
+            "{label}: nothing compiled, so this asserts a path the tier never took"
+        );
+        assert!(
+            tiered.promoted_values().unwrap_or(0) > 0,
+            "{label}: nothing promoted, so this says nothing about promotion"
+        );
+
+        let plain_seen = SharedReporter::default();
+        let mut plain = crate::Runtime::new();
+        plain.take_tier();
+        plain.interp.reporter = Box::new(plain_seen.clone());
+        plain.eval_str(setup).expect("setup runs");
+        let mut plain_outcome = Ok(());
+        for _ in 0..calls {
+            if plain_outcome.is_ok() {
+                plain_outcome = plain.eval_str("w");
+            }
+        }
+
+        let a = observe(&mut tiered, tier_outcome, &tier_seen);
+        let b = observe(&mut plain, plain_outcome, &plain_seen);
+        assert_eq!(a.outcome, b.outcome, "{label}: outcome");
+        assert_eq!(a.current, b.current, "{label}: current stack");
+        assert_eq!(a.stacks, b.stacks, "{label}: stacks");
+        assert_eq!(a.workbench, b.workbench, "{label}: workbench");
+        assert_eq!(a.diagnostics, b.diagnostics, "{label}: diagnostics");
+    }
+
+    /// **Criterion 22, bullet 1 — an error with values promoted.**
+    ///
+    /// "Compile `1 2 true +` with `1` promoted. `+`'s type guard declines, and
+    /// its generic counterpart, the word called through its slot, returns
+    /// `ADD returns error: Incompartible Y argument for the math operations`, as
+    /// Tier 0 does. The report and the stack dump must match."
+    ///
+    /// The body is `1 2 + true + clear`: the first `+` inlines and promotes both
+    /// literals, and the second is handed a `true` its type guard declines, so
+    /// the generic path runs and fails **with values already promoted**. The
+    /// failure must leave the same stacks and the same diagnostic in both arms —
+    /// a lowering that lost a promoted value on the error path would differ
+    /// here and nowhere else.
+    ///
+    /// `a_compiled_word_stops_at_the_first_failure`
+    /// (`crates/bund2-jit/src/lower.rs`) covers this bullet's other half, a
+    /// failing callee; this is the error-with-promotion case.
+    #[test]
+    fn an_error_with_values_promoted_matches_tier_zero() {
+        assert_promoted_matches_tier0(
+            ":w { 1 2 + true + clear } register\n",
+            3,
+            "an error with values promoted",
+        );
+    }
+
+    /// **Criterion 22, bullet 2 — an effect changed at run time.**
+    ///
+    /// "Promote across a call, and rebind that call's name to a word with a
+    /// different effect, once before the body runs and once mid-body through
+    /// `register`. The stacks must match."
+    ///
+    /// `h` is registered as a lambda consuming one, then rebound to one
+    /// consuming two. Compiled code that trusted the effect it saw at
+    /// compile time would keep a value in a register the callee now consumes;
+    /// D66/D67 sync before every call, so both arms must agree.
+    #[test]
+    fn an_effect_changed_before_the_body_runs_matches_tier_zero() {
+        assert_promoted_matches_tier0(
+            ":h { drop } register\n\
+             :w { 1 2 + h clear } register\n\
+             :h { drop drop } register\n",
+            3,
+            "an effect changed before the body runs",
+        );
+    }
+
+    /// The same bullet's second half: the rebinding happens **mid-body**,
+    /// through `register` inside the word itself, so the callee's effect
+    /// changes between the body being compiled and the call being reached.
+    #[test]
+    fn an_effect_changed_mid_body_matches_tier_zero() {
+        assert_promoted_matches_tier0(
+            ":h { drop } register\n\
+             :w { 1 2 + :h { drop drop } register h clear } register\n",
+            3,
+            "an effect changed mid-body",
+        );
+    }
+
+    /// **Criterion 22, bullet 3 — an alias whose target is rebound.**
+    ///
+    /// "Promote across a call to `<-`, and rebind `stacks_left` to a lambda that
+    /// consumes two, before the body runs and mid-body. The stacks must match.
+    /// Repeat with `$stacks_left`."
+    ///
+    /// `<-` is a registered alias for `stacks_left`
+    /// (`crates/bund2-stdlib/src/stack.rs`, `register_alias`), so this is the
+    /// case where the name compiled code saw and the binding it reaches differ
+    /// by an indirection — the one F93 showed `effect_of` used to get wrong.
+    #[test]
+    fn an_alias_whose_target_is_rebound_matches_tier_zero() {
+        assert_promoted_matches_tier0(
+            ":w { 1 2 + <- clear } register\n\
+             :stacks_left { drop drop } register\n",
+            3,
+            "an alias whose target is rebound",
+        );
+    }
+
+    /// The same bullet, rebound **mid-body**.
+    #[test]
+    fn an_alias_rebound_mid_body_matches_tier_zero() {
+        assert_promoted_matches_tier0(
+            ":w { 1 2 + :stacks_left { drop drop } register <- clear } register\n",
+            3,
+            "an alias rebound mid-body",
+        );
+    }
+
+    /// **Criterion 22, bullet 4 — a lambda callee whose callee is rebound
+    /// (D46).**
+    ///
+    /// "With `:g { drop } register  :f { g } register`, run a body `1 2 3 f`,
+    /// and rebind `g` to `{ drop drop drop }` before the body runs. Then use
+    /// `:f { :g { drop drop drop } register g } register`, which rebinds `g`
+    /// during the call."
+    ///
+    /// D46: promotion never crosses a lambda, because a lambda's callee can be
+    /// rebound underneath it and no guard on `f` would see it. The promoted
+    /// values live in the outer body, where the sync before calling `f` is what
+    /// makes both arms agree.
+    #[test]
+    fn a_lambda_callee_rebound_before_the_body_runs_matches_tier_zero() {
+        assert_promoted_matches_tier0(
+            ":g { drop } register\n\
+             :f { g } register\n\
+             :w { 1 2 + f clear } register\n\
+             :g { drop drop } register\n",
+            3,
+            "a lambda callee rebound before the body runs",
+        );
+    }
+
+    /// The same bullet's second half: `f` rebinds `g` **during** its own call.
+    #[test]
+    fn a_lambda_callee_rebound_during_the_call_matches_tier_zero() {
+        assert_promoted_matches_tier0(
+            ":g { drop } register\n\
+             :f { :g { drop drop } register g } register\n\
+             :w { 1 2 + f clear } register\n",
+            3,
+            "a lambda callee rebound during the call",
+        );
+    }
+
     /// **Criterion 20: a body run by a loop word reaches the counter under one
     /// key.**
     ///

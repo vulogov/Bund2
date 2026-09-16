@@ -38,9 +38,10 @@
     2026-09-15), the gain being diluted at program scale by everything an
     iteration does besides the body. The stop rule is stated on the program
     figure and stays unmet.
-  - **Partial** — 5, 17, 30: each has a half met and a half outstanding, or a
-    bound stated and unmeasured.
-  - **Not met** — 22, and 4's reachable remainder. **14 and 20 moved to met on
+  - **Partial** — 5, 17, 22, 30: each has a half met and a half outstanding, or
+    a bound stated and unmeasured. **22 moved here on 2026-09-16**: four of its
+    six bullets are written and pass, in seven tests.
+  - **Not met** — 4's reachable remainder alone. **14 and 20 moved to met on
     2026-09-16**; 4's remainder is unreachable from a `JITModule` and belongs to
     RFC-0006's AOT path, which that criterion's own audit records.
   - **Blocked, with a named blocker** — 27, and 22's last two bullets, both on
@@ -48,7 +49,8 @@
     call as *crossed* by promotion, and D66/D67 sync before every call, so
     nothing is crossed and no such record exists. D68 settles the rule for when
     something is, and states its own status as decided but not yet built. The
-    other four of 22's six bullets are writable now.
+    other four of 22's six bullets are **written and passing** as of
+    2026-09-16, in seven tests.
   **Criterion 7, met on three guarded runs against one baseline, 2026-09-15.**
   **Every row of all five groups is inside the 5% band** in all three, judged
   under D70. The widest readings are `corpus/sequence_generate_2` at −4.53% and
@@ -5462,6 +5464,41 @@ evidence, and this one is listed as runnable rather than as met.
     side table to record a call *crossed by promotion*, and D66/D67 sync before
     every call — nothing is crossed today, and D68 settles the rule for when
     something is. The other four are writable now.
+
+    **Four of six written, 2026-09-16.** Seven tests in
+    `crates/bund2-runtime/src/tier.rs`, through a new
+    `assert_promoted_matches_tier0` — the sibling of criterion 21's helper,
+    without its stack-switch preamble, comparing the same five channels:
+    outcome, current stack, every stack, workbench and diagnostics.
+
+    | bullet | tests |
+    |---|---|
+    | an error with values promoted | `an_error_with_values_promoted_matches_tier_zero` |
+    | an effect changed at run time | `an_effect_changed_before_the_body_runs_matches_tier_zero`, and `..._mid_body_...` |
+    | an alias whose target is rebound | `an_alias_whose_target_is_rebound_matches_tier_zero`, and `an_alias_rebound_mid_body_...` |
+    | a lambda callee rebound (D46) | `a_lambda_callee_rebound_before_the_body_runs_...`, and `..._during_the_call_...` |
+
+    The error bullet's body is `1 2 + true + clear`: the first `+` inlines and
+    promotes both literals, the second is handed a `true` its type guard
+    declines, so the generic path fails **with values already promoted**. That
+    is the case this bullet is about, and it is distinct from the failing callee
+    `a_compiled_word_stops_at_the_first_failure` already covers.
+
+    **The helper asserts promotion before it compares.** Both
+    `compiled_bodies() > 0` and `promoted_values() > 0` are checked, because a
+    body that promoted nothing would make every bullet a differential of Tier 0
+    against itself — F127's shape. Getting the fixtures right took three
+    corrections: a body of literals alone is refused by F136's rule; literals in
+    the *caller* promote nothing; and under `times` the figure that comes back
+    is the loop driver's, not the body's — `:w { 1 2 h clear }` entered once
+    compiles **0 bodies**, and the "1 body" first seen was `{ w }`.
+
+    **A discrepancy in bullet 5, for whoever writes it.** This criterion writes
+    `:drop { drop drop } register` — a lambda that calls the name it shadows,
+    which recurses without bound; run as written it is killed. F93's own entry
+    uses `:drop { 1 } register`, where `5 drop` leaves `5 1`. Which shape the
+    bullet intends is the owner's to settle, and it is recorded here rather than
+    silently substituted.
 
 23. **A body compiled for one `Interp` is never run by another.** On one
     thread, build two `Interp`s, evaluate a body under the first until it is
