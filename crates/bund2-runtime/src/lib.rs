@@ -113,11 +113,19 @@ impl Runtime {
             // why. `published` takes a `&Registry`, which this crate has and a
             // tier does not (D9 keeps `Fragment` out of `bund2-api`).
             let table = bund2_stdlib::fragments::published(&interp.registry).unwrap_or_default();
+            // **D47 and D48's table, taken at the same moment and for the same
+            // reason** (D68). `promotable::crossable` keys on the registration
+            // ids `register_all_with` just minted, so it must be taken after
+            // registration; a tier holds only a `&mut dyn Vm` and could not
+            // build it itself.
+            let crossable = bund2_stdlib::promotable::crossable(&interp.registry);
             let caps = bund2_jit::cache::Caps {
                 threshold: threshold.unwrap_or(bund2_jit::cache::Caps::default().threshold),
                 ..bund2_jit::cache::Caps::default()
             };
-            interp.tier = Some(Box::new(JitTier::with_fragments(caps, table)));
+            interp.tier = Some(Box::new(
+                JitTier::with_fragments(caps, table).with_crossable(crossable),
+            ));
         }
         #[cfg(not(feature = "jit"))]
         let _ = threshold;

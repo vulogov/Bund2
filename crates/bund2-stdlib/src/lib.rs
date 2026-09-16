@@ -35,6 +35,10 @@ pub mod oop;
 
 /// The specialised arms Bund2 publishes — RFC-0005 §S6.
 pub mod fragments;
+/// The natives promotion may cross, as registration ids — D48's list read as a
+/// table, beside §S6's fragments. D68 needs both: which calls may be inlined,
+/// and which may be crossed.
+pub mod promotable;
 pub mod library;
 /// `bund/string`'s library group, and every `.`-suffixed sibling.
 pub mod library_string;

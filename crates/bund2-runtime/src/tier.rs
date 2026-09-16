@@ -44,6 +44,14 @@ pub struct JitTier {
     /// Empty means no inlining — every site takes the generic path, which is
     /// correct and merely slower.
     table: Vec<(bund2_api::RegistrationId, bund2_ir::Fragment)>,
+    /// **D47 and D48's table, carried down for the same reason the fragments
+    /// are** — `bund2_stdlib::promotable::crossable` takes a `&Registry`, which
+    /// a tier does not hold.
+    ///
+    /// Empty means no call is classified crossable, which is the conservative
+    /// answer and what a tier built by [`JitTier::new`] or
+    /// [`JitTier::with_fragments`] gets.
+    crossable: std::collections::BTreeSet<bund2_api::RegistrationId>,
 }
 
 impl Default for JitTier {
@@ -68,7 +76,25 @@ impl JitTier {
             tiering: Tiering::new(caps),
             compiler: None,
             table,
+            crossable: std::collections::BTreeSet::new(),
         }
+    }
+
+    /// **D47 and D48's table, added to a tier** — the set of registrations
+    /// promotion may cross, from `bund2_stdlib::promotable::crossable`.
+    ///
+    /// A builder rather than a fourth parameter on [`JitTier::with_fragments`]:
+    /// that signature has five call sites, and every one of them means "a tier
+    /// that inlines", not "a tier that crosses". Without this the set stays
+    /// empty, which classifies no call as crossable — the conservative answer,
+    /// and the behaviour every caller had before D68.
+    #[must_use]
+    pub fn with_crossable(
+        mut self,
+        crossable: std::collections::BTreeSet<bund2_api::RegistrationId>,
+    ) -> Self {
+        self.crossable = crossable;
+        self
     }
 
     /// The cache and counter, for a test or an embedder that wants the figures.
@@ -152,7 +178,14 @@ impl Tier for JitTier {
                         // The table is cloned rather than moved: the tier may
                         // outlive a compiler that failed to build, and §S6's
                         // fragments are small and built once per `Runtime`.
-                        None => match Compiler::new(self.table.clone()) {
+                        // **Both tables, for the same reason.** §S6's fragments
+                        // say what may be inlined; D47/D48's say what may be
+                        // crossed. Neither is reachable from a `&mut dyn Vm`,
+                        // so both are cloned down from the tier (D68).
+                        None => match Compiler::with_crossable(
+                            self.table.clone(),
+                            self.crossable.clone(),
+                        ) {
                             Ok(c) => self.compiler.insert(c),
                             Err(_) => return None,
                         },

@@ -1256,6 +1256,20 @@ struct Word {
     /// it produces: "stacks alone would pass a lowering that resumed at the
     /// wrong index on a seventh program".
     resumes: Vec<(usize, usize)>,
+    /// **D68's classification, per generic call** — body index, and whether
+    /// promotion may cross it.
+    ///
+    /// Criterion 27 requires "the lowering's side table must record the call as
+    /// synced, not crossed", and criterion 22's last bullet asks the same of a
+    /// body that promotes. Neither could be written, because no field carried
+    /// the distinction: `sites`, `literals` and `resumes` describe what was
+    /// inlined and promoted, never what a *call* was permitted.
+    ///
+    /// **A permission, not a record of what was emitted.** Every call is synced
+    /// before today — D68's emitter half is unbuilt — so a `true` here means
+    /// "the four gates hold", not "the sync was skipped". When the emitter
+    /// learns to cross, this is the table it reads and the criteria assert.
+    crossings: Vec<(usize, bool)>,
 }
 
 /// **What the lowering decided about one value of a body** — §S6's join.
@@ -1268,7 +1282,15 @@ struct Word {
 #[derive(Debug, Clone)]
 enum Plan {
     /// Dispatched: load the slot, call through it, then §S5's request check.
-    Call,
+    ///
+    /// **`crossable` is D68's classification, not what the emitter did.**
+    /// True when all four of D68's gates hold for this callee, so promotion
+    /// *may* keep values in registers across it. The emitter still syncs
+    /// before every call — D68's second half is unbuilt — so this records a
+    /// permission nothing yet exercises. Criterion 27 and criterion 22's last
+    /// bullet ask the side table for exactly this distinction, and it had no
+    /// field to ask.
+    Call { crossable: bool },
     /// **Promoted: an int literal that never reaches the stack.**
     ///
     /// `Interp::apply_step` sends `CALL` to `dispatch_name` and `CONTEXT` to
@@ -1327,6 +1349,18 @@ pub struct Compiler {
     ///
     /// Empty is a valid table: every site then takes the generic path.
     table: Vec<(bund2_api::RegistrationId, Fragment)>,
+    /// **The registrations promotion may cross — D47 and D48, as a table.**
+    ///
+    /// Handed in for the same reason `table` is: membership comes from
+    /// `bund2_stdlib::promotable::crossable`, which takes a `&Registry` that a
+    /// tier does not hold. Keyed by registration id rather than name, because
+    /// a different native registered under one of those names has a different
+    /// id — which is the hazard D47 exists for, `Registry::register_native`
+    /// being public.
+    ///
+    /// **Empty is the safe default and today's behaviour**: no call is
+    /// classified crossable, so promotion stops at every one of them.
+    crossable: std::collections::BTreeSet<bund2_api::RegistrationId>,
 }
 
 impl Compiler {
@@ -1335,11 +1369,70 @@ impl Compiler {
     /// `table` is §S6's published fragments. Pass an empty one to compile with
     /// no inlining at all, which is what a `Vm` that publishes nothing gets.
     pub fn new(table: Vec<(bund2_api::RegistrationId, Fragment)>) -> Result<Self, String> {
+        Self::with_crossable(table, std::collections::BTreeSet::new())
+    }
+
+    /// A compiler that also knows which callees D47 and D48 permit crossing.
+    ///
+    /// [`Compiler::new`] is this with an empty set, which classifies no call as
+    /// crossable — the conservative answer, and what every caller got before
+    /// D68. Only `bund2-runtime` has the registry the set is built from.
+    pub fn with_crossable(
+        table: Vec<(bund2_api::RegistrationId, Fragment)>,
+        crossable: std::collections::BTreeSet<bund2_api::RegistrationId>,
+    ) -> Result<Self, String> {
         Ok(Self {
             module: new_module(Adapter::Apply)?,
             words: Vec::new(),
             table,
+            crossable,
         })
+    }
+
+    /// **D68's four gates, asked of one callee.**
+    ///
+    /// Promotion may cross a call only when every one holds:
+    ///
+    /// - **D46** — the name resolves to a **native**, not a lambda. A lambda
+    ///   has no declared effect, and its own callee can be rebound underneath
+    ///   it by a program the pre-call check cannot see.
+    /// - **D47** — `bund2-stdlib` registered it. An embedder's native carries a
+    ///   declared effect nothing has audited, and `register_native` is public.
+    /// - **D48** — it is on `PROMOTABLE.txt`, which is what
+    ///   [`crate::Compiler::with_crossable`] is handed. D47 and D48 are
+    ///   answered together, because only `bund2-stdlib` mints ids for those
+    ///   names.
+    /// - **D68** — its declared effect **produces nothing**, and is not
+    ///   `opaque`. A callee that leaves a result puts it above the promoted
+    ///   values permanently, so the final sync would write them beneath it —
+    ///   "wrong silently, and no guard catches it".
+    ///
+    /// A value that is not a `CALL` is not a callee at all. A `CONTEXT`
+    /// literal reaches the generic path too and is never crossed: §S5 makes it
+    /// a static barrier, and it does not resolve to a native.
+    fn crossable_callee(&self, v: &BundValue, vm: &mut dyn Vm) -> bool {
+        if v.dt() != bund2_value::CALL {
+            return false;
+        }
+        let Some(name) = v.as_str() else {
+            return false;
+        };
+        // D46: a lambda is never crossed, whatever its inferred effect.
+        if vm.is_lambda(&name) || !vm.is_native(&name) {
+            return false;
+        }
+        // D68: produces nothing, and the pair means what it says.
+        let Some(effect) = vm.effect_of(&name) else {
+            return false;
+        };
+        if effect.opaque || effect.produces != 0 {
+            return false;
+        }
+        // D47 and D48: the registration is one the audit certified.
+        let Some(site) = vm.inline_site(&name) else {
+            return false;
+        };
+        self.crossable.contains(&site.registration)
     }
 
     /// **Compile a Bund word's body — the first lowering of a real word.**
@@ -1390,6 +1483,17 @@ impl Compiler {
                 _ => None,
             })
             .collect();
+        // **D68's classification, kept per body index.** Only generic calls
+        // carry it: an inlined site is not a call the promoted set crosses, and
+        // a promoted literal is not a call at all.
+        let crossings = plan
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| match p {
+                Plan::Call { crossable } => Some((i, *crossable)),
+                _ => None,
+            })
+            .collect();
         self.words.push(Word {
             entry,
             _slots: slots,
@@ -1398,6 +1502,7 @@ impl Compiler {
             sites,
             literals,
             resumes,
+            crossings,
         });
         Ok(WordHandle(seq))
     }
@@ -1457,7 +1562,9 @@ impl Compiler {
                     .flatten()
                 {
                     Some(n) => plan.push(Plan::Literal(n)),
-                    None => plan.push(Plan::Call),
+                    None => plan.push(Plan::Call {
+                        crossable: self.crossable_callee(v, vm),
+                    }),
                 },
             }
         }
@@ -1621,6 +1728,35 @@ impl Compiler {
         self.words.iter().map(|w| w.literals.len()).sum()
     }
 
+    /// **Every generic call this word planned, and whether D68 permits crossing
+    /// it** — body index, then the verdict.
+    ///
+    /// The table criterion 27 and criterion 22's last bullet ask for. `None`
+    /// for a word this compiler never issued.
+    ///
+    /// **A permission, not a report of emitted code.** The emitter syncs before
+    /// every call until D68's second half is built, so a `true` means the four
+    /// gates held, not that the sync was skipped.
+    pub fn crossings(&self, word: WordHandle) -> Option<&[(usize, bool)]> {
+        self.words.get(word.0).map(|w| w.crossings.as_slice())
+    }
+
+    /// How many of this word's calls D68 permits crossing. `None` for a word
+    /// this compiler never issued.
+    pub fn crossable_calls(&self, word: WordHandle) -> Option<usize> {
+        self.words
+            .get(word.0)
+            .map(|w| w.crossings.iter().filter(|(_, c)| *c).count())
+    }
+
+    /// Crossable calls across every word this compiler emitted.
+    pub fn crossable_total(&self) -> usize {
+        self.words
+            .iter()
+            .map(|w| w.crossings.iter().filter(|(_, c)| *c).count())
+            .sum()
+    }
+
     /// **Values across every word this compiler emitted** — the denominator the
     /// other three figures were missing (F136).
     ///
@@ -1693,7 +1829,11 @@ fn emit_body(
     let mut module = new_module(adapter)?;
     // The native-calling lowering inlines nothing: its "values" are natives to
     // call, not a Bund body to plan over. Every site is generic.
-    let plan = vec![Plan::Call; calls];
+    // **Never crossable.** This path lowers a body of `calls` generic values
+    // with no `Vm` to classify them against — `compile_body` builds a shape,
+    // not a program — so D68's gates cannot be asked and the conservative
+    // answer is the only sound one.
+    let plan = vec![Plan::Call { crossable: false }; calls];
     // A body compiled this way inlines nothing — it is given no fragments — so
     // it has no site whose residual could resume, and the table is empty.
     let (entry, slots, _resumes) = emit_into(&mut module, 0, &plan, &[], last, adapter, cells)?;
@@ -3932,6 +4072,141 @@ mod tests {
                 "value or stack tag after the residual"
             );
         }
+    }
+
+    /// **D68's classification, gate by gate.**
+    ///
+    /// The four gates are answered at plan time and recorded per call. The
+    /// emitter still syncs before every one of them — D68's second half is
+    /// unbuilt — so these assert a *permission*, which is exactly what
+    /// criterion 27 and criterion 22's last bullet ask the side table for.
+    ///
+    /// **A classifier that answered `false` everywhere would pass no test but
+    /// this one**, so each gate is given a case that must be refused *and* the
+    /// crossable case that must be admitted. Without the positive, the whole
+    /// table could be dead and every assertion would still hold.
+    #[test]
+    fn d68_classifies_a_call_by_its_four_gates() {
+        let (mut vm, table) = with_fragments();
+        let crossable = bund2_stdlib::promotable::crossable(&vm.registry);
+        assert!(
+            !crossable.is_empty(),
+            "an empty table would make every refusal below vacuous"
+        );
+
+        // A lambda, for D46. Registered after the table is taken, which is
+        // also the case D46's second program describes.
+        vm.registry
+            .register_lambda("lam", BundValue::lambda(vec![BundValue::call("drop")]));
+
+        let mut c = Compiler::with_crossable(table, crossable).expect("a compiler");
+        let cells = vm.cells().base();
+
+        // `nl` is on `PROMOTABLE.txt`, is `bund2-stdlib`'s, resolves to a
+        // native, and declares `eff(0, 0)` — produces nothing. All four gates
+        // hold, so it is the one call here promotion may cross.
+        //
+        // **`nl` and not `drop`, though `drop` passes every gate too.** §S6
+        // publishes a fragment for `drop`, so it plans as an *inlined site* and
+        // never becomes a generic call — it would carry no verdict to assert,
+        // which is what the first version of this test got wrong. The three
+        // published names are `+`, `dup_one` and `drop`; a positive case has to
+        // come from outside them.
+        //
+        // `+` is on the list too and is a native, but declares `eff(2, 1)`: it
+        // leaves a result, which would sit above the promoted values
+        // permanently and make the final sync write them beneath it. Here it
+        // inlines, so its refusal is asserted separately in
+        // `d68_refuses_a_native_that_produces_a_value`, where no fragment table
+        // is given and it takes the generic path.
+        //
+        // `lam` resolves to a lambda, so D46 refuses it whatever it infers.
+        let body = vec![
+            BundValue::int(1),
+            BundValue::int(2),
+            BundValue::call("+"),
+            BundValue::call("nl"),
+            BundValue::call("lam"),
+        ];
+        let word = c
+            .compile_word(&body, LastCall::Ordinary, cells, &mut vm)
+            .expect("lowers");
+
+        let crossings = c.crossings(word).expect("the word was issued");
+        let verdict = |i: usize| crossings.iter().find(|(at, _)| *at == i).map(|(_, x)| *x);
+
+        // Index 2 is `+`. It plans as an inlined site, not a generic call, so
+        // it carries no crossing at all — an inlined site is not a call the
+        // promoted set crosses.
+        assert_eq!(verdict(2), None, "`+` inlines; it is not a generic call");
+        assert_eq!(verdict(3), Some(true), "`nl`: all four gates hold");
+        assert_eq!(verdict(4), Some(false), "`lam` is a lambda — D46 refuses");
+        assert_eq!(
+            c.crossable_calls(word),
+            Some(1),
+            "exactly one call is crossable: {crossings:?}"
+        );
+    }
+
+    /// **D68 refuses a producing native even when the audit certified it.**
+    ///
+    /// `+` is on `PROMOTABLE.txt` — criterion 28's palette brought it to `Ok` —
+    /// so D47 and D48 hold. D68 is the gate that stops it: `eff(2, 1)` leaves a
+    /// result above the promoted values, and the final sync would then write
+    /// them beneath it, which D68 calls "wrong silently, and no guard catches
+    /// it".
+    ///
+    /// The body denies `+` its fragment so it plans as a generic call rather
+    /// than an inlined site, which is the only way to see the verdict.
+    #[test]
+    fn d68_refuses_a_native_that_produces_a_value() {
+        let vm_and = with_fragments();
+        let mut vm = vm_and.0;
+        let crossable = bund2_stdlib::promotable::crossable(&vm.registry);
+        // No fragment table: `+` cannot inline, so it takes the generic path
+        // and its classification becomes visible.
+        let mut c = Compiler::with_crossable(Vec::new(), crossable).expect("a compiler");
+        let cells = vm.cells().base();
+
+        let body = vec![
+            BundValue::int(1),
+            BundValue::int(2),
+            BundValue::call("+"),
+        ];
+        let word = c
+            .compile_word(&body, LastCall::Ordinary, cells, &mut vm)
+            .expect("lowers");
+
+        assert_eq!(
+            c.crossable_calls(word),
+            Some(0),
+            "`+` produces a value, so D68 refuses it: {:?}",
+            c.crossings(word)
+        );
+    }
+
+    /// **With no table, nothing is crossable** — `Compiler::new`'s behaviour,
+    /// and every caller's before D68.
+    ///
+    /// This is the fallback that keeps the change inert until the emitter
+    /// learns to cross: a compiler built the old way classifies no call, so the
+    /// side table records `false` for all of them.
+    #[test]
+    fn without_the_table_no_call_is_crossable() {
+        let (mut vm, _) = with_fragments();
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
+        let cells = vm.cells().base();
+        let body = vec![BundValue::int(1), BundValue::call("nl")];
+        let word = c
+            .compile_word(&body, LastCall::Ordinary, cells, &mut vm)
+            .expect("lowers");
+
+        assert_eq!(
+            c.crossable_calls(word),
+            Some(0),
+            "`nl` passes D46 and D68 but is not in an empty D48 table"
+        );
+        assert_eq!(c.crossable_total(), 0, "and the total agrees");
     }
 
     /// **Criterion 14 — a word that reads beyond its arity is a promotion
