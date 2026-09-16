@@ -31,6 +31,22 @@
 //! registration id and only `bund2-stdlib` mints those for these names. The
 //! caller still owes D46 and D68.
 //!
+//! # A fifth gate: a callee that reports mid-body (D71, F137)
+//!
+//! §S5 states a rule about the *reporter*: "while the reporter wants a snapshot
+//! for a severity natives report mid-body, `Warning` or `Notice`, no value
+//! stays promoted across a call". The reason is Q34's shape — `Interp::report`
+//! takes a snapshot when the reporter wants one, so a native reporting while
+//! values below its arity sit in registers would show a **short stack**.
+//!
+//! D71 implements that rule **statically and more strongly**: a callee that can
+//! report mid-body is never crossed, whatever the reporter wants. See
+//! [`REPORTS_MID_BODY`] for why that is one name today, and D71 for why the
+//! static form was preferred to reading the reporter at each body's entry.
+//! The `Vm::wants_stack` gate exists as well, in the tier, and this table is
+//! what makes it defence in depth rather than the only thing standing between a
+//! warning and a short stack.
+//!
 //! # Keyed by registration, not by name
 //!
 //! The same rule §S6 states for fragments, for the same reason: "recognise the
@@ -56,6 +72,39 @@ use std::collections::BTreeSet;
 /// a parser that skipped a leading block alone would read those as entries and
 /// cross exactly the words D48 excludes.
 const LIST: &str = include_str!("../../../tests/golden/PROMOTABLE.txt");
+
+/// **The natives that report a `Warning` or `Notice` mid-body** — D71's gate.
+///
+/// Promotion never crosses one of these, so no crossed call can reach a
+/// `Vm::report` while values it cannot see are held in registers.
+///
+/// # Why this is one name
+///
+/// Shipped `bund2-stdlib` code reports mid-body in five places, and four of
+/// them are unreachable as a crossed call *already*:
+///
+/// | reports | reached through | why it is not crossed |
+/// |---|---|---|
+/// | `alias` (`singles.rs`) | `alias`, `eff(2, 0)` | **nothing — this table is why** |
+/// | `while_base` (`control.rs`) | `while`, `while.` | `StackEffect::opaque` |
+/// | `for_base` (`control.rs`) | `for`, `for.` | `StackEffect::opaque` |
+/// | `loop_over_base` (`seq.rs`) | `*loop`, `*loop.` | `StackEffect::opaque` |
+/// | `run_error` (`conditional.rs`) | `register_conditional`, run by `!` | not a native; `!` is opaque |
+///
+/// D68 already refuses an opaque callee, so only `alias` needed excluding. The
+/// set is pinned by `every_native_reporting_mid_body_is_named`
+/// (`crates/bund2-stdlib/src/lib.rs`), which fails if shipped code gains a
+/// sixth site — so this cannot go stale silently, which is the hazard a list
+/// kept in prose carries.
+///
+/// # What it rests on
+///
+/// That a **non-opaque** native never re-enters evaluation, and so cannot reach
+/// a reporting native indirectly. `StackEffect::opaque` is exactly the marker
+/// for a word that runs a body, and it is the same assumption `PROMOTABLE.txt`
+/// already rests on (D55). Stated here because it is load-bearing rather than
+/// obvious.
+const REPORTS_MID_BODY: [&str; 1] = ["alias"];
 
 /// The names the audit certified, in file order.
 fn names() -> impl Iterator<Item = &'static str> {
@@ -83,6 +132,15 @@ fn names() -> impl Iterator<Item = &'static str> {
 pub fn crossable(r: &bund2_api::Registry) -> BTreeSet<bund2_api::RegistrationId> {
     let mut out = BTreeSet::new();
     for name in names() {
+        // **D71's gate, applied by name before the id is taken.** A native that
+        // reports a `Warning` or `Notice` mid-body would snapshot a stack
+        // missing every value a crossing holds in a register (F137, §S5's
+        // reporter rule). Excluded here rather than in the lowering, because
+        // this is the crate that knows which of its natives report — the
+        // lowering sees only a registration id.
+        if REPORTS_MID_BODY.contains(&name) {
+            continue;
+        }
         // `Interner::lookup_call` rather than `intern`, for the reason
         // `fragments::published` gives: this takes `&Registry`, and looking up
         // a miss must not retain a slot.
@@ -149,6 +207,40 @@ mod tests {
             .and_then(|n| n.id)
             .expect("`+` carries a registration id");
         assert!(ids.contains(&id), "`+` is certified and must be crossable");
+    }
+
+    /// **D71: a native that reports mid-body is certified and still not
+    /// crossable.**
+    ///
+    /// `alias` is on `PROMOTABLE.txt` — criterion 28's palette brought it to
+    /// `Ok` and D55's audit saw it read no further than its operands — and it
+    /// declares `eff(2, 0)`, so D46, D47, D48 and D68 all admit it. The fifth
+    /// gate is the only thing that refuses it, which is what makes this test
+    /// worth having: remove [`REPORTS_MID_BODY`] and every other gate still
+    /// says yes.
+    #[test]
+    fn a_native_that_reports_mid_body_is_not_crossable() {
+        let mut r = bund2_api::Registry::new();
+        crate::register_all(&mut r);
+        let ids = crossable(&r);
+
+        let (s, _) = r.interner.lookup_call("alias").expect("`alias` is registered");
+        let id = r
+            .slot(s)
+            .and_then(|sl| sl.native.as_ref())
+            .and_then(|n| n.id)
+            .expect("`alias` carries a registration id");
+
+        assert!(
+            names().any(|n| n == "alias"),
+            "the premise of this test is that the audit certified `alias`; if it \
+             no longer does, the fifth gate is not what excludes it"
+        );
+        assert!(
+            !ids.contains(&id),
+            "`alias` reports a Warning mid-body (F137): crossing it would let a \
+             native snapshot a stack missing every promoted value"
+        );
     }
 
     /// **A native the audit did not certify is absent**, which is the half that

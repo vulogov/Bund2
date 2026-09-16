@@ -3991,9 +3991,16 @@ configuration RFC-0005 names as the reason the rule exists. D36's seam was
 designed for a TUI, so this is a defect in the thing the seam was built for.
 
 - Found: 2026-09-16, writing criterion 27 against D68's implementation
-- Status: **OPEN**. Blocks criterion 22's last bullet, which requires the
-  suppression by name. The fix adds a method to the `Vm` trait, which is a
-  decision about D36's seam and the repository owner's to take.
+- Status: **RESOLVED**, 2026-09-16, by **D71** — both halves. The gate is
+  static: `bund2-stdlib` excludes every native that reports mid-body from the
+  crossable table, which under today's vocabulary is `alias` alone, because the
+  other four report sites sit behind opaque words D68 already refuses. The seam
+  was added too: `Vm::wants_stack(Severity)`, forwarded by `Interp` to its
+  reporter and read by `JitTier::enter` at each body's entry, which hands a
+  crossing body to Tier 0 when the reporter wants a mid-body snapshot.
+  The set is pinned by `every_native_reporting_mid_body_is_named`, a source scan
+  in criterion 25's shape, so a sixth report site fails the build rather than
+  quietly widening the exposure. Criterion 22's last bullet is unblocked.
 - Depends on: §S5 (the rule), D45 (which narrowed when it bites), D36 (the
   reporter seam), D68 (the crossing that omits it)
 

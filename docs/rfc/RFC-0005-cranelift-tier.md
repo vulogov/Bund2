@@ -44,13 +44,14 @@
   - **Not met** — 4's reachable remainder alone. **14 and 20 moved to met on
     2026-09-16**; 4's remainder is unreachable from a `JITModule` and belongs to
     RFC-0006's AOT path, which that criterion's own audit records.
-  - **Blocked, with a named blocker** — 22's last bullet alone. **27 moved to
-    met on 2026-09-16**, when D68 was built and `Word::crossings` gave it the
-    synced-versus-crossed record it asks for, and **bullet 5 was written the
-    same day** once the owner settled its wording on F93's `:drop { 1 }`. Bullet
-    6 is blocked on **F137** rather than on D68: the crossing ignores §S5's
-    reporter gate, and no seam exposes `wants_stack` where the decision is made.
-    Five of 22's six bullets are **written and passing**, in eight tests.
+  - **Blocked, with a named blocker** — none, as of 2026-09-16. **27 moved to
+    met** when D68 was built and `Word::crossings` gave it the
+    synced-versus-crossed record it asks for; **bullet 5 was written** once the
+    owner settled its wording on F93's `:drop { 1 }`; and **bullet 6 was
+    unblocked** when D71 resolved F137, excluding every mid-body reporting
+    native from the crossable table and adding `Vm::wants_stack` beside it.
+    Five of 22's six bullets are **written and passing**, in eight tests; the
+    sixth is writable and unwritten.
   **Criterion 7, met on three guarded runs against one baseline, 2026-09-15.**
   **Every row of all five groups is inside the 5% band** in all three, judged
   under D70. The widest readings are `corpus/sequence_generate_2` at −4.53% and
@@ -1749,6 +1750,29 @@ the `Interp` is built, which an earlier revision claimed. The CLI replaces it
 afterwards (`run`, `crates/bund2-cli/src/main.rs`), and the field is public.
 What does hold is narrower: no `Vm` method reaches the reporter, so it cannot
 change while a compiled body runs.
+
+**Built 2026-09-16 by D71, in a stronger form than this section describes, and
+the sentence above is now half-true.** F137 recorded that D68's crossing asked
+D46, D47, D48 and D68 and *not* this rule — and that no seam reached the
+reporter to ask it with. D71 answers in two parts. The gate that does the work
+is **static**: a native that can report a `Warning` or `Notice` mid-body is
+excluded from the crossable table outright, whatever the reporter wants
+(`REPORTS_MID_BODY`, `crates/bund2-stdlib/src/promotable.rs`). Shipped
+`bund2-stdlib` reports mid-body in five places and four are already unreachable
+as a crossed call — `while`, `for` and `*loop` are opaque, `run_error` is run by
+`!` — so the exclusion is `alias` alone, one native out of 56 survivors. The
+rule above then holds unconditionally rather than while a reporter happens to
+want nothing, which is the property a cached compiled body needs.
+
+The dynamic half was built as well, so this section's wording stays true to the
+letter: `Vm::wants_stack(Severity)` is new, `Interp` forwards it to its
+reporter, and `JitTier::enter` reads it at each entry and hands a crossing body
+to Tier 0. Under today's vocabulary it never changes an outcome; it is what
+keeps this rule true if shipped code gains a report site before the table
+catches up, which `every_native_reporting_mid_body_is_named` is there to make
+noisy. "No `Vm` method reaches the reporter" is therefore no longer true as
+stated — one does, deliberately, and it answers about a severity rather than
+handing back the reporter itself.
 
 **In the default configuration the rule withholds nothing.** D45 made
 `wants_stack` take the severity, and the CLI's `TextReporter` wants a snapshot
@@ -5520,9 +5544,14 @@ evidence, and this one is listed as runnable rather than as met.
     inline it. Shadowed, it must do neither, and the `+` is what leaves the body
     a site once the shadowed `drop` stops supplying one.
 
-    **Only bullet 6 remains, and it is blocked on F137**, not on D68: it asks
-    for the crossing to be suppressed while the reporter wants mid-body
-    snapshots, and no seam exposes `wants_stack` where that decision is made.
+    **Bullet 6 was unblocked on 2026-09-16 by D71**, which resolved F137. It
+    asks that `alias`'s mid-body warning carry the same snapshot in both tiers
+    under a reporter that wants one. D71 makes that true structurally: `alias`
+    reports mid-body, so it is excluded from the crossable table and no value is
+    ever held across it. Its second half — that under a reporter wanting only
+    fatal snapshots the side table still records a call crossed in the same body
+    — is unaffected, because crossing no longer depends on the reporter at all.
+    The bullet is writable and not yet written.
 
 23. **A body compiled for one `Interp` is never run by another.** On one
     thread, build two `Interp`s, evaluate a body under the first until it is

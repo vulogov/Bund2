@@ -536,6 +536,29 @@ pub trait Vm {
     /// only if the reporter asks for one.
     fn report(&mut self, d: diag::Diagnostic);
 
+    /// **Does the reporter want a stack snapshot for this severity?** —
+    /// RFC-0005 §S5's reporter rule, D71, F137.
+    ///
+    /// §S5: "while the reporter wants a snapshot for a severity natives report
+    /// mid-body, `Warning` or `Notice`, no value stays promoted across a call",
+    /// and "the reporter is read at each compiled body's entry". A compiled
+    /// body that crosses a call holds values in registers; a native reporting
+    /// mid-body would snapshot a stack without them. This is how a tier asks,
+    /// because [`Vm::report`] takes the diagnostic rather than answering about
+    /// one, and nothing else on this trait reaches the reporter.
+    ///
+    /// **Defaulted to `false`, unlike [`Vm::cells`].** `cells` is required
+    /// precisely so an implementor cannot forget it, and the same argument
+    /// would apply here were this the only gate. It is not: D71 excludes every
+    /// native that reports mid-body from the crossable table outright, so a
+    /// `Vm` that never writes this method is still correct — it has simply
+    /// declined the second of two locks. The default also matches
+    /// [`diag::Reporter::wants_stack`]'s own, which keeps "nobody asked" saying
+    /// the same thing on both sides of the seam.
+    fn wants_stack(&self, _severity: diag::Severity) -> bool {
+        false
+    }
+
     // --- contexts ----------------------------------------------------------
     /// How many contexts `( … )` has opened and not yet closed.
     ///

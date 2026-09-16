@@ -246,6 +246,31 @@ impl Tier for JitTier {
                 // this tier's own compiler, which is what makes running it
                 // safe. A cache without its compiler simply interprets.
                 let compiler = self.compiler.as_ref()?;
+                // **§S5's reporter rule, read at each body's entry** — D71,
+                // F137. A body that crosses a call holds values in registers
+                // across it; a native reporting a `Warning` or `Notice` there
+                // would snapshot a stack without them. The reporter is asked
+                // *here*, not at compile time, because the CLI replaces it
+                // after the `Interp` is built and the field is public, so the
+                // answer can differ between two entries of the same body.
+                //
+                // Declining hands the body to Tier 0, which is always correct
+                // and costs only the speed this body would have gained. It
+                // stays compiled: the reporter may be swapped back, and
+                // recompiling would pay F130's 125-141 µs to reach the same
+                // code.
+                //
+                // **This is the second of two locks.** D71 already keeps every
+                // native that reports mid-body out of the crossable table, so
+                // under today's vocabulary this gate never changes an outcome.
+                // It is what keeps the rule true if a native gains a report and
+                // the table is not updated with it.
+                if compiler.crossable_calls(code).is_some_and(|n| n > 0)
+                    && (vm.wants_stack(bund2_api::diag::Severity::Warning)
+                        || vm.wants_stack(bund2_api::diag::Severity::Notice))
+                {
+                    return None;
+                }
                 Some(compiler.run(code, vm, values))
             }
         }
@@ -293,6 +318,45 @@ mod tests {
             },
             table,
         )));
+        r
+    }
+
+    /// A runtime whose tier **can inline *and* cross**, at a low threshold.
+    ///
+    /// [`inlining_runtime_with`] builds its tier with `JitTier::with_fragments`
+    /// alone, and `JitTier::with_crossable`'s own documentation says what that
+    /// leaves behind: "Without this the set stays empty, which classifies no
+    /// call as crossable." So a test of D68's crossing built on that fixture
+    /// asserts nothing — the third instance of the shape F127 records, after
+    /// `two_interps_share_no_compiled_code` and criterion 21's stack-switch
+    /// rows, and the reason the precondition below is asserted rather than
+    /// assumed.
+    ///
+    /// Both tables are taken **after** registration, because both are keyed by
+    /// the registration ids `register_all` mints. This mirrors what
+    /// `Runtime::with_options` does for a real run; it is a separate fixture
+    /// rather than a change to `inlining_runtime_with` because the seven
+    /// criterion-22 differentials use that one, and widening what they exercise
+    /// is not this test's business.
+    fn crossing_runtime_with(threshold: u32) -> crate::Runtime {
+        let mut r = crate::Runtime::new();
+        let table = bund2_stdlib::fragments::published(&r.interp.registry).unwrap_or_default();
+        let crossable = bund2_stdlib::promotable::crossable(&r.interp.registry);
+        assert!(
+            !table.is_empty() && !crossable.is_empty(),
+            "the fixture must publish fragments and admit crossings, or it tests \
+             the absence of both"
+        );
+        r.install_tier(Box::new(
+            JitTier::with_fragments(
+                Caps {
+                    threshold,
+                    ..Caps::default()
+                },
+                table,
+            )
+            .with_crossable(crossable),
+        ));
         r
     }
 
@@ -878,6 +942,97 @@ mod tests {
         fn report(&mut self, d: &bund2_api::diag::Diagnostic) {
             self.0.borrow_mut().push(d.clone());
         }
+    }
+
+    /// [`SharedReporter`]'s sibling that **wants a snapshot for every
+    /// severity** — D71's dynamic gate, F137.
+    ///
+    /// Added beside `SharedReporter` rather than by flipping its field, because
+    /// that field's documentation is right: a test that turned it on would be
+    /// measuring a different lowering from the one `bund2 script` runs, and
+    /// every criterion-22 differential wants the CLI's configuration. This one
+    /// wants the opposite, and says so in its name.
+    #[derive(Clone, Default)]
+    struct WantingReporter(std::rc::Rc<std::cell::RefCell<Vec<bund2_api::diag::Diagnostic>>>);
+
+    impl bund2_api::diag::Reporter for WantingReporter {
+        fn report(&mut self, d: &bund2_api::diag::Diagnostic) {
+            self.0.borrow_mut().push(d.clone());
+        }
+        fn wants_stack(&self, _severity: bund2_api::diag::Severity) -> bool {
+            true
+        }
+    }
+
+    /// **D71's dynamic gate: a crossing body under a reporter that wants
+    /// mid-body snapshots still answers as Tier 0 does** — F137, §S5.
+    ///
+    /// `:w { 1 2 + nl clear }` is a body that genuinely crosses: `+` publishes
+    /// an arm, so it inlines and promotes both literals, and `nl` is `eff(0, 0)`
+    /// — certified by the palette, registered by `bund2-stdlib`, and **not**
+    /// one of §S6's three published fragments, so it is a generic call D68
+    /// permits crossing. The precondition is asserted rather than assumed,
+    /// because a fixture that crossed nothing would pass this test while
+    /// exercising none of it, which is F127's shape.
+    ///
+    /// **What this test can and cannot show.** When the gate fires, `enter`
+    /// returns `None` and Tier 0 runs the body — and Tier 0's answer is by
+    /// construction the same answer, so no counter distinguishes "declined" from
+    /// "ran compiled". This asserts the decline path is *safe*: same outcome,
+    /// same stacks, same workbench, same diagnostics. That the branch was taken
+    /// is not observable through any seam this crate exposes, and the honest
+    /// statement is that the two halves are tested separately — the condition by
+    /// `wants_stack_answers_for_the_reporter_in_place_now`
+    /// (`crates/bund2-interp/src/lib.rs`), and the consequence here.
+    ///
+    /// Under today's vocabulary this gate never changes an outcome anyway: D71's
+    /// static table already keeps every mid-body reporter uncrossed. It is the
+    /// second of two locks, and this is what says the second lock does no harm.
+    #[test]
+    fn a_crossing_body_under_a_stack_wanting_reporter_matches_tier_zero() {
+        let setup = ":w { 1 2 + nl clear } register\n";
+
+        let seen = WantingReporter::default();
+        let mut tiered = crossing_runtime_with(1);
+        tiered.interp.reporter = Box::new(seen.clone());
+        tiered.eval_str(setup).expect("setup runs");
+
+        let mut outcome = Ok(());
+        for _ in 0..3 {
+            if outcome.is_ok() {
+                outcome = tiered.eval_str("w");
+            }
+        }
+
+        assert!(
+            tiered.compiled_bodies().unwrap_or(0) > 0,
+            "nothing compiled, so this asserts a path the tier never took"
+        );
+        assert!(
+            tiered.crossed_calls().unwrap_or(0) > 0,
+            "the body crossed no call, so the gate this test is about was never \
+             reachable — `nl` must be a crossable generic call for it to be"
+        );
+
+        let plain_seen = SharedReporter::default();
+        let mut plain = crate::Runtime::new();
+        plain.take_tier();
+        plain.interp.reporter = Box::new(plain_seen.clone());
+        plain.eval_str(setup).expect("setup runs");
+        let mut plain_outcome = Ok(());
+        for _ in 0..3 {
+            if plain_outcome.is_ok() {
+                plain_outcome = plain.eval_str("w");
+            }
+        }
+
+        let a = observe(&mut tiered, outcome, &SharedReporter(seen.0.clone()));
+        let b = observe(&mut plain, plain_outcome, &plain_seen);
+        assert_eq!(a.outcome, b.outcome, "outcome");
+        assert_eq!(a.current, b.current, "current stack");
+        assert_eq!(a.stacks, b.stacks, "stacks");
+        assert_eq!(a.workbench, b.workbench, "workbench");
+        assert_eq!(a.diagnostics, b.diagnostics, "diagnostics");
     }
 
     /// Everything observable about a runtime after a program has ended.

@@ -3476,6 +3476,87 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D71 — promotion never crosses a callee that can report mid-body, and the tier asks the reporter besides
+
+**Decided by the repository owner, 2026-09-16**, resolving F137.
+
+- Blocks: nothing; it is the fifth gate on §S5's promotion across calls
+- Depends on: D68 (the crossing this gates), D45 (which narrowed when §S5's
+  rule bites), D36 (the reporter seam), D55 (the audit this extends), F137
+- Status: **RESOLVED — decided and built**, 2026-09-16.
+
+### The rule, in two halves
+
+**The gate is static.** `bund2-stdlib` excludes from the crossable table every
+native that reports a `Warning` or `Notice` mid-body
+(`REPORTS_MID_BODY`, `crates/bund2-stdlib/src/promotable.rs`). Today that is
+one name, `alias`.
+
+**The seam exists as well.** `Vm::wants_stack(Severity)` is new, defaulted to
+`false`, forwarded by `Interp` to its reporter; `JitTier::enter` asks it at each
+body's entry and hands a crossing body to Tier 0 when the reporter wants a
+mid-body snapshot. That is §S5 read literally — "the reporter is read at each
+compiled body's entry" — and it is the second of two locks.
+
+### Why the static half carries the weight
+
+§S5's rule is about Q34's shape: `Interp::report` snapshots the stack when the
+reporter wants one, so a native reporting while values below its arity sit in
+registers shows a **short stack**. Shipped `bund2-stdlib` reports mid-body in
+five places, and four are already unreachable as a crossed call — `while`,
+`for` and `*loop` are `StackEffect::opaque`, which D68 refuses, and `run_error`
+is a conditional arm run by `!`, opaque since F87. **`alias` was the whole
+exposure**: `eff(2, 0)`, certified by criterion 28's palette, admitted by D46,
+D47, D48 and D68 alike.
+
+So the static form costs **one native out of 56 survivors** and buys a property
+the dynamic form cannot: a compiled body is sound *unconditionally*, rather than
+sound while a mutable public field holds a particular value. A cached body whose
+correctness depends on reporter state read at entry is a hazard that would
+outlive this defect.
+
+**What it rests on**, stated because it is load-bearing rather than obvious: a
+**non-opaque** native never re-enters evaluation, and so cannot reach a
+reporting native indirectly. `StackEffect::opaque` is exactly the marker for a
+word that runs a body, and this is the same assumption `PROMOTABLE.txt` already
+rests on (D55).
+
+### Why both, rather than either
+
+The static gate is an audit-based claim, the class of claim that goes stale. It
+is pinned by `every_native_reporting_mid_body_is_named`
+(`crates/bund2-stdlib/src/lib.rs`), a source scan in criterion 25's shape: a
+sixth report site fails the build until someone names it and decides whether it
+is reachable as a crossed call. The `Vm` gate is what keeps §S5's rule true in
+the window where shipped code has gained a report and the table has not caught
+up. Under today's vocabulary it never changes an outcome, which is the intended
+state for a second lock.
+
+### Rejected
+
+- **The dynamic gate alone** (§S5 literal). New permanent surface on D36's seam
+  as the *only* thing between a warning and a short stack, defaulted `false` so
+  an embedder's `Vm` that forgets to forward it is silently wrong. The static
+  table makes that default safe.
+- **Two compiled variants, selected at entry.** Doubles F130's 125–141 µs
+  compile cost for a configuration nobody runs by default.
+- **Refusing to compile any body that would cross while the reporter wants
+  snapshots.** Same effect as declining at entry, but it burns the body's cache
+  slot and re-plans it on every later entry, which is what F133's demotion
+  exists to avoid.
+
+### Consequences
+
+- §S5's rule is implemented by a stronger mechanism than its text describes.
+  The section gains a dated note saying so. **No `ERRATA.md` entry**: that file
+  records supersessions of `docs/research/`, and no research document states
+  this rule — it is RFC-0005's, and an RFC is editable.
+- Criterion 22's last bullet is unblocked: `alias` is never crossed, so the
+  snapshot it takes is exact under any reporter.
+- `Vm` gains a defaulted method, so no test double breaks. It is defaulted
+  rather than required — the argument `Vm::cells` makes for requiring — because
+  it is the second lock rather than the only one.
+
 ## D70 — criterion 7's significance test filters false alarms; it does not generate them
 
 **Decided by the repository owner, 2026-09-15**, resolving F134. Option B of the

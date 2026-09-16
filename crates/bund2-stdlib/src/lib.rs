@@ -665,6 +665,92 @@ mod honesty_tests {
         assert!(found.is_empty(), "reports at Error severity: {found:?}");
     }
 
+    /// **D71's set: every native that reports a `Warning` or `Notice`
+    /// mid-body** — F137, RFC-0005 §S5's reporter rule.
+    ///
+    /// A crossed call holds values in registers across it, and
+    /// `Interp::report` snapshots the stack when the reporter wants one for
+    /// that severity — so a native reporting mid-body while a crossing is live
+    /// would show a **short stack**, which is Q34's shape. D71 keeps such a
+    /// native out of the crossable table rather than reading the reporter, and
+    /// this is what stops that table going stale: shipped code that gains a
+    /// sixth report site fails here until it is named, and whoever names it has
+    /// to decide whether it is reachable as a crossed call.
+    ///
+    /// **Being on this list is not the same as being excluded.** Four of the
+    /// five are already unreachable as a crossed call — `while`, `for` and
+    /// `*loop` are `StackEffect::opaque`, and `run_error` is a conditional arm
+    /// run by `!`, which is opaque too. Only `alias` needs
+    /// `promotable::REPORTS_MID_BODY`, and
+    /// `a_native_that_reports_mid_body_is_not_crossable` asserts that end.
+    ///
+    /// A source scan, cut at each file's test module as criterion 25's is, and
+    /// descending into subdirectories as criterion 11's does.
+    #[test]
+    fn every_native_reporting_mid_body_is_named() {
+        const REPORTS: [&str; 5] = [
+            // A notice, when a TRY block left an error the EXCEPT arm runs.
+            "conditional.rs: run_error",
+            "control.rs: for_base",
+            "control.rs: while_base",
+            "seq.rs: loop_over_base",
+            // The one that matters: `eff(2, 0)`, certified by the palette, and
+            // refused a crossing only by D71's gate.
+            "singles.rs: alias",
+        ];
+        const QUALIFIERS: [&str; 5] = ["pub", "const", "unsafe", "async", "extern"];
+        const REPORTS_AT: [&str; 2] = ["Diagnostic::warning", "Diagnostic::notice"];
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut found = std::collections::BTreeSet::new();
+        let mut dirs = vec![src.clone()];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).expect("dir reads") {
+                let path = entry.expect("entry").path();
+                if path.is_dir() {
+                    dirs.push(path);
+                    continue;
+                }
+                if path.extension().is_none_or(|x| x != "rs") {
+                    continue;
+                }
+                let file = path
+                    .strip_prefix(&src)
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default();
+                let text = std::fs::read_to_string(&path).expect("reads");
+                let shipped = text.split("#[cfg(test)]\nmod ").next().unwrap_or_default();
+                let mut current = String::new();
+                for line in shipped.lines() {
+                    let t = line.trim_start();
+                    if t.starts_with("//") {
+                        continue;
+                    }
+                    if let Some(at) = t.find("fn ") {
+                        let head_ok = t[..at].split_whitespace().all(|w| {
+                            QUALIFIERS.iter().any(|q| w.starts_with(q)) || w.starts_with('"')
+                        });
+                        if head_ok {
+                            current = t[at + 3..]
+                                .split(['(', '<'])
+                                .next()
+                                .unwrap_or_default()
+                                .to_string();
+                        }
+                    }
+                    if REPORTS_AT.iter().any(|m| line.contains(m)) {
+                        found.insert(format!("{file}: {current}"));
+                    }
+                }
+            }
+        }
+        let named: std::collections::BTreeSet<String> =
+            REPORTS.iter().map(|s| (*s).to_string()).collect();
+        assert_eq!(
+            found, named,
+            "D71's mid-body reporting set and what shipped code actually reports differ"
+        );
+    }
+
     /// **Criterion 11's path set — RFC-0005 §S8, the twelfth review's S1.**
     /// Every function in this crate whose shipped code calls `Vm::eval_lambda`,
     /// `Vm::apply` or `Vm::scoped_call`. Each re-enters evaluation and spends a

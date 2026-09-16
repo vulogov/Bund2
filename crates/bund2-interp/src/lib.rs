@@ -1525,6 +1525,13 @@ impl Vm for Interp {
             .is_some_and(|(s, _)| self.registry.resolve_target(s) != s)
     }
 
+    /// Forwards to the reporter, which is the point: the field is public and
+    /// the CLI replaces it after the `Interp` is built, so the answer is a
+    /// property of *now* rather than of construction (RFC-0005 §S5, D71).
+    fn wants_stack(&self, severity: bund2_api::diag::Severity) -> bool {
+        self.reporter.wants_stack(severity)
+    }
+
     fn report(&mut self, d: bund2_api::diag::Diagnostic) {
         // RFC-0005 criterion 25's run-time half: natives return errors, they
         // do not report them, because a mid-body `Error` report would take a
@@ -2090,6 +2097,41 @@ mod tests {
             i.effect_audit.take().unwrap_or_default(),
             vec!["`e` reported at `Error` severity while it ran".to_string()]
         );
+    }
+
+    /// **D71's seam: `wants_stack` answers for the reporter in place now** —
+    /// RFC-0005 §S5, F137.
+    ///
+    /// A compiled body that crosses a call holds values in registers across it,
+    /// and a native reporting a `Warning` or `Notice` there would snapshot a
+    /// stack without them. The tier asks this at each body's entry, so the
+    /// answer has to be a property of the reporter the `Interp` holds **now**:
+    /// the field is public and the CLI replaces it after construction, which is
+    /// the reason §S5 says "read at each compiled body's entry" rather than
+    /// "fixed when the `Interp` is built".
+    ///
+    /// Before this existed, no `Vm` method reached the reporter at all, which
+    /// is half of what made F137 more than a missing `if`.
+    #[test]
+    fn wants_stack_answers_for_the_reporter_in_place_now() {
+        use bund2_api::diag::Severity;
+        let mut i = Interp::new();
+        // The default is `SilentReporter`, which shows nothing and so wants
+        // nothing collected, at any severity.
+        assert!(
+            !<Interp as Vm>::wants_stack(&i, Severity::Warning),
+            "the default reporter wants no mid-body snapshot"
+        );
+
+        i.reporter = Box::new(bund2_api::diag::CollectingReporter {
+            wants_stack: true,
+            ..Default::default()
+        });
+        assert!(
+            <Interp as Vm>::wants_stack(&i, Severity::Warning),
+            "a reporter swapped in after construction must be the one that answers"
+        );
+        assert!(<Interp as Vm>::wants_stack(&i, Severity::Notice));
     }
 
     /// **The effect audit's depth half — RFC-0005 criterion 24.** A native
