@@ -136,6 +136,10 @@ impl Tier for JitTier {
         Some(self.tiering.counted())
     }
 
+    fn crossed_calls(&self) -> Option<usize> {
+        Some(self.compiler.as_ref().map_or(0, Compiler::crossable_total))
+    }
+
     fn threshold(&self) -> Option<u32> {
         Some(self.tiering.caps().threshold)
     }

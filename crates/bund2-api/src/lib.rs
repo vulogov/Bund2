@@ -702,6 +702,25 @@ pub trait Tier {
         None
     }
 
+    /// **How many calls promotion may cross** — D68, across every compiled
+    /// body.
+    ///
+    /// The fifth figure, added for the reason each of the four before it was:
+    /// a measurement that cannot see a mechanism cannot tell "it did not pay"
+    /// from "it did not happen". `inlined_sites` was added when a timing could
+    /// not distinguish a body that inlined nothing; `promoted_values` when one
+    /// could not distinguish a body that promoted nothing; this one because a
+    /// corpus sweep of `compiled_values` is blind to whether any call was
+    /// crossed at all.
+    ///
+    /// **A permission that the emitter acts on.** Unlike the earlier figures
+    /// this counts a *decision*: the calls whose four gates held. The emitter
+    /// holds values across exactly these, so a body reporting zero here syncs
+    /// before every call, as it did before D68.
+    fn crossed_calls(&self) -> Option<usize> {
+        None
+    }
+
     /// **How many bodies the promotion counter is tracking** — §S7's counter,
     /// criterion 20.
     ///

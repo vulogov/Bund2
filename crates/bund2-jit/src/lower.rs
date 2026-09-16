@@ -353,15 +353,18 @@ fn emit_fragment_ops(
 /// consumes the *top* `needs` values; anything below them must already be on
 /// the stack, or the site's result would land beneath a value still sitting in
 /// a register. Syncing the prefix is what keeps the order right.
+///
+/// The end this drains is the **bottom** of the modelled stack.
+/// [`emit_sync_top_n`] drains the other one, and D68 is why.
 fn emit_sync_n(
     f: &mut FunctionBuilder<'_>,
     promoted: &mut Vec<Variable>,
     n: usize,
     site: &FragmentSite,
-) {
+) -> usize {
     let n = n.min(promoted.len());
     if n == 0 {
-        return;
+        return 0;
     }
     let live: Vec<Variable> = promoted.drain(..n).collect();
     for var in live {
@@ -372,6 +375,68 @@ fn emit_sync_n(
         f.ins().brif(status, site.fail, &[], next, &[]);
         f.switch_to_block(next);
     }
+    n
+}
+
+/// **Sync the top `n` promoted values, keeping the deeper ones in registers**
+/// — D68's half of the sync, and the mirror of [`emit_sync_n`].
+///
+/// # Why the other end
+///
+/// `promoted`'s front is the **deepest** value and its back is the top, so
+/// [`emit_sync_n`]'s `drain(..n)` pushes from the bottom up. That is right for
+/// an inlined site, which consumes the top `needs` values *from registers* and
+/// therefore needs everything beneath them already on the stack.
+///
+/// D68 asks the opposite question. A crossed call consumes its operands **from
+/// the stack**, so those are the values that must be pushed; what may stay in
+/// registers is what lies *below* them. Draining the suffix is that.
+///
+/// # The ordering argument, restated rather than reused
+///
+/// D68's soundness rests on a property [`emit_sync_n`]'s does not mention:
+/// **the promoted values must be the top of the abstract stack when they are
+/// finally synced.** Pushing only appends, so a value that ends up beneath
+/// something else on the real stack can never be put back above it.
+///
+/// That is why D68 admits only a callee whose declared effect **produces
+/// nothing**. Cross `1 2 3 f` with `f` at `eff(1, 1)` and the real stack ends
+/// `[…, r]` while the abstract one is `[…, 1, 2, r]`; syncing then gives
+/// `[…, r, 1, 2]` — wrong, silently, with no guard that could catch it. With
+/// `produces == 0` the callee leaves nothing behind, so after it returns the
+/// held values are the top again and the final sync is sound.
+///
+/// This helper enforces the *other* half of that invariant: it pushes the top
+/// `n`, so what remains held is a contiguous run at the bottom of the abstract
+/// stack, in order. Passing an `n` smaller than the callee's `consumes` would
+/// leave a held value above something the callee pops, and the final sync would
+/// then write it in the wrong place — so callers pass
+/// `min(consumes, promoted.len())` and nothing less.
+fn emit_sync_top_n(
+    f: &mut FunctionBuilder<'_>,
+    promoted: &mut Vec<Variable>,
+    n: usize,
+    site: &FragmentSite,
+) -> usize {
+    let n = n.min(promoted.len());
+    if n == 0 {
+        return 0;
+    }
+    // **From the split point to the end, in order.** `drain` yields
+    // front-to-back, and the front of this range is the deepest of the values
+    // being pushed — so they reach the stack bottom-first, exactly as
+    // `emit_sync_n` pushes the values it drains.
+    let at = promoted.len() - n;
+    let live: Vec<Variable> = promoted.drain(at..).collect();
+    for var in live {
+        let v = f.use_var(var);
+        let call = f.ins().call(site.push, &[site.ctx_val, v]);
+        let status = f.inst_results(call)[0];
+        let next = f.create_block();
+        f.ins().brif(status, site.fail, &[], next, &[]);
+        f.switch_to_block(next);
+    }
+    n
 }
 
 /// **Can this fragment take its operands from registers?**
@@ -1270,6 +1335,29 @@ struct Word {
     /// "the four gates hold", not "the sync was skipped". When the emitter
     /// learns to cross, this is the table it reads and the criteria assert.
     crossings: Vec<(usize, bool)>,
+    /// **Pushes emitted *ahead of a call*, to sync promoted values** — D68's
+    /// witness.
+    ///
+    /// Every crossing test is a differential, and a differential passes just as
+    /// well if the emitter synced everything and crossed nothing: syncing early
+    /// is always *correct*, merely slower. [`Word::crossings`] records what the
+    /// planner decided; nothing recorded what the emitter did.
+    ///
+    /// This does. A held value is exactly a push that did not happen before the
+    /// call, so compiling one body twice — once with the crossable table, once
+    /// without — and comparing this count witnesses the crossing in the emitted
+    /// code rather than in the plan.
+    ///
+    /// # Ahead of a call, and nothing else
+    ///
+    /// **The body's final sync is excluded**, and so are the two spill blocks.
+    /// A body that promotes ends with the final sync whether or not it crossed
+    /// anything, so counting it adds the same constant to both arms; the spills
+    /// sit on failure edges and do not run when the body succeeds. The first
+    /// version counted everything and read **2 and 2** for `1 2 nl` — the
+    /// synced form pushing both literals before the call, the crossed form
+    /// pushing both at the end. Identical totals, opposite code.
+    syncs: usize,
 }
 
 /// **What the lowering decided about one value of a body** — §S6's join.
@@ -1283,14 +1371,19 @@ struct Word {
 enum Plan {
     /// Dispatched: load the slot, call through it, then §S5's request check.
     ///
-    /// **`crossable` is D68's classification, not what the emitter did.**
-    /// True when all four of D68's gates hold for this callee, so promotion
-    /// *may* keep values in registers across it. The emitter still syncs
-    /// before every call — D68's second half is unbuilt — so this records a
-    /// permission nothing yet exercises. Criterion 27 and criterion 22's last
-    /// bullet ask the side table for exactly this distinction, and it had no
-    /// field to ask.
-    Call { crossable: bool },
+    /// **`cross` is D68's verdict, and the operand count it turns on.**
+    ///
+    /// `Some(consumes)` when all four of D68's gates hold: promotion may keep
+    /// values in registers across this call, and `consumes` of them — the top
+    /// ones — must be pushed first, because the callee pops its operands from
+    /// the real stack. `None` when any gate refuses, and then every promoted
+    /// value is synced as before.
+    ///
+    /// **The count is part of the verdict, not a separate lookup.** The
+    /// emitter has no `Vm` to ask, and asking again at emit time could answer
+    /// differently from the plan — a rebind between the two would make the
+    /// emitted sync disagree with the classification that licensed it.
+    Call { cross: Option<u8> },
     /// **Promoted: an int literal that never reaches the stack.**
     ///
     /// `Interp::apply_step` sends `CALL` to `dispatch_name` and `CONTEXT` to
@@ -1410,29 +1503,28 @@ impl Compiler {
     /// A value that is not a `CALL` is not a callee at all. A `CONTEXT`
     /// literal reaches the generic path too and is never crossed: §S5 makes it
     /// a static barrier, and it does not resolve to a native.
-    fn crossable_callee(&self, v: &BundValue, vm: &mut dyn Vm) -> bool {
+    /// `Some(consumes)` when every gate holds, and the count the emitter needs
+    /// to push before the call.
+    fn crossable_callee(&self, v: &BundValue, vm: &mut dyn Vm) -> Option<u8> {
         if v.dt() != bund2_value::CALL {
-            return false;
+            return None;
         }
-        let Some(name) = v.as_str() else {
-            return false;
-        };
+        let name = v.as_str()?;
         // D46: a lambda is never crossed, whatever its inferred effect.
         if vm.is_lambda(&name) || !vm.is_native(&name) {
-            return false;
+            return None;
         }
         // D68: produces nothing, and the pair means what it says.
-        let Some(effect) = vm.effect_of(&name) else {
-            return false;
-        };
+        let effect = vm.effect_of(&name)?;
         if effect.opaque || effect.produces != 0 {
-            return false;
+            return None;
         }
         // D47 and D48: the registration is one the audit certified.
-        let Some(site) = vm.inline_site(&name) else {
-            return false;
-        };
-        self.crossable.contains(&site.registration)
+        let site = vm.inline_site(&name)?;
+        if !self.crossable.contains(&site.registration) {
+            return None;
+        }
+        Some(effect.consumes)
     }
 
     /// **Compile a Bund word's body — the first lowering of a real word.**
@@ -1470,7 +1562,7 @@ impl Compiler {
             i64::try_from(cells).map_err(|_| "the cells' address does not fit".to_string())?;
         let seq = self.words.len();
         let (plan, sites) = self.plan_body(body, vm);
-        let (entry, slots, resumes) =
+        let (entry, slots, resumes, syncs) =
             emit_into(&mut self.module, seq, &plan, &sites, last, Adapter::Apply, cells)?;
         // The constants the emitted code baked, paired with the body positions
         // they came from. `Compiler::run` compares them against the body it is
@@ -1490,7 +1582,7 @@ impl Compiler {
             .iter()
             .enumerate()
             .filter_map(|(i, p)| match p {
-                Plan::Call { crossable } => Some((i, *crossable)),
+                Plan::Call { cross } => Some((i, cross.is_some())),
                 _ => None,
             })
             .collect();
@@ -1503,6 +1595,7 @@ impl Compiler {
             literals,
             resumes,
             crossings,
+            syncs,
         });
         Ok(WordHandle(seq))
     }
@@ -1563,7 +1656,7 @@ impl Compiler {
                 {
                     Some(n) => plan.push(Plan::Literal(n)),
                     None => plan.push(Plan::Call {
-                        crossable: self.crossable_callee(v, vm),
+                        cross: self.crossable_callee(v, vm),
                     }),
                 },
             }
@@ -1749,6 +1842,18 @@ impl Compiler {
             .map(|w| w.crossings.iter().filter(|(_, c)| *c).count())
     }
 
+    /// **Pushes this word emits ahead of a call, to sync promoted values** —
+    /// D68's witness. `None` for a word this compiler never issued.
+    ///
+    /// A held value is a push that did not happen before the call, so compiling
+    /// one body twice — with the crossable table and without — and comparing
+    /// this count witnesses the crossing in the emitted code rather than in the
+    /// plan. The body's final sync is excluded: it runs either way, and
+    /// counting it hides the difference.
+    pub fn syncs(&self, word: WordHandle) -> Option<usize> {
+        self.words.get(word.0).map(|w| w.syncs)
+    }
+
     /// Crossable calls across every word this compiler emitted.
     pub fn crossable_total(&self) -> usize {
         self.words
@@ -1833,10 +1938,11 @@ fn emit_body(
     // with no `Vm` to classify them against — `compile_body` builds a shape,
     // not a program — so D68's gates cannot be asked and the conservative
     // answer is the only sound one.
-    let plan = vec![Plan::Call { crossable: false }; calls];
+    let plan = vec![Plan::Call { cross: None }; calls];
     // A body compiled this way inlines nothing — it is given no fragments — so
     // it has no site whose residual could resume, and the table is empty.
-    let (entry, slots, _resumes) = emit_into(&mut module, 0, &plan, &[], last, adapter, cells)?;
+    let (entry, slots, _resumes, _syncs) =
+        emit_into(&mut module, 0, &plan, &[], last, adapter, cells)?;
     Ok(CompiledBody {
         _module: module,
         entry,
@@ -1883,7 +1989,7 @@ fn new_module(adapter: Adapter) -> Result<JITModule, String> {
 /// A named type because the triple is wide enough that clippy's
 /// `type_complexity` is right about it, and because the third member is a side
 /// table criterion 21 asserts rather than an implementation detail.
-type Emitted = (Entry, Box<[*const u8]>, Vec<(usize, usize)>);
+type Emitted = (Entry, Box<[*const u8]>, Vec<(usize, usize)>, usize);
 
 /// **Emit one body into an existing module**, returning its entry and the slot
 /// table the emitted code reads.
@@ -2042,6 +2148,16 @@ fn emit_into(
 
     let mut cg = module.make_context();
     let mut fb_ctx = FunctionBuilderContext::new();
+    // **Pushes on the success path only** — D68's witness, see [`Word::syncs`].
+    // The two spill sites (a crossed call's failure edge, and the residual's)
+    // are excluded deliberately: they do not run when the body succeeds, and
+    // counting them would make a crossed body's total *rise* as its
+    // success-path pushes fall, inverting the very comparison this exists for.
+    //
+    // Declared out here and assigned inside, as `side_table` and `resume_table`
+    // are: the body is built in a block that borrows the function, and the
+    // return needs the figure after that borrow ends.
+    let syncs: usize;
     // Filled by the body emitter, read by the dominance check after it.
     let side_table: Vec<(Block, Block)>;
     // Assumption 38's map, escaping the builder's block the way `side_table`
@@ -2161,6 +2277,8 @@ fn emit_into(
         // move the current stack, both are [`Plan::Call`], and both sync first.
         let mut promoted: Vec<Variable> = Vec::new();
 
+        let mut syncs_here = 0usize;
+
         let width = i32::try_from(ptr.bytes()).map_err(|_| "pointer too wide".to_string())?;
         let drain_off = i32::try_from(drain_slot)
             .map_err(|_| "the drain slot index does not fit an offset".to_string())?
@@ -2210,35 +2328,116 @@ fn emit_into(
             };
 
             let Some((site, generation, cell)) = inline_here else {
-                // **The sync, before the call that could observe it.** A slot
-                // call reaches `Vm::apply`, which can run arbitrary code: read
-                // the stack, switch it, report. Every promoted value goes back
-                // first, deepest last, so what the callee sees is what Tier 0
-                // would have left it. This is the point §S5 calls an opaque
-                // site, and a `CONTEXT` literal reaches it too — which is what
-                // makes the barrier static.
-                emit_sync_n(&mut f, &mut promoted, usize::MAX, &helpers);
-                let callee = f.ins().load(ptr, MemFlagsData::trusted(), base, off);
-                if tail_here {
-                    // §S8's claimed tail call. A terminator: nothing follows it,
-                    // and the thunk's status becomes the body's.
-                    f.ins().return_call_indirect(tail_sig, callee, &[ctx_val]);
-                } else {
-                    emit_generic_call(
-                        &mut f,
-                        &GenericCall {
-                            tail_sig,
-                            callee,
-                            ctx_val,
-                            fail,
-                            ptr,
-                            base,
-                            drain_off,
-                            cells_base,
-                            request_off,
-                        },
-                        None,
-                    );
+                // **D68: may promotion cross this call?** `Some(consumes)` when
+                // all four gates held at plan time. A tail call never crosses:
+                // it is a terminator, nothing follows it in this body, and the
+                // held values would have no later sync to reach the stack by.
+                let cross = match plan.get(i) {
+                    Some(Plan::Call { cross }) if !tail_here => *cross,
+                    _ => None,
+                };
+
+                match cross {
+                    // **The sync, before the call that could observe it.** A
+                    // slot call reaches `Vm::apply`, which can run arbitrary
+                    // code: read the stack, switch it, report. Every promoted
+                    // value goes back first, deepest last, so what the callee
+                    // sees is what Tier 0 would have left it. This is the point
+                    // §S5 calls an opaque site, and a `CONTEXT` literal reaches
+                    // it too — which is what makes the barrier static.
+                    None => {
+                        syncs_here += emit_sync_n(&mut f, &mut promoted, usize::MAX, &helpers);
+                        let callee = f.ins().load(ptr, MemFlagsData::trusted(), base, off);
+                        if tail_here {
+                            // §S8's claimed tail call. A terminator: nothing
+                            // follows it, and the thunk's status becomes the
+                            // body's.
+                            f.ins().return_call_indirect(tail_sig, callee, &[ctx_val]);
+                        } else {
+                            emit_generic_call(
+                                &mut f,
+                                &GenericCall {
+                                    tail_sig,
+                                    callee,
+                                    ctx_val,
+                                    fail,
+                                    ptr,
+                                    base,
+                                    drain_off,
+                                    cells_base,
+                                    request_off,
+                                },
+                                None,
+                            );
+                        }
+                    }
+                    // **D68's crossing.** The callee pops `consumes` operands
+                    // from the real stack, so those are pushed; what lies below
+                    // them stays in registers. `produces == 0` is what makes
+                    // that sound — the callee leaves nothing above the held
+                    // values, so they are the top of the abstract stack again
+                    // when the body's last sync reaches them.
+                    Some(consumes) => {
+                        syncs_here +=
+                            emit_sync_top_n(&mut f, &mut promoted, usize::from(consumes), &helpers);
+
+                        // **The values that survive the call**, and the reason
+                        // this needs a block of its own.
+                        let held = promoted.clone();
+                        let callee = f.ins().load(ptr, MemFlagsData::trusted(), base, off);
+
+                        // **§S5's invariant dies here, and is replaced rather
+                        // than dropped.** "A sync precedes every call" made the
+                        // promoted model empty at every edge to `fail`, so the
+                        // error paths were correct by construction. A crossed
+                        // call reaches `fail` with values still in registers,
+                        // and `fail` is `iconst FAIL; return_` with no block
+                        // parameters — it cannot know what any caller held. So
+                        // each crossed call gets its own spill: sync the held
+                        // values, then fail. Without it a failing callee would
+                        // report a stack missing everything still in a
+                        // register, which is criterion 22's first bullet.
+                        let spill = if held.is_empty() {
+                            fail
+                        } else {
+                            f.create_block()
+                        };
+
+                        emit_generic_call(
+                            &mut f,
+                            &GenericCall {
+                                tail_sig,
+                                callee,
+                                ctx_val,
+                                fail: spill,
+                                ptr,
+                                base,
+                                drain_off,
+                                cells_base,
+                                request_off,
+                            },
+                            None,
+                        );
+
+                        if !held.is_empty() {
+                            // The call's success path, to return to once the
+                            // spill block is filled.
+                            let carry_on = f
+                                .current_block()
+                                .ok_or_else(|| "the crossed call left no block".to_string())?;
+
+                            f.switch_to_block(spill);
+                            // Deepest first, as everywhere: these are what the
+                            // program still owes the stack. A push that itself
+                            // fails goes straight to `fail`, which is what
+                            // `helpers` carries.
+                            let mut owed = held;
+                            emit_sync_n(&mut f, &mut owed, usize::MAX, &helpers);
+                            f.ins().jump(fail, &[]);
+
+                            f.switch_to_block(carry_on);
+                        }
+                    }
                 }
                 continue;
             };
@@ -2265,11 +2464,11 @@ fn emit_into(
                 // still sitting in a register. Nothing guards stack order, so
                 // this is arithmetic rather than a check.
                 let excess = promoted.len() - fragment.needs();
-                emit_sync_n(&mut f, &mut promoted, excess, &helpers);
+                syncs_here += emit_sync_n(&mut f, &mut promoted, excess, &helpers);
             } else {
                 // Not promotable here: the operands belong on the stack, which
                 // is where the type guard will look for them.
-                emit_sync_n(&mut f, &mut promoted, usize::MAX, &helpers);
+                syncs_here += emit_sync_n(&mut f, &mut promoted, usize::MAX, &helpers);
             }
 
             // **§S6's inlined site: three guards, then the arm.** Each guard
@@ -2376,6 +2575,14 @@ fn emit_into(
             // two promotions and no call — and those values have to be on the
             // stack before the body returns, or the word would leave nothing
             // where Tier 0 leaves two.
+            // **Not counted.** `syncs` is a count of pushes emitted *ahead of a
+            // call*, which is the only place D68 changes anything. Every body
+            // that promotes ends with this one, crossed or not, so counting it
+            // would add the same constant to both arms and hide the difference
+            // the figure exists to show — which is exactly what the first
+            // version did: `1 2 nl` read two pushes either way, because the
+            // synced form pushed both before the call and the crossed form
+            // pushed both here.
             emit_sync_n(&mut f, &mut promoted, usize::MAX, &helpers);
             let ok = f.ins().iconst(types::I32, i64::from(OK));
             f.ins().return_(&[ok]);
@@ -2387,6 +2594,7 @@ fn emit_into(
         f.finalize(frontend);
         side_table = regions;
         resume_table = resumes;
+        syncs = syncs_here;
     }
 
     // **Criterion 17, as a refusal rather than an assertion.** "Every inlined
@@ -2460,7 +2668,7 @@ fn emit_into(
     // parameter, one `i32` result, the platform's convention — which is `Entry`.
     let entry: Entry = unsafe { std::mem::transmute::<*const u8, Entry>(addr) };
 
-    Ok((entry, slots, resume_table))
+    Ok((entry, slots, resume_table, syncs))
 }
 
 #[cfg(test)]
@@ -4072,6 +4280,215 @@ mod tests {
                 "value or stack tag after the residual"
             );
         }
+    }
+
+    /// **The differential for a body that actually crosses a call** — D68.
+    ///
+    /// [`assert_matches_tier0`] builds its compiler with
+    /// `Compiler::new(Vec::new())`, which after D68's first step means an empty
+    /// crossable table: nothing is classified, nothing is crossed, and a
+    /// crossing test driven through it would pass whether or not the emitter
+    /// ever held a value across a call. That is F127's shape, so this supplies
+    /// the real table — and asserts a crossing happened before comparing
+    /// anything.
+    ///
+    /// **No fragment table.** Inlining is a different mechanism with its own
+    /// criteria; leaving it out keeps a failure here attributable to the
+    /// crossing rather than to a site.
+    fn assert_crossing_matches_tier0(body: &[BundValue], crossings: usize, label: &str) {
+        let mut tier0 = with_stdlib();
+        let by_tier0 = tier0.eval(body);
+
+        let mut compiled = with_stdlib();
+        let crossable = bund2_stdlib::promotable::crossable(&compiled.registry);
+        let mut c = Compiler::with_crossable(Vec::new(), crossable).expect("a compiler");
+        let cells = compiled.cells().base();
+        let word = c
+            .compile_word(body, LastCall::Ordinary, cells, &mut compiled)
+            .expect("lowers");
+
+        assert_eq!(
+            c.crossable_calls(word),
+            Some(crossings),
+            "{label}: the body must cross what it claims, or this asserts nothing: {:?}",
+            c.crossings(word)
+        );
+
+        let by_compiled = c.run(word, &mut compiled, body);
+        assert_eq!(
+            by_tier0.is_ok(),
+            by_compiled.is_ok(),
+            "{label}: one path failed and the other did not: {by_tier0:?} vs {by_compiled:?}"
+        );
+        let (a, b) = (tier0.snapshot(), compiled.snapshot());
+        assert_eq!(a.len(), b.len(), "{label}: depth");
+        for (x, y) in a.iter().zip(b.iter()) {
+            assert_eq!(x.dt(), y.dt(), "{label}: dt");
+            assert_eq!(
+                norm(&x.render(false)),
+                norm(&y.render(false)),
+                "{label}: value, q or stack tag"
+            );
+        }
+    }
+
+    /// **The emitter really holds a value across a crossed call.**
+    ///
+    /// Every other crossing test is a differential, and a differential passes
+    /// just as well if the emitter quietly synced everything and crossed
+    /// nothing — the stacks would still match, because syncing early is always
+    /// *correct*, merely slower. `crossable_calls` proves the **plan** said
+    /// crossable; it says nothing about the code.
+    ///
+    /// So this asserts the shape instead, which is the by-construction style
+    /// criterion 17 uses for dominance: compile the same body twice, once with
+    /// the crossable table and once without, and require the crossed form to
+    /// emit **strictly fewer pushes before its call**. The push helper is
+    /// `jit_push_int`, and a held value is precisely a push that did not
+    /// happen there.
+    ///
+    /// **`1 2 nl` is the clearest case**: `nl` consumes nothing, so a crossing
+    /// emits *no* push before the call and the synced form emits two.
+    #[test]
+    fn a_crossed_call_emits_fewer_pushes_than_a_synced_one() {
+        let body = [
+            BundValue::int(1),
+            BundValue::int(2),
+            BundValue::call("nl"),
+        ];
+
+        // The synced form: an empty crossable table, so D68 classifies nothing
+        // and every promoted value is pushed before the call.
+        let mut synced_vm = with_stdlib();
+        let mut synced = Compiler::new(Vec::new()).expect("a compiler");
+        let cells = synced_vm.cells().base();
+        let synced_word = synced
+            .compile_word(&body, LastCall::Ordinary, cells, &mut synced_vm)
+            .expect("lowers");
+        assert_eq!(
+            synced.crossable_calls(synced_word),
+            Some(0),
+            "the control must cross nothing, or it is not a control"
+        );
+
+        // The crossed form: the real table, so `nl` is classified and held
+        // values survive the call.
+        let mut crossed_vm = with_stdlib();
+        let table = bund2_stdlib::promotable::crossable(&crossed_vm.registry);
+        let mut crossed = Compiler::with_crossable(Vec::new(), table).expect("a compiler");
+        let cells = crossed_vm.cells().base();
+        let crossed_word = crossed
+            .compile_word(&body, LastCall::Ordinary, cells, &mut crossed_vm)
+            .expect("lowers");
+        assert_eq!(
+            crossed.crossable_calls(crossed_word),
+            Some(1),
+            "`nl` must be classified crossable, or this compares two controls"
+        );
+
+        // **The witness.** `nl` consumes nothing, so the crossed form pushes
+        // nothing ahead of the call while the synced form pushes both literals.
+        // Both reach the stack by the body's final sync, which is why that one
+        // is not counted: it runs either way and would mask the difference.
+        let synced_pushes = synced.syncs(synced_word).expect("the word was issued");
+        let crossed_pushes = crossed.syncs(crossed_word).expect("the word was issued");
+        assert_eq!(
+            synced_pushes, 2,
+            "the synced form pushes both literals before the call"
+        );
+        assert_eq!(
+            crossed_pushes, 0,
+            "`nl` consumes nothing, so a crossing pushes nothing ahead of it"
+        );
+
+        // Both must still agree with Tier 0 — the shape assertion is in
+        // addition to the differential, never instead of it.
+        let mut tier0 = with_stdlib();
+        tier0.eval(&body).expect("Tier 0 runs it");
+        synced
+            .run(synced_word, &mut synced_vm, &body)
+            .expect("the synced form runs");
+        crossed
+            .run(crossed_word, &mut crossed_vm, &body)
+            .expect("the crossed form runs");
+        assert_eq!(
+            tier0.snapshot().len(),
+            crossed_vm.snapshot().len(),
+            "the crossed form must leave Tier 0's stack"
+        );
+        assert_eq!(
+            synced_vm.snapshot().len(),
+            crossed_vm.snapshot().len(),
+            "and both forms must agree with each other"
+        );
+    }
+
+    /// **D68, the crossing itself: a callee that consumes nothing.**
+    ///
+    /// `nl` is `eff(0, 0)`, on `PROMOTABLE.txt`, `bund2-stdlib`'s, and
+    /// unpublished by §S6 — so it is a generic call that all four gates admit,
+    /// and it consumes nothing. Both literals stay in registers across it and
+    /// reach the stack by the body's last sync.
+    ///
+    /// This is the strongest form of the crossing: `emit_sync_top_n` is asked
+    /// for zero, so nothing at all is pushed before the call.
+    #[test]
+    fn a_crossed_call_that_consumes_nothing_keeps_every_value_held() {
+        assert_crossing_matches_tier0(
+            &[
+                BundValue::int(1),
+                BundValue::int(2),
+                BundValue::call("nl"),
+            ],
+            1,
+            "1 2 nl",
+        );
+    }
+
+    /// **D68, with operands: the top is pushed, the rest stays held.**
+    ///
+    /// `println` is `eff(1, 0)`, so it pops one value from the real stack.
+    /// `emit_sync_top_n` pushes the top promoted value — the `2` — and keeps
+    /// the `1` in a register; the callee consumes the `2`, and the final sync
+    /// puts the `1` back. Tier 0 leaves the same single value.
+    ///
+    /// **This is the ordering property `emit_sync_top_n` exists for.** Syncing
+    /// the wrong end would push the `1`, leave the `2` held, and `println`
+    /// would print the wrong value while the stacks still matched in depth.
+    #[test]
+    fn a_crossed_call_pushes_its_operands_and_holds_the_rest() {
+        assert_crossing_matches_tier0(
+            &[
+                BundValue::int(1),
+                BundValue::int(2),
+                BundValue::call("println"),
+            ],
+            1,
+            "1 2 println",
+        );
+    }
+
+    /// **The spill: a crossed call that fails must still report what it held.**
+    ///
+    /// `1 2 println` crosses and holds the `1`. Following it with a call that
+    /// fails — `+` on a stack holding one value — reaches `fail` with the `1`
+    /// still in a register. Without the spill block the body would report a
+    /// stack missing it, where Tier 0 reports it present.
+    ///
+    /// The bodies must agree on the failure *and* on the stack the program is
+    /// left with, which is criterion 22's first bullet in miniature.
+    #[test]
+    fn a_crossed_call_that_fails_spills_what_it_held() {
+        assert_crossing_matches_tier0(
+            &[
+                BundValue::int(1),
+                BundValue::int(2),
+                BundValue::call("println"),
+                BundValue::call("+"),
+            ],
+            1,
+            "1 2 println +",
+        );
     }
 
     /// **D68's classification, gate by gate.**

@@ -216,6 +216,11 @@ impl Runtime {
         self.interp.tier.as_ref().and_then(|t| t.counted_bodies())
     }
 
+    /// Calls promotion may cross — D68. See [`bund2_api::Tier::crossed_calls`].
+    pub fn crossed_calls(&self) -> Option<usize> {
+        self.interp.tier.as_ref().and_then(|t| t.crossed_calls())
+    }
+
     /// Install a tier, replacing any already there.
     #[cfg(feature = "jit")]
     pub fn install_tier(&mut self, tier: Box<dyn bund2_api::Tier>) {

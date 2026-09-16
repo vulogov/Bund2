@@ -501,9 +501,18 @@ fn run(src: &str, args: &Args) -> Option<i32> {
                     None => String::new(),
                 };
                 let generic = values.saturating_sub(sites + promoted);
+                // **The fifth figure, when the tier can answer it** (D68).
+                // Without it a corpus sweep sees how many values were generic
+                // but not whether promotion crossed any of those calls, which
+                // is the difference between "crossing does not pay" and
+                // "crossing never happened".
+                let crossed = match rt.crossed_calls() {
+                    Some(n) => format!(", {n} crossed"),
+                    None => String::new(),
+                };
                 eprintln!(
                     "bund2: tier compiled {bodies} bodies, inlined {sites} sites, \
-                     promoted {promoted} values, {generic} generic of {values}{at}"
+                     promoted {promoted} values, {generic} generic of {values}{crossed}{at}"
                 );
             }
             (Some(bodies), Some(sites), Some(promoted), None) => {
