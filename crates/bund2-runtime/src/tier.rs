@@ -669,6 +669,38 @@ mod tests {
         );
     }
 
+    /// **Criterion 22, bullet 5 — a lambda that shadows a native (F93).**
+    ///
+    /// "After `:drop { 1 } register`, run a promoted body `1 2 3 drop`. `drop`
+    /// resolves to the lambda, so nothing stays promoted across it, although
+    /// the slot still holds the native's `(1, 0)`."
+    ///
+    /// **The criterion's original wording recursed.** It read
+    /// `:drop { drop drop } register` — a lambda calling the name it shadows,
+    /// which recurses without bound and is killed rather than answering. F93's
+    /// entry uses `:drop { 1 } register`, where `5 drop` leaves `5 1`, and the
+    /// repository owner settled on that shape (2026-09-16). It keeps the
+    /// bullet's teeth: the lambda's real effect, `(0, 1)`, differs from the
+    /// `(1, 0)` the slot still declares, so a tier trusting the declared effect
+    /// diverges in the stacks rather than hiding.
+    ///
+    /// **Two things must hold at once, and `drop` is the one native where they
+    /// meet.** It is a D68 survivor, so its declared `(1, 0)` would make it a
+    /// callee promotion may cross; and it is one of §S6's three published
+    /// fragments, so a tier reading the slot would also *inline* it. Shadowed,
+    /// it must do neither. The `+` is what leaves the body a site, since the
+    /// shadowed `drop` no longer supplies one — which is also why this body
+    /// survives F136's rule.
+    #[test]
+    fn a_lambda_shadowing_a_native_matches_tier_zero() {
+        assert_promoted_matches_tier0(
+            ":drop { 1 } register\n\
+             :w { 1 2 + drop clear } register\n",
+            3,
+            "a lambda that shadows a native",
+        );
+    }
+
     /// **Criterion 20: a body run by a loop word reaches the counter under one
     /// key.**
     ///

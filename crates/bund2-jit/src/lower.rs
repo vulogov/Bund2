@@ -4491,6 +4491,109 @@ mod tests {
         );
     }
 
+    /// **Criterion 27 — promotion does not cross a native `bund2-stdlib` did
+    /// not register (D47).**
+    ///
+    /// "Register a native declaring `eff(1, 1)` that replaces its operand with
+    /// the current depth. Its pair is honest, and it still observes beyond its
+    /// operand. Compile a body that promotes, calls it, and continues. The
+    /// result must match Tier 0's, and the lowering's side table must record
+    /// the call as **synced, not crossed**."
+    ///
+    /// # Why this could not be written until now
+    ///
+    /// The second half needs a synced-versus-crossed record, and there was
+    /// none: `Word` carried no field distinguishing them, because D66/D67 sync
+    /// before every call and nothing was ever crossed. D68 built the crossing
+    /// and [`Word::crossings`] records the verdict per call, so the criterion's
+    /// own words can finally be asserted rather than approximated.
+    ///
+    /// # What refuses this native, precisely
+    ///
+    /// `register_native` mints a `RegistrationId` for **any** caller — an
+    /// embedder's native is registered exactly as `bund2-stdlib`'s is. What
+    /// separates them is `PROMOTABLE.txt`: the audit lists only the natives
+    /// criterion 28's palette brought to `Ok`, a test's native is not among
+    /// them, and `crossable_callee`'s membership check refuses it. That is D47
+    /// and D48 doing their work through one table, which is why the entry is
+    /// keyed by registration and not by name.
+    #[test]
+    fn promotion_does_not_cross_a_native_the_stdlib_did_not_register() {
+        /// `eff(1, 1)`: an honest pair, and an observer all the same.
+        fn depth_of(vm: &mut dyn Vm) -> Result<(), Error> {
+            let _operand = vm.pull();
+            let seen = vm.depth() as i64;
+            vm.push(BundValue::int(seen));
+            Ok(())
+        }
+
+        let mut vm = with_stdlib();
+        vm.registry.register_native(
+            "embedders",
+            depth_of,
+            bund2_api::StackEffect::fixed(1, 1),
+            bund2_api::WordKind::Sync,
+        );
+
+        // The real crossable table, so the refusal below is D47/D48's and not
+        // an empty table refusing everything — which would make this pass for
+        // the wrong reason, as F127's fixtures did.
+        let crossable = bund2_stdlib::promotable::crossable(&vm.registry);
+        assert!(
+            !crossable.is_empty(),
+            "an empty table would refuse every call and prove nothing"
+        );
+
+        // `1 2 nl` crosses — `nl` is certified — and `3 embedders` must not.
+        // Both calls in one body, so the table distinguishes them rather than
+        // refusing wholesale.
+        let body = vec![
+            BundValue::int(1),
+            BundValue::int(2),
+            BundValue::call("nl"),
+            BundValue::int(3),
+            BundValue::call("embedders"),
+        ];
+
+        let mut c = Compiler::with_crossable(Vec::new(), crossable).expect("a compiler");
+        let cells = vm.cells().base();
+        let word = c
+            .compile_word(&body, LastCall::Ordinary, cells, &mut vm)
+            .expect("lowers");
+
+        let crossings = c.crossings(word).expect("the word was issued");
+        let verdict = |i: usize| crossings.iter().find(|(at, _)| *at == i).map(|(_, x)| *x);
+        assert_eq!(
+            verdict(2),
+            Some(true),
+            "`nl` is certified, so the table admits it: {crossings:?}"
+        );
+        assert_eq!(
+            verdict(4),
+            Some(false),
+            "an embedder's native is recorded synced, not crossed: {crossings:?}"
+        );
+
+        // And the result matches Tier 0's, which is the criterion's first half.
+        c.run(word, &mut vm, &body).expect("the compiled word ran");
+        let got = vm.snapshot();
+
+        let mut tier0 = with_stdlib();
+        tier0.registry.register_native(
+            "embedders",
+            depth_of,
+            bund2_api::StackEffect::fixed(1, 1),
+            bund2_api::WordKind::Sync,
+        );
+        tier0.eval(&body).expect("Tier 0 runs the same body");
+        let want = tier0.snapshot();
+
+        assert_eq!(want.len(), got.len(), "depth: {want:?} against {got:?}");
+        for (x, y) in want.iter().zip(got.iter()) {
+            assert_eq!(x.as_int(), y.as_int(), "{want:?} against {got:?}");
+        }
+    }
+
     /// **D68's classification, gate by gate.**
     ///
     /// The four gates are answered at plan time and recorded per call. The

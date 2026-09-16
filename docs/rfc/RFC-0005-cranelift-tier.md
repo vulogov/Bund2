@@ -44,13 +44,13 @@
   - **Not met** — 4's reachable remainder alone. **14 and 20 moved to met on
     2026-09-16**; 4's remainder is unreachable from a `JITModule` and belongs to
     RFC-0006's AOT path, which that criterion's own audit records.
-  - **Blocked, with a named blocker** — 27, and 22's last two bullets, both on
-    **D68's implementation**. Each asks the lowering's side table to record a
-    call as *crossed* by promotion, and D66/D67 sync before every call, so
-    nothing is crossed and no such record exists. D68 settles the rule for when
-    something is, and states its own status as decided but not yet built. The
-    other four of 22's six bullets are **written and passing** as of
-    2026-09-16, in seven tests.
+  - **Blocked, with a named blocker** — 22's last bullet alone. **27 moved to
+    met on 2026-09-16**, when D68 was built and `Word::crossings` gave it the
+    synced-versus-crossed record it asks for, and **bullet 5 was written the
+    same day** once the owner settled its wording on F93's `:drop { 1 }`. Bullet
+    6 is blocked on **F137** rather than on D68: the crossing ignores §S5's
+    reporter gate, and no seam exposes `wants_stack` where the decision is made.
+    Five of 22's six bullets are **written and passing**, in eight tests.
   **Criterion 7, met on three guarded runs against one baseline, 2026-09-15.**
   **Every row of all five groups is inside the 5% band** in all three, judged
   under D70. The widest readings are `corpus/sequence_generate_2` at −4.53% and
@@ -5428,10 +5428,21 @@ evidence, and this one is listed as runnable rather than as met.
       `:f { :g { drop drop drop } register g } register`, which rebinds `g`
       during the call. The stacks and diagnostics must match.
     - **A lambda that shadows a native (F93).** After
-      `:drop { drop drop } register`, run a promoted body `1 2 3 drop`.
+      `:drop { 1 } register`, run a promoted body `1 2 3 drop`.
       `drop` resolves to the lambda, so nothing stays promoted across it,
       although the slot still holds the native's `(1, 0)`. The stacks must
       match Tier 0's.
+
+      **Corrected 2026-09-16, by the repository owner.** This bullet first read
+      `:drop { drop drop } register` — a lambda that calls the name it shadows,
+      which recurses without bound, so run as written it is killed and answers
+      nothing. F93's own entry uses `:drop { 1 } register`, where `5 drop`
+      leaves `5 1`, and that shape is now the bullet's. It keeps what the
+      bullet is for: the lambda's real effect, `(0, 1)`, differs from the
+      `(1, 0)` the slot still declares, so a tier that trusted the declared
+      effect diverges visibly. The correction is recorded rather than made
+      silently, because the original wording is the one a reader would
+      reconstruct.
     - **The reporter, observed through the diagnostic.** Under
       `CollectingReporter` (`crates/bund2-api/src/diag.rs`) with
       `wants_stack` set, run a promoted body
@@ -5493,12 +5504,25 @@ evidence, and this one is listed as runnable rather than as met.
     is the loop driver's, not the body's — `:w { 1 2 h clear }` entered once
     compiles **0 bodies**, and the "1 body" first seen was `{ w }`.
 
-    **A discrepancy in bullet 5, for whoever writes it.** This criterion writes
+    **Five of six, 2026-09-16.** Bullet 5 is written as
+    `a_lambda_shadowing_a_native_matches_tier_zero`, once the owner settled its
+    wording. The discrepancy was this: the bullet wrote
     `:drop { drop drop } register` — a lambda that calls the name it shadows,
-    which recurses without bound; run as written it is killed. F93's own entry
-    uses `:drop { 1 } register`, where `5 drop` leaves `5 1`. Which shape the
-    bullet intends is the owner's to settle, and it is recorded here rather than
-    silently substituted.
+    which recurses without bound, so run as written it is killed and answers
+    nothing. F93's own entry uses `:drop { 1 } register`, where `5 drop` leaves
+    `5 1`. **The owner took F93's shape**, and the bullet's text above now
+    carries it with the correction recorded in place.
+
+    The test's body is `:drop { 1 } register` then `:w { 1 2 + drop clear }`.
+    `drop` is the one native where both of this criterion's concerns meet: it is
+    a D68 survivor, so its declared `(1, 0)` would make it crossable, *and* it is
+    one of §S6's three published fragments, so a tier reading the slot would
+    inline it. Shadowed, it must do neither, and the `+` is what leaves the body
+    a site once the shadowed `drop` stops supplying one.
+
+    **Only bullet 6 remains, and it is blocked on F137**, not on D68: it asks
+    for the crossing to be suppressed while the reporter wants mid-body
+    snapshots, and no seam exposes `wants_stack` where that decision is made.
 
 23. **A body compiled for one `Interp` is never run by another.** On one
     thread, build two `Interp`s, evaluate a body under the first until it is
@@ -5703,6 +5727,25 @@ evidence, and this one is listed as runnable rather than as met.
     and continues. The result must match Tier 0's, and the lowering's side
     table (criterion 17) must record the call as synced, not crossed. Needs a
     tier.
+
+    **Met, 2026-09-16, once D68 was built.**
+    `promotion_does_not_cross_a_native_the_stdlib_did_not_register`
+    (`crates/bund2-jit/src/lower.rs`) registers `embedders`, an `eff(1, 1)`
+    native that pops its operand and answers the depth beneath it — honest
+    about its pair, and an observer all the same. The body is
+    `1 2 nl 3 embedders`: `nl` is certified so the table admits it, and the
+    test-registered native is **recorded synced, not crossed**, which is this
+    criterion's own wording and what `Word::crossings` now makes assertable.
+    The result matches Tier 0's besides.
+
+    **What refuses it is the table, not the registration.** `register_native`
+    mints a `RegistrationId` for any caller — an embedder's native is
+    registered exactly as `bund2-stdlib`'s. `PROMOTABLE.txt` lists only what
+    criterion 28's palette brought to `Ok`, a test's native is not among them,
+    and the membership check refuses it. D47 and D48 through one table, which
+    is why it is keyed by registration rather than by name.
+
+    The blocked note below stands as what was true before D68 was built.
 
     **Blocked, 2026-09-16 — on D68's implementation, not on a tier.** The first
     half is writable and is essentially criterion 14's test with a

@@ -3944,6 +3944,59 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F137 — D68's crossing ignores §S5's reporter gate, and no seam exposes it
+
+**A Bund2 defect**, found while writing criterion 27, in code committed the same
+day (D68's step 3).
+
+§S5 states a rule structurally: **"while the reporter wants a snapshot for a
+severity natives report mid-body, `Warning` or `Notice`, no value stays promoted
+across a call"**, and **"the reporter is read at each compiled body's entry"** —
+not when the `Interp` is built, because the CLI replaces it afterwards and the
+field is public. Promotion assumption 2 repeats it: `wants_stack` "can change
+between runs… so it is read at each entry".
+
+**The crossing reads it nowhere.** `crossable_callee` asks four gates — D46,
+D47, D48, D68 — and none of them is this one. So a body compiled under a
+reporter that wants mid-body snapshots crosses calls §S5 forbids it to cross,
+and a native reporting a `Warning` mid-body would snapshot a stack missing every
+value still held in a register. That is Q34's shape, which §S5 raises this rule
+to prevent.
+
+### Why it is not a one-line fix
+
+No seam reaches the reporter from where the decision is made:
+
+- `Vm` exposes `report`, not `wants_stack` (`crates/bund2-api/src/lib.rs`).
+- `Ctx` holds `vm`, `err`, `natives` and `body` — no reporter
+  (`crates/bund2-jit/src/lower.rs`).
+- `JitTier::enter` takes `&mut dyn Vm`, not an `Interp`, and the reporter is a
+  public field *on* `Interp` (`crates/bund2-interp/src/lib.rs`).
+
+So the gate needs `wants_stack` on the `Vm` trait — new public surface on D36's
+seam — consulted at each compiled body's entry rather than at plan time, since
+§S5 is explicit that the answer may differ between runs of the same body.
+
+### What saves it in practice, and what does not
+
+**Under `bund2 script` the rule withholds nothing**, which is D45's whole point:
+`TextReporter` wants a snapshot only for a fatal report, and the one fatal
+report comes after evaluation has returned. Every `conform` run is in that
+configuration, which is why conformance is unmoved at 106/114 and why no test
+caught this.
+
+**It bites exactly where §S5 says it does**: `CollectingReporter` with
+`wants_stack` set, or a TUI that shows the stack beside a warning — the
+configuration RFC-0005 names as the reason the rule exists. D36's seam was
+designed for a TUI, so this is a defect in the thing the seam was built for.
+
+- Found: 2026-09-16, writing criterion 27 against D68's implementation
+- Status: **OPEN**. Blocks criterion 22's last bullet, which requires the
+  suppression by name. The fix adds a method to the `Vm` trait, which is a
+  decision about D36's seam and the repository owner's to take.
+- Depends on: §S5 (the rule), D45 (which narrowed when it bites), D36 (the
+  reporter seam), D68 (the crossing that omits it)
+
 ## F136 — F133's rule asks whether a body gains *anything*, not whether it gains *enough* — RESOLVED
 
 **A Bund2 defect**, found by decomposing criterion 10's per-value cost into the

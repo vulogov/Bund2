@@ -3595,9 +3595,49 @@ found a real defect, rather than retiring a number that was inconvenient.
 - Blocks: nothing; it is the fourth gate on §S5's promotion across calls
 - Depends on: D46 (not across a lambda), D47 (stdlib natives only), D48
   (`PROMOTABLE.txt`), D66/D67 (promotion as built)
-- Status: **RESOLVED — decided. Not yet built**, because promotion across calls
-  is not yet built: D66/D67 sync before every call. The rule is settled for
-  when it is.
+- Status: **RESOLVED — decided and built**, 2026-09-16. `Compiler::would_gain`'s
+  sibling `crossable_callee` asks all four gates at plan time,
+  `Plan::Call { cross: Option<u8> }` carries the verdict and the operand count,
+  `emit_sync_top_n` pushes the callee's operands while deeper values stay in
+  registers, and each crossed call emits a spill block so a failure still
+  reports what it held. `Word::crossings` records the verdict per call and
+  `Word::syncs` counts the pushes emitted ahead of a call, which is what
+  witnesses the crossing in emitted code rather than in the plan.
+  **In the corpus: 4 of 13 generic calls are crossed**, across 4 of the 7
+  programs that compile anything.
+- **One gate is not built: §S5's reporter gate.** The crossing happens today
+  regardless of what the reporter wants, and §S5 requires otherwise. **F137**
+  carries it.
+- **Its reach is narrowed by F136, and that is accepted, 2026-09-16.** F136
+  refuses a body with no inlinable site, and a site comes only from §S6's
+  `PUBLISHED` — `+`, `dup_one`, `drop` (`crates/bund2-stdlib/src/fragments.rs`).
+  Of the sixteen survivors named below, `drop` is the only one also published,
+  and a published word inlines rather than being called, so **the other fifteen
+  reach D68 only in a body that already inlines something else**. A body of
+  `1 2 println nl` — the shape the survivor list is about — is refused before
+  D68 is consulted.
+  **The repository owner ruled: leave both rules as they stand.** The corpus
+  says the narrowing is not a nullification — **4 of 13 generic calls crossed,
+  across 4 of the 7 programs that compile anything**. Relaxing F136 to admit a
+  zero-site body that crosses a call was considered and refused: the two bodies
+  F136 drops measured −4.0 ns each, crossing does not touch the +5.13 ns a
+  generic call costs compiled, and against F130's 125–141 µs compile cost a body
+  whose whole gain is one held value needs on the order of forty thousand
+  entries to repay. **Publishing more fragments is the lever that dissolves this
+  rather than trading against it** — every arm added admits more bodies past
+  F136 *and* removes a call, since inlining and crossing are complementary — and
+  that is a §S6 decision, not a patch.
+- **Correction, appended rather than rewritten.** The line above first read
+  "One half is not built: D45's suppression", which inverts D45. D45's decision
+  is that `wants_stack` **takes the severity**, and its status is
+  *RESOLVED — built*; it narrowed when §S5's rule bites (the CLI's
+  `TextReporter` wants a snapshot only for `Severity::Error`, so ordinary runs
+  promote across calls) rather than removing the rule. The rule itself stands,
+  structurally, in §S5: "while the reporter wants a snapshot for a severity
+  natives report mid-body, `Warning` or `Notice`, no value stays promoted
+  across a call", read "at each compiled body's entry". Assumption 2 repeats
+  it. Mistaking a narrowing for a repeal is the error, and it is left on the
+  page because the register is append-only and the misreading is the easy one.
 
 **The invariant, stated properly.** Q39 as filed said the promoted set is a
 strict suffix of the abstract stack, so any callee consuming promoted values
