@@ -22,15 +22,25 @@
   body and never rejoins. `crates/bund2-jit` carries **63** tests under
   `--features jit`, not the seventeen this paragraph claimed.
 
-  **The audit's result: 17 met, 2 measured, 3 partial, 5 not met, 3 deferred
-  behind a named blocker.** Each criterion carries a dated note of its own; the
-  summary here is the map. The distinction between *not met* and *deferred* is
-  load-bearing: a deferral names what must happen first and is a plan, while an
-  unmet criterion is work nobody has done.
+  **The audit's result, restated 2026-09-16: 22 met, 2 measured, 3 partial,
+  1 not met, nothing deferred.** Each criterion carries a dated note of its own;
+  the summary here is the map. The distinction between *not met* and *deferred*
+  is load-bearing: a deferral names what must happen first and is a plan, while
+  an unmet criterion is work nobody has done. **The deferred group is now
+  empty** — the three that sat in it, 14, 20 and 27, were built rather than
+  re-planned, and criterion 22's two blocked bullets went with them.
 
-  - **Met** — 1, 2, 3, 6, **7**, 8, 11, 12, **14**, 15, 16, 19, **20**, 21, 23,
-    24, 25, 26, 28, 29. Criterion 7's evidence is set out below, because what it
-    cost to get a clean reading is worth more than the verdict.
+  The line this replaces read "17 met, 2 measured, 3 partial, 5 not met, 3
+  deferred" and was left standing while the lists beneath it moved four times in
+  one day. It is restated here rather than corrected in place each time, because
+  a summary that disagrees with the enumeration under it is worse than no
+  summary: **count the lists, not this sentence**, if the two ever part again.
+
+  - **Met** — 1, 2, 3, 6, **7**, 8, 11, 12, **14**, 15, 16, 19, **20**, 21,
+    **22**, 23, 24, 25, 26, **27**, 28, 29. Criterion 7's evidence is set out
+    below, because what it cost to get a clean reading is worth more than the
+    verdict. **22 and 27 joined on 2026-09-16**, on D68's crossing and D71's
+    reporter gate.
   - **Measured** — 9 (the sync's crossover is 4 words), 10 (1.06× on the
     shipped lowering, **below the 1.2× stop rule**, which is why the gate stays
     open). That figure is **per program**; per *entry* the same lowering reads
@@ -38,20 +48,21 @@
     2026-09-15), the gain being diluted at program scale by everything an
     iteration does besides the body. The stop rule is stated on the program
     figure and stays unmet.
-  - **Partial** — 5, 17, 22, 30: each has a half met and a half outstanding, or
-    a bound stated and unmeasured. **22 moved here on 2026-09-16**: four of its
-    six bullets are written and pass, in seven tests.
+  - **Partial** — 5, 17, 30: each has a half met and a half outstanding, or a
+    bound stated and unmeasured. **22 left this group on 2026-09-16**: all six
+    of its bullets are written and pass, in ten tests, once D68 gave it a
+    synced-versus-crossed record and D71 resolved F137.
   - **Not met** — 4's reachable remainder alone. **14 and 20 moved to met on
     2026-09-16**; 4's remainder is unreachable from a `JITModule` and belongs to
     RFC-0006's AOT path, which that criterion's own audit records.
-  - **Blocked, with a named blocker** — none, as of 2026-09-16. **27 moved to
-    met** when D68 was built and `Word::crossings` gave it the
-    synced-versus-crossed record it asks for; **bullet 5 was written** once the
-    owner settled its wording on F93's `:drop { 1 }`; and **bullet 6 was
-    unblocked** when D71 resolved F137, excluding every mid-body reporting
-    native from the crossable table and adding `Vm::wants_stack` beside it.
-    Five of 22's six bullets are **written and passing**, in eight tests; the
-    sixth is writable and unwritten.
+  - **Blocked, with a named blocker** — none, as of 2026-09-16, and none
+    outstanding. **27 moved to met** when D68 was built and `Word::crossings`
+    gave it the synced-versus-crossed record it asks for; **bullet 5 was
+    written** once the owner settled its wording on F93's `:drop { 1 }`; and
+    **bullet 6 was unblocked and written** when D71 resolved F137, excluding
+    every mid-body reporting native from the crossable table and adding
+    `Vm::wants_stack` beside it. **Criterion 22 is met**, six bullets in ten
+    tests.
   **Criterion 7, met on three guarded runs against one baseline, 2026-09-15.**
   **Every row of all five groups is inside the 5% band** in all three, judged
   under D70. The widest readings are `corpus/sequence_generate_2` at −4.53% and
@@ -5512,6 +5523,8 @@ evidence, and this one is listed as runnable rather than as met.
     | an effect changed at run time | `an_effect_changed_before_the_body_runs_matches_tier_zero`, and `..._mid_body_...` |
     | an alias whose target is rebound | `an_alias_whose_target_is_rebound_matches_tier_zero`, and `an_alias_rebound_mid_body_...` |
     | a lambda callee rebound (D46) | `a_lambda_callee_rebound_before_the_body_runs_...`, and `..._during_the_call_...` |
+    | a lambda that shadows a native (F93) | `a_lambda_shadowing_a_native_matches_tier_zero` |
+    | the reporter, observed through the diagnostic | `a_mid_body_warning_carries_tier_zeros_snapshot`, and `the_same_body_still_crosses_under_the_cli_reporter` |
 
     The error bullet's body is `1 2 + true + clear`: the first `+` inlines and
     promotes both literals, the second is handed a `true` its type guard
@@ -5544,14 +5557,43 @@ evidence, and this one is listed as runnable rather than as met.
     inline it. Shadowed, it must do neither, and the `+` is what leaves the body
     a site once the shadowed `drop` stops supplying one.
 
-    **Bullet 6 was unblocked on 2026-09-16 by D71**, which resolved F137. It
-    asks that `alias`'s mid-body warning carry the same snapshot in both tiers
-    under a reporter that wants one. D71 makes that true structurally: `alias`
-    reports mid-body, so it is excluded from the crossable table and no value is
-    ever held across it. Its second half — that under a reporter wanting only
-    fatal snapshots the side table still records a call crossed in the same body
-    — is unaffected, because crossing no longer depends on the reporter at all.
-    The bullet is writable and not yet written.
+    **Six of six, 2026-09-16 — this criterion is met.** Bullet 6 was unblocked
+    by D71, which resolved F137, and written the same day in two tests.
+
+    The first half compares the **snapshot** `alias` takes while warning
+    mid-body. D71 makes it exact structurally: `alias` reports mid-body, so it
+    is excluded from the crossable table and no value is ever held across it.
+
+    **What that test nearly asserted, and did not.** Its first version compared
+    `Observed::diagnostics`, whose third channel is `stack_name` — the *name* of
+    the stack. The snapshot is `Diagnostic::stack`, a separate field, which
+    `Observed` does not carry at all, so the comparison touched everything about
+    the warning except the thing this bullet exists to check. It passed. The
+    test now reads both reporters directly and compares `stack` and `workbench`
+    per warning, asserts the snapshot is present and non-empty, and asserts the
+    promoted sum appears in it — because two `None`s compare equal, and a
+    snapshot short by exactly the promoted value is what a wrongly crossed
+    `alias` would produce. `Observed` was left alone rather than widened, since
+    seven other differentials share it.
+
+    **The body deviates from the criterion's `1 2 :x :x alias`, recorded rather
+    than substituted**, as bullet 5's wording was. That body has no inlinable
+    site, so F136's rule refuses to compile it and the comparison would be Tier
+    0 against itself — F127's shape. The test runs `1 2 + nl :x :x alias clear`:
+    `+` publishes an arm, so it inlines and promotes the sum; `nl` is
+    `eff(0, 0)`, certified and unpublished, so it is a generic call D68 crosses,
+    leaving the sum in a register across it; then `alias`, which D71 refuses to
+    cross, forces the sync and warns with the sum on the stack where Tier 0 also
+    has it.
+
+    The second half runs the same body under `TextReporter::new(true)`, whose
+    `wants_stack` is `dump_stack && severity.is_fatal()`
+    (`crates/bund2-stdlib/src/report.rs`) — a snapshot for a fatal report and
+    never for a warning. D71's dynamic gate therefore does not fire under the
+    CLI's own configuration, and a crossing must still be recorded. A rule that
+    suppressed promotion across calls in every `bund2 script` run would make
+    §S6's promotion figures numbers for a configuration nobody runs, which is
+    the error D45 was taken to correct.
 
 23. **A body compiled for one `Interp` is never run by another.** On one
     thread, build two `Interp`s, evaluate a body under the first until it is

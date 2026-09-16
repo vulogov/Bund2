@@ -765,6 +765,155 @@ mod tests {
         );
     }
 
+    /// **Criterion 22, bullet 6 — the reporter, observed through the
+    /// diagnostic.** D71, F137, §S5.
+    ///
+    /// "Under `CollectingReporter` with `wants_stack` set, run a promoted body
+    /// … `alias` is `eff(2, 0)` and warns mid-body that `x` resolves back to
+    /// itself, with values promoted below its arity. The warning's snapshot in
+    /// `CollectingReporter::seen` must equal Tier 0's … That snapshot is the
+    /// seam that shows whether anything was held across the call."
+    ///
+    /// **This is the bullet the whole reporter rule exists for.** If a value
+    /// were held in a register across `alias`, the snapshot it takes would be
+    /// short by exactly that value, and the two tiers would disagree in the
+    /// diagnostic while agreeing everywhere else. D71 makes that impossible
+    /// structurally — `alias` reports mid-body, so it is excluded from the
+    /// crossable table and nothing is ever held across it.
+    ///
+    /// **The body deviates from the criterion's `1 2 :x :x alias`, recorded
+    /// rather than substituted.** That body has no inlinable site, so F136's
+    /// rule refuses to compile it and the comparison would be Tier 0 against
+    /// itself — F127's shape, and the same trap bullet 5's wording carried.
+    /// `1 2 + nl :x :x alias` keeps what the bullet asks for and pays F136:
+    /// `+` publishes an arm, so it inlines and promotes the sum; `nl` is
+    /// `eff(0, 0)`, certified and unpublished, so it is a generic call D68
+    /// crosses, leaving the sum in a register across it; then `alias` — which
+    /// D71 refuses to cross — forces the sync, and warns with the sum on the
+    /// stack where Tier 0 also has it.
+    #[test]
+    fn a_mid_body_warning_carries_tier_zeros_snapshot() {
+        let setup = ":w { 1 2 + nl :x :x alias clear } register\n";
+
+        let seen = WantingReporter::default();
+        let mut tiered = crossing_runtime_with(1);
+        tiered.interp.reporter = Box::new(seen.clone());
+        tiered.eval_str(setup).expect("setup runs");
+
+        let mut outcome = Ok(());
+        for _ in 0..3 {
+            if outcome.is_ok() {
+                outcome = tiered.eval_str("w");
+            }
+        }
+
+        assert!(
+            tiered.compiled_bodies().unwrap_or(0) > 0,
+            "nothing compiled, so this compares Tier 0 with itself"
+        );
+        assert!(
+            tiered.promoted_values().unwrap_or(0) > 0,
+            "nothing promoted, so the snapshot says nothing about what was held"
+        );
+
+        let plain_seen = WantingReporter::default();
+        let mut plain = crate::Runtime::new();
+        plain.take_tier();
+        plain.interp.reporter = Box::new(plain_seen.clone());
+        plain.eval_str(setup).expect("setup runs");
+        let mut plain_outcome = Ok(());
+        for _ in 0..3 {
+            if plain_outcome.is_ok() {
+                plain_outcome = plain.eval_str("w");
+            }
+        }
+
+        let a = observe(&mut tiered, outcome, &SharedReporter(seen.0.clone()));
+        let b = observe(&mut plain, plain_outcome, &SharedReporter(plain_seen.0.clone()));
+        assert!(
+            a.diagnostics.iter().any(|(sev, _, _)| sev == "Warning"),
+            "`alias` did not warn, so this test asserts nothing: {:?}",
+            a.diagnostics
+        );
+        assert_eq!(a.diagnostics, b.diagnostics, "the warning itself");
+
+        // **The snapshot is not in `Observed`.** Its diagnostic channel carries
+        // severity, reason and `stack_name`; the snapshot bullet 6 is about is
+        // `Diagnostic::stack`, a separate field. Comparing `a.diagnostics`
+        // alone would assert nothing about what was held across the call, which
+        // is the only thing this bullet exists to check — so the reporters are
+        // read directly rather than widening `Observed`, which seven other
+        // differentials share.
+        let snaps = |w: &WantingReporter| -> Vec<(Option<Vec<String>>, Option<Vec<String>>)> {
+            w.0.borrow()
+                .iter()
+                .filter(|d| d.severity == bund2_api::diag::Severity::Warning)
+                .map(|d| (d.stack.clone(), d.workbench.clone()))
+                .collect()
+        };
+        let tier_snaps = snaps(&seen);
+        let plain_snaps = snaps(&plain_seen);
+
+        // Both sides `None` would compare equal and prove nothing — the trap
+        // this test was written into once already. The snapshot must exist and
+        // must contain the promoted sum, which is the value a crossing would
+        // have left in a register and hidden from `alias`.
+        assert!(
+            tier_snaps
+                .iter()
+                .any(|(s, _)| s.as_ref().is_some_and(|rows| !rows.is_empty())),
+            "the warning carried no stack snapshot, so this asserts nothing: \
+             {tier_snaps:?}"
+        );
+        assert!(
+            tier_snaps.iter().any(|(s, _)| s
+                .as_ref()
+                .is_some_and(|rows| rows.iter().any(|r| r.contains('3')))),
+            "the promoted sum is missing from the snapshot, which is exactly \
+             what a value held across `alias` would look like: {tier_snaps:?}"
+        );
+        assert_eq!(
+            tier_snaps, plain_snaps,
+            "the mid-body warning's snapshot must be Tier 0's, value for value"
+        );
+        assert_eq!(a.outcome, b.outcome, "outcome");
+        assert_eq!(a.current, b.current, "current stack");
+        assert_eq!(a.stacks, b.stacks, "stacks");
+        assert_eq!(a.workbench, b.workbench, "workbench");
+    }
+
+    /// **Criterion 22, bullet 6's second half.** "Then, under
+    /// `TextReporter::new(true)`, the lowering's side table (criterion 17) must
+    /// record at least one call crossed by promotion in the same body. Under
+    /// the default reporter, promotion across calls must not be zero (D45)."
+    ///
+    /// `TextReporter::new(true)` is the CLI's own configuration, and its
+    /// `wants_stack` is `dump_stack && severity.is_fatal()`
+    /// (`crates/bund2-stdlib/src/report.rs`) — so it wants a snapshot for a
+    /// fatal report and never for a warning. That is what makes it the right
+    /// reporter for this half: D71's dynamic gate does **not** fire under it,
+    /// so a crossing must still be recorded. A rule that suppressed promotion
+    /// across calls in every `bund2 script` run would make §S6's promotion
+    /// figures numbers for a configuration nobody runs, which is the error D45
+    /// was taken to correct.
+    #[test]
+    fn the_same_body_still_crosses_under_the_cli_reporter() {
+        let mut r = crossing_runtime_with(1);
+        r.interp.reporter = Box::new(bund2_stdlib::report::TextReporter::new(true));
+        r.eval_str(":w { 1 2 + nl :x :x alias clear } register\n")
+            .expect("setup runs");
+        for _ in 0..3 {
+            r.eval_str("w").expect("the body runs");
+        }
+
+        assert!(
+            r.crossed_calls().unwrap_or(0) > 0,
+            "under a reporter that wants only fatal snapshots, promotion must \
+             still cross a call (D45); zero here means §S5's rule was applied \
+             to a configuration it does not govern"
+        );
+    }
+
     /// **Criterion 20: a body run by a loop word reaches the counter under one
     /// key.**
     ///
