@@ -413,6 +413,27 @@ impl Tiering {
         self.counter.len()
     }
 
+    /// **How many times this body has been counted** — RFC-0005 criterion 20.
+    ///
+    /// [`Tiering::counted`] answers how many bodies the map holds; this answers
+    /// what one of them holds. The criterion needs both: "run a lambda through
+    /// `times` 100 times and assert §S7's counter holds **one entry** for it,
+    /// **at 100**" — one entry is the first figure, at 100 is this one, and the
+    /// property is that a loop body reaches the counter under a single key
+    /// rather than a fresh one per iteration.
+    ///
+    /// **A dead entry answers `None`**, like every other read here: its address
+    /// may already belong to a different body, and a count served across that
+    /// boundary would be the false hit §S3 forbids.
+    pub fn count_of(&self, body: &BundValue) -> Option<u32> {
+        let key = body.payload_key()?;
+        let entry = self.counter.get(&key)?;
+        if entry.is_dead() {
+            return None;
+        }
+        Some(entry.value)
+    }
+
     /// How many bodies hold compiled code.
     pub fn compiled_count(&self) -> usize {
         self.cache.len()
@@ -657,6 +678,33 @@ mod tests {
         assert_eq!(t.counted(), 1, "the entry outlives the body");
         t.sweep();
         assert_eq!(t.counted(), 0, "and is gone after the sweep");
+    }
+
+    /// **Criterion 20's second half, at the level the counter lives.** The
+    /// runtime's `a_loop_body_reaches_the_counter_under_one_key` asserts the
+    /// *one entry* half through the seam; this asserts the *at N* half against
+    /// `Tiering` directly, where the count for a single body is readable.
+    ///
+    /// The two together are the criterion: one key, counted once per entry. A
+    /// threshold above the entry count keeps the body out of the cache, since
+    /// `observe` answers `Compiled` before it increments and a compiled body's
+    /// count would freeze.
+    #[test]
+    fn one_body_entered_n_times_is_counted_n_times_under_one_key() {
+        let mut t = Tiering::new(Caps {
+            threshold: 1_000_000,
+            ..small()
+        });
+        let b = body(1);
+        for _ in 0..100 {
+            assert_eq!(t.observe(&b), Decision::Interpret, "never reaches the cache");
+        }
+        assert_eq!(t.counted(), 1, "one key, not one per entry");
+        assert_eq!(t.count_of(&b), Some(100), "counted once per entry");
+
+        // A body the counter has never seen has no count — distinct from a
+        // body counted zero times, which cannot exist.
+        assert_eq!(t.count_of(&body(2)), None, "unseen bodies answer None");
     }
 
     /// **Below the threshold a body is interpreted; at it, compiled.** §S7's

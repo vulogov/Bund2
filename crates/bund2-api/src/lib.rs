@@ -702,6 +702,21 @@ pub trait Tier {
         None
     }
 
+    /// **How many bodies the promotion counter is tracking** — §S7's counter,
+    /// criterion 20.
+    ///
+    /// The fifth figure, and the first about the counter rather than the cache.
+    /// Criterion 20 asks that "a body run by a loop word reaches the counter
+    /// under one key": a hundred iterations of one lambda must leave **one**
+    /// entry, not a hundred. That is a property of D35's payload keying seen
+    /// from outside, and `Interp` owns the tier, so without a method here the
+    /// only way to look is to take the tier out and downcast it — which would
+    /// mean adding `Any` to this trait to observe something the four figures
+    /// above are already precedent for reporting.
+    fn counted_bodies(&self) -> Option<usize> {
+        None
+    }
+
     /// **The promotion threshold this tier is using** — §S7's knob, F125.
     ///
     /// How many evaluations of one body earn it compilation. Reported so a

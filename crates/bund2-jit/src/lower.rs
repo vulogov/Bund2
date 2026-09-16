@@ -3934,6 +3934,106 @@ mod tests {
         }
     }
 
+    /// **Criterion 14 — a word that reads beyond its arity is a promotion
+    /// barrier.**
+    ///
+    /// The criterion: "compile a body that promotes, then calls a word which
+    /// inspects the stack beyond its declared arity, and assert the observed
+    /// depth and contents match Tier 0's."
+    ///
+    /// D55's audit *identifies* such natives — `Interp::note_observation`
+    /// records a native that reads the whole stack, the whole workbench or a
+    /// stack's depth by name, and criterion 28 keeps them off
+    /// `PROMOTABLE.txt`. **Nothing asserted the barrier itself**, which is a
+    /// different claim: that a compiled body has actually synced before one
+    /// runs. This is that assertion.
+    ///
+    /// # Why the native must read *beneath* its operand
+    ///
+    /// A native declaring `eff(1, 1)` is entitled to its own operand. The
+    /// interesting one looks *past* it: `beneath` pops its operand, then reports
+    /// the depth still under it. A body that promoted `1` and `2` and failed to
+    /// sync would leave those in registers, so the native would see a shallower
+    /// stack than Tier 0 gave it — and the two arms would disagree on a value
+    /// neither the type guard nor the effect declaration would catch.
+    ///
+    /// The differential is the assertion. `a_synced_value_keeps_its_stack_tag`
+    /// above proves the sync *happens*; this proves it happens **before a
+    /// native that would notice**, which is the barrier D55 exists to place.
+    #[test]
+    fn a_native_reading_beneath_its_operand_sees_tier_zeros_stack() {
+        /// `eff(1, 1)`: consumes its operand, answers the depth beneath it.
+        ///
+        /// Honest about its pair and still an observer — exactly the shape
+        /// criterion 14 names, and the one D55 flags for `PROMOTABLE.txt`.
+        fn beneath(vm: &mut dyn Vm) -> Result<(), Error> {
+            let _operand = vm.pull();
+            let under = vm.depth() as i64;
+            vm.push(BundValue::int(under));
+            Ok(())
+        }
+
+        let (mut vm, table) = with_fragments();
+        vm.registry.register_native(
+            "beneath",
+            beneath,
+            bund2_api::StackEffect::fixed(1, 1),
+            bund2_api::WordKind::Sync,
+        );
+
+        // `1 2 +` promotes both literals and inlines the site; `3` promotes
+        // too. `beneath` then consumes the `3` and reports what is under it —
+        // which is the sum, and only if the sum was synced first.
+        let body = vec![
+            BundValue::int(1),
+            BundValue::int(2),
+            BundValue::call("+"),
+            BundValue::int(3),
+            BundValue::call("beneath"),
+        ];
+
+        let mut c = Compiler::new(table).expect("a compiler");
+        let cells = vm.cells().base();
+        let word = c
+            .compile_word(&body, LastCall::Ordinary, cells, &mut vm)
+            .expect("lowers");
+        // Asserted, not assumed: a body that inlined and promoted nothing would
+        // make this test a differential of Tier 0 against itself — F127's shape.
+        assert_eq!(c.inlined_sites(word), Some(1), "`+` is a site");
+        assert_eq!(
+            c.promoted_values(word),
+            Some(3),
+            "`1`, `2` and `3` are literals"
+        );
+
+        c.run(word, &mut vm, &body).expect("the compiled word ran");
+        let got = vm.snapshot();
+
+        let mut tier0 = with_stdlib();
+        tier0.registry.register_native(
+            "beneath",
+            beneath,
+            bund2_api::StackEffect::fixed(1, 1),
+            bund2_api::WordKind::Sync,
+        );
+        tier0.eval(&body).expect("Tier 0 runs the same body");
+        let want = tier0.snapshot();
+
+        assert_eq!(want.len(), got.len(), "depth: {want:?} against {got:?}");
+        for (x, y) in want.iter().zip(got.iter()) {
+            assert_eq!(x.as_int(), y.as_int(), "{want:?} against {got:?}");
+        }
+
+        // And the observation itself: the native must have seen the synced sum
+        // beneath its operand, not an empty stack. Tier 0 answers 1, so the
+        // compiled arm must too — that equality is the barrier.
+        assert_eq!(
+            got.last().and_then(|v| v.as_int()),
+            Some(1),
+            "`beneath` saw {got:?}; a missing sync would read 0"
+        );
+    }
+
     /// **Criterion 12 — a synced value keeps its stack tag.**
     ///
     /// §S5 writes promoted values back to the real stack, and **D41 put the

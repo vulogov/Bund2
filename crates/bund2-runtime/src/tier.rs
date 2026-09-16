@@ -106,6 +106,10 @@ impl Tier for JitTier {
         Some(self.compiler.as_ref().map_or(0, Compiler::values_total))
     }
 
+    fn counted_bodies(&self) -> Option<usize> {
+        Some(self.tiering.counted())
+    }
+
     fn threshold(&self) -> Option<u32> {
         Some(self.tiering.caps().threshold)
     }
@@ -437,6 +441,62 @@ mod tests {
         assert_eq!(bare.inlined_sites(), None);
         assert_eq!(bare.promoted_values(), None);
         assert_eq!(bare.compiled_values(), None);
+    }
+
+    /// **Criterion 20: a body run by a loop word reaches the counter under one
+    /// key.**
+    ///
+    /// "Run a lambda through `times` 100 times and assert §S7's counter holds
+    /// one entry for it, at 100." The precondition is already proven at Tier 0
+    /// by `times_enters_one_body_under_one_key`
+    /// (`crates/bund2-stdlib/src/seq.rs`), which shows one key across all 100
+    /// entries through the `entry_log` seam; this is the same property asked of
+    /// the counter that D35 keys on a payload pointer.
+    ///
+    /// # Why the threshold is raised above the iteration count
+    ///
+    /// **The counter stops at the threshold, not at 100.** `Tiering::observe`
+    /// answers `Decision::Compiled` from the cache *before* it increments, so a
+    /// body that compiles freezes its count — at the default threshold of 64,
+    /// a hundred iterations would leave 64 and this test would assert the knob
+    /// rather than the key. F136's rule reaches the same result by the other
+    /// road: a refused body is demoted, and a demoted body is turned away at the
+    /// top of `observe`, before counting.
+    ///
+    /// A threshold above the iteration count keeps the body away from both
+    /// paths, which is what isolates the property this row is about. What the
+    /// counter does *at* the threshold is
+    /// `the_threshold_decides_when_a_body_has_earned_compilation`'s subject, and
+    /// its capacity is `the_counter_cap_holds`'; neither is this.
+    /// # How the count is read
+    ///
+    /// Through `Tier::counted_bodies`, a defaulted trait method beside the four
+    /// `--stats` already reports. `Interp` owns the tier and `take_tier` hands
+    /// back a `Box<dyn Tier>`, so the alternative was adding `Any` to the trait
+    /// and downcasting — new surface for a test, which is the objection
+    /// criterion 4 records against reading `Word::_slots`.
+    #[test]
+    fn a_loop_body_reaches_the_counter_under_one_key() {
+        let mut r = runtime_with(1_000_000);
+        r.eval_str("100 { drop } times").expect("the loop runs");
+
+        assert_eq!(
+            r.counted_bodies(),
+            Some(1),
+            "one key for the loop body, not one per iteration"
+        );
+
+        // **And nothing compiled**, which is what keeps the assertion above
+        // about the key rather than about the threshold: a body that compiled
+        // would have frozen its count, since `observe` answers `Compiled` from
+        // the cache before it increments.
+        assert_eq!(r.compiled_bodies(), Some(0), "the threshold is never reached");
+
+        // A tier that is absent answers `None`, as the other figures do — the
+        // distinction the CLI's match arms turn on.
+        let mut bare = crate::Runtime::new();
+        bare.take_tier();
+        assert_eq!(bare.counted_bodies(), None, "no tier, not an empty counter");
     }
 
     /// **§S7's threshold knob, and its precedence** — F125.

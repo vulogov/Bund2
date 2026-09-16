@@ -28,9 +28,9 @@
   load-bearing: a deferral names what must happen first and is a plan, while an
   unmet criterion is work nobody has done.
 
-  - **Met** — 1, 2, 3, 6, **7**, 8, 11, 12, 15, 16, 19, 21, 23, 24, 25, 26, 28,
-    29. Criterion 7's evidence is set out below, because what it cost to get a
-    clean reading is worth more than the verdict.
+  - **Met** — 1, 2, 3, 6, **7**, 8, 11, 12, **14**, 15, 16, 19, **20**, 21, 23,
+    24, 25, 26, 28, 29. Criterion 7's evidence is set out below, because what it
+    cost to get a clean reading is worth more than the verdict.
   - **Measured** — 9 (the sync's crossover is 4 words), 10 (1.06× on the
     shipped lowering, **below the 1.2× stop rule**, which is why the gate stays
     open). That figure is **per program**; per *entry* the same lowering reads
@@ -40,7 +40,15 @@
     figure and stays unmet.
   - **Partial** — 5, 17, 30: each has a half met and a half outstanding, or a
     bound stated and unmeasured.
-  - **Not met** — 14, 20, 22, 27, and 4's reachable remainder.
+  - **Not met** — 22, and 4's reachable remainder. **14 and 20 moved to met on
+    2026-09-16**; 4's remainder is unreachable from a `JITModule` and belongs to
+    RFC-0006's AOT path, which that criterion's own audit records.
+  - **Blocked, with a named blocker** — 27, and 22's last two bullets, both on
+    **D68's implementation**. Each asks the lowering's side table to record a
+    call as *crossed* by promotion, and D66/D67 sync before every call, so
+    nothing is crossed and no such record exists. D68 settles the rule for when
+    something is, and states its own status as decided but not yet built. The
+    other four of 22's six bullets are writable now.
   **Criterion 7, met on three guarded runs against one baseline, 2026-09-15.**
   **Every row of all five groups is inside the 5% band** in all three, judged
   under D70. The widest readings are `corpus/sequence_generate_2` at −4.53% and
@@ -5083,6 +5091,20 @@ evidence, and this one is listed as runnable rather than as met.
     body syncs before such a native. That is a different claim from "the list
     identifies them", and it is the one this criterion makes.
 
+    **Met, 2026-09-16.** `a_native_reading_beneath_its_operand_sees_tier_zeros_stack`
+    (`crates/bund2-jit/src/lower.rs`) registers `beneath`, an `eff(1, 1)` native
+    that pops its operand and answers the depth **still under it** — honest
+    about its pair and an observer all the same, which is the shape D55 flags.
+    The body is `1 2 + 3 beneath`: three literals promote, `+` inlines, and
+    `beneath` consumes the `3`. A body that failed to sync would leave the sum
+    in a register, so the native would read **0** where Tier 0 reads **1**; the
+    two arms are compared whole, and that value is asserted directly besides.
+
+    The site and promotion counts are asserted **before** the differential —
+    `Some(1)` and `Some(3)` — so the test cannot degenerate into Tier 0 against
+    itself, which is F127's shape and how four earlier tests passed while
+    exercising nothing.
+
 15. **The dependency direction is not inverted.** §S6's mechanism rests on
     `bund2-jit → bund2-stdlib` being permitted while the reverse is not.
     RFC-0000's B3 already checks one half:
@@ -5253,14 +5275,31 @@ evidence, and this one is listed as runnable rather than as met.
     caller's `fail` block, and for an inlined site that block returns `FAIL`
     rather than re-entering the slot call.
 
-20. **Not met, 2026-09-14 — the counter exists and the assertion does not.**
-    §S7's counter is built (`Tiering`, `crates/bund2-jit/src/cache.rs`) and the
-    precondition below holds, so the only thing between this row and a verdict
-    is a test that runs a lambda through `times` 100 times and asks the counter
-    what it holds. `the_counter_cap_holds` and
-    `the_threshold_decides_when_a_body_has_earned_compilation` exercise the
-    counter's *capacity* and *threshold*, not the one-key-per-loop-body
-    property this row is about. Writable now; nothing blocks it.
+20. **Met, 2026-09-16.** Two tests, one per half of the claim.
+    `a_loop_body_reaches_the_counter_under_one_key`
+    (`crates/bund2-runtime/src/tier.rs`) runs `100 { drop } times` through the
+    seam and asserts the counter holds **one** entry; it also asserts nothing
+    compiled, which is what keeps the first assertion about the *key* rather
+    than about the threshold.
+    `one_body_entered_n_times_is_counted_n_times_under_one_key`
+    (`crates/bund2-jit/src/cache.rs`) asserts the **at 100** half where a single
+    body's count is readable — `count_of` answers `Some(100)` — and that an
+    unseen body answers `None`. `the_counter_cap_holds` and
+    `the_threshold_decides_when_a_body_has_earned_compilation` remain about
+    *capacity* and *threshold*; neither is this row.
+
+    **The threshold is raised above the iteration count on purpose.**
+    `Tiering::observe` answers `Decision::Compiled` from the cache *before* it
+    increments, so a body that compiles freezes its count: at the default 64 a
+    hundred iterations leave 64, and the test would assert the knob rather than
+    the key. F136's rule reaches the same freeze by the other road — a refused
+    body is demoted, and a demoted body is turned away at the top of `observe`.
+
+    **The count is read through `Tier::counted_bodies`**, a defaulted trait
+    method beside the four `--stats` reports. `Interp` owns the tier and
+    `take_tier` hands back a `Box<dyn Tier>`, so the alternative was adding
+    `Any` to the trait and downcasting — new surface added for a test, which is
+    the objection criterion 4 records against reading `Word::_slots`.
 
     **A body run by a loop word reaches the counter under one key.** Run a
     lambda through `times` 100 times and assert §S7's counter holds one entry
@@ -5627,6 +5666,24 @@ evidence, and this one is listed as runnable rather than as met.
     and continues. The result must match Tier 0's, and the lowering's side
     table (criterion 17) must record the call as synced, not crossed. Needs a
     tier.
+
+    **Blocked, 2026-09-16 — on D68's implementation, not on a tier.** The first
+    half is writable and is essentially criterion 14's test with a
+    stdlib-unregistered native. The second half cannot be written: there is **no
+    synced-vs-crossed record to assert against**. `Word` carries `entry`,
+    `_slots`, `values`, `last`, `sites`, `literals` and `resumes` and nothing
+    else, and criterion 17's side table is `Vec<(Block, Block)>` — guard block
+    and inlined region, for the dominance check. No field, accessor or table
+    distinguishes a synced call from a crossed one, because **D66/D67 sync
+    before every call and nothing is ever crossed**. D68 states the rule for
+    when something will be and records its own status as "decided, not yet
+    built, because promotion across calls is not yet built".
+
+    So the distinction this criterion asks the table to record does not exist
+    yet. Writing the differential half alone and calling the row met would be
+    the substitution refused for criterion 22's last two bullets, which are
+    blocked on the same thing. **It moves from *not met* to *blocked with a
+    named blocker*,** which is a plan rather than work nobody has done.
 
 28. **Promotion crosses only natives a palette has checked (D48).** Criterion
     24 checks the arms the corpus reaches, and `drop_stack`, which no program
