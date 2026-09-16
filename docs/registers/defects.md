@@ -4162,6 +4162,16 @@ the sampler would be the wrong fix — the observer really does compete for the
 machine — so the measurement is left alone instead, and a run that had to be
 watched is a run that has to be repeated.
 
+**And one more, found by using it: cool the baseline block too.** Criterion 7's
+clean re-run came back met, with every row inside the band — and *every* row
+reading slightly negative across all three runs. That is not the tier winning
+uniformly; it is the baseline having been taken warm, as the first block after a
+build with no cooldown before it. **A slow baseline flatters the A/B**, which is
+the dangerous direction for a must-not-regress criterion: with 1–2% of offset, a
+true +6% regression reads as +4% and passes. The baseline is a block like any
+other and gets the same cooldown. Until it does, a verdict carries that much
+slack, and the criterion's note says so.
+
 The three dispositions this entry previously listed are all withdrawn. **A**
 (change the fixture) would have altered what the rows measure to fix a host
 problem. **B** (judge against a same-session control) would have set the gate at

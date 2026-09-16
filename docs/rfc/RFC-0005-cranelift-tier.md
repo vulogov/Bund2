@@ -28,7 +28,9 @@
   load-bearing: a deferral names what must happen first and is a plan, while an
   unmet criterion is work nobody has done.
 
-  - **Met** — 1, 2, 3, 6, 8, 11, 12, 15, 16, 19, 21, 23, 24, 25, 26, 28, 29.
+  - **Met** — 1, 2, 3, 6, **7**, 8, 11, 12, 15, 16, 19, 21, 23, 24, 25, 26, 28,
+    29. Criterion 7's evidence is set out below, because what it cost to get a
+    clean reading is worth more than the verdict.
   - **Measured** — 9 (the sync's crossover is 4 words), 10 (1.06× on the
     shipped lowering, **below the 1.2× stop rule**, which is why the gate stays
     open). That figure is **per program**; per *entry* the same lowering reads
@@ -39,30 +41,35 @@
   - **Partial** — 5, 17, 30: each has a half met and a half outstanding, or a
     bound stated and unmeasured.
   - **Not met** — 14, 20, 22, 27, and 4's reachable remainder.
-  - **Measured in full on a host that was not quiet; awaiting a clean re-run**
-    — 7. A five-group A/B on 2026-09-15 — one feature-off baseline,
-    three feature-on runs, tier confirmed installed — puts **every row of all
-    five groups inside the 5% band**, judged under D70, which repaired the
-    significance clause F134 showed no build could satisfy. The single exception
-    is `value`, whose **whole group** fails its own no-tier control: the same
-    binary against a warm feature-off baseline, nothing changed, moves −5.85% to
-    +25.56% across three runs on three of its five rows. F135, a defect in the
-    instrument. The criterion is therefore **not declared met**,
-    because `value` is a protected group and, on that host, its rows were being
-    read against a machine that was still reindexing.
+  **Criterion 7, met on three guarded runs against one baseline, 2026-09-15.**
+  **Every row of all five groups is inside the 5% band** in all three, judged
+  under D70. The widest readings are `corpus/sequence_generate_2` at −4.53% and
+  `value/promote/scalar` at +3.33%; nothing exceeds the band, so D70's
+  significance filter never engages. `arith/times_body/1000/cold` reproduces at
+  +121% to +122% and stays outside the verdict as D69's first-entry compilation
+  cost. `arith/int_add/1000` reads −97.87% in every run, which is Cranelift
+  folding a literal chain and is not quoted as a speedup.
 
-    **F135 resolved that on 2026-09-15, and it moves the blocker rather than
-    removing it.** The `value` group is not incapable: on an idle host the same
-    rows resolve to **0.7%**, inside a **1.7%** thermal envelope, both well
-    within D70's band. What failed was the measurement protocol — load sampled
-    once per run on a machine that was busy. So the verdict above rests on runs
-    that the protocol now says to **discard**, and the criterion needs
-    re-measuring on a quiet host before it is called met or unmet. Six candidate
-    mechanisms were eliminated reaching that: allocator warming, stale baseline,
-    process-start layout, arena placement, machine load, and core placement
-    (measured at 3.88× E-vs-P, far too large to hide in an 8% spread).
-    `arith`'s `/cold` rows stay at ~+122% as D69's first-entry evidence, outside
-    the verdict.
+  **What it took to get a verdict this plain.** The first full run was taken on
+  a host still reindexing after a restart and had to be thrown away: F134
+  showed the significance clause could not be satisfied by any build (D70
+  repaired it), and F135 found the `value` group's ±25% was the machine, not the
+  instrument — on an idle host those rows resolve to **0.7%** inside a **1.7%**
+  thermal envelope. Six mechanisms were eliminated on the way: allocator
+  warming, stale baseline, process-start layout, arena placement, machine load,
+  and core placement (measured at 3.88× E-vs-P, far too large to hide in an 8%
+  spread). A fourth run was discarded on its window —
+  `GUARD [CONTAMINATED] peak=23.2% (claude)`, the agent session itself — with
+  numbers nobody would have objected to.
+
+  **One caveat, recorded because it runs the dangerous way.** All three clean
+  runs read slightly negative across nearly every group, which says the baseline
+  `q1` was taken warm: it was the first block after a build, with no preceding
+  cooldown. A baseline biased slow flatters the A/B, so with ~1–2% of offset a
+  true +6% regression could read as +4% and pass. The band is 5% and the verdict
+  stands, but the baseline should be cooled like any other block before this
+  criterion is leaned on again — and certainly before the boundary
+  decomposition, whose components are 1–3 ns.
 
     The history, since the reason changed twice — 7 failed on **one** group,
     `arith`, and the reason changed on 2026-09-15 when D69 restated what that
@@ -4241,13 +4248,51 @@ evidence, and this one is listed as runnable rather than as met.
    read on a host still reindexing after a restart, and on an idle one they
    resolve to 0.7% within a 1.7% thermal envelope. The paragraph below stands as
    what was concluded at the time; the verdict it reaches rests on runs the
-   protocol now discards, so criterion 7 awaits a clean five-group re-run.
+   protocol now discards, so criterion 7 was re-measured.
 
    **So the criterion is met on every group that can answer, and held on one
    that cannot.** It is not declared met here: `value` is a protected group, its
    instrument currently fails its own control, and deciding what those rows
    should measure is worth doing deliberately rather than by adjusting a fixture
    until the verdict lands — the same discipline D69 applied to `arith`.
+
+   ### Re-measured on a quiet host under F135's protocol — **MET**, 2026-09-15
+
+   One feature-off baseline (`q1`), three feature-on runs, each preceded by a
+   cooldown and each wrapped in `guarded_bench.sh`, which samples the busiest
+   non-benchmark process every 3 s and prints a verdict beside the numbers. A
+   fourth run was taken and **discarded on its window** —
+   `GUARD [CONTAMINATED] peak=23.2% (claude)` — its numbers unremarkable, which
+   is the rule working in the direction that costs something.
+
+   | group | run 1 | run 2 | run 3 |
+   |---|---|---|---|
+   | `startup` (2 rows) | −2.21%, −2.42% | −2.28%, −1.33% | −3.61%, −1.95% |
+   | `value` (5 rows) | −3.48% … −0.04% | −3.06% … −0.21% | −2.32% … **+3.33%** |
+   | `dispatch` (4 rows) | −3.40% … −2.02% | −3.65% … +0.50% | −1.30% … **+2.53%** |
+   | `arith` warm (3 rows) | −97.87%, −3.30%, −3.06% | −97.87%, −0.18%, −2.17% | −97.87%, −0.34%, −1.19% |
+   | `corpus` (3 rows) | −3.33% … −0.51% | **−4.53%** … +0.09% | −4.53% … +0.63% |
+   | `arith/…/cold` (3 rows) | +0.69%, −1.67%, +121.44% | +0.69%, −0.04%, +122.20% | −0.84%, +1.48%, +121.68% |
+   | guard | CLEAN 13.9% | CLEAN 13.4% | CLEAN 9.7% |
+
+   **No row exceeds the band in any run**, so D70's significance filter never
+   engages — every "significant" reading here is a sub-5% movement, which is
+   exactly the case F134 showed the old clause would have failed a build over.
+   The `/cold` rows stay outside the verdict (D69): `times_body` reproduces at
+   +121% to +122%, which F130 attributes to one Cranelift compilation per
+   Criterion iteration.
+
+   **`value` is the row to notice.** The group F135 was opened over — whose
+   no-tier control had read −5.85% to +25.56% — now spans **3.5 points at its
+   widest** and is the quietest it has ever been. That is the resolution
+   confirming itself: the instrument was never broken, the host was busy.
+
+   **The caveat, which runs the dangerous way.** Every clean run reads slightly
+   negative across nearly every group, so the baseline was taken warm — `q1` was
+   the first block after a build, with no cooldown before it. A slow baseline
+   flatters the A/B, and with ~1–2% of offset a true +6% regression could read
+   as +4% and pass. The verdict stands on a 5% band, and the protocol owes one
+   more clause: **cool the baseline block like any other.**
 
    **An earlier attempt the same day reported quite different numbers and was
    discarded.** It read `startup` +7.3%/+12.2%, `value` +8.8% to +37.6% and
