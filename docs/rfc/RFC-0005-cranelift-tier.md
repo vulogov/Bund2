@@ -4876,6 +4876,13 @@ evidence, and this one is listed as runnable rather than as met.
     1.13 ns for promotion and under 1.4 ns for entry. Not promotion, not entry:
     dispatch removal.
 
+    **`--stats` gained a fourth figure to make the cost side visible** (F136):
+    `compiled_values`, the denominator the other three lacked. `sites` and
+    `promoted` say what a body gained; `values − sites − promoted` is the count
+    of generic values, and those are what it paid. Swept over the 57 hermetic
+    programs at threshold 1, nine bodies compile: 25.6% sites, 23.1% promoted,
+    **51.3% generic** — and three of the nine are net losses of 3–4 ns an entry.
+
     **What the four components would need.** Slot load, `call_indirect` and the
     request-cell load are emitted together for every non-inlined value, so no
     program varies one without the others. Separating them needs emitter

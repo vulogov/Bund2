@@ -3981,6 +3981,42 @@ This is not hypothetical arithmetic: the `generic` family above **is** that
 shape, one literal and N calls, and it compiles at every length measured
 (`bodies 1`, checked per size).
 
+### Measured against the corpus, 2026-09-16 — the hole is real and it is small
+
+`--stats` gained a fourth figure for this (`compiled_values`, the denominator the
+other three lacked: `values − sites − promoted` is what a body pays). Sweeping
+the 57 hermetic programs at `--jit-threshold 1`, **9 compile anything**, 48
+compile nothing. Across those nine: 39 values, **25.6% sites, 23.1% promoted,
+51.3% generic**. Net per entry at the measured coefficients:
+
+| program | sites | promoted | generic | net |
+|---|---|---|---|---|
+| `tryexcept_demo_divide_to_0` | 0 | 1 | 1 | **−4.0 ns** |
+| `conditional_move_to_workbench` | 0 | 1 | 1 | **−4.0 ns** |
+| `application_logic_demos` | 1 | 3 | 6 | **−3.2 ns** |
+| `context_executuion_demo2` | 1 | 1 | 2 | +15.1 ns |
+| `testing_tryexcept` | 1 | 0 | 1 | +19.1 ns |
+| `object_execute` | 1 | 1 | 0 | +25.3 ns |
+| `dynamic_demo_3` | 2 | 1 | 4 | +29.0 ns |
+| `dynamic_demo_4` | 2 | 1 | 3 | +34.1 ns |
+| `curry_demo` | 2 | 0 | 2 | +38.1 ns |
+
+**Three of nine lose, by 3–4 ns each.** The first two are exactly the shape this
+entry describes — zero sites, one promoted literal, one generic call — so the
+hole is present in real programs and not only in the fixtures that found it.
+Total loss across the corpus is about **11 ns per entry**.
+
+**And a ratio test sorts these badly.** Every fraction from 1/8 to 1/4 refuses
+the same three bodies; at 1/3 it begins refusing *winners*, and the net kept
+falls from +160.7 to +116.6 ns per entry, at 1/2 to +82.5. One wrong refusal
+costs more than the entire corpus-wide loss the rule exists to prevent.
+
+**So this entry's own recommendation is downgraded.** The evidence says fix it
+cheaply or leave it: a rule that refuses only bodies with **zero sites** — the
+two −4.0 ns rows — captures most of the available benefit with no risk of
+refusing a winner, and is a smaller change than the ratio test sketched below.
+Whether even that is worth 8 ns per entry is the owner's call.
+
 ### What a sufficient rule would weigh
 
 `plan_body` already computes everything needed before a byte is emitted — the

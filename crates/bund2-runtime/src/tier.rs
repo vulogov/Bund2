@@ -102,6 +102,10 @@ impl Tier for JitTier {
         Some(self.compiler.as_ref().map_or(0, Compiler::promoted_total))
     }
 
+    fn compiled_values(&self) -> Option<usize> {
+        Some(self.compiler.as_ref().map_or(0, Compiler::values_total))
+    }
+
     fn threshold(&self) -> Option<u32> {
         Some(self.tiering.caps().threshold)
     }
@@ -412,6 +416,17 @@ mod tests {
             Some(2),
             "both literals promoted; the `+` is a call, not a literal"
         );
+        // **The denominator, and the only figure here that reports a cost**
+        // (F136). `{ 1 2 + }` is three values: two promoted literals and one
+        // inlined site, so nothing in it takes the generic path. A body whose
+        // values exceed its sites plus promotions is paying 5.13 ns a value for
+        // the remainder (criterion 10), which is what F133's rule cannot
+        // currently see.
+        assert_eq!(
+            r.compiled_values(),
+            Some(3),
+            "three values: `1`, `2`, `+` — so zero generic, the body pays nothing extra"
+        );
 
         // **`None` and `Some(0)` say different things**, which is the
         // distinction the CLI's match arms turn on: no tier at all, against a
@@ -421,6 +436,7 @@ mod tests {
         assert_eq!(bare.compiled_bodies(), None, "no tier, not an empty one");
         assert_eq!(bare.inlined_sites(), None);
         assert_eq!(bare.promoted_values(), None);
+        assert_eq!(bare.compiled_values(), None);
     }
 
     /// **§S7's threshold knob, and its precedence** — F125.

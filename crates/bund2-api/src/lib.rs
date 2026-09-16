@@ -689,6 +689,19 @@ pub trait Tier {
         None
     }
 
+    /// **How many values this tier compiled**, across every body — the
+    /// denominator for the other three (F136).
+    ///
+    /// The fourth figure, and the first that reports a *cost* rather than a
+    /// gain. A value that is neither an inlined site nor a promoted literal
+    /// takes the generic path and is dearer compiled than interpreted, so
+    /// `compiled_values` minus the other two is what a body pays. Reported
+    /// because F133's rule currently asks whether a body gains anything and
+    /// cannot ask whether it gains enough; that question needs this number.
+    fn compiled_values(&self) -> Option<usize> {
+        None
+    }
+
     /// **The promotion threshold this tier is using** — §S7's knob, F125.
     ///
     /// How many evaluations of one body earn it compilation. Reported so a

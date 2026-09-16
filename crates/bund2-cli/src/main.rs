@@ -476,6 +476,7 @@ fn run(src: &str, args: &Args) -> Option<i32> {
             rt.compiled_bodies(),
             rt.inlined_sites(),
             rt.promoted_values(),
+            rt.compiled_values(),
         ) {
             // **All three figures, because each without the others says
             // little.** A body that compiled but inlined nothing still applies
@@ -487,7 +488,25 @@ fn run(src: &str, args: &Args) -> Option<i32> {
             // corpus programs compile nothing — and a threshold that arrived
             // from `BUND2_JIT_THRESHOLD`, or was dropped because that variable
             // was malformed, is invisible otherwise (F125).
-            (Some(bodies), Some(sites), Some(promoted)) => {
+            // **The fourth figure is the denominator, and it reports a cost**
+            // (F136). The three above say what a body gained; none says what the
+            // rest of it paid. A value that is neither a site nor a promoted
+            // literal takes the generic path, which is **5.13 ns dearer than
+            // Tier 0** (criterion 10), so `values − sites − promoted` is what
+            // compiling that body cost. F133's rule can ask whether a body gains
+            // anything; asking whether it gains *enough* needs this.
+            (Some(bodies), Some(sites), Some(promoted), Some(values)) => {
+                let at = match rt.jit_threshold() {
+                    Some(n) => format!(" at threshold {n}"),
+                    None => String::new(),
+                };
+                let generic = values.saturating_sub(sites + promoted);
+                eprintln!(
+                    "bund2: tier compiled {bodies} bodies, inlined {sites} sites, \
+                     promoted {promoted} values, {generic} generic of {values}{at}"
+                );
+            }
+            (Some(bodies), Some(sites), Some(promoted), None) => {
                 let at = match rt.jit_threshold() {
                     Some(n) => format!(" at threshold {n}"),
                     None => String::new(),
@@ -497,10 +516,10 @@ fn run(src: &str, args: &Args) -> Option<i32> {
                      promoted {promoted} values{at}"
                 );
             }
-            (Some(bodies), Some(sites), None) => {
+            (Some(bodies), Some(sites), None, _) => {
                 eprintln!("bund2: tier compiled {bodies} bodies, inlined {sites} sites");
             }
-            (Some(bodies), None, _) => eprintln!("bund2: tier compiled {bodies} bodies"),
+            (Some(bodies), None, _, _) => eprintln!("bund2: tier compiled {bodies} bodies"),
             _ => eprintln!("bund2: no tier (built without `jit`)"),
         }
     }

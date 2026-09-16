@@ -1598,6 +1598,22 @@ impl Compiler {
         self.words.iter().map(|w| w.literals.len()).sum()
     }
 
+    /// **Values across every word this compiler emitted** — the denominator the
+    /// other three figures were missing (F136).
+    ///
+    /// `inlined_total` and `promoted_total` say what a body *gained*. Neither
+    /// says what it *paid*, because a value that is neither a site nor a
+    /// promoted literal takes the generic path — slot load, `call_indirect`,
+    /// the request-cell load — and that path is **5.13 ns dearer than Tier 0**
+    /// (criterion 10, *The per-value cost decomposed*). The count of those
+    /// values is `values_total − inlined_total − promoted_total`, and without
+    /// this figure it cannot be had: F133's rule can see that a body gains
+    /// something, but not whether the gain outweighs what the rest of the body
+    /// costs.
+    pub fn values_total(&self) -> usize {
+        self.words.iter().map(|w| w.values).sum()
+    }
+
     /// **Where site `site`'s residual resumes in the source body** —
     /// assumption 38, asserted by criterion 21.
     ///
@@ -3641,6 +3657,9 @@ mod tests {
             "`1 2 +` promotes both literals; the `+` is a call"
         );
         assert_eq!(c.promoted_total(), 2);
+        // F136's denominator: three values, two of them promoted, so one took
+        // the generic path and cost more compiled than interpreted.
+        assert_eq!(c.values_total(), 3, "`1`, `2` and the call");
 
         // A CONTEXT literal is §S5's static barrier and never a promotion, and
         // a string is not an int.
