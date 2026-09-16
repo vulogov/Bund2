@@ -4742,15 +4742,36 @@ verified: that is exactly how its first diagnosis went wrong. What both shapes
 agree on is the magnitude: **a compilation of a four-value body costs of order
 125–141 µs**, three orders above an interpreted entry of the same body.
 
-**Per-entry cost is now zero by measurement, not merely "not detectable"**
-(2026-09-15). `hot_body` run across six body lengths lets slope and intercept be
-read apart (**on the pre-restart host; the absolutes are superseded, F135**):
-Tier 0 fits 18.08 ns per value on a 34.78 ns intercept, the tier
-7.26 ns per value on 34.21 ns, both at R² ≈ 0.9999. **The intercepts differ by
-−0.57 ns** — nothing, against 34 ns — because that intercept is `Interp::eval`'s
-own overhead, paid with no tier installed. The boundary is entirely per value.
-A three-point fit of the same group had reported "~7 ns of fixed entry cost";
-that was the residual of too few points and RFC-0005 criterion 10 withdraws it.
+**Per-entry cost is bounded below ~1.4 ns and is not distinguishable from
+zero** (measured 2026-09-16; the wording below is the third attempt at this
+quantity and the first that anchors it).
+
+`hot_body`'s six-length sweep gives the per-entry cost as a regression
+*intercept*, and an intercept is an extrapolation to zero values with nothing
+near zero holding it down. Two Tier 0 blocks six minutes apart, **both `CLEAN`
+and agreeing row-by-row to within 2%**, fitted intercepts of **35.92 ns and
+27.29 ns**; a later run of the same shape read the tier-minus-Tier 0 difference
+as **+6.28 ns**, where the pre-restart sweep had read **−0.57 ns**. All three
+were noise in an unconstrained parameter, not measurements of the tier.
+
+`entry_anchored` measures it on anchored points instead. Bodies are int
+literals, one to sixteen — literals because **F133's rule refuses a body with no
+site and nothing to promote**, so the obvious balanced choice (a body of `clear`
+calls) compiles 0 bodies, checked before the fixture was trusted. `eval_empty`
+times `eval` of an empty stream and reads **2.6700, 2.6674, 2.6668, 2.6711 ns**
+across four blocks, a 0.16% spread:
+
+| | `call/v1 − eval_empty` |
+|---|---|
+| Tier 0 | 66.10, 64.71 ns (mean **65.41**) |
+| with the tier | 66.00, 66.42 ns (mean **66.21**) |
+| **delta** | **+0.80 ns**, against Tier 0's own 1.39 ns spread at v1 |
+
+Anchored, the two arms' fitted intercepts agree to **−0.08 ns** (61.82 against
+61.74) where unanchored they had disagreed by 8.6 ns. The three-point fit that
+first reported "~7 ns of fixed entry cost" and the six-point fits that reported
+−0.57 and +6.28 ns are all withdrawn: the quantity is **under ~1.4 ns and
+indistinguishable from zero**, which is a bound rather than a value.
 
 **Per-entry cost was excluded first, by the `entry` group.** It warms past the
 threshold and times entries only: +1.74%, +3.74%, −0.05% (p = 0.78), −0.65%,

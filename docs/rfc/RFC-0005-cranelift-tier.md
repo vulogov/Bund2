@@ -4769,7 +4769,8 @@ evidence, and this one is listed as runnable rather than as met.
     entry**, the body alone. A gain confined to the body is diluted at program
     scale, which is what separates 2.40× from 1.06× without either being wrong.
 
-    **The two costs, separated — 2026-09-15, and the fixed entry cost is zero.**
+    **The two costs, separated — 2026-09-15. The per-entry half of this reading
+    did not survive; see *The intercept could not carry that claim* below.**
     An earlier reading of these three rows put "about 11 ns saved per value
     against roughly 7 ns of fixed entry cost", and reasoned that the boundary was
     a constant a short body could not amortise. **The second half of that was an
@@ -4788,14 +4789,65 @@ evidence, and this one is listed as runnable rather than as met.
     `value/promote/scalar` row moved from ~40 ns to ~33 ns, so every nanosecond
     figure in this table is host-specific. The *structure* — a per-value slope
     with intercepts that cancel — rests on six lengths at R² ≈ 0.9999 and is not
-    in doubt; the numbers are, and must be re-measured before being quoted
-    anywhere a magnitude matters.
+    in doubt; the numbers are. **Both halves were re-measured on 2026-09-16**:
+    the per-value slope replicates, and the intercept turned out not to be a
+    measurement of anything — the section below carries both results.
 
     **Both arms intercept at ~34.5 ns**, and the difference between them is
     −0.57 ns — nothing, against a 34 ns intercept. That intercept is
     `Interp::eval`'s own fixed cost, paid identically with no tier installed, so
-    it was never the tier's boundary. **There is no per-entry penalty to
-    amortise.**
+    it was never the tier's boundary.
+
+    ### The intercept could not carry that claim — measured directly, 2026-09-16
+
+    **An intercept is an extrapolation to zero values, and this sweep had
+    nothing near zero to hold it down.** Its shortest body is two values at
+    ~59 ns and the fit pivots on the 64-value point, so a 2% wobble at the short
+    end moves the intercept by nanoseconds. Two Tier 0 blocks taken six minutes
+    apart, **both `CLEAN` and agreeing row-by-row to within 2%**, fitted
+    intercepts of **35.92 ns and 27.29 ns** — an 8.6 ns span across the whole
+    quantity in dispute. A later run of the same shape read the difference as
+    **+6.28 ns**. Neither that nor the −0.57 ns above was a measurement of the
+    tier; both were reading noise in an unconstrained parameter.
+
+    **`entry_anchored` measures it instead.** Bodies are int literals, one to
+    sixteen, so the shortest is a *single* value — and literals are what F133's
+    rule admits, since a body with no site and nothing to promote is refused
+    outright (a body of `clear` calls compiles 0 bodies, checked). The call is
+    `w clear`, balanced at every length. `eval_empty` times `eval` of an empty
+    stream: the harness's own cost, with no dispatch and no frame push.
+
+    | | per value | intercept | R² |
+    |---|---|---|---|
+    | Tier 0, block A | 7.84 ns | 62.15 ns | 0.99898 |
+    | Tier 0, block B | 7.83 ns | 61.49 ns | 0.99797 |
+    | tier, run 1 | 6.71 ns | 62.09 ns | 0.99974 |
+    | tier, run 2 | 6.68 ns | 61.40 ns | 0.99922 |
+
+    **`eval_empty` is 2.6700, 2.6674, 2.6668, 2.6711 ns** across the four
+    blocks — a 0.16% spread, which is the anchor the intercept never had. The
+    entry cost is then read off measured points:
+
+    | | `call/v1 − eval_empty` |
+    |---|---|
+    | Tier 0 | 66.10, 64.71 ns (mean **65.41**) |
+    | with the tier | 66.00, 66.42 ns (mean **66.21**) |
+    | **delta** | **+0.80 ns** |
+
+    **+0.80 ns, against Tier 0's own 1.39 ns spread at that same point.** The
+    tier's per-entry cost is **not distinguishable from zero and is bounded
+    below ~1.4 ns** — which is what this criterion should say, rather than
+    "zero". Anchored, the two fits' intercepts now agree to **−0.08 ns**
+    (61.82 against 61.74) where unanchored they disagreed by 8.6 ns; that is the
+    diagnosis confirming itself.
+
+    **The per-value saving depends on what the values are, which the earlier
+    figure hid.** On these literal bodies the tier saves **1.14 ns per value**
+    (7.84 → 6.69): a literal is a cheap push for Tier 0 and a register write
+    plus a sync for the tier. On `hot_body`'s `1 drop` bodies, which contain a
+    dispatched native, it saves **~9.3 ns per value**. The gain is in removing
+    dispatch, not in handling values — so a single "ns saved per value" is only
+    meaningful beside the body it was measured on.
 
     **Linearity is now demonstrated rather than assumed.** Per-value increments
     hold flat across every doubling — Tier 0 at 18.56, 19.32, 18.24, 17.87,

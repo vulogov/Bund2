@@ -677,6 +677,81 @@ fn hot_body(c: &mut Criterion) {
     g.finish();
 }
 
+/// **Entry cost, anchored rather than extrapolated** — criterion 10, F130.
+///
+/// `hot_body`'s six-length sweep gives the per-entry cost as a regression
+/// *intercept*, and that intercept is an extrapolation to zero values with
+/// nothing near zero to hold it down: its closest measured point is two values
+/// at ~59 ns, and the fit pivots on the 64-value point at the far end. Two
+/// clean Tier 0 blocks taken six minutes apart, agreeing row-by-row to within
+/// 2%, produced intercepts of **35.92 ns and 27.29 ns** — the whole quantity in
+/// dispute, from noise at the short end. The pre-restart "the intercepts
+/// cancel" and the later "+6.28 ns per entry" were both readings of that.
+///
+/// This group anchors it. Bodies are **int literals**, one to sixteen, so the
+/// shortest is a single value rather than two — and literals are what F133's
+/// rule admits: a body with no inlinable site and nothing to promote is refused
+/// by the tier, so a body of `clear` calls (the obvious balanced choice) would
+/// measure Tier 0 in both arms.
+///
+/// **`eval_empty` is the anchor proper**: `eval` of an empty stream, which is
+/// the harness's own fixed cost with no dispatch and no frame push at all. The
+/// entry cost is then `call/v1 − eval_empty − (one value)`, read off measured
+/// points instead of a line's y-intercept.
+///
+/// **The call is `w clear`**, so the stack is balanced at every length. `clear`
+/// runs in the stream, at Tier 0, in both arms — a constant that cancels in the
+/// difference.
+fn entry_anchored(c: &mut Criterion) {
+    let t = bund2_runtime_threshold();
+    let mut g = c.benchmark_group("entry_anchored");
+
+    let empty: Vec<BundValue> = Vec::new();
+    g.bench_function("eval_empty", |b| {
+        let mut i = interp();
+        b.iter(|| black_box(i.eval(black_box(&empty))).is_ok());
+    });
+
+    for n in [1usize, 2, 3, 4, 6, 8, 12, 16] {
+        let setup = compiled(&format!(":w {{ {}}} register", "1 ".repeat(n)));
+        let call = compiled("w clear");
+
+        {
+            let mut probe = interp();
+            if probe.eval(&setup).is_err() {
+                eprintln!("bench: entry_anchored setup failed at v{n}; measuring nothing");
+            }
+            for _ in 0..(t + 8) {
+                let _ = probe.eval(&call);
+            }
+            let bodies = compiled_bodies(&probe);
+            let want = if cfg!(feature = "jit") { 1 } else { 0 };
+            eprintln!(
+                "bench: entry_anchored v{n} compiled bodies {bodies}{}",
+                if bodies == want {
+                    ""
+                } else {
+                    "  <-- unexpected; F133 may have refused this body"
+                }
+            );
+        }
+
+        g.bench_function(format!("call/v{n}"), |b| {
+            let mut i = interp();
+            if i.eval(&setup).is_err() {
+                eprintln!("bench: entry_anchored setup failed at v{n}; measuring nothing");
+            }
+            for _ in 0..(t + 8) {
+                let _ = i.eval(&call);
+            }
+            debug_assert_eq!(i.depth(), 0, "the body must be stack-balanced");
+            b.iter(|| black_box(i.eval(black_box(&call))).is_ok());
+        });
+    }
+
+    g.finish();
+}
+
 /// **F130's compile time, re-taken warm.**
 ///
 /// The `compile` group measures a compilation through the tier, but it rebuilds
@@ -932,6 +1007,7 @@ criterion_group!(
     compile_warm,
     size_crossover,
     hot_body,
+    entry_anchored,
     lambda,
     corpus,
     rendering
