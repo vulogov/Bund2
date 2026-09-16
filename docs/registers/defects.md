@@ -4121,11 +4121,46 @@ defect. The rows measure what they claim, and D70's band is sound. What was
 missing is the condition under which the band means anything.
 
 **The protocol, which is what this resolves to.** Criterion 7's `value` group —
-and any row at tens of nanoseconds — is measured on an idle host, with load and
-top process checked *before each run* rather than once, and with a cooldown
-between back-to-back blocks so the 1.7% thermal envelope does not accumulate
-into the reading. A run taken while indexing or another build is running is
-discarded, not recorded.
+and any row at tens of nanoseconds — is measured on an idle host, with a
+cooldown between back-to-back blocks so the 1.7% thermal envelope does not
+accumulate into the reading, and with interference **sampled throughout each
+run** rather than before it. A run whose window was contaminated is discarded,
+not recorded.
+
+**Sampling before the run is not enough, and that was learned the hard way.**
+This entry first said "checked *before each run* rather than once". Criterion
+7's re-run then produced a window that opened at load 1.13 and went bad inside
+the three minutes that followed: every group regressed together — `startup`
++2.6%, `dispatch` +8.6%, `corpus` +4.9%, and `startup/parse/mixed`, which parses
+a string and never touches an interpreter, +2.5%. Rows sharing no mechanism
+cannot move together through any code path, so the run was caught by **reading
+the shape of the result**, which is exactly the inference a protocol is supposed
+to make unnecessary.
+
+**Built as a guard around the run.** A sampler records the busiest process that
+is not the benchmark's own every 3 s for the whole window, and the run prints
+its own verdict beside the numbers:
+
+    GUARD [CLEAN] samples=69 peak=13.9% (…/MenuBarAgent) mean=6.7%
+
+`CLEAN` below a 15% peak, `CONTAMINATED` above it. The contaminated case is then
+labelled in the output rather than deduced from which rows moved, and a
+discarded run is discarded on its window, never on its result — which is the
+distinction that keeps this from becoming a way to drop readings one dislikes.
+The script is `crates/bund2-bench/scripts/guarded_bench.sh`.
+
+**Its first catch was the measuring apparatus itself.** The guard's second run
+came back `CONTAMINATED  peak=23.2% (claude)` — the agent session polling the
+output file and listing directories *during* the window. The numbers that run
+produced were unremarkable, so it was discarded on its window while its result
+was one anybody would have been content to keep: the rule working in the
+direction that costs something, which is the only direction that tests it.
+
+**So the protocol has one more clause: do not touch the host during a window.**
+No reads, no greps, no parallel tool calls, nothing. Excluding the observer from
+the sampler would be the wrong fix — the observer really does compete for the
+machine — so the measurement is left alone instead, and a run that had to be
+watched is a run that has to be repeated.
 
 The three dispositions this entry previously listed are all withdrawn. **A**
 (change the fixture) would have altered what the rows measure to fix a host
