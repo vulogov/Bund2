@@ -5238,12 +5238,47 @@ about an hour and now carries the correction.
   lowering emits a slot load, a `call_indirect`, a request-cell load and a
   status branch, plus a guard call and its blocks at an inlined site.
 
-**What has not been established**, and is named rather than guessed at because
-guessing is how this entry's first diagnosis went wrong: how the 20.4 µs divides
-between building the IR (`FunctionBuilder`), Cranelift's own compilation
-(`define_function`), and publishing the code (`finalize_definitions`, called
-once per body). Nothing here separates them. A sampling profile or phase
-timing would, and neither has been run.
+**Established by sampling profile, 2026-09-22.** `/usr/bin/sample`, 20 s on the
+bench binary running `compile_size/v64` — no instrumentation of shipped code, so
+nothing about the thing measured was changed in order to measure it. 14,051
+samples land in `Compiler::compile_word`, and they divide:
+
+| phase | samples | share |
+|---|---|---|
+| **thunks** — `define_function`, one per call and per inlined site (`lower.rs:2202`) | 7,142 | **50.8%** |
+| the body itself — `define_function` (`lower.rs:2622`) | 5,966 | 42.5% |
+| the entry trampoline — `define_function` (`lower.rs:2642`) | 218 | 1.6% |
+| `finalize_definitions` (`lower.rs:2647`) | 61 | **0.4%** |
+
+**Finalisation is not the cost, and the guess that it might be is refuted.**
+Publishing code — the W^X protection change and instruction-cache invalidation
+that makes JIT finalisation expensive on Apple Silicon — is **0.4%** of a
+compilation. It was the obvious suspect and it is wrong.
+
+**Half the cost is compiling thunks, one per call and per inlined site.**
+`emit_into` loops over `thunk_ids` and compiles a separate function for each: a
+call thunk per call, one drain thunk, and a **guard thunk per inlined site**.
+Each is four instructions — take `ctx`, `iconst` a baked index, call the
+adapter, return — and each goes through Cranelift's whole pipeline of its own,
+with its own `FunctionBuilder`, its own legalisation and its own regalloc2 run.
+The profile shows regalloc2's `Env::init_*` and `BTreeMap::insert` reaching
+`malloc`: fixed per-function setup, paid on functions of four instructions.
+
+**This is why the cost is linear in body length.** A body of `1 drop` pairs gets
+one guard thunk per `drop`, so thunks scale with values and each costs ~10 µs of
+Cranelift. The ~20.4 µs a value is substantially *one small function compiled
+per value*, not the body's own code growing with it.
+
+**The thunks differ only in a baked constant.** Every guard thunk is the same
+four instructions with a different `iconst` and the same adapter; every call
+thunk likewise. Nothing in a thunk depends on the body it was emitted for — only
+the index does. So the shape that would remove this cost is to stop baking the
+index into a function and pass it instead, leaving **one shared thunk per
+adapter kind per module** rather than one per site per body. Whether §S8's
+tail-call contract and criterion 4's single permitted relocation allow that is
+the question to answer next. It is not answered here, and "roughly halves the
+compile cost" is arithmetic on the table above, not a measurement of something
+that exists.
 
 - Status: **OPEN — the cause is known, the disposition is not.** Two diagnoses
   were offered and both are withdrawn above: the per-entry `HashMap` arithmetic
