@@ -3987,12 +3987,27 @@ was available to fall into.
 
 - Found: 2026-09-22, sweeping the hermetic corpus at the shipped threshold while
   establishing F138
-- Status: **OPEN — the fact is established, what to do about it is a decision.**
-  The choices are not equivalent: accept it and say so in §S7, so no later
-  reader reads a corpus number as a tier number; add a long-running program to
-  the corpus so the shipped configuration has something to compile; or revisit
-  §S7's threshold against F130's compile cost, which is the only one of the
-  three that changes shipped behaviour.
+- Status: **RESOLVED**, 2026-09-22, by the repository owner's ruling: **accept
+  and document now; the compile cost is the real lever.** §S7 gains a dated
+  section, *What 64 costs and buys, measured*, carrying the corpus fact, the
+  break-even table and the two consequences.
+  **The arithmetic is what settles it, and it inverts the obvious reading.**
+  Against F130's 140.6–141.4 µs warm and criterion 10's measured saving of
+  66.4 ns per entry on `1 2 + drop`, break-even is **~2,100 entries**; on a
+  64-value body, at `hot_body`'s 2.40×, it is **~210**. Break-even therefore
+  spans a tenfold range set by body size, and **64 sits below all of it**. A
+  corpus program that compiled at this threshold would lose, which is what F136
+  measured from the other side — three of nine net-negative at threshold 1. So
+  0 bodies over 57 programs is the threshold declining to lose, not the tier
+  failing to help.
+  **Retuning the constant was considered and refused**: one count cannot express
+  a break-even that moves tenfold with body size, and replacing 64 with another
+  number trades one arbitrary constant for another. The principled form is a
+  cost model over the site and promoted counts `plan_body` already computes, and
+  that is a design rather than a knob.
+  **The lever is F130.** Every break-even is a ratio with 140 µs on top; halving
+  it halves all of them. F130 stays open, and now carries a second reason to be
+  settled — it sets how hot a body must be before Tier 1 is worth entering.
 - Depends on: §S7 (the threshold), F130 (the compile cost that justifies it),
   F138 (the measurement this invalidated), criterion 10
 

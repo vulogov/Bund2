@@ -2792,6 +2792,61 @@ not a benchmark. The threshold is the tuning knob of the two: it decides when a
 body has earned compilation, and no correctness argument rests on it. Both are
 configurable, and the configuration is recorded rather than silent.
 
+## What 64 costs and buys, measured — F139, 2026-09-22
+
+The threshold had a basis but never a number. It has one now, and it is not the
+number a reader would guess.
+
+**The corpus compiles nothing at it.** `bund2 script --stats` over all 57
+programs in `tests/golden/HERMETIC.txt`, at the shipped threshold: **0 bodies**,
+total. At `--jit-threshold 1` seven of the same programs compile, so the tier
+works — the corpus never enters a body 64 times, because these are
+demonstrations and tests that run once.
+
+**The obvious inference from that is wrong.** It reads as "the threshold is too
+high", and the arithmetic says the opposite. Against F130's compile cost and the
+saving criterion 10 now measures:
+
+| | compile cost | saving per entry | break-even |
+|---|---|---|---|
+| `1 2 + drop`, 4 values | 140.6–141.4 µs warm | **66.4 ns** (113.89 → 47.48) | **~2,100 entries** |
+| `1 drop` × 32, 64 values | the same | ~660 ns (`hot_body`, 2.40×) | **~210 entries** |
+
+**Break-even spans roughly 210 to 2,150 entries, a tenfold range set by body
+size, and 64 sits below all of it.** So when the tier does fire it fires
+*early*: the body is compiled after 64 entries and must run hundreds to
+thousands more before the compilation is repaid. A corpus program that compiled
+here would, on these figures, lose. F136 measured the same thing from the other
+side — at threshold 1, three of nine compiled bodies were net-negative per
+entry.
+
+**So 0 bodies over 57 programs is the threshold declining to lose, not the tier
+failing to help.** The knob is doing its job; the corpus is simply not the kind
+of program a tier is for.
+
+**Two consequences worth stating rather than leaving to be rediscovered.**
+
+*No figure taken over the corpus is a figure about the tier.* At the shipped
+threshold there is no compiled code in any of those programs to measure, so a
+corpus A/B compares Tier 0 with Tier 0 and a counter. That is exactly how a void
+number stood as criterion 10's verdict for nine days (F138), and it is why every
+group carrying a verdict now prints a `compiled_bodies` pre-flight.
+
+*Retuning the constant is not the repair it looks like.* A single count cannot
+express a break-even that moves tenfold with body size. The principled form is a
+cost model — compile when expected remaining entries × per-entry saving exceeds
+the compile cost — and `plan_body` already computes the site and promoted counts
+such a model would read. Replacing 64 with another constant trades one arbitrary
+number for another, so this section keeps 64 and records why rather than tuning
+it.
+
+**Where the leverage actually is.** Every break-even above is a ratio with
+140 µs on top. Halving the compile cost halves all of them, and would bring the
+four-value body from ~2,100 entries to ~1,050 without touching policy. That is
+**F130**, still open with its disposition unsettled — and this gives it a second
+reason to be settled, beyond start-up latency: it sets how hot a body must be
+before Tier 1 is worth entering at all.
+
 ## The counter's key and lifetime
 
 An earlier draft named a threshold of "64 evaluations of one body" and said
