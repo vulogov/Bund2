@@ -3944,6 +3944,72 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F138 — criterion 10's per-program figure is measured on programs that compile nothing
+
+**A Bund2 defect in a measurement**, found taking criterion 10 on a quiet host,
+2026-09-22. The seventh of the F124 family, after F124, F127, F128, F129, F132
+and today's `inlining_runtime_with` fixture.
+
+Criterion 10's verdict has two halves. The **per-entry** half is sound. The
+**per-program** half — the one the stop rule is stated on — measures a tier
+that never compiles a body.
+
+### The measurement
+
+`bund2 script --stats` over the three programs in the bench's `corpus` group,
+at the shipped threshold and at 1:
+
+| program | threshold 64 | threshold 1 |
+|---|---|---|
+| `mixed.bund` | **0 bodies**, 0 generic of 0 | 2 bodies, 2 sites, 2 generic of 4 |
+| `sequence_generate_2.bund` | **0 bodies** | **0 bodies** |
+| `testing_sorting_numbers_in_list.bund` | **0 bodies** | **0 bodies** |
+
+Two of the three have **no word body to compile at any threshold** — they are
+straight-line programs. The third compiles only below the shipped threshold.
+So at the setting the A/B actually runs, `corpus` compares Tier 0 against Tier 0
+plus the cost of a tier being installed, and the difference it reports is the
+counter's overhead and the window's drift.
+
+**The RFC quotes that figure as "1.06× on the shipped lowering, below the 1.2×
+stop rule, which is why the gate stays open".** The gate is stated on a number
+that cannot move.
+
+### Why nobody saw it
+
+The `corpus` group prints no `compiled_bodies` pre-flight. `hot_body`,
+`regimes`, `entry_anchored` and `compile` each print one — added after F124,
+F127 and F128 for exactly this reason — and `hot_body` reports **1 body at every
+size** under the feature, which is why the per-entry figure is trustworthy and
+this one is not. The guard was written and then not extended to the group whose
+verdict carries the stop rule.
+
+`timed_eval` also builds a fresh `Runtime` per iteration through
+`iter_batched`, so even a program with a hot body would have to re-enter it 64
+times *within one iteration* to reach the threshold.
+
+### Drift, measured while establishing this
+
+Three feature-off baselines of `corpus/mixed`, same binary, same filter, taken
+within twenty minutes: **21.9 µs, 17.8 µs, 16.3 µs** — a 34% spread between runs
+that differ in nothing. Criterion 10's gate is 1.06× against 1.2×. The
+run-to-run noise is several times the effect the A/B is asked to resolve, which
+is a second and independent reason a cross-process feature A/B cannot settle
+this criterion on this host.
+
+### Disposition
+
+- Found: 2026-09-22, taking criterion 10 with the host quiet
+- Status: **OPEN — the cause is established, the fix is a decision.** What
+  criterion 10 should assert per program is the RFC's to say, and the choices
+  are not equivalent: add a corpus program with a hot body; restate the stop
+  rule on the per-entry figure, which is measured and sound; or make the A/B
+  in-process — one binary, one `Runtime` with the tier and one after
+  `take_tier` — which is what makes the `crossing` group immune to the drift
+  above.
+- Depends on: criterion 10 (the verdict), criterion 7 (the same corpus group),
+  F124 (the family), F130 (compile cost, which the per-entry figure must repay)
+
 ## F137 — D68's crossing ignores §S5's reporter gate, and no seam exposes it
 
 **A Bund2 defect**, found while writing criterion 27, in code committed the same

@@ -3720,6 +3720,34 @@ found a real defect, rather than retiring a number that was inconvenient.
   it. Mistaking a narrowing for a repeal is the error, and it is left on the
   page because the register is append-only and the misreading is the easy one.
 
+- **Measured 2026-09-22: the payoff is zero, within noise.** D68 was decided on
+  soundness and on a corpus count, never on a time. The `crossing` group
+  (`crates/bund2-bench/benches/interpret.rs`) is that A/B: one binary, one run,
+  two arms differing only in the crossable table — the crossed arm is the tier
+  `Runtime::new` installs, the synced arm the same tier with the table left
+  empty, which is "the behaviour every caller had before D68". Body
+  `1 2 + (:s 7 var)*N drop`; `var` is `eff(2, 0)`, certified and unpublished, so
+  it is crossed; `+` and `drop` inline and satisfy F136. The pre-flight confirms
+  the arms differ — crossings scale **1, 2, 4, 8** against **0**.
+  In the cleanest of four windows (guard mean 7.8%): **−0.04%, +0.13%, −0.35%,
+  −0.08%** at v1/v2/v4/v8, every interval overlapping. The three noisier windows
+  scatter to ±2.4% and **flip sign**, tracking the guard's mean rather than the
+  arm. No effect is resolvable above about 0.5%.
+- **Why, structurally, and this part needs no host.** A sync pushes each
+  promoted value **once**. After the first crossed call the values are on the
+  stack and no longer promoted, so the second and eighth crossings have nothing
+  left to save, while each still emits its spill block. **D68's saving is
+  bounded by the number of distinct promoted values, not by the number of calls
+  crossed** — which is what the flat measurement against 1/2/4/8 crossings
+  shows. It follows that "4 of 13 generic calls crossed" is a weaker figure than
+  it reads: it counts calls, and calls are not what the saving is proportional
+  to.
+- **What this does not say.** It does not say D68 was wrong. D68 is what makes
+  crossing *sound*, and the alternative it replaced was a silent wrong-order
+  sync. It says the speed case for crossing is unproven, and that a body holding
+  many distinct values across a call — which no corpus program does — is where
+  any payoff would have to come from.
+
 **The invariant, stated properly.** Q39 as filed said the promoted set is a
 strict suffix of the abstract stack, so any callee consuming promoted values
 forces a full sync. That was too strong, and the correction matters because it

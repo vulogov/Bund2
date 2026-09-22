@@ -1075,6 +1075,92 @@ fn dispatch_isolated(c: &mut Criterion) {
     g.finish();
 }
 
+/// **D68's payoff: what crossing a call is worth** — RFC-0005 §S5, D68.
+///
+/// D68 lets promotion keep values in registers across a call whose callee
+/// produces nothing. Nothing ever measured what that is worth: the decision
+/// rested on an argument about soundness and on the corpus figure "4 of 13
+/// generic calls crossed", neither of which is a time.
+///
+/// **Both arms run in one binary, in one run**, and differ in exactly one
+/// thing: the crossable table. The crossed arm is the tier `Runtime::new`
+/// installs; the synced arm is the same tier built the same way with the table
+/// left empty, which `JitTier::with_crossable`'s own documentation calls "the
+/// conservative answer, and the behaviour every caller had before D68". So this
+/// needs no saved baseline and no second process, and it cannot drift between
+/// two runs the way a feature A/B can — which is what F135 spent a session on.
+///
+/// The body is `1 2 + (:s 7 var)*N drop`. `+` and `drop` publish arms, so they
+/// inline and give F136's rule the site it demands; `var` is `eff(2, 0)`, on
+/// `PROMOTABLE.txt`, registered by `bund2-stdlib` and unpublished, so it is a
+/// generic call D68 crosses. It was chosen because it neither prints nor
+/// rewrites a slot: `nl` and `space` write to stdout, `ensure_stack` renders a
+/// box, and `unregister` bumps a slot generation — that last would measure the
+/// guard failing and the residual path running, not a crossing.
+///
+/// **The pre-flight prints each arm's crossed-call count**, because two arms
+/// that do the same thing report a difference of zero and that looks exactly
+/// like a result. F124, F127 and F128 are each that mistake.
+#[cfg(feature = "jit")]
+fn crossing(c: &mut Criterion) {
+    let t = bund2_runtime_threshold();
+    let mut g = c.benchmark_group("crossing");
+    let call = compiled("w");
+
+    // `cross == false` rebuilds the tier without `with_crossable`, leaving its
+    // table empty. Everything else — fragments, caps, threshold, vocabulary —
+    // is what `Runtime::with_options_and_threshold` assembles.
+    let build = |cross: bool, setup: &[BundValue]| -> bund2_runtime::Runtime {
+        let mut r = bund2_runtime::Runtime::new();
+        if !cross {
+            let table =
+                bund2_stdlib::fragments::published(&r.interp.registry).unwrap_or_default();
+            let caps = bund2_jit::cache::Caps {
+                threshold: t,
+                ..bund2_jit::cache::Caps::default()
+            };
+            r.take_tier();
+            r.install_tier(Box::new(bund2_runtime::JitTier::with_fragments(
+                caps, table,
+            )));
+        }
+        if r.interp.eval(setup).is_err() {
+            eprintln!("bench: crossing setup failed; measuring nothing");
+        }
+        for _ in 0..(t + 8) {
+            let _ = r.interp.eval(&call);
+        }
+        r
+    };
+
+    for n in [1usize, 2, 4, 8] {
+        let setup = compiled(&format!(
+            ":w {{ 1 2 + {}drop }} register",
+            ":s 7 var ".repeat(n)
+        ));
+
+        for (name, cross) in [("crossed", true), ("synced", false)] {
+            let probe = build(cross, &setup);
+            eprintln!(
+                "bench: crossing {name}/v{n} bodies {} crossed {:?}",
+                compiled_bodies(&probe.interp),
+                probe.crossed_calls()
+            );
+
+            g.bench_function(format!("{name}/v{n}"), |b| {
+                let mut r = build(cross, &setup);
+                debug_assert_eq!(r.interp.depth(), 0, "the body must be stack-balanced");
+                b.iter(|| black_box(r.interp.eval(black_box(&call))).is_ok());
+            });
+        }
+    }
+
+    g.finish();
+}
+
+#[cfg(not(feature = "jit"))]
+fn crossing(_: &mut Criterion) {}
+
 criterion_group!(
     benches,
     startup,
@@ -1089,6 +1175,7 @@ criterion_group!(
     hot_body,
     entry_anchored,
     regimes,
+    crossing,
     lambda,
     corpus,
     rendering
