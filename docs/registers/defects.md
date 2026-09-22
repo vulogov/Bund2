@@ -5280,6 +5280,54 @@ the question to answer next. It is not answered here, and "roughly halves the
 compile cost" is arithmetic on the table above, not a measurement of something
 that exists.
 
+### §S8 read, 2026-09-22 — the thunks are already body-independent
+
+The contract does not need changing, and the index does not need to move. Every
+thunk bakes an index that is resolved **against the running context**, not
+against the body the thunk was emitted for:
+
+- `jit_call_native(c, native)` takes `c.natives.get(native)` — "the natives
+  **this body** may call, by index" (`Ctx::natives`).
+- `jit_admits(c, site)` takes `c.sites.get(site)` — the running body's inlined
+  fragments, by site index.
+- the drain thunk bakes `0` and carries no index at all.
+
+So a thunk baking index *i* means "call the *i*-th entry of whatever body is
+currently running". **Nothing in it is specific to the body that caused it to be
+emitted**, and two bodies that each have a third call both want a thunk baking
+`2` — the same four instructions, the same adapter, the same constant.
+
+§S8 says as much in its own words: piece 3 is "a JIT-emitted `Tail` thunk **for
+each native a call slot can hold**" — per callee kind, not per call site. The
+implementation went finer than the contract asked.
+
+**So the repair is a cache, not a redesign.** Keep the thunk function ids in the
+`Compiler`, keyed by (adapter kind, index), and emit one only on a miss. A body
+with *n* calls reuses the first *n* call thunks; after a few bodies the thunk
+term goes to zero and only a body with more calls or sites than any before it
+pays for the excess. This needs:
+
+- **no signature change** — §S8's `fn(ctx: i64) -> i32` under `CallConv::Tail`
+  stands, so slots stay interchangeable and the verifier's rule is untouched;
+- **no runtime cost** — the alternative, passing the index instead of baking it,
+  would add a store per call on the hot path, which is the wrong side to pay on
+  when the saving is one-time;
+- **no new relocation** — criterion 4 permits "a native's `Tail` thunk calling
+  its Rust adapter", which is exactly what a shared thunk still does, and fewer
+  of them.
+
+**What it is worth, as arithmetic and not a measurement.** Thunks are 50.8% of a
+compilation. Removing them for every body after the first leaves the body's own
+code and the entry trampoline, ~44%, so compilation falls from ~20.4 µs a value
+toward ~9 µs, and §S7's break-even from ~2,000 entries toward ~1,000. The first
+body compiled in a process still pays in full.
+
+**Not yet built, and one thing is unchecked**: whether a thunk's address, once
+shared, is still correct in every body's slot table — the tables are per body
+(`Box<[*const u8]>`) and would now hold the same addresses, which should be
+sound precisely because the thunk reads its target from the running `Ctx`, but
+that is an argument and not a test.
+
 - Status: **OPEN — the cause is known, the disposition is not.** Two diagnoses
   were offered and both are withdrawn above: the per-entry `HashMap` arithmetic
   (falsified by a neutral fix) and per-entry cost in general (refuted by the
