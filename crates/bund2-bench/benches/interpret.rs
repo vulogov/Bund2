@@ -1248,6 +1248,166 @@ fn stop_rule(c: &mut Criterion) {
 #[cfg(not(feature = "jit"))]
 fn stop_rule(_: &mut Criterion) {}
 
+/// **Where the 140 µs goes: is compilation fixed or does it scale?** — F130,
+/// opened against F139.
+///
+/// F130 established the cost — of order 125–141 µs per body, two ways sharing
+/// no harness — and stopped there. F139 gave it a second reason to be settled:
+/// every break-even in §S7 is a ratio with that number on top, so halving it
+/// halves how hot a body must be before Tier 1 is worth entering.
+///
+/// **This group asks the one question that splits the candidates**, and it needs
+/// no instrumentation of shipped code to do it. `Compiler::compile_word` runs
+/// two `define_function`s and then `finalize_definitions`, once per body
+/// (`emit_into`, `crates/bund2-jit/src/lower.rs`). Finalisation publishes code:
+/// on Apple Silicon that path carries W^X protection changes and instruction
+/// cache invalidation, and its cost does not depend on how much code was
+/// generated. Cranelift's own codegen does.
+///
+/// So: sweep the body size and read the slope.
+///
+/// - **Flat** — the cost is fixed per compilation, finalisation and module
+///   bookkeeping dominate, and the lever is to finalise less often rather than
+///   to generate less code.
+/// - **Rising with size** — codegen dominates, and the levers are Cranelift's
+///   optimisation level and the shape of the IR emitted.
+///
+/// The existing `compile_warm` group is left exactly as it is: F130 quotes its
+/// figure by name, and a group that changed under it would make the entry's
+/// numbers uncomparable. This is its sibling, same harness and same batching —
+/// a warm reused compiler, eight untimed warm-up compilations, the batch depth
+/// still a knob because a deep batch would inflate the reading if finalisation
+/// cost grew with what the module already holds.
+///
+/// Bodies are `1 drop` pairs, `hot_body`'s shape, so the value count is exact
+/// and the body is stack-balanced. `drop` publishes an arm, so every size has
+/// inlinable sites and F136's rule admits it.
+#[cfg(feature = "jit")]
+fn compile_size(c: &mut Criterion) {
+    use bund2_jit::lower::{Compiler, LastCall};
+    use std::time::{Duration, Instant};
+
+    let mut g = c.benchmark_group("compile_size");
+
+    for pairs in [2usize, 4, 8, 16, 32] {
+        let values = pairs * 2;
+        let body = compiled(&"1 drop ".repeat(pairs));
+
+        g.bench_function(format!("v{values}"), |b| {
+            b.iter_custom(|iters| {
+                let mut total = Duration::ZERO;
+                let depth: u64 = std::env::var("BUND2_BENCH_COMPILE_BATCH")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(256);
+                let mut done = 0u64;
+                while done < iters {
+                    let batch = (iters - done).min(depth.max(1));
+
+                    let mut vm = bund2_runtime::Runtime::new().interp;
+                    let table =
+                        bund2_stdlib::fragments::published(&vm.registry).unwrap_or_default();
+                    let Ok(mut comp) = Compiler::new(table) else {
+                        eprintln!("bench: no compiler could be built; measuring nothing");
+                        return total;
+                    };
+                    let cells = vm.cells().base();
+
+                    for _ in 0..8 {
+                        let _ = comp.compile_word(&body, LastCall::Ordinary, cells, &mut vm);
+                    }
+
+                    let t0 = Instant::now();
+                    for _ in 0..batch {
+                        let _ = black_box(comp.compile_word(
+                            black_box(&body),
+                            LastCall::Ordinary,
+                            cells,
+                            &mut vm,
+                        ));
+                    }
+                    total += t0.elapsed();
+                    done += batch;
+                }
+                total
+            });
+        });
+    }
+
+    g.finish();
+}
+
+#[cfg(not(feature = "jit"))]
+fn compile_size(_: &mut Criterion) {}
+
+/// **What an entry saves, by body size** — F130's other half, the denominator
+/// of every break-even in §S7.
+///
+/// [`compile_size`] measures what a compilation costs and finds it linear in
+/// body size, ~20 µs a value. Break-even is that over what an entry *saves*,
+/// and if the saving is linear too then break-even is roughly the same number
+/// for every body — which is the opposite of what §S7 first recorded, on the
+/// assumption that compilation cost a flat 140 µs whatever the body.
+///
+/// So this measures the saving on the same shapes `compile_size` compiles,
+/// `1 drop` pairs, and in the same in-process form as [`stop_rule`]: the tier
+/// against the same runtime after `take_tier`, both arms in one window. A
+/// feature A/B would put the two arms in different processes, and on this host
+/// three identical baselines drifted 34%.
+///
+/// The pre-flight prints 1 compiled body against 0 per size, because an A/B
+/// whose compiled half never compiled reads exactly like a pass (F124, F138).
+#[cfg(feature = "jit")]
+fn gain_size(c: &mut Criterion) {
+    let t = bund2_runtime_threshold();
+    let mut g = c.benchmark_group("gain_size");
+    let call = compiled("w");
+
+    let build = |tiered: bool, setup: &[BundValue]| -> bund2_runtime::Runtime {
+        let mut r = bund2_runtime::Runtime::new();
+        if !tiered {
+            r.take_tier();
+        }
+        if r.interp.eval(setup).is_err() {
+            eprintln!("bench: gain_size setup failed; measuring nothing");
+        }
+        for _ in 0..(t + 8) {
+            let _ = r.interp.eval(&call);
+        }
+        r
+    };
+
+    for pairs in [2usize, 4, 8, 16, 32] {
+        let values = pairs * 2;
+        let setup = compiled(&format!(":w {{ {}}} register", "1 drop ".repeat(pairs)));
+
+        for (name, tiered) in [("compiled", true), ("interpreted", false)] {
+            let probe = build(tiered, &setup);
+            let want = if tiered { 1 } else { 0 };
+            let bodies = compiled_bodies(&probe.interp);
+            eprintln!(
+                "bench: gain_size v{values}/{name} compiled bodies {bodies}{}",
+                if bodies == want {
+                    ""
+                } else {
+                    "  <-- the A/B's premise fails here"
+                }
+            );
+
+            g.bench_function(format!("v{values}/{name}"), |b| {
+                let mut r = build(tiered, &setup);
+                debug_assert_eq!(r.interp.depth(), 0, "the body must be stack-balanced");
+                b.iter(|| black_box(r.interp.eval(black_box(&call))).is_ok());
+            });
+        }
+    }
+
+    g.finish();
+}
+
+#[cfg(not(feature = "jit"))]
+fn gain_size(_: &mut Criterion) {}
+
 criterion_group!(
     benches,
     startup,
@@ -1264,6 +1424,8 @@ criterion_group!(
     regimes,
     crossing,
     stop_rule,
+    compile_size,
+    gain_size,
     lambda,
     corpus,
     rendering

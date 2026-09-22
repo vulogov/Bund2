@@ -2804,21 +2804,39 @@ works — the corpus never enters a body 64 times, because these are
 demonstrations and tests that run once.
 
 **The obvious inference from that is wrong.** It reads as "the threshold is too
-high", and the arithmetic says the opposite. Against F130's compile cost and the
-saving criterion 10 now measures:
+high", and the arithmetic says the opposite.
 
-| | compile cost | saving per entry | break-even |
-|---|---|---|---|
-| `1 2 + drop`, 4 values | 140.6–141.4 µs warm | **66.4 ns** (113.89 → 47.48) | **~2,100 entries** |
-| `1 drop` × 32, 64 values | the same | ~660 ns (`hot_body`, 2.40×) | **~210 entries** |
+**Corrected 2026-09-22, same day, before the ink dried.** This section first
+carried a two-row table giving break-even as "~2,100 entries" for a four-value
+body and "~210" for a sixty-four-value one, and concluded that break-even
+"spans a tenfold range set by body size". **Both the table and the conclusion
+were wrong**, and they were wrong for one reason: they assumed compilation cost
+a flat 140 µs whatever the body, because that is the only figure F130 had
+measured. It is the cost of compiling *four values*. `compile_size` and
+`gain_size` (`crates/bund2-bench/benches/interpret.rs`) now measure both sides
+against body length, and **both are linear**:
 
-**Break-even spans roughly 210 to 2,150 entries, a tenfold range set by body
-size, and 64 sits below all of it.** So when the tier does fire it fires
-*early*: the body is compiled after 64 entries and must run hundreds to
-thousands more before the compilation is repaid. A corpus program that compiled
-here would, on these figures, lose. F136 measured the same thing from the other
-side — at threshold 1, three of nine compiled bodies were net-negative per
-entry.
+| values | compile cost | compiled entry | interpreted entry | saving/entry | break-even |
+|---|---|---|---|---|---|
+| 4 | 132.7 µs | 60.9 ns | 97.2 ns | 36.4 ns | **3,649** |
+| 8 | 215.2 µs | 87.6 ns | 172.7 ns | 85.1 ns | 2,527 |
+| 16 | 378.2 µs | 144.0 ns | 308.3 ns | 164.4 ns | 2,301 |
+| 32 | 702.9 µs | 261.2 ns | 578.2 ns | 317.1 ns | 2,217 |
+| 64 | 1357.3 µs | 488.9 ns | 1144.2 ns | 655.3 ns | **2,071** |
+
+Compilation is **~51 µs fixed plus ~20.4 µs per value** — the four increments
+read 20.6, 20.4, 20.3 and 20.5 µs a value. The saving is ~10.2 ns a value on
+this shape. Two linear terms divide to a near-constant:
+
+**Break-even is ~2,000–3,600 entries and barely depends on body size**,
+converging on ~2,000 as bodies grow. **Threshold 64 is uniformly 31–57× below
+it.**
+
+So when the tier fires it fires *early*: the body is compiled after 64 entries
+and must run two to three thousand more before the compilation is repaid. A
+corpus program that compiled here would, on these figures, lose — which is what
+F136 measured from the other side, three of nine compiled bodies net-negative
+per entry at threshold 1.
 
 **So 0 bodies over 57 programs is the threshold declining to lose, not the tier
 failing to help.** The knob is doing its job; the corpus is simply not the kind
@@ -2832,20 +2850,28 @@ corpus A/B compares Tier 0 with Tier 0 and a counter. That is exactly how a void
 number stood as criterion 10's verdict for nine days (F138), and it is why every
 group carrying a verdict now prints a `compiled_bodies` pre-flight.
 
-*Retuning the constant is not the repair it looks like.* A single count cannot
-express a break-even that moves tenfold with body size. The principled form is a
-cost model — compile when expected remaining entries × per-entry saving exceeds
-the compile cost — and `plan_body` already computes the site and promoted counts
-such a model would read. Replacing 64 with another constant trades one arbitrary
-number for another, so this section keeps 64 and records why rather than tuning
-it.
+*Retuning the constant is a live option, and the correction above is what makes
+it one.* On the false premise that break-even moved tenfold with body size, this
+section argued that no single count could express it and that only a cost model
+would do. With break-even measured at a near-constant ~2,000–3,600 entries, **a
+fixed count is the right instrument after all** — it is simply set ~31–57× too
+low. A threshold near 2048 would compile a body about when it starts to pay.
+What that costs is latency: a body would run ~2,000 interpreted entries before
+compiling, where today it runs 64. Whether that trade is right is §S7's to
+decide and it is **not decided here**; what this section now records is that the
+choice is a real one with a measured target, not a matter of taste.
 
-**Where the leverage actually is.** Every break-even above is a ratio with
-140 µs on top. Halving the compile cost halves all of them, and would bring the
-four-value body from ~2,100 entries to ~1,050 without touching policy. That is
-**F130**, still open with its disposition unsettled — and this gives it a second
-reason to be settled, beyond start-up latency: it sets how hot a body must be
-before Tier 1 is worth entering at all.
+**Where the leverage actually is.** Every break-even above is a ratio with the
+compile cost on top, and that cost is now known to be ~20.4 µs **per value**
+rather than a flat per-body figure. Halving it halves every break-even and would
+bring a body to profit in ~1,000–1,800 entries without touching policy. That is
+**F130**, still open — and this gives it a second reason to be settled, beyond
+start-up latency: it sets how hot a body must be before Tier 1 is worth entering
+at all. The two terms are separable, and only one of them is large: the ~51 µs
+intercept is per-compilation overhead, where `emit_into` allocates a fresh
+codegen `Context` and `FunctionBuilderContext` each time rather than reusing and
+clearing them; the ~20.4 µs per value is Cranelift compiling the IR the lowering
+emits, and shrinking that means emitting less of it.
 
 ## The counter's key and lifetime
 

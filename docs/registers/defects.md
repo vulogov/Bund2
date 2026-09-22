@@ -4008,6 +4008,22 @@ was available to fall into.
   **The lever is F130.** Every break-even is a ratio with 140 µs on top; halving
   it halves all of them. F130 stays open, and now carries a second reason to be
   settled — it sets how hot a body must be before Tier 1 is worth entering.
+- **Corrected the same day, and the correction reverses one of the arguments
+  above.** The break-even figures in the bullet above — "~2,100 entries" and
+  "~210" — assumed compilation cost a flat 140 µs whatever the body, that being
+  the only figure F130 had. It is the cost of compiling **four values**.
+  `compile_size` measures compilation as **~51 µs fixed + ~20.4 µs per value**
+  (increments 20.6, 20.4, 20.3, 20.5 across 4→64 values) and `gain_size`
+  measures the saving as ~10.2 ns per value. Two linear terms divide to a
+  near-constant: **break-even is ~2,000–3,600 entries and barely moves with body
+  size**, converging on ~2,000. Threshold 64 is uniformly **31–57×** below it.
+  The acceptance ruling stands — 0 bodies over 57 programs is still the
+  threshold declining to lose, and more decisively than before. **What does not
+  stand is the argument against retuning.** That rested on break-even spanning a
+  tenfold range, which it does not; a fixed count is the right instrument after
+  all, set far too low, with a measured target near 2048. Whether to move it is
+  §S7's to decide and is not decided by this correction — but "a constant cannot
+  express this" was false, and it was the reason given for not asking.
 - Depends on: §S7 (the threshold), F130 (the compile cost that justifies it),
   F138 (the measurement this invalidated), criterion 10
 
@@ -5182,6 +5198,53 @@ D35 as amended by Q32 always meant.
   (140.6–141.4 µs) — with a no-tier control and a batch-depth sweep behind
   them. It is ~85% of the figure; the rest is F131's probe. The ~12% spread
   between the two shapes is recorded above as unexplained.
+### Opened against F139, 2026-09-22 — the cost is linear in body size
+
+F130 established the magnitude and stopped. F139 gave it a second question: the
+compile cost is the numerator of every break-even in §S7, so **what is it made
+of, and which part can move?**
+
+`compile_size` (`crates/bund2-bench/benches/interpret.rs`) sweeps body length
+through the same warm harness `compile_warm` uses — a reused compiler, eight
+untimed warm-ups, the batch depth still a knob:
+
+| values | per compilation | increment |
+|---|---|---|
+| 4 | 132.7 µs | — |
+| 8 | 215.2 µs | 20.6 µs/value |
+| 16 | 378.2 µs | 20.4 µs/value |
+| 32 | 702.9 µs | 20.3 µs/value |
+| 64 | 1357.3 µs | 20.5 µs/value |
+
+**Compilation is ~51 µs fixed plus ~20.4 µs per value.** The "125–141 µs per
+body" this entry records is therefore not a per-body constant at all: it is the
+cost of compiling a *four-value* body, and a sixty-four-value body costs
+**1.36 ms**. Every statement elsewhere that treated 140 µs as the cost of a
+compilation regardless of size is wrong on that account; §S7 carried one for
+about an hour and now carries the correction.
+
+**The two terms are separable, and the large one is the slope.**
+
+- The **~51 µs intercept** is per-compilation overhead. `emit_into` allocates a
+  fresh codegen `Context` and `FunctionBuilderContext` on every call
+  (`crates/bund2-jit/src/lower.rs`), where Cranelift's own guidance is to keep
+  both and `clear()` them between functions. Reusing them is a contained change
+  and it can only touch this term.
+- The **~20.4 µs per value** is Cranelift compiling the IR the lowering emits,
+  at `opt_level` **none** — `new_module` builds its `JITBuilder` with
+  `default_libcall_names()` and sets no flags, and none is Cranelift's default,
+  so the usual first lever is already pulled. Shrinking this means emitting
+  less IR per value, not asking Cranelift to work less hard on it. Per value the
+  lowering emits a slot load, a `call_indirect`, a request-cell load and a
+  status branch, plus a guard call and its blocks at an inlined site.
+
+**What has not been established**, and is named rather than guessed at because
+guessing is how this entry's first diagnosis went wrong: how the 20.4 µs divides
+between building the IR (`FunctionBuilder`), Cranelift's own compilation
+(`define_function`), and publishing the code (`finalize_definitions`, called
+once per body). Nothing here separates them. A sampling profile or phase
+timing would, and neither has been run.
+
 - Status: **OPEN — the cause is known, the disposition is not.** Two diagnoses
   were offered and both are withdrawn above: the per-entry `HashMap` arithmetic
   (falsified by a neutral fix) and per-entry cost in general (refuted by the
