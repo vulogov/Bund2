@@ -1161,6 +1161,93 @@ fn crossing(c: &mut Criterion) {
 #[cfg(not(feature = "jit"))]
 fn crossing(_: &mut Criterion) {}
 
+/// **Criterion 10's stop rule, measured on the shape the rule names** — F138.
+///
+/// The criterion: "an A/B on one compiled body against the same body
+/// interpreted, reported per program shape… **A speedup below 1.2× on
+/// `1 2 + drop`** means the tier is not earning its keep and §S1's gate should
+/// be reopened rather than the number explained."
+///
+/// **What this replaces.** The figure recorded as that criterion's verdict —
+/// 1.06×, "per program" — came from the `corpus` group, whose three programs
+/// compile **zero bodies** at the shipped threshold, so it compared Tier 0
+/// against Tier 0 plus a counter (F138). `hot_body` does compile one body at
+/// every size, but its body is `1 drop` pairs — operand-free inlining, whose
+/// §S1 ceiling is 3.0× — where the rule is named on arithmetic, whose ceiling
+/// is 2.03× on one machine and 1.77–1.81× on this one. Neither answers the rule
+/// as written.
+///
+/// **In-process, both arms in one window.** The compiled arm is the tier
+/// `Runtime::new` installs; the interpreted arm is the same runtime after
+/// `take_tier`, which is Tier 0 exactly. A feature A/B compares two processes,
+/// and three identical feature-off baselines of `corpus/mixed` read 21.9, 17.8
+/// and 16.3 µs inside twenty minutes — drift several times the effect this rule
+/// turns on. The `crossing` group is built this way for the same reason and
+/// gave a usable answer through windows that destroyed every cross-process
+/// comparison.
+///
+/// Two shapes, as §S1 reports them. `int_add` is the rule's own `1 2 + drop`;
+/// `dup_drop` is the operand-free arm, kept beside it because the RFC predicts
+/// the two land on opposite sides of the rule — and a run that reported only
+/// the favourable one would be choosing the measurement to clear the gate,
+/// which this criterion's own text forbids.
+///
+/// The pre-flight prints each arm's compiled bodies — 1 against 0 — because an
+/// A/B whose compiled half never compiled reads exactly like a pass. That is
+/// F124's shape, and the corpus group's lack of this line is how F138 survived.
+#[cfg(feature = "jit")]
+fn stop_rule(c: &mut Criterion) {
+    let t = bund2_runtime_threshold();
+    let mut g = c.benchmark_group("stop_rule");
+    let call = compiled("w");
+
+    let build = |tiered: bool, setup: &[BundValue]| -> bund2_runtime::Runtime {
+        let mut r = bund2_runtime::Runtime::new();
+        if !tiered {
+            r.take_tier();
+        }
+        if r.interp.eval(setup).is_err() {
+            eprintln!("bench: stop_rule setup failed; measuring nothing");
+        }
+        for _ in 0..(t + 8) {
+            let _ = r.interp.eval(&call);
+        }
+        r
+    };
+
+    for (shape, body) in [
+        ("int_add", "1 2 + drop"),
+        ("dup_drop", "1 dup_one drop drop"),
+    ] {
+        let setup = compiled(&format!(":w {{ {body} }} register"));
+
+        for (name, tiered) in [("compiled", true), ("interpreted", false)] {
+            let probe = build(tiered, &setup);
+            let want = if tiered { 1 } else { 0 };
+            let bodies = compiled_bodies(&probe.interp);
+            eprintln!(
+                "bench: stop_rule {shape}/{name} compiled bodies {bodies}{}",
+                if bodies == want {
+                    ""
+                } else {
+                    "  <-- the A/B's premise fails here"
+                }
+            );
+
+            g.bench_function(format!("{shape}/{name}"), |b| {
+                let mut r = build(tiered, &setup);
+                debug_assert_eq!(r.interp.depth(), 0, "the body must be stack-balanced");
+                b.iter(|| black_box(r.interp.eval(black_box(&call))).is_ok());
+            });
+        }
+    }
+
+    g.finish();
+}
+
+#[cfg(not(feature = "jit"))]
+fn stop_rule(_: &mut Criterion) {}
+
 criterion_group!(
     benches,
     startup,
@@ -1176,6 +1263,7 @@ criterion_group!(
     entry_anchored,
     regimes,
     crossing,
+    stop_rule,
     lambda,
     corpus,
     rendering

@@ -3944,6 +3944,58 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F139 — the tier compiles nothing on any corpus program at the shipped threshold
+
+**A Bund2 defect in shipped behaviour**, found while establishing F138,
+2026-09-22. Filed separately because F138 is about a *measurement* and this is
+about what the tier does when nobody is measuring.
+
+`bund2 script --stats` over all 57 programs in `tests/golden/HERMETIC.txt`, at
+the shipped threshold of 64:
+
+    programs: 57, total bodies compiled: 0
+
+Not a small gain, not a diluted one. **The tier never fires.** At
+`--jit-threshold 1` seven of the same programs compile bodies, so the tier
+works; the corpus simply never enters any body 64 times. These are
+demonstrations and tests — they run once, and a body that runs once is a body
+§S7 declines by design.
+
+### Why it matters beyond the benchmark
+
+Criterion 10's rule says "the 1.2× floor applies to **the tier as shipped**".
+The tier as shipped, on every program this repository keeps, does nothing at
+all — so the clause has nothing to bind to outside a benchmark that registers a
+word and enters it 72 times on purpose. The body-level verdict is real
+(2.31–2.40×, F138's replacement measurement), and it is a statement about bodies
+that get hot, not about this corpus.
+
+### What it does not mean
+
+**Not that the threshold is wrong.** §S7 chose 64 to keep short programs from
+paying compilation they never repay, and F130's 125–141 µs is what makes that
+choice defensible: at 64 entries a body must save ~2 µs an entry to break even,
+which the 66 ns measured here does not approach. A threshold that fired on this
+corpus would make every program in it slower.
+
+**What it does mean** is that the corpus cannot answer any question about the
+tier's effect on real programs, and no number taken over it should be quoted as
+though it could. That is the trap F138 records, and this entry is the reason it
+was available to fall into.
+
+### Disposition
+
+- Found: 2026-09-22, sweeping the hermetic corpus at the shipped threshold while
+  establishing F138
+- Status: **OPEN — the fact is established, what to do about it is a decision.**
+  The choices are not equivalent: accept it and say so in §S7, so no later
+  reader reads a corpus number as a tier number; add a long-running program to
+  the corpus so the shipped configuration has something to compile; or revisit
+  §S7's threshold against F130's compile cost, which is the only one of the
+  three that changes shipped behaviour.
+- Depends on: §S7 (the threshold), F130 (the compile cost that justifies it),
+  F138 (the measurement this invalidated), criterion 10
+
 ## F138 — criterion 10's per-program figure is measured on programs that compile nothing
 
 **A Bund2 defect in a measurement**, found taking criterion 10 on a quiet host,
@@ -4000,13 +4052,25 @@ this criterion on this host.
 ### Disposition
 
 - Found: 2026-09-22, taking criterion 10 with the host quiet
-- Status: **OPEN — the cause is established, the fix is a decision.** What
-  criterion 10 should assert per program is the RFC's to say, and the choices
-  are not equivalent: add a corpus program with a hot body; restate the stop
-  rule on the per-entry figure, which is measured and sound; or make the A/B
-  in-process — one binary, one `Runtime` with the tier and one after
-  `take_tier` — which is what makes the `crossing` group immune to the drift
-  above.
+- Status: **RESOLVED**, 2026-09-22, by the repository owner's ruling: measure
+  the shape the rule names, in-process, and **withdraw** the corpus figure
+  rather than correct it — it never measured a compiled body, so there is no
+  number to repair. The `stop_rule` group
+  (`crates/bund2-bench/benches/interpret.rs`) registers `:w { 1 2 + drop }`,
+  warms it past the threshold, and A/Bs the tier against the same runtime after
+  `take_tier`, both arms in one window. Its pre-flight prints 1 compiled body
+  against 0, which is the line the `corpus` group lacked.
+  **Measured, two runs: `1 2 + drop` at 2.40× and 2.31×**; the operand-free
+  `dup_drop` arm at 1.86× and 1.81×. The 1.2× stop rule **does not trigger**,
+  and §S1's gate is not reopened.
+  The rejected option is worth naming: restating the rule on `hot_body`'s
+  1.32–2.40× would have swapped a shape with a 2.0× ceiling for one with a 3.0×
+  ceiling, converting a predicted failure into a pass by choosing the
+  measurement — which this criterion's own text forbids. It happens that the
+  named shape passes anyway, which is the only reason that substitution would
+  have reached the same verdict, and is not a reason it would have been sound.
+  The third fault this entry uncovered — that no corpus program compiles at the
+  shipped threshold — is **F139**, filed separately.
 - Depends on: criterion 10 (the verdict), criterion 7 (the same corpus group),
   F124 (the family), F130 (compile cost, which the per-entry figure must repay)
 

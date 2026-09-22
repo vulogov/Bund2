@@ -41,13 +41,28 @@
     below, because what it cost to get a clean reading is worth more than the
     verdict. **22 and 27 joined on 2026-09-16**, on D68's crossing and D71's
     reporter gate.
-  - **Measured** — 9 (the sync's crossover is 4 words), 10 (1.06× on the
-    shipped lowering, **below the 1.2× stop rule**, which is why the gate stays
-    open). That figure is **per program**; per *entry* the same lowering reads
-    1.32× on a two-value body and 2.40× on a sixty-four-value one (`hot_body`,
-    2026-09-15), the gain being diluted at program scale by everything an
-    iteration does besides the body. The stop rule is stated on the program
-    figure and stays unmet.
+  - **Measured** — 9 (the sync's crossover is 4 words), 10 (**2.40× and 2.31×
+    on `1 2 + drop`**, the shape the stop rule names, across two runs; the
+    operand-free `dup_drop` arm reads 1.86× and 1.81×). **The 1.2× stop rule
+    does not trigger and §S1's gate is not reopened**, 2026-09-22.
+
+    **The figure this replaces was void, and is withdrawn rather than
+    corrected** (F138). The earlier entry read "1.06× on the shipped lowering,
+    below the 1.2× stop rule, which is why the gate stays open", taken over the
+    `corpus` group — whose three programs compile **zero bodies** at the shipped
+    threshold, so it compared Tier 0 against Tier 0 plus a counter. There was no
+    speedup to be below the rule, and no number there to repair.
+
+    The verdict now comes from `stop_rule`, an **in-process** A/B: one binary,
+    the tier against the same runtime after `take_tier`, both arms in one
+    window. That matters on this hardware — three identical feature-off
+    baselines of `corpus/mixed` read 21.9, 17.8 and 16.3 µs inside twenty
+    minutes, drift several times the effect the rule turns on.
+
+    `hot_body`'s 1.32×–2.40× per *entry* stands and is sound — it compiles one
+    body at every size — but it measures `1 drop` pairs, operand-free inlining
+    with a 3.0× ceiling, and the rule is named on arithmetic. It is reported
+    beside the verdict, not as it.
   - **Partial** — 5, 17, 30: each has a half met and a half outstanding, or a
     bound stated and unmeasured. **22 left this group on 2026-09-16**: all six
     of its bullets are written and pass, in ten tests, once D68 gave it a
@@ -4651,6 +4666,30 @@ evidence, and this one is listed as runnable rather than as met.
     Reported per shape, then: inlining alone, and inlining with promotion. The
     1.2× floor above applies to the tier as shipped. It is measured under the
     CLI's default reporter, as criterion 9 is.
+
+    **Measured, 2026-09-22 — the rule does not trigger.** `stop_rule`
+    (`crates/bund2-bench/benches/interpret.rs`) registers `:w { 1 2 + drop }`,
+    warms it past §S7's threshold and times it against the same runtime with the
+    tier taken out, which is Tier 0 exactly. Two runs:
+
+    | shape | compiled | interpreted | speedup |
+    |---|---|---|---|
+    | `1 2 + drop` | 47.48 ns / 48.31 ns | 113.89 ns / 111.59 ns | **2.40× / 2.31×** |
+    | `1 dup_one drop drop` | 70.72 ns / 71.68 ns | 131.48 ns / 129.68 ns | 1.86× / 1.81× |
+
+    **This does not contradict §S1's ceiling, and the reason is the prediction's
+    own scope.** The 2.03×, and the 1.77–1.81× this machine reads, bound
+    *inlining alone*. The shipped lowering also **promotes** the two literals,
+    and §S1's ceiling for inlining with promotion is 8.8× on `Int + Int`. So
+    2.3–2.4× sits inside its ceiling, and the RFC's prediction — that
+    arithmetic inlining alone would not clear the rule — was about a lowering
+    this one is not. Promotion is what carries the shape past the floor, which
+    is the case D66 and D67 were built on and the first direct evidence for it.
+
+    **What the verdict is not.** It is a statement about a body that gets hot.
+    No program in `tests/golden/HERMETIC.txt` compiles a single body at the
+    shipped threshold (**F139**), so this number says what the tier does when it
+    fires, not how often it fires.
 
     **Measured by a throwaway lowering, 2026-09-11 — outside this RFC's gate.**
     A spike on the scratch branch `spike/lowering-1` (commit `3138d3c`,
