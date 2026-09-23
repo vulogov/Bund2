@@ -5322,6 +5322,55 @@ code and the entry trampoline, ~44%, so compilation falls from ~20.4 µs a value
 toward ~9 µs, and §S7's break-even from ~2,000 entries toward ~1,000. The first
 body compiled in a process still pays in full.
 
+### Built and measured, 2026-09-22 — compilation roughly halves
+
+The cache is in `Compiler` as `Thunks`, keyed by (adapter kind, index); thunk
+names lost their `seq`, and a body defines only the indices no earlier body
+reached. `emit_into` records which ids were `fresh` and skips defining the rest,
+a `FuncId` being definable once.
+
+| values | before | after | change |
+|---|---|---|---|
+| 4 | 132.7 µs | 71.7 µs | **−44.6%** |
+| 8 | 215.2 µs | 109.6 µs | −48.7% |
+| 16 | 378.2 µs | 183.8 µs | −51.3% |
+| 32 | 702.9 µs | 333.2 µs | −52.6% |
+| 64 | 1357.3 µs | 634.3 µs | −59.7% |
+
+Every row p = 0.00. **The slope falls from ~20.4 to ~9.4 µs a value** and the
+intercept from ~51 to ~34 µs, which is the profile's 50.8% removed about as
+predicted. The effect grows with body length because thunk count does.
+
+**Break-even follows it down**, against the same `gain_size` window:
+~2,100 entries at 4 values, 1,288 at 8, 1,138 at 16, 1,053 at 32 and **1,012 at
+64** — against ~3,600 down to ~2,071 before. §S7's threshold of 64 is now
+16–33× below break-even rather than 31–57×.
+
+**Correctness.** 519 tests pass, conformance **106/114 with ceiling 106/114**,
+unmoved — §S2's invariant for any tier change. The claim the cache rests on is
+pinned by `a_second_body_reuses_the_first_bodys_thunks`
+(`crates/bund2-jit/src/lower.rs`): a second body of the same shape emits **no**
+new thunk, and both bodies still answer correctly over *different* natives, so a
+body reaching the other's table would give the wrong number rather than the
+right one by luck. That test caught nothing about the cache and one thing about
+its author: its first draft asserted `10 4 -` is 6, and Tier 0 says **-6**.
+
+**One cost, unconfirmed and recorded rather than buried.** `gain_size/v4`'s
+compiled arm reads 60.87 ns before the change and 64.31 then 65.34 ns after —
+about **+7%** on the smallest body — while the interpreted arm, which this
+change cannot touch, drifted −1.6% across the same runs. Both windows were
+contaminated (guard means 23.7% and 25.9%), so this is not established. A
+mechanism exists: thunks are now emitted once at the front of the module rather
+than immediately before each body, so the call from a body to its thunk is a
+longer jump and locality is worse. It would bite hardest on small bodies, which
+is where it appears. Larger bodies show nothing (v32 −0.4%, v64 −0.5%).
+**It needs a clean window to confirm or dismiss**, and even at +7% the trade is
+favourable: break-even at 4 values still falls from ~3,600 to ~2,100.
+
+**Still open**: the disposition question this entry was already carrying — what
+`arith/times_body` means, given a benchmark that recompiles per iteration
+measures something no session does — is untouched by any of this.
+
 **Not yet built, and one thing is unchecked**: whether a thunk's address, once
 shared, is still correct in every body's slot table — the tables are per body
 (`Box<[*const u8]>`) and would now hold the same addresses, which should be

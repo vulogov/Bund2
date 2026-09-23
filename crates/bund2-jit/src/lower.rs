@@ -1454,6 +1454,38 @@ pub struct Compiler {
     /// **Empty is the safe default and today's behaviour**: no call is
     /// classified crossable, so promotion stops at every one of them.
     crossable: std::collections::BTreeSet<bund2_api::RegistrationId>,
+    /// **The thunks this module has already emitted, by index** — F130.
+    ///
+    /// A thunk bakes an index and nothing else, and the index is resolved
+    /// **against the running context**: `jit_call_native` takes
+    /// `Ctx::natives[i]`, `jit_admits` takes `Ctx::sites[k]`, and the drain
+    /// thunk bakes nothing at all. So a thunk baking `2` means "the third
+    /// entry of whatever body is running" and is correct for *every* body —
+    /// two bodies that each have a third call want the identical four
+    /// instructions.
+    ///
+    /// Emitting one per site per body was **50.8% of a compilation**, measured
+    /// by sampling profile: each four-instruction function paid Cranelift's
+    /// whole per-function pipeline, its own `FunctionBuilder`, legalisation and
+    /// regalloc2 run. Keeping them here means a body pays only for indices no
+    /// earlier body reached.
+    ///
+    /// §S8 asks for no more than this: its third piece is "a JIT-emitted `Tail`
+    /// thunk **for each native a call slot can hold**" — per callee kind, not
+    /// per call site.
+    thunks: Thunks,
+}
+
+/// The per-module thunk cache — see [`Compiler::thunks`].
+///
+/// Three kinds, because three adapters: a call thunk per call index, one drain
+/// thunk, and a guard thunk per site index. Each vector is dense and grows only
+/// when a body needs an index no earlier body did.
+#[derive(Default)]
+struct Thunks {
+    calls: Vec<cranelift_module::FuncId>,
+    drain: Option<cranelift_module::FuncId>,
+    admits: Vec<cranelift_module::FuncId>,
 }
 
 impl Compiler {
@@ -1479,7 +1511,19 @@ impl Compiler {
             words: Vec::new(),
             table,
             crossable,
+            thunks: Thunks::default(),
         })
+    }
+
+    /// **How many thunks this module holds** — F130's cache, as a figure a
+    /// test can assert on.
+    ///
+    /// Call thunks plus guard thunks plus the drain thunk. It counts what has
+    /// been *emitted*, not what bodies asked for, so it stops growing once a
+    /// body's indices have all been seen — which is the whole claim the cache
+    /// makes and the only way to check it from outside.
+    pub fn thunk_count(&self) -> usize {
+        self.thunks.calls.len() + self.thunks.admits.len() + usize::from(self.thunks.drain.is_some())
     }
 
     /// **D68's four gates, asked of one callee.**
@@ -1563,7 +1607,16 @@ impl Compiler {
         let seq = self.words.len();
         let (plan, sites) = self.plan_body(body, vm);
         let (entry, slots, resumes, syncs) =
-            emit_into(&mut self.module, seq, &plan, &sites, last, Adapter::Apply, cells)?;
+            emit_into(
+                &mut self.module,
+                &mut self.thunks,
+                seq,
+                &plan,
+                &sites,
+                last,
+                Adapter::Apply,
+                cells,
+            )?;
         // The constants the emitted code baked, paired with the body positions
         // they came from. `Compiler::run` compares them against the body it is
         // handed — see [`Word::literals`].
@@ -1942,7 +1995,18 @@ fn emit_body(
     // A body compiled this way inlines nothing — it is given no fragments — so
     // it has no site whose residual could resume, and the table is empty.
     let (entry, slots, _resumes, _syncs) =
-        emit_into(&mut module, 0, &plan, &[], last, adapter, cells)?;
+        emit_into(
+            &mut module,
+            // This path builds a module per body and throws it away, so a
+            // cache has nothing to share with: a fresh one, used once.
+            &mut Thunks::default(),
+            0,
+            &plan,
+            &[],
+            last,
+            adapter,
+            cells,
+        )?;
     Ok(CompiledBody {
         _module: module,
         entry,
@@ -2003,6 +2067,7 @@ type Emitted = (Entry, Box<[*const u8]>, Vec<(usize, usize)>, usize);
 /// same Rust function.
 fn emit_into(
     module: &mut JITModule,
+    thunks: &mut Thunks,
     seq: usize,
     plan: &[Plan],
     sites: &[Fragment],
@@ -2111,29 +2176,54 @@ fn emit_into(
     sig_tail.params.push(AbiParam::new(ptr));
     sig_tail.returns.push(AbiParam::new(types::I32));
 
-    // One thunk per call, then the drain thunk last — the slot table's shape.
-    let mut thunk_ids = Vec::with_capacity(calls + 1);
+    // **One thunk per call, then the drain thunk, then one per inlined site**
+    // — the slot table's shape, and the cache's keys (F130).
+    //
+    // A thunk bakes an index and nothing else, and the index is resolved
+    // against the **running** context: `jit_call_native` takes
+    // `Ctx::natives[i]` and `jit_admits` takes `Ctx::sites[k]`. So a thunk an
+    // earlier body caused to be emitted is correct for this one, and the names
+    // carry no `seq`. `fresh` records which had to be emitted now; only those
+    // are defined below, and a body pays only for indices no earlier body
+    // reached.
+    let mut thunk_ids = Vec::with_capacity(calls + 1 + inlined);
+    let mut fresh = Vec::with_capacity(calls + 1 + inlined);
     for i in 0..calls {
-        let id = module
-            .declare_function(&format!("bund2_thunk_{seq}_{i}"), Linkage::Export, &sig_tail)
-            .map_err(|e| format!("declare thunk {i}: {e}"))?;
-        thunk_ids.push(id);
+        if let Some(&id) = thunks.calls.get(i) {
+            thunk_ids.push(id);
+            fresh.push(false);
+        } else {
+            let id = module
+                .declare_function(&format!("bund2_thunk_{i}"), Linkage::Export, &sig_tail)
+                .map_err(|e| format!("declare thunk {i}: {e}"))?;
+            thunks.calls.push(id);
+            thunk_ids.push(id);
+            fresh.push(true);
+        }
     }
-    let drain_thunk_id = module
-        .declare_function(&format!("bund2_drain_{seq}"), Linkage::Export, &sig_tail)
-        .map_err(|e| format!("declare bund2_drain_{seq}: {e}"))?;
-    thunk_ids.push(drain_thunk_id);
-    // One guard thunk per inlined site, each baking its site index, exactly as
-    // each call thunk bakes its call index.
-    for k in 0..inlined {
-        let id = module
-            .declare_function(
-                &format!("bund2_admits_{seq}_{k}"),
-                Linkage::Export,
-                &sig_tail,
-            )
-            .map_err(|e| format!("declare bund2_admits_{seq}_{k}: {e}"))?;
+    if let Some(id) = thunks.drain {
         thunk_ids.push(id);
+        fresh.push(false);
+    } else {
+        let id = module
+            .declare_function("bund2_drain", Linkage::Export, &sig_tail)
+            .map_err(|e| format!("declare bund2_drain: {e}"))?;
+        thunks.drain = Some(id);
+        thunk_ids.push(id);
+        fresh.push(true);
+    }
+    for k in 0..inlined {
+        if let Some(&id) = thunks.admits.get(k) {
+            thunk_ids.push(id);
+            fresh.push(false);
+        } else {
+            let id = module
+                .declare_function(&format!("bund2_admits_{k}"), Linkage::Export, &sig_tail)
+                .map_err(|e| format!("declare bund2_admits_{k}: {e}"))?;
+            thunks.admits.push(id);
+            thunk_ids.push(id);
+            fresh.push(true);
+        }
     }
     let body_id = module
         .declare_function(&format!("bund2_body_{seq}"), Linkage::Export, &sig_tail)
@@ -2166,6 +2256,14 @@ fn emit_into(
 
     // --- the thunks: one ordinary call to the adapter, with the index baked in
     for (i, &id) in thunk_ids.iter().enumerate() {
+        // **Already in this module, from an earlier body** (F130). Its code is
+        // correct here because the index it bakes is resolved against the
+        // running context, not against the body that caused it to be emitted.
+        // Re-defining it would also be an error: a `FuncId` may be defined
+        // once.
+        if !fresh.get(i).copied().unwrap_or(true) {
+            continue;
+        }
         cg.func.signature = sig_tail.clone();
         {
             let mut f = FunctionBuilder::new(&mut cg.func, &mut fb_ctx);
@@ -3852,6 +3950,72 @@ mod tests {
         let e = c.run(word, &mut vm, &body).expect_err("the call failed");
         assert!(!e.0.is_empty());
         assert_eq!(vm.depth(), 0, "the value after the failure must not run");
+    }
+
+    /// **F130's thunk cache: a second body reuses the first's thunks, and both
+    /// still run.**
+    ///
+    /// A thunk bakes an index resolved against the **running** context —
+    /// `jit_call_native` takes `Ctx::natives[i]`, `jit_admits` takes
+    /// `Ctx::sites[k]` — so one emitted while compiling body A is correct when
+    /// body B's slot table points at it. That is the claim the cache rests on,
+    /// and the thing that would be silently wrong if it were false: B would
+    /// call A's natives, with no guard anywhere to catch it.
+    ///
+    /// So this asserts both halves. **Reuse**: compiling a second body of the
+    /// same shape emits no new thunk. **Correctness**: both bodies still give
+    /// the right answer afterwards, and they are deliberately *different*
+    /// programs over different natives, so a body running the other's table
+    /// would produce the wrong number rather than the right one by luck.
+    #[test]
+    fn a_second_body_reuses_the_first_bodys_thunks() {
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
+        let mut vm = with_stdlib();
+
+        // `1 2 +` -> 3, two literals and a call.
+        let first = add_body();
+        let w1 = word_in(&mut c, &mut vm, &first, LastCall::Ordinary);
+        let after_first = c.thunk_count();
+        assert!(
+            after_first > 0,
+            "the first body must emit thunks, or this tests nothing"
+        );
+
+        // A different program with the same number of calls: `10 4 -`, which
+        // Tier 0 answers **-6** — this native subtracts the top from the one
+        // beneath it, checked against `bund2 script` rather than assumed, after
+        // the first draft of this test asserted 6 and was wrong about the
+        // order. Same slot shape, so every thunk index it needs is cached.
+        let second = vec![
+            BundValue::int(10),
+            BundValue::int(4),
+            BundValue::call("-"),
+        ];
+        let w2 = word_in(&mut c, &mut vm, &second, LastCall::Ordinary);
+        assert_eq!(
+            c.thunk_count(),
+            after_first,
+            "the second body needed no index the first had not reached, so it \
+             must have emitted no thunk of its own"
+        );
+
+        // Both still run, and each over its own natives: if the shared thunk
+        // resolved against the body it was emitted for rather than the body
+        // running, the second would answer 3 and not 6.
+        c.run(w1, &mut vm, &first).expect("the first body ran");
+        assert_eq!(
+            vm.snapshot().first().and_then(BundValue::as_int),
+            Some(3),
+            "the first body"
+        );
+        vm.clear();
+        c.run(w2, &mut vm, &second).expect("the second body ran");
+        assert_eq!(
+            vm.snapshot().first().and_then(BundValue::as_int),
+            Some(-6),
+            "the second body, through thunks the first emitted — and had it \
+             reached the *first* body's natives instead, `+` would answer 14"
+        );
     }
 
     /// The tail-position variant runs the same body the same way.
