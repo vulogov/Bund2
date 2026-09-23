@@ -4603,6 +4603,214 @@ mod tests {
         }
     }
 
+    /// **Criterion 5's differential: change what `+` means, and both tiers must
+    /// change together.**
+    ///
+    /// The caller inlines `+`'s fragment, so this is the half the criterion
+    /// says "passed vacuously for every inlined word" before the fifth review's
+    /// B1 — an inlined fragment goes through no slot, so a redefinition it did
+    /// not observe would leave the compiled answer stale while Tier 0 moved.
+    ///
+    /// `prepare` runs **after** the word is compiled, on both interpreters,
+    /// which is the only ordering that leaves the compiled generation stale
+    /// (§S6, *Inlining freezes a name*). A mid-body case passes an empty
+    /// `prepare` and puts the redefinition in the body instead.
+    ///
+    /// `inlined_sites` is asserted first: without the fragment table `+` is
+    /// never a site, no generation guard is emitted, and every row below would
+    /// assert a path it cannot take (F127).
+    fn assert_redefinition_matches_tier0(
+        body: &[BundValue],
+        prepare: &dyn Fn(&mut Interp),
+        expected: &[i64],
+        label: &str,
+    ) {
+        let mut tier0 = with_stdlib();
+        let (mut compiled, table) = with_fragments();
+
+        let mut c = Compiler::new(table).expect("a compiler");
+        let cells = compiled.cells().base();
+        let word = c
+            .compile_word(body, LastCall::Ordinary, cells, &mut compiled)
+            .expect("lowers");
+        assert_eq!(
+            c.inlined_sites(word),
+            Some(1),
+            "{label}: `+` must be a site, or the guard this row needs is never emitted"
+        );
+
+        prepare(&mut tier0);
+        prepare(&mut compiled);
+
+        let by_tier0 = tier0.eval(body);
+        let by_compiled = c.run(word, &mut compiled, body);
+        assert_eq!(
+            by_tier0.is_ok(),
+            by_compiled.is_ok(),
+            "{label}: one path failed and the other did not: {by_tier0:?} vs {by_compiled:?}"
+        );
+
+        let (a, b) = (tier0.snapshot(), compiled.snapshot());
+        // **The redefinition must have done something**, and each row says
+        // what. Agreement between the tiers is not enough on its own: a
+        // redefinition that silently failed to take would leave both answering
+        // `3` and every row below would pass while asserting nothing. That is
+        // F127's shape wearing a different coat, and this is the guard against
+        // it. Two rows *do* expect `3`, and they say so deliberately — a
+        // shadow-then-unregister pair restores the native, so the result is
+        // unchanged while the guard has moved twice.
+        assert_eq!(
+            b.iter().map(BundValue::as_int).collect::<Vec<_>>(),
+            expected.iter().map(|n| Some(*n)).collect::<Vec<_>>(),
+            "{label}: the redefinition did not have the effect this row claims"
+        );
+        assert_eq!(a.len(), b.len(), "{label}: depth");
+        for (x, y) in a.iter().zip(b.iter()) {
+            assert_eq!(x.dt(), y.dt(), "{label}: dt");
+            assert_eq!(
+                norm(&x.render(false)),
+                norm(&y.render(false)),
+                "{label}: value, q or stack tag"
+            );
+        }
+    }
+
+    /// **Criterion 5: `+` unregistered.**
+    ///
+    /// `unregister` removes a **lambda** binding and leaves the native alone
+    /// (`unregister`, `crates/bund2-stdlib/src/values.rs`, through
+    /// `Registry::unregister_lambda` — F32's fix). So "unregistered" is only a
+    /// link in §S4's chain as a *pair*: shadow `+` with a lambda, then take the
+    /// lambda away so the native reappears.
+    ///
+    /// **The compiled body does not go back to its inlined arm when it does.**
+    /// Each rebinding bumps the slot's generation, and the guard was frozen at
+    /// the generation the body compiled against, so after two bumps it still
+    /// declines and the residual runs — while Tier 0 is back to the native.
+    /// Both must answer `3`, by different routes, and that is the whole point
+    /// of the row: agreement is not sameness of path.
+    #[test]
+    fn plus_unregistered_after_compiling_matches_tier_zero() {
+        assert_redefinition_matches_tier0(
+            &add_body(),
+            &|vm: &mut Interp| {
+                vm.registry
+                    .register_lambda("+", BundValue::lambda(vec![BundValue::call("drop")]));
+                bund2_api::Vm::unregister_lambda(vm, "+");
+            },
+            &[3],
+            "`+` shadowed by a lambda, then unregistered",
+        );
+    }
+
+    /// **Criterion 5: `+` registered as a command.**
+    ///
+    /// A command outranks everything: `Registry::resolve` answers `Command`
+    /// before it follows an alias or looks at a lambda or a native. And §S5
+    /// gives a command **no D43 id**, so no command is ever inlined or crossed
+    /// — `Registry::register_command` says so in its own comment.
+    ///
+    /// So this row asks the sharpest version of the question: the compiled body
+    /// inlined an arm for a registration id that the name no longer reaches at
+    /// all. The command answers `99` regardless of its operands, which is
+    /// chosen to be a value neither tier could produce by arithmetic, so a
+    /// compiled body that kept using its inlined `+` would read `3` and part
+    /// from Tier 0 visibly.
+    #[test]
+    fn plus_registered_as_a_command_after_compiling_matches_tier_zero() {
+        fn ninety_nine(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.pull();
+            vm.pull();
+            vm.push(BundValue::int(99));
+            Ok(())
+        }
+        assert_redefinition_matches_tier0(
+            &add_body(),
+            &|vm: &mut Interp| {
+                vm.registry.register_command(
+                    "+",
+                    ninety_nine,
+                    bund2_api::StackEffect::fixed(2, 1),
+                    bund2_api::WordKind::Sync,
+                );
+            },
+            &[99],
+            "`+` registered as a command",
+        );
+    }
+
+    /// **Criterion 5's mid-body half: the body redefines `+` before reaching
+    /// its own inlined site.**
+    ///
+    /// This is what the fifth review's B1 added, and it is the harder ordering:
+    /// the guard is not stale when the body starts — the body *makes* it stale,
+    /// at run time, by a `register`, `alias` or `unregister` earlier in the
+    /// same compiled code. A lowering that read the generation once on entry
+    /// rather than at each site would pass every row above and fail these.
+    ///
+    /// The three shapes §S4's chain allows from inside a body are covered.
+    /// **Registration as a command is not among them**, and that is a fact
+    /// about the vocabulary rather than an omission: a command is registered
+    /// through `Registry::register_command`, which no Bund word reaches, so a
+    /// body cannot make one. That link is covered by the before-the-body row
+    /// above and can be covered no other way.
+    #[test]
+    fn a_body_that_redefines_its_own_inlined_site_matches_tier_zero() {
+        let plus = || BundValue::str("+");
+        let nothing = |_: &mut Interp| {};
+
+        // `:+ { drop } register  1 2 +` — the site is inlined against a
+        // generation this body invalidates three values before reaching it.
+        assert_redefinition_matches_tier0(
+            &[
+                plus(),
+                BundValue::lambda(vec![BundValue::call("drop")]),
+                BundValue::call("register"),
+                BundValue::int(1),
+                BundValue::int(2),
+                BundValue::call("+"),
+            ],
+            &nothing,
+            &[1],
+            "a body that registers a lambda over `+` before its own `+`",
+        );
+
+        // `:dup_one :+ alias  1 2 +` — `alias` takes the alias on top and its
+        // target beneath, so this points `+` at `dup_one`.
+        assert_redefinition_matches_tier0(
+            &[
+                BundValue::str("dup_one"),
+                plus(),
+                BundValue::call("alias"),
+                BundValue::int(1),
+                BundValue::int(2),
+                BundValue::call("+"),
+            ],
+            &nothing,
+            &[1, 2, 2],
+            "a body that aliases `+` to another word before its own `+`",
+        );
+
+        // `:+ { drop } register  :+ unregister  1 2 +` — shadowed and restored
+        // inside one body, so the native is back by the time the site runs and
+        // the guard has moved twice.
+        assert_redefinition_matches_tier0(
+            &[
+                plus(),
+                BundValue::lambda(vec![BundValue::call("drop")]),
+                BundValue::call("register"),
+                plus(),
+                BundValue::call("unregister"),
+                BundValue::int(1),
+                BundValue::int(2),
+                BundValue::call("+"),
+            ],
+            &nothing,
+            &[3],
+            "a body that shadows and unregisters `+` before its own `+`",
+        );
+    }
+
     /// **The residual.** A rebound `+` fails the generation guard, so control
     /// reaches §S5's residual path with the operands still in registers — and
     /// the residual must sync them before it resumes.

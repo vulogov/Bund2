@@ -4233,6 +4233,57 @@ evidence, and this one is listed as runnable rather than as met.
    a **command**, and every **mid-body** variant, which is the half the fifth
    review's B1 added and the half a slot-less inlined fragment would miss.
 
+   **That half is written, 2026-09-22**, in `crates/bund2-jit/src/lower.rs`
+   through `assert_redefinition_matches_tier0`, which compiles the caller with
+   §S6's table, asserts `+` really is a site, then changes what `+` means and
+   runs both tiers over the same body.
+
+   | link in §S4's chain | before the caller runs | mid-body |
+   |---|---|---|
+   | re-registered as a lambda | `a_rebound_name_syncs_the_operands_it_promoted` | **new**, leaves `1` |
+   | aliased to another word | `an_aliased_name_is_called_rather_than_inlined` | **new**, leaves `1 2 2` |
+   | unregistered | **new**, leaves `3` | **new**, leaves `3` |
+   | registered as a command | **new**, leaves `99` | *unreachable — see below* |
+
+   **`unregister` is only a link as a pair.** It removes a **lambda** binding
+   and leaves a native alone (`Registry::unregister_lambda`, F32's fix), so the
+   row shadows `+` with a lambda and then takes the lambda away. The native is
+   back and Tier 0 uses it; the compiled body does **not** return to its
+   inlined arm, because the guard was frozen at the generation it compiled
+   against and two rebindings have moved it. Both answer `3` by different
+   routes, which is the point: agreement is not sameness of path.
+
+   **A command is the sharpest case.** `Registry::resolve` answers `Command`
+   before it follows an alias or looks at a lambda or a native, and §S5 gives a
+   command **no D43 id**, so it can be neither inlined nor crossed. The
+   compiled body has therefore inlined an arm for a registration the name no
+   longer reaches at all. The command answers `99` whatever its operands — a
+   value no arithmetic here produces — so a body still using its inlined `+`
+   would read `3` and part from Tier 0 visibly.
+
+   **Mid-body registration as a command is unreachable, and that is a fact
+   about the vocabulary rather than a gap.** A command is registered through
+   `Registry::register_command`, which no Bund word reaches, so no body can
+   make one mid-flight. The before-the-body row covers that link and nothing
+   else can.
+
+   **Each row states the result it expects.** Agreement between the tiers is
+   not enough on its own: a redefinition that silently failed to take would
+   leave both answering `3`, and every row would pass while asserting nothing —
+   F127's shape in a different coat. The expectations were taken by probing the
+   real results rather than predicted, and the guard was checked by feeding it a
+   wrong one and watching it fail.
+
+   **What remains for this criterion.** Its third and fourth paragraphs — the
+   caller that calls `<-` with `stacks_left` rebound, and the caller of `f` as
+   `{ g }` with `g` rebound — are exercised by criterion 22's differentials
+   (`an_alias_whose_target_is_rebound_matches_tier_zero`,
+   `a_lambda_callee_rebound_before_the_body_runs_matches_tier_zero` and their
+   mid-body siblings), whose bodies do inline `+`. But those assert that the
+   tiers *agree*, not that the caller's result *changed*, which is what this
+   criterion asks for by name. Carrying the expectation assertion above into
+   those two shapes is what would close it.
+
 6. **The caps hold**, checked by a test per row of §S7's table rather than by
    inspection. With the compiled-function cap set to 4, compiling five distinct
    bodies leaves the fifth interpreted. With the recompile cap set to 2, a
