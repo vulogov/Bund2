@@ -3944,6 +3944,100 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F140 — a promoted value crossing `stacks_left` is synced to the wrong stack
+
+**A Bund2 defect in shipped code, and it gives wrong answers silently.** Found
+2026-09-23, while reading criterion 17's per-call bound to see what it would
+take to measure.
+
+### The reproduction
+
+    :other ensure_stack
+    :main to_stack
+    :w { 1 2 + stacks_left } register
+    w w                       (or 65 times, at the shipped threshold)
+    :main to_stack  debug.display_stack
+
+| | `main` | `other` |
+|---|---|---|
+| no tier (`--jit-threshold 1000000`) | `3` | `3` |
+| tier (`--jit-threshold 1`) | `3`, `3` | *(empty)* |
+
+**And at the shipped threshold**, with 65 entries so that exactly one runs
+compiled: `main` holds **33** values without the tier and **32** with it. One
+value computed on one stack was left on another. `--stats` reports
+`1 crossed` for the body, which is the cause.
+
+### The mechanism
+
+`stacks_left` is `eff(0, 0)`, non-opaque, registered by `bund2-stdlib` and on
+`PROMOTABLE.txt`, so every one of D68's gates admits it and D71's fifth does not
+exclude it — it reports nothing. Crossing it emits `emit_sync_top_n(0)`, which
+pushes **nothing**, so the promoted values stay in registers. Then
+`vm.rotate_stacks_left()` changes which stack is current, and the body's final
+sync pushes those registers onto the stack that is current **now**. Tier 0 had
+pushed them before the rotation, onto the stack that was current **then**.
+
+**`to_stack` and `to_current` are safe, and the reason is worth recording**,
+because it is why this took so long to see. They are `eff(1, 0)`: their name
+operand has to be pushed *after* the promoted values, and a symbol is not a
+promotable literal, so pushing it is a generic apply that syncs everything
+first. Nothing is ever held across them. Only the **operand-free** stack
+switchers are exposed — `stacks_left` and `stacks_right`.
+
+### §S5 specifies the check that would catch this, and it is not emitted
+
+`Cells::epoch` is documented as "the current stack's epoch, bumped on every
+change of *which* stack is current… compiled code only needs to know that the
+stack it resolved against is still the one in force". `Interp` writes it —
+`bump_epoch` runs on every stack change and the value is mirrored into the
+cells. **No emitted code ever reads it.** `grep` for `epoch` in
+`crates/bund2-jit/src/lower.rs` finds one comment and no load.
+
+Criterion 17's per-call bound names "the three loads after every call (epoch,
+`autoadd`, request)". The lowering emits **one**: `emit_generic_call` loads the
+request cell. `autoadd` is loaded only at an inlined site's third guard, which
+contradicts `Cells::autoadd`'s own doc ("read after every call and at every
+inlined site"), and the epoch is loaded nowhere at all.
+
+### Why nothing caught it
+
+- **Conformance cannot see it**: no program in `tests/golden/HERMETIC.txt`
+  compiles a single body at the shipped threshold (**F139**), so the corpus
+  never reaches compiled code, let alone a crossed stack switch.
+- **Criterion 21's stack-switch differentials pass**, because they were written
+  before D68 and their bodies sync at every call.
+- **Criterion 22's alias row uses `<-`**, an alias, which carries no
+  registration id and is therefore never crossed — the one shape that would
+  have shown it is excluded by D47 for an unrelated reason.
+- **An even number of compiled entries hides it.** Each one moves a value from
+  the stack it belonged on to the next; with alternating rotation the counts
+  net out. 70 entries read 35/35 in both tiers and look clean. 65 entries do
+  not.
+
+### Disposition
+
+- Found: 2026-09-23, establishing what criterion 17's per-call bound would cost
+  to measure
+- Status: **RESOLVED**, 2026-09-23, by **D73** — the static gate. Every native
+  that changes the current stack is kept out of the crossable table by
+  `SWITCHES_STACK` (`crates/bund2-stdlib/src/promotable.rs`), eight names of
+  which four were reachable. The reproduction above now reads **33 at every
+  threshold**, and the two-call case leaves one value on each stack in both
+  tiers.
+  The gate names more than the exposure on purpose: `to_stack` and `to_current`
+  are protected today only because their name operand is pushed after the
+  promoted values and a symbol is not promotable, which is a consequence of
+  what happens to be promotable rather than a rule.
+  **§S5's epoch check is still unbuilt**, and the owner's ruling took the
+  static half first because it is total, free at run time, and the defect was
+  live. The dynamic check would cover a switcher nobody enumerated; it remains
+  specified, unbuilt, and the reason criterion 17's per-call bound cannot be
+  measured as stated.
+- Depends on: D68 (the crossing), D71 (the precedent and its fifth gate), §S5
+  (the epoch check, specified and unbuilt), F139 (why the corpus is blind to
+  it), criterion 17 (whose per-call bound named the missing loads)
+
 ## F139 — the tier compiles nothing on any corpus program at the shipped threshold
 
 **A Bund2 defect in shipped behaviour**, found while establishing F138,

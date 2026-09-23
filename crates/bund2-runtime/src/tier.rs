@@ -1072,6 +1072,34 @@ mod tests {
         assert_eq!(a.workbench, b.workbench, "workbench");
     }
 
+    /// **F140's regression: a promoted value must not ride across a stack
+    /// switch.**
+    ///
+    /// `:w { 1 2 + stacks_left }` promotes the sum and then rotates which stack
+    /// is current. `stacks_left` is `eff(0, 0)`, so a crossing would sync
+    /// **nothing** before it and the body's final sync would push the sum onto
+    /// the stack in force *after* the rotation — where Tier 0 pushed it before.
+    /// Measured at the shipped threshold, `main` held 33 values without the
+    /// tier and 32 with it.
+    ///
+    /// D73's gate keeps `stacks_left` out of the crossable table, and this is
+    /// the differential that says so from the outside. It compares **every**
+    /// stack, which is the only way to see it: the counts are right and the
+    /// placement is wrong, so a test that looked at the current stack alone
+    /// would pass.
+    ///
+    /// **An even number of compiled entries hides the bug** — each one moves a
+    /// value from the stack it belonged on to the next, and with alternating
+    /// rotation the counts net out. Three calls is odd on purpose.
+    #[test]
+    fn a_promoted_value_does_not_ride_across_a_stack_switch() {
+        assert_promoted_matches_tier0(
+            ":other ensure_stack\n             :main to_stack\n             :w { 1 2 + stacks_left } register\n",
+            3,
+            "a promoted value across `stacks_left` (F140)",
+        );
+    }
+
     /// **Criterion 20: a body run by a loop word reaches the counter under one
     /// key.**
     ///

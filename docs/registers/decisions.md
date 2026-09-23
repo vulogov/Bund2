@@ -3476,6 +3476,83 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D73 — promotion never crosses a callee that changes which stack is current
+
+**Decided by the repository owner, 2026-09-23**, resolving F140.
+
+- Blocks: nothing; it is the sixth gate on §S5's promotion across calls
+- Depends on: D68 (the crossing), D71 (the precedent, and its fifth gate), §S5
+  (the epoch check, specified and unbuilt), F140
+- Status: **RESOLVED — decided and built**, 2026-09-23.
+
+### The defect it answers
+
+Promotion syncs by **pushing**, and a push goes to whatever stack is current at
+that moment. A callee that changes the current stack while values are held in
+registers therefore *moves* them: the body's final sync lands them on the stack
+in force after the call, where Tier 0 pushed them before it.
+
+F140 measured it at the **shipped** threshold: `:w { 1 2 + stacks_left }` over
+65 entries left `main` holding 33 values without the tier and **32** with it.
+`stacks_left` is `eff(0, 0)`, so a crossing syncs *nothing* ahead of it and
+every promoted value rides across the rotation. Wrong answers, silently.
+
+### The decision
+
+**A static gate**, in the shape D71 established: `SWITCHES_STACK`
+(`crates/bund2-stdlib/src/promotable.rs`) keeps every native that changes the
+current stack out of the crossable table. Eight names — `endcontext`,
+`rotate_stack_left`, `rotate_stack_right`, `stacks_left`, `stacks_right`,
+`swap_in`, `to_current`, `to_stack` — of which four are on `PROMOTABLE.txt` and
+would otherwise be crossed.
+
+### Why the gate names more than the exposure
+
+Only the **operand-free** switchers can actually be crossed today. `to_stack`
+and `to_current` are `eff(1, 0)`, and their name operand has to be pushed
+*after* the promoted values; a symbol is not a promotable literal, so pushing it
+is a generic apply that syncs everything first. Nothing is ever held across
+them.
+
+That protection is a consequence of what happens to be promotable, not a rule.
+It would disappear quietly the day symbols became promotable, and nothing would
+fail until a program put a value on the wrong stack. The gate does not lean on
+it. Some of the eight also *restore* the stack before returning (`swap_in`,
+`rotate_stack_left`); the gate does not try to tell restoring from not, because
+a source scan cannot and refusing to cross them costs nothing measurable.
+
+### Rejected, for now: emitting §S5's epoch check
+
+§S5 already specifies the dynamic form. `Cells::epoch` is documented as telling
+compiled code "that the stack it resolved against is still the one in force",
+`Interp` bumps it on every stack change and mirrors it into the cells — and
+**no emitted code has ever read it**. Criterion 17's per-call bound names "the
+three loads after every call (epoch, `autoadd`, request)"; the lowering emits
+one.
+
+The check would cover a native that changes the current stack for a reason
+nobody has enumerated, where the static gate covers only the names someone
+thought of. It is the better long-term answer and it is **not taken here**:
+D71's ruling took both halves, and this one takes the static half first because
+it is total, costs nothing at run time, and the defect is live. The epoch check
+remains specified and unbuilt, and criterion 17's per-call bound stays
+unmeasured because most of what it bounds is not emitted.
+
+### Consequences
+
+- The set is pinned by `every_native_that_changes_the_current_stack_is_named`
+  (`crates/bund2-stdlib/src/lib.rs`), a source scan over `Vm::to_stack` and
+  `rotate_stacks_*`, so a ninth switcher fails the build until it is named.
+- `a_native_that_changes_the_current_stack_is_not_crossable` asserts the table
+  end; `a_promoted_value_does_not_ride_across_a_stack_switch`
+  (`crates/bund2-runtime/src/tier.rs`) is the differential, comparing **every**
+  stack — the counts were right and the placement was wrong, so a test reading
+  the current stack alone would have passed.
+- `PROMOTABLE.txt` is unchanged: the exclusion is in the table this module
+  builds, not in the audit's output, exactly as D71's is.
+- **The corpus cannot see this class of defect at all** (F139), which is how it
+  survived. That is an argument for the epoch check, not against this gate.
+
 ## D72 — Bund2 may carry a word the reference does not, and `noop` is the first
 
 **Decided by the repository owner, 2026-09-22**, on a proposal made while

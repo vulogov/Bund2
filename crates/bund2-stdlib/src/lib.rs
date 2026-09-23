@@ -751,6 +751,95 @@ mod honesty_tests {
         );
     }
 
+    /// **D73's set: every native that changes which stack is current** — F140.
+    ///
+    /// Promotion syncs by *pushing*, and a push goes to whatever stack is
+    /// current at that moment. A callee that changes the current stack while
+    /// values are held in registers therefore moves them — the body's final
+    /// sync lands them on the stack in force after the call, where Tier 0 put
+    /// them before it. F140 measured that: `:w { 1 2 + stacks_left }` left one
+    /// value on the wrong stack at the shipped threshold.
+    ///
+    /// `promotable::SWITCHES_STACK` keeps these out of the crossable table, and
+    /// this is what stops that list going stale: shipped code that gains a
+    /// ninth switcher fails here until someone names it and decides whether it
+    /// is reachable as a crossed call.
+    ///
+    /// A source scan, cut at each file's test module as criterion 25's is, and
+    /// descending into subdirectories as criterion 11's does.
+    #[test]
+    fn every_native_that_changes_the_current_stack_is_named() {
+        const SWITCHES: [&str; 8] = [
+            // Restores the stack it came from, but a scan cannot tell that and
+            // the gate does not lean on it.
+            "conditional.rs: endcontext",
+            "stack.rs: rotate_stack_left",
+            "stack.rs: rotate_stack_right",
+            // The two that F140 is actually about: `eff(0, 0)`, so a crossing
+            // syncs nothing before them.
+            "stack.rs: stacks_left",
+            "stack.rs: stacks_right",
+            "stack.rs: swap_in",
+            "stack.rs: to_current",
+            "stack.rs: to_stack",
+        ];
+        const QUALIFIERS: [&str; 5] = ["pub", "const", "unsafe", "async", "extern"];
+        const SWITCHERS: [&str; 3] = [
+            ".to_stack(",
+            ".rotate_stacks_left(",
+            ".rotate_stacks_right(",
+        ];
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut found = std::collections::BTreeSet::new();
+        let mut dirs = vec![src.clone()];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).expect("dir reads") {
+                let path = entry.expect("entry").path();
+                if path.is_dir() {
+                    dirs.push(path);
+                    continue;
+                }
+                if path.extension().is_none_or(|x| x != "rs") {
+                    continue;
+                }
+                let file = path
+                    .strip_prefix(&src)
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default();
+                let text = std::fs::read_to_string(&path).expect("reads");
+                let shipped = text.split("#[cfg(test)]\nmod ").next().unwrap_or_default();
+                let mut current = String::new();
+                for line in shipped.lines() {
+                    let t = line.trim_start();
+                    if t.starts_with("//") {
+                        continue;
+                    }
+                    if let Some(at) = t.find("fn ") {
+                        let head_ok = t[..at].split_whitespace().all(|w| {
+                            QUALIFIERS.iter().any(|q| w.starts_with(q)) || w.starts_with('"')
+                        });
+                        if head_ok {
+                            current = t[at + 3..]
+                                .split(['(', '<'])
+                                .next()
+                                .unwrap_or_default()
+                                .to_string();
+                        }
+                    }
+                    if SWITCHERS.iter().any(|m| line.contains(m)) {
+                        found.insert(format!("{file}: {current}"));
+                    }
+                }
+            }
+        }
+        let named: std::collections::BTreeSet<String> =
+            SWITCHES.iter().map(|s| (*s).to_string()).collect();
+        assert_eq!(
+            found, named,
+            "D73's stack-switching set and what shipped code actually switches differ"
+        );
+    }
+
     /// **Criterion 11's path set — RFC-0005 §S8, the twelfth review's S1.**
     /// Every function in this crate whose shipped code calls `Vm::eval_lambda`,
     /// `Vm::apply` or `Vm::scoped_call`. Each re-enters evaluation and spends a

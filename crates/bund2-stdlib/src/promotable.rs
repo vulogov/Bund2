@@ -106,6 +106,45 @@ const LIST: &str = include_str!("../../../tests/golden/PROMOTABLE.txt");
 /// obvious.
 const REPORTS_MID_BODY: [&str; 1] = ["alias"];
 
+/// **The natives that change which stack is current** — D73's gate, F140.
+///
+/// Promotion holds values in registers and syncs them by *pushing*, and a push
+/// goes to whatever stack is current at that moment. So a callee that changes
+/// the current stack while values are held moves them: the body's final sync
+/// lands them on the stack in force **after** the call, where Tier 0 pushed
+/// them before it.
+///
+/// **F140 is that, measured.** `:w { 1 2 + stacks_left }` at the shipped
+/// threshold leaves one value on the wrong stack — `main` holds 33 without the
+/// tier and 32 with it. `stacks_left` is `eff(0, 0)`, so a crossing syncs
+/// *nothing* before it and every promoted value rides across the rotation.
+///
+/// **Why the operand-free ones are the exposure, and why this gate names the
+/// others anyway.** `to_stack` and `to_current` are `eff(1, 0)`: their name
+/// operand is pushed *after* the promoted values, and a symbol is not a
+/// promotable literal, so pushing it is a generic apply that syncs everything
+/// first. Nothing is ever held across them today. That protection is a
+/// consequence of what happens to be promotable, not a rule, and it would go
+/// quietly if that ever changed — so the gate does not lean on it.
+///
+/// Some of these restore the stack before returning (`swap_in`,
+/// `rotate_stack_left`). The gate does not try to tell restoring from not: a
+/// source scan cannot, and refusing to cross them costs nothing measurable.
+///
+/// Pinned by `every_native_that_changes_the_current_stack_is_named`
+/// (`crates/bund2-stdlib/src/lib.rs`), so a new one fails the build until it is
+/// named here.
+const SWITCHES_STACK: [&str; 8] = [
+    "endcontext",
+    "rotate_stack_left",
+    "rotate_stack_right",
+    "stacks_left",
+    "stacks_right",
+    "swap_in",
+    "to_current",
+    "to_stack",
+];
+
 /// The names the audit certified, in file order.
 fn names() -> impl Iterator<Item = &'static str> {
     LIST.lines()
@@ -139,6 +178,15 @@ pub fn crossable(r: &bund2_api::Registry) -> BTreeSet<bund2_api::RegistrationId>
         // this is the crate that knows which of its natives report — the
         // lowering sees only a registration id.
         if REPORTS_MID_BODY.contains(&name) {
+            continue;
+        }
+        // **D73's gate, F140.** A callee that changes the current stack moves
+        // every value promotion is holding: the sync that follows pushes them
+        // onto the stack in force afterwards, not the one they were computed
+        // on. Excluded by name here for the same reason the reporters are —
+        // this crate knows which of its natives switch stacks, and the lowering
+        // sees only a registration id.
+        if SWITCHES_STACK.contains(&name) {
             continue;
         }
         // `Interner::lookup_call` rather than `intern`, for the reason
@@ -240,6 +288,47 @@ mod tests {
             !ids.contains(&id),
             "`alias` reports a Warning mid-body (F137): crossing it would let a \
              native snapshot a stack missing every promoted value"
+        );
+    }
+
+    /// **D73: a native that changes the current stack is certified and still
+    /// not crossable** — F140.
+    ///
+    /// `stacks_left` is on `PROMOTABLE.txt` — the palette brought it to `Ok`
+    /// and D55's audit saw it read no further than its operands, of which it
+    /// has none — and it declares `eff(0, 0)`, so D46, D47, D48 and D68 all
+    /// admit it and D71 does not exclude it. This gate is the only thing that
+    /// refuses it, which is what makes the test worth having: remove
+    /// [`SWITCHES_STACK`] and every other gate still says yes, and
+    /// `:w { 1 2 + stacks_left }` starts leaving values on the wrong stack
+    /// again.
+    #[test]
+    fn a_native_that_changes_the_current_stack_is_not_crossable() {
+        let mut r = bund2_api::Registry::new();
+        crate::register_all(&mut r);
+        let ids = crossable(&r);
+
+        for word in ["stacks_left", "stacks_right", "to_stack", "to_current"] {
+            let Some((s, _)) = r.interner.lookup_call(word) else {
+                panic!("`{word}` is registered");
+            };
+            let id = r
+                .slot(s)
+                .and_then(|sl| sl.native.as_ref())
+                .and_then(|n| n.id)
+                .unwrap_or_else(|| panic!("`{word}` carries a registration id"));
+            assert!(
+                !ids.contains(&id),
+                "`{word}` changes which stack is current (F140): crossing it \
+                 would sync promoted values onto the stack in force after the \
+                 call, not the one they were computed on"
+            );
+        }
+
+        assert!(
+            names().any(|n| n == "stacks_left"),
+            "the premise is that the audit certified `stacks_left`; if it no \
+             longer does, this gate is not what excludes it"
         );
     }
 
