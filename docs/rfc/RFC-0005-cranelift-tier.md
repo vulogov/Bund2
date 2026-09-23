@@ -6159,13 +6159,63 @@ evidence, and this one is listed as runnable rather than as met.
     recorded exit becomes `Error::exited`, an `Err` passes through unchanged,
     and a tail request is cleared on every error.
 
-    **What is unwritten** is this row's own list: compiled bodies calling
-    `bund.exit` directly, through the alias `exit`, and in tail position, each
-    followed by a call and by an inlined `+`, with the four cases the twelfth
-    review's B1 added — each run with the callee **below the compile
-    threshold**, since threshold 1 compiles the callee and hides the defect.
-    That last condition is now expressible, because the threshold is a flag
-    (F125); it was not when this row was written.
+    **This row's own list is written, 2026-09-22.** `a_compiled_exit_matches_tier_zero`
+    and `a_compiled_exit_in_tail_position_matches_tier_zero`
+    (`crates/bund2-jit/src/lower.rs`) cover `bund.exit` by its own name and
+    through the alias `exit`, each followed by a call and by an inlined `+`, and
+    each in tail position under `LastCall::Tail`. Their helper asserts the
+    fixture inlines exactly when the row asks it to, so an "inlined `+`" row
+    cannot quietly become a called one.
+
+    **A reading, recorded rather than silently taken.** This row asks for the
+    exit "in tail position, each followed by a call and by an inlined `+`" — but
+    a value in tail position is the body's last, so nothing can follow it. The
+    tail rows put the call and the inlined `+` *before* the exit, which is the
+    only arrangement that keeps both halves of the sentence.
+
+    **What the writing found: the two tiers signal an exit differently, and this
+    row's wording is what makes them comparable.** Tier 0 records the request and
+    returns **`Ok`**; a compiled body returns **`Err(Error::exited(code))`**,
+    which is §S5's status protocol and what `a_recorded_exit_becomes_the_error_status`
+    pins. Neither is observable to a program — the embedder reads
+    `exit_requested` — which is exactly why this criterion asks for "output, exit
+    code and final stacks" and not for the same `Result`. A differential that
+    compared the `Result`s would fail every row while nothing was wrong, and the
+    first draft of this helper did.
+
+    **Two of the twelfth review's four B1 cases are written.**
+    - *A compiled caller of a cold lambda whose last word is `exit`* —
+      `a_compiled_caller_of_a_cold_exiting_lambda_matches_tier_zero`
+      (`crates/bund2-runtime/src/tier.rs`). The callee is kept below the
+      threshold the only way a body containing `exit` can be: `f` is registered
+      as a balanced no-op, the caller is entered until it compiles, and only
+      then is `f` rebound to the exiting lambda — a fresh `Rc`, so D35's counter
+      keys on a payload nothing has entered. Cold by construction rather than by
+      arithmetic about the threshold.
+    - *A body on the residual path whose last value is `exit`* —
+      `an_exit_on_the_residual_path_matches_tier_zero`. The site is made to
+      decline **without failing**: `+`'s guard admits two `Int`s and declines an
+      `Int` and a string, while the generic `+` beneath it succeeds through
+      F64's pass-through family. So the residual applies the rest of the body,
+      including the exit. A guard that declined into a failure would exercise
+      criterion 19 instead.
+
+    **Two remain, and each has a named obstacle.**
+    - *The `if`-branch case*,
+      `3 { "tick" println true { "bye" println 7 exit } if "after if" println } times`.
+      Its assertion is about **output** — that `"after if"` never prints — and
+      nothing here captures stdout in process. It also wants a compiled caller,
+      which this program does not give: the condition is a constant `true`, so
+      the exit fires on the first iteration and the driver never reaches a
+      second entry to run compiled.
+    - *A callee that declines below the Tier 1 floor.* The floor is criterion
+      11's reserve arithmetic, and constructing a decline at it deliberately is
+      not something this row's fixtures reach.
+
+    Also still unwritten, and not attempted here: the compiled halves of the
+    thirteenth review's mirror cases — `map`, `?try`, the drained body, the
+    residual-path value and `input*` — whose Tier 0 halves this row already
+    records as Met.
 
 ## Open questions
 

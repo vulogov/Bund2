@@ -3881,6 +3881,204 @@ mod tests {
         }
     }
 
+    /// **Criterion 30's compiled half: a body that ends the program** — D52,
+    /// and §S5's *A call may end the program*.
+    ///
+    /// The criterion asks for compiled bodies calling `bund.exit` "directly,
+    /// through the alias `exit`, and in tail position, each followed by a call
+    /// and by an inlined `+`", with output, exit code and final stacks matching
+    /// Tier 0's.
+    ///
+    /// **Why these compile the body outright instead of warming it through the
+    /// tier.** A straight-line body containing `bund.exit` can never be warmed
+    /// into compiled form: §S7's threshold compiles on an entry and runs that
+    /// entry interpreted, and the exit ends the program before a second entry
+    /// exists. So the threshold is not the instrument here, and these compile
+    /// directly, as the status-protocol tests beside them do. The cases the
+    /// twelfth review's B1 added — a *cold callee* under a compiled caller —
+    /// are the ones the threshold can express, and they are separate from
+    /// these.
+    ///
+    /// `inlining` decides whether §S6's published fragments reach the compiler,
+    /// which is what makes the "inlined `+`" rows inline rather than call. It
+    /// is asserted rather than assumed: with the table the `+` must be a site,
+    /// and without it none.
+    fn assert_exit_matches_tier0(
+        body: &[BundValue],
+        last: LastCall,
+        inlining: bool,
+        label: &str,
+    ) {
+        let mut tier0 = with_stdlib();
+        let by_tier0 = tier0.eval(body);
+
+        let (mut compiled, published) = with_fragments();
+        let table = if inlining { published } else { Vec::new() };
+        let mut c = Compiler::new(table).expect("a compiler");
+        let word = word_in(&mut c, &mut compiled, body, last);
+        assert_eq!(
+            c.inlined_sites(word).unwrap_or(0) > 0,
+            inlining,
+            "{label}: the fixture must inline exactly when it was asked to, or \
+             the row measures the other configuration"
+        );
+        let by_compiled = c.run(word, &mut compiled, body);
+
+        // **The two tiers signal an exit differently, and the criterion is
+        // worded around it.** Tier 0 records the request and stops, returning
+        // `Ok`; a compiled body returns `Err(Error::exited(code))`, which is
+        // §S5's status protocol and what `a_recorded_exit_becomes_the_error_
+        // status` pins. Neither is observable to a program: the embedder reads
+        // `exit_requested`, which is why this criterion asks for "output, exit
+        // code and final stacks" and not for the same `Result`. Comparing the
+        // `Result`s would fail every row here while nothing was wrong.
+        assert!(
+            by_tier0.is_ok(),
+            "{label}: Tier 0 records an exit and returns Ok: {by_tier0:?}"
+        );
+        let b = by_compiled.expect_err("the compiled body reports the exit as a status");
+        assert!(
+            b.is_exited(),
+            "{label}: the compiled error must be an exit, not another failure: {}",
+            b.0
+        );
+
+        // The exit code is the half both tiers do share, and it is the one a
+        // caller acts on.
+        assert_eq!(
+            tier0.exit_requested(),
+            compiled.exit_requested(),
+            "{label}: the recorded exit code"
+        );
+        assert_eq!(
+            compiled.exit_requested(),
+            Some(7),
+            "{label}: and it is the code the body asked for"
+        );
+
+        let (x, y) = (tier0.snapshot(), compiled.snapshot());
+        assert_eq!(x.len(), y.len(), "{label}: depth after the exit");
+        for (m, n) in x.iter().zip(y.iter()) {
+            assert_eq!(m.dt(), n.dt(), "{label}: dt");
+            assert_eq!(
+                norm(&m.render(false)),
+                norm(&n.render(false)),
+                "{label}: value, q or stack tag"
+            );
+        }
+    }
+
+    /// **Criterion 30, the direct and aliased rows.**
+    ///
+    /// `bund.exit` by its own name and through `exit`, each followed by a call
+    /// and by an inlined `+`. What follows the exit must not run, in either
+    /// tier — the stack comparison is what says so, since a `+` that ran would
+    /// leave a sum and a `clear` that ran would leave nothing.
+    ///
+    /// It fails for "an adapter that returns success after a recorded exit",
+    /// which is this criterion's own stated failure mode: the body would carry
+    /// on into the value after the exit and the two tiers would part.
+    #[test]
+    fn a_compiled_exit_matches_tier_zero() {
+        let code = || BundValue::int(7);
+        for (name, call) in [("bund.exit", "bund.exit"), ("the alias `exit`", "exit")] {
+            assert_exit_matches_tier0(
+                &[code(), BundValue::call(call), BundValue::call("clear")],
+                LastCall::Ordinary,
+                false,
+                &format!("{name}, followed by a call"),
+            );
+            assert_exit_matches_tier0(
+                &[
+                    code(),
+                    BundValue::call(call),
+                    BundValue::int(1),
+                    BundValue::int(2),
+                    BundValue::call("+"),
+                ],
+                LastCall::Ordinary,
+                true,
+                &format!("{name}, followed by an inlined `+`"),
+            );
+        }
+    }
+
+    /// **Criterion 30, the tail-position rows.**
+    ///
+    /// **A reading, recorded rather than silently chosen.** The criterion says
+    /// the exit is "in tail position, each followed by a call and by an inlined
+    /// `+`" — but a value in tail position is the body's last, so nothing can
+    /// follow it. Taken as: the exit is last under `LastCall::Tail`, and the
+    /// call and the inlined `+` *precede* it, which is the only arrangement
+    /// that keeps both halves of the sentence.
+    ///
+    /// Tail position is what §S8 lowers as `return_call_indirect`, so this is
+    /// the row where an exit is recorded by a callee whose frame has replaced
+    /// the body's own.
+    #[test]
+    fn a_compiled_exit_in_tail_position_matches_tier_zero() {
+        assert_exit_matches_tier0(
+            &[
+                BundValue::int(1),
+                BundValue::call("clear"),
+                BundValue::int(7),
+                BundValue::call("bund.exit"),
+            ],
+            LastCall::Tail,
+            false,
+            "a call, then `bund.exit` in tail position",
+        );
+        assert_exit_matches_tier0(
+            &[
+                BundValue::int(1),
+                BundValue::int(2),
+                BundValue::call("+"),
+                BundValue::call("clear"),
+                BundValue::int(7),
+                BundValue::call("exit"),
+            ],
+            LastCall::Tail,
+            true,
+            "an inlined `+`, then the alias `exit` in tail position",
+        );
+    }
+
+    /// **Criterion 30, the twelfth review's third B1 case: a body on the
+    /// residual path whose last value is `exit`.**
+    ///
+    /// §S5's residual runs when an inlined site's guard declines: it syncs every
+    /// promoted value and then applies the rest of the body one value at a time
+    /// through `Vm::apply`, "exactly as Tier 0 would", and never rejoins. So an
+    /// `exit` after a declined site is recorded by the *residual*, not by
+    /// compiled code, and the status has to come back out through it.
+    ///
+    /// **How the guard is made to decline without failing.** `+` publishes an
+    /// arm whose guard admits two `Int`s. Handed an `Int` and a string it
+    /// declines — and the generic `+` beneath it *succeeds*, because F64's
+    /// pass-through family joins them. That is what makes this row possible: a
+    /// site that declines and a call that does not fail, so the body reaches
+    /// the `exit` after it. A guard that declined into a failure would test
+    /// criterion 19's path instead.
+    ///
+    /// The precondition is that the site exists at all — `inlined_sites > 0` —
+    /// which `assert_exit_matches_tier0` asserts for every inlining row. The
+    /// guard declining at run time is what routes it to the residual.
+    #[test]
+    fn an_exit_on_the_residual_path_matches_tier_zero() {
+        assert_exit_matches_tier0(
+            &[
+                BundValue::int(1),
+                BundValue::str("s"),
+                BundValue::call("+"),
+                BundValue::int(7),
+                BundValue::call("exit"),
+            ],
+            LastCall::Ordinary,
+            true,
+            "an exit after a declined inline site, on the residual path",
+        );
+    }
+
     /// A compiled body that is a real word: literals pushed, a native called.
     #[test]
     fn a_compiled_word_runs_a_real_body() {

@@ -939,6 +939,75 @@ mod tests {
         );
     }
 
+    /// **Criterion 30, the twelfth review's first B1 case: a compiled caller of
+    /// a cold lambda whose last word is `exit`.**
+    ///
+    /// The criterion requires this run "with the callee held **below the
+    /// compile threshold**, since threshold 1 compiles the callee and hides the
+    /// defect". That is the whole point of the row: the caller is compiled and
+    /// the callee is not, so the exit is recorded by an *interpreted* lambda
+    /// underneath a compiled frame, and the status has to travel back out
+    /// through §S5's protocol rather than being produced by compiled code.
+    ///
+    /// **How the callee is kept cold.** A body containing `exit` cannot be
+    /// warmed — the first entry ends the program. So `f` is registered as a
+    /// no-op, the caller `w` is entered until it is compiled, and only then is
+    /// `f` rebound to the exiting lambda. The rebound body is a fresh `Rc`, so
+    /// D35's counter keys on a payload nothing has entered: cold by
+    /// construction, not by arithmetic about the threshold.
+    ///
+    /// **What is compared** is what the criterion names — the exit code and the
+    /// final stacks — and not the `Result`. Tier 0 records an exit and returns
+    /// `Ok`; a compiled body returns `Err(Error::exited)`, which is §S5's
+    /// status protocol. Neither is observable to a program, and comparing them
+    /// would fail while nothing was wrong.
+    #[test]
+    fn a_compiled_caller_of_a_cold_exiting_lambda_matches_tier_zero() {
+        // `{ 1 drop }` rather than `{ }`: Bund refuses an empty block, and a
+        // balanced no-op is what the warm-up needs.
+        let setup = ":f { 1 drop } register\n:w { 1 2 + f clear } register\n";
+        let rebind = ":f { 7 exit } register\n";
+
+        let mut tiered = crossing_runtime_with(1);
+        tiered.eval_str(setup).expect("setup runs");
+        for _ in 0..3 {
+            tiered.eval_str("w").expect("the warm-up entries run");
+        }
+        assert!(
+            tiered.compiled_bodies().unwrap_or(0) > 0,
+            "the caller must be compiled, or this row asserts the opposite of \
+             what it is for"
+        );
+        tiered.eval_str(rebind).expect("the rebind runs");
+        let tier_outcome = tiered.eval_str("w");
+
+        let mut plain = crate::Runtime::new();
+        plain.take_tier();
+        plain.eval_str(setup).expect("setup runs");
+        for _ in 0..3 {
+            plain.eval_str("w").expect("the warm-up entries run");
+        }
+        plain.eval_str(rebind).expect("the rebind runs");
+        let plain_outcome = plain.eval_str("w");
+
+        assert_eq!(
+            bund2_api::Vm::exit_requested(&tiered.interp),
+            Some(7),
+            "the compiled caller must record the cold callee's exit"
+        );
+        assert_eq!(
+            bund2_api::Vm::exit_requested(&plain.interp),
+            bund2_api::Vm::exit_requested(&tiered.interp),
+            "the recorded exit code"
+        );
+
+        let a = observe(&mut tiered, tier_outcome, &SharedReporter::default());
+        let b = observe(&mut plain, plain_outcome, &SharedReporter::default());
+        assert_eq!(a.current, b.current, "current stack");
+        assert_eq!(a.stacks, b.stacks, "stacks");
+        assert_eq!(a.workbench, b.workbench, "workbench");
+    }
+
     /// **Criterion 20: a body run by a loop word reaches the counter under one
     /// key.**
     ///
