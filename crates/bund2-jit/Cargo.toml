@@ -53,6 +53,18 @@ default = []
 # can be disassembled, diffed, and checked into a test corpus.
 aot = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-module", "dep:cranelift-object"]
 jit = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-module", "dep:cranelift-jit"]
+# **Measurement only, and unsound when used.** RFC-0005 criterion 17 bounds the
+# cost of §S6's meaning guards — the generation compare and the `autoadd` load
+# before every inlined region — at under 2 ns a site. The guards are
+# unconditional, so there is no guarded-versus-unguarded difference to measure
+# against; this feature adds the constructor that makes one.
+#
+# A body compiled without those guards does not observe a redefinition: the
+# inlined arm keeps running after the name it was inlined against has changed,
+# which is precisely what §S6 exists to prevent. It is for `bund2-bench` and
+# nothing else. Neither `default` nor `jit` enables it, and
+# `the_shipped_compiler_always_guards_its_inlined_sites` asserts the default.
+unguarded-bench = []
 
 [lints]
 workspace = true

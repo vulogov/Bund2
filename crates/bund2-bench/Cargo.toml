@@ -39,6 +39,11 @@ bench = false
 # from `bund2_stdlib::fragments::published`, the call `bund2-runtime` makes, so
 # this is the shipped compiler and not a lookalike.
 jit = ["dep:bund2-runtime", "bund2-runtime/jit", "dep:bund2-jit", "bund2-jit/jit"]
+# RFC-0005 criterion 17's per-site guard cost. Turns on `bund2-jit`'s
+# measurement-only constructor, which emits inlined sites without §S6's meaning
+# guards — unsound code, timed and never run as a program. See that feature's
+# own note. `cargo bench -p bund2-bench --features unguarded -- guard_cost`.
+unguarded = ["jit", "bund2-jit/unguarded-bench"]
 aot = ["dep:bund2-runtime", "bund2-runtime/aot"]
 
 # A regular dependency, not a dev one: Cargo forbids optional

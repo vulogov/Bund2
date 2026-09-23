@@ -1408,6 +1408,93 @@ fn gain_size(c: &mut Criterion) {
 #[cfg(not(feature = "jit"))]
 fn gain_size(_: &mut Criterion) {}
 
+/// **Criterion 17's per-site guard cost** — §S6's meaning guards, measured.
+///
+/// The criterion bounds them at **under 2 ns a site** and the RFC records the
+/// bound as "stated and unmeasured", which it calls "the same failure mode as
+/// criterion 7's". They could not be measured before because they are
+/// unconditional: every inlined site emits the generation compare and the
+/// `autoadd` load, so there was no difference to take. `Compiler::without_meaning_guards`
+/// makes one, behind `unguarded-bench`, and this is the only thing that uses it.
+///
+/// **One binary, two compilers, one window.** The alternative — a compile-time
+/// switch — would put the arms in two processes, and a cross-process A/B is
+/// what drifts: three identical baselines of `corpus/mixed` read 21.9, 17.8 and
+/// 16.3 µs inside twenty minutes (F138). At 2 ns against a ~29 ns `+` the
+/// effect is ~7%, resolvable in one window on a still host and hopeless across
+/// two.
+///
+/// **The body is `1 drop` pairs**, so each pair is one promoted literal and one
+/// inlined site. A promoted site asks *two* guards rather than three — the type
+/// guard is discharged at compile time when the operands arrive in registers —
+/// and those two are exactly what criterion 17 bounds. The site count is
+/// printed per row, because a body that inlined nothing would read zero
+/// difference and look like a pass (F124).
+///
+/// **The sizes start at 16 deliberately.** A first run at 4, 8, 16 and 32 read
+/// the guarded arm *faster* than the unguarded one at the two small sizes —
+/// −1.54 and −1.88 ns a site — which is impossible as a guard cost, since
+/// removing work cannot slow code down. What it measures at that scale is code
+/// layout: the unguarded arm has different block structure and leaves the
+/// residual block unreachable. Fixed layout differences amortise as the site
+/// count grows, so the rows that can answer the question are the large ones.
+///
+/// Per-site cost is the difference over the site count; the group reports both
+/// arms and the arithmetic is the reader's.
+#[cfg(all(feature = "jit", feature = "unguarded"))]
+fn guard_cost(c: &mut Criterion) {
+    use bund2_jit::lower::{Compiler, LastCall};
+
+    let mut g = c.benchmark_group("guard_cost");
+
+    for pairs in [16usize, 32, 64, 128] {
+        let body = compiled(&"1 drop ".repeat(pairs));
+
+        for (name, guarded) in [("guarded", true), ("unguarded", false)] {
+            let build = || {
+                let mut vm = bund2_runtime::Runtime::new().interp;
+                let table =
+                    bund2_stdlib::fragments::published(&vm.registry).unwrap_or_default();
+                let comp = if guarded {
+                    Compiler::new(table)
+                } else {
+                    Compiler::without_meaning_guards(table)
+                };
+                let Ok(mut comp) = comp else {
+                    eprintln!("bench: no compiler could be built; measuring nothing");
+                    return None;
+                };
+                let cells = vm.cells().base();
+                let word = comp
+                    .compile_word(&body, LastCall::Ordinary, cells, &mut vm)
+                    .ok()?;
+                Some((vm, comp, word))
+            };
+
+            match build() {
+                Some((_, comp, word)) => eprintln!(
+                    "bench: guard_cost {name}/s{pairs} sites {:?} guards {}",
+                    comp.inlined_sites(word),
+                    comp.guards_meaning()
+                ),
+                None => eprintln!("bench: guard_cost {name}/s{pairs} did not compile"),
+            }
+
+            g.bench_function(format!("{name}/s{pairs}"), |b| {
+                let Some((mut vm, comp, word)) = build() else {
+                    return;
+                };
+                b.iter(|| black_box(comp.run(word, &mut vm, black_box(&body))).is_ok());
+            });
+        }
+    }
+
+    g.finish();
+}
+
+#[cfg(not(all(feature = "jit", feature = "unguarded")))]
+fn guard_cost(_: &mut Criterion) {}
+
 criterion_group!(
     benches,
     startup,
@@ -1426,6 +1513,7 @@ criterion_group!(
     stop_rule,
     compile_size,
     gain_size,
+    guard_cost,
     lambda,
     corpus,
     rendering

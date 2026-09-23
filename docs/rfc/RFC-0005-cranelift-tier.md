@@ -5414,6 +5414,50 @@ evidence, and this one is listed as runnable rather than as met.
     In a body that promotes, calls are far more common than inlined sites, and
     until the seventh review nothing bounded their checks.
 
+    **The per-site bound is met, 2026-09-23: under ~0.25 ns, where the
+    criterion allows 2.** Three guarded runs of `guard_cost`
+    (`crates/bund2-bench/benches/interpret.rs`), the first of them the only
+    `GUARD [CLEAN]` window of the week at peak 13.6% and mean 4.4%:
+
+    | sites | run 2, per site | run 3, per site |
+    |---|---|---|
+    | 16 | −0.014 ns | −0.049 ns |
+    | 32 | +0.062 ns | +0.239 ns |
+    | 64 | −0.144 ns | +0.149 ns |
+    | 128 | +0.136 ns | −0.012 ns |
+
+    **The sign is random and every interval overlaps**, which is the signature
+    of an effect below resolution rather than a small positive one. The guards
+    are two loads and two compares whose branches are perfectly predicted and
+    whose cells are hot; they disappear into the arm's own work. The bound is
+    met with about an order of magnitude to spare.
+
+    **How it was measured, and why it could not be before.** The guards are
+    unconditional, so there was no guarded-versus-unguarded difference to take.
+    `Compiler::without_meaning_guards` makes one, behind `bund2-jit`'s
+    `unguarded-bench` feature — a **runtime** switch rather than a `cfg`,
+    because a compile-time one would put the arms in two processes and a
+    cross-process A/B is what drifts (F138: three identical baselines of
+    `corpus/mixed` at 21.9, 17.8 and 16.3 µs inside twenty minutes). Code
+    emitted with it off is **unsound** and is timed, never run as a program: an
+    inlined arm compiled that way would not notice its name being rebound,
+    which is the whole of what §S6 prevents. Neither `default` nor `jit`
+    enables the feature, and `the_shipped_compiler_always_guards_its_inlined_sites`
+    asserts every constructor a shipped build can reach answers `true`.
+
+    **A first attempt at 4, 8, 16 and 32 sites read the guarded arm *faster***
+    — −1.54 and −1.88 ns a site at the two small sizes — which is impossible as
+    a guard cost. At that scale the difference is code layout, not guards; the
+    unguarded arm has different block structure and an unreachable residual
+    block. Fixed layout differences amortise with site count, which is why the
+    rows above start at 16.
+
+    **The per-call bound is still unmeasured.** The three loads after every call
+    — epoch, `autoadd`, request — plus the callee's generation before a crossed
+    call are a *subset* of the +5.13 ns F130 measures for a whole generic-call
+    boundary, so 5.13 ns is an upper bound and 2 ns is not established. The same
+    switch would have to be extended to the call path to take it.
+
     **Partially met, 2026-09-14 — the dominance half is built and asserted,
     the cost half is unmeasured.** `ControlFlowGraph::with_function` and
     `DominatorTree::compute` run at lowering time and `block_dominates` refuses

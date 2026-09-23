@@ -1464,6 +1464,30 @@ pub struct Compiler {
 /// is shareable by every body *in this module* and by none outside it.
 struct Emitter {
     module: JITModule,
+    /// **Criterion 17's measurement switch — false only under
+    /// `unguarded-bench`.**
+    ///
+    /// §S6's *meaning* guards are the generation-cell compare and the `autoadd`
+    /// load that precede every inlined region. Criterion 17 bounds their cost
+    /// at **under 2 ns per site**, and a bound cannot be measured against
+    /// nothing: the guards are unconditional, so there is no guarded-versus-
+    /// unguarded difference to take. This is that difference, and it exists for
+    /// no other purpose.
+    ///
+    /// **It is a runtime flag rather than a `cfg` deliberately.** A compile-time
+    /// switch would put the two arms in two processes, and a cross-process A/B
+    /// is exactly what drifts — three identical baselines of `corpus/mixed`
+    /// read 21.9, 17.8 and 16.3 µs inside twenty minutes (F138). One binary,
+    /// two compilers, one window is the only shape that resolves 2 ns.
+    ///
+    /// **Nothing outside a bench build can set it false.** The constructor that
+    /// does is `#[cfg(feature = "unguarded-bench")]`, a feature neither
+    /// `default` nor `jit` enables, and
+    /// `the_shipped_compiler_always_guards_its_inlined_sites` asserts the
+    /// default is true. Code emitted with it false is **unsound** — a rebound
+    /// name would be invisible to the inlined arm, which is the whole of what
+    /// §S6 exists to prevent — and it must never run a program.
+    meaning_guards: bool,
     /// **The thunks this module has already emitted, by index** — F130.
     ///
     /// A thunk bakes an index and nothing else, and the index is resolved
@@ -1520,11 +1544,39 @@ impl Compiler {
             emitter: Emitter {
                 module: new_module(Adapter::Apply)?,
                 thunks: Thunks::default(),
+                meaning_guards: true,
             },
             words: Vec::new(),
             table,
             crossable,
         })
+    }
+
+    /// **Does this compiler emit §S6's meaning guards?** Always `true` unless
+    /// a bench build turned them off (criterion 17).
+    pub fn guards_meaning(&self) -> bool {
+        self.emitter.meaning_guards
+    }
+
+    /// **A compiler that omits §S6's meaning guards — measurement only.**
+    ///
+    /// The difference between a body compiled by this and one compiled by
+    /// [`Compiler::new`] is criterion 17's per-site guard cost, which has no
+    /// other way of being measured: the guards are unconditional, so nothing
+    /// else provides the comparison.
+    ///
+    /// **Code it emits is unsound and must never run a program.** An inlined
+    /// arm compiled this way keeps running after the name it was inlined
+    /// against has been rebound, unregistered or shadowed — §S6's *Inlining
+    /// freezes a name*, with the freeze removed. Behind `unguarded-bench`,
+    /// which neither `default` nor `jit` enables.
+    #[cfg(feature = "unguarded-bench")]
+    pub fn without_meaning_guards(
+        table: Vec<(bund2_api::RegistrationId, Fragment)>,
+    ) -> Result<Self, String> {
+        let mut c = Self::new(table)?;
+        c.emitter.meaning_guards = false;
+        Ok(c)
     }
 
     /// **How many thunks this module holds** — F130's cache, as a figure a
@@ -1998,6 +2050,7 @@ fn emit_body(
 ) -> Result<CompiledBody, String> {
     let mut emitter = Emitter {
         module: new_module(adapter)?,
+        meaning_guards: true,
         // This path builds a module per body and throws it away, so the cache
         // has nothing to share with: a fresh one, used once.
         thunks: Thunks::default(),
@@ -2091,7 +2144,12 @@ fn emit_into(
     // Destructured once, so the body below reads as it did when the module and
     // the cache were separate parameters — and so this function stays inside
     // clippy's argument limit, which bundling them is the honest way to meet.
-    let Emitter { module, thunks } = e;
+    let Emitter {
+        module,
+        thunks,
+        meaning_guards,
+    } = e;
+    let meaning_guards = *meaning_guards;
     // One value, one call slot — whether or not the value is inlined, because
     // an inlined site keeps its generic path beside it and reaches it through
     // that slot when a guard refuses.
@@ -2618,6 +2676,21 @@ fn emit_into(
                 .current_block()
                 .ok_or_else(|| "the guard was emitted outside a block".to_string())?;
 
+            // **The region, created before the guards so both arms reach
+            // it.** Criterion 17's switch decides whether anything stands
+            // between here and it.
+            let region = f.create_block();
+
+            if !meaning_guards {
+                // **Unguarded: `unguarded-bench` only.** The difference this
+                // jump makes against the guarded arm *is* criterion 17's
+                // per-site cost. Code emitted this way may be timed and must
+                // never be trusted: a rebound name would go unnoticed by the
+                // arm below.
+                f.ins().jump(region, &[]);
+                f.switch_to_block(region);
+            } else {
+
             // **Guard two: the slot still holds the binding we inlined
             // against.** §S6, *Inlining freezes a name* — an inlined fragment
             // goes through no slot, so a redefinition would otherwise be
@@ -2644,8 +2717,8 @@ fn emit_into(
             let aa = f
                 .ins()
                 .uload32(MemFlagsData::trusted(), cells_base, autoadd_off);
-            let region = f.create_block();
             f.ins().brif(aa, generic, &[], region, &[]);
+            }
 
             // The arm itself. **No request check follows it**: a fragment calls
             // only the four stack helpers, none of which files a tail request,
@@ -4601,6 +4674,30 @@ mod tests {
                 "autoadd: {a:?} vs {b:?}"
             );
         }
+    }
+
+    /// **The shipped compiler always guards its inlined sites** — criterion 17.
+    ///
+    /// `unguarded-bench` exists to measure what those guards cost, and a switch
+    /// that can remove a soundness check is worth a test saying it is off by
+    /// default. Every constructor a shipped build can reach must answer `true`;
+    /// the one that answers `false` does not exist without the feature.
+    #[test]
+    fn the_shipped_compiler_always_guards_its_inlined_sites() {
+        let (_, table) = with_fragments();
+        assert!(
+            Compiler::new(table.clone())
+                .expect("a compiler")
+                .guards_meaning(),
+            "`Compiler::new` must emit §S6's meaning guards"
+        );
+        assert!(
+            Compiler::with_crossable(table, std::collections::BTreeSet::new())
+                .expect("a compiler")
+                .guards_meaning(),
+            "`Compiler::with_crossable` must emit them too — it is what \
+             `bund2-runtime` installs"
+        );
     }
 
     /// **Criterion 5's differential: change what `+` means, and both tiers must
