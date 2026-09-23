@@ -5367,24 +5367,65 @@ is where it appears. Larger bodies show nothing (v32 −0.4%, v64 −0.5%).
 **It needs a clean window to confirm or dismiss**, and even at +7% the trade is
 favourable: break-even at 4 values still falls from ~3,600 to ~2,100.
 
-**Still open**: the disposition question this entry was already carrying — what
-`arith/times_body` means, given a benchmark that recompiles per iteration
-measures something no session does — is untouched by any of this.
+**Withdrawn the same day it was written.** This paragraph said the entry still
+carried its disposition question — what `arith/times_body` means when a
+benchmark recompiles per iteration and no session does. **It did not.** D69
+settled that on 2026-09-15, and the status below now says so. The sentence is
+left here because it is the second time in a week this entry's stale status was
+repeated as current, and the pattern is worth seeing rather than tidying away.
 
-**Not yet built, and one thing is unchecked**: whether a thunk's address, once
-shared, is still correct in every body's slot table — the tables are per body
-(`Box<[*const u8]>`) and would now hold the same addresses, which should be
-sound precisely because the thunk reads its target from the running `Ctx`, but
-that is an argument and not a test.
+**That was written before the build, and the unchecked thing is now checked.**
+The question was whether a thunk's address, once shared, is still correct in
+every body's slot table — the tables are per body (`Box<[*const u8]>`) and now
+hold the same addresses. It is sound because a thunk reads its target from the
+running `Ctx`, and that is no longer only an argument:
+`a_second_body_reuses_the_first_bodys_thunks` runs two bodies over *different*
+natives through shared thunks, and each answers its own.
 
-- Status: **OPEN — the cause is known, the disposition is not.** Two diagnoses
-  were offered and both are withdrawn above: the per-entry `HashMap` arithmetic
-  (falsified by a neutral fix) and per-entry cost in general (refuted by the
-  `entry` group). What remains is a question about criterion 7's meaning rather
-  than a fault in the tier — a benchmark that recompiles per iteration measures
-  something no session does — and that is the owner's decision, not a change to
-  make quietly. F131 and F132 carry the two real costs found on the way.
-- Depends on: D35 (the payload-pointer key), §S7 (the threshold), F129
+- Status: **RESOLVED**, 2026-09-22, by the repository owner's ruling, in both
+  halves.
+
+  **The meaning half was settled on 2026-09-15 by D69, and this entry never
+  said so.** It went on reading "the cause is known, the disposition is not"
+  for a week, and on 2026-09-22 that line was quoted back as current — twice —
+  before anyone checked the decisions register against it. D69 restates `arith`
+  to measure the steady state through `warm_eval` and **keeps** the cold rows,
+  renamed `/cold`, because deleting them is "what stops this from being a
+  failure redefined away"; its own consequences say "F130's +121% is explained
+  rather than outstanding". The restatement was not an exemption: it exposed
+  `float_mul` regressing +22.7–26.4% warm, which became F133 and then §S7's
+  zero-gain refusal, and **criterion 7 is now MET**. Question raised here,
+  decided in D69, the decision found a real defect, the defect was fixed, the
+  criterion passes. Nothing of it survives.
+
+  **The magnitude half** is the thunk cache recorded above: ~20.4 → ~9.4 µs a
+  value, and break-even from ~3,600–2,071 entries to ~2,100–1,012.
+
+  **Two residues, carried here rather than keeping the entry open for them.**
+  An entry whose question has been answered should not stay OPEN: a stale OPEN
+  invites exactly the error above, which is to repeat a status as though it were
+  a finding.
+
+  1. **The 12% gap between the two compile-cost shapes is still unexplained** —
+     warm and direct reads 140.6–141.4 µs, cold by subtraction 125.4–126.2 µs,
+     and the cold figure should be the *larger* since it also covers the cache
+     insert. It is a curiosity about two harnesses rather than a fault in the
+     tier, and both agree on the magnitude that matters. Named, not chased: this
+     entry's first diagnosis went wrong by naming a cause it had not verified.
+  2. **The +7% on `gain_size/v4`'s compiled arm is unconfirmed**, and it is
+     *this day's* possible introduction rather than this entry's subject — the
+     thunk cache moves thunks to the front of the module, so the call from a
+     body is a longer jump. Both windows that saw it were contaminated. It wants
+     a clean host; **if it confirms it earns its own entry** naming thunk
+     locality as the cause. Filing it now would file a number nobody trusts.
+
+  Two diagnoses were offered early and both are withdrawn above: the per-entry
+  `HashMap` arithmetic (falsified by a neutral fix) and per-entry cost in
+  general (refuted by the `entry` group). F131 and F132 carry the two real costs
+  found on the way.
+- Depends on: D35 (the payload-pointer key), §S7 (the threshold), F129,
+  **D69** (which settled the meaning half), F133 (what D69 exposed), F139 (which
+  reopened the magnitude half and gave it a second reason)
 
 ## F129 — `bund2-bench` built a bare `Interp`, so criterion 7's A/B measured no tier
 
