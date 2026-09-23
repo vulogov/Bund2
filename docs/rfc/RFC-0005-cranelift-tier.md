@@ -5661,6 +5661,31 @@ evidence, and this one is listed as runnable rather than as met.
     is the loop driver's, not the body's — `:w { 1 2 h clear }` entered once
     compiles **0 bodies**, and the "1 body" first seen was `{ w }`.
 
+    **A fourth correction, 2026-09-22: the differentials ran on a tier that
+    could not cross a call.** The helper built its tiered arm with
+    `inlining_runtime_with`, which supplies §S6's fragments and **no crossable
+    table**, so every call was synced — the behaviour `JitTier::with_crossable`
+    calls "what every caller had before D68", and a configuration no `Runtime`
+    ever runs, since `Runtime::with_options_and_threshold` chains
+    `.with_crossable`. Eight differentials about promotion were therefore taken
+    against a tier whose promotion stopped at every call. They now use
+    `crossing_runtime_with`, which supplies both tables.
+
+    **All eight still pass, and two of them now assert something new.** The
+    mid-body variants — an effect changed mid-body, an alias rebound mid-body —
+    call `register` *inside* the body, and `register` is `eff(2, 0)`, certified
+    and unpublished, so D68 crosses it. Those two now show that promotion may
+    hold values in registers **across a call that rebinds a word slot** and
+    still agree with Tier 0, which the old fixture could not ask.
+
+    The other six cross nothing, and that is correct rather than a gap: their
+    subjects are precisely what crossing excludes — a lambda callee (D46), a
+    name reached through an alias (no registration id, so D47 and D48 refuse
+    it), and natives the audit never certified. A precondition demanding a
+    crossing in those would contradict the rule each bullet exists to check, so
+    the helper asks for compiled bodies and promoted values and not for
+    crossings.
+
     **Five of six, 2026-09-16.** Bullet 5 is written as
     `a_lambda_shadowing_a_native_matches_tier_zero`, once the owner settled its
     wording. The discrepancy was this: the bullet wrote

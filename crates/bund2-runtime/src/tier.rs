@@ -564,9 +564,34 @@ mod tests {
     /// body. A body of literals alone is refused by F136's rule, and one whose
     /// literals sit in the caller promotes nothing — under `times`, the figure
     /// that comes back is the loop driver's, not the body's.
+    ///
+    /// # The fixture crosses, because the shipped tier does
+    ///
+    /// This used [`inlining_runtime_with`], which supplies §S6's fragments and
+    /// **no crossable table**, so every call was synced and these differentials
+    /// asserted promotion against a tier that could not cross one. That is the
+    /// configuration no `Runtime` ever runs: `Runtime::with_options_and_threshold`
+    /// chains `.with_crossable`. It now uses [`crossing_runtime_with`], which
+    /// supplies both tables, so what these bullets compare is what a program
+    /// gets.
+    ///
+    /// **Two of the eight cross a call; six cross none, by construction.**
+    /// The mid-body variants — an effect changed mid-body, an alias rebound
+    /// mid-body — call `register` *inside* the body, and `register` is
+    /// `eff(2, 0)`, certified and unpublished, so D68 crosses it. Those two now
+    /// assert something the old fixture could not: that promotion may hold
+    /// values in registers across a call **that rebinds a word slot**, and
+    /// still agree with Tier 0.
+    ///
+    /// The other six cross nothing because their subjects are exactly what
+    /// crossing excludes — a lambda callee (D46), a name reached through an
+    /// alias (no registration id, so D47/D48 refuse it), and natives like
+    /// `clear` that the audit never certified. Asserting a crossing in those
+    /// would contradict the rule each is there to check, so the helper does not
+    /// demand one.
     fn assert_promoted_matches_tier0(setup: &str, calls: usize, label: &str) {
         let tier_seen = SharedReporter::default();
-        let mut tiered = inlining_runtime_with(1);
+        let mut tiered = crossing_runtime_with(1);
         tiered.interp.reporter = Box::new(tier_seen.clone());
         tiered.eval_str(setup).expect("setup runs");
 
