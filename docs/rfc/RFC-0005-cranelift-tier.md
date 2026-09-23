@@ -22,8 +22,9 @@
   body and never rejoins. `crates/bund2-jit` carries **63** tests under
   `--features jit`, not the seventeen this paragraph claimed.
 
-  **The audit's result, restated 2026-09-16: 22 met, 2 measured, 3 partial,
-  1 not met, nothing deferred.** Each criterion carries a dated note of its own;
+  **The audit's result, restated 2026-09-23: 23 met, 2 measured, 2 partial,
+  1 not met, nothing deferred.** (2026-09-16 read 22 / 2 / 3 / 1; criterion 5
+  moved to met when §S4's redefinition chain was completed.) Each criterion carries a dated note of its own;
   the summary here is the map. The distinction between *not met* and *deferred*
   is load-bearing: a deferral names what must happen first and is a plan, while
   an unmet criterion is work nobody has done. **The deferred group is now
@@ -36,8 +37,11 @@
   a summary that disagrees with the enumeration under it is worse than no
   summary: **count the lists, not this sentence**, if the two ever part again.
 
-  - **Met** — 1, 2, 3, 6, **7**, 8, 11, 12, **14**, 15, 16, 19, **20**, 21,
-    **22**, 23, 24, 25, 26, **27**, 28, 29. Criterion 7's evidence is set out
+  - **Met** — 1, 2, 3, **5**, 6, **7**, 8, 11, 12, **14**, 15, 16, 19, **20**,
+    21, **22**, 23, 24, 25, 26, **27**, 28, 29. **5 joined on 2026-09-23**, when
+    §S4's redefinition chain was completed and criterion 22's alias and
+    lambda-callee rows gained the changed-result assertion this criterion asks
+    for by name. Criterion 7's evidence is set out
     below, because what it cost to get a clean reading is worth more than the
     verdict. **22 and 27 joined on 2026-09-16**, on D68's crossing and D71's
     reporter gate.
@@ -63,7 +67,7 @@
     body at every size — but it measures `1 drop` pairs, operand-free inlining
     with a 3.0× ceiling, and the rule is named on arithmetic. It is reported
     beside the verdict, not as it.
-  - **Partial** — 5, 17, 30: each has a half met and a half outstanding, or a
+  - **Partial** — 17, 30: each has a half met and a half outstanding, or a
     bound stated and unmeasured. **22 left this group on 2026-09-16**: all six
     of its bullets are written and pass, in ten tests, once D68 gave it a
     synced-versus-crossed record and D71 resolved F137.
@@ -4274,15 +4278,25 @@ evidence, and this one is listed as runnable rather than as met.
    real results rather than predicted, and the guard was checked by feeding it a
    wrong one and watching it fail.
 
-   **What remains for this criterion.** Its third and fourth paragraphs — the
-   caller that calls `<-` with `stacks_left` rebound, and the caller of `f` as
-   `{ g }` with `g` rebound — are exercised by criterion 22's differentials
-   (`an_alias_whose_target_is_rebound_matches_tier_zero`,
-   `a_lambda_callee_rebound_before_the_body_runs_matches_tier_zero` and their
-   mid-body siblings), whose bodies do inline `+`. But those assert that the
-   tiers *agree*, not that the caller's result *changed*, which is what this
-   criterion asks for by name. Carrying the expectation assertion above into
-   those two shapes is what would close it.
+   **Met, 2026-09-23.** The third and fourth paragraphs — the caller that calls
+   `<-` with `stacks_left` rebound, and the caller of `f` as `{ g }` with `g`
+   rebound — are criterion 22's differentials, whose bodies do inline `+`. They
+   asserted that the tiers *agree*; they now also assert that the caller's
+   result **changed**, which is what this criterion asks for by name.
+   `assert_redefinition_changes_the_result`
+   (`crates/bund2-runtime/src/tier.rs`) runs Tier 0 twice, once on a setup
+   without the redefinition and once on the row's own, and requires the two to
+   differ before holding the tier to the second. All four rows — the rebound
+   alias target and the rebound lambda callee, each before the body and
+   mid-body — pass with it.
+
+   **What differs in those rows is the outcome, not the stack.** Their bodies
+   end in `clear`, so the current stack is empty either way; the rebinding
+   changes *arity* — `{ drop }` becomes `{ drop drop }`, which drops from an
+   empty stack and fails — and `Observed` carries the outcome beside the
+   stacks, so the comparison sees it. The guard was checked the way the jit-side
+   one was: by making a control identical to its row and watching the assertion
+   fail.
 
 6. **The caps hold**, checked by a test per row of §S7's table rather than by
    inspection. With the compiled-function cap set to 4, compiling five distinct

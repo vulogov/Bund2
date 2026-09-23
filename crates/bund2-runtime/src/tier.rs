@@ -632,6 +632,62 @@ mod tests {
         assert_eq!(a.diagnostics, b.diagnostics, "{label}: diagnostics");
     }
 
+    /// **Criterion 5's missing assertion, carried into criterion 22's
+    /// differentials: the redefinition must actually change the result.**
+    ///
+    /// Criterion 5 asks to "`register` a word, force promotion of a caller,
+    /// `register` it again with different behaviour, and **assert the caller's
+    /// next result changes**". Criterion 22's rows exercise exactly those
+    /// shapes — a rebound alias target, a rebound lambda callee — with bodies
+    /// that inline `+`, but they assert only that the two *tiers* agree. A
+    /// rebinding that silently failed to take would leave both tiers answering
+    /// identically and every such row would pass while asserting nothing. That
+    /// is F127's shape, and it is what
+    /// `assert_redefinition_matches_tier0`'s expectations guard against in
+    /// `crates/bund2-jit/src/lower.rs`.
+    ///
+    /// This is the same guard for the runtime-level rows. `control` is the
+    /// setup **without** the redefinition; `changed` is the row's own. Tier 0
+    /// runs both, and they must differ — then the tier is held to `changed`
+    /// exactly as before.
+    ///
+    /// **What differs here is the outcome, not the stack.** These bodies end in
+    /// `clear`, so the current stack is empty either way; what the rebinding
+    /// changes is arity — `{ drop }` becomes `{ drop drop }`, which drops from
+    /// an empty stack and fails. `Observed` carries the outcome beside the
+    /// stacks, so the comparison sees it.
+    fn assert_redefinition_changes_the_result(
+        control: &str,
+        changed: &str,
+        calls: usize,
+        label: &str,
+    ) {
+        let run_tier0 = |setup: &str| {
+            let seen = SharedReporter::default();
+            let mut rt = crate::Runtime::new();
+            rt.take_tier();
+            rt.interp.reporter = Box::new(seen.clone());
+            rt.eval_str(setup).expect("setup runs");
+            let mut outcome = Ok(());
+            for _ in 0..calls {
+                if outcome.is_ok() {
+                    outcome = rt.eval_str("w");
+                }
+            }
+            let observed = observe(&mut rt, outcome, &seen);
+            observed
+        };
+
+        assert_ne!(
+            run_tier0(control),
+            run_tier0(changed),
+            "{label}: the redefinition must change Tier 0's result, or this row \
+             asserts only that two tiers agree about a change that never happened"
+        );
+
+        assert_promoted_matches_tier0(changed, calls, label);
+    }
+
     /// **Criterion 22, bullet 1 — an error with values promoted.**
     ///
     /// "Compile `1 2 true +` with `1` promoted. `+`'s type guard declines, and
@@ -704,7 +760,8 @@ mod tests {
     /// by an indirection — the one F93 showed `effect_of` used to get wrong.
     #[test]
     fn an_alias_whose_target_is_rebound_matches_tier_zero() {
-        assert_promoted_matches_tier0(
+        assert_redefinition_changes_the_result(
+            ":w { 1 2 + <- clear } register\n",
             ":w { 1 2 + <- clear } register\n\
              :stacks_left { drop drop } register\n",
             3,
@@ -715,7 +772,8 @@ mod tests {
     /// The same bullet, rebound **mid-body**.
     #[test]
     fn an_alias_rebound_mid_body_matches_tier_zero() {
-        assert_promoted_matches_tier0(
+        assert_redefinition_changes_the_result(
+            ":w { 1 2 + <- clear } register\n",
             ":w { 1 2 + :stacks_left { drop drop } register <- clear } register\n",
             3,
             "an alias rebound mid-body",
@@ -736,7 +794,10 @@ mod tests {
     /// makes both arms agree.
     #[test]
     fn a_lambda_callee_rebound_before_the_body_runs_matches_tier_zero() {
-        assert_promoted_matches_tier0(
+        assert_redefinition_changes_the_result(
+            ":g { drop } register\n\
+             :f { g } register\n\
+             :w { 1 2 + f clear } register\n",
             ":g { drop } register\n\
              :f { g } register\n\
              :w { 1 2 + f clear } register\n\
@@ -749,7 +810,10 @@ mod tests {
     /// The same bullet's second half: `f` rebinds `g` **during** its own call.
     #[test]
     fn a_lambda_callee_rebound_during_the_call_matches_tier_zero() {
-        assert_promoted_matches_tier0(
+        assert_redefinition_changes_the_result(
+            ":g { drop } register\n\
+             :f { g } register\n\
+             :w { 1 2 + f clear } register\n",
             ":g { drop } register\n\
              :f { :g { drop drop } register g } register\n\
              :w { 1 2 + f clear } register\n",
