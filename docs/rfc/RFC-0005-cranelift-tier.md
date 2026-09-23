@@ -5452,11 +5452,25 @@ evidence, and this one is listed as runnable rather than as met.
     block. Fixed layout differences amortise with site count, which is why the
     rows above start at 16.
 
-    **The per-call bound is still unmeasured.** The three loads after every call
-    — epoch, `autoadd`, request — plus the callee's generation before a crossed
-    call are a *subset* of the +5.13 ns F130 measures for a whole generic-call
-    boundary, so 5.13 ns is an upper bound and 2 ns is not established. The same
-    switch would have to be extended to the call path to take it.
+    **The per-call bound is still unmeasured, and most of what it bounds is not
+    emitted.** This row names "the three loads after every call (epoch,
+    `autoadd`, request)". The lowering loads the **request** cell after every
+    call; it loads the **epoch** after a *crossed* call only, added 2026-09-23
+    by D73's dynamic half; and it reads **`autoadd`** at an inlined site's third
+    guard and nowhere else, which contradicts `Cells::autoadd`'s own
+    documentation ("read after every call and at every inlined site"). So the
+    three-load shape this bound is stated over does not exist, and measuring it
+    as written is not possible.
+
+    What can be said is an upper bound: these loads are a *subset* of the
+    +5.13 ns F130 measures for a whole generic-call boundary. That does not
+    establish 2 ns.
+
+    **The gap was found by trying to take this measurement**, and it led to
+    F140: `Cells::epoch` was written on every stack change and read by no
+    emitted code at all, while D68 had begun crossing calls to stack-switching
+    natives. The bound being unmeasurable was the symptom; a promoted value
+    landing on the wrong stack was the defect.
 
     **Partially met, 2026-09-14 — the dominance half is built and asserted,
     the cost half is unmeasured.** `ControlFlowGraph::with_function` and

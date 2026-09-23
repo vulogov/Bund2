@@ -649,6 +649,39 @@ extern "C" fn jit_push_int(c: *mut Ctx<'_>, v: i64) -> i32 {
     OK
 }
 
+/// **A crossed call moved the current stack** — D73's dynamic half, F140.
+///
+/// §S5 has compiled code re-read the epoch after every call, "rather than
+/// enumerate every word that can change them — a list that would be wrong the
+/// day a word landed". D73 built the enumeration, as a static gate, because the
+/// defect was live and the gate is total and free. This is the check that says
+/// when the enumeration was wrong.
+///
+/// **It reports rather than recovers, and that is a deviation from §S5**, which
+/// calls for the residual path syncing "every promoted value to the stack it
+/// was taken from". Recovering needs each value's home stack recorded and a
+/// second sync flavour that pushes there; reporting needs neither, and it turns
+/// the silent wrong answer F140 measured into a named defect. D37's third way
+/// out: a broken invariant with no sensible continuation, named, routed through
+/// the diagnostic path, and saying the fault is in Bund2 rather than in the
+/// program being run.
+///
+/// **Under D73 it should never fire.** If it does, a native that changes the
+/// current stack reached a crossed call without being named in
+/// `promotable::SWITCHES_STACK`, and the scan that pins that list
+/// (`every_native_that_changes_the_current_stack_is_named`) did not see it.
+extern "C" fn jit_stack_moved(c: *mut Ctx<'_>) -> i32 {
+    // SAFETY: `Compiled::run`'s contract, as every other helper's.
+    let Some(c) = (unsafe { ctx(c) }) else {
+        return FAIL;
+    };
+    c.err = Some(Error::internal(
+        "a crossed call changed the current stack, so values promotion was \
+         holding belong to a stack that is no longer in force (F140, D73)",
+    ));
+    FAIL
+}
+
 /// `Op::DupTop` — **`.dup()`, not a clone.**
 ///
 /// `dup` gives the copy a fresh header and therefore a fresh identity (F13),
@@ -2111,6 +2144,9 @@ fn new_module(adapter: Adapter) -> Result<JITModule, String> {
     // §S5's residual path. Bound unconditionally for the same reason the five
     // above are: a symbol nothing imports costs nothing.
     builder.symbol("jit_residual", jit_residual as *const u8);
+    // D73's dynamic half: the body calls it when a crossed call moved the
+    // current stack. Bound unconditionally, like the five above.
+    builder.symbol("jit_stack_moved", jit_stack_moved as *const u8);
     Ok(JITModule::new(builder))
 }
 
@@ -2232,6 +2268,11 @@ fn emit_into(
     let residual_id = module
         .declare_function("jit_residual", Linkage::Import, &sig_residual)
         .map_err(|e| format!("declare jit_residual: {e}"))?;
+    // **D73's dynamic half.** The body calls it when a crossed call moved the
+    // current stack — see `jit_stack_moved`.
+    let stack_moved_id = module
+        .declare_function("jit_stack_moved", Linkage::Import, &sig_bare)
+        .map_err(|e| format!("declare jit_stack_moved: {e}"))?;
     let pop_id = module
         .declare_function("jit_pop_int", Linkage::Import, &sig_pop)
         .map_err(|e| format!("declare jit_pop_int: {e}"))?;
@@ -2396,6 +2437,9 @@ fn emit_into(
             .map_err(|_| "the request cell's offset does not fit".to_string())?;
         let autoadd_off = i32::try_from(bund2_api::Cells::autoadd_offset())
             .map_err(|_| "the autoadd cell's offset does not fit".to_string())?;
+        // D73's dynamic half reads this after a crossed call.
+        let epoch_off = i32::try_from(bund2_api::Cells::epoch_offset())
+            .map_err(|_| "the epoch cell's offset does not fit".to_string())?;
 
         // What an inlined arm's ops need: the four helpers, and one slot for a
         // popped int. Created whether or not this body inlines — an unused
@@ -2404,6 +2448,8 @@ fn emit_into(
         let push = module.declare_func_in_func(push_id, f.func);
         let dup = module.declare_func_in_func(dup_id, f.func);
         let drop_ = module.declare_func_in_func(drop_id, f.func);
+        // D73's dynamic half — called when a crossed call moved the stack.
+        let stack_moved = module.declare_func_in_func(stack_moved_id, f.func);
         // §S5's residual path, reached when an inlined site's meaning guard
         // refuses. Imported whether or not this body inlines, for the same
         // reason the four above are.
@@ -2559,6 +2605,18 @@ fn emit_into(
                         let held = promoted.clone();
                         let callee = f.ins().load(ptr, MemFlagsData::trusted(), base, off);
 
+                        // **D73's dynamic half, read before the call** — F140.
+                        // §S5 has compiled code re-read the epoch after every
+                        // call "rather than enumerate every word that can
+                        // change them — a list that would be wrong the day a
+                        // word landed". D73 built that enumeration anyway,
+                        // because the defect was live and a static gate is
+                        // total and free; this is what says when the
+                        // enumeration was wrong.
+                        let epoch_before =
+                            f.ins()
+                                .load(types::I64, MemFlagsData::trusted(), cells_base, epoch_off);
+
                         // **§S5's invariant dies here, and is replaced rather
                         // than dropped.** "A sync precedes every call" made the
                         // promoted model empty at every edge to `fail`, so the
@@ -2591,6 +2649,38 @@ fn emit_into(
                             },
                             None,
                         );
+
+                        // **And compared after it.** A crossed call synced only
+                        // the callee's operands, so everything else is still in
+                        // a register and belongs to the stack that was current
+                        // before the call. If that is no longer the stack in
+                        // force, syncing them here would put them somewhere
+                        // they were never computed — which is exactly what F140
+                        // measured before D73's gate.
+                        //
+                        // **It reports rather than recovers**, a deviation from
+                        // §S5's residual-path recovery that D73 records: the
+                        // silent wrong answer becomes a named internal error,
+                        // and under the static gate this branch is unreachable.
+                        {
+                            let epoch_after = f.ins().load(
+                                types::I64,
+                                MemFlagsData::trusted(),
+                                cells_base,
+                                epoch_off,
+                            );
+                            let steady =
+                                f.ins().icmp(IntCC::Equal, epoch_before, epoch_after);
+                            let moved = f.create_block();
+                            let same_stack = f.create_block();
+                            f.ins().brif(steady, same_stack, &[], moved, &[]);
+
+                            f.switch_to_block(moved);
+                            f.ins().call(stack_moved, &[ctx_val]);
+                            f.ins().jump(fail, &[]);
+
+                            f.switch_to_block(same_stack);
+                        }
 
                         if !held.is_empty() {
                             // The call's success path, to return to once the
@@ -4674,6 +4764,78 @@ mod tests {
                 "autoadd: {a:?} vs {b:?}"
             );
         }
+    }
+
+    /// **D73's dynamic half: a crossed call that moves the stack is a named
+    /// internal error, not a wrong answer** — F140.
+    ///
+    /// D73's static gate keeps every stack-switching native out of the
+    /// crossable table, so in a shipped build this branch is unreachable. That
+    /// is exactly why it needs a test that reaches it: a check nothing can
+    /// trigger is a check nothing has verified.
+    ///
+    /// The fixture hands `Compiler::with_crossable` a set containing
+    /// `stacks_left`'s registration id directly, which is what
+    /// `promotable::crossable` refuses to build. So this is the shipped
+    /// lowering running against the table D73 forbids — the configuration a
+    /// missed switcher would produce.
+    ///
+    /// **What it asserts is the deviation D73 took.** §S5 calls for the
+    /// residual path, syncing each promoted value to the stack it came from.
+    /// This reports instead: `Error::internal`, naming the invariant, routed
+    /// through the diagnostic path, saying the fault is Bund2's rather than the
+    /// program's (D37). The value of it is that F140's silent misplacement
+    /// becomes loud.
+    #[test]
+    fn a_crossed_call_that_moves_the_stack_is_an_internal_error() {
+        let (mut vm, table) = with_fragments();
+
+        // A second stack, so a rotation actually changes which is current and
+        // the epoch moves. With one stack the check has nothing to catch.
+        bund2_api::Vm::ensure_stack(&mut vm, "other");
+
+        let (s, _) = vm
+            .registry
+            .interner
+            .lookup_call("stacks_left")
+            .expect("`stacks_left` is registered");
+        let id = vm
+            .registry
+            .slot(s)
+            .and_then(|sl| sl.native.as_ref())
+            .and_then(|n| n.id)
+            .expect("`stacks_left` carries a registration id");
+        let mut admitted = std::collections::BTreeSet::new();
+        admitted.insert(id);
+
+        let mut c = Compiler::with_crossable(table, admitted).expect("a compiler");
+        let body = vec![
+            BundValue::int(1),
+            BundValue::int(2),
+            BundValue::call("+"),
+            BundValue::call("stacks_left"),
+        ];
+        let word = word_in(&mut c, &mut vm, &body, LastCall::Ordinary);
+        assert_eq!(
+            c.crossable_calls(word),
+            Some(1),
+            "the fixture must actually cross `stacks_left`, or this asserts a \
+             branch it never reaches"
+        );
+
+        let e = c
+            .run(word, &mut vm, &body)
+            .expect_err("a crossed call that moved the stack must not answer");
+        assert!(
+            e.is_internal(),
+            "the fault is Bund2's, not the program's: {}",
+            e.0
+        );
+        assert!(
+            e.0.contains("changed the current stack"),
+            "the error must name the invariant: {}",
+            e.0
+        );
     }
 
     /// **The shipped compiler always guards its inlined sites** — criterion 17.

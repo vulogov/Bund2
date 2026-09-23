@@ -3521,7 +3521,44 @@ it. Some of the eight also *restore* the stack before returning (`swap_in`,
 `rotate_stack_left`); the gate does not try to tell restoring from not, because
 a source scan cannot and refusing to cross them costs nothing measurable.
 
-### Rejected, for now: emitting §S5's epoch check
+### The dynamic half, built 2026-09-23 as **reporting** rather than recovery
+
+The owner ruled for the epoch check after the static gate landed, in the
+narrower of the two shapes offered.
+
+`jit_stack_moved` (`crates/bund2-jit/src/lower.rs`) is a helper that parks an
+`Error::internal` and fails. A crossed call now loads `Cells::epoch` **before**
+it and compares **after**; on a change the body calls that helper and takes its
+`fail` edge. The message names the invariant: "a crossed call changed the
+current stack, so values promotion was holding belong to a stack that is no
+longer in force".
+
+**This is a deviation from §S5 and is recorded as one.** §S5 calls for the
+residual path, which "syncs every promoted value to **the stack it was taken
+from** — recorded when the value was promoted, not the stack current now".
+Recovering that way needs each value's home stack recorded and a second sync
+flavour that pushes there — a new `Ctx` field, a new bound symbol, and surgery
+on the residual, in the emission code most likely to gain a fresh defect.
+Reporting needs none of it and delivers the property F140 was actually about:
+**the wrong answer stops being silent**. D37's third way out — a broken
+invariant with no sensible continuation, named, and routed through the
+diagnostic path so a reporter receives it.
+
+**Under the static gate this branch is unreachable**, which is why it has a test
+that reaches it. `a_crossed_call_that_moves_the_stack_is_an_internal_error`
+hands `Compiler::with_crossable` a set containing `stacks_left`'s registration
+id directly — the table `promotable::crossable` refuses to build — and runs the
+shipped lowering against it. That is the configuration a missed switcher would
+produce, and it answers with the internal error rather than a misplaced value.
+A check nothing can trigger is a check nothing has verified.
+
+**What is still not built** is the recovery, and with it criterion 17's per-call
+bound as stated. After a call the lowering now loads the request cell (every
+call) and the epoch (crossed calls only); `autoadd` is still read at inlined
+sites alone. The criterion names three loads after *every* call, and that shape
+does not exist.
+
+### Rejected at the time, and partly superseded above: emitting §S5's epoch check
 
 §S5 already specifies the dynamic form. `Cells::epoch` is documented as telling
 compiled code "that the stack it resolved against is still the one in force",
