@@ -488,6 +488,22 @@ fn var(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// **`noop` — consumes nothing, produces nothing, does nothing** (D72).
+///
+/// The first word Bund2 carries that the reference does not. It exists because
+/// **neither parser accepts an empty block**: `:f { } register` is refused by
+/// Bund2 and by the oracle alike, so a body meant to do nothing had to be
+/// written `{ 1 drop }`, which says "push a value and discard it" where the
+/// author means "do nothing".
+///
+/// D72 records the precedent that matters more than the word: Bund2 may add a
+/// word the oracle lacks. A consequence to keep in view is that **no golden can
+/// ever exercise it**, since goldens are captured from the oracle — so this is
+/// covered by Bund2's own tests alone.
+fn noop(_: &mut dyn Vm) -> Result<(), Error> {
+    Ok(())
+}
+
 fn var_read(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 1 {
         return Err(Error("Stack is too shallow for inline VAR?".into()));
@@ -1241,6 +1257,10 @@ pub fn register(r: &mut Registry) {
     // the stack, and puts the MAP back on the workbench.
     r.register_native("pull", |vm| pull_word(vm, Side::Stack), StackEffect::opaque(1), WordKind::Sync);
     r.register_native("pull.", |vm| pull_word(vm, Side::Bench), StackEffect::opaque(0), WordKind::Sync);
+    // **D72's `noop`**, the one word here the reference does not have. `eff(0, 0)`
+    // is the honest pair and it is what makes `{ noop }` a body that compiles,
+    // promotes nothing and does nothing.
+    r.register_native("noop", noop, eff(0, 0), WordKind::Sync);
     r.register_native("var", var, eff(2, 0), WordKind::Sync);
     r.register_native("var?", var_read, eff(1, 1), WordKind::Sync);
     r.register_native("var-", var_unregister, eff(1, 0), WordKind::Sync);
@@ -1257,6 +1277,64 @@ mod f18_tests {
         let stream = bund2_syntax::compile(src).map_err(|e| e.render(src))?;
         i.eval(&stream).map_err(|e| e.0)?;
         Ok(i)
+    }
+
+    /// **D72's `noop` does nothing, returns immediately, and leaves the stack
+    /// exactly as it found it.**
+    ///
+    /// All three are asserted, because "does nothing" is the one claim a word
+    /// can appear to satisfy while quietly failing it: a word that consumed and
+    /// re-pushed would keep the depth and change D41's stack tag, and a word
+    /// that reported would leave a diagnostic behind.
+    #[test]
+    fn noop_does_nothing_and_leaves_the_stack_alone() {
+        let before = run("1 2 3").expect("the values push");
+        let after = run("1 2 3 noop noop").expect("noop runs");
+
+        assert_eq!(
+            bund2_api::Vm::depth(&after),
+            bund2_api::Vm::depth(&before),
+            "depth"
+        );
+        let (a, b) = (
+            bund2_api::Vm::snapshot(&before),
+            bund2_api::Vm::snapshot(&after),
+        );
+        for (x, y) in a.iter().zip(b.iter()) {
+            assert_eq!(x.dt(), y.dt(), "dt");
+            // The full render carries the value, `q` and D41's stack tag, so a
+            // `noop` that pulled and pushed would be caught here even though
+            // the depth matched.
+            assert_eq!(x.render(false), y.render(false), "value, q or stack tag");
+        }
+    }
+
+    /// **The reason D72 exists: `{ noop }` is a body that parses.**
+    ///
+    /// Neither Bund2 nor the oracle accepts `{ }` — "empty block: `}` needs a
+    /// term before it" — so a lambda meant to do nothing previously had to be
+    /// written `{ 1 drop }`, a balanced pair a reader has to decode. This is
+    /// the case the word was added for, so it is asserted rather than assumed.
+    #[test]
+    fn a_noop_body_parses_where_an_empty_block_does_not() {
+        assert!(
+            bund2_syntax::compile(":f { } register").is_err(),
+            "an empty block is still refused, as the oracle refuses it"
+        );
+        let i = run(":f { noop } register
+1 f").expect("a noop body registers and runs");
+        assert_eq!(bund2_api::Vm::depth(&i), 1, "the caller's value is untouched");
+    }
+
+    /// `noop` declares the pair it keeps: it takes nothing and leaves nothing.
+    /// A wrong pair here would be a breach criterion 24's audit reports, and
+    /// would make D68 treat it as something other than a crossable callee.
+    #[test]
+    fn noop_declares_zero_to_zero() {
+        let mut r = Registry::new();
+        crate::register_all(&mut r);
+        let e = r.effect_of("noop").expect("`noop` declares an effect");
+        assert_eq!((e.consumes, e.produces, e.opaque), (0, 0, false));
     }
 
     /// **RFC-0004 criterion 3**, for the words of F18's fourteen that Bund2

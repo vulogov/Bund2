@@ -3476,6 +3476,73 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D72 — Bund2 may carry a word the reference does not, and `noop` is the first
+
+**Decided by the repository owner, 2026-09-22**, on a proposal made while
+writing criterion 30's fixtures.
+
+- Blocks: nothing
+- Depends on: the health metric's rule that conformance counts goldens and never
+  words; §S2 (conformance as the regression number)
+- Status: **RESOLVED — decided and built**, 2026-09-22.
+
+### The problem it answers
+
+**Neither parser accepts an empty block.** `:f { } register` is refused by Bund2
+with "empty block: `}` needs a term before it", and the oracle refuses it too —
+checked directly, 2026-09-22, `target/oracle/release/bund` answering "expected
+integer, float, string, literal, atom, stack, name, ptr, command, lambda, list,
+or ctx". So Bund2's refusal is **faithful**, and there is no defect here to fix.
+
+What there is instead is an expression problem. A body that should do nothing
+has to be written `{ 1 drop }` or some other balanced pair, which says "push a
+value and discard it" where the author means "do nothing". Every fixture that
+needs a no-op callee pays that, and a reader has to work out that the pair is
+noise.
+
+### The decision
+
+**`noop` — consumes nothing, produces nothing, does nothing.** `eff(0, 0)`,
+registered by `bund2-stdlib`.
+
+### The precedent, which is the part worth deciding
+
+This is **the first word Bund2 carries that the reference does not**, and the
+repository's premise is that "Bund syntax and logic are preserved 100%". So the
+decision is not really about one word; it is that **Bund2 may add a word the
+oracle lacks**, and this is the first exercise of it.
+
+What that does and does not disturb:
+
+- **Conformance is unmoved.** It counts goldens, never words, and no golden
+  gains a program. The health metric's own rule — "never add words to that
+  denominator" — is about the *conformance* denominator, which this does not
+  touch.
+- **Coverage is unmoved.** Its in-scope set is the reference's registry, and
+  `noop` is not in it, so it is out of scope by construction rather than an
+  uncovered word.
+- **`bund2 words` gains an entry**, which is the honest visible consequence.
+- **`PROMOTABLE.txt` regenerates**: `noop` is a fixed-effect native, so
+  criterion 28's palette reaches it and D48's table gains it. That file is
+  written by `BUND2_UPDATE_PROMOTABLE=1 cargo test -p bund2-stdlib promotable`
+  and is the repository owner's to run.
+
+**A word the oracle lacks can never be exercised by a golden**, because goldens
+are captured from the oracle. So anything added under this decision is tested by
+Bund2's own tests alone, and that is a real asymmetry to keep in view: the
+oracle cannot referee it.
+
+### Rejected
+
+- **Teach the parser to accept `{ }`.** This was the first thing checked and it
+  is the worse deviation: syntax is what the repository preserves most strictly,
+  the oracle rejects an empty block, and accepting one would make Bund2 parse
+  programs the reference refuses. A vocabulary addition is visible in
+  `bund2 words`; a syntax divergence is visible only when a program that should
+  have failed does not.
+- **Leave it, and keep writing `{ 1 drop }`.** Workable, and what every fixture
+  did until now. Rejected because the pair is read as intent and it is not.
+
 ## D71 — promotion never crosses a callee that can report mid-body, and the tier asks the reporter besides
 
 **Decided by the repository owner, 2026-09-16**, resolving F137.

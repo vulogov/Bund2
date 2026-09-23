@@ -4,7 +4,16 @@
 # reading beyond its operands. Anything absent is synced before, as an
 # embedder's native is. Written by BUND2_UPDATE_PROMOTABLE=1 cargo
 # test -p bund2-stdlib promotable; never edited by hand.
-# 222 promotable of 230 reached, of 267 fixed-effect natives; 8 reached natives
+#
+# **One file, two builds — F123.** A native behind a Cargo feature is
+# registered in one build and not the other, so no content here could
+# be true for both: listed, the default build reports it `no longer
+# reached`; absent, `--all-features` reports it `now reached`. Such
+# natives are excluded from the audit in both builds (`FEATURE_GATED`,
+# crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
+# conservative answer: promotion syncs before them as before an
+# embedder's native, which costs speed and never meaning.
+# 223 promotable of 231 reached, of 268 fixed-effect natives; 8 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 *
@@ -132,6 +141,7 @@ merge.
 metrics
 nl
 nodata
+noop
 not
 or
 pair
@@ -277,3 +287,8 @@ var-
 # not reached: url.
 # not reached: var?
 # not reached: wrap
+#
+# Excluded in both builds because a Cargo feature decides whether they
+# exist at all (F123); never crossed by promotion:
+# feature-gated: string.grok
+# feature-gated: string.grok.
