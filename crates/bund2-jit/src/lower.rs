@@ -1428,7 +1428,7 @@ enum Plan {
 /// functions that compilation defined and leaves every earlier body's code
 /// untouched and still executable.
 pub struct Compiler {
-    module: JITModule,
+    emitter: Emitter,
     words: Vec<Word>,
     /// **The fragment table — `(registration id, Fragment)` pairs** §S6 has
     /// `bund2-stdlib` publish and this crate read.
@@ -1454,6 +1454,16 @@ pub struct Compiler {
     /// **Empty is the safe default and today's behaviour**: no call is
     /// classified crossable, so promotion stops at every one of them.
     crossable: std::collections::BTreeSet<bund2_api::RegistrationId>,
+}
+
+/// **A module and the thunks already emitted into it.**
+///
+/// They travel together because a thunk's `FuncId` is only meaningful for the
+/// module that declared it, and because the cache's whole correctness argument
+/// is per module: an index is resolved against the running context, so a thunk
+/// is shareable by every body *in this module* and by none outside it.
+struct Emitter {
+    module: JITModule,
     /// **The thunks this module has already emitted, by index** — F130.
     ///
     /// A thunk bakes an index and nothing else, and the index is resolved
@@ -1476,7 +1486,7 @@ pub struct Compiler {
     thunks: Thunks,
 }
 
-/// The per-module thunk cache — see [`Compiler::thunks`].
+/// The per-module thunk cache — see [`Emitter::thunks`].
 ///
 /// Three kinds, because three adapters: a call thunk per call index, one drain
 /// thunk, and a guard thunk per site index. Each vector is dense and grows only
@@ -1507,11 +1517,13 @@ impl Compiler {
         crossable: std::collections::BTreeSet<bund2_api::RegistrationId>,
     ) -> Result<Self, String> {
         Ok(Self {
-            module: new_module(Adapter::Apply)?,
+            emitter: Emitter {
+                module: new_module(Adapter::Apply)?,
+                thunks: Thunks::default(),
+            },
             words: Vec::new(),
             table,
             crossable,
-            thunks: Thunks::default(),
         })
     }
 
@@ -1523,7 +1535,8 @@ impl Compiler {
     /// body's indices have all been seen — which is the whole claim the cache
     /// makes and the only way to check it from outside.
     pub fn thunk_count(&self) -> usize {
-        self.thunks.calls.len() + self.thunks.admits.len() + usize::from(self.thunks.drain.is_some())
+        let t = &self.emitter.thunks;
+        t.calls.len() + t.admits.len() + usize::from(t.drain.is_some())
     }
 
     /// **D68's four gates, asked of one callee.**
@@ -1608,8 +1621,7 @@ impl Compiler {
         let (plan, sites) = self.plan_body(body, vm);
         let (entry, slots, resumes, syncs) =
             emit_into(
-                &mut self.module,
-                &mut self.thunks,
+                &mut self.emitter,
                 seq,
                 &plan,
                 &sites,
@@ -1984,7 +1996,12 @@ fn emit_body(
     adapter: Adapter,
     cells: i64,
 ) -> Result<CompiledBody, String> {
-    let mut module = new_module(adapter)?;
+    let mut emitter = Emitter {
+        module: new_module(adapter)?,
+        // This path builds a module per body and throws it away, so the cache
+        // has nothing to share with: a fresh one, used once.
+        thunks: Thunks::default(),
+    };
     // The native-calling lowering inlines nothing: its "values" are natives to
     // call, not a Bund body to plan over. Every site is generic.
     // **Never crossable.** This path lowers a body of `calls` generic values
@@ -1996,10 +2013,7 @@ fn emit_body(
     // it has no site whose residual could resume, and the table is empty.
     let (entry, slots, _resumes, _syncs) =
         emit_into(
-            &mut module,
-            // This path builds a module per body and throws it away, so a
-            // cache has nothing to share with: a fresh one, used once.
-            &mut Thunks::default(),
+            &mut emitter,
             0,
             &plan,
             &[],
@@ -2008,7 +2022,7 @@ fn emit_body(
             cells,
         )?;
     Ok(CompiledBody {
-        _module: module,
+        _module: emitter.module,
         entry,
         _slots: slots,
         calls,
@@ -2066,8 +2080,7 @@ type Emitted = (Entry, Box<[*const u8]>, Vec<(usize, usize)>, usize);
 /// unsuffixed: merging is exactly right for it, since every body imports the
 /// same Rust function.
 fn emit_into(
-    module: &mut JITModule,
-    thunks: &mut Thunks,
+    e: &mut Emitter,
     seq: usize,
     plan: &[Plan],
     sites: &[Fragment],
@@ -2075,6 +2088,10 @@ fn emit_into(
     adapter: Adapter,
     cells: i64,
 ) -> Result<Emitted, String> {
+    // Destructured once, so the body below reads as it did when the module and
+    // the cache were separate parameters — and so this function stays inside
+    // clippy's argument limit, which bundling them is the honest way to meet.
+    let Emitter { module, thunks } = e;
     // One value, one call slot — whether or not the value is inlined, because
     // an inlined site keeps its generic path beside it and reaches it through
     // that slot when a guard refuses.
