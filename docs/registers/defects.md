@@ -4005,14 +4005,19 @@ is what this repository wants when a verification step is the reason the commit
 was being made at all.
 
 - Found: 2026-09-28, from `ps` output during an unrelated wait
-- Status: **OPEN — fix written, one regeneration outstanding.** `bund.prompt`
-  is added to `ACTS_ON_HOST`, which makes it unreached by the palette and
-  therefore absent from `PROMOTABLE.txt`. That file is the repository owner's
-  to regenerate:
-  `BUND2_UPDATE_PROMOTABLE=1 cargo test -p bund2-stdlib promotable`.
-  The consequence is that promotion no longer crosses `bund.prompt`, which is
-  the conservative answer and costs speed rather than meaning — the same
-  disposition D48's dated note gives every unreached native.
+- Status: **RESOLVED**, 2026-09-28. `bund.prompt` is in `ACTS_ON_HOST`, so the
+  palette no longer reaches it, and the repository owner regenerated
+  `PROMOTABLE.txt`: **-`bund.prompt` and nothing else**, 223 → 222 promotable of
+  230 reached. `cargo test -p bund2-stdlib` now completes whatever stdin is,
+  where it had hung on a pipe that never reaches EOF.
+  Promotion no longer crosses `bund.prompt`, which is the conservative answer
+  and costs speed rather than meaning — the same disposition D48's dated note
+  gives every unreached native.
+  **What is not fixed is the shape that hid it.** A hang produces no failing
+  test, and a hung run in the background is indistinguishable from a running
+  one; two test binaries sat resident for five days before anything noticed.
+  Nothing here bounds a test's runtime, so the next test that blocks will hide
+  the same way.
 - Depends on: criterion 28 (the palette), D55 (the audit), D48 (the list)
 
 ## F140 — a promoted value crossing `stacks_left` is synced to the wrong stack
