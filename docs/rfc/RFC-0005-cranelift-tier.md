@@ -6382,6 +6382,20 @@ evidence, and this one is listed as runnable rather than as met.
     criterion's original program the test fails on that line, which is how the
     vacuity above was found.
 
+    **All four are written, 2026-09-28.** The fourth —
+    `a_body_below_the_tier_one_floor_declines_without_exiting` — became
+    writable when F142's floor check was built on the owner's ruling. It
+    declares no share, so §S8's arithmetic puts the Tier 1 floor above the
+    thread's own top, and asserts the three things the row is about: the body
+    **declines** rather than starting, `run` answers `Ok(false)` rather than an
+    error because nothing ran and nothing failed, and **no exit is recorded**
+    though the body would have recorded one had it run. The tier reads that
+    decline as `None`, which is how Tier 0 takes the body and the program still
+    ends at the same point.
+
+    The note this replaces read as follows, and stands as what was true before
+    the check existed.
+
     **One remains, and it cannot be written — F142.** *A callee that declines
     below the Tier 1 floor.* No compiled body ever declines on the floor,
     because **§S8's floor check is not emitted**. `Cells::floor` documents

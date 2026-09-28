@@ -271,7 +271,17 @@ impl Tier for JitTier {
                 {
                     return None;
                 }
-                Some(compiler.run(code, vm, values))
+                // **A declined body is not a failure** — §S8's Tier 1 floor,
+                // F142. `Ok(false)` says the entry refused to start because
+                // the stack pointer was beneath the floor: nothing ran and
+                // nothing is wrong, so this answers `None` and the caller
+                // interprets the body, exactly as it does for a body that was
+                // never compiled.
+                match compiler.run(code, vm, values) {
+                    Ok(true) => Some(Ok(())),
+                    Ok(false) => None,
+                    Err(e) => Some(Err(e)),
+                }
             }
         }
     }
@@ -281,9 +291,32 @@ impl Tier for JitTier {
 mod tests {
     use super::*;
 
+    /// **A Tier 1 share, as the CLI declares one** — §S8, F142.
+    ///
+    /// Without it this thread's share is zero, which puts the Tier 1 floor
+    /// *above* its own top: every compiled body declines at entry, the tier
+    /// answers `None`, and Tier 0 runs the body instead. §S8 intends that —
+    /// "a share is declared, never inferred" — and `bund2-cli` declares one
+    /// before evaluating anything.
+    ///
+    /// **It is load-bearing for every differential in this file.** A declined
+    /// body is still a *compiled* body, so `compiled_bodies()` and
+    /// `crossed_calls()` go on reporting what the compiler did and neither
+    /// precondition notices that nothing ran. Without this call the rows below
+    /// would compare Tier 0 with Tier 0 and pass — F127's shape, arriving
+    /// through a door that opened when §S8's floor check was built.
+    fn declare_share() {
+        bund2_interp::set_stack_region_with_share(
+            bund2_interp::stack_marker(),
+            8 * 1024 * 1024,
+            1024 * 1024,
+        );
+    }
+
     /// A runtime whose tier compiles after `threshold` entries, so a test can
     /// reach Tier 1 in a few evaluations rather than sixty-four.
     fn runtime_with(threshold: u32) -> crate::Runtime {
+        declare_share();
         let mut r = crate::Runtime::new();
         r.install_tier(Box::new(JitTier::new(Caps {
             threshold,
@@ -305,6 +338,7 @@ mod tests {
     /// the registration ids `register_all` mints — the same ordering
     /// `Runtime::with_options` documents.
     fn inlining_runtime_with(threshold: u32) -> crate::Runtime {
+        declare_share();
         let mut r = crate::Runtime::new();
         let table = bund2_stdlib::fragments::published(&r.interp.registry).unwrap_or_default();
         assert!(
@@ -339,6 +373,7 @@ mod tests {
     /// criterion-22 differentials use that one, and widening what they exercise
     /// is not this test's business.
     fn crossing_runtime_with(threshold: u32) -> crate::Runtime {
+        declare_share();
         let mut r = crate::Runtime::new();
         let table = bund2_stdlib::fragments::published(&r.interp.registry).unwrap_or_default();
         let crossable = bund2_stdlib::promotable::crossable(&r.interp.registry);

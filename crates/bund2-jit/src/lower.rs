@@ -127,6 +127,15 @@ const FAIL: i32 = 1;
 const ADMIT: i32 = 1;
 const DECLINE: i32 = 0;
 
+/// **A compiled body refused to start** — §S8's Tier 1 floor, F142.
+///
+/// Distinct from [`OK`] and [`FAIL`] because it is neither: nothing ran and
+/// nothing failed. The entry trampoline answers it when the stack pointer is
+/// beneath `Cells::floor`, and the tier turns it back into "Tier 0 runs this
+/// body" — which is what `JitTier::enter` returning `None` already means, so
+/// the decline needs no recovery path of its own.
+const DECLINED: i32 = 2;
+
 /// Everything one generic call site needs — the path a value takes when it is
 /// not inlined, and the path every guard falls back to.
 struct GenericCall {
@@ -1213,7 +1222,7 @@ impl CompiledBody {
         &self,
         vm: &mut dyn Vm,
         natives: &[(&str, bund2_api::NativeFn)],
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         let mut c = Ctx {
             vm,
             err: None,
@@ -1227,7 +1236,11 @@ impl CompiledBody {
         let status = unsafe { (self.entry)(&raw mut c) };
         match c.err {
             Some(e) => Err(e),
-            None if status == OK => Ok(()),
+            None if status == OK => Ok(true),
+            // **§S8's floor refused it** — F142. Nothing ran and nothing
+            // failed, so this is neither `Ok(())` nor an error: the caller
+            // runs the body at Tier 0 instead.
+            None if status == DECLINED => Ok(false),
             None => Err(Error::internal(
                 "a compiled body returned a failing status with no error in the context",
             )),
@@ -1865,7 +1878,12 @@ impl Compiler {
     /// is a broken invariant and reported as such rather than silently short.
     /// A handle this compiler never issued is the same kind of invariant, and
     /// is reported rather than indexed with.
-    pub fn run(&self, word: WordHandle, vm: &mut dyn Vm, body: &[BundValue]) -> Result<(), Error> {
+    pub fn run(
+        &self,
+        word: WordHandle,
+        vm: &mut dyn Vm,
+        body: &[BundValue],
+    ) -> Result<bool, Error> {
         let Some(w) = self.words.get(word.0) else {
             return Err(Error::internal(
                 "a compiled word was run against a compiler that never issued its handle",
@@ -1910,7 +1928,11 @@ impl Compiler {
         let status = unsafe { (w.entry)(&raw mut c) };
         match c.err {
             Some(e) => Err(e),
-            None if status == OK => Ok(()),
+            None if status == OK => Ok(true),
+            // **§S8's floor refused it** — F142. Nothing ran and nothing
+            // failed, so this is neither `Ok(())` nor an error: the caller
+            // runs the body at Tier 0 instead.
+            None if status == DECLINED => Ok(false),
             None => Err(Error::internal(
                 "a compiled word returned a failing status with no error in the context",
             )),
@@ -2206,6 +2228,11 @@ fn emit_into(
     let frontend = module.target_config();
     let ptr = frontend.pointer_type();
     let conv = module.isa().default_call_conv();
+    // §S8's Tier 1 floor, read by the entry trampoline below (F142). Declared
+    // here rather than in the body's block because the trampoline is emitted
+    // after it and needs the same offset.
+    let floor_off = i32::try_from(bund2_api::Cells::floor_offset())
+        .map_err(|_| "the floor cell's offset does not fit".to_string())?;
 
     // The slots, allocated before anything is compiled so the base address the
     // body embeds is final.
@@ -2910,6 +2937,31 @@ fn emit_into(
         f.append_block_params_for_function_params(block);
         f.switch_to_block(block);
         let ctx_val = f.block_params(block)[0];
+
+        // **§S8's Tier 1 floor, checked before anything runs** — F142.
+        // `Cells::floor` is "the address below which a compiled body declines
+        // rather than starting", and until now nothing read it. The compare is
+        // unsigned because both operands are addresses, and the branch is
+        // never taken in ordinary running, so it predicts.
+        //
+        // **Declining is not failing.** Nothing has run and nothing is wrong:
+        // the answer is [`DECLINED`], and the tier reads it as "Tier 0 runs
+        // this body". That is why this needs no recovery path where §S5's
+        // epoch check needed one — `JitTier::enter` returning `None` is
+        // already the whole of it.
+        let sp = f.ins().get_stack_pointer(ptr);
+        let floor_base = f.ins().iconst(ptr, cells);
+        let floor = f.ins().load(ptr, MemFlagsData::trusted(), floor_base, floor_off);
+        let below = f.ins().icmp(IntCC::UnsignedLessThan, sp, floor);
+        let refuse = f.create_block();
+        let start = f.create_block();
+        f.ins().brif(below, refuse, &[], start, &[]);
+
+        f.switch_to_block(refuse);
+        let declined = f.ins().iconst(types::I32, i64::from(DECLINED));
+        f.ins().return_(&[declined]);
+
+        f.switch_to_block(start);
         let call = f.ins().call(body, &[ctx_val]);
         let status = f.inst_results(call)[0];
         f.ins().return_(&[status]);
@@ -2997,7 +3049,7 @@ mod tests {
     }
 
     fn interp_with(start: &[BundValue]) -> Interp {
-        let mut i = Interp::new();
+        let mut i = fresh_interp();
         for v in start {
             i.push(v.clone());
         }
@@ -3239,7 +3291,7 @@ mod tests {
     /// Every one of §S8's four pieces is on that path.
     #[test]
     fn a_compiled_body_calls_a_native_through_its_thunk() {
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         let body = lowered(&vm, 1, LastCall::Ordinary);
         body.run(&mut vm, &[("push7", pushes_seven)]).expect("it ran");
         assert_eq!(vm.depth(), 1, "the native ran exactly once");
@@ -3249,7 +3301,7 @@ mod tests {
     /// Several calls, in order, each through its own slot and thunk.
     #[test]
     fn a_compiled_body_calls_each_native_in_order() {
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         let body = lowered(&vm, 3, LastCall::Ordinary);
         assert_eq!(body.calls(), 3);
         body.run(
@@ -3264,7 +3316,7 @@ mod tests {
     /// body stops at the first failure rather than running the rest.
     #[test]
     fn a_failing_native_stops_the_body_and_reaches_rust_through_the_context() {
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         let body = lowered(&vm, 2, LastCall::Ordinary);
         let e = body
             .run(&mut vm, &[("fails", fails), ("push7", pushes_seven)])
@@ -3286,7 +3338,7 @@ mod tests {
     /// `Interp::invoke` does.
     #[test]
     fn a_panicking_native_in_a_non_tail_position_matches_tier_zero() {
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         let body = lowered(&vm, 1, LastCall::Ordinary);
         let e = body.run(&mut vm, &[("boom", boom)]).expect_err("the panic is an error");
         assert!(e.is_internal(), "{}", e.0);
@@ -3296,7 +3348,7 @@ mod tests {
             e.0
         );
         // And the process is still here, which is the other half of the claim.
-        let mut after = Interp::new();
+        let mut after = fresh_interp();
         lowered(&after, 1, LastCall::Ordinary)
             .run(&mut after, &[("push7", pushes_seven)])
             .expect("compiled code still runs after a caught panic");
@@ -3308,7 +3360,7 @@ mod tests {
     /// body's return value directly.
     #[test]
     fn a_panicking_native_in_a_tail_position_matches_tier_zero() {
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         let body = lowered(&vm, 1, LastCall::Tail);
         assert_eq!(body.last_call(), LastCall::Tail);
         let e = body.run(&mut vm, &[("boom", boom)]).expect_err("the panic is an error");
@@ -3325,7 +3377,7 @@ mod tests {
     /// the record rather than leaving it to the builder's assertions.
     #[test]
     fn a_tail_call_body_runs_and_leaves_no_unreachable_block_behind() {
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         let body = lowered(&vm, 1, LastCall::Tail);
         body.run(&mut vm, &[("push7", pushes_seven)]).expect("it ran");
         assert_eq!(vm.depth(), 1);
@@ -3335,7 +3387,7 @@ mod tests {
     /// lowering, not a fact about the program — so it is an internal error.
     #[test]
     fn calling_past_the_natives_given_is_an_internal_error() {
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         let body = lowered(&vm, 2, LastCall::Ordinary);
         let e = body
             .run(&mut vm, &[("only_one", pushes_seven)])
@@ -3348,7 +3400,7 @@ mod tests {
     fn a_body_that_calls_nothing_is_refused() {
         // The arity check fires before the address is used, so any live
         // interpreter's cells serve.
-        let vm = Interp::new();
+        let vm = fresh_interp();
         assert!(compile_body(0, LastCall::Ordinary, vm.cells().base()).is_err());
     }
 
@@ -3379,11 +3431,11 @@ mod tests {
     /// cheap evidence that the load is in the machine code at all.
     #[test]
     fn the_request_cell_is_read_from_the_address_compiled_in() {
-        let owner = Interp::new();
+        let owner = fresh_interp();
         let body = lowered(&owner, 1, LastCall::Ordinary);
 
         // A different interpreter, with its own cells at a different address.
-        let mut other = Interp::new();
+        let mut other = fresh_interp();
         assert_ne!(
             owner.cells().base(),
             other.cells().base(),
@@ -3430,7 +3482,7 @@ mod tests {
     /// depth 1 rather than 2 is the proof, exactly as Tier 0's test reads it.
     #[test]
     fn a_failing_native_leaves_no_tail_request_behind_compiled_code() {
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         let body = lowered(&vm, 1, LastCall::Ordinary);
         let e = body
             .run(&mut vm, &[("ff", files_then_fails)])
@@ -3464,7 +3516,7 @@ mod tests {
     /// nothing. The assertion is now made where the work happens.
     #[test]
     fn a_succeeding_native_keeps_the_tail_request_it_filed() {
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         let body = lowered(&vm, 1, LastCall::Ordinary);
         body.run(&mut vm, &[("fs", files_then_succeeds)])
             .expect("the native succeeded");
@@ -3641,7 +3693,7 @@ mod tests {
     fn the_guard_admits_only_what_the_fragment_promises() {
         let sites = [add_arm()];
 
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         vm.push(BundValue::int(1));
         vm.push(BundValue::int(2));
         assert_eq!(
@@ -3650,7 +3702,7 @@ mod tests {
             "two unboxed ints are exactly what TopAreInt(2) promises"
         );
 
-        let mut shallow = Interp::new();
+        let mut shallow = fresh_interp();
         shallow.push(BundValue::int(1));
         assert_eq!(
             admits_for(&mut shallow, &sites, 0),
@@ -3658,7 +3710,7 @@ mod tests {
             "one value is too few"
         );
 
-        let mut wrong = Interp::new();
+        let mut wrong = fresh_interp();
         wrong.push(BundValue::int(1));
         wrong.push(BundValue::str("s"));
         assert_eq!(
@@ -3675,7 +3727,7 @@ mod tests {
     #[test]
     fn asking_the_guard_does_not_disturb_the_stack() {
         let sites = [add_arm()];
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         vm.push(BundValue::int(1));
         vm.push(BundValue::str("s"));
 
@@ -3695,7 +3747,7 @@ mod tests {
     /// decline is not an error.
     #[test]
     fn an_unknown_site_declines_rather_than_erroring() {
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         vm.push(BundValue::int(1));
         vm.push(BundValue::int(2));
         assert_eq!(
@@ -3721,7 +3773,7 @@ mod tests {
     /// the stack is what says whether the drain happened at the right moment.
     #[test]
     fn a_non_tail_call_drains_before_the_next_value() {
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         let body = lowered(&vm, 2, LastCall::Ordinary);
         body.run(&mut vm, &[("fs", files_then_succeeds), ("p7", pushes_seven)])
             .expect("it ran");
@@ -3746,7 +3798,7 @@ mod tests {
     /// itself: the body leaves nothing, and the next evaluation runs it.
     #[test]
     fn a_tail_call_hands_the_request_back_instead_of_draining() {
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         let body = lowered(&vm, 1, LastCall::Tail);
         body.run(&mut vm, &[("fs", files_then_succeeds)])
             .expect("it ran");
@@ -3789,7 +3841,7 @@ mod tests {
             Ok(())
         }
 
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         vm.registry.register_native(
             "inner",
             inner,
@@ -3824,10 +3876,24 @@ mod tests {
         // that is where its floor comes from — so the compile follows it rather
         // than preceding it, which is the opposite order from every other test
         // here and the whole point of this one.
-        bund2_interp::set_stack_region(
+        // **Tier 0's floor above us, Tier 1's below** — and it takes a declared
+        // share to get both (F142). Tier 0's floor is a reserve above the
+        // region's *bottom*, so a region starting above `here` puts it over the
+        // stack pointer and the drain cannot re-enter. Tier 1's is
+        // `top − share + reserve`, so with the share at zero it lands *above
+        // the top* and the compiled body declines before it can reach the
+        // drain at all — which is what this test began failing on when §S8's
+        // floor check was built. A share of eight reserves puts Tier 1's floor
+        // back beneath the stack pointer, so the body runs and the drain is
+        // refused, which is the pair of conditions this test is about.
+        bund2_interp::set_stack_region_with_share(
             here + 4 * bund2_interp::STACK_RESERVE,
             bund2_interp::STACK_RESERVE,
+            8 * bund2_interp::STACK_RESERVE,
         );
+        // **`Interp::new` and not `fresh_interp`**: this test's whole point is
+        // the region it has just declared, and `fresh_interp` would declare a
+        // share over the top of it and undo the raise.
         let mut vm = Interp::new();
         bund2_interp::set_stack_region(here, 8 * 1024 * 1024);
 
@@ -3848,7 +3914,7 @@ mod tests {
     /// ran something or always failed.
     #[test]
     fn a_call_that_files_nothing_drains_nothing() {
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         let body = lowered(&vm, 1, LastCall::Ordinary);
         body.run(&mut vm, &[("p7", pushes_seven)]).expect("it ran");
         assert_eq!(vm.depth(), 1, "only what the native pushed");
@@ -3881,7 +3947,7 @@ mod tests {
     /// spellings of one refusal.
     #[test]
     fn a_recorded_exit_becomes_the_error_status() {
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         let body = lowered(&vm, 1, LastCall::Ordinary);
         let e = body
             .run(&mut vm, &[("ex", exits_then_succeeds)])
@@ -3900,7 +3966,7 @@ mod tests {
     /// keep only the short refusal and fail that comparison.
     #[test]
     fn an_error_is_not_replaced_by_the_refusal() {
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         let body = lowered(&vm, 1, LastCall::Ordinary);
         let e = body
             .run(&mut vm, &[("exf", exits_then_fails)])
@@ -3921,7 +3987,7 @@ mod tests {
             vm.request_exit(7);
             Ok(())
         }
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         let body = lowered(&vm, 1, LastCall::Ordinary);
         let e = body
             .run(&mut vm, &[("fx", files_then_exits)])
@@ -3938,7 +4004,7 @@ mod tests {
     /// §S6's pairing seen from the compiled side.
     #[test]
     fn a_failing_natives_request_clears_the_mirror_through_the_adapter() {
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         let body = lowered(&vm, 1, LastCall::Ordinary);
         body.run(&mut vm, &[("ff", files_then_fails)])
             .expect_err("the native failed");
@@ -3961,7 +4027,7 @@ mod tests {
     /// discarded — but the evidence moved from "still pending" to "ran".
     #[test]
     fn status_of_reports_success_when_nothing_ended_or_failed() {
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         let body = lowered(&vm, 1, LastCall::Ordinary);
         body.run(&mut vm, &[("fs", files_then_succeeds)])
             .expect("no exit, no error");
@@ -3979,8 +4045,35 @@ mod tests {
     // --- the first lowering of a real Bund word -----------------------------
 
     /// An `Interp` with the real vocabulary, so `+` means `+`.
+    /// **A Tier 1 share, as the CLI declares one** — §S8, F142.
+    ///
+    /// Without it the thread's share is zero, which puts the Tier 1 floor
+    /// *above* the thread's own top: every compiled body declines and the tier
+    /// is inert. §S8 makes that deliberate — "a share is declared, never
+    /// inferred" — and `bund2-cli` declares one before it evaluates anything.
+    ///
+    /// Until F142 the floor was never read, so these tests ran compiled code on
+    /// threads with no share and nothing noticed. With the check built they
+    /// would all decline, which is why this exists: a test of compiled code has
+    /// to run in the configuration that runs compiled code.
+    fn declare_share() {
+        bund2_interp::set_stack_region_with_share(
+            bund2_interp::stack_marker(),
+            8 * 1024 * 1024,
+            1024 * 1024,
+        );
+    }
+
+    /// An `Interp` on a thread that has declared a share — see
+    /// [`declare_share`]. Every test here builds through this rather than
+    /// `Interp::new`, so none of them measures the inert configuration.
+    fn fresh_interp() -> Interp {
+        declare_share();
+        Interp::new()
+    }
+
     fn with_stdlib() -> Interp {
-        let mut i = Interp::new();
+        let mut i = fresh_interp();
         bund2_stdlib::register_all(&mut i.registry);
         i
     }
@@ -4164,6 +4257,67 @@ mod tests {
                 &format!("{name}, followed by an inlined `+`"),
             );
         }
+    }
+
+    /// **Criterion 30's fourth B1 case: a callee that declines below the Tier 1
+    /// floor** — F142, and the test that case waited on.
+    ///
+    /// The row asks what happens when a compiled body refuses to start. Until
+    /// §S8's floor check was built no body ever did, so the case was not merely
+    /// unwritten but unwritable; this is it.
+    ///
+    /// **The floor is put above the stack pointer by declaring no share.**
+    /// `set_stack_region` leaves the share at zero, and §S8 defines the Tier 1
+    /// floor as `top − share + reserve` — which with a zero share sits *above
+    /// the region's own top*, so every stack pointer is beneath it. `Cells`
+    /// says so in terms: "A thread with no share gets a floor above its own
+    /// top… the tier is inert on that thread by arithmetic rather than by a
+    /// special case".
+    ///
+    /// **Declining is not failing, and not exiting.** The body would have
+    /// recorded an exit had it run. It must not: nothing ran, so nothing is
+    /// recorded, and `run` answers `Ok(false)` rather than an error. The tier
+    /// reads that as `None` and Tier 0 takes the body, which is how the program
+    /// still ends at the same point.
+    ///
+    /// **It also proves the share matters**, which the differentials elsewhere
+    /// cannot: a declined body is still a compiled body, so `compiled_bodies`
+    /// and `crossed_calls` report what the compiler did either way and no
+    /// precondition in this crate notices that nothing executed.
+    #[test]
+    fn a_body_below_the_tier_one_floor_declines_without_exiting() {
+        let here = bund2_interp::stack_marker();
+        // Share zero: the Tier 1 floor lands above the top and nothing
+        // compiled may start. Declared *before* the `Interp`, because the
+        // floor is written once at construction.
+        bund2_interp::set_stack_region(here, 8 * 1024 * 1024);
+        let mut vm = Interp::new();
+        bund2_stdlib::register_all(&mut vm.registry);
+
+        let body = vec![BundValue::int(7), BundValue::call("bund.exit")];
+        let cells = vm.cells().base();
+        let mut c = Compiler::new(Vec::new()).expect("a compiler");
+        let word = c
+            .compile_word(&body, LastCall::Ordinary, cells, &mut vm)
+            .expect("lowers");
+
+        // Put a sane region back, so nothing after this test inherits the
+        // raised one. The body's floor is already fixed in its cells.
+        bund2_interp::set_stack_region_with_share(here, 8 * 1024 * 1024, 1024 * 1024);
+
+        let ran = c
+            .run(word, &mut vm, &body)
+            .expect("a decline is not an error — nothing ran and nothing failed");
+        assert!(
+            !ran,
+            "the body must decline below the Tier 1 floor rather than start"
+        );
+        assert_eq!(
+            bund2_api::Vm::exit_requested(&vm),
+            None,
+            "a declined body ran nothing, so it recorded no exit"
+        );
+        assert_eq!(vm.depth(), 0, "and it touched no stack");
     }
 
     /// **Criterion 30, the tail-position rows.**
@@ -4486,7 +4640,7 @@ mod tests {
     #[test]
     fn a_word_with_an_empty_body_is_refused() {
         let mut c = Compiler::new(Vec::new()).expect("a compiler");
-        let mut vm = Interp::new();
+        let mut vm = fresh_interp();
         let cells = vm.cells().base();
         assert!(
             c.compile_word(&[], LastCall::Ordinary, cells, &mut vm)

@@ -3993,14 +3993,46 @@ body ever declines on the floor. The row's other three cases are written.
 ### Disposition
 
 - Found: 2026-09-28, writing criterion 30's remaining case
-- Status: **OPEN.** Building the check is §S8's own description — a
-  `get_stack_pointer` compare against the cell at each compiled body's entry,
-  answering the declined status the tier already knows how to interpret, since
-  `JitTier::enter` returning `None` is exactly "Tier 0 runs it". It is not
-  taken here: it adds a branch to every compiled entry, which criterion 17
-  bounds, and the entry cost is currently measured at "under ~1.4 ns and
-  indistinguishable from zero" (F130) — a figure that would have to be re-taken
-  afterwards.
+- Status: **RESOLVED — built**, 2026-09-28, on the repository owner's ruling.
+  The entry trampoline compares CLIF's `get_stack_pointer` against the cell and
+  answers a new `DECLINED` status; `Compiler::run` and `CompiledBody::run` now
+  return `Result<bool, Error>`, where `Ok(false)` is "declined, nothing ran",
+  and `JitTier::enter` turns that into `None` — which already means "Tier 0
+  runs this body", so the decline needed no recovery path of its own.
+  Criterion 30's fourth B1 case is written with it:
+  `a_body_below_the_tier_one_floor_declines_without_exiting`.
+
+  **What building it exposed is worth more than the check.** Every test in
+  `bund2-jit` and `bund2-runtime` builds its `Interp` on a thread that declares
+  no share, and §S8 makes that inert by arithmetic — the floor lands above the
+  thread's own top. With the check in place **50 of 85 jit tests failed at
+  once**, because the compiled code they assert on had stopped running.
+
+  The runtime tests were worse: they went on **passing**. A declined body is
+  still a *compiled* body, so `compiled_bodies()` and `crossed_calls()` report
+  what the compiler did and neither precondition notices that nothing executed;
+  all 27 differentials would have compared Tier 0 with Tier 0 and passed.
+  F127's shape, arriving through a door this check opened. Both crates' fixtures
+  now declare a share as `bund2-cli` does, and
+  `a_body_below_the_tier_one_floor_declines_without_exiting` is what proves the
+  declaration matters, since nothing else in either crate can tell a declined
+  body from a run one.
+
+  **The entry cost has not been re-established, and that is outstanding.** The
+  check adds a load, a compare and a never-taken branch to every compiled
+  entry, and F130 records entry cost as "under ~1.4 ns and indistinguishable
+  from zero" — a figure taken before it existed. One attempt was made on
+  2026-09-28 and is not quoted: the window was contaminated (Brave at 36.7%
+  before it, `duetexpertd` peaking 90.7%, guard mean 18.5%), and the anchored
+  delta needs *both* arms in one window, where a feature A/B puts them in two
+  processes. `entry_anchored/eval_empty` did read 2.693 ns against the 2.670
+  recorded, so the anchor itself is unmoved. **The delta wants a quiet host.**
+
+  One existing test needed its region restated rather than its expectation:
+  `a_drain_refused_below_the_floor_clears_the_request` wants Tier 0's floor
+  above the stack pointer *and* Tier 1's below it, which takes a declared share
+  — with the share at zero the body declines before it can reach the drain the
+  test is about.
 - Depends on: §S8 (the floor), D44 (the share arithmetic), criterion 11 (the
   re-entry paths and the reserve), criterion 30 (the case it blocks), F140 (the
   first written-and-unread cell)
