@@ -4297,6 +4297,69 @@ mod tests {
         }
     }
 
+    /// **`autoadd` and a promoted literal: compiled code pushes, and so does
+    /// Tier 0.**
+    ///
+    /// §S6 has the `autoadd` cell read "after every call and at every inlined
+    /// site", and the lowering reads it at inlined sites **only** — guard
+    /// three. Asking whether that is another F140 is what this test answers,
+    /// and the answer is no, for a reason that is about Tier 0 rather than
+    /// about the lowering.
+    ///
+    /// Under `autoadd` a **CALL** is appended to the value beneath instead of
+    /// run, and compiled code gets that for free by routing every generic value
+    /// through `Vm::apply`, which implements it
+    /// (`a_compiled_word_honours_autoadd_because_apply_does`). A **literal** is
+    /// a different matter: promotion holds it in a register and syncs it with
+    /// `jit_push_int`, which pushes and knows nothing of the mode. If Tier 0
+    /// collected literals, that would diverge exactly as F140 did.
+    ///
+    /// **Tier 0 does not collect them.** `Interp::apply_step`'s own note says
+    /// so: "`autoadd` is not implemented, so the branches at `:19` and `:89`
+    /// are absent" — the reference's literal and CONTEXT arms. So both tiers
+    /// push, and they agree.
+    ///
+    /// **This is a guard for when that changes.** Criterion 18 waits on `:` and
+    /// `;` being bound, and F84 records the divergence to be fixed with them.
+    /// When literal collection lands in Tier 0, this test fails — and the
+    /// failure is the notice that promotion's sync needs the `autoadd` cell
+    /// that §S6 always said it should read.
+    ///
+    /// The stack carries a value beneath the body's own, because `autoadd` with
+    /// nothing beneath has nothing to append into and would make the comparison
+    /// vacuous.
+    #[test]
+    fn autoadd_leaves_a_promoted_literal_alone_in_both_tiers() {
+        let body = vec![BundValue::int(1), BundValue::int(2)];
+
+        let mut tier0 = with_stdlib();
+        tier0.push(BundValue::str("beneath"));
+        tier0.set_autoadd(true);
+        let by_tier0 = tier0.eval(&body);
+
+        let (mut compiled, table) = with_fragments();
+        let mut c = Compiler::new(table).expect("a compiler");
+        let word = word_in(&mut c, &mut compiled, &body, LastCall::Ordinary);
+        assert!(
+            c.promoted_values(word).unwrap_or(0) > 0,
+            "the literals must be promoted, or this says nothing about the sync"
+        );
+        compiled.push(BundValue::str("beneath"));
+        compiled.set_autoadd(true);
+        let by_compiled = c.run(word, &mut compiled, &body);
+
+        assert_eq!(by_tier0.is_ok(), by_compiled.is_ok(), "autoadd: outcome");
+        let (a, b) = (tier0.snapshot(), compiled.snapshot());
+        assert_eq!(a.len(), b.len(), "autoadd: depth");
+        for (x, y) in a.iter().zip(b.iter()) {
+            assert_eq!(
+                norm(&x.render(false)),
+                norm(&y.render(false)),
+                "autoadd: a promoted literal must reach the stack the same way in both"
+            );
+        }
+    }
+
     /// A `CALL` to a lambda files a tail request, which `apply` drains — so
     /// Bund depth stays on the heap and the body runs before the next value.
     #[test]

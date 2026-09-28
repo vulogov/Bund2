@@ -5470,6 +5470,31 @@ evidence, and this one is listed as runnable rather than as met.
     three-load shape this bound is stated over does not exist, and measuring it
     as written is not possible.
 
+    **The `autoadd` half was investigated as a possible second F140, 2026-09-28,
+    and it is not one.** The worry was specific and had the right shape: a
+    promoted literal is synced by `jit_push_int`, which pushes and knows nothing
+    of the mode, so if `autoadd` meant a literal should be *collected* the
+    compiled body would diverge exactly as F140 did. Two things answer it.
+
+    A **CALL** under `autoadd` is appended rather than run, and compiled code
+    gets that for free by routing every generic value through `Vm::apply`, which
+    implements the branch; an inlined site is sent to the residual by guard
+    three, and the residual applies through `Vm::apply` too. A **literal** is
+    not collected by Tier 0 at all — `Interp::apply_step`'s own note says
+    "`autoadd` is not implemented, so the branches at `:19` and `:89` are
+    absent", which are the reference's literal and CONTEXT arms. Both tiers
+    push, so both agree. And no program can turn the mode on in any case:
+    `Interp::set_autoadd` is the only writer and no word calls it, which is
+    criterion 18's standing blocker.
+
+    `autoadd_leaves_a_promoted_literal_alone_in_both_tiers`
+    (`crates/bund2-jit/src/lower.rs`) asserts the agreement with a value beneath
+    to collect into, since `autoadd` over an empty stack has nothing to append
+    to and would pass vacuously. **It is a guard for when this changes**: when
+    literal collection lands with `:` and `;` (criterion 18, F84), that test
+    fails, and the failure is the notice that promotion's sync needs the
+    `autoadd` cell §S6 always said it should read.
+
     What can be said is an upper bound: these loads are a *subset* of the
     +5.13 ns F130 measures for a whole generic-call boundary. That does not
     establish 2 ns.
