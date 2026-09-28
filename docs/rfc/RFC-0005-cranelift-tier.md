@@ -6382,12 +6382,20 @@ evidence, and this one is listed as runnable rather than as met.
     criterion's original program the test fails on that line, which is how the
     vacuity above was found.
 
-    **One remains.** *A callee that declines below the Tier 1 floor.* The
-    mechanism exists — `Cells::set_floor`, and
-    `a_drain_refused_below_the_floor_clears_the_request`
-    (`crates/bund2-jit/src/lower.rs`) already raises a region so the floor sits
-    above the stack pointer — but pairing that with an `exit` and asserting the
-    decline is not mistaken for one is not written.
+    **One remains, and it cannot be written — F142.** *A callee that declines
+    below the Tier 1 floor.* No compiled body ever declines on the floor,
+    because **§S8's floor check is not emitted**. `Cells::floor` documents
+    itself as the address "below which a compiled body declines rather than
+    starting: every compiled body's entry compares CLIF's `get_stack_pointer`
+    against this", it is written at construction, and `grep` over
+    `crates/bund2-jit` finds no `get_stack_pointer`, no `floor_offset` and no
+    comparison. Every "declined" in the lowering is §S6's *type* guard.
+
+    The note this replaces said "the mechanism exists", citing
+    `a_drain_refused_below_the_floor_clears_the_request`. That test raises
+    **Tier 0's** floor to stop a drain re-entering evaluation — a different
+    mechanism in a different crate. The case was recorded as unwritten when it
+    is in fact unwritable, which is the more useful thing to know.
 
     Also still unwritten, and not attempted here: the compiled halves of the
     thirteenth review's mirror cases — `map`, `?try`, the drained body, the

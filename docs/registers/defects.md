@@ -3944,6 +3944,67 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F142 — §S8's Tier 1 floor is specified, written, and never read by compiled code
+
+**A Bund2 defect**, found 2026-09-28 while trying to write criterion 30's
+fourth B1 case, which needs a callee that declines below the floor.
+
+`Cells::floor` (`crates/bund2-api/src/lib.rs`) documents itself plainly: "**The
+Tier 1 floor — §S8.** The address below which a compiled body declines rather
+than starting: every compiled body's entry compares CLIF's `get_stack_pointer`
+against this and returns a declined status if it is beneath." It is written
+once at construction, as its own doc says, and mirrored into the cells.
+
+**No emitted code reads it.** `grep` over `crates/bund2-jit` finds no
+`get_stack_pointer`, no `floor_offset`, and no floor comparison; every
+"declined" in the lowering is §S6's *type* guard refusing an inlined site. The
+one test naming a floor, `a_drain_refused_below_the_floor_clears_the_request`,
+raises **Tier 0's** floor to stop a drain re-entering evaluation — a different
+mechanism in a different crate.
+
+This is the third cell of the four in `Cells` found written-and-unread. The
+epoch was the first and it was a live soundness bug (F140). `autoadd` was the
+second and is benign, for reasons about Tier 0 rather than the lowering
+(criterion 17's note, 2026-09-28). This is the third.
+
+### What it is not, on the evidence taken
+
+**No crash was demonstrated**, and the entry is filed without one. Bund
+recursion does not consume Rust stack: RFC-0003's frame loop keeps Bund depth on
+the heap, so `:f { 1 2 + drop f 0 drop }` runs forever at either threshold
+rather than exhausting anything — checked, both configurations hang
+identically. Rust stack is spent only where a native **re-enters** evaluation,
+which is criterion 11's path set, and each of those levels passes through
+`Vm::apply`, where Tier 0's own floor check does fire.
+
+So the exposure is narrower than "compiled code can overflow the stack": it is
+that **Tier 0's reserve is the only thing bounding depth, and it was not sized
+for compiled frames in the chain**. That is precisely what §S8 gives Tier 1 its
+own share and floor for, and what D44's "never less" is about. Whether a chain
+of native re-entries through compiled bodies can outrun Tier 0's reserve is not
+established here and would need the re-entry path driven deliberately.
+
+### What it blocks
+
+Criterion 30's fourth case from the twelfth review's B1 — "a callee that
+declines below the Tier 1 floor" — **cannot be written**, because no compiled
+body ever declines on the floor. The row's other three cases are written.
+
+### Disposition
+
+- Found: 2026-09-28, writing criterion 30's remaining case
+- Status: **OPEN.** Building the check is §S8's own description — a
+  `get_stack_pointer` compare against the cell at each compiled body's entry,
+  answering the declined status the tier already knows how to interpret, since
+  `JitTier::enter` returning `None` is exactly "Tier 0 runs it". It is not
+  taken here: it adds a branch to every compiled entry, which criterion 17
+  bounds, and the entry cost is currently measured at "under ~1.4 ns and
+  indistinguishable from zero" (F130) — a figure that would have to be re-taken
+  afterwards.
+- Depends on: §S8 (the floor), D44 (the share arithmetic), criterion 11 (the
+  re-entry paths and the reserve), criterion 30 (the case it blocks), F140 (the
+  first written-and-unread cell)
+
 ## F141 — the promotable audit runs `bund.prompt`, which waits on the terminal
 
 **A Bund2 defect in a test**, found 2026-09-28 when a suite run hung and the
