@@ -110,9 +110,25 @@ pub struct Caps {
 }
 
 impl Default for Caps {
+    /// **The threshold is 1024, raised from 64 on 2026-09-28 by D74.**
+    ///
+    /// 64 was chosen before anything measured what a compilation costs or what
+    /// an entry saves. Both are measured now: compilation is ~34 µs fixed plus
+    /// ~9.4 µs a value (F130, after the thunk cache), and a compiled entry
+    /// saves ~10 ns a value, so **break-even is of order a thousand entries and
+    /// barely moves with body size** — two linear terms divide to a
+    /// near-constant. At 64 a body was compiled roughly sixteen to thirty times
+    /// before it could repay the compilation, and every body that stopped
+    /// short of break-even lost outright. F136 measured three of nine corpus
+    /// bodies net-negative at threshold 1 for exactly that reason.
+    ///
+    /// **What it costs is latency**, and that is the trade D74 took: a body now
+    /// runs about a thousand interpreted entries before it is compiled, where
+    /// it ran sixty-four. A body that never gets hot is simply never compiled,
+    /// which is what §S7's threshold is for.
     fn default() -> Self {
         Self {
-            threshold: 64,
+            threshold: 1024,
             functions: 1024,
             recompiles: 4,
             counter: 4096,

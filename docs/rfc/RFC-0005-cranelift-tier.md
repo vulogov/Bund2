@@ -2783,7 +2783,7 @@ Stated once, for both:
 
 | knob | value | why it is load-bearing |
 |---|---|---|
-| **promotion threshold** | 64 evaluations of one body | Below it, a body is interpreted. It is **not** what makes D3 true — an eval'd token stream is never a body at all (§S3). A lambda inside eval'd code *is* a body, can cross 64 within one evaluation, and is bounded only by the cap. An earlier revision said the threshold made D3 true by construction, and it does not |
+| **promotion threshold** | **1024** evaluations of one body (64 until 2026-09-28, D74) | Below it, a body is interpreted. It is **not** what makes D3 true — an eval'd token stream is never a body at all (§S3). A lambda inside eval'd code *is* a body, can cross 64 within one evaluation, and is bounded only by the cap. An earlier revision said the threshold made D3 true by construction, and it does not |
 | **compiled-function cap** | 1024 bodies | Code memory is never reclaimed (§S4). This is the only bound on it |
 | **recompile cap** | 4 per slot | A word redefined in a REPL loop would otherwise orphan a function per redefinition |
 | **demotion** | permanent, per body | A body that exceeds the recompile cap returns to Tier 0 and is never promoted again |
@@ -2796,7 +2796,15 @@ not a benchmark. The threshold is the tuning knob of the two: it decides when a
 body has earned compilation, and no correctness argument rests on it. Both are
 configurable, and the configuration is recorded rather than silent.
 
-## What 64 costs and buys, measured — F139, 2026-09-22
+## What the threshold costs and buys, measured — F139, 2026-09-22
+
+**Retuned to 1024 on 2026-09-28 by D74.** This section was written against 64
+and its arithmetic is what moved it; the figures below are unchanged and the
+heading is the only thing that was 64-specific. Two things changed after it was
+written: F130's thunk cache halved the compile cost, taking break-even from
+~2,000–3,600 entries to ~1,000–2,100, and the owner ruled on the retune this
+section said was "a live option". At 64 a body was compiled sixteen to thirty
+times before it could repay the compilation.
 
 The threshold had a basis but never a number. It has one now, and it is not the
 number a reader would guess.

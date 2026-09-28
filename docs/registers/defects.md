@@ -3944,6 +3944,77 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F141 — the promotable audit runs `bund.prompt`, which waits on the terminal
+
+**A Bund2 defect in a test**, found 2026-09-28 when a suite run hung and the
+process list showed **two earlier `bund2_stdlib` test binaries still alive from
+five days before**, at 0% CPU.
+
+### What happens
+
+`every_fixed_effect_native_keeps_its_pair_over_the_promotable_palette` runs
+every fixed-effect native over criterion 28's palette. `bund.prompt` is
+`eff(0, 1)` (`crates/bund2-stdlib/src/terminal.rs`) and reads a line from the
+terminal. When stdin is a pipe or a tty that never reaches EOF — a detached
+run, a CI step, an agent session — the read **blocks forever** and the whole
+crate's suite hangs with it.
+
+    cargo test -p bund2-stdlib                 hangs
+    cargo test -p bund2-stdlib < /dev/null     187 passed in 4.80s
+
+### The exclusion list names its sibling and misses it
+
+`ACTS_ON_HOST` (`crates/bund2-stdlib/src/lib.rs`) already excludes `password`
+with the reason spelled out — "`password` waits on the terminal for a line
+nobody will type" — and `bund.prompt` does the same thing and is not on the
+list. `input` and `input*` are `StackEffect::opaque`, which the audit skips
+anyway, so they were never exposed. The gap is one name.
+
+### What it cost
+
+Three hangs are accounted for, and one of them destroyed work. A background
+task on 2026-09-23 — a suite run chained to a `git commit` — never reached the
+commit, and that was attributed at the time to the harness's 600 s timeout. It
+was this: the test binary hung, so the chain never proceeded. The commit had to
+be redone. Two of the hung processes were still resident five days later, which
+is why nothing surfaced it: a hang leaves no failure, only a run that never
+ends, and a run that never ends in the background looks exactly like a run
+still going.
+
+### Disposition
+
+### The hang's second cost: killing it ran a five-day-old commit
+
+The background task that hung on 2026-09-23 was a shell chain of the shape
+`cargo test … ; git add -A && git commit -F -`. The `;` is the point: the
+commit does not depend on the test's exit status. So when the hung `cargo` was
+killed on 2026-09-28, that shell **resumed** and ran its `git add -A && git
+commit` — five days late, against whatever the working tree held at that
+moment. It produced a commit carrying the day's threshold work (`Caps`'s 1024,
+D74, §S7, F130's dismissed residue) under a stale message about F130's profile.
+
+It was caught by noticing that `git status` listed three files where six had
+been edited, and it was unpushed, so the two commits were folded back with
+`git reset --soft` and recommitted honestly.
+
+**Two lessons, and the second is the general one.** A killed process is not a
+cancelled command: anything after `;` in its shell still runs. And a test-then-
+commit chain makes the commit conditional on nothing — `&&` between the test and
+the commit would have made the resumed shell exit instead of committing, which
+is what this repository wants when a verification step is the reason the commit
+was being made at all.
+
+- Found: 2026-09-28, from `ps` output during an unrelated wait
+- Status: **OPEN — fix written, one regeneration outstanding.** `bund.prompt`
+  is added to `ACTS_ON_HOST`, which makes it unreached by the palette and
+  therefore absent from `PROMOTABLE.txt`. That file is the repository owner's
+  to regenerate:
+  `BUND2_UPDATE_PROMOTABLE=1 cargo test -p bund2-stdlib promotable`.
+  The consequence is that promotion no longer crosses `bund.prompt`, which is
+  the conservative answer and costs speed rather than meaning — the same
+  disposition D48's dated note gives every unreached native.
+- Depends on: criterion 28 (the palette), D55 (the audit), D48 (the list)
+
 ## F140 — a promoted value crossing `stacks_left` is synced to the wrong stack
 
 **A Bund2 defect in shipped code, and it gives wrong answers silently.** Found
@@ -5506,12 +5577,17 @@ natives through shared thunks, and each answers its own.
      insert. It is a curiosity about two harnesses rather than a fault in the
      tier, and both agree on the magnitude that matters. Named, not chased: this
      entry's first diagnosis went wrong by naming a cause it had not verified.
-  2. **The +7% on `gain_size/v4`'s compiled arm is unconfirmed**, and it is
-     *this day's* possible introduction rather than this entry's subject — the
-     thunk cache moves thunks to the front of the module, so the call from a
-     body is a longer jump. Both windows that saw it were contaminated. It wants
-     a clean host; **if it confirms it earns its own entry** naming thunk
-     locality as the cause. Filing it now would file a number nobody trusts.
+  2. **The +7% on `gain_size/v4`'s compiled arm was contamination, dismissed
+     2026-09-28 on a quiet host.** Two runs read the compiled arm at **59.75 and
+     59.55 ns** — stable, and *below* the 60.87 ns taken before the thunk cache,
+     where the contaminated windows had read 64.31 and 65.34. The thunk cache
+     costs nothing measurable at run time.
+     **What makes it conclusive is the other arm.** `interpreted/v4` reads
+     106.51 ns in one of those runs and 94.45 ns in the next — a **12% swing
+     between consecutive runs** in an arm the thunk cache cannot touch, since it
+     has no tier at all. The original comparison was reading that drift. A
+     regression hunted across two windows on a busy host is a measurement of the
+     host.
 
   Two diagnoses were offered early and both are withdrawn above: the per-entry
   `HashMap` arithmetic (falsified by a neutral fix) and per-entry cost in

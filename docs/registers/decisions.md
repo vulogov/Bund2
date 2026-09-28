@@ -3476,6 +3476,72 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D74 — §S7's promotion threshold is 1024, not 64
+
+**Decided by the repository owner, 2026-09-28**, on the option F139's §S7
+section left open.
+
+- Blocks: nothing; it is a tuning knob with no correctness argument resting on
+  it, which §S7 says in terms
+- Depends on: F139 (which measured what 64 costs), F130 (the compile cost, and
+  the thunk cache that halved it), F136 (net-negative bodies at a low
+  threshold), §S7
+- Status: **RESOLVED — decided and built**, 2026-09-28.
+
+### Why 64 was wrong
+
+64 predates every measurement of what a compilation costs or what an entry
+saves. Both are measured now:
+
+- compilation is **~34 µs fixed plus ~9.4 µs a value** (F130, after the thunk
+  cache — it was ~51 µs and ~20.4 µs before);
+- a compiled entry saves **~10 ns a value** (`gain_size`).
+
+Two linear terms divide to a near-constant: **break-even is of order a thousand
+entries and barely moves with body size** — ~2,100 at four values down to
+~1,012 at sixty-four. At a threshold of 64 a body was compiled **sixteen to
+thirty times before it could repay the compilation**, and any body that stopped
+short of break-even lost outright. F136 measured three of nine corpus bodies
+net-negative at threshold 1 for exactly that reason.
+
+### What it costs
+
+**Latency.** A body now runs about a thousand interpreted entries before it is
+compiled, where it ran sixty-four. That is the trade, and it is the right side
+of it: the entries before the threshold are interpreted at Tier 0 speed, while
+the compilation they would have paid for is of order a hundred microseconds —
+three orders above an interpreted entry of the same body.
+
+**Fewer bodies compile at all**, which F139 already establishes is not a loss:
+no program in `tests/golden/HERMETIC.txt` compiled a single body at 64 either,
+because they are demonstrations that run once. A body that never gets hot is
+one §S7's threshold exists to decline.
+
+### A consequence in the benchmarks, recorded rather than discovered later
+
+`arith/times_body/1000` is `1000 { 1 + } times drop`, and F130's analysis turns
+on that program crossing the threshold **within a single evaluation**: it enters
+the body 1000 times, which cleared 64 and does not clear 1024. So that row no
+longer compiles within one eval, and the +121% F130 attributed to one Cranelift
+compilation per Criterion iteration is no longer produced by it. F130 is
+resolved and its figure stands as a record of what was measured at 64; the row
+now measures interpretation, which is what D69 restated `arith` to be about in
+its warm form anyway.
+
+Benchmarks that need a compiled body warm past `bund2_runtime_threshold()`
+explicitly and adapt on their own.
+
+### Rejected
+
+- **A cost model** — compile when expected remaining entries × per-entry saving
+  exceeds the compile cost. §S7 argued for it when break-even was thought to
+  vary tenfold with body size; it does not, so a fixed count is the right
+  instrument and the model would be machinery for a number that barely moves.
+  `plan_body` has the inputs if that changes.
+- **Leaving 64 and documenting it**, which is what F139 did. Defensible while
+  the compile cost was unmeasured; not once break-even is known to be sixteen
+  to thirty times the threshold.
+
 ## D73 — promotion never crosses a callee that changes which stack is current
 
 **Decided by the repository owner, 2026-09-23**, resolving F140.

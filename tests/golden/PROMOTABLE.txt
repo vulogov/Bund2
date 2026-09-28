@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 223 promotable of 231 reached, of 268 fixed-effect natives; 8 reached natives
+# 222 promotable of 230 reached, of 267 fixed-effect natives; 8 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 *
@@ -48,7 +48,6 @@ args
 args.parse
 at
 attribute
-bund.prompt
 car
 car.
 cdr

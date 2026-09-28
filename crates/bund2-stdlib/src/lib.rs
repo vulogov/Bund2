@@ -411,14 +411,29 @@ mod honesty_tests {
         // hand `fs.rm` real relative paths. Left unrun, they are not reached,
         // so promotion syncs before them as it does before an embedder's
         // native (D48, dated note 2026-09-11).
-        // `password` waits on the terminal for a line nobody will type, and
-        // `save.model` would write a world file for each palette string.
-        const ACTS_ON_HOST: [&str; 6] = [
+        // `password` and `bund.prompt` wait on the terminal for a line nobody
+        // will type, and `save.model` would write a world file for each palette
+        // string.
+        //
+        // **`bund.prompt` was missing from this list until F141**, and the cost
+        // was not a failure but a *hang*: with stdin on a pipe or tty that
+        // never reaches EOF, the read blocks and the whole crate's suite stops
+        // with it. Two test binaries were found still resident five days after
+        // the runs that started them, and a background run chained to a commit
+        // never reached the commit. A hang leaves no failing test — only a run
+        // that never ends, which in the background is indistinguishable from
+        // one still going.
+        //
+        // `input` and `input*` read the terminal too and are not here: both are
+        // `StackEffect::opaque`, which this audit skips before it runs
+        // anything.
+        const ACTS_ON_HOST: [&str; 7] = [
             "fs.rm",
             "sleep.seconds",
             "system.setproctitle",
             "system.setproctitle.",
             "password",
+            "bund.prompt",
             "save.model",
         ];
         // **Natives a feature gate may or may not have registered — F123.**
