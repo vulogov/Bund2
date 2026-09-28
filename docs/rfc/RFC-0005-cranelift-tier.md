@@ -6331,17 +6331,38 @@ evidence, and this one is listed as runnable rather than as met.
       including the exit. A guard that declined into a failure would exercise
       criterion 19 instead.
 
-    **Two remain, and each has a named obstacle.**
-    - *The `if`-branch case*,
-      `3 { "tick" println true { "bye" println 7 exit } if "after if" println } times`.
-      Its assertion is about **output** — that `"after if"` never prints — and
-      nothing here captures stdout in process. It also wants a compiled caller,
-      which this program does not give: the condition is a constant `true`, so
-      the exit fires on the first iteration and the driver never reaches a
-      second entry to run compiled.
-    - *A callee that declines below the Tier 1 floor.* The floor is criterion
-      11's reserve arithmetic, and constructing a decline at it deliberately is
-      not something this row's fixtures reach.
+    **The `if`-branch case is written, 2026-09-28.**
+    `an_exit_in_an_if_branch_matches_without_the_tier`
+    (`crates/bund2-cli/tests/exit_tier.rs`) runs the program twice from **one
+    binary**, at `--jit-threshold 1` and at a threshold no count in it reaches,
+    and compares stdout and exit code. `"tick"` prints once, `"bye"` once,
+    `"after if"` not at all, and the process ends with code 7 in both. The
+    earlier note that "nothing here captures stdout in process" was answered by
+    doing it out of process, beside `input_exit.rs`, which already spawns the
+    binary for the `input*` row.
+
+    **The criterion's own program cannot exercise the tier, and this is the
+    correction that matters.** Written exactly as this row gives it —
+    `3 { "tick" println true { "bye" println 7 exit } if "after if" println } times`
+    — the body has **no inlinable site**, so F136's rule refuses to compile it
+    and `--stats` reports `0 bodies`. A differential over it compares Tier 0
+    with Tier 0 and asserts nothing about the tier, which is how the first draft
+    of this test passed. The test's program therefore adds `1 2 + drop`, which
+    gives the body a site and changes nothing it observes — the sum is dropped —
+    and the tier then compiles 1 body, inlines 2 sites, promotes 2 values and
+    crosses 2 calls.
+
+    The precondition is asserted from `--stats` rather than assumed: the tiered
+    run must not report `compiled 0 bodies` and the control must. Fed the
+    criterion's original program the test fails on that line, which is how the
+    vacuity above was found.
+
+    **One remains.** *A callee that declines below the Tier 1 floor.* The
+    mechanism exists — `Cells::set_floor`, and
+    `a_drain_refused_below_the_floor_clears_the_request`
+    (`crates/bund2-jit/src/lower.rs`) already raises a region so the floor sits
+    above the stack pointer — but pairing that with an `exit` and asserting the
+    decline is not mistaken for one is not written.
 
     Also still unwritten, and not attempted here: the compiled halves of the
     thirteenth review's mirror cases — `map`, `?try`, the drained body, the
