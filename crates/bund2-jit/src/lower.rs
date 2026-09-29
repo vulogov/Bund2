@@ -5193,6 +5193,94 @@ mod tests {
         );
     }
 
+    /// **Criterion 13: a callee with no declared effect is never crossed.**
+    ///
+    /// The row's worry is a defaulted `StackEffect` reading `Fixed(0, 0)` —
+    /// "consumes nothing, produces nothing" — which would let a compiled body
+    /// promote straight through a call that may do anything to the stack. Its
+    /// check is "register nothing for a name, compile a body that calls it, and
+    /// assert the lowering stops promoting at that site".
+    ///
+    /// **It is asserted against a crossing-enabled compiler on purpose.** D75
+    /// withdrew crossing from shipped use, so in a `Runtime` nothing crosses
+    /// anything and this property is true by configuration rather than by
+    /// design. A test that took the shipped table would pass while asserting
+    /// nothing, and would go on passing if crossing were ever restored with the
+    /// arm broken. So the real table is supplied here, and the **positive
+    /// control** below is what makes the zeros mean something: with this same
+    /// table `nl` *is* crossed.
+    ///
+    /// **What actually protects this is not the arm the row names.** Every way
+    /// an effect can be absent — a lambda, a command, an unbound name — is
+    /// refused by `crossable_callee`'s *second* gate, `is_lambda ||
+    /// !is_native`, before `effect_of` is ever asked. The `?` on `effect_of` is
+    /// belt-and-braces. That is worth knowing, because someone hardening the
+    /// effect arm later might reasonably delete the earlier gate as redundant
+    /// and reopen exactly the hole this row exists for — at which point this
+    /// test is what fails.
+    #[test]
+    fn a_callee_with_no_declared_effect_is_never_crossed() {
+        fn a_command(_: &mut dyn Vm) -> Result<(), Error> {
+            Ok(())
+        }
+
+        let mut vm = with_stdlib();
+        vm.registry
+            .register_lambda("g", BundValue::lambda(vec![BundValue::int(1), BundValue::call("drop")]));
+        vm.registry.register_command(
+            "cmd",
+            a_command,
+            bund2_api::StackEffect::fixed(0, 0),
+            bund2_api::WordKind::Sync,
+        );
+
+        let table = bund2_stdlib::fragments::published(&vm.registry).expect("well-formed");
+        let crossable = bund2_stdlib::promotable::crossable(&vm.registry);
+        assert!(
+            !crossable.is_empty(),
+            "the fixture must admit crossings, or every row below is vacuous"
+        );
+        let mut c = Compiler::with_crossable(table, crossable).expect("a compiler");
+        let cells = vm.cells().base();
+
+        // **The positive control.** `nl` is `eff(0, 0)`, certified, and carries
+        // a registration id, so this table crosses it. Without this line the
+        // zeros below would be satisfied by a compiler that crossed nothing at
+        // all.
+        let control = vec![
+            BundValue::int(1),
+            BundValue::int(2),
+            BundValue::call("+"),
+            BundValue::call("nl"),
+        ];
+        let word = c
+            .compile_word(&control, LastCall::Ordinary, cells, &mut vm)
+            .expect("lowers");
+        assert_eq!(
+            c.crossable_calls(word),
+            Some(1),
+            "the control must cross, or the table admits nothing"
+        );
+
+        for name in ["g", "cmd", "nosuchword"] {
+            let body = vec![
+                BundValue::int(1),
+                BundValue::int(2),
+                BundValue::call("+"),
+                BundValue::call(name),
+            ];
+            let word = c
+                .compile_word(&body, LastCall::Ordinary, cells, &mut vm)
+                .expect("lowers");
+            assert_eq!(
+                c.crossable_calls(word),
+                Some(0),
+                "`{name}` declares no effect the lowering may trust, so promotion \
+                 must stop at it — a defaulted `Fixed(0, 0)` would cross it"
+            );
+        }
+    }
+
     /// **The shipped compiler always checks the request cell** — criterion 17,
     /// §S5.
     ///

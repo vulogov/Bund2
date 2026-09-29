@@ -22,8 +22,8 @@
   body and never rejoins. `crates/bund2-jit` carries **63** tests under
   `--features jit`, not the seventeen this paragraph claimed.
 
-  **The audit's result, restated 2026-09-29: 24 met, 2 measured, 1 partial,
-  1 not met, 2 deferred — thirty in all.**
+  **The audit's result, restated 2026-09-29: 25 met, 2 measured, 1 partial,
+  1 not met, 1 deferred — thirty in all.**
 
   **"Nothing deferred" was wrong from 2026-09-16 to 2026-09-29**, and the error
   is instructive: the *Blocked* group had emptied, and a restatement read that
@@ -52,7 +52,7 @@
   a summary that disagrees with the enumeration under it is worse than no
   summary: **count the lists, not this sentence**, if the two ever part again.
 
-  - **Met** — 1, 2, 3, **5**, 6, **7**, 8, 11, 12, **14**, 15, 16, **17**, 19,
+  - **Met** — 1, 2, 3, **5**, 6, **7**, 8, 11, 12, **13**, **14**, 15, 16, **17**, 19,
     **20**, 21, **22**, 23, 24, 25, 26, **27**, 28, 29. **5 joined on 2026-09-23**, when
     §S4's redefinition chain was completed and criterion 22's alias and
     lambda-callee rows gained the changed-result assertion this criterion asks
@@ -82,9 +82,9 @@
     body at every size — but it measures `1 drop` pairs, operand-free inlining
     with a 3.0× ceiling, and the rule is named on arithmetic. It is reported
     beside the verdict, not as it.
-  - **Deferred, with a named blocker** — 13 (behind D68's implementation, a
-    blocker that is now stale — see above) and 18 (behind `:` and `;` being
-    bound, which F84 is fixed with).
+  - **Deferred, with a named blocker** — 18 alone, behind `:` and `;` being
+    bound, which F84 is fixed with. **13 moved to met on 2026-09-29**, its
+    blocker having been stale since D68 was built.
   - **Partial** — 30 alone. **17 moved to met on 2026-09-29**, when its
     per-call bound was measured at under ~0.4 ns a call against an allowance of
     2; its per-site half was met on 2026-09-23 at under ~0.25 ns a site. **22 left this group on 2026-09-16**: all six
@@ -5298,6 +5298,32 @@ evidence, and this one is listed as runnable rather than as met.
     assert the lowering stops promoting at that site exactly as it does for
     `!`. It fails silently otherwise, which is why it is a criterion and not a
     remark.
+
+    **Met, 2026-09-29.** `a_callee_with_no_declared_effect_is_never_crossed`
+    (`crates/bund2-jit/src/lower.rs`) compiles `1 2 + <name>` for a lambda, a
+    command and an unbound name, and asserts none is crossed.
+
+    **It is asserted against a crossing-enabled compiler deliberately.** D75
+    withdrew crossing from shipped use, so in a `Runtime` nothing crosses
+    anything and this row's property is true by *configuration* rather than by
+    design. A test taking the shipped table would pass while asserting nothing,
+    and would keep passing if crossing were restored with the arm broken. So
+    the real table is supplied, and a **positive control** — `nl`, which the
+    same table does cross — is what makes the three zeros mean anything.
+
+    **What protects this is not the arm this row names.** Every way an effect
+    can be absent — a lambda, a command, an unbound name — is refused by
+    `Compiler::crossable_callee`'s *second* gate, `is_lambda || !is_native`,
+    before `effect_of` is ever asked; the `?` on `effect_of` is
+    belt-and-braces. Recorded because someone hardening the effect arm later
+    might delete that earlier gate as redundant and reopen exactly the hole
+    this row exists for, and the test above is then what fails.
+
+    **The deferral this replaces was stale for a fortnight.** It read "it
+    becomes runnable with D68's implementation" — and D68 was built on
+    2026-09-16, at which point `crossable_callee` began consulting
+    `Vm::effect_of` outside any test fixture. Nothing revisited the row, which
+    is the fourth stale status this audit turned up in a week.
 
     **Deferred behind D68, 2026-09-14 — there is no path that could get this
     wrong yet.** `bund2-jit` does not consult a `StackEffect` anywhere outside
