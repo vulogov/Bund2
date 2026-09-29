@@ -4002,6 +4002,16 @@ body ever declines on the floor. The row's other three cases are written.
   Criterion 30's fourth B1 case is written with it:
   `a_body_below_the_tier_one_floor_declines_without_exiting`.
 
+  **The benchmarks had the defect too, and worse than the tests.** `bund2-bench`
+  builds its `Runtime` on a thread that declared no share, so after this check
+  landed every compiled body in every benchmark declined. `gain_size/v4/compiled`
+  read **109.19 ns against 97.10 ns interpreted** — the "compiled" arm slower
+  than Tier 0, because it was interpreting *and* paying the tier's probe — while
+  the pre-flights went on printing "compiled bodies 1", since a declined body is
+  still a compiled one. Every number taken between the check landing and the
+  fixture being fixed is void. With the share declared it reads **60.38 ns
+  against 94.67 ns**, and compiled code runs again.
+
   **What building it exposed is worth more than the check.** Every test in
   `bund2-jit` and `bund2-runtime` builds its `Interp` on a thread that declares
   no share, and §S8 makes that inert by arithmetic — the floor lands above the
@@ -4018,15 +4028,37 @@ body ever declines on the floor. The row's other three cases are written.
   declaration matters, since nothing else in either crate can tell a declined
   body from a run one.
 
-  **The entry cost has not been re-established, and that is outstanding.** The
-  check adds a load, a compare and a never-taken branch to every compiled
-  entry, and F130 records entry cost as "under ~1.4 ns and indistinguishable
-  from zero" — a figure taken before it existed. One attempt was made on
-  2026-09-28 and is not quoted: the window was contaminated (Brave at 36.7%
-  before it, `duetexpertd` peaking 90.7%, guard mean 18.5%), and the anchored
-  delta needs *both* arms in one window, where a feature A/B puts them in two
-  processes. `entry_anchored/eval_empty` did read 2.693 ns against the 2.670
-  recorded, so the anchor itself is unmoved. **The delta wants a quiet host.**
+  **The entry cost is re-established: the check costs of order 1–2 ns.** Both
+  arms of `entry_anchored`, each anchored on its own `eval_empty` so a
+  cross-process A/B does not have to carry absolute drift:
+
+  | values | Tier 0 | with the tier | difference |
+  |---|---|---|---|
+  | 1 | 65.88 ns | 68.01 ns | +2.13 ns |
+  | 2 | 75.47 ns | 76.89 ns | +1.42 ns |
+  | 4 | 91.00 ns | 92.46 ns | +1.46 ns |
+  | 8 | 126.59 ns | 129.26 ns | +2.67 ns |
+  | 16 | 185.44 ns | 186.51 ns | +1.07 ns |
+
+  **There is no trend with body length**, which is what a once-per-entry check
+  should look like; the mean is ~1.7 ns and the scatter runs 0.57–2.67 ns, so
+  the figure is an order and not a value. Both windows were contaminated (guard
+  means 12.1% and 10.6%). The Tier 0 arm reproduces F130's own 65.41 ns at
+  65.88, which is what makes the comparison worth quoting at all.
+
+  **So F130's "under ~1.4 ns and indistinguishable from zero" no longer holds**
+  and is superseded for the shipped lowering: entry now costs ~1.7 ns more than
+  Tier 0's, and that difference is the floor check. Against a saving of 35–660
+  ns an entry it is under 5% of the gain on the smallest body and negligible on
+  larger ones, so §S7's break-even moves by about 4% at four values and less
+  above that. Criterion 17 bounds per-site and per-call checks at 2 ns; this one
+  is per *entry* and sits inside that order.
+
+  **A first attempt on the same day is withdrawn rather than quoted.** It read
+  `call/v1` at 71.99 ns and was taken before the bench fixtures declared a
+  share — so it measured the *declined* path, not the tier. That is the same
+  vacuity as below, and it is why the benches are now fixed first and measured
+  second.
 
   One existing test needed its region restated rather than its expectation:
   `a_drain_refused_below_the_floor_clears_the_request` wants Tier 0's floor

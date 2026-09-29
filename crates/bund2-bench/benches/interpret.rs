@@ -68,8 +68,38 @@ use bund2_value::BundValue;
 /// So the feature-off and feature-on runs differ in the tier and in nothing
 /// else. If they differed in the word table, the A/B would be comparing two
 /// languages rather than two tiers.
+/// **A Tier 1 share, as `bund2-cli` declares one** — RFC-0005 §S8, F142.
+///
+/// Without it this thread's share is zero, which puts the Tier 1 floor *above*
+/// its own top: **every compiled body declines at entry** and Tier 0 runs it
+/// instead. §S8 intends that — "a share is declared, never inferred" — and the
+/// CLI declares one before it evaluates anything.
+///
+/// **Every number in this file depends on it.** Until F142 built the floor
+/// check nothing read the cell, so the benches ran compiled code on an
+/// undeclared thread and measured it. With the check in place and no share,
+/// `gain_size/v4/compiled` read **109.19 ns against 97.10 ns interpreted** —
+/// slower than Tier 0, because the arm was interpreting *and* paying the
+/// tier's probe, while the pre-flights went on reporting compiled bodies
+/// because a declined body is still a compiled one.
+///
+/// Declared idempotently from [`interp`] and from every group that builds a
+/// `Runtime` of its own.
+#[cfg(feature = "jit")]
+fn declare_share() {
+    bund2_interp::set_stack_region_with_share(
+        bund2_interp::stack_marker(),
+        8 * 1024 * 1024,
+        1024 * 1024,
+    );
+}
+
+#[cfg(not(feature = "jit"))]
+fn declare_share() {}
+
 #[cfg(feature = "jit")]
 fn interp() -> Interp {
+    declare_share();
     bund2_runtime::Runtime::new().interp
 }
 
@@ -883,6 +913,7 @@ fn compile_warm(c: &mut Criterion) {
 
                 // Untimed: the interpreter, the published table and the
                 // compiler the batch will reuse.
+                declare_share();
                 let mut vm = bund2_runtime::Runtime::new().interp;
                 let table = bund2_stdlib::fragments::published(&vm.registry).unwrap_or_default();
                 let Ok(mut comp) = Compiler::new(table) else {
@@ -1111,6 +1142,7 @@ fn crossing(c: &mut Criterion) {
     // table empty. Everything else — fragments, caps, threshold, vocabulary —
     // is what `Runtime::with_options_and_threshold` assembles.
     let build = |cross: bool, setup: &[BundValue]| -> bund2_runtime::Runtime {
+        declare_share();
         let mut r = bund2_runtime::Runtime::new();
         if !cross {
             let table =
@@ -1202,6 +1234,7 @@ fn stop_rule(c: &mut Criterion) {
     let call = compiled("w");
 
     let build = |tiered: bool, setup: &[BundValue]| -> bund2_runtime::Runtime {
+        declare_share();
         let mut r = bund2_runtime::Runtime::new();
         if !tiered {
             r.take_tier();
@@ -1304,7 +1337,8 @@ fn compile_size(c: &mut Criterion) {
                 while done < iters {
                     let batch = (iters - done).min(depth.max(1));
 
-                    let mut vm = bund2_runtime::Runtime::new().interp;
+                    declare_share();
+                let mut vm = bund2_runtime::Runtime::new().interp;
                     let table =
                         bund2_stdlib::fragments::published(&vm.registry).unwrap_or_default();
                     let Ok(mut comp) = Compiler::new(table) else {
@@ -1364,6 +1398,7 @@ fn gain_size(c: &mut Criterion) {
     let call = compiled("w");
 
     let build = |tiered: bool, setup: &[BundValue]| -> bund2_runtime::Runtime {
+        declare_share();
         let mut r = bund2_runtime::Runtime::new();
         if !tiered {
             r.take_tier();
@@ -1452,6 +1487,7 @@ fn guard_cost(c: &mut Criterion) {
 
         for (name, guarded) in [("guarded", true), ("unguarded", false)] {
             let build = || {
+                declare_share();
                 let mut vm = bund2_runtime::Runtime::new().interp;
                 let table =
                     bund2_stdlib::fragments::published(&vm.registry).unwrap_or_default();
