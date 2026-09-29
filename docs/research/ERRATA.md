@@ -119,3 +119,9 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   `value/with_tag/scalar_unique` and `value/with_tag/heap_shared`, and RFC-0005
   §S1's footnote records that which of them produced the 73.1 ns cannot now be
   established. The figure stands as a record of that day's measurement.
+
+- `02-native-binaries.md` §9 -> superseded by RFC-0006 §B1 and §B5: the
+  `include_bytes!`-and-link construction it describes needs `cc` on Linux and
+  macOS, which D10 forbids below `bund2 build`; and its "point the same
+  lowering at `ObjectModule`" ordering is moot, the lowering having been built
+  JIT-first under RFC-0005 and baking host heap addresses as immediates.
