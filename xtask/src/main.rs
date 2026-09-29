@@ -113,6 +113,7 @@ mod corpus;
 mod golden;
 mod guide;
 mod layout;
+mod lock;
 mod lint;
 mod render;
 mod scope;
@@ -135,6 +136,21 @@ fn main() -> std::process::ExitCode {
         eprintln!("xtask: {err}");
         return std::process::ExitCode::FAILURE;
     }
+
+    // **One at a time — see `lock`.** Held for the whole command: the guard
+    // lives in this scope and releases on every path out, including the error
+    // ones, because `main` returns an `ExitCode` rather than exiting.
+    let _lock = match Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .ok_or_else(|| "cannot locate repository root".to_string())
+        .and_then(|repo| lock::acquire(repo, &cmd))
+    {
+        Ok(guard) => guard,
+        Err(err) => {
+            eprintln!("xtask: {err}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
 
     match cmd.as_str() {
         "corpus" => match corpus::run(&args) {
