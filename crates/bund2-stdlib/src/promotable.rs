@@ -222,7 +222,7 @@ mod tests {
             "a comment reached the entry list"
         );
         assert!(
-            parsed.iter().any(|n| *n == "+"),
+            parsed.contains(&"+"),
             "`+` is the arm §S6 publishes and the audit certifies; its absence \
              means the file or the parse is wrong"
         );

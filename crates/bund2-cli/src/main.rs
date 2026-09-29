@@ -472,6 +472,16 @@ fn run(src: &str, args: &Args) -> Option<i32> {
     // without the feature — against a tier that compiled nothing, which over a
     // corpus is the failure criterion 2 asks this flag to catch.
     if args.stats {
+        // **How many of those bodies actually ran, when the tier can say.**
+        // Every figure below counts a decision the *compiler* made. None of
+        // them counts an execution, so a tier that compiles a corpus and then
+        // declines every entry — §S8's Tier 1 floor on a thread with no share
+        // is the way that happens — prints exactly what a working tier prints.
+        // Four fixtures were found in that state before this figure existed.
+        let entered = match rt.compiled_entries() {
+            Some(n) => format!(" ({n} entered)"),
+            None => String::new(),
+        };
         match (
             rt.compiled_bodies(),
             rt.inlined_sites(),
@@ -511,7 +521,7 @@ fn run(src: &str, args: &Args) -> Option<i32> {
                     None => String::new(),
                 };
                 eprintln!(
-                    "bund2: tier compiled {bodies} bodies, inlined {sites} sites, \
+                    "bund2: tier compiled {bodies} bodies{entered}, inlined {sites} sites, \
                      promoted {promoted} values, {generic} generic of {values}{crossed}{at}"
                 );
             }
@@ -521,14 +531,14 @@ fn run(src: &str, args: &Args) -> Option<i32> {
                     None => String::new(),
                 };
                 eprintln!(
-                    "bund2: tier compiled {bodies} bodies, inlined {sites} sites, \
+                    "bund2: tier compiled {bodies} bodies{entered}, inlined {sites} sites, \
                      promoted {promoted} values{at}"
                 );
             }
             (Some(bodies), Some(sites), None, _) => {
-                eprintln!("bund2: tier compiled {bodies} bodies, inlined {sites} sites");
+                eprintln!("bund2: tier compiled {bodies} bodies{entered}, inlined {sites} sites");
             }
-            (Some(bodies), None, _, _) => eprintln!("bund2: tier compiled {bodies} bodies"),
+            (Some(bodies), None, _, _) => eprintln!("bund2: tier compiled {bodies} bodies{entered}"),
             _ => eprintln!("bund2: no tier (built without `jit`)"),
         }
     }

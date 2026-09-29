@@ -23,6 +23,13 @@ fn items(body: &BundValue) -> Option<&[BundValue]> {
 /// held beside the `Interp` would be unreachable while the tier was installed.
 pub struct JitTier {
     tiering: Tiering,
+    /// **Entries compiled code actually ran** — see
+    /// `bund2_api::Tier::compiled_entries`.
+    ///
+    /// Incremented where the emitted body *returns*, so it counts neither a
+    /// compilation nor a decline. It is the only figure this tier reports that
+    /// distinguishes compiled code running from compiled code existing.
+    entered: usize,
     /// **The code, and the one `JITModule` behind it.**
     ///
     /// One compiler per tier, one tier per `Interp`, so one module per `Interp`
@@ -74,6 +81,7 @@ impl JitTier {
     ) -> Self {
         Self {
             tiering: Tiering::new(caps),
+            entered: 0,
             compiler: None,
             table,
             crossable: std::collections::BTreeSet::new(),
@@ -138,6 +146,10 @@ impl Tier for JitTier {
 
     fn crossed_calls(&self) -> Option<usize> {
         Some(self.compiler.as_ref().map_or(0, Compiler::crossable_total))
+    }
+
+    fn compiled_entries(&self) -> Option<usize> {
+        Some(self.entered)
     }
 
     fn threshold(&self) -> Option<u32> {
@@ -277,8 +289,16 @@ impl Tier for JitTier {
                 // nothing is wrong, so this answers `None` and the caller
                 // interprets the body, exactly as it does for a body that was
                 // never compiled.
-                match compiler.run(code, vm, values) {
-                    Ok(true) => Some(Ok(())),
+                // **The count goes here and nowhere else**: `Ok(true)` is
+                // compiled code having run to a return. `Ok(false)` is §S8's
+                // floor declining it, which runs nothing, and a compilation
+                // happens in the arm above without running anything either.
+                let ran = compiler.run(code, vm, values);
+                match ran {
+                    Ok(true) => {
+                        self.entered = self.entered.saturating_add(1);
+                        Some(Ok(()))
+                    }
                     Ok(false) => None,
                     Err(e) => Some(Err(e)),
                 }
@@ -709,8 +729,7 @@ mod tests {
                     outcome = rt.eval_str("w");
                 }
             }
-            let observed = observe(&mut rt, outcome, &seen);
-            observed
+            observe(&mut rt, outcome, &seen)
         };
 
         assert_ne!(
@@ -968,7 +987,10 @@ mod tests {
         // is the only thing this bullet exists to check — so the reporters are
         // read directly rather than widening `Observed`, which seven other
         // differentials share.
-        let snaps = |w: &WantingReporter| -> Vec<(Option<Vec<String>>, Option<Vec<String>>)> {
+        /// One warning's `(values, stack)` pair, named because the tuple of
+        /// two optional vectors is otherwise unreadable at the call site.
+        type Snap = (Option<Vec<String>>, Option<Vec<String>>);
+        let snaps = |w: &WantingReporter| -> Vec<Snap> {
             w.0.borrow()
                 .iter()
                 .filter(|d| d.severity == bund2_api::diag::Severity::Warning)
@@ -1239,6 +1261,85 @@ mod tests {
             "Tier 0 pushes the sum, then what the rebound callee produced"
         );
         assert_eq!(run(true), plain, "and the tier must agree, in that order");
+    }
+
+    /// **The entry counter counts what ran, not what compiled.**
+    ///
+    /// §S7's threshold compiles a body *on* an entry and runs that entry
+    /// interpreted, so after the first call there is a compiled body and no
+    /// compiled entry. Every figure this tier reported until now would have
+    /// said the tier was working at that point.
+    #[test]
+    fn the_entry_counter_counts_what_ran_not_what_compiled() {
+        let mut r = crossing_runtime_with(1);
+        r.eval_str(":w { 1 2 + drop } register\n")
+            .expect("setup runs");
+
+        r.eval_str("w").expect("the compiling entry runs");
+        assert!(
+            r.compiled_bodies().unwrap_or(0) > 0,
+            "the body compiled on that entry"
+        );
+        assert_eq!(
+            r.compiled_entries(),
+            Some(0),
+            "and it ran interpreted, so nothing compiled has run yet"
+        );
+
+        for _ in 0..3 {
+            r.eval_str("w").expect("the compiled entries run");
+        }
+        assert_eq!(
+            r.compiled_entries(),
+            Some(3),
+            "three entries after the compiling one, each of them compiled"
+        );
+    }
+
+    /// **A tier on a thread with no declared share compiles bodies and runs
+    /// none of them** — §S8, F142, and the case this counter exists for.
+    ///
+    /// This test deliberately does **not** call [`declare_share`]. With the
+    /// share at zero §S8 puts the Tier 1 floor above the thread's own top, so
+    /// every compiled body declines at entry and Tier 0 runs it instead.
+    ///
+    /// **Every other figure reports success throughout.** `compiled_bodies`
+    /// counts the body the compiler produced; `crossed_calls` and the rest
+    /// count decisions it made. Only `compiled_entries` distinguishes this from
+    /// a working tier — which is the whole of why it was added, after the
+    /// benchmark harness, the differentials in this very file, and two
+    /// crossing fixtures were each found measuring nothing while printing
+    /// "compiled bodies 1".
+    #[test]
+    fn a_tier_with_no_share_compiles_bodies_and_enters_none() {
+        // Everything `crossing_runtime_with` does *except* `declare_share`, so
+        // the one difference between this fixture and a working one is the
+        // thread's Tier 1 share.
+        let mut r = crate::Runtime::new();
+        let table = bund2_stdlib::fragments::published(&r.interp.registry).unwrap_or_default();
+        assert!(!table.is_empty(), "the fixture must publish fragments");
+        r.install_tier(Box::new(JitTier::with_fragments(
+            Caps {
+                threshold: 1,
+                ..Caps::default()
+            },
+            table,
+        )));
+        r.eval_str(":w { 1 2 + drop } register\n")
+            .expect("setup runs");
+        for _ in 0..4 {
+            r.eval_str("w").expect("every entry runs, one way or another");
+        }
+
+        assert!(
+            r.compiled_bodies().unwrap_or(0) > 0,
+            "the compiler did produce a body, which is what made this invisible"
+        );
+        assert_eq!(
+            r.compiled_entries(),
+            Some(0),
+            "and not one entry of it ran: the floor declined every one"
+        );
     }
 
     /// **Criterion 20: a body run by a loop word reaches the counter under one

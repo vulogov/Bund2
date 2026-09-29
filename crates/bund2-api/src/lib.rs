@@ -744,6 +744,34 @@ pub trait Tier {
         None
     }
 
+    /// **How many entries compiled code actually ran** — not how many bodies
+    /// were compiled.
+    ///
+    /// Every other figure on this trait reports what the *compiler* did.
+    /// `compiled_bodies` counts bodies it produced; `inlined_sites`,
+    /// `promoted_values` and `crossed_calls` count decisions it made. **None of
+    /// them can tell a compiled body that ran from one that did not**, and a
+    /// body can be compiled and then never execute: §S7's threshold compiles on
+    /// an entry and runs *that* entry interpreted, §S8's floor makes a compiled
+    /// body decline when the stack pointer is beneath it, and a tier installed
+    /// on a thread with no declared share declines every body it ever compiles.
+    ///
+    /// **That gap has cost real work.** Three fixtures were found measuring
+    /// nothing while reporting success in the week this was added: the
+    /// benchmark harness after §S8's floor check landed, where
+    /// `gain_size/v4/compiled` read *slower* than interpreted because the
+    /// "compiled" arm was interpreting and paying the tier's probe; the
+    /// runtime differentials, which went on passing with compiled code never
+    /// running; and two fixtures of a crossing benchmark. Each printed
+    /// "compiled bodies 1" throughout.
+    ///
+    /// So this counts **executions**: incremented where compiled code returns,
+    /// never where it is produced, and never where it declines. `None` from a
+    /// tier that does not count them.
+    fn compiled_entries(&self) -> Option<usize> {
+        None
+    }
+
     /// **How many bodies the promotion counter is tracking** — §S7's counter,
     /// criterion 20.
     ///

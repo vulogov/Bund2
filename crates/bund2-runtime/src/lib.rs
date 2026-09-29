@@ -233,6 +233,13 @@ impl Runtime {
         self.interp.tier.as_ref().and_then(|t| t.crossed_calls())
     }
 
+    /// **How many entries compiled code actually ran** — see
+    /// `bund2_api::Tier::compiled_entries`. The only figure here that reports
+    /// what *ran* rather than what the compiler did.
+    pub fn compiled_entries(&self) -> Option<usize> {
+        self.interp.tier.as_ref().and_then(|t| t.compiled_entries())
+    }
+
     /// Install a tier, replacing any already there.
     #[cfg(feature = "jit")]
     pub fn install_tier(&mut self, tier: Box<dyn bund2_api::Tier>) {
