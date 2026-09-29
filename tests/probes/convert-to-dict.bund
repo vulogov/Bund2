@@ -1,0 +1,46 @@
+//
+// PROBE: `convert.to_dict` and `convert.to_dict.` — **an approved deviation,
+// captured so that it is recorded.**
+//
+// **This golden is expected to fail against Bund2 and to be accepted under
+// D57.** That is the point of it. D57 decided on 2026-09-12 to correct the
+// word rather than reproduce it, and noted the cost as "a deviation with no
+// golden to record it against, which is F48's gap". This file closes that gap:
+// the oracle's answer is captured here, Bund2 disagrees on two of the three
+// rows, and `conform --accept` names D57 as the reason. A deviation nothing
+// captures is a claim; a deviation an accepted golden captures is a record.
+//
+// **What the reference does.** Both dict bodies pass `MATRIX` to the shared
+// converter while their error prefixes say `CONVERT.TO_DICT`
+// (reference/rust_multistackvm/src/stdlib/convert/internal.rs:100-105), and
+// they are registered under the dict names
+// (`internal.rs:122-123`). MATRIX is 26 and MAP is 11
+// (reference/rust_dynamic/src/types.rs:26,41), so in the oracle
+// `convert.to_dict` and `convert.to_matrix` are one word under two names —
+// F120. The conversion the name promises exists one layer down and is never
+// reached: `conv`'s MAP arm keys a container's items by position, as decimal
+// strings (reference/rust_dynamic/src/conv.rs:426-434).
+//
+// **What Bund2 does.** Targets MAP, so `[ 7 8 ] convert.to_dict` answers
+// `{ "0": 7, "1": 8 }` — the conversion `conv` already implements and the
+// reference never calls.
+//
+// **Row C is the control, and it is why all three are in one file.** The two
+// tiers agree on `convert.to_matrix`, so the golden pins that the deviation is
+// confined to the dict spelling. Captured alone, rows A and B would show a
+// disagreement without showing its boundary.
+//
+// The suffix pair is the usual one: `convert.to_dict` reads the stack and
+// `convert.to_dict.` reads the workbench, pushing its answer back where it
+// came from (`internal.rs:19-33`) — so the workbench row needs `take` to
+// bring the result back for display.
+//
+"probe: convert.to_dict, from the stack" println
+[ 7 8 ] convert.to_dict debug.display_stack
+clear
+"probe: convert.to_dict., from the workbench and back to it" println
+[ 7 8 ] return convert.to_dict. take debug.display_stack
+clear
+"probe: convert.to_matrix on the same input — the control, agreeing" println
+[ 7 8 ] convert.to_matrix debug.display_stack
+clear

@@ -3423,6 +3423,15 @@ Decided by the repository owner, 2026-09-12: **correct it.**
   F48's gap, the same one D30's and D33's deviations sit in. Conformance does
   not move: 105/113 on both tiers, before and after.
 
+**That gap is closed, 2026-09-29.** `tests/probes/convert-to-dict.bund`
+captures the oracle's answer for both dict spellings and for
+`convert.to_matrix` as a control, so the golden records where the deviation is
+*and* where it stops. Bund2 fails two of its three rows by design, and the
+failure is accepted against this decision. The cost line above stands as what
+was true for two and a half weeks; what replaces it is that this deviation is
+now the only kind worth having — one an accepted golden states rather than one
+a register asserts.
+
 ### A matrix carries rows of its own
 
 The reference gives a matrix its own payload, `Val::Matrix(Vec<Vec<Value>>)`
