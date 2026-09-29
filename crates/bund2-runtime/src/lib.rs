@@ -118,14 +118,26 @@ impl Runtime {
             // ids `register_all_with` just minted, so it must be taken after
             // registration; a tier holds only a `&mut dyn Vm` and could not
             // build it itself.
-            let crossable = bund2_stdlib::promotable::crossable(&interp.registry);
             let caps = bund2_jit::cache::Caps {
                 threshold: threshold.unwrap_or(bund2_jit::cache::Caps::default().threshold),
                 ..bund2_jit::cache::Caps::default()
             };
-            interp.tier = Some(Box::new(
-                JitTier::with_fragments(caps, table).with_crossable(crossable),
-            ));
+            // **No crossable table — D75 withdraws D68's crossing from use.**
+            //
+            // `JitTier::with_crossable` is *not* chained here, so the set stays
+            // empty and promotion syncs before every call: "the conservative
+            // answer, and the behaviour every caller had before D68".
+            //
+            // The rule D68 states is unchanged and the machinery is intact —
+            // `promotable::crossable` still builds the table, every gate still
+            // answers, and the tests and benches that exercise crossing pass it
+            // in explicitly. What is withdrawn is shipping it, on the
+            // measurement: on the shape crossing was designed for it **costs**
+            // ~1.7 ns a crossed call rather than saving, because each one now
+            // carries F143's generation compare and D73's epoch compare and
+            // those exceed the push and pop they avoid. Restoring it is this
+            // one call.
+            interp.tier = Some(Box::new(JitTier::with_fragments(caps, table)));
         }
         #[cfg(not(feature = "jit"))]
         let _ = threshold;

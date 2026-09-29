@@ -3476,6 +3476,87 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D75 — D68's crossing is withdrawn from use, and the rule it states is kept
+
+**Decided by the repository owner, 2026-09-28**, on the measurement it asked
+for: "E first, then B if it confirms."
+
+- Blocks: nothing. It changes which table a `Runtime` installs, not what any
+  rule says
+- Depends on: D68 (the rule), D71, D73 and F143 (the gates crossing needed),
+  F140 (what it cost), §S7
+- Status: **RESOLVED — decided and built**, 2026-09-28.
+
+### The decision
+
+`Runtime::with_options_and_threshold` no longer chains
+`JitTier::with_crossable`. The set stays empty, so promotion syncs before every
+call — "the conservative answer, and the behaviour every caller had before
+D68". **D68's rule is not repealed and its machinery is not removed**: the
+table still builds, every gate still answers, and the tests and benches that
+exercise crossing pass it in explicitly. Restoring it is one call.
+
+### What the measurement found
+
+D68's payoff first read as zero — ±0.5%, sign random. The fixture was wrong and
+the reason is worth keeping: its body was `1 2 + (:s 7 var)*N drop`, and `var`
+takes operands. **Pushing an operand is a generic apply, which syncs every
+promoted value first**, so the sum was already on the stack before the crossed
+call and the crossing had nothing left to hold.
+
+Crossing does not avoid a push; it **defers** one. The saving appears only when
+a promoted value crosses a call and is then consumed by an **inlined site**, so
+it is never pushed at all — and that needs an **operand-free** callee.
+`crossing_isolated` is that shape: `(1 2 + noop drop)*N`, with `noop` at
+`eff(0, 0)` (D72) and `drop` consuming the sum from its register.
+
+On it, crossing is a **loss**, at every size measured:
+
+| pairs | crossed − synced | per crossed call |
+|---|---|---|
+| 1 | +0.79 ns | 0.79 |
+| 2 | +3.14 ns | 1.57 |
+| 4 | +6.96 ns, and +6.87 on a second run | 1.72 |
+| 8 | +7.65 ns | 0.96 |
+| 16 | +16.95 ns | 1.06 |
+
+**The cause is the safety it needed.** Each crossed call now carries F143's
+generation compare and D73's epoch compare — two loads, two compares, two
+branches — and those exceed the push and the pop they avoid. D68 was decided
+before either existed.
+
+### The ledger, stated plainly
+
+- **Payoff**: negative, ~1–1.7 ns a crossed call, on the shape it was for.
+- **Defects**: three, all silent wrong answers — F137 (the reporter gate never
+  asked), F140 (a value synced to the wrong stack), F143 (a rebound callee
+  reversing the stack). None was found by a test; each was found by reading a
+  specification against the code.
+- **Safety**: six compile-time gates and two runtime compares, four of which
+  arrived *after* D68 shipped. The argument is exclusion-based and open-ended:
+  every new `bund2-stdlib` native must be classified against D71's and D73's
+  lists.
+- **Reach**: none. At §S7's threshold of 1024 no corpus program compiles a body
+  (F139), so nothing crossed anything in any real program even before this.
+
+### Rejected
+
+- **Keep it as built.** The gates are in place, but a feature that needs a new
+  gate each time someone reads the spec more carefully, and measures negative
+  when they are all present, is not paying for itself.
+- **Delete D68's code.** That converts a reversible decision into an
+  irreversible one for tidiness. The machinery is correct and well-tested now;
+  it costs nothing to keep dormant, and it is the only thing that would make a
+  later measurement possible.
+
+### What would reopen it
+
+A lowering where a promoted value can cross a call **without** the two compares
+— for instance if the generation and epoch checks could be hoisted out of a
+loop, or if a callee could be proven immutable for a body's lifetime. The
+arithmetic above is then different, and this decision is one call away from
+being undone.
+
 ## D74 — §S7's promotion threshold is 1024, not 64
 
 **Decided by the repository owner, 2026-09-28**, on the option F139's §S7
@@ -3967,6 +4048,11 @@ found a real defect, rather than retiring a number that was inconvenient.
   it. Mistaking a narrowing for a repeal is the error, and it is left on the
   page because the register is append-only and the misreading is the easy one.
 
+- **Withdrawn from use 2026-09-28 by D75**, which keeps this rule and stops
+  shipping it: on the shape crossing was designed for it costs ~1–1.7 ns a
+  crossed call, because F143's generation compare and D73's epoch compare
+  exceed the push and pop they avoid. The measurement below was taken on a
+  fixture that could not show a saving — see D75.
 - **Measured 2026-09-22: the payoff is zero, within noise.** D68 was decided on
   soundness and on a corpus count, never on a time. The `crossing` group
   (`crates/bund2-bench/benches/interpret.rs`) is that A/B: one binary, one run,

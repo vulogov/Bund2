@@ -1531,6 +1531,90 @@ fn guard_cost(c: &mut Criterion) {
 #[cfg(not(all(feature = "jit", feature = "unguarded")))]
 fn guard_cost(_: &mut Criterion) {}
 
+/// **D68's payoff, on the shape it was designed for** — the measurement the
+/// first `crossing` group did not take.
+///
+/// **Why the first one read nil.** Its body was
+/// `1 2 + (:s 7 var)*N drop`, and `var` takes operands. Pushing `:s` and `7`
+/// is a generic apply, which **syncs every promoted value first** — so the sum
+/// was already on the stack by the time the crossed call happened and the
+/// crossing saved nothing. The group measured a crossing that had nothing left
+/// to hold.
+///
+/// **What actually pays.** Crossing does not avoid a push, it *defers* one —
+/// the value still has to reach the stack eventually. The saving appears only
+/// when a promoted value crosses a call and is then consumed **by an inlined
+/// site**, so it is never pushed at all. That needs an **operand-free** callee,
+/// or the operand pushes force the sync as above.
+///
+/// `noop` is that callee: `eff(0, 0)`, certified by the palette, registered by
+/// `bund2-stdlib`, no side effect and nothing to push ahead of it (D72). The
+/// body is `(1 2 + noop drop)*N`: each `+` promotes a sum, each `noop` is
+/// crossed, and each `drop` consumes the sum from its register. Without
+/// crossing every sum is pushed before its `noop` and popped by its `drop`;
+/// with crossing neither happens. So the saving should scale with N at roughly
+/// a push and a pop apiece — which is the prediction this group exists to test.
+#[cfg(feature = "jit")]
+fn crossing_isolated(c: &mut Criterion) {
+    use bund2_jit::lower::{Compiler, LastCall};
+
+    let mut g = c.benchmark_group("crossing_isolated");
+    let call = compiled("w");
+
+    let build = |cross: bool, setup: &[BundValue]| -> bund2_runtime::Runtime {
+        declare_share();
+        let mut r = bund2_runtime::Runtime::new();
+        if !cross {
+            let table =
+                bund2_stdlib::fragments::published(&r.interp.registry).unwrap_or_default();
+            let caps = bund2_jit::cache::Caps {
+                threshold: bund2_runtime_threshold(),
+                ..bund2_jit::cache::Caps::default()
+            };
+            r.take_tier();
+            r.install_tier(Box::new(bund2_runtime::JitTier::with_fragments(
+                caps, table,
+            )));
+        }
+        if r.interp.eval(setup).is_err() {
+            eprintln!("bench: crossing_isolated setup failed; measuring nothing");
+        }
+        for _ in 0..(bund2_runtime_threshold() + 8) {
+            let _ = r.interp.eval(&call);
+        }
+        r
+    };
+    let _ = Compiler::new(Vec::new());
+    let _ = LastCall::Ordinary;
+
+    for pairs in [1usize, 2, 4, 8, 16] {
+        let setup = compiled(&format!(
+            ":w {{ {}}} register",
+            "1 2 + noop drop ".repeat(pairs)
+        ));
+
+        for (name, cross) in [("crossed", true), ("synced", false)] {
+            let probe = build(cross, &setup);
+            eprintln!(
+                "bench: crossing_isolated {name}/p{pairs} bodies {} crossed {:?}",
+                compiled_bodies(&probe.interp),
+                probe.crossed_calls()
+            );
+
+            g.bench_function(format!("{name}/p{pairs}"), |b| {
+                let mut r = build(cross, &setup);
+                debug_assert_eq!(r.interp.depth(), 0, "the body must be stack-balanced");
+                b.iter(|| black_box(r.interp.eval(black_box(&call))).is_ok());
+            });
+        }
+    }
+
+    g.finish();
+}
+
+#[cfg(not(feature = "jit"))]
+fn crossing_isolated(_: &mut Criterion) {}
+
 criterion_group!(
     benches,
     startup,
@@ -1546,6 +1630,7 @@ criterion_group!(
     entry_anchored,
     regimes,
     crossing,
+    crossing_isolated,
     stop_rule,
     compile_size,
     gain_size,
