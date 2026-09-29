@@ -86,9 +86,27 @@ impl Program {
         self.lexed.tokens.iter().filter(|t| t.kind == Kind::Name)
     }
 
-    /// Distinct word invocations.
+    /// Distinct word invocations, **including the one the parser writes**.
+    ///
+    /// A `ctx` term — `( ... )`, `reference/bund_language_parser/bund.pest:33`
+    /// — expands into a `Value::context()`, the terms, and a trailing
+    /// `Value::call("endcontext")`
+    /// (`reference/bund_language_parser/src/vm/ctx.rs:9-20`). So a program runs
+    /// `endcontext` once per `(` and the name appears nowhere in its source.
+    ///
+    /// A lexical scan therefore cannot see it, and coverage read it as
+    /// untested however many programs opened a context — the shape CLAUDE.md
+    /// warns about in the old numerator, where the number measured the corpus
+    /// text rather than what ran. This is the parser's own rule rather than a
+    /// heuristic, and `endcontext` is the **only** name it affects: the other
+    /// two `Value::call` sites build the name from the token they were handed
+    /// (`command.rs:8`, `name.rs:9`).
     pub fn word_set(&self) -> BTreeSet<&str> {
-        self.words().map(|t| t.text.as_str()).collect()
+        let mut set: BTreeSet<&str> = self.words().map(|t| t.text.as_str()).collect();
+        if self.lexed.tokens.iter().any(|t| t.kind == Kind::OpenCtx) {
+            set.insert("endcontext");
+        }
+        set
     }
 
     /// Atoms in this file. A name used but not registered is very likely one

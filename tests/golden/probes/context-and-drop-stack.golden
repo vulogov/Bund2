@@ -1,0 +1,23 @@
+# golden for tests/probes/context-and-drop-stack.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: a context yields its top value, on the workbench
+3
+╭╮
+╰╯
+probe: a context whose stack ends empty yields nothing
+probe: contexts nest, and the inner result is taken inside the outer
+90
+probe: drop_stack removes the current stack and the previous becomes current
+scratch
+main
+╭╮
+╰╯
+╭╮
+╰╯
+╭╮
+╰╯
