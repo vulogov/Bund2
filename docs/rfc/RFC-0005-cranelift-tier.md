@@ -22,8 +22,23 @@
   body and never rejoins. `crates/bund2-jit` carries **63** tests under
   `--features jit`, not the seventeen this paragraph claimed.
 
-  **The audit's result, restated 2026-09-23: 23 met, 2 measured, 2 partial,
-  1 not met, nothing deferred.** (2026-09-16 read 22 / 2 / 3 / 1; criterion 5
+  **The audit's result, restated 2026-09-29: 24 met, 2 measured, 1 partial,
+  1 not met, 2 deferred — thirty in all.**
+
+  **"Nothing deferred" was wrong from 2026-09-16 to 2026-09-29**, and the error
+  is instructive: the *Blocked* group had emptied, and a restatement read that
+  as nothing being deferred. Blocked and deferred are different things — 13 and
+  18 carry their own dated deferrals with named blockers and were in no list at
+  all, so the five groups summed to 28 of 30 and nobody noticed for a fortnight.
+  The lists are the record; this sentence is a convenience that has now been
+  wrong twice. **Count the lists.**
+
+  **Criterion 13's blocker is stale, and it is the next thing to assess.** Its
+  deferral reads "it becomes runnable with D68's implementation", and D68 was
+  built: `Compiler::crossable_callee` consults `Vm::effect_of` outside any test
+  fixture, and an absent effect declines there through `?`. D75 withdrew
+  crossing from use but not that consultation. Whether the absent-effect arm is
+  now *asserted* rather than merely present is the open question. (2026-09-16 read 22 / 2 / 3 / 1; criterion 5
   moved to met when §S4's redefinition chain was completed.) Each criterion carries a dated note of its own;
   the summary here is the map. The distinction between *not met* and *deferred*
   is load-bearing: a deferral names what must happen first and is a plan, while
@@ -37,8 +52,8 @@
   a summary that disagrees with the enumeration under it is worse than no
   summary: **count the lists, not this sentence**, if the two ever part again.
 
-  - **Met** — 1, 2, 3, **5**, 6, **7**, 8, 11, 12, **14**, 15, 16, 19, **20**,
-    21, **22**, 23, 24, 25, 26, **27**, 28, 29. **5 joined on 2026-09-23**, when
+  - **Met** — 1, 2, 3, **5**, 6, **7**, 8, 11, 12, **14**, 15, 16, **17**, 19,
+    **20**, 21, **22**, 23, 24, 25, 26, **27**, 28, 29. **5 joined on 2026-09-23**, when
     §S4's redefinition chain was completed and criterion 22's alias and
     lambda-callee rows gained the changed-result assertion this criterion asks
     for by name. Criterion 7's evidence is set out
@@ -67,8 +82,12 @@
     body at every size — but it measures `1 drop` pairs, operand-free inlining
     with a 3.0× ceiling, and the rule is named on arithmetic. It is reported
     beside the verdict, not as it.
-  - **Partial** — 17, 30: each has a half met and a half outstanding, or a
-    bound stated and unmeasured. **22 left this group on 2026-09-16**: all six
+  - **Deferred, with a named blocker** — 13 (behind D68's implementation, a
+    blocker that is now stale — see above) and 18 (behind `:` and `;` being
+    bound, which F84 is fixed with).
+  - **Partial** — 30 alone. **17 moved to met on 2026-09-29**, when its
+    per-call bound was measured at under ~0.4 ns a call against an allowance of
+    2; its per-site half was met on 2026-09-23 at under ~0.25 ns a site. **22 left this group on 2026-09-16**: all six
     of its bullets are written and pass, in ten tests, once D68 gave it a
     synced-versus-crossed record and D71 resolved F137.
   - **Not met** — 4's reachable remainder alone. **14 and 20 moved to met on
@@ -5460,8 +5479,35 @@ evidence, and this one is listed as runnable rather than as met.
     block. Fixed layout differences amortise with site count, which is why the
     rows above start at 16.
 
-    **The per-call bound is still unmeasured, and most of what it bounds is not
-    emitted.** This row names "the three loads after every call (epoch,
+    **The per-call bound is met, 2026-09-29: under ~0.4 ns a call**, where this
+    row allows 2. `request_cost` (`crates/bund2-bench/benches/interpret.rs`)
+    takes it the way the per-site half was taken — one binary, two compilers,
+    `Compiler::without_request_checks` supplying the difference that an
+    unconditional check otherwise denies. Body `1 2 + drop` then `noop` × N, so
+    each `noop` is a generic call with a request check of its own and the rows
+    differ in nothing else. Per call, at 4, 8, 16 and 32 calls: **−0.37, +0.18,
+    −0.03, −0.11 ns** — sign random, every interval overlapping, the signature
+    of an effect below resolution. A hot cell and a branch that is never taken.
+
+    **What the bound now governs, load by load.** It names four; a shipped build
+    emits **one**.
+
+    | load | shipped state |
+    |---|---|
+    | request, after every call | **emitted always** — the measurement above |
+    | `autoadd`, after every call | not emitted; read at inlined sites only, and its absence after calls is proven benign above |
+    | epoch, after a crossed call | emitted (D73), **dormant**: D75 withdrew crossing |
+    | callee's generation, before a crossed call | emitted (F143), **dormant** for the same reason |
+
+    **This row was written for a lowering that crossed calls**, and D75 changed
+    what it governs rather than what it says. If crossing is ever restored, the
+    two dormant compares come back under this bound and want measuring — they
+    are what made crossing cost ~1.7 ns a call, which is the measurement D75
+    turned on. Recorded here so the next reader finds four named loads and one
+    emitted without having to rediscover why.
+
+    **The history this replaces.** The per-call bound was unmeasured, and most
+    of what it bounds was not emitted. This row names "the three loads after every call (epoch,
     `autoadd`, request)". The lowering loads the **request** cell after every
     call; it loads the **epoch** after a *crossed* call only, added 2026-09-23
     by D73's dynamic half; and it reads **`autoadd`** at an inlined site's third

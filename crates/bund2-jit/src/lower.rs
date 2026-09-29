@@ -148,6 +148,18 @@ struct GenericCall {
     drain_off: i32,
     cells_base: Value,
     request_off: i32,
+    /// **Criterion 17's per-call measurement switch — false only under
+    /// `unguarded-bench`.**
+    ///
+    /// §S5's request check is unconditional, so there is no with-and-without
+    /// difference to measure and the bound it is held to could never be taken.
+    /// This is that difference, as `Emitter::meaning_guards` is for the
+    /// per-site half, and it exists for no other purpose.
+    ///
+    /// Code emitted with it false is **unsound**: a native that files a tail
+    /// request would have nothing drain it, so the body it filed never runs.
+    /// It is timed, never used to run a program.
+    request_check: bool,
 }
 
 /// **Emit one dispatched call and §S5's request check after it.**
@@ -161,6 +173,16 @@ fn emit_generic_call(f: &mut FunctionBuilder<'_>, c: &GenericCall, join: Option<
     let next = f.create_block();
     f.ins().brif(status, c.fail, &[], next, &[]);
     f.switch_to_block(next);
+
+    // **Criterion 17's switch**, and the only thing that reads it: with the
+    // check omitted the call simply continues, which is what makes the
+    // difference between the two arms exactly this check's cost.
+    if !c.request_check {
+        if let Some(join) = join {
+            f.ins().jump(join, &[]);
+        }
+        return;
+    }
 
     // **§S5's request check, in the emitted code.** "After every call, compiled
     // code loads it beside the epoch and `autoadd`. If it is set, compiled code
@@ -1555,6 +1577,12 @@ struct Emitter {
     /// name would be invisible to the inlined arm, which is the whole of what
     /// §S6 exists to prevent — and it must never run a program.
     meaning_guards: bool,
+    /// **Criterion 17's per-call switch — false only under `unguarded-bench`.**
+    ///
+    /// See [`GenericCall::request_check`]. Held here for the same reason
+    /// [`Emitter::meaning_guards`] is: a runtime flag rather than a `cfg`, so
+    /// both arms live in one binary and one window.
+    request_checks: bool,
     /// **The thunks this module has already emitted, by index** — F130.
     ///
     /// A thunk bakes an index and nothing else, and the index is resolved
@@ -1612,11 +1640,38 @@ impl Compiler {
                 module: new_module(Adapter::Apply)?,
                 thunks: Thunks::default(),
                 meaning_guards: true,
+                request_checks: true,
             },
             words: Vec::new(),
             table,
             crossable,
         })
+    }
+
+    /// **Does this compiler emit §S5's request check after every call?**
+    /// Always `true` unless a bench build turned it off (criterion 17).
+    pub fn checks_requests(&self) -> bool {
+        self.emitter.request_checks
+    }
+
+    /// **A compiler that omits §S5's request check — measurement only.**
+    ///
+    /// The difference between a body compiled by this and one compiled by
+    /// [`Compiler::new`] is criterion 17's per-call cost, which has no other
+    /// way of being measured: the check is unconditional, so nothing else
+    /// provides the comparison.
+    ///
+    /// **Code it emits is unsound and must never run a program.** A native that
+    /// files a tail request gets nothing to drain it, so the body it filed
+    /// never runs. Behind `unguarded-bench`, which neither `default` nor `jit`
+    /// enables.
+    #[cfg(feature = "unguarded-bench")]
+    pub fn without_request_checks(
+        table: Vec<(bund2_api::RegistrationId, Fragment)>,
+    ) -> Result<Self, String> {
+        let mut c = Self::new(table)?;
+        c.emitter.request_checks = false;
+        Ok(c)
     }
 
     /// **Does this compiler emit §S6's meaning guards?** Always `true` unless
@@ -2139,6 +2194,7 @@ fn emit_body(
     let mut emitter = Emitter {
         module: new_module(adapter)?,
         meaning_guards: true,
+        request_checks: true,
         // This path builds a module per body and throws it away, so the cache
         // has nothing to share with: a fresh one, used once.
         thunks: Thunks::default(),
@@ -2239,8 +2295,10 @@ fn emit_into(
         module,
         thunks,
         meaning_guards,
+        request_checks,
     } = e;
     let meaning_guards = *meaning_guards;
+    let request_check = *request_checks;
     // One value, one call slot — whether or not the value is inlined, because
     // an inlined site keeps its generic path beside it and reaches it through
     // that slot when a guard refuses.
@@ -2645,6 +2703,7 @@ fn emit_into(
                                     drain_off,
                                     cells_base,
                                     request_off,
+                                    request_check,
                                 },
                                 None,
                             );
@@ -2751,6 +2810,7 @@ fn emit_into(
                                 drain_off,
                                 cells_base,
                                 request_off,
+                                request_check,
                             },
                             None,
                         );
@@ -5130,6 +5190,30 @@ mod tests {
             e.0.contains("changed the current stack"),
             "the error must name the invariant: {}",
             e.0
+        );
+    }
+
+    /// **The shipped compiler always checks the request cell** — criterion 17,
+    /// §S5.
+    ///
+    /// `unguarded-bench` exists to measure what that check costs, and a switch
+    /// that can remove a §S5 guard earns a test saying it is off by default —
+    /// the same knot `the_shipped_compiler_always_guards_its_inlined_sites`
+    /// ties for the per-site half.
+    #[test]
+    fn the_shipped_compiler_always_checks_the_request_cell() {
+        let (_, table) = with_fragments();
+        assert!(
+            Compiler::new(table.clone())
+                .expect("a compiler")
+                .checks_requests(),
+            "`Compiler::new` must emit §S5's request check"
+        );
+        assert!(
+            Compiler::with_crossable(table, std::collections::BTreeSet::new())
+                .expect("a compiler")
+                .checks_requests(),
+            "and so must the constructor `bund2-runtime` installs"
         );
     }
 

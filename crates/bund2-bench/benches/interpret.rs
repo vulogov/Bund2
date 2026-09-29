@@ -1615,6 +1615,80 @@ fn crossing_isolated(c: &mut Criterion) {
 #[cfg(not(feature = "jit"))]
 fn crossing_isolated(_: &mut Criterion) {}
 
+/// **Criterion 17's per-call cost: §S5's request check** — the bound the row
+/// has carried unmeasured since it was written.
+///
+/// The row names "the three loads after every call (epoch, `autoadd`,
+/// request)" plus the callee's generation before a crossed call, at under 2 ns
+/// a call. **A shipped build emits one of the four.** `autoadd` is read at
+/// inlined sites only and its absence after calls is proven benign; the epoch
+/// and generation compares are emitted but dormant, because D75 withdrew
+/// crossing. What remains, and runs on every call, is the request load.
+///
+/// It is unconditional, so there was no difference to measure until
+/// `Compiler::without_request_checks` made one — the same shape as
+/// `without_meaning_guards`, behind the same bench-only feature, with the same
+/// warning: the code it emits is unsound and is timed, never run as a program.
+///
+/// The body is `1 2 + drop` — one inlined site, so F136's rule admits it — and
+/// then `noop` repeated. `noop` is a native with no published arm, so each one
+/// is a generic call and emits a request check of its own; it is `eff(0, 0)`
+/// and does nothing, so the rows differ in the checks and in nothing else.
+#[cfg(all(feature = "jit", feature = "unguarded"))]
+fn request_cost(c: &mut Criterion) {
+    use bund2_jit::lower::{Compiler, LastCall};
+
+    let mut g = c.benchmark_group("request_cost");
+
+    for calls in [4usize, 8, 16, 32] {
+        let body = compiled(&format!("1 2 + drop {}", "noop ".repeat(calls)));
+
+        for (name, checked) in [("checked", true), ("unchecked", false)] {
+            let build = || {
+                declare_share();
+                let mut vm = bund2_runtime::Runtime::new().interp;
+                let table =
+                    bund2_stdlib::fragments::published(&vm.registry).unwrap_or_default();
+                let comp = if checked {
+                    Compiler::new(table)
+                } else {
+                    Compiler::without_request_checks(table)
+                };
+                let Ok(mut comp) = comp else {
+                    eprintln!("bench: no compiler could be built; measuring nothing");
+                    return None;
+                };
+                let cells = vm.cells().base();
+                let word = comp
+                    .compile_word(&body, LastCall::Ordinary, cells, &mut vm)
+                    .ok()?;
+                Some((vm, comp, word))
+            };
+
+            match build() {
+                Some((_, comp, word)) => eprintln!(
+                    "bench: request_cost {name}/c{calls} sites {:?} checks {}",
+                    comp.inlined_sites(word),
+                    comp.checks_requests()
+                ),
+                None => eprintln!("bench: request_cost {name}/c{calls} did not compile"),
+            }
+
+            g.bench_function(format!("{name}/c{calls}"), |b| {
+                let Some((mut vm, comp, word)) = build() else {
+                    return;
+                };
+                b.iter(|| black_box(comp.run(word, &mut vm, black_box(&body))).is_ok());
+            });
+        }
+    }
+
+    g.finish();
+}
+
+#[cfg(not(all(feature = "jit", feature = "unguarded")))]
+fn request_cost(_: &mut Criterion) {}
+
 criterion_group!(
     benches,
     startup,
@@ -1631,6 +1705,7 @@ criterion_group!(
     regimes,
     crossing,
     crossing_isolated,
+    request_cost,
     stop_rule,
     compile_size,
     gain_size,
