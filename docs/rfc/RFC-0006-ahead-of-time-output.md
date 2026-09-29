@@ -3,11 +3,11 @@
 - Status: **Draft**, revised 2026-09-29 after the first adversarial review
   (`docs/rfc/reviews/RFC-0006-review-2026-09-29.md`). The review raised three
   blockers; all three were reproduced against the code before this revision,
-  and one is worse than it reported. §B2 now carries a **deviation awaiting
-  sign-off**.
+  and one is worse than it reported. §B2's deviation is **ruled on — D77** —
+  so nothing in this document awaits a decision.
 - Depends on: RFC-0003 (the program stream and Tier 0), RFC-0005 (the
   Cranelift tier)
-- Decisions consumed: D10, D11, D16, D20, D40, D44, D54, D76, and
+- Decisions consumed: D10, D11, D16, D20, D40, D44, D54, D76, D77, and
   decisions.md's "What this forecloses" clause on tree-shaking
 - Touched but not consumed: D1, D2, D36 — see the preservation table
 - Reference SHA: `reference/Bund` at `21b40b0`, `rust_dynamic` at `ceb27c9`,
@@ -172,21 +172,41 @@ then does what the CLI does: `lower_with_spans`, then `eval_indexed`. Literals
 are constructed when the program runs, contexts are named per run, scalars stay
 unboxed, and spans exist because the source does.
 
-**The deviation, which needs sign-off.** D10's parenthetical describes
+**The deviation, ruled on by D77.** D10's parenthetical describes
 `--emit=bundle` as "runtime plus embedded IR". This design embeds source
 instead. D10's *resolution* is about the toolchain and is untouched; its
 *description* is not what this does. Two further costs, stated rather than
 buried: the program is recoverable from the artefact in readable form, and
-start-up pays a parse. **This RFC does not adopt the deviation silently — it
-is listed in the preservation table and in the open questions, and it is the
-one thing in this document that requires the owner before it is built.**
+start-up pays a parse. **The deviation was not adopted silently: it was put to the owner and
+decided on 2026-09-29 (D77), which also closed the alternative below.**
 
-**The encoded-stream option is deferred, not rejected on taste.** If start-up
-parse time ever matters, the answer is not the `wire` codec but a container
-designed for a program — unboxed scalars, no stamps, spans carried alongside —
-which D11's "version the IR format freshly" already licences. That is gated on
-a measurement: the parse cost of the largest corpus program at start-up,
-against the whole run. Nobody has taken it.
+**The encoded-stream option is closed, on the measurement it was waiting
+for — D77.** The first revision deferred it "behind a start-up parse
+measurement"; that measurement is now taken, and deferring it further would
+invite someone to build a second serialisation format for a saving the numbers
+call negligible.
+
+| | measured |
+|---|---|
+| `startup/parse/mixed`, 891 bytes | **4.29 µs** [4.2775, 4.3022] |
+| `startup/registry/register_all` | **41.8 µs** [41.706, 41.938] |
+
+**The parse is about a tenth of the registry construction every bundle pays
+regardless.** Scaling to the corpus's largest program — `workbench-variants.bund`
+at 4,893 bytes — gives roughly 24 µs, and **that is arithmetic on bytes, not a
+measurement**; even a tenfold error leaves the parse under the setup cost.
+
+**What the numbers are and are not.** Two absolute figures an order of
+magnitude apart, taken on an unguarded host. They are not an A/B and F135's
+protocol does not apply; the conclusion they support is the order of magnitude,
+not the third digit.
+
+So the ~20 µs a container would save is set against designing, testing and
+versioning a second format that must independently re-solve all three of §B2's
+mechanical findings: carry spans, or diagnostics lose locations again; encode
+scalars unboxed, or `TopAreInt` declines again; and encode "unset" for stamps,
+which is **D20's deferred step** — unblocked by D11 and never built. The
+parser already gets all three right.
 
 ### §B3 — The stub, and the evaluation thread it must reproduce
 
@@ -354,7 +374,7 @@ implied.
 | Diagnostic flags (`--stats`, `--dump-stack`, `--raw-values`) | **Deliberately changed.** Not argv flags in a bundle, because they would shadow the program's own arguments; they move to environment variables. |
 | `use` | **Preserved exactly** — D76, under D54's scheme set. |
 | Run-time-registered words under `--emit=native` | **Speed only.** No code generator in the image, so they stay interpreted. |
-| D10's "embedded IR" description | **Deviation, awaiting sign-off.** Source text is embedded instead; D10's resolution about the toolchain is untouched. |
+| D10's "embedded IR" description | **Approved deviation — D77.** Source text is embedded instead, read as descriptive; D10's resolution about the toolchain is untouched. |
 
 ## Alternatives considered
 
@@ -363,8 +383,13 @@ implied.
 - **Encoding the program with the `wire` codec.** Rejected on four measured
   changes in meaning, §B2 — not on taste, and the first draft proposed it.
 - **A fresh program container** with unboxed scalars, no stamps and spans
-  carried alongside. **Deferred, not rejected**, behind a start-up parse
-  measurement; D11 licences it.
+  carried alongside, which D11 licences. **Closed on the measurement** §B2
+  records — a ~20 µs saving against three behaviours the parser already gets
+  right, one of them D20's unbuilt step (D77).
+- **Source text, compressed.** Preserves everything option 1 does and makes the
+  program not trivially readable in the artefact. Available whenever a size or
+  opacity argument arrives; it is a change in bytes, not in meaning, and needs
+  only a pure-Rust dependency to stay inside D10.
 - **`--emit=native` first.** The research recommends object-output-first for
   the *lowering spike*; that ordering is moot, since the lowering exists and was
   built JIT-first. What remains is a size saving §B8 shows cannot be weighed
@@ -409,11 +434,13 @@ implied.
 
 ## Open questions
 
-- **The §B2 deviation.** Embedding source text departs from D10's descriptive
-  parenthetical. **Awaiting the owner**; it is the one thing here that is not
-  this RFC's to decide.
-- **Q38 — answered by D76**, 2026-09-29: fetch at run time. Left listed so a
-  reader tracing D76 finds it.
-- **A flag that embeds `use` targets**, and **a fresh program container**. Both
-  deferred with their triggers recorded; neither blocks anything and no default
-  waits to be adopted.
+- **The §B2 deviation — answered by D77**, 2026-09-29: embed source text, and
+  the encoded container is closed rather than deferred. Left listed so a reader
+  tracing D77 finds the question it answers.
+- **Q38 — answered by D76**, 2026-09-29: fetch at run time.
+- **A flag that embeds `use` targets.** Deferred by D76 with its trigger and
+  form recorded. Nothing is blocked on it and no default waits to be adopted.
+
+**Nothing in this document is open.** The three blockers are answered in the
+design, the two decisions it needed are taken, and what remains deferred is
+deferred with a trigger rather than a default.

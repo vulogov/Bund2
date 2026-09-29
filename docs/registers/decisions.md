@@ -3485,6 +3485,83 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D77 — a bundle embeds source text, and the encoded container is closed
+
+**Decided by the repository owner, 2026-09-29**, on the options RFC-0006's
+first review forced: "option 1, and treat the parse measurement as closing
+option 2 rather than deferring it."
+
+- Blocks: RFC-0006 §B2, which was drafted with this as its one open deviation
+- Depends on: D10 (the description this departs from), D11 (which licenced the
+  alternative), D20 (serialisation materialises identity and stamp), D2,
+  D36, D40
+- Status: **RESOLVED — source text, and the container is closed**, 2026-09-29.
+
+### The decision
+
+`bund2 build --emit=bundle` embeds the program's **source text**. The artefact
+parses and evaluates it exactly as `bund2 script` does.
+
+**This is an approved deviation from D10's description**, not from its
+resolution. D10's parenthetical calls `--emit=bundle` "runtime plus embedded
+IR"; that phrase predates RFC-0003's narrowing of BundIR to "a cache over a
+body, never the body itself" (RFC-0003:422) and is read here as "the program".
+D10's resolution — `--emit=native` may require `cc`, `--emit=bundle` stays
+toolchain-free, nothing below `bund2 build` may require `cc` — is untouched.
+
+### Why the alternative is closed rather than deferred
+
+Encoding the program with the `wire` codec was RFC-0006's first draft and was
+withdrawn on four changes in meaning its own review found, each reproduced
+against the code: stamps fixed at build time (against D2's "stamp is creation
+time"); one context name for every run; spans and so diagnostic locations gone
+(D36); and — the one the review understated — **every scalar returning boxed**,
+so `Guard::TopAreInt` admits nothing and Tier 0's fragment path and all of
+§S6's inlining die for every literal in the program, while every figure reports
+success.
+
+A *fresh* container could avoid all four, and D11's "version the IR format
+freshly" licences one. **The measurement says it is not worth building:**
+
+| | measured |
+|---|---|
+| `startup/parse/mixed`, 891 bytes | **4.29 µs** |
+| `startup/registry/register_all` | **41.8 µs** |
+
+The parse is about a tenth of the registry construction every bundle performs
+regardless. Extrapolating to the corpus's largest program gives roughly 24 µs,
+which is arithmetic on bytes rather than a measurement; even a tenfold error
+leaves it under the setup cost. Two absolute figures an order of magnitude
+apart, on an unguarded host — not an A/B, so F135's protocol does not apply,
+and the claim they support is the order of magnitude.
+
+So a container buys about 20 µs in exchange for designing, testing and
+versioning a second format that must independently re-solve spans, unboxed
+scalars, and an "unset" stamp encoding — **D20's deferred step, unblocked by
+D11 and never built**. The parser already gets all three right.
+
+**Deferring it further was the thing rejected.** A deferral with a trigger
+nobody can meet is an invitation: the measurement was the trigger, it has been
+taken, and leaving the option open would have someone build the format for a
+saving the numbers call negligible.
+
+### What this costs
+
+The program is recoverable from the artefact in readable form. **That is a
+property, not a defect** — Bund programs are text and no register asks for
+secrecy. If opacity is ever wanted, the answer is compressing the source, which
+preserves meaning exactly and needs one pure-Rust dependency, rather than a
+container that earns opacity only as a side effect of solving three problems
+the parser has already solved.
+
+### What would reopen it
+
+A start-up parse cost that matters: a program large enough, or a start-up
+budget tight enough, that ~24 µs is visible against ~42 µs of registry
+construction and process spawn. Then the container, and it must carry spans,
+encode scalars unboxed, and answer D20's unset-stamp question before it
+encodes anything.
+
 ## D76 — `use` in a built artefact fetches at run time, as the interpreter does
 
 **Decided by the repository owner, 2026-09-29**, answering Q38 on the options
