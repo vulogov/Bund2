@@ -6411,6 +6411,37 @@ evidence, and this one is listed as runnable rather than as met.
     mechanism in a different crate. The case was recorded as unwritten when it
     is in fact unwritable, which is the more useful thing to know.
 
+    **The mirror cases cannot test compiled execution, and the reason is
+    structural — 2026-09-28.** The thirteenth review's B1 rows ask for "a
+    compiled body whose caller is a native", each "at threshold 1 with the body
+    hot". Neither half is reachable.
+
+    *They compile nothing as written.* `[1] { 7 exit } map`,
+    `[1 2] { 7 exit } map` and the drained-body program each report **0 bodies**
+    at `--jit-threshold 1`: their bodies carry no inlinable site, so F136's rule
+    refuses them. That is the same finding as the `if`-branch row above, and
+    adding `1 2 + drop` does make a body compile.
+
+    *But the exit still runs interpreted.* §S7's threshold compiles a body **on**
+    an entry and runs that entry interpreted — `Decision::Compile` files the code
+    and answers `None` — so compiled code first runs on the entry after. A body
+    whose `exit` is unconditional ends the program during its own compiling
+    entry, and the form it just produced never runs. Making the exit conditional
+    moves it into a lambda, which is a *different* body: cold, and covered by
+    `a_compiled_caller_of_a_cold_exiting_lambda_matches_tier_zero`.
+
+    **So compiled code reaches an exit only through a callee**, which this row
+    already tests, and the mirror rows add caller-is-a-native variants that no
+    writing of them can bring to compiled execution.
+    `an_unconditional_exit_fires_on_the_entry_that_compiles_it`
+    (`crates/bund2-runtime/src/tier.rs`) pins the fact: the tier compiled the
+    body, and the program exited on that same entry anyway.
+
+    What a differential over the mirror programs *would* assert is that the tier
+    changes nothing about them — true, worth little, and indistinguishable from
+    Tier 0 against itself, which is the trap two rows above this one fell into.
+    It is not written for that reason.
+
     Also still unwritten, and not attempted here: the compiled halves of the
     thirteenth review's mirror cases — `map`, `?try`, the drained body, the
     residual-path value and `input*` — whose Tier 0 halves this row already

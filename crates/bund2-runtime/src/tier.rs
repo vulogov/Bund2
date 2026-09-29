@@ -1135,6 +1135,53 @@ mod tests {
         );
     }
 
+    /// **Why criterion 30's mirror cases cannot test compiled execution: an
+    /// unconditional `exit` always fires on an interpreted entry.**
+    ///
+    /// §S7's threshold compiles a body *on* an entry and runs **that** entry
+    /// interpreted — `Decision::Compile` files the code and answers `None`, so
+    /// compiled code first runs on the entry after. A body whose `exit` is
+    /// unconditional therefore ends the program during its own compiling
+    /// entry, and the compiled form it just produced never runs.
+    ///
+    /// Making the exit conditional does not help: every conditional in Bund
+    /// takes a lambda, so the `exit` moves into a *different* body — a cold
+    /// callee, which is the case
+    /// `a_compiled_caller_of_a_cold_exiting_lambda_matches_tier_zero` covers.
+    ///
+    /// **So compiled code reaches an exit only through a callee**, and
+    /// criterion 30's mirror rows — `[1] { 7 exit } map`, the `?try` variants,
+    /// the drained body — cannot exercise compiled execution however they are
+    /// written. Checked besides: each of them compiles **0 bodies** as the
+    /// criterion writes it, because none has an inlinable site for F136's rule.
+    ///
+    /// This test pins both halves of the fact that makes that so: the tier did
+    /// compile the body, and the program exited anyway.
+    #[test]
+    fn an_unconditional_exit_fires_on_the_entry_that_compiles_it() {
+        let mut r = crossing_runtime_with(1);
+        r.eval_str(":w { 1 2 + drop 7 exit } register
+")
+            .expect("setup runs");
+
+        let outcome = r.eval_str("w");
+
+        assert!(
+            r.compiled_bodies().unwrap_or(0) > 0,
+            "the tier must have compiled the body, or this says nothing"
+        );
+        assert_eq!(
+            bund2_api::Vm::exit_requested(&r.interp),
+            Some(7),
+            "and the program exited on that same entry, which was interpreted"
+        );
+        assert!(
+            outcome.is_ok() || outcome.is_err(),
+            "the outcome is whatever the embedder makes of a recorded exit; \
+             what this row asserts is the pair above"
+        );
+    }
+
     /// **Criterion 20: a body run by a loop word reaches the counter under one
     /// key.**
     ///
