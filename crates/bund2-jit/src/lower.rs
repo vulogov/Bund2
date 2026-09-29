@@ -1413,6 +1413,27 @@ struct Word {
 /// all of §S6's rules hold, and the generic path stays emitted beside it: a
 /// guard that refuses falls through to the very call the value would otherwise
 /// have made, so nothing is lost but speed.
+/// **What D68 needs to cross a call, and what F143 added to it.**
+///
+/// `consumes` is the callee's operand count — the values pushed ahead of it,
+/// where everything deeper stays in a register.
+///
+/// `generation` and `cell` are the slot's, as §S6 gives them to an inlined
+/// site. D68's gates ask the callee's *declared effect*, and they ask at
+/// **compile time**; the callee is dispatched by name at run time, so a
+/// rebinding turns a crossable call into one that produces a value and the
+/// final sync writes the held values above it. F143 measured that: `1 2 + nl`
+/// with `nl` rebound to `{ 99 }` leaves `99 3` compiled where Tier 0 leaves
+/// `3 99`. §S5 names the fix — "before a call across which values stay
+/// promoted, a fourth is read: the callee's generation" — and these are what
+/// the emitted compare needs.
+#[derive(Debug, Clone, Copy)]
+struct Crossing {
+    consumes: u8,
+    generation: u32,
+    cell: i64,
+}
+
 #[derive(Debug, Clone)]
 enum Plan {
     /// Dispatched: load the slot, call through it, then §S5's request check.
@@ -1429,7 +1450,7 @@ enum Plan {
     /// emitter has no `Vm` to ask, and asking again at emit time could answer
     /// differently from the plan — a rebind between the two would make the
     /// emitted sync disagree with the classification that licensed it.
-    Call { cross: Option<u8> },
+    Call { cross: Option<Crossing> },
     /// **Promoted: an int literal that never reaches the stack.**
     ///
     /// `Interp::apply_step` sends `CALL` to `dispatch_name` and `CONTEXT` to
@@ -1660,7 +1681,7 @@ impl Compiler {
     /// a static barrier, and it does not resolve to a native.
     /// `Some(consumes)` when every gate holds, and the count the emitter needs
     /// to push before the call.
-    fn crossable_callee(&self, v: &BundValue, vm: &mut dyn Vm) -> Option<u8> {
+    fn crossable_callee(&self, v: &BundValue, vm: &mut dyn Vm) -> Option<Crossing> {
         if v.dt() != bund2_value::CALL {
             return None;
         }
@@ -1679,7 +1700,19 @@ impl Compiler {
         if !self.crossable.contains(&site.registration) {
             return None;
         }
-        Some(effect.consumes)
+        // **F143's fifth question, asked of the same site.** D68's gates are
+        // all compile-time and the callee is dispatched by name at run time,
+        // so the emitted code re-checks this generation before it crosses.
+        // A callee `inline_site` cannot describe — an alias, a saturated slot,
+        // a binding with no registration id — is not crossed at all now, which
+        // is the conservative answer and §S6's own rule about direct
+        // resolution.
+        let cell = i64::try_from(site.cell).ok()?;
+        Some(Crossing {
+            consumes: effect.consumes,
+            generation: site.generation,
+            cell,
+        })
     }
 
     /// **Compile a Bund word's body — the first lowering of a real word.**
@@ -2623,9 +2656,54 @@ fn emit_into(
                     // that sound — the callee leaves nothing above the held
                     // values, so they are the top of the abstract stack again
                     // when the body's last sync reaches them.
-                    Some(consumes) => {
-                        syncs_here +=
-                            emit_sync_top_n(&mut f, &mut promoted, usize::from(consumes), &helpers);
+                    Some(cross) => {
+                        // **§S5's fourth load, before a call across which values
+                        // stay promoted** — F143. D68 admitted this callee on
+                        // its *declared* effect at compile time; the name is
+                        // dispatched at run time, so a rebinding can make it
+                        // produce a value and the final sync would then write
+                        // the held values above the result. `1 2 + nl` with
+                        // `nl` rebound to `{ 99 }` left `99 3` where Tier 0
+                        // leaves `3 99`.
+                        //
+                        // **On a stale generation the body takes the residual**,
+                        // which is what makes this recoverable rather than
+                        // reportable: the residual syncs every promoted value
+                        // and applies the rest through `Vm::apply`, so the
+                        // rebound callee runs exactly as Tier 0 runs it. It
+                        // never rejoins, which is why the two paths need no
+                        // common promotion model — and a model merge is the one
+                        // thing this check could not have done.
+                        {
+                            let cell_addr = f.ins().iconst(ptr, cross.cell);
+                            let now =
+                                f.ins().uload32(MemFlagsData::trusted(), cell_addr, 0);
+                            let unchanged = f.ins().icmp_imm_u(
+                                IntCC::Equal,
+                                now,
+                                i64::from(cross.generation),
+                            );
+                            let stale = f.create_block();
+                            let fresh = f.create_block();
+                            f.ins().brif(unchanged, fresh, &[], stale, &[]);
+
+                            f.switch_to_block(stale);
+                            let mut owed = promoted.clone();
+                            emit_sync_n(&mut f, &mut owed, usize::MAX, &helpers);
+                            let resume = f.ins().iconst(ptr, i as i64);
+                            let call = f.ins().call(residual, &[ctx_val, resume]);
+                            let status = f.inst_results(call)[0];
+                            f.ins().return_(&[status]);
+
+                            f.switch_to_block(fresh);
+                        }
+
+                        syncs_here += emit_sync_top_n(
+                            &mut f,
+                            &mut promoted,
+                            usize::from(cross.consumes),
+                            &helpers,
+                        );
 
                         // **The values that survive the call**, and the reason
                         // this needs a block of its own.

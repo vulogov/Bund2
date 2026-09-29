@@ -1182,6 +1182,65 @@ mod tests {
         );
     }
 
+    /// **F143's regression: a crossed callee rebound to a value-producing word
+    /// must not reverse the stack.**
+    ///
+    /// D68 crosses a call when the callee's **declared effect produces
+    /// nothing**, and asks that at compile time. The callee is dispatched by
+    /// name at run time, so rebinding it to a lambda that pushes a value makes
+    /// the held values sync *above* the result — D68's own stated hazard,
+    /// "wrong silently, and no guard catches it". `1 2 + nl` with `nl` rebound
+    /// to `{ 99 }` left **`99 3`** compiled where Tier 0 leaves **`3 99`**.
+    ///
+    /// **The order matters and is why the shared helper cannot express this.**
+    /// `assert_redefinition_changes_the_result` rebinds during setup, before
+    /// the body is compiled — and a callee that is already a lambda is refused
+    /// by D46, so nothing is crossed and the bug cannot appear. The body has to
+    /// be compiled *first*, with `nl` still the native, and rebound after.
+    ///
+    /// The precondition is that something was actually crossed, or this asserts
+    /// a path it never reaches.
+    #[test]
+    fn a_rebound_crossed_callee_does_not_reverse_the_stack() {
+        let setup = ":w { 1 2 + nl } register\n";
+        let rebind = ":nl { 99 } register\n";
+
+        let run = |tiered: bool| -> Vec<Option<i64>> {
+            let mut r = if tiered {
+                crossing_runtime_with(1)
+            } else {
+                let mut plain = crate::Runtime::new();
+                plain.take_tier();
+                plain
+            };
+            r.eval_str(setup).expect("setup runs");
+            for _ in 0..3 {
+                r.eval_str("w").expect("the warm-up entries run");
+            }
+            if tiered {
+                assert!(
+                    r.crossed_calls().unwrap_or(0) > 0,
+                    "`nl` must be crossed, or this row asserts a path it never takes"
+                );
+            }
+            r.eval_str("clear").expect("the stack is cleared");
+            r.eval_str(rebind).expect("the rebind runs");
+            r.eval_str("w").expect("the rebound entry runs");
+            bund2_api::Vm::snapshot(&r.interp)
+                .iter()
+                .map(bund2_value::BundValue::as_int)
+                .collect()
+        };
+
+        let plain = run(false);
+        assert_eq!(
+            plain,
+            vec![Some(3), Some(99)],
+            "Tier 0 pushes the sum, then what the rebound callee produced"
+        );
+        assert_eq!(run(true), plain, "and the tier must agree, in that order");
+    }
+
     /// **Criterion 20: a body run by a loop word reaches the counter under one
     /// key.**
     ///

@@ -3944,6 +3944,97 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F143 — a crossed callee rebound to a value-producing word reverses the stack
+
+**A Bund2 defect in shipped code, and it gives wrong answers silently.** Found
+2026-09-28 while deciding criterion 17's per-call bound, which names a load this
+turned out to depend on.
+
+### The reproduction
+
+    :w { 1 2 + nl } register
+    w w                          (or 70 times, at a realistic threshold)
+    clear
+    :nl { 99 } register
+    w
+
+| | final stack |
+|---|---|
+| no tier | `3`, `99` |
+| tier | **`99`, `3`** |
+
+Checked at `--jit-threshold 1` and again at 64 with seventy entries: the
+reversal holds at both.
+
+### The mechanism, which D68 states and then does not guard at run time
+
+D68 crosses a call only when the callee's declared effect **produces nothing**,
+and says why in terms: "A callee that produces output leaves its result above
+them permanently. `1 2 3 f` with `f` at `eff(1, 1)` ends with real `[…, r]` and
+abstract `[…, 1, 2, r]`; syncing gives `[…, r, 1, 2]`. **Wrong silently, and no
+guard catches it.**"
+
+That gate is asked **at compile time**. The callee is dispatched **by name at
+run time** — a `Plan::Call` reaches `Vm::apply`, which is why criterion 5's
+rebinding rows work at all. So rebinding `nl` to a lambda that pushes a value
+turns a crossed call into exactly the shape D68 forbids, and the compile-time
+gate has already been passed.
+
+**§S5 names the missing check.** "Before a call across which values stay
+promoted, a fourth is read: the callee's generation." The lowering does not read
+it. `grep` over the crossed-call arm finds the slot load, the call, the request
+load and D73's epoch compare — no generation.
+
+### Why the existing rebinding tests do not catch it
+
+Criterion 5's and criterion 22's rows rebind a callee and pass. Every one of
+them rebinds a callee that is **not crossed**: `h` and `g` are lambdas, which
+D46 refuses; `<-` is an alias, which carries no registration id, so D47 and D48
+refuse it. The one shape that would show this — rebinding a callee D68 *does*
+cross — is not among them, and `nl` was chosen here because it is.
+
+### The fix has a recovery the epoch check did not
+
+Unlike F140's epoch, this is detectable **before** the call, and at that moment
+the promoted values still belong to the stack in force. So the check recovers
+rather than reports: load the callee's generation before a crossed call, and if
+it differs from the one compiled against, **sync the held values first** and
+make it an ordinary synced call. Both paths are then correct, and no
+home-stack machinery is needed.
+
+### Disposition
+
+- Found: 2026-09-28, checking which of criterion 17's four named loads exist
+- Status: **RESOLVED — built**, 2026-09-28, on the repository owner's ruling
+  ("A now"). `crossable_callee` carries the slot's `generation` and `cell`
+  through `Plan::Call` in a `Crossing`, and the crossed-call arm loads the cell
+  before the call and compares. The reproduction now reads **`3 99` at every
+  threshold**, matching Tier 0.
+
+  **On a stale generation the body takes §S5's residual**, and that is what made
+  the fix possible at all: the two paths have different *compile-time*
+  promotion models — values still in registers on one, synced on the other —
+  and the lowering's model cannot merge. The residual never rejoins, so there
+  is nothing to merge. It syncs every held value and applies the rest through
+  `Vm::apply`, so the rebound callee runs exactly as Tier 0 runs it.
+
+  **A tightening came with it.** Crossing now requires a callee `inline_site`
+  can describe, since that is where the generation comes from. A binding with
+  no registration id, an alias, or a saturated slot is no longer crossed —
+  §S6's direct-resolution rule, arriving on the crossing path by way of needing
+  something to check.
+
+  `a_rebound_crossed_callee_does_not_reverse_the_stack`
+  (`crates/bund2-runtime/src/tier.rs`) is the regression. It cannot use the
+  shared `assert_redefinition_changes_the_result` helper, and the reason is the
+  defect in miniature: that helper rebinds during setup, before the body is
+  compiled, and a callee that is *already* a lambda is refused by D46 — so
+  nothing is crossed and the bug cannot appear. The body must be compiled
+  first, with `nl` still the native, and rebound after.
+- Depends on: D68 (the gate that is compile-time only), §S5 (the load it names),
+  D46/D47/D48 (which is why the existing rebinding rows miss it), criterion 17
+  (whose bound named the load), criterion 5 and 22 (the rows that pass)
+
 ## F142 — §S8's Tier 1 floor is specified, written, and never read by compiled code
 
 **A Bund2 defect**, found 2026-09-28 while trying to write criterion 30's
