@@ -3485,6 +3485,78 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D76 — `use` in a built artefact fetches at run time, as the interpreter does
+
+**Decided by the repository owner, 2026-09-29**, answering Q38 on the options
+that question recorded, plus a fourth this ruling considered and rejected.
+
+- Blocks: RFC-0006 §B7, which was drafted blocked on this and is now written
+- Depends on: D10 (the toolchain-free half), D16 (a call target may be a
+  run-time string), D54 (the scheme set and the fetch's own defaults), Q38
+- Status: **RESOLVED — fetch at run time**, 2026-09-29.
+
+### The decision
+
+A bundle's `use` and `use.` behave exactly as the interpreter's do: the operand
+is fetched when the word runs and the text is evaluated in the running VM.
+Nothing is embedded at build time and nothing is refused that the interpreter
+would accept.
+
+**The fetch inherits D54 whole**, and RFC-0006 §B7 states it so the artefact's
+behaviour is documented rather than discovered: `file://` follows curl's rules
+and takes an absolute path; `http://` is fetched by `ureq` built without TLS,
+follows no redirect, treats an error status's body as the answer, imposes no
+size limit, and sends `ZBUS` as its user agent; a string with no scheme is
+refused, and `https://` is refused, both already approved deviations under D54.
+
+### Why not embed
+
+**Q38's proposed option was to embed the files named by a `use` with a literal
+operand and fall back to fetching.** It was not adopted, and the evidence
+against it is that its premise is unexercised.
+
+No corpus program calls `use` — the apparent matches in
+`reference/Bund/examples` are comments. The entire exposure is one authored
+probe, `tests/probes/use-word.bund`, and it **builds its operand at run time**:
+`cwd "file://{A}/tests/probes/data/uselib.bund" format use`. So embedding would
+fall back to fetching in the one place `use` is exercised, and would buy
+self-containment for a case the corpus contains none of — at the cost of a
+build-time file resolver, a transitive `use` walk, and a staleness rule that
+Q38 itself identifies as a change in meaning.
+
+**Q38 also attributed run-time self-containment to D10, and D10 does not say
+it.** D10's resolution is about the toolchain: "`--emit=bundle` stays
+toolchain-free, and nothing below `bund2 build` may require `cc`". The
+self-containment claim traces to `docs/research/02-native-binaries.md:44-49`,
+which describes Product A as "one file, no external dependencies" in a passage
+about build and link dependencies. A bundle that fetches at run time is
+toolchain-free to build, so this decision does not spend D10.
+
+**A sub-choice inside the embedding option, recorded because it would have been
+missed.** Q38 does not say whether an embedded file would carry its *source
+text*, still compiled when `use` runs, or its *IR*, compiled at build time. The
+second moves a used file's parse errors from run time to build time, which is a
+second deviation on top of the staleness one. Only the source-text form would
+have been cheap. If embedding is ever built, it takes the source-text form.
+
+### Whose risk this is
+
+**The person running the artefact is responsible for what it fetches**, and for
+the safety and security of doing so. This is the owner's ruling and it is
+recorded rather than implied, because the alternative reading — that the
+artefact should police its own fetches — would have argued for option 3 or 4.
+`use` evaluates what it retrieves; that is what the word does in the reference
+and Bund2 preserves it. A bundle does not add a check the interpreter does not
+have, and does not claim one.
+
+### What would reopen it
+
+A real case for embedding: a program distributed to users whose library must
+travel with it. Then a flag — `bund2 build --embed-use` or similar — with a
+decision of its own, in the source-text form above. Deferring it this way keeps
+option 2 one call away rather than foreclosed, which is the shape D75 chose for
+D68's crossing.
+
 ## D75 — D68's crossing is withdrawn from use, and the rule it states is kept
 
 **Decided by the repository owner, 2026-09-28**, on the measurement it asked

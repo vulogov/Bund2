@@ -1,11 +1,11 @@
 # RFC-0006: Ahead-of-time output — `bund2 build`
 
-- Status: **Draft** (2026-09-29). Not proposed: §B7 is blocked on Q38, which is
-  an OPEN decision this RFC must not adopt on the owner's behalf.
+- Status: **Draft** (2026-09-29). §B7's blocker is answered — Q38 was ruled on
+  the same day and is recorded as **D76** — so the document is complete and
+  awaits review rather than a decision.
 - Depends on: RFC-0003 (BundIR and Tier 0), RFC-0005 (the Cranelift tier)
-- Decisions consumed: D10, D11, D16, D40, D44, and decisions.md's
+- Decisions consumed: D10, D11, D16, D40, D44, D54, D76, and decisions.md's
   "What this forecloses" clause on tree-shaking
-- Blocked on: **Q38** — what `use` does in a built artefact
 - Reference SHA: `reference/Bund` at `21b40b0`, `rust_dynamic` at `ceb27c9`,
   per `reference/PINNED.txt`
 - Supersedes: nothing. `docs/research/02-native-binaries.md` is the reasoning
@@ -189,19 +189,53 @@ cross-compiled `cranelift-object` build inherits the same problem. A target
 Cranelift does not support gets `--emit=bundle`, which is the entire reason
 that mode is mandatory rather than convenient.
 
-### §B7 — `use` in a built artefact — **BLOCKED on Q38**
+### §B7 — `use` in a built artefact
 
-This section is deliberately unwritten.
+**A bundle's `use` and `use.` fetch when they run, exactly as the
+interpreter's do** — D76, on Q38. The operand is resolved at run time and the
+text is evaluated in the running VM, so a word the fetched file registers stays
+registered. Nothing is embedded at build time, and nothing is refused that the
+interpreter would accept.
 
-`use` fetches a `file://` or `http://` URL and evaluates the text (D54). A
-built program is harder in two ways Q38 states: the path may be a string built
-at run time (D16), so `bund2 build` cannot always know what a program loads;
-and `--emit=bundle` must stay self-contained (D10).
+**The fetch inherits D54 whole, and it is stated here so the artefact's
+behaviour is documented rather than discovered:**
 
-Q38 records three options and marks one **"proposed, not adopted"**. Adopting
-it here would be this RFC making a language decision on the owner's behalf,
-which CLAUDE.md forbids in terms. **This RFC is blocked on Q38** and says so
-rather than defaulting.
+- `file://` follows curl's rules — an absolute path, optionally after the host
+  `localhost`, with `%xx` decoded.
+- `http://` is fetched by `ureq` built without TLS, keeping the defaults the
+  reference leaves curl at: no redirect is followed, the body of an error
+  status is still the answer, the body has no size limit, and the user agent is
+  `ZBUS` (`reference/Bund/src/stdlib/helpers/file_helper.rs:43`).
+- A string with no scheme is refused, and `https://` is refused. Both are
+  approved deviations under D54, the second because a TLS stack compiles C or
+  assembly that D10 does not allow below `bund2 build`.
+
+A bundle therefore needs whatever its `use` targets need, when it runs: a
+`file://` path resolves on the machine running the artefact rather than the one
+that built it, and an `http://` target is fetched in the clear.
+
+**Whose risk that is, stated rather than implied.** The person running the
+artefact is responsible for what it fetches and for the safety of doing so —
+D76's ruling. `use` evaluates what it retrieves; that is what the word does in
+the reference and this RFC preserves it. **A bundle adds no check the
+interpreter does not have, and claims none.** The alternative reading, that the
+artefact should police its own fetches, is what would have argued for refusing
+`use` in a built artefact, and it was not taken.
+
+**Why nothing is embedded.** Q38 proposed embedding the files named by a `use`
+with a literal operand. Its premise is unexercised: no corpus program calls
+`use`, and the one probe that does builds its operand at run time —
+`cwd "file://{A}/tests/probes/data/uselib.bund" format use`
+(`tests/probes/use-word.bund`) — so embedding would fall back to fetching in
+the only place `use` is reached. D76 records the evidence and the sub-choice
+Q38 left unstated.
+
+**Embedding is deferred, not foreclosed.** A flag — `bund2 build --embed-use`
+or similar — becomes worth building when a program must carry its library, and
+takes the **source-text** form D76 fixes: the embedded file is still compiled
+when `use` runs, so a used file's parse errors stay where they are today rather
+than moving to build time. That is one call's distance, which is the shape D75
+chose for D68's crossing.
 
 ### §B8 — The gate
 
@@ -234,7 +268,7 @@ state as evaluating its source, which is what `conform` already compares.
 | Program meaning under a bundle | **Preserved exactly.** Same IR, same evaluator. Criterion 2 below makes it a measured claim. |
 | `MAX_WIRE_DEPTH` | **Preserved.** A program too deep to read back is refused at build time rather than written and lost. |
 | Word table and name resolver | **Preserved in full.** No tree-shaking; D16. |
-| `use` | **Undecided — Q38.** |
+| `use` | **Preserved exactly** — D76. Fetched and evaluated at run time, under D54's scheme set. Nothing embedded, nothing refused that the interpreter accepts. |
 
 ## Alternatives considered
 
@@ -282,9 +316,13 @@ Each names the tool that decides it and a threshold or a boolean outcome.
 
 ## Open questions
 
-- **Q38 — what `use` does in a built artefact.** OPEN; blocks §B7 and
-  criterion 2, since a corpus program that calls `use` cannot be bundled until
-  it is answered. Cross-referenced to D10, D16, D54.
+- **Q38 — answered by D76**, 2026-09-29: fetch at run time. It no longer
+  blocks §B7 or criterion 2. Left listed rather than deleted, because the
+  question was load-bearing for this RFC's scope and a reader tracing D76 back
+  should find it here.
+- **A flag that embeds `use` targets.** Deferred by D76 with its trigger and
+  its form both recorded. Not open in the register's sense: nothing is blocked
+  on it and no default is waiting to be adopted.
 - **The bundle's own versioning policy.** §B2 records the SHAs; what a runtime
   should *do* on a version it does not recognise — refuse, or read and warn —
   is not decided here and is smaller than a register entry until a second
