@@ -3944,6 +3944,63 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F144 — `$` is an alias no program can call, in the reference and in Bund2
+
+**An original-implementation defect, reproduced faithfully.** Found 2026-09-29
+while writing probes for the words `coverage` reports as implemented and run by
+no golden. It is recorded rather than fixed: Bund2 already behaves as the
+reference does, and the entry exists so the permanent gap in the coverage
+report has a reason attached to it.
+
+### The reproduction
+
+    5 return $ println
+
+| | result |
+|---|---|
+| oracle | `$ not registered` (by way of the empty name) |
+| Bund2 | `$ not registered` |
+
+### The mechanism
+
+`$` is registered as an alias for `take`
+(`reference/rust_multistackvm/src/stdlib/create_aliases.rs:36`), so every
+registry listing shows it — `bund2 words` prints it, and `coverage` counts it
+under IMPLEMENTED.
+
+It can never be reached. `VM::apply` tests the first character of a call's name
+**before** alias resolution, and routes anything starting with `$` to
+`call_internal_word`: "If function name starts with '$' we are forcing to call
+internal function without lambda check or alias resolution"
+(`reference/rust_multistackvm/src/multistackvm_apply.rs:30-35`).
+`call_internal_word` then strips that first character — `let fun_name =
+&name[1..]` — and looks up the remainder
+(`reference/rust_multistackvm/src/multistackvm_call_internal_word.rs:6-9`).
+
+For the bare `$` the remainder is the **empty string**, which is bound to
+nothing. The alias is shadowed by the sigil that its own spelling is made of,
+and no spelling reaches it: `$` gives the empty name, and `$take` gives `take`
+without consulting aliases at all.
+
+Bund2 separates the sigil in `Interner::intern_call` and `lookup_call`
+(`crates/bund2-api/src/lib.rs`, `intern_call`), which strips a leading `$` into
+a flag and interns the remainder — the same shape, reached by a different
+route, with the same result.
+
+### Why it is not fixed
+
+Making `$` resolve would be a deviation from the oracle with no golden asking
+for it, and the word it aliases (`take`) is covered. The cost is one
+permanently uncovered name in a report that already explains itself.
+
+### What it means for the coverage report
+
+`$` can never leave the "implemented but run by no golden" list, for the same
+class of reason as `<-` and `←` (F71: `stacks_left` is registered as a function
+and never inline, so the oracle errors on the aliases). Three of the eight
+names on that list as of 2026-09-29 are unreachable by construction rather than
+untested, and no probe can move them.
+
 ## F143 — a crossed callee rebound to a value-producing word reverses the stack
 
 **A Bund2 defect in shipped code, and it gives wrong answers silently.** Found

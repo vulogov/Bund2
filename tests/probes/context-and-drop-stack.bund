@@ -1,0 +1,51 @@
+//
+// PROBE: the context form and `drop_stack` — two words the corpus never runs.
+//
+// **A context is a stack with a lifetime.** `( ... )` is a grammar term
+// (reference/bund_language_parser/bund.pest:33), and the parser expands it
+// into a `Value::context()`, the terms, and a trailing call to `endcontext`
+// (reference/bund_language_parser/src/vm/ctx.rs:9-20). So `endcontext` is
+// never written by a program and is reached only this way.
+//
+// **What survives is exactly the top value, and it lands on the workbench.**
+// `stdlib_endcontext` pulls one value if the context's stack is non-empty and
+// pushes it *to the workbench*, then drops the stack and pops the stacks-stack
+// (reference/rust_multistackvm/src/stdlib/ctx.rs:5-26). Two consequences the
+// spelling does not suggest: anything beneath the top is discarded with the
+// stack, and the result is not on the stack afterwards — `take` brings it back.
+//
+// **`drop_stack` removes the current stack**, popping the deque's back and
+// erasing the entry under that name (reference/rust_multistack/src/ts_drop_stack.rs:10-22).
+// It is registered both as a function and inline
+// (reference/rust_multistack/src/stdlib/drop.rs:74-75), so unlike `stacks_left`
+// (F71) the bare word is reachable.
+//
+// **Three of this file's neighbours in the uncovered list cannot be probed at
+// all**, and they are named here so the gap is not mistaken for an omission:
+// `<-` and `←` alias `stacks_left`, which the reference registers as a function
+// and never inline (`rotate.rs:93`), so the oracle errors on them — F71; `$`
+// aliases `take` but every `$`-prefixed name is routed to `call_internal_word`,
+// which strips the first character and looks up the remainder without alias
+// resolution (reference/rust_multistackvm/src/multistackvm_apply.rs:30-35,
+// reference/rust_multistackvm/src/multistackvm_call_internal_word.rs:6-9), so
+// the bare `$` becomes the empty name in both implementations — F144.
+//
+"probe: a context yields its top value, on the workbench" println
+( 1 2 3 )
+take println
+// The stack is untouched by the context: 1 and 2 went with the dropped stack,
+// and 3 arrived via the workbench, not by being left behind.
+debug.display_stack
+clear
+"probe: a context whose stack ends empty yields nothing" println
+( 1 drop )
+"probe: contexts nest, and the inner result is taken inside the outer" println
+( ( 4 5 + ) take 10 * )
+take println
+"probe: drop_stack removes the current stack and the previous becomes current" println
+:scratch ensure_stack
+@scratch
+111
+current println
+drop_stack
+current println
