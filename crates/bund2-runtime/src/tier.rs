@@ -1263,6 +1263,59 @@ mod tests {
         assert_eq!(run(true), plain, "and the tier must agree, in that order");
     }
 
+    /// **D75's withdrawal holds, and the machinery it kept is still live.**
+    ///
+    /// D75 rejected *both* keeping the crossing in use and deleting its code:
+    /// the set stays empty in the shipped `Runtime`, while
+    /// `promotable::crossable` still builds and every gate still answers, so
+    /// that "restoring it is one call" stays true.
+    ///
+    /// Neither half of that was executable — the withdrawal was a call not
+    /// made, which nothing can observe, and the dormancy was a paragraph. This
+    /// test runs **one body** two ways. On the shipped runtime it must cross
+    /// nothing; on a runtime handed the table explicitly the same body must
+    /// cross something. Re-chaining `with_crossable` fails the first half;
+    /// letting the machinery rot while it is unused fails the second.
+    #[test]
+    fn the_shipped_runtime_crosses_nothing_and_the_table_still_works() {
+        declare_share();
+        // `noop` is `eff(0, 0)`, certified and unpublished (D72), which is the
+        // shape D68 crosses and D75 measured: the sum from `+` would be held in
+        // a register across the call rather than pushed and popped.
+        let body = ":w { 1 2 + noop drop } register\n";
+
+        let mut shipped = crate::Runtime::with_options_and_threshold(
+            &bund2_stdlib::host::HostOptions::default(),
+            Some(1),
+        );
+        shipped.eval_str(body).expect("setup runs");
+        for _ in 0..4 {
+            shipped.eval_str("w").expect("the entries run");
+        }
+        assert!(
+            shipped.compiled_bodies().unwrap_or(0) > 0,
+            "the body must compile, or neither half of this test says anything"
+        );
+        assert_eq!(
+            shipped.crossed_calls(),
+            Some(0),
+            "D75: the shipped runtime chains no `with_crossable`, so promotion \
+             syncs before every call"
+        );
+
+        let mut explicit = crossing_runtime_with(1);
+        explicit.eval_str(body).expect("setup runs");
+        for _ in 0..4 {
+            explicit.eval_str("w").expect("the entries run");
+        }
+        assert!(
+            explicit.crossed_calls().unwrap_or(0) > 0,
+            "and the same body crosses when the table is passed in, which is \
+             what makes the line above a withdrawal rather than a body nothing \
+             could cross"
+        );
+    }
+
     /// **The entry counter counts what ran, not what compiled.**
     ///
     /// §S7's threshold compiles a body *on* an entry and runs that entry

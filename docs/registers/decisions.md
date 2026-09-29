@@ -3557,6 +3557,25 @@ loop, or if a callee could be proven immutable for a body's lifetime. The
 arithmetic above is then different, and this decision is one call away from
 being undone.
 
+### Both halves are pinned by a test, 2026-09-29
+
+The two halves above were the two things nothing could observe. The withdrawal
+is a call **not** made, and a call not made leaves no trace; the dormancy was a
+paragraph promising the machinery still works while nothing exercised it in the
+shipped configuration.
+
+`the_shipped_runtime_crosses_nothing_and_the_table_still_works`
+(`crates/bund2-runtime/src/tier.rs`) runs one body —
+`:w { 1 2 + noop drop } register`, the operand-free shape this decision was
+measured on — two ways. On `Runtime::with_options_and_threshold` it must report
+**zero** crossed calls; on a runtime handed `promotable::crossable` explicitly
+the same body must report some. Re-chaining `with_crossable` fails the first
+half (verified: it reads `Some(1)` against `Some(0)`), and a body that could
+cross nothing at all fails the second, so neither half can pass vacuously.
+
+This does not change the decision. It makes "restoring it is one call" a
+statement a reader can check rather than take.
+
 ## D74 — §S7's promotion threshold is 1024, not 64
 
 **Decided by the repository owner, 2026-09-28**, on the option F139's §S7

@@ -6519,6 +6519,49 @@ evidence, and this one is listed as runnable rather than as met.
     residual-path value and `input*` — whose Tier 0 halves this row already
     records as Met.
 
+    ### Met, with the caller-is-a-native mirrors excluded as unreachable — 2026-09-29
+
+    The "Partially met" above is superseded, and it is kept because it is
+    accurate for its date: the blocker it names was a missing tier, and that
+    account stopped being the reason long before the row stopped being partial.
+
+    **Every case this row asks for is written.** `bund.exit` by its own name
+    and through the alias `exit`, each followed by a call and by an inlined `+`
+    (`a_compiled_exit_matches_tier_zero`,
+    `a_compiled_exit_in_tail_position_matches_tier_zero`, both in
+    `crates/bund2-jit/src/lower.rs`); §S5's status protocol from compiled code
+    (`a_recorded_exit_becomes_the_error_status`,
+    `an_error_is_not_replaced_by_the_refusal`,
+    `an_exit_clears_a_request_the_native_filed`); all four of the twelfth
+    review's B1 cases, the last of them
+    `a_body_below_the_tier_one_floor_declines_without_exiting`, writable once
+    F142's floor check was built; the cold exiting lambda
+    (`a_compiled_caller_of_a_cold_exiting_lambda_matches_tier_zero`,
+    `crates/bund2-runtime/src/tier.rs`); the `if`-branch differential across two
+    thresholds in one binary (`crates/bund2-cli/tests/exit_tier.rs`); and the
+    two probes, byte-identical with no tier and at `--jit-threshold 1`.
+
+    **Two of the thirteenth review's mirror cases are excluded rather than
+    owed**, and the distinction is the whole of this verdict. They ask for a
+    compiled body whose caller is a native — `map`, `?try`, the drained body,
+    the residual-path value, `input*` — and **no writing of them reaches
+    compiled execution**. §S7 compiles a body *on* an entry and runs that entry
+    interpreted, so an unconditional `exit` ends the program during the entry
+    that files the code, and the form just produced never runs;
+    `an_unconditional_exit_fires_on_the_entry_that_compiles_it` pins exactly
+    that. Making the exit conditional moves it into a lambda, which is a
+    different, cold body — the case already covered above. What remains to
+    write would compare Tier 0 against itself, which is F127's shape and the
+    trap two rows of this criterion already fell into.
+
+    **This is an exclusion on a stated mechanism, not a failure redefined
+    away**, and the difference is testable: it holds only while §S7 compiles on
+    an entry rather than ahead of one. **If that changes** — an ahead-of-entry
+    or background compile, which RFC-0006 may want — the mirrors become
+    writable and this row reopens. Nothing else reopens it, and the two counts
+    a reader should carry away are that every case with a reachable form is
+    written and that two have no reachable form at all.
+
 ## Open questions
 
 - **Q25 — what replaces the stack tag on `push`?** §S1 requires
