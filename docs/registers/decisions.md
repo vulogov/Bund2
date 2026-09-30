@@ -3533,6 +3533,125 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D80 — a bundle may carry the JIT, opt-in and never by default
+
+**Decided by the repository owner, 2026-09-29**: "yes, as an opt-in feature
+choice, never the default."
+
+- Blocks: RFC-0006 criteria 1, 2, 3 and 6, and §B4's `--features`
+- Depends on: D10, D40, D74, F139, RFC-0005 criterion 2, and
+  `docs/research/02-native-binaries.md` §1
+- Status: **RESOLVED — opt-in**, 2026-09-29.
+
+### The decision
+
+`bund2 build --emit=bundle` may ship a runtime built with the `jit` feature,
+**only when asked for**. The default carries no code generator, and that
+default is what a target Cranelift does not support receives.
+
+### This is not a deviation from D10, and that was worth checking
+
+RFC-0006's third review filed it as one. Read whole, D10's sentence describes a
+*case*: "`--emit=bundle` — runtime plus embedded IR, pure interpreter, no
+Cranelift and no `cc` — **is what a target outside
+x86-64/aarch64/s390x/riscv64 gets**". Its subject is the unsupported target,
+where a bundle is necessarily a pure interpreter.
+
+**The research D10 cites in that same sentence marks Cranelift optional for
+this product.** Its table gives Product A's "Contains Cranelift?" as "optional
+(for JIT tiering)" and its peak speed as "JIT-tier, after warmup", against
+Product B's bold "no"
+(`docs/research/02-native-binaries.md:38-42`). So the phrase constrains the
+fallback configuration, not the product.
+
+D77 departed from D10's "embedded IR" wording and said so. **This decision
+departs from nothing**; it records a reading.
+
+### Why opt-in rather than available
+
+**Size is the cost, and it is the one number nobody has.** The research calls
+`cranelift-codegen` with its ISLE tables "the single largest code contributor
+to any binary that embeds the JIT", and makes shedding it Product B's strongest
+argument — above speed. RFC-0006's criterion 1 is exactly that measurement, and
+**it only exists because this decision does**: `cargo bloat` on a bundle with
+and without `jit` is unmeasurable if a JIT bundle cannot be built, and without
+it `--emit=native` could never be justified.
+
+**The threshold makes it useless for short programs.** D74 set §S7's threshold
+to 1024, and F139 found that **no program in `tests/golden/HERMETIC.txt`
+compiles a single body even at 64**, "because they are demonstrations that run
+once". A JIT bundle of a one-shot script compiles nothing and pays only size.
+The benefit needs a program that crosses 1024 entries on one body.
+
+**Never the default, or D10's escape hatch inverts.** The reason
+`--emit=bundle` is mandatory is the targets Cranelift cannot serve; if the
+JIT-carrying bundle were the default they would have no default at all.
+
+### The conditions
+
+1. **The default carries no code generator**, and is the answer for
+   unsupported targets.
+2. **RFC-0005's criterion 2 holds per golden in both configurations.** A JIT
+   bundle adds two, and conformance must move by exactly zero in each — the
+   tier changes speed, not meaning, so any movement is a bug.
+3. **RFC-0006 §B4 states what a JIT bundle is for** — long-running programs —
+   with F139's finding as the reason, so nobody ships one for a script and
+   finds only that it is larger.
+4. **The prebuilt runtime matrix doubles**: per target, times jit/no-jit. §B1
+   already requires one runtime per target, and this multiplies it.
+
+## D79 — `--noeval` disables the eval function group, and is not a claim about evaluation
+
+**Decided by the repository owner, 2026-09-29**, on the question RFC-0006's
+third review raised: "`--noeval` mean disable eval functions."
+
+- Blocks: RFC-0006 §B3a's wording, and criterion 10's
+- Depends on: D76, D78, and the reference's own command line
+- Status: **RESOLVED — the group, as named**, 2026-09-29.
+
+### The decision
+
+`--noeval` disables the **`bund.eval` group of functions**. It is not a
+statement that a program evaluates nothing, and it is not to be described as
+one. Behaviour is unchanged, in Bund2 and against the oracle.
+
+**The reference's own help text is the definition**: `Disable bund.eval group
+of functions` (`reference/Bund/src/cmd/mod.rs:141-142`). Bund2 stubs exactly
+that group — `bund.eval`, `bund.eval.`, `use`, `use.`
+(`crates/bund2-stdlib/src/host.rs`, `register_noeval_stubs`).
+
+### What the third review found, and where the defect actually was
+
+The review reproduced `"40 2 +" compile lambda! !` printing `42` under
+`--noeval --noio`, on both binaries, because `compile` is registered
+unconditionally
+(`reference/Bund/src/stdlib/functions/bund/bund_interpreter.rs:76`). That
+reproduction is correct and worth keeping.
+
+**The defect it exposed was in RFC-0006's prose and in D78's amendment, not in
+the flag.** Both had described the flag as failing to "stop evaluation" — a
+promise the flag never made and its help text never implied. A group switch
+that disables its group is working.
+
+**So the reproduction stays and the framing changes.** RFC-0006 §B3a states
+which words the group contains and which paths remain reachable — `compile`,
+`lambda!`, `!` and, under `--noeval` alone, `url` — not as a shortfall but as
+the boundary of what the flag is for. This is what D78 asked for when it
+required each flag's ungated surface to be named.
+
+### Why the behaviour is not changed
+
+Making `--noeval` gate `compile` would deviate from the reference for a flag
+**no corpus program uses**, and it would not achieve what a reader might want
+anyway: D16 means a call target can be assembled at run time, so evaluation
+cannot be switched off by name-gating a word list. The honest artefact is one
+whose restrictions are documented exactly, which D78 requires and §B3a now
+does.
+
+**This closes the question D78's amendment left open** — "whether `--noeval`
+should be made to mean 'evaluates nothing' is a separate question and is not
+decided here." It is decided here: no.
+
 ## D78 — a bundle's restrictions have a build-time floor that run time may only tighten
 
 **Decided by the repository owner, 2026-09-29**, on RFC-0006's second review

@@ -5,12 +5,12 @@
   blockers; all three were reproduced against the code before this revision,
   and one is worse than it reported. §B2's deviation is **ruled on — D77**. A
   **second review** found one blocker, ruled on as D78. A **third** found two
-  more: `--noeval` does not stop evaluation, corrected in §B3a and amended into
-  D78; and **whether a bundle may carry the JIT has no decision behind it**,
-  which is open below.
+  more, both now ruled on: what `--noeval` means (**D79**) and whether a bundle
+  may carry the JIT (**D80**).
 - Depends on: RFC-0003 (the program stream and Tier 0), RFC-0005 (the
   Cranelift tier)
-- Decisions consumed: D10, D11, D16, D20, D40, D44, D54, D76, D77, D78, and
+- Decisions consumed: D10, D11, D16, D20, D40, D44, D54, D74, D76, D77, D78, D79,
+  D80, and
   decisions.md's "What this forecloses" clause on tree-shaking
 - Touched but not consumed: D1, D2, D36 — see the preservation table
 - Reference SHA: `reference/Bund` at `21b40b0`, `rust_dynamic` at `ceb27c9`,
@@ -341,16 +341,24 @@ which D78 requires and the second revision of this RFC gave for `--noio` only.
 in the reference and none here (`crates/bund2-stdlib/src/host.rs`, module
 documentation).
 
-**`--noeval` does not stop evaluation.** It stubs `bund.eval`, `use` and
-`use.`, and **`compile` is registered unconditionally**
+**`--noeval` disables the `bund.eval` group of functions — D79 — which is what
+its own help text says it does**: `Disable bund.eval group of functions`
+(`reference/Bund/src/cmd/mod.rs:141-142`). The group is `bund.eval`,
+`bund.eval.`, `use` and `use.` (`crates/bund2-stdlib/src/host.rs`,
+`register_noeval_stubs`).
+
+**It is not a claim that a program evaluates nothing**, and this RFC's second
+revision wrongly described it as failing to be one. `compile` is registered
+unconditionally
 (`reference/Bund/src/stdlib/functions/bund/bund_interpreter.rs:76`). So
 
     "40 2 +" compile lambda! ! println
 
 prints `42` under `--noeval --noio`. **Verified on both binaries** — Bund2 and
-the oracle at `21b40b0` agree — so this is the reference's gap, faithfully
-reproduced, not a Bund2 defect. `compile` parses a string to a LIST, `lambda!`
-makes it callable, `!` runs it, and none of the three is gated by anything.
+the oracle at `21b40b0` agree. `compile` parses a string to a LIST, `lambda!`
+makes it callable, `!` runs it, and none of the three is in the group the flag
+names. **That is the boundary of what the flag is for, not a shortfall in it**
+(D79), and naming it is what D78 requires.
 
 **So the earlier sentence "fetching is gated by `--noeval`, not `--noio`" was
 half wrong, and D78 repeats it.** `url`, `url.`, `file` and `file.` are
@@ -386,6 +394,24 @@ under a `grok` build and fails in a default-feature bundle — as an unknown wor
 names (it cannot, per D16). This is D40's feature gate seen from the artefact
 side. `bund2 build` therefore records in the trailer which features its runtime
 carries, and `--emit=bundle --features` selects among the runtimes it has.
+
+**A bundle may carry the JIT, opt-in and never by default — D80.** The default
+runtime carries no code generator, and that default is what a target Cranelift
+does not support receives; `--features jit` asks for the other one. No
+deviation from D10 was needed: that sentence describes what an unsupported
+target gets, and the research it cites marks Cranelift "optional (for JIT
+tiering)" for this very product
+(`docs/research/02-native-binaries.md:38-42`).
+
+**What a JIT bundle is for: programs that run long enough to reach the
+threshold.** D74 set §S7's threshold at 1024 entries of one body, and F139
+found that **no program in `tests/golden/HERMETIC.txt` compiles a single body
+even at 64** — "because they are demonstrations that run once". So a JIT bundle
+of a one-shot script **compiles nothing and pays only size**, and the size is
+the larger cost: `cranelift-codegen` with its ISLE tables is, per the research,
+the single largest contributor to any binary embedding the JIT. Criterion 1 is
+that measurement, and it exists only because D80 makes such a bundle
+buildable.
 
 ### §B5 — `--emit=native`, and what blocks it
 
@@ -521,7 +547,7 @@ implied.
 | Diagnostic file name | **Preserved** via the trailer's recorded source path (§B3), without which a bundle's stderr differs by construction and the CEILING moves. |
 | A syntax error's timing | **Deliberately changed**: found at build rather than at run (§B3). A build that wrote an unparseable program would move the error to whoever ran it. |
 | RFC-0005 criterion 30's excluded mirrors | **Reopened by `--emit=native`**, on that row's own stated trigger. Owed once the mode exists, not excluded. |
-| What `--noeval` stops | **Preserved exactly, including its gap.** It stubs `bund.eval`, `use` and `use.`; `compile` is ungated, so `compile lambda! !` still evaluates, on both binaries. §B3a names this. |
+| What `--noeval` stops | **Preserved exactly — D79.** It disables the `bund.eval` group: `bund.eval`, `bund.eval.`, `use`, `use.`. `compile` is not in the group, so `compile lambda! !` still evaluates, on both binaries. §B3a names the boundary. |
 | A damaged or absent trailer | **New surface, specified.** Four cases, all errors, none a panic (§B1, criterion 11). |
 | Bund2's own version | **Recorded in the trailer.** The pinned SHAs name the oracle, not the interpreter, so a builder/runtime skew would otherwise be undetectable. |
 | Code signing of the artefact | **[UNGROUNDED]** — §B1 appends bytes to a prebuilt executable, and nothing in this repository establishes whether a signed binary survives that. Q40. |
@@ -555,16 +581,19 @@ implied.
    a bundle runtime with and without `jit`, reported as a figure. No threshold:
    the number is an input to a decision.
 2. **Every bundled golden matches its source run, per golden and not in
-   total.** `cargo xtask conform` over bundles reports the **same pass/fail for
-   each golden** as the source run, and the same CEILING. A totals comparison
-   would let one new failure hide one new pass.
+   total, in both runtime configurations.** `cargo xtask conform` over bundles
+   reports the **same pass/fail for each golden** as the source run, and the
+   same CEILING, with the default runtime **and** with a `--features jit` one —
+   D80's second condition. A totals comparison would let one new failure hide
+   one new pass, and checking one configuration would leave RFC-0005 criterion
+   2's "exactly zero" untested exactly where D80 newly permits a tier.
 3. **A produced artefact contains no code generator.** Not `cargo tree`, which
    passes on today's default `bund2` and so checks nothing about a bundle:
    **`nm`/`strings` over the artefact `bund2 build` actually wrote**, finding
    no Cranelift symbol. Stated against the default configuration, since
    criterion 6 needs a runtime built *with* the JIT — the two are about
-   different artefacts, and whether a JIT-carrying bundle may exist at all is
-   open below.
+   different artefacts, and D80 permits the JIT-carrying one only when asked
+   for.
 4. **A bundle is produced with no C toolchain and no compiler.** Built in an
    environment with no `cc` **and no `rustc`**, which §B1 makes possible and is
    a stronger check than reading a dependency list.
@@ -626,13 +655,11 @@ implied.
   build-time floor in the trailer that run time may only tighten, and the word
   "sandbox" is ruled out because `--noio` leaves `args`, `sleep.seconds` and
   `io.graph` ungated and does not gate fetching at all.
-- **May a bundle carry the JIT?** The third review's blocker, and the RFC
-  cannot answer it. **D10 describes `--emit=bundle` as "runtime plus embedded
-  IR, pure interpreter, no Cranelift and no `cc`"** (`decisions.md`, D10), and
-  D77 approved a departure from the *"embedded IR"* phrase of that sentence
-  **only**. Criteria 1, 3 and 6 and §B4's `--features` all assume a bundle
-  runtime built with `jit`, and criterion 1's whole purpose is to weigh a
-  bundle with the feature against one without. **The owner's, and open.**
+- **May a bundle carry the JIT — answered by D80**, 2026-09-29: yes, opt-in and
+  never by default. **No deviation from D10 was needed**, which the third
+  review had assumed: that sentence describes what an unsupported target gets.
+- **What `--noeval` means — answered by D79**, 2026-09-29: the `bund.eval`
+  group, as its help text says. Behaviour unchanged; §B3a's framing corrected.
 - **Is parse-at-build a decision or a design call?** §B3 has `bund2 build`
   refuse a program that does not parse, and the preservation table files it as
   "deliberately changed" with nothing behind it. It moves when a syntax error
@@ -644,8 +671,10 @@ implied.
 - **Which targets get `--emit=native`.** s390x in particular is untestable
   here. For whoever takes §B8's gate.
 
-**Three reviews have found six blockers between them.** Four are answered in
-the design and three decisions are taken (D76, D77, D78). Two remain open and
-are listed first above, because a document that says nothing is open when
-something is has made the omission the reader's problem — which is what the
-second revision of this section did.
+**Three reviews have found six blockers between them, and all six are
+answered** — four in the design, the rest by D76, D77, D78, D79 and D80. What
+remains listed is one design call flagged for confirmation (parse-at-build),
+one ungrounded assumption (Q40), and one question for whoever takes §B8's
+gate. **No decision waits and no default is being adopted by omission** —
+stated carefully, because the second revision of this section claimed exactly
+that while two blockers were outstanding.
