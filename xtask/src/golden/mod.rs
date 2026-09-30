@@ -361,9 +361,7 @@ pub(crate) fn run_once(
     cwd: &Path,
     extra: &[String],
 ) -> Result<Run, String> {
-    use std::io::Read;
-
-    let mut child = std::process::Command::new(exe)
+    let child = std::process::Command::new(exe)
         .arg("script")
         .arg("--file")
         .arg(program_file)
@@ -383,6 +381,40 @@ pub(crate) fn run_once(
     // it reads as "the oracle hung" rather than "we never emptied the pipe".
     // `tests/probes/dt-reachable.bund` produces 69,747 bytes and was refused
     // that way. Recorded as F43.
+    drain(child)
+}
+
+/// Run an artefact that **is** the program — RFC-0006 §B3.
+///
+/// No `script`, no `--file`, and no arguments: a bundle's argv belongs to its
+/// program, so passing any would change what the program sees. The tier's
+/// threshold and the diagnostic switches reach a bundle through the
+/// environment instead, which is why `env` is a parameter here and `extra` is
+/// one in `run_once`.
+pub(crate) fn run_artifact_once(
+    exe: &Path,
+    cwd: &Path,
+    env: &[(String, String)],
+) -> Result<Run, String> {
+    let mut cmd = std::process::Command::new(exe);
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let child = cmd
+        .current_dir(cwd)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("spawning {}: {e}", exe.display()))?;
+    drain(child)
+}
+
+/// Drain both pipes, wait, normalise. Shared so that a bundle's output is
+/// compared after exactly the transformations a source run's output is.
+fn drain(mut child: std::process::Child) -> Result<Run, String> {
+    use std::io::Read;
+
     let mut out_pipe = child.stdout.take().ok_or("no stdout pipe")?;
     let mut err_pipe = child.stderr.take().ok_or("no stderr pipe")?;
     let out_handle = std::thread::spawn(move || {

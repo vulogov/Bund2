@@ -169,6 +169,30 @@ fn bund2_binary(repo: &Path, features: &str) -> Result<PathBuf, String> {
     crate::buildcli::bund2(repo, false, features)
 }
 
+/// `bund2 build --file <prepared> --output <artefact>` — RFC-0006 criterion 2.
+///
+/// **Through the real builder**, not by writing the container from here. A
+/// second implementation of the format in `xtask` would be a second thing to
+/// keep right, and it would stop this criterion from testing the builder at
+/// all — which is half of what it is for.
+fn build_bundle(bund2: &Path, program: &Path, artefact: &Path) -> Result<(), String> {
+    let out = std::process::Command::new(bund2)
+        .arg("build")
+        .arg("--file")
+        .arg(program)
+        .arg("--output")
+        .arg(artefact)
+        .output()
+        .map_err(|e| format!("spawning `bund2 build`: {e}"))?;
+    if out.status.success() {
+        return Ok(());
+    }
+    Err(format!(
+        "`bund2 build` refused this program: {}",
+        String::from_utf8_lossy(&out.stderr).trim()
+    ))
+}
+
 pub fn run(args: &[String]) -> Result<(), String> {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -193,6 +217,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let verbose = args.iter().any(|a| a == "-v" || a == "--verbose");
     let parse_only = args.iter().any(|a| a == "--parse-only");
     let blocked_on = args.iter().any(|a| a == "--blocked-on");
+    // **RFC-0006 criterion 2.** Runs every case as a *bundle* instead of as
+    // source: `bund2 build` writes an artefact from the same prepared program,
+    // and the artefact is executed with no arguments. Everything downstream —
+    // normalisation, the per-golden comparison, the deviations, the CEILING —
+    // is the code the source run uses, so a difference in the numbers is a
+    // difference in meaning and not in how it was measured.
+    let bundles = args.iter().any(|a| a == "--bundles");
     // `--accept-deviation <golden> --reason <ref>` records that Bund2 is
     // approved to disagree with a golden, and what it must produce instead.
     let mut accept_deviation: Option<String> = None;
@@ -202,7 +233,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
         match a.as_str() {
             "--accept-deviation" => accept_deviation = it.next().cloned(),
             "--reason" => reason = it.next().cloned(),
-            "--accept" | "-v" | "--verbose" | "--parse-only" | "--blocked-on" => {}
+            "--accept" | "-v" | "--verbose" | "--parse-only" | "--blocked-on"
+            | "--bundles" => {}
             other => return Err(format!("unknown argument `{other}`")),
         }
     }
@@ -260,7 +292,28 @@ pub fn run(args: &[String]) -> Result<(), String> {
         )
         .map_err(|e| format!("writing case copy: {e}"))?;
 
-        match golden::run_once(&bund2, &case_file, cwd, &threshold_args) {
+        // **The one difference between the two modes.** A bundle carries the
+        // program, so it is executed with no arguments and the threshold
+        // reaches it through the environment (§B3); a source run passes both
+        // on the command line.
+        let executed = if bundles {
+            let artefact = work.join("case.bundle");
+            let _ = std::fs::remove_file(&artefact);
+            match build_bundle(&bund2, &case_file, &artefact) {
+                Ok(()) => {
+                    let mut env: Vec<(String, String)> = Vec::new();
+                    if let Some(n) = jit_threshold {
+                        env.push(("BUND2_JIT_THRESHOLD".into(), n.to_string()));
+                    }
+                    golden::run_artifact_once(&artefact, cwd, &env)
+                }
+                Err(e) => Err(e),
+            }
+        } else {
+            golden::run_once(&bund2, &case_file, cwd, &threshold_args)
+        };
+
+        match executed {
             Ok(got) => {
                 // The scaffold exits 70 with a message. Distinguish that from
                 // a real mismatch so the report says "unimplemented", not
@@ -384,6 +437,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
         "\n  measured: {}",
         crate::buildcli::provenance_with(false, &features, jit_threshold)
     );
+    // **Say which artefact answered — RFC-0006 criterion 2.** A bundle run and
+    // a source run print the same shape of report, and a reader comparing two
+    // numbers has no other way to tell which is which. F124's lesson: a report
+    // that does not say what it measured invites the wrong conclusion.
+    if bundles {
+        println!("  as: `bund2 build` artefacts, executed with no arguments");
+    }
     if approved_hits.is_empty() {
         println!("  CONFORMANCE  {passed}/{total}\n");
     } else {

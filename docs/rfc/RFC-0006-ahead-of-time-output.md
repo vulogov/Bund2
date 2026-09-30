@@ -2,7 +2,8 @@
 
 - Status: **Draft**, and `--emit=bundle` is **built** as of 2026-09-30 —
   `crates/bund2-cli/src/bundle.rs` and `bund2 build`. Criteria 3, 5, 6, 10, 11
-  and 12 pass; 1, 2 and 13 are open work, and 7 is deferred behind §B5.
+  and 12 pass, and **criterion 2 is met in three configurations**; 1 and 13
+  are open work, and 7 is deferred behind §B5.
   Revised 2026-09-29 after the first adversarial review
   (`docs/rfc/reviews/RFC-0006-review-2026-09-29.md`). The review raised three
   blockers; all three were reproduced against the code before this revision,
@@ -658,12 +659,33 @@ implied.
    a bundle runtime with and without `jit`, reported as a figure. No threshold:
    the number is an input to a decision.
 2. **Every bundled golden matches its source run, per golden and not in
-   total, in both runtime configurations.** `cargo xtask conform` over bundles
-   reports the **same pass/fail for each golden** as the source run, and the
-   same CEILING, with the default runtime **and** with a `--features jit` one —
-   D80's second condition. A totals comparison would let one new failure hide
-   one new pass, and checking one configuration would leave RFC-0005 criterion
-   2's "exactly zero" untested exactly where D80 newly permits a tier.
+   total, in both runtime configurations.** `cargo xtask conform --bundles`
+   builds an artefact from each prepared program and executes it with no
+   arguments; everything downstream — normalisation, the per-golden
+   comparison, the deviations, the CEILING, the recorded baseline — is the code
+   the source run uses, so a difference in the numbers is a difference in
+   meaning and not in how it was measured.
+
+   **Met, 2026-09-30, in three configurations rather than the two asked for:**
+
+   | run | conformance | ceiling | failing |
+   |---|---|---|---|
+   | source, default | 107/116 (+9 approved) | 107/116 | none |
+   | **bundles, default** | **107/116 (+9)** | **107/116** | **none** |
+   | **bundles, `--features jit`** | **107/116 (+9)** | **107/116** | **none** |
+   | **bundles, `jit` at threshold 1** | **107/116 (+9)** | **107/116** | **none** |
+
+   Threshold 1 is beyond the criterion and is where it is worth most: every
+   body compiles on its first evaluation, so it is the strongest statement the
+   corpus can make about compiled code in an artefact preserving meaning.
+
+   **The nine deviations matching is the sharper half of this result.** An
+   approved deviation is judged against a recorded hash of Bund2's output, so
+   each of those rows says a bundle produced **byte-identical** output, not
+   merely a passing comparison.
+
+   A totals comparison would let one new failure hide one new pass; zero
+   failures in both modes makes the per-golden sets equal by construction.
 3. **A produced artefact contains no code generator.** Not `cargo tree`, which
    passes on today's default `bund2` and so checks nothing about a bundle:
    **`nm`/`strings` over the artefact `bund2 build` actually wrote**, finding
