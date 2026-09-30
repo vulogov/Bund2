@@ -181,17 +181,42 @@ appended — the unmodified control died the same way (`rc=137`). That is
 Gatekeeper requiring notarisation, which is orthogonal to this design, except
 that notarisation needs a valid signature and appending precludes one.
 
-**So the payload goes inside the image, not after it.** The prebuilt runtime
-reserves a fixed-capacity payload region, and `bund2 build` writes into it
-**without changing the file's size or layout**; signing, when wanted, happens
-afterwards and outside `bund2 build`, so D10 is untouched — the build still
-requires no toolchain. The cost is a capacity ceiling, which the trailer
-records along with the used length, and a program larger than it is refused at
-build with both numbers named.
+**So the payload goes inside the image, not after it** — the prebuilt runtime
+reserves a fixed-capacity region, **1 MiB on the owner's ruling**, and
+`bund2 build` writes into it without changing the file's size or layout. The
+cost is a capacity ceiling, which the region records along with the used
+length, and a program larger than it is refused at build with both numbers
+named.
 
-**Appending remains the fallback where nothing enforces a signature**, and the
-two forms are distinguished by the trailer's magic, so the runtime finds a
-payload either way.
+**The in-place form does not run until it is signed again, and the first
+version of this section had that backwards.** It said signing "happens
+afterwards … so D10 is untouched", as though it were optional. Building the
+thing showed otherwise, on 2026-09-30:
+
+| form | runs unsigned | validates | after `codesign -f -s -` |
+|---|---|---|---|
+| appended | **yes** | no | still no |
+| in place | **no — SIGKILL** | no | **yes: runs and validates** |
+
+The signature covers the bytes `bund2 build` writes, so an unsigned in-place
+edit is not a validation warning — the kernel refuses to execute it, and a
+bundle produced this way exits 137 with no output. **An ad-hoc re-sign restores
+both properties**, which is what makes a later Developer ID signature and
+notarisation possible at all. So `bund2 build` re-signs on macOS, and
+`crates/bund2-cli/tests/bundle_build.rs` holds it there.
+
+**Whether that spends D10 is the owner's to confirm.** `/usr/bin/codesign` is a
+base-system binary — root-owned, on the root volume, not under Xcode — rather
+than a toolchain install, which is a different thing from the `cc` D10 forbids
+below `bund2 build`. It is listed in the open questions rather than assumed,
+and until it is settled the build reports plainly instead of writing an
+artefact that cannot run.
+
+**Appending is what the alternative would be**: toolchain-free and immediately
+runnable, at the price of an artefact that can never be signed or notarised on
+macOS. It is not implemented, because an unsignable artefact is a worse default
+than one system tool, and because supporting both forms would mean the runtime
+reading its own executable — the failure class the region was chosen to avoid.
 
 **What was not tested, and is not claimed.** A Developer-ID-signed and
 notarised binary — there is no signing identity in this repository. Linux and
@@ -717,11 +742,17 @@ implied.
   refuse a program that does not parse, and the preservation table files it as
   "deliberately changed" with nothing behind it. It moves when a syntax error
   is found, which is observable. Flagged rather than assumed.
-- **Q40 — answered by measurement**, 2026-09-30: appending leaves a macOS arm64
-  binary runnable but permanently unvalidatable, and re-signing does not repair
-  it, so §B1 now writes the payload into a reserved region inside the image.
-  Two limits remain unmeasured and are stated as such in §B1: a Developer-ID
-  notarised binary, and the ELF and PE cases.
+- **Q40 — answered by measurement**, 2026-09-30, then corrected by building it:
+  appending runs but can never validate; **in place does not run at all until
+  re-signed**, and then does both. §B1 carries the table. Two limits remain
+  unmeasured and are stated there: a Developer-ID notarised binary, and the ELF
+  and PE cases.
+- **May `bund2 build` invoke `/usr/bin/codesign` on macOS?** Required for the
+  artefact to run at all, and a base-system binary rather than a toolchain — but
+  D10's toolchain-free half is load-bearing by its own words, so this is
+  **the owner's** and is open. Nothing else in the design depends on the
+  answer; a "no" makes appending the form, at the cost of an artefact that
+  cannot be notarised.
 - **Which targets get `--emit=native`.** s390x in particular is untestable
   here. For whoever takes §B8's gate.
 

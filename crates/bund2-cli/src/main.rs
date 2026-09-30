@@ -17,6 +17,8 @@
 
 use std::process::ExitCode;
 
+mod bundle;
+
 use bund2_api::Vm;
 use bund2_interp::Interp;
 
@@ -80,6 +82,27 @@ fn main() -> ExitCode {
 
 fn run_cli() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+
+    // **Is this binary a bundle? — RFC-0006 §B1.** Asked of its own image, not
+    // of a file: the region is a `static`, so a bundle never has to find its
+    // own executable to know what it is.
+    //
+    // **Before every other arm, including `build`.** A bundle is the program,
+    // so all of argv belongs to it (§B3) — a bundle whose program's first
+    // argument happened to be `words` must not print the word table.
+    match bundle::carried() {
+        Ok(Some(carried)) => return run_carried(&carried, args),
+        Ok(None) => {}
+        Err(damaged) => {
+            eprintln!("bund2: {damaged}");
+            return ExitCode::FAILURE;
+        }
+    }
+
+    // `bund2 build --file <src> --output <path>` — RFC-0006.
+    if args.first().map(String::as_str) == Some("build") {
+        return build(&args);
+    }
     // `bund2 words` — every name a program can call, one per line.
     //
     // Not a language feature: it is the join key `cargo xtask coverage` needs.
@@ -420,6 +443,192 @@ fn locate(src: &str, file: &str, span: bund2_syntax::Span) -> bund2_api::diag::L
 
 /// Run a program, reporting anything that goes wrong through the reporter.
 ///
+/// Run the program this binary carries — RFC-0006 §B1 and §B3.
+///
+/// **All of argv reaches the program.** None of the CLI's own flags is read
+/// here: a bundle that swallowed `--stats` would shadow one of its program's
+/// arguments. The diagnostic flags come from the environment instead
+/// (§B3), and so do D78's restrictions.
+fn run_carried(carried: &bundle::Carried, argv: Vec<String>) -> ExitCode {
+    // **D78: the trailer is a floor and the environment may only tighten it.**
+    // An environment variable that could clear a restriction would not be a
+    // restriction, and the artefact would still report itself as built with
+    // one — the failure RFC-0006 criterion 10 exists to catch. So these are
+    // `|=`, never `=`.
+    let host = bund2_stdlib::host::HostOptions {
+        noio: carried.flags & bundle::FLAG_NOIO != 0 || env_set("BUND2_NOIO"),
+        noeval: carried.flags & bundle::FLAG_NOEVAL != 0 || env_set("BUND2_NOEVAL"),
+        nocolor: env_set("BUND2_NOCOLOR"),
+    };
+
+    let args = Args {
+        // The path `bund2 build` was given, so a diagnostic from a bundle
+        // names the file a `script` run of the same program would name.
+        file: carried.name.clone(),
+        host,
+        script_args: argv,
+        dump_stack: !env_set("BUND2_NO_DUMP_STACK"),
+        raw_values: env_set("BUND2_RAW_VALUES"),
+        stats: env_set("BUND2_STATS"),
+        jit_threshold: None,
+    };
+    bund2_stdlib::host::set_args(args.script_args.clone());
+    match run(&carried.source, &args) {
+        Some(code) => ExitCode::from(u8::try_from(code.rem_euclid(256)).unwrap_or(1)),
+        None => ExitCode::SUCCESS,
+    }
+}
+
+/// `BUND2_*` switches: set and not `0` or empty.
+fn env_set(name: &str) -> bool {
+    match std::env::var(name) {
+        Ok(v) => !v.is_empty() && v != "0",
+        Err(_) => false,
+    }
+}
+
+/// `bund2 build --file <src> --output <path> [--noio] [--noeval]`.
+///
+/// **Parses before it writes** (RFC-0006 §B3): a syntax error is a build
+/// error, so it belongs to whoever built the artefact rather than to whoever
+/// ran it. The parse result is then discarded — the artefact parses again at
+/// start-up, which is what keeps §B2's preservation exact.
+fn build(args: &[String]) -> ExitCode {
+    let value = |flag: &str| args.iter().skip_while(|a| *a != flag).nth(1).cloned();
+    let Some(src_path) = value("--file") else {
+        eprintln!("bund2: expected: bund2 build --file <path> --output <path>");
+        return ExitCode::from(2);
+    };
+    let Some(out_path) = value("--output").or_else(|| value("-o")) else {
+        eprintln!("bund2: expected: bund2 build --file <path> --output <path>");
+        return ExitCode::from(2);
+    };
+    let src = match std::fs::read_to_string(&src_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("bund2: reading {src_path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    // The parse, discarded on success and reported on failure.
+    if let Err(e) = bund2_syntax::parse(&src) {
+        let loc = locate(&src, &src_path, e.span);
+        eprintln!("bund2: {src_path}:{}:{}: {}", loc.line, loc.column, e.what);
+        eprintln!("bund2: nothing was written");
+        return ExitCode::FAILURE;
+    }
+
+    let mut flags = 0u8;
+    if args.iter().any(|a| a == "--noio") {
+        flags |= bundle::FLAG_NOIO;
+    }
+    if args.iter().any(|a| a == "--noeval") {
+        flags |= bundle::FLAG_NOEVAL;
+    }
+
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("bund2: cannot locate this executable to copy: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let mut image = match std::fs::read(&exe) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("bund2: reading {}: {e}", exe.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    if let Err(e) = bundle::write_into(
+        &mut image,
+        &src,
+        &src_path,
+        flags,
+        env!("CARGO_PKG_VERSION"),
+    ) {
+        eprintln!("bund2: {e}");
+        return ExitCode::FAILURE;
+    }
+    if let Err(e) = std::fs::write(&out_path, &image) {
+        eprintln!("bund2: writing {out_path}: {e}");
+        return ExitCode::FAILURE;
+    }
+    if let Err(e) = make_executable(&out_path) {
+        eprintln!("bund2: {out_path} was written but is not executable: {e}");
+        return ExitCode::FAILURE;
+    }
+    if let Err(e) = reseal(&out_path) {
+        eprintln!("bund2: {e}");
+        return ExitCode::FAILURE;
+    }
+    eprintln!(
+        "bund2: wrote {out_path} — {} of {} bytes used",
+        src.len(),
+        bundle::CAPACITY
+    );
+    ExitCode::SUCCESS
+}
+
+/// Re-sign the artefact, where the platform requires it — **measured, 2026-09-30.**
+///
+/// On macOS a binary's signature covers the bytes `bund2 build` just wrote, so
+/// the artefact is **killed with SIGKILL** until it is signed again: not a
+/// validation warning, a refusal to execute. An ad-hoc re-sign restores both —
+/// it runs, and `codesign -v` reports no error, which is what makes a later
+/// Developer ID signature and notarisation possible at all.
+///
+/// `/usr/bin/codesign` is a base-system binary rather than a toolchain
+/// install, which is why this is not the `cc` dependency D10 forbids below
+/// `bund2 build`. **The boundary is the repository owner's to confirm**, and
+/// until it is this reports plainly rather than silently producing an artefact
+/// that cannot run.
+///
+/// Nothing to do on platforms with no whole-file signature: ELF and PE carry
+/// none by default, so the bytes just written are the bytes that run.
+#[cfg(target_os = "macos")]
+fn reseal(path: &str) -> Result<(), String> {
+    let out = std::process::Command::new("/usr/bin/codesign")
+        .args(["-f", "-s", "-", path])
+        .output()
+        .map_err(|e| {
+            format!(
+                "{path} was written but could not be signed: /usr/bin/codesign did not run \
+                 ({e}). On macOS an unsigned edit to a binary is killed rather than run, so \
+                 the artefact would not execute."
+            )
+        })?;
+    if out.status.success() {
+        return Ok(());
+    }
+    Err(format!(
+        "{path} was written but codesign refused it: {}. The artefact would be killed \
+         rather than run.",
+        String::from_utf8_lossy(&out.stderr).trim()
+    ))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn reseal(_path: &str) -> Result<(), String> {
+    Ok(())
+}
+
+/// Give the artefact the mode this binary has, so it can be run.
+#[cfg(unix)]
+fn make_executable(path: &str) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut perm = std::fs::metadata(path)
+        .map_err(|e| format!("reading the mode of {path}: {e}"))?
+        .permissions();
+    perm.set_mode(perm.mode() | 0o111);
+    std::fs::set_permissions(path, perm).map_err(|e| format!("setting the mode of {path}: {e}"))
+}
+
+#[cfg(not(unix))]
+fn make_executable(_path: &str) -> Result<(), String> {
+    Ok(())
+}
+
 /// Returns the code a word asked to exit with (D52), if one did. **A failure
 /// is not an error exit**:
 /// the reference prints its report and exits 0
