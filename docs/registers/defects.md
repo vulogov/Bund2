@@ -2765,10 +2765,53 @@ Bund2 differs on all three:
 **Not observable today**: nothing in Bund2 binds `:` or `;`, which are what set
 and clear the flag (`reference/rust_multistackvm/src/stdlib/autoadd.rs:28-29`).
 
-**Status:** OPEN. To be fixed when `:` and `;` are bound — the collecting
-append needs `Value::push`'s semantics for every kind of receiver — and the
-test rewritten then to assert the reference's shape. Found by RFC-0005's sixth
-review (S1).
+**Status:** **FIXED, 2026-09-30** — `:` and `;` are bound, and all three
+divergences are gone. Found by RFC-0005's sixth review (S1).
+
+### What the fix took
+
+`BundValue::push` did not exist and is the substance of it
+(`crates/bund2-value/src/lib.rs`, `push`). It is misnamed in the reference in a
+way worth restating: on a container it appends, and **on anything else it
+replaces the receiver entirely**, returning the operand with the receiver's `q`
+and a fresh identity and stamp (`reference/rust_dynamic/src/push.rs:143-149`).
+Confirmed against the oracle: `5 : 1 2 ;` leaves `2`.
+
+Four of its arms **silently discard** the operand, which is faithful and reads
+like a bug: a JSON value that is not an array, a non-LIST pushed onto a MATRIX,
+a non-FLOAT onto METRICS, and a non-string, non-BIN onto BIN. METRICS is also a
+fixed-size ring — the arm appends and then `remove(0)`s (`push.rs:126`).
+
+The three sites now match the oracle, each checked against it: a CALL appended
+into the value beneath leaving **one** value; a CONTEXT **pushed** rather than
+switched to or appended; every other value appended, literals included. The
+CONTEXT asymmetry has a consequence worth knowing — the collector stops being
+the top of the stack, so what follows appends into the CONTEXT instead.
+
+`autoadd_appends_the_name_instead_of_running_it` is replaced by
+`autoadd_appends_the_name_into_the_value_beneath`, which asserts the
+one-value shape, plus three new tests for the replace arm, literal collection
+and the CONTEXT asymmetry.
+
+### A stated deviation: the fresh identity and stamp
+
+`push`'s `_` arm mints an id and a stamp eagerly. **D1** made Bund2's id lazy
+and **D2** made the stamp observation-time, itself an approved deviation, so
+"fresh" is expressed here as **left unset** — the cells are reset to zero and
+derived on first observation. The observable property the reference has is
+preserved: the result shares identity with neither operand.
+
+### What it exposed, which is the more useful half
+
+**Compiled code did not honour `autoadd` for promoted literals**, and both
+tiers agreeing hid it: Tier 0 did not collect literals either. With Tier 0
+corrected, the three `autoadd` differentials in `crates/bund2-jit/src/lower.rs`
+failed with Tier 0 at depth 1 and compiled code at depth 3. This is exactly
+what this entry meant by "Tier 0 is not an oracle for `autoadd`", and it voids
+`b0cbd3f`'s conclusion that the unread `autoadd` cell after calls was benign —
+that rested on nothing being able to set it.
+
+See RFC-0005 criterion 18 for what is built and what is not.
 
 ## F85 — recursion through a loop word aborts Tier 0 on the machine stack
 

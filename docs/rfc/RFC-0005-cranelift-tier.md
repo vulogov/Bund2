@@ -5632,6 +5632,30 @@ evidence, and this one is listed as runnable rather than as met.
     captured when they are bound — capturing it now would add a golden Tier 0
     cannot pass — and F84 is fixed with them.
 
+    **Partially met, 2026-09-30 — the entry half is built, the after-a-call
+    half is not.** F84's blocker is gone: `:` and `;` are bound, Tier 0
+    collects as the oracle does, and Tier 0 is now an oracle for this.
+
+    **Built: entry declines under the collecting mode.** The trampoline loads
+    `Cells::autoadd` beside §S8's floor compare and answers `DECLINED`, so
+    Tier 0 runs the body. That is sound because compiled code pushes a promoted
+    literal straight to the stack without reaching `Vm::apply`, where the
+    append lives — so a body running under the mode would push where Tier 0
+    appends. **This is what the three `autoadd` differentials caught** once
+    Tier 0 was corrected: depth 1 against depth 3.
+
+    **Not built: the read after every call.** §S5 requires `autoadd` to be
+    loaded "after every call" beside the request cell, and only the request
+    half exists. So a body already running when `:` sets the mode keeps its
+    promoted registers and would push rather than append. **Reachable**: a body
+    that calls `:` and then applies a literal. Not covered by any golden, and
+    stated here rather than left to be discovered.
+
+    `b0cbd3f` concluded that the unread `autoadd` cell after calls was benign.
+    That conclusion is void — it rested on nothing being able to set the mode.
+
+    The note below is what was true while `:` and `;` were unbound.
+
     **Deferred, 2026-09-14 — the blocker above is still in force.** An audit
     on this date first recorded this row as **met**, citing
     `a_compiled_word_honours_autoadd_because_apply_does` and

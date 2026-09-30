@@ -1112,7 +1112,55 @@ fn hamming(vm: &mut dyn Vm) -> Result<(), Error> {
     }
 }
 
+/// `:` — **enable the collecting mode**
+/// (`reference/rust_multistackvm/src/stdlib/autoadd.rs:5-14`).
+///
+/// Two guards, both preserved. It refuses when the mode is **already on** —
+/// "You can not nest autocollection" — and it refuses on an **empty current
+/// stack**, because collecting appends into the value on top and there must be
+/// one to append into.
+fn autoadd_enable(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.autoadd() {
+        return Err(Error("You can not nest autocollection".into()));
+    }
+    if vm.depth() < 1 {
+        return Err(Error("Stack is too shallow for autocollection".into()));
+    }
+    vm.set_autoadd(true);
+    Ok(())
+}
+
+/// `;` — **disable the collecting mode** (`autoadd.rs:16-25`).
+///
+/// **The same message as `:`, which is wrong for this direction and is
+/// preserved.** Called while the mode is off, the reference says "You can not
+/// nest autocollection" — there is no nesting involved, and a program that
+/// depends on the text depends on that wording.
+fn autoadd_disable(vm: &mut dyn Vm) -> Result<(), Error> {
+    if !vm.autoadd() {
+        return Err(Error("You can not nest autocollection".into()));
+    }
+    if vm.depth() < 1 {
+        return Err(Error("Stack is too shallow for autocollection".into()));
+    }
+    vm.set_autoadd(false);
+    Ok(())
+}
+
 pub fn register(r: &mut Registry) {
+    // **`:` and `;` are commands, not natives** — the reference registers them
+    // with `register_command` (`autoadd.rs:28-29`), and D16 records the
+    // resolution order as "command, then `$`-forced internal, then alias, then
+    // lambda, then inline". A command therefore cannot be shadowed by a
+    // `register`ed lambda, which is what makes `;` reachable while the mode it
+    // turns off is changing how every other value is applied.
+    //
+    // **`eff(0, 0)`**: neither word touches the stack. Both *read* its depth,
+    // which is Q34's shape — a guard on depth is not a consumption — and both
+    // leave it exactly as they found it.
+    r.register_command(":", autoadd_enable, eff(0, 0), WordKind::Sync);
+    r.register_command(";", autoadd_disable, eff(0, 0), WordKind::Sync);
+
     r.register_native("pair", pair, eff(2, 1), WordKind::Sync);
     // **F18's fourteen, declared at the probed arity.** Each guards `< 1` in
     // the reference and pulls two, so `1 head` there reports `NO DATA #2` on

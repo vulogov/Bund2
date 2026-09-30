@@ -669,6 +669,165 @@ impl BundValue {
         BundValue::Heap(Rc::new(next))
     }
 
+    /// `Value::push` — **append into a container, or replace a scalar**
+    /// (`reference/rust_dynamic/src/push.rs:7-152`).
+    ///
+    /// This is what `autoadd` collects with, and the name is misleading in a
+    /// way worth stating once: on a container it appends, and **on anything
+    /// else it replaces the receiver entirely**. The `_` arm returns the
+    /// operand carrying the *receiver's* `q` and a fresh identity and stamp
+    /// (`push.rs:143-149`), so `5 : 1 ;` leaves `1`, not `5` and not `[5, 1]`.
+    ///
+    /// **Four arms silently discard the operand**, which is faithful and easy
+    /// to mistake for a bug: a JSON value that is not an array, a non-LIST
+    /// pushed onto a MATRIX (`push.rs:57-65` adds a row only for a LIST), a
+    /// non-FLOAT onto METRICS, and a non-string, non-BIN onto BIN. Each
+    /// returns the receiver unchanged.
+    ///
+    /// **METRICS is a fixed-size ring**: the arm appends and then
+    /// `remove(0)`s (`push.rs:126`), so a push neither grows it nor keeps the
+    /// oldest sample.
+    ///
+    /// Arms for `RESULT`, `QUEUE`, `FIFO` and `BIN` are absent because Bund2
+    /// has no such `dt`; those receivers cannot arise, and the `_` arm would
+    /// cover them if they did.
+    pub fn push(&self, value: BundValue) -> BundValue {
+        match self.dt() {
+            LIST => match self.as_list() {
+                Some(items) => {
+                    let mut next = items.to_vec();
+                    next.push(value);
+                    BundValue::list(next)
+                }
+                // The reference's inner `match` falls through to an empty
+                // vector when the payload does not match the `dt`, and returns
+                // a LIST built from it (`push.rs:38-49`).
+                None => BundValue::list(Vec::new()),
+            },
+            MATRIX => {
+                let mut rows: Vec<Vec<BundValue>> = self
+                    .as_matrix()
+                    .map(<[Vec<BundValue>]>::to_vec)
+                    .unwrap_or_default();
+                // **A row, or nothing.** Only a LIST becomes a row; anything
+                // else is dropped and the matrix comes back a copy.
+                if value.dt() == LIST
+                    && let Some(row) = value.as_list()
+                {
+                    rows.push(row.to_vec());
+                }
+                BundValue::matrix(rows)
+            }
+            LAMBDA => match self.as_lambda() {
+                Some(body) => {
+                    let mut next = body.to_vec();
+                    next.push(value);
+                    BundValue::lambda(next)
+                }
+                None => BundValue::lambda(Vec::new()),
+            },
+            TEXTBUFFER => {
+                // `text_buffer(self) + value`, which for a TEXTBUFFER receiver
+                // concatenates and stays a TEXTBUFFER
+                // (`reference/rust_dynamic/src/math.rs:240-262`).
+                let mut text = self.as_str().unwrap_or_default();
+                text.push_str(&value.render_for_concat());
+                BundValue::textbuffer(text)
+            }
+            JSON => match (self.as_json(), value.as_json_operand()) {
+                (Some(serde_json::Value::Array(mut items)), Some(j)) => {
+                    items.push(j);
+                    BundValue::json(serde_json::Value::Array(items))
+                }
+                // Not an array, or an operand that will not convert: the
+                // reference returns the receiver (`push.rs:12-30`).
+                _ => self.clone(),
+            },
+            METRICS => match (self.as_metrics(), value.as_float_exact()) {
+                (Some(samples), Some(f)) => {
+                    let mut next = samples.to_vec();
+                    next.push(Metric::new(f));
+                    if !next.is_empty() {
+                        next.remove(0);
+                    }
+                    BundValue::metrics(next)
+                }
+                _ => self.clone(),
+            },
+            _ => self.replaced_by(value),
+        }
+    }
+
+    /// `push`'s `_` arm: the operand with the receiver's `q`, a fresh identity
+    /// and a fresh stamp (`reference/rust_dynamic/src/push.rs:143-149`).
+    ///
+    /// **`with_q` is not enough.** It clones the heap value, and a clone
+    /// carries the identity and stamp cells with it — so a value already
+    /// observed would keep its old identity, where the reference mints a new
+    /// one. The cells are reset here, which only code inside this module can
+    /// do.
+    ///
+    /// **An unboxed operand stays unboxed when the `q`s agree**, which they do
+    /// for every constructor but `none`. Boxing it would cost Tier 0's
+    /// fragment admission — `Guard::TopAreInt` matches `BundValue::Int` and
+    /// nothing else — for no observable gain, since a fresh identity and stamp
+    /// are exactly what an unminted value has.
+    fn replaced_by(&self, value: BundValue) -> BundValue {
+        let q = self.q();
+        if value.q() == q {
+            return value;
+        }
+        let h = value.into_heap();
+        let mut next = (*h).clone();
+        next.q = q;
+        next.identity = Cell::new(0);
+        next.stamp = Cell::new(0.0);
+        BundValue::Heap(Rc::new(next))
+    }
+
+    /// How a value reads when concatenated onto a TEXTBUFFER
+    /// (`reference/rust_dynamic/src/math.rs:240-262`, the three `string_op_*`
+    /// helpers).
+    fn render_for_concat(&self) -> String {
+        match self {
+            BundValue::Int(i, _) => i.to_string(),
+            BundValue::Float(f, _) => f.to_string(),
+            _ => self.as_str().unwrap_or_else(|| self.display()),
+        }
+    }
+
+    /// A FLOAT operand's value, and **only** a FLOAT's.
+    ///
+    /// The METRICS arm tests `value.dt != FLOAT` and returns the receiver
+    /// otherwise (`reference/rust_dynamic/src/push.rs:114-116`), so an integer
+    /// is discarded rather than widened.
+    fn as_float_exact(&self) -> Option<f64> {
+        if self.dt() != FLOAT {
+            return None;
+        }
+        match self {
+            BundValue::Float(f, _) => Some(*f),
+            BundValue::Heap(h) => match &*h.payload {
+                Payload::Scalar(BundValue::Float(f, _)) => Some(*f),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// The operand as JSON, for the JSON arm's `cast_value_to_json`.
+    fn as_json_operand(&self) -> Option<serde_json::Value> {
+        if let Some(j) = self.as_json() {
+            return Some(j);
+        }
+        match self {
+            BundValue::Int(i, _) => Some(serde_json::Value::from(*i)),
+            BundValue::Float(f, _) => serde_json::Number::from_f64(*f).map(serde_json::Value::Number),
+            BundValue::Bool(b, _) => Some(serde_json::Value::Bool(*b)),
+            _ => self.as_str().map(serde_json::Value::String),
+        }
+    }
+
     /// Set the tags wholesale. Used to reconstruct a captured rendering.
     pub fn with_tags(self, tags: Tags) -> Self {
         let h = self.into_heap();

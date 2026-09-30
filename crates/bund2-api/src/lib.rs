@@ -333,6 +333,21 @@ pub trait Vm {
     fn pull(&mut self) -> Option<BundValue>;
     fn depth(&self) -> usize;
     fn peek(&self) -> Option<BundValue>;
+
+    // --- `autoadd`, the collecting mode -----------------------------------
+    /// Is the collecting mode on? `:` sets it and `;` clears it
+    /// (`reference/rust_multistackvm/src/stdlib/autoadd.rs:28-29`).
+    ///
+    /// **Required rather than defaulted.** A default of `false` would let an
+    /// embedder's `Vm` silently answer "no" while `:` had been called, and the
+    /// collecting branch in `apply` would then push where it should append —
+    /// the divergence F84 recorded. An implementor has to say.
+    fn autoadd(&self) -> bool;
+    /// Set the collecting mode. **The only path a word may use.**
+    ///
+    /// An implementation must also update RFC-0005 §S6's mirror cell, or
+    /// compiled code reads a stale flag after the mode changes.
+    fn set_autoadd(&mut self, on: bool);
     /// The value `n` places below the top; `n == 0` is [`Vm::peek`].
     ///
     /// A fragment guard asks about the top few values and nothing else
@@ -1687,6 +1702,11 @@ mod tests {
     /// by accident.
     struct NoVm;
     impl Vm for NoVm {
+        fn autoadd(&self) -> bool {
+            false
+        }
+        fn set_autoadd(&mut self, _on: bool) {}
+
         fn push(&mut self, _: BundValue) {}
         fn pull(&mut self) -> Option<BundValue> {
             None

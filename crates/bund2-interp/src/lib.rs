@@ -860,16 +860,21 @@ impl Interp {
                 self.call_native(s, n)
             }
             _ if self.autoadd() => {
-                // `apply` appends the name to the value beneath it rather than
-                // executing (`:20-27`). The name is what a `CALL` carries, so
-                // this needs the interner — which is why `autoadd` is a
-                // dispatch concern and not a resolution one.
+                // **The CALL is appended *into* the value beneath, leaving one
+                // value** (`reference/rust_multistackvm/src/multistackvm_apply.rs:19-22`):
+                // `pull`, `val.push(value)`, `push`. The name is what a CALL
+                // carries, so this needs the interner — which is why `autoadd`
+                // is a dispatch concern and not a resolution one.
+                //
+                // **F84 was this arm.** It pushed the value beneath back and
+                // then pushed the CALL as a *separate* value — two where the
+                // reference leaves one — and the test named below pinned that
+                // shape rather than catching it.
                 let name = self.registry.interner.name(s).to_string();
-                let Some(beneath) = self.pull() else {
+                let Some(into) = self.pull() else {
                     return Err(Error("Autoadd found no working data on stack".into()));
                 };
-                self.push(beneath);
-                self.push(BundValue::call(name));
+                self.push(into.push(BundValue::call(name)));
                 Ok(())
             }
             Resolved::Lambda => {
@@ -994,6 +999,19 @@ impl Interp {
                 let name = v.as_str().ok_or_else(|| {
                     Error("Can not get the name of context from the CONTEXT value".into())
                 })?;
+                // **Collecting: pushed, not switched to, and not appended
+                // either** (`reference/rust_multistackvm/src/multistackvm_apply.rs:72-73`).
+                //
+                // The asymmetry is the reference's and is preserved: every
+                // other value is *appended* into the collector under
+                // `autoadd`, and a CONTEXT is *pushed on top of it*. So the
+                // collector stops being the top of the stack and whatever
+                // follows appends into the CONTEXT value instead. Surprising,
+                // and what the oracle does.
+                if self.autoadd {
+                    self.push(v);
+                    return Ok(());
+                }
                 // `VM::to_stack` switches *and* pushes the name onto the
                 // nesting stack (`reference/rust_multistackvm/src/multistackvm_to_stack.rs:5-19`),
                 // which is what `endcontext` later pops. Every switch counts,
@@ -1006,6 +1024,18 @@ impl Interp {
                 Ok(())
             }
             _ => {
+                // **Collecting: appended into the value beneath**
+                // (`reference/rust_multistackvm/src/multistackvm_apply.rs:89-97`).
+                // Literals included — which is the half F84 recorded as
+                // absent. `BundValue::push` is the append, and on a
+                // non-container it *replaces*, so `5 : 1 ;` leaves `1`.
+                if self.autoadd {
+                    let Some(into) = self.pull() else {
+                        return Err(Error("Autoadd found no working data on stack".into()));
+                    };
+                    self.push(into.push(v));
+                    return Ok(());
+                }
                 self.push(v);
                 Ok(())
             }
@@ -1240,6 +1270,16 @@ impl Interp {
 }
 
 impl Vm for Interp {
+    fn autoadd(&self) -> bool {
+        self.autoadd
+    }
+
+    /// Delegates to the inherent [`Interp::set_autoadd`], which is the only
+    /// writer and which also updates §S6's mirror cell.
+    fn set_autoadd(&mut self, on: bool) {
+        Interp::set_autoadd(self, on);
+    }
+
     fn push(&mut self, v: BundValue) {
         self.stacks.current_mut().push(v);
     }
@@ -1939,18 +1979,98 @@ mod tests {
         );
     }
 
+    /// **Collecting appends the name *into* the value beneath, leaving one
+    /// value** (`reference/rust_multistackvm/src/multistackvm_apply.rs:19-22`).
+    ///
+    /// **This test asserted the opposite until 2026-09-30**, and F84 recorded
+    /// that it "pins the divergence rather than catching it": it required the
+    /// CALL and the value beneath as *two* entries. The reference leaves one.
+    /// Nothing could observe the difference at the time, because nothing bound
+    /// `:` or `;`.
     #[test]
-    fn autoadd_appends_the_name_instead_of_running_it() {
+    fn autoadd_appends_the_name_into_the_value_beneath() {
         let (mut i, s) = with_native("w");
         i.set_autoadd(true);
-        i.push(BundValue::int(1));
+        i.push(BundValue::list(vec![BundValue::int(1)]));
         i.dispatch(s, false).expect("autoadd");
-        assert_eq!(i.pull().map(|v| v.dt()), Some(bund2_value::CALL));
+        assert_eq!(i.depth(), 1, "one value, not two");
+        let top = i.pull().expect("the collector");
+        assert_eq!(top.dt(), bund2_value::LIST);
+        let items = top.as_list().expect("a list").to_vec();
+        assert_eq!(items.len(), 2, "the name joined the collector: {items:?}");
+        assert_eq!(items[0], BundValue::int(1));
+        assert_eq!(
+            items[1].dt(),
+            bund2_value::CALL,
+            "and it went in as a CALL, not as a string"
+        );
+    }
+
+    /// **A non-container collector is replaced, not appended to** — `push`'s
+    /// `_` arm (`reference/rust_dynamic/src/push.rs:143-149`). Confirmed
+    /// against the oracle: `5 : 1 2 ;` leaves `2`.
+    #[test]
+    fn collecting_onto_a_scalar_replaces_it() {
+        let mut i = Interp::new();
+        i.set_autoadd(true);
+        i.push(BundValue::int(5));
+        i.apply_step(BundValue::int(1)).expect("collects");
+        i.apply_step(BundValue::int(2)).expect("collects");
+        assert_eq!(i.depth(), 1, "still one value");
         assert_eq!(
             i.pull(),
-            Some(BundValue::int(1)),
-            "the value is left beneath"
+            Some(BundValue::int(2)),
+            "each applied value replaces the one before"
         );
+    }
+
+    /// **A literal is collected too**, which F84 recorded as absent: "Literals
+    /// and CONTEXT values are not collected at all."
+    #[test]
+    fn collecting_gathers_literals() {
+        let mut i = Interp::new();
+        i.set_autoadd(true);
+        i.push(BundValue::list(vec![BundValue::int(0)]));
+        for n in 1..=3 {
+            i.apply_step(BundValue::int(n)).expect("collects");
+        }
+        assert_eq!(i.depth(), 1);
+        let items = i
+            .pull()
+            .and_then(|v| v.as_list().map(<[BundValue]>::to_vec))
+            .expect("a list");
+        assert_eq!(
+            items,
+            vec![
+                BundValue::int(0),
+                BundValue::int(1),
+                BundValue::int(2),
+                BundValue::int(3)
+            ]
+        );
+    }
+
+    /// **A CONTEXT is pushed, not appended and not switched to** — the
+    /// reference's asymmetry (`multistackvm_apply.rs:72-73`), preserved.
+    ///
+    /// The consequence is what makes it worth a test: the collector stops
+    /// being the top of the stack, so a following value appends into the
+    /// CONTEXT instead.
+    #[test]
+    fn collecting_pushes_a_context_instead_of_switching() {
+        let mut i = Interp::new();
+        let before = Interp::current_name(&i).to_string();
+        i.set_autoadd(true);
+        i.push(BundValue::list(vec![BundValue::int(0)]));
+        i.apply_step(BundValue::named_context("elsewhere"))
+            .expect("pushed");
+        assert_eq!(
+            Interp::current_name(&i),
+            before,
+            "the stack did not switch, which is the whole asymmetry"
+        );
+        assert_eq!(i.depth(), 2, "the CONTEXT sits on top of the collector");
+        assert_eq!(i.peek().map(|v| v.dt()), Some(bund2_value::CONTEXT));
     }
 
     /// Every push writes the stack tag, with no type test — and **since D41 a

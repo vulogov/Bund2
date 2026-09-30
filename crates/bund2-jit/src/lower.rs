@@ -3115,7 +3115,37 @@ fn emit_into<M: cranelift_module::Module>(
         let below = f.ins().icmp(IntCC::UnsignedLessThan, sp, floor);
         let refuse = f.create_block();
         let start = f.create_block();
-        f.ins().brif(below, refuse, &[], start, &[]);
+        let not_below = f.create_block();
+        f.ins().brif(below, refuse, &[], not_below, &[]);
+
+        // **`autoadd` declines too — RFC-0005 criterion 18.**
+        //
+        // Under the collecting mode every applied value is *appended into* the
+        // value beneath rather than pushed or run
+        // (`reference/rust_multistackvm/src/multistackvm_apply.rs:19-22,89-97`),
+        // and compiled code pushes a promoted literal straight to the stack
+        // without reaching `Vm::apply`. So a body that ran while the mode was
+        // on would push where Tier 0 appends.
+        //
+        // **This was unobservable until `:` and `;` were bound**, and
+        // `b0cbd3f` concluded the unread `autoadd` cell after calls was benign
+        // for exactly that reason. Binding them voided the conclusion: the
+        // three `autoadd` differentials in this file began failing with
+        // Tier 0 at depth 1 and compiled code at depth 3.
+        //
+        // **Declining is the conservative half, and the honest limit is
+        // stated**: the mode is read *here*, at entry, so a body that is
+        // already running when `:` sets the mode keeps its promoted registers.
+        // §S5 requires the read "after every call" as well, and that half is
+        // not built — see the deferral recorded against criterion 18.
+        f.switch_to_block(not_below);
+        let aa_base = f.ins().iconst(ptr, cells);
+        let aa_off = i32::try_from(bund2_api::Cells::autoadd_offset())
+            .map_err(|_| "the autoadd cell's offset does not fit".to_string())?;
+        let collecting = f
+            .ins()
+            .uload32(MemFlagsData::trusted(), aa_base, aa_off);
+        f.ins().brif(collecting, refuse, &[], start, &[]);
 
         f.switch_to_block(refuse);
         let declined = f.ins().iconst(types::I32, i64::from(DECLINED));
@@ -3182,6 +3212,28 @@ fn finish_jit(module: &mut JITModule, laid: Laid) -> Result<Emitted, String> {
     let entry: Entry = unsafe { std::mem::transmute::<*const u8, Entry>(addr) };
 
     Ok((entry, slots, resume_table, syncs))
+}
+
+/// Run a compiled word **the way the tier does**: if the body declines,
+/// Tier 0 runs it instead.
+///
+/// `Compiler::run` answering `Ok(false)` means "nothing ran and nothing is
+/// wrong" — `JitTier::enter` turns that into `None` and the interpreter takes
+/// the body. A differential that called `run` and stopped there would compare
+/// Tier 0's result against *no result at all*, which is what the three
+/// `autoadd` tests did once entry began declining under the collecting mode.
+#[cfg(test)]
+fn run_as_the_tier_would(
+    c: &mut Compiler,
+    word: WordHandle,
+    vm: &mut bund2_interp::Interp,
+    body: &[BundValue],
+) -> Result<(), String> {
+    match c.run(word, vm, body) {
+        Ok(true) => Ok(()),
+        Ok(false) => vm.eval(body).map_err(|e| e.0),
+        Err(e) => Err(e.0),
+    }
 }
 
 /// **RFC-0005's criterion 4, discharged by inspection — RFC-0006 criterion 7.**
@@ -4794,7 +4846,7 @@ mod tests {
         let mut compiled = with_stdlib();
         let word = word_in(&mut c, &mut compiled, &body, LastCall::Ordinary);
         compiled.set_autoadd(true);
-        let by_compiled = c.run(word, &mut compiled, &body);
+        let by_compiled = run_as_the_tier_would(&mut c, word, &mut compiled, &body);
 
         assert_eq!(by_tier0.is_ok(), by_compiled.is_ok(), "autoadd: outcome");
         let (a, b) = (tier0.snapshot(), compiled.snapshot());
@@ -4853,7 +4905,7 @@ mod tests {
         );
         compiled.push(BundValue::str("beneath"));
         compiled.set_autoadd(true);
-        let by_compiled = c.run(word, &mut compiled, &body);
+        let by_compiled = run_as_the_tier_would(&mut c, word, &mut compiled, &body);
 
         assert_eq!(by_tier0.is_ok(), by_compiled.is_ok(), "autoadd: outcome");
         let (a, b) = (tier0.snapshot(), compiled.snapshot());
@@ -5322,7 +5374,7 @@ mod tests {
         // Set *after* compiling: the guard is emitted against the state at
         // compile time and reads the cell at run time.
         compiled.set_autoadd(true);
-        let by_compiled = c.run(word, &mut compiled, &body);
+        let by_compiled = run_as_the_tier_would(&mut c, word, &mut compiled, &body);
 
         assert_eq!(by_tier0.is_ok(), by_compiled.is_ok(), "autoadd: outcome");
         let (a, b) = (tier0.snapshot(), compiled.snapshot());
