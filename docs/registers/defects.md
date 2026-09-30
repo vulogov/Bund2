@@ -6386,7 +6386,22 @@ them by accident while `class_generation` and `method_generation` kept
 counting separately — two uncoordinated counters for one binding, which is the
 shape RFC-0005's assumption 37 exists to prevent.
 
-**Status:** OPEN. The fix is to delete the two fields, or to move class and
+**Status:** **FIXED, 2026-09-30 — deleted.** `Slot` carries four bindings, and
+`is_empty` no longer tests two fields nothing wrote. Nothing else in the
+workspace referenced either, so the deletion is the whole change.
+
+**Deleted rather than wired up**, for the reason this entry gives: the slot's
+generation is what §S6's meaning guard rests on, and had `class` or `method`
+become real *there*, that generation would have covered them by accident while
+`class_generation` and `method_generation` kept counting separately. A field
+that is wrong to use is worse than no field. If class and method resolution
+should ever pass through a `Slot`, it is a design change with a decision behind
+it, not a matter of filling in two `Option`s.
+
+The doc comment on `Slot` records what was deleted and why, so the next reader
+does not re-add them.
+
+**Status of the original text below:** superseded. The fix is to delete the two fields, or to move class and
 method resolution onto the `Slot` and retire the separate counters — a
 question for RFC-0009's territory rather than this register. Until then
 RFC-0005 says four, and names where class and method actually live.

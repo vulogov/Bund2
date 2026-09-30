@@ -1029,10 +1029,25 @@ impl RegistrationId {
 
 /// One name's bindings.
 ///
-/// Six `Option`s, not one enum. The namespaces are independent in the
+/// **Four `Option`s, not one enum.** The namespaces are independent in the
 /// reference — `register_lambda` writes `vm.lambdas` and never touches
 /// `inline_fun` — so writing a lambda must not disturb the native that `$name`
 /// reaches.
+///
+/// **It was six until F121 was fixed, 2026-09-30.** `class` and `method` were
+/// declared and **never written**: `register_class` writes `self.classes` and
+/// bumps `class_generation`, `register_method` writes `self.methods` and bumps
+/// `method_generation`, and `oop_generation` hands out that pair. So class and
+/// method resolution does not pass through a `Slot` at all.
+///
+/// **They are deleted rather than wired up, and the reason is the generation
+/// field above.** RFC-0005 §S6 builds its meaning guard on every writer of a
+/// binding bumping *that slot's* generation, which is true and tight for the
+/// four that remain. Had `class` or `method` later become real here, the slot's
+/// generation would have covered them **by accident** while `class_generation`
+/// and `method_generation` kept counting separately — two uncoordinated
+/// counters for one binding, which is the shape assumption 37 exists to
+/// prevent. A field that is wrong to use is worse than no field.
 #[derive(Debug, Default, Clone)]
 pub struct Slot {
     /// Bumped whenever any binding is rewritten, so an inline cache can be
@@ -1042,8 +1057,6 @@ pub struct Slot {
     pub alias: Option<Symbol>,
     pub lambda: Option<BundValue>,
     pub native: Option<Native>,
-    pub class: Option<BundValue>,
-    pub method: Option<Native>,
 }
 
 impl Slot {
@@ -1060,13 +1073,17 @@ impl Slot {
         self.generation = self.generation.saturating_add(1);
     }
 
+    /// Is every binding absent?
+    ///
+    /// **Exhaustive over the four that exist**, and deliberately written out
+    /// rather than derived: a binding added later without a line here would
+    /// make an occupied slot read as empty. The `class` and `method` clauses
+    /// this once carried tested fields nothing ever wrote (F121).
     fn is_empty(&self) -> bool {
         self.command.is_none()
             && self.alias.is_none()
             && self.lambda.is_none()
             && self.native.is_none()
-            && self.class.is_none()
-            && self.method.is_none()
     }
 }
 
