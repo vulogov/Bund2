@@ -463,3 +463,112 @@ fn an_exit_code_matches_a_source_run() {
     assert_eq!(code, Some(7), "and be the code the program asked for");
     let _ = std::fs::remove_file(&exe);
 }
+
+/// **Criterion 4: a bundle is produced with no compiler on the path.**
+///
+/// D10's load-bearing half — "nothing below `bund2 build` may require `cc`" —
+/// and the criterion originally said to check it by building in an environment
+/// without `cc`. This is stronger and needs no such environment: the build runs
+/// with the environment **cleared and `PATH` empty**, so neither `cc` nor
+/// `rustc` nor anything else is reachable by name. It still has to succeed.
+///
+/// D81 permits exactly one platform tool, and this is also the test that pins
+/// the permission's shape: `/usr/bin/codesign` is invoked by **absolute path**,
+/// so an empty `PATH` cannot reach it and cannot hide a dependency on it
+/// either. If the re-sign step were ever changed to `Command::new("codesign")`,
+/// this test fails on macOS.
+#[test]
+fn a_bundle_is_built_with_no_compiler_reachable() {
+    let src = scratch("nopath.bund");
+    std::fs::write(&src, "\"built without a toolchain\" println\n").expect("writing the source");
+    let out = scratch("nopath");
+    let _ = std::fs::remove_file(&out);
+
+    let r = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        .env_clear()
+        .env("PATH", "")
+        .arg("build")
+        .arg("--file")
+        .arg(&src)
+        .arg("--output")
+        .arg(&out)
+        .output()
+        .expect("bund2 build runs");
+    assert!(
+        r.status.success(),
+        "the build must not need anything on PATH: {}",
+        String::from_utf8_lossy(&r.stderr)
+    );
+
+    // And what it produced runs, also with nothing on the path.
+    let ran = Command::new(&out)
+        .env_clear()
+        .env("PATH", "")
+        .output()
+        .expect("the artefact runs");
+    assert_eq!(ran.status.code(), Some(0));
+    assert!(
+        String::from_utf8_lossy(&ran.stdout).contains("built without a toolchain"),
+        "and prints its program's output"
+    );
+    let _ = std::fs::remove_file(&out);
+}
+
+/// **Criterion 9: a literal's stamp is a run-time value, not the build's.**
+///
+/// This is the criterion that pins §B2's reason for existing. An encoded
+/// payload would have materialised every literal's stamp at build time (D20),
+/// so every run of the artefact would report the same one — the failure D77
+/// turns on. Source text cannot do that, and this is what says so.
+///
+/// Observed through `debug.display_stack`, since `.timestamp` is not among the
+/// words Bund2 implements yet. The stamp is sampled when a value is first
+/// observed, which is D2's ruling, so the dump is the observation.
+#[test]
+fn a_literals_stamp_is_taken_at_run_time_not_at_build_time() {
+    let now_ms = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    };
+    let stamp_of = |out: &str| -> u128 {
+        let at = out.find("stamp: ").expect("the dump carries a stamp");
+        let rest = &out[at + "stamp: ".len()..];
+        let end = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
+        rest[..end].parse().unwrap_or(0)
+    };
+
+    let built_at = now_ms();
+    let exe = build("1 debug.display_stack\n", "stamp", &[]);
+
+    let mut seen = Vec::new();
+    for _ in 0..2 {
+        // Enough that two millisecond-resolution stamps cannot collide.
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        let before = now_ms();
+        let (code, out) = run(&exe, &[], &[("BUND2_RAW_VALUES", "1")]);
+        let after = now_ms();
+        assert_eq!(code, Some(0), "output was: {out}");
+        let s = stamp_of(&out);
+        assert!(
+            s >= before && s <= after,
+            "the stamp {s} must fall inside this run's window [{before}, {after}] — \
+             that is what makes it a run-time value"
+        );
+        assert!(
+            s > built_at,
+            "and it must be later than the build at {built_at}, which an encoded \
+             payload would have frozen it to"
+        );
+        seen.push(s);
+    }
+    assert_ne!(
+        seen[0], seen[1],
+        "two runs of one artefact must report different stamps for the same \
+         literal; equal stamps are the encoded-stream failure D77 rejected"
+    );
+    let _ = std::fs::remove_file(&exe);
+}

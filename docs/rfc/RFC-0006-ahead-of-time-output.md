@@ -12,8 +12,9 @@
   through. Built —
   `crates/bund2-cli/src/bundle.rs` and `bund2 build`. Criteria 3, 5, 6, 10, 11
   and 12 pass, **criterion 2 is met in three configurations**, and
-  **criterion 1's gate is answered — against Product B's premise**. 13 follows
-  from criterion 2's runs; 7 is deferred behind §B5.
+  **criterion 1's gate is answered — against Product B's premise**. **Every
+  criterion now carries its evidence in the list below**; 8 waits on
+  `--emit=native` existing and 7 is deferred behind §B5.
   Revised 2026-09-29 after the first adversarial review
   (`docs/rfc/reviews/RFC-0006-review-2026-09-29.md`). The review raised three
   blockers; all three were reproduced against the code before this revision,
@@ -753,16 +754,39 @@ on the answer.
    criterion 6 needs a runtime built *with* the JIT — the two are about
    different artefacts, and D80 permits the JIT-carrying one only when asked
    for.
+
+   **Met, 2026-09-30** — `a_default_artefact_contains_no_code_generator`
+   (`crates/bund2-cli/tests/bundle_build.rs`), which searches the produced
+   artefact's bytes rather than a crate graph.
 4. **A bundle is produced with no C toolchain and no compiler.** Built in an
    environment with no `cc` **and no `rustc`**, which §B1 makes possible and is
    a stronger check than reading a dependency list.
+
+   **Met, 2026-09-30, and more strongly than written** —
+   `a_bundle_is_built_with_no_compiler_reachable` runs the build with the
+   environment **cleared and `PATH` empty**, so nothing is reachable by name,
+   and then runs the artefact the same way. It also pins D81's *shape*:
+   `/usr/bin/codesign` is invoked by absolute path, so an empty `PATH` cannot
+   reach it and cannot hide a dependency on it either. **Verified
+   load-bearing** — changed to `Command::new("codesign")`, the test fails with
+   "could not be signed … No such file or directory".
 5. **A program nesting up to `MAX_NESTING` bundles and runs.** 1024 levels, not
    256: the wire cap does not apply, and a criterion set at 256 would pin the
    defect the first draft had.
+
+   **Met, 2026-09-30** — `a_program_nested_to_the_parsers_limit_bundles_and_runs`,
+   which also checks 1025 levels fails the *build* and writes nothing.
 6. **The front end declares its Tier 1 share.** A bundle built with `jit`,
    running a body past the threshold, reports `compiled_entries() > 0` — the
    figure a broken front end leaves at zero while every other figure reports
    success.
+
+   **Met, 2026-09-30** — `a_jit_bundle_enters_compiled_code`. Forty calls at
+   threshold 2 report **1 body compiled, 38 entered**, which is exactly the
+   counter's semantics: one warm-up, one compiling entry that runs interpreted,
+   38 compiled. At a threshold nothing reaches it reads 0 and 0, so the
+   assertion is load-bearing. Checked in release with `jit` too, by hand:
+   the same 38.
 7. **Deferred, and reformulated.** RFC-0005's criterion 4 is discharged here
    once §B5's (1) and (2) exist. **"No relocation targeting a function" is the
    wrong test for an object file**: the lowering declares its runtime helpers
@@ -781,14 +805,34 @@ on the answer.
 8. **`--emit=native` matches Tier 0's conformance exactly.** RFC-0005's
    criterion 2 applied to this mode: the same N/M and CEILING as the
    interpreter, per golden. Missing from the first draft entirely.
-9. **A literal's `.timestamp` is a run-time value.** The same bundle run twice
+
+   **Not applicable until the mode exists**, and D82 authorises no work on it.
+   `conform --bundles` is the instrument it will use; the mode is what is
+   missing, not the measurement.
+9. **A literal's stamp is a run-time value.** The same bundle run twice
    reports different stamps for the same literal, and neither is the build
-   time. This is B2.1 made checkable rather than argued.
+   time. This is B2.1 made checkable rather than argued, and it is the
+   criterion that pins §B2's reason for existing: an encoded payload
+   materialises every stamp at build time (D20), so every run would report the
+   same one.
+
+   **Met, 2026-09-30** — `a_literals_stamp_is_taken_at_run_time_not_at_build_time`.
+   Observed through `debug.display_stack`, because **`.timestamp` is not among
+   the words Bund2 implements yet**; the stamp is sampled when a value is first
+   observed, which is D2's ruling, so the dump *is* the observation. Each run's
+   stamp must fall inside that run's own wall-clock window and be later than
+   the build, and the two runs must differ. **Load-bearing by construction**: a
+   frozen build-time stamp cannot lie inside two disjoint windows.
 10. **A restriction cannot be loosened at run time.** A bundle built `--noeval`
     still refuses `bund.eval`, `use` and `use.` with every environment
     variable the start-up path reads set to every value that would clear them,
     and `--inspect` still reports the restriction. D78's direction made
     checkable, because this is the failure that would otherwise be silent.
+
+    **Met, 2026-09-30** (the `--inspect` half excepted, which is unbuilt) —
+    `a_restriction_cannot_be_cleared_by_the_environment`: built `--noeval` it
+    refuses with `BUND2_NOEVAL` set to `0` and to empty, and an unrestricted
+    artefact still accepts a restriction added at run time.
 
     **It checks the stubs and nothing more, deliberately.** A criterion that
     claimed more would be false: `"40 2 +" compile lambda! !` prints `42` under
@@ -799,10 +843,22 @@ on the answer.
     an ad-hoc re-sign, which Q40's measurements show is possible for an
     in-image payload and impossible for an appended one. A program over the
     reserved capacity is refused at build with the capacity and the size named.
+
+    **Met, 2026-09-30** — `a_built_artefact_validates`, plus
+    `a_program_over_capacity_is_refused_and_writes_nothing`, which asserts the
+    error names both numbers **and that the image is unchanged**.
 12. **A damaged artefact is refused, not aborted.** All four of §B1's cases —
     absent magic, truncated trailer, implausible length, non-UTF-8 payload —
     produce a diagnostic and an error status, and none reaches a panic. D37,
     and the one input a bundle's front end will certainly meet.
+
+    **Met, 2026-09-30** — `a_damaged_artefact_is_refused_with_an_explanation`
+    drives three through the binary: a `state` byte of 7, a length past
+    capacity, and a lone continuation byte in the payload. The fourth, an
+    absent region, is `an_unbuilt_runtime_carries_nothing` — a runtime nobody
+    built from is the plain interpreter, not a failure. Each damaged artefact
+    is **re-signed before it is run**, or macOS kills it before the runtime can
+    report and the test would pass for the wrong reason.
 13. **Conformance moves by exactly zero.** This RFC changes what Bund2 emits,
     not what a program means.
 
