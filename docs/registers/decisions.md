@@ -3510,6 +3510,68 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D78 — a bundle's restrictions have a build-time floor that run time may only tighten
+
+**Decided by the repository owner, 2026-09-29**, on RFC-0006's second review
+blocker: "D, and never call it a sandbox."
+
+- Blocks: RFC-0006 §B3 and §B4, which were drafted with this open
+- Depends on: D10, D16, D40, D54, D76 (whose risk clause this bears on), and
+  the reference's own command line
+- Status: **RESOLVED — build-time floor, run-time may only add**, 2026-09-29.
+
+### The decision
+
+`bund2 build` may record `--noio` and `--noeval` in the artefact's trailer.
+An environment variable read at start-up may **add** either restriction and
+**may never remove one**.
+
+That direction is the whole decision. **A restriction an environment variable
+can switch off is not a restriction**, and the failure would be silent: the
+artefact would still report itself as built `--noeval` while evaluating
+everything. Monotonicity is what separates this from a trailer plus a
+convenience.
+
+**The trailer is readable.** A restriction the runner cannot observe is one
+they cannot rely on, so `bund2 build` gains an inspect path printing an
+artefact's features, restrictions and pinned SHAs.
+
+**`--nocolor` is not in this class** and is not covered here. It is
+presentational — it changes how one debug word draws its table — so it joins
+`--stats`, `--dump-stack` and `--raw-values` in RFC-0006 §B3's
+environment-variable channel.
+
+### It is not a sandbox, and the word is not to be used
+
+**Ruled explicitly by the owner**, and the reason is in the code rather than in
+taste. `--noio` swaps a word group for stubs that fail *at registration*, and
+**`args`, `sleep.seconds` and `io.graph` have no gate at all** — not in the
+reference, not in Bund2 (`crates/bund2-stdlib/src/host.rs`, module
+documentation). Fetching is gated by `--noeval`, not by `--noio`, so a
+`--noio` artefact can still pull and evaluate remote code.
+
+These are **word-group switches**. Calling them a sandbox would assert a
+boundary that does not exist, and it would do so exactly where it is most
+likely to mislead: D76 places the risk of what an artefact fetches on the
+person running it, and a builder who believed `--noio` protected that person
+would be wrong. RFC-0006 states what each flag leaves ungated, by name.
+
+### Why not the alternatives
+
+- **Not available in bundles at all.** Defensible, and reversible in one
+  direction only — it can become this decision later, where this cannot become
+  it. Rejected because it answers neither party: a tool that should not fetch
+  could not be built that way.
+- **Run time only**, by environment variable. Matches the CLI's per-run
+  semantics, but nothing shippable is restricted — the artefact is only as
+  restricted as its runner remembers to ask.
+- **Build time only.** Answers the shipper and not the runner, who may
+  reasonably want someone else's artefact kept off their filesystem.
+
+**D16 is why neither party can be satisfied by analysis instead.** No build can
+prove a program never calls `fs.rm`: the name may be assembled at run time, so
+the restriction has to be a switch rather than a proof.
+
 ## D77 — a bundle embeds source text, and the encoded container is closed
 
 **Decided by the repository owner, 2026-09-29**, on the options RFC-0006's

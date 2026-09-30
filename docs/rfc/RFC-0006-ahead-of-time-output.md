@@ -4,11 +4,11 @@
   (`docs/rfc/reviews/RFC-0006-review-2026-09-29.md`). The review raised three
   blockers; all three were reproduced against the code before this revision,
   and one is worse than it reported. §B2's deviation is **ruled on — D77**. A
-  **second review** then found one blocker of its own: §B3 does not say whether
-  a bundle may be sandboxed, which is the owner's call and is open below.
+  **second review** found one blocker of its own — what a bundle may switch off
+  — **ruled on as D78**, so nothing in this document awaits a decision.
 - Depends on: RFC-0003 (the program stream and Tier 0), RFC-0005 (the
   Cranelift tier)
-- Decisions consumed: D10, D11, D16, D20, D40, D44, D54, D76, D77, and
+- Decisions consumed: D10, D11, D16, D20, D40, D44, D54, D76, D77, D78, and
   decisions.md's "What this forecloses" clause on tree-shaking
 - Touched but not consumed: D1, D2, D36 — see the preservation table
 - Reference SHA: `reference/Bund` at `21b40b0`, `rust_dynamic` at `ceb27c9`,
@@ -277,23 +277,45 @@ to be safe.
   differs by construction, and one approved deviation's recorded hash pins a
   path Bund2 prints, so the CEILING would move.
 
-**What a bundle may switch off is not settled here — it is the owner's.** The
-CLI carries three flags that change what words *do*, not how they are reported:
-`--noio` replaces the I/O words with stubs that fail, `--noeval` does the same
-to `bund.eval` **and `use`**, and `--nocolor` changes how a host-info table is
-drawn. All three are fields of `crates/bund2-stdlib/src/host.rs`'s `HostOptions`,
-documented at their declarations and applied by `register_noeval_stubs` and its
-siblings; `crates/bund2-cli/src/main.rs`'s `run_cli` parses them; and they come
-from the reference's own command line
-(`reference/Bund/src/cmd/mod.rs:139-146`).
+### §B3a — What a bundle may switch off, and what that does not mean
 
-They cannot be run-time flags in a bundle, because §B3 gives all of argv to the
-program. So each is either a **build-time choice recorded in the trailer**,
-like the feature set in §B4, or absent from bundles entirely. **`--noeval`
-reaches furthest**: it disables `use`, which D76 has just settled as fetching at
-run time, so a `--noeval` bundle is the sandboxed artefact D76's risk clause
-would otherwise leave no way to build. Whether that capability should exist is
-a language decision and is listed in the open questions.
+**`--noio` and `--noeval` may be recorded in the trailer, and an environment
+variable at start-up may add either and never remove one** — D78. Both are
+`HostOptions` fields: `--noio` registers the I/O words as stubs that fail, and
+`--noeval` does the same to `bund.eval`, `use` and `use.`
+(`crates/bund2-stdlib/src/host.rs`, `HostOptions` and `register_noeval_stubs`;
+from the reference's own command line,
+`reference/Bund/src/cmd/mod.rs:139-146`).
+
+**The direction is the design.** A restriction an environment variable could
+switch off would not be a restriction, and the failure would be silent — the
+artefact would still report itself as built `--noeval` while evaluating
+everything. So the trailer is a **floor**: run time may tighten, never loosen.
+
+**The trailer is readable**, because a restriction the runner cannot observe is
+one they cannot rely on. `bund2 build --inspect <artefact>` prints the
+features, the restrictions and the pinned SHAs.
+
+**These are word-group switches, and this RFC does not call them a sandbox.**
+D78 rules the word out, on what the code does rather than on taste:
+
+- `--noio` chooses stubs **at registration**, and **`args`, `sleep.seconds` and
+  `io.graph` have no gate at all** — not in the reference and not here
+  (`crates/bund2-stdlib/src/host.rs`, module documentation).
+- **Fetching is gated by `--noeval`, not `--noio`.** A `--noio` artefact can
+  still pull and evaluate remote code.
+
+Naming this a boundary would mislead exactly where it is most costly: D76 puts
+the risk of what an artefact fetches on the person running it, and a builder
+who believed `--noio` protected that person would be wrong.
+
+**`--nocolor` is not in this class.** It is presentational — it changes how one
+debug word draws its table — so it joins `--stats`, `--dump-stack` and
+`--raw-values` in the environment-variable channel above, not in the trailer.
+
+**Why a switch and not analysis.** D16 means no build can prove a program never
+calls `fs.rm`: the name may be assembled at run time. The restriction has to be
+a switch.
 
 ### §B4 — What the image retains
 
@@ -439,7 +461,8 @@ implied.
 | Exit code | **Preserved** — `vm.exit_requested()`. |
 | Diagnostic flags (`--stats`, `--dump-stack`, `--raw-values`) | **Deliberately changed.** Not argv flags in a bundle, because they would shadow the program's own arguments; they move to environment variables. |
 | `use` | **Preserved exactly** — D76, under D54's scheme set. |
-| `--noio`, `--noeval`, `--nocolor` | **Undecided — the second review's blocker.** Each changes what words do, so each is a build-time choice or absent. `--noeval` also disables `use`. Open below. |
+| `--noio`, `--noeval` | **Deliberately available as a build-time floor — D78.** Recorded in the trailer; run time may add either and never remove one. Not a boundary: §B3a names what each leaves ungated. |
+| `--nocolor` | **Preserved as a per-run choice**, in the environment-variable channel with the diagnostic flags. Presentational, not a capability. |
 | Diagnostic file name | **Preserved** via the trailer's recorded source path (§B3), without which a bundle's stderr differs by construction and the CEILING moves. |
 | A syntax error's timing | **Deliberately changed**: found at build rather than at run (§B3). A build that wrote an unparseable program would move the error to whoever ran it. |
 | RFC-0005 criterion 30's excluded mirrors | **Reopened by `--emit=native`**, on that row's own stated trigger. Owed once the mode exists, not excluded. |
@@ -513,7 +536,12 @@ implied.
 9. **A literal's `.timestamp` is a run-time value.** The same bundle run twice
    reports different stamps for the same literal, and neither is the build
    time. This is B2.1 made checkable rather than argued.
-10. **Conformance moves by exactly zero.** This RFC changes what Bund2 emits,
+10. **A restriction cannot be loosened at run time.** A bundle built `--noeval`
+    still refuses `bund.eval`, `use` and `use.` with every environment
+    variable the start-up path reads set to every value that would clear them,
+    and `--inspect` still reports the restriction. D78's direction made
+    checkable, because this is the failure that would otherwise be silent.
+11. **Conformance moves by exactly zero.** This RFC changes what Bund2 emits,
     not what a program means.
 
 ## Open questions
@@ -525,11 +553,10 @@ implied.
 - **A flag that embeds `use` targets.** Deferred by D76 with its trigger and
   form recorded. Nothing is blocked on it and no default waits to be adopted.
 
-- **May a bundle be sandboxed?** The second review's blocker. `--noio`,
-  `--noeval` and `--nocolor` each change what words do; in a bundle each must
-  be a build-time choice in the trailer or absent. `--noeval` disables `use`,
-  so this decides whether D76's run-time fetch can be switched off at build.
-  **The owner's, and open.**
+- **What a bundle may switch off — answered by D78**, 2026-09-29: a
+  build-time floor in the trailer that run time may only tighten, and the word
+  "sandbox" is ruled out because `--noio` leaves `args`, `sleep.seconds` and
+  `io.graph` ungated and does not gate fetching at all.
 - **Q39 — does appending to a signed executable leave it runnable?**
   `[UNGROUNDED]`. §B1's construction assumes it does on every target
   `bund2 build` ships a runtime for, and nothing in this repository establishes
@@ -537,6 +564,7 @@ implied.
 - **Which targets get `--emit=native`.** s390x in particular is untestable
   here. For whoever takes §B8's gate.
 
-The three first-review blockers are answered in the design and the two
-decisions the document needed are taken. What is listed above is one ruling,
-one ungrounded assumption and one question for the AOT phase.
+All four blockers from both reviews are answered in the design, and the three
+decisions the document needed — D76, D77, D78 — are taken. What is listed above
+is one ungrounded assumption and one question for the AOT phase; no decision
+waits, and no default is being adopted by omission.
