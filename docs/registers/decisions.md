@@ -512,6 +512,29 @@ within Bund; no word writes the raw format to a file, and no external consumer
 is implied. "Version the IR format freshly" stands. What was wrong was the
 proof's completeness, not its answer — and RFC-0006 repeated the gap as "no
 artefact of either shape exists in the wild", which is false.
+
+**Amended again 2026-09-29, on RFC-0006's third review: "no word writes the raw
+format to a file" is also wrong, and the amendment above is what got it
+wrong.**
+
+`save.*` writes **every lambda** to the world file with `to_binary` — exactly
+`Value::compile`'s format — as a BLOB in the `LAMBDAS` table of a SQLite
+database on disk
+(`reference/Bund/src/stdlib/helpers/world/lambdas.rs:80-95`).
+
+So the object format reaches a file, routinely, through the word group this
+entry's own text points at while claiming the opposite. **Whether anything
+outside Bund2 reads that file is D31, which is OPEN.** This entry's resolution
+is therefore *not* independent of D31 in the way its split from D31 assumed:
+the two questions were separated as different artefacts, and they share a byte
+format.
+
+**What follows, and what does not.** "Version the IR format freshly" is still
+the right answer for a format Bund2 designs fresh — RFC-0006 §B2 embeds source
+text and uses neither format, so nothing built on this RFC rests on it. What
+cannot stand is this entry being read as a closed proof: it is contingent on
+D31, and D31 is the owner's.
+
  External dependence would require a Rust
 consumer calling `rust_dynamic` directly, which is a different question from
 the one this entry asks and one the repository owner is positioned to answer
@@ -3571,6 +3594,34 @@ would be wrong. RFC-0006 states what each flag leaves ungated, by name.
 **D16 is why neither party can be satisfied by analysis instead.** No build can
 prove a program never calls `fs.rm`: the name may be assembled at run time, so
 the restriction has to be a switch rather than a proof.
+
+### Amended on RFC-0006's third review, 2026-09-29 — the gate sentence is half wrong
+
+**The decision stands. One sentence above does not**, and it is left in place
+because this register is append-only.
+
+Above reads "Fetching is gated by `--noeval`, not by `--noio`". `url`, `url.`,
+`file` and `file.` **are** `--noio` stubs, so `--noio` does gate fetching
+through them; `use` is gated by `--noeval`. The accurate statement is narrower
+and worse: **no single flag stops a program obtaining text and running it.**
+
+**`--noeval` does not stop evaluation at all.** It stubs `bund.eval`, `use` and
+`use.`, while `compile` is registered unconditionally
+(`reference/Bund/src/stdlib/functions/bund/bund_interpreter.rs:76`), so
+`"40 2 +" compile lambda! !` prints `42` under `--noeval --noio`. **Verified on
+both binaries**, Bund2 and the oracle at the pinned SHA: it is the reference's
+gap, faithfully reproduced. Under `--noeval` alone, `url` fetches and those
+three words evaluate the result.
+
+**This strengthens the ruling that the word "sandbox" is not to be used**, and
+it is why D78 required the RFC to name what each flag leaves ungated — a
+requirement the RFC had met for `--noio` only. RFC-0006 §B3a now names both,
+with the reproduction, and criterion 10 states in terms that it checks the
+stubs and may not be read as "the artefact evaluates nothing".
+
+**Whether `--noeval` should be made to mean "evaluates nothing" is a separate
+question and is not decided here.** It would deviate from the reference.
+
 
 ## D77 — a bundle embeds source text, and the encoded container is closed
 
