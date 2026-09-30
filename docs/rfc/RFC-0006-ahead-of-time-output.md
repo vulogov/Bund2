@@ -267,9 +267,10 @@ everything on a spawned thread sized `TIER0_PART + TIER1_SHARE +
 STACK_RESERVE`, then declares the region with `set_stack_region_with_share`
 (`crates/bund2-cli/src/main.rs`). The reason is recorded at the call:
 
-> A share is declared, never inferred. Declaring through `set_stack_region`
-> would leave the share at zero, putting the Tier 1 floor above the thread's
-> top so that every compiled body declines.
+> A share is declared, never inferred — RFC-0005 §S8, the ninth review's S3.
+> Declaring through `set_stack_region` would leave the share at zero, putting
+> the Tier 1 floor above the thread's top so that every compiled body declines:
+> criterion 2 would then pass with no compiled code having run at all.
 
 That is the state `compiled_entries` was added to expose — a tier that compiles
 everything, enters nothing, and reports success on every other figure
@@ -277,8 +278,14 @@ everything, enters nothing, and reports success on every other figure
 `a_tier_with_no_share_compiles_bodies_and_enters_none`). A runtime that spawns
 no thread, or spawns one without declaring the share, produces an artefact
 whose JIT is dead and whose reports say it is working. Criterion 6 holds it to
-that, and the decode happens **on that thread**, where a depth of 256 is known
-to be safe.
+that.
+
+**Nothing is decoded, and the earlier revisions of this sentence said otherwise.**
+They had the payload decoded on that thread "where a depth of 256 is known to
+be safe", which was true of the encoded stream §B2 no longer uses. What happens
+on that thread is the **parse**, and the depth that matters is the parser's
+`MAX_NESTING` of 1024, not `MAX_WIRE_DEPTH`'s 256 — which is also why criterion
+5 is set at 1024. Three reviews raised this sentence; it is the last of them.
 
 **Four things the artefact's front end must settle, and does here:**
 
