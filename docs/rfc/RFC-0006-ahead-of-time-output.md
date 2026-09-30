@@ -420,7 +420,15 @@ everything. So the trailer is a **floor**: run time may tighten, never loosen.
 
 **The trailer is readable**, because a restriction the runner cannot observe is
 one they cannot rely on. `bund2 build --inspect <artefact>` prints the
-features, the restrictions and the pinned SHAs.
+container version, the program's size against the capacity, the source path it
+was built from, the restrictions, the Bund2 version and feature set, and the
+pinned SHAs — **built 2026-09-30**, along with the two fields this RFC had
+promised and the container had lacked.
+
+An unrestricted artefact prints `restrictions none` rather than omitting the
+line, because a missing line and "none" say different things to someone
+deciding whether to trust what they were handed. The report also states the
+floor's *direction*, or the restrictions line reads as the whole truth.
 
 **These are word-group switches, and this RFC does not call them a sandbox.**
 D78 rules the word out. What follows is what each flag leaves ungated, by name,
@@ -829,10 +837,12 @@ on the answer.
     and `--inspect` still reports the restriction. D78's direction made
     checkable, because this is the failure that would otherwise be silent.
 
-    **Met, 2026-09-30** (the `--inspect` half excepted, which is unbuilt) —
+    **Met, 2026-09-30, both halves** —
     `a_restriction_cannot_be_cleared_by_the_environment`: built `--noeval` it
     refuses with `BUND2_NOEVAL` set to `0` and to empty, and an unrestricted
-    artefact still accepts a restriction added at run time.
+    artefact still accepts a restriction added at run time. The `--inspect`
+    half, recorded as unbuilt earlier the same day, is
+    `an_artefact_describes_itself` and `an_unrestricted_artefact_says_so`.
 
     **It checks the stubs and nothing more, deliberately.** A criterion that
     claimed more would be false: `"40 2 +" compile lambda! !` prints `42` under

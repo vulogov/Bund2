@@ -184,10 +184,17 @@ fn reseal(path: &PathBuf) {
 }
 
 /// How far the `state` byte sits before the payload, from the container's
-/// layout: `at::PAYLOAD` is 332 and `at::STATE` is 36.
-const STATE_BEFORE_PAYLOAD: usize = 332 - 36;
+/// layout: `at::PAYLOAD` minus `at::STATE` (36).
+///
+/// **These moved once already, and the guard below caught it.** Adding the
+/// `features` and `pinned` fields took `at::PAYLOAD` from 332 to 652; the
+/// assertion in `payload_at` failed immediately rather than letting the test
+/// patch 320 bytes into the middle of the header. That is the whole reason it
+/// is there — an integration test cannot import the container's own offsets,
+/// so the next best thing is to fail loudly when its copy is stale.
+const STATE_BEFORE_PAYLOAD: usize = 652 - 36;
 /// And the length field: `at::PAYLOAD` minus `at::LEN` (40).
-const LEN_BEFORE_PAYLOAD: usize = 332 - 40;
+const LEN_BEFORE_PAYLOAD: usize = 652 - 40;
 
 /// Find the payload by its own text, so the test needs none of the builder's
 /// internals. The guard on the `state` byte is what makes the offsets above
@@ -571,4 +578,91 @@ fn a_literals_stamp_is_taken_at_run_time_not_at_build_time() {
          literal; equal stamps are the encoded-stream failure D77 rejected"
     );
     let _ = std::fs::remove_file(&exe);
+}
+
+/// **D78's readable trailer** — `bund2 build --inspect`.
+///
+/// "A restriction the runner cannot observe is one they cannot rely on", and
+/// criterion 10 recorded this half as unbuilt until now. Three properties are
+/// asserted together because each is useless alone: the restriction is shown,
+/// the feature set is shown (§B4: it decides which words exist), and the
+/// oracle the meaning was fixed against is shown (§B1).
+#[test]
+fn an_artefact_describes_itself() {
+    let exe = build("1 println\n", "inspectme", &["--noeval"]);
+    let r = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        .args(["build", "--inspect"])
+        .arg(&exe)
+        .output()
+        .expect("inspect runs");
+    assert!(r.status.success());
+    let out = String::from_utf8_lossy(&r.stdout);
+
+    assert!(out.contains("--noeval"), "the restriction is visible: {out}");
+    assert!(
+        out.contains("of 1048576 bytes"),
+        "the capacity is visible, so a size refusal is predictable: {out}"
+    );
+    assert!(
+        out.contains("inspectme.bund"),
+        "the source it was built from is visible: {out}"
+    );
+    // **The oracle, by submodule name and short SHA.** Not merely non-empty:
+    // the first version of the summary parsed `PINNED.txt`'s trailing human
+    // line as a submodule and emitted `0.22.0,:bund`, so this checks a real
+    // entry is there and that stray one is not.
+    assert!(
+        out.contains("Bund:") && out.contains("rust_dynamic:"),
+        "the pinned oracle is named: {out}"
+    );
+    assert!(
+        !out.contains("0.22.0,:"),
+        "and PINNED.txt's version line is not parsed as a submodule: {out}"
+    );
+    assert!(
+        out.contains("a floor"),
+        "and the floor's direction is stated, or the line above reads as the \
+         whole truth: {out}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}
+
+/// **An unrestricted artefact says "none" rather than omitting the line.**
+///
+/// A missing line and "restrictions none" say different things to someone
+/// deciding whether to trust an artefact.
+#[test]
+fn an_unrestricted_artefact_says_so() {
+    let exe = build("1 println\n", "unrestricted", &[]);
+    let r = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        .args(["build", "--inspect"])
+        .arg(&exe)
+        .output()
+        .expect("inspect runs");
+    let out = String::from_utf8_lossy(&r.stdout);
+    assert!(
+        out.contains("restrictions   none"),
+        "an unrestricted artefact must say so: {out}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}
+
+/// **Inspecting something that is not an artefact fails with a reason**, not a
+/// panic and not a misleading empty report.
+#[test]
+fn inspecting_a_non_artefact_explains_itself() {
+    let f = scratch("notanartefact");
+    std::fs::write(&f, b"this is not a mach-o").expect("writing the file");
+    let r = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        .args(["build", "--inspect"])
+        .arg(&f)
+        .output()
+        .expect("inspect runs");
+    assert!(!r.status.success());
+    let err = String::from_utf8_lossy(&r.stderr);
+    assert!(
+        err.contains("not a bund2 artefact"),
+        "and say what it looked for: {err}"
+    );
+    assert!(!err.contains("panicked"), "without panicking: {err}");
 }

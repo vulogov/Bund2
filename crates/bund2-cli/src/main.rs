@@ -19,6 +19,55 @@ use std::process::ExitCode;
 
 mod bundle;
 
+/// Which oracle this binary was conformed against — RFC-0006 §B1.
+///
+/// Baked in at **compile** time, because the artefact must carry it and
+/// `bund2 build` may run anywhere. A change to the pinned submodules rebuilds
+/// this, which is the intent: a bundle's recorded SHAs then differ from an
+/// older one's, and the two are distinguishable rather than silently merged.
+const PINNED: &str = include_str!("../../../reference/PINNED.txt");
+
+/// The cargo features this runtime carries, as §B4 requires.
+///
+/// Compile-time `cfg`, since that is the only thing that knows. An empty
+/// string is the default build and is not the same as "unknown".
+fn features_built_in() -> String {
+    let mut on: Vec<&str> = Vec::new();
+    if cfg!(feature = "jit") {
+        on.push("jit");
+    }
+    if cfg!(feature = "aot") {
+        on.push("aot");
+    }
+    if cfg!(feature = "async") {
+        on.push("async");
+    }
+    on.join(",")
+}
+
+/// `reference/PINNED.txt` compacted to fit the container: each submodule's
+/// basename with its SHA's first twelve characters.
+fn pinned_summary() -> String {
+    PINNED
+        .lines()
+        .filter_map(|l| {
+            let mut f = l.split_whitespace();
+            let sha = f.next()?;
+            // **Only SHA lines.** `PINNED.txt` ends with a human line naming
+            // the oracle's version — "bund 0.22.0, built …" — which parsed as
+            // a submodule and produced the entry `0.22.0,:bund`. A summary a
+            // reader is meant to trust cannot carry a field it misread.
+            if sha.len() != 40 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return None;
+            }
+            let path = f.next()?;
+            let name = path.rsplit('/').next()?;
+            Some(format!("{name}:{}", sha.get(..12).unwrap_or(sha)))
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 use bund2_api::Vm;
 use bund2_interp::Interp;
 
@@ -499,6 +548,17 @@ fn env_set(name: &str) -> bool {
 /// start-up, which is what keeps §B2's preservation exact.
 fn build(args: &[String]) -> ExitCode {
     let value = |flag: &str| args.iter().skip_while(|a| *a != flag).nth(1).cloned();
+
+    // `bund2 build --inspect <artefact>` — D78's readable trailer.
+    //
+    // **Reads a file, unlike everything else about a bundle.** A runtime asks
+    // its own memory what it carries; inspecting asks about *another*
+    // artefact, which is the whole point: the person handed a bundle is not
+    // the person who built it.
+    if let Some(target) = value("--inspect") {
+        return inspect(&target);
+    }
+
     let Some(src_path) = value("--file") else {
         eprintln!("bund2: expected: bund2 build --file <path> --output <path>");
         return ExitCode::from(2);
@@ -571,6 +631,8 @@ fn build(args: &[String]) -> ExitCode {
         &src_path,
         flags,
         env!("CARGO_PKG_VERSION"),
+        &features_built_in(),
+        &pinned_summary(),
     ) {
         eprintln!("bund2: {e}");
         return ExitCode::FAILURE;
@@ -636,6 +698,87 @@ fn reseal(path: &str) -> Result<(), String> {
 #[cfg(not(target_os = "macos"))]
 fn reseal(_path: &str) -> Result<(), String> {
     Ok(())
+}
+
+/// Print what an artefact says about itself.
+fn inspect(path: &str) -> ExitCode {
+    let image = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("bund2: reading {path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let seen = match bundle::inspect(&image) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("bund2: {path} is not a bund2 artefact: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    println!("{path}");
+    println!("  container      version {}", seen.format);
+    if seen.carries_program {
+        println!(
+            "  program        {} of {} bytes, from {}",
+            seen.used,
+            seen.capacity,
+            if seen.source_name.is_empty() {
+                "an unrecorded path"
+            } else {
+                seen.source_name.as_str()
+            }
+        );
+    } else {
+        println!("  program        none — this is the plain interpreter");
+    }
+    // **Named even when empty.** "restrictions none" and a missing line say
+    // different things to someone deciding whether to trust an artefact, and
+    // D78 exists because a restriction nobody can see is one nobody can rely
+    // on.
+    let mut restrictions: Vec<&str> = Vec::new();
+    if seen.noio {
+        restrictions.push("--noio");
+    }
+    if seen.noeval {
+        restrictions.push("--noeval");
+    }
+    println!(
+        "  restrictions   {}",
+        if restrictions.is_empty() {
+            "none".to_string()
+        } else {
+            restrictions.join(" ")
+        }
+    );
+    println!(
+        "  built by       bund2 {}{}",
+        if seen.bund2_version.is_empty() {
+            "(unrecorded)"
+        } else {
+            seen.bund2_version.as_str()
+        },
+        if seen.features.is_empty() {
+            ", default features".to_string()
+        } else {
+            format!(", features: {}", seen.features)
+        }
+    );
+    println!(
+        "  conformed to   {}",
+        if seen.pinned.is_empty() {
+            "(unrecorded)"
+        } else {
+            seen.pinned.as_str()
+        }
+    );
+    // The restrictions are a floor; run time may add. Saying so here stops a
+    // reader treating the line above as the whole truth (D78).
+    if seen.carries_program {
+        println!("\n  Restrictions are a floor: BUND2_NOIO and BUND2_NOEVAL may add,");
+        println!("  never remove. What a bundle does not restrict, it permits.");
+    }
+    ExitCode::SUCCESS
 }
 
 /// Give the artefact the mode this binary has, so it can be run.

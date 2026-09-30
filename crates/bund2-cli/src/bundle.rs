@@ -104,6 +104,20 @@ struct Region {
     /// The source path as `bund2 build` was given it, NUL-padded, so a
     /// diagnostic from a bundle names the same file a `script` run would.
     source_name: [u8; 256],
+    /// **Which cargo features the runtime was built with**, NUL-padded.
+    ///
+    /// §B4: D16 means no word can be proven unused, so the *feature set*
+    /// decides which words exist — a program calling `string.grok` works
+    /// under one bundle and fails at run time under another. Unrecorded,
+    /// nothing can tell a holder which artefact they have.
+    features: [u8; 64],
+    /// **Which oracle the program's meaning was fixed against**, NUL-padded:
+    /// the `reference/PINNED.txt` SHAs, compacted.
+    ///
+    /// §B1: `bund2_version` says what code is interpreting, and this says what
+    /// it was conformed to. A bundle built before a conformance change can
+    /// then be identified rather than silently reinterpreted.
+    pinned: [u8; 256],
     payload: [u8; CAPACITY],
 }
 
@@ -115,7 +129,9 @@ mod at {
     pub const LEN: usize = 40;
     pub const VERSION: usize = 44;
     pub const SOURCE: usize = 76;
-    pub const PAYLOAD: usize = 332;
+    pub const FEATURES: usize = 332;
+    pub const PINNED: usize = 396;
+    pub const PAYLOAD: usize = 652;
 }
 
 /// The whole region's size on disk.
@@ -131,6 +147,8 @@ static REGION: Region = Region {
     len: 0,
     bund2_version: [0; 32],
     source_name: [0; 256],
+    features: [0; 64],
+    pinned: [0; 256],
     payload: [FILLER; CAPACITY],
 };
 
@@ -181,6 +199,19 @@ impl std::fmt::Display for Damaged {
             ),
         }
     }
+}
+
+/// A NUL-padded fixed field, truncated rather than refused.
+///
+/// **Truncation is right for these.** They are for a reader to identify an
+/// artefact; a feature list or a SHA summary that does not fit is still worth
+/// most of what it says, and refusing a build over it would be worse.
+fn padded<const N: usize>(text: &str) -> [u8; N] {
+    let mut out = [0u8; N];
+    let b = text.as_bytes();
+    let n = b.len().min(N);
+    out[..n].copy_from_slice(&b[..n]);
+    out
 }
 
 /// Read a NUL-padded field as a `String`, stopping at the first NUL.
@@ -235,6 +266,56 @@ pub fn carried() -> Result<Option<Carried>, Damaged> {
         }
         other => Err(Damaged::State(other)),
     }
+}
+
+/// What an artefact says about itself — RFC-0006 §B3a and D78.
+pub struct Inspected {
+    pub format: u32,
+    pub carries_program: bool,
+    pub used: usize,
+    pub capacity: usize,
+    pub noio: bool,
+    pub noeval: bool,
+    pub bund2_version: String,
+    pub features: String,
+    pub pinned: String,
+    pub source_name: String,
+}
+
+/// Read an artefact's region **from a file**, for `bund2 build --inspect`.
+///
+/// **D78 requires this.** "A restriction the runner cannot observe is one they
+/// cannot rely on" — so the floor a build wrote has to be readable by whoever
+/// was handed the result, not only by whoever produced it.
+pub fn inspect(image: &[u8]) -> Result<Inspected, String> {
+    let start = locate(image)?;
+    let field = |off: usize, n: usize| -> String {
+        image
+            .get(start + off..start + off + n)
+            .map(text)
+            .unwrap_or_default()
+    };
+    let byte = |off: usize| image.get(start + off).copied().unwrap_or(0);
+    let word = |off: usize| -> u32 {
+        image
+            .get(start + off..start + off + 4)
+            .and_then(|b| <[u8; 4]>::try_from(b).ok())
+            .map(u32::from_le_bytes)
+            .unwrap_or(0)
+    };
+    let flags = byte(at::FLAGS);
+    Ok(Inspected {
+        format: word(at::FORMAT),
+        carries_program: byte(at::STATE) == FILLED,
+        used: word(at::LEN) as usize,
+        capacity: CAPACITY,
+        noio: flags & FLAG_NOIO != 0,
+        noeval: flags & FLAG_NOEVAL != 0,
+        bund2_version: field(at::VERSION, 32),
+        features: field(at::FEATURES, 64),
+        pinned: field(at::PINNED, 256),
+        source_name: field(at::SOURCE, 256),
+    })
 }
 
 /// Find the region in a copy of this executable.
@@ -326,6 +407,8 @@ pub fn write_into(
     name: &str,
     flags: u8,
     version: &str,
+    features: &str,
+    pinned: &str,
 ) -> Result<(), String> {
     let start = locate(image)?;
     if source.len() > CAPACITY {
@@ -362,6 +445,8 @@ pub fn write_into(
     let keep = nb.len().min(nm.len());
     nm[..keep].copy_from_slice(&nb[nb.len() - keep..]);
     put(image, at::SOURCE, &nm)?;
+    put(image, at::FEATURES, &padded::<64>(features))?;
+    put(image, at::PINNED, &padded::<256>(pinned))?;
     // The payload, then the filler over whatever a previous build left.
     put(image, at::PAYLOAD, source.as_bytes())?;
     let tail = at::PAYLOAD + source.len();
@@ -452,8 +537,16 @@ mod tests {
         let exe = std::env::current_exe().expect("a test binary has a path");
         let mut image = std::fs::read(&exe).expect("and it is readable");
         let before = image.len();
-        write_into(&mut image, "1 2 + println\n", "/tmp/x.bund", FLAG_NOEVAL, "9.9.9")
-            .expect("writes");
+        write_into(
+            &mut image,
+            "1 2 + println\n",
+            "/tmp/x.bund",
+            FLAG_NOEVAL,
+            "9.9.9",
+            "jit",
+            "abc123 reference/Bund",
+        )
+        .expect("writes");
         assert_eq!(image.len(), before, "the file's length does not change");
 
         let start = locate(&image).expect("still locatable");
@@ -471,6 +564,15 @@ mod tests {
             Ok("1 2 + println\n")
         );
         assert_eq!(text(&image[start + at::VERSION..start + at::VERSION + 32]), "9.9.9");
+
+        // The two fields the RFC promised and the container lacked until now.
+        let seen = inspect(&image).expect("the artefact describes itself");
+        assert_eq!(seen.features, "jit");
+        assert_eq!(seen.pinned, "abc123 reference/Bund");
+        assert_eq!(seen.bund2_version, "9.9.9");
+        assert!(seen.carries_program && seen.noeval && !seen.noio);
+        assert_eq!(seen.used, "1 2 + println\n".len());
+        assert_eq!(seen.capacity, CAPACITY);
     }
 
     /// A program over capacity is refused, and **nothing is written** — the
@@ -481,7 +583,8 @@ mod tests {
         let mut image = std::fs::read(&exe).expect("and it is readable");
         let untouched = image.clone();
         let big = "x".repeat(CAPACITY + 1);
-        let err = write_into(&mut image, &big, "big.bund", 0, "1.0").expect_err("refused");
+        let err = write_into(&mut image, &big, "big.bund", 0, "1.0", "", "")
+            .expect_err("refused");
         assert!(err.contains(&format!("{}", CAPACITY + 1)), "names the size: {err}");
         assert!(err.contains(&CAPACITY.to_string()), "names the capacity: {err}");
         assert_eq!(image, untouched, "and the image is unchanged");
