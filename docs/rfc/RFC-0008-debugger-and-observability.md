@@ -1,17 +1,18 @@
 # RFC-0008: The debugger and observability
 
 - Status: **Draft**, revised 2026-09-30 after the first adversarial review
-  (`docs/rfc/reviews/RFC-0008-review-2026-09-30.md`). **It cannot be proposed:
-  §D1 is blocked on D6, which is OPEN** — and the first draft treated it as
-  settled, which is the failure CLAUDE.md names in terms. The two reasons the
-  first draft gave for staying a Draft were not the blocking ones.
-- **Blocked on: D6** (async granularity). RFC-0003 already placed this RFC's
-  subject in D6's scope: "The `--debugger` path is now in D6's scope.
-  Collapsing three loops into one plus an observer is specified but untested;
-  the observer's interface is not designed here" (RFC-0003:944-946).
+  (`docs/rfc/reviews/RFC-0008-review-2026-09-30.md`). §D1 was blocked on **D6**,
+  which the first draft treated as settled — the failure CLAUDE.md names in
+  terms, and neither of the two reasons that draft gave for staying a Draft.
+- **No longer blocked on a decision — D84 closes D6** (VM-per-task; the
+  debugger stops a thread rather than suspending a word). RFC-0003 had placed
+  this RFC's subject in D6's scope — "The `--debugger` path is now in D6's
+  scope… the observer's interface is not designed here" (RFC-0003:944-946) —
+  and D84 answers it. What remains before proposing is **measurement, not
+  decision**: §D1's safepoint cost and §D2's frame growth, criteria 11 and 13.
 - Depends on: RFC-0003 (the flat frame loop), RFC-0005 (the tier, whose decline
   machinery §D6 uses)
-- Decisions consumed: D36, D45, D52, D53
+- Decisions consumed: D36, D44, D45, D52, D53, D84
 - Touched but not consumed: D16, D74
 - Reference SHA: `reference/Bund` at `21b40b0`, per `reference/PINNED.txt`
 - Supersedes: nothing. `docs/research/03-metaprogramming-oop-debugger.md` §3 is
@@ -129,38 +130,44 @@ and `bund.prompt` in `ACTS_ON_HOST`, and no hermetic golden can run them.
 
 ## Design
 
-### §D1 — Debugging is an execution mode of Tier 0 — **and is blocked on D6**
+### §D1 — The debuggee stops on its own thread; it is not suspended
 
 `Interp::step()` executes one value of the current frame and returns. The
 debugger drives it; `step`, `next` and `finish` are three comparisons of frame
 depth before and after, which is gdb's model (research §3.3(a)).
 
-**Step-into does not already work, and the first draft of this section claimed
+**Step-into does not come from bodies being frames, and the first draft claimed
 it did.** It said "step-into works for words, lambdas and `bund.eval`'d code
-alike, because all three are bodies in frames". They are bodies in frames, and
-that is not sufficient. `Interp::eval_lambda` records `floor = frames.len()`,
-pushes the frame, and then calls **`run_to(floor)`** — a nested loop that runs
-until the stack returns to that floor, *inside the native's own Rust frame*
-(`crates/bund2-interp/src/lib.rs`, `eval_lambda`). Its own comment says so:
-"Every native that runs a body synchronously comes through here, and each such
-level spends Rust stack."
+alike, because all three are bodies in frames". They are, and that is not
+sufficient: `Interp::eval_lambda` records `floor = frames.len()`, pushes, then
+calls **`run_to(floor)`** — a nested loop *inside the native's own Rust frame*
+(`crates/bund2-interp/src/lib.rs`, `eval_lambda`), whose comment says "every
+native that runs a body synchronously comes through here". There are **27 such
+call sites across nine files**, and several hold Rust state across the body:
+`map_base` keeps a `Vec<BundValue>` and a loop position.
 
-So a driven `step()` **cannot pause inside** a body run by `times`, `map`,
-`while`, the conditionals, `?try`, the method paths, or `bund.eval` — pausing
-there means suspending a native mid-call, which is exactly the async problem.
+**D84 answers it without suspension.** Stepping needs a program to *stop*, not
+to suspend. The debuggee runs on its own thread — the shape `bund2-cli`'s `main`
+already uses under D44 — and blocks at a safepoint each step. A thread blocked
+inside `map`'s Rust frame has its state intact on its own stack, so **step-into
+works**: the debuggee stops *inside* the nested loop rather than needing to
+escape it.
 
-**That is D6, and D6 is OPEN.** RFC-0003 placed this RFC's subject there
-explicitly and said "the observer's interface is not designed here"
-(RFC-0003:944-946). This RFC therefore **cannot be proposed** until D6 is
-ruled on, and the first draft neither listed D6 nor mentioned the constraint —
-adopting an OPEN decision's default silently, which CLAUDE.md forbids.
+**The debuggee inspects itself, because `Interp` is not `Send`.** It holds
+`Box<dyn Reporter>` and, through every value, `Rc<HeapValue>` — two independent
+reasons a debugger thread may not touch it. So at a safepoint the debuggee
+receives a **command**, executes it against its own `Interp`, and returns
+**rendered text**; only commands and text cross the boundary. That is the
+`Reporter` seam's shape (D36, D45), and it is what the reference already does —
+`debug`'s readline loop hands each line to `bund_compile_and_eval` **in the same
+VM** (`debug_debug.rs:81-95`).
 
-**What is available without D6**, and worth stating because it is not nothing:
-stepping the **top-level stream**, where each value is a frame in the outer
-loop, and stepping *into* a word or lambda called directly from it. What is
-unavailable is stepping into anything a native drives. A debugger limited that
-way is closer to the reference's granularity than to gdb's, which is the honest
-description of it.
+**What is unavailable**: unwinding or restarting a native mid-call, so "step out
+of a native" and time travel stay off the table — §3.3(j) already declined the
+second.
+
+**What it costs**: a safepoint check per step, which criterion 13 measures
+against RFC-0005 criterion 7's band rather than assuming.
 
 ### §D2 — A backtrace needs a frame to know what it is running
 
@@ -399,11 +406,16 @@ capture and still unpinnable, which is `debug`'s case.
     run and `> 0` after the same program run without `--debugger`. The first
     draft asserted only the first half, which §D6 makes true by construction
     and therefore unable to fail.
-11. **§D2's growth is measured against a baseline taken first.**
+11. **The safepoint costs nothing when no debugger is attached.**
+    `cargo bench -p bund2-bench -- 'startup|dispatch'` with the check in place,
+    against a baseline taken before it, inside RFC-0005 criterion 7's 5% band.
+    D84 traded suspension for a per-step check, and this is the price of that
+    trade made checkable.
+12. **§D2's growth is measured against a baseline taken first.**
     `cargo bench -p bund2-bench -- dispatch` **before** the field is added, then
     after, within RFC-0005 criterion 7's 5% band. The first draft named the band
     but no baseline, so there was nothing to compare against.
-12. **`debug` and `debug.shell` run under a capture, and are refused as
+13. **`debug` and `debug.shell` run under a capture, and are refused as
     unstable.** Measured, correcting an `[UNGROUNDED]` claim: with stdin closed
     the oracle's `debug` runs to completion — readline gets EOF and advances —
     so "no golden can run them" was wrong. What stops a golden is that the table
@@ -413,12 +425,14 @@ capture and still unpinnable, which is `debug`'s case.
 
 ## Open questions
 
-- **D6 — async granularity. This RFC is blocked on it**, and that is the
-  headline rather than a footnote. §D1's driven `step()` cannot pause inside a
-  body a native drives without suspending the native mid-call, RFC-0003 already
-  placed the `--debugger` path in D6's scope, and the first draft of this
-  document neither said so nor listed D6. Until it is ruled on, §D1 delivers
-  top-level stepping only.
+- **D6 — answered by D84**, 2026-09-30: VM-per-task, and the debugger stops a
+  thread rather than suspending a word. Left listed because the first draft of
+  this document adopted its default silently, and a reader tracing D84 should
+  find where that happened.
+- **Whether the safepoint check is affordable.** D84 replaced a decision with a
+  measurement, and criterion 11 is it. If the check moves `dispatch` beyond
+  criterion 7's band, the shape has to change — a `cfg`, or a check only under
+  `--debugger` — and that is a design question this RFC would answer then.
 - **RFC-0003 §S5's IR, for source locations.** §D2 can give a backtrace a word
   symbol and a value index today; a file and line need spans for nested values,
   which `lower_with_spans` does not produce and says it does not.

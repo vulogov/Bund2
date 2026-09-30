@@ -323,9 +323,12 @@ something the value model makes impossible.
 
 ## D6 — async granularity
 Is fine-grained suspension inside a word required, or is VM-per-task enough?
-- Blocks: RFC-0007
+- Blocks: RFC-0007, **and RFC-0008** — which this line did not say, and
+  RFC-0003:944-946 did. A reader who searched only `Blocks:` would have missed
+  it, which is why CLAUDE.md says to search the registers by subject.
 - Default: VM-per-task
-- Status: OPEN
+- Status: **RESOLVED — VM-per-task, and the debugger stops a thread rather than
+  suspending a word**, 2026-09-30. See **D84**.
 
 ## D7 — concurrent VM count
 Tens (actor model is fine) or thousands (per-VM word tables become the memory
@@ -3532,6 +3535,88 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
 - Depends on: D48 and D55 (the palette runs the four new fixed-effect
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
+
+## D84 — D6 is VM-per-task; the debugger stops a thread and inspects from inside it
+
+**Decided by the repository owner, 2026-09-30**, on the options weighed for D6:
+"Option 3."
+
+- Blocks: nothing further. It closes D6, which blocked RFC-0007 and — per
+  RFC-0003:944-946 rather than D6's own `Blocks:` line — RFC-0008
+- Depends on: D6, D44 (the evaluation thread), RFC-0003's frame loop,
+  RFC-0005 §S8
+- Status: **RESOLVED — decided; the mechanism corrected the same day**,
+  2026-09-30.
+
+### The decision
+
+**Fine-grained suspension inside a word is not required.** D6's recorded
+default stands: a task owns a VM. No native becomes a state machine, no
+accumulator moves into a frame, and `ExitAction` stays the one variant it has.
+
+**The debugger gets its reach a different way.** Stepping needs a program to
+*stop*, not to *suspend*. The debuggee runs on its own thread — the shape
+`bund2-cli`'s `main` already uses, `stack_size(EVAL_STACK)` and a declared Tier
+1 share — and blocks at a safepoint each step. A thread blocked inside `map`'s
+Rust frame has its state intact on its own stack, so nothing has to be reified
+for the debugger to see a consistent program.
+
+### The mechanism is not what the options said, and this correction matters
+
+**The option as put to the owner said the debugger "inspects the blocked
+thread's VM state". It cannot.** `Interp` is **not `Send`**, for two
+independent reasons — it holds `Box<dyn Reporter>` and, through every value,
+`Rc<HeapValue>`. A debugger thread may not hold a reference to the debuggee's
+`Interp` at all. The owner chose on a description that was wrong in that one
+respect, and it was flagged as unverified when put to them; verifying it is what
+found this.
+
+**The corrected mechanism: the debuggee inspects itself.** At a safepoint the
+debuggee blocks on a channel, receives a **command**, executes it against its
+own `Interp`, and sends back **rendered text**. Only commands and text cross the
+thread boundary, and both are `Send`; the VM never does.
+
+Three things follow, and each is better than the original framing rather than a
+concession:
+
+- **It is the `Reporter` seam's shape** — a structured message out, no shared
+  state — which D36 and D45 already committed to and which CLAUDE.md says the
+  seam exists for.
+- **It is what the reference already does.** `debug`'s readline loop hands each
+  line to `bund_compile_and_eval` **in the same VM**
+  (`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:81-95`). A
+  command executed on the debuggee's own thread against its own VM preserves
+  that exactly.
+- **It keeps §3.3(j) plausible.** A command/response protocol over a channel is
+  what a Debug Adapter Protocol server needs; shared memory is not.
+
+### What is unavailable, stated
+
+**No unwinding or restarting a native mid-call.** A blocked thread can be
+inspected and released; it cannot be rewound. So "step out of a native", and
+time travel, stay unavailable — §3.3(j) already declined to promise the second.
+
+**Step-into works**, because the debuggee stops *inside* the native's nested
+`run_to` loop rather than needing to escape it. That is the whole gain over
+D6's default read narrowly, and it is what unblocks RFC-0008 §D1.
+
+### What replaces the blocker
+
+RFC-0008 is no longer blocked on a decision. It is now blocked on a
+**measurement**: the safepoint check costs a read per step, and RFC-0005
+criterion 7 protects the `startup` and `dispatch` groups within 5%. That is the
+same shape as §D2's frame growth, and both are criteria rather than questions.
+
+### Why not the alternatives
+
+- **Fine-grained suspension.** 27 `eval_lambda` call sites across nine files,
+  several holding Rust state across the body — `map_base` keeps a
+  `Vec<BundValue>` and a loop position. It would be the largest single piece of
+  work proposed in this project, on the path criterion 7 protects, and it buys
+  the debugger something a thread already buys.
+- **VM-per-task read narrowly**, with top-level stepping only. Rejected because
+  it is a worse debugger than the reference's for bodies a native drives, and
+  the reference's is already the weaker design.
 
 ## D83 — `--emit=native` is withdrawn; criterion 4 is discharged by inspection
 
