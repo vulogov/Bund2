@@ -135,3 +135,11 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   `redb` together own 17.2%. Product B's stated strongest argument — shedding
   the code generator being "a bigger practical win than the arithmetic
   speedup" — does not hold at that share.
+
+- `03-metaprogramming-oop-debugger.md` §3.3(h) -> superseded by RFC-0008 §D7
+  (2026-09-30): "the tier-up call counters give you a profiler for free" does not
+  hold in Bund2. Its counters — `compiled_bodies`, `compiled_entries`,
+  `crossed_calls` — are totals on the tier rather than per-word times, they exist
+  only in `jit` builds, and §D6 removes the tier for a debugged session, so a
+  profile taken under the debugger reads zero by construction. A profiler needs
+  its own counters on the frame loop.
