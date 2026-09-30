@@ -455,6 +455,10 @@ fn run_carried(carried: &bundle::Carried, argv: Vec<String>) -> ExitCode {
     // restriction, and the artefact would still report itself as built with
     // one — the failure RFC-0006 criterion 10 exists to catch. So these are
     // `|=`, never `=`.
+    // **Exhaustive on purpose — no `..Default::default()`.** This is the only
+    // place D78's floor is applied, and a field added to `HostOptions` without
+    // a decision about what a bundle does with it would otherwise default
+    // silently. Written out, it is a compile error until someone chooses.
     let host = bund2_stdlib::host::HostOptions {
         noio: carried.flags & bundle::FLAG_NOIO != 0 || env_set("BUND2_NOIO"),
         noeval: carried.flags & bundle::FLAG_NOEVAL != 0 || env_set("BUND2_NOEVAL"),
@@ -533,6 +537,27 @@ fn build(args: &[String]) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    // **Refuse to overwrite the binary doing the building.**
+    //
+    // `bund2 build --output $(which bund2)` succeeded, reported success, and
+    // turned the interpreter into a bundle: afterwards `bund2 --file x.bund`
+    // ran the *embedded* program and ignored the argument, because a bundle
+    // gives all of argv to its program. Destructive, silent, and one keystroke
+    // away from `-o` on the wrong path.
+    //
+    // Compared by identity rather than by spelling — canonical paths, so a
+    // symlink or a relative path cannot slip past. An output that does not
+    // exist yet cannot be the running binary, so absence is not an error.
+    if let Ok(existing) = std::fs::canonicalize(&out_path)
+        && std::fs::canonicalize(&exe).map(|e| e == existing).unwrap_or(false)
+    {
+        eprintln!(
+                "bund2: --output is this binary ({out_path}). Building over the \
+                 executable doing the building would replace the interpreter with \
+             the artefact. Nothing was written."
+        );
+        return ExitCode::FAILURE;
+    }
     let mut image = match std::fs::read(&exe) {
         Ok(b) => b,
         Err(e) => {

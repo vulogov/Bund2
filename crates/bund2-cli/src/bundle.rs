@@ -416,6 +416,36 @@ mod tests {
         assert!(locate(&image).is_ok(), "so locate succeeds");
     }
 
+    /// **Two candidates that both validate is a refusal, not a guess.**
+    ///
+    /// `locate` identifies the region structurally because release builds leave
+    /// a second copy of the sentinel in the text section. That fix rests on a
+    /// bare constant never carrying a valid header — so this plants a whole
+    /// header that does, and checks the answer is a refusal rather than a coin
+    /// toss. Patching the wrong candidate produces an artefact that runs the
+    /// wrong program, which no later check would catch.
+    #[test]
+    fn two_validating_candidates_are_refused() {
+        let exe = std::env::current_exe().expect("a test binary has a path");
+        let mut image = std::fs::read(&exe).expect("and it is readable");
+        let start = locate(&image).expect("the real region");
+        assert!(header_validates(&image, start));
+
+        // A second, complete region: the real header plus a full-size body, so
+        // it satisfies every check `header_validates` makes.
+        let clone: Vec<u8> = image
+            .get(start..start + REGION_BYTES)
+            .expect("the region is whole")
+            .to_vec();
+        image.extend_from_slice(&clone);
+
+        let err = locate(&image).expect_err("two valid candidates must refuse");
+        assert!(
+            err.contains("more than one"),
+            "and say why, rather than picking: {err}"
+        );
+    }
+
     /// A round trip through the region a builder writes and a runtime reads.
     #[test]
     fn a_written_program_reads_back() {

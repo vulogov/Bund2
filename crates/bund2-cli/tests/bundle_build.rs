@@ -355,3 +355,111 @@ fn a_jit_bundle_enters_compiled_code() {
     );
     let _ = std::fs::remove_file(&exe);
 }
+
+/// **`--output` may not be the binary doing the building.**
+///
+/// It used to succeed: the interpreter was replaced by the artefact, the
+/// success message said nothing, and afterwards `bund2 --file x.bund` ran the
+/// embedded program and ignored the argument — because a bundle gives all of
+/// argv to its program. Destructive, silent, and one keystroke from `-o` on
+/// the wrong path.
+#[test]
+fn a_build_refuses_to_overwrite_the_binary_doing_it() {
+    let copy = scratch("self-target");
+    std::fs::copy(env!("CARGO_BIN_EXE_bund2"), &copy).expect("copying the binary");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut p = std::fs::metadata(&copy).expect("mode").permissions();
+        p.set_mode(p.mode() | 0o111);
+        std::fs::set_permissions(&copy, p).expect("setting the mode");
+    }
+    let src = scratch("self-target.bund");
+    std::fs::write(&src, "1 println\n").expect("writing the source");
+
+    let r = Command::new(&copy)
+        .arg("build")
+        .arg("--file")
+        .arg(&src)
+        .arg("--output")
+        .arg(&copy)
+        .output()
+        .expect("it runs");
+    assert!(!r.status.success(), "the build must refuse");
+    let err = String::from_utf8_lossy(&r.stderr);
+    assert!(
+        err.contains("nothing was written") || err.contains("Nothing was written"),
+        "and say so: {err}"
+    );
+
+    // And the binary is still an interpreter, not an artefact.
+    let after = Command::new(&copy)
+        .arg("--file")
+        .arg(&src)
+        .output()
+        .expect("it still runs");
+    assert!(
+        String::from_utf8_lossy(&after.stdout).contains('1'),
+        "it must still interpret a file given on the command line"
+    );
+    let _ = std::fs::remove_file(&copy);
+}
+
+/// **A bundle cannot be used as a builder**, because `carried()` is consulted
+/// before the `build` arm — all of argv belongs to the program (§B3).
+///
+/// True by construction and pinned here, because it is the kind of property
+/// that would change quietly if the arms were reordered.
+#[test]
+fn a_bundle_cannot_build_another_bundle() {
+    let exe = build("1 println\n", "notabuilder", &[]);
+    let out = scratch("second");
+    let _ = std::fs::remove_file(&out);
+    let src = scratch("notabuilder.bund");
+    let (code, printed) = run(
+        &exe,
+        &["build", "--file", src.to_str().unwrap_or(""), "--output", out.to_str().unwrap_or("")],
+        &[],
+    );
+    assert_eq!(code, Some(0), "it runs its own program: {printed}");
+    assert!(printed.contains('1'), "which prints 1: {printed}");
+    assert!(!out.exists(), "and builds nothing");
+    let _ = std::fs::remove_file(&exe);
+}
+
+/// **An empty program is still a program.** `state` is filled with a length of
+/// zero, so the artefact must run nothing and **must not** fall back to the
+/// CLI — which would parse the program's own arguments as flags.
+#[test]
+fn an_empty_program_does_not_become_the_interpreter() {
+    let exe = build("", "emptyprog", &[]);
+    let (code, out) = run(&exe, &["words", "--stats"], &[]);
+    assert_eq!(code, Some(0), "output was: {out}");
+    assert!(
+        out.trim().is_empty(),
+        "an empty program prints nothing, and in particular not the word table \
+         that `words` would have printed had argv reached the runner: {out}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}
+
+/// **An exit code travels** — D52 through a bundle, matching a source run.
+#[test]
+fn an_exit_code_matches_a_source_run() {
+    let src = scratch("exitcode.bund");
+    std::fs::write(&src, "7 bund.exit\n").expect("writing the source");
+    let source = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        .arg("--file")
+        .arg(&src)
+        .output()
+        .expect("the source run");
+    let exe = build("7 bund.exit\n", "exitcode", &[]);
+    let (code, _) = run(&exe, &[], &[]);
+    assert_eq!(
+        code,
+        source.status.code(),
+        "a bundle's exit code must equal its source run's"
+    );
+    assert_eq!(code, Some(7), "and be the code the program asked for");
+    let _ = std::fs::remove_file(&exe);
+}

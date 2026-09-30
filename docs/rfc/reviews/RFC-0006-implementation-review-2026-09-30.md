@@ -92,6 +92,49 @@ takes one command.
   exercised by the same test, so a drift would still surface, but less
   directly.
 
+## Second pass, same day — one more defect, and three properties pinned
+
+The three concerns the first pass named as unexamined were then attacked.
+
+### B3 — `--output` could be the binary doing the building
+
+**`bund2 build --output $(which bund2)` succeeded.** It reported "wrote …",
+replaced the interpreter with the artefact, and afterwards
+`bund2 --file x.bund` ran the *embedded* program and ignored the argument,
+because a bundle gives all of argv to its program. Destructive, silent, and
+one keystroke from `-o` on the wrong path.
+
+**Fixed by refusing**, compared by identity rather than spelling — canonical
+paths, so a symlink or a relative path cannot slip past — and an output that
+does not exist yet cannot be the running binary, so absence is not an error.
+Pinned by `a_build_refuses_to_overwrite_the_binary_doing_it`, which also
+asserts the binary still interprets a file afterwards.
+
+### Pinned, having been true only by construction
+
+- **Two candidates that both validate are refused, not guessed between.** The
+  release fix rests on a bare constant never carrying a valid header, so the
+  test plants a *whole* region — header and full-size body — and asserts a
+  refusal. Patching the wrong candidate would produce an artefact that runs
+  the wrong program, which nothing downstream would catch.
+- **A bundle cannot build another bundle**, because `carried()` is consulted
+  before the `build` arm. True by argv ordering and now pinned, since it is
+  the kind of property that changes quietly when arms are reordered.
+- **An empty program does not become the interpreter.** `state` filled with
+  length zero must run nothing and must *not* fall back to the CLI, which
+  would parse the program's own arguments as flags. Checked with argv of
+  `words --stats`: no word table, no stats, no output.
+- **An exit code travels.** `7 bund.exit` gives 7 from a bundle and 7 from a
+  source run, asserted against each other rather than against a constant.
+
+### Cleared by inspection
+
+**D78's floor is structurally protected.** `run_carried` builds `HostOptions`
+as an exhaustive literal with no `..Default::default()`, so a field added to
+that struct without a decision about what a bundle does with it is a compile
+error rather than a silent default. A comment at the site says so, because the
+protection is invisible otherwise and one `..` would remove it.
+
 ## Not examined
 
 - Anything not on macOS arm64. ELF and PE are reasoned about in §B1 and
