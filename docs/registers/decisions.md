@@ -3533,6 +3533,76 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D83 — `--emit=native` is withdrawn; criterion 4 is discharged by inspection
+
+**Decided by the repository owner, 2026-09-30**, on the options weighed after
+criterion 1's measurement: "Option 4, then 2."
+
+- Blocks: nothing. It removes an unbuilt mode from RFC-0006's scope
+- Depends on: D10 (whose `cc` permission for this mode becomes moot), D16,
+  D82, RFC-0005 criterion 4, RFC-0006 criterion 1 and §B5
+- Status: **RESOLVED — withdrawn, and criterion 4 is discharged**, 2026-09-30.
+
+### The decision, in two parts
+
+**RFC-0005's criterion 4 is discharged by inspection, not by a product.** The
+criterion asks that no relocation names a compiled body's `FuncId` from inside
+another body. `cranelift-jit` consumes relocations when it finalises;
+`cranelift-object` keeps them. Making `Emitter` generic over
+`cranelift_module::Module` — everything `emit_into` uses is trait surface — was
+the whole prerequisite, and `no_relocation_names_a_compiled_body_from_inside_another`
+(`crates/bund2-jit/src/lower.rs`) reads them.
+
+**§B5's three items were not needed for it**, which is what made this possible
+and is worth stating because §B5 implies otherwise. The lowering bakes the
+compiling process's heap addresses in as **immediates**, and an immediate is
+not a relocation. The object is read, never run, so the addresses being wrong
+in another process does not matter.
+
+**`--emit=native` as a shipped mode is withdrawn.**
+
+### Why
+
+**Its stated justification was measured away.** The research made shedding the
+code generator Product B's strongest case, "a bigger practical win than the
+arithmetic speedup". RFC-0006 criterion 1 measured it at **12.45% of the
+binary**, with Cranelift and `regalloc2` owning 8.9% of `__text` where
+`graphitesql` alone owns 13.0%. ERRATA records the supersession.
+
+**What remained was start-up without warm-up**, which is real — D74 set §S7's
+threshold at 1024 entries of one body and F139 found no corpus program compiles
+a single body even at 64, so Tier 1 contributes nothing to a program that runs
+once. It was not enough against the costs:
+
+- **The meaning guards have no cells at build time.** §S6's guard compares a
+  per-name generation cell whose address is baked into the code, and D43 mints
+  those cells at registration, per `Interp`. Nothing is registered at build
+  time. The cells would have to be created at load and found by name through
+  relocations resolved then — feasible, but it is the machinery that makes a
+  redefinition observable, so an error there is silent wrongness rather than a
+  crash. **This risk is not in §B5's list**, and it is the largest.
+- **Which bodies to compile may not be knowable.** D16 means a call target can
+  be a run-time string; a program's word bodies are bound by `register` when it
+  runs. The register already forecloses tree-shaking for this reason: "An AOT
+  image retains the word table and the name resolver."
+- **It reopens RFC-0005 criterion 30's two excluded mirrors**, on that row's
+  own trigger: the exclusion holds "only while §S7 compiles on an entry rather
+  than ahead of one".
+- The configuration matrix gains per-target linking and D40's
+  cross-compilation question, and criterion 8 would want native matching Tier 0
+  per golden in each.
+
+### What withdrawal does not mean
+
+**Not that AOT is impossible**, and the reasoning above is partly reasoning
+rather than measurement — the fraction of a corpus program's bodies that are
+statically known was never measured. **What would reopen this** is that figure,
+plus an answer to where the guards get their cells. Both are questions, not
+work, and taking them is the first step if the mode is ever wanted.
+
+**Not a repeal of D10's permission.** D10 permits `cc` for `--emit=native`, and
+that permission simply has nothing to apply to while the mode is withdrawn.
+
 ## D82 — RFC-0006 is Proposed
 
 **Authorised by the repository owner, 2026-09-30**, after three adversarial

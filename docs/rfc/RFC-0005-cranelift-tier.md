@@ -4180,6 +4180,27 @@ evidence, and this one is listed as runnable rather than as met.
    It fails if any lowering path emits a direct call, including one added later
    for a word that looks safely static — and D16 means none is.
 
+   **Met, 2026-09-30, by inspection rather than by a product — D83.**
+   `no_relocation_names_a_compiled_body_from_inside_another`
+   (`crates/bund2-jit/src/lower.rs`) emits two bodies into a
+   `cranelift-object` module and reads the relocation records. **§B5's AOT work
+   was not needed**: the lowering bakes heap addresses as *immediates*, and an
+   immediate is not a relocation, so an object read rather than run answers
+   this. Making the emitter generic over `cranelift_module::Module` was the
+   whole prerequisite, since everything the emission path uses is trait
+   surface — `finalize_definitions` and `get_finalized_function` are the JIT's
+   and moved out.
+
+   The permission is pinned **by index**: a trampoline may call only *its own*
+   body, because `entry_0 -> body_1` would be this criterion's defect wearing a
+   permitted shape. A companion test asserts the permitted relocations are
+   *present*, which is what caught the first version of this check attributing
+   relocations by section name — on Mach-O every relocation reports `__text`,
+   so no offender could match and the check passed vacuously.
+
+   The note below stands as what was true for seventeen days, and its
+   conclusion — that this belonged to RFC-0006's path — is what D83 withdrew.
+
    **The relocation check is not reachable from a `JITModule`, 2026-09-13.**
    `cranelift-jit` consumes relocations internally when it finalises a
    definition (`src/backend.rs`, `perform_relocations`) and exposes no accessor;

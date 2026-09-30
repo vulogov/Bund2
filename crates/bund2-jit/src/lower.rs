@@ -1517,7 +1517,7 @@ enum Plan {
 /// functions that compilation defined and leaves every earlier body's code
 /// untouched and still executable.
 pub struct Compiler {
-    emitter: Emitter,
+    emitter: Emitter<JITModule>,
     words: Vec<Word>,
     /// **The fragment table — `(registration id, Fragment)` pairs** §S6 has
     /// `bund2-stdlib` publish and this crate read.
@@ -1551,8 +1551,23 @@ pub struct Compiler {
 /// module that declared it, and because the cache's whole correctness argument
 /// is per module: an index is resolved against the running context, so a thunk
 /// is shareable by every body *in this module* and by none outside it.
-struct Emitter {
-    module: JITModule,
+struct Emitter<M> {
+    /// **Generic over the module so that criterion 4 can be checked.**
+    ///
+    /// `cranelift-jit` consumes relocations when it finalises a definition and
+    /// exposes no accessor; `cranelift-object` keeps them. RFC-0005's
+    /// criterion 4 — no relocation names a compiled body from inside another —
+    /// therefore needs the object backend, and everything [`emit_into`] uses
+    /// is `Module` trait surface. The JIT-only calls, `finalize_definitions`
+    /// and `get_finalized_function`, stay in [`Compiler`], which holds an
+    /// `Emitter<JITModule>` and is not generic.
+    ///
+    /// **This is for inspection, not for running.** An object emitted this way
+    /// bakes the compiling process's heap addresses as immediates, exactly as
+    /// the JIT path does, so it could not execute in another process — see
+    /// RFC-0006 §B5. Immediates are not relocations, which is why the
+    /// criterion is answerable without fixing that.
+    module: M,
     /// **Criterion 17's measurement switch — false only under
     /// `unguarded-bench`.**
     ///
@@ -1805,16 +1820,16 @@ impl Compiler {
             i64::try_from(cells).map_err(|_| "the cells' address does not fit".to_string())?;
         let seq = self.words.len();
         let (plan, sites) = self.plan_body(body, vm);
-        let (entry, slots, resumes, syncs) =
-            emit_into(
-                &mut self.emitter,
-                seq,
-                &plan,
-                &sites,
-                last,
-                Adapter::Apply,
-                cells,
-            )?;
+        let laid = emit_into(
+            &mut self.emitter,
+            seq,
+            &plan,
+            &sites,
+            last,
+            Adapter::Apply,
+            cells,
+        )?;
+        let (entry, slots, resumes, syncs) = finish_jit(&mut self.emitter.module, laid)?;
         // The constants the emitted code baked, paired with the body positions
         // they came from. `Compiler::run` compares them against the body it is
         // handed — see [`Word::literals`].
@@ -2208,16 +2223,8 @@ fn emit_body(
     let plan = vec![Plan::Call { cross: None }; calls];
     // A body compiled this way inlines nothing — it is given no fragments — so
     // it has no site whose residual could resume, and the table is empty.
-    let (entry, slots, _resumes, _syncs) =
-        emit_into(
-            &mut emitter,
-            0,
-            &plan,
-            &[],
-            last,
-            adapter,
-            cells,
-        )?;
+    let laid = emit_into(&mut emitter, 0, &plan, &[], last, adapter, cells)?;
+    let (entry, slots, _resumes, _syncs) = finish_jit(&mut emitter.module, laid)?;
     Ok(CompiledBody {
         _module: emitter.module,
         entry,
@@ -2269,6 +2276,21 @@ fn new_module(adapter: Adapter) -> Result<JITModule, String> {
 /// table criterion 21 asserts rather than an implementation detail.
 type Emitted = (Entry, Box<[*const u8]>, Vec<(usize, usize)>, usize);
 
+/// One body's functions, **emitted and not yet finalised**.
+///
+/// The split exists so that emission is generic over the module and
+/// finalisation is not: `finalize_definitions` and `get_finalized_function`
+/// are `cranelift-jit`'s, and an object module has neither. RFC-0005's
+/// criterion 4 needs the emission half against `cranelift-object`, which keeps
+/// the relocation records the JIT consumes.
+struct Laid {
+    entry_id: cranelift_module::FuncId,
+    thunk_ids: Vec<cranelift_module::FuncId>,
+    slots: Box<[*const u8]>,
+    resume_table: Vec<(usize, usize)>,
+    syncs: usize,
+}
+
 /// **Emit one body into an existing module**, returning its entry and the slot
 /// table the emitted code reads.
 ///
@@ -2279,15 +2301,15 @@ type Emitted = (Entry, Box<[*const u8]>, Vec<(usize, usize)>, usize);
 /// answer, not an error. The adapter import is the one name deliberately left
 /// unsuffixed: merging is exactly right for it, since every body imports the
 /// same Rust function.
-fn emit_into(
-    e: &mut Emitter,
+fn emit_into<M: cranelift_module::Module>(
+    e: &mut Emitter<M>,
     seq: usize,
     plan: &[Plan],
     sites: &[Fragment],
     last: LastCall,
     adapter: Adapter,
     cells: i64,
-) -> Result<Emitted, String> {
+) -> Result<Laid, String> {
     // Destructured once, so the body below reads as it did when the module and
     // the cache were separate parameters — and so this function stays inside
     // clippy's argument limit, which bundling them is the honest way to meet.
@@ -2336,7 +2358,7 @@ fn emit_into(
     // **And one per inlined site**, for §S6's type guard: an inlined site asks
     // `jit_admits` through a slot for the same reason a call reaches its
     // adapter through one.
-    let mut slots: Box<[*const u8]> =
+    let slots: Box<[*const u8]> =
         vec![std::ptr::null(); calls + 1 + inlined].into_boxed_slice();
     let slots_base = slots.as_ptr() as i64;
     let drain_slot = calls;
@@ -3111,6 +3133,29 @@ fn emit_into(
         .map_err(|e| format!("define bund2_entry: {e}"))?;
     module.clear_context(&mut cg);
 
+    Ok(Laid {
+        entry_id,
+        thunk_ids,
+        slots,
+        resume_table,
+        syncs,
+    })
+}
+
+/// Finalise what [`emit_into`] laid down, and resolve the addresses.
+///
+/// **`cranelift-jit` only**, which is the whole reason for the split: this is
+/// where a module publishes code and hands back pointers, and an object module
+/// does neither.
+fn finish_jit(module: &mut JITModule, laid: Laid) -> Result<Emitted, String> {
+    let Laid {
+        entry_id,
+        thunk_ids,
+        mut slots,
+        resume_table,
+        syncs,
+    } = laid;
+
     module
         .finalize_definitions()
         .map_err(|e| format!("finalize: {e}"))?;
@@ -3137,6 +3182,176 @@ fn emit_into(
     let entry: Entry = unsafe { std::mem::transmute::<*const u8, Entry>(addr) };
 
     Ok((entry, slots, resume_table, syncs))
+}
+
+/// **RFC-0005's criterion 4, discharged by inspection — RFC-0006 criterion 7.**
+///
+/// The criterion asks that no relocation in compiled code names a compiled
+/// body's `FuncId` **from inside another body**, because that relocation is
+/// what would still point at orphaned code after a word is redefined.
+/// `cranelift-jit` consumes relocations when it finalises; `cranelift-object`
+/// keeps them, which is why this needs both features.
+///
+/// **Inspection only.** The object emitted here bakes the compiling process's
+/// heap addresses as immediates exactly as the JIT path does, so it could not
+/// execute in another process (RFC-0006 §B5). Immediates are not relocations,
+/// which is precisely why the criterion is answerable without fixing that —
+/// and why answering it does not amount to building `--emit=native`.
+#[cfg(all(test, feature = "aot"))]
+mod relocations {
+    use super::*;
+    use cranelift_object::{ObjectBuilder, ObjectModule};
+
+    /// Emit two bodies, the first of which calls a word by name, and return
+    /// every relocation as (containing function, target symbol).
+    fn relocations_of_two_bodies() -> Result<Vec<(String, String)>, String> {
+        let isa = cranelift_codegen::isa::lookup_by_name(
+            &std::env::var("BUND2_RELOC_TRIPLE").unwrap_or_else(|_| {
+                // The host, named explicitly: this test reads an object file
+                // rather than running it, so any supported triple would do,
+                // and naming the host keeps the shape closest to what ships.
+                if cfg!(target_arch = "aarch64") {
+                    "aarch64-apple-darwin".to_string()
+                } else {
+                    "x86_64-unknown-linux-gnu".to_string()
+                }
+            }),
+        )
+        .map_err(|e| format!("no isa: {e}"))?
+        .finish(cranelift_codegen::settings::Flags::new(
+            cranelift_codegen::settings::builder(),
+        ))
+        .map_err(|e| format!("isa flags: {e}"))?;
+
+        let builder = ObjectBuilder::new(isa, "bund2_reloc_probe", default_libcall_names())
+            .map_err(|e| format!("object builder: {e}"))?;
+        // **Not `per_function_section`.** It was tried: on Mach-O every
+        // relocation still reports section `__text`, which made the first
+        // version of the check below vacuous — `where_` never contained
+        // `bund2_body_`, so no offender could ever be found. Containment is
+        // decided by address instead, which holds on every format.
+
+        let mut e = Emitter {
+            module: ObjectModule::new(builder),
+            thunks: Thunks::default(),
+            meaning_guards: true,
+            request_checks: true,
+        };
+
+        // Body 0 calls a word; body 1 is a bare literal. A direct call would
+        // put `bund2_body_1` in body 0's relocations, which is the defect.
+        // **A fabricated cells address, and legitimately so.** The lowering
+        // refuses zero, and this object is read rather than run — nothing
+        // dereferences it. That the address is an immediate rather than a
+        // relocation is the reason this test can exist at all.
+        let cells = 0x1000i64;
+        let plan0 = vec![Plan::Literal(1), Plan::Call { cross: None }];
+        let plan1 = vec![Plan::Literal(2)];
+        emit_into(&mut e, 0, &plan0, &[], LastCall::Ordinary, Adapter::Apply, cells)?;
+        emit_into(&mut e, 1, &plan1, &[], LastCall::Ordinary, Adapter::Apply, cells)?;
+
+        let bytes = e
+            .module
+            .finish()
+            .emit()
+            .map_err(|err| format!("emitting the object: {err}"))?;
+
+        use object::read::{Object, ObjectSection, ObjectSymbol};
+        let file = object::read::File::parse(&bytes[..])
+            .map_err(|err| format!("parsing the object: {err}"))?;
+
+        // **Which function contains an address.** Mach-O records no symbol
+        // sizes, so each defined function is taken to run to the next one —
+        // the same shape as attributing a binary's text by symbol address.
+        let mut defined: Vec<(u64, String)> = file
+            .symbols()
+            .filter(|s| s.is_definition())
+            .filter_map(|s| s.name().ok().map(|n| (s.address(), n.to_string())))
+            .collect();
+        defined.sort_by_key(|(a, _)| *a);
+        let containing = |addr: u64| -> String {
+            defined
+                .iter()
+                .rev()
+                .find(|(a, _)| *a <= addr)
+                .map(|(_, n)| n.clone())
+                .unwrap_or_else(|| "<no function>".to_string())
+        };
+
+        let mut out = Vec::new();
+        for section in file.sections() {
+            let base = section.address();
+            for (offset, reloc) in section.relocations() {
+                let target = match reloc.target() {
+                    object::RelocationTarget::Symbol(i) => file
+                        .symbol_by_index(i)
+                        .ok()
+                        .and_then(|s| s.name().ok().map(str::to_string))
+                        .unwrap_or_else(|| format!("symbol#{}", i.0)),
+                    other => format!("{other:?}"),
+                };
+                out.push((containing(base + offset), target));
+            }
+        }
+        Ok(out)
+    }
+
+    #[test]
+    fn no_relocation_names_a_compiled_body_from_inside_another() {
+        let relocs = relocations_of_two_bodies().expect("the object is emitted and parsed");
+        assert!(
+            !relocs.is_empty(),
+            "an object with no relocations at all would pass this vacuously;              the runtime helpers are imports and must appear"
+        );
+
+        // **Permitted**: an import of a runtime symbol, and a trampoline
+        // calling the body it enters. **Forbidden**: a body naming a body.
+        let body = |s: &str| s.contains("bund2_body_");
+        let mut offenders = Vec::new();
+        for (where_, target) in &relocs {
+            if body(where_) && body(target) {
+                offenders.push(format!("{where_} -> {target}"));
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "no compiled body may name another; found: {offenders:?}.              All relocations were: {relocs:?}"
+        );
+    }
+
+    /// **The test is not vacuous**: the permitted relocations are present, so
+    /// the pass above is a statement about what is *absent* from a populated
+    /// set rather than about an empty one.
+    #[test]
+    fn the_permitted_relocations_are_present() {
+        let relocs = relocations_of_two_bodies().expect("the object is emitted and parsed");
+        let names: Vec<&str> = relocs.iter().map(|(_, t)| t.as_str()).collect();
+        assert!(
+            names.iter().any(|n| n.contains("jit_apply") || n.contains("bund2_adapter")
+                || n.contains("jit_")),
+            "a runtime import must appear among {names:?}"
+        );
+        // **Its own body, by index.** §S8 permits "the entry trampoline calling
+        // the body it enters" — not any body. An `entry_0 -> body_1` would be
+        // the same defect as a body naming a body, wearing a permitted shape.
+        let index = |s: &str| s.rsplit('_').next().map(str::to_string);
+        let paired: Vec<&(String, String)> = relocs
+            .iter()
+            .filter(|(w, t)| w.contains("bund2_entry_") && t.contains("bund2_body_"))
+            .collect();
+        assert!(
+            !paired.is_empty(),
+            "the entry trampoline must be seen calling its body, which is the \
+             one body-naming relocation §S8 permits: {relocs:?}"
+        );
+        for (w, t) in &paired {
+            assert_eq!(
+                index(w),
+                index(t),
+                "a trampoline may call only its own body: {w} -> {t}"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

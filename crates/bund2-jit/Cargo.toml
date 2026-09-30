@@ -40,6 +40,10 @@ cranelift-object   = { workspace = true, optional = true }
 # it has to agree with. A dev-dependency only: the shipped crate does not reach
 # for the interpreter, and `bund2-interp` never reaches for this one.
 bund2-interp.workspace = true
+# RFC-0005 criterion 4 reads the relocation records an object module keeps and
+# `cranelift-jit` consumes. Only the test needs it, and only to *read* an
+# emitted object: nothing shipped parses object files.
+object = "0.37"
 # A body lowering is tested against real words — `{ 1 2 + }` needs `+`
 # registered — so the differential has a vocabulary to run against. The
 # permitted direction: §S6 has `bund2-jit` depending on `bund2-stdlib` (D9

@@ -2,8 +2,9 @@
 
 - Status: **Proposed** (2026-09-30, on the owner's authorisation — **D82**),
   after three adversarial reviews of this document and one of the code.
-  `--emit=bundle` is **built and reviewed**; `--emit=native` is specified only,
-  and D82 authorises no work on it. The implementation review
+  `--emit=bundle` is **built and reviewed**. **`--emit=native` is withdrawn —
+  D83** — and RFC-0005's criterion 4, the one thing it was uniquely needed for,
+  is discharged by inspection instead. The implementation review
   (`docs/rfc/reviews/RFC-0006-implementation-review-2026-09-30.md`) found two
   release-only blockers that eleven passing tests had not: the payload region's
   sentinel was unique only in debug, and the runtime read it from an immutable
@@ -51,9 +52,10 @@ because D10 decides them together:
 - **`--emit=bundle`** — a prebuilt runtime with the program's **source text**
   appended. **No compiler is invoked at all**: not Cranelift, not `rustc`, not
   a linker, not `cc`. Runs on every target Rust runs on.
-- **`--emit=native`** — Cranelift's `ObjectModule` emits a `.o`, linked against
-  the runtime. **Not buildable on the lowering as it stands**; §B5 says what
-  must change and criterion 7 is deferred behind it.
+- **`--emit=native`** — **withdrawn, D83.** Its stated justification was
+  measured away by criterion 1, what remained was not enough against §B5's
+  costs and a risk §B5 had missed, and criterion 4 turned out not to need the
+  mode at all. §B5 stands as the record of what building it would take.
 
 `--emit=bundle` is specified in full and built first. `--emit=native` is
 specified to the depth D10 and RFC-0005's criterion 4 require, and gated on the
@@ -795,8 +797,27 @@ on the answer.
    38 compiled. At a threshold nothing reaches it reads 0 and 0, so the
    assertion is load-bearing. Checked in release with `jit` too, by hand:
    the same 38.
-7. **Deferred, and reformulated.** RFC-0005's criterion 4 is discharged here
-   once §B5's (1) and (2) exist. **"No relocation targeting a function" is the
+7. **Met, 2026-09-30, and reformulated — without §B5's work.** RFC-0005's
+   criterion 4 is discharged by
+   `no_relocation_names_a_compiled_body_from_inside_another`
+   (`crates/bund2-jit/src/lower.rs`), which emits two bodies into an
+   `ObjectModule` and reads the relocation records `cranelift-jit` consumes.
+   **§B5's items were not needed**: the lowering bakes heap addresses as
+   *immediates*, and an immediate is not a relocation, so an object that is
+   read rather than run answers the question. Making `Emitter` generic over
+   `cranelift_module::Module` was the whole prerequisite.
+
+   **The first version of this test was vacuous and its companion caught it.**
+   It attributed relocations to functions by section name, relying on
+   `per_function_section`; on Mach-O every relocation reports `__text`, so no
+   offender could ever match. Containment is decided by symbol address now, and
+   `the_permitted_relocations_are_present` is what exposed the first version —
+   which is the argument for writing a non-vacuity test beside every absence
+   check. That companion also pins the permission *by index*: a trampoline may
+   call only **its own** body, since `entry_0 -> body_1` would be the same
+   defect wearing a permitted shape.
+
+   The original wording was: **"No relocation targeting a function" is the
    wrong test for an object file**: the lowering declares its runtime helpers
    `Linkage::Import` — `jit_pop_int`, `jit_push_int`, `jit_dup_top`,
    `jit_drop_top`, the admits adapter and more — and references them through
@@ -814,9 +835,9 @@ on the answer.
    criterion 2 applied to this mode: the same N/M and CEILING as the
    interpreter, per golden. Missing from the first draft entirely.
 
-   **Not applicable until the mode exists**, and D82 authorises no work on it.
-   `conform --bundles` is the instrument it will use; the mode is what is
-   missing, not the measurement.
+   **Withdrawn with the mode — D83.** `conform --bundles` is the instrument it
+   would have used, and it exists; the mode does not. If `--emit=native` is
+   ever revived this criterion revives with it, unchanged.
 9. **A literal's stamp is a run-time value.** The same bundle run twice
    reports different stamps for the same literal, and neither is the build
    time. This is B2.1 made checkable rather than argued, and it is the
