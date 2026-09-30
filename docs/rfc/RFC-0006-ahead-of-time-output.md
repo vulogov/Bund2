@@ -1,6 +1,9 @@
 # RFC-0006: Ahead-of-time output — `bund2 build`
 
-- Status: **Draft**, revised 2026-09-29 after the first adversarial review
+- Status: **Draft**, and `--emit=bundle` is **built** as of 2026-09-30 —
+  `crates/bund2-cli/src/bundle.rs` and `bund2 build`. Criteria 3, 5, 6, 10, 11
+  and 12 pass; 1, 2 and 13 are open work, and 7 is deferred behind §B5.
+  Revised 2026-09-29 after the first adversarial review
   (`docs/rfc/reviews/RFC-0006-review-2026-09-29.md`). The review raised three
   blockers; all three were reproduced against the code before this revision,
   and one is worse than it reported. §B2's deviation is **ruled on — D77**. A
@@ -10,7 +13,7 @@
 - Depends on: RFC-0003 (the program stream and Tier 0), RFC-0005 (the
   Cranelift tier)
 - Decisions consumed: D10, D11, D16, D20, D40, D44, D54, D74, D76, D77, D78, D79,
-  D80, and
+  D80, D81, and
   decisions.md's "What this forecloses" clause on tree-shaking
 - Touched but not consumed: D1, D2, D36 — see the preservation table
 - Reference SHA: `reference/Bund` at `21b40b0`, `rust_dynamic` at `ceb27c9`,
@@ -205,12 +208,13 @@ both properties**, which is what makes a later Developer ID signature and
 notarisation possible at all. So `bund2 build` re-signs on macOS, and
 `crates/bund2-cli/tests/bundle_build.rs` holds it there.
 
-**Whether that spends D10 is the owner's to confirm.** `/usr/bin/codesign` is a
-base-system binary — root-owned, on the root volume, not under Xcode — rather
-than a toolchain install, which is a different thing from the `cc` D10 forbids
-below `bund2 build`. It is listed in the open questions rather than assumed,
-and until it is settled the build reports plainly instead of writing an
-artefact that cannot run.
+**This does not spend D10 — D81.** `/usr/bin/codesign` is a base-system binary,
+root-owned and on the root volume, outside any Command Line Tools path; D10
+forbids a *C toolchain* below `bund2 build`, and this needs neither a compiler
+nor an install. D81 records one limit: several `/usr/bin` tools on macOS are
+stubs that prompt for Command Line Tools, and whether `codesign` is among them
+could not be checked on a machine that has them. If it is, the appending form
+is the fallback.
 
 **Appending is what the alternative would be**: toolchain-free and immediately
 runnable, at the price of an artefact that can never be signed or notarised on
@@ -747,12 +751,9 @@ implied.
   re-signed**, and then does both. §B1 carries the table. Two limits remain
   unmeasured and are stated there: a Developer-ID notarised binary, and the ELF
   and PE cases.
-- **May `bund2 build` invoke `/usr/bin/codesign` on macOS?** Required for the
-  artefact to run at all, and a base-system binary rather than a toolchain — but
-  D10's toolchain-free half is load-bearing by its own words, so this is
-  **the owner's** and is open. Nothing else in the design depends on the
-  answer; a "no" makes appending the form, at the cost of an artefact that
-  cannot be notarised.
+- **Invoking `codesign` — answered by D81**, 2026-09-30: permitted. It is a
+  base-system binary, not the C toolchain D10 forbids, and without it a macOS
+  artefact cannot execute. D81 carries the one unverified limit.
 - **Which targets get `--emit=native`.** s390x in particular is untestable
   here. For whoever takes §B8's gate.
 

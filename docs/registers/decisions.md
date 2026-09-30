@@ -3533,6 +3533,51 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D81 — `bund2 build` may invoke `codesign` on macOS
+
+**Decided by the repository owner, 2026-09-30**: "yes, codesign is fine — it
+ships with macOS."
+
+- Blocks: RFC-0006 §B1, which could not ship a runnable macOS artefact without
+  it
+- Depends on: D10 (whose toolchain-free half this tests), Q40
+- Status: **RESOLVED — permitted**, 2026-09-30.
+
+### The decision
+
+`bund2 build --emit=bundle` may run `/usr/bin/codesign -f -s -` on the
+artefact it has just written, on macOS. Without it the artefact **cannot run at
+all**: the signature covers the bytes the build writes in place, so the kernel
+kills an unsigned edit — exit 137, no output — rather than merely failing
+validation (Q40, measured).
+
+### Why this does not spend D10
+
+D10 forbids a **C toolchain** below `bund2 build`: "nothing below `bund2 build`
+may require `cc`". `/usr/bin/codesign` is not that. It is root-owned, on the
+root volume, outside any Xcode or Command Line Tools path
+(`xcode-select -p` reports `/Library/Developer/CommandLineTools`, which is not
+where it lives), and it is present on a stock macOS.
+
+The distinction D10 draws is between a build that needs a compiler installed
+and one that does not. This needs neither a compiler nor an install.
+
+**One limit, recorded rather than glossed.** Several `/usr/bin` tools on macOS
+are stubs that prompt for Command Line Tools when first run. Whether
+`codesign` is among them could not be checked here, because CLT is installed on
+this machine. If it turns out to be a stub on a bare system, this decision is
+the one to revisit, and RFC-0006 §B1's appending form is the fallback — at the
+cost of an artefact that can never be notarised.
+
+### What it is not permission for
+
+**Not a signing identity.** The build signs ad hoc, which restores execution
+and validation. A Developer ID signature and notarisation are a distribution
+step, outside `bund2 build`, and remain the distributor's.
+
+**Not a precedent for other platform tools.** `--emit=native` needs a linker,
+which D10 already permits for that mode alone; nothing here widens that.
+
 ## D80 — a bundle may carry the JIT, opt-in and never by default
 
 **Decided by the repository owner, 2026-09-29**: "yes, as an opt-in feature

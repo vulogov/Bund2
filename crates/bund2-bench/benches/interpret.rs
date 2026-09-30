@@ -94,7 +94,12 @@ fn declare_share() {
     );
 }
 
+/// Nothing to declare without the feature — and nothing calls it either, since
+/// every caller is a crossing fixture that only exists under `jit`. The
+/// `allow` is so a default-feature lint run stays clean rather than reporting
+/// a stub that is correct.
 #[cfg(not(feature = "jit"))]
+#[allow(dead_code)]
 fn declare_share() {}
 
 #[cfg(feature = "jit")]
