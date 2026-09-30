@@ -3,8 +3,9 @@
 - Status: **Draft**, revised 2026-09-29 after the first adversarial review
   (`docs/rfc/reviews/RFC-0006-review-2026-09-29.md`). The review raised three
   blockers; all three were reproduced against the code before this revision,
-  and one is worse than it reported. §B2's deviation is **ruled on — D77** —
-  so nothing in this document awaits a decision.
+  and one is worse than it reported. §B2's deviation is **ruled on — D77**. A
+  **second review** then found one blocker of its own: §B3 does not say whether
+  a bundle may be sandboxed, which is the owner's call and is open below.
 - Depends on: RFC-0003 (the program stream and Tier 0), RFC-0005 (the
   Cranelift tier)
 - Decisions consumed: D10, D11, D16, D20, D40, D44, D54, D76, D77, and
@@ -76,11 +77,19 @@ the pinned SHAs rather than citing the register.
   (`reference/bund_language_parser/src/compile.rs:6-30`). It has **zero
   callers** anywhere in the submodules.
 
-**This strengthens D11 rather than weakening it** — there are two producers and
-neither is reachable from a Bund program, so no artefact of either shape exists
-in the wild. It also corrects this RFC's earlier reasoning: the reference's
-whole-program form is *one value*, not a vector of them, so "one value per
-element" was never the shape to preserve.
+**Neither is reachable from Rust, but the bytes are reachable from Bund**, and
+the first revision of this RFC got that wrong by repeating D11's own gap.
+`encode.base64` pulls a value and calls **`to_binary`** on it
+(`reference/Bund/src/stdlib/functions/encoding/base64.rs:33`) — the same
+serialiser — so `"1 2 +" compile encode.base64` yields the base64 of exactly
+the bytes `compile_to_binary` would write. D11 is amended accordingly; its
+resolution survives, because the question it asks is about consumers *outside*
+the project and those bytes reach only a Bund string, read back by
+`decode.base64`.
+
+What this section does establish is the shape: the reference's whole-program
+form is **one LIST value**, not a vector of them, so "one value per element" was
+never the thing to preserve.
 
 ### What Bund2 has
 
@@ -149,20 +158,30 @@ The first draft encoded the stream with `wire`, and the review found four
 changes in meaning that follow. All four were reproduced.
 
 1. **Stamps would be fixed at build time.** Encoding materialises the stamp
-   (D20), and decoding restores it. Every run of the bundle would report the
-   *build* moment as each literal's creation time. **D2 rules that out in
-   terms**: "`stamp` is creation time", and a lazy stamp "must still answer
-   'when was this value constructed', which rules out sampling the clock at
-   observation time". Build time is not construction time either.
+   (D20), so a literal would arrive at run time **already stamped**.
+
+   **D2 decided the stamp is sampled when a value is first observed** — "The
+   clock is not read at construction at all" — and recorded that as an approved
+   deviation from preservation. The first revision of this RFC quoted D2's
+   *constraint* ("stamp is creation time") as if it were D2's ruling, which is
+   backwards; D77 carries the same correction. The finding survives on the rule
+   as actually decided: the first observation in a run must set the stamp, and
+   under an encoded stream every run would instead report the build moment.
 2. **Every `( … )` context would carry the same name on every run**, because
    the name would be minted once, at build.
-3. **Every scalar literal would come back boxed**, and this is the one the
-   review understated. `Guard::TopAreInt` admits only `BundValue::Int`, so in a
-   bundle **no arithmetic fragment would ever admit**: Tier 0's fragment fast
-   path and all of §S6's inlining would be dead for every literal in the
-   program. A bundle would be slower than the interpreter, and RFC-0005's
-   promotion machinery would never fire — while every figure reported success,
-   exactly as §B3's floor failure does.
+3. **Every scalar literal would come back boxed**, and **Tier 0's fragments
+   would decline every one.** `Guard::TopAreInt` admits only
+   `BundValue::Int(_, _)` (`crates/bund2-ir/src/fragment.rs`, `admits_with`),
+   so no arithmetic fragment would admit and Tier 0's fast path would be dead
+   for every literal in the program.
+
+   **Tier 1 is not affected, and the first revision of this RFC said it was.**
+   `plan_body` tests `dt() == INTEGER` and then `as_int()`, and `as_int`
+   descends `BundValue::Heap` into `Payload::Scalar` before answering
+   (`crates/bund2-jit/src/lower.rs`, `plan_body`;
+   `crates/bund2-value/src/lib.rs`, `as_int`). Promotion and inlining still
+   fire on a boxed literal. The claim that "all of §S6's inlining" would die
+   was an overstatement, corrected on the second review and amended in D77.
 4. **Diagnostics would lose their locations**, because an encoded stream
    carries no spans and no source, and `Diagnostic`'s Bund source location is
    part of D36's structured report rather than decoration.
@@ -244,6 +263,37 @@ to be safe.
 - **One program.** `bund2 build` takes exactly one source file. Not a
   directory, not several files, not standard input; a program that needs more
   reaches them through `use`, which D76 settles.
+- **`bund2 build` parses before it writes.** A syntax error is a build error,
+  reported with its span against the source it was given, and the parse result
+  is then discarded — the artefact re-parses at start-up, which is what keeps
+  §B2's preservation exact. Refusing at build costs one parse, measured at
+  ~4.3 µs for 891 bytes, and is the difference between a broken program found
+  by whoever built it and one found by whoever ran it.
+- **The diagnostic file name comes from the trailer.** A bundle has no file on
+  disk to name, and `Diagnostic`'s location carries one. `bund2 build` records
+  the source path it was given, verbatim, and the artefact reports locations
+  against it — so a bundle's stderr matches a `script` run of the same program
+  from the same path. Without this, criterion 2 would compare stderr that
+  differs by construction, and one approved deviation's recorded hash pins a
+  path Bund2 prints, so the CEILING would move.
+
+**What a bundle may switch off is not settled here — it is the owner's.** The
+CLI carries three flags that change what words *do*, not how they are reported:
+`--noio` replaces the I/O words with stubs that fail, `--noeval` does the same
+to `bund.eval` **and `use`**, and `--nocolor` changes how a host-info table is
+drawn. All three are fields of `crates/bund2-stdlib/src/host.rs`'s `HostOptions`,
+documented at their declarations and applied by `register_noeval_stubs` and its
+siblings; `crates/bund2-cli/src/main.rs`'s `run_cli` parses them; and they come
+from the reference's own command line
+(`reference/Bund/src/cmd/mod.rs:139-146`).
+
+They cannot be run-time flags in a bundle, because §B3 gives all of argv to the
+program. So each is either a **build-time choice recorded in the trailer**,
+like the feature set in §B4, or absent from bundles entirely. **`--noeval`
+reaches furthest**: it disables `use`, which D76 has just settled as fetching at
+run time, so a `--noeval` bundle is the sandboxed artefact D76's risk clause
+would otherwise leave no way to build. Whether that capability should exist is
+a language decision and is listed in the open questions.
 
 ### §B4 — What the image retains
 
@@ -295,6 +345,22 @@ states them rather than assuming the mode is close:
 
 **Criterion 7 is deferred behind (1) and (2).** Defining it against the current
 lowering would define a criterion that cannot be implemented.
+
+**§B5 reopens an exclusion RFC-0005 closed this morning.** Criterion 30's two
+mirror cases were excluded because "§S7 compiles a body *on* an entry and runs
+that entry interpreted", and that row states its own trigger: "it holds only
+while §S7 compiles on an entry rather than ahead of one. **If that changes** —
+an ahead-of-entry or background compile, which RFC-0006 may want — the mirrors
+become writable and this row reopens" (RFC-0005:6556-6562). `--emit=native`
+compiles ahead of every entry by definition, so **building this mode reopens
+those two cases and they become owed**, not excluded. The trigger fired as
+written, which is the argument for writing triggers that way.
+
+**Which targets get `--emit=native` is not answered here.** RFC-0005 names
+x86-64, aarch64, s390x and riscv64 as what Cranelift supports; whether Bund2
+*ships* AOT for all four — s390x in particular, which nothing in this
+repository can test — is a question for whoever takes the §B8 gate, and is
+listed in the open questions.
 
 ### §B6 — Cross-compilation and the C dependency
 
@@ -373,6 +439,11 @@ implied.
 | Exit code | **Preserved** — `vm.exit_requested()`. |
 | Diagnostic flags (`--stats`, `--dump-stack`, `--raw-values`) | **Deliberately changed.** Not argv flags in a bundle, because they would shadow the program's own arguments; they move to environment variables. |
 | `use` | **Preserved exactly** — D76, under D54's scheme set. |
+| `--noio`, `--noeval`, `--nocolor` | **Undecided — the second review's blocker.** Each changes what words do, so each is a build-time choice or absent. `--noeval` also disables `use`. Open below. |
+| Diagnostic file name | **Preserved** via the trailer's recorded source path (§B3), without which a bundle's stderr differs by construction and the CEILING moves. |
+| A syntax error's timing | **Deliberately changed**: found at build rather than at run (§B3). A build that wrote an unparseable program would move the error to whoever ran it. |
+| RFC-0005 criterion 30's excluded mirrors | **Reopened by `--emit=native`**, on that row's own stated trigger. Owed once the mode exists, not excluded. |
+| Code signing of the artefact | **[UNGROUNDED]** — §B1 appends bytes to a prebuilt executable, and nothing in this repository establishes whether a signed binary survives that. Q39. |
 | Run-time-registered words under `--emit=native` | **Speed only.** No code generator in the image, so they stay interpreted. |
 | D10's "embedded IR" description | **Approved deviation — D77.** Source text is embedded instead, read as descriptive; D10's resolution about the toolchain is untouched. |
 
@@ -406,10 +477,14 @@ implied.
    total.** `cargo xtask conform` over bundles reports the **same pass/fail for
    each golden** as the source run, and the same CEILING. A totals comparison
    would let one new failure hide one new pass.
-3. **The shipped runtime contains no code generator.** `cargo tree` on the
-   **prebuilt runtime binary's** crate with its bundling features, listing
-   neither `cranelift-codegen` nor `cranelift-jit` in a default build — not on
-   a stub crate, which would pass today with no bundle in existence.
+3. **A `--emit=bundle` runtime built without `jit` contains no code
+   generator.** `cargo tree` on the prebuilt runtime, in the configuration
+   `bund2 build` ships by default, listing neither `cranelift-codegen` nor
+   `cranelift-jit`. **Stated against a configuration, because otherwise it
+   contradicts criterion 6**, which needs a runtime built *with* the JIT: the
+   two are about different bundles, and a criterion that passes today with no
+   bundle in existence — as the first revision's `cargo tree` on a stub crate
+   did — checks nothing.
 4. **A bundle is produced with no C toolchain and no compiler.** Built in an
    environment with no `cc` **and no `rustc`**, which §B1 makes possible and is
    a stronger check than reading a dependency list.
@@ -420,9 +495,18 @@ implied.
    running a body past the threshold, reports `compiled_entries() > 0` — the
    figure a broken front end leaves at zero while every other figure reports
    success.
-7. **Deferred.** RFC-0005's criterion 4 — no relocation targeting a function
-   beyond §S8's two — is discharged here once §B5's (1) and (2) exist. Stated
-   as deferred rather than written against a lowering that cannot emit it.
+7. **Deferred, and reformulated.** RFC-0005's criterion 4 is discharged here
+   once §B5's (1) and (2) exist. **"No relocation targeting a function" is the
+   wrong test for an object file**: the lowering declares its runtime helpers
+   `Linkage::Import` — `jit_pop_int`, `jit_push_int`, `jit_dup_top`,
+   `jit_drop_top`, the admits adapter and more — and references them through
+   `declare_func_in_func` (`crates/bund2-jit/src/lower.rs`, `emit_into`), so
+   every call site is a relocation naming a function and the criterion could
+   never pass. The property criterion 4 exists to protect is narrower: **no
+   relocation names another compiled body**, since that is what would still
+   point at orphaned code after a redefinition. Imports of runtime symbols are
+   permitted and expected; a compiled body's `FuncId` reached from inside
+   another body is not.
 8. **`--emit=native` matches Tier 0's conformance exactly.** RFC-0005's
    criterion 2 applied to this mode: the same N/M and CEILING as the
    interpreter, per golden. Missing from the first draft entirely.
@@ -441,6 +525,18 @@ implied.
 - **A flag that embeds `use` targets.** Deferred by D76 with its trigger and
   form recorded. Nothing is blocked on it and no default waits to be adopted.
 
-**Nothing in this document is open.** The three blockers are answered in the
-design, the two decisions it needed are taken, and what remains deferred is
-deferred with a trigger rather than a default.
+- **May a bundle be sandboxed?** The second review's blocker. `--noio`,
+  `--noeval` and `--nocolor` each change what words do; in a bundle each must
+  be a build-time choice in the trailer or absent. `--noeval` disables `use`,
+  so this decides whether D76's run-time fetch can be switched off at build.
+  **The owner's, and open.**
+- **Q39 — does appending to a signed executable leave it runnable?**
+  `[UNGROUNDED]`. §B1's construction assumes it does on every target
+  `bund2 build` ships a runtime for, and nothing in this repository establishes
+  it either way.
+- **Which targets get `--emit=native`.** s390x in particular is untestable
+  here. For whoever takes §B8's gate.
+
+The three first-review blockers are answered in the design and the two
+decisions the document needed are taken. What is listed above is one ruling,
+one ungrounded assumption and one question for the AOT phase.

@@ -487,7 +487,32 @@ For the object format the answer is close to a proof rather than a judgement:
   which produce an `ENVELOPE` value that stays on the stack.
 
 So no Bund program can ever have produced a file in this format, and there are
-no files in the wild to break. External dependence would require a Rust
+no files in the wild to break.
+
+**Amended 2026-09-29, on RFC-0006's second review: the clause "No other word
+emits a compiled object" is wrong, and the resolution survives anyway.**
+
+`encode.base64` and `encode.base64.` pull a value and call **`to_binary`** on
+it — the same serialiser `Value::compile` delegates to
+(`reference/Bund/src/stdlib/functions/encoding/base64.rs:33`). So
+`"1 2 +" compile encode.base64` yields the base64 of exactly the bytes
+`compile_to_binary` would write, and a Bund program *can* produce them. This
+entry's own list named `wrap`/`unwrap` and the world file and missed the
+encoding group.
+
+**There is also a second producer in the Rust code this entry does not
+mention**: `compile_to_binary`, which parses source, folds the token vector
+into one LIST through `bund_vec_to_list`, and serialises that
+(`reference/bund_language_parser/src/compile.rs:6-30`). It has zero callers.
+
+**Why the resolution is unchanged.** The question this entry asks is whether
+anything *outside the project* depends on the format. Those bytes reach a Bund
+program only as a base64 string on the stack, read back by `decode.base64`
+within Bund; no word writes the raw format to a file, and no external consumer
+is implied. "Version the IR format freshly" stands. What was wrong was the
+proof's completeness, not its answer — and RFC-0006 repeated the gap as "no
+artefact of either shape exists in the wild", which is false.
+ External dependence would require a Rust
 consumer calling `rust_dynamic` directly, which is a different question from
 the one this entry asks and one the repository owner is positioned to answer
 outright.
@@ -3561,6 +3586,40 @@ budget tight enough, that ~24 µs is visible against ~42 µs of registry
 construction and process spawn. Then the container, and it must carry spans,
 encode scalars unboxed, and answer D20's unset-stamp question before it
 encodes anything.
+
+### Amended on RFC-0006's second review, 2026-09-29 — two of the reasons above are wrong
+
+**The decision stands. Two of the arguments for it do not**, and they are left
+above rather than edited, because this register is append-only and a corrected
+argument is only legible beside the one it replaces.
+
+**The boxing claim is overstated.** Above it reads that a boxed scalar would
+leave `Guard::TopAreInt` admitting nothing and so kill "Tier 0's fragment path
+and all of §S6's inlining". Only the first half is true. Tier 1 looks *through*
+the box: `plan_body` tests `dt() == INTEGER` and then `as_int()`, and `as_int`
+descends `BundValue::Heap` into `Payload::Scalar` before answering
+(`crates/bund2-jit/src/lower.rs`, `plan_body`; `crates/bund2-value/src/lib.rs`,
+`as_int`). So promotion and inlining would still fire on a boxed literal, and
+only Tier 0's fragments would decline. The overstatement was mine, made while
+reporting the first review's finding as "worse than it reported".
+
+**D2 is cited for the opposite of what it decided.** Above quotes D2's "stamp
+is creation time" as though it were D2's ruling. That sentence is a *constraint
+being weighed*; D2's resolution is the other way — "The clock is not read at
+construction at all. The stamp is sampled when it is first observed", itself an
+approved deviation from preservation (`docs/registers/decisions.md`, D2).
+
+**The conclusion survives on a restated reason.** Encoding materialises the
+stamp (D20), so a literal would arrive at run time *already stamped*. Under
+D2's actual rule the first observation in that run must set it; instead every
+run would report the build moment. So the encoded stream breaks D2 as decided,
+not D2 as this entry first paraphrased it.
+
+**What still carries the decision**, unaffected by either correction: the
+measurement (~4.3 µs parse against ~41.8 µs of registry construction), the
+context-name collapse, the loss of spans and so of D36's diagnostic locations,
+Tier 0's fragments declining, and the second format's obligation to answer
+D20's unset-stamp question.
 
 ## D76 — `use` in a built artefact fetches at run time, as the interpreter does
 
