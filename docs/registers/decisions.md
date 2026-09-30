@@ -3533,6 +3533,47 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D82 — RFC-0006 is Proposed
+
+**Authorised by the repository owner, 2026-09-30**, after three adversarial
+reviews of the document and one review of the implementation.
+
+- Blocks: nothing. It changes the document's status, not any rule
+- Depends on: D76, D77, D78, D79, D80, D81 — the six decisions the RFC needed
+- Status: **RESOLVED — Proposed**, 2026-09-30.
+
+### What is authorised
+
+`--emit=bundle` as specified and built, and `--emit=native` as *specified*
+only. Nothing in this authorises building the native mode: §B5's three blocking
+items stand, criterion 7 stays deferred, and criterion 1's measurement has
+removed that mode's stated justification.
+
+### What the reviews cost, recorded because it is the argument for doing them
+
+| review | blockers |
+|---|---|
+| document, first | 3 |
+| document, second | 1 |
+| document, third | 2 |
+| implementation (a self-review) | 2 |
+
+**Eight blockers across four reviews**, and two of the eight would have shipped
+an artefact that reported success and silently was not one. The document was
+"complete and awaiting review" after the first revision and wrong twice more
+after that.
+
+### What is not settled
+
+- Whether `--emit=native` is built at all — the owner's, on start-up rather
+  than on size.
+- **Parse-at-build**, filed as a design call rather than a decision: a syntax
+  error becomes a build error, which moves when it is observed.
+- Q40's unmeasured limits: a Developer-ID notarised binary, and the ELF and PE
+  cases.
+- `cargo xtask bundle` is outside `cargo test` and outside `conform`, so its
+  finding-power depends on someone running it.
+
 ## D81 — `bund2 build` may invoke `codesign` on macOS
 
 **Decided by the repository owner, 2026-09-30**: "yes, codesign is fine — it

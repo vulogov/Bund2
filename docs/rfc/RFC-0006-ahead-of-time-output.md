@@ -1,7 +1,9 @@
 # RFC-0006: Ahead-of-time output — `bund2 build`
 
-- Status: **Draft**, and `--emit=bundle` is **built and reviewed** as of
-  2026-09-30. The implementation review
+- Status: **Proposed** (2026-09-30, on the owner's authorisation — **D82**),
+  after three adversarial reviews of this document and one of the code.
+  `--emit=bundle` is **built and reviewed**; `--emit=native` is specified only,
+  and D82 authorises no work on it. The implementation review
   (`docs/rfc/reviews/RFC-0006-implementation-review-2026-09-30.md`) found two
   release-only blockers that eleven passing tests had not: the payload region's
   sentinel was unique only in debug, and the runtime read it from an immutable
@@ -803,6 +805,12 @@ on the answer.
     and the one input a bundle's front end will certainly meet.
 13. **Conformance moves by exactly zero.** This RFC changes what Bund2 emits,
     not what a program means.
+
+    **Met, 2026-09-30.** `cargo xtask conform` in source mode read **107/116,
+    ceiling 107/116** before any of this work and reads the same after it —
+    across the container, the builder, the carried-program front end, D78's
+    floor, `conform --bundles` and the two release-only fixes. The number the
+    JIT milestones had to leave alone, this one leaves alone too.
 
 ## Open questions
 
