@@ -2889,6 +2889,52 @@ fn emit_into<M: cranelift_module::Module>(
                         }
                     }
                 }
+
+                // **§S5's `autoadd` read, after every call — criterion 18's
+                // second half.**
+                //
+                // §S5: "After every call, compiled code loads it beside the
+                // epoch and `autoadd`." Only the request half existed; this is
+                // the other. A call can reach `:`, and from that point every
+                // applied value is *appended into* the value beneath rather
+                // than pushed
+                // (`reference/rust_multistackvm/src/multistackvm_apply.rs:89-97`),
+                // which compiled code has no way to do — it pushes.
+                //
+                // **The rest of the body goes to Tier 0**, resuming at the
+                // value *after* this call, because the call itself has already
+                // run. That is the difference from F143's generation check
+                // above, which resumes *at* the call it refused to trust.
+                //
+                // **Everything promoted is synced first.** On the generic path
+                // there is nothing — a slot call syncs before it, which is what
+                // D75 restored — so this costs one load and a branch. On D68's
+                // crossed path the survivors are still in registers and belong
+                // to the stack before Tier 0 sees anything.
+                //
+                // **Not after a tail call**, which does not return: §S8's
+                // `return_call_indirect` is the block's terminator, so code
+                // emitted after it is unreachable and Cranelift is right to
+                // reject it. The mode is then the *caller's* concern, and the
+                // caller has this same check after the call it made.
+                if !tail_here {
+                    let collecting = f
+                        .ins()
+                        .uload32(MemFlagsData::trusted(), cells_base, autoadd_off);
+                    let collect = f.create_block();
+                    let carry = f.create_block();
+                    f.ins().brif(collecting, collect, &[], carry, &[]);
+
+                    f.switch_to_block(collect);
+                    let mut owed = promoted.clone();
+                    emit_sync_n(&mut f, &mut owed, usize::MAX, &helpers);
+                    let resume = f.ins().iconst(ptr, (i + 1) as i64);
+                    let call = f.ins().call(residual, &[ctx_val, resume]);
+                    let status = f.inst_results(call)[0];
+                    f.ins().return_(&[status]);
+
+                    f.switch_to_block(carry);
+                }
                 continue;
             };
 
@@ -5355,6 +5401,64 @@ mod tests {
     /// `autoadd` a `CALL` is appended into the value beneath rather than run
     /// (§S4's step 3), so the arm would be the wrong thing entirely. The
     /// residual syncs and resumes, and the result must match Tier 0's.
+        /// **Criterion 18's second half: `autoadd` set *inside* a compiled body.**
+    ///
+    /// The entry check cannot catch this — the mode is off when the body
+    /// starts. §S5 requires the flag to be read "after every call" beside the
+    /// request cell, and until 2026-09-30 only the request half existed, so a
+    /// body that called `:` kept pushing where Tier 0 appends.
+    ///
+    /// The body inlines `+` (so it compiles at all, under F136's rule), calls
+    /// `:`, then applies a literal that must be **appended into the collector**
+    /// rather than pushed. Verified end to end against the oracle as well:
+    /// `:w { 1 2 + drop : 7 ; } register` with `[ 0 ] w w w` gives
+    /// `List([0, 7, 7, 7])` under the oracle, with no tier, and at threshold 1
+    /// with two compiled entries.
+    #[test]
+    fn autoadd_set_inside_a_compiled_body_reaches_the_residual() {
+        let body = vec![
+            BundValue::int(1),
+            BundValue::int(2),
+            BundValue::call("+"),
+            BundValue::call("drop"),
+            BundValue::call(":"),
+            BundValue::int(7),
+            BundValue::call(";"),
+        ];
+
+        let mut tier0 = with_stdlib();
+        tier0.push(BundValue::list(vec![BundValue::int(0)]));
+        let by_tier0 = tier0.eval(&body);
+
+        let (mut compiled, table) = with_fragments();
+        let mut c = Compiler::new(table).expect("a compiler");
+        let word = word_in(&mut c, &mut compiled, &body, LastCall::Ordinary);
+        compiled.push(BundValue::list(vec![BundValue::int(0)]));
+        let by_compiled = run_as_the_tier_would(&mut c, word, &mut compiled, &body);
+
+        assert_eq!(
+            by_tier0.is_ok(),
+            by_compiled.is_ok(),
+            "autoadd mid-body: outcome"
+        );
+        let (a, b) = (tier0.snapshot(), compiled.snapshot());
+        assert_eq!(
+            a.len(),
+            b.len(),
+            "autoadd mid-body: depth — the literal must be appended, not pushed"
+        );
+        for (x, y) in a.iter().zip(b.iter()) {
+            assert_eq!(
+                norm(&x.render(false)),
+                norm(&y.render(false)),
+                "autoadd mid-body: the collector must read the same in both"
+            );
+        }
+        // Non-vacuity: the collector really did collect, so this compares a
+        // shape the old code could not produce.
+        assert_eq!(a.len(), 1, "one value: {a:?}");
+    }
+
     #[test]
     fn autoadd_sends_an_inlined_site_to_the_residual() {
         let body = add_body();

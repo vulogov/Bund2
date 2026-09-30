@@ -2811,7 +2811,9 @@ what this entry meant by "Tier 0 is not an oracle for `autoadd`", and it voids
 `b0cbd3f`'s conclusion that the unread `autoadd` cell after calls was benign —
 that rested on nothing being able to set it.
 
-See RFC-0005 criterion 18 for what is built and what is not.
+RFC-0005 criterion 18 is **met** as of the same day, both halves: entry
+declines under the mode, and the read after every call sends the rest of the
+body to §S5's residual.
 
 ## F85 — recursion through a loop word aborts Tier 0 on the machine stack
 

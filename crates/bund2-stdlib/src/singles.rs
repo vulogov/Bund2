@@ -1353,7 +1353,23 @@ mod f18_tests {
             // The full render carries the value, `q` and D41's stack tag, so a
             // `noop` that pulled and pushed would be caught here even though
             // the depth matched.
-            assert_eq!(x.render(false), y.render(false), "value, q or stack tag");
+            //
+            // **The stamp is normalised, as F14 does for a golden.** It is
+            // sampled when a value is first observed (D2), and these are two
+            // separate runs — so comparing it compares wall clocks, and the
+            // test failed whenever the two runs straddled a millisecond. That
+            // was a flake in the instrument, not a `noop` that touched the
+            // stack; the id is already normalised for the same reason.
+            let strip = |v: &BundValue| {
+                let r = v.render(false);
+                match (r.find("stamp: "), r.find(", dt:")) {
+                    (Some(a), Some(b)) if a < b => {
+                        format!("{}stamp: <stamp>{}", &r[..a], &r[b..])
+                    }
+                    _ => r,
+                }
+            };
+            assert_eq!(strip(x), strip(y), "value, q or stack tag");
         }
     }
 

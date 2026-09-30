@@ -5632,8 +5632,7 @@ evidence, and this one is listed as runnable rather than as met.
     captured when they are bound — capturing it now would add a golden Tier 0
     cannot pass — and F84 is fixed with them.
 
-    **Partially met, 2026-09-30 — the entry half is built, the after-a-call
-    half is not.** F84's blocker is gone: `:` and `;` are bound, Tier 0
+    **Met, 2026-09-30 — both halves.** F84's blocker is gone: `:` and `;` are bound, Tier 0
     collects as the oracle does, and Tier 0 is now an oracle for this.
 
     **Built: entry declines under the collecting mode.** The trampoline loads
@@ -5644,12 +5643,34 @@ evidence, and this one is listed as runnable rather than as met.
     appends. **This is what the three `autoadd` differentials caught** once
     Tier 0 was corrected: depth 1 against depth 3.
 
-    **Not built: the read after every call.** §S5 requires `autoadd` to be
-    loaded "after every call" beside the request cell, and only the request
-    half exists. So a body already running when `:` sets the mode keeps its
-    promoted registers and would push rather than append. **Reachable**: a body
-    that calls `:` and then applies a literal. Not covered by any golden, and
-    stated here rather than left to be discovered.
+    **Built the same day: the read after every call.** §S5's "after every call,
+    compiled code loads it beside the epoch and `autoadd`" is now both halves.
+    When the mode is set, the body **syncs everything promoted and hands the
+    rest to §S5's residual**, resuming at the value *after* the call — the call
+    itself has run, which is what distinguishes this from F143's generation
+    check, which resumes *at* the call it refused to trust.
+
+    On the generic path nothing is promoted across a call — a slot call syncs
+    before it, which D75 restored — so the cost is one load and a branch that
+    predicts. On D68's crossed path the survivors are synced first, because
+    they belong to the stack before Tier 0 sees anything.
+
+    **Not emitted after a tail call**, which does not return: §S8's
+    `return_call_indirect` terminates the block, so code after it is
+    unreachable. The mode is the caller's concern there, and the caller carries
+    the same check.
+
+    **Verified three ways.** `:w { 1 2 + drop : 7 ; } register` with
+    `[ 0 ] w w w` gives `List([0, 7, 7, 7])` under the oracle, under Bund2 with
+    no tier, and at `--jit-threshold 1` where `--stats` reports **1 body
+    compiled, 2 entered** — so compiled code ran, the mode was set inside it,
+    and the residual produced the oracle's answer.
+    `autoadd_set_inside_a_compiled_body_reaches_the_residual` pins it, and
+    asserts the collector holds **one** value, which the old code could not
+    produce.
+
+    **Conformance is unmoved in all three configurations**: 107/116, ceiling
+    107/116, default and `--features jit` and `jit` at threshold 1.
 
     `b0cbd3f` concluded that the unread `autoadd` cell after calls was benign.
     That conclusion is void — it rested on nothing being able to set the mode.
