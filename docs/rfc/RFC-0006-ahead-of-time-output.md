@@ -154,9 +154,50 @@ silently:
   it worthless as written; the criterion below asks the shipped runtime binary
   instead.
 - **Appending is not linking.** No relocation, no symbol resolution, no
-  platform object knowledge. The cost is that the artefact is a runtime plus a
-  tail rather than a single linked image, which is invisible to anyone running
-  it.
+  platform object knowledge.
+
+**Appending was measured on 2026-09-30, and it does not survive signing — Q40.**
+The construction above was written on an assumption marked `[UNGROUNDED]`. It
+was then tested on this machine, macOS on arm64, against the repository's own
+`bund2` binary, which the linker signs ad hoc (`codesign -dv` reports
+`adhoc,linker-signed`):
+
+| case | runs | `codesign -v` |
+|---|---|---|
+| unmodified | yes | validates |
+| **34 bytes appended** | **yes** | **"main executable failed strict validation"** |
+| 5 MB appended | yes | fails the same way |
+| appended, then `codesign -f -s -` | yes | **still fails** — re-signing does not repair it |
+| unmodified, then `codesign -f -s -` | yes | **validates** |
+
+The last two rows isolate the cause: **trailing data outside the Mach-O image
+is what `codesign` refuses**, not modification. An unmodified binary re-signs
+and validates; an appended one cannot be made to, and the payload survives the
+attempt.
+
+**Quarantine does not distinguish the two.** An ad-hoc-signed binary carrying
+`com.apple.quarantine` is killed with SIGKILL whether or not anything was
+appended — the unmodified control died the same way (`rc=137`). That is
+Gatekeeper requiring notarisation, which is orthogonal to this design, except
+that notarisation needs a valid signature and appending precludes one.
+
+**So the payload goes inside the image, not after it.** The prebuilt runtime
+reserves a fixed-capacity payload region, and `bund2 build` writes into it
+**without changing the file's size or layout**; signing, when wanted, happens
+afterwards and outside `bund2 build`, so D10 is untouched — the build still
+requires no toolchain. The cost is a capacity ceiling, which the trailer
+records along with the used length, and a program larger than it is refused at
+build with both numbers named.
+
+**Appending remains the fallback where nothing enforces a signature**, and the
+two forms are distinguished by the trailer's magic, so the runtime finds a
+payload either way.
+
+**What was not tested, and is not claimed.** A Developer-ID-signed and
+notarised binary — there is no signing identity in this repository. Linux and
+Windows: ELF and PE carry no equivalent whole-file signature by default, so
+appending is *expected* to be unaffected, and that is reasoning from the
+formats rather than a measurement.
 
 **What the runtime does when the trailer is not there, or is wrong.** D37
 forbids a panic, and a bundle runtime is the same binary as the interpreter, so
@@ -557,7 +598,7 @@ implied.
 | What `--noeval` stops | **Preserved exactly — D79.** It disables the `bund.eval` group: `bund.eval`, `bund.eval.`, `use`, `use.`. `compile` is not in the group, so `compile lambda! !` still evaluates, on both binaries. §B3a names the boundary. |
 | A damaged or absent trailer | **New surface, specified.** Four cases, all errors, none a panic (§B1, criterion 11). |
 | Bund2's own version | **Recorded in the trailer.** The pinned SHAs name the oracle, not the interpreter, so a builder/runtime skew would otherwise be undetectable. |
-| Code signing of the artefact | **[UNGROUNDED]** — §B1 appends bytes to a prebuilt executable, and nothing in this repository establishes whether a signed binary survives that. Q40. |
+| Code signing of the artefact | **Measured, and the design changed — Q40.** Appending runs but can never validate, and re-signing does not repair it, so the payload goes inside a reserved region instead (§B1). |
 | Run-time-registered words under `--emit=native` | **Speed only.** No code generator in the image, so they stay interpreted. |
 | D10's "embedded IR" description | **Approved deviation — D77.** Source text is embedded instead, read as descriptive; D10's resolution about the toolchain is untouched. |
 
@@ -642,11 +683,16 @@ implied.
     claimed more would be false: `"40 2 +" compile lambda! !` prints `42` under
     `--noeval` on both binaries (§B3a), so no criterion here may be read as
     "the artefact evaluates nothing".
-11. **A damaged artefact is refused, not aborted.** All four of §B1's cases —
+11. **A produced artefact still validates where signing is enforced.**
+    `codesign -v` on what `bund2 build` wrote reports no error on macOS, after
+    an ad-hoc re-sign, which Q40's measurements show is possible for an
+    in-image payload and impossible for an appended one. A program over the
+    reserved capacity is refused at build with the capacity and the size named.
+12. **A damaged artefact is refused, not aborted.** All four of §B1's cases —
     absent magic, truncated trailer, implausible length, non-UTF-8 payload —
     produce a diagnostic and an error status, and none reaches a panic. D37,
     and the one input a bundle's front end will certainly meet.
-12. **Conformance moves by exactly zero.** This RFC changes what Bund2 emits,
+13. **Conformance moves by exactly zero.** This RFC changes what Bund2 emits,
     not what a program means.
 
 ## Open questions
@@ -671,10 +717,11 @@ implied.
   refuse a program that does not parse, and the preservation table files it as
   "deliberately changed" with nothing behind it. It moves when a syntax error
   is found, which is observable. Flagged rather than assumed.
-- **Q40 — does appending to a signed executable leave it runnable?**
-  `[UNGROUNDED]`. §B1's construction assumes it does on every target
-  `bund2 build` ships a runtime for, and nothing in this repository establishes
-  it either way.
+- **Q40 — answered by measurement**, 2026-09-30: appending leaves a macOS arm64
+  binary runnable but permanently unvalidatable, and re-signing does not repair
+  it, so §B1 now writes the payload into a reserved region inside the image.
+  Two limits remain unmeasured and are stated as such in §B1: a Developer-ID
+  notarised binary, and the ELF and PE cases.
 - **Which targets get `--emit=native`.** s390x in particular is untestable
   here. For whoever takes §B8's gate.
 
