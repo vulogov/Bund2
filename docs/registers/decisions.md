@@ -335,7 +335,8 @@ Tens (actor model is fine) or thousands (per-VM word tables become the memory
 story)?
 - Blocks: RFC-0007
 - Default: tens
-- Status: OPEN
+- Status: **RESOLVED — tens**, 2026-09-30, on a measurement the question had
+  never been given. See **D85**.
 
 ## D8 — existing external word packages
 Do any Rust word packages exist outside this repository? If so, `bund2-api` is
@@ -3535,6 +3536,144 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
 - Depends on: D48 and D55 (the palette runs the four new fixed-effect
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
+
+## D86 — two buses, orthogonal: crossbeam in process, zenoh across it
+
+**Decided by the repository owner, 2026-09-30**: "zenoh and crossbeam must be
+orthogonal. Same idea as in Erlang: distributed and local message exchange
+coexist." **Recorded now; implementation deferred**, at the owner's direction.
+
+- Blocks: nothing. It fixes RFC-0007's exchange layer before RFC-0007 is written
+- Depends on: D7/D85 (tens of VMs), D84 (`Interp` is not `Send`), D20
+  (serialisation materialises), RFC-0001's wire codec
+- Status: **RESOLVED — decided, not built**, 2026-09-30.
+
+### The decision
+
+**Local exchange is crossbeam channels; distributed exchange is zenoh; neither
+substitutes for the other.** The owner's framing is Erlang's: a message to a
+process on this node and a message to one on another node are the same idea
+expressed over different transports, and both exist at once.
+
+### This is a preservation contract, not a design
+
+**The reference already does it**, and the shape was proposed here before that
+was noticed — which is worth recording because it means the design was arrived
+at twice, independently, from the same constraint.
+
+`bus_push` serialises the value with `to_binary()` and sends the bytes down an
+**unbounded crossbeam channel keyed by name**, created lazily on first push:
+
+```rust reference/Bund/src/stdlib/functions/bus/mod.rs:88-95
+    match d.to_binary() {
+        Ok(res) => {
+            let mut q = PIPES.lock().unwrap();
+            if ! q.contains_key(&k) {
+                log::trace!("new bus::internal::pipe : {}", &k);
+                let (s,r) = unbounded::<Vec<u8>>();
+```
+
+`PIPES` is a `Mutex<BTreeMap<String, (Sender<Vec<u8>>, Receiver<Vec<u8>>)>>`
+(`:16`), `crossbeam::channel::{Sender, Receiver, unbounded}` is imported at
+`:9`, and `crossbeam = "0.8.*"` with `crossbeam-channel = "0.5.*"` are direct
+dependencies (`reference/Bund/Cargo.toml:40-41`).
+
+**Zenoh is a separate transport in the same module** — `ZENOH` is a
+`Mutex<zenoh::Session>` at `:23`, used by the globals paths in
+`bus/globals.rs`, **not** by `send` and `recv`. An earlier statement in this
+work that "`send`/`recv` are zenoh, so the bus is distributed" was wrong and is
+corrected here.
+
+**The words, unimplemented in Bund2 and in scope**: `send`, `send.`,
+`send.quick`, `send.quick.`, `recv`, `recv.`, `bus.data`, `bus.data.current`
+(`bus/crossbus.rs`). They take a **channel name off the stack** — "No channel
+name discovered on the stack" is the error — and the pipe error text is
+`bus::internal::pipe error: {err}`.
+
+### Why bytes rather than values, which is not a choice
+
+`Interp` is **not `Send`** — `Box<dyn Reporter>` and, through every value,
+`Rc<HeapValue>` (verified for D84). So a `BundValue` cannot cross a thread
+boundary at all, and a channel between VMs **must** carry serialised bytes. The
+reference reached the same conclusion; Bund2 already has the codec, in
+`bund2_value::wire`, fixture-tested, with `MAX_WIRE_DEPTH` at 256 refusing what
+it could not read back.
+
+### Two properties to preserve, both easy to discover late
+
+**A sent value is not the value that arrives.** `to_binary` materialises the
+identity and the stamp (D20), so what comes out of `recv` is an *equal* value
+with its own identity — the same property that made the encoded-stream bundle
+untenable in D77. A program comparing `.id` across a `send`/`recv` sees two
+values, and that is the reference's behaviour.
+
+**The channel is unbounded.** A producer outrunning a consumer grows memory
+without limit. That is `unbounded::<Vec<u8>>()`, the reference's choice, and it
+is preserved rather than quietly bounded — a bound would be a deviation with a
+decision behind it.
+
+### What deferral means
+
+RFC-0007 specifies these words and their two transports; nothing is built until
+then. **What is fixed now** is that the local transport is not zenoh, the
+payload is the wire format, and the two coexist rather than one being layered on
+the other.
+
+## D85 — D7 is tens, because scale comes from processes rather than VMs
+
+**Decided by the repository owner, 2026-09-30**, taking D7's recorded default
+after the measurement it had never been given.
+
+- Blocks: nothing further. It closes D7, the last OPEN decision in this register
+- Depends on: D7, D84 (a task is a VM), D86 (how VMs exchange data)
+- Status: **RESOLVED — tens**, 2026-09-30.
+
+### The measurement D7 was missing
+
+D7 asks whether per-VM word tables become the memory story. Measured, on this
+build:
+
+| | |
+|---|---|
+| `Slot` | **96 bytes** |
+| `Native` | 32 bytes |
+| `Interp` | 608 bytes |
+| distinct registered names | **396** |
+| name text | 3,557 bytes |
+
+So slots are 396 × 96 ≈ **37 KiB** a VM, and with the interner's strings and
+index about **75 KiB** all in. At tens — 64 VMs — that is ~5 MB and irrelevant.
+At thousands it is ~300 MB **before any program data**, and at ten thousand it
+is prohibitive. **The crossover is exactly where D7 said it was**, which is why
+the question was worth asking and worth measuring rather than assuming.
+
+### Why tens is the answer rather than the fallback
+
+**Scale comes from processes, not from VMs in a process.** The owner's model is
+one program per CPU, nodes joined by a bus — which is the reference's
+architecture, `--distributed` and the zenoh transport. Under it the VM count
+*inside* a process is about one, so the per-VM table cost does not compound:
+4,096 processes carry one table each, in separate address spaces, and the memory
+story is per-process regardless.
+
+**Nothing can exercise the alternative.** RFC-0007 is unwritten, no corpus
+program is concurrent, and D84 has only just fixed what a task is. Choosing
+thousands now means building a copy-on-write word-table overlay against §S6's
+per-`Interp` generation cells, with **no consumer to validate it** — the shape
+D68 and D75 taught this project to avoid: machinery built, gated, measured
+negative, withdrawn one call from use.
+
+**The direction is asymmetric.** Tens can become thousands by adding sharing;
+thousands cannot be un-built once the overlay exists and §S6 has been reworked
+around it.
+
+### What would reopen it
+
+A program that needs more than tens of concurrent VMs **in one process** —
+which, on the model above, nothing does. Whoever revisits starts from 96 bytes
+and 396 names rather than re-deriving them, and from §S6's cells and RFC-0005
+criterion 23 ("a body compiled for one `Interp` is never run by another") as the
+two things a shared table would have to reconcile with.
 
 ## D84 — D6 is VM-per-task; the debugger stops a thread and inspects from inside it
 
