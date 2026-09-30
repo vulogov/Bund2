@@ -125,3 +125,13 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   macOS, which D10 forbids below `bund2 build`; and its "point the same
   lowering at `ObjectModule`" ordering is moot, the lowering having been built
   JIT-first under RFC-0005 and baking host heap addresses as immediates.
+
+- `02-native-binaries.md` §1 -> superseded by RFC-0006 criterion 1 (measured
+  2026-09-30): "`cranelift-codegen` with its ISLE-generated instruction
+  selection tables is the single largest code contributor to any binary that
+  embeds the JIT" is false for Bund2. Release builds with and without `jit`
+  differ by 2,259,088 bytes, 12.45%; Cranelift and `regalloc2` own 8.9% of
+  `__text`, where `graphitesql` alone owns 13.0% and `sqlparser`, `prqlc` and
+  `redb` together own 17.2%. Product B's stated strongest argument — shedding
+  the code generator being "a bigger practical win than the arithmetic
+  speedup" — does not hold at that share.

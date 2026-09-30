@@ -2,8 +2,9 @@
 
 - Status: **Draft**, and `--emit=bundle` is **built** as of 2026-09-30 —
   `crates/bund2-cli/src/bundle.rs` and `bund2 build`. Criteria 3, 5, 6, 10, 11
-  and 12 pass, and **criterion 2 is met in three configurations**; 1 and 13
-  are open work, and 7 is deferred behind §B5.
+  and 12 pass, **criterion 2 is met in three configurations**, and
+  **criterion 1's gate is answered — against Product B's premise**. 13 follows
+  from criterion 2's runs; 7 is deferred behind §B5.
   Revised 2026-09-29 after the first adversarial review
   (`docs/rfc/reviews/RFC-0006-review-2026-09-29.md`). The review raised three
   blockers; all three were reproduced against the code before this revision,
@@ -597,11 +598,19 @@ gated the same way. The research names the number for `--emit=native`:
 > without the `jit` feature — because the number decides whether B is worth
 > the phase.
 
-**It has never been taken, and it cannot be until `--emit=bundle` exists**,
-because it is a measurement of a bundle. That is the ordering argument, and it
-is stronger than convenience: `--emit=native`'s case rests on a size saving
-nobody has weighed, and §B5 now shows its cost is larger than the first draft
-implied.
+**It has now been taken — criterion 1, 2026-09-30 — and the ordering argument
+was right for a reason better than the one given.** `--emit=native`'s case
+rested on a size saving nobody had weighed, and weighed it is **12.45% of the
+binary**, with Cranelift owning 8.9% of `__text` where `graphitesql` alone owns
+13.0%. The research's claim that the code generator is the single largest
+contributor is false for Bund2 (ERRATA).
+
+So the phase has to stand on **start-up without warm-up** instead, against
+§B5's three blocking items — symbol-addressed slot tables and cells, planning
+without a live VM, and deciding which bodies compile when no word is
+registered — plus the reopened criterion 30 mirrors. **That trade is the
+owner's, and this RFC does not assume it.** Nothing in `--emit=bundle` waits
+on the answer.
 
 ## Preservation analysis
 
@@ -655,9 +664,51 @@ implied.
 
 ## Acceptance criteria
 
-1. **The gate is answered before `--emit=native` is built.** `cargo bloat` on
-   a bundle runtime with and without `jit`, reported as a figure. No threshold:
-   the number is an input to a decision.
+1. **The gate is answered before `--emit=native` is built.** A figure for what
+   the code generator costs a bundle runtime. No threshold: the number is an
+   input to a decision.
+
+   **Answered 2026-09-30 — and it answers against the premise it was set to
+   test.** Release builds of `bund2-cli`, thin LTO and one codegen unit, with
+   and without `jit`; Cranelift confirmed present in one and absent from the
+   other by symbol inspection, not by trusting the feature flag:
+
+   | | no `jit` | `jit` | delta |
+   |---|---|---|---|
+   | whole binary | 18,142,096 | 20,401,184 | **+2,259,088 (+12.45%)** |
+   | `__text` | 10,261,804 | 11,845,112 | +1,583,308 |
+   | `__const` | 2,556,480 | 2,617,408 | +60,928 |
+
+   **`cargo bloat` was not used and is no longer named here.** It is not
+   installed, and the figure the decision needs is the *delta*, which needs no
+   tool: `size -m` gives the sections and the difference is the cost. What
+   `cargo bloat` would have added is attribution, taken instead from `nm`
+   symbol addresses with the mangling parsed, 3.4% unattributed:
+
+   | crate's own symbols | share of `__text` |
+   |---|---|
+   | `graphitesql` | **13.0%** |
+   | `core` | 11.0% |
+   | `sqlparser` | 7.9% |
+   | `cranelift_codegen` | 7.1% |
+   | `prqlc` | 5.7% |
+   | `redb` | 3.6% |
+   | `regalloc2` | 1.2% |
+   | **Cranelift and `regalloc2` together** | **8.9%** |
+
+   **The research's argument for Product B does not survive this.** It holds
+   that `cranelift-codegen` with its ISLE tables is "the single largest code
+   contributor to any binary that embeds the JIT", and makes shedding it
+   Product B's strongest case — "a bigger practical win than the arithmetic
+   speedup". Measured, it is **8.9% of `__text` and 12.45% of the binary**, and
+   `graphitesql` alone is larger. The library dependencies dominate:
+   `sqlparser`, `prqlc` and `redb` together are 17.2%, nearly twice Cranelift.
+   Recorded in `docs/research/ERRATA.md`.
+
+   **So `--emit=native` must be justified on something other than size** —
+   immediate start-up with no warm-up is the remaining argument — or not at
+   all. That is the decision this figure was the input to, and it is the
+   owner's.
 2. **Every bundled golden matches its source run, per golden and not in
    total, in both runtime configurations.** `cargo xtask conform --bundles`
    builds an artefact from each prepared program and executes it with no
