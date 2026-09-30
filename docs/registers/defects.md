@@ -3447,7 +3447,15 @@ Bund2 has the wire types, byte-identical to the reference's
 (`crates/bund2-value/src/wire.rs`, D20), but nothing converts a wire value into
 a `BundValue` yet.
 
-**Status:** OPEN. A non-NULL BLOB is refused with `CONTEXT.RUN: a BLOB column
+**Status: superseded by the FIXED line below**, and the text that follows is
+what was true until 2026-09-11. **It read `OPEN` for nineteen days after the
+defect was fixed**, which is the reason `xtask lint` now checks for exactly this
+shape: a status line nothing contradicts is invisible, and this one was read as
+authoritative several times — including on 2026-09-30, with the entry open, by a
+session that reported F109 as the last open defect in the register four times
+running.
+
+A non-NULL BLOB is refused with `CONTEXT.RUN: a BLOB column
 holds a serialised Bund value in the reference, which Bund2 cannot decode`
 (`crates/bund2-stdlib/src/data.rs`, `sql_cell`). The fix is the wire-to-value
 conversion, which the world file (D27) will need anyway. No golden reaches a

@@ -29,6 +29,76 @@ pub struct Finding {
     pub what: String,
 }
 
+/// Every `## Fn` entry's status, checked for the one shape that hides a fix.
+///
+/// Returns how many entries are genuinely open, so the report can state it as
+/// a number rather than leaving it to a grep — which is how F109 was misread.
+fn report_defect_statuses(repo: &Path, findings: &mut Vec<Finding>) -> usize {
+    let path = repo.join("docs/registers/defects.md");
+    let Ok(src) = std::fs::read_to_string(&path) else {
+        return 0;
+    };
+    let mut open = 0usize;
+    let mut entry: Option<(String, usize)> = None;
+    let mut saw_open: Option<usize> = None;
+    let mut saw_settled = false;
+
+    // One pass, closing each entry when the next heading starts or the file
+    // ends. `finish` is a closure over the two flags so the tail case and the
+    // heading case cannot drift apart.
+    let mut rows: Vec<(String, usize, Option<usize>, bool)> = Vec::new();
+    for (i, line) in src.lines().enumerate() {
+        if let Some(rest) = line.strip_prefix("## ")
+            && rest.starts_with('F')
+        {
+            if let Some((name, at)) = entry.take() {
+                rows.push((name, at, saw_open, saw_settled));
+            }
+            let name = rest.split_whitespace().next().unwrap_or(rest).to_string();
+            entry = Some((name, i + 1));
+            saw_open = None;
+            saw_settled = false;
+            continue;
+        }
+        if entry.is_none() {
+            continue;
+        }
+        let l = line.trim_start();
+        // A status line, however it is emphasised.
+        let is_status = l.starts_with("**Status:")
+            || l.starts_with("- **Status:")
+            || l.starts_with("- Status:")
+            || l.starts_with("Status:");
+        if is_status && l.contains("OPEN") && saw_open.is_none() {
+            saw_open = Some(i + 1);
+        }
+        if l.contains("FIXED") || l.contains("**Status: superseded") {
+            saw_settled = true;
+        }
+    }
+    if let Some((name, at)) = entry.take() {
+        rows.push((name, at, saw_open, saw_settled));
+    }
+
+    for (name, _at, open_at, settled) in rows {
+        match (open_at, settled) {
+            (Some(at), true) => findings.push(Finding {
+                doc: "docs/registers/defects.md".into(),
+                line: at,
+                what: format!(
+                    "{name} carries a status line reading OPEN and, below it, a \
+                     settled marker. One of them is stale, and the OPEN one is \
+                     what a reader finds first — amend the status rather than \
+                     appending a second."
+                ),
+            }),
+            (Some(_), false) => open += 1,
+            _ => {}
+        }
+    }
+    open
+}
+
 /// Documents linted. RFCs and the registers that RFCs cite figures from.
 const DOCS: &[&str] = &["docs/rfc", "docs/registers"];
 
@@ -496,7 +566,21 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     println!("  drain loops checked for F70's shape                   {drain_loops:>4}");
     println!();
 
+    // --- 5. a defect's status must not be both OPEN and settled -------------
+    //
+    // **Why this check exists.** F109 read `**Status:** OPEN` for nineteen days
+    // after it was fixed, because the fix appended a second status line below
+    // the first instead of amending it. A status line nothing contradicts is
+    // invisible: `cite` cannot see it, `conform` cannot, and a reader greps the
+    // first match. On 2026-09-30 a session reported F109 as the register's last
+    // open defect four times running, with the entry open in front of it.
+    //
+    // The register is the shared state between sessions, so an ambiguous status
+    // is worse here than anywhere else in the tree.
+    let open_defects = report_defect_statuses(&repo, &mut findings);
+
     if findings.is_empty() {
+        println!("  {open_defects} defect(s) genuinely open.\n");
         println!("  no contradictions.\n");
         return Ok(());
     }
