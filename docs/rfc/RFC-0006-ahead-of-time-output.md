@@ -1,6 +1,13 @@
 # RFC-0006: Ahead-of-time output — `bund2 build`
 
-- Status: **Draft**, and `--emit=bundle` is **built** as of 2026-09-30 —
+- Status: **Draft**, and `--emit=bundle` is **built and reviewed** as of
+  2026-09-30. The implementation review
+  (`docs/rfc/reviews/RFC-0006-implementation-review-2026-09-30.md`) found two
+  release-only blockers that eleven passing tests had not: the payload region's
+  sentinel was unique only in debug, and the runtime read it from an immutable
+  `static` that release folded to its initialiser. Both fixed;
+  `cargo xtask bundle` now checks both profiles, which is the gap that let them
+  through. Built —
   `crates/bund2-cli/src/bundle.rs` and `bund2 build`. Criteria 3, 5, 6, 10, 11
   and 12 pass, **criterion 2 is met in three configurations**, and
   **criterion 1's gate is answered — against Product B's premise**. 13 follows

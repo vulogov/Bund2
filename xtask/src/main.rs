@@ -105,6 +105,7 @@ mod arity;
 mod buildcli;
 mod effects;
 mod bench;
+mod bundle;
 mod cite;
 mod conform;
 mod depth;
@@ -157,6 +158,14 @@ fn main() -> std::process::ExitCode {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
                 eprintln!("xtask corpus: {err}");
+                std::process::ExitCode::FAILURE
+            }
+        },
+        // RFC-0006: the artefact, in both profiles. `cargo test` is debug only.
+        "bundle" => match bundle::run(&args) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("xtask bundle: {err}");
                 std::process::ExitCode::FAILURE
             }
         },

@@ -39,14 +39,23 @@ pub const FORMAT: u32 = 1;
 /// `bund2 build` to write into.
 const FILLER: u8 = 0xA5;
 
-/// The sentinel, masked, so that **the plain bytes occur exactly once in the
-/// image** — inside the region.
+/// The sentinel, masked so that the plain bytes are **less** likely to appear
+/// in the code — never "exactly once", which is what the first version of this
+/// comment claimed and release builds disproved.
 ///
-/// The builder scans a copy of the executable for the plain sentinel. If the
-/// same 32 bytes also appeared as a comparison constant in this module's code,
-/// the scan would find two matches and could patch the wrong one. Masking the
-/// stored copy and unmasking it in a `const fn` keeps the literal out of the
-/// text section while still giving the `static` below a compile-time value.
+/// **What went wrong, recorded because the fix depends on it.** The argument
+/// was that masking kept the literal out of the text section, so a scan for
+/// the plain bytes would find one match. That holds in a debug build, where
+/// `unmask` is a call. In release, thin LTO const-folds it and materialises
+/// the plain 32 bytes for the comparison — so the scan finds two, and
+/// `bund2 build` refused every release bundle with "the sentinel occurs more
+/// than once". The unit test asserting uniqueness passed throughout, because
+/// `cargo test` builds in debug.
+///
+/// **So uniqueness is not relied on.** [`locate`] disambiguates
+/// *structurally*: a real region is a sentinel **followed by a header that
+/// validates**, and a bare constant in the text section is not. The masking
+/// stays because fewer candidates is still better than more.
 const SENTINEL_MASKED: [u8; 32] = [
     0xE7, 0xC8, 0xC7, 0xC3, 0xC9, 0xF1, 0xD7, 0xC4, 0xC9, 0xD2, 0xF1, 0xD6, 0xC4, 0xC2, 0xC8,
     0xC9, 0xC7, 0xD7, 0xF1, 0xB4, 0xB1, 0xB0, 0xB6, 0xF4, 0x19, 0x2A, 0x3B, 0x4C, 0x5D, 0x6E,
@@ -185,24 +194,43 @@ fn text(bytes: &[u8]) -> String {
 /// `Ok(None)` is the plain interpreter: a runtime nobody has built a bundle
 /// from. `Err` is an artefact that cannot be run and says why.
 pub fn carried() -> Result<Option<Carried>, Damaged> {
-    if REGION.format != FORMAT {
-        return Err(Damaged::Format(REGION.format));
+    // **Read through `black_box`, or release builds see the initialiser — the
+    // second blocker a release build found.**
+    //
+    // `REGION` is an immutable `static`, so a compiler is entitled to fold
+    // every read of it to the value written here at compile time. That is
+    // exactly what happened: the builder patched `state` to `FILLED` in the
+    // file, the bytes on disk said so, and the running program still took the
+    // `EMPTY` arm and behaved as the plain interpreter. In debug nothing folds
+    // and it worked, which is why eleven tests passed over a design that could
+    // not work in the profile that ships.
+    //
+    // `black_box` exists for this: it hints that the value may be anything, so
+    // the load happens. **It is a hint and not a guarantee**, which is why
+    // `a_release_bundle_runs_its_program` exists — if a future compiler folds
+    // through it, that test fails rather than a user's artefact silently
+    // becoming an interpreter. If it ever does, the recorded fallback is
+    // RFC-0006 §B1's separate prebuilt runtime, which reads its payload from
+    // its own file and so cannot be folded at all.
+    let region = std::hint::black_box(&REGION);
+    if region.format != FORMAT {
+        return Err(Damaged::Format(region.format));
     }
-    match REGION.state {
+    match region.state {
         EMPTY => Ok(None),
         FILLED => {
-            let len = REGION.len as usize;
+            let len = region.len as usize;
             if len > CAPACITY {
-                return Err(Damaged::Length(REGION.len));
+                return Err(Damaged::Length(region.len));
             }
-            let bytes = REGION.payload.get(..len).ok_or(Damaged::Length(REGION.len))?;
+            let bytes = region.payload.get(..len).ok_or(Damaged::Length(region.len))?;
             let source = std::str::from_utf8(bytes)
                 .map_err(|_| Damaged::NotText)?
                 .to_string();
             Ok(Some(Carried {
                 source,
-                name: text(&REGION.source_name),
-                flags: REGION.flags,
+                name: text(&region.source_name),
+                flags: region.flags,
             }))
         }
         other => Err(Damaged::State(other)),
@@ -211,37 +239,81 @@ pub fn carried() -> Result<Option<Carried>, Damaged> {
 
 /// Find the region in a copy of this executable.
 ///
-/// The scan is for the plain sentinel, which occurs exactly once in the image
-/// by construction — see `SENTINEL_MASKED`. Two matches means the invariant
-/// broke, and that is reported rather than guessed at.
+/// **Identified, not assumed unique.** A candidate is a sentinel match whose
+/// header then validates: a known `format`, a `state` that is empty or filled,
+/// a length within capacity, and the whole region inside the file. A bare
+/// 32-byte constant that the optimiser left in the text section satisfies none
+/// of that, because what follows it is instructions.
+///
+/// Refusing on two *validating* candidates is deliberate. It cannot happen
+/// from one `static`, so it would mean something about the image this code does
+/// not understand, and patching the wrong one produces an artefact that runs
+/// the wrong program.
 fn locate(image: &[u8]) -> Result<usize, String> {
     let sentinel = unmask(SENTINEL_MASKED);
     let mut found: Option<usize> = None;
+    let mut candidates = 0usize;
     for (i, w) in image.windows(sentinel.len()).enumerate() {
-        if w == sentinel {
-            if found.is_some() {
-                return Err(
-                    "the payload region's sentinel occurs more than once in this binary, \
-                     so `bund2 build` cannot tell which one is the region"
-                        .into(),
-                );
-            }
-            found = Some(i);
+        if w != sentinel {
+            continue;
         }
+        candidates += 1;
+        if !header_validates(image, i) {
+            continue;
+        }
+        if found.is_some() {
+            return Err(format!(
+                "{candidates} sentinel matches in this binary and more than one carries a \
+                 valid header, so `bund2 build` cannot tell which is the payload region"
+            ));
+        }
+        found = Some(i);
     }
-    let start = found.ok_or_else(|| {
-        "this binary has no payload region, so it cannot carry a program. A runtime \
-         built without one is not a bundling runtime."
-            .to_string()
-    })?;
-    if start + REGION_BYTES > image.len() {
-        return Err(
-            "the payload region runs past the end of this binary, which means the \
-             file is truncated"
-                .into(),
-        );
+    found.ok_or_else(|| {
+        if candidates == 0 {
+            "this binary has no payload region, so it cannot carry a program. A runtime \
+             built without one is not a bundling runtime."
+                .to_string()
+        } else {
+            format!(
+                "{candidates} sentinel match(es) in this binary and none carries a valid \
+                 header. The region is absent and the matches are constants in the code."
+            )
+        }
+    })
+}
+
+/// Does a header at `start` describe a region this runtime could read?
+///
+/// The whole point is to reject a sentinel that is a constant rather than a
+/// region, so every field that has a small legal range is checked.
+fn header_validates(image: &[u8], start: usize) -> bool {
+    let Some(region) = image.get(start..) else {
+        return false;
+    };
+    if region.len() < REGION_BYTES {
+        return false;
     }
-    Ok(start)
+    let Some(fmt) = region.get(at::FORMAT..at::FORMAT + 4) else {
+        return false;
+    };
+    let Ok(fmt) = <[u8; 4]>::try_from(fmt) else {
+        return false;
+    };
+    if u32::from_le_bytes(fmt) != FORMAT {
+        return false;
+    }
+    match region.get(at::STATE) {
+        Some(&EMPTY) | Some(&FILLED) => {}
+        _ => return false,
+    }
+    let Some(len) = region.get(at::LEN..at::LEN + 4) else {
+        return false;
+    };
+    let Ok(len) = <[u8; 4]>::try_from(len) else {
+        return false;
+    };
+    u32::from_le_bytes(len) as usize <= CAPACITY
 }
 
 /// Write `source` into a copy of this executable, in place.
@@ -318,14 +390,30 @@ mod tests {
         );
     }
 
-    /// The sentinel occurs **once**, which `locate` depends on.
+    /// **The region is identified whatever the optimiser did with the
+    /// sentinel** — the blocker a release build found.
+    ///
+    /// This test used to assert the plain bytes occurred exactly once, and it
+    /// passed in debug while release builds carried two matches and refused
+    /// every bundle. What is asserted now is the property `locate` actually
+    /// needs: exactly one candidate whose header validates, however many
+    /// sentinel matches the image contains.
     #[test]
-    fn the_sentinel_occurs_exactly_once() {
+    fn the_region_is_identified_however_many_sentinels_the_image_has() {
         let exe = std::env::current_exe().expect("a test binary has a path");
         let image = std::fs::read(&exe).expect("and it is readable");
         let s = unmask(SENTINEL_MASKED);
-        let n = image.windows(s.len()).filter(|w| *w == s).count();
-        assert_eq!(n, 1, "the masked constant keeps the plain bytes unique");
+        let matches = image.windows(s.len()).filter(|w| *w == s).count();
+        let validating = (0..image.len().saturating_sub(s.len()))
+            .filter(|i| image[*i..*i + s.len()] == s && header_validates(&image, *i))
+            .count();
+        assert!(matches >= 1, "the region's own sentinel is in the image");
+        assert_eq!(
+            validating, 1,
+            "exactly one candidate may carry a valid header, out of {matches} \
+             sentinel match(es); a constant left in the text section carries none"
+        );
+        assert!(locate(&image).is_ok(), "so locate succeeds");
     }
 
     /// A round trip through the region a builder writes and a runtime reads.
