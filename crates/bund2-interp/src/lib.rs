@@ -25,6 +25,9 @@
 /// Executing a word's specialised arm — RFC-0005 §S6's first consumer.
 pub mod frag;
 
+/// §D1's safepoint — RFC-0008's first consumer.
+pub mod debug;
+
 use std::collections::{BTreeMap, VecDeque};
 use std::rc::Rc;
 
@@ -567,6 +570,14 @@ pub struct Interp {
     /// every frame pushed for a body records that body's `payload_key`, which
     /// is how a test shows one key reaching every iteration of a loop (D42).
     pub entry_log: Option<Vec<usize>>,
+    /// **§D1's safepoint — RFC-0008.** `None` in production, so the cost is
+    /// one branch per step, which criterion 11 measures rather than assumes.
+    ///
+    /// When `Some`, the loops consult it before each value: it decides whether
+    /// this is where the host asked to stop, and if so blocks until the host
+    /// says what to do. **Boxed**, so the field a run with no debugger pays for
+    /// is a pointer-width `None` rather than the whole of [`debug::Debug`].
+    debug: Option<Box<debug::Debug>>,
     /// **The effect audit — RFC-0005 criterion 24.** `None` in production,
     /// so the cost is one branch per native call. When `Some`, every native
     /// that declares a fixed effect is held to it while it runs: it may not
@@ -652,6 +663,7 @@ impl Interp {
             frames: Vec::new(),
             pending_tail: None,
             entry_log: None,
+            debug: None,
             effect_audit: None,
             audit_inside: None,
             audit_native: None,
@@ -1094,6 +1106,13 @@ impl Interp {
                 bund2_value::NONE => continue,
                 bund2_value::EXIT => break,
                 _ => {
+                    // The top-level half of §D1's safepoint. Both loops need
+                    // it: this one runs the stream, `run_to` runs every body
+                    // the stream enters, and a debugger that saw only one
+                    // would step over whole subtrees or never start.
+                    if self.debug.is_some() {
+                        self.safepoint();
+                    }
                     observe(v);
                     // A step refused because the program asked to exit is not
                     // a failure: the program is over, and there is nothing to
@@ -1211,8 +1230,105 @@ impl Interp {
     ///
     /// The loop is flat: a body that calls a body pushes rather than recurses,
     /// so 100,000 Bund calls cost 100,000 heap frames and one Rust frame.
+    /// Attach a debugger. **§D1**, and the only writer of `debug`.
+    ///
+    /// The console is the host's; everything it is handed is text this
+    /// interpreter rendered, because `Interp` is not `Send` and the host may
+    /// not touch a value.
+    pub fn attach_debugger(&mut self, console: Box<dyn debug::Console>) {
+        self.debug = Some(Box::new(debug::Debug::new(console)));
+    }
+
+    /// Whether a debugger is attached, and how many safepoints it stopped at.
+    ///
+    /// A differential needs this: a stepped run that silently detached would
+    /// agree with a plain run for the wrong reason.
+    pub fn debugger_stops(&self) -> Option<usize> {
+        self.debug.as_ref().map(|d| d.stops)
+    }
+
+    /// **One safepoint.** Never inlined: the hot loops carry the branch, and
+    /// this carries everything else.
+    ///
+    /// The cell is **taken out for the duration**, which is what lets an
+    /// inspecting command run against `self` — the debuggee examining itself,
+    /// as §D1 requires and as the reference's own `debug` loop does. Stepping
+    /// commands set where to stop next and return; inspecting commands answer
+    /// and leave the debuggee stopped, so `bt` then `stack` is two answers at
+    /// one safepoint rather than two steps.
+    #[inline(never)]
+    fn safepoint(&mut self) {
+        let Some(mut d) = self.debug.take() else {
+            return;
+        };
+        let depth = self.frames.len();
+        if d.should_stop(depth) {
+            d.stops += 1;
+            loop {
+                match d.next_command() {
+                    // **The host is gone, so the program is not.** A debugger
+                    // that dies must not take the debuggee with it, and the
+                    // alternative here is a block that never returns.
+                    None => {
+                        d.detach();
+                        break;
+                    }
+                    Some(cmd) => match d.apply(cmd, depth) {
+                        debug::Next::Resume => break,
+                        debug::Next::Render(what) => {
+                            let text = match what {
+                                debug::Render::Backtrace => self.render_backtrace(),
+                                debug::Render::Stack => self.render_debug_stack(),
+                            };
+                            d.answer(&text);
+                        }
+                    },
+                }
+            }
+        }
+        self.debug = Some(d);
+    }
+
+    /// The frame stack, innermost first.
+    ///
+    /// **What it cannot say yet is the point.** A frame knows the body it runs
+    /// and not the symbol it was pushed for, so a line reads `a lambda at 3`;
+    /// §D2's field is what makes it a name, and a source position needs the
+    /// per-value spans RFC-0003 §S5 describes.
+    fn render_backtrace(&self) -> String {
+        if self.frames.is_empty() {
+            return "#0  the top-level stream\n".to_string();
+        }
+        let mut out = String::new();
+        for (i, f) in self.frames.iter().enumerate().rev() {
+            out.push_str(&debug::frame_line(&f.body, f.ip, self.frames.len() - 1 - i));
+            out.push('\n');
+        }
+        out
+    }
+
+    /// The current stack, innermost value last, through `summary` — **D36**,
+    /// which bounds what a report may print. The unbounded `Debug` form
+    /// belongs to `debug.display_stack` and `--raw-values`.
+    fn render_debug_stack(&self) -> String {
+        let mut out = format!("@{}\n", self.stacks.current_name());
+        for v in self.snapshot() {
+            out.push_str("  ");
+            out.push_str(&v.summary(72));
+            out.push('\n');
+        }
+        out
+    }
+
     fn run_to(&mut self, floor: usize) -> Result<(), Error> {
         while self.frames.len() > floor {
+            // **§D1's safepoint.** One branch per step when nothing is
+            // attached; criterion 11 measures what that costs rather than
+            // calling it free. The work is behind `#[inline(never)]` so the
+            // hot path holds the test and not the body.
+            if self.debug.is_some() {
+                self.safepoint();
+            }
             let Some(frame) = self.frames.last_mut() else {
                 break;
             };
