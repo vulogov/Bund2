@@ -258,7 +258,7 @@ improves is measuring its own scope:**
 | words in scope | 497 | **505** | 505 |
 | IMPLEMENTED | 391/497 (78.7%) | **391/505 (77.4%)** | **399/505 (79.0%)** |
 | COVERAGE | 387/497 (77.9%) | **387/505 (76.6%)** | **395/505 (78.2%)** |
-| CONFORMANCE | 107/116 | **107/116**, unmoved | **108/117** |
+| CONFORMANCE | 107/116 | **107/116**, unmoved | **109/118** |
 
 Eight unimplemented words entered the denominator, so both completeness figures
 fell about 1.2 points with no code changed. That is the honest direction.
@@ -267,10 +267,15 @@ fell about 1.2 points with no code changed. That is the honest direction.
 `tests/probes/bus-words.golden` was captured.** All eight are implemented and
 all eight are now run by a golden, so IMPLEMENTED and COVERAGE each moved by
 exactly eight from the scoped-in baseline — the figure criterion 5 predicted,
-395/505, read back from the binary rather than argued. Conformance grew by one
-in both halves: the probe passes, and it is one more golden in the denominator.
+395/505, read back from the binary rather than argued. Conformance grew by two
+in both halves: this RFC's probe, and the corpus program D89 admitted. Both
+pass, so the ceiling still equals the numerator.
+
 **Earlier RFCs' `107/116` is as of their dates**; 116 was the denominator before
-this capture, and criterion 6 is where that is accounted for.
+these two captures, and criterion 6 is where that is accounted for. COVERAGE
+did not move with the second capture, because the probe had already reached all
+eight words — the corpus program covers the *reference's* use of them, not a
+word the probe missed.
 
 **Transparency is the intent and it does not strain D86.** The owner's second
 clause — `send`/`recv` should eventually be transparent across zenoh — is
@@ -483,11 +488,12 @@ words are in scope and may carry goldens.
    enlarge the denominator — the same contradiction the review found in
    RFC-0006's first draft and that this draft reproduced.
 
-   **Met, 2026-10-01: 107/116 ceiling 107/116 before, 108/117 ceiling 108/117
-   after.** Every golden that passed still passes, the nine approved deviations
-   are the same nine, and M grew by exactly the one probe this RFC added. The
-   ceiling still equals the numerator, so no golden is left unreached — which is
-   the check that the new probe passes rather than merely existing.
+   **Met, 2026-10-01: 107/116 ceiling 107/116 before, 109/118 ceiling 109/118
+   after**, in the default build and under `--features jit`. Every golden that
+   passed still passes and the nine approved deviations are the same nine; M
+   grew by exactly two — this RFC's probe and the corpus program D89 admitted.
+   The ceiling still equals the numerator, so no golden is left unreached, which
+   is the check that both new captures pass rather than merely existing.
 7. **Withdrawn.** The first draft's "nothing reads `WordKind` yet, and that
    stays true" named no check and could not fail. What replaces it belongs to
    whichever RFC gives `Blocking` a reader.
