@@ -1276,6 +1276,74 @@ mod tests {
     /// nothing; on a runtime handed the table explicitly the same body must
     /// cross something. Re-chaining `with_crossable` fails the first half;
     /// letting the machinery rot while it is unused fails the second.
+    /// **RFC-0008 criterion 10: a debugged session runs no compiled code.**
+    ///
+    /// `Runtime::for_debugging` declines to install the tier (§D6), so the
+    /// question is not "a tier that compiled nothing" but "no tier at all" —
+    /// and `compiled_entries()` answers `None` rather than `Some(0)`, because
+    /// it reads through the tier that is not there. The criterion said
+    /// `Some(0)`; `None` is the stronger statement and this test is where that
+    /// was found.
+    ///
+    /// **The load-bearing half is the control.** That a session with no tier
+    /// compiles nothing is true by construction and cannot fail, which the
+    /// criterion itself warns about. What can fail is the other side: that this
+    /// same program, at this same threshold, *does* compile and enter a body
+    /// when the debugger is absent. Without that, the first assertion is a
+    /// tautology dressed as a measurement.
+    ///
+    /// And the two runs must agree on what the program *did*, because a
+    /// debugger that changes what it observes is worse than a slow one.
+    #[test]
+    fn a_debugged_session_installs_no_tier_and_the_control_compiles() {
+        declare_share();
+        let body = ":w { 1 2 + noop drop } register\n";
+        let opts = bund2_stdlib::host::HostOptions::default();
+
+        let mut debugged = crate::Runtime::for_debugging(&opts, Some(1));
+        debugged.eval_str(body).expect("setup runs");
+        for _ in 0..4 {
+            debugged.eval_str("w").expect("the entries run");
+        }
+        assert_eq!(
+            debugged.compiled_entries(),
+            None,
+            "a debugged session has no tier to ask, which is stronger than a tier that compiled 0"
+        );
+        assert_eq!(
+            debugged.compiled_bodies(),
+            None,
+            "and nothing was compiled either, for the same reason"
+        );
+
+        let mut control = crate::Runtime::with_options_and_threshold(&opts, Some(1));
+        control.eval_str(body).expect("setup runs");
+        for _ in 0..4 {
+            control.eval_str("w").expect("the entries run");
+        }
+        assert!(
+            control.compiled_entries().unwrap_or(0) > 0,
+            "the control must enter a compiled body, or the assertion above is a tautology: {:?}",
+            control.compiled_entries()
+        );
+
+        // Same program, same final state, tier or no tier.
+        use bund2_api::Vm as _;
+        let a: Vec<String> = debugged
+            .interp
+            .snapshot()
+            .iter()
+            .map(|v| v.summary(72))
+            .collect();
+        let b: Vec<String> = control
+            .interp
+            .snapshot()
+            .iter()
+            .map(|v| v.summary(72))
+            .collect();
+        assert_eq!(a, b, "declining the tier changed the program");
+    }
+
     #[test]
     fn the_shipped_runtime_crosses_nothing_and_the_table_still_works() {
         declare_share();

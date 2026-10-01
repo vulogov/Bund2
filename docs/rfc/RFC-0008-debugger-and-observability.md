@@ -406,6 +406,25 @@ capture and still unpinnable, which is `debug`'s case.
     run and `> 0` after the same program run without `--debugger`. The first
     draft asserted only the first half, which §D6 makes true by construction
     and therefore unable to fail.
+
+    **Met, 2026-10-01, and `Some(0)` was the wrong assertion.** §D6 declines to
+    *install* the tier, so `compiled_entries()` reads through a tier that is not
+    there and answers **`None`**. That is the stronger statement — not "a tier
+    that compiled nothing" but "no tier at all" — and writing the test is what
+    found it. `Runtime::for_debugging` is the one `if`, in the one place a tier
+    is installed, exactly as §D6 says it needs nothing new.
+
+    The criterion's own warning stands and the test is built around it: the
+    `None` half cannot fail, so the load-bearing assertion is the **control** —
+    that this same program at this same threshold does compile and does enter a
+    compiled body with no debugger attached. Without that, the first assertion
+    is a tautology dressed as a measurement. A third assertion compares the two
+    final states, because a debugger that changes what it observes is worse than
+    a slow one.
+
+    `a_debugged_session_installs_no_tier_and_the_control_compiles`, in
+    `crates/bund2-runtime/src/tier.rs` — a module the `jit` feature gates, which
+    is how "building with `jit`" is enforced rather than remembered.
 11. **The safepoint costs nothing when no debugger is attached.**
     D84 traded suspension for a per-step check, and this is the price of that
     trade made checkable: with the check in place, inside RFC-0005 criterion 7's

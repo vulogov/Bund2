@@ -98,6 +98,44 @@ impl Runtime {
         opts: &bund2_stdlib::host::HostOptions,
         threshold: Option<u32>,
     ) -> Self {
+        Self::build(opts, threshold, true)
+    }
+
+    /// **A debugged session installs no tier — RFC-0008 §D6.**
+    ///
+    /// Research §3.3(f) offers two mechanisms and the RFC takes the second,
+    /// "disable tiering globally", because the first — pinning a breakpointed
+    /// word to Tier 0 by reusing the async colouring machinery — depends on
+    /// machinery that does not exist. So this needs nothing new: the tier is
+    /// installed in one place, and a debug session declines.
+    ///
+    /// **Every body is then Tier 0: steppable, with no opaque frames.** A
+    /// compiled body runs without entering the loop that carries §D1's
+    /// safepoint, so a debugger that left the tier installed would step over
+    /// exactly the bodies a program spends its time in.
+    ///
+    /// **What it costs, stated:** a debugged program cannot observe the tier's
+    /// behaviour. That is the right trade — a debugger that changes what it
+    /// observes is worse than a slow one — and F139 measured that no corpus
+    /// program compiles a body at the default threshold anyway.
+    ///
+    /// The threshold is still taken, and still ignored, for the reason
+    /// [`Runtime::with_options_and_threshold`] takes it without the feature: a
+    /// uniform command line must parse whether or not anything will use it.
+    pub fn for_debugging(
+        opts: &bund2_stdlib::host::HostOptions,
+        threshold: Option<u32>,
+    ) -> Self {
+        Self::build(opts, threshold, false)
+    }
+
+    /// The one place a tier is installed, so §D6 is one `if` and not a policy
+    /// spread over the constructors.
+    fn build(
+        opts: &bund2_stdlib::host::HostOptions,
+        threshold: Option<u32>,
+        tier: bool,
+    ) -> Self {
         // **Flag, then environment, then §S7's default.** The flag wins because
         // it is the more specific statement: a command line is about *this*
         // run, an environment variable about the shell it happened to run in.
@@ -105,7 +143,7 @@ impl Runtime {
         let mut interp = Interp::new();
         bund2_stdlib::register_all_with(&mut interp.registry, opts);
         #[cfg(feature = "jit")]
-        {
+        if tier {
             // **§S6's fragment table, built here and nowhere else.** It is
             // keyed by the registration ids `register_all_with` just minted, so
             // it must be taken *after* registration — taken earlier it would be
@@ -140,7 +178,7 @@ impl Runtime {
             interp.tier = Some(Box::new(JitTier::with_fragments(caps, table)));
         }
         #[cfg(not(feature = "jit"))]
-        let _ = threshold;
+        let _ = (threshold, tier);
         Self { interp }
     }
 
