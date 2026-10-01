@@ -272,31 +272,100 @@ is keyed by paths through `get_globals_path`, a local channel is a bare name in
 `PIPES`, and the reference has no answer because its `send`/`recv` never reach
 zenoh. It is in the open questions.
 
-### §C8 — Nothing here involves a second VM
+### §C8 — The second VM: a host, a thread each, and one shared map
 
-**The reference has one VM and spawns no threads.** Its bus is therefore a
-queue from a VM to itself, and every criterion below passes with one VM — which
-makes them a test of the queue, not of concurrency.
+The first draft specified the *exchange layer* and called it concurrency. The
+reference cannot help here — it has one VM and spawns no threads, so its bus is
+a queue from a VM to itself and every criterion below passes with one VM. **So
+this section is design, not preservation**, and it is marked as such throughout.
 
-So the first draft specified the *exchange layer* and called it concurrency.
-What it does not contain, and what RFC-0000 assigns to this RFC
-(`docs/rfc/RFC-0000-architecture.md:195`, `bund2-async` — "optional; reconciles
-with the existing bus layer per RFC-0007"):
+**(a) and (b), the two the research rated "do it"** (`:224-236`): `run()` as an
+`async fn` that does not block the executor, and many independent VMs
+concurrently.
 
-- **No embedder API.** Research §2.1 (a) and (b) — `run()` as an `async fn`, and
-  many VMs on a thread pool — are the two it rated "do it", and neither is
-  specified here.
-- **No `bund2-async` crate**, which RFC-0000 names and this document never
-  mentions.
-- **No account of process-global state under several VMs.** `PIPES` is a
-  process-global `Mutex`; where it lives when there are tens of VMs is
-  unstated, the non-blocking `recv` guarantee rests on a lock that is trivial
-  with one consumer, and the reference's random generators become shared.
+#### A VM is `!Send`, so the host owns threads rather than futures
 
-**This is the gap that keeps the document a Draft.** The three decisions it
-rests on describe a runtime with many VMs; the words it specifies were written
-for one. Closing it is design work, not a correction, and it is not attempted
-here.
+`Interp` is not `Send` — `Box<dyn Reporter>` and, through every value,
+`Rc<HeapValue>` (verified for D84). So a future holding one is not `Send`
+either, and the shapes available are a `LocalSet` or **one thread per VM**,
+which is what the research names (`:293`).
+
+**Bund2 already has the thread.** `bund2-cli`'s `main` spawns one sized
+`TIER0_PART + TIER1_SHARE + STACK_RESERVE` and declares the region with
+`set_stack_region_with_share` (D44, §S8). A VM host spawns N of those, and
+**each must declare its own share** — the lesson criterion 18 and
+`compiled_entries` exist for: a thread that declares none puts the Tier 1 floor
+above its own top and every compiled body declines while every figure reports
+success.
+
+**`bund2-async` is where this goes.** The crate exists as a twelve-line stub
+whose doc reads "Executor integration and async native words. Feature-gated.
+See RFC-0007", which RFC-0000 assigns here. §C8 fills it: a host that spawns
+VM threads, the `async fn` façade over one, and nothing else — the words stay
+in `bund2-stdlib`.
+
+#### `PIPES` stays process-global, which is what makes it a bus
+
+The reference's map is a process-global `Mutex<BTreeMap<…>>`, and under tens of
+VMs that is **correct rather than incidental**: a bus between VMs needs a shared
+medium, and a per-VM map would be a bus to oneself. It is also why the payload
+must be bytes — the map is the one thing every VM touches, and a `BundValue`
+could not live in it.
+
+**Two races the reference cannot exhibit and tens of VMs can**, stated because
+they are invisible with one consumer:
+
+- **`bus.data` then `recv` is not atomic.** `ensure_bus` reports
+  `!r.is_empty()` and releases the lock; another VM may consume in between, so a
+  true answer followed by `recv` can still yield `NODATA`. **Preserved** — the
+  words have no combined form and inventing one would be new behaviour — and
+  documented as advisory rather than a guarantee.
+- **`recv` has no fairness.** `unbounded` with several receivers delivers to
+  whichever wakes first. The reference's choice carries no ordering promise
+  between consumers because it never had any.
+
+#### The JIT conflict, which this RFC records rather than resolves
+
+**D60 chose one `JITModule` per `Interp`** — criterion 23's module half — and
+research §2.6 calls that option "Bad" under concurrency in terms: "every
+thread recompiles the same hot words and every thread's code memory grows
+independently… N threads means N× the unbounded growth". It recommends **one
+shared compile service**, a `Mutex<JITModule>` on a dedicated task, and notes
+that only that makes the code-memory cap "a single enforceable number".
+§2.7 lists it as "required under concurrency".
+
+**Bund2 has the per-VM form, deliberately**: D60 derives it from a lifetime —
+compiled code dies with its `Interp` — and criterion 23 asserts that a body
+compiled for one `Interp` is never run by another. Those are not reversible by
+this RFC.
+
+**Why it is tolerable today, measured rather than assumed.** D85 bounds the
+count at tens; F139 found that **no program in `tests/golden/HERMETIC.txt`
+compiles a single body even at threshold 64**, because they run once; and D74
+set the shipped threshold to 1024. So N× growth over N VMs that compile nothing
+is N× zero. **It is bounded in practice and unbounded in principle**, since
+§S4 reclaims no code memory.
+
+**The trigger, recorded so this is not rediscovered**: a workload where several
+VMs each tier up the same hot word. Then the shared compile service becomes
+required as §2.7 says, and it collides with criterion 23 — a shared module
+means a body compiled under one `Interp`'s cells being called from another,
+which is precisely what that criterion forbids. **That is a decision, and it is
+not this RFC's to take.** `docs/research/ERRATA.md` records the departure.
+
+#### What tens of VMs costs in address space
+
+Each VM thread reserves `EVAL_STACK` — 8 MiB for Tier 0's part, 8 MiB for Tier
+1's share under `jit`, plus `STACK_RESERVE`. At sixty-four VMs that is **about
+a gigabyte of reserved address space**, virtual rather than resident, which is
+free on 64-bit and is not on 32-bit.
+
+**And 32-bit is exactly where `--emit=bundle` is aimed** — D10 makes it the
+answer for targets Cranelift does not support, which include the 32-bit ones.
+There `TIER1_SHARE` is zero, so it is 8 MiB a VM, and tens of VMs is still
+half a gigabyte. **So D85's "tens" is a 64-bit statement.** On a 32-bit target
+the practical count is lower, and this RFC says so rather than leaving a
+number that does not travel.
 
 ## Preservation analysis
 

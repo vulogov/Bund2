@@ -150,3 +150,12 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   reference bus calls `to_binary` directly (`bus/mod.rs:88`) and constructs no
   envelope, and the Bund words `wrap`/`unwrap` are OOP `.data` words rather than
   a serialisation boundary. D11 carries the same error.
+
+- `01-extensibility-async.md` §2.6 and §2.7 -> **not** superseded, but in
+  conflict with D60 and RFC-0005 criterion 23, recorded by RFC-0007 §C8
+  (2026-10-01). The research calls a per-VM `JITModule` "Bad" under concurrency
+  and lists one shared compile service as "required under concurrency"; Bund2
+  built the per-`Interp` form, which D60 derives from a lifetime and criterion
+  23 asserts. Tolerable while D85 bounds the count at tens and F139 shows no
+  corpus program compiles a body at the shipped threshold. The trigger for
+  revisiting, and the collision with criterion 23 it would cause, are in §C8.
