@@ -474,11 +474,18 @@ const DEFERRED_PATHS: &[(&str, Deferral)] = &[
             reason: "image decode, resize, face detection — not essential",
         },
     ),
+    // **Per-file, not per-directory — D87.** `bus/` is mixed: `crossbus.rs` is
+    // a crossbeam in-process bus and `globals.rs` is the zenoh one. Deferring
+    // the directory deferred both, and its reason named only zenoh — which was
+    // the third place `send`/`recv` were attributed to zenoh from a directory
+    // name. The eight local words are in scope under D87; `mod.rs` holds both
+    // transports and registers nothing, so it needs no entry.
     (
-        "Bund/src/stdlib/functions/bus",
+        "Bund/src/stdlib/functions/bus/globals.rs",
         Deferral {
             decision: "D28",
-            reason: "zenoh distributed bus — not essential",
+            reason: "zenoh distributed bus — not essential (D87 narrowed this \
+                     from the whole directory to this file)",
         },
     ),
     (

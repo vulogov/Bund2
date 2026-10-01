@@ -9,7 +9,7 @@
   these.
 - Depends on: RFC-0002 (the word kinds this defines), RFC-0003 (the flat frame
   loop)
-- Decisions consumed: D10, D20, D28, D40, D44, D84, D85, D86
+- Decisions consumed: D10, D20, D28, D40, D44, D84, D85, D86, D87
 - Touched but not consumed: D16, D27, D31
 - Reference SHA: `reference/Bund` at `21b40b0`, per `reference/PINNED.txt`
 - Supersedes: `docs/research/01-extensibility-async.md` §2 in two places, now
@@ -231,31 +231,46 @@ vocabulary, not a language feature.
 That is a defensible position and it is not obviously the right one. It is in
 the open questions rather than settled here.
 
-### §C7 — The eight words are out of scope, and that needs a decision
+### §C7 — The local bus is in scope; zenoh is not — D87
 
-**D28 defers the whole bus directory**, and the first draft neither cited D28
-nor noticed. `DEFERRED_PATHS` in `xtask/src/corpus/classify.rs` carries an entry
-for `Bund/src/stdlib/functions/bus` whose decision is `D28` and whose reason
-reads "zenoh distributed bus — not essential".
+**D28 deferred `Bund/src/stdlib/functions/bus` whole**, which the first draft
+neither cited nor noticed. `DEFERRED_PATHS` in
+`xtask/src/corpus/classify.rs` carried one entry for that directory, reason
+"zenoh distributed bus — not essential".
 
-**The stated reason mischaracterises what it defers.** That directory holds the
-**crossbeam** local bus; zenoh is one transport inside it. This is the third
-place today where a reader attributed `send`/`recv` to zenoh from the directory
-name — the path audit does it too
-(`docs/registers/open-questions.md:624-626`) — and the first draft of this RFC
-did the opposite, claiming the bus *was* zenoh.
+**The directory is mixed**, which is why the reason was half wrong:
+`crossbus.rs` is the crossbeam bus, `globals.rs` is zenoh's (`global`,
+`global*`, `?global`), and `mod.rs` holds both transports while registering
+nothing. **That reason was the third of three places attributing `send`/`recv`
+to zenoh from a directory name** — the path audit and this RFC's own first draft
+being the others, the draft having claimed the opposite.
 
-**What it costs this RFC.** Deferred means out of the in-scope set, so
-coverage's denominator excludes these words. **Criterion 5 cannot be met** as
-written, and criteria 1 and 2 ask for goldens over words the suite will not
-admit. RFC-0000 and RFC-0001 both lean on D28's deferral list, so this is not a
-local fix.
+**D87 narrows the deferral to `globals.rs`** and states the local bus's
+purpose: exchanging data between VMs running locally. The eight words are in
+scope as of 2026-10-01.
 
-**The decision needed**: does the **local** bus come into scope while zenoh
-stays deferred? The measurements above argue it could — it needs no network, no
-`--distributed`, and is deterministic within a run — but splitting a deferral
-that a directory path expresses is a change to D28, and D28 is RESOLVED. **This
-RFC does not take it.**
+**Measured consequence, recorded because a completeness number that only
+improves is measuring its own scope:**
+
+| | before | after |
+|---|---|---|
+| out of scope by decision | 120 | **112** |
+| words in scope | 497 | **505** |
+| IMPLEMENTED | 391/497 (78.7%) | **391/505 (77.4%)** |
+| COVERAGE | 387/497 (77.9%) | **387/505 (76.6%)** |
+| CONFORMANCE | 107/116 | **107/116**, unmoved |
+
+Eight unimplemented words entered the denominator, so both completeness figures
+fell about 1.2 points with no code changed. That is the honest direction.
+
+**Transparency is the intent and it does not strain D86.** The owner's second
+clause — `send`/`recv` should eventually be transparent across zenoh — is
+Erlang's model: **one vocabulary, two transports**, where a channel's address
+decides which carries it. D86's orthogonality is a claim about the transports,
+not the words. **How an address selects a transport is undecided**: zenoh's side
+is keyed by paths through `get_globals_path`, a local channel is a bare name in
+`PIPES`, and the reference has no answer because its `send`/`recv` never reach
+zenoh. It is in the open questions.
 
 ### §C8 — Nothing here involves a second VM
 
@@ -317,9 +332,8 @@ here.
 
 ## Acceptance criteria
 
-**Every criterion below is conditional on §C7**, because a word outside the
-in-scope set cannot have a golden in this suite. They are written as though the
-decision went one way, and marked so.
+**§C7 is answered by D87**, so these are no longer conditional — the eight
+words are in scope and may carry goldens.
 
 1. **The eight bus words match the oracle**, by probe: operand order; the bool
    from `send` and its absence from `send.quick`; **`recv` pushing `NODATA` on
@@ -337,10 +351,12 @@ decision went one way, and marked so.
    required a refusal at `MAX_WIRE_DEPTH`'s 256 levels; the oracle sends a
    300-deep list without complaint. Refusing would be **new behaviour**, so it
    needs a decision and a deviation entry, not a criterion.
-5. **Conditional on §C7.** If the local bus comes into scope, coverage moves by
-   eight and the words are listed with their state. If it does not, coverage
-   does not move and this criterion is withdrawn — the first draft's "moves by
-   exactly eight" was unmeetable under D28.
+5. **Coverage moves by eight, from a denominator D87 already moved.** The
+   baseline is **387/505**, not 387/497: scoping the words in lowered both
+   completeness figures ~1.2 points before any were implemented. Implementing
+   and probing all eight takes COVERAGE to 395/505; each word not probed is
+   listed with its state. The first draft's "moves by exactly eight" was
+   unmeetable under D28 and is now meetable against the right denominator.
 6. **Conformance does not regress, measured after any new probes are
    captured.** Not "moves by exactly zero": criteria 1 and 2 add probes, which
    enlarge the denominator — the same contradiction the review found in
@@ -353,12 +369,12 @@ decision went one way, and marked so.
 
 ## Open questions
 
-- **Does the local bus come into scope? — §C7, and it is the owner's.** D28
-  defers the whole `bus` directory, so the eight words are outside the in-scope
-  set and most criteria above are conditional on the answer. The measurements
-  argue the local half could come in — no network, no `--distributed`,
-  deterministic within a run — but D28 is RESOLVED and expresses its deferral
-  as a directory path, so splitting it is an amendment rather than a reading.
+- **How a channel address selects a transport.** D87 fixes the intent —
+  `send`/`recv` transparent across both buses, one vocabulary — and leaves the
+  mechanism open. Zenoh is keyed by paths, a local channel is a bare name, and
+  the reference has no answer because its `send`/`recv` never reach zenoh. A
+  naming convention, a registry, or an explicit prefix are all available, and
+  choosing is a language decision because a program writes the name.
 - **How identity behaves across the bus — D86's amendment names the choice.**
   Preserve the decoded identity, matching the oracle and narrowing F109, or keep
   F109's deviation and record that the bus makes it program-visible. No golden

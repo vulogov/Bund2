@@ -1329,6 +1329,16 @@ two interpreters, and any performance criterion has to say which it means.
 - Not a deletion: a feature-gated word can be enabled. What this forbids is
   linking it by default.
 
+
+### Narrowed on 2026-10-01 by D87 — the bus deferral was per-directory
+
+This entry deferred `Bund/src/stdlib/functions/bus` whole, with the reason
+"zenoh distributed bus — not essential". The directory is **mixed**:
+`crossbus.rs` is a crossbeam in-process bus and `globals.rs` is the zenoh one.
+D87 brings the eight local words into scope and narrows the deferral to
+`globals.rs`, which also corrects the reason. The rest of this entry is
+unchanged, and the principle — nothing non-essential linked unless asked for —
+is what D87 relies on for keeping zenoh out.
 ## D29 — the four dead words: revive or drop
 F19, F22 and F24 leave four names registered only into the stack layer's dead
 `functions` table, unreachable by any dispatch path: `dup_in`,
@@ -3536,6 +3546,72 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
 - Depends on: D48 and D55 (the palette runs the four new fixed-effect
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
+
+## D87 — the local crossbeam bus is in scope; zenoh stays deferred
+
+**Decided by the repository owner, 2026-10-01**, on RFC-0007's §C7:
+
+> let's scope local crossbeam bus — main purpose is to exchange data between
+> localy running VM; in future shall be transparently integrated with zenoh bus
+> (send/recv somehow shall make it transparent)
+
+- Blocks: RFC-0007's criteria, which were conditional on this
+- Depends on: D28 (whose deferral this narrows), D85, D86
+- Status: **RESOLVED — the local half is in scope**, 2026-10-01.
+
+### The decision
+
+**The eight words of `bus/crossbus.rs` are in scope**: `send`, `send.`,
+`send.quick`, `send.quick.`, `recv`, `recv.`, `bus.data`, `bus.data.current`.
+Their stated purpose is **exchanging data between VMs running locally**.
+
+**`bus/globals.rs` stays deferred under D28** — `global`, `global*`, `?global`,
+the three zenoh-backed words.
+
+### D28's deferral was per-directory, and the directory was mixed
+
+D28 deferred `Bund/src/stdlib/functions/bus` whole, with the reason "zenoh
+distributed bus — not essential". **That reason was true of one file in the
+directory and false of the other.** `crossbus.rs` is crossbeam; `globals.rs` is
+zenoh; `mod.rs` holds both transports and registers nothing.
+
+So the deferral narrows to `Bund/src/stdlib/functions/bus/globals.rs`
+(`DEFERRED_PATHS` in `xtask/src/corpus/classify.rs`, which matches by path
+prefix and already carries per-file entries elsewhere). **Narrowing it also
+corrects the reason**, which was the third of three places that attributed
+`send`/`recv` to zenoh from a directory name — the other two being the path
+audit and RFC-0007's own first draft.
+
+### Transparency is the intent, and it does not conflict with D86
+
+The owner's second clause — "in future shall be transparently integrated with
+zenoh bus (send/recv somehow shall make it transparent)" — is **Erlang's model
+again**, and it reconciles with D86 rather than straining it: **one vocabulary,
+two transports.** `Pid ! msg` does not change shape when the pid is remote, and
+`send` should not either. D86 said the transports are orthogonal and neither is
+layered on the other; that is about the *transports*, not the words.
+
+So: the words are shared, the transports are not, and a channel's **address**
+decides which carries it.
+
+**How an address selects a transport is not decided here**, and it is the one
+real design question this creates. Zenoh's side is keyed by paths — the globals
+words go through `get_globals_path` and `get_receiving_path` — while a local
+channel is a bare name in `PIPES`. A convention (a path-shaped name goes
+distributed), a registry, or an explicit prefix are all available, and the
+reference has no answer because its `send`/`recv` never reach zenoh at all.
+RFC-0007 carries it as an open question.
+
+### What it costs, stated
+
+**The completeness numbers get worse, correctly.** Eight unimplemented words
+enter the denominator, so in-scope rises 497 → 505 and both IMPLEMENTED and
+COVERAGE fall by about 1.2 points without anything changing in the code.
+Scoping in work that is not done is supposed to lower a completeness number;
+a figure that only rose when scope narrowed would be measuring the scope.
+
+**`conform` does not move.** No golden exists for these words yet, and
+RFC-0007's criteria now say what capturing one would do to the denominator.
 
 ## D86 — two buses, orthogonal: crossbeam in process, zenoh across it
 
