@@ -1,15 +1,21 @@
 # RFC-0007: Concurrency, and the two buses
 
-- Status: **Draft** (2026-09-30). Not proposed: §C5 and §C6 each name something
-  this document does not yet decide, and the open questions say which.
+- Status: **Draft**, revised 2026-10-01 after the first adversarial review
+  (`docs/rfc/reviews/RFC-0007-review-2026-10-01.md`), which found **four
+  blockers** — two of them errors in measurements this document claimed to have
+  taken against the oracle. **It cannot be proposed**: the eight words are out
+  of scope under **D28** and need a decision (§C7), and nothing in it involves a
+  second VM (§C8). The reasons the first draft gave for staying a Draft were not
+  these.
 - Depends on: RFC-0002 (the word kinds this defines), RFC-0003 (the flat frame
   loop)
-- Decisions consumed: D10, D20, D40, D44, D84, D85, D86
+- Decisions consumed: D10, D20, D28, D40, D44, D84, D85, D86
 - Touched but not consumed: D16, D27, D31
 - Reference SHA: `reference/Bund` at `21b40b0`, per `reference/PINNED.txt`
-- Supersedes: nothing. `docs/research/01-extensibility-async.md` §2 is the
-  reasoning trail and is **followed**; where this RFC departs,
-  `docs/research/ERRATA.md` records it. It departs nowhere today.
+- Supersedes: `docs/research/01-extensibility-async.md` §2 in two places, now
+  recorded in `docs/research/ERRATA.md`. **The first draft claimed it "departs
+  nowhere", and the review found five places where it does** — §C3's ENVELOPE
+  and the shared compile service among them.
 
 ## Summary
 
@@ -67,7 +73,7 @@ research — which describes a different payload (§C3).
 |---|---|
 | `send` / `send.` | Name then object, **object on top**; serialises with `to_binary` and pushes down a channel named by the string; pushes a bool. `eff(2, 1)` |
 | `send.quick` / `send.quick.` | Identical, and **discards the bool**. `eff(2, 0)` — the only difference between the two pairs |
-| `recv` / `recv.` | Name; pushes the decoded value. **Errors on an empty channel rather than blocking** |
+| `recv` / `recv.` | Name; pushes the decoded value. **An existing but empty channel pushes `NODATA`; only an absent channel errors** |
 | `bus.data` | Name; pushes whether the channel has data — and **creates the channel if absent** |
 | `bus.data.current` | The same, using **the current stack's own name** as the channel |
 
@@ -85,10 +91,22 @@ separate transport in the same module — `ZENOH` is a `Mutex<zenoh::Session>`
 at `mod.rs:23`, used by the globals paths in `bus/globals.rs` and **not** by
 these words.
 
-**`recv` does not block**, so a golden cannot hang on it: an empty channel is
-an immediate error (`bus/crossbus.rs:144-147`). Combined with the capture
-normalising id and stamp, **the local bus is goldenable** — which no
-zenoh-backed word is.
+**`recv` does not block**, so a golden cannot hang on it — but the first draft
+got *why* wrong, and the distinction matters. `bus_pull` has two arms: an
+**absent** channel bails with `bus::internal::pipe no pipe: {name}`, and an
+**existing but empty** one returns `Ok(Value::nodata())`
+(`bus/mod.rs:122-131`). The cited `crossbus.rs:144-147` is only the wrapper
+that propagates whichever comes back. The draft's single measurement —
+`"empty" recv` on a channel nothing had created — hit the *absent* arm and was
+generalised to the empty one.
+
+**And two channels exist before any program runs.** `"in"` and `"out"` are
+inserted at initialisation (`bus/mod.rs:46-47`), so `"in" recv` yields `NODATA`
+where any other unused name errors. The first draft never mentioned them.
+
+Combined with captures normalising id and stamp, **the local bus is still
+goldenable** — which no zenoh-backed word is — but §C7 is now whether a golden
+may exist at all.
 
 **`bus.data` is not a pure predicate.** `ensure_bus` inserts the channel before
 reporting whether it has data (`mod.rs:58-70`), so asking the question creates
@@ -128,10 +146,21 @@ what it could not read back. D86 fixed this, and it is not a choice: a
 `BundValue` carries `Rc` and a VM is `!Send`, so a channel between VMs **must**
 carry bytes.
 
-**A sent value is not the value that arrives.** `to_binary` materialises the
-identity and the stamp (D20), so `recv` yields an *equal* value with its own
-identity — the property that sank the encoded-stream bundle in D77. A program
-comparing `.id` across the bus sees two values.
+**The reference preserves identity and stamp across the bus, and the first
+draft asserted the opposite.** Measured: one value through `send`/`recv` reads
+`id: "gHKQUMqeE5RYPQCCvBC9c" stamp: 1790837306409.0` on both sides.
+`Value::from_binary` decodes a serialised `Value` whose `id` and `stamp` are
+fields, so it restores them. The error came from reading D20's *materialises* as
+*replaces*; it means **set if unset**.
+
+**Bund2's decoder does not preserve the identity**, and F109 already recorded
+that: `wire::into_value` builds with `identity: Cell::new(0)`, so a decoded
+value is unminted. **The bus is the first place that deviation becomes program
+visible** — comparing identity across `send`/`recv` answers *same* on the oracle
+and *different* on Bund2, and no golden catches it because captures normalise
+ids. D86 carries the correction and names the choice it obliges: preserve the
+decoded identity and narrow F109, or keep the deviation and record that the bus
+exposes it.
 
 **The channel is unbounded**, so a producer outrunning a consumer grows memory
 without limit. The reference's choice, preserved; bounding it would be a
@@ -202,6 +231,58 @@ vocabulary, not a language feature.
 That is a defensible position and it is not obviously the right one. It is in
 the open questions rather than settled here.
 
+### §C7 — The eight words are out of scope, and that needs a decision
+
+**D28 defers the whole bus directory**, and the first draft neither cited D28
+nor noticed. `DEFERRED_PATHS` in `xtask/src/corpus/classify.rs` carries an entry
+for `Bund/src/stdlib/functions/bus` whose decision is `D28` and whose reason
+reads "zenoh distributed bus — not essential".
+
+**The stated reason mischaracterises what it defers.** That directory holds the
+**crossbeam** local bus; zenoh is one transport inside it. This is the third
+place today where a reader attributed `send`/`recv` to zenoh from the directory
+name — the path audit does it too
+(`docs/registers/open-questions.md:624-626`) — and the first draft of this RFC
+did the opposite, claiming the bus *was* zenoh.
+
+**What it costs this RFC.** Deferred means out of the in-scope set, so
+coverage's denominator excludes these words. **Criterion 5 cannot be met** as
+written, and criteria 1 and 2 ask for goldens over words the suite will not
+admit. RFC-0000 and RFC-0001 both lean on D28's deferral list, so this is not a
+local fix.
+
+**The decision needed**: does the **local** bus come into scope while zenoh
+stays deferred? The measurements above argue it could — it needs no network, no
+`--distributed`, and is deterministic within a run — but splitting a deferral
+that a directory path expresses is a change to D28, and D28 is RESOLVED. **This
+RFC does not take it.**
+
+### §C8 — Nothing here involves a second VM
+
+**The reference has one VM and spawns no threads.** Its bus is therefore a
+queue from a VM to itself, and every criterion below passes with one VM — which
+makes them a test of the queue, not of concurrency.
+
+So the first draft specified the *exchange layer* and called it concurrency.
+What it does not contain, and what RFC-0000 assigns to this RFC
+(`docs/rfc/RFC-0000-architecture.md:195`, `bund2-async` — "optional; reconciles
+with the existing bus layer per RFC-0007"):
+
+- **No embedder API.** Research §2.1 (a) and (b) — `run()` as an `async fn`, and
+  many VMs on a thread pool — are the two it rated "do it", and neither is
+  specified here.
+- **No `bund2-async` crate**, which RFC-0000 names and this document never
+  mentions.
+- **No account of process-global state under several VMs.** `PIPES` is a
+  process-global `Mutex`; where it lives when there are tens of VMs is
+  unstated, the non-blocking `recv` guarantee rests on a lock that is trivial
+  with one consumer, and the reference's random generators become shared.
+
+**This is the gap that keeps the document a Draft.** The three decisions it
+rests on describe a runtime with many VMs; the words it specifies were written
+for one. Closing it is design work, not a correction, and it is not attempted
+here.
+
 ## Preservation analysis
 
 | behaviour | disposition |
@@ -236,39 +317,76 @@ the open questions rather than settled here.
 
 ## Acceptance criteria
 
-1. **The eight bus words match the oracle**, by probe: operand order, the
-   bool from `send` and its absence from `send.quick`, `recv`'s immediate error
-   on an empty channel, and `bus.data` returning false *after* creating a
-   channel that did not exist.
-2. **A `send`/`recv` round trip is goldenable**, which is the claim §C2 rests
-   on: `"chan" 42 send "chan" recv` captured from the oracle and matched, with
-   the id and stamp normalised as every golden's are.
-3. **A received value is equal and not identical.** Its `.id` differs from the
-   sent value's, asserted rather than assumed, because D20 makes it so and a
-   reader will expect otherwise.
-4. **A program too deep to serialise is refused at `send`**, not silently
-   truncated: `MAX_WIRE_DEPTH`'s 256 levels, with the depth and the cap named.
-5. **Coverage moves by eight**, or the difference is named word by word.
-6. **Conformance moves by exactly zero.** As RFC-0005's criterion 2 and
-   RFC-0006's criterion 13.
-7. **Nothing reads `WordKind` yet, and that stays true until something needs
-   to.** A check, not a measurement: if §C5's `Blocking` acquires a reader, the
-   RFC that gives it one states what changes.
+**Every criterion below is conditional on §C7**, because a word outside the
+in-scope set cannot have a golden in this suite. They are written as though the
+decision went one way, and marked so.
+
+1. **The eight bus words match the oracle**, by probe: operand order; the bool
+   from `send` and its absence from `send.quick`; **`recv` pushing `NODATA` on
+   an existing-but-empty channel and erroring only on an absent one**; the
+   pre-created `"in"` and `"out"`; and `bus.data` returning false *after*
+   creating a channel that did not exist.
+2. **A `send`/`recv` round trip is goldenable** — `"chan" 42 send "chan" recv`
+   captured from the oracle and matched.
+3. **Identity across the bus is decided and then asserted.** The oracle
+   preserves id and stamp; Bund2's decoder mints a fresh identity (F109). The
+   criterion is that whichever D86's amendment settles, a test asserts it —
+   **not** that the values differ, which is what the first draft asserted and
+   the oracle contradicts.
+4. **Deferred, and it was a deviation filed as preservation.** The first draft
+   required a refusal at `MAX_WIRE_DEPTH`'s 256 levels; the oracle sends a
+   300-deep list without complaint. Refusing would be **new behaviour**, so it
+   needs a decision and a deviation entry, not a criterion.
+5. **Conditional on §C7.** If the local bus comes into scope, coverage moves by
+   eight and the words are listed with their state. If it does not, coverage
+   does not move and this criterion is withdrawn — the first draft's "moves by
+   exactly eight" was unmeetable under D28.
+6. **Conformance does not regress, measured after any new probes are
+   captured.** Not "moves by exactly zero": criteria 1 and 2 add probes, which
+   enlarge the denominator — the same contradiction the review found in
+   RFC-0006's first draft and that this draft reproduced.
+7. **Withdrawn.** The first draft's "nothing reads `WordKind` yet, and that
+   stays true" named no check and could not fail. What replaces it belongs to
+   whichever RFC gives `Blocking` a reader.
+8. **`--noio` disables all eight words**, which the first draft had no row or
+   criterion for, and the probe asserts the stub message rather than silence.
 
 ## Open questions
 
+- **Does the local bus come into scope? — §C7, and it is the owner's.** D28
+  defers the whole `bus` directory, so the eight words are outside the in-scope
+  set and most criteria above are conditional on the answer. The measurements
+  argue the local half could come in — no network, no `--distributed`,
+  deterministic within a run — but D28 is RESOLVED and expresses its deferral
+  as a directory path, so splitting it is an amendment rather than a reading.
+- **How identity behaves across the bus — D86's amendment names the choice.**
+  Preserve the decoded identity, matching the oracle and narrowing F109, or keep
+  F109's deviation and record that the bus makes it program-visible. No golden
+  can see either way.
+- **Whether a depth refusal at `send` is wanted.** The oracle sends a 300-deep
+  list without complaint, so refusing at `MAX_WIRE_DEPTH` is new behaviour.
+  Criterion 4 is withdrawn pending a decision and a deviation entry.
 - **Does a Bund program create tasks?** §C6. This RFC says no, following the
   reference by omission, which makes concurrency an embedding feature with a
-  message vocabulary. The alternative — a `spawn` word — is a language
-  decision and not this document's to take silently.
-- **What `Async` means**, if anything, now that D84 has removed the mechanism
-  it would have used. §C5 declines to invent it.
+  message vocabulary. The alternative — a `spawn` word — is a language decision.
+- **What `Async` means**, if anything, now that D84 removed the mechanism it
+  would have used. §C5 declines to invent it.
 - **Zenoh's scope**: the globals semantics, `--distributed` for a Bund2 node,
-  and whether the dependency is default. §C4, and D40 is the precedent that
-  makes it a decision rather than a detail.
-- **Whether the audit's classification of `send`/`recv` should change.** The
-  path audit calls them effectful because "zenoh is reached through
-  `helpers/zenoh`" (`docs/registers/open-questions.md:624-626`) — the wrong
-  mechanism, since they use crossbeam. The classification is probably still
-  right, because a process-global `PIPES` map is a side effect, but the
-  recorded reason is not.
+  and whether the dependency is default. §C4, with D40 as precedent.
+- **Whether the audit's classification of `send`/`recv` should change.** It
+  calls them effectful because "zenoh is reached through `helpers/zenoh`"
+  (`docs/registers/open-questions.md:624-626`) — the wrong mechanism, since they
+  use crossbeam. Probably still the right classification, because a
+  process-global `PIPES` map is a side effect, but not for that reason. **This
+  is the third place today that a reader attributed these words to zenoh from a
+  directory name**, which is itself the finding: the deferral reason, the audit
+  reason, and this RFC's first draft all did it.
+
+**What the review found, recorded because the pattern is the point.** Four
+blockers, and **two were errors in measurements this document claimed to have
+taken against the oracle** — `recv`'s behaviour on an empty channel, and
+identity across the bus. Both came from generalising a single probe: one
+measured an absent channel and called it empty, the other read D20's
+*materialises* as *replaces*. The remaining two were things not looked for at
+all: a deferral the document should have cited, and the absence of any second
+VM in a document about concurrency.

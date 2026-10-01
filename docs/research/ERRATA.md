@@ -143,3 +143,10 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   only in `jit` builds, and §D6 removes the tier for a debugged session, so a
   profile taken under the debugger reads zero by construction. A profiler needs
   its own counters on the frame loop.
+
+- `01-extensibility-async.md` §2.3 -> superseded by RFC-0007 §C3 (2026-10-01):
+  "`Value::wrap()` produces an `ENVELOPE`… the message-passing boundary between
+  VMs is a mechanism the language already has a word for" does not hold. The
+  reference bus calls `to_binary` directly (`bus/mod.rs:88`) and constructs no
+  envelope, and the Bund words `wrap`/`unwrap` are OOP `.data` words rather than
+  a serialisation boundary. D11 carries the same error.

@@ -3619,6 +3619,40 @@ then. **What is fixed now** is that the local transport is not zenoh, the
 payload is the wire format, and the two coexist rather than one being layered on
 the other.
 
+### Amended on RFC-0007's first review, 2026-10-01 — the identity claim is wrong
+
+**The decision stands. One of its two "properties to preserve" is false**, and
+it is left above because this register is append-only.
+
+Above reads "A sent value is not the value that arrives… what comes out of
+`recv` is an *equal* value with its own identity". **The reference preserves
+both id and stamp verbatim.** Measured on the oracle: one value pushed through
+`send` and taken back with `recv` reads
+`id: "gHKQUMqeE5RYPQCCvBC9c" stamp: 1790837306409.0` on **both** sides.
+`Value::from_binary` bincode-decodes a serialised `Value` whose `id` and `stamp`
+are fields, so it restores them rather than minting.
+
+**Where the error came from.** D20 says serialisation *materialises* identity
+and stamp, and that was read as *replaces*. It means **set if unset**: an
+unminted value gains an id when written, and a value that already had one keeps
+it. The first amendment to D77 made the same misreading in the other direction.
+
+**What is true, and is more interesting than either version.** Bund2's decoder
+does **not** preserve the identity: `wire::into_value` builds its heap value
+with `identity: Cell::new(0)`, so a decoded value is unminted and will mint a
+fresh id on first observation. **F109 already recorded that** — "A decoded value
+mints a fresh identity, which no golden can see (F14)".
+
+So the bus is the first place that recorded deviation becomes **program
+visible**: `"c" swap send drop "c" recv` compared by identity answers *same* on
+the oracle and *different* on Bund2. No golden catches it, because captures
+normalise ids — which is precisely why it is written here.
+
+**What this obliges.** Whoever implements `recv` either preserves the decoded
+identity, making Bund2 match the oracle and narrowing F109, or keeps F109's
+deviation and records that the bus makes it observable. That is a decision, not
+an implementation detail, and it is not taken here.
+
 ## D85 — D7 is tens, because scale comes from processes rather than VMs
 
 **Decided by the repository owner, 2026-09-30**, taking D7's recorded default
