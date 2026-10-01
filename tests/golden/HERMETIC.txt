@@ -22,11 +22,11 @@
 # How the suite narrows, in order:
 #
 #    132  programs in the corpus
-#     52  non-hermetic, dropped by filter 1
-#     80  hermetic
+#     51  non-hermetic, dropped by filter 1
+#     81  hermetic
 #      5  hermetic but out of scope, dropped by filter 2
 #     18  hermetic and in scope but not reproducible, dropped by filter 3
-#     57  in this file
+#     58  in this file
 #
 #
 # Hermetic but excluded by a scope decision:
@@ -53,6 +53,7 @@ reference/Bund/examples/code_snippets/curry_demo.bund
 reference/Bund/examples/code_snippets/fibonacci.bund
 reference/Bund/examples/code_snippets/fmt_conditional_demo.bund
 reference/Bund/examples/code_snippets/fmt_conditional_with_display_demo.bund
+reference/Bund/examples/code_snippets/internal_bus_demo.bund
 reference/Bund/examples/code_snippets/pull_demo.bund
 reference/Bund/examples/code_snippets/sorting_numbers_in_list.bund
 reference/Bund/examples/code_snippets/textexpression_demo.bund

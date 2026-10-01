@@ -3566,7 +3566,33 @@ not its own.
   figure both want this program
 - Default: **none.** Changing the funnel changes which goldens exist, which is
   the owner's.
-- Status: **OPEN**
+- Status: **RESOLVED — narrow it, with a new effect rather than a false label.**
+  Decided by the repository owner, 2026-10-01.
+
+**`Effect::LocalBus`**, whose `hermetic()` answers true. `crossbus.rs` maps to
+it, `globals.rs` keeps `Effect::Bus`, and `mod.rs` — which registers no word —
+falls under whichever rule follows, since nothing a program can invoke resolves
+there.
+
+**Why a new variant and not `Pure`.** A process-global queue is a side effect,
+and `Pure` would have said otherwise in the one table a reader consults to find
+out. The enum had no category for "process-global state, no I/O", and **that
+missing category is why the directory was read as a unit in the first place** —
+D28's deferral, the path audit, and RFC-0007's first draft all collapsed the two
+files into one, and the funnel was the fourth place to do it.
+
+Reproducibility is a property of the process, not of the words: a fresh process
+starts with `in` and `out` empty and nothing else, and both the capture and
+every conformance run are fresh processes. `cargo xtask golden` runs each
+program twice and refuses it if the two runs differ, which is the funnel's own
+test of that claim and the one the admitted program had to pass.
+
+**What it admitted, measured:** exactly one program. `HERMETIC.txt` goes 57 →
+58 and the dropped-by-filter-1 count 52 → 51; nothing else moved.
+`internal_bus_demo.bund` sends fifteen integers to channel `A` and drains them
+with a `bus.data`/`recv` loop, and it diffs byte-identical between Bund2 and the
+oracle. The conformance denominator grows by one under criterion 6's rule,
+stated rather than absorbed.
 
 ### What narrowing would buy, and what it costs
 
@@ -3610,7 +3636,27 @@ question is in front of something rather than ahead of it.
   then asserted by a test
 - Default: **keep F109's behaviour.** The stamp crosses, the id does not.
 - Evidence: measured against the oracle, below
-- Status: **OPEN**
+- Status: **RESOLVED — keep F109, and it is now the rule for every decoder.**
+  Decided by the repository owner, 2026-10-01. This matches the recorded
+  default, adopted explicitly rather than by omission.
+
+**The decided rule, stated once so the three decoders share one sentence.** A
+value decoded from the wire arrives with the stamp it was sent with and no
+identity, and mints one on first need like any other value. That holds for
+`recv`, for `sqlite`'s BLOB cells and for the world file, because all three go
+through `bund2_value::wire::from_binary` and none of them is a "need" under D1.
+
+**And restoring the id is not merely unwanted, it does not fit.** Bund2's
+identity slot is a `Cell<u64>` rendered through `format_id` as base-64 digits of
+a counter over nanoid's own 64-character alphabet (D1, D5). The reference's id
+is 21 *random* digits over that alphabet — about 126 bits. A u64 cannot hold
+one, so restoring an id the oracle wrote would mean widening the value header to
+carry a string, which `Hash`, `Eq`, `Ord` and `dup`'s identity reset all read.
+That cost buys nothing a program can observe, which is the measurement below.
+
+RFC-0007 §C8 criterion 3 is met by `a_received_value_keeps_its_stamp` in
+`crates/bund2-stdlib/src/bus.rs`, which asserts the half that is defined and
+does not assert the half that is not.
 
 ### What each side does, measured
 

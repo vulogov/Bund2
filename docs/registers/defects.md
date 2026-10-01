@@ -3469,6 +3469,21 @@ SQLite world file, and check that re-encoding keeps every field but the id. A
 decoded value mints a fresh identity, which no golden can see (F14). `sqlite`'s
 `sql_cell` decodes a BLOB through it.
 
+**Addendum 2026-10-01 — "mints a fresh identity" is now a decided rule, not a
+gap.** Three decoders share this path: `sqlite`'s BLOB cells, the world file,
+and `recv` on the local bus (D87). **D88 settles that all three behave this
+way** — a decoded value arrives with the stamp it was sent with and no identity,
+and mints one on first need like any other value — on the grounds that D1 chose
+lazy identity and the wire is not a "need". Restoring the sender's id is also
+not representable: the identity slot is a `Cell<u64>` and the reference's id is
+21 random digits over nanoid's alphabet, about 126 bits.
+
+So the remaining difference from the oracle is the id alone, and nothing can
+observe it: no word returns an id, `==` refuses a LIST, the ordering fallback is
+F12's unreachable path, and the VALUEMAP key reader is already an approved
+deviation under F29. What *is* defined — the stamp — is identical on both sides,
+which the first draft of RFC-0007 asserted the opposite of.
+
 ## F110 — `load.model` ignores the model's name
 
 **An original-implementation defect, reproduced**, found while implementing the

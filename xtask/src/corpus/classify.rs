@@ -49,6 +49,20 @@ pub enum Effect {
     Stdout,
     /// Writes stderr through `log`. Not captured by goldens.
     Diagnostic,
+    /// **Process-global state, no I/O — the local bus (D89).**
+    ///
+    /// `send`, `recv` and the two predicates exchange bytes through a
+    /// process-global map of crossbeam channels. That is a side effect, so the
+    /// family is not `Pure`; it is reproducible all the same, because a fresh
+    /// process starts with `in` and `out` empty and nothing else, and every
+    /// capture and every conformance run is a fresh process.
+    ///
+    /// **The missing category is why the directory was read as a unit.** D28
+    /// deferred `bus/` whole with "zenoh distributed bus" as the reason; D87
+    /// narrowed the deferral to `globals.rs` but the funnel's own table still
+    /// had nowhere to put the other half, since `Pure` would have been a false
+    /// label and every other variant refuses capture. D89 gives it one.
+    LocalBus,
     Clock,
     Random,
     /// A fresh nanoid per value.
@@ -67,13 +81,17 @@ pub enum Effect {
 
 impl Effect {
     pub fn hermetic(self) -> bool {
-        matches!(self, Effect::Pure | Effect::Stdout | Effect::Diagnostic)
+        matches!(
+            self,
+            Effect::Pure | Effect::Stdout | Effect::Diagnostic | Effect::LocalBus
+        )
     }
     pub fn as_str(self) -> &'static str {
         match self {
             Effect::Pure => "pure",
             Effect::Stdout => "stdout",
             Effect::Diagnostic => "diagnostic",
+            Effect::LocalBus => "local-bus",
             Effect::Clock => "clock",
             Effect::Random => "random",
             Effect::OpaqueId => "opaque-id",
@@ -222,6 +240,17 @@ const PATH_RULES: &[(&str, Effect)] = &[
     ("Bund/src/stdlib/functions/console", Effect::Stdout),
     // -- wholly effectful subsystems ---------------------------------------
     ("Bund/src/stdlib/functions/filesystem", Effect::Filesystem),
+    // -- bund/bus is mixed, the same way the deferral was (D87, D89) ------
+    // `globals.rs` is zenoh: a network bus, and not reproducible. `crossbus.rs`
+    // is crossbeam in one process, and is. Reading the directory as a unit held
+    // `internal_bus_demo.bund` out of the suite for the other file's sake.
+    ("Bund/src/stdlib/functions/bus/globals.rs", Effect::Bus),
+    (
+        "Bund/src/stdlib/functions/bus/crossbus.rs",
+        Effect::LocalBus,
+    ),
+    // `mod.rs` holds both transports and registers no word, so whichever rule
+    // it falls under names nothing a program can invoke.
     ("Bund/src/stdlib/functions/bus", Effect::Bus),
     ("Bund/src/stdlib/functions/image", Effect::Image),
     ("Bund/src/stdlib/functions/internaldb", Effect::Database),

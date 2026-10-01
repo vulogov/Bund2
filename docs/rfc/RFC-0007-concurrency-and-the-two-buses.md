@@ -438,19 +438,26 @@ words are in scope and may carry goldens.
    reproducibility, and a process-global channel map passes it because a fresh
    process starts with `"in"` and `"out"` empty and nothing else.
 
-   **What is still not goldenable is the corpus program.** D89 holds
-   `examples/code_snippets/internal_bus_demo.bund` out of `HERMETIC.txt`,
-   because the hermetic funnel still reads the whole `bus` directory as
-   effectful. The probe covers the words; the corpus program would cover the
-   reference's own use of them.
+   **And the corpus program came in with it.** D89 narrowed the hermetic
+   funnel — `Effect::LocalBus`, hermetic, for `crossbus.rs` only — which
+   admitted `examples/code_snippets/internal_bus_demo.bund`: fifteen sends to
+   channel `A` drained by a `bus.data`/`recv` loop. That is the reference's own
+   use of the bus rather than ours, and it diffs byte-identical. `HERMETIC.txt`
+   goes 57 → 58, exactly one program.
 3. **Identity across the bus is decided and then asserted.** The oracle
    preserves id and stamp; Bund2's decoder mints a fresh identity (F109). The
    criterion is that whichever D86's amendment settles, a test asserts it —
    **not** that the values differ, which is what the first draft asserted and
-   the oracle contradicts. **D88 now carries the decision, OPEN**; the assertion
-   half is written against the current behaviour
-   (`a_received_value_keeps_its_stamp`) and will move if D88 resolves the other
-   way.
+   the oracle contradicts.
+
+   **Met, 2026-10-01. D88 resolves it: keep F109, and it is the rule for every
+   decoder** — `recv`, `sqlite`'s BLOB cells and the world file all decode to a
+   value carrying the sender's stamp and no identity. The assertion half is
+   `a_received_value_keeps_its_stamp`, which asserts the stamp because that is
+   the part the reference defines, and does not assert the id because nothing
+   can observe it. Restoring the id is also not representable: the identity slot
+   is a `Cell<u64>` and the reference's is 21 random digits over nanoid's
+   alphabet. F109 carries the addendum.
 4. **Deferred, and it was a deviation filed as preservation.** The first draft
    required a refusal at `MAX_WIRE_DEPTH`'s 256 levels; the oracle sends a
    300-deep list without complaint. Refusing would be **new behaviour**, so it
