@@ -407,14 +407,62 @@ capture and still unpinnable, which is `debug`'s case.
     draft asserted only the first half, which §D6 makes true by construction
     and therefore unable to fail.
 11. **The safepoint costs nothing when no debugger is attached.**
-    `cargo bench -p bund2-bench -- 'startup|dispatch'` with the check in place,
-    against a baseline taken before it, inside RFC-0005 criterion 7's 5% band.
     D84 traded suspension for a per-step check, and this is the price of that
-    trade made checkable.
+    trade made checkable: with the check in place, inside RFC-0005 criterion 7's
+    5% band, against a baseline taken **before** it exists.
+
+    **`dispatch` is the group that decides this and `startup` is the control.**
+    The check runs per step, so it compounds where steps do; `startup` carries
+    `registry/register_all` at ~41.8 µs and `parse/mixed` at ~4.3 µs, neither of
+    which a per-step cost can reach. A reading that moved `startup` and not
+    `dispatch` would be measuring the machine.
+
 12. **§D2's growth is measured against a baseline taken first.**
-    `cargo bench -p bund2-bench -- dispatch` **before** the field is added, then
-    after, within RFC-0005 criterion 7's 5% band. The first draft named the band
-    but no baseline, so there was nothing to compare against.
+    `Frame` gains a symbol and a span, on a structure pushed per call, so
+    `dispatch` **before** the field is added and then after, inside the same 5%
+    band. The first draft named the band and no baseline, leaving nothing to
+    compare against.
+
+    ### The protocol both criteria use — written before the numbers, 2026-09-30
+
+    Not a style note. RFC-0005's criterion 7 recorded a `dispatch` failure at
+    `+9.96%`, `+11.94%` and `+12.62%` that repetition withdrew at `+2–3%`, and
+    F135 exists because readings taken on a busy host were believed for a day
+    before being discarded. So:
+
+    - **Three runs, each CLEAN**, through
+      `crates/bund2-bench/scripts/guarded_bench.sh`, which samples the busiest
+      non-benchmark process every three seconds for the whole window and prints
+      a verdict beside the numbers.
+    - **All three recorded, not a median.** Criterion 7's own table prints every
+      run, which is what made its withdrawn failure visible.
+    - **A discarded run is recorded with its verdict and the named
+      contaminant.** "Discarded on its window" without the process name tells a
+      later reader nothing about whether the host or the code was at fault.
+    - **The baseline is taken before the code**, not reconstructed after. Both
+      criteria say so because neither can be checked otherwise.
+    - **The 15% threshold is not adjustable to make a verdict land.** Criterion
+      7 says deciding what a measurement accepts is "worth doing deliberately
+      rather than by adjusting a fixture until the verdict lands". If 15% is
+      wrong for a machine, that is a decision taken on its own merits and
+      recorded — never a route to a number.
+
+    **The agent driving the run can be its own contaminant, which F135's
+    protocol does not say and should.** On 2026-09-30 a run driven by this
+    session was discarded at `peak=22.4% (claude)`; prebuilding the benchmark so
+    the window held only the measurement removed it as the peak. So a
+    measurement taken by an agent needs the build done first and the agent idle
+    through the window — and may still be unable to produce a CLEAN run, which
+    makes these two baselines a human's to take.
+
+    **What a non-quiet host looks like, recorded so the next attempt knows what
+    to clear.** Five attempts on 2026-09-30 produced five contaminated windows
+    from four distinct processes — `claude` at 22.4%, a system framework at
+    37.8%, Webex at 74.2%, Tailscale at 23.4%, `MenuBarAgent` at 19.9% — with
+    load averages of 1.0–1.4 and means falling 12.7% → 10.2% → 8.1%. **It was
+    not load**: each offender was idle when checked beforehand and spiked inside
+    the sixty-second window. Quiet here means those agents quit, not merely
+    unoccupied.
 13. **`debug` and `debug.shell` run under a capture, and are refused as
     unstable.** Measured, correcting an `[UNGROUNDED]` claim: with stdin closed
     the oracle's `debug` runs to completion — readline gets EOF and advances —
