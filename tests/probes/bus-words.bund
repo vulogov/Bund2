@@ -1,0 +1,64 @@
+//
+// Probe: the eight local-bus words (D87, RFC-0007 §C8 criteria 1 and 2).
+//
+// The reference's bus is process-global and in-process — crossbeam channels in
+// a `BTreeMap<String, (Sender, Receiver)>` (bus/mod.rs `PIPES`), not zenoh. So
+// a round trip is reproducible in one process with no network, which is what
+// makes this probe hermetic at all.
+//
+// Each case is one claim the first draft of RFC-0007 got wrong or could not
+// have known:
+//
+//   - `send` pushes a bool; `send.quick` pushes nothing. That is the whole
+//     difference between them.
+//   - An existing-but-empty channel answers NODATA. `"in"` and `"out"` exist
+//     before any program runs, so they are the only way to reach that arm
+//     without creating a channel first. An *absent* channel is an error, and
+//     **no probe can carry that half**: a word's error renders through the
+//     reference's own diagnostic table, which F66 already records as text no
+//     second machine reproduces, so a probe for it would be a third approved
+//     deviation for the frame rather than the message. The exact text is
+//     asserted in `crates/bund2-stdlib/src/bus.rs` instead.
+//   - `bus.data` creates the channel it reports on, so it answers false and
+//     then a `recv` on the same name is NODATA rather than an error.
+//   - `bus.data.current` takes the channel name from the current stack, so a
+//     stack and a channel share one namespace.
+//   - `send.` takes its *object* from the workbench; `recv.` takes its *name*
+//     from the workbench and pushes the value to the stack. The asymmetry is
+//     the reference's.
+//
+"probe: send answers a bool, and the value comes back" println
+"p1" 42 send
+"p1" recv
+
+"probe: in exists before the program does, so it is empty and not absent" println
+"in" recv
+
+"probe: bus.data creates the channel it reports on" println
+"p2" bus.data
+"p2" recv
+
+"probe: bus.data.current names the channel after the current stack" println
+bus.data.current
+
+"probe: send.quick answers nothing" println
+"p3" 7 send.quick
+"p3" recv
+
+"probe: send. takes the object from the workbench, the name from the stack" println
+"p4" 9 { true } ?. send.
+"p4" recv
+
+"probe: recv. takes the name from the workbench and pushes to the stack" println
+"p5" 5 send.quick
+"p5" { true } ?. recv.
+
+"probe: send.quick. takes the object from the workbench and answers nothing" println
+"p6" 3 { true } ?. send.quick.
+"p6" recv
+
+"probe: a channel keeps order" println
+"p7" 1 send.quick
+"p7" 2 send.quick
+"p7" recv
+"p7" recv

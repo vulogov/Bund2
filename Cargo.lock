@@ -385,6 +385,7 @@ dependencies = [
  "cfonts",
  "comfy-table",
  "convert_case 0.7.1",
+ "crossbeam-channel",
  "csv",
  "deunicode",
  "distance",

@@ -68,6 +68,8 @@ pub mod terminal;
 pub mod data;
 // The world file: `save.model` and `load.model`.
 pub mod world;
+// The local bus: `send`, `recv`, `bus.data` (D87).
+pub mod bus;
 
 /// Register everything this crate provides.
 pub fn register_all(r: &mut bund2_api::Registry) {
@@ -83,6 +85,7 @@ pub fn register_all_with(r: &mut bund2_api::Registry, opts: &host::HostOptions) 
     terminal::register(r, opts);
     data::register(r);
     world::register(r, opts);
+    bus::register(r, opts);
     stack::register(r);
     console::register(r);
     logic::register(r);

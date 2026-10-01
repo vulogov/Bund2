@@ -3547,6 +3547,123 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D89 — whether the hermetic funnel's `bus` exclusion narrows the way D87's deferral did
+
+D87 narrowed D28's deferral from the whole `bus` directory to `globals.rs`, and
+the narrowing was applied in one of the two places that read the directory as a
+unit. **The other is still whole.** `xtask/src/corpus/classify.rs` maps
+`Bund/src/stdlib/functions/bus` to `Effect::Bus` under the heading "wholly
+effectful subsystems", and `Effect::hermetic` admits only `Pure`, `Stdout` and
+`Diagnostic` — so every corpus program that calls `send`, `recv` or `bus.data`
+is dropped by the hermetic funnel before any capture is attempted.
+
+One program is affected: `examples/code_snippets/internal_bus_demo.bund`, which
+sends fifteen integers to channel `A` and drains them with `bus.data` and
+`recv`. It is absent from `tests/golden/HERMETIC.txt` for the directory's sake,
+not its own.
+
+- Blocks: RFC-0007 §C8 criteria 2 and 5 — the round-trip golden and the coverage
+  figure both want this program
+- Default: **none.** Changing the funnel changes which goldens exist, which is
+  the owner's.
+- Status: **OPEN**
+
+### What narrowing would buy, and what it costs
+
+The local bus needs no network, no file and no clock. A fresh process starts
+with `"in"` and `"out"` empty and nothing else, so the demo is reproducible in
+the sense the funnel means by hermetic — `cargo xtask golden` runs each program
+twice and refuses it if the two runs differ, which is the funnel's own test of
+that claim and the one this program would have to pass.
+
+The cost is stated rather than hidden: **the conformance denominator grows**,
+116 → 117, and so does `tests/golden/HERMETIC.txt`. Criterion 6 of RFC-0007
+already allows that for new probes and gives the reason — a number that absorbs
+new tests silently stops being a regression number — but it is still a change
+to `tests/golden`, and the capture is the owner's to run.
+
+### The classification question underneath it
+
+`Effect::Bus` is both an exclusion and a label, and the enum has no category for
+"process-global state, no I/O". Narrowing by file means giving `crossbus.rs`
+some other effect, and the honest candidates are `Pure` — which it is not, since
+two programs in one process would share a queue — or a new variant whose
+`hermetic()` answer is itself the decision. The open-questions register already
+carries the related half: the audit calls `send`/`recv` effectful because "zenoh
+is reached through `helpers/zenoh`", which is the wrong mechanism, and RFC-0007
+notes the classification is probably still right for a different reason.
+
+**This was not folded into D87.** D87 narrowed the deferral and corrected its
+reason; nothing in it said the funnel should follow, and a session that quietly
+made it follow would have changed the golden corpus on the strength of a
+decision that did not mention it.
+
+## D88 — identity across the bus: the decoded value keeps its stamp and mints a fresh id
+
+D86's amendment left this open and said explicitly that it is a decision, not an
+implementation detail: whoever implements `recv` either preserves the decoded
+identity, matching the oracle and narrowing F109, or keeps F109's deviation and
+records that the bus makes it observable. The eight words are now built, so the
+question is in front of something rather than ahead of it.
+
+- Blocks: RFC-0007 §C8 criterion 3, which requires that whichever is chosen is
+  then asserted by a test
+- Default: **keep F109's behaviour.** The stamp crosses, the id does not.
+- Evidence: measured against the oracle, below
+- Status: **OPEN**
+
+### What each side does, measured
+
+Both sides carry the stamp through the wire format. `WireValue` has an id field
+and the reference restores it; Bund2's `into_value` builds the heap value with
+`identity: Cell::new(0)` and `stamp: Cell::new(node.stamp)`
+(`crates/bund2-value/src/wire.rs`, `into_value`), so a received value arrives
+stamped and unidentified, and mints an id on first observation as every other
+value does.
+
+### Why the "makes it observable" half is false
+
+D86's amendment offered "record that the bus makes it program-visible" as the
+second half of the second option. **It does not.** Three readers of identity
+exist in the reference — equality for non-scalars (`rust_dynamic/src/eq.rs`),
+the ordering fallback, and hashing (`rust_dynamic/src/hash.rs`) — and none is
+reachable across the bus from a Bund program:
+
+| reader | why a program cannot use it to see the id |
+|---|---|
+| `==` | refuses a LIST: `== returns error: COMPARE: unsupported operand #1`. Measured on the oracle with `[ 1 2 ] dup "c" swap send.quick "c" recv ==`. |
+| ordering | F12 — the fallback is inconsistent with `PartialOrd` and unreachable |
+| VALUEMAP key | reachable, and **already an approved deviation**: `probes/valuemap-hash-eq.golden` is accepted under F29, so Bund2's lookup does not hash the id either way |
+
+And **no word returns a value's id**. `.id` is not registered — the oracle
+answers `Inline .id not registered` — so D1's `.id` is an object member, not a
+VM word. The id's only appearance is in `debug.display_stack`'s dump, which
+F14 normalises out of every golden comparison because it is not behaviour the
+reference defines.
+
+So no program can tell the two options apart. That is the opposite of the first
+draft's claim, which asserted that the values *differ* — the oracle contradicts
+that too, since the stamp is identical on both sides.
+
+### The argument for the default, which is D1 and not convenience
+
+Restoring the id would make a received value **the only value in Bund2 born
+already identified.** D1 chose lazy identity: nothing is computed at
+construction and an id is minted on first need. A decoder that writes one in
+has decided that the wire is a "need", which is a different rule from the one
+D1 settled, and it would apply to `sqlite`'s BLOBs and the world file through
+the same `from_binary` — not only to the bus.
+
+The faithful-looking option is therefore the one that changes a language rule,
+and the deviation-keeping option is the one that leaves it alone. That is why
+the default is to keep F109 rather than to narrow it.
+
+### What the owner is actually being asked
+
+Whether F109's "a decoded value mints a fresh identity" is **the rule for every
+decoder** — which is what keeping it means now that three decoders share the
+path — or an accepted gap in `sqlite` alone that the bus should not inherit.
+
 ## D87 — the local crossbeam bus is in scope; zenoh stays deferred
 
 **Decided by the repository owner, 2026-10-01**, on RFC-0007's §C7:

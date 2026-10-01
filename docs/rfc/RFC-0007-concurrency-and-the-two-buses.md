@@ -252,16 +252,25 @@ scope as of 2026-10-01.
 **Measured consequence, recorded because a completeness number that only
 improves is measuring its own scope:**
 
-| | before | after |
-|---|---|---|
-| out of scope by decision | 120 | **112** |
-| words in scope | 497 | **505** |
-| IMPLEMENTED | 391/497 (78.7%) | **391/505 (77.4%)** |
-| COVERAGE | 387/497 (77.9%) | **387/505 (76.6%)** |
-| CONFORMANCE | 107/116 | **107/116**, unmoved |
+| | before | scoped in | built and probed |
+|---|---|---|---|
+| out of scope by decision | 120 | **112** | 112 |
+| words in scope | 497 | **505** | 505 |
+| IMPLEMENTED | 391/497 (78.7%) | **391/505 (77.4%)** | **399/505 (79.0%)** |
+| COVERAGE | 387/497 (77.9%) | **387/505 (76.6%)** | **395/505 (78.2%)** |
+| CONFORMANCE | 107/116 | **107/116**, unmoved | **108/117** |
 
 Eight unimplemented words entered the denominator, so both completeness figures
 fell about 1.2 points with no code changed. That is the honest direction.
+
+**The third column is 2026-10-01, after the words landed and
+`tests/probes/bus-words.golden` was captured.** All eight are implemented and
+all eight are now run by a golden, so IMPLEMENTED and COVERAGE each moved by
+exactly eight from the scoped-in baseline — the figure criterion 5 predicted,
+395/505, read back from the binary rather than argued. Conformance grew by one
+in both halves: the probe passes, and it is one more golden in the denominator.
+**Earlier RFCs' `107/116` is as of their dates**; 116 was the denominator before
+this capture, and criterion 6 is where that is accounted for.
 
 **Transparency is the intent and it does not strain D86.** The owner's second
 clause — `send`/`recv` should eventually be transparent across zenoh — is
@@ -409,13 +418,39 @@ words are in scope and may carry goldens.
    an existing-but-empty channel and erroring only on an absent one**; the
    pre-created `"in"` and `"out"`; and `bus.data` returning false *after*
    creating a channel that did not exist.
+
+   **Met for everything a golden can hold.** `tests/probes/bus-words.bund`
+   covers all eight words and every claim above except the absent-channel error,
+   and diffs byte-identical against the oracle. The error cannot go in a probe:
+   it renders through the reference's diagnostic table, which F66 already
+   records as text no second machine reproduces, so a probe for it would be a
+   third approved deviation for the frame rather than the message. Its exact
+   text — `RECV returns error bus::internal::pipe no pipe: <name>`, prefixed by
+   the calling word and not by `BUS.DATA` — is asserted in
+   `crates/bund2-stdlib/src/bus.rs` instead, as are the six depth guards and the
+   `BUS.DATA:` name-casting prefix every one of the eight shares.
 2. **A `send`/`recv` round trip is goldenable** — `"chan" 42 send "chan" recv`
    captured from the oracle and matched.
+
+   **Met, 2026-10-01.** `tests/probes/bus-words.golden` is captured and passes.
+   The capture refused nothing: `cargo xtask golden` runs each program twice and
+   drops it if the two runs differ, which is the funnel's own test of
+   reproducibility, and a process-global channel map passes it because a fresh
+   process starts with `"in"` and `"out"` empty and nothing else.
+
+   **What is still not goldenable is the corpus program.** D89 holds
+   `examples/code_snippets/internal_bus_demo.bund` out of `HERMETIC.txt`,
+   because the hermetic funnel still reads the whole `bus` directory as
+   effectful. The probe covers the words; the corpus program would cover the
+   reference's own use of them.
 3. **Identity across the bus is decided and then asserted.** The oracle
    preserves id and stamp; Bund2's decoder mints a fresh identity (F109). The
    criterion is that whichever D86's amendment settles, a test asserts it —
    **not** that the values differ, which is what the first draft asserted and
-   the oracle contradicts.
+   the oracle contradicts. **D88 now carries the decision, OPEN**; the assertion
+   half is written against the current behaviour
+   (`a_received_value_keeps_its_stamp`) and will move if D88 resolves the other
+   way.
 4. **Deferred, and it was a deviation filed as preservation.** The first draft
    required a refusal at `MAX_WIRE_DEPTH`'s 256 levels; the oracle sends a
    300-deep list without complaint. Refusing would be **new behaviour**, so it
@@ -426,15 +461,34 @@ words are in scope and may carry goldens.
    and probing all eight takes COVERAGE to 395/505; each word not probed is
    listed with its state. The first draft's "moves by exactly eight" was
    unmeetable under D28 and is now meetable against the right denominator.
+
+   **Met exactly, 2026-10-01: COVERAGE 395/505, IMPLEMENTED 399/505.** The two
+   halves were measured separately and the gap between them is the point.
+   Implementing the eight took IMPLEMENTED to 399/505 and COVERAGE only to
+   390/505, because at that moment just `send`, `recv` and `bus.data` were run
+   by any golden — the other five sat under "implemented but run by no golden",
+   which is the gap the criterion is about and the reason COVERAGE and not
+   IMPLEMENTED is the completeness number. Capturing
+   `tests/probes/bus-words.golden` closed all five, and `implemented but run by
+   no golden` fell from 9 to 4 with no bus word left in it.
 6. **Conformance does not regress, measured after any new probes are
    captured.** Not "moves by exactly zero": criteria 1 and 2 add probes, which
    enlarge the denominator — the same contradiction the review found in
    RFC-0006's first draft and that this draft reproduced.
+
+   **Met, 2026-10-01: 107/116 ceiling 107/116 before, 108/117 ceiling 108/117
+   after.** Every golden that passed still passes, the nine approved deviations
+   are the same nine, and M grew by exactly the one probe this RFC added. The
+   ceiling still equals the numerator, so no golden is left unreached — which is
+   the check that the new probe passes rather than merely existing.
 7. **Withdrawn.** The first draft's "nothing reads `WordKind` yet, and that
    stays true" named no check and could not fail. What replaces it belongs to
    whichever RFC gives `Blocking` a reader.
 8. **`--noio` disables all eight words**, which the first draft had no row or
    criterion for, and the probe asserts the stub message rather than silence.
+   **Met** — a flag cannot appear in a golden, so the assertion is a unit test
+   over all eight names (`noio_replaces_every_one_of_the_eight`), checked
+   against the oracle's own `--noio` run for each of the three shapes.
 
 ## Open questions
 
@@ -444,10 +498,16 @@ words are in scope and may carry goldens.
   the reference has no answer because its `send`/`recv` never reach zenoh. A
   naming convention, a registry, or an explicit prefix are all available, and
   choosing is a language decision because a program writes the name.
-- **How identity behaves across the bus — D86's amendment names the choice.**
-  Preserve the decoded identity, matching the oracle and narrowing F109, or keep
-  F109's deviation and record that the bus makes it program-visible. No golden
-  can see either way.
+- **How identity behaves across the bus — now D88, with the choice measured.**
+  D86's amendment named the two options; D88 records what each costs and finds
+  that the second half of one of them is false. **The bus does not make the id
+  program-visible**: `==` refuses a LIST, the ordering fallback is F12's
+  unreachable path, the VALUEMAP key reader is already an approved deviation
+  under F29, and no word returns an id at all — the oracle answers `Inline .id
+  not registered`. Both sides carry the *stamp*. So the question is not which
+  behaviour a program sees, it is whether "a decoded value mints a fresh
+  identity" is the rule for every decoder now that the bus, `sqlite` and the
+  world file share one. D88 is OPEN with keeping F109 as its default.
 - **Whether a depth refusal at `send` is wanted.** The oracle sends a 300-deep
   list without complaint, so refusing at `MAX_WIRE_DEPTH` is new behaviour.
   Criterion 4 is withdrawn pending a decision and a deviation entry.
@@ -458,6 +518,13 @@ words are in scope and may carry goldens.
   would have used. §C5 declines to invent it.
 - **Zenoh's scope**: the globals semantics, `--distributed` for a Bund2 node,
   and whether the dependency is default. §C4, with D40 as precedent.
+- **Whether the hermetic funnel's `bus` exclusion narrows too — now D89.**
+  D87 narrowed the *deferral* to `globals.rs` and the narrowing reached
+  `DEFERRED_PATHS`; the funnel's own table still maps the whole directory to
+  `Effect::Bus`, which `Effect::hermetic` refuses. One corpus program is held
+  out by it — `examples/code_snippets/internal_bus_demo.bund`, which is what
+  criterion 2 wants. Narrowing grows the conformance denominator 116 → 117 and
+  changes `HERMETIC.txt`, so it is the owner's.
 - **Whether the audit's classification of `send`/`recv` should change.** It
   calls them effectful because "zenoh is reached through `helpers/zenoh`"
   (`docs/registers/open-questions.md:624-626`) — the wrong mechanism, since they

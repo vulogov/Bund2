@@ -162,6 +162,13 @@ ureq = { version = "=3.4.0", default-features = false }
 redb = "=4.2.0"
 sanitize-filename = "=0.5.0"
 prqlc = "=0.13.14"
+# The local bus's channels (D87). `crossbeam-channel` alone, not the
+# `crossbeam` umbrella the reference also pulls in: the bus uses
+# `channel::{Sender, Receiver, unbounded}` and nothing else from it, and the
+# umbrella's deque, epoch and queue would be weight for no word. Same major
+# version as `reference/Bund/Cargo.toml:41`, and already in the lock at 0.5.16
+# through a dev-dependency, so the build stays offline.
+crossbeam-channel = "0.5"
 bund2-value.workspace = true
 bund2-api.workspace = true
 bund2-ir.workspace = true
