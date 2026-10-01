@@ -1,0 +1,47 @@
+//
+// Probe: `debug.dump` over the four scalar tags (RFC-0008 criterion 3).
+//
+// The dump is a hexdump of a value's machine representation, to stdout —
+// eight bytes for an INT, eight for a FLOAT, one for a BOOL, and a STRING's
+// own bytes. `bytes_of` in the reference is native-endian, so 1234567 reads
+// `87d61200 00000000` and not the other way round.
+//
+// **Only these four tags can be goldened.** Everything else falls to the
+// reference's `_` arm, which dumps `to_binary` — and that encodes the value's
+// id and stamp, so the *oracle's own* two runs of `[ 1 2 ] debug.dump` differ
+// from each other. It is F14's class reached through a hexdump rather than
+// through a `Debug` line, and no normaliser can reconcile it, because the
+// bytes are the subject rather than the frame around them.
+//
+// `debug.dump` **peeks**: every line below is followed by `drop`, and the
+// final stack dump is what proves the value was still there to drop.
+//
+// The cases chosen: a positive INT, so endianness is visible; a FLOAT whose
+// bytes are not all zero; both BOOLs, which differ in one byte; a short
+// string, an exactly-16-byte string and one that spills to a second line,
+// because the padding differs in all three; a string with a space and a tilde,
+// which are printable and must survive the ASCII column; the empty string,
+// whose dump is the summary line alone; and a negative INT, which is all-ones
+// at the top.
+//
+"probe: debug.dump of an INT is eight native-endian bytes" println
+1234567 debug.dump drop
+-1 debug.dump drop
+0 debug.dump drop
+
+"probe: debug.dump of a FLOAT is eight bytes" println
+2.5 debug.dump drop
+
+"probe: debug.dump of a BOOL is one byte, and the two differ" println
+true debug.dump drop
+false debug.dump drop
+
+"probe: debug.dump of a STRING is the string's own bytes" println
+"hello" debug.dump drop
+"0123456789abcdef" debug.dump drop
+"0123456789abcdef0123" debug.dump drop
+"a b~ c" debug.dump drop
+"" debug.dump drop
+
+"probe: it peeks, so everything above was still there to drop" println
+42 debug.dump

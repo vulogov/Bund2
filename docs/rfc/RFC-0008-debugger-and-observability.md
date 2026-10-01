@@ -372,9 +372,57 @@ capture and still unpinnable, which is `debug`'s case.
    stderr, and the default filter is `error`
    (`reference/Bund/src/cmd/setloglevel.rs:7`) — so this is checkable, which the
    first draft denied.
+
+   **Half of this is confirmed and half is not achievable — D90, measured
+   2026-10-01.** At the default level the oracle emits exactly one line for a
+   program that calls all five words, so *which* words are silent is checkable
+   and the first draft was indeed wrong to deny it. **The line is not.** It reads
+
+       [2026-10-01T15:35:51Z ERROR bund::stdlib::functions::debug_fun::debug_trace] hello from error
+
+   and two of its fields cannot be reproduced: the timestamp is wall-clock, which
+   no normaliser handles today, and
+   `bund::stdlib::functions::debug_fun::debug_trace` is **a Rust module path in
+   the reference's source tree** — `env_logger` prints the calling module.
+   Bund2's equivalent code is `bund2_stdlib::console`, so emitting the
+   reference's path verbatim would be printing a false statement about where the
+   code is.
+
+   So the criterion is restated: **what is checkable is which of the five emit at
+   the default level and which are silent, not what the line says.** D90 carries
+   the choice of what it says, and the five words are not written until it is
+   taken — a session that picked a format would have made a language decision on
+   the owner's behalf.
 3. **`debug.dump` is byte-identical to the oracle** for an INT, a FLOAT, a BOOL
    and a STRING — eight bytes, eight, **one**, and the string's own bytes — and
    all seven `DUMP: error CASTING to …` texts match.
+
+   **Met for the four tags, 2026-10-01**, and the four-tag restriction was
+   right for a reason the criterion does not give: everything else falls to the
+   reference's `_` arm, which dumps `to_binary`, and **that encodes the value's
+   id and stamp — so the oracle's own two runs of `[ 1 2 ] debug.dump` differ
+   from each other.** It is F14's class reached through a hexdump rather than a
+   `Debug` line, and no normaliser can reconcile it because the bytes are the
+   subject rather than the frame around them.
+
+   `tests/probes/debug-dump.bund` covers eleven cases across the four tags —
+   both BOOLs, a string of exactly sixteen bytes and one that spills to a second
+   line, since the padding differs in all three, and the empty string, whose
+   dump is the summary line alone — and diffs byte-identical. The word **peeks**,
+   so its effect is `1 -> 1`, the shape F92 corrected for `println.`; the probe
+   drops after every dump and the final stack dump is what proves the value was
+   there to drop.
+
+   **"All seven texts" is wrong: five of them are vacuous.** Each casting arm
+   sits behind the tag check that guarantees its cast, in the reference as in
+   Bund2, so no run of either can produce them. Reproducing their text would
+   mean inventing the `{err}` half of a message nothing emits, so Bund2 names the
+   broken invariant instead — D37's third way out, since a FLOAT whose payload is
+   not a float is a Bund2 defect and not a program error. The two that a program
+   can reach are `DUMP: NO DATA #1`, which matches, and `DUMP: error converting
+   to binary`, which Bund2 can reach above `MAX_WIRE_DEPTH` where the oracle's
+   encoder has no bound at all — RFC-0007 criterion 4's deferred question, now
+   with a second word behind it.
 4. **Conformance does not regress**, measured *after* the new probes are
    captured. **Not "stays at 107/116"**: criteria 1–3 add probes, so the
    denominator grows, and the first draft's criterion 3 contradicted its own
@@ -386,6 +434,22 @@ capture and still unpinnable, which is `debug`'s case.
    cannot fail — any outcome is explicable. This version requires the ten words
    to be listed with their state: implemented and probed, implemented and
    unprobed, or not implemented.
+
+   **The ten, named, as of 2026-10-01.**
+
+   | word | state |
+   |---|---|
+   | `debug.dump` | implemented and probed — criterion 3 |
+   | `log.info`, `log.warning`, `log.error`, `log.debug`, `log.trace` | **not implemented: blocked on D90**, whose line format is undecided |
+   | `debug` | not implemented — criterion 13 says a golden cannot pin it |
+   | `debug.shell` | not implemented — same |
+   | `debug.display_memstat` | not implemented, not yet grounded |
+   | `debug.display_distributed_info` | not implemented; it reports a zenoh session, which D87 left deferred |
+
+   So coverage moves by **one**, not ten, and the other nine are accounted for:
+   five blocked on a decision, two that no golden can hold, one ungrounded, and
+   one whose subsystem is still deferred. That is the criterion working as
+   restated — the first draft's version would have passed by explaining.
 6. **`step`, `next` and `finish` agree with an uninterrupted run**, over every
    suite program: stepped to completion leaves the same final state as run
    normally. **Only over the reach D6 permits** — top-level values and bodies

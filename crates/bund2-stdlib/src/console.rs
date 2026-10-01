@@ -172,6 +172,9 @@ pub fn register(r: &mut Registry) {
         eff(0, 0),
         WordKind::Sync,
     );
+    // **`eff(1, 1)`, not `eff(1, 0)`.** It peeks: the floor is one value and
+    // the net is zero, which is the shape F92 corrected for `println.`.
+    r.register_native("debug.dump", debug_dump, eff(1, 1), WordKind::Sync);
 }
 
 #[cfg(test)]
@@ -222,5 +225,129 @@ mod tests {
     fn println_prints_contents_not_the_rendering() {
         assert_eq!(display(&BundValue::str("Hello World!")), "Hello World!");
         assert_eq!(display(&BundValue::int(42)), "42");
+    }
+}
+
+/// **`debug.dump` — RFC-0008 criterion 3.**
+///
+/// A hexdump of a value's bytes, to stdout, through the reference's own
+/// `hexdump` crate. It **peeks**, so the value stays where it was: the dump is
+/// an observation and not a consumption.
+///
+/// **Five cases, and which one applies is decided by the tag.** The four
+/// scalars dump their machine representation — eight bytes for an INT, eight
+/// for a FLOAT, one for a BOOL, and a STRING's own bytes — and everything else
+/// dumps the wire encoding. `bytes_of` in the reference is native-endian, which
+/// `to_ne_bytes` is.
+///
+/// **Only the four scalar cases can be goldened.** The fallback encodes the
+/// value's identity and stamp into the bytes, so the oracle's own two runs of
+/// `[ 1 2 ] debug.dump` differ from each other — F14's class reached through a
+/// hexdump rather than through a `Debug` line. Criterion 3 names only the four,
+/// and this is why.
+fn debug_dump(vm: &mut dyn Vm) -> Result<(), Error> {
+    let v = vm.peek().ok_or_else(|| Error("DUMP: NO DATA #1".into()))?;
+    for line in hexdump::hexdump_iter(&dump_bytes(&v)?) {
+        println!("{line}");
+    }
+    Ok(())
+}
+
+/// Which bytes a value dumps. Separate from the printing so the widths can be
+/// asserted without a golden.
+fn dump_bytes(v: &BundValue) -> Result<Vec<u8>, Error> {
+    // **The tag decides, not the payload.** A PTR and a CALL both carry a
+    // string and neither is a STRING, so `dt` is what the reference switches
+    // on and what this switches on.
+    let bytes: Vec<u8> = match v.dt() {
+        bund2_value::INTEGER => v
+            .as_int()
+            .ok_or_else(|| {
+                Error::internal("a value tagged INTEGER whose payload is not an integer")
+            })?
+            .to_ne_bytes()
+            .to_vec(),
+        bund2_value::FLOAT => match v.unboxed() {
+            BundValue::Float(f, _) => f.to_ne_bytes().to_vec(),
+            _ => {
+                return Err(Error::internal(
+                    "a value tagged FLOAT whose payload is not a float",
+                ))
+            }
+        },
+        bund2_value::BOOL => vec![u8::from(match v.unboxed() {
+            BundValue::Bool(b, _) => *b,
+            _ => {
+                return Err(Error::internal(
+                    "a value tagged BOOL whose payload is not a bool",
+                ))
+            }
+        })],
+        bund2_value::STRING => v
+            .as_str()
+            .ok_or_else(|| Error::internal("a value tagged STRING whose payload is not a string"))?
+            .into_bytes(),
+        // **The reference's five casting failures are unreachable in both
+        // implementations**, because each arm has already read the tag that
+        // guarantees the cast. Writing their text would mean inventing the
+        // `{err}` half of a message no run can produce, so the four arms above
+        // name the broken invariant instead — D37's third way out, for a case
+        // that is a Bund2 defect if it ever happens rather than a program
+        // error. Criterion 3 asked for all seven texts to match; five of them
+        // are vacuous and this is where that was found.
+        _ => bund2_value::wire::to_binary(v)
+            .map_err(|e| Error(format!("DUMP: error converting to binary: {e}")))?,
+    };
+    Ok(bytes)
+}
+
+#[cfg(test)]
+mod dump_tests {
+    use bund2_api::Vm as _;
+    use bund2_interp::Interp;
+    use bund2_value::BundValue;
+
+    fn run(src: &str) -> Result<Vec<BundValue>, String> {
+        let mut i = Interp::new();
+        crate::register_all(&mut i.registry);
+        let ir = bund2_syntax::compile(src).map_err(|e| format!("{e:?}"))?;
+        i.eval(&ir).map_err(|e| e.0)?;
+        Ok(i.snapshot())
+    }
+
+    /// **It peeks.** The dump is an observation, so the value is still on the
+    /// stack afterwards — which is why the effect is `1 -> 1` and not `1 -> 0`.
+    #[test]
+    fn debug_dump_leaves_its_operand_where_it_found_it() {
+        let out = run("42 debug.dump").expect("runs");
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].as_int(), Some(42));
+    }
+
+    /// The reference's own text, for the one error a program can actually
+    /// reach. The other six are unreachable behind the tag each arm reads.
+    #[test]
+    fn an_empty_stack_is_the_references_own_message() {
+        let e = run("debug.dump").expect_err("nothing to dump");
+        assert!(e.ends_with("returned error: DUMP: NO DATA #1"), "{e}");
+    }
+
+    /// **The four scalar widths**, read off the rendered summary line — eight
+    /// bytes, eight, one, and the string's own length. The summary is the last
+    /// line of a dump and carries the total, so it is the cheapest assertion
+    /// about width that does not duplicate the golden.
+    #[test]
+    fn the_four_scalar_tags_dump_the_widths_the_criterion_names() {
+        for (src, bytes) in [
+            ("7 debug.dump", 8usize),
+            ("2.5 debug.dump", 8),
+            ("true debug.dump", 1),
+            ("\"hello\" debug.dump", 5),
+            ("\"\" debug.dump", 0),
+        ] {
+            let out = run(src).expect(src);
+            let got = super::dump_bytes(&out[0]).expect(src);
+            assert_eq!(got.len(), bytes, "{src}");
+        }
     }
 }

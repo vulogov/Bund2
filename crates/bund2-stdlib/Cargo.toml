@@ -169,6 +169,15 @@ prqlc = "=0.13.14"
 # version as `reference/Bund/Cargo.toml:41`, and already in the lock at 0.5.16
 # through a dev-dependency, so the build stays offline.
 crossbeam-channel = "0.5"
+# `debug.dump` renders through the reference's own hexdumper
+# (`reference/Bund/src/stdlib/functions/debug_fun/debug_dump.rs` calls
+# `hexdump::hexdump`). Same argument as comfy-table and leon: the goldens
+# capture the rendered text byte for byte, and the layout is a 38-column hex
+# field, a 16-column sanitised-ASCII field and an 8-digit offset, with a
+# summary line carrying the length. Reimplementing that padding would be a
+# near-miss that fails a golden while looking right. Same major version as
+# `reference/Bund/Cargo.toml:87`; pure Rust, one small dependency.
+hexdump = "0.1"
 bund2-value.workspace = true
 bund2-api.workspace = true
 bund2-ir.workspace = true

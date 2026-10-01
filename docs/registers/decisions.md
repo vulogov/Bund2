@@ -3547,6 +3547,79 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D90 — what a `log.*` line looks like, now that the oracle's cannot be reproduced
+
+RFC-0008 criterion 2 claims `log.error`'s emitted line is checkable against the
+oracle at the default level, and corrects the first draft for denying it. The
+claim is half right: **the line exists and only one of the five words emits it**,
+which is what the first draft got wrong. But the line itself cannot be matched.
+
+- Blocks: RFC-0008 criteria 1, 2 and 5 — the five `log.*` words are unimplemented
+  until this is taken, and they are five of criterion 5's ten
+- Default: **none.** Every option below changes what a program's stderr says.
+- Evidence: measured against the oracle, 2026-10-01
+- Status: **OPEN**
+
+### What the oracle emits, measured
+
+    [2026-10-01T15:35:51Z ERROR bund::stdlib::functions::debug_fun::debug_trace] hello from error
+
+At the default level that is the whole output of a program calling all five
+words: `setloglevel` filters at `error`, so `log.error` passes and
+`log.info`, `log.warning`, `log.debug` and `log.trace` emit nothing. That half
+of criterion 2 is confirmed.
+
+**Two parts of the line are unreproducible, for different reasons.**
+
+- **The timestamp** is wall-clock to the second. That is F14's class — not
+  behaviour the reference defines — and a golden would need it normalised, which
+  no normaliser does today.
+- **`bund::stdlib::functions::debug_fun::debug_trace` is a Rust module path in
+  the reference's own source tree.** `env_logger` prints the target of the
+  `log::error!` macro, which is the module that called it. Bund2 has no such
+  module and cannot have one: the equivalent code is
+  `bund2_stdlib::console`. **Emitting the reference's path verbatim would be
+  printing a false statement about where the code is**, and emitting Bund2's own
+  is a different line.
+
+So the line is not a contract Bund2 can keep, and the words cannot be written
+until it is decided what they say instead.
+
+### The options
+
+1. **Bund2's own module path, timestamp normalised.** Byte-identical in shape,
+   different in one field. A golden needs a new normaliser; the deviation is one
+   token wide.
+2. **Route them through `Vm::report` at `Warning` and `Notice`**, which is
+   Bund2's architecture: "a `Warning` or `Notice` has not stopped the program and
+   gets one line on stderr" (D36). The line becomes `Warning: hello from
+   warning` — no timestamp, no module path, nothing unreproducible, and a TUI
+   receives it through the seam like every other diagnostic. **It is also a
+   different line for all five words, and it changes which of them are silent**:
+   the reporter has no level filter, so `log.info` would emit where the oracle's
+   is quiet, unless the filter is reproduced too.
+3. **Emit the reference's path verbatim.** Byte-identical, and a lie: a user
+   grepping for the module finds nothing. Recorded because it is the only option
+   that satisfies criterion 2 as written, which is itself an argument that the
+   criterion is wrong.
+4. **Implement the words silently** — accept the message, emit nothing. Cheapest
+   and worst: a program that logs its progress would appear to work while saying
+   nothing, and the five words would read as covered.
+
+### The recommendation, with what it costs
+
+**Option 2, with the oracle's level filter reproduced** — so `log.error` emits
+and the other four stay quiet at the default, and `BUND_LOG_LEVEL` still selects.
+It puts logging on the seam a TUI will implement, which is the reason D36 exists,
+and it removes both unreproducible fields rather than normalising one of them.
+
+What it costs, stated: the line differs from the oracle's in every character
+before the message. That is an approved deviation covering five words at once,
+and it should be recorded as one rather than discovered per golden.
+
+**Criterion 2 is wrong either way** and is corrected in the RFC: what is
+checkable is *which* words emit at the default level, not what the line says.
+
 ## D89 — whether the hermetic funnel's `bus` exclusion narrows the way D87's deferral did
 
 D87 narrowed D28's deferral from the whole `bus` directory to `globals.rs`, and
