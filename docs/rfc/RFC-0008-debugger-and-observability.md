@@ -409,7 +409,8 @@ capture and still unpinnable, which is `debug`'s case.
 11. **The safepoint costs nothing when no debugger is attached.**
     D84 traded suspension for a per-step check, and this is the price of that
     trade made checkable: with the check in place, inside RFC-0005 criterion 7's
-    5% band, against a baseline taken **before** it exists.
+    5% band, against the baseline below — **which is taken, as of 2026-09-30**.
+    What remains is the second half, after the check exists.
 
     **`dispatch` is the group that decides this and `startup` is the control.**
     The check runs per step, so it compounds where steps do; `startup` carries
@@ -421,7 +422,8 @@ capture and still unpinnable, which is `debug`'s case.
     `Frame` gains a symbol and a span, on a structure pushed per call, so
     `dispatch` **before** the field is added and then after, inside the same 5%
     band. The first draft named the band and no baseline, leaving nothing to
-    compare against.
+    compare against; **the baseline is now taken** and the four usable rows are
+    named below.
 
     ### The protocol both criteria use — written before the numbers, 2026-09-30
 
@@ -454,6 +456,63 @@ capture and still unpinnable, which is `debug`'s case.
     measurement taken by an agent needs the build done first and the agent idle
     through the window — and may still be unable to produce a CLEAN run, which
     makes these two baselines a human's to take.
+
+    ### The baseline — three CLEAN runs, 2026-09-30
+
+    Taken before either change exists, which is what both criteria require.
+    `guarded_bench.sh` over `^(startup|dispatch)/`, three windows that the guard
+    passed; every figure is Criterion's median.
+
+    | row | A | B | C | spread |
+    |---|---|---|---|---|
+    | `startup/registry/register_all` | 42.915 µs | 42.708 µs | 44.715 µs | **4.7%** |
+    | `startup/parse/mixed` | 4.286 µs | 4.265 µs | 4.332 µs | 1.6% |
+    | `dispatch/dup_drop/w3000` | 82.835 µs | 83.226 µs | 84.727 µs | 2.3% |
+    | `dispatch/native_call/w4000` | 93.526 µs | 94.441 µs | 94.933 µs | 1.5% |
+    | `dispatch/literal_only/w1000` | 15.042 µs | 14.988 µs | 14.960 µs | 0.5% |
+    | `dispatch/literal_push/w2000` | 44.239 µs | 42.200 µs | 44.120 µs | **4.8%** |
+
+    **Two of six rows vary by nearly 5% between clean runs with nothing
+    changed**, and that is the finding rather than the medians. RFC-0005
+    criterion 7's band is 5%, so on `register_all` and `literal_push` the band
+    sits **at or below this host's noise floor**: a 4% move there is
+    indistinguishable from another Tuesday. Neither criterion 11 nor 12 may
+    rest a verdict on those two rows.
+
+    **The four rows that can carry a claim** are `parse/mixed`,
+    `dup_drop/w3000`, `native_call/w4000` and `literal_only/w1000`, at 0.5–2.3%.
+    `literal_only` at 0.5% is the sharpest instrument here, and it is a
+    dispatch row, which is where §D1's per-step check would show.
+
+    **This is why the protocol demands three runs recorded individually.** One
+    run would have produced a baseline with no variance attached, and a median
+    of three would have hidden a 4.8% spread inside a single number — then a
+    later 4% regression would have read as real. The spread *is* the
+    measurement.
+
+    ### What it cost, recorded because it bounds who can repeat it
+
+    **Three CLEAN windows out of seventeen attempts**, across an evening,
+    naming eleven distinct contaminants: `mediaanalysisd` (218%),
+    `PhotoAnalysis` (99.6%), Webex (74.2%), Slack (33–74%, three consecutive
+    windows), `spotlightknowledged.updater` (45.2%), `sysmond` (51.1%),
+    CoreServices (57.9%), Brave (38.7%), `launchd` (16.3–31.1%),
+    `MenuBarAgent` (19.9%), `NotificationCenter` (**exactly 15.0%** — rejected
+    by the narrowest possible margin, with an otherwise exemplary 3.6% mean),
+    and **this session itself** at 21.0% and 30.6%.
+
+    **Quitting applications was not what fixed it.** Slack going changed
+    nothing; Brave, Spotlight, `launchd` and `NotificationCenter` followed. What
+    worked was patience — a watcher that waited 800 s through the photo indexer
+    — plus running batches detached and taking the first clean window.
+
+    **The agent must run the measurement detached, and prebuilding is not
+    enough.** A foreground tool call spikes the driving process *inside its own
+    window*: two runs were lost to `claude` at 21.0% and 30.6% **after** the
+    benchmark was already built. A 25-second lead-in before the first run of a
+    detached batch removed it, and `claude` was never the peak again. F135's
+    protocol does not say this, and it should: it is the difference between a
+    measurement an agent can take and one it cannot.
 
     **What a non-quiet host looks like, recorded so the next attempt knows what
     to clear.** Five attempts on 2026-09-30 produced five contaminated windows
