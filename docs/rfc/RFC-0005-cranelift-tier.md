@@ -4557,6 +4557,54 @@ evidence, and this one is listed as runnable rather than as met.
    as +4% and pass. The verdict stands on a 5% band, and the protocol owes one
    more clause: **cool the baseline block like any other.**
 
+   ### Two rows cannot carry a 5% band — measured 2026-09-30
+
+   **The verdict above is unchanged.** What changes is which rows a *future*
+   claim may rest on, and this extends what this criterion already records
+   about `value` rather than contradicting it.
+
+   RFC-0008 needed an absolute baseline for `startup` and `dispatch`, so three
+   CLEAN windows were taken with **nothing changed between them** — no feature,
+   no A/B, one binary measured three times
+   (`docs/rfc/RFC-0008-debugger-and-observability.md`, criteria 11 and 12):
+
+   | row | A | B | C | spread |
+   |---|---|---|---|---|
+   | `startup/registry/register_all` | 42.915 µs | 42.708 µs | 44.715 µs | **4.7%** |
+   | `startup/parse/mixed` | 4.286 µs | 4.265 µs | 4.332 µs | 1.6% |
+   | `dispatch/dup_drop/w3000` | 82.835 µs | 83.226 µs | 84.727 µs | 2.3% |
+   | `dispatch/native_call/w4000` | 93.526 µs | 94.441 µs | 94.933 µs | 1.5% |
+   | `dispatch/literal_only/w1000` | 15.042 µs | 14.988 µs | 14.960 µs | 0.5% |
+   | `dispatch/literal_push/w2000` | 44.239 µs | 42.200 µs | 44.120 µs | **4.8%** |
+
+   **So `register_all` and `literal_push` vary by nearly the whole band on
+   their own.** A 4% movement on either is indistinguishable from a different
+   evening, which makes "within 5%" unfalsifiable there — the same shape of
+   finding F135 produced for the `value` group, arrived at from the opposite
+   direction: F135 found a *group* failing its no-tier control, this finds two
+   *rows* failing a no-change control.
+
+   **The four rows that can carry a claim** are `parse/mixed`,
+   `dup_drop/w3000`, `native_call/w4000` and `literal_only/w1000`, at 0.5–2.3%.
+   `literal_only` at **0.5%** is the sharpest instrument in either group.
+
+   **What this does and does not do.** It does not reopen the verdict: the
+   three-run A/B above spans at most 3.5 points on `value` and under 4% on
+   `corpus`, and no row exceeded the band in any run. It does mean a *later*
+   claim — RFC-0008's safepoint, a `Frame` that grows, any future tier change —
+   must name which rows it rests on, and may not rest on those two. Quoting
+   "inside the 5% band" over a row whose noise floor is 4.8% is the shape of
+   claim this criterion was rewritten twice to prevent.
+
+   **And the protocol owes a second clause**, beside cooling the baseline: **an
+   agent must run the measurement detached.** A foreground tool call spikes the
+   driving process inside its own window — two runs were discarded at
+   `peak=21.0% (claude)` and `30.6% (claude)` **after** the benchmark was
+   already built, which prebuilding alone did not prevent. A lead-in delay
+   before a detached batch did. Three CLEAN windows cost seventeen attempts and
+   eleven distinct contaminants that evening, from `mediaanalysisd` at 218% to
+   `NotificationCenter` at exactly 15.0%.
+
    **An earlier attempt the same day reported quite different numbers and was
    discarded.** It read `startup` +7.3%/+12.2%, `value` +8.8% to +37.6% and
    `arith/times_body` +121%, taken while another project's test binary held
