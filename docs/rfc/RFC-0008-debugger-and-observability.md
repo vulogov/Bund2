@@ -514,6 +514,21 @@ capture and still unpinnable, which is `debug`'s case.
     protocol does not say this, and it should: it is the difference between a
     measurement an agent can take and one it cannot.
 
+    **A second agent session on the same machine is a contaminant this session
+    can neither see nor stop — and the guard could not see it either (F145).**
+    On 2026-10-01 criterion 11's reading was abandoned after twenty-two minutes
+    of waiting: a session working on an unrelated project held one `rustc`
+    between 100% and 498% of CPU throughout. The guard excluded `cargo` and
+    `rustc` **by name**, so that the benchmark's own build would not read as
+    interference, which meant it would have called that window CLEAN with the
+    machine saturated. `guarded_bench.sh` now excludes by **ancestry** — a
+    process is the measurement's own exactly when it descends from the guard
+    invocation — and the foreign compile is named as the peak.
+
+    So the protocol gains a precondition it did not have: **the host is not
+    quiet while another agent session is building.** Waiting is the only
+    remedy, and it is not this session's to apply.
+
     **What a non-quiet host looks like, recorded so the next attempt knows what
     to clear.** Five attempts on 2026-09-30 produced five contaminated windows
     from four distinct processes — `claude` at 22.4%, a system framework at

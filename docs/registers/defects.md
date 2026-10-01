@@ -4012,6 +4012,63 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F145 — the measurement guard excluded every compile, including other people's
+
+**A Bund2 defect, in the instrument rather than the interpreter.** Found
+2026-10-01 while trying to take RFC-0008 criterion 11's reading.
+
+`guarded_bench.sh` samples the busiest process for the whole benchmark window
+and calls the window CONTAMINATED above 15%. It decided what counted by
+**matching the command string**, excluding `cargo`, `rustc`, the benchmark
+binary and its own helpers — so that the measurement's own toolchain did not
+read as interference.
+
+**That also made every foreign compile invisible.** On 2026-10-01 a second agent
+session was running `cargo build --release` on an unrelated project in another
+directory; one `rustc` held between 100% and 498% of CPU for twenty-two minutes.
+The guard would have sampled that window, excluded the one process saturating
+the machine, reported the next-worst at a few percent, and printed **CLEAN**.
+
+A concurrent compile is the worst contaminant available on a developer machine —
+it is the only one that reliably takes every core — and it was the single thing
+the guard could not see. Worse, the failure is silent and in the safe-looking
+direction: a contaminated window reads clean, so the number is believed.
+
+**Disposition: FIX.** Not an original-implementation defect; `guarded_bench.sh`
+is Bund2's own.
+
+### The fix, and why it is narrower *and* complete
+
+A process is excluded exactly when it is a **descendant of the guard
+invocation**, found by walking each row's ppid chain. That is what the name list
+was always a proxy for: "not part of this measurement". The benchmark's own
+build and binary are in the subtree by construction; nothing else is, whatever
+it is called.
+
+Verified both directions against the live contaminant: the foreign `rustc` is
+now named as the peak at 100% and the window reads CONTAMINATED, and a measured
+command deliberately burning four cores is **not** named, because it is in the
+subtree.
+
+### What it invalidates, stated
+
+Nothing that has been recorded. Every reading in RFC-0005 criterion 7 and
+RFC-0008's baseline was taken through the old filter, so each *could* have been
+contaminated by a compile and read clean. But the three RFC-0008 baseline
+windows were taken on an evening with the contaminant list recorded by name —
+eleven processes, none of them a compiler — and criterion 7's withdrawn failure
+was withdrawn by repetition rather than by a verdict. **The hazard is real and
+there is no evidence it fired.** Future readings are taken through the fixed
+guard, and a reading that straddles the two is not comparable.
+
+### What the protocol should have said
+
+F135's protocol says a measurement must be taken on a quiet host and names the
+agent itself as a possible contaminant. It does not say that **another agent
+session on the same machine** is one, which is how this was found: the host was
+not quiet for twenty-two consecutive probes, and the cause was work this session
+neither started nor could stop.
+
 ## F144 — `$` is an alias no program can call, in the reference and in Bund2
 
 **An original-implementation defect, reproduced faithfully.** Found 2026-09-29
