@@ -1,0 +1,41 @@
+# golden for tests/probes/debug-dump.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: debug.dump of an INT is eight native-endian bytes
+|87d61200 00000000|                   ........         00000000
+                                                       00000008
+|ffffffff ffffffff|                   ........         00000000
+                                                       00000008
+|00000000 00000000|                   ........         00000000
+                                                       00000008
+probe: debug.dump of a FLOAT is eight bytes
+|00000000 00000440|                   .......@         00000000
+                                                       00000008
+probe: debug.dump of a BOOL is one byte, and the two differ
+|01|                                  .                00000000
+                                                       00000001
+|00|                                  .                00000000
+                                                       00000001
+probe: debug.dump of a STRING is the string's own bytes
+|68656c6c 6f|                         hello            00000000
+                                                       00000005
+|30313233 34353637 38396162 63646566| 0123456789abcdef 00000000
+                                                       00000010
+|30313233 34353637 38396162 63646566| 0123456789abcdef 00000000
+|30313233|                            0123             00000010
+                                                       00000014
+|6120627e 2063|                       a b~ c           00000000
+                                                       00000006
+                                                       00000000
+probe: it peeks, so everything above was still there to drop
+|2a000000 00000000|                   *.......         00000000
+                                                       00000008
+╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Value { id: "<id>", stamp: <stamp>, dt: 2, q: 100.0, data: I64(42), attr: [], curr: -1, tags: {"stack": "main"} } │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭╮
+╰╯

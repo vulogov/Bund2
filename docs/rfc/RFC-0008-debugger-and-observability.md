@@ -429,6 +429,18 @@ capture and still unpinnable, which is `debug`'s case.
    criteria 1, 2 and 4 by demanding a fixed ratio. The claim is that no golden
    that passed before fails after, per golden, and that CEILING moves only by
    deviations this RFC records.
+
+   **Met, 2026-10-01: 109/118 ceiling 109/118 before, 110/119 ceiling 110/119
+   after**, in the default build and under `--features jit`. The denominator
+   grew by exactly the one probe criterion 3 added, the numerator with it, and
+   the nine approved deviations are the same nine — **this RFC has recorded
+   none**, so the ceiling moved only with the denominator. COVERAGE 395 → 396
+   and IMPLEMENTED 399 → 400, which is criterion 5's table read back from the
+   binary rather than predicted.
+
+   Also unmoved by §D1's safepoint and §D6's declined tier, each measured when
+   it landed: a branch nothing takes and a tier that is not installed must not
+   change what a program means, and 109/118 held across both.
 5. **Coverage moves by ten, or the difference is named word by word.** The first
    draft said "moves by exactly ten, or the difference is explained", which
    cannot fail — any outcome is explicable. This version requires the ten words
