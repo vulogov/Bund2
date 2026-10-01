@@ -39,11 +39,14 @@ fn run_at(script: &std::path::Path, threshold: &str) -> (String, Option<i32>, St
         .expect("bund2 runs");
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
-    // `--stats` may go to either stream; the caller only wants the line.
+    // `--stats` may go to either stream; the caller only wants the line. **Both
+    // shapes count**: a build with a tier reports `tier compiled …`, and one
+    // without reports `no tier`. Matching only the first made a default build
+    // indistinguishable from a missing `--stats`.
     let stats = stdout
         .lines()
         .chain(stderr.lines())
-        .find(|l| l.contains("tier compiled"))
+        .find(|l| l.contains("tier compiled") || l.contains("no tier"))
         .unwrap_or_default()
         .to_string();
     let program_output: String = stdout
@@ -80,14 +83,44 @@ fn an_exit_in_an_if_branch_matches_without_the_tier() {
     // itself.** F136 refuses a body with no inlinable site, and the
     // criterion's own program has none — checked, and the reason `PROGRAM`
     // carries `1 2 + drop`.
-    assert!(
-        !tiered_stats.contains("compiled 0 bodies"),
-        "the tier compiled nothing, so this compares Tier 0 with itself: {tiered_stats:?}"
-    );
-    assert!(
-        plain_stats.contains("compiled 0 bodies"),
-        "the control must compile nothing, or the two runs are the same: {plain_stats:?}"
-    );
+    //
+    // **A default build has no tier at all, and that is a case rather than an
+    // assumption.** Without `--features jit` there is no "tier compiled" line
+    // to read: `--stats` says `no tier (built without \`jit\`)`, and the
+    // precondition below was asserting `contains` on an empty string.
+    // Written as an assumption it failed `cargo test --workspace` on a clean
+    // checkout, which is worse than not testing it — a known-red test
+    // camouflages the next real failure, which is the F109 shape exactly.
+    //
+    // So both builds are asserted, and the criterion's claims about output and
+    // exit code are checked in both. Only the tier *comparison* needs a tier.
+    let tiered_half = if tiered_stats.contains("no tier") {
+        // Asserted rather than assumed, and this is the only place that checks
+        // what `--stats` says when there is nothing to report.
+        assert_eq!(
+            tiered_stats, plain_stats,
+            "without a tier the threshold cannot change what `--stats` reports"
+        );
+        assert!(
+            tiered_stats.contains("built without `jit`"),
+            "a build with no tier must say why: {tiered_stats:?}"
+        );
+        false
+    } else {
+        assert!(
+            !tiered_stats.is_empty(),
+            "`--stats` reported neither a tier nor its absence"
+        );
+        assert!(
+            !tiered_stats.contains("compiled 0 bodies"),
+            "the tier compiled nothing, so this compares Tier 0 with itself: {tiered_stats:?}"
+        );
+        assert!(
+            plain_stats.contains("compiled 0 bodies"),
+            "the control must compile nothing, or the two runs are the same: {plain_stats:?}"
+        );
+        true
+    };
 
     assert_eq!(
         plain_code,
@@ -110,4 +143,14 @@ fn an_exit_in_an_if_branch_matches_without_the_tier() {
         1,
         "`times` must not run a second iteration after the exit: {plain:?}"
     );
+
+    // Said once, at the end, so a default run reports what it did and did not
+    // cover rather than looking like the full row.
+    if !tiered_half {
+        eprintln!(
+            "exit_tier: no tier in this build, so criterion 30's output and exit \
+             code are checked and the tier comparison is not. Run with \
+             `--features jit` for the other half."
+        );
+    }
 }
