@@ -507,6 +507,48 @@ capture and still unpinnable, which is `debug`'s case.
     5% band, against the baseline below — **which is taken, as of 2026-09-30**.
     What remains is the second half, after the check exists.
 
+    **Met, 2026-10-03.** Three CLEAN windows against the 2026-09-30 baseline,
+    with §D1's safepoint in place and §D2's field not yet added — so this one
+    reading is criterion 11's *after* and criterion 12's *before*.
+
+    | row | A | B | C | mean | vs baseline | spread |
+    |---|---|---|---|---|---|---|
+    | `startup/parse/mixed` | 4.344 µs | 4.200 µs | 4.174 µs | 4.239 µs | **−1.29%** | 4.1% |
+    | `dispatch/dup_drop/w3000` | 84.060 µs | 83.525 µs | 86.739 µs | 84.775 µs | **+1.41%** | 3.8% |
+    | `dispatch/native_call/w4000` | 94.130 µs | 95.511 µs | 91.863 µs | 93.835 µs | **−0.49%** | 4.0% |
+    | `dispatch/literal_only/w1000` | 15.359 µs | 15.576 µs | 15.175 µs | 15.370 µs | **+2.49%** | 2.6% |
+    | `startup/registry/register_all` | 44.084 µs | 45.117 µs | 42.330 µs | 43.844 µs | +0.92% | 6.6% |
+    | `dispatch/literal_push/w2000` | 44.543 µs | 47.289 µs | 46.257 µs | 46.030 µs | **+5.77%** | 6.2% |
+
+    **The four rows that can carry a claim are all inside the band**, the
+    largest being `literal_only` at +2.49%. Guard verdicts: `peak=12.3%
+    (Brave)`, `peak=5.3% (claude)`, `peak=8.6% (launchd)`, means 2.8–2.9%.
+
+    **`literal_push` reads +5.77%, outside the band, and it is one of the two
+    rows this document already disqualified** — "a 4% move there is
+    indistinguishable from another Tuesday", and neither criterion "may rest a
+    verdict on those two rows". Its spread between clean runs was 4.8% at
+    baseline and is 6.2% now, so the move is smaller than the row's own
+    variation. It is reported rather than omitted, because a disqualified row
+    that is quietly dropped the one time it reads badly is how a band gets
+    adjusted until a verdict lands.
+
+    **What the reading does *not* support is "costs nothing".** `literal_only`
+    moved +2.49% with a 2.6% spread of its own — at baseline that row had a
+    0.5% spread and was the sharpest instrument here; it is blunter today. So
+    the honest claim is the one the criterion makes and no more: **the per-step
+    branch is inside the 5% band on every row that can carry a verdict.**
+    Resolving it to zero would need a sharper instrument than this host has.
+
+    **What it cost, for the next attempt.** Eighteen windows were skipped
+    before the first was opened — a second agent session on this machine
+    building and then running an unrelated project, at 100% for six consecutive
+    probes and above 1300% for eight more. Once the host freed, the first three
+    attempts were all CLEAN. **That is the opposite of 2026-09-30's three CLEAN
+    out of seventeen**, and the difference was not patience within a window but
+    waiting for the machine: the contaminant was one process, and nothing about
+    the protocol mattered until it exited.
+
     **`dispatch` is the group that decides this and `startup` is the control.**
     The check runs per step, so it compounds where steps do; `startup` carries
     `registry/register_all` at ~41.8 µs and `parse/mixed` at ~4.3 µs, neither of
