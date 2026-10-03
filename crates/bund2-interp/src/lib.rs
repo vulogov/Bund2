@@ -524,7 +524,6 @@ fn frame_items(v: &BundValue) -> Option<&[BundValue]> {
     v.as_lambda().or_else(|| v.as_list())
 }
 
-/// The interpreter.
 /// One body being executed, and how far through it we are.
 ///
 /// **RFC-0003 §S4.** A frame carries the body, an instruction pointer, and an
@@ -563,6 +562,39 @@ enum ExitAction {
     ToStack(String),
 }
 
+/// The interpreter.
+///
+/// **It is not `Send`, and that is load-bearing — RFC-0007 §C8 criterion 9.**
+/// It holds `Box<dyn Reporter>` and, through every value, `Rc<HeapValue>`.
+/// Three designs rest on it: D84 has the host own threads rather than futures,
+/// RFC-0008 §D1 has the debuggee inspect itself because a debugger thread may
+/// not touch it, and D86 has the bus carry bytes because nothing else can
+/// cross. If this type ever became `Send`, those three would silently describe
+/// a constraint that had stopped existing.
+///
+/// So the compiler holds the claim rather than a comment:
+///
+/// ```compile_fail
+/// fn needs_send<T: Send>(_: T) {}
+/// needs_send(bund2_interp::Interp::new());
+/// ```
+///
+/// **With a positive control, because `compile_fail` passes for any reason** —
+/// a misspelled path or a constructor that moved would make the block above
+/// succeed while proving nothing. This one must compile, so the two together
+/// say that the path resolves, the constructor exists, and the *only* thing
+/// wrong with the first block is the `Send` bound:
+///
+/// ```
+/// fn needs_send<T: Send>(_: T) {}
+/// needs_send(7u32);
+/// let _ = bund2_interp::Interp::new();
+/// ```
+///
+/// **Doctests, deliberately.** There is no stable way to assert the *absence*
+/// of an impl from inside a normal test, and a positive test of the three
+/// fields would pass a refactor that replaced them with something else that
+/// is also not `Send`.
 pub struct Interp {
     /// Contexts opened by `( … )` and not yet closed, each with the stack to
     /// restore. **Separate from the stack-of-stacks on purpose** — the
@@ -2483,11 +2515,7 @@ mod tests {
         assert_eq!(i.depth(), 1);
     }
 
-    /// **F96.** A native that files a tail request and then fails leaves no
-    /// request behind. Before the fix the request waited in `pending_tail`, and
-    /// the next evaluation ran the body first — a body nobody asked for, run
-    /// after its caller's error had been dealt with.
-    #[test]
+    /// **RFC-0008 criterion 12's other half: the size, pinned.**
     #[test]
     fn a_frame_is_the_size_it_was_measured_at() {
         // **RFC-0008 criterion 12's other half.** A frame is pushed per call,
@@ -2507,6 +2535,10 @@ mod tests {
         );
     }
 
+    /// **F96.** A native that files a tail request and then fails leaves no
+    /// request behind. Before the fix the request waited in `pending_tail`, and
+    /// the next evaluation ran the body first — a body nobody asked for, run
+    /// after its caller's error had been dealt with.
     #[test]
     fn every_writer_of_the_request_cell_is_named() {
         // **RFC-0005 assumption 33, the seventeenth review's B1.** Every

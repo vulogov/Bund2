@@ -3547,6 +3547,87 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D91 — a shared compile service against D60's per-`Interp` module
+
+§C8 records this and declines to take it: "That is a decision, and it is not
+this RFC's to take." It is now a decision entry, so a work item can be blocked
+on it rather than discovering it.
+
+- Blocks: RFC-0007 §C8's reach — not whether the second VM can be built, only
+  how far several VMs can be driven before the tier wastes work in proportion
+  to their number
+- Default: **keep the per-`Interp` form**, on the measurement below
+- Status: **OPEN**
+
+### What the research says, and what Bund2 did instead
+
+`docs/research/01-extensibility-async.md` §2.6 calls the per-VM module "Bad"
+under concurrency in terms: "every thread recompiles the same hot words and
+every thread's code memory grows independently… N threads means N× the
+unbounded growth". It recommends **one shared compile service** — a
+`Mutex<JITModule>` on a dedicated task — and notes that only that makes the
+code-memory cap "a single enforceable number". §2.7 lists it as "required under
+concurrency".
+
+**Bund2 has the per-VM form deliberately.** D60 derives it from a lifetime:
+compiled code dies with its `Interp`. RFC-0005 criterion 23 turns that into a
+test — "a body compiled for one `Interp` is never run by another", which "fails
+for any cache, module or cell shared across `Interp`s". Neither is reversible
+by RFC-0007.
+
+### Why the default is the status quo, measured rather than assumed
+
+**N× growth over N VMs that compile nothing is N× zero.** D85 bounds the VM
+count at tens; **F139 found that no program in `tests/golden/HERMETIC.txt`
+compiles a single body even at threshold 64**, because they run once; and D74
+set the shipped threshold to 1024. So the cost the research names is real in
+principle and currently unmeasurable in practice.
+
+It is **bounded in practice and unbounded in principle**, since RFC-0005 §S4
+reclaims no code memory at all. The trigger, recorded so it is not
+rediscovered: **a workload where several VMs each tier up the same hot word.**
+
+Trading criterion 23's invariant for a saving that measures zero is the wrong
+order, and it is the order D75 already applied once — D68's crossing was
+withdrawn from the shipped build because the measurement said it cost ~1.7 ns a
+call rather than saving.
+
+### The options
+
+1. **Keep per-`Interp` modules.** Criterion 23 intact, compiled code's lifetime
+   stays a consequence of ownership, and N VMs that tier up one hot word do N×
+   the compile work and hold N× the code memory.
+2. **One shared compile service**, as the research asks. It collides with
+   criterion 23 head-on: a shared module means a body compiled under one
+   `Interp`'s cells being callable from another, which is the failure that
+   criterion names. It is not only a refactor — **§S6's mirror cells are
+   per-`Interp`**, and compiled code reads them, so sharing emitted code
+   requires the cells to become a parameter of the call rather than a property
+   of the compiler. That is a change to RFC-0005's addressing, not to RFC-0007.
+3. **Share the compile *work*, not the emitted code.** One translation of a
+   body to Cranelift IR, cached by the body's `payload_key` (D42, D35), with
+   each `Interp` still emitting and owning its own code. Recovers most of the N×
+   *compile time* and none of the N× *memory*, and **criterion 23 is untouched**
+   because nothing emitted is shared. Worth naming because it is the cheapest
+   thing to do first if the trigger appears, and nothing in the registers has
+   considered it.
+4. **Attack the unboundedness instead of the sharing** — give §S4 a reclaim
+   path and a global code-memory cap. Orthogonal to how many modules there are,
+   and it is what makes the cap "a single enforceable number" whether or not
+   the module is shared.
+
+### The recommendation
+
+**Option 1 until the trigger is observed, and option 3 before option 2 when it
+is.** The ordering is the substance: the research jumped from "per-VM is bad" to
+"share the module", and option 3 sits between them — it takes the compile-time
+half of the win without surrendering the invariant that makes compiled code's
+lifetime sound.
+
+**What would change this**: a measurement, not an argument. Two VMs, the same
+hot word, at a threshold either reaches — and the figure to beat is the one
+`compiled_bodies()` and `compiled_entries()` already report per `Runtime`.
+
 ## D90 — what a `log.*` line looks like, now that the oracle's cannot be reproduced
 
 RFC-0008 criterion 2 claims `log.error`'s emitted line is checkable against the

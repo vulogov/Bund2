@@ -4012,6 +4012,60 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F146 — a commit shipped with an honesty test silently disabled
+
+**A Bund2 defect, in the repository rather than the interpreter.** Found
+2026-10-03, one commit after it was introduced.
+
+`410a4b8` added `a_frame_is_the_size_it_was_measured_at` by inserting it
+*between* an existing `#[test]` and the function that attribute belonged to.
+The result compiled and read correctly:
+
+    #[test]
+    #[test]
+    fn a_frame_is_the_size_it_was_measured_at() { … }
+
+    fn every_writer_of_the_request_cell_is_named() { … }
+
+So the size test was registered **twice** and
+`every_writer_of_the_request_cell_is_named` was registered **not at all**. The
+suite reported 62 passing where it should have reported 62 — the same number,
+one test double-counted and one absent — and that commit was reported as
+"workspace tests clean".
+
+**What makes it worth an entry is which test it was.** In that same commit,
+`every_writer_of_the_request_cell_is_named` had just caught a real consequence
+of §D2: `request_tail` stopped writing the request cell and `request_tail_for`
+started. The test earned its keep and was then switched off by the edit that
+followed it, so for one commit the derivation RFC-0005 depends on was not
+being derived.
+
+**This is the third occurrence of the same edit hazard.** A scripted insertion
+that lands between an attribute and its function; twice before it deleted the
+attribute, this time it duplicated it.
+
+**Disposition: FIX.** Fixed by reattaching both — the size test gets its own
+`#[test]`, and F96's doc comment goes back above the function it describes,
+which the same edit had also orphaned onto the wrong test.
+
+### No new lint, because both halves are already caught
+
+- **The duplicate** is `clippy::duplicate_macro_attributes`, on by default, and
+  it is what found this. The workspace is clean-at-zero warnings, so the guard
+  was in place and sufficient.
+- **The opposite slip** — an attribute deleted rather than duplicated — leaves
+  a private function nothing calls, which `dead_code` reports.
+
+So nothing was missing except running them: clippy was not run between adding
+the test and committing. The lesson is a sequencing one and is recorded here
+rather than as tooling, because adding a check that duplicates two existing
+lints would be the wrong response to a step that was skipped.
+
+**What it does not invalidate.** The writer set `410a4b8` corrected is correct —
+it was derived by a passing run *before* the size test was added, and it passes
+again now that both tests run. Nothing else in that commit depended on the
+disabled test.
+
 ## F145 — the measurement guard excluded every compile, including other people's
 
 **A Bund2 defect, in the instrument rather than the interpreter.** Found

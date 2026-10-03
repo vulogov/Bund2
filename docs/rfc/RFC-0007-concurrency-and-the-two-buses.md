@@ -1,15 +1,38 @@
 # RFC-0007: Concurrency, and the two buses
 
-- Status: **Draft**, revised 2026-10-01 after the first adversarial review
-  (`docs/rfc/reviews/RFC-0007-review-2026-10-01.md`), which found **four
-  blockers** — two of them errors in measurements this document claimed to have
-  taken against the oracle. **It cannot be proposed**: the eight words are out
-  of scope under **D28** and need a decision (§C7), and nothing in it involves a
-  second VM (§C8). The reasons the first draft gave for staying a Draft were not
-  these.
+- Status: **Draft**, revised 2026-10-03. **Both reasons the previous status gave
+  are now false**, and that line survived three sessions after they stopped being
+  true — the failure this repository has paid for twice, where a status nothing
+  contradicts is read as authoritative (see F109's addendum). It read: "the eight
+  words are out of scope under **D28** and need a decision (§C7), and nothing in
+  it involves a second VM (§C8)". **D87 scoped the words in, §C8 was written, and
+  all eight words are implemented, probed and captured** — criteria 1, 2, 3, 5, 6
+  and 8 are met and dated, 4 is deferred and 7 withdrawn.
+
+  **What blocks it now is two things, stated so the next reader does not have to
+  derive them.**
+
+  1. **The criteria do not reach the section they are supposed to govern.** All
+     eight concern the exchange layer, and §C8 says so itself: "every criterion
+     below passes with one VM". Criteria 9–14 are added below to cover the
+     second VM; one is met, the rest are unwritten code. **This is the first
+     draft's original sin surviving the revision** — it "specified the exchange
+     layer and called it concurrency", and the criteria list went on doing that
+     after the prose was corrected.
+  2. **§C8 records a decision and leaves it there** — a shared compile service
+     against D60's per-`Interp` module. **D91** now carries it. It is not
+     needed to *build* the second VM, only to make several VMs that tier up the
+     same hot word anything other than N× wasteful, so it bounds how far §C8
+     can be taken rather than whether it can start.
+
+  Earlier revisions of this line, kept because the pattern is the subject: the
+  first draft's stated reasons were neither of the above, and the first
+  adversarial review found **four blockers**, two of them errors in measurements
+  this document claimed to have taken against the oracle
+  (`docs/rfc/reviews/RFC-0007-review-2026-10-01.md`).
 - Depends on: RFC-0002 (the word kinds this defines), RFC-0003 (the flat frame
   loop)
-- Decisions consumed: D10, D20, D28, D40, D44, D84, D85, D86, D87
+- Decisions consumed: D10, D20, D28, D40, D44, D84, D85, D86, D87, D88, D91
 - Touched but not consumed: D16, D27, D31
 - Reference SHA: `reference/Bund` at `21b40b0`, per `reference/PINNED.txt`
 - Supersedes: `docs/research/01-extensibility-async.md` §2 in two places, now
@@ -367,6 +390,14 @@ means a body compiled under one `Interp`'s cells being called from another,
 which is precisely what that criterion forbids. **That is a decision, and it is
 not this RFC's to take.** `docs/research/ERRATA.md` records the departure.
 
+**It is now D91**, so a work item can be blocked on it rather than rediscover
+it. D91 adds a third option the research did not consider and this section did
+not either: **share the compile *work* without sharing the emitted code** — one
+translation of a body to Cranelift IR, cached by `payload_key`, with each
+`Interp` still emitting and owning its own. That takes the N× compile-time half
+of the win and leaves criterion 23 untouched, which is why D91 recommends it
+*before* the shared module rather than instead of it.
+
 #### What tens of VMs costs in address space
 
 Each VM thread reserves `EVAL_STACK` — 8 MiB for Tier 0's part, 8 MiB for Tier
@@ -502,6 +533,66 @@ words are in scope and may carry goldens.
    **Met** — a flag cannot appear in a golden, so the assertion is a unit test
    over all eight names (`noio_replaces_every_one_of_the_eight`), checked
    against the oracle's own `--noio` run for each of the three shapes.
+
+### §C8's own criteria — added 2026-10-03, because criteria 1–8 all pass with one VM
+
+§C8 states the gap in terms: "every criterion below passes with one VM". These
+are the ones that cannot. **Each names what would fail if §C8 were wrong**, and
+every one is design rather than preservation — the reference has one VM and
+spawns no threads, so the oracle cannot adjudicate any of them.
+
+9. **`Interp` is not `Send`, and a refactor cannot quietly make it so.**
+   D84's whole shape rests on it: the host owns threads rather than futures, the
+   debuggee inspects itself (RFC-0008 §D1), and the bus carries bytes rather
+   than values because nothing else can cross. If `Interp` ever became `Send`,
+   three documents would silently describe a constraint that had stopped
+   existing. Checked by a `compile_fail` doctest rather than by a comment,
+   because the claim is about the type system and only the compiler can hold it.
+
+   **Met, 2026-10-03** — `crates/bund2-interp/src/lib.rs`, the doctest on
+   `Interp`. It is the one criterion here that needed no new code.
+
+10. **A host spawns N VM threads and each declares its own stack region with
+    its own Tier 1 share**, asserted by `compiled_entries()` reading `> 0` on
+    **every** thread rather than in aggregate. §C8 names this as the lesson
+    criterion 18 and `compiled_entries` exist for: a thread that declares no
+    share puts the Tier 1 floor above its own stack top, so every compiled body
+    declines at entry while every figure still reports success. A sum over
+    threads would be satisfied by one thread compiling and N−1 declining, which
+    is exactly the failure being guarded.
+
+11. **A value sent on one VM thread is received on another**, which is the
+    first test the bus has had of being a bus. Criteria 1 and 2 exercise
+    `send`/`recv` within one VM — the reference's own shape, "a queue from a VM
+    to itself" — so neither can fail if `PIPES` were per-VM instead of
+    process-global. This one can.
+
+12. **`bus.data` is advisory across threads, and the race is tolerated rather
+    than fixed.** §C8 states it: `ensure_bus` releases the lock before the
+    caller acts, so under several VMs a `true` answer may be followed by
+    `NODATA`. The criterion is that this is *asserted* — a test that observes
+    the interleaving and accepts it — not that it is prevented. Preventing it
+    would mean a `bus.data`/`recv` pair the reference does not have, which is
+    new behaviour and a deviation, and the corpus's own
+    `internal_bus_demo.bund` is written as a `bus.data`-guarded drain loop that
+    is correct only because it has one VM.
+
+13. **The `async fn` façade does not block the executor** — research (a), rated
+    "do it". A VM runs on its own thread and the façade awaits it, so an
+    executor driving two VM façades makes progress on both. What would fail:
+    an implementation that ran `eval` inside the future.
+
+14. **The VM count is bounded and the bound is the owner's** (D85, tens of
+    VMs). A host takes N, refuses what it cannot afford, and the per-VM cost is
+    the one D85 measured — ~96 bytes a slot over ~396 names, about 75 KiB of
+    word table per VM. What would fail: a host that spawns on demand with no
+    ceiling, which turns D85's measured bound into a comment.
+
+**Conformance and coverage are unmoved by all six**, and that is a claim rather
+than an omission: §C8 adds no word. `cargo xtask conform` must read exactly what
+it read before — the invariant the health metric exists for — and `coverage`
+cannot move either, because the denominator is the reference's registry and the
+reference has no concurrency vocabulary at all.
 
 ## Open questions
 
