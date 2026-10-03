@@ -2372,7 +2372,7 @@ registry:
 - one **request cell** (§S5, *A call may leave a body to run*), mirroring
   whether a tail request is pending, and in the same allocation as the two
   above. **The cell and `Interp::pending_tail` are written together, by one
-  set of writers** (the seventeenth review's B1): `request_tail` sets both,
+  set of writers** (the seventeenth review's B1): `request_tail_for` sets both,
   `take_pending` clears both, `Interp::invoke` clears both when a native fails
   (F96), the drain helper clears both when the floor refuses it, and
   `status_of` clears both whenever it answers an error. The last two reach
@@ -2380,6 +2380,14 @@ registry:
   is private to `Interp` and a compiled call never passes through it. A clear
   that reached the mirror alone would leave Tier 0 holding a body its next
   `take_pending` would run, which is the fifteenth review's B1 unfixed;
+
+  **The first of those names changed on 2026-10-03** and the derivation is
+  what caught it: RFC-0008 §D2 gave a tail request a symbol to carry, so
+  `request_tail` delegates to `request_tail_for` and writes neither cell
+  itself. The set is the same size and the pairing is intact. This is the third
+  time this list has been wrong in this document, and the second time the
+  derived test rather than a reader found it — which is the argument for
+  deriving it;
 **Dated note, 2026-09-13 — three of the four cell families are built, and
 nothing reads them yet.** `bund2_api::Cells` is the single allocation this
 section describes: `autoadd`, the current-stack `epoch` and the `request`

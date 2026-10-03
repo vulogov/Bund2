@@ -562,6 +562,65 @@ capture and still unpinnable, which is `debug`'s case.
     compare against; **the baseline is now taken** and the four usable rows are
     named below.
 
+    **Met, 2026-10-03, for the symbol — and the span half is withdrawn from
+    this criterion.** `Frame` gained `who: Option<Symbol>` and nothing else,
+    because §D2 says why a span cannot be added yet: `lower_with_spans` is top
+    level only, so no value inside a body carries one, and producing them is
+    the IR RFC-0003 §S5 describes and that does not exist. A field with no
+    possible writer would have made this criterion measure a permanent `None`
+    and need re-measuring the day the IR landed and the field began to be
+    written. **So this is one word, not two**, and the span's cost is owed to
+    whichever work item produces spans.
+
+    `Frame` is **48 → 56 bytes**, measured on the tree either side of the
+    change and pinned in `a_frame_is_the_size_it_was_measured_at`, so a later
+    field cannot arrive unnoticed between two benchmark runs. `Symbol` is a
+    `u32` with no niche, so `Option<Symbol>` costs eight bytes rather than
+    four; a `NonZeroU32` would halve it inside existing padding and is **not**
+    done, because the reading below did not ask for it and shrinking a field to
+    fit a measurement nobody needed is the wrong order.
+
+    **Three CLEAN windows, against criterion 11's reading as the *before*.**
+    One attempt was discarded at `peak=128.4% (PerfPowerServices)`; the three
+    kept read `peak=6.9% (dasd)`, `peak=9.1% (Tailscale)`, `peak=5.6%
+    (macmon)`, means 2.7–2.9%.
+
+    | row | A | B | C | mean | vs criterion 11 | spread |
+    |---|---|---|---|---|---|---|
+    | `startup/parse/mixed` | 4.236 µs | 4.251 µs | 4.196 µs | 4.228 µs | **−0.26%** | 1.3% |
+    | `dispatch/dup_drop/w3000` | 80.031 µs | 84.005 µs | 80.469 µs | 81.502 µs | **−3.86%** | 5.0% |
+    | `dispatch/native_call/w4000` | 93.836 µs | 90.365 µs | 93.611 µs | 92.604 µs | **−1.31%** | 3.8% |
+    | `dispatch/literal_only/w1000` | 15.671 µs | 15.775 µs | 14.552 µs | 15.333 µs | **−0.24%** | 8.4% |
+    | `startup/registry/register_all` | 42.203 µs | 42.762 µs | 41.567 µs | 42.177 µs | −3.80% | 2.9% |
+    | `dispatch/literal_push/w2000` | 42.471 µs | 45.321 µs | 43.203 µs | 43.665 µs | **−5.14%** | 6.7% |
+
+    All four rows that can carry a claim are inside the band. `literal_push` is
+    again outside it, at −5.14%, and is again one of the two rows this document
+    disqualified — this time in the *fast* direction, which is the clearest
+    possible demonstration that the row measures the host rather than the code.
+
+    **Every usable row moved negative**, after a change that can only add work:
+    eight more bytes written per frame push. A field that made the interpreter
+    faster is not a finding, it is drift — two readings twenty minutes apart on
+    the same host, with the slower one taken first. So the verdict this
+    criterion can state is **no detectable cost**, not a percentage.
+
+    **The instrument is degrading, and that is the reading worth keeping.**
+    `literal_only`'s spread between clean runs has gone 0.5% → 2.6% → 8.4%
+    across the three sessions. On 2026-09-30 this document called it "the
+    sharpest instrument here"; today it is the noisiest of the four, and a
+    change costing 4% would be invisible in it. Measured end to end — 2026-09-30
+    with neither change against today with both — the four usable rows read
+    −1.55%, −2.51%, −1.80% and +2.24%, every one of them smaller than the
+    spread of some window that produced it.
+
+    **What follows for the next criterion that wants a 5% band on this host.**
+    It cannot have one. Two of six rows were at or below the noise floor when
+    the baseline was taken, and a third has joined them since. A future
+    measurement needs either a quieter machine, more windows per reading, or a
+    different instrument — and deciding which is a decision, not a number to be
+    produced by running the same script again.
+
     ### The protocol both criteria use — written before the numbers, 2026-09-30
 
     Not a style note. RFC-0005's criterion 7 recorded a `dispatch` failure at

@@ -178,18 +178,33 @@ pub(crate) enum Render {
 
 /// One line of a backtrace: what a frame is running and how far through.
 ///
-/// **§D2 is what makes this nameable.** A `Frame` carries a body, an `ip` and
-/// an exit action — enough to *resume* a body and not enough to *say what it
-/// is*, so today a line reads `a lambda at 3`. The symbol a frame was pushed
-/// for is criterion 12's field, and a source position needs the per-value
-/// spans RFC-0003 §S5 describes and that `lower_with_spans` says do not exist.
-pub fn frame_line(body: &BundValue, ip: usize, depth: usize) -> String {
-    let what = match body.dt() {
-        bund2_value::LAMBDA => "a lambda",
-        bund2_value::LIST => "a body assembled at run time",
-        _ => "a body",
-    };
-    format!("#{depth}  {what} at {ip}")
+/// **§D2's field is what makes this a name.** A `Frame` carries a body, an
+/// `ip` and an exit action — enough to *resume* a body and not enough to *say
+/// what it is* — so before the symbol landed every line read `a lambda at 3`.
+/// With it, a frame pushed for a word reads `#1  w at 3`.
+///
+/// **A body no word names still reads the old way, and that is not a
+/// shortfall.** A `( … )` scratch context, a LIST assembled at run time and a
+/// lambda a native handed to `eval_lambda` belong to no symbol — D16's
+/// consequence — so the line says what the body *is* rather than inventing a
+/// caller for it.
+///
+/// **There is still no source position**, and §D2 says why: `lower_with_spans`
+/// is top level only, so no value inside a body carries one, and producing
+/// them is the IR RFC-0003 §S5 describes and that does not exist. A backtrace
+/// gives a word and a value index today.
+pub fn frame_line(body: &BundValue, ip: usize, depth: usize, who: Option<&str>) -> String {
+    match who {
+        Some(name) => format!("#{depth}  {name} at {ip}"),
+        None => {
+            let what = match body.dt() {
+                bund2_value::LAMBDA => "a lambda",
+                bund2_value::LIST => "a body assembled at run time",
+                _ => "a body",
+            };
+            format!("#{depth}  {what} at {ip}")
+        }
+    }
 }
 
 #[cfg(test)]
@@ -406,16 +421,106 @@ mod tests {
         }
     }
 
-    /// A backtrace line says what it can and no more — **§D2 is what makes it
-    /// a name.** Pinned so the §D2 commit has to change it deliberately.
+    /// **§D2's field, from the rendering side.** A frame pushed for a word
+    /// names it; one pushed for a body no word owns says what the body is
+    /// rather than inventing a caller.
+    ///
+    /// This test is the one §D1 pinned deliberately so that this commit had to
+    /// change it.
     #[test]
-    fn a_frame_line_names_the_shape_because_it_cannot_name_the_word() {
+    fn a_frame_line_names_the_word_when_a_word_named_it() {
         let lam = BundValue::lambda(vec![]);
-        assert_eq!(frame_line(&lam, 3, 0), "#0  a lambda at 3");
+        assert_eq!(frame_line(&lam, 3, 0, Some("w")), "#0  w at 3");
+        assert_eq!(frame_line(&lam, 3, 0, None), "#0  a lambda at 3");
         let list = BundValue::list(vec![]);
         assert_eq!(
-            frame_line(&list, 0, 2),
+            frame_line(&list, 0, 2, None),
             "#2  a body assembled at run time at 0"
+        );
+    }
+
+    /// **A backtrace over a real frame stack names the word that was called.**
+    /// The rendering test above cannot show that the symbol *arrives*; this
+    /// runs a word whose body stops at a safepoint and reads the answer.
+    #[test]
+    fn a_backtrace_taken_inside_a_word_names_it() {
+        /// Asks for a backtrace at every safepoint, keeping the answers.
+        struct Nosy(std::rc::Rc<std::cell::RefCell<Vec<String>>>, bool);
+
+        impl Console for Nosy {
+            fn next_command(&mut self) -> Option<Command> {
+                // One backtrace, then move on — otherwise this never resumes.
+                if self.1 {
+                    self.1 = false;
+                    Some(Command::Backtrace)
+                } else {
+                    self.1 = true;
+                    Some(Command::Step)
+                }
+            }
+            fn answer(&mut self, text: &str) {
+                self.0.borrow_mut().push(text.to_string());
+            }
+        }
+
+        // **A word registered as a lambda**, which is the path that carries a
+        // symbol: `dispatch`'s `Resolved::Lambda` arm resolves the name and
+        // files the request *for* it. The native in `with_body_word` goes
+        // through `tail_lambda`, where there is no symbol to carry — a native
+        // building a body is not a word calling one, and the `None` arm of
+        // `frame_line` is for exactly that.
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut i = Interp::new();
+        i.registry.register_lambda(
+            "named",
+            BundValue::lambda(vec![BundValue::int(8), BundValue::int(9)]),
+        );
+        i.attach_debugger(Box::new(Nosy(seen.clone(), true)));
+        i.eval(&[BundValue::int(1), BundValue::call("named")])
+            .expect("runs");
+
+        let all = seen.borrow().join("");
+        assert!(
+            all.contains("#0  named at"),
+            "no frame named the word that was called:\n{all}"
+        );
+        assert!(
+            all.contains("#0  the top-level stream"),
+            "the top level must say what it is:\n{all}"
+        );
+    }
+
+    /// **A body no word named still says what it is.** The native path files a
+    /// request with no symbol, which is correct rather than a gap: a lambda a
+    /// native built belongs to nobody, and a backtrace that guessed a caller
+    /// would be worse than one that declines.
+    #[test]
+    fn a_body_no_word_named_is_not_given_one() {
+        struct Nosy(std::rc::Rc<std::cell::RefCell<Vec<String>>>, bool);
+        impl Console for Nosy {
+            fn next_command(&mut self) -> Option<Command> {
+                self.1 = !self.1;
+                if self.1 {
+                    Some(Command::Backtrace)
+                } else {
+                    Some(Command::Step)
+                }
+            }
+            fn answer(&mut self, text: &str) {
+                self.0.borrow_mut().push(text.to_string());
+            }
+        }
+
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let (mut i, s) = with_body_word();
+        i.attach_debugger(Box::new(Nosy(seen.clone(), false)));
+        i.eval(&program(s)).expect("runs");
+
+        let all = seen.borrow().join("");
+        assert!(all.contains("#0  a lambda at"), "{all}");
+        assert!(
+            !all.contains("runbody"),
+            "the native's own name is not the body's: {all}"
         );
     }
 }

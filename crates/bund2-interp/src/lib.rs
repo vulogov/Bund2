@@ -540,6 +540,21 @@ struct Frame {
     ip: usize,
     /// Run when this frame is popped, on success **and** on failure.
     exit: Option<ExitAction>,
+    /// **The symbol this frame was pushed for — RFC-0008 §D2.**
+    ///
+    /// The body and the `ip` are enough to *resume* a body and not enough to
+    /// *name* it, so a backtrace read `a lambda at 3`. This is what makes it
+    /// `#1  w at 3`.
+    ///
+    /// `None` for a body that no word names: a `( … )` scratch context, a
+    /// LIST assembled at run time, a lambda a native handed to `eval_lambda`.
+    /// A backtrace says so rather than inventing a caller — D16's consequence,
+    /// and the same reason `bt` cannot give a source location for such a body.
+    ///
+    /// **A frame is pushed per call, so this is the one field RFC-0008 adds to
+    /// a hot structure**, and criterion 12 measures it against RFC-0005
+    /// criterion 7's band rather than assuming it free.
+    who: Option<Symbol>,
 }
 
 /// What a frame does on the way out.
@@ -565,6 +580,14 @@ pub struct Interp {
     /// request, in its tail-position form. The native sets it and returns; the
     /// loop pushes a frame. Nothing recurses.
     pending_tail: Option<BundValue>,
+    /// **Which word the pending body belongs to — §D2.** Set beside
+    /// `pending_tail` and cleared with it, so a frame pushed for a word's
+    /// lambda knows its name and one pushed for an anonymous body does not.
+    ///
+    /// Separate from `pending_tail` rather than tupled into it so that
+    /// `Option<BundValue>`'s shape, which §S6's mirror and `take_pending` both
+    /// read, is unchanged.
+    pending_who: Option<Symbol>,
     /// **Where bodies start running, by key — RFC-0005 criterion 20.** `None`
     /// in production, so the cost is one branch per body entry. When `Some`,
     /// every frame pushed for a body records that body's `payload_key`, which
@@ -662,6 +685,7 @@ impl Interp {
             reporter: Box::new(bund2_api::diag::SilentReporter),
             frames: Vec::new(),
             pending_tail: None,
+            pending_who: None,
             entry_log: None,
             debug: None,
             effect_audit: None,
@@ -914,7 +938,7 @@ impl Interp {
                 // tail position: nothing in `dispatch` runs after the body. So
                 // it becomes a request, and the loop pushes a frame — Bund
                 // call depth stops being Rust call depth.
-                self.request_tail(body);
+                self.request_tail_for(body, Some(target));
                 Ok(())
             }
             Resolved::Native => {
@@ -1150,10 +1174,21 @@ impl Interp {
     /// call, so depth is bounded by how deeply such natives nest rather than by
     /// how deep the program recurses.
     pub fn request_tail(&mut self, body: BundValue) {
-        if let Some(who) = self.audit_inside {
-            self.audit_breach(who, "declares a fixed effect and filed a tail request");
+        self.request_tail_for(body, None);
+    }
+
+    /// [`Interp::request_tail`], naming the word the body belongs to — §D2.
+    ///
+    /// Only `dispatch` can say this: by the time `take_pending` runs, the
+    /// symbol that resolved to the body is out of scope. So the symbol travels
+    /// with the request rather than being recovered from the body, which could
+    /// not work anyway — two words may share one lambda.
+    pub fn request_tail_for(&mut self, body: BundValue, who: Option<Symbol>) {
+        if let Some(breach) = self.audit_inside {
+            self.audit_breach(breach, "declares a fixed effect and filed a tail request");
         }
         self.pending_tail = Some(body);
+        self.pending_who = who;
         // RFC-0005 §S6's mirror, written with the truth (assumption 33).
         self.cells.set_request(true);
     }
@@ -1162,9 +1197,11 @@ impl Interp {
     fn take_pending(&mut self) -> Result<(), Error> {
         if let Some(body) = self.pending_tail.take() {
             // Cleared **before** the body runs, not after: the body may file a
-            // request of its own, and clearing afterwards would erase it.
+            // request of its own, and clearing afterwards would erase it. The
+            // symbol is taken in the same breath, for the same reason.
+            let who = self.pending_who.take();
             self.cells.set_request(false);
-            return self.push_frame(body, None);
+            return self.push_frame(body, None, who);
         }
         Ok(())
     }
@@ -1175,7 +1212,12 @@ impl Interp {
     ///
     /// Returns `Err` only when a tier ran the body and it failed; an
     /// interpreted body's failure comes later, from `run_to`.
-    fn push_frame(&mut self, body: BundValue, exit: Option<ExitAction>) -> Result<(), Error> {
+    fn push_frame(
+        &mut self,
+        body: BundValue,
+        exit: Option<ExitAction>,
+        who: Option<Symbol>,
+    ) -> Result<(), Error> {
         if let Some(who) = self.audit_inside {
             self.audit_breach(who, "declares a fixed effect and started a body");
         }
@@ -1208,7 +1250,12 @@ impl Interp {
             }
         }
 
-        self.frames.push(Frame { body, ip: 0, exit });
+        self.frames.push(Frame {
+            body,
+            ip: 0,
+            exit,
+            who,
+        });
         Ok(())
     }
 
@@ -1301,7 +1348,13 @@ impl Interp {
         }
         let mut out = String::new();
         for (i, f) in self.frames.iter().enumerate().rev() {
-            out.push_str(&debug::frame_line(&f.body, f.ip, self.frames.len() - 1 - i));
+            let who = f.who.map(|s| self.registry.interner.name(s));
+            out.push_str(&debug::frame_line(
+                &f.body,
+                f.ip,
+                self.frames.len() - 1 - i,
+                who,
+            ));
             out.push('\n');
         }
         out
@@ -1614,7 +1667,8 @@ impl Vm for Interp {
         // key worth keeping (D42).
         // Carries an exit action and a keyless LIST body, so the tier declines
         // it by construction — see `push_frame`.
-        self.push_frame(BundValue::list(body), Some(ExitAction::ToStack(prev)))?;
+        // A `( … )` context is nobody's word, so the frame carries no symbol.
+        self.push_frame(BundValue::list(body), Some(ExitAction::ToStack(prev)), None)?;
         self.run_to(floor)?;
         // F112, as in `Interp::apply`.
         self.exit_gate()
@@ -1637,7 +1691,9 @@ impl Vm for Interp {
         // If a tier ran the body, no frame was pushed and `run_to` below finds
         // nothing to do — the body having run without a frame is exactly what
         // the seam's contract promises.
-        self.push_frame(lambda.clone(), None)?;
+        // A lambda a native handed us: the native is on the Rust stack, and the
+        // body it is running belongs to no word.
+        self.push_frame(lambda.clone(), None, None)?;
         // **F112.** `run_to` pops a finished frame without the gate, so a body
         // whose last word is `bund.exit` returns `Ok`, and the native that ran
         // it went on: `map` collected, `input*` read another line. D52 says
@@ -1906,6 +1962,16 @@ impl Vm for Interp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What a `Frame` measures with §D2's symbol in place — **56 bytes, up
+    /// from 48**, measured 2026-10-03 on the tree either side of the change.
+    ///
+    /// `Symbol` is a `u32` with no niche, so `Option<Symbol>` costs eight
+    /// bytes rather than four. Making it a `NonZeroU32` would halve that and
+    /// would land inside `Frame`'s existing padding; it is not done, because
+    /// criterion 12's wall-clock reading did not ask for it and shrinking a
+    /// field to fit a measurement nobody needed is the wrong order.
+    const FRAME_SIZE: usize = 56;
     use bund2_api::{StackEffect, WordKind};
 
     fn eff() -> StackEffect {
@@ -2422,6 +2488,26 @@ mod tests {
     /// the next evaluation ran the body first — a body nobody asked for, run
     /// after its caller's error had been dealt with.
     #[test]
+    #[test]
+    fn a_frame_is_the_size_it_was_measured_at() {
+        // **RFC-0008 criterion 12's other half.** A frame is pushed per call,
+        // so §D2's symbol is the one field this RFC adds to a hot structure.
+        // The wall-clock cost is measured against RFC-0005 criterion 7's band;
+        // this pins the *size*, so a later field cannot arrive unnoticed
+        // between two benchmark runs.
+        //
+        // Printed rather than asserted blind: if this fails, the number in the
+        // message is the new size and the question is whether it was meant.
+        let n = std::mem::size_of::<Frame>();
+        assert_eq!(
+            n, FRAME_SIZE,
+            "a Frame is now {n} bytes, not {FRAME_SIZE}. If that was deliberate, \
+             re-measure criterion 12 and change the constant; a field on this \
+             structure costs one allocation slot per Bund call."
+        );
+    }
+
+    #[test]
     fn every_writer_of_the_request_cell_is_named() {
         // **RFC-0005 assumption 33, the seventeenth review's B1.** Every
         // function whose shipped code writes `pending_tail`. RFC-0005's
@@ -2434,7 +2520,11 @@ mod tests {
             "clear_tail_request",
             // F96: clears one a failing native filed.
             "invoke",
-            "request_tail",
+            // **`request_tail_for`, not `request_tail`** — RFC-0008 §D2 gave
+            // the request a symbol to carry, so the public `request_tail` now
+            // delegates and writes nothing itself. This test is what noticed;
+            // RFC-0005's assumption 33 is corrected to match.
+            "request_tail_for",
             "take_pending",
         ];
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs");
