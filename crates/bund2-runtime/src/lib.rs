@@ -63,11 +63,71 @@ fn threshold_from_env() -> Option<u32> {
         .ok()
 }
 
+/// **Tier 0's part of an evaluation thread's stack — RFC-0005 §S8, F85.**
+///
+/// The size Bund2 ran on before the tier existed (8 MiB). **Not `8 MiB + m`**:
+/// §S8 has Tier 0's part carry a margin `m` under `jit` over every re-entering
+/// path, and says `m` is "a measurement taken when the tier exists, not a
+/// number guessed now". Until then this stays at the tier-off size and the
+/// share below is added *above* it rather than taken out of it, which is what
+/// keeps D44's "never less".
+pub const TIER0_PART: usize = 8 * 1024 * 1024;
+
+/// **Tier 1's share — §S8's proposed default**, added to the region rather
+/// than carved out of Tier 0's part. Zero without the feature, so a default
+/// build asks for exactly the stack it asked for before.
+#[cfg(feature = "jit")]
+pub const TIER1_SHARE: usize = 8 * 1024 * 1024;
+/// Tier 1's share, zero without the feature.
+#[cfg(not(feature = "jit"))]
+pub const TIER1_SHARE: usize = 0;
+
+/// An evaluation thread's stack: Tier 0's part, plus Tier 1's share under
+/// `jit`, plus the reserve beneath the floor.
+pub const EVAL_STACK: usize = TIER0_PART + TIER1_SHARE + bund2_interp::STACK_RESERVE;
+
+/// **Declare the running thread's stack region — call this first on any thread
+/// that will evaluate Bund.**
+///
+/// **A share is declared, never inferred** (§S8, the ninth review's S3).
+/// Declaring through `set_stack_region` instead would leave the share at zero,
+/// putting the Tier 1 floor above the thread's own top so that **every
+/// compiled body declines at entry while every figure still reports success**
+/// — the failure RFC-0005 criterion 18 and `compiled_entries` exist to catch.
+///
+/// **It lives here because there is now more than one caller.** `bund2-cli`'s
+/// `main` spawns one such thread; RFC-0007 §C8's host spawns N. Two copies of
+/// three constants and a two-line call is two chances to omit the share, and
+/// §C8 criterion 10 is precisely the assertion that no thread omitted it. One
+/// function removes the opportunity rather than testing for it.
+///
+/// The thread's stack must have been created with [`EVAL_STACK`] bytes, which
+/// is why both callers pass it to `stack_size`.
+pub fn declare_region() {
+    bund2_interp::set_stack_region_with_share(
+        bund2_interp::stack_marker(),
+        EVAL_STACK,
+        TIER1_SHARE,
+    );
+}
+
 impl Runtime {
     /// An interpreter with the full vocabulary and, under `--features jit`, a
     /// tier installed with §S7's default caps.
     pub fn new() -> Self {
         Self::with_options(&bund2_stdlib::host::HostOptions::default())
+    }
+
+    /// As [`Runtime::new`], with §S7's promotion threshold overridden and the
+    /// default host options.
+    ///
+    /// The threshold is how many evaluations of one body earn it compilation;
+    /// D74 ships 1024, so a short program compiles nothing at all (F139). A
+    /// caller that needs the tier to *act* — a test, a benchmark, RFC-0007
+    /// §C8's host under criterion 10 — says so with this rather than
+    /// constructing `HostOptions` it does not care about.
+    pub fn with_threshold(threshold: Option<u32>) -> Self {
+        Self::with_options_and_threshold(&bund2_stdlib::host::HostOptions::default(), threshold)
     }
 
     /// As [`Runtime::new`], with the host options the CLI passes — `--noio`,

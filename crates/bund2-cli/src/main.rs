@@ -71,28 +71,6 @@ fn pinned_summary() -> String {
 use bund2_api::Vm;
 use bund2_interp::Interp;
 
-/// Tier 0's part of the evaluation thread's stack, sized to the main-thread
-/// stack Bund2 ran on before (8 MiB). RFC-0005 §S8.
-///
-/// **Not `8 MiB + m`.** §S8 has Tier 0's part carry a margin `m` under `jit`,
-/// over every re-entering path, and says `m` is "a measurement taken when the
-/// tier exists, not a number guessed now" — criterion 11 measures it. Until
-/// then this stays at the tier-off size, and the share below is added *above*
-/// it rather than taken out of it, which is what keeps D44's "never less".
-const TIER0_PART: usize = 8 * 1024 * 1024;
-
-/// **Tier 1's share — RFC-0005 §S8's proposed default**, added to the region
-/// rather than carved out of Tier 0's part. Zero without the feature, so a
-/// default build asks for exactly the stack it asked for before.
-#[cfg(feature = "jit")]
-const TIER1_SHARE: usize = 8 * 1024 * 1024;
-#[cfg(not(feature = "jit"))]
-const TIER1_SHARE: usize = 0;
-
-/// The evaluation thread's stack: Tier 0's part, plus Tier 1's share under
-/// `jit`, plus the reserve beneath the floor.
-const EVAL_STACK: usize = TIER0_PART + TIER1_SHARE + bund2_interp::STACK_RESERVE;
-
 /// **Run everything on a thread whose stack Bund2 chose — RFC-0005 §S8, F85.**
 ///
 /// The main thread's stack is the operating system's to size, so Bund2 cannot
@@ -104,18 +82,15 @@ const EVAL_STACK: usize = TIER0_PART + TIER1_SHARE + bund2_interp::STACK_RESERVE
 fn main() -> ExitCode {
     let spawned = std::thread::Builder::new()
         .name("bund2".into())
-        .stack_size(EVAL_STACK)
+        .stack_size(bund2_runtime::EVAL_STACK)
         .spawn(|| {
             // **A share is declared, never inferred** — RFC-0005 §S8, the
-            // ninth review's S3. Declaring through `set_stack_region` would
-            // leave the share at zero, putting the Tier 1 floor above the
-            // thread's top so that every compiled body declines: criterion 2
-            // would then pass with no compiled code having run at all.
-            bund2_interp::set_stack_region_with_share(
-                bund2_interp::stack_marker(),
-                EVAL_STACK,
-                TIER1_SHARE,
-            );
+            // ninth review's S3. `declare_region` is the one place that does
+            // it, now that RFC-0007 §C8's host spawns threads of its own: two
+            // copies of three constants and a two-line call would be two
+            // chances to omit the share, which is the failure criterion 18 and
+            // `compiled_entries` exist to catch.
+            bund2_runtime::declare_region();
             run_cli()
         });
     match spawned {

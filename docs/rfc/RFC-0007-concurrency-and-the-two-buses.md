@@ -12,13 +12,17 @@
   **What blocks it now is two things, stated so the next reader does not have to
   derive them.**
 
-  1. **The criteria do not reach the section they are supposed to govern.** All
-     eight concern the exchange layer, and §C8 says so itself: "every criterion
-     below passes with one VM". Criteria 9–14 are added below to cover the
-     second VM; one is met, the rest are unwritten code. **This is the first
-     draft's original sin surviving the revision** — it "specified the exchange
-     layer and called it concurrency", and the criteria list went on doing that
-     after the prose was corrected.
+  1. **The criteria did not reach the section they are supposed to govern.**
+     All eight concerned the exchange layer, and §C8 says so itself: "every
+     criterion below passes with one VM". **This was the first draft's original
+     sin surviving the revision** — it "specified the exchange layer and called
+     it concurrency", and the criteria list went on doing that after the prose
+     was corrected. Criteria 9–14 now cover the second VM, and **five of the
+     six are met**: §C8's VM host is built (`bund2-async`'s `host` module) and
+     criterion 10 is verified load-bearing rather than merely passing. **What
+     remains is criterion 13**, the `async` façade, which is not blocked on
+     design — it is blocked on whether an executor may enter the default build,
+     a D28 question.
   2. **§C8 records a decision and leaves it there** — a shared compile service
      against D60's per-`Interp` module. **D91** now carries it. It is not
      needed to *build* the second VM, only to make several VMs that tier up the
@@ -561,11 +565,41 @@ spawns no threads, so the oracle cannot adjudicate any of them.
     threads would be satisfied by one thread compiling and N−1 declining, which
     is exactly the failure being guarded.
 
+    **Met, 2026-10-03** — `every_vm_thread_declares_its_own_region_and_share`,
+    four VMs under `--features jit`, each asserted separately.
+
+    **Verified load-bearing**, which matters more than that it passes: with
+    `declare_region()` removed from `Host::spawn` it fails with `VM 0 entered
+    no compiled body, so its share was not declared: Some(0)`. That is §C8's
+    stated failure reproduced on demand, and `Some(0)` rather than `None` is
+    what makes it the right assertion — a tier *exists*, it simply declines
+    everything.
+
+    **The first version of this test passed for the wrong reason**, which is
+    worth recording. `Host::spawn` built `Runtime::new()`, which takes D74's
+    shipped threshold of 1024, so a four-iteration body compiled nothing and
+    every thread read `Some(0)` — F139's finding arriving as a false pass. The
+    host gained `with_jit_threshold` so the tier can be made to act. Had the
+    assertion been "no error" rather than "`> 0`", it would have passed with no
+    compiled code anywhere, which is the shape this criterion is *about*.
+
+    **One function, not two copies.** `TIER0_PART`, `TIER1_SHARE`, `EVAL_STACK`
+    and the two-line declaration moved from `bund2-cli`'s `main` into
+    `bund2_runtime::declare_region`, which both callers now use. Two copies
+    would be two chances to omit the share; this criterion is the assertion
+    that none did, and one function removes the opportunity rather than testing
+    for it.
+
 11. **A value sent on one VM thread is received on another**, which is the
     first test the bus has had of being a bus. Criteria 1 and 2 exercise
     `send`/`recv` within one VM — the reference's own shape, "a queue from a VM
     to itself" — so neither can fail if `PIPES` were per-VM instead of
     process-global. This one can.
+
+    **Met, 2026-10-03** — `a_value_crosses_from_one_vm_to_another`. One VM
+    sends `4242` and exits; a second VM, on a second thread, with its own word
+    table and its own `Rc`s, receives it. What crossed was bytes, which is the
+    whole of D86's reasoning made observable.
 
 12. **`bus.data` is advisory across threads, and the race is tolerated rather
     than fixed.** §C8 states it: `ensure_bus` releases the lock before the
@@ -577,10 +611,25 @@ spawns no threads, so the oracle cannot adjudicate any of them.
     `internal_bus_demo.bund` is written as a `bus.data`-guarded drain loop that
     is correct only because it has one VM.
 
+    **Met, 2026-10-03** — `bus_data_is_advisory_once_there_is_more_than_one_vm`.
+    One value, two VMs racing for it: both may see `true`, exactly one takes the
+    value, and the loser gets `NODATA` **without erroring** — because
+    `bus.data` created the channel, so `bus_pull`'s absent-channel arm cannot
+    fire. The test asserts exactly one `NODATA`, which is the race tolerated
+    rather than prevented.
+
 13. **The `async fn` façade does not block the executor** — research (a), rated
     "do it". A VM runs on its own thread and the façade awaits it, so an
     executor driving two VM façades makes progress on both. What would fail:
     an implementation that ran `eval` inside the future.
+
+    **Not built, and deliberately separable from the host.** `Host` hands back
+    a `Vm<T>` with a blocking `join`, which is all criteria 10, 11, 12 and 14
+    need. Making that awaitable needs **either an executor dependency — a D28
+    question about the default build, not a design question — or a hand-rolled
+    `Future` and waker**, and inventing an executor inside this crate to
+    satisfy a criterion would be the wrong order. The host is useful without
+    it; the façade is owed, and it is owed a dependency decision first.
 
 14. **The VM count is bounded and the bound is the owner's** (D85, tens of
     VMs). A host takes N, refuses what it cannot afford, and the per-VM cost is
@@ -588,8 +637,18 @@ spawns no threads, so the oracle cannot adjudicate any of them.
     word table per VM. What would fail: a host that spawns on demand with no
     ceiling, which turns D85's measured bound into a comment.
 
+    **Met, 2026-10-03** — `the_vm_count_is_bounded_and_the_bound_is_the_owners`.
+    `Host::new` holds D85's 64; `Host::with_limit` takes the owner's and refuses
+    three things: zero, because a host with room for no VM is a configuration
+    error rather than an empty one; a limit beyond 16× the default, with a
+    refusal naming D85, because a four-digit limit set by accident should be
+    refused where it is written rather than discovered as ~300 MB of word
+    tables; and one spawn past the limit.
+
 **Conformance and coverage are unmoved by all six**, and that is a claim rather
-than an omission: §C8 adds no word. `cargo xtask conform` must read exactly what
+than an omission: §C8 adds no word. **Measured 2026-10-03 after the host
+landed: `conform` 110/119 ceiling 110/119, `coverage` 396/505, IMPLEMENTED
+400/505, core 285/286** — every figure identical to the commit before. `cargo xtask conform` must read exactly what
 it read before — the invariant the health metric exists for — and `coverage`
 cannot move either, because the denominator is the reference's registry and the
 reference has no concurrency vocabulary at all.

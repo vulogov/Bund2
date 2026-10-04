@@ -10,5 +10,13 @@ rust-version.workspace = true
 [dependencies]
 bund2-runtime.workspace = true
 
+# **Tests only, so the shipped dependency set stays one crate** — D28. The
+# criteria tests read a VM's final stack, which needs the `Vm` trait and the
+# `NODATA` tag; neither is used by the host itself, which hands a closure a
+# `Runtime` and never looks inside one.
+[dev-dependencies]
+bund2-api.workspace = true
+bund2-value.workspace = true
+
 [lints]
 workspace = true

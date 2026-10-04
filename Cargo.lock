@@ -300,7 +300,9 @@ dependencies = [
 name = "bund2-async"
 version = "0.0.0"
 dependencies = [
+ "bund2-api",
  "bund2-runtime",
+ "bund2-value",
 ]
 
 [[package]]
