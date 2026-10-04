@@ -6111,16 +6111,6 @@ evidence, and this one is listed as runnable rather than as met.
     compilations and hand out finalised pointers as each is defined. The
     criterion runs when that lands.
 
-    **Priced 2026-10-03, by D91's magnitude measurement.** One module per body
-    costs **~30 KiB per compiled body** — a fixed floor, measured at 1.9%
-    spread over three runs on a quiet host — against about 1 KiB for the body
-    itself. The floor is two 16 KiB pages per module, and for a realistic small
-    Bund word it is **~97% of the cost**. So this refactor is not tidiness: 200
-    small bodies cost roughly 6 MB today and roughly 0.2 MB plus one module
-    afterwards. It needs no decision — sharing a module *within* one `Interp`
-    is what this criterion permits, and only sharing *across* them is what it
-    forbids.
-
     **Dated note, 2026-09-13 (2) — it landed, and the criterion runs.** `lower`
     gained a `Compiler`: one `JITModule`, every word emitted into it, and a
     `WordHandle` handed back in place of a self-contained compiled value. A
@@ -6183,6 +6173,39 @@ evidence, and this one is listed as runnable rather than as met.
     earlier note here recorded the module half as unmet because each
     `compile_word_body` built a module of its own; that is no longer how the
     tier compiles.
+
+    **Dated note, 2026-10-03 — a measured cost, and a correction to how it was
+    first read.** D91's magnitude measurement found **~30 KiB of resident
+    memory per compiled body**, a *fixed floor* independent of the body's size,
+    against about 1 KiB for the body itself — so for a realistic small Bund
+    word the floor is ~97% of the cost. Three runs on a quiet host, 1.9%
+    spread; body size varied 1×/8×/32× to separate the floor from the code, at
+    31.60/38.72/58.08 KiB per body.
+
+    **The first reading of that number was wrong and is retracted.** It was
+    attributed to "one `JITModule` per compiled body", citing the superseded
+    note above without reading the two notes that follow it — the mistake
+    CLAUDE.md names in terms, made inside a single document. `Compiler` holds
+    one `Emitter<JITModule>`, a `JitTier` owns one `Compiler`, and the module
+    is shared: that work landed, and this note's own paragraph above says so.
+
+    **What the floor actually is, stated with its uncertainty.**
+    `finalize_definitions` is called **once per compilation**, and each call
+    reserves and finalises its own memory, none of which §S4 ever reclaims
+    (`free_memory` is an `unsafe fn` taking `self` that nothing is in a
+    position to call). At this host's 16 KiB pages a per-compilation region
+    rounded up to two pages would give ~30 KiB. **That is the leading
+    explanation rather than a proven one**: the measurement establishes the
+    cost is per *compiled body* and not per module, and it does not separate
+    page rounding at finalisation from Cranelift's own per-function
+    bookkeeping. Distinguishing them needs either instrumenting
+    `cranelift-jit`'s allocator or compiling many bodies in one finalisation,
+    which the public API does not offer.
+
+    **Either way it is not this criterion's business.** The module is already
+    shared and criterion 23 is met; reducing the floor is an §S4 question about
+    how code memory is allocated per compilation, and §S4's lack of
+    reclamation is what makes the floor accumulate rather than merely exist.
 
 24. **Every `bund2-stdlib` native with a fixed effect keeps it.** Promotion
     stops at an opaque site (§S5), and after any other call it models the

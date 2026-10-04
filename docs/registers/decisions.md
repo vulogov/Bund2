@@ -3778,30 +3778,47 @@ So the cost is **a fixed floor of ~30 KiB per compiled body, plus about 1 KiB
 per unit of body**. Extrapolated to an empty body the floor is ~30.6 KiB, which
 matches the first table.
 
-**The floor is one `JITModule` per compiled body, at 16 KiB pages.** RFC-0005
-criterion 23's dated note already records the cause — "each `compile_word_body`
-builds a `JITModule` of its own, so there is one module per compiled body rather
-than one per `Interp`" — and `getconf PAGESIZE` on this host is 16384, so ~30
-KiB is two pages. For a realistic small Bund word, **the floor is ~97% of the
-cost and the body itself is ~3%.**
+For a realistic small Bund word, **the floor is ~97% of the cost and the body
+itself is ~3%.**
 
-### What that means for this decision, which is not what the entry expected
+### What the floor is — and a retraction
 
-**The dominant cost is inside one VM, not across several.** D91 asks whether to
-share a compile service *between* VMs; the measurement says the larger saving
-available is collapsing the per-body modules into one module *per `Interp`* —
-which **criterion 23 explicitly permits**, since what it forbids is sharing
-across `Interp`s, and which its own dated note already calls outstanding: "a
-`lower.rs` refactor… the criterion runs when that lands."
+**First reading, wrong and retracted.** This entry briefly attributed the floor
+to "one `JITModule` per compiled body", citing RFC-0005 criterion 23's dated
+note of 2026-09-13. **That note is superseded two paragraphs later in its own
+entry**: `Compiler` holds one `Emitter<JITModule>`, a `JitTier` owns one
+`Compiler`, and the module is shared per `Interp` — the work landed, and
+criterion 23's module half is met. Citing a passage without reading the ones
+that follow it is the mistake CLAUDE.md names in terms, and it was made inside a
+single document.
 
-For 200 small bodies that is roughly 6 MB against roughly 0.2 MB plus one
-module. **It needs no decision at all** — no criterion changes, §S6's per-VM
-cells are untouched, and D91's options are unaffected either way.
+**The leading explanation, with its uncertainty stated.**
+`finalize_definitions` is called once per compilation, each call reserves and
+finalises its own memory, and §S4 reclaims none of it. At 16 KiB pages a
+per-compilation region rounded to two pages gives ~30 KiB. What the measurement
+*establishes* is that the cost is per **compiled body** and not per module; what
+it does not do is separate page rounding at finalisation from Cranelift's
+per-function bookkeeping. Distinguishing them needs instrumenting
+`cranelift-jit`'s allocator, or compiling many bodies in one finalisation, which
+the public API does not offer.
 
-So the honest reading: D91's N× is real, linear and now priced at ~30 KiB a
-body, and at D85's 64 VMs compiling 200 bodies each it is ~380 MiB — which
-sounds alarming until one notices that the *same* measurement says ~97% of it
-would be removed by work that is already owed and already permitted.
+### What that means for this decision
+
+**The dominant cost is inside one VM, not across several — and it is not this
+decision's.** D91 asks whether to share a compile service *between* VMs. The
+floor is paid once per compiled body by a VM that compiles it, so N VMs pay it N
+times and sharing a module between them would indeed remove the multiple; but
+the same floor is paid 200 times over by a *single* VM compiling 200 bodies, and
+nothing in D91's options touches that. **Reducing the floor is an §S4 question**
+about how code memory is allocated per compilation, and §S4's lack of
+reclamation is what makes it accumulate rather than merely exist.
+
+So the honest reading: D91's N× is real, linear, and now priced at ~30 KiB a
+body — ~380 MiB at D85's 64 VMs compiling 200 bodies each. That figure is
+dominated by a per-body floor which is **97% overhead on a small word**, so the
+first question it raises is not "share between VMs" but "why does a 1 KiB body
+cost 30 KiB at all", and that question is answerable without touching any
+criterion.
 
 **It also sharpens what the hazard actually is.** The multiple is linear and
 immediate; the *unboundedness* is neither, and it comes from §S4 reclaiming no
@@ -3857,11 +3874,11 @@ is shared. The research's claim that only a shared service makes the cap "a
 single enforceable number" is about where the cap lives, not whether one can
 exist — a per-VM cap of M over N VMs is still a bound, at N·M.
 
-**What would change this further**: finishing criterion 23's module half. The
-magnitude above is measured against today's one-module-per-body shape, so every
-figure in this entry would need retaking once a module is shared within an
-`Interp` — and the N× that remains afterwards is the number this decision should
-actually be weighed on.
+**What would change this further**: reducing the per-body floor, which is §S4's
+to reduce. Every figure in this entry is measured against today's allocation
+shape — ~30 KiB per compiled body — so all of them would need retaking if that
+changed, and the N× that remained afterwards is what this decision should be
+weighed on.
 
 ## D90 — what a `log.*` line looks like, now that the oracle's cannot be reproduced
 
