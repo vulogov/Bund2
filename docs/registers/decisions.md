@@ -3680,7 +3680,22 @@ on it rather than discovering it.
   how far several VMs can be driven before the tier wastes work in proportion
   to their number
 - Default: **keep the per-`Interp` form**, on the measurement below
-- Status: **OPEN**
+- Status: **RESOLVED — option 1, keep per-`Interp` modules.** Decided by the
+  repository owner, 2026-10-03, on the measurement below rather than on the
+  research's recommendation.
+
+**What is kept and what is owed.** The per-`Interp` module stays, criterion 23
+keeps its meaning, and the N× is a known and pinned cost rather than an
+oversight. **The magnitude is still owed**: `JITModule` exposes no size, so how
+much one compiled body costs is unmeasured, and that figure is what decides
+whether N× matters at D85's tens. The owner asked for it to be taken on a quiet
+host; `one_compiled_bodys_code_memory` is the harness, and until it has run this
+entry's cost column is a multiple without a unit.
+
+**What reopens this is a symptom, and the symptoms have different answers** —
+the table at the end of this entry, which is the part worth re-reading before
+any work on it. Option 1 being chosen does not make option 2 the fallback;
+options 3 and 4 both sit in front of it.
 
 ### What the research says, and what Bund2 did instead
 

@@ -490,6 +490,102 @@ mod tests {
         rt.eval_str(src).map_err(|e| e.0)
     }
 
+    /// **D91's missing magnitude: what one compiled body costs in memory.**
+    ///
+    /// D91 kept the per-`Interp` module on the measurement that N VMs compile
+    /// one hot word N times. What that measurement does **not** give is whether
+    /// N× matters: `JITModule` exposes no size, so a multiple without a unit is
+    /// all the entry has.
+    ///
+    /// This takes the unit the only way available without a size accounting
+    /// RFC-0005 §S4 does not have — **resident set size across a batch of
+    /// distinct compiled bodies**, divided by the batch. JIT code is mapped and
+    /// written, so it is resident; the figure includes the allocator's slack
+    /// and Cranelift's own per-body bookkeeping, which is the right scope,
+    /// because what D91 wants to know is what a VM costs rather than what the
+    /// machine code weighs.
+    ///
+    /// **Ignored by default.** It is a measurement rather than an assertion:
+    /// RSS is page-granular and this would be a flaky test. Run it on a quiet
+    /// host with
+    ///
+    /// ```text
+    /// BUND2_MEASURE_CODE_MEMORY=1 cargo test -p bund2-async \
+    ///   --features bund2-runtime/jit code_memory -- --nocapture --ignored
+    /// ```
+    ///
+    /// and record the figures in D91. A busy host does not bias RSS the way it
+    /// biases a timing, but a concurrent compile moves the whole process's
+    /// footprint, so F135's quiet-host rule is kept rather than argued about.
+    #[test]
+    #[ignore = "a measurement, not an assertion: run it on a quiet host, see D91"]
+    fn one_compiled_bodys_code_memory() {
+        if std::env::var_os("BUND2_MEASURE_CODE_MEMORY").is_none() {
+            println!("set BUND2_MEASURE_CODE_MEMORY=1 to take this measurement");
+            return;
+        }
+        /// Resident set size in KiB, from `ps`. macOS has no `/proc`, and a
+        /// dependency for one number would be the wrong trade.
+        fn rss_kib() -> Option<u64> {
+            let out = std::process::Command::new("ps")
+                .args(["-o", "rss=", "-p"])
+                .arg(std::process::id().to_string())
+                .output()
+                .ok()?;
+            String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+        }
+
+        // **Distinct bodies, not one body N times.** The cache is keyed by the
+        // body's `payload_key` (D42), so repeating one body would compile once
+        // and measure nothing.
+        const BATCH: usize = 200;
+        let program: String = (0..BATCH)
+            .map(|i| format!(":hot{i} {{ {i} 2 + noop drop }} register\n"))
+            .collect();
+        let calls: String = (0..BATCH).map(|i| format!("hot{i}\n")).collect();
+
+        let mut host = Host::new().with_jit_threshold(Some(1));
+        let vm = host
+            .spawn(move |rt| {
+                rt.eval_str(&program).map_err(|e| e.0)?;
+                let before = rss_kib();
+                // Twice, so each body is compiled and then entered.
+                rt.eval_str(&calls).map_err(|e| e.0)?;
+                rt.eval_str(&calls).map_err(|e| e.0)?;
+                let after = rss_kib();
+                Ok::<_, String>((before, after, rt.compiled_bodies(), rt.compiled_entries()))
+            })
+            .expect("spawns");
+
+        let (before, after, bodies, entries) = vm.join().expect("join").expect("ran");
+        let compiled = bodies.unwrap_or(0);
+        println!(
+            "D91 magnitude: compiled {compiled} bodies, entered {entries:?}; \
+             RSS {before:?} KiB -> {after:?} KiB"
+        );
+        if let (Some(a), Some(b)) = (before, after) {
+            let delta = b.saturating_sub(a);
+            println!(
+                "D91 magnitude: delta {delta} KiB over {compiled} bodies = {:.2} KiB per body",
+                if compiled == 0 {
+                    0.0
+                } else {
+                    delta as f64 / compiled as f64
+                }
+            );
+            println!(
+                "D91 magnitude: at D85's 64 VMs that is ~{:.1} MiB if every VM compiles all {compiled}",
+                (delta as f64 * 64.0) / 1024.0
+            );
+        }
+        // The one thing worth asserting: the batch really did compile, or the
+        // figures above are measuring an interpreter.
+        assert!(
+            compiled >= BATCH / 2,
+            "only {compiled} of {BATCH} bodies compiled, so the RSS delta is not code memory"
+        );
+    }
+
     /// **D91's cost, measured and then pinned.**
     ///
     /// Research §2.6 says the per-VM `JITModule` is "Bad" under concurrency —
