@@ -739,8 +739,34 @@ fn register_wrapped(r: &mut Registry) {
     r.register_native("#.", object_execute_wb, StackEffect::opaque(1), WordKind::Sync);
 }
 
+/// `True` and `False` — a `Bool` object carrying the value.
+fn bool_object(vm: &mut dyn Vm, v: bool) -> Result<(), Error> {
+    vm.push(BundValue::boolean(v));
+    vm.push(BundValue::str("Bool"));
+    vm.apply(BundValue::call("object"))
+}
+
 pub fn register(r: &mut Registry) {
     r.register_native("class", class_word, eff(0, 1), WordKind::Sync);
+    // **`True` and `False` are `object` with their operands supplied.**
+    //
+    // The reference pushes the bool, pushes `"Bool"`, and applies a CALL to
+    // `object` (`reference/Bund/src/stdlib/functions/oop/bool_class.rs`) —
+    // three lines each, and the whole of both words. Measured: `True` and
+    // `true "Bool" object` leave the same OBJECT.
+    //
+    // **Through `apply` by name, not by calling `object_word` directly**, which
+    // is what the reference does and what makes a rebound `object` reach these
+    // too. Opaque for `object`'s own reason: construction runs every `.init`
+    // in the chain (F91).
+    fn true_word(vm: &mut dyn Vm) -> Result<(), Error> {
+        bool_object(vm, true)
+    }
+    fn false_word(vm: &mut dyn Vm) -> Result<(), Error> {
+        bool_object(vm, false)
+    }
+    r.register_native("True", true_word, StackEffect::opaque(0), WordKind::Sync);
+    r.register_native("False", false_word, StackEffect::opaque(0), WordKind::Sync);
     // **Opaque — F91.** Construction runs the class's `.init`, and every
     // parent's, through `run_init`: a lambda, or a method native called
     // directly. What that leaves is the constructor's business, so the pair

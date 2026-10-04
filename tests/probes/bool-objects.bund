@@ -1,0 +1,32 @@
+//
+// Probe: `True` and `False`, the two `Bool` base-class constructors.
+//
+// **Each is `object` with its operands supplied.** The reference pushes the
+// bool, pushes `"Bool"`, and applies a CALL to `object`
+// (`reference/Bund/src/stdlib/functions/oop/bool_class.rs`) — so `True` and
+// `true "Bool" object` leave the same OBJECT, which this probe shows side by
+// side rather than asserting in prose.
+//
+// **Through a CALL by name, not a direct call**, which is the reference's own
+// shape and means a rebound `object` would reach these too.
+//
+// The three siblings `List`, `Floats` and `Intervals` are **not** here: Bund2
+// registers `Value`, `Integer`, `Bool` and `Float`, and those three need their
+// classes first — `oop.rs` says so in terms, that `List` is "a different job
+// rather than a fourth row". Class work, not word work.
+//
+// Member order is F15's, which the capture normalises.
+//
+"probe: True and False build Bool objects" println
+True
+False
+
+"probe: and True is exactly `true \"Bool\" object`" println
+true "Bool" object
+
+"probe: unwrap takes the value back out" println
+True unwrap
+False unwrap
+
+"probe: ?object peeks, so it leaves the receiver beside its answer" println
+True ?object

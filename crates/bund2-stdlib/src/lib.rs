@@ -897,7 +897,7 @@ mod honesty_tests {
     /// outside this crate (RFC-0005 assumption 24).
     #[test]
     fn every_reentering_function_is_named() {
-        const REENTERING: [&str; 23] = [
+        const REENTERING: [&str; 24] = [
             "conditional.rs: run_context",
             "conditional.rs: run_error",
             "conditional.rs: run_ifthenelse",
@@ -907,6 +907,10 @@ mod honesty_tests {
             "control.rs: while_base",
             "data.rs: run_csv",
             "data.rs: run_sqlite",
+            // `True` and `False` apply a CALL to `object`, as the reference
+            // does, so a rebound `object` reaches them — which is exactly why
+            // it re-enters rather than calling `object_word` directly.
+            "oop.rs: bool_object",
             "oop.rs: dispatch_method",
             "oop.rs: run_init",
             "seq.rs: loop_base",
