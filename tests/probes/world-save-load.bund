@@ -1,0 +1,47 @@
+//
+// Probe: `save`/`load` and their families, `bootstrap`, `save.script`,
+// `load.script` and `alias=` — `bund/bund`'s world words.
+//
+// **D27: redb where the reference uses SQLite**, with the same wire bytes
+// (D20). The five tables mirror the reference's: `ALIASES`, `LAMBDAS`,
+// `STACKS` with `STACK_DATA`, and `BOOTSTRAP`.
+//
+// **The sequence below is the one F148 records, and its order is forced.**
+// `save.script` cannot create the bootstrap table — only `save` does — so a
+// script can only be stored *after* a `save`; and `save` empties that table,
+// so a second `save` destroys every script. A program cannot keep its world
+// and its scripts both current, and this probe pins that rather than leaving
+// it to be met twice.
+//
+// The world file lands in the working directory whatever name is given,
+// because the name is cleaned as the reference cleans it — path separators
+// removed, `.world` appended. **So the probe removes it before and after
+// itself**, as `models-world.bund` does: each engine writes its own kind of
+// file (SQLite against redb, D27), and a capture runs each program twice.
+//
+// Two consecutive runs agree even with a stale file, because every `save`
+// replaces its tables wholesale rather than merging — checked, because a
+// probe whose second run differs is one the capture refuses.
+//
+"bund2-probe-world.world" fs.rm drop
+"probe: a lambda, an alias and two stacks, saved and loaded in one program" println
+:sq { dup * } register
+"println" "p" alias
+@other 7 8
+@main 1 2
+"bund2-probe-world" save
+
+"probe: load them back and use each one" println
+"bund2-probe-world" load
+"p" alias=
+5 sq
+
+"probe: save.script needs a prior save, then load.script returns the text" println
+"s1" "100 200 +" "bund2-probe-world" save.script
+"s1" "bund2-probe-world" load.script
+
+"probe: bootstrap loads the world and runs every stored script" println
+"bund2-probe-world" bootstrap
+
+"probe: load appends, so @other now holds its values three times over" println
+"bund2-probe-world.world" fs.rm drop

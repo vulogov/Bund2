@@ -4012,6 +4012,49 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F148 — `save` and `save.script` cannot both be used on one world file
+
+**An original-implementation defect, measured 2026-10-04** while grounding
+`bund/bund`. Two halves, each harmless alone and together a trap.
+
+**`save.script` on a fresh world file fails.** `store_bootstrap_script` opens
+with `DELETE FROM BOOTSTRAP WHERE name=?1`
+(`reference/Bund/src/stdlib/helpers/world/bootstrap.rs`), and nothing has
+created that table: it is created by `bootstrap::init`, which only `save` (the
+`All` form) calls. Measured — `"n" "1 2 +" "w" save.script` on a new world
+answers
+
+    Bootstrap SAVE.SCRIPT returns: SAVE_BOOTSTRAP returns: Deleting previous
+    bootstrap entry returns: …
+
+a SQL "no such table" wrapped three deep.
+
+**`save` destroys every script.** `bootstrap::init` is `DROP TABLE IF EXISTS
+BOOTSTRAP` followed by a `CREATE`, and `save` calls it *last*, after the
+aliases, lambdas and stacks. Measured: `save`, `save.script`, `load.script`
+returns the script; a second `save` and the same `load.script` answers
+`BOOTSTRAP discovery did not find the script: myscript`.
+
+### Why the two together are worse than either
+
+The only way to store a script is `save` **then** `save.script`. The only way
+to refresh a world's aliases, lambdas or stacks is `save`, which wipes the
+scripts. **So a program cannot keep both current**: every `save` costs every
+script, and every script must be re-stored after it.
+
+A session that saved its world periodically — the obvious use of a world
+file — would silently lose its bootstrap scripts on the first refresh, and
+`bootstrap` would then run nothing while reporting success.
+
+**Disposition: PRESERVE.** Bund2 reproduces both halves, including the
+ordering dependency and the wipe. A golden pins the sequence, so the trap is
+recorded as behaviour rather than discovered twice.
+
+Fixing it would be a deviation: the natural repair — create the table in
+`save.script` and stop dropping it in `save` — changes what a program's world
+file contains after a sequence the reference defines. That needs a decision,
+and nothing yet asks for one.
+
 ## F147 — `convert.to_float` and `convert.to_int` complained in Rust, and trimmed
 
 **A Bund2 gap, found 2026-10-04** while implementing `math.normalize`, whose

@@ -321,6 +321,52 @@ fn bund_eval_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Resul
     eval_source(vm, &src)
 }
 
+/// `bund.eval-file` and `bund.eval-file.` — evaluate a file's contents.
+///
+/// **The path goes through `file://`, which is why a relative one fails.**
+/// The reference's `get_file_from_file` is `get_file_from_uri(format!("file://
+/// {path}"))`, so `bund.eval-file` on `lib.bund` asks curl for
+/// `file://lib.bund`, in which `lib.bund` is the *host* — and curl answers
+/// `URL rejected: Bad file:// URL`. Measured, and from the reference's own
+/// `script --file`, which takes the same path: a relative `--file` is refused
+/// by the oracle too. D54 already records the rule for `use`.
+///
+/// So the word needs an absolute path, and a program that passes a relative
+/// one gets `can not get code from file <path>` rather than a file-not-found.
+fn bund_eval_file_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Result<(), Error> {
+    match side {
+        crate::wb::Side::Stack if vm.depth() < 1 => {
+            return Err(Error(format!("Stack is too shallow for inline {prefix}")));
+        }
+        crate::wb::Side::Bench if vm.workbench_depth() < 1 => {
+            return Err(Error(format!("Workbench is too shallow for inline {prefix}")));
+        }
+        _ => {}
+    }
+    let v = side
+        .pull(vm)
+        .ok_or_else(|| Error(format!("{prefix} returns: NO DATA")))?;
+    let Some(path) = v.as_str() else {
+        return Err(Error(format!(
+            "{prefix} returns: This Dynamic type is not string"
+        )));
+    };
+    let Some(src) = crate::host::fetch_uri(&format!("file://{path}")) else {
+        return Err(Error(format!(
+            "{prefix} can not get code from file {path}"
+        )));
+    };
+    eval_source(vm, &src)
+}
+
+fn bund_eval_file(vm: &mut dyn Vm) -> Result<(), Error> {
+    bund_eval_file_base(vm, crate::wb::Side::Stack, "BUND.EVAL-FILE")
+}
+
+fn bund_eval_file_wb(vm: &mut dyn Vm) -> Result<(), Error> {
+    bund_eval_file_base(vm, crate::wb::Side::Bench, "BUND.EVAL-FILE.")
+}
+
 /// Parse `src` and apply each value in turn, as the reference's
 /// `bund_compile_and_eval` does (`reference/Bund/src/stdlib/helpers/eval.rs:7-37`).
 /// `bund.eval` and `use` both come here.
@@ -1291,6 +1337,21 @@ pub fn register(r: &mut Registry) {
     // string can do anything.
     r.register_native("bund.eval", bund_eval, StackEffect::opaque(1), WordKind::Sync);
     r.register_native("bund.eval.", bund_eval_wb, StackEffect::opaque(0), WordKind::Sync);
+    // **Also `--noeval`, not `--noio`** — the reference stubs all four
+    // together (`bund_eval.rs`), which puts reading a file to run under the
+    // flag about *evaluating* rather than the one about I/O.
+    r.register_native(
+        "bund.eval-file",
+        bund_eval_file,
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "bund.eval-file.",
+        bund_eval_file_wb,
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
     r.register_alias("!!", "bund.eval");
     r.register_native("get,", |vm| getset_inplace(vm, Side::Stack, false), eff(2, 2), WordKind::Sync);
     r.register_native("set,", |vm| getset_inplace(vm, Side::Stack, true), eff(3, 1), WordKind::Sync);

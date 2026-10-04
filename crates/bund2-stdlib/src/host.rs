@@ -351,7 +351,10 @@ fn use_word(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
 /// `bund_use.rs:74-76`). Applied after every other registration, so the stubs
 /// replace the real words, and `!!` follows its target.
 pub fn register_noeval_stubs(r: &mut Registry) {
-    for name in ["bund.eval", "bund.eval."] {
+    // **All four together, as the reference stubs them** — `bund.eval-file`
+    // reads a file to *run* it, so it is the evaluating flag that disables it
+    // and not `--noio` (`reference/Bund/src/stdlib/functions/bund/bund_eval.rs`).
+    for name in ["bund.eval", "bund.eval.", "bund.eval-file", "bund.eval-file."] {
         r.register_native(
             name,
             |_vm| Err(Error("bund EVAL functions disabled with --noeval".into())),

@@ -1731,6 +1731,33 @@ impl Vm for Interp {
         self.stacks.stacks.get(name).map(Stack::len).unwrap_or(0)
     }
 
+    /// **In rotation order, not alphabetical.** `order` is the stack-of-stacks
+    /// as the reference keeps it, and `save.stacks` writing them in a
+    /// different order would reorder a world file's `STACKS` table for no
+    /// reason a program could predict.
+    fn stack_names(&self) -> Vec<String> {
+        self.note_observation("enumerates the stacks");
+        self.stacks.order.iter().map(|n| n.to_string()).collect()
+    }
+
+    fn snapshot_of(&self, name: &str) -> Vec<BundValue> {
+        self.note_observation("reads a stack by name");
+        // `contents` is what `snapshot` uses, so the two orders agree.
+        self.stacks
+            .stacks
+            .get(name)
+            .map(Stack::contents)
+            .unwrap_or_default()
+    }
+
+    fn lambda_names(&self) -> Vec<String> {
+        self.registry.lambda_names()
+    }
+
+    fn alias_pairs(&self) -> Vec<(String, String)> {
+        self.registry.alias_pairs()
+    }
+
     fn push_to(&mut self, name: &str, v: BundValue) {
         self.ensure_stack(name);
         if let Some(s) = self.stacks.stacks.get_mut(name) {

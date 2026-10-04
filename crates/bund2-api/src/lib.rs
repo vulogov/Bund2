@@ -385,6 +385,21 @@ pub trait Vm {
     fn ensure_stack_with_capacity(&mut self, name: &str, cap: usize);
     fn ensure_stack(&mut self, name: &str);
     fn depth_of(&self, name: &str) -> usize;
+    /// **Every stack's name** — the one enumeration the named-stack section
+    /// lacked, and `save.stacks` cannot be written without it.
+    ///
+    /// The reference walks `vm.stack.stacks` directly
+    /// (`reference/Bund/src/stdlib/helpers/world/stacks.rs`). A `Vm` has no
+    /// registry and no stack map by design (§S6), so what crosses the seam is
+    /// a list of names — not the map, and not a borrow of it.
+    fn stack_names(&self) -> Vec<String>;
+    /// A named stack's contents, bottom first, **without consuming it**.
+    ///
+    /// `pull_from` would empty the stack it is reading, and `save` must leave
+    /// the program exactly as it found it. Ordered as [`Vm::snapshot`] is, and
+    /// carrying the same warning: pushing these back reverses them and
+    /// re-tags every value.
+    fn snapshot_of(&self, name: &str) -> Vec<BundValue>;
     fn push_to(&mut self, name: &str, v: BundValue);
     fn pull_from(&mut self, name: &str) -> Option<BundValue>;
     fn clear_stack(&mut self, name: &str);
@@ -524,6 +539,16 @@ pub trait Vm {
     fn is_alias(&self, name: &str) -> bool;
     /// The lambda bound to this name, if any.
     fn get_lambda(&self, name: &str) -> Option<BundValue>;
+    /// **Every name bound to a lambda and not to a native**, for
+    /// `save.lambdas`.
+    fn lambda_names(&self) -> Vec<String>;
+    /// **Every alias and what it points at**, for `save.aliases`.
+    ///
+    /// The reference saves `vm.name_mapping` whole
+    /// (`reference/Bund/src/stdlib/helpers/world/aliases.rs`), which is the
+    /// alias-to-target map. Pairs rather than the map, for the reason
+    /// [`Vm::stack_names`] gives: the seam carries data, not the table.
+    fn alias_pairs(&self) -> Vec<(String, String)>;
     /// The handler for a conditional `type`, if one is bound (S7).
     fn conditional(&self, ty: &str) -> Option<ConditionalFn>;
 
@@ -1572,6 +1597,22 @@ impl Registry {
         self.touch(a);
     }
 
+    /// **Every alias and its target**, for RFC-0008's world words.
+    ///
+    /// Only slots carrying an `alias`; the pair is `(alias, target)`, which is
+    /// the direction `name_mapping` holds and the direction `alias=` reads.
+    pub fn alias_pairs(&self) -> Vec<(String, String)> {
+        self.interner
+            .names()
+            .iter()
+            .enumerate()
+            .filter_map(|(i, n)| {
+                let target = self.slots.get(i).and_then(|s| s.alias)?;
+                Some((n.clone(), self.interner.name(target).to_string()))
+            })
+            .collect()
+    }
+
     /// Would resolving this name walk in a circle?
     ///
     /// **Asked after registering, not before**, because the answer is about
@@ -1755,6 +1796,18 @@ mod tests {
             false
         }
         fn ensure_stack(&mut self, _: &str) {}
+        fn stack_names(&self) -> Vec<String> {
+            Vec::new()
+        }
+        fn snapshot_of(&self, _: &str) -> Vec<BundValue> {
+            Vec::new()
+        }
+        fn lambda_names(&self) -> Vec<String> {
+            Vec::new()
+        }
+        fn alias_pairs(&self) -> Vec<(String, String)> {
+            Vec::new()
+        }
         fn depth_of(&self, _: &str) -> usize {
             0
         }
