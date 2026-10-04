@@ -4012,6 +4012,48 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F147 — `convert.to_float` and `convert.to_int` complained in Rust, and trimmed
+
+**A Bund2 gap, found 2026-10-04** while implementing `math.normalize`, whose
+series reader converts every sample through the same arm.
+
+Two divergences in one place, `conv_value`'s STRING source
+(`crates/bund2-stdlib/src/convert.rs`):
+
+| | oracle | Bund2, before |
+|---|---|---|
+| `"x" convert.to_float` | `Can not convert string to float InvalidNumber("x")` | `… ParseFloatError { kind: Invalid }` |
+| `"x" convert.to_int` | `… integer InvalidNumber("x")` | `… ParseIntError { kind: InvalidDigit }` |
+| `" 42 " convert.to_int` | **refused** | **42** |
+| `"0x10" convert.to_int` | refused | refused, different text |
+
+**The message is a crate's `Debug` output.** `rust_dynamic` formats
+`"Can not convert string to float {:?}"` over the error from
+`rustils::parse::double::string_to_f64_res`
+(`reference/rust_dynamic/src/conv.rs:195-201`), so the parser *is* the text.
+Reproducing it with std's parser means reproducing another crate's error enum
+by hand, which is the near-miss comfy-table and `hexdump` are dependencies to
+avoid.
+
+**And the parser decides which strings are numbers at all**, which is the
+second row and the more serious one: Bund2 called `" 42 "` an integer because
+`.trim()` had been written in front of std's `parse`, a habit that does not
+come from the reference. That is a wrong *answer*, not a wrong complaint, and
+no golden covered it.
+
+**Disposition: FIX.** `rustils` 0.1, the reference's own parser at its own
+major version, with no transitive dependencies and already in the local
+registry; and the `trim` removed. All four rows now match, and `"1.5"`,
+`"-2"`, `"1e3"` and `"inf"` still convert as before.
+
+### Why no golden caught either half
+
+`conform` read 111/120 before the fix and reads 111/120 after, so nothing in
+the suite exercises a failing string conversion or a padded number. The words
+are in scope and were implemented; what was missing is a probe, which is the
+gap `coverage` reports as "implemented, run by no golden" and which this entry
+is an instance of rather than an exception to.
+
 ## F146 — a commit shipped with an honesty test silently disabled
 
 **A Bund2 defect, in the repository rather than the interpreter.** Found

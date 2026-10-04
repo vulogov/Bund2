@@ -70,6 +70,21 @@ natural = "0.5"
 # version as `reference/Bund/Cargo.toml:53`; `mathlab::math::fact` and
 # friends define the answers a golden would capture.
 mathlab = "1.2"
+# `math.smoothing` is a three-period simple moving average through the
+# reference's own crate (`reference/Bund/Cargo.toml:52`). Same argument as
+# comfy-table: `ta`'s SMA is *incremental* — `sum = sum - old + input; sum /
+# count` — and a naive re-sum of the window answers differently in the low bits
+# for some series. A golden captures those floats, so reimplementing it would be
+# a near-miss that fails one while looking right. No transitive dependencies.
+ta = "0.5.0"
+# **The reference's own string-to-number parser** — `rust_dynamic`'s FLOAT and
+# INTEGER arms call `rustils::parse::double::string_to_f64_res` and
+# `…::long::string_to_i64_res` (`reference/rust_dynamic/src/conv.rs:195,201`),
+# and **the error text is that crate's `Debug` output**: `Can not convert string
+# to float InvalidNumber("x")`. std's parser answers `ParseFloatError { kind:
+# Invalid }` from the same input, which is F147. No transitive dependencies,
+# same major version as `reference/rust_dynamic/Cargo.toml:22`.
+rustils = "0.1"
 # `bund/string`'s two remaining pure algorithms, same versions as
 # `reference/Bund/Cargo.toml:45,83`. `deunicode` is a transliteration *table* —
 # its answer for a given codepoint is data, not a rule that could be derived —

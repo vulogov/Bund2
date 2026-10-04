@@ -72,6 +72,9 @@ pub mod world;
 pub mod bus;
 // The program's own logging: the five `log.*` words (D90).
 pub mod logging;
+// `math.normalize`, `math.smoothing`, `seq.asc`/`seq.desc`, and the series
+// reader they share.
+pub mod series;
 
 /// Register everything this crate provides.
 pub fn register_all(r: &mut bund2_api::Registry) {
@@ -89,6 +92,7 @@ pub fn register_all_with(r: &mut bund2_api::Registry, opts: &host::HostOptions) 
     world::register(r, opts);
     bus::register(r, opts);
     logging::register(r);
+    series::register(r);
     stack::register(r);
     console::register(r);
     logic::register(r);

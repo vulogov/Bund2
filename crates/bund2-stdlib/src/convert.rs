@@ -114,16 +114,31 @@ pub(crate) fn conv_value(v: &BundValue, target: u16) -> Result<BundValue, Error>
             match target {
                 STRING => Ok(BundValue::str(s)),
                 BOOL => Ok(BundValue::boolean(string_to_bool(&s))),
-                INTEGER => s
-                    .trim()
-                    .parse::<i64>()
-                    .map(BundValue::int)
-                    .map_err(|e| Error(format!("Can not convert string to integer {e:?}"))),
-                FLOAT => s
-                    .trim()
-                    .parse::<f64>()
-                    .map(BundValue::float)
-                    .map_err(|e| Error(format!("Can not convert string to float {e:?}"))),
+                // **The reference's parser, not std's — F147.** The message
+                // interpolates the error's `Debug`, so the crate that parses
+                // *is* the text: `InvalidNumber("x")` against std's
+                // `ParseIntError { kind: InvalidDigit }`. It also decides
+                // which strings parse at all, so std's would differ in the
+                // answer as well as in the complaint.
+                INTEGER => {
+                    // **Untrimmed, as the reference is.** It passes
+                    // `val.to_string()` straight in, so `" 42 "` is *not* an
+                    // integer to it. An earlier version of this arm trimmed —
+                    // std's habit, kept when the parser changed — and made
+                    // Bund2 accept a string the oracle refuses.
+                    let text = s.clone();
+                    rustils::parse::long::string_to_i64_res(text)
+                        .map(BundValue::int)
+                        .map_err(|e| {
+                            Error(format!("Can not convert string to integer {e:?}"))
+                        })
+                }
+                FLOAT => {
+                    let text = s.clone();
+                    rustils::parse::double::string_to_f64_res(text)
+                        .map(BundValue::float)
+                        .map_err(|e| Error(format!("Can not convert string to float {e:?}")))
+                }
                 LIST => Ok(BundValue::list(vec![BundValue::str(s)])),
                 _ => Err(Error(format!("Can not convert string to {target}"))),
             }

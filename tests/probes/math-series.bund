@@ -1,0 +1,46 @@
+//
+// Probe: `math.normalize`, `math.smoothing`, `seq.asc` and `seq.desc`
+// (bund/math), and the series reader they share.
+//
+// **The reader is `statistics::get_data`, which lives in a directory D28
+// deferred** — `bund/statistics`, "42 registered names, zero corpus uses". So
+// the helper is in scope and the words that gave it a home are not, the shape
+// D87 met with the bus. Nothing here is a statistics word.
+//
+// The cases are the three sources the reader chooses between and the two
+// behaviours no reading of the code would predict:
+//
+//   - **A drained stack arrives reversed.** With no LIST on top the reader
+//     pulls value by value from the top, so `1.0 2.0 3.0 math.normalize`
+//     answers `[1.0, 0.5, 0.0]`.
+//   - **An all-equal series comes back unchanged**, because the reference
+//     guards `max - min == 0.0` rather than dividing.
+//   - **`Keep` restores a LIST and cannot restore a drain**, since the third
+//     reader takes no mode argument at all — so `,` means nothing over loose
+//     values.
+//   - **The moving average's window fills rather than waits**: three samples
+//     averaged over 1, then 2, then 3.
+//   - **`seq.asc` is strict**: floats for x and step, an integer for n, and a
+//     non-positive step answers an empty list rather than an error.
+//
+"probe: math.normalize over a list" println
+[ 1 2 3 4 5 ] math.normalize
+
+"probe: math.normalize over a flat series returns it unchanged" println
+[ 2 2 2 ] math.normalize
+
+"probe: math.normalize over a drained stack, which arrives reversed" println
+1.0 2.0 3.0 math.normalize
+
+"probe: math.normalize, keeps the list it read" println
+[ 1 2 3 ] math.normalize,
+
+"probe: math.smoothing fills its window rather than waiting" println
+[ 1 2 3 4 5 ] math.smoothing
+
+"probe: seq.asc and seq.desc, ten up from zero and five down from ten" println
+10 1.0 0.0 seq.asc
+5 2.0 10.0 seq.desc
+
+"probe: a non-positive step is an empty sequence, not an error" println
+5 0.0 1.0 seq.asc
