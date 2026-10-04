@@ -3547,6 +3547,92 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D92 — criterion 13's façade links no executor
+
+RFC-0007 §C8's second half is an `async` façade over one VM, which research (a)
+rates "do it". Implementing it needs something to await on, and that is a
+dependency question rather than a design one, so it was taken rather than
+assumed.
+
+- Blocks: nothing further. It closes RFC-0007 §C8 criterion 13
+- Status: **RESOLVED — a hand-rolled `Future`, no executor.** Decided by the
+  repository owner, 2026-10-03.
+
+### What was there to build on, measured
+
+**No executor exists anywhere in Bund2's or the reference's tree on a native
+target.** `tokio` is absent from `Cargo.lock` entirely. `futures-core` appears,
+but only through `js-sys` under `chrono` under `prqlc` — a **wasm-only** path
+that never compiles on this target. `reference/Bund/Cargo.toml` names no async
+runtime, and nothing in its sources is an `async fn`.
+
+So whichever option was taken would have been the project's first executor, and
+D38's rule — pin to the version the oracle's lock resolves — had nothing to pin
+to.
+
+### The options, and what each cost
+
+1. **tokio behind the existing `async` feature**, `features = ["rt", "sync"]`.
+   D28's letter satisfied, since the feature is off by default. The first
+   runtime in the tree, on a version Bund2 chooses alone.
+2. **A hand-rolled `Future`** over the VM thread. No dependency, shipped or
+   dev. Carries the lost-wakeup hazard.
+3. **`futures-channel`'s oneshot**, whose `Receiver` is already a `Future`,
+   with `futures-executor` for the test. Three small pure-Rust crates, no
+   hand-written waker.
+4. **Withdraw the criterion**, documenting that an embedder awaits `Vm<T>`
+   through their own executor's `spawn_blocking`.
+
+### Why option 2
+
+**The `Future` trait is in std; what was missing is an adapter, not an
+executor.** What this project declines to reimplement is *answers a golden
+captures* — comfy-table's box, leon's templates, a hyphenation dictionary,
+`hexdump`'s padding. Plumbing between `std::future::Future` and a thread handle
+is not in that class, and the comparison to those cases does not hold.
+
+**It keeps `bund2-async` executor-agnostic, which is stronger than
+executor-integrated.** Option 1 would pick tokio *for the embedder*. As built,
+the same `Vm<T>` awaits under tokio, smol, async-std or a bare `block_on`
+without linking any of them, and an embedder already running one is not asked
+to link a second. For a crate whose stated job is "integration", being agnostic
+is the better position.
+
+**It defers the real dependency decision to where it is forced.** That point is
+**async native words** — `bund2-async`'s other stated purpose — which needs a
+runtime rather than an adapter. Criterion 13 did not. D28's letter is met by
+every option here; its spirit, "nothing non-essential is linked unless asked
+for", is best served by linking nothing.
+
+### The hazard, and how it is closed
+
+A hand-rolled future can lose a wakeup: the thread finishes between the poll's
+check of the answer and its store of the waker, so a waker is parked that
+nothing will ever call. **One mutex over both the answer and the waker closes
+the window** — either the poll stored a waker before the thread took the lock,
+and the thread wakes it, or the thread finished first and the poll finds the
+answer. There is no interleaving in between.
+
+Two further things the design owes, each with a test:
+
+- **A panicking VM must resolve, not hang.** The thread marks itself done and
+  wakes through a `Drop` guard, so an unwind takes the same path a return does
+  — F57's reasoning about `Frame`'s exit action, applied to a thread boundary.
+  It also returns the host slot, or a crash would permanently shrink the host
+  and D85's bound would be measuring the wrong thing.
+- **The test executor must be able to catch a lost wakeup.** A no-op waker and
+  a busy-poll loop would pass even if `wake` were never called. So the harness
+  is a condvar built from `std::task::Wake` — safe, which this crate requires
+  since it forbids `unsafe` — and it **waits with a timeout**, so a lost wakeup
+  fails a test rather than hanging one.
+
+### What reopens this
+
+A decision that async native words are in scope. A runtime then becomes
+required, this adapter becomes redundant plumbing, and options 1 and 3 are the
+right starting points. **D92's scope is criterion 13 and nothing else**, and it
+should not be cited as having settled the runtime question.
+
 ## D91 — a shared compile service against D60's per-`Interp` module
 
 §C8 records this and declines to take it: "That is a decision, and it is not

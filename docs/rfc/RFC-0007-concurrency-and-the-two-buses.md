@@ -17,13 +17,18 @@
      criterion below passes with one VM". **This was the first draft's original
      sin surviving the revision** — it "specified the exchange layer and called
      it concurrency", and the criteria list went on doing that after the prose
-     was corrected. Criteria 9–14 now cover the second VM, and **five of the
-     six are met**: §C8's VM host is built (`bund2-async`'s `host` module) and
-     criterion 10 is verified load-bearing rather than merely passing. **What
-     remains is criterion 13**, the `async` façade, which is not blocked on
-     design — it is blocked on whether an executor may enter the default build,
-     a D28 question.
-  2. **§C8 records a decision and leaves it there** — a shared compile service
+     was corrected. Criteria 9–14 now cover the second VM, and **all six are
+     met**: §C8's VM host and its `async` façade are built (`bund2-async`'s
+     `host` module), criterion 10 is verified load-bearing rather than merely
+     passing, and D92 settled the façade's dependency question by linking no
+     executor at all.
+
+  So **nothing in this document is now unbuilt**, and what stands between it and
+  Proposed is a reading rather than a task: §C8 is design and not preservation,
+  and criteria 9–14 are the first criteria in this repository that the oracle
+  cannot adjudicate. Whether that is proposable on the owner's authorisation, as
+  RFC-0005 was under D59 and RFC-0006 under D82, is theirs to say.
+  2. **§C8 recorded a decision and left it there** — a shared compile service
      against D60's per-`Interp` module. **D91** now carries it. It is not
      needed to *build* the second VM, only to make several VMs that tier up the
      same hot word anything other than N× wasteful, so it bounds how far §C8
@@ -623,13 +628,37 @@ spawns no threads, so the oracle cannot adjudicate any of them.
     executor driving two VM façades makes progress on both. What would fail:
     an implementation that ran `eval` inside the future.
 
-    **Not built, and deliberately separable from the host.** `Host` hands back
-    a `Vm<T>` with a blocking `join`, which is all criteria 10, 11, 12 and 14
-    need. Making that awaitable needs **either an executor dependency — a D28
-    question about the default build, not a design question — or a hand-rolled
-    `Future` and waker**, and inventing an executor inside this crate to
-    satisfy a criterion would be the wrong order. The host is useful without
-    it; the façade is owed, and it is owed a dependency decision first.
+    **Met, 2026-10-03, under D92: a hand-rolled `Future`, no executor
+    linked.** The dependency question was taken as a decision rather than
+    assumed — no executor exists anywhere in Bund2's or the reference's tree on
+    a native target, so any choice would have been the project's first, and
+    D38 had nothing to pin to. `Vm<T>` implements `Future`, so the same handle
+    awaits under tokio, smol, async-std or a bare `block_on` without linking
+    any of them.
+
+    `an_executor_driving_two_vms_makes_progress_on_both` drives two VMs
+    round-robin on one thread; each needs the other's value, so neither can
+    finish until both have run. **What that does and does not prove**, stated
+    because the criterion is easy to overclaim: the VMs run on their own
+    threads whatever the executor does, so the test shows the façade does not
+    *serialise* them, and it is the named wrong design — running `eval` inside
+    `poll` — that it would catch, by deadlocking on the first poll.
+
+    **The lost-wakeup window is closed by one mutex over both the answer and
+    the waker**, and tested from both sides: a VM that finishes before the
+    first poll, thirty-two times over, and a VM held past the first poll so the
+    answer can only arrive by `wake`. The test executor is a condvar built from
+    `std::task::Wake` — safe, since this crate forbids `unsafe` — and it
+    **waits with a timeout**, because a no-op waker and a busy-poll loop would
+    pass even if `wake` were never called.
+
+    A panicking VM resolves as an error rather than hanging, through a `Drop`
+    guard that marks it done, wakes its waiter and returns its host slot on the
+    unwind — F57's reasoning about `Frame`'s exit action, applied to a thread
+    boundary.
+
+    **D92's scope is this criterion and nothing else.** Async native words
+    still need a runtime, and that decision is untouched.
 
 14. **The VM count is bounded and the bound is the owner's** (D85, tens of
     VMs). A host takes N, refuses what it cannot afford, and the per-VM cost is
@@ -644,6 +673,18 @@ spawns no threads, so the oracle cannot adjudicate any of them.
     refusal naming D85, because a four-digit limit set by accident should be
     refused where it is written rather than discovered as ~300 MB of word
     tables; and one spawn past the limit.
+
+    **The cap is on VMs that exist at once, not on VMs ever spawned**, because
+    that is what D85 measured — ~75 KiB of word table *per live VM*. A lifetime
+    cap would retire a host after its 64th request, which no long-running
+    embedder could use, and it would have been found in use rather than here.
+    Each VM returns its slot through the same `Drop` guard that wakes its
+    waiter, so a crash cannot permanently shrink the host.
+
+    **The test holds its VMs live on a three-way barrier**, which is what makes
+    the refusal deterministic: two trivial closures would very likely have
+    finished and freed their slots before the third spawn was attempted, and
+    the test would then pass or fail on scheduling.
 
 **Conformance and coverage are unmoved by all six**, and that is a claim rather
 than an omission: §C8 adds no word. **Measured 2026-10-03 after the host
