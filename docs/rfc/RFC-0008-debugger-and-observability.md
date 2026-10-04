@@ -367,6 +367,17 @@ capture and still unpinnable, which is `debug`'s case.
 
 1. **`log.*` preserve their two error texts**, checked against the oracle: each
    of the five on an empty stack, and on a value that will not cast.
+
+   **Met, 2026-10-03.** `the_two_error_texts_are_the_references_own`, with the
+   reference's own prefixes — the word's name upper-cased, so `LOG.WARNING` for
+   `log.warning`. Unit tests rather than a golden: an error renders through the
+   diagnostic table, which F66 records as text no second machine reproduces.
+
+   **A third behaviour was found while checking the second** and is preserved:
+   the pull and the cast happen **before** the level is consulted, so
+   `7 log.info` fails with a casting error at the default level *even though
+   `log.info` emits nothing there*. Measured on the oracle, which reports the
+   same text for the same program.
 2. **`log.error`'s emitted line matches the oracle's** at the default level, and
    the other four emit nothing. `env_logger` writes to stderr, a capture appends
    stderr, and the default filter is `error`
@@ -389,10 +400,21 @@ capture and still unpinnable, which is `debug`'s case.
    code is.
 
    So the criterion is restated: **what is checkable is which of the five emit at
-   the default level and which are silent, not what the line says.** D90 carries
-   the choice of what it says, and the five words are not written until it is
-   taken — a session that picked a format would have made a language decision on
-   the owner's behalf.
+   the default level and which are silent, not what the line says.**
+
+   **Met as restated, 2026-10-03, under D90.** Four probes' worth of silence is
+   pinned by `tests/probes/log-words-quiet.bund`, and
+   `only_log_error_speaks_at_the_default_level` asserts the same thing from
+   inside. D90 chose `Vm::report`, so a line reads `Warning: log.error: …` —
+   Bund2's own, with no timestamp and no Rust module path.
+
+   **The filter is a requirement rather than a nicety, and the probe is why.**
+   It asserts that four words say *nothing*; a Bund2 without `setloglevel`'s
+   filter would emit four lines and fail it. Two narrowings are recorded in
+   D90: Bund2's CLI has no `--debug` count, so only `BUND_LOG_LEVEL` raises the
+   level, and a directive is read by taking the level after its last `=` —
+   enough for the `bund=info` shape the reference's own `--debug` produces,
+   without reimplementing `env_logger`'s filter grammar.
 3. **`debug.dump` is byte-identical to the oracle** for an INT, a FLOAT, a BOOL
    and a STRING — eight bytes, eight, **one**, and the string's own bytes — and
    all seven `DUMP: error CASTING to …` texts match.
@@ -452,16 +474,20 @@ capture and still unpinnable, which is `debug`'s case.
    | word | state |
    |---|---|
    | `debug.dump` | implemented and probed — criterion 3 |
-   | `log.info`, `log.warning`, `log.error`, `log.debug`, `log.trace` | **not implemented: blocked on D90**, whose line format is undecided |
+   | `log.info`, `log.warning`, `log.debug`, `log.trace` | implemented and probed — D90, criteria 1 and 2 |
+   | `log.error` | implemented; **no golden can hold it** — it is the only one that emits at the default level, and its line carries a wall-clock timestamp, so two oracle runs differ and the capture refuses it. Named unreachable beside `debug`, `debug.shell` and `password` |
    | `debug` | not implemented — criterion 13 says a golden cannot pin it |
    | `debug.shell` | not implemented — same |
    | `debug.display_memstat` | not implemented, not yet grounded |
    | `debug.display_distributed_info` | not implemented; it reports a zenoh session, which D87 left deferred |
 
-   So coverage moves by **one**, not ten, and the other nine are accounted for:
-   five blocked on a decision, two that no golden can hold, one ungrounded, and
-   one whose subsystem is still deferred. That is the criterion working as
-   restated — the first draft's version would have passed by explaining.
+   **Updated 2026-10-03, after D90.** Coverage moves by **five** — `debug.dump`
+   and the four quiet `log.*` words — and the other five are accounted for word
+   by word: `log.error` and `debug`/`debug.shell` are goldenable by no capture,
+   `debug.display_memstat` is ungrounded, and `debug.display_distributed_info`
+   reports a zenoh session, which D87 left deferred. That is the criterion
+   working as restated; the first draft's "moves by exactly ten, or the
+   difference is explained" would have passed by explaining.
 6. **`step`, `next` and `finish` agree with an uninterrupted run**, over every
    suite program: stepped to completion leaves the same final state as run
    normally. **Only over the reach D6 permits** — top-level values and bodies

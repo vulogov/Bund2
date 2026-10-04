@@ -86,16 +86,20 @@ const LIST: &str = include_str!("../../../tests/golden/PROMOTABLE.txt");
 /// | reports | reached through | why it is not crossed |
 /// |---|---|---|
 /// | `alias` (`singles.rs`) | `alias`, `eff(2, 0)` | **nothing — this table is why** |
+/// | `diagnostic` (`logging.rs`) | the five `log.*`, `eff(1, 0)` | **nothing — this table is why** |
 /// | `while_base` (`control.rs`) | `while`, `while.` | `StackEffect::opaque` |
 /// | `for_base` (`control.rs`) | `for`, `for.` | `StackEffect::opaque` |
 /// | `loop_over_base` (`seq.rs`) | `*loop`, `*loop.` | `StackEffect::opaque` |
 /// | `run_error` (`conditional.rs`) | `register_conditional`, run by `!` | not a native; `!` is opaque |
 ///
-/// D68 already refuses an opaque callee, so only `alias` needed excluding. The
-/// set is pinned by `every_native_reporting_mid_body_is_named`
-/// (`crates/bund2-stdlib/src/lib.rs`), which fails if shipped code gains a
-/// sixth site — so this cannot go stale silently, which is the hazard a list
-/// kept in prose carries.
+/// D68 already refuses an opaque callee, so `alias` and the five `log.*` words
+/// are the only ones needing exclusion: every other reporting site is reached
+/// through a word `StackEffect::opaque` already refuses. The set is pinned by
+/// `every_native_reporting_mid_body_is_named`
+/// (`crates/bund2-stdlib/src/lib.rs`), which fails if shipped code gains
+/// another site — so this cannot go stale silently, which is the hazard a list
+/// kept in prose carries. **It caught the `log.*` words on the commit that
+/// added them**, which is the mechanism working rather than a near miss.
 ///
 /// # What it rests on
 ///
@@ -104,7 +108,21 @@ const LIST: &str = include_str!("../../../tests/golden/PROMOTABLE.txt");
 /// for a word that runs a body, and it is the same assumption `PROMOTABLE.txt`
 /// already rests on (D55). Stated here because it is load-bearing rather than
 /// obvious.
-const REPORTS_MID_BODY: [&str; 1] = ["alias"];
+const REPORTS_MID_BODY: [&str; 6] = [
+    "alias",
+    // **D90's five.** Each has a *fixed* effect — `eff(1, 0)` — so nothing
+    // else keeps promotion from crossing them, and each reports a `Warning`
+    // or `Notice` through `Vm::report` when its level passes the filter.
+    // Listed whatever the filter says: the threshold is read at run time and
+    // this table is built at registration, so a word excluded only when it
+    // happens to be emitting would be excluded on a property the audit cannot
+    // see.
+    "log.error",
+    "log.warning",
+    "log.info",
+    "log.debug",
+    "log.trace",
+];
 
 /// **The natives that change which stack is current** — D73's gate, F140.
 ///
@@ -289,6 +307,45 @@ mod tests {
             "`alias` reports a Warning mid-body (F137): crossing it would let a \
              native snapshot a stack missing every promoted value"
         );
+    }
+
+    /// **The same exclusion, for D90's five** — and it asserts the
+    /// *composition* rather than either half.
+    ///
+    /// `PROMOTABLE.txt` is D55's half alone: its header says it lists what the
+    /// palette certified and the audit did not see reading beyond its
+    /// operands, which the `log.*` words pass. `REPORTS_MID_BODY` is the other
+    /// half, subtracted here. So each word must be **listed and still not
+    /// crossable**, and a test that checked only the file would miss it.
+    #[test]
+    fn the_log_words_are_certified_and_still_not_crossable() {
+        let mut r = bund2_api::Registry::new();
+        crate::register_all(&mut r);
+        let ids = crossable(&r);
+
+        for word in ["log.error", "log.warning", "log.info", "log.debug", "log.trace"] {
+            let (s, _) = r
+                .interner
+                .lookup_call(word)
+                .unwrap_or_else(|| panic!("`{word}` is registered"));
+            let id = r
+                .slot(s)
+                .and_then(|sl| sl.native.as_ref())
+                .and_then(|n| n.id)
+                .unwrap_or_else(|| panic!("`{word}` carries a registration id"));
+
+            assert!(
+                names().any(|n| n == word),
+                "the premise is that the audit certified `{word}`; if it no longer \
+                 does, this gate is not what excludes it"
+            );
+            assert!(
+                !ids.contains(&id),
+                "`{word}` reports through `Vm::report` when its level passes the \
+                 filter, so crossing it would let a report see a stack missing \
+                 every promoted value"
+            );
+        }
     }
 
     /// **D73: a native that changes the current stack is certified and still

@@ -70,6 +70,8 @@ pub mod data;
 pub mod world;
 // The local bus: `send`, `recv`, `bus.data` (D87).
 pub mod bus;
+// The program's own logging: the five `log.*` words (D90).
+pub mod logging;
 
 /// Register everything this crate provides.
 pub fn register_all(r: &mut bund2_api::Registry) {
@@ -86,6 +88,7 @@ pub fn register_all_with(r: &mut bund2_api::Registry, opts: &host::HostOptions) 
     data::register(r);
     world::register(r, opts);
     bus::register(r, opts);
+    logging::register(r);
     stack::register(r);
     console::register(r);
     logic::register(r);
@@ -675,7 +678,19 @@ mod honesty_tests {
             let text = std::fs::read_to_string(&path).expect("reads");
             let shipped = text.split("#[cfg(test)]\nmod ").next().unwrap_or_default();
             for (n, line) in shipped.lines().enumerate() {
-                if line.contains("Diagnostic::error") || line.contains("Severity::Error") {
+                // **Comments are skipped, as D71's sibling scan already does.**
+                // The claim is about code; a doc comment *explaining* why a
+                // native does not report at `Error` severity names the thing
+                // it is promising not to do, and the first such comment —
+                // `logging.rs`'s, on D90's `log.error` mapping to `Warning` —
+                // was reported as a violation. A comment cannot report
+                // anything, so this is strictly more precise rather than
+                // weaker.
+                let t = line.trim_start();
+                if t.starts_with("//") {
+                    continue;
+                }
+                if t.contains("Diagnostic::error") || t.contains("Severity::Error") {
                     found.push(format!("{}:{}", path.display(), n + 1));
                 }
             }
@@ -706,7 +721,7 @@ mod honesty_tests {
     /// descending into subdirectories as criterion 11's does.
     #[test]
     fn every_native_reporting_mid_body_is_named() {
-        const REPORTS: [&str; 5] = [
+        const REPORTS: [&str; 6] = [
             // A notice, when a TRY block left an error the EXCEPT arm runs.
             "conditional.rs: run_error",
             "control.rs: for_base",
@@ -714,6 +729,8 @@ mod honesty_tests {
             "seq.rs: loop_over_base",
             // The one that matters: `eff(2, 0)`, certified by the palette, and
             // refused a crossing only by D71's gate.
+            // D90: the five `log.*` words all construct their diagnostic here.
+            "logging.rs: diagnostic",
             "singles.rs: alias",
         ];
         const QUALIFIERS: [&str; 5] = ["pub", "const", "unsafe", "async", "extern"];

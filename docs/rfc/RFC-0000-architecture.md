@@ -312,8 +312,8 @@ so conformance can read 100% with three quarters of the language untested.
 Three files are the shared state between sessions, and this RFC does not
 duplicate them:
 
-- `docs/registers/decisions.md` — 92 entries, **two OPEN** (D90, the `log.*` line;
-  D91, the shared compile service). Append-only; a status may
+- `docs/registers/decisions.md` — 92 entries, **one OPEN** (D91, the shared
+  compile service). Append-only; a status may
   change, an entry may not be deleted or renumbered.
 - `docs/registers/defects.md` — 146 entries. The roadmap's §5 listed eleven;
   the rest were found by running the oracle rather than reading it. F14, F15 and

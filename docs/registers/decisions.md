@@ -3761,8 +3761,46 @@ which is what the first draft got wrong. But the line itself cannot be matched.
 - Blocks: RFC-0008 criteria 1, 2 and 5 — the five `log.*` words are unimplemented
   until this is taken, and they are five of criterion 5's ten
 - Default: **none.** Every option below changes what a program's stderr says.
-- Evidence: measured against the oracle, 2026-10-01
-- Status: **OPEN**
+- Evidence: measured against the oracle, 2026-10-01, and again 2026-10-03
+- Status: **RESOLVED — option 2**, decided by the repository owner 2026-10-03.
+  The five words route through `Vm::report`; `log.error` maps to `Warning`, the
+  level is kept in the reason text, and `setloglevel`'s filter is reproduced.
+
+### What was built, and the three things it cost that were not foreseen
+
+`crates/bund2-stdlib/src/logging.rs`. A line reads `Warning: log.error: …` or
+`Notice: log.trace: …`; the four quiet words emit nothing at the default level
+and `BUND_LOG_LEVEL` raises it. Verified against the oracle: the four quiet
+words are byte-identical, both error texts match, and `7 log.info` fails with a
+casting error at the default level **even though `log.info` says nothing there**
+— the reference pulls and casts before consulting the level, which is
+observable and preserved.
+
+**1. The five words are not crossable by promotion, and the honesty test caught
+it on the commit that added them.** Each has a *fixed* effect, `eff(1, 0)`, so
+`StackEffect::opaque` does not refuse them the way it refuses every other
+reporting site — they are exactly `alias`'s case (F137, D71). They are now in
+`promotable::REPORTS_MID_BODY`, and a new test asserts the **composition**:
+`PROMOTABLE.txt` is D55's half alone and lists them, while `crossable()`
+subtracts D71's half, so each is *certified and still not crossable*. A test
+reading only the file would have missed it.
+
+**2. Criterion 25's scan matched a doc comment.** It looks for the literal
+`Severity::Error` in shipped code, and `logging.rs` *explains* why `log.error`
+maps to `Warning` rather than `Error` — so the explanation was reported as the
+violation. The scan now skips comment lines, as D71's sibling scan already did.
+A comment cannot report anything, so this is strictly more precise rather than
+weaker.
+
+**3. `Severity`'s three rungs cannot hold five levels.** `Error` means
+"evaluation stopped here", which `log.error` has not done, and criterion 25
+forbids a native reporting at `Error` at all — so `log.error` is a `Warning`.
+Collapsing the rest would make `log.debug` and `log.trace` indistinguishable in
+output, so the level stays in the reason text.
+
+**What it did not cost: a deviation.** As the measurement predicted, none. The
+four quiet words' goldens pin silence, which Bund2 reproduces exactly, and
+`log.error` appears in no golden because the capture refuses it.
 
 ### What the oracle emits, measured
 

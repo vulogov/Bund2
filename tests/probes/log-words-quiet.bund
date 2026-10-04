@@ -1,0 +1,28 @@
+//
+// Probe: the four `log.*` words that say nothing at the default level
+// (RFC-0008 criteria 1, 2 and 5; D90).
+//
+// **This probe pins silence, and silence is the only thing about these words a
+// golden can hold.** A capture folds stderr into stdout and refuses a program
+// whose two runs differ. The default filter is `error`
+// (`reference/Bund/src/cmd/setloglevel.rs`), so these four emit nothing at all
+// — which is reproducible — while `log.error` emits one line carrying a
+// wall-clock timestamp, so its two runs differ by a second and the capture
+// refuses it. `log.error` is therefore absent here deliberately, and is listed
+// as unreachable beside `debug`, `debug.shell` and `password`.
+//
+// **What this asserts is stronger than it looks.** Bund2 does not reproduce
+// the reference's line — it cannot, because `env_logger` prints the calling
+// Rust module and Bund2's is a different file (D90). What it does reproduce is
+// *which* words are quiet at the default level, and a Bund2 without the filter
+// would emit four lines here and fail.
+//
+// The messages are distinct so that a leak names the word that leaked.
+//
+"probe: the four quiet log words emit nothing at the default level" println
+"from log.info" log.info
+"from log.warning" log.warning
+"from log.debug" log.debug
+"from log.trace" log.trace
+"probe: and each consumed its message, leaving the stack as it was" println
+41 1 +
