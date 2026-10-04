@@ -3570,6 +3570,43 @@ So whichever option was taken would have been the project's first executor, and
 D38's rule — pin to the version the oracle's lock resolves — had nothing to pin
 to.
 
+### Measured again, 2026-10-03, and it changes the shape of the question
+
+**Four of the five words are goldenable; the fifth can never be.** A golden's
+capture folds stderr into stdout (`run_once` in `xtask/src/golden/mod.rs`) and
+refuses any program whose two runs differ. Measured on the oracle:
+
+| program | two runs | why |
+|---|---|---|
+| `log.info`, `log.warning`, `log.debug`, `log.trace` | **identical** | the default filter is `error`, so all four emit nothing, and a golden pins exactly that |
+| `log.error` | **differ** | `[2026-10-04T01:15:31Z …]` against `…:32Z …`, the wall-clock second |
+
+So the line this decision is about — the only one any of the five ever prints at
+the default level — **is invisible to every golden**, for the same reason
+`debug` and `debug.shell` are (criterion 13, `UNSTABLE.txt`). D90 therefore
+governs what a *user* sees and nothing a capture can hold.
+
+**Which means a normaliser is the thing that would create the conflict, not
+resolve it.** A normaliser for the ISO timestamp would be defensible on F14's
+own grounds — a wall clock is not behaviour the reference defines — but it would
+make `log.error` capturable, and the golden would then hold
+`bund::stdlib::functions::debug_fun::debug_trace`, which is the reference's own
+Rust module path and the one field Bund2 cannot honestly produce. **Not adding
+the normaliser keeps the question out of the goldens entirely.**
+
+**And the four goldens force the level filter, whichever line is chosen.** They
+pin *silence*. A Bund2 that emitted `log.info` where the oracle is quiet would
+fail all four, so reproducing `setloglevel`'s filter — default `error`,
+`BUND_LOG_LEVEL` honoured — is a requirement rather than a nicety.
+
+**One wrinkle inside option 2.** `Severity` has three rungs and `Error` means
+"evaluation stopped here", which `log.error` has not done — so it must map to
+`Warning`, not `Error`, or a non-fatal log line would draw the fatal table.
+Five levels onto two rungs is lossy, and the sub-options are: collapse
+(`error`/`warning` → `Warning`, the rest → `Notice`), losing which word was
+called; or keep the level in the reason, `Notice: log.trace: …`, which preserves
+it.
+
 ### The options, and what each cost
 
 1. **tokio behind the existing `async` feature**, `features = ["rt", "sync"]`.
@@ -3755,8 +3792,10 @@ until it is decided what they say instead.
 ### The options
 
 1. **Bund2's own module path, timestamp normalised.** Byte-identical in shape,
-   different in one field. A golden needs a new normaliser; the deviation is one
-   token wide.
+   different in one field. **Now the worst option rather than the obvious one**:
+   the normaliser is what makes `log.error` capturable, and the capture would
+   then demand the reference's Rust module path. It converts a question no
+   golden can see into an approved deviation.
 2. **Route them through `Vm::report` at `Warning` and `Notice`**, which is
    Bund2's architecture: "a `Warning` or `Notice` has not stopped the program and
    gets one line on stderr" (D36). The line becomes `Warning: hello from
@@ -3775,14 +3814,23 @@ until it is decided what they say instead.
 
 ### The recommendation, with what it costs
 
-**Option 2, with the oracle's level filter reproduced** — so `log.error` emits
-and the other four stay quiet at the default, and `BUND_LOG_LEVEL` still selects.
-It puts logging on the seam a TUI will implement, which is the reason D36 exists,
-and it removes both unreproducible fields rather than normalising one of them.
+**Option 2, mapping `log.error` to `Warning`, keeping the level in the reason,
+and reproducing `setloglevel`'s filter** — so `log.error` emits and the other
+four stay quiet at the default, and `BUND_LOG_LEVEL` still selects.
 
-What it costs, stated: the line differs from the oracle's in every character
-before the message. That is an approved deviation covering five words at once,
-and it should be recorded as one rather than discovered per golden.
+It puts logging on the seam a TUI will implement, which is the reason D36
+exists, and it removes both unreproducible fields instead of normalising one of
+them. The level stays in the reason text because collapsing five words onto two
+rungs would make `log.debug` and `log.trace` indistinguishable in output, and a
+program that logs at two levels to tell them apart would stop being able to.
+
+**What it costs, and the cost is smaller than it first looked: no deviation at
+all.** The four quiet words' goldens pin silence, which Bund2 reproduces
+exactly, and `log.error`'s line appears in no golden because the capture refuses
+it. So coverage moves by four, `log.error` joins `debug`, `debug.shell` and
+`password` as named-unreachable, and **nothing needs
+`conform --accept-deviation`**. The earlier draft of this entry expected one
+deviation covering five words; measurement says none.
 
 **Criterion 2 is wrong either way** and is corrected in the RFC: what is
 checkable is *which* words emit at the default level, not what the line says.
