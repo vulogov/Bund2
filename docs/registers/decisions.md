@@ -3547,6 +3547,78 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D94 — RFC-0008 is Proposed
+
+**Authorised by the repository owner, 2026-10-04**, after one adversarial review
+of the document and the implementation of its design sections.
+
+- Blocks: nothing. It changes the document's status, not any rule
+- Depends on: D36, D44, D45, D52, D53, D84, D90 — and D6, which D84 closed
+- Status: **RESOLVED — Proposed**, 2026-10-04.
+
+### What is authorised
+
+§D1 through §D6 as specified and built: the safepoint, the frame's symbol, the
+three breakpoint forms, the two watchpoint hooks, the inspection words Bund2
+already had, and the tier declining to install itself under the debugger. The
+`log.*` words and `debug.dump` with them. **All thirteen criteria are
+discharged** — eleven met, one deferred with a named blocker, one withdrawn for
+naming no check.
+
+### What is specified and **not** built, with no criterion over it
+
+Two sections, and neither has a criterion, which is why they are named here
+rather than left to a reader of the criteria list:
+
+- **§D7's execution trace.** "A separate stream behind a flag, emitting
+  `(depth, symbol, value, stack effect)` per step." No flag exists. The
+  section's own correction stands — `eval_observed` cannot drive it, because the
+  observer is called from the top-level loop only — and §D1's safepoint is now
+  the hook it would use.
+- **§D8's history.** The reference writes
+  `bund_debug_debugger_history.txt` in the working directory; §D8 makes it a
+  deviation and puts it in the platform's config directory (F10, disposition
+  FIX). Nothing is written anywhere: the debugger console reads plain lines and
+  keeps no history, which its module doc says in terms.
+
+So a debugged session today steps, breaks, watches and inspects, and does not
+trace or remember. That is the whole gap and it is bounded.
+
+### Two things the criteria record as owed rather than met
+
+Carried here because a status line is what gets read:
+
+- **Criterion 6 says "every suite program" and four were used.** The
+  differential runs `s`, `n` and `f` to completion against a plain run over four
+  programs chosen to cover what the safepoint has to reach. The sweep over the
+  whole suite belongs in `xtask conform`, beside the capture that already
+  enumerates them.
+- **§D2's span half is withdrawn from criterion 12.** A frame carries the symbol
+  it was pushed for; it carries no source position, because
+  `lower_with_spans` is top level only and producing per-value spans is
+  RFC-0003 §S5's IR, which does not exist. A backtrace names a word and a value
+  index. The span's cost is owed to whichever work produces spans.
+
+### What the review and the building cost, recorded because it is the argument
+
+The adversarial review found that §D1 was blocked on **D6**, which the first
+draft treated as settled — "the failure CLAUDE.md names in terms".
+
+**Four criteria were wrong as written, and every one was caught by building
+rather than by reading:**
+
+| criterion | what it asked | what is true |
+|---|---|---|
+| 2 | `log.error`'s line matches the oracle's | the line carries a wall-clock timestamp and the reference's own Rust module path; only *which words are silent* is checkable (D90) |
+| 3 | all seven `DUMP:` texts match | five are vacuous — each sits behind the tag check that guarantees its cast |
+| 5 | coverage moves by ten | it moved by five, and the other five are named word by word |
+| 10 | `compiled_entries()` reads `Some(0)` | it reads `None`: §D6 declines to *install* the tier, which is the stronger statement |
+
+That is the pattern this RFC is the clearest instance of: the criteria were
+written from the design, and the design was right about mechanism and wrong
+about measurement four times. **A criterion that has not been run is a claim,
+not a check.**
+
 ## D93 — RFC-0007 is Proposed
 
 **Authorised by the repository owner, 2026-10-04**, after one adversarial review

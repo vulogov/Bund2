@@ -1,18 +1,45 @@
 # RFC-0008: The debugger and observability
 
-- Status: **Draft**, revised 2026-09-30 after the first adversarial review
-  (`docs/rfc/reviews/RFC-0008-review-2026-09-30.md`). §D1 was blocked on **D6**,
-  which the first draft treated as settled — the failure CLAUDE.md names in
-  terms, and neither of the two reasons that draft gave for staying a Draft.
-- **No longer blocked on a decision — D84 closes D6** (VM-per-task; the
-  debugger stops a thread rather than suspending a word). RFC-0003 had placed
-  this RFC's subject in D6's scope — "The `--debugger` path is now in D6's
-  scope… the observer's interface is not designed here" (RFC-0003:944-946) —
-  and D84 answers it. What remains before proposing is **measurement, not
-  decision**: §D1's safepoint cost and §D2's frame growth, criteria 11 and 13.
+- Status: **Proposed** (2026-10-04, on the owner's authorisation — **D94**),
+  after one adversarial review of the document and the implementation of §D1
+  through §D6. **All thirteen criteria are discharged**: eleven met, criterion 4
+  met on each capture, and one withdrawn for naming no check.
+
+  **What is specified and not built, named here because no criterion covers
+  it.** §D7's execution trace — a stream behind a flag, `(depth, symbol, value,
+  stack effect)` per step — has no flag; §D1's safepoint is the hook it would
+  use. §D8's history is written nowhere: the console reads plain lines and keeps
+  none. So a debugged session steps, breaks, watches and inspects, and does not
+  trace or remember. That is the whole gap.
+
+  **Two things the criteria record as owed rather than met.** Criterion 6 says
+  "every suite program" and four were used — the sweep belongs in `xtask
+  conform`. And §D2's span half is withdrawn from criterion 12: a frame carries
+  the symbol it was pushed for and no source position, because
+  `lower_with_spans` is top level only and per-value spans are RFC-0003 §S5's
+  IR, which does not exist.
+
+  **The previous status said what remained was "measurement, not decision" and
+  named criteria 11 and 13.** It was wrong about which: the measurements were 11
+  and **12**, and criterion 13 was a statement about `debug` that needed no
+  measurement at all. Both readings were corrected by taking them.
+
+  **Four criteria were wrong as written, and building caught every one** —
+  criterion 2 asked for a line carrying a wall-clock timestamp and the
+  reference's own Rust module path, 3 asked for seven texts of which five are
+  vacuous, 5 predicted ten words and five moved, and 10 asked for `Some(0)`
+  where `None` is the truth. D94 tabulates them. The pattern is the lesson: the
+  criteria were written from the design, and the design was right about
+  mechanism and wrong about measurement four times over.
+
+  The first adversarial review
+  (`docs/rfc/reviews/RFC-0008-review-2026-09-30.md`) found §D1 blocked on
+  **D6**, which the first draft treated as settled — the failure CLAUDE.md names
+  in terms. **D84 closed D6** (VM-per-task; the debugger stops a thread rather
+  than suspending a word), answering what RFC-0003 had placed in D6's scope.
 - Depends on: RFC-0003 (the flat frame loop), RFC-0005 (the tier, whose decline
   machinery §D6 uses)
-- Decisions consumed: D36, D44, D45, D52, D53, D84
+- Decisions consumed: D36, D44, D45, D52, D53, D84, D90, D94
 - Touched but not consumed: D16, D74
 - Reference SHA: `reference/Bund` at `21b40b0`, per `reference/PINNED.txt`
 - Supersedes: nothing. `docs/research/03-metaprogramming-oop-debugger.md` §3 is
