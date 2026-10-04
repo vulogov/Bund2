@@ -62,6 +62,13 @@
 //! bund2-stdlib promotable` rewrites it, and that test asserts the file matches
 //! what the palette found — so the honesty mechanism stays where it already is
 //! instead of being duplicated into a second place that could drift.
+//!
+//! **One consequence, because it looks like a failure the first time.**
+//! `include_str!` is resolved at compile time, so a regeneration run tests the
+//! *previous* contents: any test asserting that a newly certified word is
+//! listed fails on the run that writes it and passes on the next, once the
+//! changed file has triggered a rebuild. Seen on 2026-10-03 with D90's five
+//! `log.*` words. Nothing is wrong when that happens — run it again.
 
 use std::collections::BTreeSet;
 
