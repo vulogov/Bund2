@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 239 promotable of 247 reached, of 284 fixed-effect natives; 8 reached natives
+# 241 promotable of 249 reached, of 288 fixed-effect natives; 8 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 *
@@ -83,6 +83,8 @@ debug.dump
 dict
 drop
 dup_one
+encode.base64
+encode.base64.
 ensure_stack
 ensure_stack_with_capacity
 false
@@ -268,6 +270,8 @@ var-
 # Fixed-effect natives the palette never brought to `Ok`:
 # not reached: at.
 # not reached: csv
+# not reached: decode.base64
+# not reached: decode.base64.
 # not reached: endcontext
 # not reached: file
 # not reached: file.
