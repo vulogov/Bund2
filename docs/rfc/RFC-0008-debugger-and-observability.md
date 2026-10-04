@@ -452,9 +452,11 @@ capture and still unpinnable, which is `debug`'s case.
    that passed before fails after, per golden, and that CEILING moves only by
    deviations this RFC records.
 
-   **Met, 2026-10-01: 109/118 ceiling 109/118 before, 110/119 ceiling 110/119
-   after**, in the default build and under `--features jit`. The denominator
-   grew by exactly the one probe criterion 3 added, the numerator with it, and
+   **Met, 2026-10-01 and again 2026-10-03**: 109/118, then 110/119 after
+   criterion 3's probe, then **111/120 after criterion 2's**, each with the
+   ceiling equal, in the default build and under `--features jit`. The
+   denominator grew by exactly the probes this RFC added, the numerator with
+   them, and
    the nine approved deviations are the same nine — **this RFC has recorded
    none**, so the ceiling moved only with the denominator. COVERAGE 395 → 396
    and IMPLEMENTED 399 → 400, which is criterion 5's table read back from the
@@ -481,9 +483,14 @@ capture and still unpinnable, which is `debug`'s case.
    | `debug.display_memstat` | not implemented, not yet grounded |
    | `debug.display_distributed_info` | not implemented; it reports a zenoh session, which D87 left deferred |
 
-   **Updated 2026-10-03, after D90.** Coverage moves by **five** — `debug.dump`
-   and the four quiet `log.*` words — and the other five are accounted for word
-   by word: `log.error` and `debug`/`debug.shell` are goldenable by no capture,
+   **Measured 2026-10-03, after D90's capture: COVERAGE 395 → 400/505,
+   IMPLEMENTED 399 → 405/505.** Implemented moved by **six** — `debug.dump` and
+   all five `log.*` — and coverage by **five**, because `log.error` is
+   implemented and no golden can run it. It now sits in the report's own
+   `implemented but run by no golden` list beside `$`, `<-`, `password` and
+   `←`, which is `coverage` saying so rather than this document claiming it.
+   The other five of the ten are accounted for word by word:
+   `debug`/`debug.shell` are goldenable by no capture,
    `debug.display_memstat` is ungrounded, and `debug.display_distributed_info`
    reports a zenoh session, which D87 left deferred. That is the criterion
    working as restated; the first draft's "moves by exactly ten, or the
