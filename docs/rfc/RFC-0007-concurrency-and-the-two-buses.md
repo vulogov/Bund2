@@ -1,47 +1,44 @@
 # RFC-0007: Concurrency, and the two buses
 
-- Status: **Draft**, revised 2026-10-03. **Both reasons the previous status gave
-  are now false**, and that line survived three sessions after they stopped being
-  true — the failure this repository has paid for twice, where a status nothing
-  contradicts is read as authoritative (see F109's addendum). It read: "the eight
-  words are out of scope under **D28** and need a decision (§C7), and nothing in
-  it involves a second VM (§C8)". **D87 scoped the words in, §C8 was written, and
-  all eight words are implemented, probed and captured** — criteria 1, 2, 3, 5, 6
-  and 8 are met and dated, 4 is deferred and 7 withdrawn.
+- Status: **Proposed** (2026-10-04, on the owner's authorisation — **D93**),
+  after one adversarial review of the document and the implementation of
+  everything in it. **All fourteen criteria are discharged**: 1, 2, 3, 5, 6 and
+  8 met against the oracle; 9, 10, 11, 12, 13 and 14 met as design; 4 deferred
+  as a deviation filed as preservation; 7 withdrawn for naming no check.
 
-  **What blocks it now is two things, stated so the next reader does not have to
-  derive them.**
+  **What "Proposed" means here is narrower than in RFC-0005 or RFC-0006, and
+  that is the thing to carry away.** Those were preservation documents: the
+  oracle could adjudicate every criterion, and a disagreement was a bug.
+  **§C8 is design.** The reference has one VM and spawns no threads, so its bus
+  is a queue from a VM to itself, and criteria 9–14 are the first criteria in
+  this repository the oracle cannot settle either way. They say what Bund2 does
+  and that a test holds it; they cannot say the reference agrees, because the
+  reference has no opinion. **Do not cite them as preservation claims.**
 
-  1. **The criteria did not reach the section they are supposed to govern.**
-     All eight concerned the exchange layer, and §C8 says so itself: "every
-     criterion below passes with one VM". **This was the first draft's original
-     sin surviving the revision** — it "specified the exchange layer and called
-     it concurrency", and the criteria list went on doing that after the prose
-     was corrected. Criteria 9–14 now cover the second VM, and **all six are
-     met**: §C8's VM host and its `async` façade are built (`bund2-async`'s
-     `host` module), criterion 10 is verified load-bearing rather than merely
-     passing, and D92 settled the façade's dependency question by linking no
-     executor at all.
+  **What is not authorised: zenoh.** §C4 stays deferred under D28 and D87, the
+  `--distributed` flag is unbuilt, and how a channel address selects a transport
+  is still an open question.
 
-  So **nothing in this document is now unbuilt**, and what stands between it and
-  Proposed is a reading rather than a task: §C8 is design and not preservation,
-  and criteria 9–14 are the first criteria in this repository that the oracle
-  cannot adjudicate. Whether that is proposable on the owner's authorisation, as
-  RFC-0005 was under D59 and RFC-0006 under D82, is theirs to say.
-  2. **§C8 recorded a decision and left it there** — a shared compile service
-     against D60's per-`Interp` module. **D91** now carries it. It is not
-     needed to *build* the second VM, only to make several VMs that tier up the
-     same hot word anything other than N× wasteful, so it bounds how far §C8
-     can be taken rather than whether it can start.
+  **The status line this replaces was false for three sessions**, and it is kept
+  here because the pattern is the subject. It said the RFC "cannot be proposed"
+  because the eight words were out of scope under D28 and because nothing in it
+  involved a second VM — and D87 had scoped the words in and §C8 had been
+  written. A status nothing contradicts is read as authoritative; see F109's
+  addendum and F146. Two further things that line never mentioned were found by
+  correcting it: the criteria did not reach the section they were supposed to
+  govern, which was the first draft's "specified the exchange layer and called it
+  concurrency" surviving its own revision; and §C8 had recorded a decision and
+  left it there, now D91.
 
-  Earlier revisions of this line, kept because the pattern is the subject: the
-  first draft's stated reasons were neither of the above, and the first
-  adversarial review found **four blockers**, two of them errors in measurements
-  this document claimed to have taken against the oracle
-  (`docs/rfc/reviews/RFC-0007-review-2026-10-01.md`).
+  The first adversarial review found **four blockers, two of them errors in
+  measurements this document claimed to have taken against the oracle**
+  (`docs/rfc/reviews/RFC-0007-review-2026-10-01.md`). That is what the review
+  was worth: not that the design was wrong, but that two numbers in it had not
+  been measured and were written as though they had.
 - Depends on: RFC-0002 (the word kinds this defines), RFC-0003 (the flat frame
   loop)
-- Decisions consumed: D10, D20, D28, D40, D44, D84, D85, D86, D87, D88, D91
+- Decisions consumed: D10, D20, D28, D40, D44, D84, D85, D86, D87, D88, D91,
+  D92, D93
 - Touched but not consumed: D16, D27, D31
 - Reference SHA: `reference/Bund` at `21b40b0`, per `reference/PINNED.txt`
 - Supersedes: `docs/research/01-extensibility-async.md` §2 in two places, now

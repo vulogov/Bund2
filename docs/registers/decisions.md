@@ -3547,6 +3547,67 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D93 — RFC-0007 is Proposed
+
+**Authorised by the repository owner, 2026-10-04**, after one adversarial review
+of the document and the implementation of everything in it.
+
+- Blocks: nothing. It changes the document's status, not any rule
+- Depends on: D84, D85, D86, D87, D88, D91, D92 — the seven decisions the RFC
+  needed, all RESOLVED
+- Status: **RESOLVED — Proposed**, 2026-10-04.
+
+### What is authorised
+
+The eight bus words as specified and built, §C8's VM host and its `async`
+façade as specified and built, and **the rest of the document as specification
+only**. Nothing here authorises zenoh: §C4 stays deferred under D28 and D87, the
+`--distributed` flag is unbuilt, and the question of how a channel address
+selects a transport is still open.
+
+### The thing that makes this different from D59 and D82
+
+RFC-0005 and RFC-0006 were preservation documents: the oracle could adjudicate
+every criterion, and a disagreement was a bug in Bund2. **§C8 is design.** The
+reference has one VM and spawns no threads, so its bus is a queue from a VM to
+itself, and criteria 9–14 are the first criteria in this repository that the
+oracle cannot settle either way.
+
+So what "Proposed" means here is narrower, and saying so is the point:
+
+- Criteria **1, 2, 3, 5, 6 and 8** are preservation, measured against the
+  oracle, and mean what they mean in any other RFC.
+- Criteria **9–14** are design. They say what Bund2 does and that a test holds
+  it. They cannot say the reference agrees, because the reference has no
+  opinion.
+
+**A reader must not take criteria 9–14 as preservation claims**, and a later
+session must not cite them as evidence that the reference behaves some way. The
+criteria themselves say "this section is design, not preservation" and are
+marked throughout; this decision repeats it because a status line is what gets
+read.
+
+### What the review cost
+
+One document review, four blockers — **two of them errors in measurements the
+document claimed to have taken against the oracle**. That is the finding the
+review was worth: not that the design was wrong, but that two numbers in it had
+not been measured and were stated as if they had.
+
+Two further corrections came from implementation rather than review, and both
+were in the criteria rather than the code: criterion 4 was a deviation filed as
+preservation and is withdrawn, and criterion 7 named no check and could not
+fail, so it is withdrawn too.
+
+### The status line that preceded this
+
+Recorded because it is the failure this repository has paid for three times. The
+previous line said the RFC "cannot be proposed" for two reasons — the words were
+out of scope under D28, and nothing in it involved a second VM — and **both had
+been false for three sessions** when it was finally corrected on 2026-10-03.
+D87 scoped the words in and §C8 was written. A status nothing contradicts is
+read as authoritative; see F109's addendum and F146.
+
 ## D92 — criterion 13's façade links no executor
 
 RFC-0007 §C8's second half is an `async` façade over one VM, which research (a)
