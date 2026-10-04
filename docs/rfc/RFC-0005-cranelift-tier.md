@@ -6189,18 +6189,28 @@ evidence, and this one is listed as runnable rather than as met.
     one `Emitter<JITModule>`, a `JitTier` owns one `Compiler`, and the module
     is shared: that work landed, and this note's own paragraph above says so.
 
-    **What the floor actually is, stated with its uncertainty.**
-    `finalize_definitions` is called **once per compilation**, and each call
-    reserves and finalises its own memory, none of which §S4 ever reclaims
-    (`free_memory` is an `unsafe fn` taking `self` that nothing is in a
-    position to call). At this host's 16 KiB pages a per-compilation region
-    rounded up to two pages would give ~30 KiB. **That is the leading
-    explanation rather than a proven one**: the measurement establishes the
-    cost is per *compiled body* and not per module, and it does not separate
-    page rounding at finalisation from Cranelift's own per-function
-    bookkeeping. Distinguishing them needs either instrumenting
-    `cranelift-jit`'s allocator or compiling many bodies in one finalisation,
-    which the public API does not offer.
+    **What the floor is, confirmed 2026-10-04 by reading `cranelift-jit`
+    0.135.0** rather than left as the leading explanation. `Memory::allocate`
+    is a bump allocator that takes a fresh `PtrLen::with_size` — an `mmap`
+    rounded up with `region::page::ceil` — whenever the current block cannot
+    serve it; `SystemMemoryProvider::finalize` calls `set_readonly` and
+    `set_readable_and_executable`, and **both close the current block**; and
+    `finalize_definitions` calls that once per compiled body, because a body
+    must be executable before it runs. So each body closes the code and
+    readonly blocks and the next starts two fresh pages: **32 KiB at this
+    host's page size**, against a measured ~30 KiB, the difference being
+    untouched pages RSS does not count.
+
+    **Not configurable away.** `ArenaMemoryProvider` pre-reserves one region,
+    but its allocator skips any `finalized` segment and allocates a new
+    page-aligned one, so it pays the same cost by the same rule. The floor is
+    structural in the dependency, not a Bund2 mistake, and §S4's lack of
+    reclamation is what makes it accumulate rather than merely exist.
+
+    So this refactor is not the lever it looked like: sharing a module within
+    one `Interp` is already done, and what remains is a constant per compiled
+    body that only finalising less often would reduce. D91 carries where that
+    leaves the decision it belongs to.
 
     **Either way it is not this criterion's business.** The module is already
     shared and criterion 23 is met; reducing the floor is an §S4 question about

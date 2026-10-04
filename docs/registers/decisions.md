@@ -3925,15 +3925,37 @@ criterion 23's module half is met. Citing a passage without reading the ones
 that follow it is the mistake CLAUDE.md names in terms, and it was made inside a
 single document.
 
-**The leading explanation, with its uncertainty stated.**
-`finalize_definitions` is called once per compilation, each call reserves and
-finalises its own memory, and §S4 reclaims none of it. At 16 KiB pages a
-per-compilation region rounded to two pages gives ~30 KiB. What the measurement
-*establishes* is that the cost is per **compiled body** and not per module; what
-it does not do is separate page rounding at finalisation from Cranelift's
-per-function bookkeeping. Distinguishing them needs instrumenting
-`cranelift-jit`'s allocator, or compiling many bodies in one finalisation, which
-the public API does not offer.
+**Confirmed 2026-10-04 by reading `cranelift-jit` 0.135.0**, which the earlier
+note left as the leading explanation. It is page rounding at finalisation, and
+the mechanism is exact:
+
+- `Memory::allocate` is a **bump allocator**: it serves from `current` when the
+  size fits, and otherwise calls `finish_current()` and takes a fresh
+  `PtrLen::with_size(size)`, whose size is `region::page::ceil(size)` — an
+  `mmap` **rounded up to a page**.
+- `SystemMemoryProvider::finalize` calls `readonly.set_readonly()` and
+  `code.set_readable_and_executable()`, and **both call `finish_current()`**.
+  So finalising closes the code block and the readonly block; the *writable*
+  one is not finalised and survives.
+- `JITModule::finalize_definitions` calls that provider `finalize`, and Bund2
+  calls it **once per compiled body** (`finish_jit` in `lower.rs`), because a
+  body must be executable before it can be called.
+
+So each compiled body closes two bump blocks and the next body starts two fresh
+page-rounded ones. **At this host's 16 KiB pages that is 32 KiB per body**,
+against a measured ~30 KiB — the shortfall being untouched pages, which RSS
+does not count.
+
+**It is not configurable away, which is the part worth knowing.** The other
+provider, `ArenaMemoryProvider`, pre-reserves one region and suballocates — but
+its `allocate_inner` skips any segment that is `finalized` and then allocates a
+new page-aligned one, so it pays the same cost by the same rule. Swapping
+providers changes the address stability and the failure mode, not the floor.
+
+**The floor is therefore structural in the dependency rather than a Bund2
+mistake**, and the levers are only these three: finalise less often, which the
+compile-then-immediately-run pattern barely allows; compile fewer bodies, which
+D74's threshold of 1024 already does; or cap the total, which is option 4.
 
 ### What that means for this decision
 
@@ -4000,6 +4022,14 @@ declines to pre-commit because the two symptoms have different answers:
 | a long-running process grows without bound | **4** | §S4's missing reclamation is the actual cause; sharing a module would slow the growth and not stop it |
 | both, and 3 + 4 together are not enough | **2** | and only then, because it costs criterion 23 and makes §S6's per-`Interp` cells a parameter of the call |
 
+**Option 4 now has a ready-made mechanism**, found while confirming the cause.
+`ArenaMemoryProvider::new_with_size(n)` reserves `n` bytes up front and answers
+`pre-allocated jit memory region exhausted` when they are gone, instead of
+growing without bound. That is exactly the "single enforceable number" research
+§2.6 said only a shared compile service could give — and it turns out a memory
+provider gives it per `Interp`, without touching criterion 23 or §S6's cells.
+Whoever takes option 4 should start there rather than building a cap.
+
 An earlier version of this recommendation said "option 3 before option 2" and
 did not rank option 4 at all. The measurement moved it up: option 4 is the only
 one of the four that **bounds** anything, and it works whether or not the module
@@ -4007,11 +4037,12 @@ is shared. The research's claim that only a shared service makes the cap "a
 single enforceable number" is about where the cap lives, not whether one can
 exist — a per-VM cap of M over N VMs is still a bound, at N·M.
 
-**What would change this further**: reducing the per-body floor, which is §S4's
-to reduce. Every figure in this entry is measured against today's allocation
-shape — ~30 KiB per compiled body — so all of them would need retaking if that
-changed, and the N× that remained afterwards is what this decision should be
-weighed on.
+**What would change this further**: not much, now that the floor is understood.
+It is a dependency's page-rounding rule and cannot be reduced by configuration,
+so the ~30 KiB per compiled body stands until either Bund2 finalises less often
+or `cranelift-jit` changes. The N× this decision is about sits on top of a
+constant nobody here controls, which is an argument for option 4 over options 2
+and 3 that the first version of this entry did not have.
 
 ## D90 — what a `log.*` line looks like, now that the oracle's cannot be reproduced
 
