@@ -3715,6 +3715,37 @@ order, and it is the order D75 already applied once — D68's crossing was
 withdrawn from the shipped build because the measurement said it cost ~1.7 ns a
 call rather than saving.
 
+### Measured, 2026-10-03 — the host made the argument a number
+
+§C8's VM host exists, so D91's own "what would change this" is now takeable.
+At threshold 1, one hot word, 64 evaluations per VM:
+
+| VMs | bodies compiled | compiled entries |
+|---|---|---|
+| 1 | 1 | 63 |
+| 2 | 2 | 126 |
+| 4 | 4 | 252 |
+| 8 | 8 | 504 |
+
+**Exactly linear, exactly as research §2.6 predicted.** Each VM compiles the one
+body once and enters it 63 times, so what is duplicated is the *compilation*,
+not the running. Pinned by
+`n_vms_each_compile_the_same_hot_word_which_is_d91s_cost`, so a future change
+that shares compiled code fails a test and forces this decision rather than
+drifting past it.
+
+**What the measurement does not give is the magnitude.** `JITModule` exposes no
+size, so how much one compiled body costs is unknown — and that, not the
+multiple, is what decides whether N× matters at D85's tens. Taking it needs a
+size accounting RFC-0005 §S4 does not have.
+
+**It also sharpens what the hazard actually is.** The multiple is linear and
+immediate; the *unboundedness* is neither, and it comes from §S4 reclaiming no
+code memory at all. A long-running VM accumulates code for every body it ever
+tiers, and N VMs accumulate N times that. **The multiple is not the hazard — it
+scales one.** That is an argument for option 4 which this entry originally
+under-weighted.
+
 ### The options
 
 1. **Keep per-`Interp` modules.** Criterion 23 intact, compiled code's lifetime
@@ -3741,15 +3772,29 @@ call rather than saving.
 
 ### The recommendation
 
-**Option 1 until the trigger is observed, and option 3 before option 2 when it
-is.** The ordering is the substance: the research jumped from "per-VM is bad" to
-"share the module", and option 3 sits between them — it takes the compile-time
-half of the win without surrendering the invariant that makes compiled code's
-lifetime sound.
+**Option 1 now**, and the measurement above is why rather than an assumption:
+the N× is real and linear, but D74 ships a threshold of 1024 and F139 found that
+no corpus program compiles a body even at 64. The trigger has not fired, and
+8 × zero is zero.
 
-**What would change this**: a measurement, not an argument. Two VMs, the same
-hot word, at a threshold either reaches — and the figure to beat is the one
-`compiled_bodies()` and `compiled_entries()` already report per `Runtime`.
+**When it fires, which option follows depends on the symptom**, and this entry
+declines to pre-commit because the two symptoms have different answers:
+
+| symptom | option | why |
+|---|---|---|
+| N VMs are slow to start because each compiles the same words | **3** | it removes exactly the duplicated work the measurement found, and leaves criterion 23 untouched |
+| a long-running process grows without bound | **4** | §S4's missing reclamation is the actual cause; sharing a module would slow the growth and not stop it |
+| both, and 3 + 4 together are not enough | **2** | and only then, because it costs criterion 23 and makes §S6's per-`Interp` cells a parameter of the call |
+
+An earlier version of this recommendation said "option 3 before option 2" and
+did not rank option 4 at all. The measurement moved it up: option 4 is the only
+one of the four that **bounds** anything, and it works whether or not the module
+is shared. The research's claim that only a shared service makes the cap "a
+single enforceable number" is about where the cap lives, not whether one can
+exist — a per-VM cap of M over N VMs is still a bound, at N·M.
+
+**What would change this further**: the magnitude of one compiled body, which
+needs a size accounting §S4 does not have.
 
 ## D90 — what a `log.*` line looks like, now that the oracle's cannot be reproduced
 

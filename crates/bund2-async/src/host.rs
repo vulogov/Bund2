@@ -490,6 +490,78 @@ mod tests {
         rt.eval_str(src).map_err(|e| e.0)
     }
 
+    /// **D91's cost, measured and then pinned.**
+    ///
+    /// Research §2.6 says the per-VM `JITModule` is "Bad" under concurrency —
+    /// "every thread recompiles the same hot words… N threads means N× the
+    /// unbounded growth" — and D91 carries the decision about whether to share
+    /// a compile service instead. **Until now that was an argument; the host
+    /// makes it a number.**
+    ///
+    /// Measured 2026-10-03 at threshold 1, one hot word, 64 evaluations each:
+    ///
+    /// | VMs | bodies compiled | compiled entries |
+    /// |---|---|---|
+    /// | 1 | 1 | 63 |
+    /// | 2 | 2 | 126 |
+    /// | 4 | 4 | 252 |
+    /// | 8 | 8 | 504 |
+    ///
+    /// **Exactly linear, exactly as the research predicted.** Each VM compiles
+    /// the one body once and then enters it 63 times, so the duplicated work
+    /// is the compilation and not the running.
+    ///
+    /// This test asserts that rather than printing it, so the N× is **pinned**:
+    /// if a future change shares compiled code across VMs this fails, and D91
+    /// is then a decision being taken rather than a behaviour that drifted.
+    #[test]
+    fn n_vms_each_compile_the_same_hot_word_which_is_d91s_cost() {
+        const BODY: &str = ":hot { 1 2 + noop drop } register\n";
+        for n in [1usize, 2, 4, 8] {
+            let mut host = Host::with_limit(n)
+                .expect("limit")
+                .with_jit_threshold(Some(1));
+            let vms: Vec<_> = (0..n)
+                .map(|_| {
+                    host.spawn(|rt| {
+                        rt.eval_str(BODY).map_err(|e| e.0)?;
+                        for _ in 0..64 {
+                            rt.eval_str("hot").map_err(|e| e.0)?;
+                        }
+                        Ok::<_, String>((rt.compiled_bodies(), rt.compiled_entries()))
+                    })
+                    .expect("spawns")
+                })
+                .collect();
+            let got: Vec<_> = vms
+                .into_iter()
+                .map(|v| v.join().expect("join").expect("ran"))
+                .collect();
+
+            // Without a tier there is nothing to count, and the claim is
+            // vacuous rather than false — so the assertion is made only in a
+            // build that has one.
+            if got.iter().all(|(b, _)| b.is_none()) {
+                continue;
+            }
+            let bodies: usize = got.iter().filter_map(|(b, _)| *b).sum();
+            assert_eq!(
+                bodies, n,
+                "N VMs must compile the one hot body N times — D91's cost. If this \
+                 now reads 1, compiled code is being shared across VMs and D91 \
+                 needs to have been decided: {got:?}"
+            );
+            for (i, (b, e)) in got.iter().enumerate() {
+                assert_eq!(*b, Some(1), "VM {i} compiled {b:?} bodies, not one");
+                assert!(
+                    e.unwrap_or(0) > 0,
+                    "VM {i} compiled a body and entered none, so its share was not \
+                     declared"
+                );
+            }
+        }
+    }
+
     /// **§C8 criterion 14: the count is bounded.**
     ///
     /// A host that spawned on demand with no ceiling would turn D85's
