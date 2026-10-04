@@ -3749,10 +3749,59 @@ not the running. Pinned by
 that shares compiled code fails a test and forces this decision rather than
 drifting past it.
 
-**What the measurement does not give is the magnitude.** `JITModule` exposes no
-size, so how much one compiled body costs is unknown — and that, not the
-multiple, is what decides whether N× matters at D85's tens. Taking it needs a
-size accounting RFC-0005 §S4 does not have.
+### The magnitude, taken 2026-10-03 on a quiet host — and it points elsewhere
+
+Three CLEAN runs of `one_compiled_bodys_code_memory`, 200 distinct bodies each,
+resident set size before and after:
+
+| run | RSS delta | per body |
+|---|---|---|
+| A | 6,016 KiB | **30.08 KiB** |
+| B | 6,032 KiB | **30.16 KiB** |
+| C | 6,128 KiB | **30.64 KiB** |
+
+**Spread 1.9%** — far tighter than the timing rows RFC-0008 measured, so the
+instrument is adequate for the question. All 200 bodies compiled and all 200
+were entered in every run.
+
+**30 KiB is not plausible as machine code for `{ i 2 + noop drop }`**, so the
+figure was decomposed by varying the body size — the one experiment that
+distinguishes emitted code from fixed overhead:
+
+| body | per body | marginal |
+|---|---|---|
+| 1 × `1 2 + drop` | 31.60 KiB | — |
+| 8 × | 38.72 KiB | ~1.02 KiB per extra group |
+| 32 × | 58.08 KiB | ~0.85 KiB per extra group |
+
+So the cost is **a fixed floor of ~30 KiB per compiled body, plus about 1 KiB
+per unit of body**. Extrapolated to an empty body the floor is ~30.6 KiB, which
+matches the first table.
+
+**The floor is one `JITModule` per compiled body, at 16 KiB pages.** RFC-0005
+criterion 23's dated note already records the cause — "each `compile_word_body`
+builds a `JITModule` of its own, so there is one module per compiled body rather
+than one per `Interp`" — and `getconf PAGESIZE` on this host is 16384, so ~30
+KiB is two pages. For a realistic small Bund word, **the floor is ~97% of the
+cost and the body itself is ~3%.**
+
+### What that means for this decision, which is not what the entry expected
+
+**The dominant cost is inside one VM, not across several.** D91 asks whether to
+share a compile service *between* VMs; the measurement says the larger saving
+available is collapsing the per-body modules into one module *per `Interp`* —
+which **criterion 23 explicitly permits**, since what it forbids is sharing
+across `Interp`s, and which its own dated note already calls outstanding: "a
+`lower.rs` refactor… the criterion runs when that lands."
+
+For 200 small bodies that is roughly 6 MB against roughly 0.2 MB plus one
+module. **It needs no decision at all** — no criterion changes, §S6's per-VM
+cells are untouched, and D91's options are unaffected either way.
+
+So the honest reading: D91's N× is real, linear and now priced at ~30 KiB a
+body, and at D85's 64 VMs compiling 200 bodies each it is ~380 MiB — which
+sounds alarming until one notices that the *same* measurement says ~97% of it
+would be removed by work that is already owed and already permitted.
 
 **It also sharpens what the hazard actually is.** The multiple is linear and
 immediate; the *unboundedness* is neither, and it comes from §S4 reclaiming no
@@ -3808,8 +3857,11 @@ is shared. The research's claim that only a shared service makes the cap "a
 single enforceable number" is about where the cap lives, not whether one can
 exist — a per-VM cap of M over N VMs is still a bound, at N·M.
 
-**What would change this further**: the magnitude of one compiled body, which
-needs a size accounting §S4 does not have.
+**What would change this further**: finishing criterion 23's module half. The
+magnitude above is measured against today's one-module-per-body shape, so every
+figure in this entry would need retaking once a module is shared within an
+`Interp` — and the N× that remains afterwards is the number this decision should
+actually be weighed on.
 
 ## D90 — what a `log.*` line looks like, now that the oracle's cannot be reproduced
 

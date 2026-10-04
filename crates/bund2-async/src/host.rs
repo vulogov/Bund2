@@ -539,8 +539,19 @@ mod tests {
         // body's `payload_key` (D42), so repeating one body would compile once
         // and measure nothing.
         const BATCH: usize = 200;
+        // **Body size is a knob, because it is what distinguishes the two
+        // explanations.** If the per-body figure is emitted machine code it
+        // rises with the body; if it is per-module page granularity it does
+        // not. `BUND2_MEASURE_BODY_OPS` repeats the inner work.
+        let ops: usize = std::env::var("BUND2_MEASURE_BODY_OPS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1);
         let program: String = (0..BATCH)
-            .map(|i| format!(":hot{i} {{ {i} 2 + noop drop }} register\n"))
+            .map(|i| {
+                let work = "1 2 + drop ".repeat(ops);
+                format!(":hot{i} {{ {i} 2 + noop drop {work} }} register\n")
+            })
             .collect();
         let calls: String = (0..BATCH).map(|i| format!("hot{i}\n")).collect();
 
@@ -560,7 +571,7 @@ mod tests {
         let (before, after, bodies, entries) = vm.join().expect("join").expect("ran");
         let compiled = bodies.unwrap_or(0);
         println!(
-            "D91 magnitude: compiled {compiled} bodies, entered {entries:?}; \
+            "D91 magnitude: ops={ops} compiled {compiled} bodies, entered {entries:?}; \
              RSS {before:?} KiB -> {after:?} KiB"
         );
         if let (Some(a), Some(b)) = (before, after) {

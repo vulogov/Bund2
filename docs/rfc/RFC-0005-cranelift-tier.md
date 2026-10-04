@@ -6111,6 +6111,16 @@ evidence, and this one is listed as runnable rather than as met.
     compilations and hand out finalised pointers as each is defined. The
     criterion runs when that lands.
 
+    **Priced 2026-10-03, by D91's magnitude measurement.** One module per body
+    costs **~30 KiB per compiled body** — a fixed floor, measured at 1.9%
+    spread over three runs on a quiet host — against about 1 KiB for the body
+    itself. The floor is two 16 KiB pages per module, and for a realistic small
+    Bund word it is **~97% of the cost**. So this refactor is not tidiness: 200
+    small bodies cost roughly 6 MB today and roughly 0.2 MB plus one module
+    afterwards. It needs no decision — sharing a module *within* one `Interp`
+    is what this criterion permits, and only sharing *across* them is what it
+    forbids.
+
     **Dated note, 2026-09-13 (2) — it landed, and the criterion runs.** `lower`
     gained a `Compiler`: one `JITModule`, every word emitted into it, and a
     `WordHandle` handed back in place of a self-contained compiled value. A
