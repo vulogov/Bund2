@@ -1,0 +1,26 @@
+//
+// Probe: the `math.normalize` and `math.smoothing` forms that `coverage`
+// reported as implemented and run by no golden — the `.` workbench forms and
+// the `,` keep forms.
+//
+// **A LIST reaches the workbench whole**, which is what makes these cheap to
+// probe: `[ 1 2 3 ] { true } ?.` moves the list, and the reader takes it in
+// one piece. An earlier reading of this gap assumed a `?.` per value would be
+// needed, which is what a *drained* workbench would have required.
+//
+// **The `.` forms leave their answer on the workbench**, not the stack, so
+// the workbench dump below is where the results are. The `,` forms keep the
+// list they read, so each leaves two values rather than one.
+//
+"probe: math.normalize. reads the workbench and answers there" println
+[ 1 2 3 ] { true } ?. math.normalize.
+
+"probe: math.normalize., keeps the list it read, so two values remain" println
+[ 1 2 3 ] { true } ?. math.normalize.,
+
+"probe: math.smoothing, keeps its list on the stack" println
+[ 1 2 3 4 ] math.smoothing,
+
+"probe: math.smoothing. and math.smoothing., on the workbench" println
+[ 1 2 3 4 ] { true } ?. math.smoothing.
+[ 1 2 3 4 ] { true } ?. math.smoothing.,

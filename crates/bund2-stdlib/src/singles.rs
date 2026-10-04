@@ -1388,6 +1388,71 @@ mod f18_tests {
         Ok(i)
     }
 
+    /// **`bund.eval-file`'s three error paths**, which no probe can hold: a
+    /// failing word renders through the diagnostic table, which F66 records
+    /// as text no second machine reproduces.
+    ///
+    /// The relative-path case is the interesting one. It is not a
+    /// file-not-found: `get_file_from_file` prepends `file://`, so
+    /// `nope.bund` becomes the *host* in `file://nope.bund` and the fetch is
+    /// rejected before any file is looked for. The message is the same either
+    /// way, which is why the distinction has to be written down rather than
+    /// inferred from it.
+    #[test]
+    fn eval_file_reports_what_it_could_not_read() {
+        for (src, want) in [
+            (
+                "bund.eval-file",
+                "Stack is too shallow for inline BUND.EVAL-FILE",
+            ),
+            (
+                "bund.eval-file.",
+                "Workbench is too shallow for inline BUND.EVAL-FILE.",
+            ),
+            (
+                "7 bund.eval-file",
+                "BUND.EVAL-FILE returns: This Dynamic type is not string",
+            ),
+            // Relative: rejected as a URL, not missed as a file.
+            (
+                "\"nope.bund\" bund.eval-file",
+                "BUND.EVAL-FILE can not get code from file nope.bund",
+            ),
+            // Absolute and absent: the same message by a different route.
+            (
+                "\"/nonexistent/bund2/none.bund\" bund.eval-file",
+                "BUND.EVAL-FILE can not get code from file /nonexistent/bund2/none.bund",
+            ),
+        ] {
+            let e = match run(src) {
+                Ok(_) => panic!("{src} did not fail"),
+                Err(e) => e,
+            };
+            assert!(e.ends_with(want), "{src}:\n got {e}\n want …{want}");
+        }
+    }
+
+    /// **`--noeval` stubs all four, not two.** Reading a file in order to run
+    /// it is evaluation, so `bund.eval-file` is behind the evaluating flag
+    /// rather than `--noio` — the reference registers the four together.
+    #[test]
+    fn noeval_stubs_the_file_forms_too() {
+        let opts = crate::host::HostOptions {
+            noeval: true,
+            ..Default::default()
+        };
+        let mut i = Interp::new();
+        crate::register_all_with(&mut i.registry, &opts);
+        for name in ["bund.eval", "bund.eval.", "bund.eval-file", "bund.eval-file."] {
+            let stream = bund2_syntax::compile(name).expect("compiles");
+            let e = i.eval(&stream).expect_err(name).0;
+            assert!(
+                e.ends_with("bund EVAL functions disabled with --noeval"),
+                "{name}: {e}"
+            );
+        }
+    }
+
     /// **D72's `noop` does nothing, returns immediately, and leaves the stack
     /// exactly as it found it.**
     ///

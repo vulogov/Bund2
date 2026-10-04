@@ -1,0 +1,31 @@
+//
+// Probe: `bund.eval-file` and `bund.eval-file.`.
+//
+// **The path has to be absolute**, and that is the reference's doing:
+// `get_file_from_file` is `get_file_from_uri(format!("file://{path}"))`, so a
+// relative path becomes a *host name* and curl rejects it with
+// `URL rejected: Bad file:// URL`. The oracle's own `script --file` refuses a
+// relative path for the same reason. D54 records the rule for `use`.
+//
+// So the probe builds an absolute path from `cwd` — and **does not print
+// it**, because it is this machine's and a golden holding it would pass
+// nowhere else. What the golden holds is what the evaluated file *did*.
+//
+// Probes run from the repository root, for the oracle and for Bund2 alike, so
+// `cwd` names the same directory in both and the snippet is found by the same
+// path. The snippet is ours, committed beside this probe, and
+// `collect_probes` does not recurse — so a file under `data/` is read by this
+// probe and is not mistaken for one.
+//
+// The error paths are asserted in `crates/bund2-stdlib/src/singles.rs`
+// instead: a failing word renders through the diagnostic table, which F66
+// records as text no second machine reproduces, so a probe for them would be
+// an approved deviation for the frame rather than for the message.
+//
+"probe: bund.eval-file runs a file's contents in this VM" println
+cwd "{0}/tests/probes/data/eval-file-snippet.bund" format
+bund.eval-file
+
+"probe: bund.eval-file. takes the path from the workbench" println
+cwd "{0}/tests/probes/data/eval-file-snippet.bund" format { true } ?.
+bund.eval-file.

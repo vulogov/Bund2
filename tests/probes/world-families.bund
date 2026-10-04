@@ -1,0 +1,38 @@
+//
+// Probe: the six single-family world words — `save.aliases`/`load.aliases`
+// and their lambdas and stacks siblings.
+//
+// `world-save-load.bund` exercises `save` and `load` **whole**; these are the
+// forms that touch one family each, and `coverage` reported all six as
+// implemented and run by no golden until this probe existed.
+//
+// **Each saver replaces its own table and leaves the others alone**, which is
+// what makes the six separable at all: a `save.aliases` on a world holding
+// lambdas keeps the lambdas. Unlike `save.script`, a single-family saver works
+// on a fresh world — it drops and creates its table, where `save.script`
+// deletes from a table only `save` creates (F148).
+//
+// The world file is removed before and after, as `models-world.bund` does.
+//
+"bund2-probe-families.world" fs.rm drop
+
+"probe: save each family on its own, into one fresh world" println
+"println" "pp" alias
+:dbl { 2 * } register
+@sone 11 22
+@main
+"bund2-probe-families" save.aliases
+"bund2-probe-families" save.lambdas
+"bund2-probe-families" save.stacks
+
+"probe: load each family back on its own" println
+"bund2-probe-families" load.aliases
+"pp" alias=
+
+"bund2-probe-families" load.lambdas
+21 dbl
+
+"probe: load.stacks appends, so @sone holds its pair twice" println
+"bund2-probe-families" load.stacks
+
+"bund2-probe-families.world" fs.rm drop
