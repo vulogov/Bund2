@@ -17,13 +17,24 @@
 
 use std::io::Write;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// **A unique script path per call.** Keying on the process id alone put every
+/// test in this file on one file: they run as threads of one process, in
+/// parallel, so each overwrote the others' program and a watchpoint test read
+/// a breakpoint test's source. Found exactly that way.
+fn scratch(stem: &str) -> std::path::PathBuf {
+    static N: AtomicUsize = AtomicUsize::new(0);
+    let n = N.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("bund2-dbg-{}-{n}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("scratch dir");
+    dir.join(format!("{stem}.bund"))
+}
 
 /// Run a program, optionally under the debugger driven by `cmd`, and return
 /// its normalised stdout and exit code.
 fn run(src: &str, under: Option<&'static str>) -> (String, Option<i32>) {
-    let dir = std::env::temp_dir().join(format!("bund2-dbg-step-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("scratch dir");
-    let script = dir.join("p.bund");
+    let script = scratch("p");
     std::fs::write(&script, src).expect("script");
 
     let mut c = Command::new(env!("CARGO_BIN_EXE_bund2"));
@@ -134,9 +145,7 @@ fn a_stepped_run_matches_an_uninterrupted_one() {
 /// tautology RFC-0008's criterion 10 warns about in its own terms.
 #[test]
 fn the_debugger_stops_and_says_where() {
-    let dir = std::env::temp_dir().join(format!("bund2-dbg-ctl-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("scratch dir");
-    let script = dir.join("c.bund");
+    let script = scratch("c");
     std::fs::write(&script, ":w { 7 8 + } register\n1 w\n").expect("script");
 
     let out = Command::new(env!("CARGO_BIN_EXE_bund2"))
@@ -172,5 +181,123 @@ fn the_debugger_stops_and_says_where() {
     assert!(
         String::from_utf8_lossy(&out.stdout).is_empty(),
         "the session leaked into the program's stdout"
+    );
+}
+
+/// Drive a debugged program with a fixed script, returning (stdout, stderr,
+/// exit code). Stdin is closed after the script, which detaches and runs on.
+fn session(src: &str, script: &str) -> (String, String, Option<i32>) {
+    let script_path = scratch("s");
+    std::fs::write(&script_path, src).expect("script");
+
+    let out = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        .args(["--debugger", "script", "--file"])
+        .arg(&script_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .and_then(|mut ch| {
+            let mut pipe = ch.stdin.take().expect("stdin");
+            let _ = pipe.write_all(script.as_bytes());
+            drop(pipe);
+            ch.wait_with_output()
+        })
+        .expect("bund2 runs");
+    (
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+        out.status.code(),
+    )
+}
+
+const TWO_CALLS: &str = ":w { 7 8 + } register\n1 w 2 w\ndebug.display_stack\n";
+
+/// **Criterion 7 at process level: a breakpoint on a word stops before its
+/// body runs**, and `continue` does not suppress it.
+#[test]
+fn a_breakpoint_stops_at_every_call_and_continue_does_not_suppress_it() {
+    let (_, err, code) = session(TWO_CALLS, "break w\nc\nc\nc\n");
+    assert_eq!(
+        err.matches("breakpoint: w").count(),
+        2,
+        "both calls must stop:\n{err}"
+    );
+    assert!(
+        err.contains("break w\n"),
+        "setting a breakpoint must report what is watched:\n{err}"
+    );
+    assert_eq!(code, Some(0));
+}
+
+/// **Criterion 8: a conditional breakpoint cannot change the program it
+/// watches** — the three cases that matter, at process level.
+#[test]
+fn a_conditional_breakpoint_holds_fails_or_exits_without_touching_the_program() {
+    // Holds: both calls stop.
+    let (_, err, _) = session(TWO_CALLS, "break w if { 1 1 == }\nc\nc\nc\n");
+    assert_eq!(err.matches("breakpoint: w").count(), 2, "{err}");
+
+    // Does not hold: nothing stops, and the program still ran.
+    let (out, err, code) = session(TWO_CALLS, "break w if { 1 2 == }\nc\n");
+    assert_eq!(err.matches("breakpoint: w").count(), 0, "{err}");
+    assert!(out.contains("I64(15)"), "the program did not run:\n{out}");
+    assert_eq!(code, Some(0));
+
+    // **Exits: the condition's `bund.exit` must not end the debugged
+    // program.** This is the case §D3 says the child VM is *required* for —
+    // `request_exit` is `get_or_insert`, so in the program's own VM nothing
+    // could have cleared it.
+    let (out, err, code) = session(TWO_CALLS, "break w if { 9 bund.exit }\nc\n");
+    assert!(
+        err.contains("the condition did not stop"),
+        "a failing condition must be reported:\n{err}"
+    );
+    assert_eq!(err.matches("breakpoint: w").count(), 0, "it stopped anyway");
+    assert_eq!(
+        out.matches("I64(15)").count(),
+        2,
+        "the program must have run both calls to completion:\n{out}"
+    );
+    assert_eq!(
+        code,
+        Some(0),
+        "the condition's exit code reached the debugged program"
+    );
+}
+
+/// **Criterion 9 at process level: both hooks, and each sees only its own.**
+#[test]
+fn a_watchpoint_fires_on_its_own_stack_and_the_workbench_is_separate() {
+    // A push to `@other` stops; pushes to `@main` do not.
+    let src = "1 2 \n@other 3 \n@main 4\n";
+    let (_, err, _) = session(src, "watch @other\nc\nc\nc\n");
+    assert_eq!(
+        err.matches("watchpoint: @other").count(),
+        1,
+        "the named watch fired wrongly:\n{err}"
+    );
+
+    // **`@workbench` is refused rather than silently taken as either**, since
+    // §D4's whole point is that the workbench is not a named stack.
+    let (_, err, _) = session(src, "watch @workbench\nc\n");
+    assert!(
+        err.contains("not a named stack"),
+        "`watch @workbench` must be refused:\n{err}"
+    );
+
+    // And a named watch on every stack the program uses never sees a
+    // workbench push — the two hooks are not the same place.
+    let wb = "1 { true } ?. \n";
+    let (_, err, _) = session(wb, "watch @main\nc\n");
+    assert_eq!(
+        err.matches("watchpoint: workbench").count(),
+        0,
+        "a named watch saw the workbench:\n{err}"
+    );
+    let (_, err, _) = session(wb, "watch workbench\nc\nc\n");
+    assert!(
+        err.contains("watchpoint: workbench"),
+        "the workbench hook did not fire:\n{err}"
     );
 }

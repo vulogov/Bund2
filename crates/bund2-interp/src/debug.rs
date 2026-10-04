@@ -29,6 +29,19 @@
 
 use bund2_value::BundValue;
 
+/// Why the debuggee stopped, so a host can say so.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Stop {
+    /// A stepping command asked for this one.
+    Stepping,
+    /// A frame for a watched word is about to be pushed — §D3.
+    Breakpoint(String),
+    /// A value is about to be pushed to a watched stack — §D4.
+    Watch(String),
+    /// A value is about to be pushed to the workbench — §D4's second hook.
+    WatchWorkbench,
+}
+
 /// What the host asks of a stopped debuggee.
 ///
 /// **Two kinds, and the difference is whether the program moves.** The
@@ -50,6 +63,27 @@ pub enum Command {
     Backtrace,
     /// Render the current stack.
     Stack,
+    /// **Break when a frame for this word is pushed — §D3.** The frame push is
+    /// one place, so this is one comparison.
+    Break(String),
+    /// **Break on that word only when a condition holds — §D3.** The condition
+    /// is Bund source for a lambda, evaluated **in a child VM** at the
+    /// breakpoint, which is the clause that makes it sound rather than a
+    /// refinement: a condition in the program's own VM can push, switch
+    /// stacks, rebind a word, and call `bund.exit`, whose cell is
+    /// `get_or_insert` and cannot be cleared.
+    BreakIf(String, String),
+    /// Stop watching a word.
+    Delete(String),
+    /// **Watch a named stack — §D4.** Stops on a push to that stack and no
+    /// other.
+    Watch(String),
+    /// **Watch the workbench — §D4's second hook.** A separate path: the
+    /// workbench writes no stack tag, because it has no stack to name, so a
+    /// `@name`-keyed watch cannot see it.
+    WatchWorkbench,
+    /// Render what is being watched.
+    Info,
 }
 
 /// Where the debuggee stops next. Private: the host says it in [`Command`]s.
@@ -83,6 +117,28 @@ pub trait Console {
     fn stopped(&mut self, _at: &str) {}
     /// Block until the host says what to do. `None` detaches.
     fn next_command(&mut self) -> Option<Command>;
+
+    /// **Evaluate a breakpoint condition in a child VM — §D3.**
+    ///
+    /// `bund2-interp` cannot build one: a usable child needs the standard
+    /// vocabulary, and `bund2-stdlib` depends on this crate rather than the
+    /// reverse. So the host builds it, exactly as the host supplies the
+    /// transport and the `Reporter`. `operands` is a snapshot of the stack the
+    /// debuggee is stopped on, pushed into the child so a condition can read
+    /// the program's state without being able to change it.
+    ///
+    /// **The default declines, and declining is "do not stop".** §D3 says a
+    /// condition that errors, exits, or leaves no value is reported and
+    /// treated as not stopping — so a host with no child VM gets a breakpoint
+    /// that never fires rather than one that always does, and the program it
+    /// is watching is unchanged either way.
+    fn evaluate_condition(
+        &mut self,
+        _source: &str,
+        _operands: &[BundValue],
+    ) -> Result<bool, String> {
+        Err("this host cannot build a child VM, so the condition is not evaluated".to_string())
+    }
     /// Rendered text for an inspecting command.
     fn answer(&mut self, text: &str);
 }
@@ -92,6 +148,14 @@ pub trait Console {
 pub struct Debug {
     console: Box<dyn Console>,
     mode: Mode,
+    /// Words to break on, and the condition each carries if any — §D3.
+    /// A `BTreeMap` so `info` lists them in one order.
+    breaks: std::collections::BTreeMap<String, Option<String>>,
+    /// Named stacks to watch — §D4's first hook.
+    watches: std::collections::BTreeSet<String>,
+    /// Whether the workbench is watched — §D4's *second* hook, separate
+    /// because the workbench path writes no stack tag.
+    watch_workbench: bool,
     /// How many safepoints this run stopped at. The differential in
     /// `the_stepped_run_and_the_plain_run_agree` reads it to show the stepping
     /// happened rather than silently detaching.
@@ -106,6 +170,9 @@ impl Debug {
         Self {
             console,
             mode: Mode::Step,
+            breaks: std::collections::BTreeMap::new(),
+            watches: std::collections::BTreeSet::new(),
+            watch_workbench: false,
             stops: 0,
         }
     }
@@ -170,7 +237,93 @@ impl Debug {
             }
             Command::Backtrace => Next::Render(Render::Backtrace),
             Command::Stack => Next::Render(Render::Stack),
+            Command::Break(w) => {
+                self.breaks.insert(w, None);
+                Next::Render(Render::Info)
+            }
+            Command::BreakIf(w, cond) => {
+                self.breaks.insert(w, Some(cond));
+                Next::Render(Render::Info)
+            }
+            Command::Delete(w) => {
+                self.breaks.remove(&w);
+                self.watches.remove(&w);
+                if w == "workbench" {
+                    self.watch_workbench = false;
+                }
+                Next::Render(Render::Info)
+            }
+            Command::Watch(s) => {
+                self.watches.insert(s);
+                Next::Render(Render::Info)
+            }
+            Command::WatchWorkbench => {
+                self.watch_workbench = true;
+                Next::Render(Render::Info)
+            }
+            Command::Info => Next::Render(Render::Info),
         }
+    }
+
+    /// Whether anything is being watched. **Read on the hot paths** — a frame
+    /// push and a stack push — so it is a pair of emptiness checks rather than
+    /// a lookup.
+    pub(crate) fn watching_words(&self) -> bool {
+        !self.breaks.is_empty()
+    }
+
+    pub(crate) fn watching_stacks(&self) -> bool {
+        !self.watches.is_empty() || self.watch_workbench
+    }
+
+    /// The condition on a word, if that word is watched at all.
+    ///
+    /// `None` means not watched; `Some(None)` means watched unconditionally.
+    pub(crate) fn condition_for(&self, word: &str) -> Option<Option<&str>> {
+        self.breaks.get(word).map(|c| c.as_deref())
+    }
+
+    pub(crate) fn watches_stack(&self, name: &str) -> bool {
+        self.watches.contains(name)
+    }
+
+    pub(crate) fn watches_workbench(&self) -> bool {
+        self.watch_workbench
+    }
+
+    /// Run a condition in the host's child VM, turning every failure into
+    /// "do not stop" — §D3's rule, with the reason reported rather than
+    /// swallowed.
+    pub(crate) fn condition_holds(&mut self, source: &str, operands: &[BundValue]) -> bool {
+        match self.console.evaluate_condition(source, operands) {
+            Ok(v) => v,
+            Err(why) => {
+                self.console
+                    .answer(&format!("bund2: the condition did not stop: {why}\n"));
+                false
+            }
+        }
+    }
+
+    /// What `info` renders.
+    pub(crate) fn render_watched(&self) -> String {
+        if self.breaks.is_empty() && self.watches.is_empty() && !self.watch_workbench {
+            return "nothing is watched\n".to_string();
+        }
+        let mut out = String::new();
+        for (w, cond) in &self.breaks {
+            match cond {
+                Some(c) => out.push_str(&format!("break {w} if {c}\n")),
+                None => out.push_str(&format!("break {w}\n")),
+            }
+        }
+        for s in &self.watches {
+            out.push_str(&format!("watch @{s}\n"));
+        }
+        if self.watch_workbench {
+            out.push_str("watch workbench\n");
+        }
+        out
     }
 }
 
@@ -187,6 +340,7 @@ pub(crate) enum Next {
 pub(crate) enum Render {
     Backtrace,
     Stack,
+    Info,
 }
 
 /// One line of a backtrace: what a frame is running and how far through.
@@ -535,5 +689,293 @@ mod tests {
             !all.contains("runbody"),
             "the native's own name is not the body's: {all}"
         );
+    }
+}
+
+#[cfg(test)]
+mod watch_tests {
+    use super::*;
+    use crate::Interp;
+    use bund2_api::{StackEffect, Vm, WordKind};
+
+    /// A console that answers a fixed script, records the reasons it was
+    /// stopped for, and can be told what a condition should answer.
+    struct Watcher {
+        script: Vec<Command>,
+        at: usize,
+        stops: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+        /// What `evaluate_condition` returns, and what it was asked.
+        verdict: Result<bool, String>,
+        asked: std::rc::Rc<std::cell::RefCell<Vec<(String, usize)>>>,
+    }
+
+    impl Console for Watcher {
+        fn stopped(&mut self, at: &str) {
+            self.stops.borrow_mut().push(at.to_string());
+        }
+        fn next_command(&mut self) -> Option<Command> {
+            let c = self.script.get(self.at).cloned();
+            self.at += 1;
+            c
+        }
+        fn answer(&mut self, _: &str) {}
+        fn evaluate_condition(
+            &mut self,
+            source: &str,
+            operands: &[BundValue],
+        ) -> Result<bool, String> {
+            self.asked
+                .borrow_mut()
+                .push((source.to_string(), operands.len()));
+            self.verdict.clone()
+        }
+    }
+
+    fn runs_a_body(vm: &mut dyn Vm) -> Result<(), bund2_api::Error> {
+        vm.tail_lambda(BundValue::lambda(vec![BundValue::int(8)]));
+        Ok(())
+    }
+
+    fn nop(_: &mut dyn Vm) -> Result<(), bund2_api::Error> {
+        Ok(())
+    }
+
+    /// **A watchpoint is set *at* a safepoint, so one has to happen first.**
+    /// These tests then push by hand, which is the only way to aim a push at a
+    /// chosen stack without a vocabulary. `nop` is the program: it reaches a
+    /// safepoint — where the script's `Watch` is applied — and pushes nothing,
+    /// so the setup cannot trip the watch it is setting.
+    fn arm(i: &mut Interp) {
+        i.registry
+            .register_native("nop", nop, StackEffect::fixed(0, 0), WordKind::Sync);
+        i.eval(&[BundValue::call("nop")]).expect("arms");
+    }
+
+    /// `1 2 named` where `named` is a word registered as a lambda — the path
+    /// that carries a symbol into the frame.
+    fn with_named_word() -> Interp {
+        let mut i = Interp::new();
+        i.registry.register_lambda(
+            "named",
+            BundValue::lambda(vec![BundValue::int(7), BundValue::int(9)]),
+        );
+        i.registry.register_native(
+            "opaque",
+            runs_a_body,
+            StackEffect::opaque(0),
+            WordKind::Sync,
+        );
+        i
+    }
+
+    fn program() -> Vec<BundValue> {
+        vec![
+            BundValue::int(1),
+            BundValue::int(2),
+            BundValue::call("named"),
+        ]
+    }
+
+    /// **Criterion 7: a breakpoint on a word stops before its body runs**,
+    /// checked by frame depth and by the stack being what it was at the call.
+    #[test]
+    fn a_breakpoint_stops_before_the_body_runs() {
+        let stops = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut i = with_named_word();
+        i.attach_debugger(Box::new(Watcher {
+            // Set the breakpoint, run on, and the breakpoint stops anyway —
+            // which is the point: `continue` must not suppress it.
+            script: vec![
+                Command::Break("named".into()),
+                Command::Continue,
+                Command::Stack,
+                Command::Continue,
+            ],
+            at: 0,
+            stops: std::rc::Rc::clone(&stops),
+            verdict: Ok(true),
+            asked: std::rc::Rc::new(std::cell::RefCell::new(Vec::new())),
+        }));
+        i.eval(&program()).expect("runs");
+
+        let seen = stops.borrow().join("\n");
+        assert!(
+            seen.contains("breakpoint: named"),
+            "the breakpoint did not stop:\n{seen}"
+        );
+        // **Before the body ran.** The position line at the breakpoint is the
+        // caller's — no frame for `named` yet — and the stack holds the two
+        // values pushed before the call and nothing the body pushes.
+        let at_break = stops
+            .borrow()
+            .iter()
+            .find(|s| s.contains("breakpoint: named"))
+            .cloned()
+            .expect("the line");
+        assert!(
+            at_break.contains("the top-level stream"),
+            "stopped inside the body rather than at the call:\n{at_break}"
+        );
+        assert_eq!(i.depth(), 4, "1, 2 and the body's 7 and 9 all ran in the end");
+    }
+
+    /// **Criterion 8: a conditional breakpoint cannot change the program it
+    /// watches**, and a condition that does not hold is not a stop.
+    #[test]
+    fn a_condition_that_does_not_hold_is_not_a_stop() {
+        let stops = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let asked = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut i = with_named_word();
+        i.attach_debugger(Box::new(Watcher {
+            script: vec![
+                Command::BreakIf("named".into(), "{ false }".into()),
+                Command::Continue,
+            ],
+            at: 0,
+            stops: std::rc::Rc::clone(&stops),
+            verdict: Ok(false),
+            asked: std::rc::Rc::clone(&asked),
+        }));
+        i.eval(&program()).expect("runs");
+
+        assert!(
+            !stops.borrow().iter().any(|s| s.contains("breakpoint:")),
+            "a condition answering false still stopped: {:?}",
+            stops.borrow()
+        );
+        // **It was asked, in a child VM, with the program's stack as
+        // operands** — the clause §D3 says makes the feature sound.
+        let asked = asked.borrow();
+        assert_eq!(asked.len(), 1, "the condition ran once: {asked:?}");
+        assert_eq!(asked[0].0, "{ false }");
+        assert_eq!(asked[0].1, 2, "it saw the two values on the stack");
+    }
+
+    /// **A condition that fails is reported and does not stop** — §D3's rule,
+    /// and the default `evaluate_condition` is exactly that case: a host with
+    /// no child VM gets a breakpoint that never fires rather than one that
+    /// always does.
+    #[test]
+    fn a_condition_that_errors_does_not_stop() {
+        let stops = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut i = with_named_word();
+        i.attach_debugger(Box::new(Watcher {
+            script: vec![
+                Command::BreakIf("named".into(), "{ bund.exit }".into()),
+                Command::Continue,
+            ],
+            at: 0,
+            stops: std::rc::Rc::clone(&stops),
+            verdict: Err("the child VM exited".into()),
+            asked: std::rc::Rc::new(std::cell::RefCell::new(Vec::new())),
+        }));
+        i.eval(&program()).expect("the program is unaffected");
+
+        assert!(
+            !stops.borrow().iter().any(|s| s.contains("breakpoint:")),
+            "a failing condition stopped the program"
+        );
+        // **The debugged program did not exit**, which is the half the child
+        // VM exists for: `request_exit` is `get_or_insert` and could not have
+        // been cleared had the condition run in this VM.
+        assert_eq!(i.exit_requested(), None, "the condition ended the program");
+        assert_eq!(i.depth(), 4, "and it ran to completion");
+    }
+
+    /// **Criterion 9, first hook: a watchpoint on `@name` stops on a push to
+    /// that stack and on no other.**
+    #[test]
+    fn a_stack_watchpoint_stops_only_on_its_own_stack() {
+        let stops = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut i = Interp::new();
+        i.attach_debugger(Box::new(Watcher {
+            script: vec![Command::Watch("other".into()), Command::Continue],
+            at: 0,
+            stops: std::rc::Rc::clone(&stops),
+            verdict: Ok(true),
+            asked: std::rc::Rc::new(std::cell::RefCell::new(Vec::new())),
+        }));
+        arm(&mut i);
+        // Push on `main`, then on `other`, then on `main` again.
+        i.push(BundValue::int(1));
+        i.to_stack("other");
+        i.push(BundValue::int(2));
+        i.to_stack("main");
+        i.push(BundValue::int(3));
+
+        let hits: Vec<String> = stops
+            .borrow()
+            .iter()
+            .filter(|s| s.contains("watchpoint:"))
+            .cloned()
+            .collect();
+        assert_eq!(hits.len(), 1, "stopped on the wrong pushes: {hits:?}");
+        assert!(hits[0].contains("watchpoint: @other"), "{:?}", hits[0]);
+    }
+
+    /// **Criterion 9, second hook, checked separately**: the workbench writes
+    /// no stack tag, so a `@name` watch cannot see it and `watch workbench` is
+    /// a different hook. Both halves asserted in one test, because the claim
+    /// is that they are *not* the same place.
+    #[test]
+    fn the_workbench_is_a_second_hook_a_named_watch_cannot_see() {
+        // A `@name` watch on every plausible name does not see a workbench push.
+        let stops = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut i = Interp::new();
+        i.attach_debugger(Box::new(Watcher {
+            script: vec![
+                Command::Watch("main".into()),
+                Command::Watch("workbench".into()),
+                Command::Continue,
+            ],
+            at: 0,
+            stops: std::rc::Rc::clone(&stops),
+            verdict: Ok(true),
+            asked: std::rc::Rc::new(std::cell::RefCell::new(Vec::new())),
+        }));
+        arm(&mut i);
+        i.push_workbench(BundValue::int(1));
+        assert!(
+            !stops.borrow().iter().any(|s| s.contains("watchpoint:")),
+            "a named watch saw a workbench push: {:?}",
+            stops.borrow()
+        );
+
+        // The workbench hook does.
+        let stops2 = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut j = Interp::new();
+        j.attach_debugger(Box::new(Watcher {
+            script: vec![Command::WatchWorkbench, Command::Continue],
+            at: 0,
+            stops: std::rc::Rc::clone(&stops2),
+            verdict: Ok(true),
+            asked: std::rc::Rc::new(std::cell::RefCell::new(Vec::new())),
+        }));
+        arm(&mut j);
+        j.push_workbench(BundValue::int(1));
+        let hits: Vec<String> = stops2
+            .borrow()
+            .iter()
+            .filter(|s| s.contains("watchpoint:"))
+            .cloned()
+            .collect();
+        assert_eq!(hits.len(), 1, "the workbench hook did not fire: {hits:?}");
+        assert!(hits[0].contains("watchpoint: workbench"), "{:?}", hits[0]);
+    }
+
+    /// Watching nothing costs one branch and takes no lookup — the property
+    /// the two hot-path guards rest on.
+    #[test]
+    fn watching_nothing_is_two_emptiness_checks() {
+        let d = Debug::new(Box::new(Watcher {
+            script: Vec::new(),
+            at: 0,
+            stops: std::rc::Rc::new(std::cell::RefCell::new(Vec::new())),
+            verdict: Ok(true),
+            asked: std::rc::Rc::new(std::cell::RefCell::new(Vec::new())),
+        }));
+        assert!(!d.watching_words());
+        assert!(!d.watching_stacks());
+        assert_eq!(d.condition_for("anything"), None);
     }
 }

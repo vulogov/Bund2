@@ -1286,6 +1286,17 @@ impl Interp {
             }
         }
 
+        // **§D3's breakpoint, before the frame exists — criterion 7.** The
+        // frame push is one place, so this is one comparison, and it happens
+        // *before* the push so the stop is at the call: frame depth is the
+        // caller's and the stack is what it was when the word was reached.
+        //
+        // Guarded twice: one branch when nothing is attached, and a second
+        // when a debugger is attached but watches no word. A debugged session
+        // that only steps pays no lookup per call.
+        if let Some(name) = self.breakpoint_hit(who) {
+            self.safepoint_for(None, debug::Stop::Breakpoint(name));
+        }
         self.frames.push(Frame {
             body,
             ip: 0,
@@ -1313,6 +1324,50 @@ impl Interp {
     ///
     /// The loop is flat: a body that calls a body pushes rather than recurses,
     /// so 100,000 Bund calls cost 100,000 heap frames and one Rust frame.
+    /// Cheap guard for both watch hooks: attached, and watching something.
+    ///
+    /// One branch per push when nothing is attached, which is the same price
+    /// §D1's safepoint pays per step and what criterion 11 measured.
+    fn watch_hit(&self) -> bool {
+        self.debug.as_ref().is_some_and(|d| d.watching_stacks())
+    }
+
+    /// Whether a frame about to be pushed for `who` should stop — §D3.
+    ///
+    /// **The condition runs in the host's child VM**, with a snapshot of the
+    /// stack the debuggee is on as its operands, so it can read the program's
+    /// state and cannot change it. §D3 calls that the requirement rather than
+    /// a refinement, because `request_exit` is `get_or_insert`: a condition
+    /// that called `bund.exit` in the program's own VM would end the debugged
+    /// program and nothing could clear it.
+    fn breakpoint_hit(&mut self, who: Option<Symbol>) -> Option<String> {
+        // Two cheap guards before any lookup: nothing attached, or attached
+        // and watching no word.
+        let d = self.debug.as_ref()?;
+        if !d.watching_words() {
+            return None;
+        }
+        let name = self.registry.interner.name(who?).to_string();
+        let cond = {
+            let d = self.debug.as_ref()?;
+            match d.condition_for(&name) {
+                None => return None,
+                Some(None) => None,
+                Some(Some(c)) => Some(c.to_string()),
+            }
+        };
+        match cond {
+            None => Some(name),
+            Some(src) => {
+                let operands = self.snapshot();
+                let mut d = self.debug.take()?;
+                let holds = d.condition_holds(&src, &operands);
+                self.debug = Some(d);
+                holds.then_some(name)
+            }
+        }
+    }
+
     /// Attach a debugger. **§D1**, and the only writer of `debug`.
     ///
     /// The console is the host's; everything it is handed is text this
@@ -1341,15 +1396,37 @@ impl Interp {
     /// one safepoint rather than two steps.
     #[inline(never)]
     fn safepoint(&mut self, top: Option<(usize, &BundValue)>) {
+        self.safepoint_for(top, debug::Stop::Stepping);
+    }
+
+    /// One safepoint, with the reason it was reached.
+    ///
+    /// **A breakpoint or a watchpoint stops whatever the stepping mode says**:
+    /// `continue` sets `Mode::Run`, which `should_stop` answers `false` to, and
+    /// a breakpoint that `continue` suppressed would be no breakpoint at all.
+    #[inline(never)]
+    fn safepoint_for(&mut self, top: Option<(usize, &BundValue)>, why: debug::Stop) {
         let Some(mut d) = self.debug.take() else {
             return;
         };
         let depth = self.frames.len();
-        if d.should_stop(depth) {
+        let forced = why != debug::Stop::Stepping;
+        if forced || d.should_stop(depth) {
             d.stops += 1;
             // **Where, before what.** Rendered here because only the debuggee
             // can read its own frames; the host receives text.
-            let at = self.render_position(top);
+            let at = match &why {
+                debug::Stop::Stepping => self.render_position(top),
+                debug::Stop::Breakpoint(w) => {
+                    format!("breakpoint: {w}\n{}", self.render_position(top))
+                }
+                debug::Stop::Watch(s) => {
+                    format!("watchpoint: @{s}\n{}", self.render_position(top))
+                }
+                debug::Stop::WatchWorkbench => {
+                    format!("watchpoint: workbench\n{}", self.render_position(top))
+                }
+            };
             d.stopped(&at);
             loop {
                 match d.next_command() {
@@ -1366,6 +1443,7 @@ impl Interp {
                             let text = match what {
                                 debug::Render::Backtrace => self.render_backtrace(),
                                 debug::Render::Stack => self.render_debug_stack(),
+                                debug::Render::Info => d.render_watched(),
                             };
                             d.answer(&text);
                         }
@@ -1524,8 +1602,22 @@ impl Vm for Interp {
     }
 
     fn push(&mut self, v: BundValue) {
+        // **§D4's first hook — criterion 9.** The stack push writes the stack
+        // tag (D41), so a `@name`-keyed watch belongs here. Before the push,
+        // so the stop shows the stack as it was and the value as "next".
+        if self.watch_hit() {
+            let name = self.stacks.current_name().to_string();
+            if self
+                .debug
+                .as_ref()
+                .is_some_and(|d| d.watches_stack(&name))
+            {
+                self.safepoint_for(None, debug::Stop::Watch(name));
+            }
+        }
         self.stacks.current_mut().push(v);
     }
+
 
     fn pull(&mut self) -> Option<BundValue> {
         self.stacks.current_mut().pull()
@@ -2021,6 +2113,14 @@ impl Vm for Interp {
         // result, a match's answer — has none and renders `tags: {}`. Tagging
         // here with the current stack gave the second kind a tag the
         // reference never writes.
+        // **§D4's *second* hook — criterion 9, checked separately.** The
+        // workbench writes no stack tag, as the comment above explains: it has
+        // no stack to name. So a `@name`-keyed watch cannot see this path, and
+        // `watch workbench` is a different hook rather than the same one — the
+        // correction §D4 makes to the first draft's "one place".
+        if self.watch_hit() && self.debug.as_ref().is_some_and(|d| d.watches_workbench()) {
+            self.safepoint_for(None, debug::Stop::WatchWorkbench);
+        }
         self.stacks.workbench.items.push_back(v);
     }
 

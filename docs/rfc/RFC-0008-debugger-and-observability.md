@@ -527,14 +527,71 @@ capture and still unpinnable, which is `debug`'s case.
    enumerates them. Recorded as owed rather than claimed.
 7. **A breakpoint on a word stops before its body runs**, checked by frame depth
    and by the stack being what it was at the call.
+
+   **Met, 2026-10-04.** The check sits in `push_frame`, *before* the push, so
+   the stop is at the call: the position line is the caller's and the stack
+   holds what the caller left. §D2's symbol is what makes it possible — a frame
+   knew no name before it.
+
+   **`continue` must not suppress it, and that is asserted.** A breakpoint
+   stops whatever the stepping mode says, because `continue` sets `Mode::Run`
+   and a breakpoint `Mode::Run` swallowed would be no breakpoint at all. The
+   test sets one, continues, and requires both calls of the word to stop.
+
+   **Two guards on the hot path**: one branch when nothing is attached, and a
+   second when a debugger is attached but watches no word — so a session that
+   only steps pays no lookup per call.
 8. **A conditional breakpoint cannot change the program it watches.** The
    condition runs in a child VM: a lambda that pushes, switches stack, rebinds a
    word **or calls `bund.exit`** leaves the debugged program untouched and does
    not stop. The exit half is the one that needs the child VM — `exit_code` is
    `get_or_insert` and cannot be cleared.
+
+   **Met, 2026-10-04, with the exit case demonstrated rather than argued.**
+   `break w if { 9 bund.exit }` reports "the condition did not stop", both
+   calls of `w` run to completion, and the **process exits 0** — the code the
+   condition asked for never reaches the debugged program.
+
+   **`bund2-interp` builds no child VM, and cannot.** A usable child needs the
+   standard vocabulary, and `bund2-stdlib` depends on the interpreter rather
+   than the reverse — so `Console::evaluate_condition` is the seam and the host
+   supplies the child, as it supplies the transport and the `Reporter`. **The
+   default declines, and declining is "do not stop"**: a host with no child VM
+   gets a breakpoint that never fires rather than one that always does.
+
+   **A fresh `Runtime` per evaluation, and the exit cell is the reason.** A
+   reused child that once called `bund.exit` could not be cleared, so every
+   later evaluation would inherit the exit — the same `get_or_insert` that
+   forces the child VM, one level down.
+
+   **The condition is run, not merely constructed.** §D3 says the condition
+   *is* a lambda, so `{ 1 1 == }` is evaluated and then executed; without that
+   every lambda condition would answer "left lambda/3 rather than a BOOL". A
+   bare `1 1 ==` leaves its answer directly, so both spellings work. What
+   counts as true is a `BOOL` on top and nothing else — guessing a truthiness
+   for a LIST would invent a rule the reference does not have.
 9. **A watchpoint on `@name` stops on a push to that stack and on no other**,
    and `watch workbench` stops on a workbench push — **two hooks, checked
    separately**, because the workbench path writes no stack tag.
+
+   **Met, 2026-10-04, and the separateness is what the tests assert.** A named
+   watch on every stack a program uses never sees a workbench push, and the
+   workbench hook does; both halves in one test, because the claim is that they
+   are *not* the same place. In process:
+   `a_stack_watchpoint_stops_only_on_its_own_stack` and
+   `the_workbench_is_a_second_hook_a_named_watch_cannot_see`; at process level,
+   `a_watchpoint_fires_on_its_own_stack_and_the_workbench_is_separate`.
+
+   **`watch @workbench` is refused rather than taken as either.** §D4's whole
+   point is that the workbench is not a named stack, so accepting `@workbench`
+   as a stack name — which would silently never fire — would contradict the
+   section in the command line. The spelling is `watch workbench`.
+
+   **One thing the tests had to learn.** A watchpoint is set *at* a safepoint,
+   so one has to happen before a push can be watched; the first version of the
+   in-process tests pushed directly and never read their own script, so nothing
+   was being watched at all. They now arm through a `nop` word, which reaches a
+   safepoint and pushes nothing.
 10. **A debugged session runs no compiled code.** Checked by *building with
     `jit`* and asserting `compiled_entries()` reads `Some(0)` after a debugged
     run and `> 0` after the same program run without `--debugger`. The first
