@@ -1167,7 +1167,11 @@ impl Interp {
                     // the stream enters, and a debugger that saw only one
                     // would step over whole subtrees or never start.
                     if self.debug.is_some() {
-                        self.safepoint();
+                        // **The top level has no frame to read**, so the value
+                        // about to run is handed over. Without it every stop
+                        // at the top level renders the same line, which is the
+                        // invisible cursor `Console::stopped` exists to avoid.
+                        self.safepoint(Some((i, v)));
                     }
                     observe(v);
                     // A step refused because the program asked to exit is not
@@ -1336,13 +1340,17 @@ impl Interp {
     /// and leave the debuggee stopped, so `bt` then `stack` is two answers at
     /// one safepoint rather than two steps.
     #[inline(never)]
-    fn safepoint(&mut self) {
+    fn safepoint(&mut self, top: Option<(usize, &BundValue)>) {
         let Some(mut d) = self.debug.take() else {
             return;
         };
         let depth = self.frames.len();
         if d.should_stop(depth) {
             d.stops += 1;
+            // **Where, before what.** Rendered here because only the debuggee
+            // can read its own frames; the host receives text.
+            let at = self.render_position(top);
+            d.stopped(&at);
             loop {
                 match d.next_command() {
                     // **The host is gone, so the program is not.** A debugger
@@ -1366,6 +1374,39 @@ impl Interp {
             }
         }
         self.debug = Some(d);
+    }
+
+    /// One line saying where the debuggee is stopped — the innermost frame, or
+    /// the top-level stream when no frame is running.
+    ///
+    /// **The value about to run, not the one just run.** `ip` has already been
+    /// advanced past a value by the time the next safepoint is reached, so the
+    /// frame's `ip` is where execution resumes, and that is what a stepping
+    /// host needs to see.
+    fn render_position(&self, top: Option<(usize, &BundValue)>) -> String {
+        match self.frames.last() {
+            Some(f) => {
+                let who = f.who.map(|s| self.registry.interner.name(s));
+                let next = frame_items(&f.body)
+                    .and_then(|items| items.get(f.ip))
+                    .map(|v| v.summary(48))
+                    .unwrap_or_else(|| "the end of the body".to_string());
+                format!(
+                    "{}  next: {next}",
+                    debug::frame_line(&f.body, f.ip, self.frames.len() - 1, who)
+                )
+            }
+            // **The index is the stream's, so it is a position a caller
+            // holding `Lowered` can turn into a source span** — the whole of
+            // RFC-0003 §S5 a flat stream supports, and the same index
+            // `eval_indexed` hands back on a failure.
+            None => match top {
+                Some((i, v)) => {
+                    format!("#0  the top-level stream at {i}  next: {}", v.summary(48))
+                }
+                None => "#0  the top-level stream".to_string(),
+            },
+        }
     }
 
     /// The frame stack, innermost first.
@@ -1412,7 +1453,8 @@ impl Interp {
             // calling it free. The work is behind `#[inline(never)]` so the
             // hot path holds the test and not the body.
             if self.debug.is_some() {
-                self.safepoint();
+                // The innermost frame knows what is next, so nothing is passed.
+                self.safepoint(None);
             }
             let Some(frame) = self.frames.last_mut() else {
                 break;

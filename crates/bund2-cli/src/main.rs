@@ -18,6 +18,7 @@
 use std::process::ExitCode;
 
 mod bundle;
+mod debugger;
 
 /// Which oracle this binary was conformed against — RFC-0006 §B1.
 ///
@@ -227,6 +228,12 @@ struct Args {
     /// Show raw `Debug` values in the dump. For a debug session; the default
     /// is a compact summary that fits the terminal.
     raw_values: bool,
+    /// `--debugger`: stop before every value and take commands on stdin —
+    /// RFC-0008 §D1. **It also declines the tier** (§D6): a compiled body runs
+    /// without entering the loop that carries the safepoint, so a debugged
+    /// session with a tier would step over exactly the bodies a program spends
+    /// its time in.
+    debugger: bool,
     /// `--stats`: report what the tier did, on **stderr** — RFC-0005
     /// criterion 2's statistics flag.
     ///
@@ -257,6 +264,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut raw_values = false;
     let mut stats = false;
     let mut jit_threshold: Option<u32> = None;
+    let mut debugger = false;
     let mut host = bund2_stdlib::host::HostOptions::default();
     let mut script_args = Vec::new();
     while let Some(a) = it.next() {
@@ -267,6 +275,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--no-dump-stack" => dump_stack = false,
             "--raw-values" | "--debug-values" => raw_values = true,
             "--stats" => stats = true,
+            "--debugger" => debugger = true,
             // Refused rather than ignored when it is not a number: this is a
             // command line, which can report. `BUND2_JIT_THRESHOLD` cannot —
             // the runtime reads it in a constructor — so that one is ignored
@@ -298,6 +307,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
         dump_stack,
         raw_values,
         stats,
+        debugger,
         jit_threshold,
     })
 }
@@ -499,6 +509,16 @@ fn run_carried(carried: &bundle::Carried, argv: Vec<String>) -> ExitCode {
         raw_values: env_set("BUND2_RAW_VALUES"),
         stats: env_set("BUND2_STATS"),
         jit_threshold: None,
+        // **A bundle is never dropped into the debugger, and not by omission.**
+        // The exhaustive literal made this a choice rather than a default, as
+        // its comment intends. `--debugger` cannot reach here — a bundle owns
+        // all of argv (§B3) — so the only route would be a `BUND2_DEBUGGER`
+        // switch beside the others, and that would let an environment variable
+        // turn a shipped program into one that blocks on stdin. A bundle that
+        // hung in a deployment because a variable was exported somewhere is a
+        // worse failure than not being able to debug it, and the debuggable
+        // form of the same program is `bund2 script --file`.
+        debugger: false,
     };
     bund2_stdlib::host::set_args(args.script_args.clone());
     match run(&carried.source, &args) {
@@ -786,12 +806,23 @@ fn run(src: &str, args: &Args) -> Option<i32> {
     // so criterion 2 compared one interpreter with itself. `Runtime` registers
     // the same vocabulary with the same host options and adds the tier when the
     // feature is on; everything below reaches the interpreter through it.
-    let mut rt =
-        bund2_runtime::Runtime::with_options_and_threshold(&args.host, args.jit_threshold);
+    // **§D6: a debugged session installs no tier.** One call, in the one place
+    // a tier is installed, which is what §D6 means by needing nothing new.
+    let mut rt = if args.debugger {
+        bund2_runtime::Runtime::for_debugging(&args.host, args.jit_threshold)
+    } else {
+        bund2_runtime::Runtime::with_options_and_threshold(&args.host, args.jit_threshold)
+    };
     let vm = &mut rt.interp;
     let mut reporter = bund2_stdlib::report::TextReporter::new(args.dump_stack);
     reporter.raw_values = args.raw_values;
     vm.reporter = Box::new(reporter);
+    // **Attached after the reporter, before any evaluation.** The debuggee
+    // renders its own answers through the same `Interp` the reporter is on, so
+    // a session's text and its diagnostics come from one place.
+    if args.debugger {
+        vm.attach_debugger(Box::new(debugger::Stdio::new()));
+    }
 
     // No `\n` is appended. The reference appends one at four of its five parse
     // sites to satisfy a grammar rule that demands trailing whitespace; S1

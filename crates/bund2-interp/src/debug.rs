@@ -72,6 +72,15 @@ enum Mode {
 /// debuggee runs to completion rather than hanging — a debugger that dies must
 /// not take the program with it.
 pub trait Console {
+    /// **Called once per stop, before the first command.**
+    ///
+    /// A host that could not be told *where* the debuggee stopped would be
+    /// unusable: `step` would advance an invisible cursor. The text is
+    /// rendered by the debuggee, like every other answer, because `Interp` is
+    /// not `Send` and the host may not read a value.
+    ///
+    /// Default is to ignore it, so a scripted test console says nothing.
+    fn stopped(&mut self, _at: &str) {}
     /// Block until the host says what to do. `None` detaches.
     fn next_command(&mut self) -> Option<Command>;
     /// Rendered text for an inspecting command.
@@ -121,6 +130,10 @@ impl Debug {
 
     pub(crate) fn answer(&mut self, text: &str) {
         self.console.answer(text);
+    }
+
+    pub(crate) fn stopped(&mut self, at: &str) {
+        self.console.stopped(at);
     }
 
     /// **The host went away.** Run on rather than block forever.

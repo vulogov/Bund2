@@ -500,6 +500,31 @@ capture and still unpinnable, which is `debug`'s case.
    normally. **Only over the reach D6 permits** — top-level values and bodies
    called directly from them — and the criterion says which programs that
    excludes rather than quietly passing on the ones it can do.
+
+   **Met at process level, 2026-10-04, over four programs rather than the
+   suite.** `crates/bund2-cli/tests/debugger_step.rs` spawns the binary — the
+   claim is about a program's output and nothing in process captures stdout —
+   and drives `s`, `n` and `f` each to completion against a plain run, matching
+   stdout and exit code. The four cover what §D1's safepoint has to reach:
+   top-level values, a word's body, a lambda run by a native, and `times`,
+   which re-enters through `eval_lambda` and is the nested-loop shape §D1 says
+   stepping could not have escaped.
+
+   **Stepping is driven to the end, not for a fixed count.** A writer thread
+   feeds the command until the child exits, because a finite script would hit
+   EOF, detach, and let the rest run uninterrupted — the thing under test
+   passing by not happening.
+
+   **With a control, because the differential alone is a tautology.** A
+   `--debugger` that did nothing would match a plain run perfectly;
+   `the_debugger_stops_and_says_where` asserts the session reported a top-level
+   position, stopped *inside* the word with §D2's symbol in the line, and
+   leaked nothing into the program's stdout. That last is what the whole
+   comparison rests on, and it is why the session writes to stderr.
+
+   **What remains is the word "every".** Four programs are not the suite, and
+   the sweep belongs in `xtask conform` beside the capture that already
+   enumerates them. Recorded as owed rather than claimed.
 7. **A breakpoint on a word stops before its body runs**, checked by frame depth
    and by the stack being what it was at the call.
 8. **A conditional breakpoint cannot change the program it watches.** The
