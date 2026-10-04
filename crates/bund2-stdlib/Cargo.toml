@@ -77,6 +77,12 @@ mathlab = "1.2"
 # for some series. A golden captures those floats, so reimplementing it would be
 # a near-miss that fails one while looking right. No transitive dependencies.
 ta = "0.5.0"
+# `encode.base64`/`decode.base64` carry a whole value through the wire format
+# and base64 it with the reference's own codec
+# (`reference/Bund/Cargo.toml:42`). Same argument as `rustils` in F147: the
+# decode failure's message interpolates the decoder's `Debug`, so the crate
+# that decodes is the text.
+base64ct = { version = "1.6", features = ["alloc"] }
 # **The reference's own string-to-number parser** — `rust_dynamic`'s FLOAT and
 # INTEGER arms call `rustils::parse::double::string_to_f64_res` and
 # `…::long::string_to_i64_res` (`reference/rust_dynamic/src/conv.rs:195,201`),

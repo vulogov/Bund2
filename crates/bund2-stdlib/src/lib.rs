@@ -75,6 +75,8 @@ pub mod logging;
 // `math.normalize`, `math.smoothing`, `seq.asc`/`seq.desc`, and the series
 // reader they share.
 pub mod series;
+// base64, `unique` and `pull.workbench`.
+pub mod encoding;
 
 /// Register everything this crate provides.
 pub fn register_all(r: &mut bund2_api::Registry) {
@@ -93,6 +95,7 @@ pub fn register_all_with(r: &mut bund2_api::Registry, opts: &host::HostOptions) 
     bus::register(r, opts);
     logging::register(r);
     series::register(r);
+    encoding::register(r);
     stack::register(r);
     console::register(r);
     logic::register(r);

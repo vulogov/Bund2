@@ -4012,6 +4012,48 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F149 — `unique` refuses any list that is not already ascending
+
+**An original-implementation defect, measured 2026-10-04**, found while
+implementing `bund/values`.
+
+`unique` deduplicates by asking whether each element is already in the
+accumulator — and it asks with **`algos::cs::search::fibonacci::search`**
+(`reference/Bund/src/stdlib/functions/values/listop.rs`). A Fibonacci search
+is a binary-search family algorithm: it requires sorted input, the crate says
+so, and it **answers an error rather than a wrong result**.
+
+| program | oracle |
+|---|---|
+| `[ 1 1 2 2 3 3 ] unique` | `[1, 2, 3]` |
+| `[ 1 2 3 ] unique` | `[1, 2, 3]` |
+| `[ "a" "b" "a" ] unique` | `["a", "b"]` |
+| `[ ] unique` | `[]` |
+| **`[ 3 1 3 1 2 ] unique`** | **error** |
+| **`[ 5 4 3 2 1 ] unique`** | **error** |
+
+The message is the crate's own complaint, wrapped: `UNIQUE returns error
+during the scan: Invalid input: Fibonacci search requires sorted input`.
+
+So a word called `unique` works on a list that is already sorted and refuses
+one that is not — which is the case a caller would reach for it for. The
+accumulator is built in input order, so even where it succeeds the search is
+being asked about an array that is sorted only because the input was.
+
+**Disposition: PRESERVE, and not implemented yet.** Bund2 registers neither
+`unique` nor `unique.`, and the reason is a type rather than a choice:
+`search` requires `Ord`, and **`BundValue` has no `Ord` impl**. F12 records
+that the reference's own ordering fallback is inconsistent with its
+`PartialOrd` and unreachable, and D1 makes non-scalar comparison
+identity-based — so giving `BundValue` an `Ord` to satisfy a crate bound
+would settle both of those by accident, in a corner, for one word.
+
+**What implementing it needs**, so the next session does not rediscover this:
+a decision about `BundValue: Ord` — what it orders by, and how that relates to
+F12 and to D1's identity-based equality. The word is then four lines. Taking
+that decision for `unique`'s sake alone would be the wrong order, which is why
+this entry exists instead of an implementation.
+
 ## F148 — `save` and `save.script` cannot both be used on one world file
 
 **An original-implementation defect, measured 2026-10-04** while grounding

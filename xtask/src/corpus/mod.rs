@@ -642,6 +642,39 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
     }
     println!();
 
+    // **Words a Cargo feature decides the existence of — F123's shape, here.**
+    //
+    // `bund2_words` asks the *default* build, deliberately: COVERAGE is a
+    // claim about the binary Bund2 ships. But a word that exists only under a
+    // feature is then counted with the genuinely unwritten ones, and a reader
+    // taking the remainder as a worklist is told to implement something that
+    // is already implemented. Measured 2026-10-04: `string.grok` and
+    // `string.grok.` are registered under `--features grok` and were sitting
+    // in the "not implemented" remainder.
+    //
+    // So the figures stay exactly as they were — the default build registers
+    // neither — and the words are named, which is the same treatment the five
+    // unreachable ones get. D10 and D40 are why the feature is off: `grok`
+    // pulls Oniguruma and is the only `cc` consumer in the workspace.
+    const FEATURE_GATED: [&str; 2] = ["string.grok", "string.grok."];
+    let gated: Vec<&str> = FEATURE_GATED
+        .iter()
+        .copied()
+        .filter(|w| in_scope.contains(w) && !implemented.contains(w))
+        .collect();
+    if !gated.is_empty() {
+        println!(
+            "## implemented, but only under a Cargo feature: {}\n",
+            gated.len()
+        );
+        println!("  {}\n", gated.join("  "));
+        println!("  Counted as not implemented above, because COVERAGE asks the");
+        println!("  default build and the default build does not register them");
+        println!("  (D10, D40: `grok` compiles Oniguruma from C). They are named");
+        println!("  here so the remainder of `not implemented` is a worklist and");
+        println!("  not an instruction to redo finished work.\n");
+    }
+
     // D14 splits the in-scope set into core and library. Coverage stays a
     // number over in-scope, because that is how CLAUDE.md defines it and the
     // library half still needs tests. But only the core half is a

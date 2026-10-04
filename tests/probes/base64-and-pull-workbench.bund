@@ -1,0 +1,35 @@
+//
+// Probe: `encode.base64`, `decode.base64` and `pull.workbench`, with their
+// workbench forms.
+//
+// **base64 carries a whole value, not its text.** `encode.base64` serialises
+// its operand through the wire format and base64s *that*, so `42
+// encode.base64 decode.base64` gives the integer back and not the string
+// `"42"`. The reference's own codec and the reference's own wire bytes (D20).
+//
+// **Only the round trip is here, never a bare `encode.base64`.** The wire
+// bytes embed the value's identity, so the base64 *text* differs between the
+// two engines (D88: a decoded value mints a fresh identity) — and F14's
+// normalisation cannot reach inside a base64 string to hide it. It is
+// `debug.dump`'s `_` arm again: the bytes are the subject, so no normaliser
+// applies. A round trip is reproducible because the decode restores the value
+// and the dump is normalised as usual.
+//
+// **`pull.workbench` names values off the workbench into a dict**, and the
+// names come from the stack while the values always come from the workbench —
+// so `pull.workbench.` takes its name list off the workbench and then drains
+// what is left of it. Member order is F15's, which the capture normalises.
+//
+"probe: a base64 round trip returns the value, not its text" println
+42 encode.base64 decode.base64
+"hello" encode.base64 decode.base64
+[ 1 2.5 "x" ] encode.base64 decode.base64
+true encode.base64 decode.base64
+
+"probe: the workbench forms round-trip on the workbench" println
+7 { true } ?. encode.base64. decode.base64.
+
+"probe: pull.workbench names workbench values into a dict" println
+10 { true } ?.
+20 { true } ?.
+[ "a" "b" ] pull.workbench
