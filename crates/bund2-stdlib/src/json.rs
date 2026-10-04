@@ -13,7 +13,7 @@
 //! `tests/probes/q-observable.bund` exists to pin exactly that.
 
 use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
-use bund2_value::{BundValue, JSON, STRING};
+use bund2_value::{BOOL, BundValue, FLOAT, INTEGER, JSON, LIST, MAP, STRING};
 
 fn eff(consumes: u8, produces: u8) -> StackEffect {
     StackEffect::fixed(consumes, produces)
@@ -150,7 +150,91 @@ fn json_to_value(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// **`cast_value_to_json`'s accepted set, which is not every value.**
+///
+/// INTEGER, FLOAT, BOOL, NONE, LIST and MAP, the containers recursively —
+/// and **a STRING is refused** (`reference/rust_dynamic/src/cast_value_to_json.rs`),
+/// which is the thing no reading of `json.from_value` would predict. Measured:
+/// `"x" json.from_value` answers `This Dynamic type is not supported for
+/// JSON: 4`.
+///
+/// Deliberately not `BundValue::as_json_operand`, which is `push`'s
+/// conversion and *does* take a string. The two were briefly merged on a "one
+/// function, one answer" argument; this word is the counterexample — they are
+/// two questions with two answers, and the merge made `"x" json.from_value`
+/// succeed where the oracle fails.
+fn value_to_json(v: &BundValue) -> Result<serde_json::Value, Error> {
+    let fail = || {
+        Error(format!(
+            "This Dynamic type is not supported for JSON: {}",
+            v.dt()
+        ))
+    };
+    match v.dt() {
+        INTEGER => v
+            .as_int()
+            .map(serde_json::Value::from)
+            .ok_or_else(|| Error("Error casting INTEGER: This Dynamic type is not integer".into())),
+        FLOAT => match v.unboxed() {
+            BundValue::Float(f, _) => serde_json::Number::from_f64(*f)
+                .map(serde_json::Value::Number)
+                .ok_or_else(|| Error("Error casting FLOAT: not representable in JSON".into())),
+            _ => Err(Error("Error casting FLOAT: This Dynamic type is not float".into())),
+        },
+        BOOL => match v.unboxed() {
+            BundValue::Bool(b, _) => Ok(serde_json::Value::Bool(*b)),
+            _ => Err(Error("Error casting BOOL: This Dynamic type is not bool".into())),
+        },
+        bund2_value::NONE => Ok(serde_json::Value::Null),
+        LIST => {
+            let mut out = Vec::new();
+            for item in v.as_list().unwrap_or(&[]) {
+                out.push(
+                    value_to_json(item)
+                        .map_err(|e| Error(format!("Error casting LIST: {}", e.0)))?,
+                );
+            }
+            Ok(serde_json::Value::Array(out))
+        }
+        MAP => {
+            let mut out = serde_json::Map::new();
+            for (k, item) in v.as_map().map(|m| m.iter().collect::<Vec<_>>()).unwrap_or_default() {
+                out.insert(
+                    k.clone(),
+                    value_to_json(item)
+                        .map_err(|e| Error(format!("Error casting DICT: {}", e.0)))?,
+                );
+            }
+            Ok(serde_json::Value::Object(out))
+        }
+        _ => Err(fail()),
+    }
+}
+
+/// `json.from_value` — the inverse of `json.to_value`.
+///
+/// **A JSON on the stack is refused rather than passed through.** The
+/// reference checks `is_type(JSON)` first and bails with `Stack already having
+/// a JSON value`, so wrapping twice is an error and not a no-op
+/// (`reference/rust_multistackvm/src/stdlib/json/conversion.rs`).
+fn json_from_value(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 1 {
+        return Err(Error(
+            "Stack is too shallow for inline json.from_value".into(),
+        ));
+    }
+    let v = crate::pull::operand(vm, "JSON.FROM_VALUE", 1)?;
+    if v.dt() == JSON {
+        return Err(Error("Stack already having a JSON value".into()));
+    }
+    let j = value_to_json(&v)
+        .map_err(|e| Error(format!("Error casting JSON value: {}", e.0)))?;
+    vm.push(BundValue::json(j));
+    Ok(())
+}
+
 pub fn register(r: &mut Registry) {
+    r.register_native("json.from_value", json_from_value, eff(1, 1), WordKind::Sync);
     r.register_native("json", json, eff(1, 1), WordKind::Sync);
     r.register_native("json.to_value", json_to_value, eff(1, 1), WordKind::Sync);
     // `reference/rust_multistackvm/src/stdlib/json/json_path.rs`, `init_stdlib`.

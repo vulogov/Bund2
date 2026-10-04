@@ -816,6 +816,14 @@ impl BundValue {
     }
 
     /// The operand as JSON, for the JSON arm's `cast_value_to_json`.
+    ///
+    /// **Not the same conversion `json.from_value` wants, and that was
+    /// learned the hard way.** This one is `push`'s, and it accepts a string;
+    /// the reference's `cast_value_to_json` refuses one and takes INTEGER,
+    /// FLOAT, BOOL, NONE, LIST and MAP only. The two were briefly merged on a
+    /// "one function, one answer" argument, and `"x" json.from_value` showed
+    /// they are two questions: `bund2_stdlib::json`'s `value_to_json` is the
+    /// other.
     fn as_json_operand(&self) -> Option<serde_json::Value> {
         if let Some(j) = self.as_json() {
             return Some(j);

@@ -897,7 +897,7 @@ mod honesty_tests {
     /// outside this crate (RFC-0005 assumption 24).
     #[test]
     fn every_reentering_function_is_named() {
-        const REENTERING: [&str; 21] = [
+        const REENTERING: [&str; 23] = [
             "conditional.rs: run_context",
             "conditional.rs: run_error",
             "conditional.rs: run_ifthenelse",
@@ -915,7 +915,11 @@ mod honesty_tests {
             "seq.rs: times_base",
             "singles.rs: apply",
             "singles.rs: conditional_move",
+            // `do` runs its lambda in a loop until the stack empties, and
+            // `resolve` applies a PTR to whatever it found.
+            "singles.rs: do_base",
             "singles.rs: eval_source",
+            "singles.rs: resolve_word",
             "terminal.rs: input_loop",
             // `execute_value` delegates to `execute_reached`, whose worklist
             // (F114) calls this for one value at a time. It holds both calls:

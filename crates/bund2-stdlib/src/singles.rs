@@ -1335,6 +1335,12 @@ pub fn register(r: &mut Registry) {
     // registration made when `--noeval` is not set, and the alias at
     // `reference/Bund/src/stdlib/functions/create_aliases.rs:13`. Opaque: the
     // string can do anything.
+    // **Opaque, all four.** `resolve` applies whatever it finds and `do` runs
+    // a body until the stack empties, so none of them has a pair.
+    r.register_native("resolve", resolve_word, StackEffect::opaque(1), WordKind::Sync);
+    r.register_native("resolve.class", resolve_class, eff(1, 1), WordKind::Sync);
+    r.register_native("do", do_stack, StackEffect::opaque(1), WordKind::Sync);
+    r.register_native("do.", do_wb, StackEffect::opaque(0), WordKind::Sync);
     r.register_native("bund.eval", bund_eval, StackEffect::opaque(1), WordKind::Sync);
     r.register_native("bund.eval.", bund_eval_wb, StackEffect::opaque(0), WordKind::Sync);
     // **Also `--noeval`, not `--noio`** — the reference stubs all four
@@ -1373,6 +1379,106 @@ pub fn register(r: &mut Registry) {
     r.register_native("var", var, eff(2, 0), WordKind::Sync);
     r.register_native("var?", var_read, eff(1, 1), WordKind::Sync);
     r.register_native("var-", var_unregister, eff(1, 0), WordKind::Sync);
+}
+
+/// `resolve` — look a name up through aliases and **run** what it finds.
+///
+/// Not a lookup that pushes something: the reference applies a PTR to the
+/// resolved name, so `resolve` *calls* the word
+/// (`reference/rust_multistackvm/src/stdlib/lambdas/resolve.rs`). An alias is
+/// followed first, and a name that is neither a lambda nor a native is an
+/// error naming the name the caller gave rather than the one it resolved to.
+fn resolve_word(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 1 {
+        return Err(Error("Stack is too shallow for inline resolve()".into()));
+    }
+    let v = vm
+        .pull()
+        .ok_or_else(|| Error("RESOLVE returns: NO DATA".into()))?;
+    let name = v.as_str().ok_or_else(|| {
+        Error("RESOLVE returns error: This Dynamic type is not string".into())
+    })?;
+    // An alias resolves to its target; anything else resolves to itself.
+    let real = vm
+        .alias_pairs()
+        .into_iter()
+        .find(|(a, _)| *a == name)
+        .map(|(_, t)| t)
+        .unwrap_or_else(|| name.clone());
+    if vm.is_lambda(&real) || vm.is_native(&real) {
+        return vm.apply(BundValue::ptr(&real));
+    }
+    Err(Error(format!("RESOLVE: function {name} not found")))
+}
+
+/// `resolve.class` — **pushes** the class, where `resolve` runs the word.
+fn resolve_class(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 1 {
+        return Err(Error(
+            "Stack is too shallow for inline resolve.class()".into(),
+        ));
+    }
+    let v = vm
+        .pull()
+        .ok_or_else(|| Error("RESOLVE.CLASS returns: NO DATA".into()))?;
+    let name = v.as_str().ok_or_else(|| {
+        Error("RESOLVE.CLASS returns error: This Dynamic type is not string".into())
+    })?;
+    let c = vm
+        .class(&name)
+        .ok_or_else(|| Error(format!("RESOLVE.CLASS class {name} not registered")))?;
+    vm.push(c);
+    Ok(())
+}
+
+/// `do` — run a lambda **until the current stack is empty**.
+///
+/// **It can loop for ever, and that is the reference's behaviour.** The body
+/// runs, then the stack's depth is checked; a body that pushes as much as it
+/// pulls never terminates. The guard is on entry only, so a lambda pulled off
+/// an otherwise empty stack still runs once.
+fn do_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Result<(), Error> {
+    match side {
+        crate::wb::Side::Stack if vm.depth() < 1 => {
+            return Err(Error(format!("Stack is too shallow for inline {prefix}")));
+        }
+        crate::wb::Side::Bench if vm.workbench_depth() < 1 => {
+            return Err(Error(format!(
+                "Workbench is too shallow for inline {prefix}"
+            )));
+        }
+        _ => {}
+    }
+    let lambda = side
+        .pull(vm)
+        .ok_or_else(|| Error(format!("{} returns: NO DATA #1", prefix.to_uppercase())))?;
+    if lambda.dt() != bund2_value::LAMBDA {
+        return Err(Error(format!(
+            "{}: #1 parameter must be lambda",
+            prefix.to_uppercase()
+        )));
+    }
+    loop {
+        vm.eval_lambda(&lambda).map_err(|e| {
+            Error(format!(
+                "{}: lambda execution returns error: {}",
+                prefix.to_uppercase(),
+                e.0
+            ))
+        })?;
+        if vm.depth() == 0 {
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn do_stack(vm: &mut dyn Vm) -> Result<(), Error> {
+    do_base(vm, crate::wb::Side::Stack, "do")
+}
+
+fn do_wb(vm: &mut dyn Vm) -> Result<(), Error> {
+    do_base(vm, crate::wb::Side::Bench, "do.")
 }
 
 #[cfg(test)]
