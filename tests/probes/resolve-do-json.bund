@@ -1,0 +1,57 @@
+//
+// Probe: `resolve`, `resolve.class`, `do`, `do.`, `json.from_value` and
+// `pull.workbench.`.
+//
+// **`resolve` runs what it finds; `resolve.class` pushes it.** The reference
+// applies a PTR to the resolved name, so `resolve` *calls* the word rather
+// than handing it back, and an alias is followed first. The class form is the
+// odd one out in the pair.
+//
+// **`do` runs its lambda until the current stack is empty**, which is why the
+// cases below use their own stacks: on `@main` a `{ drop }` body would eat
+// everything the probe had accumulated. The guard is on entry only, so a
+// lambda pulled off an otherwise empty stack still runs once.
+//
+// **`json.from_value` refuses more than it accepts.** INTEGER, FLOAT, BOOL,
+// LIST and MAP convert, recursively; a STRING does not, and neither does
+// NODATA — dt 97 is not NONE's dt 0, so the `null` arm does not reach it.
+// Only the accepted set is here: a refusal renders through the diagnostic
+// table, which F66 records as text no second machine reproduces.
+//
+// **`pull.workbench.` takes its name list off the workbench** and then drains
+// what is left of it, where `pull.workbench` takes the list off the stack.
+// Member order is F15's, which the capture normalises.
+//
+"probe: resolve follows an alias and runs the word it finds" println
+:sq { dup * } register
+5 "sq" resolve
+"sq" "squared" alias
+6 "squared" resolve
+
+"probe: resolve.class pushes the class rather than running it" println
+"Bool" resolve.class
+
+"probe: json.from_value over the set it accepts" println
+42 json.from_value
+2.5 json.from_value
+true json.from_value
+[ 1 2 ] json.from_value
+dict :a 1 set json.from_value
+
+"probe: do runs a lambda until its stack is empty, on a stack of its own" println
+@doer 1 2 3 { drop } do
+@main
+
+"probe: do. takes the lambda off the workbench and drains the stack" println
+@doertwo 4 5 6
+{ drop } { true } ?.
+do.
+@main
+
+"probe: pull.workbench. names workbench values, list and all from there" println
+@puller
+11 { true } ?.
+22 { true } ?.
+[ "x" "y" ] { true } ?.
+pull.workbench.
+@main
