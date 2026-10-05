@@ -10,3 +10,4 @@ defect Bund2 does not reproduce.
 | `probes/stack-navigation.golden` | — | — | the probe gained an ensure_stack_with_capacity section once the operand order and the capacity bound were settled against the oracle |
 | `probes/remaining-vocabulary.golden` | — | — | the probe gained var-, ?move and fold_stack once their shapes were settled against the oracle; fold_stack's target was corrected in the same pass |
 | `probes/workbench-variants.golden` | — | — | probe extended to the remaining 15 suffix variants; the program changed, not its answer (F78) |
+| `probes/filesystem-words.golden` | — | — | F153: every path in the probe was made absolute, because the effect audit runs probes from a different working directory than the capture and the relative version aborted there, leaving files in the crate directory; the probe gained the cp/mv aliases in the same pass. The program changed, not its answer |

@@ -1,0 +1,50 @@
+# golden for tests/probes/filesystem-words.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: file.write writes a file, and file reads it back
+a written line
+probe: file.write truncates rather than appending
+second
+probe: file.write. takes its data from the workbench and its name from the stack
+from the workbench
+probe: filename is lexical, so two spellings of one path agree
+true
+true
+true
+probe: filename answers for a path that does not exist
+true
+probe: filename. reads the workbench and answers on the stack (F151)
+true
+probe: fs.is_file on a file, on a directory, and on neither
+true
+false
+false
+probe: F150 — fs_is_file. is the second name, and it reads the stack
+true
+probe: fs.cp copies into an existing directory and answers true
+true
+true
+true
+probe: fs.mv moves, so the source is gone afterwards
+true
+true
+false
+probe: fs.cp takes a LIST of sources
+true
+true
+true
+true
+probe: cp and mv are the aliases, and reach the same two words
+true
+true
+true
+true
+false
+╭╮
+╰╯
+╭╮
+╰╯
