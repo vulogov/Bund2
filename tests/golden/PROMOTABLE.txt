@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 273 promotable of 282 reached, of 321 fixed-effect natives; 9 reached natives
+# 274 promotable of 283 reached, of 322 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 *
@@ -35,6 +35,7 @@
 ?effect
 ?error
 ?ifthenelse
+?is
 ?key
 ?lambda
 ?object

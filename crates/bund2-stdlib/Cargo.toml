@@ -154,6 +154,10 @@ unix_path = "=1.0.1"
 # and nothing else produces it.
 local-ip-address = "=0.6.13"
 duct_sh = "=0.13.7"
+# `Intervals::overlap` rebuilds an interval tree per query (RFC-0010 S1).
+# iset has no dependencies of its own, and it is what makes the match the
+# lowest-starting interval rather than the first in insertion order.
+iset = "=0.3.3"
 # The random words' crates, pinned the same way. uuid and ulid mint ids;
 # rand_mt (seeded by fastrand) backs `math.random.int` and rand_chacha
 # `math.securerandom.int`; fakeit, passwords and lipsum make the

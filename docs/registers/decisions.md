@@ -3547,6 +3547,72 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D96 — the class hierarchy is extended additively, and `?is` is added
+
+**Authorised by the repository owner, 2026-10-05**, answering RFC-0010's three
+questions on the options that document set out.
+
+- Blocks: nothing. RFC-0010 moves to Proposed on this
+- Depends on: RFC-0009 (the mechanism), D23, D25, D72 (Bund2 may add a word)
+- Status: **RESOLVED**, 2026-10-05.
+
+### 1. Additive only — the hierarchy is not rewired
+
+`List`, `Floats` and `Intervals` are registered with the parents the reference
+declares: `List` under `Value`, the other two under `List`. **No existing
+ancestry changes**, so `bool-objects.golden` is untouched and nothing deviates.
+
+The Smalltalk-shaped alternatives — `Magnitude`, `Number`, `Collection`,
+`Boolean` — are **declined**, and RFC-0010 §S2 records what each would have
+cost. The asymmetry worth keeping in view: inserting `Magnitude` above
+`Integer`/`Float` would be *invisible*, because neither class has a
+constructor word and no program can build one, while moving `Bool` moves a
+golden. A deviation with no present symptom is the harder kind to remember,
+which is part of why the additive answer was taken.
+
+So Bund2's hierarchy is the reference's, root-first: **`Display` ←
+`Printable` ← `Object` ← `Value` ← {`Integer`, `Float`, `Bool`, `List`} ←
+{`Floats`, `Intervals`}**. `Object` is *not* the root; the two most abstract
+classes are output concerns. That is written down in RFC-0010 rather than
+corrected in code.
+
+### 2. `?is` is added, under D72
+
+The reference has **no membership test**. `is` pushes the object back together
+with its `.data` and says nothing about classes; `?object` answers only
+whether a value is an object at all. `?is` takes an object and a class name
+and answers a BOOL, walking the ancestry construction already materialised in
+the same depth-first order `locate` uses — so it agrees with dispatch by
+construction rather than by a second traversal written to match.
+
+Named with the `?` predicates, and deliberately **not** `is`, which is taken
+by the unrelated word above.
+
+**It can never be covered by a golden**, and that is a standing consequence of
+D72 rather than a gap in this change: a golden is captured from the *oracle*,
+which has no such word. So `?is` joins `$`, `<-`, `←`, `password` and
+`log.error` in `implemented but run by no golden`, and its verification is a
+Rust test. `noop`, D72's first exercise, has the same property; this is the
+first time it has been written down.
+
+### 3. `iset` is taken for `Intervals`
+
+`iset = "0.3.3"`, the oracle's version, and it has **no dependencies of its
+own** — unlike `rnltk`, which F-less precedent in `library_string.rs` declined
+for pulling `nalgebra`.
+
+Two behaviours are the reason it is a dependency rather than a `Vec` scan, and
+both are now pinned by `tests/probes/oop-collections.bund`: a repeated range
+is **skipped** rather than replacing the first, and when ranges overlap the
+answer is the **lowest-starting** one rather than the first stored. Measured
+on both engines: `[ 2.0 8.0 ]` stored before `[ 1.0 5.0 ]`, probed at `3.0`,
+answers `1..5`. A linear scan in insertion order would answer `2..8`.
+
+### What this does not disturb
+
+`is`, `wrap`, `unwrap`, `#`, `#.`, `True`, `False`, `?object`, `object` and
+`class` are untouched. Conformance gains one golden and loses none.
+
 ## D95 — COVERAGE's numerator requires a golden
 
 **Authorised by the repository owner, 2026-10-05**, on being shown F156 and

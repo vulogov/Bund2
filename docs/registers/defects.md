@@ -4012,6 +4012,69 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F158 — a test run with a live stdin blocks forever, and F141 did not close it
+
+**A Bund2 defect in the test suite, measured 2026-10-05**, found during a
+status check by asking why a suite run had not reported.
+
+Four test binaries were found resident and blocked, the oldest **5 hours 17
+minutes** old:
+
+| what was running | started during |
+|---|---|
+| `cargo test --workspace` | F155's work |
+| `bund2_stdlib … terminal::` | the `bund/debug_fun` tests |
+| `bund2_stdlib … honesty_tests` | the `ACTS_ON_HOST` count repair |
+| `bund2_stdlib … every_fixed_effect` | the `file.write` work |
+
+**The mechanism.** Each was a `cargo test` that outran the harness's
+foreground limit and was moved to the background — which left it with **a
+live stdin pipe that never reaches end-of-file**. Three places in the suite
+then read stdin in process, through rustyline, and block on it:
+
+- criterion 24's corpus audit,
+  `every_fixed_effect_native_keeps_its_effect_over_the_corpus`
+  (`crates/bund2-stdlib/src/lib.rs`), which runs every probe that has a
+  golden — including `terminal-words.bund`, which calls `input` and `input*`,
+  and since this week `debug-repl-words.bund`;
+- `debug_applies_each_value_and_stops_at_exit` in `terminal.rs`;
+- anything else that reaches `editor()`.
+
+With stdin at end-of-file the first read is Ctrl-D and every one of them
+returns at once, which is why a foreground run passes and why the capture
+works. With a pipe that stays open they wait for a line nobody will type.
+
+**This is F141 again, by a path F141 did not close.** F141 found
+`bund.prompt` hanging the *palette* and listed it in `ACTS_ON_HOST`; its own
+note records "two test binaries found still resident five days after the runs
+that started them". That list governs the D55 palette. The corpus audit is a
+different harness and consults no such list, so a probe that reads stdin runs
+there unguarded. The oldest hung binary above predates the `debug` words
+entirely, so the hazard was live before this week and those words only added
+readers to it.
+
+**What it cost, beyond the processes.** A blocked `cargo test` holds the
+build lock, so later suite runs queued behind it and did not report — which
+is why several verification runs in this session "timed out" and were
+re-issued. A hang leaves no failing test, only a run that never ends, and in
+the background that is indistinguishable from one still going. Every result
+reported as green in this session came from a run that *completed and
+printed*; none was inferred from a run that hung. But the distinction was
+luck in the sense that nothing enforced it.
+
+**Disposition: MITIGATED in practice, not fixed in the code.** The four were
+stopped, and suite runs are now issued with `</dev/null`, which is the
+condition the capture has always run under.
+
+**What a real fix needs**, recorded so it is a decision rather than a
+rediscovery: no test should read the process's actual stdin. Two shapes —
+the terminal words read through a seam a test can stub, as `Vm::report` is
+the seam for output (D36); or the test binary points descriptor 0 at
+`/dev/null` before any test runs, which is three lines and `unsafe`. The
+first is the design answer and the second is the cheap one. Until either
+exists, **a `cargo test` on this repository must be given a closed stdin**,
+and this entry is the mechanism.
+
 ## F157 — a reporting native was certified crossable
 
 **A Bund2 defect against D71, found 2026-10-05** on the commit that

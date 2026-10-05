@@ -1,0 +1,66 @@
+//
+// PROBE: `List`, `Floats` and `Intervals` — RFC-0010 §S1.
+//
+// **Additive by construction.** These three classes sit where the reference
+// puts them — `List` under `Value`, the other two under `List` — so no
+// existing ancestry moves and `bool-objects.golden` is untouched. That is the
+// decision RFC-0010 §S2 records, and this probe is the evidence for the half
+// of it that could be checked.
+//
+// **A method is called `<args> :name <object> !`.** The name goes on the stack
+// *under* the object, because `!` on an OBJECT pulls the object as the value it
+// is executing and then pulls the method name. Hence the `swap` in the later
+// clauses: the object arrives on top from `object`, and the name has to get
+// beneath it. A first draft wrote `{ str } #`, which is a different operation
+// entirely — `#` unwraps the object and runs the lambda on its *payload*, so
+// `str` was looked up as a word and was not one.
+//
+// **`Floats` coerces on the way in**, both in its constructor and in `push`:
+// `7` becomes `7.0`. `List` keeps what it is given.
+//
+// **`Intervals` stores plain `[start, end]` pairs** and rebuilds an interval
+// tree inside `overlap`, per call. Two consequences are pinned below because
+// neither is guessable from the stored data: a repeated range is **skipped**,
+// and when ranges overlap the answer is the **lowest-starting** one rather
+// than the first stored — `[ 2.0 8.0 ]` before `[ 1.0 5.0 ]` answers `1..5`.
+// A linear scan in insertion order would answer `2..8`, which is why `iset` is
+// a dependency rather than a loop.
+//
+// `overlap` answers a *generated* label, `"{start}..{end}"`, not anything a
+// program stored — so it describes the interval it matched and cannot carry a
+// payload. It also consumes the object, where `push` hands it back.
+//
+// F74 does not apply here: object construction is deterministic, and the ids
+// the capture records are F14's.
+//
+// **`?is` is deliberately absent.** It is Bund2's own word (RFC-0010 §S4,
+// D72) and a golden is captured from the *oracle*, which has no such word --
+// so no probe can ever cover it and it is unit-tested instead. That is a
+// general consequence of D72 rather than a gap here: a word Bund2 adds is
+// permanently unreachable by conformance, and `coverage` reports it beside
+// `$` and `password`.
+//
+"probe: the three constructors make empty objects" println
+:str List ! println
+:str Floats ! println
+:str Intervals ! println
+
+"probe: List keeps what it is given, Floats coerces it" println
+42 :push List ! :str swap ! println
+7 :push Floats ! :str swap ! println
+
+"probe: Intervals stores a pair as two floats" println
+[ 1.0 5.0 ] :push Intervals ! :str swap ! println
+
+"probe: overlap finds the interval containing a point" println
+3.0 [ [ 1.0 5.0 ] ] "Intervals" object :overlap swap ! println
+7.0 [ [ 1.0 5.0 ] [ 6.0 9.0 ] ] "Intervals" object :overlap swap ! println
+
+"probe: with overlapping ranges the lowest-starting one answers" println
+3.0 [ [ 2.0 8.0 ] [ 1.0 5.0 ] ] "Intervals" object :overlap swap ! println
+
+"probe: a repeated range is skipped, not duplicated" println
+3.0 [ [ 1.0 5.0 ] [ 1.0 5.0 ] ] "Intervals" object :overlap swap ! println
+
+"probe: integers are coerced to the interval's floats" println
+3 [ [ 1 5 ] ] "Intervals" object :overlap swap ! println

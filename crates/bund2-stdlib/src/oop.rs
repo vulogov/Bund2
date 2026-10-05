@@ -585,6 +585,316 @@ fn method_float_init(vm: &mut dyn Vm) -> Result<(), Error> {
     init_converting(vm, bund2_value::FLOAT, "Float", "FLOAT")
 }
 
+/// `List`'s `.init` — convert the wrapped data to LIST
+/// (`reference/Bund/src/stdlib/functions/oop/list_class.rs`,
+/// `register_method_list_init`).
+///
+/// **It reports `error converting to BOOL`**, in the List class, because the
+/// file was copied from `bool_class.rs` and the tag in the message was not
+/// changed. Preserved: `init_converting` takes the tag as a parameter, so this
+/// is one argument rather than a special case.
+fn method_list_init(vm: &mut dyn Vm) -> Result<(), Error> {
+    init_converting(vm, bund2_value::LIST, "List", "BOOL")
+}
+
+/// `List::push` (`list_class.rs`, `register_method_list_push`).
+///
+/// The object is on top and the value to append beneath it. The answer is the
+/// object with the longer list, so `push` is not in-place from the program's
+/// point of view.
+fn method_list_push(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 2 {
+        return Err(Error("Stack is too shallow for method 'List::push'".into()));
+    }
+    let obj = vm
+        .pull()
+        .ok_or_else(|| Error("List: NO DATA #1".into()))?;
+    let item = vm
+        .pull()
+        .ok_or_else(|| Error("List: NO DATA #2".into()))?;
+    let data = locate(&obj, ".data")
+        .ok_or_else(|| Error("List: NO WRAPPED DATA WAS FOUND".into()))?;
+    let mut items = data
+        .as_list()
+        .map(<[BundValue]>::to_vec)
+        .ok_or_else(|| Error("List::push data object is not LIST".into()))?;
+    items.push(item);
+    vm.push(set_in_object(&obj, ".data", &BundValue::list(items), 512));
+    Ok(())
+}
+
+/// `Floats`'s `.init` — every element converted to FLOAT
+/// (`floatlist_class.rs`, `register_method_float_list_init`).
+///
+/// **Not `init_converting`**: that converts `.data` as a whole, and this
+/// converts each element, so a LIST stays a LIST and its members become
+/// floats. The "no wrapped data" message says **`List:`** here, not `Floats:`
+/// -- one of four messages in this file that name the wrong class, all
+/// preserved.
+fn method_floats_init(vm: &mut dyn Vm) -> Result<(), Error> {
+    let obj = vm
+        .pull()
+        .ok_or_else(|| Error("Floats: stack is empty".into()))?;
+    let data = locate(&obj, ".data")
+        .ok_or_else(|| Error("List: NO WRAPPED DATA WAS FOUND".into()))?;
+    let mut out: Vec<BundValue> = Vec::new();
+    for v in data.as_list().unwrap_or(&[]) {
+        let f = crate::convert::conv_value(v, bund2_value::FLOAT)
+            .map_err(|e| Error(format!("Floats: error casting floating data: {}", e.0)))?;
+        out.push(f);
+    }
+    vm.push(set_in_object(&obj, ".data", &BundValue::list(out), 512));
+    Ok(())
+}
+
+/// `Floats::push` (`floatlist_class.rs`, `register_method_floats_push`).
+///
+/// **Four of its six messages name the wrong class** -- the shallow guard and
+/// both `NO DATA` arms say `List`, and the conversion failure says
+/// `Flaots::push`. Reproduced exactly; a program that matches on the text sees
+/// what the oracle emits.
+fn method_floats_push(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 2 {
+        return Err(Error("Stack is too shallow for method 'List::push'".into()));
+    }
+    let obj = vm
+        .pull()
+        .ok_or_else(|| Error("List: NO DATA #1".into()))?;
+    let item = vm
+        .pull()
+        .ok_or_else(|| Error("List: NO DATA #2".into()))?;
+    let data = locate(&obj, ".data")
+        .ok_or_else(|| Error("Floats: NO WRAPPED DATA WAS FOUND".into()))?;
+    let mut items = data
+        .as_list()
+        .map(<[BundValue]>::to_vec)
+        .ok_or_else(|| Error("Floats::push data object is not LIST".into()))?;
+    let f = crate::convert::conv_value(&item, bund2_value::FLOAT)
+        .map_err(|e| Error(format!("Flaots::push data object is not FLOAT: {}", e.0)))?;
+    items.push(f);
+    vm.push(set_in_object(&obj, ".data", &BundValue::list(items), 512));
+    Ok(())
+}
+
+/// One `[start, end]` pair, converted and checked
+/// (`intervals_class.rs` -- the same seventeen lines appear in `.init`, in
+/// `push` and in `overlap`).
+///
+/// **The `end` failure quotes the `start` value** in `.init` and in `push`,
+/// because `&v_start_value` was left in the message. `overlap` has the same
+/// code with that corrected *and* a different wording — `end of stored
+/// interval` — so the three copies disagree in two ways. `stored` says which
+/// copy a reader is looking at.
+fn interval_pair(v: &BundValue, stored: bool) -> Result<(f64, f64), Error> {
+    let where_ = if stored { "stored " } else { "" };
+    let items = v.as_list().ok_or_else(|| {
+        Error(format!(
+            "Intervals: element of {where_}intervals is not a iterable: \
+             This is not a LIST/PAIR value but {}",
+            v.dt()
+        ))
+    })?;
+    if items.len() != 2 {
+        return Err(Error(format!(
+            "Intervals: element of {where_}intervals is not suitable for begin..end"
+        )));
+    }
+    // **The conversion's own text is propagated** rather than written here.
+    // The reference reports whatever `conv(FLOAT)` or `cast_float` said, and
+    // this path is hard to reach at all -- `conv` to FLOAT accepts a LIST,
+    // measured -- so inventing a message would be inventing one for an arm
+    // nothing exercises.
+    let as_float = |x: &BundValue, what: &str| -> Result<f64, Error> {
+        let say = |e: String| {
+            Error(format!(
+                "Interval: error making {what}: {}: {e}",
+                // The quoted value is `items[0]` in the two constructing
+                // copies even for the *end* failure -- `&v_start_value` was
+                // left in the message -- and `items[1]` in `overlap`.
+                if stored { x.display() } else { items[0].display() }
+            ))
+        };
+        let c = crate::convert::conv_value(x, bund2_value::FLOAT).map_err(|e| say(e.0))?;
+        match c.unboxed() {
+            BundValue::Float(f, _) => Ok(*f),
+            other => Err(say(format!(
+                "This is not a FLOAT value but {}",
+                other.dt()
+            ))),
+        }
+    };
+    let start = as_float(&items[0], "start of interval")?;
+    let end = as_float(
+        &items[1],
+        if stored {
+            "end of stored interval"
+        } else {
+            "end of interval"
+        },
+    )?;
+    Ok((start, end))
+}
+
+/// `Intervals`'s `.init` -- validate and normalise the pairs
+/// (`intervals_class.rs`, `register_method_intervals_list_init`).
+///
+/// It stores **plain `[start, end]` LIST pairs**, not an interval tree: the
+/// tree is built per query by `overlap`. Its "stack is empty" message says
+/// **`Floats:`**, a third class named in a fourth file.
+fn method_intervals_init(vm: &mut dyn Vm) -> Result<(), Error> {
+    let obj = vm
+        .pull()
+        .ok_or_else(|| Error("Floats: stack is empty".into()))?;
+    let data = locate(&obj, ".data")
+        .ok_or_else(|| Error("Intervals: NO WRAPPED DATA WAS FOUND".into()))?;
+    let mut out: Vec<BundValue> = Vec::new();
+    for v in data.as_list().unwrap_or(&[]) {
+        let (s, e) = interval_pair(v, false)?;
+        out.push(BundValue::list(vec![
+            BundValue::float(s),
+            BundValue::float(e),
+        ]));
+    }
+    vm.push(set_in_object(&obj, ".data", &BundValue::list(out), 512));
+    Ok(())
+}
+
+/// `Intervals::push` (`intervals_class.rs`, `register_method_intervals_push`).
+fn method_intervals_push(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 2 {
+        return Err(Error(
+            "Stack is too shallow for method 'Intervals::push'".into(),
+        ));
+    }
+    let obj = vm
+        .pull()
+        .ok_or_else(|| Error("Intervals: NO DATA #1".into()))?;
+    let item = vm
+        .pull()
+        .ok_or_else(|| Error("Intervals: NO DATA #2".into()))?;
+    let (s, e) = interval_pair(&item, false)?;
+    let data = locate(&obj, ".data")
+        .ok_or_else(|| Error("Intervals: NO WRAPPED DATA WAS FOUND".into()))?;
+    let mut items = data
+        .as_list()
+        .map(<[BundValue]>::to_vec)
+        .ok_or_else(|| Error("Intervals::push data object is not LIST".into()))?;
+    items.push(BundValue::list(vec![
+        BundValue::float(s),
+        BundValue::float(e),
+    ]));
+    vm.push(set_in_object(&obj, ".data", &BundValue::list(items), 512));
+    Ok(())
+}
+
+/// `Intervals::overlap` -- which stored interval contains a point
+/// (`intervals_class.rs`, `register_method_intervals_overlap`).
+///
+/// **The tree is rebuilt on every call** from the stored pairs, and the answer
+/// is a *generated* label `"{start}..{end}"` rather than anything stored -- so
+/// `overlap` cannot return a value a program put there, only a description of
+/// the interval it matched.
+///
+/// Two details that are the reason `iset` is a dependency rather than a Vec
+/// scan. An interval whose exact range is already present is **skipped**, so a
+/// duplicate never shadows the first. And the match is the first in the
+/// *tree's* order, which is sorted by range and not by insertion -- so with
+/// overlapping intervals the answer is the lowest-starting one, which a linear
+/// scan over the stored order would get wrong.
+///
+/// The object is consumed and **not** pushed back, unlike `push`.
+fn method_intervals_overlap(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 2 {
+        return Err(Error(
+            "Stack is too shallow for method 'Intervals::overlap'".into(),
+        ));
+    }
+    let obj = vm
+        .pull()
+        .ok_or_else(|| Error("Intervals: NO DATA #1".into()))?;
+    let probe_val = vm
+        .pull()
+        .ok_or_else(|| Error("Intervals: NO DATA #2".into()))?;
+    let probe = crate::convert::conv_value(&probe_val, bund2_value::FLOAT)
+        .map_err(|e| Error(format!("Intervals: error converting check value: {}", e.0)))
+        .and_then(|c| match c.unboxed() {
+            BundValue::Float(f, _) => Ok(*f),
+            _ => Err(Error(
+                "Intervals: error casting check value: This Dynamic type is not float".into(),
+            )),
+        })?;
+    let data = locate(&obj, ".data")
+        .ok_or_else(|| Error("Intervals: NO WRAPPED DATA WAS FOUND".into()))?;
+    let mut tree: iset::IntervalMap<f64, String> = iset::IntervalMap::new();
+    for v in data.as_list().unwrap_or(&[]) {
+        let (s, e) = interval_pair(v, true)?;
+        // `contains` is an exact-range test, so a repeated interval is
+        // skipped rather than replacing the first.
+        if !tree.contains(s..e) {
+            tree.insert(s..e, format!("{s}..{e}"));
+        }
+    }
+    match tree.overlap(probe).next() {
+        Some((_, label)) => vm.push(BundValue::str(label.clone())),
+        None => {
+            return Err(Error(format!(
+                "Intervals::overlap returned error: Interval key error: {probe}"
+            )))
+        }
+    }
+    Ok(())
+}
+
+/// `?is` — is this object an instance of this class, or of a descendant of it?
+///
+/// **Bund2's own word, under D72**, and RFC-0010 §S4's one addition. The
+/// reference has no membership test at all: `is` pushes the object back
+/// together with its `.data` and says nothing about classes, and `?object`
+/// answers only whether a value is an object.
+///
+/// It walks the ancestry that construction already materialised, in the same
+/// depth-first order [`locate`] uses, so it agrees with dispatch by
+/// construction rather than by a second traversal written to match.
+///
+/// Named with the `?` predicates — `?object`, `?class`, `?lambda` — and *not*
+/// `is`, which is taken by the unrelated word above.
+fn is_a_word(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 2 {
+        return Err(Error("Stack is too shallow for inline ?IS".into()));
+    }
+    let name_val = vm.pull().ok_or_else(|| Error("?IS: NO DATA #1".into()))?;
+    let name = name_val
+        .as_str()
+        .ok_or_else(|| Error("?IS returns: This Dynamic type is not string".into()))?;
+    let obj = vm.pull().ok_or_else(|| Error("?IS: NO DATA #2".into()))?;
+    if obj.dt() != OBJECT {
+        return Err(Error("?IS: NO OBJECT IN #2".into()));
+    }
+    vm.push(BundValue::boolean(class_in_ancestry(&obj, &name, 512)));
+    Ok(())
+}
+
+/// Does `value` or any of its ancestors carry `.class_name` equal to `name`?
+///
+/// The budget is [`set_in_object`]'s, for the same reason: `.super` is built by
+/// construction and a hand-made object could carry a cycle.
+fn class_in_ancestry(value: &BundValue, name: &str, budget: usize) -> bool {
+    if budget == 0 {
+        return false;
+    }
+    if value.get(".class_name").and_then(|v| v.as_str()).as_deref() == Some(name) {
+        return true;
+    }
+    value
+        .get(".super")
+        .and_then(|s| s.as_list().map(<[BundValue]>::to_vec))
+        .is_some_and(|parents| {
+            parents
+                .iter()
+                .any(|p| class_in_ancestry(p, name, budget - 1))
+        })
+}
+
 /// `unwrap` — replace the object with the value it carries
 /// (`value_class.rs:108-125`).
 fn unwrap_word(vm: &mut dyn Vm) -> Result<(), Error> {
@@ -730,6 +1040,39 @@ fn register_wrapped(r: &mut Registry) {
         r.register_class(name, c);
     }
 
+    // **`List` and its two children** — RFC-0010 §S1, additive: the parents
+    // the reference declares, so no existing ancestry moves and
+    // `bool-objects.golden` is untouched.
+    r.register_method(".list_init", method_list_init);
+    r.register_method(".list_push", method_list_push);
+    r.register_method(".floats_init", method_floats_init);
+    r.register_method(".floats_push", method_floats_push);
+    r.register_method(".intervals_init", method_intervals_init);
+    r.register_method(".intervals_push", method_intervals_push);
+    r.register_method(".intervals_overlap", method_intervals_overlap);
+
+    let list = BundValue::class(Default::default())
+        .set(".class_name", BundValue::str("List"))
+        .set(".super", BundValue::list(vec![BundValue::str("Value")]))
+        .set(".init", BundValue::ptr(".list_init"))
+        .set("push", BundValue::ptr(".list_push"));
+    r.register_class("List", list);
+
+    let floats = BundValue::class(Default::default())
+        .set(".class_name", BundValue::str("Floats"))
+        .set(".super", BundValue::list(vec![BundValue::str("List")]))
+        .set(".init", BundValue::ptr(".floats_init"))
+        .set("push", BundValue::ptr(".floats_push"));
+    r.register_class("Floats", floats);
+
+    let intervals = BundValue::class(Default::default())
+        .set(".class_name", BundValue::str("Intervals"))
+        .set(".super", BundValue::list(vec![BundValue::str("List")]))
+        .set(".init", BundValue::ptr(".intervals_init"))
+        .set("push", BundValue::ptr(".intervals_push"))
+        .set("overlap", BundValue::ptr(".intervals_overlap"));
+    r.register_class("Intervals", intervals);
+
     r.register_native("unwrap", unwrap_word, eff(1, 1), WordKind::Sync);
     r.register_native("is", is_word, eff(1, 2), WordKind::Sync);
     r.register_native("wrap", wrap_word, eff(2, 1), WordKind::Sync);
@@ -737,6 +1080,18 @@ fn register_wrapped(r: &mut Registry) {
     // so its consumption is not a constant (RFC-0004 §S6).
     r.register_native("#", object_execute, StackEffect::opaque(2), WordKind::Sync);
     r.register_native("#.", object_execute_wb, StackEffect::opaque(1), WordKind::Sync);
+}
+
+/// `List`, `Floats` and `Intervals` — an empty object of that class.
+///
+/// `list_class.rs`'s `stdlib_object_list_value_empty` and its two siblings:
+/// push an empty LIST, push the class name, apply a CALL to `object`. Through
+/// `apply` by name for `bool_object`'s reason — a rebound `object` must reach
+/// these too.
+fn empty_of(vm: &mut dyn Vm, class: &str) -> Result<(), Error> {
+    vm.push(BundValue::list(Vec::new()));
+    vm.push(BundValue::str(class));
+    vm.apply(BundValue::call("object"))
 }
 
 /// `True` and `False` — a `Bool` object carrying the value.
@@ -779,6 +1134,26 @@ pub fn register(r: &mut Registry) {
     // `cargo xtask effects` compared it against the probed table: the peek was
     // fixed earlier and the effect beside it was not.
     r.register_native("?object", is_object_word, eff(1, 2), WordKind::Sync);
+    // **RFC-0010 §S4, D72.** The reference has no membership test; this is
+    // Bund2's, and the only addition that RFC accepted.
+    r.register_native("?is", is_a_word, eff(2, 1), WordKind::Sync);
+    // The three constructor words. Each pushes an empty LIST, pushes its own
+    // class name and applies `object` -- `list_class.rs`'s
+    // `stdlib_object_list_value_empty` and its two siblings, verbatim. Opaque
+    // for `object`'s reason: construction runs every ancestor's `.init`.
+    for name in ["List", "Floats", "Intervals"] {
+        let n = name;
+        r.register_native(
+            name,
+            match n {
+                "List" => |vm: &mut dyn Vm| empty_of(vm, "List"),
+                "Floats" => |vm: &mut dyn Vm| empty_of(vm, "Floats"),
+                _ => |vm: &mut dyn Vm| empty_of(vm, "Intervals"),
+            },
+            StackEffect::opaque(0),
+            WordKind::Sync,
+        );
+    }
     register_base(r);
     register_wrapped(r);
 }
@@ -800,6 +1175,111 @@ mod tests {
         match run_src(src) {
             Ok(_) => panic!("{src} was expected to fail"),
             Err(e) => e,
+        }
+    }
+
+    /// `?is` — RFC-0010 §S4, and **no golden can ever cover it**, because a
+    /// golden is captured from the oracle and the oracle has no such word.
+    /// This test is the whole of its verification, which is the standing cost
+    /// of D72 rather than a gap in this change.
+    #[test]
+    fn is_a_walks_the_ancestry_up_and_not_down() {
+        for (src, want) in [
+            // Itself, then every ancestor to the root.
+            ("List \"List\" ?is", true),
+            ("List \"Value\" ?is", true),
+            ("List \"Object\" ?is", true),
+            ("List \"Printable\" ?is", true),
+            ("List \"Display\" ?is", true),
+            // A sibling is not an ancestor...
+            ("List \"Integer\" ?is", false),
+            // ...and neither is a *descendant*, which is the direction a
+            // first reading of "is a List" gets wrong.
+            ("List \"Floats\" ?is", false),
+            ("Floats \"List\" ?is", true),
+            ("Intervals \"Value\" ?is", true),
+            ("True \"Bool\" ?is", true),
+            ("True \"List\" ?is", false),
+        ] {
+            let mut i = run_src(src).unwrap_or_else(|e| panic!("{src}: {e}"));
+            let got = match i.pull().as_ref().map(|v| v.unboxed().clone()) {
+                Some(BundValue::Bool(b, _)) => b,
+                other => panic!("{src} answered {other:?}, not a BOOL"),
+            };
+            assert_eq!(got, want, "{src}");
+        }
+
+        for (src, want) in [
+            ("?is", "Stack is too shallow for inline ?IS"),
+            ("1 2 ?is", "?IS returns: This Dynamic type is not string"),
+            ("42 \"List\" ?is", "?IS: NO OBJECT IN #2"),
+        ] {
+            let e = err_of(src);
+            assert!(e.ends_with(want), "{src}:\n  got {e}\n want ...{want}");
+        }
+    }
+
+    /// The messages of the three new classes, which a golden cannot reach
+    /// because an error ends a program.
+    ///
+    /// **Four of these name the wrong class and are preserved**: `List`'s
+    /// `.init` reports `error converting to BOOL`, `Floats`' guard and both
+    /// `NO DATA` arms say `List`, its conversion failure says `Flaots`, and
+    /// `Intervals`' "stack is empty" says `Floats`. Each is a copy-paste in
+    /// the reference, and a program matching on the text sees what the oracle
+    /// emits.
+    #[test]
+    fn the_collection_classes_keep_the_references_misnamed_messages() {
+        for (src, want) in [
+            // `List::push` needs the object and the item.
+            (
+                ":push List !",
+                "Stack is too shallow for method 'List::push'",
+            ),
+            // `Floats::push`'s guard names List, not Floats.
+            (
+                ":push Floats !",
+                "Stack is too shallow for method 'List::push'",
+            ),
+            // ...and Intervals' names itself.
+            (
+                ":push Intervals !",
+                "Stack is too shallow for method 'Intervals::push'",
+            ),
+            (
+                ":overlap Intervals !",
+                "Stack is too shallow for method 'Intervals::overlap'",
+            ),
+            // A pair that is not a pair.
+            (
+                "[ [ 1.0 ] ] \"Intervals\" object",
+                "Intervals: element of intervals is not suitable for begin..end",
+            ),
+            (
+                "[ \"x\" ] \"Intervals\" object",
+                "Intervals: element of intervals is not a iterable: \
+                 This is not a LIST/PAIR value but 4",
+            ),
+            // No interval contains the probe.
+            (
+                "99.0 [ [ 1.0 5.0 ] ] \"Intervals\" object :overlap swap !",
+                "Intervals::overlap returned error: Interval key error: 99",
+            ),
+        ] {
+            let e = err_of(src);
+            assert!(e.ends_with(want), "{src}:\n  got {e}\n want ...{want}");
+        }
+
+        // **`List: error converting to BOOL` is not asserted, because the arm
+        // is unreachable from the language.** `conv` to LIST accepts
+        // everything tried: `"x" "List" object` answers `[ x :: ]` and
+        // `42 "List" object` answers `[ 42 :: ]` -- measured on both engines,
+        // which agree. The misnamed tag is still reproduced in
+        // `method_list_init`, where it costs one argument; it is recorded here
+        // rather than tested so a reader does not take the absence for an
+        // oversight.
+        for src in ["\"x\" \"List\" object", "42 \"List\" object"] {
+            run_src(src).unwrap_or_else(|e| panic!("{src} should succeed: {e}"));
         }
     }
 
