@@ -141,6 +141,10 @@ spin_sleep = "=1.3.3"
 proctitle = "=0.1.1"
 rasciigraph = "=0.2.0"
 path-absolutize = "=3.1.1"
+# `system.path.*` splits with unix_path rather than std::path, as the
+# reference does: it makes a component split mean the same thing on every host
+# instead of following the platform's separator.
+unix_path = "=1.0.1"
 # The random words' crates, pinned the same way. uuid and ulid mint ids;
 # rand_mt (seeded by fastrand) backs `math.random.int` and rand_chacha
 # `math.securerandom.int`; fakeit, passwords and lipsum make the

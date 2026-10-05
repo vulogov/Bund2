@@ -1,0 +1,63 @@
+//
+// PROBE: `bund/system`'s path pair — `system.path.split` and
+// `system.path.filename`, with their workbench forms.
+//
+// **These are the pure half of `bund/system`.** They manipulate a string and
+// read no filesystem, and the reference does not gate them with `--noio`:
+// `unixpath.rs`'s `init_stdlib` takes the command line and never consults it.
+// So unlike `filesystem-words.bund` this probe touches no path on disk, and
+// F153's trap -- a probe whose meaning depends on its working directory --
+// cannot reach it.
+//
+// **The split keeps the root as a component of its own**, which is the one
+// thing about it that surprises: `/a/b` is three components, not two. The
+// rest is `unix_path`'s `Components`, measured against the oracle: repeated
+// and trailing separators collapse, `.` is dropped except where it is the
+// first component, `..` is kept, and the empty path answers an empty list
+// rather than failing.
+//
+// **`system.path.filename` fails where there is no last component** -- `/`,
+// the empty path, `.`, `..`, and anything whose last component is `..`. An
+// error ends the program, so those five live in unit tests
+// (`crates/bund2-stdlib/src/host.rs`) and not here. The message names the
+// path and *not the word*, so the stack and workbench forms cannot be told
+// apart by it.
+//
+// **The workbench forms answer on the workbench**, each guarding the side it
+// reads -- which is the well-formed shape that F151 records `filename.`
+// getting wrong, in a file that otherwise looks the same. Their results are
+// left on the workbench for the capture to pin rather than printed, because
+// the capture records the workbench after every program.
+//
+"probe: split keeps the root as a component of its own" println
+"/a/b/c" system.path.split println
+"a/b/c" system.path.split println
+"/" system.path.split println
+"x" system.path.split println
+
+"probe: the empty path splits to an empty list rather than failing" println
+"" system.path.split println
+
+"probe: separators collapse, a leading dot is kept, dot-dot is kept" println
+"a//b" system.path.split println
+"a/./b" system.path.split println
+"./a" system.path.split println
+"../a" system.path.split println
+"a/../b" system.path.split println
+"/a/b/.." system.path.split println
+"a/b/" system.path.split println
+"/a/" system.path.split println
+
+"probe: filename is the last component, and trailing separators do not change it" println
+"/a/b/c.txt" system.path.filename println
+"a/b" system.path.filename println
+"x" system.path.filename println
+"a/b/" system.path.filename println
+"./a" system.path.filename println
+
+"probe: a trailing single dot resolves to the component before it" println
+"/a/." system.path.filename println
+
+"probe: the workbench forms read and answer on the workbench, and leave these two" println
+"/a/b" . system.path.split.
+"/q/r.txt" . system.path.filename.

@@ -4012,6 +4012,56 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F154 — `sysinfo.mem.used` answers free memory, and its workbench form does not
+
+**An original-implementation defect, measured 2026-10-05**, found while
+grounding `bund/sysinfo`.
+
+`bund_mem_base` takes a `MemOperation` and reads the matching field of
+`sys_metrics::memory::get_memory()`
+(`reference/Bund/src/stdlib/functions/sysinfo/mem.rs`, `bund_mem_base`). Six
+operations, twelve registrations, and **one of the twelve passes the wrong
+operation**: `stdlib_sysinfo_mem_used_stack` passes `MemOperation::Free`
+while carrying the prefix `SYSINFO.MEM.USED`. Its workbench sibling,
+`stdlib_sysinfo_mem_used_workbench`, passes `Used` correctly.
+
+So the two forms of one word disagree, and neither is obviously wrong from
+the outside — both answer a plausible byte count. Measured on the oracle,
+release binary, one program:
+
+| program | oracle |
+|---|---|
+| `sysinfo.mem.free` | `181403648` |
+| **`sysinfo.mem.used`** | **`181403648`** — the same number |
+| `sysinfo.mem.used.` (workbench form) | `10759438336` |
+| `sysinfo.mem.total` | `25769803776` |
+
+A factor of 59 between the two spellings of "used", and the stack form
+agreeing with `free` to the byte. Every other operation's pair agrees.
+
+**The `(res*1024)*1024` is not a second defect**, which is worth saying
+because it looks like one. `get_memory` reports **MiB** on this platform, so
+the double multiply is the correct MiB-to-bytes conversion: `sysinfo.mem.total`
+came back as `25769803776`, which is exactly `sysctl -n hw.memsize` on the
+same machine. A session that "fixes" it to a single `*1024` would break the
+total it reproduces today.
+
+**Disposition: PRESERVE.** Bund2's `sysinfo.mem.used` answers free memory and
+its `sysinfo.mem.used.` answers used memory, with the prefixes the reference
+carries. Correcting it would change what a program reads from the host on a
+word whose answer no golden can pin, and the two forms' disagreement is the
+observable behaviour. `used_answers_free_and_used_dot_answers_used`
+(`crates/bund2-stdlib/src/sysinfo.rs`) is the test that says so, and it
+asserts the inequality rather than the numbers.
+
+**Why no golden records it.** The numbers are volatile and
+machine-specific, so a capture cannot hold them; the probe reduces each word
+to a stable claim instead (`0 >`, or `convert.to_bool.` on the workbench
+side). Pinning the defect itself would mean asserting
+`sysinfo.mem.used sysinfo.mem.free ==`, which is true only while nothing
+allocates between the two calls — a flaky golden, and F48's gap again: a
+defect Bund2 reproduces faithfully with no reproducible program to witness it.
+
 ## F153 — a probe is run by two harnesses with two working directories
 
 **A Bund2 defect, found 2026-10-04** while implementing `bund/filesystem`,

@@ -1,0 +1,70 @@
+//
+// PROBE: `bund/sysinfo`'s host and memory words.
+//
+// **Not one of these answers can go in a golden.** A hostname, a kernel
+// version and a memory figure all name the machine, and the six memory
+// figures change between two runs on one machine. So the probe asserts what
+// is true of the answer rather than printing it: its type, or its sign. That
+// is the discipline `fs.cwd`, `fs.ls` and `filename` already get, applied to
+// a whole subsystem.
+//
+// **The workbench forms are the harder half.** They answer on the workbench,
+// and the capture records the workbench after every program -- so a volatile
+// number left there makes the golden irreproducible, and there is no word
+// that moves a scalar from the workbench to the stack. `?move` moves between
+// *named stacks*, `unfold.` wants a LIST, and the `convert.to_*.` and
+// arithmetic `.` forms all answer back on the workbench. `convert.to_bool.`
+// is the one that helps: it reads the workbench, answers there, and collapses
+// a byte count to a boolean that does not change between runs.
+//
+// **So the six booleans at the end are the six workbench forms**, in the
+// order they are called, and each says only "this word wrote a number here".
+// Three are false because this host reports `shared`, `buffers` and `cached`
+// as zero; that is the platform's answer, not a defect, and it is the one
+// part of this probe that is not portable.
+//
+// **The top of the stack is a comparison's left operand**, so "total is
+// positive" is written `0 sysinfo.mem.total >` and not the other way round.
+// Measured: `1 2 >` is true. Written the natural-looking way these lines all
+// answered `false` and still captured cleanly, which is the trap -- a
+// reproducible golden full of wrong claims.
+//
+// **F154: `sysinfo.mem.used` answers free memory** while
+// `sysinfo.mem.used.` answers used. Both are exercised below and neither can
+// be *witnessed* here: pinning the defect would mean asserting
+// `sysinfo.mem.used sysinfo.mem.free ==`, which holds only while nothing
+// allocates between the two calls. The unit test in
+// `crates/bund2-stdlib/src/sysinfo.rs` is where that claim lives.
+//
+"probe: the four host facts are strings" println
+sysinfo.hostname type.of println
+sysinfo.kernel_version type.of println
+sysinfo.os_version type.of println
+sysinfo.system type.of println
+
+"probe: the six memory words answer integers" println
+sysinfo.mem.total type.of println
+sysinfo.mem.free type.of println
+sysinfo.mem.used type.of println
+sysinfo.mem.shared type.of println
+sysinfo.mem.buffers type.of println
+sysinfo.mem.cached type.of println
+
+"probe: a total is positive, and no figure is negative" println
+0 sysinfo.mem.total > println
+0 sysinfo.mem.free >= println
+0 sysinfo.mem.used >= println
+0 sysinfo.mem.shared >= println
+0 sysinfo.mem.buffers >= println
+0 sysinfo.mem.cached >= println
+
+"probe: free is no larger than the total" println
+sysinfo.mem.free sysinfo.mem.total >= println
+
+"probe: the six workbench forms each leave a number, collapsed to a boolean" println
+sysinfo.mem.total.   convert.to_bool.
+sysinfo.mem.free.    convert.to_bool.
+sysinfo.mem.used.    convert.to_bool.
+sysinfo.mem.shared.  convert.to_bool.
+sysinfo.mem.buffers. convert.to_bool.
+sysinfo.mem.cached.  convert.to_bool.

@@ -11,6 +11,14 @@
 //! `args`, `sleep.seconds` and `io.graph` have no gate in the reference, and
 //! none here.
 //!
+//! **`bund/system`'s path pair is here for subsystem cohesion, not because it
+//! touches the host.** `system.path.split` and `system.path.filename`
+//! manipulate a string and read no filesystem, and the reference does not gate
+//! them with `--noio`: `init_stdlib` takes the command line and never consults
+//! it (`reference/Bund/src/stdlib/functions/system/unixpath.rs`, `init_stdlib`).
+//! They live beside `system.setproctitle` and `sleep.seconds` because all of
+//! `bund/system` maps to one reference directory.
+//!
 //! **None of these can print twice the same way on every machine** except
 //! `io.graph`, `args` on an empty command line, and the failure paths. The
 //! probe `tests/probes/host-words.bund` pins those; the rest are unit-tested.
@@ -364,6 +372,74 @@ fn fs_is_file(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// Which of `unixpath.rs`'s two algorithms a call is
+/// (`reference/Bund/src/stdlib/functions/system/unixpath.rs`,
+/// `UnixPathAlgorithm`).
+#[derive(Clone, Copy)]
+enum PathOp {
+    Split,
+    Filename,
+}
+
+/// `system.path.split` and `system.path.filename`, with their workbench forms
+/// (`reference/Bund/src/stdlib/functions/system/unixpath.rs`,
+/// `string_system_path_base`).
+///
+/// **Both forms answer on their own side**, and each guards the side it reads
+/// -- the workbench form checks the workbench, which is the shape F151 says
+/// `filename.` gets wrong. So these are the well-formed pair and `filename.`
+/// is the defective one, in two files that otherwise look alike.
+///
+/// `split` answers the path's components as a LIST of strings, **with the root
+/// as a component of its own**: `/a/b` gives `[ / a b ]` and `a/b` gives
+/// `[ a b ]`. Repeated and trailing separators collapse, `.` is dropped except
+/// where it is the first component, and `..` is kept. The empty path answers
+/// an empty list rather than failing. All measured against the oracle.
+///
+/// `filename` is the last component, and it **fails where there is none**:
+/// `/`, the empty path, `.`, `..`, and anything whose last component is `..`.
+/// That message names the path and *not the word*, so the two forms cannot be
+/// told apart by their error -- the one place in this pair where the prefix is
+/// not used.
+///
+/// `unix_path` rather than `std::path` is the reference's own choice, at the
+/// version its lock resolves. On a Unix host the two agree, measured; the
+/// crate is what keeps a component split meaning the same thing on a host
+/// whose separator is not `/`, and no decision in the registers says which
+/// hosts those are.
+///
+/// Where the reference unwraps `to_str`, this is lossy (D37). A component of a
+/// path that arrived as a Bund STRING is already UTF-8, so the difference is
+/// unreachable from the language.
+fn system_path(vm: &mut dyn Vm, side: Side, op: PathOp, prefix: &str) -> Result<(), Error> {
+    guard(vm, side, prefix)?;
+    let v = side
+        .pull(vm)
+        .ok_or_else(|| Error(format!("{prefix} returns NO DATA #1")))?;
+    let name = v.as_str().ok_or_else(|| {
+        Error(format!(
+            "{prefix} returned for #1: This Dynamic type is not string"
+        ))
+    })?;
+    let path = unix_path::Path::new(name.as_str());
+    match op {
+        PathOp::Split => {
+            let parts: Vec<BundValue> = path
+                .iter()
+                .map(|p| BundValue::str(p.to_string_lossy().into_owned()))
+                .collect();
+            side.push(vm, BundValue::list(parts));
+        }
+        PathOp::Filename => {
+            let last = path
+                .file_name()
+                .ok_or_else(|| Error(format!("Error getting filename for: {name}")))?;
+            side.push(vm, BundValue::str(last.to_string_lossy().into_owned()));
+        }
+    }
+    Ok(())
+}
+
 /// `sleep.seconds` — wait whole seconds
 /// (`reference/Bund/src/stdlib/functions/system/sleep.rs:11-21`).
 ///
@@ -593,6 +669,32 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
         "io.graph.",
         |vm| io_graph(vm, Side::Bench, "IO.GRAPH."),
         eff(0, 1),
+        WordKind::Sync,
+    );
+
+    // Ungated, because the reference does not gate them: pure string work.
+    r.register_native(
+        "system.path.split",
+        |vm| system_path(vm, Side::Stack, PathOp::Split, "SYSTEM.PATH.SPLIT"),
+        eff(1, 1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "system.path.split.",
+        |vm| system_path(vm, Side::Bench, PathOp::Split, "SYSTEM.PATH.SPLIT."),
+        eff(0, 0),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "system.path.filename",
+        |vm| system_path(vm, Side::Stack, PathOp::Filename, "SYSTEM.PATH.FILENAME"),
+        eff(1, 1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "system.path.filename.",
+        |vm| system_path(vm, Side::Bench, PathOp::Filename, "SYSTEM.PATH.FILENAME."),
+        eff(0, 0),
         WordKind::Sync,
     );
 
@@ -1048,6 +1150,91 @@ mod tests {
             "{e}"
         );
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// `system.path.*`'s failures and its guard sides.
+    ///
+    /// **`filename` fails where the path has no last component** -- five
+    /// shapes, and the message names the path rather than the word, so the
+    /// stack and workbench forms are indistinguishable by it. An error ends a
+    /// program, so these cannot live in the probe.
+    ///
+    /// **The guard is on the side the word reads**, which is what F151 says
+    /// `filename.` gets wrong in the sibling file: `"x" . system.path.split.`
+    /// succeeds with an empty stack, where `"x" . filename.` does not.
+    #[test]
+    fn system_path_guards_the_side_it_reads_and_names_the_path_when_there_is_no_filename() {
+        // The well-formed shape: the stack is empty and the word does not care.
+        let mut i = interp(HostOptions::default());
+        run(&mut i, "\"/a/b\" . system.path.split.").expect("reads the workbench alone");
+        assert_eq!(i.depth(), 0, "nothing reached the stack");
+        assert_eq!(i.workbench_depth(), 1, "the list is on the workbench");
+        run(&mut i, "\"/q/r.txt\" . system.path.filename.").expect("same for filename.");
+
+        for (src, want) in [
+            (
+                "system.path.split",
+                "Stack is too shallow for inline SYSTEM.PATH.SPLIT",
+            ),
+            (
+                "system.path.split.",
+                "Workbench is too shallow for inline SYSTEM.PATH.SPLIT.",
+            ),
+            (
+                "system.path.filename",
+                "Stack is too shallow for inline SYSTEM.PATH.FILENAME",
+            ),
+            (
+                "system.path.filename.",
+                "Workbench is too shallow for inline SYSTEM.PATH.FILENAME.",
+            ),
+            (
+                "42 system.path.split",
+                "SYSTEM.PATH.SPLIT returned for #1: This Dynamic type is not string",
+            ),
+            (
+                "42 system.path.filename",
+                "SYSTEM.PATH.FILENAME returned for #1: This Dynamic type is not string",
+            ),
+            // The five paths with no last component. The word is not named.
+            ("\"/\" system.path.filename", "Error getting filename for: /"),
+            ("\"\" system.path.filename", "Error getting filename for: "),
+            ("\".\" system.path.filename", "Error getting filename for: ."),
+            ("\"..\" system.path.filename", "Error getting filename for: .."),
+            (
+                "\"a/..\" system.path.filename",
+                "Error getting filename for: a/..",
+            ),
+            // ...and the workbench form says exactly the same thing.
+            (
+                "\"/\" . system.path.filename.",
+                "Error getting filename for: /",
+            ),
+        ] {
+            let mut i = interp(HostOptions::default());
+            let e = run(&mut i, src).expect_err(src);
+            assert!(e.ends_with(want), "{src}:\n  got {e}\n want ...{want}");
+        }
+    }
+
+    /// The reference does not gate the path pair with `--noio`: its
+    /// `init_stdlib` takes the command line and never reads it. So these four
+    /// are the only `bund/system` words that still work under the flag.
+    #[test]
+    fn the_path_pair_is_not_gated_by_noio() {
+        let mut i = interp(HostOptions {
+            noio: true,
+            ..HostOptions::default()
+        });
+        run(&mut i, "\"/a/b.txt\" system.path.filename").expect("ungated");
+        assert_eq!(i.peek().and_then(|v| v.as_str()).as_deref(), Some("b.txt"));
+        run(&mut i, "\"/a/b\" system.path.split").expect("ungated");
+        // The gated sibling in the same subsystem still refuses.
+        let e = run(&mut i, "\"t\" system.setproctitle").expect_err("gated");
+        assert!(
+            e.contains("bund SYSTEM.SETPROCTITLE functions disabled with --noio"),
+            "{e}"
+        );
     }
 
     /// F150 and F152: three names the reference registers in the `--noio`
