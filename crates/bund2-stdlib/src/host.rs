@@ -372,6 +372,88 @@ fn fs_is_file(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// `system.ip` and `system.ipv6` — the host's own address
+/// (`reference/Bund/src/stdlib/functions/system/ip.rs`).
+///
+/// **`SYSTEM.IPv6` spells its version lower-case**, alone among the
+/// subsystem's prefixes. Reproduced, because the text is what a program sees.
+///
+/// Neither is gated by `--noio`, though both interrogate the host's network
+/// interfaces: `ip.rs`'s `init_stdlib` takes the command line and never reads
+/// it. So does `locale.rs`'s. Only `shell.rs` in this subsystem gates.
+///
+/// **No golden can hold either answer.** An address names the machine, and
+/// `system.ipv6` fails outright on a host with no IPv6 -- so even the shape of
+/// the answer is not fixed, which is why the test asserts only that it either
+/// pushes a string or reports the prefix.
+fn system_ip(vm: &mut dyn Vm, v6: bool) -> Result<(), Error> {
+    let (addr, prefix) = if v6 {
+        (
+            local_ip_address::local_ipv6().map(|a| a.to_string()),
+            "SYSTEM.IPv6",
+        )
+    } else {
+        (
+            local_ip_address::local_ip().map(|a| a.to_string()),
+            "SYSTEM.IP",
+        )
+    };
+    let a = addr.map_err(|e| Error(format!("{prefix} returned: {e}")))?;
+    vm.push(BundValue::str(a));
+    Ok(())
+}
+
+/// `system.locale` — the host's locale
+/// (`reference/Bund/src/stdlib/functions/system/locale.rs`).
+///
+/// A locale that cannot be determined is an **error**, not an empty string.
+fn system_locale(vm: &mut dyn Vm) -> Result<(), Error> {
+    let l = sys_locale::get_locale()
+        .ok_or_else(|| Error("SYSTEM.LOCALE can not be found".into()))?;
+    vm.push(BundValue::str(l));
+    Ok(())
+}
+
+/// `system.shell` and `system.shell.` — run a command through the shell
+/// (`reference/Bund/src/stdlib/functions/system/shell.rs`,
+/// `string_system_shell_base`).
+///
+/// `duct_sh::sh_dangerous` runs the string through `/bin/sh -c`, and the word
+/// answers its **standard output** on the side it was called from. The name is
+/// the crate's: the command is not quoted or escaped, so whatever the program
+/// built is what the shell interprets. The reference calls it exactly this way
+/// and `--noio` is the gate it provides, which is reproduced.
+///
+/// **What `read` does to the output, measured on the oracle.** Internal
+/// newlines survive, *all* trailing newlines are trimmed -- `printf 'a\n\n\n'`
+/// answers `a` -- and leading and trailing *spaces* are kept, so
+/// `printf '  pad  '` answers `  pad  ` and this is not a general trim.
+///
+/// **A non-zero exit is an error**, and the text is duct's own:
+/// `SYSTEM.SHELL returns: command ["/bin/sh", "-c", "exit 3"] exited with code
+/// 3`. Standard error is not captured and passes through to the terminal, so
+/// `no_such_command_xyz` prints the shell's complaint and then reports code
+/// 127.
+///
+/// This is the well-formed workbench shape -- the guard checks the side it
+/// reads -- which F151 records `filename.` getting wrong.
+fn system_shell(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
+    guard(vm, side, prefix)?;
+    let v = side
+        .pull(vm)
+        .ok_or_else(|| Error(format!("{prefix} returns NO DATA #1")))?;
+    let cmd = v.as_str().ok_or_else(|| {
+        Error(format!(
+            "{prefix} returned for #1: This Dynamic type is not string"
+        ))
+    })?;
+    let out = duct_sh::sh_dangerous(cmd)
+        .read()
+        .map_err(|e| Error(format!("{prefix} returns: {e}")))?;
+    side.push(vm, BundValue::str(out));
+    Ok(())
+}
+
 /// Which of `unixpath.rs`'s two algorithms a call is
 /// (`reference/Bund/src/stdlib/functions/system/unixpath.rs`,
 /// `UnixPathAlgorithm`).
@@ -672,6 +754,12 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
         WordKind::Sync,
     );
 
+    // Ungated, as the reference leaves them: `ip.rs` and `locale.rs` take the
+    // command line and never read it.
+    r.register_native("system.ip", |vm| system_ip(vm, false), eff(0, 1), WordKind::Sync);
+    r.register_native("system.ipv6", |vm| system_ip(vm, true), eff(0, 1), WordKind::Sync);
+    r.register_native("system.locale", system_locale, eff(0, 1), WordKind::Sync);
+
     // Ungated, because the reference does not gate them: pure string work.
     r.register_native(
         "system.path.split",
@@ -735,6 +823,8 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
         // F152: `stdin` and `stdin.` are registered here and nowhere else.
         stub!("stdin", "FILE", eff(1, 1));
         stub!("stdin.", "FILE", eff(0, 0));
+        stub!("system.shell", "SYSTEM.SHELL", eff(1, 1));
+        stub!("system.shell.", "SYSTEM.SHELL", eff(0, 0));
         stub!("system.setproctitle", "SYSTEM.SETPROCTITLE", eff(1, 0));
         stub!("system.setproctitle.", "SYSTEM.SETPROCTITLE", eff(0, 0));
         stub!("file", "FILE", eff(1, 1));
@@ -825,6 +915,18 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
         // F150: the underscore is the reference's registration, and the only
         // spelling of the workbench form that a default build binds.
         r.register_native("fs_is_file.", fs_is_file, eff(1, 1), WordKind::Sync);
+        r.register_native(
+            "system.shell",
+            |vm| system_shell(vm, Side::Stack, "SYSTEM.SHELL"),
+            eff(1, 1),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "system.shell.",
+            |vm| system_shell(vm, Side::Bench, "SYSTEM.SHELL."),
+            eff(0, 0),
+            WordKind::Sync,
+        );
         r.register_native(
             "system.setproctitle",
             |vm| setproctitle(vm, Side::Stack, "SYSTEM.SETPROCTITLE"),
@@ -1235,6 +1337,92 @@ mod tests {
             e.contains("bund SYSTEM.SETPROCTITLE functions disabled with --noio"),
             "{e}"
         );
+    }
+
+    /// `system.shell`'s failures and the `--noio` gate -- the one word in this
+    /// subsystem the reference does gate.
+    ///
+    /// **A non-zero exit reports duct's own text**, naming the argv it ran.
+    /// That string is why `duct_sh` is a dependency rather than a
+    /// `std::process::Command` by hand: nothing else produces it.
+    #[test]
+    fn system_shell_runs_a_command_and_reports_a_non_zero_exit() {
+        let mut i = interp(HostOptions::default());
+        run(&mut i, "\"echo hi\" system.shell").expect("runs");
+        assert_eq!(i.peek().and_then(|v| v.as_str()).as_deref(), Some("hi"));
+
+        for (src, want) in [
+            (
+                "system.shell",
+                "Stack is too shallow for inline SYSTEM.SHELL",
+            ),
+            (
+                "system.shell.",
+                "Workbench is too shallow for inline SYSTEM.SHELL.",
+            ),
+            (
+                "42 system.shell",
+                "SYSTEM.SHELL returned for #1: This Dynamic type is not string",
+            ),
+            (
+                "\"exit 3\" system.shell",
+                "SYSTEM.SHELL returns: command [\"/bin/sh\", \"-c\", \"exit 3\"] exited with code 3",
+            ),
+        ] {
+            let mut i = interp(HostOptions::default());
+            let e = run(&mut i, src).expect_err(src);
+            assert!(e.ends_with(want), "{src}:\n  got {e}\n want ...{want}");
+        }
+
+        // The gate, and its siblings' lack of one.
+        let mut n = interp(HostOptions {
+            noio: true,
+            ..HostOptions::default()
+        });
+        for name in ["\"echo hi\" system.shell", "system.shell."] {
+            let e = run(&mut n, name).expect_err(name);
+            assert!(
+                e.ends_with("bund SYSTEM.SHELL functions disabled with --noio"),
+                "{name}: {e}"
+            );
+        }
+    }
+
+    /// The three that name the machine. None is gated by `--noio` -- `ip.rs`
+    /// and `locale.rs` take the command line and never read it -- and no
+    /// golden can hold any of their answers.
+    ///
+    /// **`system.ipv6` is allowed to fail**, and that is the point of the
+    /// assertion's shape: a host without IPv6 reports rather than pushing, so
+    /// the test asserts the *disjunction* -- a string, or an error naming the
+    /// word's prefix -- rather than an address. Pinning a success here would
+    /// be a test that passes on this machine and on no other.
+    #[test]
+    fn the_host_facts_either_answer_a_string_or_report_their_own_prefix() {
+        for (src, prefix) in [
+            ("system.ip", "SYSTEM.IP returned: "),
+            ("system.ipv6", "SYSTEM.IPv6 returned: "),
+            ("system.locale", "SYSTEM.LOCALE can not be found"),
+        ] {
+            let mut i = interp(HostOptions::default());
+            match run(&mut i, src) {
+                Ok(()) => {
+                    let s = i.peek().and_then(|v| v.as_str()).expect("a string");
+                    assert!(!s.is_empty(), "{src} answered an empty string");
+                }
+                Err(e) => assert!(e.contains(prefix), "{src} failed with the wrong text: {e}"),
+            }
+            // Ungated: the same call under --noio must behave the same way.
+            let mut n = interp(HostOptions {
+                noio: true,
+                ..HostOptions::default()
+            });
+            let e = run(&mut n, src).err().unwrap_or_default();
+            assert!(
+                !e.contains("disabled with --noio"),
+                "{src} is not gated in the reference: {e}"
+            );
+        }
     }
 
     /// F150 and F152: three names the reference registers in the `--noio`

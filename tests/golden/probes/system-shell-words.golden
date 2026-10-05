@@ -1,0 +1,24 @@
+# golden for tests/probes/system-shell-words.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: a command's standard output comes back as a string
+hi
+probe: internal newlines survive
+a
+b
+probe: every trailing newline is trimmed
+a
+probe: but spaces are not — this is a newline trim, not a trim
+[  pad  ]
+probe: a command that prints nothing answers the empty string
+[]
+probe: system.shell. reads the workbench and answers there
+╭╮
+╰╯
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Value { id: "<id>", stamp: <stamp>, dt: 4, q: 100.0, data: String("from-the-workbench"), attr: [], curr: -1, tags: {} } │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

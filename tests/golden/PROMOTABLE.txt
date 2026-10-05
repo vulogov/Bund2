@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 268 promotable of 277 reached, of 316 fixed-effect natives; 9 reached natives
+# 271 promotable of 280 reached, of 319 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 *
@@ -265,6 +265,9 @@ sysinfo.system
 sysinfo.version
 sysinfo.virtualization
 sysinfo.virtualization?
+system.ip
+system.ipv6
+system.locale
 system.path.filename
 system.path.filename.
 system.path.split

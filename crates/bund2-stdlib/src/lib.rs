@@ -454,7 +454,18 @@ mod honesty_tests {
         // `fs.is_file`, `fs.ls` and `filename` stay: the first two read the
         // working directory and answer `Ok` whatever is in it, and `filename`
         // is lexical and touches no filesystem at all.
-        const ACTS_ON_HOST: [&str; 11] = [
+        // **`system.shell` is the sharpest case, and it was not caught by a
+        // symptom.** It hands its operand to `/bin/sh -c`, so leaving it here
+        // unlisted means the audit executes fifteen palette strings as shell
+        // commands on every run of `cargo test`. It never appeared as `now
+        // reached` -- every palette string fails as a command, so the native
+        // returns `Err` and is never certified -- and that is luck rather than
+        // safety: the spawn had already happened by then, and a palette string
+        // that happened to name a real command would have run it. Listed for
+        // what it does, not for what it managed to do.
+        const ACTS_ON_HOST: [&str; 13] = [
+            "system.shell",
+            "system.shell.",
             "fs.rm",
             "fs.cp",
             "fs.mv",

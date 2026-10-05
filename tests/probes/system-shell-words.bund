@@ -1,0 +1,48 @@
+//
+// PROBE: `system.shell` and `system.shell.`.
+//
+// **The one word in `bund/system`'s remainder a golden can hold.** Its four
+// siblings cannot: `system.ip`, `system.ipv6` and `system.locale` each name
+// the machine — and `system.ipv6` fails outright on a host without IPv6, so
+// even the *shape* of its answer is not fixed — while `system.setproctitle`
+// pushes nothing observable. Those are unit-tested in
+// `crates/bund2-stdlib/src/host.rs`.
+//
+// **Only POSIX commands with fixed output appear below.** `echo`, `printf`
+// and `true` behave the same under every `/bin/sh` this repository is built
+// on; anything reading the clock, the filesystem or the environment would be
+// `sysinfo-words.bund`'s problem again, and F155 is what that costs.
+//
+// **What the output is put through, measured on the oracle.** Internal
+// newlines survive, *every* trailing newline is trimmed — `printf 'a\n\n\n'`
+// answers `a` — and leading and trailing *spaces* are kept, so
+// `printf '  pad  '` answers `  pad  ` between the markers below. It is a
+// trailing-newline trim and not a general one, which is the kind of thing a
+// reimplementation gets wrong in one direction and never notices.
+//
+// **A non-zero exit is an error**, so it ends a program and lives in a unit
+// test rather than here; its text is duct's own, naming the argv it ran.
+// Standard error is not captured either — a failing command's complaint goes
+// to the terminal, which is a second reason that case cannot be captured.
+//
+// `system.shell.` reads the workbench and answers there, guarding the side it
+// reads — the well-formed shape F151 records `filename.` getting wrong. Its
+// answer is left on the workbench for the capture to pin.
+//
+"probe: a command's standard output comes back as a string" println
+"echo hi" system.shell println
+
+"probe: internal newlines survive" println
+"printf 'a\nb\n'" system.shell println
+
+"probe: every trailing newline is trimmed" println
+"printf 'a\n\n\n'" system.shell println
+
+"probe: but spaces are not — this is a newline trim, not a trim" println
+"[" print "printf '  pad  '" system.shell print "]" println
+
+"probe: a command that prints nothing answers the empty string" println
+"[" print "true" system.shell print "]" println
+
+"probe: system.shell. reads the workbench and answers there" println
+"echo from-the-workbench" . system.shell.
