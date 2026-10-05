@@ -746,7 +746,7 @@ mod honesty_tests {
     /// descending into subdirectories as criterion 11's does.
     #[test]
     fn every_native_reporting_mid_body_is_named() {
-        const REPORTS: [&str; 6] = [
+        const REPORTS: [&str; 9] = [
             // A notice, when a TRY block left an error the EXCEPT arm runs.
             "conditional.rs: run_error",
             "control.rs: for_base",
@@ -757,6 +757,15 @@ mod honesty_tests {
             // D90: the five `log.*` words all construct their diagnostic here.
             "logging.rs: diagnostic",
             "singles.rs: alias",
+            // The two debug REPLs report a failing line and keep going -- the
+            // reference prints it and keeps going, and D36 says a word reports
+            // rather than printing. `Warning`, because the session has not
+            // stopped.
+            "terminal.rs: debug_shell",
+            "terminal.rs: debug_word",
+            // Its whole reachable behaviour: Bund2 has no `--distributed`, so the
+            // word reports that and returns, as the reference logs and returns.
+            "terminal.rs: debug_display_distributed_info",
         ];
         const QUALIFIERS: [&str; 5] = ["pub", "const", "unsafe", "async", "extern"];
         const REPORTS_AT: [&str; 2] = ["Diagnostic::warning", "Diagnostic::notice"];
@@ -915,7 +924,7 @@ mod honesty_tests {
     /// outside this crate (RFC-0005 assumption 24).
     #[test]
     fn every_reentering_function_is_named() {
-        const REENTERING: [&str; 24] = [
+        const REENTERING: [&str; 25] = [
             "conditional.rs: run_context",
             "conditional.rs: run_error",
             "conditional.rs: run_ifthenelse",
@@ -942,6 +951,9 @@ mod honesty_tests {
             "singles.rs: do_base",
             "singles.rs: eval_source",
             "singles.rs: resolve_word",
+            // `debug` applies each value it steps over, so a stepped word can do
+            // anything the language can -- which is the point of the word.
+            "terminal.rs: debug_word",
             "terminal.rs: input_loop",
             // `execute_value` delegates to `execute_reached`, whose worklist
             // (F114) calls this for one value at a time. It holds both calls:

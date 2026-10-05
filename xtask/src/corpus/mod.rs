@@ -518,6 +518,50 @@ fn bund2_words(repo: &Path) -> Result<Vec<String>, String> {
         .collect())
 }
 
+/// The programs a golden actually covers -- D95.
+///
+/// A `HERMETIC.txt` entry, or a probe with a
+/// `tests/golden/probes/<stem>.golden` beside it. Paths are repo-relative, to
+/// match `Program::path`.
+///
+/// **A probe is not golden-backed because it exists.** `load_corpus_and_probes`
+/// reads every `.bund` under `tests/probes`, pending ones included, and that
+/// is right for the ceiling and wrong for the numerator (F156).
+fn golden_backed_programs(repo: &Path) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    if let Ok(s) = std::fs::read_to_string(repo.join("tests/golden/HERMETIC.txt")) {
+        for line in s.lines() {
+            let line = line.trim();
+            if !line.is_empty() && !line.starts_with('#') {
+                out.insert(line.to_string());
+            }
+        }
+    }
+    let probes = repo.join("tests/probes");
+    if let Ok(rd) = std::fs::read_dir(&probes) {
+        for e in rd.flatten() {
+            let path = e.path();
+            if path.extension().is_some_and(|x| x == "bund") {
+                let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                let golden = repo
+                    .join("tests/golden/probes")
+                    .join(format!("{stem}.golden"));
+                if golden.exists() {
+                    let rel = path
+                        .strip_prefix(repo)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    out.insert(rel);
+                }
+            }
+        }
+    }
+    out
+}
+
 /// "how much of the language is tested at all".
 pub fn run_coverage(_args: &[String]) -> Result<(), String> {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -534,9 +578,25 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
     }
     let reg = registry::scan(&repo, REGISTRY_ROOTS);
 
+    // **Two sets, and the distinction is D95's.** `mentioned` is every
+    // program's vocabulary -- corpus and probes, captured or not. `used` is
+    // the vocabulary of the programs that actually have a golden.
+    //
+    // F156 is what happens when one set serves both: COVERAGE counted a word
+    // a *pending* probe named, and a word named only by a corpus program
+    // `HERMETIC.txt` had dropped, while this report printed that pending
+    // probes contribute nothing. The numerator answers "does a golden run
+    // it", the ceiling answers "could one ever", and those are different
+    // questions about different sets.
+    let golden_backed = golden_backed_programs(&repo);
+    let mut mentioned: BTreeSet<&str> = BTreeSet::new();
     let mut used: BTreeSet<&str> = BTreeSet::new();
     for p in &programs {
-        used.extend(p.word_set());
+        let w = p.word_set();
+        if golden_backed.contains(&p.path) {
+            used.extend(w.iter().copied());
+        }
+        mentioned.extend(w);
     }
 
     let all: Vec<&str> = reg.word_names();
@@ -579,7 +639,7 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
     let reachable: Vec<&str> = in_scope
         .iter()
         .copied()
-        .filter(|w| used.contains(w))
+        .filter(|w| mentioned.contains(w))
         .collect();
 
     println!("# cargo xtask coverage\n");
@@ -622,11 +682,14 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
     println!("  roughly forty words arriving in a single session. A completeness");
     println!("  number that cannot move is not one.\n");
     println!(
-        "  Reachable at all: {} in-scope words appear in some golden, so that",
+        "  Reachable at all: {} in-scope words are named by some program, so",
         reachable.len()
     );
-    println!("  is the ceiling on COVERAGE until probes are written for the rest.");
-    println!("  It is the old numerator, kept as the bound it always was.\n");
+    println!("  that is the ceiling on COVERAGE until probes are written for the");
+    println!("  rest. It is the old numerator, kept as the bound it always was --");
+    println!("  a property of the corpus, which is why it is not the numerator");
+    println!("  any more (D95). A word outside it can never be run by a golden,");
+    println!("  whatever Bund2 implements.\n");
 
     // **The gap, by name.** IMPLEMENTED minus COVERAGE is "probes to write",
     // and a count of them says what to do without saying to which words. This

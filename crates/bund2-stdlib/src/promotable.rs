@@ -99,14 +99,31 @@ const LIST: &str = include_str!("../../../tests/golden/PROMOTABLE.txt");
 /// | `loop_over_base` (`seq.rs`) | `*loop`, `*loop.` | `StackEffect::opaque` |
 /// | `run_error` (`conditional.rs`) | `register_conditional`, run by `!` | not a native; `!` is opaque |
 ///
-/// D68 already refuses an opaque callee, so `alias` and the five `log.*` words
-/// are the only ones needing exclusion: every other reporting site is reached
-/// through a word `StackEffect::opaque` already refuses. The set is pinned by
+/// D68 already refuses an opaque callee, so a reporting site reached only
+/// through an opaque word needs no entry here. That is why `debug` and
+/// `debug.shell` are absent though both report: both are
+/// `StackEffect::opaque`.
+///
+/// # This list is **not** pinned by the function-level scan — F157
+///
 /// `every_native_reporting_mid_body_is_named`
-/// (`crates/bund2-stdlib/src/lib.rs`), which fails if shipped code gains
-/// another site — so this cannot go stale silently, which is the hazard a list
-/// kept in prose carries. **It caught the `log.*` words on the commit that
-/// added them**, which is the mechanism working rather than a near miss.
+/// (`crates/bund2-stdlib/src/lib.rs`) pins the set of *functions* that call
+/// `Vm::report`, by scanning shipped code. It says nothing about this array,
+/// and the two are not cross-checked: there is no mechanical map from a
+/// function to the words it backs, so nothing derives one from the other.
+///
+/// This doc comment used to claim the scan meant the array "cannot go stale
+/// silently". **It went stale silently.** `debug.display_distributed_info`
+/// was added with a fixed effect and a `Vm::report` as its only behaviour;
+/// the scan was updated, this array was not, and the word was certified
+/// crossable in `PROMOTABLE.txt`. The scan did catch the `log.*` words on the
+/// commit that added them — but that was a reader acting on the scan's
+/// failure, not the scan enforcing this list.
+///
+/// **So adding a reporting native with a non-opaque effect means adding it
+/// here, by hand, and no test will say so.** A real cross-check needs the
+/// function-to-word map that `register` holds implicitly and nothing exposes;
+/// until that exists, this paragraph is the mechanism.
 ///
 /// # What it rests on
 ///
@@ -115,7 +132,7 @@ const LIST: &str = include_str!("../../../tests/golden/PROMOTABLE.txt");
 /// for a word that runs a body, and it is the same assumption `PROMOTABLE.txt`
 /// already rests on (D55). Stated here because it is load-bearing rather than
 /// obvious.
-const REPORTS_MID_BODY: [&str; 6] = [
+const REPORTS_MID_BODY: [&str; 7] = [
     "alias",
     // **D90's five.** Each has a *fixed* effect — `eff(1, 0)` — so nothing
     // else keeps promotion from crossing them, and each reports a `Warning`
@@ -129,6 +146,12 @@ const REPORTS_MID_BODY: [&str; 6] = [
     "log.info",
     "log.debug",
     "log.trace",
+    // **F157.** `eff(0, 0)`, non-opaque, and its *whole* reachable behaviour
+    // is a `Warning` through `Vm::report`: Bund2 has no `--distributed`, so
+    // the word reports that and returns. Nothing else keeps promotion from
+    // crossing it, and it was certified crossable in `PROMOTABLE.txt` for as
+    // long as it took to notice.
+    "debug.display_distributed_info",
 ];
 
 /// **The natives that change which stack is current** — D73's gate, F140.
@@ -325,12 +348,23 @@ mod tests {
     /// half, subtracted here. So each word must be **listed and still not
     /// crossable**, and a test that checked only the file would miss it.
     #[test]
-    fn the_log_words_are_certified_and_still_not_crossable() {
+    fn the_reporting_natives_are_certified_and_still_not_crossable() {
         let mut r = bund2_api::Registry::new();
         crate::register_all(&mut r);
         let ids = crossable(&r);
 
-        for word in ["log.error", "log.warning", "log.info", "log.debug", "log.trace"] {
+        // **`debug.display_distributed_info` is here for F157.** It was
+        // certified crossable on the commit that added it, because the
+        // function-level scan does not enforce `REPORTS_MID_BODY`. Same shape
+        // as the five: listed by the audit, excluded by this gate.
+        for word in [
+            "log.error",
+            "log.warning",
+            "log.info",
+            "log.debug",
+            "log.trace",
+            "debug.display_distributed_info",
+        ] {
             let (s, _) = r
                 .interner
                 .lookup_call(word)

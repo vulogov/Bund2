@@ -1,5 +1,7 @@
 //! The terminal words: `input`, `input*`, `password`, `bund.prompt`,
-//! `io.banner`, and `debug.display_hostinfo`.
+//! `io.banner`, `debug.display_hostinfo`, `debug.display_memstat`,
+//! `debug.display_distributed_info`, and the two debug REPLs `debug` and
+//! `debug.shell`.
 //!
 //! **What a golden can hold.** The capture runs a program with stdin at
 //! end-of-file, so `input` and `input*` only ever see Ctrl-D there. That path
@@ -10,8 +12,8 @@
 //! stdout is not a terminal, as it is under capture. The host table depends on
 //! the machine, so no golden can hold it.
 
-use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
-use bund2_value::{BundValue, LAMBDA, STRING};
+use bund2_api::{diag::Diagnostic, Error, Registry, StackEffect, Vm, WordKind};
+use bund2_value::{BundValue, EXIT, LAMBDA, NONE, STRING};
 use rustyline::error::ReadlineError;
 
 use crate::host::{guard, HostOptions};
@@ -121,6 +123,228 @@ fn bund_prompt(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// The `[DEBUG> ` prompt both debug REPLs show — the same three paints in
+/// `debug_shell.rs` and `debug_debug.rs`.
+fn debug_prompt() -> String {
+    use yansi::Paint;
+    format!(
+        "{}{} {} ",
+        Paint::yellow("["),
+        Paint::red("DEBUG"),
+        Paint::white(">").bold()
+    )
+}
+
+/// `debug.shell` — a REPL on the running VM
+/// (`reference/Bund/src/stdlib/functions/debug_fun/debug_shell.rs`,
+/// `debug_shell`).
+///
+/// Each line is evaluated against the *live* VM, so the session sees and
+/// changes the stacks the program built. A line that fails does not end the
+/// loop.
+///
+/// **Under capture it is a no-op**, which is the only reason a golden can hold
+/// it: the runner gives a program stdin at `/dev/null`, so the first read is
+/// end-of-file and the word returns having done nothing. Measured on the
+/// oracle -- `debug.shell "after" println` prints `after`.
+///
+/// **Opaque, and that is what keeps it out of D55's palette.** It evaluates
+/// whatever is typed, so it has no effect to declare; the audit skips opaque
+/// natives before running anything, so F141's hang hazard is answered by the
+/// type rather than by a list the next session has to remember.
+///
+/// Two departures from the reference, both deliberate. It **reports** a failing
+/// line rather than printing it, because D36 says a word does not write to
+/// stderr itself; the severity is `Warning` because the program has not
+/// stopped. And a readline error that is neither Ctrl-C nor Ctrl-D ends the
+/// word instead of looping -- the reference prints and continues, which spins
+/// if the condition persists, and `input*` here already chose to error out.
+fn debug_shell(vm: &mut dyn Vm) -> Result<(), Error> {
+    let mut rl = editor()?;
+    let prompt = debug_prompt();
+    loop {
+        match rl.readline(&prompt) {
+            Ok(line) => {
+                if let Err(e) = crate::singles::eval_source(vm, &line) {
+                    vm.report(Diagnostic::warning(e.0));
+                }
+            }
+            Err(ReadlineError::Interrupted | ReadlineError::Eof) => break,
+            Err(e) => return Err(Error(format!("INPUT line returns: {e}"))),
+        }
+    }
+    Ok(())
+}
+
+/// One value's three-row table, as `debug` shows it before applying it
+/// (`debug_debug.rs`, `bund_debug_print_word`).
+///
+/// The rows are the type name, the value converted to STRING, and the
+/// `Debug` form. A conversion that fails shows `NONE`, as the reference's
+/// `Value::none()` does.
+///
+/// **The third row is `render`, not Rust's `{:?}`.** `BundValue` is not the
+/// reference's `Value`, so its derived `Debug` prints
+/// `Int(1, StackSym(0))` where the oracle prints
+/// `Value { id: …, dt: 2, …, data: I64(1), … }`. `render` is the emulation
+/// `debug.display_stack`'s goldens are built on, and this row is the same
+/// claim, so it uses the same function. Found by diffing against the oracle,
+/// not by reading.
+fn debug_print_word(v: &BundValue) {
+    use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+    use comfy_table::presets::UTF8_FULL;
+    use comfy_table::{ContentArrangement, Table};
+    let shown = crate::convert::conv_value(v, STRING)
+        .map(|s| s.display())
+        .unwrap_or_else(|_| BundValue::none().display());
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .add_row(vec!["Value type", v.type_name()])
+        .add_row(vec!["Value", &shown])
+        .add_row(vec!["Debug", &v.render(false)]);
+    println!("{table}");
+}
+
+/// `debug` — step a snippet, one top-level value at a time
+/// (`debug_debug.rs`, `debug_debug` and `bund_debugger`).
+///
+/// The operand is a STRING of Bund source. It is parsed, and for each value:
+/// the table above is printed, the value is **applied to the live VM**, and
+/// then lines are read and evaluated until a blank one or end-of-file moves on
+/// to the next value. So the pause is *after* each value, and the stack a
+/// session inspects is the one that value left.
+///
+/// **The `EXIT` arm is load-bearing and nearly went missing.** A compiled
+/// stream ends with an `EXIT` value (dt 93), so without the break this word
+/// prints a fourth table for it, applies it, and leaves it on the stack --
+/// which is what the first version did, and what diffing against the oracle
+/// showed. The reference breaks on `EXIT`, and so does this.
+///
+/// The `ERROR` arm is the one with no representable input: Bund2's value model
+/// has no such tag, so "bail on an error posted on the stack" is absent by
+/// construction rather than written as an arm that cannot run -- D37's first
+/// preference. A `NONE` value is skipped, as in the reference.
+///
+/// Opaque, for the same reason `debug.shell` is.
+fn debug_word(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 1 {
+        return Err(Error("Stack is too shallow for inline DEBUG".into()));
+    }
+    // The reference guards the depth and *then* pulls, with a second message
+    // for a pull that cannot fail after the guard. Both are reproduced.
+    let v = vm
+        .pull()
+        .ok_or_else(|| Error("Stack is too shallow for debug()".into()))?;
+    let snippet = v.as_str().ok_or_else(|| {
+        Error("Casting debug snippet returns: This Dynamic type is not string".into())
+    })?;
+    // `\n` appended, as `bund_debugger` does before parsing.
+    let source = format!("{snippet}\n");
+    let words = bund2_syntax::compile(&source).map_err(|e| Error(e.render(&source)))?;
+    let mut rl = editor()?;
+    let prompt = debug_prompt();
+    for word in words {
+        if word.dt() == NONE {
+            continue;
+        }
+        if word.dt() == EXIT {
+            break;
+        }
+        debug_print_word(&word);
+        vm.apply(word.clone())
+            .map_err(|e| {
+                Error(format!(
+                    "Attempt to evaluate value {} returned error: {}",
+                    word.render(false),
+                    e.0
+                ))
+            })?;
+        loop {
+            match rl.readline(&prompt) {
+                Ok(line) if line.is_empty() => break,
+                Ok(line) => {
+                    if let Err(e) = crate::singles::eval_source(vm, &line) {
+                        vm.report(Diagnostic::warning(e.0));
+                    }
+                }
+                Err(ReadlineError::Interrupted | ReadlineError::Eof) => break,
+                Err(e) => return Err(Error(format!("INPUT line returns: {e}"))),
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `debug.display_memstat` — this process's own memory use
+/// (`reference/Bund/src/stdlib/functions/debug_fun/debug_display_memstats.rs`).
+///
+/// A `--nocolor` pair like `debug.display_hostinfo`, and the two differ only in
+/// the cell colours. **No golden can hold the table**: the figures are this
+/// process's, and two oracle runs a second apart reported 28.51 MB and
+/// 28.56 MB. They are also textually identical under capture, because neither
+/// comfy_table nor yansi colours a pipe -- so the `--nocolor` distinction is
+/// unobservable there, which is F66's shape.
+///
+/// `memory_stats` answering `None` prints the reference's one-line fallback
+/// rather than failing.
+fn debug_display_memstat(vm: &mut dyn Vm) -> Result<(), Error> {
+    let _ = vm;
+    println!("{}", memstat_table());
+    Ok(())
+}
+
+/// The table `debug.display_memstat` prints, built separately so a test can
+/// read it without capturing stdout -- `hostinfo_table` is factored the same
+/// way and for the same reason.
+fn memstat_table() -> String {
+    use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+    use comfy_table::presets::UTF8_FULL;
+    use comfy_table::{ContentArrangement, Table};
+    let Some(usage) = memory_stats::memory_stats() else {
+        return "Couldn't get the current memory usage.".to_string();
+    };
+    use humansize::{format_size, DECIMAL};
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .add_row(vec![
+            "Current physical memory usage",
+            &format_size(usage.physical_mem, DECIMAL),
+        ])
+        .add_row(vec![
+            "Current virtual memory usage",
+            &format_size(usage.virtual_mem, DECIMAL),
+        ]);
+    format!("{table}")
+}
+
+/// `debug.display_distributed_info` — the bus node's identity
+/// (`reference/Bund/src/stdlib/functions/debug_fun/debug_display_distributed_info.rs`).
+///
+/// **Its first act is to require `--distributed`**, and failing that it logs
+/// one line and returns `Ok`. Bund2 has no `--distributed` and links no zenoh
+/// session, so that is the word's whole reachable behaviour here: the table it
+/// would otherwise draw needs a bus Bund2 does not have, which RFC-0007 and
+/// D92 govern rather than this word.
+///
+/// The reference logs at ERROR and keeps going; this reports at `Warning`,
+/// since the program has not stopped (D36), and the line is therefore the
+/// reporter's rather than a timestamped `log::error!`. No golden can hold
+/// either: the oracle's carries a wall clock, and stderr is concatenated into
+/// the captured output -- the same reason `log.error` is permanently
+/// unreachable.
+fn debug_display_distributed_info(vm: &mut dyn Vm) -> Result<(), Error> {
+    vm.report(Diagnostic::warning(
+        "BUND must be in distributed mode. You shall pass --distributed to CLI",
+    ));
+    Ok(())
+}
+
 /// `io.banner` — draw a value as large text in cfonts' tiny font
 /// (`reference/Bund/src/stdlib/functions/io/banner.rs:11-60`).
 ///
@@ -227,6 +451,29 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
             WordKind::Sync,
         );
     }
+    // `bund/debug_fun`'s remaining four. `debug` and `debug.shell` are opaque
+    // because they evaluate whatever is typed -- which also keeps them out of
+    // D55's palette, where a word that reads stdin is F141's hazard.
+    r.register_native("debug", debug_word, StackEffect::opaque(1), WordKind::Sync);
+    r.register_native(
+        "debug.shell",
+        debug_shell,
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "debug.display_memstat",
+        debug_display_memstat,
+        eff(0, 0),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "debug.display_distributed_info",
+        debug_display_distributed_info,
+        eff(0, 0),
+        WordKind::Sync,
+    );
+
     // `debug_display_hostinfo.rs:156-160`: `--nocolor` picks the plain table.
     if opts.nocolor {
         r.register_native(
@@ -253,10 +500,81 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
 
 #[cfg(test)]
 mod tests {
+    use bund2_api::Vm;
+    use bund2_interp::Interp;
+
+    fn interp() -> Interp {
+        let mut i = Interp::new();
+        crate::register_all(&mut i.registry);
+        i
+    }
+
+    fn run(i: &mut Interp, src: &str) -> Result<(), String> {
+        let stream = bund2_syntax::compile(src).map_err(|e| e.render(src))?;
+        i.eval(&stream).map_err(|e| e.0)
+    }
+
     #[test]
     fn the_host_table_names_bund2_crates() {
         let t = super::hostinfo_table(false);
         assert!(t.contains("bund2-stdlib version"), "{t}");
         assert!(t.contains("Kernel version"), "{t}");
+    }
+
+    /// `debug`'s guards. An error ends a program, so the probe cannot hold
+    /// these; the texts are the oracle's, measured 2026-10-05.
+    ///
+    /// The second message is the reference's unreachable one -- it guards the
+    /// depth and then writes a different text for a pull that cannot fail
+    /// after the guard. It is reproduced where the reference puts it.
+    #[test]
+    fn debug_guards_its_snippet() {
+        for (src, want) in [
+            ("debug", "Stack is too shallow for inline DEBUG"),
+            (
+                "42 debug",
+                "Casting debug snippet returns: This Dynamic type is not string",
+            ),
+        ] {
+            let mut i = interp();
+            let e = run(&mut i, src).expect_err(src);
+            assert!(e.ends_with(want), "{src}:\n  got {e}\n want ...{want}");
+        }
+    }
+
+    /// `debug` applies each value it steps over, and stops at the `EXIT` that
+    /// ends every compiled stream rather than applying it.
+    ///
+    /// Without the break the word leaves the `EXIT` on the stack; with it the
+    /// stack holds the snippet's own answer and nothing else. Stdin is at
+    /// end-of-file under `cargo test` as it is under capture, so the inner
+    /// read returns at once.
+    #[test]
+    fn debug_applies_each_value_and_stops_at_exit() {
+        let mut i = interp();
+        run(&mut i, "\"1 2 +\" debug").expect("steps the snippet");
+        assert_eq!(i.depth(), 1, "one value, not two: the EXIT was not applied");
+        assert_eq!(i.pull().and_then(|v| v.as_int()), Some(3));
+    }
+
+    /// The two siblings no golden can hold: one prints a figure that moves,
+    /// the other reports a line the oracle timestamps.
+    ///
+    /// `debug.display_distributed_info` requires `--distributed`, which Bund2
+    /// has not got, so reporting that is its whole reachable behaviour -- the
+    /// table it would otherwise draw needs a bus RFC-0007 governs.
+    #[test]
+    fn memstat_prints_and_distributed_info_reports_that_it_is_not_distributed() {
+        let mut i = interp();
+        run(&mut i, "debug.display_memstat").expect("prints a table");
+        assert_eq!(i.depth(), 0, "it answers on stdout, not the stack");
+
+        let t = super::memstat_table();
+        assert!(t.contains("Current physical memory usage"), "{t}");
+        assert!(t.contains("Current virtual memory usage"), "{t}");
+
+        let mut i = interp();
+        run(&mut i, "debug.display_distributed_info").expect("reports and continues");
+        assert_eq!(i.depth(), 0);
     }
 }

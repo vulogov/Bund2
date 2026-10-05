@@ -1,0 +1,42 @@
+//
+// PROBE: `debug` and `debug.shell` — `bund/debug_fun`'s two REPLs.
+//
+// **Both are interactive, and both are capturable for exactly one reason:**
+// the capture runs a program with stdin at end-of-file, so the first read is
+// Ctrl-D and neither word waits for anyone. That is the same ground
+// `terminal-words.bund` stands on for `input` and `input*`, and the reference
+// takes the same branch there — `debug.shell` breaks its loop and returns, and
+// `debug` moves straight to its next value.
+//
+// **`debug` steps a snippet one top-level value at a time.** For each value it
+// prints the three-row table below — the type name, the value as a STRING, and
+// the `Debug` form — then *applies* the value to the live VM, then reads lines
+// until a blank one or end-of-file. So `"1 2 +" debug` prints three tables and
+// leaves `3`: the pause is after each value, and the stack a session would
+// inspect is the one that value left.
+//
+// The `Debug` row's id and stamp are F14's, normalised by the capture. That
+// row is Bund2's `render`, the same emulation `debug.display_stack`'s goldens
+// are built on — Rust's own `Debug` for a `BundValue` prints
+// `Int(1, StackSym(0))` and would agree with nothing.
+//
+// **A compiled stream ends with an EXIT value**, which the reference breaks
+// on. Without that break this word prints a fourth table, applies the EXIT and
+// leaves it on the stack — which is what the first version of the
+// implementation did, and what diffing against the oracle caught. The three
+// tables below are the assertion that the break is there.
+//
+// `debug`'s failures — an empty stack, a non-string operand — end a program,
+// so they are unit-tested in `crates/bund2-stdlib/src/terminal.rs` rather than
+// here. Its two siblings `debug.display_memstat` and
+// `debug.display_distributed_info` can be in no golden at all: the first
+// prints this process's own memory, which moved between two oracle runs a
+// second apart, and the second's only output is a reporter line, which carries
+// a wall clock in the oracle.
+//
+"probe: debug.shell at end of input does nothing, and the next word runs" println
+debug.shell
+"after the shell" println
+
+"probe: debug prints a table per value, applies each, and stops at EXIT" println
+"1 2 +" debug

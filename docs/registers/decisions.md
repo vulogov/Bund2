@@ -3547,6 +3547,55 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D95 — COVERAGE's numerator requires a golden
+
+**Authorised by the repository owner, 2026-10-05**, on being shown F156 and
+the two figures.
+
+- Blocks: nothing. It changes what a reported number means, not any rule
+- Depends on: D21 (probes), and CLAUDE.md's definition of the health metric
+- Status: **RESOLVED**, 2026-10-05.
+
+### What is authorised
+
+`cargo xtask coverage`'s numerator counts a word only when Bund2 registers it
+**and a golden-backed program runs it** — a `HERMETIC.txt` entry, or a probe
+that has a `tests/golden/probes/<stem>.golden`. A probe without a golden
+contributes nothing, which is what the report already claimed.
+
+The **ceiling keeps the full mention set**: every corpus program and every
+probe, captured or not. That is the bound it always was — no word outside it
+can be exercised by a golden whatever Bund2 implements — and it is a property
+of the corpus, which is why it is the ceiling and not the numerator.
+
+The two are now separate variables rather than one `used` set behind both.
+F156 happened because they shared it, so the distinction CLAUDE.md draws had
+no representation in the code.
+
+### What it costs
+
+**COVERAGE drops from 467/505 (92.5%) to 460/505 (91.1%)** on the tree where
+the decision was taken. Nothing regressed; seven words stopped being counted
+as tested because nothing tests them:
+
+`?ifthenelse`, `?key`, `debug.display_hostinfo`, `ls`,
+`math.securerandom.int`, `rm`, `string.random.name`
+
+They move into `implemented but run by no golden`, which is the worklist, and
+that is the honest place for them. `debug.display_hostinfo` is the one worth
+naming: its only mention is `bund_shell.bund`, which calls `bund.prompt` and
+so can never be captured.
+
+**CORE COVERAGE moves for the same reason**, and by the same words: all seven
+are core (D14), so it reads **278/286 (97.2%)** where it read 285/286
+(99.7%). `core words not implemented` stays at 0 — nothing became
+unimplemented; eight core words are implemented and exercised by no golden,
+`$` being the one that already was.
+
+A number that falls on being corrected is the point of having it. The
+alternative on offer was to record F156 and leave the figure alone, and the
+owner declined it.
+
 ## D94 — RFC-0008 is Proposed
 
 **Authorised by the repository owner, 2026-10-04**, after one adversarial review

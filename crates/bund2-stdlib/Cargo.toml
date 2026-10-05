@@ -167,6 +167,11 @@ statrs = { version = "=0.18.0", default-features = false, features = ["rand"] }
 # line, yapp `password`'s, yansi colours `bund.prompt`, cfonts draws
 # `io.banner`, and sys_metrics answers `debug.display_hostinfo`'s host rows.
 rustyline = "=14.0.0"
+# `debug.display_memstat` reads this process's own usage with memory_stats and
+# formats it with humansize, as the reference does -- its `28.51 MB` is
+# humansize's DECIMAL rendering and nothing else produces that text.
+memory-stats = "=1.2.0"
+humansize = "=2.1.3"
 yapp = "=0.5.0"
 yansi = "=1.0.1"
 cfonts = "=1.3.0"

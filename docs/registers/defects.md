@@ -4012,6 +4012,104 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F157 — a reporting native was certified crossable
+
+**A Bund2 defect against D71, found 2026-10-05** on the commit that
+introduced it, by reading `PROMOTABLE.txt` rather than by a test.
+
+D71's rule: a callee that can report mid-body is **never** crossed by
+promotion, because `Interp::report` snapshots the stack and a native
+reporting while values below its arity sit in registers would show a short
+stack. `REPORTS_MID_BODY` (`crates/bund2-stdlib/src/promotable.rs`) is the
+exclusion list `crossable` consults.
+
+`debug.display_distributed_info` is `eff(0, 0)` — a *fixed* effect, so
+nothing else stops a crossing — non-opaque, and a `Vm::report` is its whole
+reachable behaviour: Bund2 has no `--distributed`, so the word reports that
+and returns. It was registered, `BUND2_UPDATE_PROMOTABLE=1` was run, and it
+was written into `PROMOTABLE.txt` as crossable. Measured: line 81 of the
+regenerated file.
+
+**Two lists, and only one of them is enforced.**
+`every_native_reporting_mid_body_is_named` (`crates/bund2-stdlib/src/lib.rs`)
+scans shipped code for `Vm::report` and pins the set of *functions* that call
+it. It caught the three new sites immediately and failed until they were
+named. It says nothing whatever about `REPORTS_MID_BODY`, which is keyed by
+**word**, and nothing cross-checks them — there is no mechanical map from a
+function to the words it backs.
+
+So the function-level test passed, the word-level list stayed at six, and the
+word was crossable. `debug` and `debug.shell` report too and are correctly
+absent: both are `StackEffect::opaque`, which D68 already refuses.
+
+**The doc comment claimed this could not happen.** `REPORTS_MID_BODY`'s own
+prose said the scan meant it "cannot go stale silently, which is the hazard a
+list kept in prose carries" — and cited the `log.*` words as proof of the
+mechanism working. That citation was the tell: on that commit a *reader* acted
+on the scan's failure and updated both lists. The scan never enforced the
+second one.
+
+**Disposition: FIXED.** `debug.display_distributed_info` is in
+`REPORTS_MID_BODY`, which is now seven, and the doc comment says plainly that
+the array is hand-kept and unenforced. No conformance movement: promotion
+costs speed, not meaning, so a wrongly-crossable native is a latent wrong
+answer rather than one any golden had yet produced.
+
+**What a real check needs**, so the next session does not re-derive it: the
+function-to-word map that `register` holds implicitly and nothing exposes.
+With it, the rule is mechanical — every word whose implementing function is in
+the scanned set must be opaque or listed here. Until then, adding a reporting
+native with a non-opaque effect means editing that array by hand, and no test
+will say so. Same shape as [[F146]]: an honesty mechanism that was trusted
+further than it reached.
+
+## F156 — COVERAGE counted mentions, not goldens
+
+**A Bund2 defect in the health metric, measured 2026-10-05**, found while
+establishing which of `bund/debug_fun`'s words a golden could reach.
+
+CLAUDE.md defines the completeness number exactly: *"With a test" means Bund2
+registers the word **and** some golden runs it.* `cargo xtask coverage` did
+not ask the second half. Its `used` set comes from
+`load_corpus_and_probes` (`xtask/src/corpus/mod.rs`), which takes every
+program under `CORPUS_ROOTS` and **every `.bund` in `tests/probes`**, and
+nothing in the computation consults `HERMETIC.txt` or asks whether a golden
+exists. `covered` is then `implemented ∩ used`. So the numerator measured
+*mentioned by some program file*.
+
+**Two halves, both verified.**
+
+1. **A pending probe counted.** Writing a probe moved COVERAGE before it was
+   captured: adding `system-path-words.bund` and `sysinfo-words.bund` took it
+   from 447 to 467 while both were `PENDING — no golden yet`. The same report
+   prints, in its probe listing, *"Pending probes contribute nothing to
+   coverage: a probe without a golden asserts nothing."* That line was false,
+   and it was false in the same output that disproved it.
+
+2. **A corpus program with no golden counted.** 74 of the corpus programs
+   have no golden — they are dropped by `HERMETIC.txt`'s funnel — and they
+   contributed **7 words**: `?ifthenelse`, `?key`,
+   `debug.display_hostinfo`, `ls`, `math.securerandom.int`, `rm`,
+   `string.random.name`. `debug.display_hostinfo` is the clearest case: it is
+   "covered" solely because `bund_shell.bund` names it, and that program
+   calls `bund.prompt` and `input*`, so it can never be captured. The word is
+   run by nothing.
+
+Measured both ways on the same tree: **467/505 (92.5%) as reported, 460/505
+(91.1%) with a golden required.**
+
+This is the same error CLAUDE.md records having already corrected once —
+"Coverage's numerator was once *in-scope words the corpus mentions*, which is
+a property of the corpus" — and it had come back, because the numerator and
+the ceiling were both computed from one `used` set. The ceiling *should* be
+corpus mentions; the numerator should not, and sharing the set made them
+identical in meaning.
+
+**Disposition: FIXED, per D95.** The numerator now draws on golden-backed
+programs alone, the ceiling keeps the full mention set, and the two are
+separate variables so they cannot silently converge again. The report's
+printed claim about pending probes is true as of that change.
+
 ## F155 — the capture's two runs cannot see a slowly-varying value
 
 **A Bund2 defect, found 2026-10-05** in a probe of my own writing, by

@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 266 promotable of 275 reached, of 314 fixed-effect natives; 9 reached natives
+# 268 promotable of 277 reached, of 316 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 *
@@ -78,7 +78,9 @@ convert.to_textbuffer
 convert.to_textbuffer.
 current
 curry
+debug.display_distributed_info
 debug.display_hostinfo
+debug.display_memstat
 debug.dump
 dict
 drop
