@@ -42,6 +42,9 @@ pub mod promotable;
 pub mod library;
 /// `bund/string`'s library group, and every `.`-suffixed sibling.
 pub mod library_string;
+/// The Porter stemmer `string.tokenize.stemmed` needs, written out rather than
+/// brought in -- see the module's own note for why, and for what verifies it.
+mod stem;
 
 pub mod check;
 

@@ -38,11 +38,12 @@
 //! - **`id.ulid` and the `string.random.*` family** answer differently on
 //!   every call. There is no golden to capture and no differential test to run,
 //!   so implementing them buys a coverage point and no confidence.
-//! - **`string.tokenize.stemmed`** would pull `rnltk` in for one stemmer, and
-//!   `rnltk` pulls `nalgebra` — a linear-algebra crate — behind it
-//!   (`reference/Bund/Cargo.lock`). For a word whose output order is not
-//!   reproducible anyway (see below) that is a bad trade, and it is the one
-//!   word of this group left undone.
+//! - **`string.tokenize.stemmed` is here now**, and the dependency objection
+//!   that kept it out stands: `rnltk` would pull `nalgebra` — a linear-algebra
+//!   crate — in for one stemmer, unconditionally, since it declares no
+//!   features. The repository owner's disposition was to write the Porter
+//!   algorithm out instead; it lives in `crate::stem`, with the table that
+//!   verifies it against the oracle, because F74 means no golden can.
 //!
 //! `string.tokenize.unique` **is** here, with a caveat that belongs in the
 //! open: it builds its answer by iterating a `HashSet` (`tokenize.rs:49-57`),
@@ -280,6 +281,42 @@ fn tokenize_unique(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Erro
         let set: std::collections::HashSet<String> = natural::tokenize::tokenize(&s.to_lowercase())
             .into_iter()
             .map(|t| t.trim().to_string())
+            .collect();
+        list_of(set.into_iter())
+    })
+}
+
+/// `string.tokenize.stemmed` — the Porter stems, deduplicated
+/// (`tokenize.rs`, the `SimpleStemmed` arm).
+///
+/// **It is not `string.tokenize` with stemming added**, and the difference is
+/// in the splitting. `rnltk::token::tokenize_stemmed_sentence` *deletes*
+/// punctuation rather than breaking on it, then splits on a **single space**:
+/// measured on the oracle, `"a,b c.d"` gives `ab cd` where
+/// `string.tokenize` gives `a b c d`, and a tab is not a separator at all.
+/// So this cannot reuse `natural::tokenize` the way its two siblings do.
+///
+/// The stemmer lower-cases, so `"Running RUNS running"` collapses to one
+/// `run` — where `string.tokenize.unique` lower-cases *without* stemming and
+/// answers `running runs`.
+///
+/// Like `unique` it iterates a `HashSet`, so its **order is not reproducible
+/// and no golden may capture it** (F74). The stemmer itself is pinned against
+/// the oracle instead, by table: see `crate::stem`.
+fn tokenize_stemmed(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
+    unary(vm, side, Out::Stack, prefix, |s| {
+        // The reference's regex deletes this set; `replace_all` with "" joins
+        // what was either side of it, which is where `a,b` becomes `ab`.
+        const PUNCT: &[char] = &[
+            '!', '"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', ':', ';',
+            '<', '=', '>', '?', '@', '[', ']', '^', '_', '`', '{', '|', '}', '~',
+        ];
+        let cleaned: String = s.chars().filter(|c| !PUNCT.contains(c)).collect();
+        let set: std::collections::HashSet<String> = cleaned
+            .split(' ')
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(|t| crate::stem::porter(t).trim().to_string())
             .collect();
         list_of(set.into_iter())
     })
@@ -538,6 +575,18 @@ pub fn register(r: &mut Registry) {
         wb_eff(false, Out::Stack),
         WordKind::Sync,
     );
+    r.register_native(
+        "string.tokenize.stemmed",
+        |vm| tokenize_stemmed(vm, Side::Stack, "STRING.TOKENIZE.STEMMED"),
+        eff(1, 1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "string.tokenize.stemmed.",
+        |vm| tokenize_stemmed(vm, Side::Bench, "STRING.TOKENIZE.STEMMED."),
+        eff(0, 1),
+        WordKind::Sync,
+    );
     #[cfg(feature = "grok")]
     {
         r.register_native(
@@ -651,6 +700,92 @@ mod tests {
         let stream = bund2_syntax::compile(src).map_err(|e| e.render(src))?;
         i.eval(&stream).map_err(|e| e.0)?;
         Ok(i)
+    }
+
+    /// `string.tokenize.stemmed`'s **tokenisation**, which is the half that is
+    /// not the stemmer and is the half that surprises.
+    ///
+    /// Punctuation is deleted rather than split on, so `a,b` is one token
+    /// `ab`; the split is on a single space, so a tab separates nothing; and
+    /// the stemmer folds case, so `Running RUNS running` is one `run`. All
+    /// measured against the oracle on 2026-10-05, and contrasted here with
+    /// `string.tokenize` and `string.tokenize.unique` on the same inputs,
+    /// because the three differ and the names suggest they would not.
+    ///
+    /// **No golden can hold any of this** (F74): the answer is a `HashSet`
+    /// iteration. So the assertions sort, and the stemmer's own table in
+    /// `crate::stem` is what pins the stems.
+    #[test]
+    fn stemmed_deletes_punctuation_splits_on_a_space_and_folds_case() {
+        fn tokens(src: &str) -> Vec<String> {
+            let mut i = run(src).unwrap_or_else(|e| panic!("{src}: {e}"));
+            let v = i.pull().expect("a list");
+            let mut out: Vec<String> = v
+                .as_list()
+                .expect("a LIST")
+                .iter()
+                .map(|t| t.as_str().unwrap_or_default())
+                .collect();
+            out.sort();
+            out
+        }
+
+        // Deleted, not split on: two tokens, not four.
+        assert_eq!(tokens("\"a,b c.d\" string.tokenize.stemmed"), ["ab", "cd"]);
+        // ...where the plain tokeniser breaks on the punctuation.
+        assert_eq!(
+            tokens("\"a,b c.d\" string.tokenize"),
+            ["a", "b", "c", "d"]
+        );
+
+        // The stemmer folds case and the set deduplicates.
+        assert_eq!(tokens("\"Running RUNS running\" string.tokenize.stemmed"), ["run"]);
+        // ...where `unique` folds case but does not stem.
+        assert_eq!(
+            tokens("\"Running RUNS\" string.tokenize.unique"),
+            ["running", "runs"]
+        );
+
+        // A tab is not a separator: `split(' ')` and nothing else.
+        assert_eq!(tokens("\"one\ttwo\" string.tokenize.stemmed"), ["one\ttwo"]);
+        // An empty string answers an empty list rather than failing.
+        assert!(tokens("\"\" string.tokenize.stemmed").is_empty());
+    }
+
+    /// The guards, and that **both forms answer on the stack** -- the `.` form
+    /// reads the workbench and pushes to the stack, as the whole `tokenize`
+    /// family does.
+    #[test]
+    fn stemmed_guards_the_side_it_reads_and_answers_on_the_stack() {
+        for (src, want) in [
+            (
+                "string.tokenize.stemmed",
+                "Stack is too shallow for inline STRING.TOKENIZE.STEMMED",
+            ),
+            (
+                "string.tokenize.stemmed.",
+                "Workbench is too shallow for inline STRING.TOKENIZE.STEMMED.",
+            ),
+        ] {
+            let e = match run(src) {
+                Ok(_) => panic!("{src} did not fail"),
+                Err(e) => e,
+            };
+            assert!(e.ends_with(want), "{src}:\n  got {e}\n want ...{want}");
+        }
+
+        let mut i = run("\"running cats\" . string.tokenize.stemmed.").expect("the dot form");
+        assert_eq!(i.workbench_depth(), 0, "the operand was consumed");
+        assert_eq!(i.depth(), 1, "and the answer is on the stack");
+        let v = i.pull().expect("a list");
+        let mut got: Vec<String> = v
+            .as_list()
+            .expect("a LIST")
+            .iter()
+            .map(|t| t.as_str().unwrap_or_default())
+            .collect();
+        got.sort();
+        assert_eq!(got, ["cat", "run"]);
     }
 
     /// **F73, as an assertion.** The half of the group that answers on the

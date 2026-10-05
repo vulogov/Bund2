@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 271 promotable of 280 reached, of 319 fixed-effect natives; 9 reached natives
+# 273 promotable of 282 reached, of 321 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 *
@@ -237,6 +237,8 @@ string.tokenize
 string.tokenize.
 string.tokenize.lines
 string.tokenize.lines.
+string.tokenize.stemmed
+string.tokenize.stemmed.
 string.tokenize.unique
 string.tokenize.unique.
 string.upper
