@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 243 promotable of 251 reached, of 290 fixed-effect natives; 8 reached natives
+# 246 promotable of 255 reached, of 294 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 *
@@ -88,6 +88,7 @@ encode.base64.
 ensure_stack
 ensure_stack_with_capacity
 false
+filename
 float.+Inf
 float.-Inf
 float.E
@@ -95,12 +96,14 @@ float.NaN
 float.Pi
 fmt
 fs.cwd
+fs.is_file
 fs.ls
 fs.ls.
 fs.ls.dir
 fs.ls.dir.
 fs.ls.files
 fs.ls.files.
+fs_is_file.
 graph
 graph.
 head
@@ -262,6 +265,7 @@ var-
 # Reached, but seen reading beyond their operands (D55), so never crossed:
 # observes: debug.display_stack — `debug.display_stack` reads the whole current stack
 # observes: debug.display_workbench — `debug.display_workbench` reads the whole workbench
+# observes: filename. — answers differently when the values beneath its operands change: Err Workbench is too shallow for inline FILENAME. / Err Stack is too shallow for inline FILENAME.
 # observes: move_from — changes the values beneath its operands
 # observes: rotate_current_left — changes the values beneath its operands
 # observes: rotate_current_right — changes the values beneath its operands

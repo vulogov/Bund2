@@ -4012,6 +4012,176 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F153 — a probe is run by two harnesses with two working directories
+
+**A Bund2 defect, found 2026-10-04** while implementing `bund/filesystem`,
+in a probe of my own writing, before it was committed.
+
+A probe is not run by one thing. The capture and `conform` run it as a
+subprocess from the **repository root** (`xtask/src/golden/mod.rs`, the probe
+jobs' `cwd`). Criterion 24's effect audit —
+`every_fixed_effect_native_keeps_its_effect_over_the_corpus`,
+`crates/bund2-stdlib/src/lib.rs` — runs **every probe that has a golden** in
+process, with `Interp::effect_audit` on, from whatever directory `cargo test`
+was invoked in. For `cargo test -p bund2-stdlib` that is
+`crates/bund2-stdlib`.
+
+Until `file.write`, `fs.cp` and `fs.mv` existed no probe could tell the
+difference: a program that only reads is indifferent to where it runs, and
+every earlier file-touching probe named a path the reference's own helpers
+made absolute. `filesystem-words.bund`'s first draft wrote relative names
+and copied into `tests/`, which exists at the root and not under
+`crates/bund2-stdlib`. Under `cargo test -p bund2-stdlib` the program
+therefore aborted at `fs.cp`, **its trailing `fs.rm` never ran**, and three
+files — `bund2-probe-w.txt`, `bund2-probe-wb.txt`, `bund2-probe-cp.txt` —
+were left in the crate directory, untracked, in the repository working tree.
+They were found in `git add`'s output, one command before a commit.
+
+The capture never saw any of it: from the root the probe ran correctly, twice,
+and its golden was written. **A probe that passes its own capture can still be
+wrong**, because the capture is not the only harness that runs it.
+
+**Disposition: FIXED, in the probe.** Every path the program touches is now
+absolute, under `/tmp` and `/var/tmp` — two directories because `fs.cp` and
+`fs.mv` copy *into* a directory and refuse a target that already holds the
+name, so a source cannot be copied into its own directory, and because Bund
+has no word that creates one. The claims about `filename`'s treatment of
+relative paths are equalities between two spellings of one path, which touch
+no filesystem. Verified by running the program from three working
+directories — the repository root, `crates/bund2-stdlib` and `/tmp` — and
+diffing: identical, 39 lines, with nothing left in any of them.
+
+**What this asks of the next file-touching probe.** Name only absolute paths,
+or none. A relative path in a probe is a claim about where the probe runs, and
+that claim is false in one of the two harnesses. The probe's own header says
+so, where a reader will be when it matters.
+
+## F150 — `fs.is_file.` is registered under another name, and that name reads the wrong side
+
+**An original-implementation defect, measured 2026-10-04**, found while
+grounding `bund/filesystem`. Three faults in one word, in eight lines.
+
+`bund_filesystem_base` is the usual two-sided base: it guards the stack for
+`StackOps::FromStack` and the workbench for `StackOps::FromWorkBench`, pulls
+from the side it was given, and pushes the answer
+(`reference/Bund/src/stdlib/functions/filesystem/filesystem.rs`,
+`bund_filesystem_base`). Its workbench branch is the only one in the
+subsystem that guards the *right* side. Nothing reaches it:
+
+1. **`stdlib_fs_is_file_from_wb_inline` is a verbatim copy of the stack
+   form.** It passes `StackOps::FromStack` and the prefix `"FS.IS_FILE"`,
+   not `FromWorkBench` and `"FS.IS_FILE."` — so the two functions are the
+   same function under two names, and no workbench form exists.
+2. **The registration spells it with an underscore.** The non-`--noio`
+   branch binds `fs_is_file.`, not `fs.is_file.`.
+3. **`fs.is_file.` therefore exists only under `--noio`**, where both names
+   are the disabled stub — so the only build in which `fs.is_file.` is a word
+   is the build in which it refuses to run.
+
+Measured on the oracle, release binary:
+
+| program | oracle |
+|---|---|
+| `"/etc/hosts" fs.is_file` | `Bool(true)` |
+| `"/etc" fs.is_file` | `Bool(false)` |
+| `"/nope/nope" fs.is_file` | `Bool(false)` |
+| `"/etc/hosts" fs_is_file.` — path on the **stack** | `Bool(true)` |
+| `fs.is_file.` | `Inline fs.is_file. not registered` |
+| `fs.is_file.` under `--noio` | `bund FILESYSTEM functions disabled with --noio` |
+| `fs_is_file.` under `--noio` | not registered |
+
+So the two spellings are disjoint across the two builds: each exists in
+exactly the build where the other does not.
+
+**Disposition: PRESERVE.** Bund2 registers `fs.is_file` with the real
+implementation, `fs_is_file.` as the same stack-reading function under the
+second name, and `fs.is_file.` only in the `--noio` build as the stub —
+which is what the oracle does, name for name and build for build. Correcting
+it would invent a workbench form the language has never had, and a program
+that uses `fs_is_file.` today passes its path on the stack.
+
+The third fault has a measurement consequence, recorded in [[F152]]: a name
+bound in no default build can enter neither `IMPLEMENTED` nor `COVERAGE`.
+
+## F151 — `filename.` guards the stack, so it fails whenever it is used as intended
+
+**An original-implementation defect, measured 2026-10-04**, found while
+grounding `bund/filesystem`.
+
+`bund_filename_base`'s `FromWorkBench` branch checks the **stack** depth
+before it checks the workbench
+(`reference/Bund/src/stdlib/functions/filesystem/filepath.rs`,
+`bund_filename_base`):
+
+```
+StackOps::FromWorkBench => {
+    if vm.stack.current_stack_len() < 1 { bail!("Stack is too shallow …"); }
+    if vm.stack.workbench.len() < 1 { bail!("Workbench is too shallow …"); }
+}
+```
+
+`filename.` needs nothing on the stack — it takes its one operand from the
+workbench — so the first check is spurious. It is also fatal, because the
+ordinary way to load the workbench is `{ true } ?.`, which *consumes the
+value from the stack*. The stack is therefore empty at exactly the moment
+the word runs:
+
+| program | oracle |
+|---|---|
+| `"rel.txt" { true } ?. filename.` | `Stack is too shallow for inline FILENAME.` |
+| `"rel.txt" { true } ?. 99 filename.` | stack `[99, "<cwd>/rel.txt"]` |
+
+The word is reachable only by leaving an unrelated value on the stack for it
+to not use. Note also that **`filename.` answers on the stack**, not the
+workbench (`vm.stack.push` in both arms), so the second line above is the
+whole of its behaviour: the workbench operand is consumed and the absolute
+path is pushed.
+
+`file.write.` carries the same stack-first guard and is *not* a defect there,
+because its filename genuinely comes from the stack while its data comes from
+the workbench. `filepath.rs` looks to have been copied from `file_write.rs`
+with the second operand removed and the guard left behind.
+
+**Disposition: PRESERVE.** Bund2 reproduces the guard, in that order, with
+both messages. A golden that uses `filename.` must leave a value on the stack,
+and `tests/probes/filesystem-words.bund` says so where it does.
+
+## F152 — three in-scope names are bound in no default build
+
+**A measurement defect, recorded 2026-10-04**, found while grounding
+`bund/filesystem`. The same shape as [[F123]], switched by a command-line
+flag rather than a Cargo feature.
+
+`stdin` and `stdin.` are registered **only** in the `--noio` branch, where
+they are the disabled stub
+(`reference/Bund/src/stdlib/functions/filesystem/file.rs`, `init_stdlib`).
+The non-`--noio` branch binds `file`, `file.`, `url` and `url.` and not
+them, and there is no `DataSource::Stdin` to bind: the enum has `File` and
+`Url` alone. `helpers::file_helper::get_file_from_stdin` exists and is
+called by the runner for `--stdin`, never by a word. So the reference has
+no implementation of `stdin` at all, and the words exist solely to report
+that they are disabled:
+
+| program | oracle |
+|---|---|
+| `stdin` | `Inline stdin not registered` |
+| `stdin` under `--noio` | `bund FILE functions disabled with --noio` |
+| `stdin.` under `--noio` | `bund FILE functions disabled with --noio` |
+
+With `fs.is_file.` from [[F150]] that is three names which the in-scope word
+list contains — it is derived from the reference's registrations, and these
+are registrations — and which **no default build binds**. Neither
+`IMPLEMENTED` nor `COVERAGE` can ever count them: `bund2 words` lists what
+the default registry binds, and a golden runs the default build. They are
+denominator with no reachable numerator, and that is the honest reading, not
+a gap to close.
+
+**Disposition: PRESERVE, and the metric left alone.** Bund2 registers all
+three in its `--noio` branch, with the reference's own group names, so
+`--noio` behaves identically. They are not added to the default build to
+make a number move; F123's answer applies, and the three are named here so
+a later session reading `coverage` does not mistake them for work.
+
 ## F149 — `unique` refuses any list that is not already ascending
 
 **An original-implementation defect, measured 2026-10-04**, found while

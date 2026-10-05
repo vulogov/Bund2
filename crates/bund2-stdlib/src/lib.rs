@@ -440,8 +440,26 @@ mod honesty_tests {
         // `input` and `input*` read the terminal too and are not here: both are
         // `StackEffect::opaque`, which this audit skips before it runs
         // anything.
-        const ACTS_ON_HOST: [&str; 7] = [
+        //
+        // **The four writers were found by the files they left behind.** The
+        // palette's strings are filenames to `file.write`, so the first run
+        // after it was implemented wrote `A`, `C1`, `dup`, `main` and
+        // `zz_nofile` into the crate directory -- in the repository working
+        // tree, as untracked files. The visible symptom was not those files
+        // but the audit's own answer: `csv` and `sqlite` turned up as `now
+        // reached`, because a palette string had become the name of a file
+        // that existed and they could open it. A host write does not only act
+        // on the host, it changes what the rest of the audit measures.
+        //
+        // `fs.is_file`, `fs.ls` and `filename` stay: the first two read the
+        // working directory and answer `Ok` whatever is in it, and `filename`
+        // is lexical and touches no filesystem at all.
+        const ACTS_ON_HOST: [&str; 11] = [
             "fs.rm",
+            "fs.cp",
+            "fs.mv",
+            "file.write",
+            "file.write.",
             "sleep.seconds",
             "system.setproctitle",
             "system.setproctitle.",

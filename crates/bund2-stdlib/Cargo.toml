@@ -130,7 +130,9 @@ termimad = "0.31"
 # The host words' crates, pinned to the versions the oracle's lock resolves
 # (D38): `args.parse` splits with argmap, `fs.ls` walks with scan_dir, `fs.rm`
 # removes with fs_extra, `sleep.seconds` waits with spin_sleep,
-# `system.setproctitle` calls proctitle, and `io.graph` draws with rasciigraph.
+# `system.setproctitle` calls proctitle, `io.graph` draws with rasciigraph, and
+# `filename` absolutizes with path-absolutize -- lexically, so it answers for a
+# path that does not exist and resolves no symlink.
 # All are pure Rust; proctitle binds libc and compiles no C.
 argmap = "=1.1.2"
 scan_dir = "=0.3.3"
@@ -138,6 +140,7 @@ fs_extra = "=1.3.0"
 spin_sleep = "=1.3.3"
 proctitle = "=0.1.1"
 rasciigraph = "=0.2.0"
+path-absolutize = "=3.1.1"
 # The random words' crates, pinned the same way. uuid and ulid mint ids;
 # rand_mt (seeded by fastrand) backs `math.random.int` and rand_chacha
 # `math.securerandom.int`; fakeit, passwords and lipsum make the

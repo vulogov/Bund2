@@ -1,0 +1,107 @@
+//
+// PROBE: `bund/filesystem`'s writers and path words — `file.write`,
+// `filename`, `fs.cp`, `fs.mv` and `fs.is_file`, with their suffix forms and
+// the `cp`/`mv` aliases.
+//
+// **Every path here is absolute, and that is not a style choice.** Two
+// harnesses run this program from two different working directories: the
+// capture and `conform` run probes from the repository root, while criterion
+// 24's effect audit (`every_fixed_effect_native_keeps_its_effect_over_the_corpus`,
+// `crates/bund2-stdlib/src/lib.rs`) runs every probe *that has a golden* in
+// process, from whichever directory `cargo test` was invoked in. A first
+// draft wrote relative names and copied into `tests/`, which exists at the
+// root and not under `crates/bund2-stdlib` — so under `cargo test -p
+// bund2-stdlib` the program aborted at `fs.cp`, its cleanup never ran, and
+// three files were left in the crate directory. F153.
+//
+// So the probe touches `/tmp` and `/var/tmp` and nothing else. It needs two
+// directories because `fs.cp` and `fs.mv` copy *into* a directory and refuse
+// a target that already holds the name — a source cannot be copied into its
+// own directory — and because Bund has no word that creates one.
+//
+// **Nothing here prints a path.** `filename` answers an absolute path, so its
+// text would name this machine. The claims about it are equalities between
+// two spellings of one path instead, which touch no filesystem at all and are
+// the same claim with the machine taken out. `fs.cwd` and `fs.ls` are
+// unit-tested for that reason, as `host-words.bund` records.
+//
+// The probe removes what it writes before and after itself, as
+// `world-save-load.bund` does; `fs.rm` of a path that is not there answers
+// true, so the leading cleanup is safe on a first run and a capture's second
+// run starts where its first did.
+//
+// **F150: the workbench form of `fs.is_file` is spelled `fs_is_file.`, and it
+// reads the stack.** The reference's workbench function passes `FromStack`
+// and its registration spells the name with an underscore, so `fs.is_file.`
+// is bound only in the `--noio` build, where it refuses to run. No golden can
+// reach that spelling; the one below is the only workbench form there is.
+//
+// **F151: `filename.` guards the stack it does not read**, so the `0` below is
+// load-bearing. Without a value on the stack the word fails however loaded
+// the workbench is, and `.` — the ordinary way to load it — is what empties
+// the stack.
+//
+[ "/tmp/bund2-probe-w.txt" "/tmp/bund2-probe-wb.txt" "/tmp/bund2-probe-cp.txt" "/tmp/bund2-probe-mv.txt" "/var/tmp/bund2-probe-cp.txt" "/var/tmp/bund2-probe-mv.txt" ] fs.rm drop
+
+"probe: file.write writes a file, and file reads it back" println
+"a written line" "/tmp/bund2-probe-w.txt" file.write
+"/tmp/bund2-probe-w.txt" filename file println
+
+"probe: file.write truncates rather than appending" println
+"first, and longer than what replaces it" "/tmp/bund2-probe-w.txt" file.write
+"second" "/tmp/bund2-probe-w.txt" file.write
+"/tmp/bund2-probe-w.txt" filename file println
+
+"probe: file.write. takes its data from the workbench and its name from the stack" println
+"from the workbench" . "/tmp/bund2-probe-wb.txt" file.write.
+"/tmp/bund2-probe-wb.txt" filename file println
+
+"probe: filename is lexical, so two spellings of one path agree" println
+"a/b/../c.txt" filename "a/c.txt" filename == println
+"./x.txt" filename "x.txt" filename == println
+"/tmp/../tmp/y.txt" filename "/tmp/y.txt" filename == println
+
+"probe: filename answers for a path that does not exist" println
+"no/such/file.txt" filename "no/./such/file.txt" filename == println
+
+"probe: filename. reads the workbench and answers on the stack (F151)" println
+"wb-rel.txt" . 0 filename. "wb-rel.txt" filename == swap drop println
+
+"probe: fs.is_file on a file, on a directory, and on neither" println
+"/tmp/bund2-probe-w.txt" fs.is_file println
+"/tmp" fs.is_file println
+"/tmp/bund2-probe-nothing-here.txt" fs.is_file println
+
+"probe: F150 — fs_is_file. is the second name, and it reads the stack" println
+"/tmp/bund2-probe-w.txt" fs_is_file. println
+
+"probe: fs.cp copies into an existing directory and answers true" println
+"x" "/var/tmp/bund2-probe-cp.txt" file.write
+"/tmp" "/var/tmp/bund2-probe-cp.txt" fs.cp println
+"/tmp/bund2-probe-cp.txt" fs.is_file println
+"/var/tmp/bund2-probe-cp.txt" fs.is_file println
+
+"probe: fs.mv moves, so the source is gone afterwards" println
+"y" "/var/tmp/bund2-probe-mv.txt" file.write
+"/tmp" "/var/tmp/bund2-probe-mv.txt" fs.mv println
+"/tmp/bund2-probe-mv.txt" fs.is_file println
+"/var/tmp/bund2-probe-mv.txt" fs.is_file println
+
+"probe: fs.cp takes a LIST of sources" println
+[ "/tmp/bund2-probe-cp.txt" "/tmp/bund2-probe-mv.txt" ] fs.rm println
+"x" "/var/tmp/bund2-probe-cp.txt" file.write
+"y" "/var/tmp/bund2-probe-mv.txt" file.write
+"/tmp" [ "/var/tmp/bund2-probe-cp.txt" "/var/tmp/bund2-probe-mv.txt" ] fs.cp println
+"/tmp/bund2-probe-cp.txt" fs.is_file println
+"/tmp/bund2-probe-mv.txt" fs.is_file println
+
+"probe: cp and mv are the aliases, and reach the same two words" println
+[ "/tmp/bund2-probe-cp.txt" "/tmp/bund2-probe-mv.txt" ] fs.rm println
+"x" "/var/tmp/bund2-probe-cp.txt" file.write
+"y" "/var/tmp/bund2-probe-mv.txt" file.write
+"/tmp" "/var/tmp/bund2-probe-cp.txt" cp println
+"/tmp" "/var/tmp/bund2-probe-mv.txt" mv println
+"/tmp/bund2-probe-cp.txt" fs.is_file println
+"/var/tmp/bund2-probe-mv.txt" fs.is_file println
+
+[ "/tmp/bund2-probe-w.txt" "/tmp/bund2-probe-wb.txt" "/tmp/bund2-probe-cp.txt" "/tmp/bund2-probe-mv.txt" "/var/tmp/bund2-probe-cp.txt" "/var/tmp/bund2-probe-mv.txt" ] fs.rm drop

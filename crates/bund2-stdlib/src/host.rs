@@ -20,6 +20,8 @@ use std::sync::Mutex;
 use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
 use bund2_value::{BundValue, LIST, STRING};
 
+use path_absolutize::Absolutize;
+
 use crate::wb::Side;
 
 fn eff(consumes: u8, produces: u8) -> StackEffect {
@@ -173,23 +175,62 @@ fn fs_ls(vm: &mut dyn Vm, side: Side, what: Listing, prefix: &str) -> Result<(),
     Ok(())
 }
 
-/// `fs.rm` — remove files and directories, recursively
-/// (`reference/Bund/src/stdlib/functions/filesystem/cp.rs:29-119`, `Remove`).
+/// Which of `cp.rs`'s three operations a call is
+/// (`reference/Bund/src/stdlib/functions/filesystem/cp.rs`, `FsOperations`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FsOp {
+    Copy,
+    Move,
+    Remove,
+}
+
+/// `fs.cp`, `fs.mv` and `fs.rm` — one base, as the reference has it
+/// (`reference/Bund/src/stdlib/functions/filesystem/cp.rs`,
+/// `stdlib_bund_file_cp_base`).
 ///
-/// The operand is one path or a list of them. `fs_extra::remove_items` removes
-/// each, and a path that does not exist is not an error. The answer is `true`.
-fn fs_rm(vm: &mut dyn Vm) -> Result<(), Error> {
-    const P: &str = "FS.RM";
-    if vm.depth() < 1 {
-        return Err(Error(format!("Stack is too shallow for inline {P}")));
+/// **The source is on top and the target beneath it**, and the target is a
+/// *directory* the sources go into: `fs_extra::copy_items` takes a destination
+/// directory, so `"d" "a.txt" fs.cp` writes `d/a.txt`, while
+/// `"d/b.txt" "a.txt" fs.cp` fails with `No such file or directory`. The
+/// options are `CopyOptions::new()`, whose `overwrite` is false, so copying
+/// onto a path that already exists is an error and the word is not
+/// idempotent: a second `fs.cp` of the same file says `Path "d/a.txt" exists`.
+/// A directory source is copied recursively.
+///
+/// `fs.rm` has no target. The reference substitutes an empty string whose
+/// cast cannot fail, so `NO DATA #2` and the target-cast error are
+/// unreachable for it, and a path that does not exist is not an error.
+///
+/// The source is one path or a LIST of them, and the answer is `true`.
+fn fs_copy_base(vm: &mut dyn Vm, op: FsOp, prefix: &str) -> Result<(), Error> {
+    let need = if op == FsOp::Remove { 1 } else { 2 };
+    if vm.depth() < need {
+        return Err(Error(format!("Stack is too shallow for inline {prefix}")));
     }
-    let v = vm.pull().ok_or_else(|| Error(format!("{P} NO DATA #1")))?;
-    let not_string = || Error(format!("Error casting string for {P}: This Dynamic type is not string"));
+    let v = vm.pull().ok_or_else(|| Error(format!("{prefix} NO DATA #1")))?;
+    // The target is cast before the source's type is examined, so a bad
+    // target wins over a bad source (`cp.rs`, the `target_file_name` match).
+    let target = if op == FsOp::Remove {
+        String::new()
+    } else {
+        let t = vm
+            .pull()
+            .ok_or_else(|| Error(format!("{prefix} NO DATA #2")))?;
+        t.as_str().ok_or_else(|| {
+            Error(format!(
+                "Error casting string for target {prefix}: This Dynamic type is not string"
+            ))
+        })?
+    };
+    let not_string =
+        || Error(format!("Error casting string for {prefix}: This Dynamic type is not string"));
     let paths: Vec<String> = match v.dt() {
         STRING => vec![v.as_str().ok_or_else(not_string)?],
         LIST => {
             let items = v.as_list().ok_or_else(|| {
-                Error(format!("Error casting list for {P}: This Dynamic type is not list"))
+                Error(format!(
+                    "Error casting list for {prefix}: This Dynamic type is not list"
+                ))
             })?;
             let mut out = Vec::with_capacity(items.len());
             for i in items {
@@ -197,10 +238,129 @@ fn fs_rm(vm: &mut dyn Vm) -> Result<(), Error> {
             }
             out
         }
-        _ => return Err(Error(format!("Incorrect #1 type for {P}"))),
+        _ => return Err(Error(format!("Incorrect #1 type for {prefix}"))),
     };
-    fs_extra::remove_items(&paths).map_err(|e| Error(format!("{P} returns: {e}")))?;
+    let options = fs_extra::dir::CopyOptions::new();
+    let res = match op {
+        FsOp::Copy => fs_extra::copy_items(&paths, &target, &options).map(|_| ()),
+        FsOp::Move => fs_extra::move_items(&paths, &target, &options).map(|_| ()),
+        FsOp::Remove => fs_extra::remove_items(&paths).map(|_| ()),
+    };
+    res.map_err(|e| Error(format!("{prefix} returns: {e}")))?;
     vm.push(BundValue::boolean(true));
+    Ok(())
+}
+
+/// `file.write` and `file.write.` — write a string to a file
+/// (`reference/Bund/src/stdlib/functions/filesystem/file_write.rs`,
+/// `bund_file_write_base`).
+///
+/// **The filename comes from the stack in both forms**; only the data moves to
+/// the workbench. So `file.write.` guards the stack for the name *and* the
+/// workbench for the data, and the filename is the top of the stack:
+/// `"text" "name" file.write`. Nothing is pushed — both operands are consumed
+/// and the word answers with its effect alone.
+///
+/// `fs_extra::file::write_all` creates the file or truncates it. Neither
+/// operand is converted: an INTEGER is refused by the cast, so
+/// `1 2 "x.txt" file.write` fails at `NO CAST #2` having already consumed the
+/// name and the data.
+///
+/// The `#1` messages say `returns NO DATA` and `returns NO CAST` while the
+/// `#2` pair say `returns: NO DATA` and `returns: NO CAST` — the colon is in
+/// one half and not the other, reproduced.
+fn file_write(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
+    let need = if side == Side::Bench { 1 } else { 2 };
+    if vm.depth() < need {
+        return Err(Error(format!("Stack is too shallow for inline {prefix}")));
+    }
+    if side == Side::Bench && vm.workbench_depth() < 1 {
+        return Err(Error(format!(
+            "Workbench is too shallow for inline {prefix}"
+        )));
+    }
+    let name_v = vm
+        .pull()
+        .ok_or_else(|| Error(format!("{prefix} returns NO DATA #1")))?;
+    let name = name_v.as_str().ok_or_else(|| {
+        Error(format!(
+            "{prefix} returns NO CAST #1: This Dynamic type is not string"
+        ))
+    })?;
+    let data_v = side
+        .pull(vm)
+        .ok_or_else(|| Error(format!("{prefix} returns: NO DATA #2")))?;
+    let data = data_v.as_str().ok_or_else(|| {
+        Error(format!(
+            "{prefix} returns: NO CAST #2: This Dynamic type is not string"
+        ))
+    })?;
+    fs_extra::file::write_all(&name, &data)
+        .map_err(|e| Error(format!("{prefix} returns: {e}")))?;
+    Ok(())
+}
+
+/// `filename` and `filename.` — make a path absolute
+/// (`reference/Bund/src/stdlib/functions/filesystem/filepath.rs`,
+/// `bund_filename_base`).
+///
+/// `path_absolutize` is lexical: a relative path is joined to the working
+/// directory and `.`/`..` are resolved in the string, with no filesystem
+/// lookup and no symlink resolution. It therefore answers for a path that does
+/// not exist, which is what makes it the companion to `file` — whose
+/// `file://` URL needs an absolute path — and to `file.write`.
+///
+/// **Both forms answer on the stack**, the workbench form included, and
+/// `filename.` guards the stack it does not read. That guard is F151: the
+/// ordinary way to load the workbench consumes the stack, so `filename.`
+/// fails whenever it is used as intended. It is reproduced in the reference's
+/// order, stack first.
+///
+/// Where the reference unwraps `to_str`, this is lossy: a path that is not
+/// UTF-8 renders with replacement characters rather than aborting (D37).
+fn filename_word(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
+    if vm.depth() < 1 {
+        return Err(Error(format!("Stack is too shallow for inline {prefix}")));
+    }
+    if side == Side::Bench && vm.workbench_depth() < 1 {
+        return Err(Error(format!(
+            "Workbench is too shallow for inline {prefix}"
+        )));
+    }
+    let v = side
+        .pull(vm)
+        .ok_or_else(|| Error(format!("{prefix} returns: NO DATA")))?;
+    let name = v
+        .as_str()
+        .ok_or_else(|| Error(format!("{prefix} returns: This Dynamic type is not string")))?;
+    let abs = std::path::Path::new(&name)
+        .absolutize()
+        .map_err(|e| Error(format!("{prefix} returned: {e}")))?;
+    vm.push(BundValue::str(abs.to_string_lossy().into_owned()));
+    Ok(())
+}
+
+/// `fs.is_file` and `fs_is_file.` — is the path a file
+/// (`reference/Bund/src/stdlib/functions/filesystem/filesystem.rs`,
+/// `bund_filesystem_base`).
+///
+/// **Both names read the stack**, and the second is spelled with an
+/// underscore — F150. The reference's workbench branch is unreachable because
+/// its workbench function passes `FromStack`, so there is one function here
+/// registered under two names, which is what the reference registers. A
+/// directory answers `false`, as does a path that does not exist.
+fn fs_is_file(vm: &mut dyn Vm) -> Result<(), Error> {
+    const P: &str = "FS.IS_FILE";
+    if vm.depth() < 1 {
+        return Err(Error(format!("Stack is too shallow for inline {P}")));
+    }
+    let v = vm
+        .pull()
+        .ok_or_else(|| Error(format!("{P} returns: NO DATA")))?;
+    let name = v
+        .as_str()
+        .ok_or_else(|| Error(format!("{P} returns: This Dynamic type is not string")))?;
+    vm.push(BundValue::boolean(std::path::Path::new(&name).is_file()));
     Ok(())
 }
 
@@ -460,6 +620,19 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
         stub!("fs.ls.files", "FS.LS", eff(1, 1));
         stub!("fs.ls.files.", "FS.LS", eff(0, 1));
         stub!("fs.rm", "FS.CP", eff(1, 1));
+        stub!("fs.cp", "FS.CP", eff(2, 1));
+        stub!("fs.mv", "FS.CP", eff(2, 1));
+        stub!("file.write", "FILE.WRITE", eff(2, 0));
+        stub!("file.write.", "FILE.WRITE", eff(1, 0));
+        stub!("filename", "FILEPATH", eff(1, 1));
+        stub!("filename.", "FILEPATH", eff(0, 1));
+        stub!("fs.is_file", "FILESYSTEM", eff(1, 1));
+        // F150: this spelling exists in the `--noio` build alone, and
+        // `fs_is_file.` exists only in the other one.
+        stub!("fs.is_file.", "FILESYSTEM", eff(0, 1));
+        // F152: `stdin` and `stdin.` are registered here and nowhere else.
+        stub!("stdin", "FILE", eff(1, 1));
+        stub!("stdin.", "FILE", eff(0, 0));
         stub!("system.setproctitle", "SYSTEM.SETPROCTITLE", eff(1, 0));
         stub!("system.setproctitle.", "SYSTEM.SETPROCTITLE", eff(0, 0));
         stub!("file", "FILE", eff(1, 1));
@@ -504,7 +677,52 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
             eff(0, 1),
             WordKind::Sync,
         );
-        r.register_native("fs.rm", fs_rm, eff(1, 1), WordKind::Sync);
+        r.register_native(
+            "fs.rm",
+            |vm| fs_copy_base(vm, FsOp::Remove, "FS.RM"),
+            eff(1, 1),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "fs.cp",
+            |vm| fs_copy_base(vm, FsOp::Copy, "FS.CP"),
+            eff(2, 1),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "fs.mv",
+            |vm| fs_copy_base(vm, FsOp::Move, "FS.MV"),
+            eff(2, 1),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "file.write",
+            |vm| file_write(vm, Side::Stack, "FILE.WRITE"),
+            eff(2, 0),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "file.write.",
+            |vm| file_write(vm, Side::Bench, "FILE.WRITE."),
+            eff(1, 0),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "filename",
+            |vm| filename_word(vm, Side::Stack, "FILENAME"),
+            eff(1, 1),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "filename.",
+            |vm| filename_word(vm, Side::Bench, "FILENAME."),
+            eff(0, 1),
+            WordKind::Sync,
+        );
+        r.register_native("fs.is_file", fs_is_file, eff(1, 1), WordKind::Sync);
+        // F150: the underscore is the reference's registration, and the only
+        // spelling of the workbench form that a default build binds.
+        r.register_native("fs_is_file.", fs_is_file, eff(1, 1), WordKind::Sync);
         r.register_native(
             "system.setproctitle",
             |vm| setproctitle(vm, Side::Stack, "SYSTEM.SETPROCTITLE"),
@@ -561,6 +779,8 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
 
     // `reference/Bund/src/stdlib/functions/create_aliases.rs:16-19,40`.
     r.register_alias("rm", "fs.rm");
+    r.register_alias("cp", "fs.cp");
+    r.register_alias("mv", "fs.mv");
     r.register_alias("ls", "fs.ls");
     r.register_alias("ls.", "fs.ls.");
     r.register_alias("cwd", "fs.cwd");
@@ -581,6 +801,16 @@ mod tests {
     fn run(i: &mut Interp, src: &str) -> Result<(), String> {
         let stream = bund2_syntax::compile(src).map_err(|e| e.render(src))?;
         i.eval(&stream).map_err(|e| e.0)
+    }
+
+    /// `BundValue` has no boolean accessor -- D1 keeps truthiness a word's
+    /// business rather than the value's -- so a test that wants the BOOL it
+    /// was handed reads the variant.
+    fn truth(v: &BundValue) -> Option<bool> {
+        match v {
+            BundValue::Bool(b, _) => Some(*b),
+            _ => None,
+        }
     }
 
     fn scratch(name: &str) -> std::path::PathBuf {
@@ -623,6 +853,239 @@ mod tests {
         let e = run(&mut i, &format!("\"{}\" file", f.display())).expect_err("gone");
         assert!(e.contains("FILE gets no data"), "{e}");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// The messages a golden cannot reach, because an error ends a program and
+    /// a capture records one. Every text here was measured against the oracle
+    /// on 2026-10-04.
+    ///
+    /// **The colon moves between the halves.** `#1` says `returns NO DATA` and
+    /// `returns NO CAST`; `#2` says `returns: NO DATA` and `returns: NO CAST`.
+    #[test]
+    fn file_write_writes_and_reports_the_asymmetric_messages() {
+        let d = scratch("write");
+        let f = d.join("w.txt");
+        let mut i = interp(HostOptions::default());
+        run(&mut i, &format!("\"data\" \"{}\" file.write", f.display())).expect("write");
+        assert_eq!(std::fs::read_to_string(&f).ok().as_deref(), Some("data"));
+        assert_eq!(i.depth(), 0, "both operands consumed and nothing pushed");
+
+        // Truncation, not append: the shorter second write wins outright.
+        run(&mut i, &format!("\"ab\" \"{}\" file.write", f.display())).expect("rewrite");
+        assert_eq!(std::fs::read_to_string(&f).ok().as_deref(), Some("ab"));
+
+        // The data comes from the workbench and the name from the stack, so
+        // `.` -- which empties the stack -- is not enough on its own.
+        run(&mut i, &format!("\"wb\" . \"{}\" file.write.", f.display())).expect("wb write");
+        assert_eq!(std::fs::read_to_string(&f).ok().as_deref(), Some("wb"));
+
+        for (src, want) in [
+            (
+                "\"only\" file.write".to_string(),
+                "Stack is too shallow for inline FILE.WRITE".to_string(),
+            ),
+            (
+                "\"x\" . file.write.".to_string(),
+                "Stack is too shallow for inline FILE.WRITE.".to_string(),
+            ),
+            (
+                "\"name\" file.write.".to_string(),
+                "Workbench is too shallow for inline FILE.WRITE.".to_string(),
+            ),
+            (
+                "\"d\" 42 file.write".to_string(),
+                "FILE.WRITE returns NO CAST #1: This Dynamic type is not string".to_string(),
+            ),
+            (
+                "1 2 \"x.txt\" file.write".to_string(),
+                "FILE.WRITE returns: NO CAST #2: This Dynamic type is not string".to_string(),
+            ),
+            (
+                format!("\"d\" \"{}\" file.write", d.join("no/such/dir/x").display()),
+                "FILE.WRITE returns: No such file or directory (os error 2)".to_string(),
+            ),
+        ] {
+            let mut i = interp(HostOptions::default());
+            let e = run(&mut i, &src).expect_err(&src);
+            // The evaluator wraps a word's error with the value it was
+            // evaluating, so the word's own text is the tail.
+            assert!(e.ends_with(&want), "{src}:\n  got {e}\n want ...{want}");
+        }
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// `filename` is lexical: it joins a relative path to the working
+    /// directory and resolves `.` and `..` in the string, with no filesystem
+    /// lookup, so it answers for a path that does not exist.
+    ///
+    /// **F151 is asserted, not worked around**: `filename.` fails on an empty
+    /// stack however loaded the workbench is, and the fourth case below is the
+    /// only way to call it.
+    #[test]
+    fn filename_absolutizes_lexically_and_filename_dot_guards_the_wrong_side() {
+        let mut i = interp(HostOptions::default());
+        run(&mut i, "\"no/such/../file.txt\" filename").expect("absolutize");
+        let answered = i.peek().and_then(|v| v.as_str()).expect("a path");
+        let want = std::env::current_dir()
+            .expect("cwd")
+            .join("no/file.txt");
+        assert_eq!(answered, format!("{}", want.display()));
+        assert!(!std::path::Path::new(&answered).exists(), "no lookup happened");
+
+        for (src, want) in [
+            ("filename", "Stack is too shallow for inline FILENAME"),
+            ("42 filename", "FILENAME returns: This Dynamic type is not string"),
+            // F151: `.` moved the operand and emptied the stack, which is the
+            // ordinary way to use a workbench form and the one that fails.
+            ("\"x\" . filename.", "Stack is too shallow for inline FILENAME."),
+            ("0 filename.", "Workbench is too shallow for inline FILENAME."),
+        ] {
+            let mut i = interp(HostOptions::default());
+            let e = run(&mut i, src).expect_err(src);
+            assert!(e.ends_with(want), "{src}:\n  got {e}\n want ...{want}");
+        }
+
+        // Reachable only with an unrelated value left on the stack, and the
+        // answer lands on the stack rather than the workbench.
+        let mut i = interp(HostOptions::default());
+        run(&mut i, "\"rel.txt\" . 0 filename.").expect("the F151 shape");
+        assert_eq!(i.workbench_depth(), 0, "the operand was consumed");
+        assert_eq!(i.depth(), 2, "the 0 and the path, both on the stack");
+    }
+
+    /// `fs.cp` and `fs.mv` copy *into a directory*, do not overwrite, and
+    /// answer `true`. F150's second name is checked here too: `fs_is_file.`
+    /// reads the stack, because the reference's workbench function passes
+    /// `FromStack`.
+    #[test]
+    fn fs_cp_and_mv_move_into_a_directory_and_fs_is_file_has_two_stack_names() {
+        let d = scratch("cp");
+        let from = d.join("a.txt");
+        let into = d.join("into");
+        std::fs::write(&from, "x").expect("seed");
+        std::fs::create_dir_all(&into).expect("target dir");
+        let mut i = interp(HostOptions::default());
+
+        run(&mut i, &format!("\"{}\" \"{}\" fs.cp", into.display(), from.display()))
+            .expect("copy");
+        assert!(into.join("a.txt").is_file() && from.is_file(), "copied, not moved");
+        assert_eq!(i.pull().as_ref().and_then(truth), Some(true));
+
+        // `overwrite` is false, so the same copy twice is an error.
+        let e = run(&mut i, &format!("\"{}\" \"{}\" fs.cp", into.display(), from.display()))
+            .expect_err("exists");
+        assert!(
+            e.contains("FS.CP returns: Path \"") && e.ends_with("\" exists"),
+            "{e}"
+        );
+
+        let moved = d.join("b.txt");
+        std::fs::write(&moved, "y").expect("seed");
+        run(&mut i, &format!("\"{}\" \"{}\" fs.mv", into.display(), moved.display()))
+            .expect("move");
+        assert!(into.join("b.txt").is_file() && !moved.exists(), "the source is gone");
+
+        // Both names read the stack; a directory and a missing path are false.
+        for (src, want) in [
+            (format!("\"{}\" fs.is_file", from.display()), true),
+            (format!("\"{}\" fs_is_file.", from.display()), true),
+            (format!("\"{}\" fs.is_file", d.display()), false),
+            (format!("\"{}\" fs.is_file", d.join("gone").display()), false),
+        ] {
+            let mut i = interp(HostOptions::default());
+            run(&mut i, &src).expect(&src);
+            assert_eq!(i.pull().as_ref().and_then(truth), Some(want), "{src}");
+        }
+
+        for (src, want) in [
+            (
+                "\"only\" fs.cp".to_string(),
+                "Stack is too shallow for inline FS.CP".to_string(),
+            ),
+            (
+                "\"only\" fs.mv".to_string(),
+                "Stack is too shallow for inline FS.MV".to_string(),
+            ),
+            (
+                "42 \"src\" fs.cp".to_string(),
+                "Error casting string for target FS.CP: This Dynamic type is not string"
+                    .to_string(),
+            ),
+            (
+                "\"dir\" 42 fs.cp".to_string(),
+                "Incorrect #1 type for FS.CP".to_string(),
+            ),
+            (
+                "\"dir\" [ 42 ] fs.cp".to_string(),
+                "Error casting string for FS.CP: This Dynamic type is not string".to_string(),
+            ),
+            (
+                "fs.is_file".to_string(),
+                "Stack is too shallow for inline FS.IS_FILE".to_string(),
+            ),
+            (
+                "42 fs.is_file".to_string(),
+                "FS.IS_FILE returns: This Dynamic type is not string".to_string(),
+            ),
+        ] {
+            let mut i = interp(HostOptions::default());
+            let e = run(&mut i, &src).expect_err(&src);
+            // The evaluator wraps a word's error with the value it was
+            // evaluating, so the word's own text is the tail.
+            assert!(e.ends_with(&want), "{src}:\n  got {e}\n want ...{want}");
+        }
+
+        // The source must exist, and the message names it.
+        let mut i = interp(HostOptions::default());
+        let e = run(
+            &mut i,
+            &format!("\"{}\" \"{}\" fs.cp", into.display(), d.join("gone").display()),
+        )
+        .expect_err("missing source");
+        assert!(
+            e.ends_with("does not exist or you don't have access!")
+                && e.contains("FS.CP returns: Path \""),
+            "{e}"
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// F150 and F152: three names the reference registers in the `--noio`
+    /// build alone. The default build binds none of them, and `--noio` binds
+    /// each as the stub with the reference's own group name — so `fs.is_file.`
+    /// is a word only where it refuses to run, and `stdin` has no
+    /// implementation anywhere.
+    #[test]
+    fn three_names_exist_in_the_noio_build_alone() {
+        let mut d = interp(HostOptions::default());
+        for name in ["fs.is_file.", "stdin", "stdin."] {
+            let e = run(&mut d, name).expect_err(name);
+            assert!(
+                !e.contains("disabled with --noio"),
+                "{name} must not be bound in the default build: {e}"
+            );
+        }
+        let mut n = interp(HostOptions {
+            noio: true,
+            ..HostOptions::default()
+        });
+        for (name, group) in [
+            ("fs.is_file.", "FILESYSTEM"),
+            ("stdin", "FILE"),
+            ("stdin.", "FILE"),
+            ("fs.is_file", "FILESYSTEM"),
+            ("file.write", "FILE.WRITE"),
+            ("filename", "FILEPATH"),
+            ("fs.cp", "FS.CP"),
+            ("fs.mv", "FS.CP"),
+        ] {
+            let e = run(&mut n, name).expect_err(name);
+            let want = format!("bund {group} functions disabled with --noio");
+            assert!(e.ends_with(&want), "{name}:\n  got {e}\n want ...{want}");
+        }
+        // And `fs_is_file.` is the other side of F150: bound here, not there.
+        let e = run(&mut n, "fs_is_file.").expect_err("not in the noio build");
+        assert!(!e.contains("disabled with --noio"), "{e}");
     }
 
     #[test]
