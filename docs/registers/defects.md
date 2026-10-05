@@ -4012,6 +4012,53 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F155 — the capture's two runs cannot see a slowly-varying value
+
+**A Bund2 defect, found 2026-10-05** in a probe of my own writing, by
+`conform` and not by the capture.
+
+`cargo xtask golden` runs each program twice and refuses it if the two runs
+disagree (`xtask/src/golden/mod.rs`). That check is what keeps an
+unreproducible program out of the suite, and **it has a blind spot**: two
+runs milliseconds apart agree about anything that changes more slowly than
+the gap between them. Agreement there is not reproducibility; it is only
+reproducibility *at that timescale*.
+
+`sysinfo-words.bund` walked into it. The probe reduced every memory figure to
+a comparison so that nothing volatile would be printed — but **`type.of` does
+not consume its operand**, measured: `"x" type.of` leaves `4` on top of
+`"x"`. So each `sysinfo.mem.free type.of println` printed the type, consumed
+only the type, and left the raw byte count on the stack. The capture pins the
+current stack after every program, so the golden was written with ten
+machine-specific values in it, including `free` and `used` as they stood at
+the moment of capture:
+
+```
+│ Value { ... data: I64(2289041408) ... }   <- free, at capture time
+│ Value { ... data: I64(2289041408) ... }   <- used, F154, the same number
+```
+
+Both oracle runs saw `2289041408`, so the capture was satisfied and wrote the
+file. `conform` ran minutes later, against the same binaries, and the figure
+had moved — `output differs (56 lines vs 56)`, the same shape and different
+content.
+
+**Disposition: FIXED, in the probe.** Every `type.of` line ends in `drop`, so
+the stack is empty when the program ends and the only captured state is the
+six booleans the workbench forms leave. Verified the way the capture cannot:
+the program was run, **900 MiB was allocated and touched**, and it was run
+again — identical, and identical to Bund2 after that.
+
+**What this asks of the next probe of a varying quantity.** Two consecutive
+runs agreeing is the capture's bar, not the probe's. If a program reads
+anything that moves — memory, a clock, a load average, a counter — reduce it
+to a claim that does not move, and then check that the *captured state*, not
+only the printed output, contains nothing else. `debug.display_stack` at the
+end of a draft shows what the golden is about to pin; an empty stack there is
+the cheapest proof available. The sibling trap is in the same probe's header:
+a non-consuming word leaves its operand behind, and the capture is happy to
+record it.
+
 ## F154 — `sysinfo.mem.used` answers free memory, and its workbench form does not
 
 **An original-implementation defect, measured 2026-10-05**, found while

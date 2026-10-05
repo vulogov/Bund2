@@ -23,6 +23,13 @@
 // as zero; that is the platform's answer, not a defect, and it is the one
 // part of this probe that is not portable.
 //
+// **`type.of` does not consume its operand**, so every one of these lines
+// ends in `drop`. Without it the raw value stays on the stack, the capture
+// pins it, and the golden carries this machine's hostname and -- worse -- a
+// memory figure from the moment of capture. F155: the capture's two
+// back-to-back runs agreed, so it was written; `conform` failed minutes later
+// against the same binary, because the figure had moved.
+//
 // **The top of the stack is a comparison's left operand**, so "total is
 // positive" is written `0 sysinfo.mem.total >` and not the other way round.
 // Measured: `1 2 >` is true. Written the natural-looking way these lines all
@@ -37,18 +44,18 @@
 // `crates/bund2-stdlib/src/sysinfo.rs` is where that claim lives.
 //
 "probe: the four host facts are strings" println
-sysinfo.hostname type.of println
-sysinfo.kernel_version type.of println
-sysinfo.os_version type.of println
-sysinfo.system type.of println
+sysinfo.hostname type.of println drop
+sysinfo.kernel_version type.of println drop
+sysinfo.os_version type.of println drop
+sysinfo.system type.of println drop
 
 "probe: the six memory words answer integers" println
-sysinfo.mem.total type.of println
-sysinfo.mem.free type.of println
-sysinfo.mem.used type.of println
-sysinfo.mem.shared type.of println
-sysinfo.mem.buffers type.of println
-sysinfo.mem.cached type.of println
+sysinfo.mem.total type.of println drop
+sysinfo.mem.free type.of println drop
+sysinfo.mem.used type.of println drop
+sysinfo.mem.shared type.of println drop
+sysinfo.mem.buffers type.of println drop
+sysinfo.mem.cached type.of println drop
 
 "probe: a total is positive, and no figure is negative" println
 0 sysinfo.mem.total > println

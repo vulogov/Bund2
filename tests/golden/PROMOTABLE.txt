@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 246 promotable of 255 reached, of 294 fixed-effect natives; 9 reached natives
+# 266 promotable of 275 reached, of 314 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 *
@@ -244,9 +244,29 @@ string.wrap.english
 string.wrap.english.
 swap
 swap_one
+sysinfo.hostname
+sysinfo.kernel_version
+sysinfo.mem.buffers
+sysinfo.mem.buffers.
+sysinfo.mem.cached
+sysinfo.mem.cached.
+sysinfo.mem.free
+sysinfo.mem.free.
+sysinfo.mem.shared
+sysinfo.mem.shared.
+sysinfo.mem.total
+sysinfo.mem.total.
+sysinfo.mem.used
+sysinfo.mem.used.
+sysinfo.os_version
+sysinfo.system
 sysinfo.version
 sysinfo.virtualization
 sysinfo.virtualization?
+system.path.filename
+system.path.filename.
+system.path.split
+system.path.split.
 tag
 tail
 text
