@@ -822,7 +822,16 @@ fn display(vm: &mut dyn Vm) -> Result<(), Error> {
             vm.push(v);
             return crate::values::execute_top(vm);
         }
-        _ => print!("{}", termimad::term_text(&v.display())),
+        // The refusal is `conv`'s and the prefix is `FMT.STR`, not `DISPLAY`
+        // (`:71`) -- the same misnaming as the conditional arm above.
+        _ => match v.conv_refusal() {
+            Some(why) => {
+                return Err(Error(format!(
+                    "FMT.STR: conversion to STRING returned error: {why}"
+                )));
+            }
+            None => print!("{}", termimad::term_text(&v.display())),
+        },
     }
     let _ = std::io::stdout().flush();
     Ok(())

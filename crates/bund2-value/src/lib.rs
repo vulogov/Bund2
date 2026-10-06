@@ -1118,10 +1118,35 @@ impl BundValue {
     ///
     /// [`display`]: BundValue::display
     pub fn displayable(&self) -> bool {
-        // TIME has no arm in `conv` at all — `reference/rust_dynamic/src/conv.rs`
-        // never names `Val::Time` — so it reaches the same final refusal the
-        // other three do, as `Can not convert Value from 13`.
-        !matches!(self.dt(), PAIR | CINTEGER | CFLOAT | TIME)
+        self.conv_refusal().is_none()
+    }
+
+    /// What `conv(STRING)` says of a value it will not convert, or `None`.
+    ///
+    /// Two sentences, because the reference fails two ways:
+    ///
+    /// - PAIR, CINTEGER, CFLOAT, TIME and METRICS have no arm in `conv` and
+    ///   reach its last one (`reference/rust_dynamic/src/conv.rs:743`).
+    /// - VALUEMAP, CLASS and OBJECT *are* dispatched, to a function whose guard
+    ///   then rejects the tag it was sent (`:729-736`, guards at `:518,595`).
+    ///   F83 reproduced that for every target but STRING; F167 is STRING.
+    ///
+    /// [`display`] still renders all eight, because it must return a string.
+    /// A word that can fail asks this first; a container asks it of each
+    /// member, and leaves out the ones it names.
+    ///
+    /// [`display`]: BundValue::display
+    pub fn conv_refusal(&self) -> Option<String> {
+        let dt = self.dt();
+        match dt {
+            PAIR | CINTEGER | CFLOAT | TIME | METRICS => {
+                Some(format!("Can not convert Value from {dt}"))
+            }
+            VALUEMAP | CLASS | OBJECT => Some(format!(
+                "Source value is not MAP but {dt} and not suitable for conversion"
+            )),
+            _ => None,
+        }
     }
 
     /// **The second renderer, and iterative for the same reason — F119.**
@@ -1196,7 +1221,10 @@ impl BundValue {
                 Payload::List(items) => {
                     out.push('[');
                     let mut steps = Vec::new();
-                    for v in items {
+                    // A member `conv` refuses is left out, separators and
+                    // all (`conv.rs:342-350`, `Err(_) => continue`): a PAIR
+                    // appended to `[ 1 ]` prints `[ 1 :: ]`.
+                    for v in items.iter().filter(|v| v.displayable()) {
                         steps.push(DisplayStep::Text(" ".to_string()));
                         steps.push(DisplayStep::Value(v.clone()));
                         steps.push(DisplayStep::Text(" :: ".to_string()));
@@ -1217,12 +1245,29 @@ impl BundValue {
                 Payload::Map(m) => {
                     out.push('{');
                     let mut steps = Vec::new();
-                    for (k, v) in m {
+                    for (k, v) in m.iter().filter(|(_, v)| v.displayable()) {
                         steps.push(DisplayStep::Text(format!(" {k}=")));
                         steps.push(DisplayStep::Value(v.clone()));
                         steps.push(DisplayStep::Text(" :: ".to_string()));
                     }
                     steps.push(DisplayStep::Text("}".to_string()));
+                    for step in steps.into_iter().rev() {
+                        work.push(step);
+                    }
+                }
+                // A LAMBDA is a LIST's rendering behind the word `lambda`
+                // (`reference/rust_dynamic/src/conv.rs:490-502`), with the
+                // same skipping. It had no arm and fell to the raw form
+                // below, ids and stamps included -- F167.
+                Payload::Lambda(body) => {
+                    out.push_str("lambda[");
+                    let mut steps = Vec::new();
+                    for v in body.iter().filter(|v| v.displayable()) {
+                        steps.push(DisplayStep::Text(" ".to_string()));
+                        steps.push(DisplayStep::Value(v.clone()));
+                        steps.push(DisplayStep::Text(" :: ".to_string()));
+                    }
+                    steps.push(DisplayStep::Text("]".to_string()));
                     for step in steps.into_iter().rev() {
                         work.push(step);
                     }

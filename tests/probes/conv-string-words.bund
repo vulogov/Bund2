@@ -1,0 +1,36 @@
+//
+// PROBE: what converts to a STRING, and what a container leaves out.
+//
+// `println`, `print`, `display` and `convert.to_string` all ask the same
+// question of a value — `conv(STRING)` — and F167 found Bund2 answering it
+// differently for five kinds. The refusals end a program, so they are
+// unit-tested in `crates/bund2-stdlib/src/convert.rs`. What is here is what
+// prints.
+//
+// **A LAMBDA is a list's rendering behind the word `lambda`**
+// (`reference/rust_dynamic/src/conv.rs`, `value_lambda_conversion`). A word
+// inside it is a CALL and renders `F(name)`.
+{ 1 } println
+lambda println
+{ 1 "a" dup } println
+{ { 1 } 2 } println
+
+// The same text through the conversion word, and inside the two containers.
+{ 1 } convert.to_string println
+[ 1 { 2 } ] println
+dict "k" { 1 } set println
+
+// **It converts by its length.** Two terms: 2, 2.0, true — and a LIST of the
+// body.
+{ 1 2 } convert.to_int println
+{ 1 2 } convert.to_float println
+{ 1 2 } convert.to_bool println
+lambda convert.to_bool println
+{ 1 2 } convert.to_list println
+
+// **A member that will not convert is left out, not reported.** A PAIR, a
+// CLASS and a TIME each refuse on their own; as a dict's member each simply
+// does not appear, key and all.
+dict "k" 1 2 pair set println
+dict "k" class set println
+dict "a" 1 set "k" 5 time.timestamp set println

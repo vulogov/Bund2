@@ -39,11 +39,8 @@ fn case_word(vm: &mut dyn Vm, case: Case, prefix: &str) -> Result<(), Error> {
         return Err(Error(format!("Stack is too shallow for inline {prefix}")));
     }
     let v = crate::pull::operand(vm, prefix, 1)?;
-    if !v.displayable() {
-        return Err(Error(format!(
-            "{prefix} return error: Can not convert Value from {}",
-            v.dt()
-        )));
+    if let Some(why) = v.conv_refusal() {
+        return Err(Error(format!("{prefix} return error: {why}")));
     }
     vm.push(BundValue::str(v.display().to_case(case)));
     Ok(())

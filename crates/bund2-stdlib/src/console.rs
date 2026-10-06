@@ -39,11 +39,8 @@ fn display(v: &BundValue) -> String {
 /// says, so a PAIR — which no conversion arm admits — stops the program rather
 /// than printing something invented.
 fn as_text(v: &BundValue, prefix: &str) -> Result<String, Error> {
-    if !v.displayable() {
-        return Err(Error(format!(
-            "{prefix} returns: Can not convert Value from {}",
-            v.dt()
-        )));
+    if let Some(why) = v.conv_refusal() {
+        return Err(Error(format!("{prefix} returns: {why}")));
     }
     Ok(display(v))
 }

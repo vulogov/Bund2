@@ -4018,6 +4018,31 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F168 — `+` will not append to a LIST what the reference appends
+
+**A Bund2 defect, measured 2026-10-06**, found by F167's survey.
+
+`numeric_op`'s last arm, reached by a top operand whose payload is none of the
+kinds it names, appends that operand to a LIST underneath under `Add` and
+otherwise refuses naming the tag
+(`reference/rust_dynamic/src/math.rs:369-405`). Bund2 reproduces that arm for
+TIME alone (D103) and answers everything else with the `Y` sentence.
+
+| program | oracle | Bund2 |
+|---|---|---|
+| `[ 1 ] { 7 } + println` | `[ 1 ::  lambda[ 7 :: ] :: ]` | `Incompartible Y argument for the math operations` |
+| `[ 1 ] 1 2 pair + println` | `[ 1 :: ]` | the same refusal |
+| `[ 1 ] class + println`, `valuemap`, an OBJECT | `[ 1 :: ]` | the same refusal |
+| `"x" { 1 } +` | `Incompartible X argument for the math operations: 17` | the `Y` sentence |
+
+`[ 1 ] metrics +` is a different arm — METRICS has one of its own — and is
+not this defect.
+
+**Disposition: OPEN.** The repair is to generalise the TIME guard in
+`crates/bund2-stdlib/src/math.rs`, `numeric_op`, to every kind that reaches
+that arm. Which kinds those are needs each earlier arm of the reference read
+first; it was not done under F167, whose subject is conversion.
+
 ## F167 — five kinds print and convert to STRING where the reference refuses or renders otherwise
 
 **A Bund2 defect, measured 2026-10-06**, found by widening F166's check to
@@ -4055,6 +4080,30 @@ only of those two.
 **Disposition: OPEN.** Not fixed with F166 because the CLASS and OBJECT rows
 change what a program sees when it prints an object, and that is worth a look
 at who relies on the present text before it goes.
+
+**Status: FIXED 2026-10-06**, on the owner's ruling to match the oracle on all
+five. `BundValue::conv_refusal` (`crates/bund2-value/src/lib.rs`) is the one
+place that knows which kinds `conv(STRING)` refuses and in which sentence;
+`println`, `print`, `convert.to_string`, the case words and `display` ask it.
+`display` gained a LAMBDA arm. Widening the check to 43 programs found three
+more things on the same path, fixed with it:
+
+- **The `display` word** printed all of these too. It now refuses under the
+  reference's prefix, `FMT.STR: conversion to STRING returned error:`
+  (`reference/Bund/src/stdlib/functions/system/display.rs:65-72`). An OBJECT
+  is still dispatched to its `.display` method and is unaffected — the one
+  corpus program that displays an object,
+  `class_display_demo_2.bund`, takes that route.
+- **A container leaves out a member that will not convert**, key and
+  separators included (`reference/rust_dynamic/src/conv.rs:342-350`,
+  `:494-499`): `dict "k" 1 2 pair set println` prints `{}`. Bund2 rendered the
+  member.
+- **A LAMBDA converts by its length** to INTEGER, FLOAT and BOOL, and to a
+  LIST of its body (`conv.rs:470-489`). Bund2 refused all four.
+
+No golden moved. `tests/probes/conv-string-words.bund` holds what prints; the
+refusals are unit-tested in `crates/bund2-stdlib/src/convert.rs`. What the
+same survey found in `+` is F168.
 
 ## F166 — `convert.to_string` converted what `conv` refuses
 

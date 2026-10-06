@@ -53,8 +53,8 @@ pub(crate) fn conv_value(v: &BundValue, target: u16) -> Result<BundValue, Error>
     // function never names `Val::Time`. Without this the STRING target answered
     // `[ 2 ::  1 :: ]` for `1 2 pair convert.to_string`, where the oracle says
     // `Can not convert Value from 10`.
-    if !v.displayable() {
-        return Err(Error(format!("Can not convert Value from {}", v.dt())));
+    if let Some(why) = v.conv_refusal() {
+        return Err(Error(why));
     }
     if target == STRING {
         return Ok(BundValue::str(v.display()));
@@ -226,6 +226,20 @@ pub(crate) fn conv_value(v: &BundValue, target: u16) -> Result<BundValue, Error>
                     Ok(BundValue::matrix(rows))
                 }
                 _ => Err(Error(format!("Can not convert Value from {dt}"))),
+            }
+        }
+        // A LAMBDA converts by its **length**, and to a LIST of its body
+        // (`conv.rs:470-489`). STRING and TEXTBUFFER left above; anything
+        // else gets the one refusal that says `lambda` in lower case (`:509`).
+        _ if dt == LAMBDA => {
+            let body = v.as_lambda().unwrap_or_default();
+            match target {
+                LIST => Ok(BundValue::list(body.to_vec())),
+                LAMBDA => Ok(BundValue::lambda(body.to_vec())),
+                FLOAT => Ok(BundValue::float(body.len() as f64)),
+                INTEGER => Ok(BundValue::int(body.len() as i64)),
+                BOOL => Ok(BundValue::boolean(!body.is_empty())),
+                _ => Err(Error(format!("Can not convert lambda to {target}"))),
             }
         }
         // NODATA and NONE convert to their own names and to a one-element list,
@@ -749,20 +763,68 @@ mod tests {
                     "{src}: wanted {want:?}, got {e:?}"
                 ),
             }
-            // NODATA and PTR *do* convert to STRING — that is what makes the
+            // NODATA and PTR *do* convert to STRING -- that is what makes the
             // refusal above a fact about the table and not about `display`.
-            //
-            // This once asserted it of all six sources, which the oracle
-            // contradicts for the other four: a PAIR is refused for STRING as
-            // for everything (F166, fixed), and VALUEMAP, CLASS and METRICS
-            // are refused there too, which Bund2 does not yet reproduce
-            // (F167, open). So the claim is made only where it was measured.
-            if matches!(src, "nodata" | "\"a\" ptr") {
-                assert!(
-                    run(&format!("{src} convert.to_string")).is_ok(),
-                    "{src} convert.to_string should still work"
-                );
+            // The other four are refused there as well (F166, F167), which
+            // this once asserted the opposite of.
+            let to_string = run(&format!("{src} convert.to_string"));
+            assert_eq!(
+                to_string.is_ok(),
+                matches!(src, "nodata" | "\"a\" ptr"),
+                "{src} convert.to_string"
+            );
+        }
+    }
+
+    /// F167: the kinds `conv(STRING)` refuses, through each word that asks.
+    ///
+    /// Two sentences -- the MAP-guard one for the three tags F83 is about, and
+    /// `conv`'s last arm for METRICS -- under each word's own prefix. `display`
+    /// says `FMT.STR`, which is the reference's misnaming and not ours. Every
+    /// row measured on the oracle.
+    #[test]
+    fn the_kinds_conv_refuses_are_refused_by_every_word_that_asks() {
+        let map = |dt: u16| format!("Source value is not MAP but {dt} and not suitable for conversion");
+        for (src, why) in [
+            ("valuemap", map(30)),
+            ("class", map(31)),
+            ("\"x\" \"List\" object", map(32)),
+            ("metrics", "Can not convert Value from 16".to_string()),
+        ] {
+            for (word, prefix) in [
+                ("println", "PRINTLN returns: "),
+                ("print", "PRINT returns: "),
+                ("convert.to_string", "CONVERT.TO_STRING returned error: "),
+            ] {
+                match run(&format!("{src} {word}")) {
+                    Ok(_) => panic!("{src} {word} was expected to fail"),
+                    Err(e) => assert!(e.ends_with(&format!("{prefix}{why}")), "{src} {word}: {e}"),
+                }
             }
+        }
+        // `display` dispatches an OBJECT to its method instead, so it is asked
+        // of the other three.
+        for (src, why) in [
+            ("valuemap", map(30)),
+            ("class", map(31)),
+            ("metrics", "Can not convert Value from 16".to_string()),
+        ] {
+            match run(&format!("{src} display")) {
+                Ok(_) => panic!("{src} display was expected to fail"),
+                Err(e) => assert!(
+                    e.ends_with(&format!("FMT.STR: conversion to STRING returned error: {why}")),
+                    "{src} display: {e}"
+                ),
+            }
+        }
+    }
+
+    /// A LAMBDA has five conversions and one refusal of its own, in lower case.
+    #[test]
+    fn a_lambda_refuses_a_target_it_has_no_arm_for() {
+        match run("{ 1 } convert.to_matrix") {
+            Ok(_) => panic!("expected to fail"),
+            Err(e) => assert!(e.contains("Can not convert lambda to 26"), "{e}"),
         }
     }
 }
