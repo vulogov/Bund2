@@ -1,0 +1,60 @@
+//
+// PROBE: `+ - * /` across operand kinds — which arm answers.
+//
+// `numeric_op` matches the **top** operand's payload first and its tag second
+// (`reference/rust_dynamic/src/math.rs`, `Value::numeric_op`), and the arm it
+// lands in decides everything. F168 found Bund2 answering 362 of 484 kind
+// pairs wrongly under `+`; this pins the ones that produce a value. The
+// refusals end a program and are unit-tested in
+// `crates/bund2-stdlib/src/math.rs`.
+//
+// Read each line with the top of the stack as the left operand.
+
+// **A string on top takes anything that converts to a string.** The string
+// leads; a float is appended as `{}` prints it, so `2.0` appends `2`.
+2.5 "s" + println
+2.0 "s" + println
+true "s" + println
+[ 9 ] "s" + println
+{ 7 } "s" + println
+nodata "s" + println
+dict "s" + println
+
+// **A float on top of a string is truncated to an integer first.** So the
+// same two operands give a different answer the other way round.
+"s" 2.5 + println
+"ab" 2.9 * println
+
+// A float under a string repeats by the float cast to a count.
+2.9 "ab" * println
+
+// **Anything with no arm of its own is appended to a list underneath**, under
+// `+` only. The PAIR is there — the length says so — though `println` leaves
+// it out, as it leaves out any member that will not convert.
+[ 9 ] true + println
+[ 9 ] { 7 } + println
+[ 9 ] nodata + println
+[ 9 ] 1 2 pair + len println drop
+[ 9 ] 1 2 pair + println
+
+// **Two matrices combine cell by cell.** A cell pair that will not combine,
+// or a shape that does not match, returns the *top* matrix untouched and says
+// nothing.
+[ [ 1 2 ] [ 3 4 ] ] matrix [ [ 5 6 ] [ 7 8 ] ] matrix + convert.to_list println
+[ [ 1 2 ] [ 3 4 ] ] matrix [ [ 5 6 ] [ 7 8 ] ] matrix * convert.to_list println
+[ [ 1 2 ] [ 3 4 ] ] matrix [ [ 5 6 ] ] matrix + convert.to_list println
+
+// A list under a matrix becomes a new row.
+[ 9 9 ] [ [ 1 2 ] ] matrix + convert.to_list println
+
+// **JSON merges with JSON under `+`**: objects key by key, arrays joined.
+// The other three operators return the top operand as it was.
+'{"a":{"b":2},"l":[2]}' json '{"a":1,"l":[1],"k":0}' json + println
+'{"a":{"b":2},"l":[2]}' json '{"a":1,"l":[1],"k":0}' json - println
+
+// **A MAP converts by its size** — which is how `metrics` takes one as a
+// sample. A LAMBDA does the same (`conv-string-words`).
+dict convert.to_int println
+dict "a" 1 set "b" 2 set convert.to_float println
+dict convert.to_bool println
+dict "a" 1 set convert.to_bool println

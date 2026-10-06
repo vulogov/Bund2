@@ -4043,6 +4043,61 @@ not this defect.
 that arm. Which kinds those are needs each earlier arm of the reference read
 first; it was not done under F167, whose subject is conversion.
 
+**Status: FIXED 2026-10-06 — and the defect was not the one described above.**
+The four rows were the edge of it. A matrix of 22 operand kinds on top against
+22 underneath, under `+`, agreed with the oracle on 122 of 484 pairs.
+
+`numeric_op` matches the top operand's **payload** first and its **tag**
+second (`reference/rust_dynamic/src/math.rs:127-409`), and which arm it lands
+in decides the answer and the sentence. Bund2 matched the four numeric pairs,
+tried strings, and gave everything else the integer arm's refusal. It is now
+the reference's dispatch, arm for arm, in its order. What that changed:
+
+- **A string on top takes anything that converts to a string** (`:236-293`):
+  `[ 9 ] "s" +` is `"s[ 9 :: ]"`. What will not convert is refused as
+  `Incompartible Y argument for the string operations:` followed by `conv`'s
+  own sentence. A float operand had no arm at all.
+- **A float on top of a string is truncated first** (`:171-173`), so
+  `"s" 2.5 +` is `"s2"` while `2.5 "s" +` is `"s2.5"`. Its refusal says `X`
+  where the integer's says `Y`.
+- **MATRIX, CFLOAT, JSON and METRICS arithmetic did not exist.** Two matrices
+  combine cell by cell and return the top one untouched on any mismatch
+  (`:36-65`); a list under a matrix is a new row; complex numbers have all
+  four operators; JSON merges under `+` (`:25-34`); `+` shifts a sample into
+  a METRICS buffer (`:16-23`).
+- **The last arm** — BOOL, LAMBDA, PAIR, MAP, CLASS, OBJECT, VALUEMAP, TIME,
+  NODATA on top — appends to a list underneath, else refuses by tag.
+
+Three things it found on the way, fixed with it:
+
+- **A MATRIX printed** where the oracle refuses it, `Can not convert list
+  to 4` (`reference/rust_dynamic/src/conv.rs:268-291`). F167's sixth kind.
+- **A MAP converted to nothing.** `dict convert.to_int` was refused where the
+  oracle answers the map's size (`conv.rs:602-636`); found because METRICS
+  takes as a sample whatever converts to FLOAT.
+- **An impossible string repeat was called an internal error.**
+  `"ab" 4611686018427387904 *` panicked inside the native and was caught. The
+  reference aborts. It is now the program's error, reported as one (D37).
+
+**Measured after:** 30 kinds by 30 by four operators, 3,600 programs, 3,588
+identical. The twelve that are not:
+
+- eight where the **reference aborts** — a string repeated a negative number
+  of times, which `as usize` makes enormous. Bund2 answers the empty string,
+  as it always has;
+- four that differ only in the order an OBJECT's members are listed, which is
+  the reference's `HashMap` (F15).
+
+**Not taken:** `json_value_merge` as a dependency. Its `merge` is fifteen
+lines and recursive; it is written out as a worklist in `json_merge` and
+tested against the crate's own documented examples. `convert.to_dict` on a
+MAP still answers the MAP where the reference refuses with
+`Can not convert map to 26`, which is that word's recorded choice (D57, F120)
+and not changed here.
+
+`tests/probes/math-operand-kinds.bund` holds what produces a value; the
+refusals are unit-tested in `crates/bund2-stdlib/src/math.rs`.
+
 ## F167 — five kinds print and convert to STRING where the reference refuses or renders otherwise
 
 **A Bund2 defect, measured 2026-10-06**, found by widening F166's check to

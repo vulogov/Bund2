@@ -1,0 +1,36 @@
+# golden for tests/probes/math-operand-kinds.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+s2.5
+s2
+strue
+s[ 9 :: ]
+slambda[ 7 :: ]
+sNODATA
+s{}
+s2
+abab
+abab
+[ 9 ::  true :: ]
+[ 9 ::  lambda[ 7 :: ] :: ]
+[ 9 ::  NODATA :: ]
+2
+[ 9 :: ]
+[ [ 6 ::  8 :: ] ::  [ 10 ::  12 :: ] :: ]
+[ [ 5 ::  12 :: ] ::  [ 21 ::  32 :: ] :: ]
+[ [ 5 ::  6 :: ] :: ]
+[ [ 1 ::  2 :: ] ::  [ 9 ::  9 :: ] :: ]
+{"a":{"b":2},"k":0,"l":[1,2]}
+{"a":1,"k":0,"l":[1]}
+0
+2.0
+false
+true
+╭╮
+╰╯
+╭╮
+╰╯

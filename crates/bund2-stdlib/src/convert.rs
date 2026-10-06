@@ -53,10 +53,15 @@ pub(crate) fn conv_value(v: &BundValue, target: u16) -> Result<BundValue, Error>
     // function never names `Val::Time`. Without this the STRING target answered
     // `[ 2 ::  1 :: ]` for `1 2 pair convert.to_string`, where the oracle says
     // `Can not convert Value from 10`.
-    if let Some(why) = v.conv_refusal() {
+    //
+    // A MATRIX is the one source whose refusal depends on the target -- it
+    // converts to a LIST -- so it goes to its arm in the table below, which
+    // refuses STRING in the same words.
+    let matrix = v.dt() == MATRIX;
+    if !matrix && let Some(why) = v.conv_refusal() {
         return Err(Error(why));
     }
-    if target == STRING {
+    if target == STRING && !matrix {
         return Ok(BundValue::str(v.display()));
     }
     // **TEXTBUFFER is the STRING column with a different tag — over a smaller
@@ -262,6 +267,32 @@ pub(crate) fn conv_value(v: &BundValue, target: u16) -> Result<BundValue, Error>
         // the tag rather than the number.
         _ if dt == PTR => Err(Error(format!("Can not convert PTR to {target}"))),
         _ if dt == CALL => Err(Error(format!("Can not convert CALL to {target}"))),
+        // **A MAP converts by its size**, and to a LIST of key/value PAIRs
+        // (`conv.rs:602-636`). STRING and TEXTBUFFER left above. Bund2 had no
+        // arm here at all, so `dict convert.to_int` was refused where the
+        // oracle answers `0` -- found through `metrics dict +`, whose operand
+        // is whatever converts to FLOAT (F168).
+        //
+        // The pairs come out in key order. The reference walks a `HashMap`, so
+        // its order is whatever that run's hasher produced (F15).
+        _ if dt == MAP || dt == CONDITIONAL => {
+            let Some(m) = v.as_map() else {
+                return Err(Error(format!("Can not convert MAP Value from {dt}")));
+            };
+            match target {
+                MAP => Ok(BundValue::map(m.clone())),
+                CONDITIONAL => Ok(BundValue::conditional(m.clone())),
+                FLOAT => Ok(BundValue::float(m.len() as f64)),
+                INTEGER => Ok(BundValue::int(m.len() as i64)),
+                BOOL => Ok(BundValue::boolean(!m.is_empty())),
+                LIST => Ok(BundValue::list(
+                    m.iter()
+                        .map(|(k, v)| BundValue::pair(BundValue::str(k.clone()), v.clone()))
+                        .collect(),
+                )),
+                _ => Err(Error(format!("Can not convert map to {target}"))),
+            }
+        }
         // **Three tags routed to a function that then refuses them.** `conv`
         // sends CLASS and OBJECT to `value_map_conversion` (`:729-732`) and
         // VALUEMAP to `true_value_map_conversion` (`:733-736`), and neither

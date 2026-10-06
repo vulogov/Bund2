@@ -1145,6 +1145,12 @@ impl BundValue {
             VALUEMAP | CLASS | OBJECT => Some(format!(
                 "Source value is not MAP but {dt} and not suitable for conversion"
             )),
+            // A MATRIX is dispatched to a converter that offers LIST and
+            // nothing else, and whose refusal calls the source a *list*
+            // (`:268-291`). 4 is STRING: this function answers for that
+            // target only, and the one caller with another target asks the
+            // table instead.
+            MATRIX => Some(format!("Can not convert list to {STRING}")),
             _ => None,
         }
     }

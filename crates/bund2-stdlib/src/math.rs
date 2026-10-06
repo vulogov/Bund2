@@ -19,7 +19,7 @@
 //! `1 2 + debug.display_stack` shows `q: 100.0`.
 
 use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
-use bund2_value::{BundValue, LIST, TIME};
+use bund2_value::{BundValue, CFLOAT, FLOAT, LIST, MATRIX, Metric, STRING, TEXTBUFFER};
 
 fn eff(consumes: u8, produces: u8) -> StackEffect {
     StackEffect::fixed(consumes, produces)
@@ -64,101 +64,342 @@ impl Op {
     }
 }
 
-/// `Value::numeric_op` for the arms Bund2 can construct
-/// (`reference/rust_dynamic/src/math.rs:127-235`).
+/// How deep a MATRIX of matrices is followed before an element is left alone.
+///
+/// The reference recurses per level with no bound and would exhaust its stack
+/// (`reference/rust_dynamic/src/math.rs:51`). Past this depth an element's
+/// operation is an error, which the matrix arm already answers by returning
+/// its left operand untouched — the reference's own answer to any element
+/// that will not combine (`:53-55`). D39.
+const MAX_MATRIX_DEPTH: usize = 32;
+
+/// `Value::numeric_op` (`reference/rust_dynamic/src/math.rs:127-409`).
 ///
 /// `x` is the **top** of the stack.
+///
+/// **The reference dispatches on `x`'s payload first and its tag second**, and
+/// this follows it arm for arm, in its order. That order is the behaviour: a
+/// BOOL has a payload no arm names and a tag the second match does not name
+/// either, so `true 1 +` is refused by the *last* arm, with the `X` sentence
+/// and the tag, while `1 true +` is refused by the integer's arm with the `Y`
+/// sentence and no tag.
+///
+/// An earlier version matched the numeric pairs, tried strings, and answered
+/// everything else `Incompartible Y argument for the math operations`. A
+/// 22-by-22 matrix of operand kinds against the oracle found that wrong for
+/// 362 of 484 pairs under `+` alone — F168.
 pub(crate) fn numeric_op(op: Op, x: &BundValue, y: &BundValue) -> Result<BundValue, Error> {
-    use BundValue::{Float, Int};
-    let (xa, ya) = (x.unboxed(), y.unboxed());
-    let xs = x.as_str();
-    let ys = y.as_str();
+    numeric_op_at(op, x, y, 0)
+}
 
-    // **A LIST left operand is append, and only under `Add`**
-    // (`reference/rust_dynamic/src/math.rs:296-324`). Two lists concatenate
-    // (`:299-308`); a list and anything else pushes the anything-else as one
-    // element (`:315-320`). Every other operation on a list is
-    // `Incompartible operation for the list` (`:322`).
-    //
-    // This is checked before the numeric arms because it dispatches on the
-    // **tag**, where those dispatch on the payload — a LIST has no scalar arm
-    // to match, so reaching the numeric `match` at all means falling through
-    // to the string fallback and reporting the wrong error. That is what
-    // `dynamic_demo_4.bund` hit: `list . … +.` appends a name to a list on the
-    // workbench, and it reported
-    // `Incompartible Y argument for the math operations`.
-    if x.dt() == LIST {
+fn numeric_op_at(op: Op, x: &BundValue, y: &BundValue, depth: usize) -> Result<BundValue, Error> {
+    use BundValue::{Float, Int};
+
+    // **METRICS: `Add` shifts a sample in, and nothing else does anything**
+    // (`:129-138`, `:16-23`). The operand is whatever converts to FLOAT — a
+    // list by its length, a bool as 0 or 1 — and the buffer keeps its size:
+    // `push` appends and drops the oldest
+    // (`reference/rust_dynamic/src/push.rs:118-126`).
+    if let Some(samples) = x.as_metrics() {
+        let sample = crate::convert::conv_value(y, FLOAT)
+            .ok()
+            .and_then(|f| match f.unboxed() {
+                Float(f, _) => Some(*f),
+                _ => None,
+            })
+            .ok_or_else(|| {
+                Error("Incompartible Y argument for the metrics math operations".into())
+            })?;
         if op != Op::Add {
-            return Err(Error("Incompartible operation for the list".into()));
+            return Ok(x.clone());
         }
-        let mut items = x.as_list().unwrap_or_default().to_vec();
-        match (y.dt() == LIST, y.as_list()) {
-            (true, Some(tail)) => items.extend(tail.iter().cloned()),
-            _ => items.push(y.clone()),
-        }
-        return Ok(BundValue::list(items));
+        let mut next = samples.to_vec();
+        next.push(Metric::new(sample));
+        next.remove(0);
+        return Ok(BundValue::metrics(next));
     }
 
-    // **A TIME on top has no arithmetic.** `numeric_op` matches the top
-    // operand's payload, and `Val::Time` is none of the arms it names, so it
-    // reaches the final one — which appends to a LIST underneath under `Add`
-    // and otherwise refuses, naming the tag
-    // (`reference/rust_dynamic/src/math.rs:369-405`). A TIME *underneath* a
-    // number is refused by the number's own arm, with the `Y` sentence below.
-    if x.dt() == TIME {
-        if y.dt() == LIST {
+    // **JSON merges with JSON under `Add`** and is returned untouched by the
+    // other three (`:139-146`, `:25-34`).
+    if let Some(mut a) = x.as_json() {
+        let Some(b) = y.as_json() else {
+            return Err(Error(
+                "Incompartible X and Y argument for the JSON math operations".into(),
+            ));
+        };
+        if op == Op::Add {
+            json_merge(&mut a, &b);
+        }
+        return Ok(BundValue::json(a));
+    }
+
+    let ys = y.as_str();
+    match x.unboxed() {
+        // A float on top (`:147-176`). Its refusal says **`X`**, where the
+        // integer's below says `Y`; neither names a tag.
+        Float(a, _) => {
+            return match y.unboxed() {
+                Float(b, _) => {
+                    if op == Op::Div && *b == 0.0 {
+                        return Err(Error("Float-point division to 0.0".into()));
+                    }
+                    Ok(BundValue::float(op.float(*a, *b)))
+                }
+                // The *divisor's* zero test uses the divisor's own kind.
+                Int(b, _) => {
+                    if op == Op::Div && *b == 0 {
+                        return Err(Error("Integer division to 0.0".into()));
+                    }
+                    Ok(BundValue::float(op.float(*a, *b as f64)))
+                }
+                // The string leads and the float is **truncated to an
+                // integer** first (`:171-173`): `"s" 2.5 +` is `"s2"`.
+                _ => match &ys {
+                    Some(b) => Ok(BundValue::str(string_op_int(op, b, *a as i64)?)),
+                    None => Err(Error(
+                        "Incompartible X argument for the math operations".into(),
+                    )),
+                },
+            };
+        }
+        // An integer on top (`:177-206`).
+        Int(a, _) => {
+            return match y.unboxed() {
+                Float(b, _) => {
+                    if op == Op::Div && *b == 0.0 {
+                        return Err(Error("Float-point division to 0.0".into()));
+                    }
+                    Ok(BundValue::float(op.float(*a as f64, *b)))
+                }
+                Int(b, _) => {
+                    if op == Op::Div && *b == 0 {
+                        return Err(Error("Integer division to 0.0".into()));
+                    }
+                    Ok(BundValue::int(op.int(*a, *b)))
+                }
+                // The operands swap places (`:200-202`), so the string leads.
+                _ => match &ys {
+                    Some(b) => Ok(BundValue::str(string_op_int(op, b, *a)?)),
+                    None => Err(Error(
+                        "Incompartible Y argument for the math operations".into(),
+                    )),
+                },
+            };
+        }
+        _ => {}
+    }
+
+    // **A string on top takes anything that converts to one** (`:236-293`).
+    // A string, an integer and a float each have an arm; everything else is
+    // `conv(STRING)` and concatenated, so `[ 9 ] "s" +` is `"s[ 9 :: ]"`. What
+    // will not convert is refused with `conv`'s own sentence after this arm's.
+    //
+    // The arm is chosen by *payload*, so a PTR and a CALL take it too, and the
+    // answer is a plain STRING for all of them — except a TEXTBUFFER, which
+    // stays one.
+    if let Some(a) = x.as_str() {
+        let text = match (&ys, y.unboxed()) {
+            (Some(b), _) => string_op(op, &a, b),
+            (None, Int(b, _)) => string_op_int(op, &a, *b)?,
+            (None, Float(b, _)) => string_op_float(op, &a, *b)?,
+            _ => match crate::convert::conv_value(y, STRING) {
+                Ok(b) => string_op(op, &a, &b.as_str().unwrap_or_default()),
+                Err(e) => {
+                    return Err(Error(format!(
+                        "Incompartible Y argument for the string operations: {}",
+                        e.0
+                    )));
+                }
+            },
+        };
+        return Ok(if x.dt() == TEXTBUFFER {
+            BundValue::textbuffer(text)
+        } else {
+            BundValue::str(text)
+        });
+    }
+
+    // From here the reference matches the **tag** (`:294-408`).
+    match x.dt() {
+        // A LIST on top is append, and only under `Add` (`:296-325`). Two
+        // lists concatenate; a list and anything else pushes the anything-else
+        // as one element.
+        LIST => {
+            if op != Op::Add {
+                return Err(Error("Incompartible operation for the list".into()));
+            }
+            let mut items = x.as_list().unwrap_or_default().to_vec();
+            match (y.dt() == LIST, y.as_list()) {
+                (true, Some(tail)) => items.extend(tail.iter().cloned()),
+                _ => items.push(y.clone()),
+            }
+            Ok(BundValue::list(items))
+        }
+        // A MATRIX combines with a MATRIX cell by cell, and takes a LIST as a
+        // new row under `Add` (`:327-352`). Note which sentence the list arm's
+        // refusal uses: `for the list`, though the operand on top is a matrix.
+        MATRIX => {
+            let rows = x.as_matrix().unwrap_or_default();
+            match y.dt() {
+                MATRIX => Ok(BundValue::matrix(matrix_op(
+                    op,
+                    rows,
+                    y.as_matrix().unwrap_or_default(),
+                    depth,
+                ))),
+                LIST => {
+                    if op != Op::Add {
+                        return Err(Error("Incompartible operation for the list".into()));
+                    }
+                    let mut next = rows.to_vec();
+                    next.push(y.as_list().unwrap_or_default().to_vec());
+                    Ok(BundValue::matrix(next))
+                }
+                _ => Err(Error("Incompartible operation for the matrix".into())),
+            }
+        }
+        // Complex with complex, and nothing else (`:361-368`).
+        CFLOAT => match (complex_parts(x), y.dt() == CFLOAT, complex_parts(y)) {
+            (Some(a), true, Some(b)) => {
+                let (re, im) = complex_op(op, a, b);
+                Ok(BundValue::complex_float(re, im))
+            }
+            _ => Err(Error(
+                "Incompartible Y argument for the math operations".into(),
+            )),
+        },
+        // **Everything else on top** — a BOOL, a LAMBDA, a PAIR, a MAP, a
+        // CLASS, an OBJECT, a VALUEMAP, a TIME, NODATA — is appended to a LIST
+        // underneath under `Add`, and otherwise refused by tag (`:369-405`).
+        dt => {
+            if y.dt() != LIST {
+                return Err(Error(format!(
+                    "Incompartible X argument for the math operations: {dt}"
+                )));
+            }
             if op != Op::Add {
                 return Err(Error("Incompartible operation for the list".into()));
             }
             let mut items = y.as_list().unwrap_or_default().to_vec();
             items.push(x.clone());
-            return Ok(BundValue::list(items));
+            Ok(BundValue::list(items))
         }
-        return Err(Error(format!(
-            "Incompartible X argument for the math operations: {}",
-            x.dt()
-        )));
     }
+}
 
-    match (xa, ya) {
-        (Int(a, _), Int(b, _)) => {
-            if op == Op::Div && *b == 0 {
-                return Err(Error("Integer division to 0.0".into()));
-            }
-            Ok(BundValue::int(op.int(*a, *b)))
+/// `numeric_op_matrix` (`reference/rust_dynamic/src/math.rs:36-65`).
+///
+/// **Any mismatch returns the left matrix unchanged, silently**: a different
+/// number of rows, a row of a different length, or a pair of cells that will
+/// not combine. No error is raised for any of them.
+fn matrix_op(
+    op: Op,
+    x: &[Vec<BundValue>],
+    y: &[Vec<BundValue>],
+    depth: usize,
+) -> Vec<Vec<BundValue>> {
+    if x.len() != y.len() || depth >= MAX_MATRIX_DEPTH {
+        return x.to_vec();
+    }
+    let mut res = Vec::with_capacity(x.len());
+    for (xr, yr) in x.iter().zip(y) {
+        if xr.len() != yr.len() {
+            return x.to_vec();
         }
-        (Float(a, _), Float(b, _)) => {
-            if op == Op::Div && *b == 0.0 {
-                return Err(Error("Float-point division to 0.0".into()));
+        let mut row = Vec::with_capacity(xr.len());
+        for (a, b) in xr.iter().zip(yr) {
+            match numeric_op_at(op, a, b, depth + 1) {
+                Ok(v) => row.push(v),
+                Err(_) => return x.to_vec(),
             }
-            Ok(BundValue::float(op.float(*a, *b)))
         }
-        // Mixed kinds promote to float, and the *divisor's* zero test uses the
-        // divisor's own kind (`math.rs:160-170,178-188`).
-        (Float(a, _), Int(b, _)) => {
-            if op == Op::Div && *b == 0 {
-                return Err(Error("Integer division to 0.0".into()));
-            }
-            Ok(BundValue::float(op.float(*a, *b as f64)))
-        }
-        (Int(a, _), Float(b, _)) => {
-            if op == Op::Div && *b == 0.0 {
-                return Err(Error("Float-point division to 0.0".into()));
-            }
-            Ok(BundValue::float(op.float(*a as f64, *b)))
-        }
-        _ => {
-            // String arms. An `I64` left operand with a string right operand
-            // reaches `string_op_string_int(op, s_y, i_x)` — note the operands
-            // swap places (`math.rs:200-202`), so the *string* leads.
-            match (xs, ys, xa, ya) {
-                (Some(a), Some(b), _, _) => Ok(BundValue::str(string_op(op, &a, &b))),
-                (_, Some(b), Int(a, _), _) => Ok(BundValue::str(string_op_int(op, &b, *a))),
-                (Some(a), _, _, Int(b, _)) => Ok(BundValue::str(string_op_int(op, &a, *b))),
-                _ => Err(Error("Incompartible Y argument for the math operations".into())),
-            }
+        res.push(row);
+    }
+    res
+}
+
+/// The two floats a CFLOAT holds.
+fn complex_parts(v: &BundValue) -> Option<(f64, f64)> {
+    match v.as_list()? {
+        [re, im] => match (re.unboxed(), im.unboxed()) {
+            (BundValue::Float(re, _), BundValue::Float(im, _)) => Some((*re, *im)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// `numeric_op_cpx_float_cpx_float` (`:94-101`), which is `num::Complex`'s
+/// four operators written out.
+fn complex_op(op: Op, (a, b): (f64, f64), (c, d): (f64, f64)) -> (f64, f64) {
+    match op {
+        Op::Add => (a + c, b + d),
+        Op::Sub => (a - c, b - d),
+        Op::Mul => (a * c - b * d, a * d + b * c),
+        Op::Div => {
+            let n = c * c + d * d;
+            ((a * c + b * d) / n, (b * c - a * d) / n)
         }
     }
+}
+
+/// `json_value_merge::Merge::merge`, version 2.0.1, which is what
+/// `numeric_op_json_json` calls (`:25-34`).
+///
+/// Objects merge key by key, arrays concatenate, an object merged into an
+/// array is appended to it, and any other pair is replaced by the right side.
+/// The crate recurses per level of object; this keeps the pending pairs on the
+/// heap instead (D39).
+fn json_merge(a: &mut serde_json::Value, b: &serde_json::Value) {
+    use serde_json::Value;
+    let mut work: Vec<(&mut Value, &Value)> = vec![(a, b)];
+    while let Some((a, b)) = work.pop() {
+        match (a, b) {
+            (Value::Object(a), Value::Object(b)) => {
+                // Each key is a distinct slot, so the borrows do not overlap;
+                // collecting them through `iter_mut` is what lets the
+                // compiler see that.
+                for (k, _) in b {
+                    a.entry(k.clone()).or_insert(Value::Null);
+                }
+                for (k, slot) in a.iter_mut() {
+                    if let Some(v) = b.get(k) {
+                        work.push((slot, v));
+                    }
+                }
+            }
+            (Value::Array(a), Value::Array(b)) => a.extend(b.iter().cloned()),
+            (Value::Array(a), Value::Object(_)) => a.push(b.clone()),
+            (a, b) => *a = b.clone(),
+        }
+    }
+}
+
+/// `str::repeat`, refusing a product that cannot be held.
+///
+/// The reference calls `repeat` bare (`reference/rust_dynamic/src/math.rs:112,120`)
+/// and **aborts** on `capacity overflow` for a count too large. Bund2 let that
+/// panic inside the native, where it was caught and reported as an *internal*
+/// error. It is not one: the program asked for it. D37, and the treatment D98
+/// gave `io.textfile`.
+///
+/// A *negative* count aborts the reference the same way, because `as usize`
+/// turns it into an enormous one. Bund2 has always taken it as zero and
+/// answered the empty string; that is left as it was.
+fn repeat(x: &str, count: usize) -> Result<String, Error> {
+    let refuse = || {
+        Error(format!(
+            "a string of {} bytes cannot be repeated {count} times",
+            x.len()
+        ))
+    };
+    let total = x.len().checked_mul(count).ok_or_else(refuse)?;
+    let mut out = String::new();
+    out.try_reserve_exact(total).map_err(|_| refuse())?;
+    for _ in 0..count {
+        out.push_str(x);
+    }
+    Ok(out)
 }
 
 /// `string_op_string_string` (`reference/rust_dynamic/src/math.rs:103-108`).
@@ -175,12 +416,24 @@ fn string_op(op: Op, x: &str, y: &str) -> String {
 /// `string_op_string_int` (`reference/rust_dynamic/src/math.rs:110-116`).
 /// `Mul` repeats, `Add` appends the number's text, and everything else is the
 /// same silent pass-through.
-fn string_op_int(op: Op, x: &str, y: i64) -> String {
-    match op {
-        Op::Mul => x.repeat(y.max(0) as usize),
+fn string_op_int(op: Op, x: &str, y: i64) -> Result<String, Error> {
+    Ok(match op {
+        Op::Mul => repeat(x, y.max(0) as usize)?,
         Op::Add => format!("{x}{y}"),
         _ => x.to_string(),
-    }
+    })
+}
+
+/// `string_op_string_float` (`reference/rust_dynamic/src/math.rs:118-124`).
+/// `Mul` repeats by the float **cast to a count**, which truncates and takes a
+/// negative or a NaN as zero; `Add` appends the float as `{}` prints it, so
+/// `2.0` appends `2`.
+fn string_op_float(op: Op, x: &str, y: f64) -> Result<String, Error> {
+    Ok(match op {
+        Op::Mul => repeat(x, y as usize)?,
+        Op::Add => format!("{x}{y}"),
+        _ => x.to_string(),
+    })
 }
 
 fn run(op: Op, vm: &mut dyn Vm) -> Result<(), Error> {
@@ -633,5 +886,111 @@ mod tests {
     fn interpolation_wants_a_float_xp() {
         let e = err_of("2 [ 10 20 ] [ 1 2 ] math.interpolation");
         assert!(e.contains("MATH.INTERPOLATION error casting XP"), "{e}");
+    }
+
+    /// F168: which arm refuses, and in which words. Each row measured on the
+    /// oracle; the left column is read with the **last** term on top.
+    ///
+    /// The sentences differ by arm, and that is the point of the test: `X`
+    /// with a tag from the last arm, `X` without one from the float's, `Y`
+    /// from the integer's, and each container's own.
+    #[test]
+    fn each_arm_refuses_in_its_own_words() {
+        for (src, want) in [
+            // The last arm: no payload arm and no tag arm. The tag is named.
+            ("1 true +", "ADD returns error: Incompartible X argument for the math operations: 1"),
+            ("\"s\" { 7 } +", "ADD returns error: Incompartible X argument for the math operations: 17"),
+            ("1 dict +", "ADD returns error: Incompartible X argument for the math operations: 11"),
+            ("1 nodata -", "SUB returns error: Incompartible X argument for the math operations: 97"),
+            // ...which under a list is an append, and only under `+`.
+            ("[ 9 ] true -", "SUB returns error: Incompartible operation for the list"),
+            // A float on top says `X`; an integer on top says `Y`. No tag.
+            ("true 2.5 +", "ADD returns error: Incompartible X argument for the math operations"),
+            ("true 2 +", "ADD returns error: Incompartible Y argument for the math operations"),
+            // A string on top: what will not convert is refused in `conv`'s words.
+            (
+                "1 2 pair \"s\" +",
+                "ADD returns error: Incompartible Y argument for the string operations: Can not convert Value from 10",
+            ),
+            (
+                "class \"s\" +",
+                "ADD returns error: Incompartible Y argument for the string operations: Source value is not MAP but 31 and not suitable for conversion",
+            ),
+            (
+                "[ [ 1 ] ] matrix \"s\" +",
+                "ADD returns error: Incompartible Y argument for the string operations: Can not convert list to 4",
+            ),
+            // The containers.
+            ("1 [ [ 1 ] ] matrix +", "ADD returns error: Incompartible operation for the matrix"),
+            ("[ 1 ] [ [ 1 ] ] matrix -", "SUB returns error: Incompartible operation for the list"),
+            ("1 1.0 2.0 complex +", "ADD returns error: Incompartible Y argument for the math operations"),
+            ("\"s\" metrics +", "ADD returns error: Incompartible Y argument for the metrics math operations"),
+            (
+                "1 '{\"a\":1}' json +",
+                "ADD returns error: Incompartible X and Y argument for the JSON math operations",
+            ),
+        ] {
+            let e = err_of(src);
+            assert!(e.ends_with(want), "{src}: {e}");
+        }
+    }
+
+    /// The arms whose answer cannot be printed, and so cannot sit in the probe.
+    #[test]
+    fn complex_and_metrics_arithmetic() {
+        // `complex` takes the real part from the top, so these are 2+1i and
+        // -1.5+3i, and their product is -6 + 4.5i. The multiplication is
+        // written out rather than taken from a crate, so it is checked against
+        // one worked by hand -- and the oracle agrees.
+        let i = run_src("3.0 -1.5 complex 1.0 2.0 complex *").expect("runs");
+        let v = i.peek().expect("a value");
+        assert_eq!(complex_parts(&v), Some((-6.0, 4.5)));
+
+        // `+` shifts one sample in and keeps the buffer's 128; the other
+        // three return it untouched.
+        let i = run_src("7 metrics +").expect("runs");
+        let m = i.peek().and_then(|v| v.as_metrics().map(<[Metric]>::to_vec)).expect("metrics");
+        assert_eq!(m.len(), 128);
+        assert_eq!(m.last().map(|s| s.data), Some(7.0));
+        let i = run_src("7 metrics *").expect("runs");
+        let m = i.peek().and_then(|v| v.as_metrics().map(<[Metric]>::to_vec)).expect("metrics");
+        assert_eq!(m.last().map(|s| s.data), Some(0.0));
+    }
+
+    /// A repeat too large to hold is the program's error, not Bund2's.
+    ///
+    /// The reference aborts here; Bund2 panicked inside the native and called
+    /// it an internal error.
+    #[test]
+    fn an_impossible_repeat_is_reported_as_the_programs() {
+        let e = err_of("\"ab\" 4611686018427387904 *");
+        assert!(
+            e.ends_with("MUL returns error: a string of 2 bytes cannot be repeated 4611686018427387904 times"),
+            "{e}"
+        );
+        assert!(!e.contains("internal error"), "{e}");
+        // A negative count has always been taken as zero.
+        assert_eq!(top_str("\"ab\" -3 *").as_deref(), Some(""));
+    }
+
+    /// The merge is `json_value_merge`'s, written as a worklist.
+    #[test]
+    fn json_merge_follows_the_crate_it_replaces() {
+        let j = |s: &str| serde_json::from_str::<serde_json::Value>(s).expect("json");
+        for (a, b, want) in [
+            (r#"["a","b"]"#, r#"["b","c"]"#, r#"["a","b","b","c"]"#),
+            (
+                r#"{"value1":"a","value2":"b"}"#,
+                r#"{"value1":"a","value2":"c","value3":"d"}"#,
+                r#"{"value1":"a","value2":"c","value3":"d"}"#,
+            ),
+            ("[]", r#"{"field1":"value1"}"#, r#"[{"field1":"value1"}]"#),
+            (r#"{"field1":"value1"}"#, r#"["value2","value3"]"#, r#"["value2","value3"]"#),
+            (r#"{"a":{"b":{"c":1}}}"#, r#"{"a":{"b":{"d":2}}}"#, r#"{"a":{"b":{"c":1,"d":2}}}"#),
+        ] {
+            let mut got = j(a);
+            json_merge(&mut got, &j(b));
+            assert_eq!(got, j(want), "{a} <- {b}");
+        }
     }
 }
