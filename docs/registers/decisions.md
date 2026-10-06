@@ -3547,6 +3547,68 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D98 — `io.textfile` reports where the reference aborts, and truncates where it truncates
+
+**Authorised by the repository owner, 2026-10-05**, on being shown F161 and
+three options. It confirms what `3f17eea` had already built under D37; the
+ruling is recorded because that commit applied D97's reasoning to a second
+defect without one.
+
+- Blocks: nothing
+- Depends on: D37 (Bund2 does not abort), D97, F161
+- Status: **RESOLVED**, 2026-10-05.
+
+### The situation
+
+Invalid UTF-8 in a file `io.textfile` reads has two outcomes in the reference,
+and which one depends only on how many readable lines precede it:
+
+| file | reference |
+|---|---|
+| `\xff\n` — none | `[]` |
+| `a\n\xff\nz\n` — one | `[ a ]`, silently; `z` is lost |
+| `a\nb\n\xff\nz\n` — two or more | **aborts**, `index out of bounds`, exit 101 |
+
+D37 forbids the abort. The question was what replaces it, and whether the two
+truncating rows should change with it.
+
+### The decision
+
+**Report on the abort case only.** With two or more readable lines before the
+bad one, Bund2 fails with `IO.TEXTFILE returns error: The line starting at
+byte: … and ending at byte: … is not valid UTF-8`, the crate's own description
+of the line. With zero or one, it answers what the reference answers,
+truncation included.
+
+**An error is the nearest survivable thing to an abort**, and that is the
+reason rather than tidiness. A crash and an error both *stop the program*, so
+in neither is a caller handed partial data it believes is whole. Replacing the
+crash with a truncated list would make a program **continue** where the
+reference stopped — a larger change in what happens than replacing a crash
+with an error.
+
+### What was declined
+
+- **Truncate everywhere** — stop at the first unreadable line and answer what
+  was read, at any count. It has the best argument of the three and it should
+  be stated fairly: the reference's own loop says `_ => break`
+  (`reference/Bund/src/stdlib/functions/io/textfile.rs`), so truncation is
+  what the author *wrote*, and the abort is an accident of the crate beneath.
+  Declined because it extends silent data loss to every file: a log with one
+  corrupt byte on line 5,000 would answer 4,999 lines and say nothing, where
+  the reference at least stops.
+- **Report everywhere** — an error on any unreadable line. No cliff and no
+  silent loss, but it deviates from behaviour the reference actually has in
+  the zero- and one-line rows, and no golden could witness it.
+
+### What it costs
+
+**A cliff at two lines.** Whether a corrupt file is truncated quietly or
+refused loudly depends on how many good lines come first, which is arbitrary
+from where a user stands. It is the reference's cliff — truncate-versus-crash
+there, truncate-versus-error here — kept in the same place and made
+survivable, not introduced.
+
 ## D97 — `io.textfile` reports an error where the reference never returns
 
 **Authorised by the repository owner, 2026-10-05**, on being shown F160 and

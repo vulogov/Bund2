@@ -4088,10 +4088,14 @@ is not valid UTF-8. …`, the crate's own description of the line.
 **The single-line case is PRESERVED**, truncation included: with zero or one
 readable line the reference does answer, and Bund2 answers the same.
 
-**An error rather than an invented answer**, on D97's reasoning and not a new
-decision: the repository owner had just chosen "report" over "invent" for
-[[F160]], the sibling case in which the reference likewise has no behaviour to
-preserve. If that reading is wrong, this is the entry to overrule.
+**An error rather than an invented answer — confirmed as D98.** It was first
+built on D97's reasoning without a ruling of its own, and flagged here as the
+entry to overrule. The repository owner was then shown three options and kept
+it. D98 records the reason, which is sharper than the one this entry started
+with: a crash and an error both stop the program, whereas a truncated list
+would make it *continue* on partial data. It also records the best argument
+for the alternative — the reference's loop says `_ => break`, so truncation is
+what its author wrote — and why that was declined.
 
 ## F160 — `io.textfile` never returns on a file that begins with a line terminator
 
