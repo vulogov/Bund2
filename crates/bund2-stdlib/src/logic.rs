@@ -105,6 +105,13 @@ fn is_numeric_tag(dt: u16) -> bool {
 /// be findable. Both are correct; they answer different questions.
 fn numeric_eq(a: &BundValue, b: &BundValue) -> bool {
     // Through the boxing `push` applies; see `BundValue::unboxed`.
+    // Two instants are equal when their nanosecond counts are
+    // (`reference/rust_dynamic/src/eq.rs:37-43`). TIME carries a numeric tag
+    // over a payload that is not a scalar, so it is asked before the scalar
+    // arms rather than left to fall through them.
+    if let (Some(x), Some(y)) = (a.as_time(), b.as_time()) {
+        return x == y;
+    }
     match (a.unboxed(), b.unboxed()) {
         (BundValue::Int(x, _), BundValue::Int(y, _)) => x == y,
         (BundValue::Float(x, _), BundValue::Float(y, _)) => x == y,
@@ -173,6 +180,11 @@ fn numeric_ord(op: Op, a: &BundValue, b: &BundValue) -> bool {
             },
         }
     };
+    // Two instants order by their nanosecond counts
+    // (`reference/rust_dynamic/src/ord.rs:27-33,66-72,105-111,144-150`).
+    if let (Some(x), Some(y)) = (a.as_time(), b.as_time()) {
+        return by(Some(x.cmp(&y)));
+    }
     match (a.unboxed(), b.unboxed()) {
         (BundValue::Int(x, _), BundValue::Int(y, _)) => by(Some(x.cmp(y))),
         (BundValue::Float(x, _), BundValue::Float(y, _)) => by(x.partial_cmp(y)),

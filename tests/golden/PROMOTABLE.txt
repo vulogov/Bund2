@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 276 promotable of 285 reached, of 326 fixed-effect natives; 9 reached natives
+# 280 promotable of 289 reached, of 330 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 *
@@ -280,6 +280,8 @@ system.path.split.
 tag
 tail
 text
+time.now
+time.timestamp
 to_current
 to_stack
 true
@@ -287,6 +289,8 @@ type
 type.of
 unalias
 unfold.
+unique
+unique.
 unregister
 valuemap
 var

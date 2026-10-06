@@ -3547,6 +3547,180 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D103 — TIME is a payload of its own, and does as little as the reference's
+
+**Authorised by the repository owner, 2026-10-06**, on being shown the
+options.
+
+- Blocks: nothing
+- Depends on: D37, F155, F166
+- Status: **RESOLVED**, built 2026-10-06.
+
+### The decision
+
+`time.now` and `time.timestamp` are implemented over a new
+`Payload::Time(u128)` (`crates/bund2-value/src/lib.rs`), rather than left
+unimplemented or carried as a tagged integer.
+
+### Why a payload and not a tagged INTEGER
+
+`Val::Time` holds a `u128` (`reference/rust_dynamic/src/create.rs:175`), and
+`time.timestamp` casts its operand `as u128`, so `-1 time.timestamp` is the
+largest one. An `i64` under a TIME tag cannot hold that, and
+`debug.display_stack` renders the payload by name — `data: Time(n)` — so the
+representation is observable, as it was for MATRIX.
+
+It is a heap payload because `BundValue` is sixteen bytes and a `u128` is
+sixteen alone.
+
+### What a TIME value does
+
+Only what the reference gives it arms for, each measured against the oracle:
+
+- **Equality and the four orderings**, by nanosecond count, against another
+  TIME (`reference/rust_dynamic/src/eq.rs:37-43`,
+  `ord.rs:27-33,66-72,105-111,144-150`). Against anything else, equality is
+  false.
+- **Not printed and not converted.** `conv` never names `Val::Time`, so
+  `println` and every `convert.to_*` reach its final refusal,
+  `Can not convert Value from 13` (`reference/rust_dynamic/src/conv.rs:743`).
+- **Not added to.** With the TIME on top, `numeric_op` reaches its last arm:
+  `Incompartible X argument for the math operations: 13`
+  (`reference/rust_dynamic/src/math.rs:369-405`). Underneath a number, the
+  number's arm refuses it with the `Y` sentence. The one admitted form is
+  `+` onto a LIST, which appends.
+- **It crosses the wire.** `Val::Time` was the kind the wire test used as its
+  example of a kind Bund2 lacks; that test now uses `Embedding`.
+
+Nineteen programs compared with the oracle, nineteen agreeing.
+
+### What it does not settle
+
+Nothing in the reference turns a TIME back into a number or a string, so the
+value is close to write-only. That is preserved, not repaired: adding a
+conversion would be a language decision nobody has asked for.
+
+`time.now` reports a clock set before the epoch. The reference unwraps that
+read and aborts (`reference/rust_dynamic/src/value.rs:11-13`), so this is the
+D37 treatment — a report where the reference panics — and not a new deviation.
+
+## D102 — RFC-0008's remainder: the sweep, then history; the trace waits
+
+**Authorised by the repository owner, 2026-10-06.**
+
+- Blocks: nothing
+- Depends on: D94 (RFC-0008 Proposed), F10, F165
+- Status: **RESOLVED**; the first two parts built 2026-10-06.
+
+Three pieces of RFC-0008 were unbuilt or unfinished, and they are not alike.
+
+1. **Criterion 6's suite-wide sweep — done first.** It verifies code that
+   already exists, costs a test, and could find defects. It found one (F165)
+   and met the criterion for 134 of 136 programs.
+2. **§D8, history in a config directory — done second.** F10's disposition was
+   FIX. It was also a gap in work done that week: `debug` and `debug.shell`
+   had been implemented writing no history at all.
+3. **§D7, the execution trace — deferred.** A hook in the frame loop behind a
+   flag, emitting a stream nothing reads. It has no criterion over it (D94
+   says so) and no consumer; building it now would be designing an interface
+   for a user who does not exist yet.
+
+## D101 — the input seam waits for its second implementor
+
+**Authorised by the repository owner, 2026-10-06**, on being shown three
+options.
+
+- Blocks: nothing
+- Depends on: D99, D36, F158, F165
+- Status: **RESOLVED — deferred**, with a named trigger.
+
+### The decision
+
+The seam D99 records as owed — terminal words reading through the VM as they
+report through it — is **not built now**. It is built when there is a second
+implementor to design it against.
+
+### Why not now
+
+F158 is closed and enforced, so nothing is broken that the seam would mend. A
+seam designed with one implementor usually has the wrong shape, and what a
+TUI needs of it is not yet known: structured prompts, cancellation, history,
+whether reads are asynchronous. `Reporter` was shaped by having the CLI and
+the tier both consume it.
+
+### What changed the day this was decided
+
+**A second consumer turned out to exist already.** F165, found the same day:
+the debugger and the debugged program share standard input, so a program that
+reads input cannot be debugged. That is the seam's problem stated without a
+TUI — two readers that need two channels.
+
+It does not reverse this decision, and it does sharpen it. The trigger is no
+longer only "when a TUI is built": **whichever comes first, a TUI or the wish
+to debug a program that reads input**, is the second implementor, and F165 is
+the specification of the minimum it must do. RFC-0008's `Console` is already
+half of this — an input abstraction for the session — and the amendment to
+RFC-0002 should be designed together with it rather than beside it.
+
+## D100 — `unique` gets a comparator of its own, and one answer where the reference has several
+
+**Authorised by the repository owner, 2026-10-06**, on being shown the
+grounding and three options.
+
+- Blocks: nothing
+- Depends on: F12 (disposition FIX), F149, F164, F74
+- Status: **RESOLVED — decided and built**, 2026-10-06.
+
+### The decision
+
+`unique` is implemented with a comparison local to the word. **There is no
+`impl Ord for BundValue`**, and none was needed: F149 recorded that the word
+"needs a decision about `BundValue: Ord`", reading the bound on the crate the
+reference calls as a requirement on Bund2. Bund2 does not call that crate. It
+ports the Fibonacci walk and gives it the three comparisons the walk makes.
+
+**Where the reference compares by value, Bund2 is identical** — integers and
+strings, including the walk's quirks over an unsorted accumulator. Checked
+against the oracle over 300 generated lists: all identical, 64 of them the
+"requires sorted input" error.
+
+**Where the reference compares by random id, Bund2 answers by the
+reference's own equality.** Its ordering has no arm for a float, or for an
+integer against a float, and falls through to comparing ids — so its walk
+takes arbitrary branches and the answer changes between runs (F164). There
+the question is put directly: *found, if and only if some kept member is
+equal by the reference's `==`*. Floats themselves are ordered by value, which
+is F12's disposition and was already FIX.
+
+### Why this is not a deviation in the usual sense
+
+A behaviour that differs between two runs of the reference is not a contract
+— F74's reasoning for `string.tokenize.unique`, applied here. No golden could
+hold it; a capture that agreed twice by chance would be F155's trap. So Bund2
+is not choosing against the reference's answer. It is choosing *among* them,
+and it chooses the one a reader of the word's name expects.
+
+### What is preserved that looks wrong
+
+Three things, each the reference's and each kept:
+
+- **Disordered numbers fail at the third member.** The accumulator's order is
+  tested when it is next searched, so `[ 2 1 ]` is returned untouched and
+  `[ 2 1 1 ]` is an error.
+- **Strings are never refused**, and the search over them skips:
+  `[ "c" "b" "a" "c" "a" ]` drops the second `c` and keeps the second `a`.
+- **Equality between an integer and a float is not symmetric.** A new integer
+  is compared against a kept float by *truncating the float*, so
+  `[ 1.9 1 ] unique` answers `[ 1.9 ]`; a new float is compared by widening
+  the integer, so `[ 1 1.9 ] unique` keeps both.
+
+### What was declined
+
+- **A global `Ord` for `BundValue`.** It would have settled ordering for
+  every type and every caller to satisfy one word, which F149 itself warned
+  against.
+- **Leaving it unimplemented.** The blocker recorded was not real.
+
 ## D99 — standard input is read in two helpers, and a scan says so
 
 **Authorised by the repository owner, 2026-10-05**, on being shown F158 and

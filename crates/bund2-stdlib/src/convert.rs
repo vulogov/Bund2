@@ -45,6 +45,17 @@ pub(crate) fn conv_value(v: &BundValue, target: u16) -> Result<BundValue, Error>
     //
     // That is the third time a duplicated renderer diverged — `format` carried
     // one, `display` lacked the MAP arm, and this. One function, one answer.
+    //
+    // Except for a source `conv` has no arm for at all, and `displayable` is
+    // the list of those. `display` renders a PAIR because it must return
+    // something; `conv` reaches its final refusal for one, whatever the target
+    // (`reference/rust_dynamic/src/conv.rs:743`). TIME is the fourth: the
+    // function never names `Val::Time`. Without this the STRING target answered
+    // `[ 2 ::  1 :: ]` for `1 2 pair convert.to_string`, where the oracle says
+    // `Can not convert Value from 10`.
+    if !v.displayable() {
+        return Err(Error(format!("Can not convert Value from {}", v.dt())));
+    }
     if target == STRING {
         return Ok(BundValue::str(v.display()));
     }
@@ -738,12 +749,20 @@ mod tests {
                     "{src}: wanted {want:?}, got {e:?}"
                 ),
             }
-            // The same source *does* convert to STRING — that is what makes the
+            // NODATA and PTR *do* convert to STRING — that is what makes the
             // refusal above a fact about the table and not about `display`.
-            assert!(
-                run(&format!("{src} convert.to_string")).is_ok(),
-                "{src} convert.to_string should still work"
-            );
+            //
+            // This once asserted it of all six sources, which the oracle
+            // contradicts for the other four: a PAIR is refused for STRING as
+            // for everything (F166, fixed), and VALUEMAP, CLASS and METRICS
+            // are refused there too, which Bund2 does not yet reproduce
+            // (F167, open). So the claim is made only where it was measured.
+            if matches!(src, "nodata" | "\"a\" ptr") {
+                assert!(
+                    run(&format!("{src} convert.to_string")).is_ok(),
+                    "{src} convert.to_string should still work"
+                );
+            }
         }
     }
 }

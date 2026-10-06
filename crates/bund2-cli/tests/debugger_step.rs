@@ -43,9 +43,14 @@ fn run(src: &str, under: Option<&'static str>) -> (String, Option<i32>) {
     }
     c.args(["script", "--file"]).arg(&script);
     c.stdout(Stdio::piped()).stderr(Stdio::null());
-    if under.is_some() {
-        c.stdin(Stdio::piped());
-    }
+    // A plain run is given no input at all rather than this test's own
+    // stdin, which under a backgrounded `cargo test` is a pipe that never
+    // closes (F158).
+    c.stdin(if under.is_some() {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    });
     let mut child = c.spawn().expect("bund2 runs");
 
     if let Some(cmd) = under {
@@ -138,6 +143,257 @@ fn a_stepped_run_matches_an_uninterrupted_one() {
             assert_eq!(code, plain_code, "{what}: `{cmd}` changed the exit code");
         }
     }
+}
+
+/// The workspace root, from this crate's manifest directory.
+fn repo() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("the workspace root")
+}
+
+/// Every program `conform` runs: each `HERMETIC.txt` entry, and each probe
+/// that has a golden. With the directory each is run from — the corpus from
+/// `reference/Bund`, probes from the root — because that is where the capture
+/// runs them and some resolve paths against it.
+fn suite() -> Vec<(std::path::PathBuf, std::path::PathBuf)> {
+    let root = repo();
+    let mut out = Vec::new();
+    let hermetic =
+        std::fs::read_to_string(root.join("tests/golden/HERMETIC.txt")).expect("HERMETIC.txt");
+    for line in hermetic.lines().map(str::trim) {
+        if !line.is_empty() && !line.starts_with('#') {
+            out.push((root.join(line), root.join("reference/Bund")));
+        }
+    }
+    let mut probes: Vec<_> = std::fs::read_dir(root.join("tests/probes"))
+        .expect("probes")
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "bund"))
+        .collect();
+    probes.sort();
+    for p in probes {
+        let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+        if root
+            .join("tests/golden/probes")
+            .join(format!("{stem}.golden"))
+            .exists()
+        {
+            out.push((p, root.clone()));
+        }
+    }
+    out
+}
+
+/// Does this program call a word that reads standard input?
+///
+/// Decided from the source so the exclusion below is *derived* and cannot go
+/// stale: a new probe that reads input is excluded by what it says, not by
+/// someone remembering to list it.
+///
+/// **String literals are removed first, and before comments.** A first
+/// version split on whitespace alone and excluded `convert-to-dict.bund` for
+/// the sentence "on the same input" inside a `println` — a program the sweep
+/// had already shown stepping through cleanly. And a literal must go before
+/// `//` is cut, or `"http://x"` loses everything after its colon and the rest
+/// of the line is read as code.
+fn reads_stdin(src: &str) -> bool {
+    const READERS: [&str; 5] = ["input", "input*", "debug", "debug.shell", "password"];
+    src.lines().any(|line| {
+        let mut code = String::with_capacity(line.len());
+        let mut in_string = false;
+        let mut escaped = false;
+        for c in line.chars() {
+            if in_string {
+                if escaped {
+                    escaped = false;
+                } else if c == '\\' {
+                    escaped = true;
+                } else if c == '"' {
+                    in_string = false;
+                }
+                continue;
+            }
+            if c == '"' {
+                in_string = true;
+                // A literal is one token; keep the boundary.
+                code.push(' ');
+            } else {
+                code.push(c);
+            }
+        }
+        code.split("//")
+            .next()
+            .unwrap_or_default()
+            .split_whitespace()
+            .any(|tok| READERS.contains(&tok))
+    })
+}
+
+/// Run one suite program to the end, plainly or stepped, with a deadline.
+///
+/// A deadline because the claim under test is that stepping *finishes*, and a
+/// run that does not must fail by name rather than stall the suite — which is
+/// what `wait_with_output` alone would do.
+fn run_file(
+    file: &std::path::Path,
+    cwd: &std::path::Path,
+    under: Option<&'static str>,
+) -> Result<(String, Option<i32>), String> {
+    let mut c = Command::new(env!("CARGO_BIN_EXE_bund2"));
+    if under.is_some() {
+        c.arg("--debugger");
+    }
+    c.args(["script", "--file"]).arg(file).current_dir(cwd);
+    c.stdout(Stdio::piped()).stderr(Stdio::null());
+    c.stdin(if under.is_some() {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    });
+    let mut child = c.spawn().map_err(|e| format!("spawn: {e}"))?;
+    if let Some(cmd) = under {
+        let mut pipe = child.stdin.take().ok_or("stdin")?;
+        std::thread::spawn(move || {
+            let line = format!("{cmd}\n");
+            while pipe.write_all(line.as_bytes()).is_ok() {
+                if pipe.flush().is_err() {
+                    break;
+                }
+            }
+        });
+    }
+    // Drained on its own thread while the child runs: waiting first deadlocks
+    // any program whose output exceeds the pipe buffer (F43).
+    let mut stdout = child.stdout.take().ok_or("stdout")?;
+    let reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut stdout, &mut buf);
+        buf
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let status = loop {
+        match child.try_wait().map_err(|e| format!("wait: {e}"))? {
+            Some(s) => break s,
+            None if std::time::Instant::now() > deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("did not finish within 30 s".into());
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(2)),
+        }
+    };
+    let bytes = reader.join().map_err(|_| "reader thread")?;
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    // F14, as `run` does it: ids and stamps differ between any two runs.
+    let text = text
+        .split('\n')
+        .map(|l| {
+            let mut s = l.to_string();
+            while let Some(a) = s.find("id: \"") {
+                if let Some(b) = s[a + 5..].find('"') {
+                    s.replace_range(a + 5..a + 5 + b, "X");
+                    s.replace_range(a..a + 4, "id:_");
+                } else {
+                    break;
+                }
+            }
+            s.replace("id:_", "id: ")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok((regex_lite_strip_stamp(&text), status.code()))
+}
+
+/// **Criterion 6 over the suite, which is what it says** — "over every suite
+/// program". The test above shows it for four programs chosen to cover what
+/// the safepoint must reach; this shows it for every program `conform` runs.
+///
+/// **Two programs are excluded, and the exclusion is the finding.** The
+/// debugger takes its commands from standard input, and so do `input`,
+/// `input*`, `debug` and `debug.shell`. A program that calls one of them
+/// under `--debugger` reads the *debugger's commands* as its own input: each
+/// `s` meant for the session is taken by the program instead, and the run does
+/// not finish. So a program that reads input cannot be debugged at all (F165).
+/// That is not a property of stepping and this test does not claim otherwise —
+/// it claims stepping for every program that leaves standard input alone.
+///
+/// The excluded set is **derived** from each program's source rather than
+/// listed, so it cannot go stale, and then **compared against the two names
+/// expected**, so a third arriving is noticed rather than silently skipped.
+#[test]
+fn stepping_agrees_with_an_uninterrupted_run_over_the_whole_suite() {
+    let programs = suite();
+    assert!(programs.len() > 100, "found only {} programs", programs.len());
+
+    let name = |p: &std::path::Path| {
+        p.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_string()
+    };
+    let (excluded, checked): (Vec<_>, Vec<_>) = programs.into_iter().partition(|(file, _)| {
+        std::fs::read_to_string(file).is_ok_and(|src| reads_stdin(&src))
+    });
+    let mut excluded_names: Vec<String> = excluded.iter().map(|(f, _)| name(f)).collect();
+    excluded_names.sort();
+    assert_eq!(
+        excluded_names,
+        ["debug-repl-words", "terminal-words"],
+        "the programs excluded for reading standard input changed (F165)"
+    );
+
+    // Spread over the available cores: four hundred process runs in sequence
+    // is the better part of a minute, and none depends on another.
+    let workers = std::thread::available_parallelism().map_or(4, |n| n.get().min(8));
+    let next = AtomicUsize::new(0);
+    let problems = std::sync::Mutex::new(Vec::<String>::new());
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                let Some((file, cwd)) = checked.get(i) else {
+                    break;
+                };
+                let what = name(file);
+                let plain = match run_file(file, cwd, None) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        problems
+                            .lock()
+                            .expect("lock")
+                            .push(format!("{what}: the plain run {e}"));
+                        continue;
+                    }
+                };
+                for cmd in ["s", "n", "f"] {
+                    let verdict = match run_file(file, cwd, Some(cmd)) {
+                        Ok(stepped) if stepped == plain => continue,
+                        Ok((_, code)) if code != plain.1 => {
+                            format!("`{cmd}` changed the exit code: {:?} for {code:?}", plain.1)
+                        }
+                        Ok(_) => format!("`{cmd}` changed the program's output"),
+                        Err(e) => format!("`{cmd}` {e}"),
+                    };
+                    problems
+                        .lock()
+                        .expect("lock")
+                        .push(format!("{what}: {verdict}"));
+                }
+            });
+        }
+    });
+    let mut problems = problems.into_inner().expect("lock");
+    problems.sort();
+    assert!(
+        problems.is_empty(),
+        "{} of {} stepped runs disagreed with the plain one:\n{}",
+        problems.len(),
+        checked.len() * 3,
+        problems.join("\n")
+    );
 }
 
 /// **The control: the debugger really did stop.** Without this the test above

@@ -321,6 +321,12 @@ a path the reference has, even though no golden covers it.
   defective arm is unreachable through `sort`, so no captured output depends
   on it.
 
+  **Corrected 2026-10-06: it is not latent.** `unique` reaches `Ord::cmp`
+  through `algos::cs::search::fibonacci::search`, so two floats in one list
+  are ordered by random id whenever that word runs — measured, and recorded
+  as F164. "Unreachable through `sort`" was true and was the only path this
+  entry checked. The disposition stands and is what D100 applies.
+
 ## F13 — `dup` deep-copies through a bincode round-trip
 `Value::dup` serialises the value to bytes and deserialises it back, then
 regenerates the id (`reference/rust_dynamic/src/dup.rs:7-13`). `Value` derives
@@ -4012,6 +4018,151 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F167 — five kinds print and convert to STRING where the reference refuses or renders otherwise
+
+**A Bund2 defect, measured 2026-10-06**, found by widening F166's check to
+twenty source kinds, each through `println` and through
+`convert.to_string println`. Fifteen agree. Five do not, identically on both
+routes:
+
+| source | oracle | Bund2 |
+|---|---|---|
+| `valuemap` | `Source value is not MAP but 30 and not suitable for conversion` | prints the raw `Value { id: … }` form |
+| `class` | the same sentence, `31` | `{ .super=[] :: }` |
+| `"x" "List" object` | the same sentence, `32` | `{ .class_name=List ::  .init=… }` |
+| `metrics` | `Can not convert Value from 16` | prints the raw `Value { id: … }` form |
+| `{ 1 }`, `lambda` | `lambda[ 1 :: ]`, `lambda[]` | prints the raw `Value { id: … }` form |
+
+The prefix is the word's: `PRINTLN returns:` or
+`CONVERT.TO_STRING returned error:`.
+
+The first three are F83's sentence. F83 was reproduced for every target
+*except* STRING, because `conv_value` answers STRING from `display` before its
+table is consulted (`crates/bund2-stdlib/src/convert.rs`, `conv_value`). The
+last two are `display` having no arm for the payload and falling through to
+the raw rendering, which is the form D36 keeps for `debug.display_stack` and
+`--raw-values` and nothing else.
+
+**Why no golden caught it.** No corpus program prints one of these five kinds
+bare. The `display` *word* is not this path for an OBJECT: it dispatches
+`:display <obj> !` (F92's entry describes it), and is unaffected.
+
+**A test asserted the wrong thing.**
+`to_textbuffer_refuses_the_sources_that_have_no_arm` claimed all six of its
+sources convert to STRING. The oracle agrees for two. The claim is now made
+only of those two.
+
+**Disposition: OPEN.** Not fixed with F166 because the CLASS and OBJECT rows
+change what a program sees when it prints an object, and that is worth a look
+at who relies on the present text before it goes.
+
+## F166 — `convert.to_string` converted what `conv` refuses
+
+**A Bund2 defect, measured 2026-10-06**, found while comparing TIME values
+with the oracle.
+
+`conv_value` (`crates/bund2-stdlib/src/convert.rs`) answers the STRING target
+with `display()` for every source, on the principle that one renderer should
+not have two copies. But `display` renders everything, because it must return
+a string, and `conv` does not convert everything: a PAIR, a CINTEGER and a
+CFLOAT reach its final arm (`reference/rust_dynamic/src/conv.rs:743`).
+
+| program | oracle | Bund2 before |
+|---|---|---|
+| `1 2 pair convert.to_string` | `Can not convert Value from 10` | `"[ 2 ::  1 :: ]"` |
+| `1.0 2.0 complex convert.to_string` | `Can not convert Value from 15` | `"[ 2.0 ::  1.0 :: ]"` |
+
+`println` already refused these, through `BundValue::displayable`; the
+conversion word did not consult it. `convert.to_textbuffer` was right by a
+different route.
+
+**Disposition: FIXED.** `conv_value` asks `displayable` before anything else,
+and TIME joins that list (D103). A member *inside* a list is unaffected —
+`[ 1 2 pair ] convert.to_string` agrees with the oracle before and after.
+No golden moves.
+
+## F165 — a program that reads standard input cannot be debugged
+
+**A Bund2 defect, measured 2026-10-06**, found by widening RFC-0008's
+criterion 6 from four programs to the suite.
+
+The debugger's console takes its commands from standard input
+(`crates/bund2-cli/src/debugger.rs`, `Stdio`). So do `input`, `input*`,
+`debug` and `debug.shell` (`crates/bund2-stdlib/src/terminal.rs`,
+`Terminal::line`). Under `--debugger` they are **the same stream**, and
+nothing arbitrates: a line typed for the session is read by whichever asks
+first.
+
+**Measured.** Of the suite's 136 programs, 134 run identically plain and
+under `s`, `n` and `f` — 402 stepped runs, all agreeing. The other two are
+`terminal-words` and `debug-repl-words`, the two probes that read input, and
+neither finishes under the debugger on any of the three commands: `input*`
+takes each `s` meant for the session as a line for its lambda, and
+`debug.shell` evaluates it as Bund source.
+
+So this is not a stepping defect — the stepping is right wherever it can be
+tested — and it is not confined to those probes. **Any program that reads
+input is undebuggable**, and the failure is not an error message: the session
+simply stops responding to its own commands.
+
+**Why it was not seen before.** Criterion 6 was first met over four programs
+chosen to cover what the safepoint must reach, none of which reads input. The
+suite-wide form the criterion actually states had not been run.
+
+**Disposition: OPEN, and it is the input seam's first concrete cost.** D99
+records that seam as owed to a TUI and D101 defers it until one is built. This
+is a second consumer that already exists: a debugger and a debuggee need
+separate input channels, which is exactly what a seam with two sources
+provides. Until then `stepping_agrees_with_an_uninterrupted_run_over_the_whole_suite`
+excludes programs that read input — derived from their source, compared
+against the two names, so the exclusion cannot grow unnoticed.
+
+## F164 — `unique` does not reliably deduplicate floats, and its answer changes between runs
+
+**An original-implementation defect, measured 2026-10-06**, found while
+grounding the decision F149 said `unique` was waiting on. It is F12 made
+reachable — and F12 calls itself latent.
+
+`unique` asks `algos::cs::search::fibonacci::search` whether each member is
+already kept (`reference/Bund/src/stdlib/functions/values/listop.rs`). That
+function makes three different comparisons, and they are three different
+functions on `Value`:
+
+| the search does | which calls | for two floats |
+|---|---|---|
+| `w[0] <= w[1]`, to check order | `le`, overridden | **by value** |
+| `target.cmp(&data[i])`, to walk | `Ord::cmp` | **by random id** — no float arm |
+| `target == &data[i]`, at the end | `PartialEq` | by value |
+
+So for floats the order check passes, the walk then steers by `nanoid`, and
+whether a duplicate is found depends on where a random walk happens to stop.
+
+**Measured**, six runs of one program, `[ 1.0 1.0 2.0 2.0 3.0 ] unique`:
+
+```
+5 x   [ 1.0 ::  2.0 ::  2.0 ::  3.0 :: ]      one duplicate left in
+1 x   [ 1.0 ::  2.0 ::  3.0 :: ]
+```
+
+A word named `unique` returns a list with a repeated member most of the time,
+and a different list some of the time. Integers and strings are unaffected:
+their `cmp` arms compare by value, and six runs of each agreed.
+
+**F12 says "currently latent … becomes reachable the moment anything calls
+`.cmp()`".** `unique` calls `.cmp()`, through that crate, and has for as long
+as it has existed. F12 was right about the mechanism and looked for callers
+only in the sort path.
+
+**F149 missed it** because its table tested integers and strings — the two
+kinds that work. It also recorded `[ ] unique` answering `[]`, which cannot
+have been measured: neither parser accepts an empty list literal.
+
+**Disposition: CORRECTED, per D100.** Bund2 orders floats by value, as F12's
+FIX already required, and where the reference would walk by id it answers by
+the reference's own equality. `unique_on_floats_is_deterministic_where_the_reference_is_not`
+(`crates/bund2-stdlib/src/sort.rs`) runs the same list eight times. No golden
+records it and none could: the reference has no single answer to capture.
+
 ## F163 — the D55 audit failed about once in 105 runs, on a coin toss
 
 **A Bund2 defect in an honesty test, measured 2026-10-05**, found when a
@@ -4709,19 +4860,30 @@ one that is not — which is the case a caller would reach for it for. The
 accumulator is built in input order, so even where it succeeds the search is
 being asked about an array that is sorted only because the input was.
 
-**Disposition: PRESERVE, and not implemented yet.** Bund2 registers neither
-`unique` nor `unique.`, and the reason is a type rather than a choice:
-`search` requires `Ord`, and **`BundValue` has no `Ord` impl**. F12 records
-that the reference's own ordering fallback is inconsistent with its
-`PartialOrd` and unreachable, and D1 makes non-scalar comparison
-identity-based — so giving `BundValue` an `Ord` to satisfy a crate bound
-would settle both of those by accident, in a corner, for one word.
+**Disposition: PRESERVE, and implemented 2026-10-06 per D100.** This entry
+first said the word was "not implemented yet … the reason is a type rather
+than a choice: `search` requires `Ord`, and `BundValue` has no `Ord` impl",
+and that implementing it "needs a decision about `BundValue: Ord`".
 
-**What implementing it needs**, so the next session does not rediscover this:
-a decision about `BundValue: Ord` — what it orders by, and how that relates to
-F12 and to D1's identity-based equality. The word is then four lines. Taking
-that decision for `unique`'s sake alone would be the wrong order, which is why
-this entry exists instead of an implementation.
+**That blocker was not real.** The `Ord` bound is on the crate the *reference*
+calls; Bund2 does not call it. `unique` is in `crates/bund2-stdlib/src/sort.rs`
+with the Fibonacci walk ported step for step and a comparison local to the
+word — no `Ord` for `BundValue`, and nothing settled by accident. The word
+sat unimplemented for two days on a requirement nobody had checked.
+
+**Three statements above are also corrected**, each by measurement:
+
+- *"Refuses any list that is not already ascending"* is true of **numbers of
+  one kind** and false of strings. `Value`'s `<=` answers true for any other
+  pair, so a string list is never "unsorted": `[ "b" "a" "b" ] unique` answers
+  `[ b a ]`, and `[ "c" "b" "a" "c" "a" ]` answers `[ c b a a ]`.
+- The refusal comes **at the third member**: `[ 2 1 ] unique` answers
+  `[ 2 1 ]`, because that pair is never searched again.
+- The table's `[ ] unique` row cannot have been measured. Neither parser
+  accepts an empty list literal.
+
+And one thing it did not find at all: on **floats** the reference's answer
+changes between runs. That is F164.
 
 ## F148 — `save` and `save.script` cannot both be used on one world file
 

@@ -346,7 +346,7 @@ impl WireValue {
             Val::Error(_) => return Err(no_form("Error")),
             Val::Matrix(_) => return Err(no_form("Matrix")),
             Val::Queue(_) => return Err(no_form("Queue")),
-            Val::Time(_) => return Err(no_form("Time")),
+            Val::Time(at) => Payload::Time(at),
             Val::Operator(_) => return Err(no_form("Operator")),
             Val::Embedding(_) => return Err(no_form("Embedding")),
         };
@@ -525,6 +525,7 @@ fn children_of(v: &BundValue) -> Vec<BundValue> {
             | Payload::Bin(_)
             | Payload::Exit
             | Payload::Metrics(_)
+            | Payload::Time(_)
             | Payload::Json(_)
             | Payload::Scalar(_) => {}
         }
@@ -579,6 +580,7 @@ fn node_of(v: &BundValue, queue: &mut Vec<BundValue>) -> Node {
             Payload::Str(s) => Shape::Leaf(Val::String(s.clone())),
             Payload::Bin(b) => Shape::Leaf(Val::Binary(b.clone())),
             Payload::Exit => Shape::Leaf(Val::Exit),
+            Payload::Time(at) => Shape::Leaf(Val::Time(*at)),
             Payload::Json(j) => Shape::Leaf(Val::Json(j.clone())),
             Payload::Metrics(ms) => Shape::Leaf(Val::Metrics(
                 ms.iter()
@@ -857,6 +859,10 @@ mod conversion_tests {
         assert_eq!(back.display(), v.display());
     }
 
+    /// **`Embedding`, not `Time`, since D103.** This test used a TIME value as
+    /// its example of a kind Bund2 lacks, which was true until `Payload::Time`
+    /// existed. The claim under test is unchanged: a kind with no form here
+    /// is refused, and the refusal names it.
     #[test]
     fn a_kind_bund2_lacks_is_refused_by_name() {
         let w = WireValue {
@@ -864,13 +870,35 @@ mod conversion_tests {
             stamp: 0.0,
             dt: 13,
             q: 100.0,
-            data: Val::Time(1),
+            data: Val::Embedding(vec![1.0]),
             attr: Vec::new(),
             curr: -1,
             tags: HashMap::new(),
         };
         let e = w.into_value().expect_err("refused");
-        assert!(e.contains("Time"), "{e}");
+        assert!(e.contains("Embedding"), "{e}");
+    }
+
+    /// D103: a TIME value crosses the wire and comes back the same number.
+    ///
+    /// The tag was already right before the payload existed — `Val::Time` sat
+    /// at index 15 of the mirrored enum and was refused on the way in — so
+    /// this is the round trip that tag was waiting for.
+    #[test]
+    fn a_time_value_round_trips() {
+        let w = WireValue {
+            id: String::new(),
+            stamp: 0.0,
+            dt: 13,
+            q: 100.0,
+            data: Val::Time(1_700_000_000),
+            attr: Vec::new(),
+            curr: -1,
+            tags: HashMap::new(),
+        };
+        let v = w.into_value().expect("TIME has a form now");
+        assert_eq!(v.dt(), 13);
+        assert!(v.render(true).contains("Time(1700000000)"), "{}", v.render(true));
     }
 }
 

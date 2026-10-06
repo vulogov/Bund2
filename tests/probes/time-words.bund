@@ -1,0 +1,43 @@
+//
+// PROBE: `time.now` and `time.timestamp`.
+//
+// **A TIME value can be compared and asked its type, and nothing else.** The
+// reference gives `Val::Time` arms in equality and in the four orderings
+// (`reference/rust_dynamic/src/eq.rs`, `ord.rs`) and none in `conv` or in
+// `numeric_op`, so it cannot be printed, converted or added to. Each of those
+// refusals ends a program, so they are unit-tested in
+// `crates/bund2-stdlib/src/host.rs` and not here.
+//
+// What is here is what can be asked without ending the program. Comparisons
+// read with the **top of the stack as the left operand**: `1 2 <` asks whether
+// 2 is less than 1.
+//
+// `type.of` does not consume its operand, so each is dropped after it — a
+// TIME left on the stack would be in the final dump, and `time.now`'s is a
+// different number every run (F155).
+//
+// 13 is TIME.
+1700000000 time.timestamp type.of println drop
+time.now type.of println drop
+
+// Equal counts are equal; unequal ones are not.
+7 time.timestamp 7 time.timestamp == println
+1 time.timestamp 2 time.timestamp == println
+1 time.timestamp 2 time.timestamp != println
+
+// Ordered by count.
+1 time.timestamp 2 time.timestamp < println
+2 time.timestamp 1 time.timestamp < println
+1 time.timestamp 2 time.timestamp > println
+1 time.timestamp 2 time.timestamp >= println
+2 time.timestamp 2 time.timestamp <= println
+
+// A TIME is not the integer it was made from.
+1 time.timestamp 1 == println
+
+// The clock moves forward: a later reading is not less than an earlier one.
+time.now time.now >= println
+
+// Appending to a list is the one arithmetic form that admits it, because the
+// list's arm asks nothing of what it is given.
+[ 5 ] 1 time.timestamp + len println drop

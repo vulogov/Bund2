@@ -1,0 +1,29 @@
+# golden for tests/probes/unique-words.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: integers in order are deduplicated
+[ 1 ::  2 ::  3 :: ]
+probe: a pair out of order is returned untouched — it is never searched again
+[ 2 ::  1 :: ]
+probe: strings in order are deduplicated
+[ a ::  b :: ]
+probe: strings out of order are not refused
+[ b ::  a :: ]
+probe: and the search over them skips — the second c goes, the second a stays
+[ c ::  b ::  a ::  a :: ]
+probe: a CALL carries its name as text, so two of them are one
+[ F(true) ::  F(false) :: ]
+probe: lists are equal only by identity, so both are kept
+[ [ 1 :: ] ::  [ 1 :: ] :: ]
+probe: an integer and a string do not collide
+[ 1 ::  a :: ]
+probe: unique. reads the workbench and answers there
+╭╮
+╰╯
+╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Value { id: "<id>", stamp: <stamp>, dt: 9, q: 100.0, data: List([Value { id: "<id>", stamp: <stamp>, dt: 2, q: 100.0, data: I64(4), attr: [], curr: -1, tags: {} }, Value { id: "<id>", stamp: <stamp>, dt: 2, q: 100.0, data: I64(5), attr: [], curr: -1, tags: {} }]), attr: [], curr: -1, tags: {} } │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

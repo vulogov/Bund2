@@ -9,7 +9,8 @@
   it.** §D7's execution trace — a stream behind a flag, `(depth, symbol, value,
   stack effect)` per step — has no flag; §D1's safepoint is the hook it would
   use. §D8's history is written nowhere: the console reads plain lines and keeps
-  none. So a debugged session steps, breaks, watches and inspects, and does not
+  none. *(Since 2026-10-06 the `debug` and `debug.shell` words keep history —
+  see §D8. The `--debugger` console still keeps none.)* So a debugged session steps, breaks, watches and inspects, and does not
   trace or remember. That is the whole gap.
 
   **Two things the criteria record as owed rather than met.** Criterion 6 says
@@ -349,6 +350,20 @@ platform's config directory. **A deviation, and a deliberate one** — the file
 is the debugger's state, not the program's output, and a program's directory is
 not the debugger's to write in.
 
+**Built 2026-10-06 (D102), for the two words that read lines.** `debug` keeps
+`bund_debug_debugger_history.txt` and `debug.shell` keeps
+`bund_debug_shell_history.txt` — the reference's two file names — under
+`<config>/bund2/`, where `<config>` is `$XDG_CONFIG_HOME`, else
+`$HOME/.config`, else `%APPDATA%` (`crates/bund2-stdlib/src/terminal.rs`,
+`config_home` and `history_path`). The file is written when the session ends
+and only if a line was entered, so a session that meets end-of-input at once
+leaves nothing behind. Measured beside the oracle: it writes into the working
+directory, Bund2 does not.
+
+**Not covered:** the `--debugger` console (`crates/bund2-cli/src/debugger.rs`)
+still reads plain lines and keeps none. It has no line editor to keep them
+for; that arrives with the input seam D101 defers.
+
 ### §D9 — Not promised
 
 DAP and time travel are consequences of the flat frame stack rather than
@@ -528,8 +543,27 @@ capture and still unpinnable, which is `debug`'s case.
    called directly from them — and the criterion says which programs that
    excludes rather than quietly passing on the ones it can do.
 
-   **Met at process level, 2026-10-04, over four programs rather than the
-   suite.** `crates/bund2-cli/tests/debugger_step.rs` spawns the binary — the
+   **Met over the suite, 2026-10-06 — 134 of its 136 programs, with the two
+   exclusions named.** `stepping_agrees_with_an_uninterrupted_run_over_the_whole_suite`
+   (`crates/bund2-cli/tests/debugger_step.rs`) runs every program `conform`
+   runs — each `HERMETIC.txt` entry and each probe with a golden — plainly and
+   then under `s`, `n` and `f` driven to completion, and compares stdout and
+   exit code: 402 stepped runs, all agreeing.
+
+   **The two it excludes are excluded for one reason, and that reason is a
+   defect rather than a limit of stepping** (F165): `terminal-words` and
+   `debug-repl-words` read standard input, and under `--debugger` standard
+   input is the session's command channel. The program takes the commands as
+   its own input and the run does not finish. So the criterion is met for
+   every program that leaves standard input alone, and a program that reads it
+   cannot be debugged at all — which is a statement about the console's
+   transport (§D1), not about `step`.
+
+   The excluded set is derived from each program's source, so it cannot go
+   stale, and then compared against those two names, so a third is noticed.
+
+   *As first met, 2026-10-04:* **at process level, over four programs rather
+   than the suite.** `crates/bund2-cli/tests/debugger_step.rs` spawns the binary — the
    claim is about a program's output and nothing in process captures stdout —
    and drives `s`, `n` and `f` each to completion against a plain run, matching
    stdout and exit code. The four cover what §D1's safepoint has to reach:

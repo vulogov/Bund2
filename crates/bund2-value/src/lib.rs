@@ -213,6 +213,18 @@ pub enum Payload {
     Lambda(Vec<BundValue>),
     Metrics(Vec<Metric>),
     Json(serde_json::Value),
+    /// A point in time — `Val::Time(u128)`
+    /// (`reference/rust_dynamic/src/types.rs`).
+    ///
+    /// **A heap payload because it has to be**: [`BundValue`] is sixteen bytes
+    /// and a `u128` is sixteen on its own, so there is no inline form for one.
+    ///
+    /// **Almost nothing can be done with it**, in the reference and so here.
+    /// Measured against the oracle: it cannot be printed
+    /// (`Can not convert Value from 13`), converted to an integer, a float or
+    /// a string, or added to. It can be compared with another, asked its
+    /// type, and shown by `debug.display_stack` as `data: Time(n)`. D103.
+    Time(u128),
     /// A boxed scalar. Scalars are inline until they acquire a header, and
     /// `TS::push` tags unconditionally, so anything pushed to a stack is boxed.
     Scalar(BundValue),
@@ -327,6 +339,7 @@ fn take_members(h: &mut HeapValue, work: &mut Vec<BundValue>) {
         | Payload::Bin(_)
         | Payload::Exit
         | Payload::Metrics(_)
+        | Payload::Time(_)
         | Payload::Json(_) => {}
     }
 }
@@ -401,6 +414,7 @@ impl Payload {
             Payload::Matrix(_) => "Matrix",
             Payload::Lambda(_) => "Lambda",
             Payload::Metrics(_) => "Metrics",
+            Payload::Time(_) => "Time",
             Payload::Json(_) => "Json",
             Payload::Exit => "Exit",
             // A boxed scalar renders as the scalar it boxes, so this name is
@@ -610,6 +624,11 @@ impl BundValue {
     }
     pub fn metrics(m: Vec<Metric>) -> Self {
         Self::heap(METRICS, Payload::Metrics(m))
+    }
+    /// A TIME value holding `t` — `Value::from_stamp`
+    /// (`reference/rust_dynamic/src/create_special.rs`).
+    pub fn time(t: u128) -> Self {
+        Self::heap(TIME, Payload::Time(t))
     }
     pub fn json(j: serde_json::Value) -> Self {
         Self::heap(JSON, Payload::Json(j))
@@ -863,6 +882,20 @@ impl BundValue {
         }
     }
 
+    /// The instant a TIME value holds, in nanoseconds since the epoch.
+    ///
+    /// `Val::Time` carries a `u128` (`reference/rust_dynamic/src/create.rs:175`),
+    /// so this does not narrow it.
+    pub fn as_time(&self) -> Option<u128> {
+        match self {
+            BundValue::Heap(h) => match &*h.payload {
+                Payload::Time(at) => Some(*at),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     /// The integer this holds, boxed or not.
     pub fn as_int(&self) -> Option<i64> {
         match self {
@@ -1085,7 +1118,10 @@ impl BundValue {
     ///
     /// [`display`]: BundValue::display
     pub fn displayable(&self) -> bool {
-        !matches!(self.dt(), PAIR | CINTEGER | CFLOAT)
+        // TIME has no arm in `conv` at all — `reference/rust_dynamic/src/conv.rs`
+        // never names `Val::Time` — so it reaches the same final refusal the
+        // other three do, as `Can not convert Value from 13`.
+        !matches!(self.dt(), PAIR | CINTEGER | CFLOAT | TIME)
     }
 
     /// **The second renderer, and iterative for the same reason — F119.**
@@ -1287,6 +1323,7 @@ impl BundValue {
                 Payload::Bin(b) => out.push_str(&format!("bin/{}", b.len())),
                 Payload::Exit => out.push_str("exit"),
                 Payload::Metrics(m) => out.push_str(&format!("metrics/{}", m.len())),
+                Payload::Time(at) => out.push_str(&format!("time/{at}")),
                 Payload::Json(_) => out.push_str("json"),
                 Payload::Scalar(v) => v.summarise(out, width, depth),
                 Payload::Lambda(body) => {
@@ -2092,6 +2129,10 @@ impl BundValue {
                 Payload::Exit => out.push_str("Exit"),
                 Payload::Str(x) => {
                     let _ = write!(out, "String({x:?})");
+                }
+                // `data: Time(1700000000)`, as the oracle's `Debug` has it.
+                Payload::Time(at) => {
+                    let _ = write!(out, "Time({at})");
                 }
                 Payload::Bin(b) => {
                     let _ = write!(out, "Binary({b:?})");

@@ -19,7 +19,7 @@
 //! `1 2 + debug.display_stack` shows `q: 100.0`.
 
 use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
-use bund2_value::{BundValue, LIST};
+use bund2_value::{BundValue, LIST, TIME};
 
 fn eff(consumes: u8, produces: u8) -> StackEffect {
     StackEffect::fixed(consumes, produces)
@@ -97,6 +97,27 @@ pub(crate) fn numeric_op(op: Op, x: &BundValue, y: &BundValue) -> Result<BundVal
             _ => items.push(y.clone()),
         }
         return Ok(BundValue::list(items));
+    }
+
+    // **A TIME on top has no arithmetic.** `numeric_op` matches the top
+    // operand's payload, and `Val::Time` is none of the arms it names, so it
+    // reaches the final one — which appends to a LIST underneath under `Add`
+    // and otherwise refuses, naming the tag
+    // (`reference/rust_dynamic/src/math.rs:369-405`). A TIME *underneath* a
+    // number is refused by the number's own arm, with the `Y` sentence below.
+    if x.dt() == TIME {
+        if y.dt() == LIST {
+            if op != Op::Add {
+                return Err(Error("Incompartible operation for the list".into()));
+            }
+            let mut items = y.as_list().unwrap_or_default().to_vec();
+            items.push(x.clone());
+            return Ok(BundValue::list(items));
+        }
+        return Err(Error(format!(
+            "Incompartible X argument for the math operations: {}",
+            x.dt()
+        )));
     }
 
     match (xa, ya) {

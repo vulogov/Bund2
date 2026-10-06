@@ -57,15 +57,9 @@ fn decode_base64(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error>
     Ok(())
 }
 
-// **`unique` and `unique.` are not here, and that is a decision rather than an
-// omission.** The reference deduplicates by asking
-// `algos::cs::search::fibonacci::search` whether each element is already in
-// the accumulator, and that function requires `Ord`. `BundValue` has no `Ord`
-// impl: F12 records that the reference's own ordering fallback is inconsistent
-// with its `PartialOrd` and unreachable, and D1 makes non-scalar comparison
-// identity-based. Giving `BundValue` an `Ord` to satisfy a crate bound would
-// settle that by accident. F149 records the word's measured behaviour — it
-// errors on any list that is not ascending — and what implementing it needs.
+// `unique` and `unique.` were once deliberately absent from this file, on the
+// belief that they needed an `Ord` for `BundValue`. They did not: they are in
+// `sort.rs`, with a comparator of their own (D100).
 
 /// `pull.workbench` — a dict built by naming values off the workbench.
 ///

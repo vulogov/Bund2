@@ -663,6 +663,54 @@ fn system_path(vm: &mut dyn Vm, side: Side, op: PathOp, prefix: &str) -> Result<
     Ok(())
 }
 
+/// `time.now` — the present moment as a TIME value
+/// (`reference/rust_multistackvm/src/stdlib/time/timestamp.rs`,
+/// `stdlib_time_now`).
+///
+/// Nanoseconds since the Unix epoch, as `Value::now` holds them. A clock set
+/// before the epoch is reported rather than read as zero: a wrong time that
+/// looks like a time is worse than none.
+///
+/// No golden can hold the answer; only its type can be asked.
+fn time_now(vm: &mut dyn Vm) -> Result<(), Error> {
+    let at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| Error(format!("TIME.NOW returns: {e}")))?
+        .as_nanos();
+    vm.push(BundValue::time(at));
+    Ok(())
+}
+
+/// `time.timestamp` — a TIME value from an integer (`stdlib_time_make_timestamp`).
+///
+/// **The integer is cast `as u128`, so a negative one wraps** rather than
+/// failing: `-1 time.timestamp` is the largest `u128`. Reproduced, with the
+/// cast written the way the reference writes it.
+///
+/// Its shallow-stack message is lower-case — `inline time.timestamp` — where
+/// its other two say `TIME.TIMESTAMP`, and one of those says `return error`
+/// without the `s`. All three as the reference has them.
+///
+/// **What the answer is good for is very little** — see `Payload::Time`. It
+/// can be compared and asked its type; it cannot be printed, converted or
+/// added to.
+fn time_timestamp(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 1 {
+        return Err(Error(
+            "Stack is too shallow for inline time.timestamp".into(),
+        ));
+    }
+    let v = vm
+        .pull()
+        .ok_or_else(|| Error("TIME.TIMESTAMP returns: NO DATA #1".into()))?;
+    let stamp = v.as_int().ok_or_else(|| {
+        Error("TIME.TIMESTAMP return error: This Dynamic type is not integer".into())
+    })?;
+    #[expect(clippy::cast_sign_loss, reason = "the reference's own `stamp as u128`")]
+    vm.push(BundValue::time(stamp as u128));
+    Ok(())
+}
+
 /// `sleep.seconds` — wait whole seconds
 /// (`reference/Bund/src/stdlib/functions/system/sleep.rs:11-21`).
 ///
@@ -894,6 +942,10 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
         eff(0, 1),
         WordKind::Sync,
     );
+
+    // `vm/time`: registered by the VM crate itself, with no gate at all.
+    r.register_native("time.now", time_now, eff(0, 1), WordKind::Sync);
+    r.register_native("time.timestamp", time_timestamp, eff(1, 1), WordKind::Sync);
 
     // Ungated, as the reference leaves them: `ip.rs` and `locale.rs` take the
     // command line and never read it.
@@ -1965,5 +2017,77 @@ mod tests {
         let mut i = interp(HostOptions::default());
         let e = run(&mut i, "[ 1 2 ] io.graph").expect_err("ints refused");
         assert!(e.contains("IO.GRAPH casting data element returns"), "{e}");
+    }
+
+    /// What a TIME value refuses, each of which ends a program and so cannot
+    /// sit in the probe. Every message measured on the oracle.
+    ///
+    /// The reference names `Val::Time` in equality and ordering and nowhere
+    /// else, so printing and converting reach `conv`'s final arm and arithmetic
+    /// reaches `numeric_op`'s -- which says `X` when the TIME is on top and
+    /// lets the number's own arm say `Y` when it is underneath.
+    #[test]
+    fn a_time_value_refuses_what_the_reference_refuses() {
+        for (src, want) in [
+            (
+                "1 time.timestamp println",
+                "PRINTLN returns: Can not convert Value from 13",
+            ),
+            (
+                "1 time.timestamp convert.to_string",
+                "CONVERT.TO_STRING returned error: Can not convert Value from 13",
+            ),
+            (
+                "1 time.timestamp convert.to_int",
+                "CONVERT.TO_INTEGER returned error: Can not convert Value from 13",
+            ),
+            (
+                "1 time.timestamp 2 time.timestamp +",
+                "ADD returns error: Incompartible X argument for the math operations: 13",
+            ),
+            (
+                "5 1 time.timestamp +",
+                "ADD returns error: Incompartible X argument for the math operations: 13",
+            ),
+            (
+                "1 time.timestamp 5 +",
+                "ADD returns error: Incompartible Y argument for the math operations",
+            ),
+            (
+                "[ 5 ] 1 time.timestamp -",
+                "SUB returns error: Incompartible operation for the list",
+            ),
+            (
+                "time.timestamp",
+                "Stack is too shallow for inline time.timestamp",
+            ),
+        ] {
+            let mut i = interp(HostOptions::default());
+            let e = run(&mut i, src).expect_err(src);
+            assert!(e.ends_with(want), "{src}: {e}");
+        }
+    }
+
+    /// `-1 time.timestamp` wraps, because the reference casts `as u128`.
+    #[test]
+    fn a_negative_timestamp_wraps_as_the_reference_casts_it() {
+        let mut i = interp(HostOptions::default());
+        run(&mut i, "-1 time.timestamp").expect("made");
+        assert_eq!(i.peek().and_then(|v| v.as_time()), Some(u128::MAX));
+    }
+
+    /// The conversions `display` can render and `conv` cannot -- F166.
+    ///
+    /// `convert.to_string` took `display`'s answer for every source, so a PAIR
+    /// came back as `[ 2 ::  1 :: ]` where the oracle refuses it.
+    #[test]
+    fn to_string_refuses_what_conv_has_no_arm_for() {
+        for (src, dt) in [("1 2 pair", 10), ("1.0 2.0 complex", 15)] {
+            let mut i = interp(HostOptions::default());
+            let e = run(&mut i, &format!("{src} convert.to_string")).expect_err(src);
+            let want =
+                format!("CONVERT.TO_STRING returned error: Can not convert Value from {dt}");
+            assert!(e.ends_with(&want), "{src}: {e}");
+        }
     }
 }

@@ -70,6 +70,63 @@ fn prompt_of(v: Option<BundValue>) -> String {
 struct Terminal {
     #[cfg(not(test))]
     rl: rustyline::DefaultEditor,
+    /// Where this session's history is kept, when it keeps one.
+    history: Option<std::path::PathBuf>,
+    /// Whether a line has been remembered since the history was loaded.
+    dirty: bool,
+}
+
+/// The directory a platform keeps per-user configuration in.
+///
+/// `XDG_CONFIG_HOME` wins wherever it is set to an absolute path — the
+/// specification calls a relative one invalid — and otherwise the platform's
+/// own convention applies: `%APPDATA%` on Windows, `~/Library/Application
+/// Support` on macOS, `~/.config` elsewhere.
+///
+/// **Written out rather than taken from a crate.** It is fifteen lines, D28
+/// asks the default build to stay small, and taking its inputs as arguments
+/// lets a test ask every branch without touching the process environment —
+/// which tests share, being threads of one process.
+fn config_home(
+    xdg: Option<std::ffi::OsString>,
+    home: Option<std::ffi::OsString>,
+    appdata: Option<std::ffi::OsString>,
+) -> Option<std::path::PathBuf> {
+    let dir = |v: Option<std::ffi::OsString>| {
+        v.filter(|s| !s.is_empty()).map(std::path::PathBuf::from)
+    };
+    if let Some(x) = dir(xdg).filter(|p| p.is_absolute()) {
+        return Some(x);
+    }
+    if cfg!(windows) {
+        return dir(appdata);
+    }
+    let home = dir(home)?;
+    Some(if cfg!(target_os = "macos") {
+        home.join("Library").join("Application Support")
+    } else {
+        home.join(".config")
+    })
+}
+
+/// Where a named history file lives — RFC-0008 §D8, F10.
+///
+/// **The reference writes these into the working directory**
+/// (`reference/Bund/src/stdlib/functions/debug_fun/debug_shell.rs`,
+/// `debug_debug.rs`). Bund2 does not, deliberately: the file is the session's
+/// state and not the program's output, and a program's directory is not the
+/// session's to write in. The names are the reference's, under a `bund2`
+/// directory of the platform's own.
+///
+/// `None` when no such directory can be named, and then no history is kept —
+/// silently, since a session with nowhere to remember is still a session.
+fn history_path(file: &str) -> Option<std::path::PathBuf> {
+    config_home(
+        std::env::var_os("XDG_CONFIG_HOME"),
+        std::env::var_os("HOME"),
+        std::env::var_os("APPDATA"),
+    )
+    .map(|d| d.join("bund2").join(file))
 }
 
 impl Terminal {
@@ -78,10 +135,63 @@ impl Terminal {
         let terminal = Self {
             rl: rustyline::DefaultEditor::new()
                 .map_err(|e| Error(format!("INPUT returns: {e}")))?,
+            history: None,
+            dirty: false,
         };
         #[cfg(test)]
-        let terminal = Self {};
+        let terminal = Self {
+            history: None,
+            dirty: false,
+        };
         Ok(terminal)
+    }
+
+    /// A terminal that remembers its lines between sessions, in `file`.
+    ///
+    /// A history that is missing or will not load is not an error and is not
+    /// reported: the reference logs it at a level its default configuration
+    /// does not show, and a first run has none by definition.
+    fn open_with_history(file: &str) -> Result<Self, Error> {
+        let mut terminal = Self::open()?;
+        terminal.history = history_path(file);
+        #[cfg(not(test))]
+        if let Some(path) = &terminal.history {
+            let _ = terminal.rl.load_history(path);
+        }
+        Ok(terminal)
+    }
+
+    /// Add a line to the history. A session that never calls this writes no
+    /// file, which is what keeps a capture — where every read is end-of-input
+    /// — from creating one.
+    fn remember(&mut self, line: &str) {
+        #[cfg(not(test))]
+        {
+            let _ = self.rl.add_history_entry(line);
+        }
+        let _ = line;
+        self.dirty = true;
+    }
+
+    /// Write the history back, if there is anything new and anywhere to put
+    /// it. A failure is dropped, as the reference drops it: losing a history
+    /// is not a reason to fail the program that was being debugged.
+    fn save(&mut self) {
+        if !self.dirty {
+            return;
+        }
+        let Some(path) = self.history.as_ref() else {
+            return;
+        };
+        #[cfg(not(test))]
+        {
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = self.rl.save_history(path);
+        }
+        let _ = path;
+        self.dirty = false;
     }
 
     /// One line, with `rustyline`'s own result type so every caller keeps the
@@ -97,6 +207,15 @@ impl Terminal {
             let _ = prompt;
             Err(ReadlineError::Eof)
         }
+    }
+}
+
+/// The history is written on the way out, **whichever way out it is** — the
+/// REPLs below return early on a failed read, and a `save` at the bottom of
+/// the loop would be skipped on exactly the session that ended badly.
+impl Drop for Terminal {
+    fn drop(&mut self) {
+        self.save();
     }
 }
 
@@ -245,11 +364,14 @@ fn debug_prompt() -> String {
 /// word instead of looping -- the reference prints and continues, which spins
 /// if the condition persists, and `input*` here already chose to error out.
 fn debug_shell(vm: &mut dyn Vm) -> Result<(), Error> {
-    let mut rl = Terminal::open()?;
+    // §D8: the reference keeps this history in the working directory.
+    let mut rl = Terminal::open_with_history("bund_debug_shell_history.txt")?;
     let prompt = debug_prompt();
     loop {
         match rl.line(&prompt) {
             Ok(line) => {
+                // Every line, an empty one included, as the reference does.
+                rl.remember(&line);
                 if let Err(e) = crate::singles::eval_source(vm, &line) {
                     vm.report(Diagnostic::warning(e.0));
                 }
@@ -329,7 +451,7 @@ fn debug_word(vm: &mut dyn Vm) -> Result<(), Error> {
     // `\n` appended, as `bund_debugger` does before parsing.
     let source = format!("{snippet}\n");
     let words = bund2_syntax::compile(&source).map_err(|e| Error(e.render(&source)))?;
-    let mut rl = Terminal::open()?;
+    let mut rl = Terminal::open_with_history("bund_debug_debugger_history.txt")?;
     let prompt = debug_prompt();
     for word in words {
         if word.dt() == NONE {
@@ -349,8 +471,11 @@ fn debug_word(vm: &mut dyn Vm) -> Result<(), Error> {
             })?;
         loop {
             match rl.line(&prompt) {
+                // An empty line moves on, and is *not* remembered here —
+                // the reference breaks before it reaches `add_history_entry`.
                 Ok(line) if line.is_empty() => break,
                 Ok(line) => {
+                    rl.remember(&line);
                     if let Err(e) = crate::singles::eval_source(vm, &line) {
                         vm.report(Diagnostic::warning(e.0));
                     }
@@ -604,6 +729,67 @@ mod tests {
         let t = super::hostinfo_table(false);
         assert!(t.contains("bund2-stdlib version"), "{t}");
         assert!(t.contains("Kernel version"), "{t}");
+    }
+
+    /// RFC-0008 §D8: where a session's history goes, on every branch.
+    ///
+    /// The inputs are arguments rather than the environment, so each platform
+    /// rule is asked directly and no test changes a variable its neighbours
+    /// read. `XDG_CONFIG_HOME` wins when it is an absolute path and is ignored
+    /// when it is not, which is what its specification says of a relative one.
+    #[test]
+    fn history_goes_to_the_platforms_config_directory() {
+        use std::ffi::OsString;
+        use std::path::PathBuf;
+        let s = |x: &str| Some(OsString::from(x));
+
+        assert_eq!(
+            super::config_home(s("/x/cfg"), s("/home/u"), None),
+            Some(PathBuf::from("/x/cfg")),
+            "an absolute XDG_CONFIG_HOME wins"
+        );
+        let fallback = super::config_home(s("relative"), s("/home/u"), None);
+        assert_eq!(
+            fallback,
+            super::config_home(None, s("/home/u"), None),
+            "a relative XDG_CONFIG_HOME is invalid and ignored"
+        );
+        assert_eq!(
+            super::config_home(s(""), s("/home/u"), None),
+            fallback,
+            "an empty one is unset"
+        );
+        if cfg!(windows) {
+            assert_eq!(
+                super::config_home(None, None, s("C:\\Users\\u\\AppData\\Roaming")),
+                Some(PathBuf::from("C:\\Users\\u\\AppData\\Roaming"))
+            );
+        } else {
+            let want = if cfg!(target_os = "macos") {
+                "/home/u/Library/Application Support"
+            } else {
+                "/home/u/.config"
+            };
+            assert_eq!(fallback, Some(PathBuf::from(want)));
+            // Nowhere to put it is not an error; there is simply no history.
+            assert_eq!(super::config_home(None, None, None), None);
+        }
+    }
+
+    /// A session that reads nothing writes nothing — which is what keeps a
+    /// capture, where every read is end-of-input, from leaving a file behind,
+    /// and a reference whose history lands in the *working directory* is why
+    /// that matters (F10).
+    #[test]
+    fn a_session_that_remembers_nothing_saves_nothing() {
+        let mut t = super::Terminal::open_with_history("never-written.txt").expect("opens");
+        assert!(!t.dirty);
+        t.save();
+        assert!(!t.dirty, "nothing to save, nothing saved");
+        t.remember("1 2 +");
+        assert!(t.dirty, "a remembered line is owed a save");
+        t.save();
+        assert!(!t.dirty);
     }
 
     /// `debug`'s guards. An error ends a program, so the probe cannot hold

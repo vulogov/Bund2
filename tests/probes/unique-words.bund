@@ -1,0 +1,63 @@
+//
+// PROBE: `unique` and `unique.`.
+//
+// **It is not a set operation, and its name promises more than it does.** The
+// reference accumulates the members it keeps in *input* order and asks, for
+// each new one, whether a Fibonacci search finds it in that accumulator
+// (`reference/Bund/src/stdlib/functions/values/listop.rs`). A Fibonacci
+// search wants sorted data. It is told so only for numbers of one kind —
+// `Value`'s `<=` answers true for every other pair — so:
+//
+// - **numbers out of order are an error**, raised when the accumulator is
+//   next searched, which is at the *third* member: `[ 2 1 ]` answers
+//   `[ 2 1 ]` untouched, and `[ 2 1 1 ]` fails. That error ends a program,
+//   so it is unit-tested in `crates/bund2-stdlib/src/sort.rs` and not here.
+// - **strings are never refused**, however disordered, and so the search runs
+//   over unsorted data and *skips positions*. The fifth clause below is the
+//   one to read: the second `c` is dropped and the second `a` is kept.
+//
+// Bund2 ports the walk step for step rather than writing a `contains`,
+// because those quirks are the behaviour. Checked against the oracle over 300
+// generated lists of integers and strings: all identical.
+//
+// **`true` inside a list literal is a CALL, not a BOOL** — it prints `F(true)`
+// — and a CALL carries its name as text, so two of them compare as strings
+// do and are deduplicated.
+//
+// **Lists are equal only by identity**, so two equal-looking lists are both
+// kept.
+//
+// **No FLOAT appears here, deliberately.** The reference has no float arm in
+// the ordering this search uses and falls through to comparing *ids*, which
+// are random: six runs of `[ 1.0 1.0 2.0 2.0 3.0 ] unique` gave two different
+// answers. That is F164, and D100 has Bund2 compare floats by value instead.
+// A capture of it could not be trusted — two runs agreeing by chance is
+// exactly F155's trap — so floats are unit-tested, where the claim is about
+// Bund2 alone.
+//
+"probe: integers in order are deduplicated" println
+[ 1 1 2 2 3 ] unique println
+
+"probe: a pair out of order is returned untouched — it is never searched again" println
+[ 2 1 ] unique println
+
+"probe: strings in order are deduplicated" println
+[ "a" "a" "b" ] unique println
+
+"probe: strings out of order are not refused" println
+[ "b" "a" "b" ] unique println
+
+"probe: and the search over them skips — the second c goes, the second a stays" println
+[ "c" "b" "a" "c" "a" ] unique println
+
+"probe: a CALL carries its name as text, so two of them are one" println
+[ true true false ] unique println
+
+"probe: lists are equal only by identity, so both are kept" println
+[ [ 1 ] [ 1 ] ] unique println
+
+"probe: an integer and a string do not collide" println
+[ 1 "a" 1 ] unique println
+
+"probe: unique. reads the workbench and answers there" println
+[ 4 4 5 ] . unique.
