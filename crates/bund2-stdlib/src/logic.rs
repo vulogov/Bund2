@@ -270,6 +270,21 @@ fn compare(op: Op, v1: &BundValue, v2: &BundValue) -> Result<bool, Error> {
         if !is_numeric_tag(v2.dt()) {
             return Err(Error("COMPARE: unsupported operand #2".into()));
         }
+        // **A complex number against anything that is not one is refused** --
+        // D104. The reference passes the gate and then unwraps the other
+        // operand as complex without asking what it is
+        // (`reference/rust_dynamic/src/eq.rs:50-52`,
+        // `reference/rust_dynamic/src/ord.rs:40-42`), which aborts it. Bund2
+        // had answered `false` to `==` and `true` to all four orderings: `<`
+        // and `>` both true of the same two values. The sentence is the
+        // gate's own, because that is what this is -- a second operand the
+        // first cannot be compared with.
+        //
+        // Only this orientation. A plain number on top of a complex one does
+        // not abort the reference; its own arm answers, and so does ours.
+        if matches!(v1.dt(), CFLOAT | CINTEGER) && v2.dt() != v1.dt() {
+            return Err(Error("COMPARE: unsupported operand #2".into()));
+        }
         return Ok(match op {
             Op::Eq => numeric_eq(v1, v2),
             Op::Ne => !numeric_eq(v1, v2),
@@ -617,5 +632,41 @@ mod tests {
         let top = i.peek().unwrap();
         assert_eq!(top.dt(), bund2_value::BOOL);
         assert_eq!(*top.unboxed(), BundValue::boolean(false), "3 5 < is false");
+    }
+
+    /// D104: a complex number on top of a plain one is refused, where the
+    /// reference aborts and Bund2 once answered `<` and `>` both true.
+    ///
+    /// The other orientation is untouched -- the reference answers it, and so
+    /// does this.
+    #[test]
+    fn a_complex_number_against_a_plain_one_is_refused() {
+        let run = |src: &str| -> Result<Interp, String> {
+            let mut i = Interp::new();
+            crate::register_all(&mut i.registry);
+            let stream = bund2_syntax::compile(src).map_err(|e| e.render(src))?;
+            i.eval(&stream).map_err(|e| e.0)?;
+            Ok(i)
+        };
+        for under in ["2", "2.5", "5 time.timestamp"] {
+            for op in ["==", "!=", "<", ">", "<=", ">="] {
+                let src = format!("{under} 1.0 2.0 complex {op}");
+                match run(&src) {
+                    Ok(_) => panic!("{src} was expected to fail"),
+                    Err(e) => assert!(
+                        e.ends_with(&format!("{op} returns error: COMPARE: unsupported operand #2")),
+                        "{src}: {e}"
+                    ),
+                }
+            }
+        }
+        // Complex against complex still compares.
+        assert!(run("1.0 2.0 complex 1.0 2.0 complex ==").is_ok());
+        // The plain number on top is the reference's own answer: false, true.
+        for (src, want) in [("1.0 2.0 complex 2 ==", false), ("1.0 2.0 complex 2 <", true)] {
+            let i = run(src).unwrap_or_else(|e| panic!("{src}: {e}"));
+            let top = i.peek().expect("a value");
+            assert_eq!(*top.unboxed(), BundValue::boolean(want), "{src}");
+        }
     }
 }

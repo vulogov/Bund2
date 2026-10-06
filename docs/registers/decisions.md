@@ -3547,6 +3547,44 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D104 — where the reference aborts: refuse the incoherent answer, keep the coherent one
+
+**Authorised by the repository owner, 2026-10-06**, on being shown three
+options.
+
+- Blocks: nothing
+- Depends on: D37, D98, F68, F47, F168, F170
+- Status: **RESOLVED**, built 2026-10-06.
+
+### The decision
+
+F170 found two places where the reference aborts and Bund2 returned a value
+nobody had chosen. They are settled differently, and on one test: **is the
+quiet answer a meaning, or an accident?**
+
+1. **A complex number compared with a plain one is refused.** With a CFLOAT on
+   top and an INTEGER, FLOAT or TIME underneath, every comparison word now
+   fails with `COMPARE: unsupported operand #2` — the gate's existing sentence
+   for a second operand the first cannot be compared with
+   (`crates/bund2-stdlib/src/logic.rs`, `compare`). Bund2 had answered `<` and
+   `>` both true of the same two values, which is F47's fallback and not an
+   answer. D98's treatment.
+2. **A string repeated a negative number of times stays the empty string.**
+   That is what repeating zero or fewer times conventionally means, it is what
+   Bund2 has always done, and the reference itself takes a negative *float*
+   count as zero. F68's treatment.
+
+### What it does not change
+
+The other orientation — a plain number on top of a complex one — does not
+abort the reference. Its integer or float arm answers (`false` to `==`, `true`
+to an ordering), and Bund2 answers the same.
+
+### Not a standing rule
+
+The owner was offered "reference aborts, Bund2 reports" as a uniform policy
+and chose case by case instead. A third case is a third question.
+
 ## D103 — TIME is a payload of its own, and does as little as the reference's
 
 **Authorised by the repository owner, 2026-10-06**, on being shown the

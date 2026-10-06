@@ -4040,6 +4040,9 @@ string converted to BOOL (F68, answers `false`, and *that* one was decided).
 D98 gave `io.textfile` the other treatment — report, do not invent. Whether
 these two should follow F68 or D98 is the owner's to say.
 
+**Status: RESOLVED 2026-10-06 by D104.** The comparison is refused with the
+gate's own sentence; the negative repeat keeps its empty string.
+
 ## F169 — two tables measured whole: conversions and comparisons
 
 **Bund2 defects, measured 2026-10-06.** F167 and F168 were each filed as a few
