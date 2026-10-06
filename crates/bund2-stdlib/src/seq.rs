@@ -268,25 +268,28 @@ fn map_wb(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 fn map_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
+    // `MAP.` for the workbench form
+    // (`reference/rust_multistackvm/src/stdlib/logic/map_fun.rs`).
+    let prefix = &format!("MAP{}", side.dot());
     if vm.depth() < if side == crate::wb::Side::Stack { 2 } else { 1 } {
-        return Err(Error("Stack is too shallow for inline MAP".into()));
+        return Err(Error(format!("Stack is too shallow for inline {prefix}")));
     }
-    let lambda_val = crate::pull::operand(vm, "MAP", 1)?;
+    let lambda_val = crate::pull::operand(vm, prefix, 1)?;
     if lambda_val.dt() != LAMBDA {
-        return Err(Error("MAP: #1 parameter must be lambda".into()));
+        return Err(Error(format!("{prefix}: #1 parameter must be lambda")));
     }
     let seq_val = side
         .pull(vm)
-        .ok_or_else(|| Error("MAP returns: NO DATA #2".into()))?;
+        .ok_or_else(|| Error(format!("{prefix} returns: NO DATA #2")))?;
     if seq_val.dt() != LIST {
         return Err(Error(format!(
-            "MAP: can not run map over {}",
+            "{prefix}: can not run map over {}",
             seq_val.type_name()
         )));
     }
     let items = seq_val
         .as_list()
-        .ok_or_else(|| Error("MAP returns error: This Dynamic type is not list".into()))?
+        .ok_or_else(|| Error(format!("{prefix} returns error: This Dynamic type is not list")))?
         .to_vec();
     let body = lambda_val.clone();
     let mut out: Vec<BundValue> = Vec::with_capacity(items.len());

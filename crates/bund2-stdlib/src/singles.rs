@@ -483,7 +483,13 @@ fn getset_inplace(vm: &mut dyn Vm, side: crate::wb::Side, is_set: bool) -> Resul
             .ok_or_else(|| Error(format!("{prefix} error in GET: This Dynamic type is not string")))?;
         let val = container
             .get(&key)
-            .ok_or_else(|| Error(format!("{prefix}: Key not found: {key}")))?;
+            // The reference wraps `get`'s own refusal in a sentence that already
+            // says it (`getsetinplace.rs:64`).
+            .ok_or_else(|| {
+                Error(format!(
+                    "{prefix}: Key not found: {key} due to: Key not found: {key}"
+                ))
+            })?;
         // Dictionary back to the side it came from, value to the stack.
         side.push(vm, container);
         vm.push(val);
@@ -515,21 +521,21 @@ fn pull_word(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     let dt = names_val.dt();
     if dt != LIST && dt != PAIR {
         return Err(Error(format!(
-            "PULL casting of list returned: This is not a LIST/PAIR value but {dt}"
+            "{prefix} casting of list returned: This is not a LIST/PAIR value but {dt}"
         )));
     }
     let names = names_val
         .as_list()
-        .ok_or_else(|| Error("PULL casting of list returned: This Dynamic type is not list".into()))?
+        .ok_or_else(|| Error(format!("{prefix} casting of list returned: This Dynamic type is not list")))?
         .to_vec();
     let mut res = BundValue::map(Default::default());
     for n in names {
         let name = n
             .as_str()
-            .ok_or_else(|| Error("PULL error casting name from string: This Dynamic type is not string".into()))?;
+            .ok_or_else(|| Error(format!("{prefix} error casting name from string: This Dynamic type is not string")))?;
         let value = vm
             .pull()
-            .ok_or_else(|| Error("PULL can not pull value from stack".into()))?;
+            .ok_or_else(|| Error(format!("{prefix} can not pull value from stack")))?;
         res = res.set(&name, value);
     }
     side.push(vm, res);
@@ -750,8 +756,10 @@ fn merge_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
             if vm.workbench_depth() < 1 {
                 return Err(Error(format!("Workbench is too shallow for inline {prefix}")));
             }
+            // Both guards say `Workbench`, though this one asks the stack
+            // (`reference/Bund/src/stdlib/functions/values/merge.rs:33,36`).
             if vm.depth() < 1 {
-                return Err(Error(format!("Stack is too shallow for inline {prefix}")));
+                return Err(Error(format!("Workbench is too shallow for inline {prefix}")));
             }
         }
     }
@@ -765,7 +773,7 @@ fn merge_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
             LIST => {
                 let items = b
                     .as_list()
-                    .ok_or_else(|| Error("MERGE returns error during LIST casting".into()))?
+                    .ok_or_else(|| Error(format!("{prefix} returns error during LIST casting")))?
                     .to_vec();
                 let mut out = a;
                 for (i, v) in items.into_iter().enumerate() {
@@ -777,7 +785,7 @@ fn merge_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
             MAP | CONDITIONAL => {
                 let src = b
                     .as_map()
-                    .ok_or_else(|| Error("MERGE returns error during DICT casting".into()))?
+                    .ok_or_else(|| Error(format!("{prefix} returns error during DICT casting")))?
                     .clone();
                 let mut out = a;
                 for (k, v) in src {
@@ -798,7 +806,7 @@ fn merge_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
             Ok(())
         }
         Err(e) => Err(Error(format!(
-            "MERGE returns error for default operation: {}",
+            "{prefix} returns error for default operation: {}",
             e.0
         ))),
     }

@@ -361,7 +361,11 @@ fn wrap_english(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> 
     use hyphenation::Load as _;
     let dict = hyphenation::Standard::from_embedded(hyphenation::Language::EnglishUS)
         .map_err(|e| Error(format!("{prefix} error creating dictionary: {e}")))?;
-    let options = textwrap::Options::new(n.max(0) as usize)
+    // **A negative width is cast `as usize` and so is enormous**
+    // (`reference/Bund/src/stdlib/functions/string/textwrap.rs:68`): nothing
+    // wraps and the text comes back as one line. Clamping it to zero wrapped
+    // every character onto its own.
+    let options = textwrap::Options::new(n as usize)
         .word_splitter(textwrap::WordSplitter::Hyphenation(dict));
     let wrapped = textwrap::wrap(&s, &options);
     let r = list_of(wrapped.iter().map(|l| l.to_string()));
@@ -664,7 +668,8 @@ pub fn register(r: &mut Registry) {
             );
         };
     }
-    dist!("string.distance.", "STRING.DISTANCE.", |a, b| Ok(
+    // Reports under the algorithm's name, as the plain form does.
+    dist!("string.distance.", "STRING.DISTANCE.LEVENSHTEIN.", |a, b| Ok(
         BundValue::int(distance::levenshtein(a, b) as i64)
     ));
     dist!(
@@ -908,5 +913,28 @@ mod tests {
         let b = run("\"x\ny\" string.tokenize.lines").expect("tokenize.lines runs");
         assert_eq!(a.peek().map(|v| v.display()), b.peek().map(|v| v.display()));
         assert!(a.registry.effect_of("lines").is_some(), "alias resolves");
+    }
+
+    /// F173: the workbench forms say so in their messages, and a negative
+    /// wrap width wraps nothing. Each row measured on the oracle.
+    #[test]
+    fn workbench_forms_report_under_their_own_names() {
+        for (src, want) in [
+            ("2 2 . string.distance.", "STRING.DISTANCE.LEVENSHTEIN. returned for #1: This Dynamic type is not string"),
+            ("2 2 . map.", "MAP.: #1 parameter must be lambda"),
+            ("2 . pull.", "PULL. casting of list returned: This is not a LIST/PAIR value but 2"),
+            ("2 . ++.", "Workbench is too shallow for inline MERGE."),
+            ("2 true . merge.", "MERGE. returns error for default operation: Incompartible X argument for the math operations: 1"),
+            ("2 . ifthenelse.", "Stack is too shallow for inline IFTHENELSE."),
+            ("\"s\" dict \"a\" 1 set . get.,", "GET.,: Key not found: s due to: Key not found: s"),
+        ] {
+            match run(src) {
+                Ok(_) => panic!("{src} was expected to fail"),
+                Err(e) => assert!(e.ends_with(want), "{src}: {e}"),
+            }
+        }
+        let i = run("-3 \"Hello big World\" string.wrap.english").expect("runs");
+        let lines = i.peek().and_then(|v| v.as_list().map(|l| l.len()));
+        assert_eq!(lines, Some(1), "a negative width wraps nothing");
     }
 }

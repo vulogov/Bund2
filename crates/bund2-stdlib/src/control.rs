@@ -113,7 +113,7 @@ fn ifthenelse(vm: &mut dyn Vm) -> Result<(), Error> {
 /// condition is on the workbench
 /// (`reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:19-25,47-50`).
 fn ifthenelse_wb(vm: &mut dyn Vm) -> Result<(), Error> {
-    ifthenelse_base(vm, crate::wb::Side::Bench, "IFTHENELSE")
+    ifthenelse_base(vm, crate::wb::Side::Bench, "IFTHENELSE.")
 }
 
 /// `notifthenelse`, spelled `?false*` — **and it does not negate. F97.**

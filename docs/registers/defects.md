@@ -4018,6 +4018,50 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F173 — the workbench forms, measured: one wrong answer and seven words misnamed
+
+**Bund2 defects, measured 2026-10-06.** The survey F171 ran over the plain
+words, run over the workbench forms: 78 words ending in `.` or `.,`, each
+with one value on the workbench (36 kinds), one on the workbench and one on
+the stack (196 pairs), and two on the workbench (196 pairs). 33,384 programs,
+each ending with a dump of both the stack and the workbench, so a value on the
+wrong side would show.
+
+**29,262 agreed, and 55 words agreed on every program.** The workbench forms
+were in much better order than the plain ones had been — most share their body
+with the plain form, which F171 had just put right, and none put a value on the
+wrong side.
+
+Found and fixed:
+
+- **`string.wrap.english.` with a negative width** wrapped every character
+  onto its own line. The reference casts the width `as usize`
+  (`reference/Bund/src/stdlib/functions/string/textwrap.rs:68`), so a negative
+  one is enormous and nothing wraps. Bund2 clamped it to zero. The plain form
+  shares the body and was wrong the same way.
+- **Seven forms reported under the plain form's name.** `IFTHENELSE.`, `MAP.`,
+  `PULL.` and `MERGE.` each carry the dot in the reference's messages;
+  `string.distance.` reports as `STRING.DISTANCE.LEVENSHTEIN.`. Bund2 had
+  hard-coded the undotted name in each.
+- **`merge.`'s second guard says `Workbench` though it asks the stack**
+  (`reference/Bund/src/stdlib/functions/values/merge.rs:33,36`). Reproduced.
+- **`get,` and `get.,` double their refusal**: `Key not found: k due to: Key
+  not found: k` (`reference/Bund/src/stdlib/functions/values/getsetinplace.rs:64`).
+
+**What is left, and why:**
+
+| count | what | why it stays |
+|---|---|---|
+| 428 | `encode.base64.` | the encoding embeds a random id |
+| 419 | `convert.to_dict.` | D57 |
+| 258 | `!.` | **F53 and F59**: the reference guards the main stack and then pulls the workbench, so a value waiting there cannot be executed while the stack is empty. Decided |
+| 106 | `convert.to_bool.`, `*.`, `**.` | the reference aborts — F68, D104 |
+| ~80 | tokenizer set order, an OBJECT's member order | F15 |
+| 15 | `string.distance.jarowinkler.` | F95 |
+
+**Not surveyed:** the looping forms, and anything that reaches outside the
+stack.
+
 ## F172 — `move` to a stack that does not exist hangs the reference
 
 **An original-implementation defect, measured 2026-10-06** by F171's survey.
