@@ -234,7 +234,7 @@ pub fn execute_object(vm: &mut dyn Vm, obj: BundValue) -> Result<(), Error> {
     };
     let name = nv
         .as_str()
-        .ok_or_else(|| Error("EXECUTE.OBJECT casting name returns: not a string".into()))?;
+        .ok_or_else(|| Error("EXECUTE.OBJECT casting name returns: This Dynamic type is not string".into()))?;
     vm.push(obj);
     dispatch_method(vm, &name)
 }
@@ -947,7 +947,9 @@ fn wrap_word(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 2 {
         return Err(Error("Stack is too shallow for inline UNWRAP".into()));
     }
-    let obj = pull_object(vm, "UNWRAP")?;
+    // This one's two refusals have no colon (`value_class.rs:91,93`), where
+    // `unwrap`'s own have one (`:116,118`).
+    let obj = pull_object(vm, "UNWRAP").map_err(|e| Error(e.0.replacen("UNWRAP:", "UNWRAP", 1)))?;
     // Checked *before* the write, because `set_in_object` cannot report that it
     // found no owner for the slot — it returns the object unchanged.
     if locate(&obj, ".data").is_none() {
@@ -1536,7 +1538,7 @@ mod tests {
             ("unwrap", "Stack is too shallow for inline UNWRAP"),
             ("is", "Stack is too shallow for inline IS"),
             ("wrap", "Stack is too shallow for inline UNWRAP"),
-            ("1 2 wrap", "UNWRAP: NO OBJECT IN #1"),
+            ("1 2 wrap", "UNWRAP NO OBJECT IN #1"),
             ("42 unwrap", "UNWRAP: NO OBJECT IN #1"),
             ("42 is", "IS: NO OBJECT IN #1"),
             ("1 2 #", "# NO LAMBDA or PTR IN #1"),

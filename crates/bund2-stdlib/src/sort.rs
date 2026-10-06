@@ -213,7 +213,7 @@ fn sort_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     }
     let mut items = v
         .as_list()
-        .ok_or_else(|| Error(format!("{prefix} casting of list returned: not a list")))?
+        .ok_or_else(|| Error(format!("{prefix} casting of list returned: This Dynamic type is not list")))?
         .to_vec();
     quicksort(&mut items);
     side.push(vm, BundValue::list(items));
@@ -403,7 +403,7 @@ fn unique_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     }
     let items = v
         .as_list()
-        .ok_or_else(|| Error(format!("{prefix} casting of list returned: not a list")))?;
+        .ok_or_else(|| Error(format!("{prefix} casting of list returned: This Dynamic type is not list")))?;
     let mut kept: Vec<BundValue> = Vec::new();
     let mut keys: Vec<Key> = Vec::new();
     for item in items {

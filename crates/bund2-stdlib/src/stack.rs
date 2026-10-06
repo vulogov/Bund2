@@ -39,27 +39,35 @@ fn eff(consumes: u8, produces: u8) -> StackEffect {
 /// Found by `cargo xtask effects`, which flagged `move` and `move_from` as
 /// declaring an arity the probe disagreed with; the arity was right and the
 /// residual stack was not.
-fn name_arg(vm: &mut dyn Vm, word: &str) -> Result<String, Error> {
+///
+/// **`what` is the reference's own lead-in, not the word's name.** Each
+/// stack-layer function reports a failed cast as
+/// `Operation <fn>() returned error: This Dynamic type is not string`, and
+/// `<fn>` is whatever that function's author typed: `dup_in` for both
+/// `dup_one_in` and `dup_many_in` (`reference/rust_multistack/src/stdlib/dup.rs:57`),
+/// `rotate_stack_left` for `rotate_stack_right`, `stack exists() returned`
+/// with a space and no `error`. So the caller passes the phrase. D105.
+fn name_arg(vm: &mut dyn Vm, what: &str) -> Result<String, Error> {
     let v = vm
         .pull()
-        .ok_or_else(|| Error(format!("{word} returns: NO DATA")))?;
+        .ok_or_else(|| Error(format!("{what}: NO DATA")))?;
     match v.as_str() {
         Some(s) => Ok(s),
         None => {
             vm.push(v);
-            Err(Error(format!("{word} expected a string name")))
+            Err(Error(format!("{what}: This Dynamic type is not string")))
         }
     }
 }
 
-/// Pull a count, as `dup_many` and `swap` do.
-fn count_arg(vm: &mut dyn Vm, word: &str) -> Result<i64, Error> {
+/// Pull a count, as `dup_many` and `swap` do. `what` as for [`name_arg`].
+fn count_arg(vm: &mut dyn Vm, what: &str) -> Result<i64, Error> {
     let v = vm
         .pull()
-        .ok_or_else(|| Error(format!("{word} returns: NO DATA")))?;
+        .ok_or_else(|| Error(format!("{what}: NO DATA")))?;
     match v.as_int() {
         Some(n) => Ok(n),
-        None => Err(Error(format!("{word} expected an integer"))),
+        None => Err(Error(format!("{what}: This Dynamic type is not integer"))),
     }
 }
 
@@ -83,8 +91,17 @@ fn dup_one(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 fn dup_many(vm: &mut dyn Vm) -> Result<(), Error> {
-    let n = count_arg(vm, "dup_many")?;
+    // The depth is asked before the count is taken
+    // (`reference/rust_multistack/src/stdlib/dup.rs:25`), and what is asked
+    // after it is whether there is anything left to copy
+    // (`reference/rust_multistack/src/ts_stack_op.rs:46`).
     shallow(vm, 1, "dup_many")?;
+    let n = count_arg(vm, "Operation dup() returned error")?;
+    if vm.depth() < 1 {
+        return Err(Error(
+            "Error duplicating data in current stack: unable to peek()".into(),
+        ));
+    }
     let top = crate::pull::top(vm, "DUP")?;
     for _ in 0..n {
         vm.push(top.dup());
@@ -93,9 +110,13 @@ fn dup_many(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 fn dup_one_in(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "dup_one_in")?;
+    let name = name_arg(vm, "Operation dup_in() returned error")?;
     let Some(top) = vm.pull_from(&name) else {
-        return Err(Error(format!("dup_one_in: {name} is empty")));
+        // `reference/rust_multistack/src/ts_stack_op.rs:46`'s sentence for a stack
+        // with nothing to copy; it does not name the stack.
+        return Err(Error(
+            "Error duplicating data in current stack: unable to peek()".into(),
+        ));
     };
     vm.push_to(&name, top.clone());
     vm.push_to(&name, top.dup());
@@ -113,10 +134,14 @@ fn dup_many_in(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 2 {
         return Err(Error("Stack is too shallow for inline dup_many()".into()));
     }
-    let name = name_arg(vm, "dup_many_in")?;
-    let n = count_arg(vm, "dup_many_in")?;
+    let name = name_arg(vm, "Operation dup_in() returned error")?;
+    let n = count_arg(vm, "Operation dup_in() returned error")?;
     let Some(top) = vm.pull_from(&name) else {
-        return Err(Error(format!("dup_many_in: {name} is empty")));
+        // `reference/rust_multistack/src/ts_stack_op.rs:46`'s sentence for a stack
+        // with nothing to copy; it does not name the stack.
+        return Err(Error(
+            "Error duplicating data in current stack: unable to peek()".into(),
+        ));
     };
     vm.push_to(&name, top.clone());
     for _ in 0..n {
@@ -134,19 +159,19 @@ fn drop_word(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 fn drop_in(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "drop_in")?;
+    let name = name_arg(vm, "Operation drop_in() returned error")?;
     // Both refusals are the reference's
     // (`reference/rust_multistack/src/ts_drop.rs:30-46`, wrapped at
     // `stdlib/drop.rs:31`). Bund2 dropped from a stack that was not there, or
     // had nothing in it, and said nothing (F171).
     if !vm.stack_exists(&name) {
         return Err(Error(format!(
-            "VM inline function returned error: Operation drop_in() returned: Can not detect stack {name} for drop_in() operation"
+            "Operation drop_in() returned: Can not detect stack {name} for drop_in() operation"
         )));
     }
     if vm.pull_from(&name).is_none() {
         return Err(Error(
-            "VM inline function returned error: Operation drop_in() returned: Stack is empty for drop_in() operation".into(),
+            "Operation drop_in() returned: Stack is empty for drop_in() operation".into(),
         ));
     }
     Ok(())
@@ -180,7 +205,7 @@ fn swap_one(vm: &mut dyn Vm) -> Result<(), Error> {
 /// `swap` with a depth: rotate right `n`, exchange, rotate back
 /// (`reference/rust_multistack/src/ts_stack_op.rs:94-112`).
 fn swap_n(vm: &mut dyn Vm) -> Result<(), Error> {
-    let n = count_arg(vm, "swap")?;
+    let n = count_arg(vm, "Operation swap() returned error")?;
     shallow(vm, 2, "swap")?;
     let top = crate::pull::top(vm, "DUP")?;
     for _ in 0..n {
@@ -221,8 +246,8 @@ fn swap_in(vm: &mut dyn Vm) -> Result<(), Error> {
     // crossed and the value that must be a string is the one pulled first.
     // Confirmed against the oracle: `1 :t swap_in` works and `:t 1 swap_in`
     // errors.
-    let name = name_arg(vm, "swap_in")?;
-    let n = count_arg(vm, "swap_in")?;
+    let name = name_arg(vm, "Operation swap_in() returned error")?;
+    let n = count_arg(vm, "Operation dup() returned error")?;
     if vm.depth_of(&name) < 2 {
         return Err(Error(format!(
             "Swap in stack {name} had failed. Stack too shallow."
@@ -259,11 +284,11 @@ fn clear(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 fn clear_in(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "clear_in")?;
+    let name = name_arg(vm, "Operation clear_in() returned error")?;
     // `reference/rust_multistack/src/stdlib/clear.rs:27-33`.
     if !vm.stack_exists(&name) {
         return Err(Error(format!(
-            "VM inline function returned error: Operation clear_in() can not find the stack: {name}"
+            "Operation clear_in() can not find the stack: {name}"
         )));
     }
     vm.clear_stack(&name);
@@ -297,7 +322,7 @@ fn current(vm: &mut dyn Vm) -> Result<(), Error> {
 /// its caller is CLAUDE.md's "follow the call one level further" failure,
 /// committed while investigating a divergence caused by the same habit.*
 fn to_current(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "to_current")?;
+    let name = name_arg(vm, "Operation to_current() returned error")?;
     if !vm.stack_exists(&name) {
         return Err(Error(format!("Stake with name {name} noexists")));
     }
@@ -306,13 +331,13 @@ fn to_current(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 fn to_stack(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "to_stack")?;
+    let name = name_arg(vm, "Operation to_stack() returned error")?;
     vm.to_stack(&name);
     Ok(())
 }
 
 fn ensure_stack(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "ensure_stack")?;
+    let name = name_arg(vm, "Operation ensure_stack() returned error")?;
     vm.ensure_stack(&name);
     Ok(())
 }
@@ -339,14 +364,14 @@ fn ensure_stack_with_capacity(vm: &mut dyn Vm) -> Result<(), Error> {
             "Stack is too shallow for inline set_stack_capacity()".into(),
         ));
     }
-    let name = name_arg(vm, "ensure_stack_with_capacity")?;
-    let cap = count_arg(vm, "ensure_stack_with_capacity")?;
+    let name = name_arg(vm, "capacity casting error #1")?;
+    let cap = count_arg(vm, "capacity casting error #2")?;
     vm.ensure_stack_with_capacity(&name, cap.max(0) as usize);
     Ok(())
 }
 
 fn stack_exists(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "stack_exists")?;
+    let name = name_arg(vm, "stack exists() returned")?;
     let e = vm.stack_exists(&name);
     vm.push(BundValue::boolean(e));
     Ok(())
@@ -369,7 +394,7 @@ fn stack_exists(vm: &mut dyn Vm) -> Result<(), Error> {
 /// `1 2 3 :box move` hangs the oracle. Taking the contents once and then
 /// pushing cannot feed itself, so this moves three values and returns.
 fn move_word(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "move")?;
+    let name = name_arg(vm, "Operation move() returned error")?;
     let mut moved = Vec::new();
     while let Some(v) = vm.pull() {
         moved.push(v);
@@ -398,8 +423,8 @@ fn move_from(vm: &mut dyn Vm) -> Result<(), Error> {
             "Stack is too shallow for inline move_from()".into(),
         ));
     }
-    let from = name_arg(vm, "move_from")?;
-    let to = name_arg(vm, "move_from")?;
+    let from = name_arg(vm, "Operation move_from() returned error")?;
+    let to = name_arg(vm, "Operation move_from() returned error")?;
     let mut moved = Vec::new();
     while let Some(v) = vm.pull_from(&from) {
         moved.push(v);
@@ -414,7 +439,9 @@ fn move_from(vm: &mut dyn Vm) -> Result<(), Error> {
 
 fn take(vm: &mut dyn Vm) -> Result<(), Error> {
     let Some(v) = vm.pull_workbench() else {
-        return Err(Error("take returns: NO DATA".into()));
+        return Err(Error(
+            "Nothing has been returned from workbench to current stack".into(),
+        ));
     };
     vm.push(v);
     Ok(())
@@ -440,7 +467,7 @@ fn return_to(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 1 {
         return Err(Error("Stack is too shallow for inline return_to()".into()));
     }
-    let name = name_arg(vm, "return_to")?;
+    let name = name_arg(vm, "Operation return_to() returned error")?;
     let Some(v) = vm.pull_workbench() else {
         return Err(Error("return_to returns: NO DATA".into()));
     };
@@ -449,7 +476,7 @@ fn return_to(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 fn return_from(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "return_from")?;
+    let name = name_arg(vm, "Operation return_from() returned error")?;
     let Some(v) = vm.pull_from(&name) else {
         return Err(Error(format!("return_from: {name} is empty")));
     };
@@ -470,7 +497,7 @@ fn rotate_current_right(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 fn rotate_stack_left(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "rotate_stack_left")?;
+    let name = name_arg(vm, "Operation rotate_stack_left() returned error")?;
     let cur = vm.current_name();
     vm.to_stack(&name);
     vm.rotate_left();
@@ -482,7 +509,7 @@ fn rotate_stack_left(vm: &mut dyn Vm) -> Result<(), Error> {
 /// *left* rotation (`reference/rust_multistack/src/stdlib/rotate.rs:88,102`).
 /// No golden covers it, so conformance cannot move.
 fn rotate_stack_right(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "rotate_stack_right")?;
+    let name = name_arg(vm, "Operation rotate_stack_left() returned error")?;
     let cur = vm.current_name();
     vm.to_stack(&name);
     vm.rotate_right();
@@ -542,7 +569,7 @@ fn fold(vm: &mut dyn Vm) -> Result<(), Error> {
 ///
 /// Same order as `fold`: no reversal, so the list reads top-first.
 fn fold_stack(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "fold_stack")?;
+    let name = name_arg(vm, "Operation fold_stack() returned error")?;
     let mut items = Vec::new();
     while let Some(v) = vm.pull_from(&name) {
         // The same marker (`ts_list.rs:46-48`).
@@ -561,6 +588,27 @@ fn fold_stack(vm: &mut dyn Vm) -> Result<(), Error> {
 /// replayed, never deduped, because F32 depends on the second of two
 /// identical registrations winning.
 pub fn register(r: &mut Registry) {
+    // **Every word here is a stack-layer function, and the VM reports a
+    // failure in one through a wrapper**: `VM inline function returned error:
+    // {err}` (`reference/rust_multistackvm/src/multistackvm_inline.rs:59`).
+    // The words Bund2 keeps in other modules are VM-layer and are not wrapped
+    // (`:44`). `ts!` gives each native a shim that adds the lead-in, so no
+    // body has to remember it. An internal error is passed through: it is
+    // about Bund2, and the wrapper's sentence is about the program. D105.
+    macro_rules! ts {
+        ($r:expr, $n:expr, $f:ident, $e:expr $(,)?) => {{
+            fn shim(vm: &mut dyn Vm) -> Result<(), Error> {
+                $f(vm).map_err(|e| {
+                    if e.is_internal() {
+                        e
+                    } else {
+                        Error(format!("VM inline function returned error: {}", e.0))
+                    }
+                })
+            }
+            $r.register_native($n, shim, $e, WordKind::Sync);
+        }};
+    }
     let w = |r: &mut Registry, n: &str, f: bund2_api::NativeFn, e: StackEffect| {
         r.register_native(n, f, e, WordKind::Sync);
     };
@@ -569,25 +617,25 @@ pub fn register(r: &mut Registry) {
     // `1 -> 2` and not `0 -> 1`. `bund2 check` reads the first number as "what
     // must be on the stack before this runs", which is F18's reading, and a
     // net of zero there would let a bare `dup` pass unremarked.
-    w(r, "dup_one", dup_one, eff(1, 2));
+    ts!(r, "dup_one", dup_one, eff(1, 2));
     // Opaque: the count is an operand, so the net is its value less one. The
     // floor is the count and the value copied (F92).
-    w(r, "dup_many", dup_many, StackEffect::opaque(2));
+    ts!(r, "dup_many", dup_many, StackEffect::opaque(2));
     // F111: opaque; given the current stack's name it duplicates onto it.
-    w(r, "dup_one_in", dup_one_in, StackEffect::opaque(1));
+    ts!(r, "dup_one_in", dup_one_in, StackEffect::opaque(1));
     // F111: opaque; given the current stack's name it duplicates onto it,
     // a copy per unit of its count.
-    w(r, "dup_many_in", dup_many_in, StackEffect::opaque(2));
-    w(r, "drop", drop_word, eff(1, 0));
+    ts!(r, "dup_many_in", dup_many_in, StackEffect::opaque(2));
+    ts!(r, "drop", drop_word, eff(1, 0));
     // F111: opaque; given the current stack's name it drops from it.
-    w(r, "drop_in", drop_in, StackEffect::opaque(1));
+    ts!(r, "drop_in", drop_in, StackEffect::opaque(1));
     // **Opaque, taking nothing — F94.** `drop_stack` takes no operand and
     // removes the whole current stack, whatever is on it (the function above;
     // `reference/rust_multistack/src/ts_drop_stack.rs:10-23`), so no pair is
     // true of it. `1 -> 0` said it consumed one value; `docs/arity.md` has
     // always read `0+`. Criterion 28's palette found it.
-    w(r, "drop_stack", drop_stack, StackEffect::opaque(0));
-    w(r, "swap_one", swap_one, eff(2, 2));
+    ts!(r, "drop_stack", drop_stack, StackEffect::opaque(0));
+    ts!(r, "swap_one", swap_one, eff(2, 2));
     // `2 -> 2`, the probed column, per **F18's rule**: take what the probe
     // observed wherever it disagrees with the guard, because the guard is a
     // minimum and the effect is a contract. `swap` reaches its depth
@@ -595,36 +643,36 @@ pub fn register(r: &mut Registry) {
     // `10 20 30 1 swap` answers `10 20 1 30` in both engines, four in and four
     // out. The declaration said `1 -> 0` until `cargo xtask effects` compared
     // it against the table.
-    w(r, "swap", swap_n, eff(2, 2));
+    ts!(r, "swap", swap_n, eff(2, 2));
     // `2 -> 0`: the name and the count both come off the current stack, as
     // the guard says. It declared `1 -> 0` (F92). When the name *is* the
     // current stack it reorders values below that, which is Q34's case and not
     // something a pair can say.
-    w(r, "swap_in", swap_in, eff(2, 0));
+    ts!(r, "swap_in", swap_in, eff(2, 0));
     // Opaque: `clear` empties the current stack, however deep. `0 -> 0` said
     // it touched nothing (F92). The probed column reads `0+` for the same
     // reason.
-    w(r, "clear", clear, StackEffect::opaque(0));
+    ts!(r, "clear", clear, StackEffect::opaque(0));
     // F111: opaque, because its effect on the current stack depends on the
     // name it is handed; given the current stack's own name it clears it.
-    w(r, "clear_in", clear_in, StackEffect::opaque(1));
-    w(r, "current", current, eff(0, 1));
-    w(r, "to_current", to_current, eff(1, 0));
-    w(r, "to_stack", to_stack, eff(1, 0));
-    w(r, "ensure_stack", ensure_stack, eff(1, 0));
-    w(
+    ts!(r, "clear_in", clear_in, StackEffect::opaque(1));
+    ts!(r, "current", current, eff(0, 1));
+    ts!(r, "to_current", to_current, eff(1, 0));
+    ts!(r, "to_stack", to_stack, eff(1, 0));
+    ts!(r, "ensure_stack", ensure_stack, eff(1, 0));
+    ts!(
         r,
         "ensure_stack_with_capacity",
         ensure_stack_with_capacity,
         eff(2, 0),
     );
-    w(r, "stack_exists", stack_exists, eff(1, 1));
+    ts!(r, "stack_exists", stack_exists, eff(1, 1));
     // Opaque: `move` drains the current stack below the name into the named
     // one (`tests/golden/EFFECTS.txt`), so it consumes everything. `2 -> 0` was
     // its smallest true case, and a pair that is true only sometimes is one
     // RFC-0005 §S5 would trust always (F92).
-    w(r, "move", move_word, StackEffect::opaque(2));
-    w(r, "move_from", move_from, eff(2, 0));
+    ts!(r, "move", move_word, StackEffect::opaque(2));
+    ts!(r, "move_from", move_from, eff(2, 0));
     // **`0 -> 1` on the main stack, and that is all this shape can say.**
     // `take` needs a value on the **workbench** and puts one on the main
     // stack; the requirement is on the axis `StackEffect` does not have —
@@ -634,27 +682,27 @@ pub fn register(r: &mut Registry) {
     // `bund2 check` read a workbench requirement as a main-stack one and
     // report `test_times_loop.bund`, a program that runs. A number on the
     // wrong axis is worse than no number, because the checker believes it.
-    w(r, "take", take, eff(0, 1));
-    w(r, "return", return_word, eff(1, 0));
-    w(r, "return_to", return_to, eff(1, 0));
+    ts!(r, "take", take, eff(0, 1));
+    ts!(r, "return", return_word, eff(1, 0));
+    ts!(r, "return_to", return_to, eff(1, 0));
     // F111: opaque; given the current stack's name it moves a value from it
     // to the workbench.
-    w(r, "return_from", return_from, StackEffect::opaque(1));
-    w(r, "rotate_current_left", rotate_current_left, eff(0, 0));
-    w(r, "rotate_current_right", rotate_current_right, eff(0, 0));
-    w(r, "rotate_stack_left", rotate_stack_left, eff(1, 0));
-    w(r, "rotate_stack_right", rotate_stack_right, eff(1, 0));
-    w(r, "stacks_right", stacks_right, eff(0, 0));
+    ts!(r, "return_from", return_from, StackEffect::opaque(1));
+    ts!(r, "rotate_current_left", rotate_current_left, eff(0, 0));
+    ts!(r, "rotate_current_right", rotate_current_right, eff(0, 0));
+    ts!(r, "rotate_stack_left", rotate_stack_left, eff(1, 0));
+    ts!(r, "rotate_stack_right", rotate_stack_right, eff(1, 0));
+    ts!(r, "stacks_right", stacks_right, eff(0, 0));
     w(r, "stacks_left", stacks_left, eff(0, 0));
     // Opaque: `fold` takes the whole current stack into one LIST, however
     // deep. `0 -> 1` counted the LIST and none of what went into it (F92).
-    w(r, "fold", fold, StackEffect::opaque(0));
+    ts!(r, "fold", fold, StackEffect::opaque(0));
     // `1 -> 0` on the current stack: the name comes off it and the LIST goes
     // to the *named* stack. It declared `1 -> 1` (F92). Folding the current
     // stack by name is Q34's case, as for `swap_in`.
     // F111: opaque; given the current stack's name it folds that stack into
     // a list and leaves it there. F92 set `1 -> 0` for the other case.
-    w(r, "fold_stack", fold_stack, StackEffect::opaque(1));
+    ts!(r, "fold_stack", fold_stack, StackEffect::opaque(1));
 
     // D29: `<-` and `←` are registered aliases whose target was unreachable.
     // Reviving `stacks_left` is what makes them resolve for the first time.

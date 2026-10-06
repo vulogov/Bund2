@@ -50,25 +50,37 @@ fn case_word(vm: &mut dyn Vm, case: Case, prefix: &str) -> Result<(), Error> {
 ///
 /// The gate is `cast_float`, as the `math.*` core family's is: an INTEGER is
 /// refused, not widened.
-fn math1(vm: &mut dyn Vm, f: fn(f64) -> f64, prefix: &str) -> Result<(), Error> {
-    if vm.depth() < 1 {
-        return Err(Error(format!("Stack is too shallow for inline {prefix}")));
-    }
-    let v = crate::pull::operand(vm, prefix, 1)?;
-    let BundValue::Float(x, _) = *v.unboxed() else {
-        return Err(Error(format!(
-            "{prefix} returns error: This Dynamic type is not float: {}",
-            v.dt()
-        )));
-    };
+///
+/// **Every message says `FLOAT_OP`, whichever word failed**, and the shallow
+/// test says `float_op` (`math.rs:53-55,131,136`). One function serves all
+/// eight words and reports under its own name. `prefix` is kept in the
+/// signature for the registration's sake and is not what a program sees:
+/// Bund2 said `MATH.EXP returns error`, which reads better and is not what the
+/// reference says. D105.
+fn math1(vm: &mut dyn Vm, f: fn(f64) -> f64, _prefix: &str) -> Result<(), Error> {
+    let x = float_operand(vm)?;
     vm.push(BundValue::float(f(x)));
     Ok(())
 }
 
-fn as_float(v: &BundValue) -> Option<f64> {
+/// The first pull and its cast, shared by both shapes (`math.rs:53-59,130-137`).
+fn float_operand(vm: &mut dyn Vm) -> Result<f64, Error> {
+    if vm.depth() < 1 {
+        return Err(Error("Stack is too shallow for inline float_op".into()));
+    }
+    let v = crate::pull::operand(vm, "FLOAT_OP", 1)?;
+    cast_float(&v)
+}
+
+/// `Value::cast_float`, with the tag in its refusal
+/// (`reference/rust_dynamic/src/cast.rs:9-16`).
+fn cast_float(v: &BundValue) -> Result<f64, Error> {
     match *v.unboxed() {
-        BundValue::Float(f, _) => Some(f),
-        _ => None,
+        BundValue::Float(f, _) => Ok(f),
+        _ => Err(Error(format!(
+            "FLOAT_OP returns error: This Dynamic type is not float: {}",
+            v.dt()
+        ))),
     }
 }
 
@@ -80,17 +92,21 @@ fn as_float(v: &BundValue) -> Option<f64> {
 /// `math.nroot` and `math.perimeter` take theirs in the other order —
 /// `nrt(fvalue, nvalue)` uses the first pull first (`:79-83`) — so the family
 /// is not consistent with itself and each is written from its own line.
+///
+/// **The depth guard asks for two and names the word.** The reference asks
+/// for one (`:53`), pulls and casts the first operand, and only then misses
+/// the second, as `FLOAT_OP returns: NO DATA #2` (`:90`). Guarding at the
+/// arity the word consumes is F18's disposition, and it is what this did
+/// before D105 touched the casts; it is left as it was.
 fn math2(vm: &mut dyn Vm, f: fn(f64, f64) -> f64, prefix: &str) -> Result<(), Error> {
     if vm.depth() < 2 {
         return Err(Error(format!("Stack is too shallow for inline {prefix}")));
     }
-    let a = crate::pull::operand(vm, prefix, 1)?;
-    let b = crate::pull::operand(vm, prefix, 2)?;
-    let (Some(x), Some(y)) = (as_float(&a), as_float(&b)) else {
-        return Err(Error(format!(
-            "{prefix} returns error: This Dynamic type is not float"
-        )));
-    };
+    let x = float_operand(vm)?;
+    let b = vm
+        .pull()
+        .ok_or_else(|| Error("FLOAT_OP returns: NO DATA #2".into()))?;
+    let y = cast_float(&b)?;
     vm.push(BundValue::float(f(x, y)));
     Ok(())
 }

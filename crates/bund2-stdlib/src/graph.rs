@@ -182,9 +182,16 @@ fn graph_path(vm: &mut dyn Vm) -> Result<(), Error> {
     let ty = g
         .get_or_self("type").ok()
         .ok_or_else(|| Error("GRAPH.PATH: MISSED TYPE".into()))?;
+    // The cast and the comparison fail separately, as they do for the other
+    // three graph queries (`graph_operand`).
     match ty.as_str().as_deref() {
         Some("graph") => {}
-        _ => return Err(Error("GRAPH.PATH: unknown data type".into())),
+        Some(_) => return Err(Error("GRAPH.PATH: unknown data type".into())),
+        None => {
+            return Err(Error(
+                "GRAPH.PATH: type casting returns: This Dynamic type is not string".into(),
+            ));
+        }
     }
     let nodes = g.get_or_self("nodes").ok().unwrap_or_else(|| BundValue::list(Vec::new()));
     let edges = g.get_or_self("edges").ok().unwrap_or_else(|| BundValue::list(Vec::new()));

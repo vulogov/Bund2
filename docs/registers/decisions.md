@@ -3547,6 +3547,79 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D105 — error wording: match what shared code decides, record the rest
+
+**Authorised by the repository owner, 2026-10-06**, on being shown three
+options and their risks.
+
+- Blocks: nothing
+- Depends on: F171 (the survey), F18, D57, F68, D36
+- Status: **RESOLVED**, built 2026-10-06.
+
+### The question
+
+F171's survey ran 61,016 programs on both implementations. In 14,637 of them
+both refused and said so in different words. That matters to a program that
+reads error text through `?try`, and to nothing else.
+
+### The decision
+
+Match the three families whose wording comes from shared code; record what is
+left. Not all of it (the last part is per-word reading for wording alone, where
+a slip is likeliest), and not none of it (error text has been reproduced
+elsewhere all session because `?try` reads it).
+
+1. **The stack layer's wrapper.** Every stack-layer word reports a failure as
+   `VM inline function returned error: {err}`
+   (`reference/rust_multistackvm/src/multistackvm_inline.rs:59`), and inside
+   it names the operation as that function's author typed it — `dup_in` for
+   both `dup_one_in` and `dup_many_in`, `rotate_stack_left` for
+   `rotate_stack_right`. Each native in `crates/bund2-stdlib/src/stack.rs` is
+   registered through a shim that adds the lead-in.
+2. **`FLOAT_OP`.** Eight `math.*` words share one function and report under
+   its name, not their own (`reference/Bund/src/stdlib/functions/math/math.rs`).
+   Bund2 said `MATH.EXP returns error`, which reads better and is not what the
+   reference says. The owner was told this makes the message less helpful.
+3. **Cast failures.** `This Dynamic type is not string` where Bund2 said
+   `not a string` or dropped the reason; the tag-naming form of `cast_list`;
+   and which of two string families numbers its operands
+   (`returned for #2:`) and which does not (`returns:`).
+
+### Measured
+
+| | before | after |
+|---|---|---|
+| programs agreeing, of 61,016 | 42,022 | 55,938 |
+| both refuse, different words | 14,637 | 1,665 |
+| words agreeing on every program, of 263 | 83 | 143 |
+
+### What is left, recorded and not matched
+
+| count | what | why it stays |
+|---|---|---|
+| 757 | `$`, and words only Bund2 has (`?is`, `?effect`) | the oracle says `not registered`; nothing to match |
+| 651 | shallow-stack wording on about twenty words | **F18**: Bund2 guards at the arity a word consumes and says `Stack is too shallow`, where the reference pulls first and says `NO DATA #2`. Decided, and a golden holds it |
+| 175 | `convert.to_dict` | D57 |
+| 82 | scattered: `var?`, `lambda=`, `decode.base64`, `display` | per-word wording, not read |
+
+### Two things the work corrected in itself
+
+**Part of it was undone because it contradicted F18.** The first pass lowered
+the depth guard on the string-distance, regex and two-operand math words to
+reproduce `NO DATA #2`. F18 had already decided those words guard first. The
+guards were restored; only the cast wording changed.
+
+**A golden caught a transposition.** Rewriting `string.regex`'s operand casts
+swapped the subject and the pattern. `f18-arity-words` failed and conformance
+fell by one until it was put right. No survey would have shown it as a
+*message* difference — the answers were simply wrong — which is the argument
+for the goldens over the survey as the thing that gates a change.
+
+### Estimate against outcome
+
+The owner was told the cast family was "one cast helper". It was about 56
+message sites. The decision would have been the same; the estimate was wrong.
+
 ## D104 — where the reference aborts: refuse the incoherent answer, keep the coherent one
 
 **Authorised by the repository owner, 2026-10-06**, on being shown three

@@ -82,11 +82,10 @@ fn unfold_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Result<(
     let v = side
         .pull(vm)
         .ok_or_else(|| Error(format!("{prefix} returns NO DATA #1")))?;
-    let Some(items) = v.as_list().map(<[BundValue]>::to_vec) else {
-        return Err(Error(format!(
-            "{prefix} casting of list returned: This Dynamic type is not list"
-        )));
-    };
+    let items = v
+        .cast_list()
+        .map_err(|e| Error(format!("{prefix} casting of list returned: {e}")))?
+        .to_vec();
     for item in items {
         side.push(vm, item);
     }
@@ -168,7 +167,7 @@ fn conditional_move(vm: &mut dyn Vm, to_stack: bool, prefix: &str) -> Result<(),
                 .ok_or_else(|| Error(format!("{prefix} returns: NO DATA for stack name")))?;
             let name = name_val
                 .as_str()
-                .ok_or_else(|| Error(format!("{prefix} returns: not a string")))?;
+                .ok_or_else(|| Error(format!("{prefix} returns: This Dynamic type is not string")))?;
             vm.push_to(&name, value);
         } else {
             vm.push_workbench(value);
@@ -294,7 +293,7 @@ fn compile(vm: &mut dyn Vm) -> Result<(), Error> {
     let v = crate::pull::operand(vm, "BUND.COMPILE", 1)?;
     let src = v
         .as_str()
-        .ok_or_else(|| Error("BUND.COMPILE casting string returns: not a string".into()))?;
+        .ok_or_else(|| Error("BUND.COMPILE casting string returns: This Dynamic type is not string".into()))?;
     let stream = bund2_syntax::compile(&src)
         .map_err(|e| Error(format!("BUND.COMPILE error in parsing of BUND code: {}", e.render(&src))))?;
     let body: Vec<BundValue> = stream.into_iter().take_while(|v| v.dt() != EXIT).collect();
@@ -473,7 +472,7 @@ fn getset_inplace(vm: &mut dyn Vm, side: crate::wb::Side, is_set: bool) -> Resul
             .ok_or_else(|| Error(format!("{prefix} returns NO DATA #2")))?;
         let key = key_val
             .as_str()
-            .ok_or_else(|| Error(format!("{prefix} error in GET: not a string")))?;
+            .ok_or_else(|| Error(format!("{prefix} error in GET: This Dynamic type is not string")))?;
         side.push(vm, container.set(&key, obj));
     } else {
         let key_val = vm
@@ -481,7 +480,7 @@ fn getset_inplace(vm: &mut dyn Vm, side: crate::wb::Side, is_set: bool) -> Resul
             .ok_or_else(|| Error(format!("{prefix} returns NO DATA #2")))?;
         let key = key_val
             .as_str()
-            .ok_or_else(|| Error(format!("{prefix} error in GET: not a string")))?;
+            .ok_or_else(|| Error(format!("{prefix} error in GET: This Dynamic type is not string")))?;
         let val = container
             .get(&key)
             .ok_or_else(|| Error(format!("{prefix}: Key not found: {key}")))?;
@@ -521,13 +520,13 @@ fn pull_word(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     }
     let names = names_val
         .as_list()
-        .ok_or_else(|| Error("PULL casting of list returned: not a list".into()))?
+        .ok_or_else(|| Error("PULL casting of list returned: This Dynamic type is not list".into()))?
         .to_vec();
     let mut res = BundValue::map(Default::default());
     for n in names {
         let name = n
             .as_str()
-            .ok_or_else(|| Error("PULL error casting name from string".into()))?;
+            .ok_or_else(|| Error("PULL error casting name from string: This Dynamic type is not string".into()))?;
         let value = vm
             .pull()
             .ok_or_else(|| Error("PULL can not pull value from stack".into()))?;
@@ -552,7 +551,7 @@ fn var(vm: &mut dyn Vm) -> Result<(), Error> {
     let name_val = crate::pull::operand(vm, "VAR", 2)?;
     let name = name_val
         .as_str()
-        .ok_or_else(|| Error("VAR expecting var name to be string".into()))?;
+        .ok_or_else(|| Error("VAR expecting var name to be string: This Dynamic type is not string".into()))?;
     vm.register_var(&name, value);
     Ok(())
 }
@@ -580,7 +579,7 @@ fn var_read(vm: &mut dyn Vm) -> Result<(), Error> {
     let name_val = crate::pull::operand(vm, "VAR?", 1)?;
     let name = name_val
         .as_str()
-        .ok_or_else(|| Error("VAR? returns error: not a string".into()))?;
+        .ok_or_else(|| Error("VAR? returns error: This Dynamic type is not string".into()))?;
     let v = vm
         .var(&name)
         .ok_or_else(|| Error(format!("VAR? returned: Variable {name} is not registered")))?;
@@ -595,7 +594,7 @@ fn var_unregister(vm: &mut dyn Vm) -> Result<(), Error> {
     let name_val = crate::pull::operand(vm, "VAR-", 1)?;
     let name = name_val
         .as_str()
-        .ok_or_else(|| Error("VAR- expecting var name to be string".into()))?;
+        .ok_or_else(|| Error("VAR- expecting lanbda name to be string: This Dynamic type is not string".into()))?;
     vm.unregister_var(&name);
     Ok(())
 }
@@ -612,17 +611,34 @@ fn var_unregister(vm: &mut dyn Vm) -> Result<(), Error> {
 /// is `string2`, and the distance is computed `(string1, string2)` (`:73`).
 /// Symmetric for these algorithms, so the order is invisible in the answer —
 /// stated because it will not be for the asymmetric ones.
-fn distance_word(vm: &mut dyn Vm, f: fn(&str, &str) -> usize, prefix: &str) -> Result<(), Error> {
+/// The two operands every `string.distance.*` word and `string.expressionmatch`
+/// take, with the reference's four failures in its order
+/// (`reference/Bund/src/stdlib/functions/string/distance.rs:23-70`).
+///
+/// **The depth guard asks for two, where the reference asks for one** and
+/// then reports a missing second operand as `returns NO DATA #2`. That is
+/// F18, whose disposition is to guard at the arity the word consumes, so the
+/// guard fires before anything is pulled and the operand stays. The casts are
+/// the reference's: each fails under its own number, where Bund2 had said
+/// `#1` whichever operand was not a string. D105.
+fn two_strings(vm: &mut dyn Vm, prefix: &str) -> Result<(String, String), Error> {
     if vm.depth() < 2 {
         return Err(Error(format!("Stack is too shallow for inline {prefix}")));
     }
     let a = crate::pull::operand(vm, prefix, 1)?;
     let b = crate::pull::operand(vm, prefix, 2)?;
-    let (Some(a), Some(b)) = (a.as_str(), b.as_str()) else {
-        return Err(Error(format!(
-            "{prefix} returned for #1: This Dynamic type is not string"
-        )));
+    let cast = |v: &BundValue, n: u8| {
+        v.as_str().ok_or_else(|| {
+            Error(format!(
+                "{prefix} returned for #{n}: This Dynamic type is not string"
+            ))
+        })
     };
+    Ok((cast(&a, 1)?, cast(&b, 2)?))
+}
+
+fn distance_word(vm: &mut dyn Vm, f: fn(&str, &str) -> usize, prefix: &str) -> Result<(), Error> {
+    let (a, b) = two_strings(vm, prefix)?;
     vm.push(BundValue::int(f(&a, &b) as i64));
     Ok(())
 }
@@ -635,18 +651,7 @@ fn distance_word(vm: &mut dyn Vm, f: fn(&str, &str) -> usize, prefix: &str) -> R
 /// and matched against `string2` (`:61,66`). So the expression is on top and
 /// the subject beneath it.
 fn expression_match(vm: &mut dyn Vm) -> Result<(), Error> {
-    if vm.depth() < 2 {
-        return Err(Error(
-            "Stack is too shallow for inline STRING.EXPRESSIONMATCH".into(),
-        ));
-    }
-    let expr_val = crate::pull::operand(vm, "STRING.EXPRESSIONMATCH", 1)?;
-    let subject_val = crate::pull::operand(vm, "STRING.EXPRESSIONMATCH", 2)?;
-    let (Some(expr), Some(subject)) = (expr_val.as_str(), subject_val.as_str()) else {
-        return Err(Error(
-            "STRING.EXPRESSIONMATCH returned for #1: This Dynamic type is not string".into(),
-        ));
-    };
+    let (expr, subject) = two_strings(vm, "STRING.EXPRESSIONMATCH")?;
     let matcher = srch::Expression::new(&expr).map_err(|e| {
         Error(format!(
             "STRING.EXPRESSIONMATCH returned error when creates matcher: {e:?}"
@@ -944,7 +949,7 @@ fn unalias(vm: &mut dyn Vm) -> Result<(), Error> {
     let v = crate::pull::operand(vm, "UNALIAS", 1)?;
     let Some(name) = v.as_str() else {
         return Err(Error(
-            "UNALIAS returns: This Dynamic type is not string".into(),
+            "UNALIAS on name returns: This Dynamic type is not string".into(),
         ));
     };
     vm.unregister_alias(&name);
@@ -1078,7 +1083,7 @@ fn count_arg_named(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Resu
     let v = crate::wb::operand(vm, side, prefix)?;
     v.as_int().ok_or_else(|| {
         Error(format!(
-            "{prefix} returned during index casting: This Dynamic type is not int"
+            "{prefix} returned during index casting: This Dynamic type is not integer"
         ))
     })
 }
@@ -1096,11 +1101,17 @@ fn complex(vm: &mut dyn Vm) -> Result<(), Error> {
     }
     let re = crate::pull::operand(vm, "COMPLEX", 1)?;
     let im = crate::pull::operand(vm, "COMPLEX", 2)?;
-    let (Some(re), Some(im)) = (as_f64(&re), as_f64(&im)) else {
-        return Err(Error(
-            "COMPLEX cast error #1: This Dynamic type is not float".into(),
-        ));
+    // Each operand's cast fails under its own number and names its tag
+    // (`reference/rust_dynamic/src/cast.rs:14`).
+    let cast = |v: &BundValue, n: u8| {
+        as_f64(v).ok_or_else(|| {
+            Error(format!(
+                "COMPLEX cast error #{n}: This Dynamic type is not float: {}",
+                v.dt()
+            ))
+        })
     };
+    let (re, im) = (cast(&re, 1)?, cast(&im, 2)?);
     // **Tagged `CFLOAT`, not LIST.** The pair of floats is the payload; the tag
     // is what makes it a complex number, and it is what `println` refuses —
     // `1.0 2.0 complex println` reports `Can not convert Value from 15` in both
@@ -1134,16 +1145,21 @@ fn as_f64(v: &BundValue) -> Option<f64> {
 /// reference's own crates, because what counts as a match is their definition
 /// and not one this file should invent.
 fn pattern_match(vm: &mut dyn Vm, wild: bool, prefix: &str) -> Result<(), Error> {
+    // **Not `two_strings`: this family does not number its operands**
+    // (`reference/Bund/src/stdlib/functions/string/regex.rs:60-75`,
+    // `wildmatch.rs:50-65`) -- either cast fails as `returns: …`. The depth
+    // guard asks for two, which is F18.
     if vm.depth() < 2 {
         return Err(Error(format!("Stack is too shallow for inline {prefix}")));
     }
-    let subj_val = crate::pull::operand(vm, prefix, 1)?;
-    let pat_val = crate::pull::operand(vm, prefix, 2)?;
-    let (Some(pat), Some(subj)) = (pat_val.as_str(), subj_val.as_str()) else {
-        return Err(Error(format!(
-            "{prefix} returned for #1: This Dynamic type is not string"
-        )));
-    };
+    let not_string = || Error(format!("{prefix} returns: This Dynamic type is not string"));
+    // The subject is on top and the pattern beneath it.
+    let subj = crate::pull::operand(vm, prefix, 1)?
+        .as_str()
+        .ok_or_else(not_string)?;
+    let pat = crate::pull::operand(vm, prefix, 2)?
+        .as_str()
+        .ok_or_else(not_string)?;
     let hit = if wild {
         wildmatch::WildMatch::new(&pat).matches(&subj)
     } else {
@@ -1159,16 +1175,7 @@ fn pattern_match(vm: &mut dyn Vm, wild: bool, prefix: &str) -> Result<(), Error>
 /// A distance that answers a FLOAT rather than an INTEGER
 /// (`reference/Bund/src/stdlib/functions/string/distance.rs:85-86`).
 fn distance_f(vm: &mut dyn Vm, f: fn(&str, &str) -> f64, prefix: &str) -> Result<(), Error> {
-    if vm.depth() < 2 {
-        return Err(Error(format!("Stack is too shallow for inline {prefix}")));
-    }
-    let a = crate::pull::operand(vm, prefix, 1)?;
-    let b = crate::pull::operand(vm, prefix, 2)?;
-    let (Some(a), Some(b)) = (a.as_str(), b.as_str()) else {
-        return Err(Error(format!(
-            "{prefix} returned for #1: This Dynamic type is not string"
-        )));
-    };
+    let (a, b) = two_strings(vm, prefix)?;
     vm.push(BundValue::float(f(&a, &b)));
     Ok(())
 }
@@ -1182,16 +1189,7 @@ fn distance_f(vm: &mut dyn Vm, f: fn(&str, &str) -> f64, prefix: &str) -> Result
 /// the word's contract, not an implementation detail.
 fn hamming(vm: &mut dyn Vm) -> Result<(), Error> {
     let prefix = "STRING.DISTANCE.HAMMING";
-    if vm.depth() < 2 {
-        return Err(Error(format!("Stack is too shallow for inline {prefix}")));
-    }
-    let a = crate::pull::operand(vm, prefix, 1)?;
-    let b = crate::pull::operand(vm, prefix, 2)?;
-    let (Some(a), Some(b)) = (a.as_str(), b.as_str()) else {
-        return Err(Error(format!(
-            "{prefix} returned for #1: This Dynamic type is not string"
-        )));
-    };
+    let (a, b) = two_strings(vm, prefix)?;
     match distance::hamming(&a, &b) {
         Ok(d) => {
             vm.push(BundValue::int(d as i64));
@@ -1321,7 +1319,9 @@ pub fn register(r: &mut Registry) {
     );
     r.register_native(
         "string.distance",
-        |vm| distance_word(vm, distance::levenshtein, "STRING.DISTANCE"),
+        // The bare word reports under the algorithm's name, which is the
+        // prefix its registration passes (`distance.rs`, `init_stdlib`).
+        |vm| distance_word(vm, distance::levenshtein, "STRING.DISTANCE.LEVENSHTEIN"),
         eff(2, 1),
         WordKind::Sync,
     );

@@ -137,12 +137,30 @@ fn deliver(vm: &mut dyn Vm, side: Side, out: Out, v: BundValue) {
 /// `This Dynamic type is not string` rather than comparing `"123"`. That is the
 /// opposite of the `string.upper` family, which converts first — the two
 /// groups take different casts and neither can be written from the other.
+///
+/// **Two families word the refusal differently.** `fuzzy_match.rs`,
+/// `textwrap.rs`, `distance.rs` and `textexpr_match.rs` number the operand:
+/// `returned for #2: …` (`fuzzy_match.rs:53,59`). `prefix_suffix.rs`, the regex
+/// and wildcard words, the tokenizers, `grok.rs` and `unicode.rs` do not:
+/// `returns: …` for either (`prefix_suffix.rs:55,65`). Bund2 numbered them
+/// all. D105.
 fn text(v: &BundValue, prefix: &str, n: usize) -> Result<String, Error> {
     v.as_str().ok_or_else(|| {
-        Error(format!(
-            "{prefix} returned for #{n}: This Dynamic type is not string"
-        ))
+        if numbers_its_operands(prefix) {
+            Error(format!(
+                "{prefix} returned for #{n}: This Dynamic type is not string"
+            ))
+        } else {
+            Error(format!("{prefix} returns: This Dynamic type is not string"))
+        }
     })
+}
+
+/// Which words' source files number the operand in a cast refusal.
+fn numbers_its_operands(prefix: &str) -> bool {
+    ["STRING.FUZZYMATCH", "STRING.WRAP.", "STRING.DISTANCE", "STRING.EXPRESSIONMATCH"]
+        .iter()
+        .any(|p| prefix.starts_with(p))
 }
 
 // --- the shapes ------------------------------------------------------------

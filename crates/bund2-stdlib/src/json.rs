@@ -13,7 +13,7 @@
 //! `tests/probes/q-observable.bund` exists to pin exactly that.
 
 use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
-use bund2_value::{BOOL, BundValue, FLOAT, INTEGER, JSON, LIST, MAP, STRING};
+use bund2_value::{BOOL, BundValue, FLOAT, INTEGER, JSON, LIST, MAP};
 
 fn eff(consumes: u8, produces: u8) -> StackEffect {
     StackEffect::fixed(consumes, produces)
@@ -70,12 +70,9 @@ fn json(vm: &mut dyn Vm) -> Result<(), Error> {
         return Err(Error("Stack is too shallow for inline json()".into()));
     }
     let v = crate::pull::operand(vm, "JSON", 1)?;
-    if v.dt() != STRING {
-        return Err(Error(format!(
-            "JSON returns error: This Dynamic type is not string: {}",
-            v.dt()
-        )));
-    }
+    // `cast_string` asks the payload, not the tag
+    // (`reference/rust_dynamic/src/cast.rs:33-40`), so a PTR is taken as its
+    // name and fails later, as text that is not JSON.
     let text = v
         .as_str()
         .ok_or_else(|| Error("JSON returns error: This Dynamic type is not string".into()))?;

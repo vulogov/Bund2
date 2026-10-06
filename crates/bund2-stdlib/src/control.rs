@@ -70,7 +70,8 @@ fn if_true(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 fn if_true_wb(vm: &mut dyn Vm) -> Result<(), Error> {
-    if_base(vm, crate::wb::Side::Bench, true, "IF")
+    // `IF.`, with the dot (`if_fun.rs:96`).
+    if_base(vm, crate::wb::Side::Bench, true, "IF.")
 }
 
 fn if_false(vm: &mut dyn Vm) -> Result<(), Error> {
@@ -361,7 +362,7 @@ fn format_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     };
     let str_tpl = tpl_value
         .as_str()
-        .ok_or_else(|| Error("FORMAT return error: not a string".into()))?;
+        .ok_or_else(|| Error("FORMAT return error: This Dynamic type is not string".into()))?;
     let template = leon::Template::parse(str_tpl.as_str())
         .map_err(|e| Error(format!("FORMAT error parsing template: {e}")))?;
 

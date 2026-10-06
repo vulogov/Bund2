@@ -896,6 +896,23 @@ impl BundValue {
         }
     }
 
+    /// `Value::cast_list`, with its two refusals
+    /// (`reference/rust_dynamic/src/cast.rs:57-66`): the **tag** is asked
+    /// first and named if it is neither LIST nor PAIR; a payload that is not a
+    /// list under a tag that says it is gets the shorter sentence.
+    ///
+    /// The text is the reference's because words append it to their own:
+    /// `PULL.WORKBENCH casting of list returned: This is not a LIST/PAIR value
+    /// but 2`. D105.
+    pub fn cast_list(&self) -> Result<&[BundValue], String> {
+        match self.dt() {
+            LIST | PAIR => self
+                .as_list()
+                .ok_or_else(|| "This Dynamic type is not list".to_string()),
+            dt => Err(format!("This is not a LIST/PAIR value but {dt}")),
+        }
+    }
+
     /// The integer this holds, boxed or not.
     pub fn as_int(&self) -> Option<i64> {
         match self {

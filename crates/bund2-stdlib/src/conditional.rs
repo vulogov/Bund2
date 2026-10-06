@@ -106,7 +106,7 @@ fn render_message(vm: &mut dyn Vm, c: &BundValue, msg: &BundValue) -> Result<Str
     }
     let text = msg
         .as_str()
-        .ok_or_else(|| Error("FMT.STR error casting template: not a string".into()))?;
+        .ok_or_else(|| Error("FMT.STR error casting template: This Dynamic type is not string".into()))?;
     let template = leon::Template::parse(text.as_str())
         .map_err(|e| Error(format!("FMT.STR error parsing template: {e}")))?;
 
@@ -174,7 +174,7 @@ fn named(vm: &mut dyn Vm, ty: &str, word: &str) -> Result<(), Error> {
     };
     let name = name_val
         .as_str()
-        .ok_or_else(|| Error("CONTEXT: Error name casting".into()))?;
+        .ok_or_else(|| Error("CONTEXT: Error name casting: This Dynamic type is not string".into()))?;
     vm.push(new_conditional(ty).set("name", BundValue::str(name)));
     Ok(())
 }

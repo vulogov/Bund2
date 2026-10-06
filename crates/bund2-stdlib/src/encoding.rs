@@ -69,11 +69,10 @@ fn decode_base64(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error>
 /// workbench and then drains what is left of it.
 fn pull_workbench(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
     let v = one(vm, side, prefix)?;
-    let names = v.as_list().map(<[BundValue]>::to_vec).ok_or_else(|| {
-        Error(format!(
-            "{prefix} casting of list returned: This Dynamic type is not list"
-        ))
-    })?;
+    let names = v
+        .cast_list()
+        .map_err(|e| Error(format!("{prefix} casting of list returned: {e}")))?
+        .to_vec();
     let mut dict = BundValue::map(Default::default());
     for n in names {
         let name = n.as_str().ok_or_else(|| {

@@ -133,7 +133,7 @@ fn get(vm: &mut dyn Vm) -> Result<(), Error> {
     }
     let key = key_val
         .as_str()
-        .ok_or_else(|| Error("GET key expected to be string".into()))?;
+        .ok_or_else(|| Error("GET key expected to be string: This Dynamic type is not string".into()))?;
     // **A receiver that is not a map is returned as it came**
     // (`reference/rust_dynamic/src/get.rs:18-20`): `2 "k" get` is `2`. Bund2
     // refused it as a missing key (F171).
@@ -156,7 +156,7 @@ fn has_key(vm: &mut dyn Vm) -> Result<(), Error> {
     let container = crate::pull::operand(vm, "?KEY", 2)?;
     let key = key_val
         .as_str()
-        .ok_or_else(|| Error("GET key expected to be string".into()))?;
+        .ok_or_else(|| Error("GET key expected to be string: This Dynamic type is not string".into()))?;
     let present = container.has_key(&key);
     vm.push(container);
     vm.push(BundValue::boolean(present));
@@ -176,7 +176,7 @@ fn register(vm: &mut dyn Vm) -> Result<(), Error> {
     let name_val = crate::pull::operand(vm, "REGISTER", 2)?;
     let name = name_val
         .as_str()
-        .ok_or_else(|| Error("REGISTER expecting lambda name to be string".into()))?;
+        .ok_or_else(|| Error("REGISTER expecting lambda name to be string: This Dynamic type is not string".into()))?;
     // A CLASS goes to the **class registry**, a LAMBDA to the word table. They
     // are different tables, which is why `:Probe class register` then `Probe`
     // reports `Probe not registered` — the class is filed, just not as a word.
@@ -199,7 +199,7 @@ fn unregister(vm: &mut dyn Vm) -> Result<(), Error> {
     };
     let name = name_val
         .as_str()
-        .ok_or_else(|| Error("UNREGISTER expecting lanbda name to be string".into()))?;
+        .ok_or_else(|| Error("UNREGISTER.CLASS expecting lanbda name to be string: This Dynamic type is not string".into()))?;
     vm.unregister_lambda(&name);
     Ok(())
 }
@@ -210,13 +210,23 @@ fn to_lambda(vm: &mut dyn Vm) -> Result<(), Error> {
     let Some(v) = vm.pull() else {
         return Err(Error("Stack is too shallow for LAMBDA.MAKE".into()));
     };
-    match v.as_list() {
-        Some(items) => {
-            vm.push(BundValue::lambda(items.to_vec()));
-            Ok(())
+    // `cast_list` asks the **tag** first (`reference/rust_dynamic/src/cast.rs:57-66`),
+    // so a CFLOAT, which holds a list, is refused with the others.
+    let items = match (v.dt(), v.as_list()) {
+        (bund2_value::LIST | bund2_value::PAIR, Some(items)) => items.to_vec(),
+        (bund2_value::LIST | bund2_value::PAIR, None) => {
+            return Err(Error(
+                "LAMBDA.MAKE casting list returned: This Dynamic type is not list".into(),
+            ));
         }
-        None => Err(Error("LAMBDA.MAKE casting list returned: not a list".into())),
-    }
+        (dt, _) => {
+            return Err(Error(format!(
+                "LAMBDA.MAKE casting list returned: This is not a LIST/PAIR value but {dt}"
+            )));
+        }
+    };
+    vm.push(BundValue::lambda(items));
+    Ok(())
 }
 
 /// `lambda*` — **the whole stack** becomes a LAMBDA, in order
@@ -262,7 +272,7 @@ fn make_call_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
         return Err(Error(format!("{prefix} returns NO DATA #1")));
     };
     let name = v.as_str().ok_or_else(|| {
-        Error(format!("{prefix} casting of string returned: not a string"))
+        Error(format!("{prefix} casting of string returned: This Dynamic type is not string"))
     })?;
     side.push(vm, BundValue::call(name));
     Ok(())
@@ -423,7 +433,7 @@ fn execute_one(
                 .ok_or_else(|| Error("EXECUTE can not obtain key for DICT execute".into()))?;
             let key = key_val
                 .as_str()
-                .ok_or_else(|| Error("EXECUTE returned error during DICT key conversion".into()))?;
+                .ok_or_else(|| Error("EXECUTE returned error during DICT key conversion: This Dynamic type is not string".into()))?;
             match v.get(&key) {
                 // Reached, whatever reached the dict: the reference's dict arm
                 // pushes the member and recurses, so a LAMBDA member runs at
@@ -459,7 +469,7 @@ fn ask(vm: &mut dyn Vm, word: &str, f: impl Fn(&dyn Vm, &str) -> bool) -> Result
     };
     let name = v
         .as_str()
-        .ok_or_else(|| Error(format!("{word} casting string returns: not a string")))?;
+        .ok_or_else(|| Error(format!("{word} casting string returns: This Dynamic type is not string")))?;
     let answer = f(vm, &name);
     vm.push(BundValue::boolean(answer));
     Ok(())
@@ -491,7 +501,7 @@ fn get_lambda(vm: &mut dyn Vm) -> Result<(), Error> {
     };
     let name = v
         .as_str()
-        .ok_or_else(|| Error("LAMBDA.GET casting string returns: not a string".into()))?;
+        .ok_or_else(|| Error("LAMBDA.GET casting string returns: This Dynamic type is not string".into()))?;
     match vm.get_lambda(&name) {
         Some(body) => {
             vm.push(body);
@@ -534,7 +544,7 @@ fn value_type_of(vm: &mut dyn Vm) -> Result<(), Error> {
 fn value_if_type(vm: &mut dyn Vm) -> Result<(), Error> {
     let name = crate::pull::operand(vm, "TYPE", 1)?;
     let Some(name) = name.unboxed().as_str() else {
-        return Err(Error("Error casting type name".into()));
+        return Err(Error("Error casting type name: This Dynamic type is not string".into()));
     };
     let name = name.to_string();
     let v = crate::pull::top(vm, "TYPE")?;
