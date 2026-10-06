@@ -1500,20 +1500,24 @@ fn do_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Result<(), E
         }
         _ => {}
     }
+    // **Past the depth guard, `do.` reports as `DO`** -- the reference's
+    // workbench form passes the plain form's prefix into the shared body, so
+    // only the guard above knows which word it was. Measured.
+    let said = "DO";
     let lambda = side
         .pull(vm)
-        .ok_or_else(|| Error(format!("{} returns: NO DATA #1", prefix.to_uppercase())))?;
+        .ok_or_else(|| Error(format!("{} returns: NO DATA #1", said)))?;
     if lambda.dt() != bund2_value::LAMBDA {
         return Err(Error(format!(
             "{}: #1 parameter must be lambda",
-            prefix.to_uppercase()
+            said
         )));
     }
     loop {
         vm.eval_lambda(&lambda).map_err(|e| {
             Error(format!(
                 "{}: lambda execution returns error: {}",
-                prefix.to_uppercase(),
+                said,
                 e.0
             ))
         })?;
@@ -1775,5 +1779,27 @@ mod f18_tests {
         // A BOOL still runs the branch.
         let i = run("true { 7 } if").expect("runs");
         assert_eq!(i.peek().and_then(|v| v.as_int()), Some(7));
+    }
+
+    /// F174: the looping words and the three empty-stack refusals, as the
+    /// oracle words them.
+    #[test]
+    fn looping_words_and_empty_stacks_say_what_the_reference_says() {
+        for (src, want) in [
+            ("2 . { false } while.", "WHILE. returns error: This Dynamic type is not bool"),
+            ("2 . { drop } loop.", "LOOP. returns error: This is not a LIST/PAIR value but 2"),
+            ("2 . 2 loop.", "LOOP.: #1 parameter must be lambda"),
+            ("2.5 { drop } times", "TIMES returns error: This Dynamic type is not integer"),
+            // `do.` reports as `DO` once past its guard.
+            ("8 . 2 do.", "DO: #1 parameter must be lambda"),
+            ("drop", "VM inline function returned error: Function drop() returned: Stack is empty for drop() operation"),
+            ("dup", "VM inline function returned error: Error duplicating data in current stack: unable to peek()"),
+            (".", "VM inline function returned error: Nothing has been returned from current stack to workbench"),
+        ] {
+            match run(src) {
+                Ok(_) => panic!("{src} was expected to fail"),
+                Err(e) => assert!(e.ends_with(want), "{src}: {e}"),
+            }
+        }
     }
 }

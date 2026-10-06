@@ -218,12 +218,14 @@ fn while_wb(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 fn while_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
+    // `WHILE.` for the workbench form, in everything but the depth guard.
+    let prefix = &format!("WHILE{}", side.dot());
     if vm.depth() < if side == crate::wb::Side::Stack { 2 } else { 1 } {
         return Err(Error("Stack is too shallow for inline while()".into()));
     }
-    let lambda_val = crate::pull::operand(vm, "WHILE", 1)?;
+    let lambda_val = crate::pull::operand(vm, prefix, 1)?;
     if lambda_val.dt() != LAMBDA {
-        return Err(Error("WHILE: #1 parameter must be lambda".into()));
+        return Err(Error(format!("{prefix}: #1 parameter must be lambda")));
     }
     let body = lambda_val.clone();
     // **A loop this long is probably a mistake, and saying so is free.**
@@ -254,12 +256,12 @@ fn while_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
         // (`while_fun.rs:13` and `:58`).
         let cond_val = side
             .pull(vm)
-            .ok_or_else(|| Error("WHILE returns: NO DATA #2".into()))?;
+            .ok_or_else(|| Error(format!("{prefix} returns: NO DATA #2")))?;
         let cond = match cond_val.unboxed() {
             BundValue::Bool(b, _) => *b,
             _ => {
                 return Err(Error(
-                    "WHILE returns error: This Dynamic type is not bool".into(),
+                    format!("{prefix} returns error: This Dynamic type is not bool"),
                 ));
             }
         };
@@ -267,7 +269,7 @@ fn while_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
             return Ok(());
         }
         vm.eval_lambda(&body)
-            .map_err(|e| e.context("WHILE: lambda execution returns error: "))?;
+            .map_err(|e| e.context(format!("{prefix}: lambda execution returns error: ")))?;
     }
 }
 

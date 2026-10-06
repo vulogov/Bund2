@@ -114,7 +114,7 @@ fn times_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
         .ok_or_else(|| Error("TIMES returns: NO DATA #2".into()))?;
     let n = n_val
         .as_int()
-        .ok_or_else(|| Error("TIMES returns error: operand is not an integer".into()))?;
+        .ok_or_else(|| Error("TIMES returns error: This Dynamic type is not integer".into()))?;
     let body = lambda_val.clone();
     for v in 0..n {
         vm.push(BundValue::int(v));
@@ -207,31 +207,33 @@ fn loop_over_base(vm: &mut dyn Vm, prefix: &str) -> Result<(), Error> {
 }
 
 fn loop_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
+    // `LOOP.` for the workbench form, in everything but the depth guard.
+    let prefix = &format!("LOOP{}", side.dot());
     if vm.depth() < if side == crate::wb::Side::Stack { 2 } else { 1 } {
         return Err(Error("Stack is too shallow for inline LOOP".into()));
     }
-    let lambda_val = crate::pull::operand(vm, "LOOP", 1)?;
+    let lambda_val = crate::pull::operand(vm, prefix, 1)?;
     if lambda_val.dt() != LAMBDA {
-        return Err(Error("LOOP: #1 parameter must be lambda".into()));
+        return Err(Error(format!("{prefix}: #1 parameter must be lambda")));
     }
     let seq_val = side
         .pull(vm)
-        .ok_or_else(|| Error("LOOP returns: NO DATA #2".into()))?;
+        .ok_or_else(|| Error(format!("{prefix} returns: NO DATA #2")))?;
     let dt = seq_val.dt();
     if dt != LIST && dt != PAIR {
         return Err(Error(format!(
-            "LOOP returns error: This is not a LIST/PAIR value but {dt}"
+            "{prefix} returns error: This is not a LIST/PAIR value but {dt}"
         )));
     }
     let items = seq_val
         .as_list()
-        .ok_or_else(|| Error("LOOP returns error: This Dynamic type is not list".into()))?
+        .ok_or_else(|| Error(format!("{prefix} returns error: This Dynamic type is not list")))?
         .to_vec();
     let body = lambda_val.clone();
     for v in items {
         vm.push(v);
         vm.eval_lambda(&body)
-            .map_err(|e| e.context("LOOP: lambda execution returns error: "))?;
+            .map_err(|e| e.context(format!("{prefix}: lambda execution returns error: ")))?;
     }
     Ok(())
 }

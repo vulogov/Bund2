@@ -81,7 +81,12 @@ fn shallow(vm: &dyn Vm, need: usize, word: &str) -> Result<(), Error> {
 // --- dup ------------------------------------------------------------------
 
 fn dup_one(vm: &mut dyn Vm) -> Result<(), Error> {
-    shallow(vm, 1, "dup_one")?;
+    // `reference/rust_multistack/src/ts_stack_op.rs:46`.
+    if vm.depth() < 1 {
+        return Err(Error(
+            "Error duplicating data in current stack: unable to peek()".into(),
+        ));
+    }
     let top = crate::pull::top(vm, "DUP")?;
     // `dup` in the reference is a bincode round trip that mints a fresh id
     // (`reference/rust_dynamic/src/dup.rs:7-12`). Here it is a fresh header
@@ -153,7 +158,14 @@ fn dup_many_in(vm: &mut dyn Vm) -> Result<(), Error> {
 // --- drop -----------------------------------------------------------------
 
 fn drop_word(vm: &mut dyn Vm) -> Result<(), Error> {
-    shallow(vm, 1, "drop")?;
+    // No depth guard: the reference tries, and reports what the stack said
+    // (`reference/rust_multistack/src/stdlib/drop.rs:12`,
+    // `reference/rust_multistack/src/ts_drop.rs:21`).
+    if vm.depth() < 1 {
+        return Err(Error(
+            "Function drop() returned: Stack is empty for drop() operation".into(),
+        ));
+    }
     vm.pull();
     Ok(())
 }
@@ -448,7 +460,12 @@ fn take(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 fn return_word(vm: &mut dyn Vm) -> Result<(), Error> {
-    shallow(vm, 1, "return")?;
+    // `reference/rust_multistack/src/ts_workbench.rs:33`.
+    if vm.depth() < 1 {
+        return Err(Error(
+            "Nothing has been returned from current stack to workbench".into(),
+        ));
+    }
     let v = crate::pull::operand(vm, "RETURN", 1)?;
     vm.push_workbench(v);
     Ok(())

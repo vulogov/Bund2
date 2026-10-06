@@ -4018,6 +4018,50 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F174 — the looping words, measured: no wrong answers
+
+**Measured 2026-10-06.** `times`, `loop`, `*loop`, `while`, `for`, `do` and
+their workbench forms were left out of F171 and F173 because an arbitrary
+operand can make one run for ever, or grow without bound. They were surveyed
+with a hand-picked set instead: 2,826 programs — every operand kind in the
+subject's place, a handful of bodies chosen not to grow the stack, things that
+are not lambdas in the lambda's place, and a few loops that never end, to see
+that they do not end on either side.
+
+**No program computed a different answer.** 42 ran past the six-second limit
+on both implementations and on neither alone. `unfold` and `unfold.`, which
+had been excluded as loops and are not, went through the ordinary matrix and
+agreed on all of it.
+
+1,268 programs refused in different words. Fixed:
+
+- `while.` and `loop.` reported as `WHILE` and `LOOP`; the reference's
+  messages carry the dot.
+- **`do.` reports as `DO` once past its depth guard** — the reference's
+  workbench form hands the plain form's prefix to the shared body. Bund2 had
+  said `DO.` throughout, which is tidier and not what happens.
+- `times` said `operand is not an integer` for
+  `This Dynamic type is not integer`.
+- **`drop`, `dup` and `.` on an empty stack** each said
+  `Stack is too shallow for inline …`. The reference has no such guard on
+  these three; it tries, and reports what the stack said:
+  `Function drop() returned: Stack is empty for drop() operation`
+  (`reference/rust_multistack/src/stdlib/drop.rs:12`),
+  `Error duplicating data in current stack: unable to peek()`
+  (`reference/rust_multistack/src/ts_stack_op.rs:46`),
+  `Nothing has been returned from current stack to workbench`
+  (`reference/rust_multistack/src/ts_workbench.rs:33`). These surfaced here
+  because a loop body is where a program most often runs a stack dry.
+
+**After:** 2,767 of 2,826 agree. The 59 left all have a body that calls a word
+that does not exist, and differ in how *that* is worded
+(`i(nope) for stack returned: Inline nope not registered` against
+`nope not registered`), which D105 records.
+
+**With this, every word that stays inside the stack has been measured against
+the oracle**, plain and workbench. What has not: words that touch a file, the
+network, the terminal, the clock or randomness, and `generator`.
+
 ## F173 — the workbench forms, measured: one wrong answer and seven words misnamed
 
 **Bund2 defects, measured 2026-10-06.** The survey F171 ran over the plain
