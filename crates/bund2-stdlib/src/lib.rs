@@ -184,6 +184,77 @@ mod honesty_tests {
         );
     }
 
+    /// **F158: this crate reads the terminal in two functions and in no
+    /// other.** `Terminal::line` and `secret`, both in `terminal.rs`, and both
+    /// answering without touching standard input under this test build.
+    ///
+    /// This is the enforcement the earlier rule lacked. "Give `cargo test` a
+    /// closed stdin" was true, written down after F141, and not checked by
+    /// anything — and four test binaries were later found blocked on exactly
+    /// the read it warned about. A reader added here that bypasses the two
+    /// helpers would reintroduce that hang, silently, for whoever next runs
+    /// the suite with a live stdin; this test fails first.
+    ///
+    /// A source scan, cut at each file's test module as its siblings are.
+    /// Three spellings are looked for, which between them are every way this
+    /// crate has ever reached standard input: `rustyline`'s read, `yapp`'s,
+    /// and the standard library's handle.
+    #[test]
+    fn every_terminal_read_goes_through_the_two_helpers() {
+        const READERS: [&str; 2] = ["terminal.rs: line", "terminal.rs: secret"];
+        const READS_AT: [&str; 3] = [".readline(", "read_password", "stdin()"];
+        const QUALIFIERS: [&str; 5] = ["pub", "const", "unsafe", "async", "extern"];
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut found = std::collections::BTreeSet::new();
+        let mut dirs = vec![src.clone()];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).expect("dir reads") {
+                let path = entry.expect("entry").path();
+                if path.is_dir() {
+                    dirs.push(path);
+                    continue;
+                }
+                if path.extension().is_none_or(|x| x != "rs") {
+                    continue;
+                }
+                let file = path
+                    .strip_prefix(&src)
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default();
+                let text = std::fs::read_to_string(&path).expect("reads");
+                let shipped = text.split("#[cfg(test)]\nmod ").next().unwrap_or_default();
+                let mut current = String::new();
+                for line in shipped.lines() {
+                    let t = line.trim_start();
+                    if t.starts_with("//") {
+                        continue;
+                    }
+                    if let Some(at) = t.find("fn ") {
+                        let head_ok = t[..at].split_whitespace().all(|w| {
+                            QUALIFIERS.iter().any(|q| w.starts_with(q)) || w.starts_with('"')
+                        });
+                        if head_ok {
+                            current = t[at + 3..]
+                                .split(['(', '<'])
+                                .next()
+                                .unwrap_or_default()
+                                .to_string();
+                        }
+                    }
+                    if READS_AT.iter().any(|m| line.contains(m)) {
+                        found.insert(format!("{file}: {current}"));
+                    }
+                }
+            }
+        }
+        let want: std::collections::BTreeSet<String> =
+            READERS.iter().map(|s| (*s).to_string()).collect();
+        assert_eq!(
+            found, want,
+            "F158: standard input may be read only in `Terminal::line` and `secret`"
+        );
+    }
+
     /// **Criterion 24, over the corpus.** Every program `conform` runs — each
     /// line of `tests/golden/HERMETIC.txt`, and each probe with a golden — run
     /// in process with [`Interp::effect_audit`] on. A native that declares a
@@ -559,6 +630,10 @@ mod honesty_tests {
                     let wbv = w.map(|x| palette[x].clone());
                     let run =
                         |pad: &[BundValue]| run_one(&template, name, e.produces, pad, &ops, wbv.as_ref());
+                    // How many more identical runs F163's recheck makes.
+                    // Sixteen puts a two-outcome coin at 1 in 131,072 and
+                    // `string.random.word` far beyond counting.
+                    const RECHECKS: usize = 16;
                     // D55's differential: padded twice, so a deterministic
                     // native answers alike both times; with nothing beneath
                     // its operands; and with other values beneath.
@@ -587,6 +662,25 @@ mod honesty_tests {
                         }
                         let other = if a1.same(&b) { &c } else { &b };
                         if det_diff.is_none() && !a1.same(other) {
+                            // **F163: ask again before calling it an
+                            // observer.** `a1` and `a2` are the only evidence
+                            // so far that this native is deterministic, and
+                            // for a native with *no operands* there is one
+                            // tuple, so that is one comparison in the whole
+                            // audit. `string.random.word` draws `et` 4.8% of
+                            // the time; two draws coincide in 0.95% of runs,
+                            // the native then looks deterministic, and the
+                            // difference below is read as observation --
+                            // failing this test about once in 105 for a
+                            // reason that is not in the code under test.
+                            //
+                            // So the identical run is repeated here, where it
+                            // is cheap: only a native about to be flagged
+                            // pays, and a real observer agrees with itself
+                            // every time and is flagged exactly as before.
+                            if !nondet && (0..RECHECKS).any(|_| !a1.same(&run(&pad_a))) {
+                                nondet = true;
+                            }
                             det_diff = Some(differs_why(&a1, other));
                         }
                         let other = if a1.same_kind(&b) { &c } else { &b };

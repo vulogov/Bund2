@@ -738,6 +738,67 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
         println!("  not an instruction to redo finished work.\n");
     }
 
+    // **The other gap, by name — F162.**
+    //
+    // The section above names what is implemented and unprobed. Until this
+    // one existed nothing named what is *unimplemented*: the report counted
+    // those words -- `IMPLEMENTED n/m` is exactly that count -- and listed
+    // them nowhere, so a word could go missing and move a figure by one
+    // without saying which.
+    //
+    // That is how `sh` and `sh.` stayed unbound for a commit. `system.shell`
+    // landed without its two aliases; the figure was right, and it took
+    // deriving the remainder by hand -- diffing the reference's registrations
+    // against `bund2 words`, then subtracting what `DEFERRED_PATHS` puts out of
+    // scope -- to see them. The first attempt at that diff covered
+    // `register_inline` alone and accounted for sixteen of nineteen with no
+    // hint that three were missing, which is the argument for having the tool
+    // do it: this is the same join, over the set the tool already holds.
+    //
+    // **Names only, grouped by where the reference registers them.** No
+    // reason is attached to a word here, deliberately: "blocked on a
+    // decision" and "bound in no default build" are true today and would be a
+    // hand-kept list tomorrow, and the registers are where those live. The
+    // feature-gated ones are the exception, because that list already exists
+    // above and is checked against this set.
+    let unwritten: Vec<&str> = in_scope
+        .iter()
+        .copied()
+        .filter(|w| !implemented_set.contains(w))
+        .collect();
+    println!("## in scope and not implemented: {}\n", unwritten.len());
+    if unwritten.is_empty() {
+        println!("  none -- every in-scope word is registered by the default build.\n");
+    } else {
+        let mut by_sub: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+        for w in &unwritten {
+            let sub = reg
+                .implementing_site(w)
+                .map(|s| classify::subsystem(&s))
+                .unwrap_or_else(|| "?".into());
+            by_sub.entry(sub).or_default().push(w);
+        }
+        for (sub, words) in &by_sub {
+            let shown: Vec<String> = words
+                .iter()
+                .map(|w| {
+                    if gated.contains(w) {
+                        format!("{w} (feature)")
+                    } else {
+                        (*w).to_string()
+                    }
+                })
+                .collect();
+            println!("  {sub:<20}{}", shown.join("  "));
+        }
+        println!();
+        println!("  This is `IMPLEMENTED`'s remainder, by name: in scope, and not");
+        println!("  registered by the default build. A word marked `(feature)` is");
+        println!("  written and off by default. The rest are either unwritten or");
+        println!("  bound only by a build this report does not ask -- the registers");
+        println!("  say which, and why.\n");
+    }
+
     // D14 splits the in-scope set into core and library. Coverage stays a
     // number over in-scope, because that is how CLAUDE.md defines it and the
     // library half still needs tests. But only the core half is a

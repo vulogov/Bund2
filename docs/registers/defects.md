@@ -4012,6 +4012,53 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F163 — the D55 audit failed about once in 105 runs, on a coin toss
+
+**A Bund2 defect in an honesty test, measured 2026-10-05**, found when a
+verification run for F158 failed on something F158 had not touched.
+
+`every_fixed_effect_native_keeps_its_pair_over_the_promotable_palette` reported
+`PROMOTABLE.txt is stale … no longer reached ["string.random.word"]`, with the
+reason *"answers differently when the values beneath its operands change:
+`["et"]` / `["ea"]`"*. But `string.random.word` is a random word. It answers
+differently every time, whatever is beneath it.
+
+**The mechanism.** For each operand tuple the audit makes two identical runs,
+`a1` and `a2`. If they differ the native is random, and is compared by status
+and kinds alone; if they agree it is taken as deterministic, and any
+difference from a third run is read as *observing beyond its operands* (D55).
+That is sound when there are many tuples — "one lucky match on a single tuple
+does not make it deterministic", as the code says. A native with **no
+operands has exactly one tuple**, so the whole audit has one comparison in
+which to notice that it is random.
+
+**Measured:** 4,000 draws of `string.random.word` gave 182 distinct words,
+`et` alone 4.8% of them. Two draws coincide with probability **0.0095** —
+about one run in 105. On such a run the native looks deterministic, the next
+draw differs, and the test fails for a reason that is not in any code under
+test. The failing output above shows `et`, the commonest word.
+
+It is independent of standard input: ten runs with it closed and ten with it
+held open all passed, and the one failure was a run of the whole suite.
+
+**Disposition: FIXED** (`crates/bund2-stdlib/src/lib.rs`). Before a
+difference is read as observation, the identical run is repeated sixteen
+times; any disagreement marks the native random. It is done *there* because
+that is where it is cheap — only a native about to be flagged pays, and a real
+observer agrees with itself every time and is flagged exactly as before.
+
+**Proved by forcing the coincidence**, since waiting for one in 105 is not a
+test. With the first comparison made to miss for every native and no recheck,
+the audit fails naming `id.ulid`, `id.uuid`, `math.random.int`,
+`math.securerandom.int`, `string.random.fullname` and others. With the same
+forcing and the recheck, it passes.
+
+**What it had probably cost already.** A one-percent failure in a test run
+dozens of times a day is a test that has been re-run without comment. Nothing
+in the registers mentions it, which is the cost: a suite that is occasionally
+red for no reason teaches its reader to run it again, and that reflex does not
+distinguish this failure from a real one.
+
 ## F162 — two aliases went unbound for a commit, and the report that counted them did not name them
 
 **A Bund2 defect, found 2026-10-05** while preparing a status report.
@@ -4043,10 +4090,18 @@ that no golden runs is invisible to conformance, so each is exercised rather
 than trusted to follow its word. The golden was regenerated on this entry's
 number, the program having changed and not its answer.
 
-**What would have caught it**, recorded rather than built: `coverage` printing
-the unimplemented in-scope words by name, as it already prints the
-implemented-and-unprobed ones. The derivation exists; it was done by hand
-twice in one session.
+**What would have caught it is now built.** `cargo xtask coverage` prints
+`## in scope and not implemented`, naming each word and grouping by the
+subsystem that registers it — the same join that had been done by hand three
+times in one session, over a set the tool already held. Its first run printed
+the thirteen that remained, and among them `sp`: an unbound *alias*, which is
+the evidence that `sh` and `sh.` would have been named the moment they were
+missed.
+
+It attaches no reason to a word, on purpose. "Blocked on a decision" and
+"bound in no default build" are true today and would be a hand-kept list
+tomorrow; the registers hold those. Only `(feature)` is marked, because that
+list already existed and is checked against this one.
 
 ## F161 — `io.textfile` aborts the process on invalid UTF-8 after two readable lines
 
@@ -4231,18 +4286,35 @@ reported as green in this session came from a run that *completed and
 printed*; none was inferred from a run that hung. But the distinction was
 luck in the sense that nothing enforced it.
 
-**Disposition: MITIGATED in practice, not fixed in the code.** The four were
-stopped, and suite runs are now issued with `</dev/null`, which is the
-condition the capture has always run under.
+**Disposition: FIXED, per D99.** First mitigated by running the suite with
+`</dev/null`, which is the condition the capture has always run under — and
+which was an unenforced rule, the kind that had already failed once.
 
-**What a real fix needs**, recorded so it is a decision rather than a
-rediscovery: no test should read the process's actual stdin. Two shapes —
-the terminal words read through a seam a test can stub, as `Vm::report` is
-the seam for output (D36); or the test binary points descriptor 0 at
-`/dev/null` before any test runs, which is three lines and `unsafe`. The
-first is the design answer and the second is the cheap one. Until either
-exists, **a `cargo test` on this repository must be given a closed stdin**,
-and this entry is the mechanism.
+Now every read of standard input in `bund2-stdlib` goes through two helpers in
+`terminal.rs` — `Terminal::line` for the four `rustyline` sites and `secret`
+for `password`, which reads through `yapp` and would have been missed by a fix
+at the line reader alone. Under the crate's own test build both answer without
+touching standard input. `every_terminal_read_goes_through_the_two_helpers`
+scans the crate and fails if anything else reads it.
+
+**Measured, before and after, under a stdin that never closes** — a FIFO
+opened read-write, on test binaries from either side of the change:
+
+| | before | after |
+|---|---|---|
+| `debug_applies_each_value_and_stops_at_exit` | **hung** | completed, 0 s |
+| the corpus audit | **hung** | completed, 2 s |
+| `cargo test --workspace` | hung for hours (this entry) | **returned in 58 s** |
+
+The scan was checked the way D39 checks its lint — by planting the fault: a
+`std::io::stdin().read_line` added to `sysinfo.rs` failed it naming
+`sysinfo.rs: rogue_reader`.
+
+**What the fix does not do**, so it is not mistaken for more: it does not give
+Bund2 an input seam. `Vm::report` is what a TUI implements for output; the
+same is owed for input, and a word calling `rustyline` on raw standard input
+cannot run inside one. The two helpers are the consolidation that seam needs
+and where it would plug in. D99 records it as owed.
 
 ## F157 — a reporting native was certified crossable
 

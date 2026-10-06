@@ -29,8 +29,97 @@ fn prompt_of(v: Option<BundValue>) -> String {
     v.and_then(|v| v.as_str()).unwrap_or_else(|| "> ".to_string())
 }
 
-fn editor() -> Result<rustyline::DefaultEditor, Error> {
-    rustyline::DefaultEditor::new().map_err(|e| Error(format!("INPUT returns: {e}")))
+/// **The one place this crate reads a line from the terminal** — F158.
+///
+/// `input`, `input*`, `debug` and `debug.shell` all read through
+/// [`Terminal::line`], and [`secret`] is the same thing for `password`. Nothing
+/// else in `bund2-stdlib` may touch standard input, and
+/// `every_terminal_read_goes_through_the_two_helpers`
+/// (`crates/bund2-stdlib/src/lib.rs`) scans the crate to say so.
+///
+/// # Why there is one place
+///
+/// Under this crate's **own test build** a read answers end-of-file without
+/// touching standard input at all. That is not a convenience. Criterion 24's
+/// corpus audit runs every probe that has a golden *in process*, and three of
+/// those probes call the words above; with standard input at end-of-file each
+/// read returns at once, and with a pipe that stays open each waits forever.
+/// A `cargo test` moved to the background is given exactly such a pipe. Four
+/// test binaries were found blocked that way, the oldest five hours old, each
+/// holding the build lock (F158) — and F141 had recorded the same hazard a
+/// month earlier and closed only the path it found.
+///
+/// The rule that would have prevented it, "give `cargo test` a closed stdin",
+/// was true and unenforced, which is the kind that fails. This is enforced:
+/// the test build cannot read a terminal, and a new reader that bypasses these
+/// helpers fails a test instead of hanging a suite.
+///
+/// # What a test therefore does and does not exercise
+///
+/// It exercises each word's **end-of-input arm**, which is the only arm a
+/// test or a capture has ever reached — the golden runner gives a program
+/// stdin at `/dev/null`. It does not exercise `rustyline` itself. Nothing was
+/// lost that a test had: no test could type.
+///
+/// # Where this is going
+///
+/// `Vm::report` is the seam a TUI implements for *output* (D36). The same is
+/// owed for input, since a word that calls `rustyline` on raw standard input
+/// cannot run inside one. That seam is not built; this helper is the
+/// consolidation it needs, and where it would plug in.
+struct Terminal {
+    #[cfg(not(test))]
+    rl: rustyline::DefaultEditor,
+}
+
+impl Terminal {
+    fn open() -> Result<Self, Error> {
+        #[cfg(not(test))]
+        let terminal = Self {
+            rl: rustyline::DefaultEditor::new()
+                .map_err(|e| Error(format!("INPUT returns: {e}")))?,
+        };
+        #[cfg(test)]
+        let terminal = Self {};
+        Ok(terminal)
+    }
+
+    /// One line, with `rustyline`'s own result type so every caller keeps the
+    /// match it had: a line, `Interrupted` or `Eof` for the end, anything else
+    /// a failure.
+    fn line(&mut self, prompt: &str) -> Result<String, ReadlineError> {
+        #[cfg(not(test))]
+        {
+            self.rl.readline(prompt)
+        }
+        #[cfg(test)]
+        {
+            let _ = prompt;
+            Err(ReadlineError::Eof)
+        }
+    }
+}
+
+/// The other place: a line read without echo, for `password`.
+///
+/// It goes through `yapp` rather than `rustyline`, which is why a fix at the
+/// line reader alone would have left it reading. Under the test build it
+/// refuses, naming why, rather than answering an empty secret a caller might
+/// take for a real one.
+fn secret(prompt: &str) -> Result<String, String> {
+    #[cfg(not(test))]
+    {
+        use yapp::PasswordReader;
+        yapp::Yapp::new()
+            .with_echo_symbol('.')
+            .read_password_with_prompt(prompt)
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(test)]
+    {
+        let _ = prompt;
+        Err("no terminal is read under the test build (F158)".to_string())
+    }
 }
 
 /// `input` — read one line from the terminal (`input.rs:20-57`).
@@ -42,9 +131,9 @@ fn input(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 1 {
         return Err(Error("Stack is too shallow for inline INPUT".into()));
     }
-    let mut rl = editor()?;
+    let mut rl = Terminal::open()?;
     let prompt = prompt_of(vm.pull());
-    match rl.readline(&prompt) {
+    match rl.line(&prompt) {
         Ok(line) => vm.push(BundValue::str(line.trim())),
         Err(ReadlineError::Interrupted | ReadlineError::Eof) => {}
         Err(e) => return Err(Error(format!("INPUT line returns: {e}"))),
@@ -65,13 +154,13 @@ fn input_loop(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 1 {
         return Err(Error("Stack is too shallow for inline INPUT".into()));
     }
-    let mut rl = editor()?;
+    let mut rl = Terminal::open()?;
     let lambda = vm
         .pull()
         .ok_or_else(|| Error("Error getting INPUT* lambda from stack".into()))?;
     let prompt = prompt_of(vm.pull());
     loop {
-        match rl.readline(&prompt) {
+        match rl.line(&prompt) {
             Ok(line) => {
                 vm.push(BundValue::str(line.trim()));
                 if lambda.dt() != LAMBDA {
@@ -92,17 +181,13 @@ fn input_loop(vm: &mut dyn Vm) -> Result<(), Error> {
 /// `password` — read a line without echoing it (`input.rs:59-74`). Each key
 /// shows as a `.`.
 fn password(vm: &mut dyn Vm) -> Result<(), Error> {
-    use yapp::PasswordReader;
     let m = vm
         .pull()
         .ok_or_else(|| Error("PASSWORD: NO DATA #1".into()))?;
     let msg = m.as_str().ok_or_else(|| {
         Error("PASSWORD error casting message: This Dynamic type is not string".into())
     })?;
-    let mut reader = yapp::Yapp::new().with_echo_symbol('.');
-    let res = reader
-        .read_password_with_prompt(&msg)
-        .map_err(|e| Error(format!("PASSWORD returns: {e}")))?;
+    let res = secret(&msg).map_err(|e| Error(format!("PASSWORD returns: {e}")))?;
     vm.push(BundValue::str(res));
     Ok(())
 }
@@ -160,10 +245,10 @@ fn debug_prompt() -> String {
 /// word instead of looping -- the reference prints and continues, which spins
 /// if the condition persists, and `input*` here already chose to error out.
 fn debug_shell(vm: &mut dyn Vm) -> Result<(), Error> {
-    let mut rl = editor()?;
+    let mut rl = Terminal::open()?;
     let prompt = debug_prompt();
     loop {
-        match rl.readline(&prompt) {
+        match rl.line(&prompt) {
             Ok(line) => {
                 if let Err(e) = crate::singles::eval_source(vm, &line) {
                     vm.report(Diagnostic::warning(e.0));
@@ -244,7 +329,7 @@ fn debug_word(vm: &mut dyn Vm) -> Result<(), Error> {
     // `\n` appended, as `bund_debugger` does before parsing.
     let source = format!("{snippet}\n");
     let words = bund2_syntax::compile(&source).map_err(|e| Error(e.render(&source)))?;
-    let mut rl = editor()?;
+    let mut rl = Terminal::open()?;
     let prompt = debug_prompt();
     for word in words {
         if word.dt() == NONE {
@@ -263,7 +348,7 @@ fn debug_word(vm: &mut dyn Vm) -> Result<(), Error> {
                 ))
             })?;
         loop {
-            match rl.readline(&prompt) {
+            match rl.line(&prompt) {
                 Ok(line) if line.is_empty() => break,
                 Ok(line) => {
                     if let Err(e) = crate::singles::eval_source(vm, &line) {

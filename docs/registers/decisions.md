@@ -3547,6 +3547,67 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D99 — standard input is read in two helpers, and a scan says so
+
+**Authorised by the repository owner, 2026-10-05**, on being shown F158 and
+four options.
+
+- Blocks: nothing
+- Depends on: D36 (words report, they do not print), D39, F141, F158
+- Status: **RESOLVED — decided and built**, 2026-10-05.
+
+### The decision
+
+Every read of standard input in `bund2-stdlib` goes through one of two
+helpers in `terminal.rs`: `Terminal::line`, for `input`, `input*`, `debug` and
+`debug.shell`; and `secret`, for `password`. Under the crate's **own test
+build** both answer without touching standard input — the first with
+end-of-file, the second with a refusal.
+
+`every_terminal_read_goes_through_the_two_helpers` scans the crate for
+`rustyline`'s read, `yapp`'s and the standard library's handle, and fails if
+any appears outside them.
+
+### Why this one
+
+F158 was the second time. F141 had recorded the same hang a month earlier,
+fixed the path it found, and left a rule — give `cargo test` a closed stdin —
+that nothing checked. The rule was true and it failed anyway, through a
+harness F141's fix did not cover. **So the criterion for this decision was
+enforcement**, not coverage: an option that depends on someone remembering was
+the option that had just been tried.
+
+### What was declined
+
+- **The input seam on `Vm`, now.** The right shape, and owed — see below. It
+  changes RFC-0002's public trait and the interpreter and CLI behind it, which
+  is a language-runtime change to close a test-infrastructure hang.
+- **Redirecting descriptor 0 at test start.** The only option closed by
+  construction against readers not yet written. `unsafe`, a `libc`
+  dev-dependency, Unix-only, and Rust's test harness has no global setup
+  hook, so it needs either a `ctor`-style initializer or a list of tests that
+  remember to call it. (`unsafe` is not new to the workspace — the JIT crates
+  use it — though it would have been new to this crate. An earlier statement
+  of this option called it "introducing `unsafe`", which overstated it.)
+- **A `cargo xtask test` wrapper.** Today's mitigation with a name. It
+  protects whoever uses it and documents the hazard for everyone else.
+
+### What it costs
+
+Under test, the four words meet a stub and not `rustyline`. They exercise
+their **end-of-input arm**, which is the only arm a test or a capture has ever
+reached — the golden runner gives a program stdin at `/dev/null`. No test
+could type before, so no test lost anything; but the claim "tested" for these
+words means that arm and no other, and it is better said here than assumed.
+
+### What remains owed
+
+**An input seam.** `Vm::report` is the seam a TUI implements for output. A TUI
+needs the same for input, since a word that calls `rustyline` on raw standard
+input cannot run inside one. This decision does not build it. The two helpers
+are the consolidation it needs — five call sites reduced to two — and where it
+would plug in. It will be an amendment to RFC-0002 when it is taken up.
+
 ## D98 — `io.textfile` reports where the reference aborts, and truncates where it truncates
 
 **Authorised by the repository owner, 2026-10-05**, on being shown F161 and
