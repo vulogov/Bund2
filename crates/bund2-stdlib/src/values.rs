@@ -134,12 +134,15 @@ fn get(vm: &mut dyn Vm) -> Result<(), Error> {
     let key = key_val
         .as_str()
         .ok_or_else(|| Error("GET key expected to be string".into()))?;
-    match container.get(&key) {
-        Some(v) => {
+    // **A receiver that is not a map is returned as it came**
+    // (`reference/rust_dynamic/src/get.rs:18-20`): `2 "k" get` is `2`. Bund2
+    // refused it as a missing key (F171).
+    match container.get_or_self(&key) {
+        Ok(v) => {
             vm.push(v);
             Ok(())
         }
-        None => Err(Error(format!("GET returns error: key {key} not found"))),
+        Err(e) => Err(Error(format!("GET returns error: {e}"))),
     }
 }
 

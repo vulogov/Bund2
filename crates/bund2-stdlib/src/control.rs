@@ -40,7 +40,7 @@ fn if_base(vm: &mut dyn Vm, side: crate::wb::Side, want: bool, prefix: &str) -> 
         .pull(vm)
         .ok_or_else(|| Error(format!("{prefix} returns: NO DATA #2")))?;
     let cond = cast_bool(&cond_val)
-        .ok_or_else(|| Error(format!("{prefix} returns error: can not cast to bool")))?;
+        .map_err(|e| Error(format!("{prefix} returns error: {}", e.0)))?;
     if cond == want {
         let body = lambda_val.clone();
         // Tail position: nothing here runs after the branch, so the loop takes
@@ -51,16 +51,17 @@ fn if_base(vm: &mut dyn Vm, side: crate::wb::Side, want: bool, prefix: &str) -> 
     Ok(())
 }
 
-/// `cast_bool`, for the kinds a condition can be.
+/// `Value::cast_bool` (`reference/rust_dynamic/src/cast.rs:25-32`): **a BOOL
+/// and nothing else.**
 ///
-/// A BOOL is itself; the numeric kinds are false at zero. `==` and friends
-/// push a BOOL, so that is the path the corpus takes.
-pub(crate) fn cast_bool(v: &BundValue) -> Option<bool> {
+/// This once took an integer or a float as a condition, false at zero. The
+/// reference does not -- `2 { … } if` is `IF returns error: This Dynamic type
+/// is not bool` -- and no decision ever said Bund2 should. A program that
+/// wants a number as a condition compares it.
+pub(crate) fn cast_bool(v: &BundValue) -> Result<bool, Error> {
     match v.unboxed() {
-        BundValue::Bool(b, _) => Some(*b),
-        BundValue::Int(i, _) => Some(*i != 0),
-        BundValue::Float(f, _) => Some(*f != 0.0),
-        _ => None,
+        BundValue::Bool(b, _) => Ok(*b),
+        _ => Err(Error("This Dynamic type is not bool".into())),
     }
 }
 
@@ -178,8 +179,10 @@ fn ifthenelse_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Resu
     let cond_val = side
         .pull(vm)
         .ok_or_else(|| Error(format!("{prefix} returns: NO DATA #3")))?;
+    // Its own sentence, not `if`'s
+    // (`reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:74`).
     let cond = cast_bool(&cond_val)
-        .ok_or_else(|| Error(format!("{prefix} returns error: can not cast to bool")))?;
+        .map_err(|e| Error(format!("{prefix}: #3 parameter must be boolean: {}", e.0)))?;
     let chosen = if cond { then_val } else { else_val };
     let body = chosen.clone();
     vm.tail_lambda(body);

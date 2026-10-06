@@ -1295,6 +1295,27 @@ impl BundValue {
         self.as_map().and_then(|m| m.get(key.trim()).cloned())
     }
 
+    /// `Value::get` as the reference has it, **including what it does to a
+    /// value that is not a map: return it** (`reference/rust_dynamic/src/get.rs:18-20`).
+    ///
+    /// So `2 "k" get` is `2`, and a word that reads `g.get("nodes")` from
+    /// something that is not a graph gets the something back and fails on
+    /// what it then asks of it. [`get`] answers `None` there, which reads
+    /// better and is not what happens.
+    ///
+    /// `Err` is the map-kind's missing key, `Key not found: {key}` (`:12`).
+    ///
+    /// [`get`]: BundValue::get
+    pub fn get_or_self(&self, key: &str) -> Result<BundValue, String> {
+        match self.as_map() {
+            Some(m) => m
+                .get(key)
+                .cloned()
+                .ok_or_else(|| format!("Key not found: {key}")),
+            None => Ok(self.clone()),
+        }
+    }
+
     /// Whether a string key is present.
     pub fn has_key(&self, key: &str) -> bool {
         self.as_map().is_some_and(|m| m.contains_key(key.trim()))
@@ -1464,6 +1485,7 @@ impl BundValue {
             CALL => "Call",
             PTR => "Ptr",
             LIST => "List",
+            MATRIX => "Matrix",
             PAIR => "Pair",
             MAP => "Map",
             TIME => "Time",

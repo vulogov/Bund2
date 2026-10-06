@@ -135,7 +135,20 @@ fn drop_word(vm: &mut dyn Vm) -> Result<(), Error> {
 
 fn drop_in(vm: &mut dyn Vm) -> Result<(), Error> {
     let name = name_arg(vm, "drop_in")?;
-    vm.pull_from(&name);
+    // Both refusals are the reference's
+    // (`reference/rust_multistack/src/ts_drop.rs:30-46`, wrapped at
+    // `stdlib/drop.rs:31`). Bund2 dropped from a stack that was not there, or
+    // had nothing in it, and said nothing (F171).
+    if !vm.stack_exists(&name) {
+        return Err(Error(format!(
+            "VM inline function returned error: Operation drop_in() returned: Can not detect stack {name} for drop_in() operation"
+        )));
+    }
+    if vm.pull_from(&name).is_none() {
+        return Err(Error(
+            "VM inline function returned error: Operation drop_in() returned: Stack is empty for drop_in() operation".into(),
+        ));
+    }
     Ok(())
 }
 
@@ -247,6 +260,12 @@ fn clear(vm: &mut dyn Vm) -> Result<(), Error> {
 
 fn clear_in(vm: &mut dyn Vm) -> Result<(), Error> {
     let name = name_arg(vm, "clear_in")?;
+    // `reference/rust_multistack/src/stdlib/clear.rs:27-33`.
+    if !vm.stack_exists(&name) {
+        return Err(Error(format!(
+            "VM inline function returned error: Operation clear_in() can not find the stack: {name}"
+        )));
+    }
     vm.clear_stack(&name);
     Ok(())
 }
@@ -498,8 +517,15 @@ fn stacks_left(vm: &mut dyn Vm) -> Result<(), Error> {
 /// looks like the same operation, genuinely does insert at the front
 /// (`bund_fun.rs:189-202`), and the two are easy to conflate.
 fn fold(vm: &mut dyn Vm) -> Result<(), Error> {
+    // **A NODATA stops the fold and is consumed** (`ts_list.rs:13-15`): it is
+    // the marker a program lays down to say "fold down to here", and `|` is
+    // its alias. What lies beneath it stays on the stack. Bund2 folded straight
+    // through it and kept it as a member (F171).
     let mut items = Vec::new();
     while let Some(v) = vm.pull() {
+        if v.dt() == bund2_value::NODATA {
+            break;
+        }
         items.push(v);
     }
     vm.push(BundValue::list(items));
@@ -519,6 +545,10 @@ fn fold_stack(vm: &mut dyn Vm) -> Result<(), Error> {
     let name = name_arg(vm, "fold_stack")?;
     let mut items = Vec::new();
     while let Some(v) = vm.pull_from(&name) {
+        // The same marker (`ts_list.rs:46-48`).
+        if v.dt() == bund2_value::NODATA {
+            break;
+        }
         items.push(v);
     }
     vm.push_to(&name, BundValue::list(items));

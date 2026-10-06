@@ -180,14 +180,14 @@ fn build(nodes: &BundValue, edges: &BundValue) -> Result<Built, Error> {
 fn graph_path(vm: &mut dyn Vm) -> Result<(), Error> {
     let g = vm.pull().ok_or_else(|| Error("GRAPH.PATH: NO DATA #1".into()))?;
     let ty = g
-        .get("type")
+        .get_or_self("type").ok()
         .ok_or_else(|| Error("GRAPH.PATH: MISSED TYPE".into()))?;
     match ty.as_str().as_deref() {
         Some("graph") => {}
         _ => return Err(Error("GRAPH.PATH: unknown data type".into())),
     }
-    let nodes = g.get("nodes").unwrap_or_else(|| BundValue::list(Vec::new()));
-    let edges = g.get("edges").unwrap_or_else(|| BundValue::list(Vec::new()));
+    let nodes = g.get_or_self("nodes").ok().unwrap_or_else(|| BundValue::list(Vec::new()));
+    let edges = g.get_or_self("edges").ok().unwrap_or_else(|| BundValue::list(Vec::new()));
     if nodes.dt() != LIST {
         return Err(Error("GRAPH.PATH: Nodes list must be a list".into()));
     }
@@ -265,9 +265,9 @@ fn graph_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Result<()
     let g = side
         .pull(vm)
         .ok_or_else(|| Error(format!("{prefix}: NO DATA #1")))?;
-    let ty = g.get("type").unwrap_or_else(|| BundValue::str("graph"));
-    let nodes = g.get("nodes").unwrap_or_else(|| BundValue::list(Vec::new()));
-    let edges = g.get("edges").unwrap_or_else(|| BundValue::list(Vec::new()));
+    let ty = g.get_or_self("type").ok().unwrap_or_else(|| BundValue::str("graph"));
+    let nodes = g.get_or_self("nodes").ok().unwrap_or_else(|| BundValue::list(Vec::new()));
+    let edges = g.get_or_self("edges").ok().unwrap_or_else(|| BundValue::list(Vec::new()));
     if nodes.dt() != LIST {
         return Err(Error(format!("{prefix}: Nodes list must be a list")));
     }
@@ -370,7 +370,7 @@ fn graph_operand(vm: &mut dyn Vm, prefix: &str) -> Result<(BundValue, BundValue)
         .pull()
         .ok_or_else(|| Error(format!("{prefix}: NO DATA #1")))?;
     let ty = g
-        .get("type")
+        .get_or_self("type").ok()
         .ok_or_else(|| Error(format!("{prefix}: MISSED TYPE")))?;
     let Some(ty) = ty.as_str() else {
         return Err(Error(format!(
@@ -380,8 +380,8 @@ fn graph_operand(vm: &mut dyn Vm, prefix: &str) -> Result<(BundValue, BundValue)
     if ty != "graph" {
         return Err(Error(format!("{prefix}: unknown data type")));
     }
-    let nodes = g.get("nodes").unwrap_or_else(|| BundValue::list(Vec::new()));
-    let edges = g.get("edges").unwrap_or_else(|| BundValue::list(Vec::new()));
+    let nodes = g.get_or_self("nodes").ok().unwrap_or_else(|| BundValue::list(Vec::new()));
+    let edges = g.get_or_self("edges").ok().unwrap_or_else(|| BundValue::list(Vec::new()));
     if nodes.dt() != LIST {
         return Err(Error(format!("{prefix}: Nodes list must be a list")));
     }

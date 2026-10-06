@@ -202,15 +202,25 @@ fn attribute(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
-/// `car` and `cdr` (`reference/rust_dynamic/src/carcdr.rs:72-137,139-...`).
+/// `car` and `cdr` (`reference/rust_dynamic/src/carcdr.rs:72-181`).
 ///
-/// `car` is the first element; `cdr` is **a LIST of the rest**, so
-/// `[ 1 ] cdr` is an empty list and not an error. Both answer `None` for an
-/// empty list, which the caller turns into `CAR returned: NO DATA`
+/// A table over the **tag**, and its last row is the one that matters most:
+///
+/// - a LIST gives its first member, or a LIST of the rest -- so `[ 1 ] cdr` is
+///   an empty list and not an error;
+/// - a MATRIX gives its first row as a LIST, or a MATRIX of the other rows;
+/// - METRICS gives its oldest sample as `{ value, ts }`, or the buffer without
+///   it;
+/// - **anything else is returned as it came** (`:136,180`). `2 car` is `2`. A
+///   PAIR is not a LIST by tag, so `1 2 pair car` is the pair.
+///
+/// Only an *empty* LIST, MATRIX or METRICS answers `None`, which the caller
+/// turns into `CAR returned: NO DATA`
 /// (`reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:46`).
 ///
-/// Only the LIST arm is implemented: the reference also handles MATRIX, QUEUE
-/// and FIFO, none of which Bund2 constructs.
+/// An earlier version implemented the LIST row alone, treated a PAIR as one,
+/// and refused everything else with `NO DATA` -- 198 of 232 surveyed programs
+/// (F171).
 ///
 /// **Both forms take their operand and leave their answer on the same side**
 /// (`value_carcdr.rs:27-33,39-42`). That is *not* the `.` contract D24
@@ -220,17 +230,30 @@ fn car_cdr(vm: &mut dyn Vm, side: crate::wb::Side, want_car: bool, base: &str) -
     let prefix = &format!("{base}{}", side.dot());
     crate::wb::shallow(vm, side, 1, prefix)?;
     let v = crate::wb::operand(vm, side, prefix)?;
-    let items = match v.dt() {
-        LIST | PAIR => v.as_list().map(<[BundValue]>::to_vec),
-        _ => None,
-    };
-    let Some(items) = items.filter(|i| !i.is_empty()) else {
-        return Err(Error(format!("{prefix} returned: NO DATA")));
-    };
-    let out = if want_car {
-        items.first().cloned().unwrap_or(BundValue::nodata())
-    } else {
-        BundValue::list(items.get(1..).unwrap_or_default().to_vec())
+    let nothing = || Error(format!("{prefix} returned: NO DATA"));
+    let out = match v.dt() {
+        LIST => {
+            let items = v.as_list().unwrap_or_default();
+            let (first, rest) = items.split_first().ok_or_else(nothing)?;
+            if want_car { first.clone() } else { BundValue::list(rest.to_vec()) }
+        }
+        bund2_value::MATRIX => {
+            let rows = v.as_matrix().unwrap_or_default();
+            let (first, rest) = rows.split_first().ok_or_else(nothing)?;
+            if want_car { BundValue::list(first.clone()) } else { BundValue::matrix(rest.to_vec()) }
+        }
+        bund2_value::METRICS => {
+            let samples = v.as_metrics().unwrap_or_default();
+            let (first, rest) = samples.split_first().ok_or_else(nothing)?;
+            if want_car {
+                BundValue::map(Default::default())
+                    .set("value", BundValue::float(first.data))
+                    .set("ts", BundValue::time(first.stamp))
+            } else {
+                BundValue::metrics(rest.to_vec())
+            }
+        }
+        _ => v,
     };
     side.push(vm, out);
     Ok(())
@@ -653,7 +676,11 @@ fn len(vm: &mut dyn Vm) -> Result<(), Error> {
     let n = match v.dt() {
         bund2_value::NODATA => 0,
         bund2_value::STRING => v.as_str().map_or(0, |s| s.len()),
-        LIST | PAIR => v.as_list().map_or(0, <[BundValue]>::len),
+        bund2_value::TEXTBUFFER => v.as_str().map_or(0, |s| s.len()),
+        // LIST by tag. A PAIR and a CFLOAT hold a list and are neither, so
+        // they reach the fallback below and answer 1 (`:27-32`).
+        LIST => v.as_list().map_or(0, <[BundValue]>::len),
+        bund2_value::METRICS => v.as_metrics().map_or(0, <[bund2_value::Metric]>::len),
         // **The element count, not the shape** — the reference sums the row
         // lengths (`reference/rust_dynamic/src/len.rs:33-45`), so a 2x2 and a
         // 1x4 both answer 4 and the shape cannot be recovered from it.
@@ -666,7 +693,10 @@ fn len(vm: &mut dyn Vm) -> Result<(), Error> {
         bund2_value::JSON => v
             .as_json()
             .map_or(0, |j| j.as_array().map_or(1, |a| a.len())),
-        // The scalar fallback: the length of the value's string form.
+        // The fallback: the length of the value's string form, or **1 where it
+        // has none** (`:96-104`). `display` renders everything, so asking it
+        // of a TIME gave the length of a `Value { … }` dump -- 139 (F171).
+        _ if v.conv_refusal().is_some() => 1,
         _ => v.display().len(),
     };
     vm.push(BundValue::int(n as i64));
@@ -1019,9 +1049,13 @@ fn head_tail_at(vm: &mut dyn Vm, side: crate::wb::Side, which: u8, base: &str) -
         .ok_or_else(|| Error(format!("{prefix} returned: NO DATA")))?
         .to_vec();
     let out = match which {
-        0 => BundValue::list(items.iter().take(n.max(0) as usize).cloned().collect()),
+        // **A negative count takes everything.** The reference casts it
+        // `as usize` (`reference/rust_dynamic/src/carcdr.rs:13,37`), which
+        // makes it larger than any list, so `-3 [ 3 1 2 ] head` is the whole
+        // list. Bund2 had clamped it to zero and answered `[]` (F171).
+        0 => BundValue::list(items.iter().take(n as usize).cloned().collect()),
         1 => {
-            let k = (n.max(0) as usize).min(items.len());
+            let k = (n as usize).min(items.len());
             BundValue::list(items[items.len() - k..].to_vec())
         }
         _ => {
@@ -1697,5 +1731,41 @@ mod f18_tests {
             assert!(i.eval(&stream).is_err(), "{src} should fail");
             assert_eq!(i.depth(), 1, "{src}: the operand was consumed");
         }
+    }
+
+    /// F171: what the value-level survey found that ends a program. Each row
+    /// measured on the oracle.
+    #[test]
+    fn the_survey_s_refusals_are_the_reference_s() {
+        for (src, want) in [
+            // A condition is a BOOL and nothing else.
+            ("2 { 7 } if", "IF returns error: This Dynamic type is not bool"),
+            ("0 { 7 } ?false", "?FALSE returns error: This Dynamic type is not bool"),
+            (
+                "2 { 7 } { 8 } ifthenelse",
+                "IFTHENELSE: #3 parameter must be boolean: This Dynamic type is not bool",
+            ),
+            // A stack that is not there, or has nothing in it.
+            ("\"nope\" clear_in", "Operation clear_in() can not find the stack: nope"),
+            (
+                "\"nope\" drop_in",
+                "Operation drop_in() returned: Can not detect stack nope for drop_in() operation",
+            ),
+            (
+                "\"e\" ensure_stack \"e\" drop_in",
+                "Operation drop_in() returned: Stack is empty for drop_in() operation",
+            ),
+            ("2 ?class", "?CLASS casting string returns: This Dynamic type is not string"),
+            ("dict \"k\" get", "GET returns error: Key not found: k"),
+            ("2 graph", "GRAPH: Nodes list must be a list"),
+        ] {
+            match run(src) {
+                Ok(_) => panic!("{src} was expected to fail"),
+                Err(e) => assert!(e.ends_with(want), "{src}: {e}"),
+            }
+        }
+        // A BOOL still runs the branch.
+        let i = run("true { 7 } if").expect("runs");
+        assert_eq!(i.peek().and_then(|v| v.as_int()), Some(7));
     }
 }

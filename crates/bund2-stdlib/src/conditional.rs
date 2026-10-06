@@ -225,7 +225,7 @@ fn run_ifthenelse(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
         .pull()
         .ok_or_else(|| Error("IFTHENELSE conditional require condition on the stack".into()))?;
     let cond = crate::control::cast_bool(&cond_val)
-        .ok_or_else(|| Error("IFTHENELSE error casting conditional".into()))?;
+        .map_err(|e| Error(format!("IFTHENELSE error casting conditional: {}", e.0)))?;
     if cond {
         vm.eval_lambda(&then_l)
             .map_err(|e| e.context("IFTHENELSE THEN lambda returns: "))

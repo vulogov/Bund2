@@ -4018,6 +4018,62 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F172 — `move` to a stack that does not exist hangs the reference
+
+**An original-implementation defect, measured 2026-10-06** by F171's survey.
+
+`<value> "s" move debug.display_stack` did not finish within ten seconds on
+the oracle for any of 52 operand pairs whose top was a string naming a stack
+that had not been made. Bund2 answers at once: the value is on stack `s`.
+
+Not investigated further than that. The cause is in `reference/` and was not
+read; [UNGROUNDED] as to why. Recorded because a golden over `move` to a new
+stack cannot be captured, and so that the next survey does not rediscover it.
+
+**Disposition: recorded.** Bund2's behaviour stands.
+
+## F171 — every word against every kind: eleven words answered for one row of a table
+
+**Bund2 defects, measured 2026-10-06.** 263 words — every non-workbench word
+that does not reach outside the stack — each against 36 single operands and
+196 operand pairs: 61,016 programs. 42,022 agreed. The disagreements sort
+into message wording (14,637, not addressed here), ordering noise, decided
+deviations, reference aborts, and the value-level defects below.
+
+The shape repeats. Each word is a table over the value's tag in the reference;
+Bund2 implemented the row the word's name suggests.
+
+| word | the reference | Bund2 before |
+|---|---|---|
+| `car`, `cdr` | anything not a LIST, MATRIX or METRICS is returned as it came; a MATRIX gives a row; a PAIR is not a LIST (`reference/rust_dynamic/src/carcdr.rs:72-181`) | LIST and PAIR only; all else `NO DATA` |
+| `head`, `tail` | a negative count is cast `as usize` and takes everything (`:13,37`) | clamped to zero, `[]` |
+| `len` | 1 for what has no string form; METRICS and TEXTBUFFER have arms (`reference/rust_dynamic/src/len.rs:21-104`) | a PAIR 2, a TIME 139 — the length of a `Value { … }` dump |
+| `type` | `Matrix` (`reference/rust_dynamic/src/value_types.rs:21`) | `Unknown` |
+| `get` | a receiver that is not a map is returned (`reference/rust_dynamic/src/get.rs:18-20`); a missing key is `Key not found: k` | `key k not found` for both |
+| `if`, `if.false`, `?true`, `?false`, `ifthenelse` and the conditional | a condition is a BOOL and nothing else (`reference/rust_dynamic/src/cast.rs:25-32`) | an integer or float was taken, false at zero |
+| `clear_in`, `drop_in` | a stack that is not there is refused; so is dropping from an empty one (`reference/rust_multistack/src/stdlib/clear.rs:27-33`, `ts_drop.rs:30-46`) | succeeded silently |
+| `?class` | a name that is not a string is refused (`reference/Bund/src/stdlib/functions/bund/bund_class.rs:21-26`) | taken as the empty name, `false` |
+| `graph` and the four graph queries | fields are read with `get`, so a non-map is handed back as each field and fails what is then asked of it (`reference/Bund/src/stdlib/functions/graph/mod.rs:38-55`) | defaults were substituted, so `2 graph` built a graph |
+| `fold`, `fold_stack` | **a NODATA stops the fold and is consumed** (`reference/rust_multistack/src/ts_list.rs:13-15,46-48`) | folded through it and kept it as a member |
+
+The eleventh, `"dup" ptr resolve`, is F31 and already decided.
+
+**The conditions are the one row that could surprise a program.** `2 { … } if`
+ran the branch; it is now an error. Nothing ever decided that Bund2 should
+take a number as a condition — the function's comment gave no source — and no
+suite program does it: conformance did not move.
+
+**The `fold` row is the one that mattered.** `nodata`, aliased `|`, is how a
+program says "fold down to here". Without it every fold took the whole stack.
+
+**Status: FIXED**, all rows. `BundValue::get_or_self` carries `get`'s rule for
+the words that read fields with it. `tests/probes/list-words-other-kinds.bund`
+holds what answers; the refusals are unit-tested in
+`crates/bund2-stdlib/src/singles.rs`.
+
+**Not surveyed:** the workbench forms, the looping words, and anything that
+touches a file, the network, the terminal, the clock or randomness.
+
 ## F170 — a complex number compared with a plain one aborts the reference
 
 **An original-implementation defect, measured 2026-10-06** by F169's survey.

@@ -281,7 +281,13 @@ fn is_class_word(vm: &mut dyn Vm) -> Result<(), Error> {
     let Some(v) = vm.pull() else {
         return Err(Error("Stack is too shallow for ?CLASS".into()));
     };
-    let name = v.as_str().unwrap_or_default();
+    // A name that is not a string is refused, not taken as the empty name
+    // (`reference/Bund/src/stdlib/functions/bund/bund_class.rs:21-26`).
+    let Some(name) = v.as_str() else {
+        return Err(Error(
+            "?CLASS casting string returns: This Dynamic type is not string".into(),
+        ));
+    };
     let answer = vm.is_class(&name);
     vm.push(BundValue::boolean(answer));
     Ok(())

@@ -1,0 +1,50 @@
+//
+// PROBE: `car cdr head tail len type get fold graph` given something other
+// than what their names expect.
+//
+// Found by running every word against every operand kind (F171). Each of
+// these words is a table over the value's tag in the reference, and Bund2 had
+// implemented the row its name suggests and refused or mis-answered the rest.
+// What ends a program is unit-tested; this is what answers.
+
+// **`car` and `cdr` return what is not a container as it came.** A PAIR is
+// not a LIST by tag, so it comes back whole.
+2 car println
+"s" cdr println
+1 2 pair car type println drop
+
+// A LIST, for comparison, and a MATRIX: its first row as a LIST, and a MATRIX
+// of the rest.
+[ 3 1 2 ] car println
+[ 3 1 2 ] cdr println
+[ [ 1 2 ] [ 3 4 ] ] matrix car println
+[ [ 1 2 ] [ 3 4 ] ] matrix cdr convert.to_list println
+
+// **A negative count takes everything**, because the reference casts it to an
+// unsigned one.
+-3 [ 3 1 2 ] head println
+-1 [ 3 1 2 ] tail println
+2 "s" head println
+
+// **`len` is 1 for what has no string form** — a PAIR, a TIME — and the
+// sample count for METRICS. It peeks, so each operand is dropped after.
+1 2 pair len println drop
+5 time.timestamp len println drop
+metrics len println drop
+"abc" convert.to_textbuffer len println drop
+
+// `type` knows a MATRIX.
+[ [ 1 ] ] matrix type println drop
+
+// **`get` on what is not a map returns it.**
+2 "k" get println
+
+// **`fold` stops at a NODATA and consumes it**; what lies beneath stays. So
+// this folds `4 3` and leaves `2` and `1`.
+1 2 nodata 3 4 fold println
+println
+println
+
+// **`graph` reads its fields with that same `get`**, so given a list it
+// finds the list three times over and wraps it.
+[ 9 ] graph println
