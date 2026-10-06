@@ -96,15 +96,20 @@ fn json(vm: &mut dyn Vm) -> Result<(), Error> {
 /// **`null` becomes `Value::none()` (`:39`), whose `q` is 0.0.** Every other
 /// constructor starts at 100.0, so this is the single observable case for
 /// `q`, and it is why `BundValue::with_q` exists at all.
-fn to_value(j: &serde_json::Value) -> Result<BundValue, Error> {
+pub(crate) fn to_value(j: &serde_json::Value) -> Result<BundValue, Error> {
     use serde_json::Value as J;
     match j {
         J::String(s) => Ok(BundValue::str(s.clone())),
+        // **`is_f64`, not `as_f64`.** An integer above `i64::MAX` is held as
+        // a `u64`: `is_i64` is false, `is_f64` is false, and the reference
+        // falls past every arm to its last (`:96`). `as_f64` would have
+        // widened it, and did -- `'18446744073709551615' json json.to_value`
+        // answered a FLOAT where the oracle refuses (F169).
         J::Number(n) => match (n.as_i64(), n.as_f64()) {
             (Some(i), _) => Ok(BundValue::int(i)),
-            (None, Some(f)) => Ok(BundValue::float(f)),
+            (None, Some(f)) if n.is_f64() => Ok(BundValue::float(f)),
             _ => Err(Error(
-                "This JSON is having a data that is not INT".to_string(),
+                "This JSON is having a data that is not supportable".to_string(),
             )),
         },
         J::Null => Ok(BundValue::none().with_q(0.0)),

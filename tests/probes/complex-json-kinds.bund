@@ -1,0 +1,29 @@
+//
+// PROBE: comparing complex numbers, and converting JSON.
+//
+// Both were found by measuring every operand kind against every other
+// (F169), not by reading: a CFLOAT is a numeric tag over a two-member list,
+// and JSON's converter has exactly one arm that can succeed.
+//
+// Read comparisons with the top of the stack as the left operand. `complex`
+// takes the real part from the top, so `1.0 2.0 complex` is 2+1i.
+
+// **Equal when both parts are.** A value against its own copy was `false`.
+1.0 2.0 complex 1.0 2.0 complex == println
+1.0 2.0 complex 5.0 2.0 complex == println
+1.0 2.0 complex 5.0 2.0 complex != println
+
+// **Ordered by the real part alone** — the imaginary part is not consulted,
+// so 2+9i and 2+1i are neither less nor greater, and both `<=` and `>=` hold.
+1.0 2.0 complex 1.0 3.0 complex < println
+1.0 3.0 complex 1.0 2.0 complex < println
+9.0 2.0 complex 1.0 2.0 complex < println
+9.0 2.0 complex 1.0 2.0 complex > println
+9.0 2.0 complex 1.0 2.0 complex <= println
+9.0 2.0 complex 1.0 2.0 complex >= println
+
+// **JSON converts to a STRING, whichever of the two text targets is asked.**
+// 4 is STRING; every other source answers 22 to the second line.
+'{"a":1}' json convert.to_string type.of println drop
+'{"a":1}' json convert.to_textbuffer type.of println drop
+'[1,2]' json convert.to_textbuffer println

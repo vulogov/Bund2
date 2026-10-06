@@ -4018,6 +4018,82 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F170 — a complex number compared with a plain one aborts the reference
+
+**An original-implementation defect, measured 2026-10-06** by F169's survey.
+
+With a CFLOAT on top and an INTEGER, a FLOAT or a TIME underneath, all six
+comparison words abort the oracle: equality and ordering both
+`cast_complex_float().unwrap()` the *other* operand without asking what it is
+(`reference/rust_dynamic/src/eq.rs:50-52`,
+`reference/rust_dynamic/src/ord.rs:40-42`). 42 of the survey's programs. The
+other way round — the plain number on top — does not abort; its arm answers.
+
+Bund2 does not abort. It answers `false` to `==`, `true` to `!=`, and `true`
+to each of the four orderings, which is what the reference's arms say of any
+two kinds they do not pair. That was never chosen; it is what the code did.
+
+**Disposition: OPEN — a question, not a repair.** Three cases now share this
+shape, the reference aborting where Bund2 quietly answers: this one, a string
+repeated a negative number of times (F168, answers `""`), and an unrecognised
+string converted to BOOL (F68, answers `false`, and *that* one was decided).
+D98 gave `io.textfile` the other treatment — report, do not invent. Whether
+these two should follow F68 or D98 is the owner's to say.
+
+## F169 — two tables measured whole: conversions and comparisons
+
+**Bund2 defects, measured 2026-10-06.** F167 and F168 were each filed as a few
+rows and turned out to be most of a table. So the two neighbouring tables were
+measured before anything was filed: 36 source kinds against the eight
+`convert.to_*` words (288 programs), and 36 kinds against 36 under the six
+comparison words (7,776), each run twice on the oracle to catch an answer
+that varies.
+
+**Conversions: 218 of 288 agreed.** Found and fixed:
+
+- **JSON to TEXTBUFFER answered a TEXTBUFFER.** The reference's arm takes
+  STRING and TEXTBUFFER together and returns a STRING for both
+  (`reference/rust_dynamic/src/conv.rs:676-679`).
+- **JSON to anything else was refused in the wrong words.** The reference
+  decodes the JSON and converts the result to `ot`, the source's own tag,
+  where `t` was meant (`:683`), so it always fails, naming the decoded kind
+  and 24: `Can not convert integer to 24`. Bund2 said
+  `Can not convert Value from 24`. Reproduced as the reference has it.
+- **The list converter's refusal did not name its target** (`:380`).
+- **A JSON integer above `i64::MAX` decoded to a FLOAT.** The reference
+  tests `is_i64` and then `is_f64`, and a `u64` is neither, so it is refused
+  as `This JSON is having a data that is not supportable`
+  (`reference/rust_dynamic/src/cast_json_to_value.rs:20,29,96`). Bund2 asked
+  `as_f64`, which widens. This is `json.to_value`'s defect as much as the
+  conversion's; the survey reached it through the conversion.
+
+**Comparisons: 7,266 of 7,776 agreed.** Found and fixed:
+
+- **A complex number was not equal to its own copy**, and two of them ordered
+  wrongly. The reference compares both parts for equality and the **real part
+  alone** for order (`eq.rs:50-52`, `ord.rs:40-42,79-81,118-120,157-159`).
+  A CFLOAT is a numeric tag over a two-member list, which no scalar arm in
+  `numeric_eq` or `numeric_ord` matched.
+
+**What is left, and why each is not a defect here:**
+
+| count | table | what |
+|---|---|---|
+| 25 | conversions | `convert.to_dict` targets MAP where the reference targets MATRIX — D57, F120 |
+| 4 | conversions | an unrecognised string to BOOL aborts the reference — F68 |
+| 7 + 426 | both | `[ ]`, the empty list literal, which neither parser accepts; the two say so differently |
+| 36 | comparisons | an integer against a float, exact by D30 and D33 |
+| 42 | comparisons | the reference aborts — F170 |
+
+No comparison answer varied between oracle runs outside the `[ ]` rows.
+
+A comment in `crates/bund2-stdlib/src/convert.rs`, on `string_to_bool`, said
+the reference's function was total and that `"maybe"` had been confirmed
+against it. Both were false, and F68 and the test beside it already said so.
+The comment is corrected.
+
+`tests/probes/complex-json-kinds.bund` holds what prints.
+
 ## F168 — `+` will not append to a LIST what the reference appends
 
 **A Bund2 defect, measured 2026-10-06**, found by F167's survey.

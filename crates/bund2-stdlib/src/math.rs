@@ -319,7 +319,7 @@ fn matrix_op(
 }
 
 /// The two floats a CFLOAT holds.
-fn complex_parts(v: &BundValue) -> Option<(f64, f64)> {
+pub(crate) fn complex_parts(v: &BundValue) -> Option<(f64, f64)> {
     match v.as_list()? {
         [re, im] => match (re.unboxed(), im.unboxed()) {
             (BundValue::Float(re, _), BundValue::Float(im, _)) => Some((*re, *im)),

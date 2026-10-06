@@ -230,7 +230,9 @@ pub(crate) fn conv_value(v: &BundValue, target: u16) -> Result<BundValue, Error>
                     }
                     Ok(BundValue::matrix(rows))
                 }
-                _ => Err(Error(format!("Can not convert Value from {dt}"))),
+                // The list converter names its target (`conv.rs:380`), unlike
+                // `conv`'s last arm. Reached only through a JSON array.
+                _ => Err(Error(format!("Can not convert list to {target}"))),
             }
         }
         // A LAMBDA converts by its **length**, and to a LIST of its body
@@ -267,6 +269,35 @@ pub(crate) fn conv_value(v: &BundValue, target: u16) -> Result<BundValue, Error>
         // the tag rather than the number.
         _ if dt == PTR => Err(Error(format!("Can not convert PTR to {target}"))),
         _ if dt == CALL => Err(Error(format!("Can not convert CALL to {target}"))),
+        // **JSON has one conversion, and its other arm cannot succeed**
+        // (`conv.rs:662-691`).
+        //
+        // STRING and TEXTBUFFER both answer a **STRING** -- the arm matches
+        // the two targets together and calls `from_string` for either, so
+        // `convert.to_textbuffer` on JSON is the one place that word does not
+        // return a TEXTBUFFER. Bund2 returned one.
+        //
+        // Every other target decodes the JSON to a value and converts *that*
+        // -- to `ot`, the source's own tag, where `t` was meant (`:683`). No
+        // converter has a JSON target, so the result is always the decoded
+        // kind's refusal with 24 in it: `'7' json convert.to_list` says
+        // `Can not convert integer to 24`. Reproduced, because `?try` reads
+        // it; the requested target appears only if the decode itself fails.
+        _ if dt == JSON => {
+            if target == TEXTBUFFER {
+                return Ok(BundValue::str(v.display()));
+            }
+            let Some(j) = v.as_json() else {
+                return Err(Error(format!("Can not convert Value from {dt}")));
+            };
+            match crate::json::to_value(&j) {
+                Ok(decoded) => conv_value(&decoded, JSON),
+                Err(e) => Err(Error(format!(
+                    "Can not convert json to INTEGER: {target} due to: {}",
+                    e.0
+                ))),
+            }
+        }
         // **A MAP converts by its size**, and to a LIST of key/value PAIRs
         // (`conv.rs:602-636`). STRING and TEXTBUFFER left above. Bund2 had no
         // arm here at all, so `dict convert.to_int` was refused where the
@@ -341,17 +372,22 @@ pub(crate) fn conv_value(v: &BundValue, target: u16) -> Result<BundValue, Error>
 fn admits_textbuffer(dt: u16) -> bool {
     matches!(
         dt,
-        FLOAT | INTEGER | STRING | TEXTBUFFER | BOOL | LIST | LAMBDA | MAP | CONDITIONAL | JSON
+        FLOAT | INTEGER | STRING | TEXTBUFFER | BOOL | LIST | LAMBDA | MAP | CONDITIONAL
     )
 }
 
 /// `rustils::parse::boolean::string_to_bool`, which `conv` uses for
 /// STRING → BOOL (`reference/rust_dynamic/src/conv.rs:207-211`).
 ///
-/// It is total — there is no error arm — so an unrecognised string is `false`
-/// rather than a failure, which is why `"maybe" convert.to_bool` succeeds.
-/// Confirmed against the oracle for `"true"`, `"TRUE"`, `"1"`, `"yes"`, `"no"`
-/// and `"maybe"`.
+/// **The reference's is not total: an unrecognised string panics**
+/// (the final arm of the function named above), so
+/// `"maybe" convert.to_bool` aborts the oracle. This one answers `false`
+/// instead, which is F68's disposition. Agreement was measured for `"true"`,
+/// `"TRUE"`, `"1"`, `"yes"` and `"no"`.
+///
+/// This comment once said the reference was total and that `"maybe"` had been
+/// confirmed against it. Neither was so; the test below it and F68 had it
+/// right all along.
 fn string_to_bool(s: &str) -> bool {
     matches!(
         s.trim().to_ascii_lowercase().as_str(),
@@ -856,6 +892,32 @@ mod tests {
         match run("{ 1 } convert.to_matrix") {
             Ok(_) => panic!("expected to fail"),
             Err(e) => assert!(e.contains("Can not convert lambda to 26"), "{e}"),
+        }
+    }
+
+    /// F169: a JSON source decodes and then converts to **its own tag**, so
+    /// every target but the two text ones fails naming the decoded kind and
+    /// 24. Each row measured on the oracle.
+    #[test]
+    fn json_refuses_every_target_but_text_naming_what_it_decoded() {
+        for (src, word, want) in [
+            ("'{\"a\":1}' json", "convert.to_int", "CONVERT.TO_INTEGER returned error: Can not convert map to 24"),
+            ("'[1,2]' json", "convert.to_list", "CONVERT.TO_LIST returned error: Can not convert list to 24"),
+            ("'7' json", "convert.to_float", "CONVERT.TO_FLOAT returned error: Can not convert integer to 24"),
+            ("'7.5' json", "convert.to_int", "CONVERT.TO_INTEGER returned error: Can not convert float to 24"),
+            ("'\"q\"' json", "convert.to_bool", "CONVERT.TO_BOOL returned error: Can not convert string to 24"),
+            ("'true' json", "convert.to_int", "CONVERT.TO_INTEGER returned error: Can not convert bool to 24"),
+            ("'null' json", "convert.to_matrix", "CONVERT.TO_MATRIX returned error: Can not convert NONE to 24"),
+            (
+                "'18446744073709551615' json",
+                "convert.to_int",
+                "CONVERT.TO_INTEGER returned error: Can not convert json to INTEGER: 2 due to: This JSON is having a data that is not supportable",
+            ),
+        ] {
+            match run(&format!("{src} {word}")) {
+                Ok(_) => panic!("{src} {word} was expected to fail"),
+                Err(e) => assert!(e.ends_with(want), "{src} {word}: {e}"),
+            }
         }
     }
 }

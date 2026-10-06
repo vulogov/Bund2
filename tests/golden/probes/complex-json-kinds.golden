@@ -1,0 +1,23 @@
+# golden for tests/probes/complex-json-kinds.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+true
+false
+true
+false
+true
+false
+false
+true
+true
+4
+4
+[1,2]
+╭╮
+╰╯
+╭╮
+╰╯

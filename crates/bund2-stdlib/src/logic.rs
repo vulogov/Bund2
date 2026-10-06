@@ -112,6 +112,17 @@ fn numeric_eq(a: &BundValue, b: &BundValue) -> bool {
     if let (Some(x), Some(y)) = (a.as_time(), b.as_time()) {
         return x == y;
     }
+    // Two complex numbers are equal when both parts are
+    // (`reference/rust_dynamic/src/eq.rs:50-52`). A CFLOAT is a numeric tag
+    // over a two-element list, so the scalar arms below never saw it and the
+    // content comparison at the end answered false for a value against its
+    // own copy.
+    if a.dt() == CFLOAT
+        && b.dt() == CFLOAT
+        && let (Some(x), Some(y)) = (crate::math::complex_parts(a), crate::math::complex_parts(b))
+    {
+        return x == y;
+    }
     match (a.unboxed(), b.unboxed()) {
         (BundValue::Int(x, _), BundValue::Int(y, _)) => x == y,
         (BundValue::Float(x, _), BundValue::Float(y, _)) => x == y,
@@ -184,6 +195,17 @@ fn numeric_ord(op: Op, a: &BundValue, b: &BundValue) -> bool {
     // (`reference/rust_dynamic/src/ord.rs:27-33,66-72,105-111,144-150`).
     if let (Some(x), Some(y)) = (a.as_time(), b.as_time()) {
         return by(Some(x.cmp(&y)));
+    }
+    // **Complex numbers order by their real part alone**
+    // (`reference/rust_dynamic/src/ord.rs:40-42,79-81,118-120,157-159`). Not
+    // an order on the complex plane, which has none; it is what the reference
+    // answers, and `1+5i < 2+0i` is true by it.
+    if a.dt() == CFLOAT
+        && b.dt() == CFLOAT
+        && let (Some((x, _)), Some((y, _))) =
+            (crate::math::complex_parts(a), crate::math::complex_parts(b))
+    {
+        return by(x.partial_cmp(&y));
     }
     match (a.unboxed(), b.unboxed()) {
         (BundValue::Int(x, _), BundValue::Int(y, _)) => by(Some(x.cmp(y))),
