@@ -372,6 +372,147 @@ fn fs_is_file(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// How the bounded scan of a file ended — see [`io_textfile`].
+enum Scan {
+    /// The reader answered `None`: every line was read.
+    AtEof,
+    /// A line could not be read, which in practice is invalid UTF-8.
+    Unreadable(std::io::Error),
+    /// The bound was spent and the reader still had more to say.
+    Never,
+}
+
+/// `io.textfile` and `io.textfile.` — a file's lines as a LIST of strings
+/// (`reference/Bund/src/stdlib/functions/io/textfile.rs`,
+/// `string_io_textfile_base`).
+///
+/// The operand is a **path**, opened with `File::open` — not the `file://` URL
+/// that `file` fetches through, so a relative path works here and does not
+/// there. Both forms answer on their own side.
+///
+/// # Three ways the reference goes wrong, and one mechanism for all three
+///
+/// The reference calls `EasyReader::build_index` and then replays the index.
+/// Measured against the oracle, that has three failure modes:
+///
+/// - **F159 — the last line twice.** A multi-line file ending in a newline
+///   answers its last line again with the terminator attached:
+///   `one\ntwo\nthree\n` is `[ one two three "three\n" ]`. Deterministic, and
+///   **preserved**.
+/// - **F160 — it never returns** when the file *begins* with a line
+///   terminator. `build_index` is `while let Ok(Some(_)) = next_line()`, the
+///   scan does not advance past an empty first line, and the index grows
+///   without bound. D39 forbids reproducing a hang; D97 says what to answer.
+/// - **F161 — it aborts** with `index out of bounds` when two or more
+///   readable lines precede one that is not valid UTF-8. The scan stops at the
+///   bad line, leaving the index one entry short, and the replay indexes past
+///   it unchecked. D37 forbids reproducing an abort.
+///
+/// **The scan `build_index` runs is run here first, under a bound.** It is the
+/// same loop from the same state — `next_line` on a fresh reader — so how it
+/// ends says, before anything unbounded is called, which case this file is:
+///
+/// | the bounded scan… | so the reference… | and this… |
+/// |---|---|---|
+/// | spends the bound | never returns (F160) | reports, per D97 |
+/// | stops on an unreadable line, ≥ 2 read | aborts (F161) | reports the line |
+/// | stops on an unreadable line, 0 or 1 read | answers those lines | answers them |
+/// | reaches end-of-file | answers, with F159 | replays the index |
+///
+/// Only the last row calls `build_index`, and by then the scan that proves it
+/// finite has already finished. The replay is in bounds for the same reason:
+/// a scan that ended at end-of-file left its last entry ending *at* the file's
+/// size, which is the test the reader makes before it indexes.
+///
+/// **An earlier version drove `next_line` un-indexed and stopped there**, on
+/// the argument that it is "the very scan `build_index` records". It is the
+/// same scan and *not* the same answer: un-indexed, the extra read at the end
+/// is an empty string where the indexed replay gives the duplicated line.
+/// Found by diffing twelve file shapes against the oracle, eight of which
+/// disagreed.
+///
+/// A directory answers an **empty list** — `File::open` succeeds on one and
+/// the first read fails. An empty file is the crate's own `Empty file`.
+fn io_textfile(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
+    guard(vm, side, prefix)?;
+    let v = side
+        .pull(vm)
+        .ok_or_else(|| Error(format!("{prefix} returns NO DATA #1")))?;
+    let name = v.as_str().ok_or_else(|| {
+        Error(format!(
+            "{prefix} returned for #1: This Dynamic type is not string"
+        ))
+    })?;
+    let open = || std::fs::File::open(&name).map_err(|e| Error(format!("{prefix} returns: {e}")));
+    let reader_of = |f: std::fs::File| {
+        easy_reader::EasyReader::new(f).map_err(|e| Error(format!("{prefix} returns error: {e}")))
+    };
+
+    let file = open()?;
+    // Taken before the reader owns the file: D39's bound is on data already
+    // in hand. *n* bytes hold at most *n + 1* lines, and F159 adds one.
+    let bound = file.metadata().map(|m| m.len()).unwrap_or(0).saturating_add(2);
+
+    // The scan `build_index` would run, bounded.
+    let mut probe = reader_of(file)?;
+    let mut seen: Vec<String> = Vec::new();
+    let mut reads: u64 = 0;
+    let ended = loop {
+        if reads >= bound {
+            break Scan::Never;
+        }
+        reads += 1;
+        match probe.next_line() {
+            Ok(Some(line)) => seen.push(line),
+            Ok(None) => break Scan::AtEof,
+            Err(e) => break Scan::Unreadable(e),
+        }
+    };
+
+    let lines: Vec<String> = match ended {
+        Scan::Never => {
+            return Err(Error(format!(
+                "{prefix} returns error: the reader did not reach the end of the file"
+            )))
+        }
+        // F161. With two or more lines read the reference's replay indexes
+        // past its short index and the process dies; with fewer it never
+        // reaches the indexed path and answers what it read.
+        Scan::Unreadable(e) if seen.len() >= 2 => {
+            return Err(Error(format!("{prefix} returns error: {e}")))
+        }
+        Scan::Unreadable(_) => seen,
+        Scan::AtEof => {
+            let mut reader = reader_of(open()?)?;
+            // Finite: the bounded scan above is this loop, and it ended.
+            let _ = reader.build_index();
+            reader.bof();
+            let cap = seen.len().saturating_add(2);
+            let mut out: Vec<String> = Vec::new();
+            loop {
+                if out.len() > cap {
+                    return Err(Error::internal(format!(
+                        "{prefix}: the indexed replay of a file whose scan ended at \
+                         end-of-file after {} lines yielded more than {cap}",
+                        seen.len()
+                    )));
+                }
+                match reader.next_line() {
+                    Ok(Some(line)) => out.push(line),
+                    // The reference breaks on `Ok(None)` and on any error.
+                    Ok(None) | Err(_) => break,
+                }
+            }
+            out
+        }
+    };
+    side.push(
+        vm,
+        BundValue::list(lines.into_iter().map(BundValue::str).collect()),
+    );
+    Ok(())
+}
+
 /// `system.ip` and `system.ipv6` — the host's own address
 /// (`reference/Bund/src/stdlib/functions/system/ip.rs`).
 ///
@@ -823,6 +964,8 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
         // F152: `stdin` and `stdin.` are registered here and nowhere else.
         stub!("stdin", "FILE", eff(1, 1));
         stub!("stdin.", "FILE", eff(0, 0));
+        stub!("io.textfile", "IO.TEXTFILE", eff(1, 1));
+        stub!("io.textfile.", "IO.TEXTFILE", eff(0, 0));
         stub!("system.shell", "SYSTEM.SHELL", eff(1, 1));
         stub!("system.shell.", "SYSTEM.SHELL", eff(0, 0));
         stub!("system.setproctitle", "SYSTEM.SETPROCTITLE", eff(1, 0));
@@ -916,6 +1059,18 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
         // spelling of the workbench form that a default build binds.
         r.register_native("fs_is_file.", fs_is_file, eff(1, 1), WordKind::Sync);
         r.register_native(
+            "io.textfile",
+            |vm| io_textfile(vm, Side::Stack, "IO.TEXTFILE"),
+            eff(1, 1),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "io.textfile.",
+            |vm| io_textfile(vm, Side::Bench, "IO.TEXTFILE."),
+            eff(0, 0),
+            WordKind::Sync,
+        );
+        r.register_native(
             "system.shell",
             |vm| system_shell(vm, Side::Stack, "SYSTEM.SHELL"),
             eff(1, 1),
@@ -985,6 +1140,13 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
     r.register_alias("rm", "fs.rm");
     r.register_alias("cp", "fs.cp");
     r.register_alias("mv", "fs.mv");
+    // `create_aliases.rs` again. **Missed when `system.shell` landed** -- the
+    // words were implemented and their two aliases were not, though `cp` and
+    // `mv` had been added beside `fs.cp` and `fs.mv` two commits earlier.
+    // Found by diffing the alias tables, not by a test: nothing in the suite
+    // asks whether an alias the reference binds is bound here.
+    r.register_alias("sh", "system.shell");
+    r.register_alias("sh.", "system.shell.");
     r.register_alias("ls", "fs.ls");
     r.register_alias("ls.", "fs.ls.");
     r.register_alias("cwd", "fs.cwd");
@@ -1337,6 +1499,136 @@ mod tests {
             e.contains("bund SYSTEM.SETPROCTITLE functions disabled with --noio"),
             "{e}"
         );
+    }
+
+    /// `io.textfile` across the reference's three failure modes — F159, F160
+    /// and F161 — which is the whole reason the word is not a ten-line loop.
+    ///
+    /// **F159 is preserved**: a multi-line file ending in a newline answers its
+    /// last line twice, the copy keeping its terminator.
+    ///
+    /// **F160 and F161 are corrected**, and neither has an oracle answer to
+    /// compare against — the reference never returns on the first and aborts
+    /// on the second. So these assertions are the only thing that says Bund2
+    /// returns at all, and they are why the test exists: a regression here
+    /// would be a hang or an abort, which no golden can record.
+    #[test]
+    fn io_textfile_keeps_the_duplicate_and_reports_where_the_reference_cannot_answer() {
+        let d = scratch("textfile");
+        let write = |name: &str, bytes: &[u8]| {
+            let p = d.join(name);
+            std::fs::write(&p, bytes).expect("seed");
+            p
+        };
+        let lines = |p: &std::path::Path| -> Vec<String> {
+            let mut i = interp(HostOptions::default());
+            run(&mut i, &format!("\"{}\" io.textfile", p.display())).expect("reads");
+            i.pull()
+                .expect("a list")
+                .as_list()
+                .expect("a LIST")
+                .iter()
+                .map(|v| v.as_str().unwrap_or_default())
+                .collect()
+        };
+
+        // No final newline: the lines, and nothing else.
+        assert_eq!(lines(&write("a", b"one\ntwo\nthree")), ["one", "two", "three"]);
+        // F159: one byte more, one element more -- the last line with its
+        // terminator.
+        assert_eq!(
+            lines(&write("b", b"one\ntwo\nthree\n")),
+            ["one", "two", "three", "three\n"]
+        );
+        // CRLF: stripped from the lines, kept on the duplicate.
+        assert_eq!(
+            lines(&write("c", b"one\r\ntwo\r\n")),
+            ["one", "two", "two\r\n"]
+        );
+        // A single line starts at offset zero, never takes the indexed path,
+        // and so its extra element is empty rather than a duplicate.
+        assert_eq!(lines(&write("e", b"solo\n")), ["solo", ""]);
+        // Blank lines in the middle and at the end are data.
+        assert_eq!(lines(&write("f", b"x\n\n\ny")), ["x", "", "", "y"]);
+        // A directory opens and reads nothing.
+        assert!(lines(&d).is_empty());
+
+        let failure = |p: &std::path::Path| -> String {
+            let mut i = interp(HostOptions::default());
+            run(&mut i, &format!("\"{}\" io.textfile", p.display())).expect_err("fails")
+        };
+
+        // F160: the reference never returns on a leading line terminator --
+        // one is enough, and what follows is irrelevant.
+        for (name, bytes) in [
+            ("h1", &b"\n"[..]),
+            ("h2", &b"\n\n"[..]),
+            ("h3", &b"\nlead\n"[..]),
+            ("h4", &b"\r\nx\n"[..]),
+        ] {
+            let e = failure(&write(name, bytes));
+            assert!(
+                e.ends_with("IO.TEXTFILE returns error: the reader did not reach the end of the file"),
+                "{name}: {e}"
+            );
+        }
+        // ...and a leading *space* is not a leading terminator.
+        assert_eq!(lines(&write("h5", b" \nx")), [" ", "x"]);
+
+        // F161: two readable lines and then invalid UTF-8 aborts the
+        // reference. Here it reports the line, in the crate's own words.
+        let e = failure(&write("u2", b"a\nb\n\xff\n"));
+        assert!(
+            e.contains("IO.TEXTFILE returns error: The line starting at byte: 4")
+                && e.contains("is not valid UTF-8"),
+            "{e}"
+        );
+        // With one readable line the reference answers it and drops the rest,
+        // silently. Preserved, truncation included.
+        assert_eq!(lines(&write("u1", b"a\n\xff\n")), ["a"]);
+        // ...and with none, an empty list.
+        assert!(lines(&write("u0", b"\xff\xfe\n")).is_empty());
+
+        // An empty file is the crate's own error, and a missing one the OS's.
+        let e = failure(&write("z", b""));
+        assert!(e.ends_with("IO.TEXTFILE returns error: Empty file"), "{e}");
+        let e = failure(&d.join("no-such-file"));
+        assert!(
+            e.ends_with("IO.TEXTFILE returns: No such file or directory (os error 2)"),
+            "{e}"
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// `io.textfile`'s guards and its `--noio` gate.
+    #[test]
+    fn io_textfile_guards_the_side_it_reads_and_is_gated() {
+        for (src, want) in [
+            ("io.textfile", "Stack is too shallow for inline IO.TEXTFILE"),
+            (
+                "io.textfile.",
+                "Workbench is too shallow for inline IO.TEXTFILE.",
+            ),
+            (
+                "42 io.textfile",
+                "IO.TEXTFILE returned for #1: This Dynamic type is not string",
+            ),
+        ] {
+            let mut i = interp(HostOptions::default());
+            let e = run(&mut i, src).expect_err(src);
+            assert!(e.ends_with(want), "{src}:\n  got {e}\n want ...{want}");
+        }
+        let mut n = interp(HostOptions {
+            noio: true,
+            ..HostOptions::default()
+        });
+        for src in ["\"x\" io.textfile", "io.textfile."] {
+            let e = run(&mut n, src).expect_err(src);
+            assert!(
+                e.ends_with("bund IO.TEXTFILE functions disabled with --noio"),
+                "{src}: {e}"
+            );
+        }
     }
 
     /// `system.shell`'s failures and the `--noio` gate -- the one word in this

@@ -1,0 +1,50 @@
+//
+// PROBE: `convert.from_html` and `convert.from_html.`.
+//
+// Markup to plain text, through `nanohtml2text` — the reference's own crate at
+// the reference's version, so the habits below are its and not Bund2's. Each
+// answer is printed between `[` and `]` because three of them turn on
+// whitespace that would otherwise be invisible.
+//
+// **A line break is CRLF, not LF.** `one<br>two` is `one\r\ntwo`, and a block
+// element ends in `\r\n` as well, so a heading followed by a paragraph has a
+// blank line of `\r\n\r\n` between them and a list ends in one. The golden
+// therefore carries carriage returns, on purpose.
+//
+// **A link keeps its target**, in parentheses after its text.
+//
+// **`<script>` and `<style>` vanish with their contents**, entities are
+// decoded, and runs of whitespace collapse — including at both ends, which is
+// why `  spaced   out  ` comes back with no padding.
+//
+// Not gated by `--noio`: nothing here touches the host. The workbench form
+// reads the workbench and answers there, guarding the side it reads.
+//
+"probe: tags are removed and their text kept" println
+"[" print "<p>Hello <b>world</b></p>" convert.from_html print "]" println
+
+"probe: entities are decoded" println
+"[" print "a &amp; b &lt; c &gt; d" convert.from_html print "]" println
+
+"probe: a link keeps its target in parentheses" println
+"[" print "<a href='http://x.y/z'>link text</a>" convert.from_html print "]" println
+
+"probe: a line break is CRLF" println
+"[" print "one<br>two" convert.from_html print "]" println
+
+"probe: block elements are separated by a blank CRLF line" println
+"[" print "<h1>Title</h1><p>para</p>" convert.from_html print "]" println
+
+"probe: script and style vanish with their contents" println
+"[" print "<script>alert(1)</script>visible" convert.from_html print "]" println
+"[" print "<style>p{}</style>shown" convert.from_html print "]" println
+
+"probe: whitespace collapses, at the ends too" println
+"[" print "  spaced   out  " convert.from_html print "]" println
+
+"probe: plain text and the empty string pass through" println
+"[" print "plain text, no tags" convert.from_html print "]" println
+"[" print "" convert.from_html print "]" println
+
+"probe: convert.from_html. reads the workbench and answers there" println
+"<i>from the workbench</i>" . convert.from_html.

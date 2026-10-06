@@ -16,9 +16,14 @@ probe: but spaces are not — this is a newline trim, not a trim
 [  pad  ]
 probe: a command that prints nothing answers the empty string
 []
+probe: sh is the alias, and reaches the same word
+via-the-alias
 probe: system.shell. reads the workbench and answers there
+probe: sh. is its alias, and leaves a second answer beside the first
 ╭╮
 ╰╯
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │ Value { id: "<id>", stamp: <stamp>, dt: 4, q: 100.0, data: String("from-the-workbench"), attr: [], curr: -1, tags: {} } │
+├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ Value { id: "<id>", stamp: <stamp>, dt: 4, q: 100.0, data: String("via-the-dot-alias"), attr: [], curr: -1, tags: {} }  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

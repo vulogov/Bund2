@@ -1,0 +1,27 @@
+# golden for tests/probes/io-textfile.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: without a final newline, the lines are the lines
+[ one ::  two ::  three :: ]
+probe: F159 — with one, the last line is answered twice and keeps its newline
+[ one ::  two ::  three ::  three
+ :: ]
+probe: a single line with a newline answers the line and an empty string
+[ solo ::   :: ]
+probe: CRLF is stripped from the lines and kept on the duplicate
+[ one ::  two ::  two
+ :: ]
+probe: a blank line in the middle is kept as an empty string
+[ one ::   ::  three :: ]
+probe: leading and trailing spaces survive
+[   padded   ::  end :: ]
+probe: io.textfile. reads the workbench and answers there
+╭╮
+╰╯
+╭─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Value { id: "<id>", stamp: <stamp>, dt: 9, q: 100.0, data: List([Value { id: "<id>", stamp: <stamp>, dt: 4, q: 100.0, data: String("  padded  "), attr: [], curr: -1, tags: {} }, Value { id: "<id>", stamp: <stamp>, dt: 4, q: 100.0, data: String("end"), attr: [], curr: -1, tags: {} }]), attr: [], curr: -1, tags: {} } │
+╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

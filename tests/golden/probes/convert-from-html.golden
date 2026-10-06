@@ -1,0 +1,34 @@
+# golden for tests/probes/convert-from-html.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: tags are removed and their text kept
+[Hello world]
+probe: entities are decoded
+[a & b < c > d]
+probe: a link keeps its target in parentheses
+[link text (http://x.y/z)]
+probe: a line break is CRLF
+[one
+two]
+probe: block elements are separated by a blank CRLF line
+[Title
+
+para]
+probe: script and style vanish with their contents
+[visible]
+[shown]
+probe: whitespace collapses, at the ends too
+[spaced out]
+probe: plain text and the empty string pass through
+[plain text, no tags]
+[]
+probe: convert.from_html. reads the workbench and answers there
+╭╮
+╰╯
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Value { id: "<id>", stamp: <stamp>, dt: 4, q: 100.0, data: String("from the workbench"), attr: [], curr: -1, tags: {} } │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

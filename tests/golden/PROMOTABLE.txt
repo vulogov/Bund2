@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 274 promotable of 283 reached, of 322 fixed-effect natives; 9 reached natives
+# 276 promotable of 285 reached, of 326 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 *
@@ -61,6 +61,8 @@ compile
 complex
 conditional
 context
+convert.from_html
+convert.from_html.
 convert.to_bool
 convert.to_bool.
 convert.to_dict
@@ -322,6 +324,8 @@ var-
 # not reached: head.
 # not reached: io.graph
 # not reached: io.graph.
+# not reached: io.textfile
+# not reached: io.textfile.
 # not reached: is
 # not reached: json
 # not reached: json.path

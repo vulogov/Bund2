@@ -29,6 +29,11 @@
 // reads — the well-formed shape F151 records `filename.` getting wrong. Its
 // answer is left on the workbench for the capture to pin.
 //
+// **`sh` and `sh.` are the reference's aliases** (`create_aliases.rs`), and
+// they are here because they were once missing: `system.shell` landed without
+// them. An alias that no golden runs is invisible to conformance, so each gets
+// a clause rather than being trusted to follow its word.
+//
 "probe: a command's standard output comes back as a string" println
 "echo hi" system.shell println
 
@@ -44,5 +49,11 @@
 "probe: a command that prints nothing answers the empty string" println
 "[" print "true" system.shell print "]" println
 
+"probe: sh is the alias, and reaches the same word" println
+"echo via-the-alias" sh println
+
 "probe: system.shell. reads the workbench and answers there" println
 "echo from-the-workbench" . system.shell.
+
+"probe: sh. is its alias, and leaves a second answer beside the first" println
+"echo via-the-dot-alias" . sh.

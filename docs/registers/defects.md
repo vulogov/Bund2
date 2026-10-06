@@ -4012,6 +4012,171 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F162 — two aliases went unbound for a commit, and the report that counted them did not name them
+
+**A Bund2 defect, found 2026-10-05** while preparing a status report.
+
+`system.shell` and `system.shell.` were implemented in `e47b3cc` without their
+aliases `sh` and `sh.`, which the reference binds in
+`reference/Bund/src/stdlib/functions/create_aliases.rs`. The same commit
+series had added `cp` and `mv` beside `fs.cp` and `fs.mv` two commits earlier,
+so this was not an unknown step — it was a skipped one.
+
+**It was counted and not named.** `cargo xtask coverage` reports `IMPLEMENTED`
+over the in-scope words, and `sh` and `sh.` are in scope, so the figure was
+right throughout: 19 unimplemented, these two among them. What the report does
+not do is **list** the unimplemented in-scope words. It names the words that
+are implemented and unprobed, and it counts the uncovered by subsystem, but
+the nineteen themselves appear nowhere. So a missed alias moved a number by
+two and said nothing else.
+
+They were found only when the nineteen were derived by hand — diffing the
+reference's `register_inline` and `register_alias` calls against
+`bund2 words` and subtracting the 112 that `DEFERRED_PATHS` puts out of scope.
+The alias half of that diff is what showed them, and it is the half the first
+attempt left out: the `register_inline` diff alone accounted for sixteen of
+the nineteen and gave no hint that three were missing.
+
+**Disposition: FIXED.** Both aliases are registered, and
+`tests/probes/system-shell-words.bund` gained a clause for each — an alias
+that no golden runs is invisible to conformance, so each is exercised rather
+than trusted to follow its word. The golden was regenerated on this entry's
+number, the program having changed and not its answer.
+
+**What would have caught it**, recorded rather than built: `coverage` printing
+the unimplemented in-scope words by name, as it already prints the
+implemented-and-unprobed ones. The derivation exists; it was done by hand
+twice in one session.
+
+## F161 — `io.textfile` aborts the process on invalid UTF-8 after two readable lines
+
+**An original-implementation defect, measured 2026-10-05**, found by reading
+`easy_reader`'s indexed path and then testing the shape it predicted. The
+third failure of one word, with [[F159]] and [[F160]].
+
+| file | oracle |
+|---|---|
+| `a\n\xff\n` — one readable line, then invalid | exit 0, answers `[ a ]` |
+| `a\nb\n\xff\n` — two, then invalid | **exit 101 — `index out of bounds: the len is 2 but the index is 2`** |
+| `a\nb\nc\n\xff\xfe\nz\n` | **exit 101 — `the len is 3 but the index is 3`** |
+
+**The mechanism.** `build_index` is `while let Ok(Some(_)) = next_line()`, so
+it stops at the first line that is not valid UTF-8 and leaves the index
+holding only the lines before it. The replay then walks that index, and its
+indexed branch reads `offsets_index[current_line + 1]` **unchecked**. What
+normally stops it is a guard — "is this line's end the end of the file?" —
+which a scan that ran to completion always satisfies at its last entry. A scan
+that stopped *early* leaves a last entry ending short of the file, the guard
+passes it, and the read goes one past the end.
+
+It needs two readable lines because the indexed branch is taken only when the
+current line starts beyond offset zero. With a single readable line the reader
+stays on its un-indexed path, meets the bad line, and returns an error that
+Bund's loop treats as the end — so the answer is silently truncated to that
+one line rather than fatal. **Everything after the bad line is lost in both
+cases**; in one the caller is not told, and in the other there is no caller
+left.
+
+**Disposition: CORRECTED, per D37** — "Bund2 does not panic", absolute. The
+panic is in a dependency, which does not make it less of an abort. Bund2 runs
+the scan itself first, under a bound, and so knows the scan stopped on an
+unreadable line *before* any indexed read is made; with two or more lines
+already read it reports
+`IO.TEXTFILE returns error: The line starting at byte: 4 and ending at byte: 5
+is not valid UTF-8. …`, the crate's own description of the line.
+
+**The single-line case is PRESERVED**, truncation included: with zero or one
+readable line the reference does answer, and Bund2 answers the same.
+
+**An error rather than an invented answer**, on D97's reasoning and not a new
+decision: the repository owner had just chosen "report" over "invent" for
+[[F160]], the sibling case in which the reference likewise has no behaviour to
+preserve. If that reading is wrong, this is the entry to overrule.
+
+## F160 — `io.textfile` never returns on a file that begins with a line terminator
+
+**An original-implementation defect, measured 2026-10-05**, found while
+grounding `bund/io`. The companion of [[F159]], from the same cause.
+
+`io.textfile` on a file whose **first line is empty** does not return —
+whatever follows. Measured on the oracle under an alarm, with controls:
+
+| file | outcome |
+|---|---|
+| `\n` | **exit 142 — SIGALRM, it did not return** |
+| `\n\n` | **exit 142 — did not return** |
+| `\nlead\n` | **exit 142 — did not return** |
+| `\r\nx\n` | **exit 142 — did not return** |
+| ` \nx\n` — first line is a space | exit 0: ` `, `x`, `x\n` |
+| `tail\n\n\n` — blank lines at the *end* | exit 0, four elements |
+| `one\ntwo\nthree\n` | exit 0, at once |
+
+**This entry was first titled "a file of blank lines", from the first two
+rows alone.** That was the input it was found on, not the condition: a single
+leading newline is enough and the rest of the file is irrelevant, while blank
+lines anywhere else are harmless. Corrected the same day, before it was
+relied on, by testing the boundary rather than naming the example.
+
+**The loop that does not end is inside the crate, not in Bund.**
+`string_io_textfile_base`
+(`reference/Bund/src/stdlib/functions/io/textfile.rs`) calls
+`reader.build_index()` before it reads anything, and `EasyReader::build_index`
+is `while let Ok(Some(_line)) = self.next_line()` with a push to
+`offsets_index` on every pass. On this input `next_line` keeps answering
+`Some`, so the index grows **without bound** as well as without end — the
+process is not merely stuck, it is allocating.
+
+Bund's own read loop below it breaks on `Ok(None)` and on any error, and is
+never reached.
+
+**Disposition: CORRECTED, per D39** — "a loop Bund2 runs on its own behalf
+must terminate on data it has already taken", and "a hang is worse than a
+panic". Reproducing this is not available: a hang cannot be reported, cannot
+be caught by `?try`, and cannot be told from a slow program. Bund2 does not
+call `build_index`, and bounds its own read by the file's size, since a file
+of *n* bytes holds at most *n + 1* lines and F159 adds one.
+
+**What Bund2 answers instead is a decision**, because the reference answers
+nothing: there is no behaviour here to preserve. Recorded as D97.
+
+## F159 — `io.textfile` returns the last line twice when the file ends in a newline
+
+**An original-implementation defect, measured 2026-10-05**, found while
+grounding `bund/io`.
+
+A text file that ends with a newline — which is nearly every text file — comes
+back with its **last line twice, and the second copy keeps its terminator**:
+
+| file contents | `io.textfile` answers | elements |
+|---|---|---|
+| `one\ntwo\nthree` | `one`, `two`, `three` | 3 — correct |
+| `one\ntwo\nthree\n` | `one`, `two`, `three`, **`three\n`** | **4** |
+| `solo\n` | `solo`, **`solo\n`** | **2** |
+| `one\n\nthree\n` | `one`, ``, `three`, **`three\n`** | 4 |
+| `one\r\ntwo\r\n` | `one`, `two`, **`two\r\n`** | 3 |
+
+So the two shapes a caller would least expect to differ — a file with and
+without a final newline — differ by an element. The CRLF row shows the two
+copies are produced by different code: the first is stripped of `\r\n`
+correctly, and the duplicate is the raw tail.
+
+**Where it comes from.** `easy_reader`'s scan reaches the end of the file with
+its end offset still short of `file_size`, because the offset it records for a
+line excludes the terminator. One more `next_line` therefore succeeds, reading
+from the last line's start to the true end of file — the same line again, with
+its newline. `build_index` records that read as a line of its own, and the
+indexed replay returns it faithfully.
+
+Leading and trailing spaces and tabs are preserved, blank lines are kept as
+empty strings, and a directory answers an **empty list** rather than an error,
+because `File::open` succeeds on one. An empty file is an error:
+`IO.TEXTFILE returns error: Empty file`.
+
+**Disposition: PRESERVE.** The duplicate is deterministic and observable, and
+a program that reads a file today sees it. Bund2 uses the same crate at the
+same version rather than reconstructing the offsets by hand, so the behaviour
+is the reference's own code and not a description of it.
+
 ## F158 — a test run with a live stdin blocks forever, and F141 did not close it
 
 **A Bund2 defect in the test suite, measured 2026-10-05**, found during a

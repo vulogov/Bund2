@@ -405,6 +405,7 @@ dependencies = [
  "deunicode",
  "distance",
  "duct_sh",
+ "easy_reader",
  "fakeit",
  "fancy-regex",
  "fast_paths",
@@ -424,6 +425,7 @@ dependencies = [
  "local-ip-address",
  "mathlab",
  "memory-stats",
+ "nanohtml2text",
  "natural",
  "passwords",
  "path-absolutize",
@@ -1351,6 +1353,16 @@ name = "dyn-clone"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
+
+[[package]]
+name = "easy_reader"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f5ce6d7f6b0c1a6330fb8450f49a8423b78e30d04132146938c35baab3877eb"
+dependencies = [
+ "fnv",
+ "rand 0.8.7",
+]
 
 [[package]]
 name = "either"
@@ -2293,6 +2305,12 @@ dependencies = [
  "simba",
  "typenum",
 ]
+
+[[package]]
+name = "nanohtml2text"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11ec1bc47d34ae756616f387c11fd0595f86f2cc7e6473bde9e3ded30cb902a1"
 
 [[package]]
 name = "natural"

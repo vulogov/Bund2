@@ -1,0 +1,65 @@
+//
+// PROBE: `io.textfile` and `io.textfile.` — a file's lines as a LIST.
+//
+// **The probe builds its own inputs**, which it could not have done before
+// this month: `system.shell` runs `printf` to write each file, so the bytes
+// are exact — a string literal cannot be trusted to carry `\r` or a trailing
+// newline through two lexers, and `printf` can. Every path is absolute and
+// under `/tmp`, because two harnesses run a probe from two working
+// directories (F153), and the probe removes what it writes before and after.
+//
+// **F159: with a final newline, the last line comes back twice.** The second
+// clause below is the first with one byte added, and it answers one element
+// more: the last line again, *with its terminator attached*. That is nearly
+// every text file. The CRLF clause shows the two copies come from different
+// code — the first is stripped of `\r\n` cleanly, the duplicate is the raw
+// tail. A *single* line does it differently again: its extra element is an
+// empty string, because a line starting at offset zero never takes the
+// reader's indexed path.
+//
+// Preserved, and by using the reference's own crate at its own version:
+// reconstructing those offsets by hand would be describing the behaviour
+// rather than having it. Blank lines are kept as empty strings, and leading
+// and trailing spaces survive.
+//
+// **Three inputs are deliberately absent**, because each ends a program:
+//
+// - an **empty file** is the crate's own `Empty file` error;
+// - a file that **begins with a line terminator** never returns in the
+//   reference (F160), and Bund2 reports instead (D39, D97);
+// - **invalid UTF-8 after two readable lines** aborts the reference with
+//   `index out of bounds` (F161), and Bund2 reports the line instead (D37).
+//
+// The last two have no oracle answer to capture at all. All three are
+// unit-tested in `crates/bund2-stdlib/src/host.rs`.
+//
+"/tmp/bund2-probe-textfile.txt" fs.rm drop
+
+"probe: without a final newline, the lines are the lines" println
+"printf 'one\ntwo\nthree' > /tmp/bund2-probe-textfile.txt" system.shell drop
+"/tmp/bund2-probe-textfile.txt" io.textfile println
+
+"probe: F159 — with one, the last line is answered twice and keeps its newline" println
+"printf 'one\ntwo\nthree\n' > /tmp/bund2-probe-textfile.txt" system.shell drop
+"/tmp/bund2-probe-textfile.txt" io.textfile println
+
+"probe: a single line with a newline answers the line and an empty string" println
+"printf 'solo\n' > /tmp/bund2-probe-textfile.txt" system.shell drop
+"/tmp/bund2-probe-textfile.txt" io.textfile println
+
+"probe: CRLF is stripped from the lines and kept on the duplicate" println
+"printf 'one\r\ntwo\r\n' > /tmp/bund2-probe-textfile.txt" system.shell drop
+"/tmp/bund2-probe-textfile.txt" io.textfile println
+
+"probe: a blank line in the middle is kept as an empty string" println
+"printf 'one\n\nthree' > /tmp/bund2-probe-textfile.txt" system.shell drop
+"/tmp/bund2-probe-textfile.txt" io.textfile println
+
+"probe: leading and trailing spaces survive" println
+"printf '  padded  \nend' > /tmp/bund2-probe-textfile.txt" system.shell drop
+"/tmp/bund2-probe-textfile.txt" io.textfile println
+
+"probe: io.textfile. reads the workbench and answers there" println
+"/tmp/bund2-probe-textfile.txt" . io.textfile.
+
+"/tmp/bund2-probe-textfile.txt" fs.rm drop

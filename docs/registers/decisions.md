@@ -3547,6 +3547,68 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D97 — `io.textfile` reports an error where the reference never returns
+
+**Authorised by the repository owner, 2026-10-05**, on being shown F160 and
+three options.
+
+- Blocks: nothing
+- Depends on: D39 (an internal loop must be bounded), D37 (Bund2 does not
+  abort), F160
+- Status: **RESOLVED**, 2026-10-05.
+
+### The situation
+
+The reference's `io.textfile` does not return on a file that **begins with a
+line terminator** (F160): `easy_reader`'s `build_index` loops without end and
+allocates as it goes. This was put to the owner as "a file of only blank
+lines", which is the input it was found on; the boundary was tested afterwards
+and a single leading newline is enough. The decision does not depend on which. D39 already forbids reproducing that — "a hang is worse than a panic" —
+so *whether* Bund2 terminates was never the question. What it **answers** was,
+because the reference answers nothing and there is no behaviour to preserve.
+
+### The decision
+
+**Bund2 fails with an error naming the condition.** The read is bounded by
+the file's size — a file of *n* bytes holds at most *n + 1* lines, and F159
+adds one — and when the reader has not reached end-of-file within that bound,
+the word reports `IO.TEXTFILE returns error: the reader did not reach the end
+of the file`.
+
+The message describes the *mechanism* and not the input, deliberately — and
+that turned out to matter within the hour. F160 was first measured on `\n`
+and `\n\n` and described as "only blank lines"; the real condition is a
+*leading* terminator, so `\nlead\n` hangs too. A message naming blank lines
+would have been wrong for that file. Naming what the reader failed to do is
+right for both.
+
+**How the bound is applied, which the first implementation got wrong.** The
+scan `build_index` runs is run first, bounded, on a reader of its own; only if
+it ends at end-of-file is `build_index` then called. Driving `next_line`
+un-indexed and stopping there — the first attempt — terminates correctly and
+answers *differently*: its last element is an empty string where the
+reference's indexed replay gives F159's duplicated line. Eight of twelve file
+shapes disagreed with the oracle before that was caught.
+
+### What was declined, and why
+
+- **Answering the intended lines** — one empty string per line. It is what a
+  caller wants, and it is Bund2 deciding what a word means where the reference
+  is silent. It would also sit oddly beside F159, where a trailing newline
+  *duplicates* the last line rather than being read cleanly.
+- **Extrapolating F159's shape** — the blank lines, then the last again with
+  its terminator. Consistent, and a guess at what broken code would have
+  produced had it not been broken.
+
+An error invents no semantics, and `?try` can catch it — which a silently
+invented list could not be told apart from a real answer.
+
+### What it costs
+
+A legitimate file of blank lines is **refused** rather than read. That is the
+price of not inventing an answer, and it is the same file the reference cannot
+process either.
+
 ## D96 — the class hierarchy is extended additively, and `?is` is added
 
 **Authorised by the repository owner, 2026-10-05**, answering RFC-0010's three

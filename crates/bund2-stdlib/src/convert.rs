@@ -395,7 +395,51 @@ fn bool_pair(vm: &mut dyn Vm, op: fn(bool, bool) -> bool) -> Result<(), Error> {
     Ok(())
 }
 
+/// `convert.from_html` and `convert.from_html.` — markup to plain text
+/// (`reference/Bund/src/stdlib/functions/convert/html.rs`,
+/// `stdlib_convert_html_base`).
+///
+/// `nanohtml2text` does the work, and three of its habits are worth knowing
+/// because none is guessable, all measured against the oracle:
+///
+/// - **A line break is CRLF.** `one<br>two` is `one\r\ntwo`, and a block
+///   element ends in `\r\n` too, so `<h1>T</h1><p>p</p>` is `T\r\n\r\np`.
+/// - **A link keeps its target**, in parentheses after its text:
+///   `<a href='u'>t</a>` is `t (u)`.
+/// - **`<script>` and `<style>` vanish with their contents**, entities are
+///   decoded, and runs of whitespace collapse — `  spaced   out  ` is
+///   `spaced out`.
+///
+/// Both forms answer on their own side, each guarding the side it reads. Not
+/// gated by `--noio`: it touches no host.
+fn convert_from_html(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Result<(), Error> {
+    crate::host::guard(vm, side, prefix)?;
+    let v = side
+        .pull(vm)
+        .ok_or_else(|| Error(format!("{prefix} returns NO DATA #1")))?;
+    let html = v.as_str().ok_or_else(|| {
+        Error(format!(
+            "{prefix} casting data returns: This Dynamic type is not string"
+        ))
+    })?;
+    side.push(vm, BundValue::str(nanohtml2text::html2text(&html)));
+    Ok(())
+}
+
 pub fn register_words(r: &mut Registry) {
+    r.register_native(
+        "convert.from_html",
+        |vm| convert_from_html(vm, crate::wb::Side::Stack, "CONVERT.FROM_HTML"),
+        eff(1, 1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "convert.from_html.",
+        |vm| convert_from_html(vm, crate::wb::Side::Bench, "CONVERT.FROM_HTML."),
+        eff(0, 0),
+        WordKind::Sync,
+    );
+
     // Each `convert.to_X` has a `.` sibling that takes its operand off the
     // workbench and leaves the answer there
     // (`reference/rust_multistackvm/src/stdlib/convert/internal.rs:21,28-29`),
@@ -518,6 +562,44 @@ mod tests {
         let stream = bund2_syntax::compile(src).map_err(|e| e.render(src))?;
         i.eval(&stream).map_err(|e| e.0)?;
         Ok(i)
+    }
+
+    /// `convert.from_html`'s guards and where each form answers. The
+    /// conversions themselves are pinned by
+    /// `tests/probes/convert-from-html.bund`; an error ends a program, so
+    /// these cannot live there.
+    #[test]
+    fn from_html_guards_the_side_it_reads_and_answers_on_it() {
+        for (src, want) in [
+            (
+                "convert.from_html",
+                "Stack is too shallow for inline CONVERT.FROM_HTML",
+            ),
+            (
+                "convert.from_html.",
+                "Workbench is too shallow for inline CONVERT.FROM_HTML.",
+            ),
+            (
+                "42 convert.from_html",
+                "CONVERT.FROM_HTML casting data returns: This Dynamic type is not string",
+            ),
+        ] {
+            let e = match run(src) {
+                Ok(_) => panic!("{src} did not fail"),
+                Err(e) => e,
+            };
+            assert!(e.ends_with(want), "{src}:\n  got {e}\n want ...{want}");
+        }
+
+        use bund2_api::Vm;
+        // A line break is CRLF -- the crate's choice, and the surprising one.
+        let mut i = run("\"one<br>two\" convert.from_html").expect("converts");
+        assert_eq!(i.pull().and_then(|v| v.as_str()).as_deref(), Some("one\r\ntwo"));
+
+        // The workbench form leaves the stack alone.
+        let i = run("\"<b>x</b>\" . convert.from_html.").expect("the dot form");
+        assert_eq!(i.depth(), 0, "nothing reached the stack");
+        assert_eq!(i.workbench_depth(), 1, "the answer is on the workbench");
     }
 
     fn top_str(src: &str) -> String {
