@@ -237,8 +237,11 @@ fn json_from_value(vm: &mut dyn Vm) -> Result<(), Error> {
 
 pub fn register(r: &mut Registry) {
     r.register_native("json.from_value", json_from_value, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "json.from_value", json_from_value);
     r.register_native("json", json, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "json", json);
     r.register_native("json.to_value", json_to_value, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "json.to_value", json_to_value);
     // `reference/rust_multistackvm/src/stdlib/json/json_path.rs`, `init_stdlib`.
     r.register_native("json.path", json_path, eff(2, 1), WordKind::Sync);
 }

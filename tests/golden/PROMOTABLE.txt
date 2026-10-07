@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 283 promotable of 292 reached, of 333 fixed-effect natives; 9 reached natives
+# 331 promotable of 340 reached, of 391 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 *
@@ -31,20 +31,28 @@
 >
 >=
 ?alias
+?alias.
 ?class
+?class.
 ?effect
+?effect.
 ?error
 ?ifthenelse
 ?is
 ?key
 ?lambda
+?lambda.
 ?object
+?object.
 ?stdlib
+?stdlib.
 ?try
 ?type
 ?word
+?word.
 alias
 alias=
+alias=.
 and
 args
 args.parse
@@ -59,9 +67,11 @@ cdr.
 class
 clear_stacks
 compile
+compile.
 complex
 conditional
 context
+context.
 convert.from_html
 convert.from_html.
 convert.to_bool
@@ -82,6 +92,7 @@ convert.to_textbuffer
 convert.to_textbuffer.
 current
 curry
+curry.
 debug.display_distributed_info
 debug.display_hostinfo
 debug.display_memstat
@@ -120,9 +131,12 @@ id.uuid
 io.banner
 io.banner.
 json.from_value
+json.from_value.
 lambda
 lambda!
+lambda!.
 len
+len.
 list
 log.debug
 log.error
@@ -132,32 +146,54 @@ log.warning
 make.call
 make.call.
 math.abs
+math.abs.
 math.acos
+math.acos.
 math.asin
+math.asin.
 math.atan
+math.atan.
 math.cbrt
+math.cbrt.
 math.ceil
+math.ceil.
 math.cos
+math.cos.
 math.cosecant
+math.cosecant.
 math.cosh
+math.cosh.
 math.exp
+math.exp.
 math.factorial
+math.factorial.
 math.floor
+math.floor.
 math.fract
+math.fract.
 math.ln
+math.ln.
 math.log10
+math.log10.
 math.nroot
 math.perimeter
 math.power
 math.random.int
 math.round
+math.round.
 math.securerandom.int
 math.signum
+math.signum.
 math.sin
+math.sin.
 math.sinh
+math.sinh.
 math.sqrt
+math.sqrt.
 math.tan
+math.tan.
 math.tanh
+math.tanh.
 merge
 merge.
 metrics
@@ -165,6 +201,7 @@ nl
 nodata
 noop
 not
+not.
 or
 pair
 print
@@ -172,18 +209,21 @@ print.
 println
 println.
 ptr
+ptr.
 push
 push.
 recv
 recv.
 register
 resolve.class
+resolve.class.
 return
 send
 send.
 send.quick
 send.quick.
 seq
+seq.
 seq.asc
 seq.desc
 set
@@ -194,6 +234,7 @@ stack_exists
 stacks_left
 stacks_right
 string.camel
+string.camel.
 string.deunicode
 string.deunicode.
 string.distance
@@ -211,6 +252,7 @@ string.distance.sift3.
 string.fuzzymatch
 string.fuzzymatch.
 string.lower
+string.lower.
 string.prefix
 string.prefix.
 string.random.fullname
@@ -236,9 +278,11 @@ string.regex.matches.
 string.regex.split
 string.regex.split.
 string.snake
+string.snake.
 string.suffix
 string.suffix.
 string.title
+string.title.
 string.tokenize
 string.tokenize.
 string.tokenize.lines
@@ -248,6 +292,7 @@ string.tokenize.stemmed.
 string.tokenize.unique
 string.tokenize.unique.
 string.upper
+string.upper.
 string.wildcard
 string.wildcard.
 string.wrap.english
@@ -285,11 +330,14 @@ tail
 text
 time.now
 time.timestamp
+time.timestamp.
 to_current
 to_stack
 true
 type
+type.
 type.of
+type.of.
 unalias
 unfold.
 unique
@@ -314,6 +362,7 @@ var-
 # not reached: at.
 # not reached: concat_with_space
 # not reached: csv
+# not reached: csv.
 # not reached: decode.base64
 # not reached: decode.base64.
 # not reached: endcontext
@@ -322,22 +371,29 @@ var-
 # not reached: generator
 # not reached: generator.sample
 # not reached: generator.sample*
+# not reached: generator.sample.
 # not reached: get,
 # not reached: get.,
 # not reached: graph.allpath
+# not reached: graph.allpath.
 # not reached: graph.path
 # not reached: graph.paths
 # not reached: graph.transitiveclosure
+# not reached: graph.transitiveclosure.
 # not reached: head.
 # not reached: io.graph
 # not reached: io.graph.
 # not reached: io.textfile
 # not reached: io.textfile.
 # not reached: is
+# not reached: is.
 # not reached: json
+# not reached: json.
 # not reached: json.path
 # not reached: json.to_value
+# not reached: json.to_value.
 # not reached: lambda=
+# not reached: lambda=.
 # not reached: raise
 # not reached: return_to
 # not reached: set,
@@ -348,9 +404,11 @@ var-
 # not reached: tail.
 # not reached: take
 # not reached: unwrap
+# not reached: unwrap.
 # not reached: url
 # not reached: url.
 # not reached: var?
+# not reached: var?.
 # not reached: wrap
 #
 # Excluded in both builds because a Cargo feature decides whether they

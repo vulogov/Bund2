@@ -1728,6 +1728,23 @@ fn float_key(f: f64) -> u64 {
     f.to_bits()
 }
 
+/// The two parts of a complex number, as the bits a key compares: NaNs folded
+/// to one and `-0.0` to `0.0`, as [`float_key`] has it for a float.
+fn complex_key(h: &HeapValue) -> Option<(u64, u64)> {
+    if h.dt != CFLOAT {
+        return None;
+    }
+    match &*h.payload {
+        Payload::List(parts) => match parts.as_slice() {
+            [BundValue::Float(re, _), BundValue::Float(im, _)] => {
+                Some((float_key(*re), float_key(*im)))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 impl PartialEq for BundValue {
     fn eq(&self, other: &Self) -> bool {
         use BundValue::*;
@@ -1764,6 +1781,15 @@ impl PartialEq for BundValue {
                 // the kind among the four it hashes by content. The arm was
                 // not written while no word could make a time (D103 did).
                 (Payload::Time(x), Payload::Time(y)) => x == y,
+                // Two complex numbers are equal when both parts are
+                // (`reference/rust_dynamic/src/eq.rs:47-52`). D30 counted
+                // the kind among those it leaves to identity; D110 says that
+                // was the list it is stored as, and not a choice.
+                (Payload::List(_), Payload::List(_))
+                    if complex_key(a).is_some() && complex_key(b).is_some() =>
+                {
+                    complex_key(a) == complex_key(b)
+                }
                 // Everything else with a header compares by identity, as the
                 // reference does through `eq.rs:53`.
                 _ => a.identity() == b.identity(),
@@ -1801,6 +1827,7 @@ impl Hash for BundValue {
                 // which is the miss D30 exists to fix.
                 Payload::Str(x) => x.hash(state),
                 Payload::Time(at) => at.hash(state),
+                Payload::List(_) if complex_key(h).is_some() => complex_key(h).hash(state),
                 _ => h.identity().hash(state),
             },
         }
@@ -1810,6 +1837,26 @@ impl Hash for BundValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **D110.** Two complex numbers with the same parts are one key, and
+    /// one that differs in either part is another. A PAIR of the same two
+    /// floats is still a list, and equal only to itself.
+    #[test]
+    fn a_complex_number_is_a_key_by_its_parts() {
+        let c = BundValue::complex_float;
+        assert!(c(1.0, 2.0) == c(1.0, 2.0));
+        assert!(c(1.0, 2.0) != c(1.0, 3.0));
+        assert!(c(1.0, 2.0) != c(2.0, 2.0));
+        assert!(c(0.0, -0.0) == c(-0.0, 0.0));
+        assert!(c(f64::NAN, 1.0) == c(f64::NAN, 1.0), "a key must find itself");
+        assert!(c(1.0, 2.0) != BundValue::pair(BundValue::float(1.0), BundValue::float(2.0)));
+        let p = || BundValue::pair(BundValue::float(1.0), BundValue::float(2.0));
+        assert!(p() != p());
+        let mut m: HashMap<BundValue, BundValue> = HashMap::new();
+        m.insert(c(1.0, 2.0), BundValue::int(1));
+        assert_eq!(m.get(&c(1.0, 2.0)).and_then(|v| v.as_int()), Some(1));
+        assert!(!m.contains_key(&c(2.0, 1.0)));
+    }
 
     /// **Two instants with one count are one key.** The reference compares
     /// times by content (`eq.rs:37-43`) and D30 hashes what it compares, so a

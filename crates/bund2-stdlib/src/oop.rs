@@ -1082,7 +1082,9 @@ fn register_wrapped(r: &mut Registry) {
     r.register_class("Intervals", intervals);
 
     r.register_native("unwrap", unwrap_word, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "unwrap", unwrap_word);
     r.register_native("is", is_word, eff(1, 2), WordKind::Sync);
+    crate::wb::bench!(r, "is", is_word);
     r.register_native("wrap", wrap_word, eff(2, 1), WordKind::Sync);
     // **Opaque.** `#` ends by executing a lambda whose own effect is unknown,
     // so its consumption is not a constant (RFC-0004 §S6).
@@ -1136,12 +1138,14 @@ pub fn register(r: &mut Registry) {
     // `1 -> 1` described only a class with no `.init`.
     r.register_native("object", object_word, StackEffect::opaque(1), WordKind::Sync);
     r.register_native("?class", is_class_word, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "?class", is_class_word);
     // **1 -> 2, because `?object` peeks.** It leaves the receiver and pushes
     // the answer beside it (`bund_class.rs:39`), unlike `?class`, which
     // consumes its name. The declaration said 1 -> 1 until
     // `cargo xtask effects` compared it against the probed table: the peek was
     // fixed earlier and the effect beside it was not.
     r.register_native("?object", is_object_word, eff(1, 2), WordKind::Sync);
+    crate::wb::bench!(r, "?object", is_object_word);
     // **RFC-0010 §S4, D72.** The reference has no membership test; this is
     // Bund2's, and the only addition that RFC accepted.
     r.register_native("?is", is_a_word, eff(2, 1), WordKind::Sync);

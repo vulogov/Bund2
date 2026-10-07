@@ -506,12 +506,14 @@ pub fn register(r: &mut Registry) {
     r.register_native("graph.", graph_wb, eff(0, 0), WordKind::Sync);
     r.register_native("graph.paths", graph_paths, eff(2, 1), WordKind::Sync);
     r.register_native("graph.allpath", graph_allpath, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "graph.allpath", graph_allpath);
     r.register_native(
         "graph.transitiveclosure",
         graph_transitiveclosure,
         eff(1, 1),
         WordKind::Sync,
     );
+    crate::wb::bench!(r, "graph.transitiveclosure", graph_transitiveclosure);
     // Opaque: it pushes back what is not a LIST, so it consumes 0 or 2
     // depending on the tags it is handed (`mod.rs:68-93`).
     r.register_native("graph!", graph_bang, StackEffect::opaque(0), WordKind::Sync);

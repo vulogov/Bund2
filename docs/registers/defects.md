@@ -4161,6 +4161,9 @@ sixteen it leaves to identity. So a complex number is not found as a valuemap
 key. Whether D30 meant that is a question for its owner; it is not a kind that
 went missing the way this one did.
 
+**Dated note, 2026-10-07:** decided, as D110. A complex number is a key by
+its parts.
+
 ## F176 — `drop_stacks` and `clear_stacks` edit a list nothing reads
 
 **An original-implementation defect, measured 2026-10-06**, found while

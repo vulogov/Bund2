@@ -120,6 +120,7 @@ pub fn register(r: &mut Registry) {
                 eff(1, 1),
                 WordKind::Sync,
             );
+            crate::wb::bench!(r, $name, |vm| case_word(vm, $case, $prefix));
         };
     }
     case!("string.upper", Case::Upper, "STRING_UPPER");
@@ -131,6 +132,7 @@ pub fn register(r: &mut Registry) {
     macro_rules! m1 {
         ($name:literal, $f:expr, $prefix:literal) => {
             r.register_native($name, |vm| math1(vm, $f, $prefix), eff(1, 1), WordKind::Sync);
+            crate::wb::bench!(r, $name, |vm| math1(vm, $f, $prefix));
         };
     }
     m1!("math.exp", mathlab::math::exp, "MATH.EXP");

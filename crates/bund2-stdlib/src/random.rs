@@ -435,6 +435,7 @@ pub fn register(r: &mut Registry) {
     // `reference/Bund/src/stdlib/functions/generators/mod.rs:68-70`.
     r.register_native("generator", generator, eff(2, 0), WordKind::Sync);
     r.register_native("generator.sample", generator_sample, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "generator.sample", generator_sample);
     r.register_native("generator.sample*", generator_sample_n, eff(2, 1), WordKind::Sync);
 }
 

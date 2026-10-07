@@ -462,6 +462,7 @@ fn run_sqlite(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
 pub fn register(r: &mut Registry) {
     // `reference/Bund/src/stdlib/functions/conditional/mod.rs:26-27,42-43`.
     r.register_native("csv", csv_word, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "csv", csv_word);
     r.register_conditional("csv", run_csv);
     r.register_native("sqlite", sqlite_word, eff(1, 1), WordKind::Sync);
     r.register_conditional("sqlite", run_sqlite);

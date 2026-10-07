@@ -697,6 +697,7 @@ pub fn register(r: &mut Registry) {
                 eff(1, 1),
                 WordKind::Sync,
             );
+            crate::wb::bench!(r, $name, |vm| float_op(vm, |x| x.$m()));
         };
     }
     float_word!("math.floor", floor);

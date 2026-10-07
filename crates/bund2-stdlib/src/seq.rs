@@ -310,6 +310,7 @@ fn map_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
 
 pub fn register(r: &mut Registry) {
     r.register_native("seq", seq, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "seq", seq);
     // Opaque for the same reason as `if`: each evaluates a lambda per
     // element, so what is left is the body's business. The floors stand.
     r.register_native("times", times, StackEffect::opaque(2), WordKind::Sync);

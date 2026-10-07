@@ -1294,6 +1294,7 @@ pub fn register(r: &mut Registry) {
         WordKind::Sync,
     );
     r.register_native("?effect", effect_of_word, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "?effect", effect_of_word);
     r.register_native("alias", alias, eff(2, 0), WordKind::Sync);
     r.register_native("unalias", unalias, eff(1, 0), WordKind::Sync);
     // Opaque: `apply` runs whatever it is handed, so what it leaves is
@@ -1305,6 +1306,7 @@ pub fn register(r: &mut Registry) {
     // `:display <obj> !`, which runs its `.display` method.
     r.register_native("display", display, StackEffect::opaque(1), WordKind::Sync);
     r.register_native("len", len, eff(1, 2), WordKind::Sync);
+    crate::wb::bench!(r, "len", len);
     r.register_native("++", merge, eff(2, 1), WordKind::Sync);
     r.register_native("merge", merge, eff(2, 1), WordKind::Sync);
     // D24's contract: receiver off the workbench, operand off the stack,
@@ -1389,6 +1391,7 @@ pub fn register(r: &mut Registry) {
     r.register_native("car", car, eff(1, 1), WordKind::Sync);
     r.register_native("cdr", cdr, eff(1, 1), WordKind::Sync);
     r.register_native("compile", compile, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "compile", compile);
     // `reference/Bund/src/stdlib/functions/bund/bund_eval.rs:124-125`, the
     // registration made when `--noeval` is not set, and the alias at
     // `reference/Bund/src/stdlib/functions/create_aliases.rs:13`. Opaque: the
@@ -1397,6 +1400,7 @@ pub fn register(r: &mut Registry) {
     // a body until the stack empties, so none of them has a pair.
     r.register_native("resolve", resolve_word, StackEffect::opaque(1), WordKind::Sync);
     r.register_native("resolve.class", resolve_class, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "resolve.class", resolve_class);
     r.register_native("do", do_stack, StackEffect::opaque(1), WordKind::Sync);
     r.register_native("do.", do_wb, StackEffect::opaque(0), WordKind::Sync);
     r.register_native("bund.eval", bund_eval, StackEffect::opaque(1), WordKind::Sync);
@@ -1436,6 +1440,7 @@ pub fn register(r: &mut Registry) {
     r.register_native("noop", noop, eff(0, 0), WordKind::Sync);
     r.register_native("var", var, eff(2, 0), WordKind::Sync);
     r.register_native("var?", var_read, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "var?", var_read);
     r.register_native("var-", var_unregister, eff(1, 0), WordKind::Sync);
 }
 

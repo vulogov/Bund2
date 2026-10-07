@@ -251,6 +251,7 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
 
     // **`alias=` is not an I/O word**, so no flag stubs it.
     r.register_native("alias=", alias_get, StackEffect::fixed(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "alias=", alias_get);
 }
 
 #[cfg(test)]

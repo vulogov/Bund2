@@ -968,6 +968,7 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
     // `vm/time`: registered by the VM crate itself, with no gate at all.
     r.register_native("time.now", time_now, eff(0, 1), WordKind::Sync);
     r.register_native("time.timestamp", time_timestamp, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "time.timestamp", time_timestamp);
 
     // Ungated, as the reference leaves them: `ip.rs` and `locale.rs` take the
     // command line and never read it.

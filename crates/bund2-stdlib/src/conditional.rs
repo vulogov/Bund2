@@ -418,7 +418,9 @@ pub fn register(r: &mut Registry) {
     r.register_native("fmt", q_fmt, eff(0, 1), WordKind::Sync);
     r.register_native("conditional", conditional, eff(0, 1), WordKind::Sync);
     r.register_native("context", context_word, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "context", context_word);
     r.register_native("curry", curry_word, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "curry", curry_word);
     r.register_native("raise", raise, eff(1, 0), WordKind::Sync);
     r.register_native("endcontext", endcontext, eff(0, 0), WordKind::Sync);
     r.register_native("drop_stacks", stacks_noop, eff(0, 0), WordKind::Sync);

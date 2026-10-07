@@ -576,8 +576,11 @@ fn ptr(vm: &mut dyn Vm) -> Result<(), Error> {
 
 pub fn register_words(r: &mut Registry) {
     r.register_native("ptr", ptr, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "ptr", ptr);
     r.register_native("type", value_type, eff(1, 2), WordKind::Sync);
+    crate::wb::bench!(r, "type", value_type);
     r.register_native("type.of", value_type_of, eff(1, 2), WordKind::Sync);
+    crate::wb::bench!(r, "type.of", value_type_of);
     r.register_native("?type", value_if_type, eff(2, 2), WordKind::Sync);
     r.register_native("valuemap", valuemap, eff(0, 1), WordKind::Sync);
     // `text` — apply an empty TEXTBUFFER
@@ -591,10 +594,15 @@ pub fn register_words(r: &mut Registry) {
         WordKind::Sync,
     );
     r.register_native("?alias", is_alias, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "?alias", is_alias);
     r.register_native("?lambda", is_lambda, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "?lambda", is_lambda);
     r.register_native("?stdlib", is_stdlib, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "?stdlib", is_stdlib);
     r.register_native("?word", is_word, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "?word", is_word);
     r.register_native("lambda=", get_lambda, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "lambda=", get_lambda);
     r.register_alias("match", "valuemap");
     r.register_native("dict", dict, eff(0, 1), WordKind::Sync);
     r.register_native("list", list, eff(0, 1), WordKind::Sync);
@@ -607,6 +615,7 @@ pub fn register_words(r: &mut Registry) {
     r.register_native("register", register, eff(2, 0), WordKind::Sync);
     r.register_native("unregister", unregister, eff(1, 0), WordKind::Sync);
     r.register_native("lambda!", to_lambda, eff(1, 1), WordKind::Sync);
+    crate::wb::bench!(r, "lambda!", to_lambda);
     // Opaque: folds the **whole stack** into a LAMBDA, so its consumption is
     // the depth it finds (`bund_fun.rs:189-202`).
     r.register_native("lambda*", fold_lambda, StackEffect::opaque(0), WordKind::Sync);

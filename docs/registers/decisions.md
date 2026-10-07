@@ -3547,6 +3547,132 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D111 — D24 applied to the words that take one value
+
+**Authorised by the repository owner, 2026-10-07**, on being shown four
+options: the one-operand value words, every fixed-effect consumer, only the
+half-finished families, or leaving D24 deferred.
+
+- Blocks: nothing
+- Depends on: D18, D24, D14, F73
+- Status: **RESOLVED for one operand**, built 2026-10-07. Two and three
+  operands are open, and are this entry's last section.
+
+### Where D24 stood
+
+D18 fills missing workbench forms; D24 bounds it to words that source a
+primary operand and was deferred until a stack-effect table existed, with no
+forms to be added by hand before then. The table exists, and Bund2's registry
+declares each word's effect, which is what this was counted from.
+
+Of 377 base words, 117 had a `.` form and 260 did not:
+
+| declared effect | words | |
+|---|---|---|
+| consumes nothing | 76 | producers — none, by D24 |
+| opaque: runs a body, or variadic | 48 | not addressed by D24 |
+| consumes one | 88 | candidates |
+| consumes two or three | 47 | candidates, once "primary" is defined |
+| `$` | 1 | not a word of this kind |
+
+### The decision
+
+**58 of the 88 one-operand words get a workbench form**: those that take a
+value and answer a value.
+
+- `math.` — `abs acos asin atan cbrt ceil cos cosecant cosh exp factorial
+  floor fract ln log10 round signum sin sinh sqrt tan tanh`
+- `string.` — `camel lower snake title upper`
+- `len not type type.of ptr unwrap seq is curry context csv compile
+  resolve.class time.timestamp generator.sample`
+- `json json.from_value json.to_value`
+- `graph.allpath graph.transitiveclosure`
+- `?alias ?class ?effect ?lambda ?object ?stdlib ?word alias= lambda= lambda!
+  var?`
+
+**The other 30 get none**, because a workbench form of them would be
+meaningless or a second name for something that exists: the stack words
+(`drop dup dup_one return return_to to_stack to_current stack ensure_stack
+stack_exists rotate_stack_left rotate_stack_right`), words run for a side
+effect (`log.* sleep sleep.seconds rm fs.rm raise debug.dump password
+bus.data sqlite`), the registry's (`unalias unregister var-`), and
+`fs.is_file`, whose workbench name F150 already settles.
+
+### The contract, for one operand
+
+**The operand is taken from the workbench and everything the word answers
+goes back to the workbench.** It is D24's shape with no second operand to
+place, which is why one function serves all 58 (`bench_form`,
+`crates/bund2-stdlib/src/wb.rs`). The plain word runs unchanged over the
+operand, so the two cannot drift: they answer the same, refuse the same, and
+word a refusal the same.
+
+Three things follow, and each is a choice recorded here:
+
+- **A word that leaves its operand in place leaves it on the workbench.**
+  `len` answers beside its operand, so `[ 1 2 3 ] . len.` leaves the list and
+  then `3` on the workbench.
+- **A refusal leaves the stack as it was.** Whatever the plain word would have
+  left behind goes back to the workbench.
+- **An empty workbench is reported under the dotted name**, `Workbench is too
+  shallow for inline MATH.SQRT.` — the sentence the reference's own workbench
+  forms use, and the one message this adds.
+
+### What checks it
+
+Nothing in the oracle can: the reference has none of these words. Three unit
+tests run all 58 over eight operands — that each form answers what its plain
+word answers and leaves the stack beneath alone, that a refusal restores, and
+that an empty workbench is reported. The list of 58 is written out in the
+test, so dropping a registration fails it.
+
+IMPLEMENTED and COVERAGE do not move: both are counted over the reference's
+words, and these are not among them. `PROMOTABLE.txt` gains them.
+
+### Open: two and three operands
+
+47 words — the comparisons, `and or`, `get set ?key`, `pair complex wrap tag
+attribute`, `math.nroot math.power math.perimeter`, `concat_with_space`, and
+the rest. D24 says the primary operand comes from the workbench and the
+others from the stack, and does not say which operand is primary. The
+reference's existing forms do not agree with each other on it (F73): three
+shapes are in use. This needs a rule per family and the owner's ruling
+before any is written.
+
+## D110 — a complex number is a valuemap key by its parts
+
+**Authorised by the repository owner, 2026-10-07**, on F177's question.
+
+- Blocks: nothing
+- Depends on: D30, F29, F177
+- Status: **RESOLVED**, built 2026-10-07.
+- **Amends D30** in one row.
+
+D30 hashes by content exactly what the reference compares by content, and
+lists four kinds: integers, floats, strings, times. It leaves "the other
+sixteen" to identity. The reference compares a fifth by content — two complex
+numbers, both parts (`reference/rust_dynamic/src/eq.rs:47-52`) — which D30
+missed because that arm is reached through the tag and not the payload.
+
+**Two complex numbers with equal parts are equal, and hash alike.** So
+`valuemap 1.0 2.0 complex "z" set 1.0 2.0 complex get` answers `z`; it
+answered `key not found`. As a key the parts compare the way a float key
+does: every NaN is one NaN and `-0.0` is `0.0`, because a key that is not
+equal to itself cannot be found.
+
+D30's reason for leaving composites to identity does not reach this. That
+reason is cost and reach — hashing a list of any size for an equality that is
+then decided by identity. A complex number is two floats and is a scalar in
+every way but how it is stored. **A PAIR of the same two floats is still a
+list**, equal only to itself, and a test says so.
+
+The `==` word is untouched; it has compared complex numbers by both parts
+since F169, by IEEE, where NaN is not equal to NaN. That difference between
+the word and the key is D30's own, stated there for floats.
+
+The oracle cannot be asked: its hash is the id (F29), so it finds no key of
+any kind.
+
 ## D109 — `unique` drops what is equal to something kept, for every kind
 
 **Authorised by the repository owner, 2026-10-07**, taking the recommendation
