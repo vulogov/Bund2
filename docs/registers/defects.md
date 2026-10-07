@@ -4018,6 +4018,51 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F175 — the coverage remainder could not reach zero, and nothing said so
+
+**A tooling defect, measured 2026-10-06.** `cargo xtask coverage` listed
+nineteen words as `implemented but run by no golden`, and its own text called
+the gap "the work of writing probes". Eight of the nineteen were that. Eleven
+can be in no golden at all, so the list would have stood at eleven for ever
+with nothing to tell finished from abandoned.
+
+A golden is captured from the oracle and holds its output. So three kinds of
+word are out of reach whatever Bund2 does:
+
+| word | why no golden can hold it |
+|---|---|
+| `$` | the oracle does not take `$` as a word |
+| `<-`, `←` | aliases of `stacks_left`, which only Bund2 registers (F71) |
+| `password` | reads a terminal |
+| `log.error` | its one line carries a wall clock in the oracle |
+| `debug.display_distributed_info` | its only output is a reporter line with a wall clock |
+| `debug.display_memstat` | prints the process's own memory, which moves between runs |
+| `debug.display_hostinfo` | prints crate versions, and the two engines are different crates |
+| `system.ip`, `system.ipv6`, `system.locale` | name the machine, and each fails on a host that lacks what it asks for |
+
+The last row is a choice and not a necessity. `system.ip drop` would capture
+cleanly on a machine with a network and then fail conformance on one without,
+which is a golden about the build host. `coverage-host.bund` runs and drops
+`sysinfo.virtualization` because that word cannot fail; these three can.
+
+Several of these were already known one at a time — `debug-repl-words.bund`,
+`log-words-quiet.bund`, `system-shell-words.bund` and `oop-collections.bund`
+each explain one or two in a comment. Nothing gathered them, and the report
+that prints the list did not know.
+
+**Status: FIXED.** `tests/probes/coverage-gap.bund` covers the eight that can
+be: `?key`, `?ifthenelse`, `ls`, `rm`, `string.tokenize.stemmed` and its
+workbench form, `math.securerandom.int`, `string.random.name`. The coverage
+report now prints the eleven by name with their reasons, the number of probes
+still to write, and **the reachable maximum for COVERAGE: IMPLEMENTED less
+eleven**. An entry in that list that some golden does run is reported as
+stale.
+
+One thing writing the probe showed: **`sort` does not order strings the same
+way twice in the oracle**, which is why the stemmer's output is pinned by its
+length. That is `Value`'s ordering falling back to ids for anything but
+numbers (F47's neighbour); not investigated further here.
+
 ## F174 — the looping words, measured: no wrong answers
 
 **Measured 2026-10-06.** `times`, `loop`, `*loop`, `while`, `for`, `do` and

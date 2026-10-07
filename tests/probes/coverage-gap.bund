@@ -1,0 +1,44 @@
+//
+// PROBE: words that were implemented and run by no golden.
+//
+// `cargo xtask coverage` listed nineteen. These eight can be held by a golden;
+// the other eleven cannot, and F175 says why for each.
+//
+// Where an answer depends on chance the word runs and its value is dropped,
+// as `coverage-host.bund` does: the closing stack dump still pins that it ran
+// without error and left what its effect says.
+
+"probe: ?key leaves the container and pushes whether the key is there" println
+dict "a" 1 set "a" ?key println drop
+dict "a" 1 set "b" ?key println drop
+
+"probe: ?ifthenelse builds a conditional whose :if slot decides between the other two" println
+?ifthenelse
+  :if { true } set
+  :then { "then ran" println } set
+  :else { "else ran" println } set
+!
+?ifthenelse
+  :if { false } set
+  :then { "then ran" println } set
+  :else { "else ran" println } set
+!
+
+"probe: ls is fs.ls, counted over a fixed tree" println
+"tests/probes/data/ls" ls len println drop
+
+"probe: rm is fs.rm" println
+[ "/tmp/bund2-probe-gap.txt" ] rm drop
+"x" "/tmp/bund2-probe-gap.txt" file.write
+"/tmp/bund2-probe-gap.txt" fs.is_file println
+[ "/tmp/bund2-probe-gap.txt" ] rm drop
+"/tmp/bund2-probe-gap.txt" fs.is_file println
+
+"probe: the stemming tokenizer answers a set, so only its size is fixed" println
+"The runners were running quickly" string.tokenize.stemmed len println drop
+"The runners were running quickly" . string.tokenize.stemmed. len println drop
+
+"probe: words whose answer is chance run, and are dropped" println
+math.securerandom.int drop
+string.random.name drop
+"done" println

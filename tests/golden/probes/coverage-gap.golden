@@ -1,0 +1,27 @@
+# golden for tests/probes/coverage-gap.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: ?key leaves the container and pushes whether the key is there
+true
+false
+probe: ?ifthenelse builds a conditional whose :if slot decides between the other two
+then ran
+else ran
+probe: ls is fs.ls, counted over a fixed tree
+3
+probe: rm is fs.rm
+true
+false
+probe: the stemming tokenizer answers a set, so only its size is fixed
+5
+5
+probe: words whose answer is chance run, and are dropped
+done
+╭╮
+╰╯
+╭╮
+╰╯

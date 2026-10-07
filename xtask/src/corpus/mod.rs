@@ -705,6 +705,64 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
     }
     println!();
 
+    // **Which of those no golden can ever hold — F175.**
+    //
+    // The list above read as "probes to write" until someone tried to write
+    // them. Eleven cannot be written, each for a reason that will not change:
+    // a golden is captured from the oracle and holds its output, so a word the
+    // oracle lacks, a word that needs a terminal, and a word whose *output*
+    // names the machine or the moment are all out of reach whatever Bund2
+    // does. Without this the remainder never reaches zero and nobody can tell
+    // finished from abandoned.
+    //
+    // Hand-kept, and deliberately so: each entry is a judgement with a reason,
+    // not something a program can derive. A word listed here that some golden
+    // *does* run is reported, because then the entry is wrong.
+    const NO_GOLDEN_CAN_HOLD: [(&str, &str); 11] = [
+        ("$", "the oracle does not take `$` as a word"),
+        ("<-", "alias of `stacks_left`, which only Bund2 registers (F71)"),
+        ("←", "alias of `stacks_left`, which only Bund2 registers (F71)"),
+        ("password", "reads a terminal"),
+        ("log.error", "its one line carries a wall clock in the oracle"),
+        ("debug.display_distributed_info", "its only output is a reporter line with a wall clock"),
+        ("debug.display_memstat", "prints this process's memory, which moves between runs"),
+        ("debug.display_hostinfo", "prints crate versions, and the two engines are different crates"),
+        ("system.ip", "names the machine, and fails without a network"),
+        ("system.ipv6", "names the machine, and fails on a host without IPv6"),
+        ("system.locale", "names the machine, and fails where no locale is set"),
+    ];
+    let held_out: Vec<(&str, &str)> = NO_GOLDEN_CAN_HOLD
+        .iter()
+        .copied()
+        .filter(|(w, _)| untested.contains(w))
+        .collect();
+    let stale: Vec<&str> = NO_GOLDEN_CAN_HOLD
+        .iter()
+        .map(|(w, _)| *w)
+        .filter(|w| used.contains(w))
+        .collect();
+    let to_write = untested.len() - held_out.len();
+    println!("## of those, no golden can hold: {}\n", held_out.len());
+    for (w, why) in &held_out {
+        println!("  {w:<32} {why}");
+    }
+    println!();
+    println!(
+        "  Probes still to write: {to_write}. The reachable maximum for COVERAGE is"
+    );
+    println!(
+        "  therefore {}/{} -- IMPLEMENTED less the {} above.\n",
+        implemented.len() - held_out.len(),
+        in_scope.len(),
+        held_out.len()
+    );
+    if !stale.is_empty() {
+        println!(
+            "  **Stale entries**: {} listed as unholdable and run by a golden.\n",
+            stale.join(", ")
+        );
+    }
+
     // **Words a Cargo feature decides the existence of — F123's shape, here.**
     //
     // `bund2_words` asks the *default* build, deliberately: COVERAGE is a
