@@ -3547,6 +3547,121 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D109 — `unique` drops what is equal to something kept, for every kind
+
+**Authorised by the repository owner, 2026-10-07**, taking the recommendation
+as written: a member is dropped when an equal one is already kept, first
+occurrences stay in order, the word never refuses, and the Fibonacci search
+leaves Bund2.
+
+- Blocks: nothing
+- Depends on: D107, D100, D30, F149, F164
+- Status: **RESOLVED**, built 2026-10-07.
+- **Supersedes D100 in two places**, named below.
+
+### The decision
+
+`unique` keeps a set of what it has kept and asks it. D107 did this for a
+list of strings; this does it for everything, so the word is one rule and not
+three. The port of `algos`' Fibonacci walk, its sortedness test, and the test
+of that walk are removed.
+
+What "equal" means, by kind:
+
+| kind | equal when |
+|---|---|
+| integers, floats | they denote the same value — `==`'s answer (D30) |
+| times | the counts are equal |
+| complex numbers | both parts are |
+| text — a STRING or a CALL | the characters are |
+| NaN | never, as `==` has it |
+| a list, a dict, a lambda, anything else | never: the reference equates these by id, and two members of one list do not share one |
+
+### The equality between an integer and a float
+
+**This row was the recommendation's and the owner was not asked it as its own
+question; it is recorded so that it can be overturned on its own.** The
+alternative is the reference's, which D100 kept: a new integer is compared
+with a kept float by truncating the float, so `[ 1.9 1 ]` answers `[ 1.9 ]`,
+while `[ 1 1.9 ]` keeps both. Bund2 now keeps both either way, and `1` with
+`1.0` is one member either way. `unique` and `==` agree.
+
+### What D100 said that no longer holds
+
+- *"Disordered numbers fail at the third member"* — kept on purpose there.
+  They are no longer refused. `[ 2 1 1 ]` answers `[ 2 1 ]`.
+- *"Equality between an integer and a float is not symmetric"* — kept on
+  purpose there. It is symmetric now.
+
+D100's refusal to give `BundValue` a global `Ord` stands, and so does its
+answer for floats, which this generalises.
+
+### Measured
+
+300 generated integer lists, one to ten members from six values, a third of
+them sorted first: 162 identical to the oracle and 138 where the oracle
+refuses. None where the two both answered and differed. Bund2's answer was the
+list's first occurrences in all 300. D107's 300 string lists stand.
+
+### What it costs
+
+Nothing new in conformance: every refusal ends a program, so no golden holds
+one, and `unique-words` — already a deviation under D107 — prints what it
+printed. A program that relied on `requires sorted input` no longer gets it.
+
+## D108 — `sort` has one order for a list of any kinds
+
+**Authorised by the repository owner, 2026-10-07**, taking the recommendation
+as written: order by kind first, then by value within the kind — numbers,
+then times, then text, then everything else — and refuse nothing.
+
+- Blocks: nothing
+- Depends on: D106, D33, D38, F47
+- Status: **RESOLVED**, built 2026-10-07.
+
+### What the reference does
+
+Its `>` and `<=` answer `true` for any two values of different kinds
+(`reference/rust_dynamic/src/ord.rs:94,102,110,121` and
+`:55,63,71,82`), so each is both greater than and not greater than the other
+and the sorted list is whatever the swaps left. That includes **an integer
+against a float**: `[ 3 1.5 2 0.5 1 ] sort` is not in order there, although
+`<` on the same two values has had one answer in Bund2 since D33.
+
+### The decision
+
+The comparator is a total order.
+
+| rank | kind | within it |
+|---|---|---|
+| 1 | integers and floats, together | by the value they denote (D33); NaN last, and equal to itself |
+| 2 | times | by count |
+| 3 | text — strings, pointers, text buffers | by code point (D106) |
+| 4 | everything else | no order; they come out together at the end |
+
+`[ "b" 2 "a" 1.5 1 "c" 0.5 ] sort` answers `0.5 1 1.5 2 a b c`. The quicksort
+is still D38's transcription, so members that compare equal may still change
+places — which now matters only for rank 4, where the order among a list, a
+dict and a lambda is fixed for a given input and means nothing.
+
+### Three things decided inside it
+
+- **The rank is a convention.** Numbers before text is the common one. Nothing
+  in the reference suggests an order between kinds.
+- **NaN sorts last among numbers.** It has no value; the reference's float arm
+  answers `false` to every comparison with it, which is not an order either.
+- **A complex number sorts as its real part, among the numbers.** The
+  reference orders two of them that way (`ord.rs:40-42,118-120`).
+  `[UNGROUNDED]` as behaviour: no word was found that puts a complex number in
+  a list — `+` refuses to append one — so the oracle could not be asked.
+
+### What it costs
+
+No golden. No captured program sorts a list of mixed kinds or of integers
+with floats; `workbench-variants`, already a deviation under D106, prints what
+it printed. Any program that does sort such a list gets a different answer
+from the reference's, and a defined one.
+
 ## D107 — `unique` over strings leaves no repeat
 
 **Authorised by the repository owner, 2026-10-07**, on being shown three
@@ -3958,6 +4073,13 @@ Three things, each the reference's and each kept:
   every type and every caller to satisfy one word, which F149 itself warned
   against.
 - **Leaving it unimplemented.** The blocker recorded was not real.
+
+**Dated note, 2026-10-07 — superseded in part by D107 and D109.** Two of the
+three things listed under "What is preserved that looks wrong" are no longer
+preserved: disordered numbers are not refused, and an integer and a float are
+equal when they denote one value, in either order. The third went with D107.
+The Fibonacci walk this entry ported is removed. What stands is the refusal
+to give `BundValue` a global `Ord`, and the answer for floats.
 
 ## D99 — standard input is read in two helpers, and a scan says so
 

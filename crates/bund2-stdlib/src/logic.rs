@@ -146,7 +146,7 @@ fn numeric_eq(a: &BundValue, b: &BundValue) -> bool {
 /// come first or `1e30 as i64` would clamp to `i64::MAX` and compare equal to
 /// it. `f.fract() == 0.0` rejects a non-integral float before the cast can
 /// truncate it, which is exactly the reference behaviour D30 removes.
-fn exact_int_float(i: i64, f: f64) -> bool {
+pub(crate) fn exact_int_float(i: i64, f: f64) -> bool {
     f.is_finite()
         && f.fract() == 0.0
         && f >= -(2f64.powi(63))
@@ -228,7 +228,7 @@ fn numeric_ord(op: Op, a: &BundValue, b: &BundValue) -> bool {
 /// Where it does not, the float's own magnitude decides: any `f` at or beyond
 /// 2^63 is outside `i64`, and otherwise its truncation is exact enough to
 /// compare against, with the fraction breaking a tie.
-fn exact_int_float_ord(i: i64, f: f64) -> Option<std::cmp::Ordering> {
+pub(crate) fn exact_int_float_ord(i: i64, f: f64) -> Option<std::cmp::Ordering> {
     use std::cmp::Ordering;
     if f.is_nan() {
         return None;

@@ -32,13 +32,12 @@
 //! F12 calls those four "the reachable path". This word is what makes them
 //! reachable.
 //!
-//! **Cross-type comparison is inconsistent, by construction.** Every arm ends
-//! `_ => return true`, so for an integer against a string both `a > b` and
-//! `a <= b` are true. A list of mixed types therefore has no well-defined
-//! sorted order — not an approximation here, the reference's own property.
-//! It is reproduced rather than repaired, and `std`'s `sort_by` is avoided for
-//! exactly this reason: it detects an inconsistent comparator and can panic,
-//! which D37 forbids.
+//! **The reference's comparison across kinds is inconsistent, and Bund2's is
+//! not — D106, D108.** Every arm there ends `_ => return true`, so for an
+//! integer against a string both `a > b` and `a <= b` are true, and a list of
+//! mixed kinds comes back in whatever order the swaps left. Bund2 gives the
+//! sort a total order instead: kinds in a fixed rank, values within a kind.
+//! The quicksort is still the transcription, so equal members still move.
 
 use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
 use bund2_value::{BundValue, CALL, LIST, PAIR, STRING};
@@ -47,62 +46,110 @@ fn eff(consumes: u8, produces: u8) -> StackEffect {
     StackEffect::fixed(consumes, produces)
 }
 
-/// How two values of one kind order, or `None` when `sort` has no order for
-/// the pair.
-///
-/// **Integers, floats and times are the reference's**: `PartialOrd::gt` and
-/// `le` have exactly those three payload arms
-/// (`reference/rust_dynamic/src/ord.rs:89,97,105` and `:50,58,66`).
-///
-/// **Strings are D106, and a deviation.** The reference's two operators have
-/// no string arm, so every string is both greater than and not greater than
-/// every other and `sort` returned a fixed shuffle of its input — eleven
-/// fruit names came back `lemon kiwi grape mango cherry …`. Its own `cmp`
-/// does compare strings (`:186-191`); the sort never reaches it. Bund2 orders
-/// two strings by code point, which is what that `cmp` does and what Rust's
-/// `str` ordering is for UTF-8. Like that arm, this asks about the payload
-/// and not the tag, so pointers and text buffers order among themselves and
-/// with strings.
-///
-/// The time arm was missing while Bund2 had the tag and no way to make one.
-/// D103 made them, and a list of times then came back unsorted where the
-/// oracle orders it.
-fn order(a: &BundValue, b: &BundValue) -> Option<std::cmp::Ordering> {
+/// What `sort` orders a value as. The variants are in rank order: a list of
+/// mixed kinds comes back numbers first, then times, then text, then
+/// everything else — D108.
+enum Rank<'a> {
+    Int(i64),
+    /// A float, or a complex number by its real part.
+    Float(f64),
+    Time(u128),
+    Text(&'a str),
+    /// A list, a dict, a lambda, a bool: no order among them, so they compare
+    /// equal and come out together at the end.
+    Other,
+}
+
+impl Rank<'_> {
+    fn kind(&self) -> u8 {
+        match self {
+            Rank::Int(_) | Rank::Float(_) => 0,
+            Rank::Time(_) => 1,
+            Rank::Text(_) => 2,
+            Rank::Other => 3,
+        }
+    }
+}
+
+fn rank_of(v: &BundValue) -> Rank<'_> {
     use BundValue::{Float, Int};
-    match (a.unboxed(), b.unboxed()) {
-        (Int(x, _), Int(y, _)) => Some(x.cmp(y)),
-        (Float(x, _), Float(y, _)) => x.partial_cmp(y),
-        (x, y) => match (x.as_time(), y.as_time()) {
-            (Some(s), Some(t)) => Some(s.cmp(&t)),
-            _ => match (x.str_ref(), y.str_ref()) {
-                (Some(s), Some(t)) => Some(s.cmp(t)),
-                _ => None,
-            },
+    match v.unboxed() {
+        Int(i, _) => Rank::Int(*i),
+        Float(f, _) => Rank::Float(*f),
+        u => {
+            if let Some(t) = u.as_time() {
+                Rank::Time(t)
+            } else if let Some(s) = u.str_ref() {
+                Rank::Text(s)
+            } else if matches!(u.dt(), bund2_value::CFLOAT | bund2_value::CINTEGER)
+                && let Some((re, _)) = crate::math::complex_parts(u)
+            {
+                Rank::Float(re)
+            } else {
+                Rank::Other
+            }
+        }
+    }
+}
+
+/// The order `sort` sorts by. **Total**, which the reference's is not.
+///
+/// **Within a kind:**
+///
+/// - *Integers, floats and times* by value, as the reference's `>` and `<=`
+///   order them (`reference/rust_dynamic/src/ord.rs:89,97,105` and
+///   `:50,58,66`).
+/// - *An integer against a float* by the values they denote — D33's order,
+///   the one `<` answers by. The reference has no arm for the pair.
+/// - *NaN* after every number, and equal to itself. It has no value to sort
+///   by; the alternative is a comparison that is not an order.
+/// - *A complex number* as its real part, among the numbers. The reference
+///   orders two of them that way (`ord.rs:40-42,118-120`). Not measured: no
+///   word was found that puts one in a list.
+/// - *Text* by code point — D106. Anything holding text: strings, pointers,
+///   text buffers.
+///
+/// **Across kinds** by rank, D108: numbers, times, text, the rest. The
+/// reference answers `true` to both `>` and `<=` for every such pair
+/// (`ord.rs:94,102,110,121`), which is no order at all.
+fn order(a: &BundValue, b: &BundValue) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let (x, y) = (rank_of(a), rank_of(b));
+    match (&x, &y) {
+        (Rank::Int(i), Rank::Int(j)) => i.cmp(j),
+        (Rank::Float(f), Rank::Float(g)) => float_order(*f, *g),
+        (Rank::Int(i), Rank::Float(f)) => {
+            crate::logic::exact_int_float_ord(*i, *f).unwrap_or(Ordering::Less)
+        }
+        (Rank::Float(f), Rank::Int(i)) => crate::logic::exact_int_float_ord(*i, *f)
+            .map_or(Ordering::Greater, Ordering::reverse),
+        (Rank::Time(s), Rank::Time(t)) => s.cmp(t),
+        (Rank::Text(s), Rank::Text(t)) => s.cmp(t),
+        _ => x.kind().cmp(&y.kind()),
+    }
+}
+
+/// Two floats, with NaN last and equal to itself.
+fn float_order(f: f64, g: f64) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    match f.partial_cmp(&g) {
+        Some(o) => o,
+        None => match (f.is_nan(), g.is_nan()) {
+            (true, true) => Ordering::Equal,
+            (true, false) => Ordering::Greater,
+            _ => Ordering::Less,
         },
     }
 }
 
-/// `PartialOrd::gt` for `Value` (`reference/rust_dynamic/src/ord.rs:87-124`).
-///
-/// **Any pair without an order answers `true`** — the reference's
-/// `_ => return true` (`:94,102,110,121`), which every cross-kind pair
-/// reaches. Two NaNs reach it as well: `f64`'s own `>` says `false` there,
-/// and that is kept.
+/// `a > b`, the first of the two questions the quicksort asks.
 fn gt(a: &BundValue, b: &BundValue) -> bool {
-    use BundValue::Float;
-    match order(a, b) {
-        Some(o) => o == std::cmp::Ordering::Greater,
-        None => !matches!((a.unboxed(), b.unboxed()), (Float(..), Float(..))),
-    }
+    order(a, b) == std::cmp::Ordering::Greater
 }
 
-/// `PartialOrd::le` (`ord.rs:48-85`), the same arms and the same fallback.
+/// `a <= b`, the second.
 fn le(a: &BundValue, b: &BundValue) -> bool {
-    use BundValue::Float;
-    match order(a, b) {
-        Some(o) => o != std::cmp::Ordering::Greater,
-        None => !matches!((a.unboxed(), b.unboxed()), (Float(..), Float(..))),
-    }
+    order(a, b) != std::cmp::Ordering::Greater
 }
 
 /// Below this length the sort switches to insertion sort. `algos`' constant.
@@ -239,180 +286,91 @@ fn sort_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     Ok(())
 }
 
-/// What the reference's `Val` holds, as far as `unique` can tell values
-/// apart. Its ordering and its equality each have arms for integers, floats
-/// and strings and fall through to the value's **id** for everything else
-/// (`reference/rust_dynamic/src/ord.rs`, `eq.rs`), so three kinds and a
-/// remainder is the whole of the distinction.
+/// What makes two members of a list the same member, for `unique` — D109.
 ///
-/// `Text` covers a STRING and a CALL alike: both carry `Val::String` in the
-/// reference, which is why `[ true true ] unique` deduplicates — those are
-/// two CALLs named `true`, not two booleans.
-enum Key {
+/// Equal keys are equal members and nothing else is, so a set of these
+/// answers "is one already kept?" in one lookup.
+///
+/// - **Numbers by the value they denote**, which is what `==` answers by
+///   (D30): `1` and `1.0` are one member, `1` and `1.9` are two. A float that
+///   is a whole number inside `i64` takes the integer's key; any other float
+///   keeps its own bits, with `-0.0` folded into `0.0`.
+/// - **Times** by their count, **complex numbers** by both parts.
+/// - **Text** by its characters. A STRING and a CALL, as the reference's
+///   equality has it — both carry `Val::String` there — which is why
+///   `[ true true ]` is one member: two CALLs named `true`, not two booleans.
+///
+/// `None` is a value equal to nothing, itself included: NaN, as `==` has it,
+/// and everything the reference equates by id — a list, a dict, a lambda.
+/// Two members of one list never share an id, so they are always both kept.
+#[derive(PartialEq, Eq, Hash)]
+enum Same {
     Int(i64),
-    Float(f64),
+    Float(u64),
+    Time(u128),
+    Complex(u64, u64),
     Text(String),
-    Other,
 }
 
-fn key_of(v: &BundValue) -> Key {
+fn same_of(v: &BundValue) -> Option<Same> {
+    use BundValue::{Float, Int};
     match v.unboxed() {
-        BundValue::Int(i, _) => Key::Int(*i),
-        BundValue::Float(f, _) => Key::Float(*f),
-        _ if v.dt() == STRING || v.dt() == CALL => {
-            v.as_str().map_or(Key::Other, Key::Text)
-        }
-        _ => Key::Other,
-    }
-}
-
-/// `Value`'s `<=` — the reference's `le` override, which reads no id.
-///
-/// **True for anything that is not two integers or two floats.** So a list of
-/// strings is always "sorted", and so is any mixed list; only same-kind
-/// numbers can fail the test `unique` makes before each search.
-fn key_le(a: &Key, b: &Key) -> bool {
-    match (a, b) {
-        (Key::Int(x), Key::Int(y)) => x <= y,
-        (Key::Float(x), Key::Float(y)) => x <= y,
-        _ => true,
-    }
-}
-
-/// `Value`'s `Ord::cmp`, where the reference compares **by value**.
-///
-/// Integers and strings are the reference's own arms. Floats are F12's
-/// disposition — FIX — since the reference has no float arm and orders two
-/// floats by random id. `None` is every pair the reference orders by id.
-fn key_cmp(a: &Key, b: &Key) -> Option<std::cmp::Ordering> {
-    match (a, b) {
-        (Key::Int(x), Key::Int(y)) => Some(x.cmp(y)),
-        (Key::Text(x), Key::Text(y)) => Some(x.cmp(y)),
-        (Key::Float(x), Key::Float(y)) => x.partial_cmp(y),
-        _ => None,
-    }
-}
-
-/// `Value`'s `==`. An integer against a float **truncates the float**, as the
-/// reference's `*i == *f as i64` does; the other direction widens the
-/// integer. Anything else is equal only by id, which two members of one list
-/// never share.
-fn key_eq(a: &Key, b: &Key) -> bool {
-    match (a, b) {
-        (Key::Int(x), Key::Int(y)) => x == y,
-        #[expect(clippy::cast_possible_truncation, reason = "the reference's own cast")]
-        (Key::Int(x), Key::Float(y)) => *x == *y as i64,
-        (Key::Float(x), Key::Float(y)) => x == y,
-        #[expect(clippy::cast_precision_loss, reason = "the reference's own cast")]
-        (Key::Float(x), Key::Int(y)) => *x == *y as f64,
-        (Key::Text(x), Key::Text(y)) => x == y,
-        _ => false,
-    }
-}
-
-/// Is `target` already in `data`? — `algos::cs::search::fibonacci::search`,
-/// ported step for step, because its *quirks* are the behaviour.
-///
-/// `Err` is the reference's "requires sorted input". The check is on the
-/// accumulator as it stands, with [`key_le`].
-///
-/// **The walk is kept exactly, including where it is wrong.** `unique` feeds
-/// it an accumulator in *input* order, which for strings is never rejected as
-/// unsorted, so the search runs over unsorted data and skips positions:
-/// `[ "c" "b" "a" "c" "a" ] unique` drops the second `c` and keeps the second
-/// `a`. A `contains` here would be tidier and would answer differently.
-///
-/// **D100: where the reference walks by random id, this answers by its
-/// equality.** [`key_cmp`] giving `None` is a pair the reference orders by
-/// id, so its walk takes an arbitrary branch and the answer changes between
-/// runs — measured, six runs of five floats gave two answers. There the
-/// question is put directly: found if and only if some element is equal by
-/// the reference's own `==`.
-fn fib_contains(data: &[Key], target: &Key) -> Result<bool, Error> {
-    if data.is_empty() {
-        return Ok(false);
-    }
-    if !data.windows(2).all(|w| key_le(&w[0], &w[1])) {
-        return Err(Error(
-            "Invalid input: Fibonacci search requires sorted input".into(),
-        ));
-    }
-    let len = i64::try_from(data.len()).unwrap_or(i64::MAX);
-    let (mut fib2, mut fib1, mut fib) = (0i64, 1i64, 1i64);
-    while fib < len {
-        fib2 = fib1;
-        fib1 = fib;
-        fib = fib1.saturating_add(fib2);
-    }
-    let mut offset: i64 = -1;
-    // The triple stays a run of consecutive Fibonacci numbers, so `fib` falls
-    // at every step and the loop ends in at most ninety-odd; the count is
-    // D39's belt, for a loop whose termination is otherwise an argument.
-    let mut steps = 0u32;
-    while fib > 1 {
-        steps += 1;
-        if steps > 128 {
-            return Err(Error::internal(
-                "the Fibonacci walk in `unique` did not shrink its interval",
-            ));
-        }
-        // The reference computes `(offset + fib2) as usize` and clamps: a
-        // negative sum wraps to the largest `usize`, so it too lands on the
-        // last index.
-        let raw = offset + fib2;
-        let i = if raw < 0 { len - 1 } else { raw.min(len - 1) };
-        let at = usize::try_from(i).unwrap_or(0);
-        match key_cmp(target, &data[at]) {
-            Some(std::cmp::Ordering::Less) => {
-                fib = fib2;
-                fib1 -= fib2;
-                fib2 = fib - fib1;
+        Int(i, _) => Some(Same::Int(*i)),
+        Float(f, _) => float_key(*f),
+        u => {
+            if let Some(t) = u.as_time() {
+                Some(Same::Time(t))
+            } else if u.dt() == STRING || u.dt() == CALL {
+                u.as_str().map(Same::Text)
+            } else if matches!(u.dt(), bund2_value::CFLOAT | bund2_value::CINTEGER) {
+                let (re, im) = crate::math::complex_parts(u)?;
+                if re.is_nan() || im.is_nan() {
+                    return None;
+                }
+                // `+ 0.0` turns `-0.0` into `0.0` and changes nothing else.
+                Some(Same::Complex((re + 0.0).to_bits(), (im + 0.0).to_bits()))
+            } else {
+                None
             }
-            Some(std::cmp::Ordering::Greater) => {
-                fib = fib1;
-                fib1 = fib2;
-                fib2 = fib - fib1;
-                offset = i;
-            }
-            Some(std::cmp::Ordering::Equal) => return Ok(true),
-            None => return Ok(data.iter().any(|d| key_eq(target, d))),
         }
     }
-    if fib1 == 1 && offset + 1 < len {
-        let at = usize::try_from(offset + 1).unwrap_or(0);
-        if key_eq(target, &data[at]) {
-            return Ok(true);
-        }
+}
+
+/// A float's key: the integer it denotes when it denotes one, else its bits.
+fn float_key(f: f64) -> Option<Same> {
+    if f.is_nan() {
+        return None;
     }
-    Ok(false)
+    // The same test `==` makes (`exact_int_float`): whole, and inside `i64`.
+    // The range comes first because `as i64` saturates.
+    if f.fract() == 0.0 && f >= -(2f64.powi(63)) && f < 2f64.powi(63) {
+        #[expect(clippy::cast_possible_truncation, reason = "range-checked above")]
+        return Some(Same::Int(f as i64));
+    }
+    Some(Same::Float(f.to_bits()))
 }
 
 /// `unique` and `unique.` — drop the members already seen
 /// (`reference/Bund/src/stdlib/functions/values/listop.rs`,
 /// `unique_list_base`).
 ///
-/// **It is not a set operation.** The accumulator is built in input order and
-/// searched with a Fibonacci search, which wants sorted data and is told so
-/// only for same-kind numbers. Measured against the oracle:
+/// **A member is dropped when an equal one is already kept.** First
+/// occurrences stay, in the order they came, and no list is refused.
+/// [`Same`] says what equal means.
 ///
-/// | input | answer |
-/// |---|---|
-/// | `[ 1 1 2 2 3 ]` | `[ 1 2 3 ]` |
-/// | `[ 2 1 ]` | `[ 2 1 ]` — the pair is never searched again |
-/// | `[ 2 1 1 ]` | **error**, at the third member |
-/// | `[ "b" "a" "b" ]` | `[ b a ]` — strings are never "unsorted" |
-/// | `[ [ 1 ] [ 1 ] ]` | both kept — lists are equal only by id |
+/// **This is not what the reference does, and D109 says so.** It asks with a
+/// Fibonacci search, which wants sorted data. Measured against the oracle:
 ///
-/// So F149's summary, "refuses any list that is not already ascending", is
-/// true of numbers and not of strings.
+/// | input | the reference | Bund2 |
+/// |---|---|---|
+/// | `[ 1 1 2 2 3 ]` | `[ 1 2 3 ]` | the same |
+/// | `[ 2 1 ]` | `[ 2 1 ]` | the same |
+/// | `[ 2 1 1 ]` | **refused**: "requires sorted input" | `[ 2 1 ]` |
+/// | `[ "c" "b" "a" "c" "a" ]` | `[ c b a a ]` | `[ c b a ]` |
+/// | `[ 1.9 1 ]` | `[ 1.9 ]` — the float truncated | both kept |
+/// | `[ [ 1 ] [ 1 ] ]` | both kept | the same |
 ///
-/// **Over strings it is a set operation, and that is D107.** The reference
-/// searches them the same way, is never told they are out of order, and so
-/// misses: `[ "c" "b" "a" "c" "a" ]` answers `[ c b a a ]` there, every run.
-/// Bund2 drops a string when an equal one is already kept — `[ c b a ]` —
-/// which agrees with the reference wherever its search finds what it should.
-/// The rule holds while everything kept is text; a list that mixes kinds is
-/// searched as before.
+/// On floats the reference's answer changes between runs (F164).
 ///
 /// Both forms answer on their own side.
 fn unique_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
@@ -431,32 +389,13 @@ fn unique_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
         .as_list()
         .ok_or_else(|| Error(format!("{prefix} casting of list returned: This Dynamic type is not list")))?;
     let mut kept: Vec<BundValue> = Vec::new();
-    let mut keys: Vec<Key> = Vec::new();
-    // D107: while everything kept is text, a text member is asked about
-    // directly. `texts` is `keys` again, as a set, so the question is one
-    // lookup and not a walk.
-    let mut texts: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut all_text = true;
+    let mut seen: std::collections::HashSet<Same> = std::collections::HashSet::new();
     for item in items {
-        let k = key_of(item);
-        let seen = match &k {
-            Key::Text(t) if all_text => texts.contains(t),
-            _ => fib_contains(&keys, &k).map_err(|e| {
-                if e.is_internal() {
-                    e
-                } else {
-                    Error(format!("{prefix} returns error during the scan: {}", e.0))
-                }
-            })?,
+        let fresh = match same_of(item) {
+            Some(key) => seen.insert(key),
+            None => true,
         };
-        if !seen {
-            match &k {
-                Key::Text(t) => {
-                    texts.insert(t.clone());
-                }
-                _ => all_text = false,
-            }
-            keys.push(k);
+        if fresh {
             kept.push(item.clone());
         }
     }
@@ -501,78 +440,67 @@ mod tests {
         i.peek().map(|v| v.display()).expect("a value")
     }
 
-    /// **D107.** A string list loses every repeat, whatever its order. The
-    /// reference keeps the second `a` of the first list, every run.
+    /// **D107, D109.** No list keeps a repeat, whatever its order or kind.
+    /// Each line is commented with what the reference answers where that
+    /// differs.
     #[test]
-    fn unique_on_strings_leaves_no_repeat() {
-        assert_eq!(
-            shown("[ \"c\" \"b\" \"a\" \"c\" \"a\" ] unique"),
-            "[ c ::  b ::  a :: ]"
-        );
-        assert_eq!(
-            shown("[ \"d\" \"a\" \"c\" \"a\" \"b\" \"d\" \"c\" \"b\" \"a\" ] unique"),
-            "[ d ::  a ::  c ::  b :: ]"
-        );
-        // Where the reference's search finds what it should, nothing moved.
-        assert_eq!(shown("[ \"a\" \"a\" \"b\" ] unique"), "[ a ::  b :: ]");
-        assert_eq!(shown("[ \"b\" \"a\" \"b\" ] unique"), "[ b ::  a :: ]");
-        assert_eq!(shown("[ true true false ] unique"), "[ F(true) ::  F(false) :: ]");
-        // A list that mixes kinds is searched as it was.
-        assert_eq!(shown("[ 1 \"a\" 1 ] unique"), "[ 1 ::  a :: ]");
+    fn unique_leaves_no_repeat() {
+        for (src, want) in [
+            // the reference: `[ c b a a ]`
+            ("[ \"c\" \"b\" \"a\" \"c\" \"a\" ] unique", "[ c ::  b ::  a :: ]"),
+            ("[ \"a\" \"a\" \"b\" ] unique", "[ a ::  b :: ]"),
+            ("[ \"b\" \"a\" \"b\" ] unique", "[ b ::  a :: ]"),
+            ("[ true true false ] unique", "[ F(true) ::  F(false) :: ]"),
+            ("[ 1 1 2 2 3 3 ] unique", "[ 1 ::  2 ::  3 :: ]"),
+            ("[ 2 1 ] unique", "[ 2 ::  1 :: ]"),
+            // the reference refuses these three: "requires sorted input"
+            ("[ 2 1 1 ] unique", "[ 2 ::  1 :: ]"),
+            ("[ 3 1 3 1 2 ] unique", "[ 3 ::  1 ::  2 :: ]"),
+            ("[ 5 4 3 2 1 ] unique", "[ 5 ::  4 ::  3 ::  2 ::  1 :: ]"),
+            // the reference answers this one differently between runs (F164)
+            ("[ 1.0 1.0 2.0 2.0 3.0 ] unique", "[ 1.0 ::  2.0 ::  3.0 :: ]"),
+            ("[ 2.5 1.5 2.5 ] unique", "[ 2.5 ::  1.5 :: ]"),
+            ("[ 1 \"a\" 1 \"a\" ] unique", "[ 1 ::  a :: ]"),
+            ("[ [ 1 ] [ 1 ] ] unique", "[ [ 1 :: ] ::  [ 1 :: ] :: ]"),
+        ] {
+            assert_eq!(shown(src), want, "{src}");
+        }
     }
 
-    /// `unique` where the reference is **random**, which no golden can hold
-    /// and the probe therefore leaves out — F164, D100.
-    ///
-    /// The reference's ordering has no float arm and falls through to
-    /// comparing ids, so its Fibonacci walk over floats takes arbitrary
-    /// branches: six runs of this very list gave `[ 1.0 2.0 2.0 3.0 ]` five
-    /// times and `[ 1.0 2.0 3.0 ]` once. Bund2 orders floats by value (F12's
-    /// disposition was already FIX), so the answer is one answer.
-    ///
-    /// Run several times on purpose: the claim is that it does not vary.
+    /// **An integer and a float are one member when they denote one value**,
+    /// which is what `==` says of them (D30). The reference truncates the
+    /// float when the integer comes second, so its `[ 1.9 1 ]` is `[ 1.9 ]`
+    /// and its `[ 2.5 2 ]` is `[ 2.5 ]`.
     #[test]
-    fn unique_on_floats_is_deterministic_where_the_reference_is_not() {
-        for _ in 0..8 {
-            assert_eq!(
-                shown("[ 1.0 1.0 2.0 2.0 3.0 ] unique"),
-                "[ 1.0 ::  2.0 ::  3.0 :: ]"
-            );
-        }
-        // An integer against a float is the other pair the reference orders
-        // by id and equates by value -- and its `==` is not symmetric. A
-        // *new integer* is compared as `i == f as i64`, truncating what is
-        // already there, so `1` is a duplicate of `1.9`; a new float is
-        // compared as `f == i as f64`, so `1.9` is not a duplicate of `1`.
-        // All four measured on the oracle, which answers these the same
-        // every run: with one member kept, no ordering is consulted.
+    fn unique_equates_an_integer_and_a_float_as_the_equality_word_does() {
         assert_eq!(shown("[ 1 1.0 2 ] unique"), "[ 1 ::  2 :: ]");
+        assert_eq!(shown("[ 1.0 1 2 ] unique"), "[ 1.0 ::  2 :: ]");
         assert_eq!(shown("[ 1 1.9 ] unique"), "[ 1 ::  1.9 :: ]");
-        assert_eq!(shown("[ 1.9 1 ] unique"), "[ 1.9 :: ]");
-        assert_eq!(shown("[ 2.5 2 ] unique"), "[ 2.5 :: ]");
+        assert_eq!(shown("[ 1.9 1 ] unique"), "[ 1.9 ::  1 :: ]");
+        assert_eq!(shown("[ 2.5 2 ] unique"), "[ 2.5 ::  2 :: ]");
+        assert_eq!(shown("[ 0.0 -0.0 0 ] unique"), "[ 0.0 :: ]");
     }
 
-    /// The failure a golden cannot hold, and the two guards.
-    ///
-    /// **The error comes at the third member, not the second.** The
-    /// accumulator is tested for order only when it is next *searched*, so a
-    /// descending pair is returned untouched and a descending triple fails.
+    /// The key agrees with `==` at the edges a cast gets wrong: a float past
+    /// `i64` is not the integer it would saturate to, and NaN is nothing.
     #[test]
-    fn unique_refuses_disordered_numbers_at_the_third_member() {
-        assert_eq!(shown("[ 2 1 ] unique"), "[ 2 ::  1 :: ]");
-        for src in ["[ 2 1 1 ] unique", "[ 3 1 3 1 2 ] unique", "[ 5 4 3 2 1 ] unique"] {
-            let e = match run_src(src) {
-                Ok(_) => panic!("{src} did not fail"),
-                Err(e) => e,
-            };
-            assert!(
-                e.ends_with(
-                    "UNIQUE returns error during the scan: \
-                     Invalid input: Fibonacci search requires sorted input"
-                ),
-                "{src}: {e}"
-            );
+    fn the_key_is_the_equality_words_at_the_edges() {
+        assert!(float_key(f64::NAN).is_none());
+        assert!(float_key(3.0) == Some(Same::Int(3)));
+        assert!(float_key(-0.0) == Some(Same::Int(0)));
+        assert!(float_key(1e30) != Some(Same::Int(i64::MAX)));
+        assert!(float_key(2f64.powi(63)) != Some(Same::Int(i64::MAX)));
+        assert!(float_key(-(2f64.powi(63))) == Some(Same::Int(i64::MIN)));
+        assert!(float_key(2.5) == float_key(2.5));
+        assert!(float_key(f64::INFINITY) != float_key(f64::NEG_INFINITY));
+        for (i, f) in [(3i64, 3.0), (0, -0.0), (i64::MIN, -(2f64.powi(63)))] {
+            assert!(crate::logic::exact_int_float(i, f), "{i} {f}");
         }
+    }
+
+    /// The guards, which no golden holds.
+    #[test]
+    fn unique_reports_a_shallow_side_and_a_non_list() {
         for (src, want) in [
             ("unique", "Stack is too shallow for inline UNIQUE"),
             ("unique.", "Workbench is too shallow for inline UNIQUE."),
@@ -581,35 +509,58 @@ mod tests {
                 "UNIQUE casting of list returned: This is not a LIST/PAIR value but 2",
             ),
         ] {
-            let e = match run_src(src) {
+            match run_src(src) {
                 Ok(_) => panic!("{src} did not fail"),
-                Err(e) => e,
-            };
-            assert!(e.ends_with(want), "{src}:\n  got {e}\n want ...{want}");
+                Err(e) => assert!(e.ends_with(want), "{src}: {e}"),
+            }
         }
     }
 
-    /// The walk's own arithmetic, over every position of every length up to
-    /// 40: a value present in a sorted run is found, and one absent is not.
-    ///
-    /// The differential against the oracle is what says the *quirks* match;
-    /// this says the port has no off-by-one of its own, and that the loop
-    /// D39 bounds never reaches its bound.
+    /// **D108.** A list of mixed kinds sorts numbers, then text, then the
+    /// rest, and an integer and a float sort together by value.
     #[test]
-    fn the_fibonacci_walk_finds_exactly_what_a_sorted_run_holds() {
-        for len in 1..=40i64 {
-            let data: Vec<Key> = (0..len).map(|x| Key::Int(x * 2)).collect();
-            for x in 0..len {
-                assert!(
-                    fib_contains(&data, &Key::Int(x * 2)).expect("sorted"),
-                    "len {len}: {} should be found",
-                    x * 2
-                );
-                assert!(
-                    !fib_contains(&data, &Key::Int(x * 2 + 1)).expect("sorted"),
-                    "len {len}: {} should not be found",
-                    x * 2 + 1
-                );
+    fn a_mixed_list_sorts_by_kind_and_then_by_value() {
+        assert_eq!(
+            shown("[ \"b\" 2 \"a\" 1.5 1 \"c\" 0.5 ] sort"),
+            "[ 0.5 ::  1 ::  1.5 ::  2 ::  a ::  b ::  c :: ]"
+        );
+        assert_eq!(shown("[ 3 1.5 2 0.5 1 ] sort"), "[ 0.5 ::  1 ::  1.5 ::  2 ::  3 :: ]");
+        assert_eq!(
+            shown("[ \"z\" [ 9 ] 3 \"a\" 1 ] sort"),
+            "[ 1 ::  3 ::  a ::  z ::  [ 9 :: ] :: ]"
+        );
+        // Over the insertion-sort threshold, where the partition runs.
+        assert_eq!(
+            shown("[ \"d\" 4 \"b\" 2.5 9 \"a\" 1 7.5 \"c\" 3 0.5 \"e\" 8 ] sort"),
+            "[ 0.5 ::  1 ::  2.5 ::  3 ::  4 ::  7.5 ::  8 ::  9 ::  a ::  b ::  c ::  d ::  e :: ]"
+        );
+    }
+
+    /// The order is one: for every pair exactly one of less, equal, greater,
+    /// and it reverses when the pair does. NaN is in the palette on purpose.
+    #[test]
+    fn the_order_is_total_over_a_palette() {
+        use std::cmp::Ordering;
+        let palette = [
+            BundValue::int(-1),
+            BundValue::int(2),
+            BundValue::float(2.0),
+            BundValue::float(2.5),
+            BundValue::float(f64::NAN),
+            BundValue::float(f64::INFINITY),
+            BundValue::str("a"),
+            BundValue::str("b"),
+            BundValue::list(vec![BundValue::int(1)]),
+        ];
+        for a in &palette {
+            assert_eq!(order(a, a), Ordering::Equal);
+            for b in &palette {
+                assert_eq!(order(a, b), order(b, a).reverse());
+                for c in &palette {
+                    if order(a, b) != Ordering::Greater && order(b, c) != Ordering::Greater {
+                        assert_ne!(order(a, c), Ordering::Greater);
+                    }
+                }
             }
         }
     }
