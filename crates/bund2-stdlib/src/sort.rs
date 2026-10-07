@@ -401,11 +401,18 @@ fn fib_contains(data: &[Key], target: &Key) -> Result<bool, Error> {
 /// | `[ 2 1 ]` | `[ 2 1 ]` — the pair is never searched again |
 /// | `[ 2 1 1 ]` | **error**, at the third member |
 /// | `[ "b" "a" "b" ]` | `[ b a ]` — strings are never "unsorted" |
-/// | `[ "c" "b" "a" "c" "a" ]` | `[ c b a a ]` — the search misses one |
 /// | `[ [ 1 ] [ 1 ] ]` | both kept — lists are equal only by id |
 ///
 /// So F149's summary, "refuses any list that is not already ascending", is
 /// true of numbers and not of strings.
+///
+/// **Over strings it is a set operation, and that is D107.** The reference
+/// searches them the same way, is never told they are out of order, and so
+/// misses: `[ "c" "b" "a" "c" "a" ]` answers `[ c b a a ]` there, every run.
+/// Bund2 drops a string when an equal one is already kept — `[ c b a ]` —
+/// which agrees with the reference wherever its search finds what it should.
+/// The rule holds while everything kept is text; a list that mixes kinds is
+/// searched as before.
 ///
 /// Both forms answer on their own side.
 fn unique_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
@@ -425,16 +432,30 @@ fn unique_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
         .ok_or_else(|| Error(format!("{prefix} casting of list returned: This Dynamic type is not list")))?;
     let mut kept: Vec<BundValue> = Vec::new();
     let mut keys: Vec<Key> = Vec::new();
+    // D107: while everything kept is text, a text member is asked about
+    // directly. `texts` is `keys` again, as a set, so the question is one
+    // lookup and not a walk.
+    let mut texts: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut all_text = true;
     for item in items {
         let k = key_of(item);
-        let seen = fib_contains(&keys, &k).map_err(|e| {
-            if e.is_internal() {
-                e
-            } else {
-                Error(format!("{prefix} returns error during the scan: {}", e.0))
-            }
-        })?;
+        let seen = match &k {
+            Key::Text(t) if all_text => texts.contains(t),
+            _ => fib_contains(&keys, &k).map_err(|e| {
+                if e.is_internal() {
+                    e
+                } else {
+                    Error(format!("{prefix} returns error during the scan: {}", e.0))
+                }
+            })?,
+        };
         if !seen {
+            match &k {
+                Key::Text(t) => {
+                    texts.insert(t.clone());
+                }
+                _ => all_text = false,
+            }
             keys.push(k);
             kept.push(item.clone());
         }
@@ -478,6 +499,26 @@ mod tests {
     fn shown(src: &str) -> String {
         let i = run_src(src).unwrap_or_else(|e| panic!("{src}: {e}"));
         i.peek().map(|v| v.display()).expect("a value")
+    }
+
+    /// **D107.** A string list loses every repeat, whatever its order. The
+    /// reference keeps the second `a` of the first list, every run.
+    #[test]
+    fn unique_on_strings_leaves_no_repeat() {
+        assert_eq!(
+            shown("[ \"c\" \"b\" \"a\" \"c\" \"a\" ] unique"),
+            "[ c ::  b ::  a :: ]"
+        );
+        assert_eq!(
+            shown("[ \"d\" \"a\" \"c\" \"a\" \"b\" \"d\" \"c\" \"b\" \"a\" ] unique"),
+            "[ d ::  a ::  c ::  b :: ]"
+        );
+        // Where the reference's search finds what it should, nothing moved.
+        assert_eq!(shown("[ \"a\" \"a\" \"b\" ] unique"), "[ a ::  b :: ]");
+        assert_eq!(shown("[ \"b\" \"a\" \"b\" ] unique"), "[ b ::  a :: ]");
+        assert_eq!(shown("[ true true false ] unique"), "[ F(true) ::  F(false) :: ]");
+        // A list that mixes kinds is searched as it was.
+        assert_eq!(shown("[ 1 \"a\" 1 ] unique"), "[ 1 ::  a :: ]");
     }
 
     /// `unique` where the reference is **random**, which no golden can hold

@@ -3547,6 +3547,62 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D107 — `unique` over strings leaves no repeat
+
+**Authorised by the repository owner, 2026-10-07**, on being shown three
+options: a true de-duplication, refusing an unsorted string list as numbers
+are refused, or leaving it.
+
+- Blocks: nothing
+- Depends on: D100, D106, F149, F164
+- Status: **RESOLVED**, built 2026-10-07.
+
+### What the reference does
+
+`unique` asks whether each member is already kept with a Fibonacci search,
+which wants sorted data (F149). For numbers of one kind it is told when the
+data is not, and refuses. For strings the test it makes first is `<=`, which
+answers `true` for any two strings (`reference/rust_dynamic/src/ord.rs:48-85`),
+so it is never told, searches an unsorted list as if it were sorted, and
+misses: `[ "c" "b" "a" "c" "a" ] unique` answers `[ c b a a ]`. The same
+every run. D100 recorded this and kept it.
+
+### The decision
+
+**While everything kept is text, a text member is dropped when an equal one
+is already kept.** First occurrences stay, in the order they came, and nothing
+is refused. `[ "c" "b" "a" "c" "a" ]` answers `[ c b a ]`.
+
+It is D100's rule for floats — *found, if and only if some kept member is
+equal* — extended to strings. D100 could say it was choosing among the
+reference's answers, because for floats the reference has several. **Here it
+has one, and Bund2 declines it.** This is a deviation in the plain sense.
+
+Measured over 300 generated string lists, one to fourteen members over
+alphabets of three, six and ten letters: 149 identical to the oracle, 151
+different, and in every one of the 151 the oracle's answer still held a
+repeat. Bund2's answer was the list's first occurrences in all 300.
+
+### What it does not change
+
+- **Numbers.** A disordered list of integers is still refused at its third
+  member, as the reference refuses it. Strings and numbers therefore behave
+  differently under one word; they did before, less visibly.
+- **A list that mixes kinds** is searched as it was. The direct question is
+  asked only while every kept member is text, so `[ 1 "a" 1 ]` answers what it
+  answered.
+- **What counts as text.** A STRING and a CALL, as D100 has it, which is why
+  `[ true true false ]` is two members.
+
+### What it costs
+
+One golden. `tests/probes/unique-words.bund` runs the five-member list above
+and its label says what the oracle does with it — "the second c goes, the
+second a stays". The label is left alone: the golden is the oracle's record,
+and it is true of the oracle. It needs
+`cargo xtask conform --accept-deviation probes/unique-words.golden --reason D107`,
+after which conformance reads 133/144 against a ceiling of 133.
+
 ## D106 — `sort` orders strings, by code point
 
 **Authorised by the repository owner, 2026-10-06**, on being shown three
