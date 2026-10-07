@@ -582,6 +582,7 @@ pub fn register_words(r: &mut Registry) {
     r.register_native("type.of", value_type_of, eff(1, 2), WordKind::Sync);
     crate::wb::bench!(r, "type.of", value_type_of);
     r.register_native("?type", value_if_type, eff(2, 2), WordKind::Sync);
+    crate::wb::bench!(r, "?type", value_if_type, 2, 1);
     r.register_native("valuemap", valuemap, eff(0, 1), WordKind::Sync);
     // `text` — apply an empty TEXTBUFFER
     // (`reference/rust_multistackvm/src/stdlib/artefacts.rs:117-119`, registered
@@ -610,8 +611,11 @@ pub fn register_words(r: &mut Registry) {
     r.register_native("metrics", metrics, eff(0, 1), WordKind::Sync);
     r.register_native("nodata", nodata, eff(0, 1), WordKind::Sync);
     r.register_native("set", set, eff(3, 1), WordKind::Sync);
+    crate::wb::bench!(r, "set", set, 3, 2);
     r.register_native("get", get, eff(2, 1), WordKind::Sync);
+    crate::wb::bench!(r, "get", get, 2, 1);
     r.register_native("?key", has_key, eff(2, 2), WordKind::Sync);
+    crate::wb::bench!(r, "?key", has_key, 2, 1);
     r.register_native("register", register, eff(2, 0), WordKind::Sync);
     r.register_native("unregister", unregister, eff(1, 0), WordKind::Sync);
     r.register_native("lambda!", to_lambda, eff(1, 1), WordKind::Sync);
@@ -641,6 +645,7 @@ pub fn register_words(r: &mut Registry) {
     r.register_alias("call,", "make.call");
     r.register_alias(",", "set");
     r.register_alias("∈", "set");
+    r.register_alias("∈.", "set.");
     r.register_alias("sample", "metrics");
     r.register_alias("λ", "lambda");
     r.register_alias("Λ", "lambda");

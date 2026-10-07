@@ -3639,6 +3639,75 @@ reference's existing forms do not agree with each other on it (F73): three
 shapes are in use. This needs a rule per family and the owner's ruling
 before any is written.
 
+### Dated note, 2026-10-07 — two and three operands, ruled and built
+
+**Authorised by the repository owner**, on being shown four options: two
+rules by family, the top operand always, every operand from the workbench, or
+stopping at one operand. The owner took the first.
+
+**What the reference's own forms do**, measured over twenty of its
+two-operand workbench forms by trying each arrangement: seventeen take one
+operand from the workbench and one from the stack — the arithmetic, `push.`
+and its kin, `merge.`, the `string.` forms — and three take both from the
+workbench (`at.`, `head.`, `tail.`). Where only one arrangement is accepted,
+the workbench's operand is the one the plain word has on top. Where the
+answer lands was not measured; F73 records that both sides occur.
+
+**The ruling.** One operand from the workbench, the rest from the stack, the
+answer to the workbench — and which operand is by family:
+
+| family | the workbench holds | words |
+|---|---|---|
+| works on a container | the container | `set` `get` `?key` `tag` `attribute` `wrap` `concat_with_space` `json.path` `graph.path` `graph.paths` `?is` `?type` |
+| anything else | the operand the plain word has on top | `==` `!=` `<` `<=` `>` `>=` `and` `or` `pair` `complex` `math.nroot` `math.power` `math.perimeter` `seq.asc` `seq.desc` |
+
+27 words, and five aliases that follow their targets: `≠.` `⩽.` `⩾.` `∈.`
+`sp.`. So `dict . "a" 1 set. "b" 2 set.` builds a dict on the workbench, as
+`push.` builds a list.
+
+Where the container sits among a word's operands differs by word and was
+read from each one's source: beneath the key for `get` and `?key`, beneath
+key and value for `set` and `tag`, **on top** for `wrap`, `json.path` and the
+two graph queries. The slot is written at each registration.
+
+**Two corrections to what the owner was shown.** `seq.asc` and `seq.desc`
+were listed with the container words; they take three numbers and have no
+container, so they are in the second family. `∈` was listed as a word of its
+own; it is an alias of `set`.
+
+**Not given a form**, and not asked about: `generator` and
+`generator.sample*`, which were not classified; and `,`, the other alias of
+`set`, because `,.` would read as the keep suffix.
+
+**Given none, by the ruling:** `swap` `swap_in` `swap_one` `move_from`
+`ensure_stack_with_capacity` `alias` `register` `var` `cp` `mv` `fs.cp`
+`fs.mv` `save.model`.
+
+**One consequence worth knowing.** With the top operand on the workbench, a
+comparison reads its *left* side from the workbench: `3 . 4 <.` asks whether
+3 is less than 4 only because the plain word's top is its left operand. It
+follows from the rule and may not read that way.
+
+**What checks it.** Four more tests. One runs all 32 names with operands that
+answer and compares each with its plain word. One puts the operand in the
+*other* slot for every container word and requires a different answer, which
+is what says each registration's slot is the right one. One builds a dict and
+a text buffer up on the workbench. One covers the second message the form
+adds, `Stack is too shallow for inline SET.`, for operands the stack was to
+supply.
+
+**A mistake the effect audit caught.** Every form was first registered with
+the effect `(0, 0)`, which is right for one operand and wrong for several: a
+form of several operands takes the others from the stack. The audit that
+checks declared effects against a palette refused ten of them when the owner
+regenerated `PROMOTABLE.txt`. Each now declares what it takes from the stack,
+all its operands but one, and leaves nothing there. The unit tests written
+for the forms did not catch it; they compare answers and not declarations.
+
+- Status: **RESOLVED.** Of the 260 words that had no workbench form, 85 have
+  one. The rest have none by D24, by this entry, or — the 48 opaque words —
+  because nothing has asked.
+
 ## D110 — a complex number is a valuemap key by its parts
 
 **Authorised by the repository owner, 2026-10-07**, on F177's question.

@@ -1257,13 +1257,16 @@ pub fn register(r: &mut Registry) {
     r.register_command(";", autoadd_disable, eff(0, 0), WordKind::Sync);
 
     r.register_native("pair", pair, eff(2, 1), WordKind::Sync);
+    crate::wb::bench!(r, "pair", pair, 2, 0);
     r.register_native(
         "concat_with_space",
         concat_with_space,
         eff(2, 1),
         WordKind::Sync,
     );
+    crate::wb::bench!(r, "concat_with_space", concat_with_space, 2, 1);
     r.register_alias("sp", "concat_with_space");
+    r.register_alias("sp.", "concat_with_space.");
     // **F18's fourteen, declared at the probed arity.** Each guards `< 1` in
     // the reference and pulls two, so `1 head` there reports `NO DATA #2` on
     // an emptied stack; here the guard fires first and the operand survives.
@@ -1281,6 +1284,7 @@ pub fn register(r: &mut Registry) {
     r.register_native("car.", car_wb, eff(0, 0), WordKind::Sync);
     r.register_native("cdr.", cdr_wb, eff(0, 0), WordKind::Sync);
     r.register_native("complex", complex, eff(2, 1), WordKind::Sync);
+    crate::wb::bench!(r, "complex", complex, 2, 0);
     r.register_native(
         "string.regex",
         |vm| pattern_match(vm, false, "STRING.REGEX"),
@@ -1328,6 +1332,7 @@ pub fn register(r: &mut Registry) {
     r.register_native("unfold.", unfold_wb, eff(0, 0), WordKind::Sync);
     // `reference/rust_multistackvm/src/stdlib/values/value_tag.rs:72`.
     r.register_native("tag", tag_word, eff(3, 1), WordKind::Sync);
+    crate::wb::bench!(r, "tag", tag_word, 3, 2);
     r.register_native(
         "string.distance.levenshtein",
         |vm| distance_word(vm, distance::levenshtein, "STRING.DISTANCE.LEVENSHTEIN"),
@@ -1388,6 +1393,7 @@ pub fn register(r: &mut Registry) {
     r.register_native("?.", q_move_workbench, StackEffect::opaque(2), WordKind::Sync);
     r.register_native("?move", q_move_stack, StackEffect::opaque(3), WordKind::Sync);
     r.register_native("attribute", attribute, eff(2, 1), WordKind::Sync);
+    crate::wb::bench!(r, "attribute", attribute, 2, 1);
     r.register_native("car", car, eff(1, 1), WordKind::Sync);
     r.register_native("cdr", cdr, eff(1, 1), WordKind::Sync);
     r.register_native("compile", compile, eff(1, 1), WordKind::Sync);

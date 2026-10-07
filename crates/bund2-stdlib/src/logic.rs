@@ -375,11 +375,17 @@ pub fn register(r: &mut Registry) {
     r.register_native("true", bool_true, eff(0, 1), WordKind::Sync);
     r.register_native("false", bool_false, eff(0, 1), WordKind::Sync);
     r.register_native("==", eq, eff(2, 1), WordKind::Sync);
+    crate::wb::bench!(r, "==", eq, 2, 0);
     r.register_native("!=", ne, eff(2, 1), WordKind::Sync);
+    crate::wb::bench!(r, "!=", ne, 2, 0);
     r.register_native(">", gt, eff(2, 1), WordKind::Sync);
+    crate::wb::bench!(r, ">", gt, 2, 0);
     r.register_native("<", lt, eff(2, 1), WordKind::Sync);
+    crate::wb::bench!(r, "<", lt, 2, 0);
     r.register_native(">=", ge, eff(2, 1), WordKind::Sync);
+    crate::wb::bench!(r, ">=", ge, 2, 0);
     r.register_native("<=", le, eff(2, 1), WordKind::Sync);
+    crate::wb::bench!(r, "<=", le, 2, 0);
     // The mathematical spellings
     // (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:32-34`).
     // The grammar admits any Unicode symbol in a name (`bund.pest:36`), so
@@ -388,6 +394,9 @@ pub fn register(r: &mut Registry) {
     r.register_alias("≠", "!=");
     r.register_alias("⩾", ">=");
     r.register_alias("⩽", "<=");
+    r.register_alias("≠.", "!=.");
+    r.register_alias("⩾.", ">=.");
+    r.register_alias("⩽.", "<=.");
 }
 
 /// The six comparisons, in the order

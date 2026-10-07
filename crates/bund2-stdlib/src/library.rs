@@ -151,6 +151,7 @@ pub fn register(r: &mut Registry) {
     macro_rules! m2 {
         ($name:literal, $f:expr, $prefix:literal) => {
             r.register_native($name, |vm| math2(vm, $f, $prefix), eff(2, 1), WordKind::Sync);
+            crate::wb::bench!(r, $name, |vm| math2(vm, $f, $prefix), 2, 0);
         };
     }
     m2!("math.nroot", mathlab::math::nrt, "MATH.NROOT");

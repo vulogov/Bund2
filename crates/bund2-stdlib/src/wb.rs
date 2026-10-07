@@ -88,42 +88,74 @@ pub(crate) fn operand(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<BundV
         .ok_or_else(|| Error(format!("{prefix} returned: NO DATA has been obtained")))
 }
 
-/// The workbench form of a one-operand word that the reference gives none —
-/// D18, as D24 bounds it and D111 applies it.
+/// The workbench form of a word that the reference gives none — D18, as D24
+/// bounds it and D111 applies it.
 ///
-/// **One operand from the workbench, and everything the word answers back to
-/// the workbench.** This is D24's shape with no second operand to place, which
-/// is why it can be written once: the three shapes this module's opening
-/// table lists differ only in where a *second* operand comes from.
+/// **One operand from the workbench, the others from the stack, and
+/// everything the word answers back to the workbench.** That is D24's shape.
+/// `consumes` is how many operands the plain word takes and `slot` is where
+/// among them the workbench's goes, counted from the top: 0 is the operand
+/// the plain word has on top.
 ///
-/// The base word runs unchanged, on the stack, over the operand moved there
-/// for it. So it answers, refuses and words its refusals exactly as the plain
+/// **Which operand is the workbench's is D111's ruling, by family.** A word
+/// that works on a container takes the container — `set.` builds a dict up on
+/// the workbench as the reference's `push.` builds a list — and any other
+/// word takes the operand the plain form has on top. The slot is written at
+/// each registration, from that word's own operand order.
+///
+/// The base word runs unchanged, on the stack, over the operand put there for
+/// it. So it answers, refuses and words its refusals exactly as the plain
 /// form does — a `math.sqrt.` that could disagree with `math.sqrt` would be a
 /// second implementation to keep in step.
 ///
-/// - **A word that leaves its operand in place leaves it on the workbench.**
+/// - **A word that leaves an operand in place leaves it on the workbench.**
 ///   `len` answers beside its operand; so does `len.`.
-/// - **A refusal leaves the stack as it was.** Whatever the base left above
-///   where it started goes back to the workbench, so a refused operand is on
-///   the side it came from if it survives at all.
-/// - **The stack beneath is not touched**, which is what `eff(0, 0)` says.
+/// - **A refusal moves nothing new onto the stack.** Whatever the base left
+///   above where its operands began goes to the workbench.
+/// - **The stack beneath the operands is not touched**, and the form's
+///   declared effect says how many it takes from there: all but one.
 ///
-/// `name` is the dotted name, for the one message this adds.
+/// `name` is the dotted name, for the two messages this adds.
 pub(crate) fn bench_form(
     vm: &mut dyn Vm,
     base: bund2_api::NativeFn,
     name: &str,
+    consumes: usize,
+    slot: usize,
 ) -> Result<(), Error> {
-    let Some(operand) = vm.pull_workbench() else {
+    if vm.workbench_depth() < 1 {
         return Err(Error(format!(
             "Workbench is too shallow for inline {}",
             name.to_uppercase()
         )));
+    }
+    let others = consumes.saturating_sub(1);
+    if vm.depth() < others {
+        return Err(Error(format!(
+            "Stack is too shallow for inline {}",
+            name.to_uppercase()
+        )));
+    }
+    let floor = vm.depth() - others;
+    let Some(operand) = vm.pull_workbench() else {
+        return Err(Error::internal(
+            "the workbench was not empty and gave nothing",
+        ));
     };
-    let floor = vm.depth();
+    // Lift what sits above the slot, put the operand in, and put it back.
+    let mut above = Vec::with_capacity(slot);
+    for _ in 0..slot.min(others) {
+        match vm.pull() {
+            Some(v) => above.push(v),
+            None => break,
+        }
+    }
     vm.push(operand);
+    for v in above.into_iter().rev() {
+        vm.push(v);
+    }
     let outcome = base(vm);
-    // What the word left above where it started, oldest first, so the
+    // What the word left above where its operands began, oldest first, so the
     // workbench ends with the same value on top that the stack had.
     let extra = vm.depth().saturating_sub(floor);
     let mut left = Vec::with_capacity(extra);
@@ -140,12 +172,20 @@ pub(crate) fn bench_form(
 }
 
 /// Register `name.` as [`bench_form`] over the function `name` is bound to.
+/// Two arguments more for a word of several operands: how many, and the slot.
 macro_rules! bench {
     ($r:expr, $name:literal, $f:expr) => {
+        $crate::wb::bench!($r, $name, $f, 1, 0);
+    };
+    ($r:expr, $name:literal, $f:expr, $consumes:literal, $slot:literal) => {
         $r.register_native(
             concat!($name, "."),
-            |vm| $crate::wb::bench_form(vm, $f, concat!($name, ".")),
-            bund2_api::StackEffect::fixed(0, 0),
+            |vm| $crate::wb::bench_form(vm, $f, concat!($name, "."), $consumes, $slot),
+            // What it takes from the *stack*: every operand but the
+            // workbench's. Its answer goes to the workbench, so it leaves
+            // nothing. An earlier version declared `(0, 0)` for every form,
+            // and the effect audit refused ten of them.
+            bund2_api::StackEffect::fixed($consumes - 1, 0),
             bund2_api::WordKind::Sync,
         );
     };
@@ -276,6 +316,115 @@ mod bench_form_tests {
                 assert_eq!(bench.workbench_depth(), survived, "{src}");
             }
         }
+    }
+
+    /// D111's words of two and three operands: the name, the operands as the
+    /// plain word wants them bottom to top, and which of them — counted from
+    /// the top — the workbench form takes from the workbench.
+    const SEVERAL: [(&str, &[&str], usize); 32] = [
+        ("==", &["3", "3"], 0),
+        ("!=", &["3", "4"], 0),
+        ("≠", &["3", "4"], 0),
+        ("<", &["3", "4"], 0),
+        ("<=", &["3", "4"], 0),
+        ("⩽", &["3", "4"], 0),
+        (">", &["3", "4"], 0),
+        (">=", &["3", "4"], 0),
+        ("⩾", &["3", "4"], 0),
+        ("and", &["true", "false"], 0),
+        ("or", &["true", "false"], 0),
+        ("pair", &["1", "2"], 0),
+        ("complex", &["1.0", "2.0"], 0),
+        ("math.nroot", &["27.0", "3.0"], 0),
+        ("math.power", &["2.0", "10.0"], 0),
+        ("math.perimeter", &["2.0", "3.0"], 0),
+        ("seq.asc", &["4", "1.0", "0.0"], 0),
+        ("seq.desc", &["4", "1.0", "9.0"], 0),
+        ("set", &["dict", "\"a\"", "1"], 2),
+        ("∈", &["dict", "\"a\"", "1"], 2),
+        ("get", &["dict \"a\" 1 set", "\"a\""], 1),
+        ("?key", &["dict \"a\" 1 set", "\"a\""], 1),
+        ("concat_with_space", &["\"t\" convert.to_textbuffer", "\"x\""], 1),
+        ("sp", &["\"t\" convert.to_textbuffer", "\"x\""], 1),
+        ("tag", &["5", "\"k\"", "\"v\""], 2),
+        ("attribute", &["5", "\"a\""], 1),
+        ("?type", &["5", "\"Integer\""], 1),
+        ("json.path", &["\"$.a\"", "'{\"a\":1}' json"], 0),
+        ("graph.paths", &[":A", "[ [ :A :B 1.0 ] [ :B :C 2.0 ] ] [ :A :B :C ] graph!"], 0),
+        ("graph.path", &[":C", ":A", "[ [ :A :B 1.0 ] [ :B :C 2.0 ] ] [ :A :B :C ] graph!"], 0),
+        ("wrap", &["9", "\"x\" \"List\" object"], 0),
+        ("?is", &["\"x\" \"List\" object", "\"List\""], 1),
+    ];
+
+    /// The plain program, and the same with one operand on the workbench.
+    fn both(word: &str, operands: &[&str], slot: usize) -> (String, String) {
+        let at = operands.len() - 1 - slot;
+        let plain = format!("7 {} {word}", operands.join(" "));
+        let rest: Vec<&str> = operands
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != at)
+            .map(|(_, o)| *o)
+            .collect();
+        let bench = format!("7 {} . {} {word}.", operands[at], rest.join(" "));
+        (plain, bench)
+    }
+
+    /// **Each form of several operands answers what its plain word answers,
+    /// with the named operand on the workbench and the answer left there.**
+    /// Every row has to answer: a row that refused on both sides would pass
+    /// while proving nothing about which operand went where.
+    #[test]
+    fn each_form_of_several_operands_takes_the_operand_d111_names() {
+        for (word, operands, slot) in SEVERAL {
+            let (plain, bench) = both(word, operands, slot);
+            let (stack, wb) = outcome(&plain).unwrap_or_else(|e| panic!("{plain}: {e}"));
+            let (bstack, bwb) = outcome(&bench).unwrap_or_else(|e| panic!("{bench}: {e}"));
+            assert!(wb.is_empty(), "{plain}");
+            assert_eq!(bstack, ["7"], "{bench}: the stack beneath moved");
+            // `graph.paths` answers its rows in an order that changes.
+            if word != "graph.paths" {
+                assert_eq!(&stack[1..], &bwb[..], "{bench}");
+            } else {
+                assert_eq!(stack.len() - 1, bwb.len(), "{bench}");
+            }
+        }
+    }
+
+    /// With the operand in any *other* slot the word is given the wrong
+    /// thing, so for the container words the two must not agree. This is what
+    /// says the slot in the registration is the one in the table.
+    #[test]
+    fn a_container_word_takes_its_container_and_nothing_else() {
+        for (word, operands, slot) in SEVERAL {
+            if slot == 0 {
+                continue;
+            }
+            let (plain, _) = both(word, operands, slot);
+            let (_, wrong) = both(word, operands, 0);
+            let right = outcome(&plain).map(|(s, _)| s[1..].to_vec());
+            let other = outcome(&wrong).map(|(_, w)| w);
+            assert_ne!(right, other, "{wrong} answered as if the key were the container");
+        }
+    }
+
+    /// `set.` builds on the workbench, which is the point of the ruling.
+    #[test]
+    fn a_dict_is_built_up_on_the_workbench() {
+        let (stack, wb) = outcome("dict . \"a\" 1 set. \"b\" 2 set. \"a\" get.").expect("runs");
+        assert!(stack.is_empty(), "{stack:?}");
+        assert_eq!(wb, ["1"]);
+        let (_, wb) = outcome("\"\" convert.to_textbuffer . \"a\" sp. \"b\" sp.").expect("runs");
+        assert_eq!(wb, ["a b"]);
+    }
+
+    /// The second message the form adds: operands the stack was to supply.
+    #[test]
+    fn a_stack_without_the_other_operands_is_reported() {
+        let e = outcome("dict . \"a\" set.").expect_err("refused");
+        assert!(e.ends_with("Stack is too shallow for inline SET."), "{e}");
+        let e = outcome("3 . <.").expect_err("refused");
+        assert!(e.ends_with("Stack is too shallow for inline <."), "{e}");
     }
 
     /// The one message the form adds.

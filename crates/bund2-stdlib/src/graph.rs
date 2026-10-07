@@ -505,6 +505,7 @@ pub fn register(r: &mut Registry) {
     r.register_native("graph", graph_word, eff(1, 1), WordKind::Sync);
     r.register_native("graph.", graph_wb, eff(0, 0), WordKind::Sync);
     r.register_native("graph.paths", graph_paths, eff(2, 1), WordKind::Sync);
+    crate::wb::bench!(r, "graph.paths", graph_paths, 2, 0);
     r.register_native("graph.allpath", graph_allpath, eff(1, 1), WordKind::Sync);
     crate::wb::bench!(r, "graph.allpath", graph_allpath);
     r.register_native(
@@ -518,6 +519,7 @@ pub fn register(r: &mut Registry) {
     // depending on the tags it is handed (`mod.rs:68-93`).
     r.register_native("graph!", graph_bang, StackEffect::opaque(0), WordKind::Sync);
     r.register_native("graph.path", graph_path, eff(3, 1), WordKind::Sync);
+    crate::wb::bench!(r, "graph.path", graph_path, 3, 0);
 }
 
 #[cfg(test)]

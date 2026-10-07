@@ -282,7 +282,9 @@ pub fn register(r: &mut Registry) {
     r.register_native("math.smoothing.", s_w, StackEffect::opaque(0), WordKind::Sync);
     r.register_native("math.smoothing.,", s_wk, StackEffect::opaque(0), WordKind::Sync);
     r.register_native("seq.asc", asc, eff(3, 1), WordKind::Sync);
+    crate::wb::bench!(r, "seq.asc", asc, 3, 0);
     r.register_native("seq.desc", desc, eff(3, 1), WordKind::Sync);
+    crate::wb::bench!(r, "seq.desc", desc, 3, 0);
 }
 
 #[cfg(test)]

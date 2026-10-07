@@ -576,7 +576,9 @@ pub fn register_words(r: &mut Registry) {
     r.register_native("not", not, eff(1, 1), WordKind::Sync);
     crate::wb::bench!(r, "not", not);
     r.register_native("and", and_word, eff(2, 1), WordKind::Sync);
+    crate::wb::bench!(r, "and", and_word, 2, 0);
     r.register_native("or", or_word, eff(2, 1), WordKind::Sync);
+    crate::wb::bench!(r, "or", or_word, 2, 0);
 }
 
 #[cfg(test)]

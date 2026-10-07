@@ -1086,6 +1086,7 @@ fn register_wrapped(r: &mut Registry) {
     r.register_native("is", is_word, eff(1, 2), WordKind::Sync);
     crate::wb::bench!(r, "is", is_word);
     r.register_native("wrap", wrap_word, eff(2, 1), WordKind::Sync);
+    crate::wb::bench!(r, "wrap", wrap_word, 2, 0);
     // **Opaque.** `#` ends by executing a lambda whose own effect is unknown,
     // so its consumption is not a constant (RFC-0004 §S6).
     r.register_native("#", object_execute, StackEffect::opaque(2), WordKind::Sync);
@@ -1149,6 +1150,7 @@ pub fn register(r: &mut Registry) {
     // **RFC-0010 §S4, D72.** The reference has no membership test; this is
     // Bund2's, and the only addition that RFC accepted.
     r.register_native("?is", is_a_word, eff(2, 1), WordKind::Sync);
+    crate::wb::bench!(r, "?is", is_a_word, 2, 1);
     // The three constructor words. Each pushes an empty LIST, pushes its own
     // class name and applies `object` -- `list_class.rs`'s
     // `stdlib_object_list_value_empty` and its two siblings, verbatim. Opaque

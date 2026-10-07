@@ -13,9 +13,10 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 331 promotable of 340 reached, of 391 fixed-effect natives; 9 reached natives
+# 351 promotable of 360 reached, of 418 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
+!=.
 *
 *.
 +
@@ -26,10 +27,15 @@
 /
 /.
 <
+<.
 <=
+<=.
 ==
+==.
 >
+>.
 >=
+>=.
 ?alias
 ?alias.
 ?class
@@ -39,7 +45,9 @@
 ?error
 ?ifthenelse
 ?is
+?is.
 ?key
+?key.
 ?lambda
 ?lambda.
 ?object
@@ -48,16 +56,19 @@
 ?stdlib.
 ?try
 ?type
+?type.
 ?word
 ?word.
 alias
 alias=
 alias=.
 and
+and.
 args
 args.parse
 at
 attribute
+attribute.
 bus.data
 bus.data.current
 car
@@ -69,6 +80,7 @@ clear_stacks
 compile
 compile.
 complex
+complex.
 conditional
 context
 context.
@@ -123,6 +135,7 @@ fs.ls.files
 fs.ls.files.
 fs_is_file.
 get
+get.
 graph
 graph.
 head
@@ -176,8 +189,11 @@ math.ln.
 math.log10
 math.log10.
 math.nroot
+math.nroot.
 math.perimeter
+math.perimeter.
 math.power
+math.power.
 math.random.int
 math.round
 math.round.
@@ -203,7 +219,9 @@ noop
 not
 not.
 or
+or.
 pair
+pair.
 print
 print.
 println
@@ -225,7 +243,9 @@ send.quick.
 seq
 seq.
 seq.asc
+seq.asc.
 seq.desc
+seq.desc.
 set
 sort
 sort.
@@ -361,6 +381,7 @@ var-
 # Fixed-effect natives the palette never brought to `Ok`:
 # not reached: at.
 # not reached: concat_with_space
+# not reached: concat_with_space.
 # not reached: csv
 # not reached: csv.
 # not reached: decode.base64
@@ -377,7 +398,9 @@ var-
 # not reached: graph.allpath
 # not reached: graph.allpath.
 # not reached: graph.path
+# not reached: graph.path.
 # not reached: graph.paths
+# not reached: graph.paths.
 # not reached: graph.transitiveclosure
 # not reached: graph.transitiveclosure.
 # not reached: head.
@@ -390,6 +413,7 @@ var-
 # not reached: json
 # not reached: json.
 # not reached: json.path
+# not reached: json.path.
 # not reached: json.to_value
 # not reached: json.to_value.
 # not reached: lambda=
@@ -397,10 +421,12 @@ var-
 # not reached: raise
 # not reached: return_to
 # not reached: set,
+# not reached: set.
 # not reached: set.,
 # not reached: sqlite
 # not reached: string.expressionmatch
 # not reached: string.expressionmatch.
+# not reached: tag.
 # not reached: tail.
 # not reached: take
 # not reached: unwrap
@@ -410,6 +436,7 @@ var-
 # not reached: var?
 # not reached: var?.
 # not reached: wrap
+# not reached: wrap.
 #
 # Excluded in both builds because a Cargo feature decides whether they
 # exist at all (F123); never crossed by promotion:

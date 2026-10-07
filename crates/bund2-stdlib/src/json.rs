@@ -244,6 +244,7 @@ pub fn register(r: &mut Registry) {
     crate::wb::bench!(r, "json.to_value", json_to_value);
     // `reference/rust_multistackvm/src/stdlib/json/json_path.rs`, `init_stdlib`.
     r.register_native("json.path", json_path, eff(2, 1), WordKind::Sync);
+    crate::wb::bench!(r, "json.path", json_path, 2, 0);
 }
 
 #[cfg(test)]
