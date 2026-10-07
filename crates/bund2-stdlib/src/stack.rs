@@ -486,16 +486,26 @@ fn return_to(vm: &mut dyn Vm) -> Result<(), Error> {
     }
     let name = name_arg(vm, "Operation return_to() returned error")?;
     let Some(v) = vm.pull_workbench() else {
-        return Err(Error("return_to returns: NO DATA".into()));
+        // `reference/rust_multistack/src/ts_workbench.rs:57`.
+        return Err(Error(format!(
+            "Nothing has been returned from workbench to stack {name}"
+        )));
     };
     vm.push_to(&name, v);
     Ok(())
 }
 
 fn return_from(vm: &mut dyn Vm) -> Result<(), Error> {
+    // `reference/rust_multistack/src/stdlib/workbench.rs:35-37`.
+    if vm.depth() < 1 {
+        return Err(Error("Stack is too shallow for inline return_from()".into()));
+    }
     let name = name_arg(vm, "Operation return_from() returned error")?;
     let Some(v) = vm.pull_from(&name) else {
-        return Err(Error(format!("return_from: {name} is empty")));
+        // `reference/rust_multistack/src/ts_workbench.rs:41`.
+        return Err(Error(format!(
+            "Nothing has been returned from stack {name} to workbench"
+        )));
     };
     vm.push_workbench(v);
     Ok(())

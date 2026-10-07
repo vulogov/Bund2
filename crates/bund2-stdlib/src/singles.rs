@@ -1887,6 +1887,10 @@ mod f18_tests {
             ("drop", "VM inline function returned error: Function drop() returned: Stack is empty for drop() operation"),
             ("dup", "VM inline function returned error: Error duplicating data in current stack: unable to peek()"),
             (".", "VM inline function returned error: Nothing has been returned from current stack to workbench"),
+            // F178: the two named moves say what the reference's stack layer says.
+            ("return_from", "VM inline function returned error: Stack is too shallow for inline return_from()"),
+            ("\"s\" return_from", "VM inline function returned error: Nothing has been returned from stack s to workbench"),
+            ("\"s\" return_to", "VM inline function returned error: Nothing has been returned from workbench to stack s"),
         ] {
             match run(src) {
                 Ok(_) => panic!("{src} was expected to fail"),

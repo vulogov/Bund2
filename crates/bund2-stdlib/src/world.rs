@@ -264,6 +264,81 @@ mod tests {
         assert_eq!(super::world_file("m.world"), "m.world");
     }
 
+    /// **F178.** A world no `save` has written is refused by every loader,
+    /// in the reference's words. Each was measured against the oracle; none
+    /// can sit in a golden, because a refusal ends the program.
+    #[test]
+    fn a_world_never_saved_is_refused_by_every_loader() {
+        let world = format!("bund2-world-fresh-{}", std::process::id());
+        let file = format!("{world}.world");
+        let sqlite = |t: &str| {
+            format!(
+                "SqliteFailure(Error {{ code: Unknown, extended_code: 1 }}, \
+                 Some(\"no such table: {t}\"))"
+            )
+        };
+        for (src, want) in [
+            (
+                format!("\"{world}\" load"),
+                format!("Aliases LOAD returns: Error compiling ALIASES select: {}", sqlite("ALIASES")),
+            ),
+            (
+                format!("\"{world}\" load.aliases"),
+                format!("Aliases LOAD returns: Error compiling ALIASES select: {}", sqlite("ALIASES")),
+            ),
+            (
+                format!("\"{world}\" load.lambdas"),
+                format!("Lambdas LOAD returns: Error compiling LAMBDAS select: {}", sqlite("LAMBDAS")),
+            ),
+            (
+                format!("\"{world}\" load.stacks"),
+                "Stacks LOAD returns: Error compiling SELECT for stack data: no such table: \
+                 STACK_DATA"
+                    .to_string(),
+            ),
+            (
+                format!("\"{world}\" bootstrap"),
+                format!(
+                    "LOAD returns: Aliases LOAD returns: Error compiling ALIASES select: {}",
+                    sqlite("ALIASES")
+                ),
+            ),
+            (
+                format!("\"n\" \"{world}\" load.script"),
+                format!(
+                    "Bootstrap LOAD.SCRIPT returns: Error getting script n: Error compiling \
+                     BOOTSTRAP select: {}",
+                    sqlite("BOOTSTRAP")
+                ),
+            ),
+        ] {
+            let _ = std::fs::remove_file(&file);
+            let mut i = Interp::new();
+            crate::register_all(&mut i.registry);
+            let stream = bund2_syntax::compile(&src).expect("compiles");
+            let e = i.eval(&stream).expect_err("refused").0;
+            assert!(e.ends_with(&want), "{src}: {e}");
+        }
+        let _ = std::fs::remove_file(&file);
+    }
+
+    /// `load.script` pulls both operands and casts the name first, so two
+    /// wrong operands are `#3` and a wrong file still costs the name.
+    #[test]
+    fn load_script_casts_the_name_before_the_file() {
+        for (src, want, left) in [
+            ("7 2 2 load.script", "LOAD.SCRIPT casting string #3 returns: This Dynamic type is not string", 1),
+            ("7 \"n\" 2 load.script", "LOAD.SCRIPT casting string #1 returns: This Dynamic type is not string", 1),
+        ] {
+            let mut i = Interp::new();
+            crate::register_all(&mut i.registry);
+            let stream = bund2_syntax::compile(src).expect("compiles");
+            let e = i.eval(&stream).expect_err("refused").0;
+            assert!(e.ends_with(want), "{src}: {e}");
+            assert_eq!(i.depth(), left, "{src}");
+        }
+    }
+
     /// Save two models, load under a name that matches neither: both come
     /// back, in save order (F110).
     #[test]
@@ -416,17 +491,33 @@ fn prime_bootstrap(db: &Database) -> Result<(), Error> {
     tx.commit().map_err(|e| write_err("Priming bootstrap", e))
 }
 
+/// What the reference's SQLite says of a table no saver has made, as its
+/// `{:?}` prints it. The aliases, lambdas and bootstrap loaders format the
+/// error that way (`reference/Bund/src/stdlib/helpers/world/bootstrap.rs:12`);
+/// the stacks loader formats it with `{}` and gets the last part alone.
+///
+/// **A world no `save` has written is refused, not read as empty** — F178.
+/// redb has no schema to be missing, so the refusal is written here; an
+/// earlier version answered that there was nothing to load.
+fn no_such_table(table: &str) -> String {
+    format!(
+        "SqliteFailure(Error {{ code: Unknown, extended_code: 1 }}, \
+         Some(\"no such table: {table}\"))"
+    )
+}
+
 fn load_aliases(db: &Database, vm: &mut dyn Vm) -> Result<(), Error> {
     let tx = db
         .begin_read()
         .map_err(|e| Error(format!("Error performing ALIASES select: {e}")))?;
     let t = match tx.open_table(ALIASES) {
         Ok(t) => t,
-        // **A missing table is nothing to load, not a failure.** The
-        // reference's `SELECT` on an absent table *does* fail, but `load` is
-        // reached only through a world a `save` wrote, and redb has no empty
-        // schema to read. A world with no aliases loads none.
-        Err(TableError::TableDoesNotExist(_)) => return Ok(()),
+        Err(TableError::TableDoesNotExist(_)) => {
+            return Err(Error(format!(
+                "Error compiling ALIASES select: {}",
+                no_such_table("ALIASES")
+            )))
+        }
         Err(e) => return Err(Error(format!("Error compiling ALIASES select: {e}"))),
     };
     let rows = t
@@ -446,7 +537,12 @@ fn load_lambdas(db: &Database, vm: &mut dyn Vm) -> Result<(), Error> {
         .map_err(|e| Error(format!("Error performing LAMBDAS select: {e}")))?;
     let t = match tx.open_table(LAMBDAS) {
         Ok(t) => t,
-        Err(TableError::TableDoesNotExist(_)) => return Ok(()),
+        Err(TableError::TableDoesNotExist(_)) => {
+            return Err(Error(format!(
+                "Error compiling LAMBDAS select: {}",
+                no_such_table("LAMBDAS")
+            )))
+        }
         Err(e) => return Err(Error(format!("Error compiling LAMBDAS select: {e}"))),
     };
     let rows = t
@@ -471,19 +567,30 @@ fn load_stacks(db: &Database, vm: &mut dyn Vm) -> Result<(), Error> {
     let tx = db
         .begin_read()
         .map_err(|e| Error(format!("Error executing SELECT for stacks: {e}")))?;
-    let names = match tx.open_table(STACKS) {
-        Ok(t) => t,
-        Err(TableError::TableDoesNotExist(_)) => return Ok(()),
-        Err(e) => return Err(Error(format!("Error compiling SELECT for stacks: {e}"))),
-    };
+    // The data table is asked for first, as the reference prepares its
+    // statement first (`reference/Bund/src/stdlib/helpers/world/stacks.rs:9-12`),
+    // so that is the table a fresh world is reported missing.
     let data = match tx.open_table(STACK_DATA) {
         Ok(t) => t,
-        Err(TableError::TableDoesNotExist(_)) => return Ok(()),
+        Err(TableError::TableDoesNotExist(_)) => {
+            return Err(Error(
+                "Error compiling SELECT for stack data: no such table: STACK_DATA".into(),
+            ))
+        }
         Err(e) => {
             return Err(Error(format!(
                 "Error compiling SELECT for stack data: {e}"
             )))
         }
+    };
+    let names = match tx.open_table(STACKS) {
+        Ok(t) => t,
+        Err(TableError::TableDoesNotExist(_)) => {
+            return Err(Error(
+                "Error compiling SELECT for stacks: no such table: STACKS".into(),
+            ))
+        }
+        Err(e) => return Err(Error(format!("Error compiling SELECT for stacks: {e}"))),
     };
     let rows = names
         .iter()
@@ -513,7 +620,12 @@ fn read_all_bootstrap(db: &Database) -> Result<Vec<String>, Error> {
         .map_err(|e| Error(format!("Error performing SCRIPT select: {e}")))?;
     let t = match tx.open_table(BOOTSTRAP) {
         Ok(t) => t,
-        Err(TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+        Err(TableError::TableDoesNotExist(_)) => {
+            return Err(Error(format!(
+                "Error compiling BOOTSTRAP select: {}",
+                no_such_table("BOOTSTRAP")
+            )))
+        }
         Err(e) => return Err(Error(format!("Error compiling BOOTSTRAP select: {e}"))),
     };
     let rows = t
@@ -681,8 +793,25 @@ fn load_script(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 2 {
         return Err(Error("Stack is too shallow for LOAD.SCRIPT".into()));
     }
-    let file = pull_string3(vm, "LOAD.SCRIPT", "LOAD.SCRIPT", 1)?;
-    let name = pull_string3(vm, "LOAD.SCRIPT", "LOAD.SCRIPT", 3)?;
+    // **Both pulled, then the name cast before the file**
+    // (`reference/Bund/src/stdlib/functions/bund/bund_world_bootstrap.rs:92-116`),
+    // so two wrong operands are reported as `#3` and either failure costs
+    // both.
+    let file_value = vm
+        .pull()
+        .ok_or_else(|| Error("LOAD.SCRIPT returns NO DATA #1".into()))?;
+    let name_value = vm
+        .pull()
+        .ok_or_else(|| Error("LOAD.SCRIPT returns NO DATA #3".into()))?;
+    let cast = |v: &bund2_value::BundValue, n: u8| {
+        v.as_str().ok_or_else(|| {
+            Error(format!(
+                "LOAD.SCRIPT casting string #{n} returns: This Dynamic type is not string"
+            ))
+        })
+    };
+    let name = cast(&name_value, 3)?;
+    let file = cast(&file_value, 1)?;
     let db = open_world(&file)?;
     let found = {
         let tx = db
@@ -693,7 +822,13 @@ fn load_script(vm: &mut dyn Vm) -> Result<(), Error> {
                 .get(name.as_str())
                 .map_err(|e| Error(format!("Error performing SCRIPT select: {e}")))?
                 .map(|v| v.value().to_string()),
-            Err(TableError::TableDoesNotExist(_)) => None,
+            Err(TableError::TableDoesNotExist(_)) => {
+                return Err(Error(format!(
+                    "Bootstrap LOAD.SCRIPT returns: Error getting script {name}: Error \
+                     compiling BOOTSTRAP select: {}",
+                    no_such_table("BOOTSTRAP")
+                )))
+            }
             Err(e) => return Err(Error(format!("Error compiling BOOTSTRAP select: {e}"))),
         }
     };

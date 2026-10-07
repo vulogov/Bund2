@@ -75,8 +75,8 @@ mod dt {
     pub const LIST: u16 = 9;
     pub const MAP: u16 = 11;
     pub const PAIR: u16 = 10;
-    /// `TIME` and `CINTEGER` have no constructor in Bund2 yet. They are here
-    /// because the comparison gate names them by tag: `stdlib_logic_compare`
+    /// `CINTEGER` has no constructor in Bund2 yet, and `TIME` had none until
+    /// D103. They are here because the comparison gate names them by tag: `stdlib_logic_compare`
     /// admits `INTEGER | FLOAT | CINTEGER | CFLOAT | TIME` as operand types
     /// (`reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:18,20`),
     /// and that gate reads `type_of()`, which is the `dt` tag verbatim
@@ -1759,6 +1759,11 @@ impl PartialEq for BundValue {
             // test asserted the resulting miss as correct.
             (Heap(a), Heap(b)) => match (&*a.payload, &*b.payload) {
                 (Payload::Str(x), Payload::Str(y)) => x == y,
+                // Two instants are equal when their counts are
+                // (`reference/rust_dynamic/src/eq.rs:37-43`), and D30 names
+                // the kind among the four it hashes by content. The arm was
+                // not written while no word could make a time (D103 did).
+                (Payload::Time(x), Payload::Time(y)) => x == y,
                 // Everything else with a header compares by identity, as the
                 // reference does through `eq.rs:53`.
                 _ => a.identity() == b.identity(),
@@ -1795,6 +1800,7 @@ impl Hash for BundValue {
                 // string key hashes by identity and never finds its entry,
                 // which is the miss D30 exists to fix.
                 Payload::Str(x) => x.hash(state),
+                Payload::Time(at) => at.hash(state),
                 _ => h.identity().hash(state),
             },
         }
@@ -1804,6 +1810,23 @@ impl Hash for BundValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **Two instants with one count are one key.** The reference compares
+    /// times by content (`eq.rs:37-43`) and D30 hashes what it compares, so a
+    /// time filed under a valuemap is found by another time of the same
+    /// count. A time is not the integer of that count: the reference's arm
+    /// for the pair is identity.
+    #[test]
+    fn a_time_is_a_key_by_its_count() {
+        let (a, b, c) = (BundValue::time(7), BundValue::time(7), BundValue::time(8));
+        assert!(a == b);
+        assert!(a != c);
+        assert!(a != BundValue::int(7));
+        let mut m: HashMap<BundValue, BundValue> = HashMap::new();
+        m.insert(a, BundValue::int(1));
+        assert_eq!(m.get(&b).and_then(|v| v.as_int()), Some(1));
+        assert!(!m.contains_key(&c));
+    }
 
     /// **F117.** Rendering walked a value's depth in Rust frames, so
     /// `debug.display_stack` on a 24,000-deep list aborted the process. The

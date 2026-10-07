@@ -58,7 +58,17 @@ pub struct HostOptions {
 /// is truncated `as i32` (`:30`). Where the reference calls `process::exit`,
 /// this asks the embedder to end the program, and nothing after it runs.
 fn bund_exit(vm: &mut dyn Vm) -> Result<(), Error> {
-    let code = vm.pull().and_then(|v| v.as_int()).unwrap_or(0);
+    let code = match vm.pull() {
+        None => 0,
+        Some(v) => v.as_int().unwrap_or_else(|| {
+            // The reference logs this at error level and exits 0 (`:22-28`).
+            // A warning, because the program is ending as it asked to.
+            vm.report(bund2_api::diag::Diagnostic::warning(
+                "Error in casting error code for exit: This Dynamic type is not integer",
+            ));
+            0
+        }),
+    };
     vm.request_exit(code as i32);
     Ok(())
 }
@@ -714,8 +724,14 @@ fn time_timestamp(vm: &mut dyn Vm) -> Result<(), Error> {
 /// `sleep.seconds` — wait whole seconds
 /// (`reference/Bund/src/stdlib/functions/system/sleep.rs:11-21`).
 ///
-/// The count must be an INTEGER, and it is converted with `as u64` (`:19`), so
-/// **a negative count waits for about 585 billion years** — F103, reproduced.
+/// The count must be an INTEGER, and the reference converts it with `as u64`
+/// (`:19`), so a negative count becomes one near `u64::MAX`.
+///
+/// **A count the clock cannot hold is refused** — F103 as corrected. That
+/// count does not wait: adding it to the present overflows and the reference
+/// aborts, `overflow when adding duration to instant`. Bund2 took the same
+/// panic inside this word and reported it as its own internal error, which
+/// D37 forbids. The test is the one the sleep would fail.
 fn sleep_seconds(vm: &mut dyn Vm) -> Result<(), Error> {
     let v = vm
         .pull()
@@ -723,7 +739,13 @@ fn sleep_seconds(vm: &mut dyn Vm) -> Result<(), Error> {
     let n = v.as_int().ok_or_else(|| {
         Error("SLEEP::SECONDS error casting seconds: This Dynamic type is not integer".into())
     })?;
-    spin_sleep::sleep(std::time::Duration::new(n as u64, 0));
+    let wait = std::time::Duration::new(n as u64, 0);
+    if std::time::Instant::now().checked_add(wait).is_none() {
+        return Err(Error(format!(
+            "SLEEP::SECONDS: the clock cannot wait {n} seconds"
+        )));
+    }
+    spin_sleep::sleep(wait);
     Ok(())
 }
 
@@ -1875,6 +1897,30 @@ mod tests {
         let mut j = interp(HostOptions::default());
         run(&mut j, "exit").expect("runs");
         assert_eq!(j.exit_requested(), Some(0), "an empty stack exits 0");
+    }
+
+    /// **F103, F178.** A count the clock cannot hold is refused before the
+    /// sleep that would panic on it. The reference aborts on both of these.
+    #[test]
+    fn sleep_refuses_a_count_the_clock_cannot_hold() {
+        for src in ["-3 sleep.seconds", "-1 sleep", "9223372036854775807 sleep.seconds"] {
+            let mut i = interp(HostOptions::default());
+            let e = run(&mut i, src).expect_err("refused");
+            assert!(e.contains("SLEEP::SECONDS: the clock cannot wait"), "{src}: {e}");
+            assert!(!e.contains("internal error"), "{src}: {e}");
+        }
+        let mut i = interp(HostOptions::default());
+        run(&mut i, "0 sleep.seconds").expect("a wait of nothing is a wait");
+    }
+
+    /// **F178.** An exit code that is not an integer is taken as 0, and said
+    /// so — the reference logs the same sentence at error level.
+    #[test]
+    fn exit_with_a_code_that_is_not_an_integer_exits_zero() {
+        use bund2_api::Vm as _;
+        let mut i = interp(HostOptions::default());
+        run(&mut i, "\"s\" exit").expect("an exit is not a failure");
+        assert_eq!(i.exit_requested(), Some(0));
     }
 
     /// F112: a body a native runs synchronously, ending in `exit`, stops the

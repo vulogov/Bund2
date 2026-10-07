@@ -3586,6 +3586,12 @@ with a kept float by truncating the float, so `[ 1.9 1 ]` answers `[ 1.9 ]`,
 while `[ 1 1.9 ]` keeps both. Bund2 now keeps both either way, and `1` with
 `1.0` is one member either way. `unique` and `==` agree.
 
+**Dated note, 2026-10-07 — confirmed by the owner**, on being shown both
+implementations run on seven lists. `1` and `1.0` are one member in either
+order in both, and the first seen is the one kept. The two differ on
+`[ 1.9 1 ]`, where the oracle answers `[ 1.9 ]` and Bund2 keeps both, and on
+`[ 3 2.0 3.0 2 ]`, where the oracle keeps all four. The row stands as built.
+
 ### What D100 said that no longer holds
 
 - *"Disordered numbers fail at the third member"* — kept on purpose there.

@@ -854,9 +854,12 @@ mod honesty_tests {
     /// descending into subdirectories as criterion 11's does.
     #[test]
     fn every_native_reporting_mid_body_is_named() {
-        const REPORTS: [&str; 9] = [
+        const REPORTS: [&str; 10] = [
             // A notice, when a TRY block left an error the EXCEPT arm runs.
             "conditional.rs: run_error",
+            // A warning, when the exit code is not an integer and 0 is taken
+            // (F178). `StackEffect::opaque`, so no crossing reaches it.
+            "host.rs: bund_exit",
             "control.rs: for_base",
             "control.rs: while_base",
             "seq.rs: loop_over_base",

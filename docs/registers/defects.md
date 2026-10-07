@@ -3346,6 +3346,21 @@ negative count would be a behaviour it does not have. Bund2's `sleep_seconds`
 (`crates/bund2-stdlib/src/host.rs`) waits the same way. No golden can capture
 it.
 
+**Dated note, 2026-10-07 — this entry was not measured, and it is wrong.** It
+says a negative count "never returns" and that it was "not run against the
+oracle, because it would not return". Run, `-3 sleep.seconds` returns at once:
+the reference **aborts**, `overflow when adding duration to instant`. The wrap
+to a count near `u64::MAX` is real; the wait is not, because the count is added
+to the present before anything sleeps and the sum does not fit.
+
+Bund2 had reproduced the cast and so took the same panic, inside the word, and
+reported it as `internal error: native sleep.seconds panicked`. D37 forbids
+that whatever the reference does. **Disposition, corrected: FIXED.** A count
+the clock cannot hold is refused — `SLEEP::SECONDS: the clock cannot wait -3
+seconds` — by making the addition the sleep would make and asking whether it
+fits. The largest positive counts are refused the same way. Found by F178's
+survey.
+
 ## F104 — `io.graph` panics inside `rasciigraph` on an empty or all-NaN list
 
 **A Bund2 defect under D37, shared with the reference**, found while probing
@@ -4017,6 +4032,134 @@ and D37 gains a stated exception for bytes read from a file Bund2 did not
 write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
+
+## F178 — the words that touch the machine, measured: a missing world loaded as an empty one
+
+**A survey, measured 2026-10-07.** The earlier surveys left out every word
+that reads a file, a clock, a random source or the host, because their
+answers do not repeat or their effects land outside the stack. This one runs
+them: 130 words in four groups, 22,259 programs, each in a directory of its
+own holding the same five files, each compared on what it printed, both
+sides of the stack, the exit code and what the directory held afterwards.
+
+| group | words | programs | agreed |
+|---|---|---|---|
+| shell — `sh`, `system.shell` and their workbench forms | 4 | 642 | 642 |
+| chance and the clock, compared by shape — `time.now`, `id.*`, `string.random.*`, `generator*`, `sysinfo.mem.*` | 36 | 2,902 | 2,900 |
+| files and worlds — `file*`, `fs.*`, `save*`, `load*`, `sqlite`, `bund.eval-file` | 34 | 3,858 | 3,154 |
+| the rest — `args`, `bund.eval`, `compile`, `context`, `execute`, `exit`, `io.*`, `log.*`, `sysinfo.*`, `system.*`, `use`, `return_from`, … | 56 | 14,857 | 12,771 |
+
+Not run: `input`, `input*`, `password`, `bund.prompt`, `debug`, `debug.shell`
+(a terminal); `bus.*`, `send*`, `recv*`, `url` (a peer or a network); the
+looping words (F174). "By shape" means a string, an integer, a float or a time
+is compared as its kind and not its value.
+
+### What was wrong in Bund2, and is fixed
+
+**1. A world no `save` has written loaded as an empty one.** `"new" load`
+answered nothing and succeeded; the oracle refuses, `Aliases LOAD returns:
+Error compiling ALIASES select: SqliteFailure(… "no such table: ALIASES")`.
+The same for `load.aliases`, `load.lambdas`, `load.stacks`, `bootstrap`, and
+`load.script`, which said the script was not found where the oracle says the
+table is not there. 292 programs answered where the oracle refuses, and 102
+refused in other words.
+
+It was written that way on purpose. A comment said a missing table "is
+nothing to load, not a failure … `load` is reached only through a world a
+`save` wrote". That is not so — `load` takes any name — and it also changed a
+partial world: after `save.aliases` alone, the reference's `load` fails at the
+lambdas and Bund2's went on. The comment was the only record; no register
+entry chose it. The loaders now refuse, in the reference's words
+(`reference/Bund/src/stdlib/helpers/world/stacks.rs:9-12`,
+`reference/Bund/src/stdlib/helpers/world/bootstrap.rs:9-12,87-90`).
+
+What still differs and cannot be otherwise: the bytes of the world file. The
+reference's is SQLite — an empty file after a refused load — and Bund2's is
+redb.
+
+**2. `load.script` cast its operands in the wrong order.** The reference pulls
+both and casts the name first
+(`reference/Bund/src/stdlib/functions/bund/bund_world_bootstrap.rs:92-116`).
+Bund2 pulled and cast the file first, so two wrong operands were reported as
+`#1` where the oracle says `#3`, and a wrong file left the name on the stack.
+
+**3. `sleep.seconds` with a count the clock cannot hold panicked inside
+Bund2.** See the dated note on F103, which had this wrong.
+
+**4. `return_from` and `return_to` worded three refusals their own way.** They
+now say what the reference's stack layer says
+(`reference/rust_multistack/src/ts_workbench.rs:41,57`,
+`reference/rust_multistack/src/stdlib/workbench.rs:35-37`), under D105's rule
+for that family.
+
+**5. `exit` with a code that is not an integer said nothing.** The reference
+logs `Error in casting error code for exit: …` at error level and exits 0
+(`reference/Bund/src/stdlib/functions/bund/bund_exit.rs:22-28`). Bund2 exited
+0 in silence, under a comment that said it was logged. It reports a warning
+with that sentence.
+
+### What differs and stays
+
+| programs | what | why |
+|---|---|---|
+| 454 | `version`, `sysinfo.version` | D50 |
+| 390 | `exit`, `bund.exit` with a non-integer code | the same sentence, as a warning and as a timestamped log line |
+| 310 | `save*`, `sqlite`, `context` | the world file's bytes; the order of a dict's members (F15) |
+| 239 + 147 + 77 | `execute.`, `bund.eval.`, `bund.eval` | F53, F59; and the reference wraps `Attempt to evaluate value …` once more than Bund2 |
+| 227 | `endcontext` | F60 |
+| 95 | `log.error` | its line carries a wall clock in the oracle (F175) |
+| 86 | `debug.dump` | the bytes of an id |
+| 2 + 2 | `string.random.lorem` and `use`, one operand each | the oracle does not return: a negative word count, and `"2.5" use`. Bund2 refuses both |
+
+After the fixes the five loaders and `bootstrap` agree with the oracle in
+every message; the 485 programs of theirs that still compare unequal differ
+only in the world file's bytes.
+
+## F177 — two comparisons were written before a time could exist, and not revisited
+
+**A Bund2 defect, measured 2026-10-07**, found by a sweep that D106 prompted.
+
+Bund2 carried the `TIME` tag from early on, because the comparison gate names
+it, and had no word that made one. Code written then left the kind out, each
+with a comment saying no such value could arrive. D103 added `time.now` and
+`time.timestamp` and the comments became false without anything failing.
+
+The sweep asked where the reference treats a time as a time. That is a short
+list: its equality (`reference/rust_dynamic/src/eq.rs:37-43`), its ordering
+(`reference/rust_dynamic/src/ord.rs:27-33,66-72,105-111,144-150,178-185`), the
+two constructors and the casts. Nothing in `conv.rs`, `math.rs` or `export.rs`
+names the kind, so every table there sends a time to its remainder arm, and
+those were measured with a time in the palette (F168, F169, F171).
+
+Against that list, in Bund2:
+
+| where | state |
+|---|---|
+| the comparison words | right since D103 |
+| `sort` | **wrong** — no arm, so a list of times came back unsorted where the oracle orders it. Fixed with D106 and recorded there. |
+| `unique` | right since D109; before it, two equal times were both kept |
+| **equality and hash of the value itself** | **wrong** — no arm, so two times were equal only by identity |
+
+The last is what a valuemap key is found by. D30 hashes by content exactly
+what the reference compares by content, and names the four kinds: integers,
+floats, strings, times. Three were written. So
+`valuemap 5 time.timestamp "five" set 5 time.timestamp get` answered
+`GET returns error: key not found`; it answers `five`.
+
+The oracle cannot be asked. Its hash is the id (F29), so it finds no key of
+any kind; D30 is the specification here and the fix is to meet it.
+
+**Status: FIXED.** `BundValue`'s `PartialEq` and `Hash` have the arm, and
+`a_time_is_a_key_by_its_count` pins it, including that a time is not the
+integer of the same count. No other comparator exists in Bund2 to check: the
+only orderings outside `logic.rs` and `sort.rs` are over strings in a report
+and over rendered keys.
+
+**Not decided, and left as it is:** the reference also compares two *complex*
+numbers by content (`eq.rs:47-52`), and D30 counts that kind among the
+sixteen it leaves to identity. So a complex number is not found as a valuemap
+key. Whether D30 meant that is a question for its owner; it is not a kind that
+went missing the way this one did.
 
 ## F176 — `drop_stacks` and `clear_stacks` edit a list nothing reads
 
