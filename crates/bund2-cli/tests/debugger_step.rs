@@ -311,18 +311,17 @@ fn run_file(
 /// program". The test above shows it for four programs chosen to cover what
 /// the safepoint must reach; this shows it for every program `conform` runs.
 ///
-/// **Two programs are excluded, and the exclusion is the finding.** The
-/// debugger takes its commands from standard input, and so do `input`,
-/// `input*`, `debug` and `debug.shell`. A program that calls one of them
-/// under `--debugger` reads the *debugger's commands* as its own input: each
-/// `s` meant for the session is taken by the program instead, and the run does
-/// not finish. So a program that reads input cannot be debugged at all (F165).
-/// That is not a property of stepping and this test does not claim otherwise —
-/// it claims stepping for every program that leaves standard input alone.
+/// **Every program, the two that read input included** — F165, closed by
+/// D112. The debugger takes its commands from standard input, and `input`,
+/// `input*`, `debug` and `debug.shell` used to read the same stream: each `s`
+/// meant for the session was taken by the program, and the run did not
+/// finish. This test excluded those programs and said why.
 ///
-/// The excluded set is **derived** from each program's source rather than
-/// listed, so it cannot go stale, and then **compared against the two names
-/// expected**, so a third arriving is noticed rather than silently skipped.
+/// A debugged program is now given no input of its own, so its reads end at
+/// once — which is what the plain run sees too, with standard input closed —
+/// and the two agree. The readers are still **found from each program's
+/// source** and compared against the two names expected, now to show they
+/// were stepped rather than to leave them out.
 #[test]
 fn stepping_agrees_with_an_uninterrupted_run_over_the_whole_suite() {
     let programs = suite();
@@ -334,15 +333,17 @@ fn stepping_agrees_with_an_uninterrupted_run_over_the_whole_suite() {
             .unwrap_or_default()
             .to_string()
     };
-    let (excluded, checked): (Vec<_>, Vec<_>) = programs.into_iter().partition(|(file, _)| {
-        std::fs::read_to_string(file).is_ok_and(|src| reads_stdin(&src))
-    });
-    let mut excluded_names: Vec<String> = excluded.iter().map(|(f, _)| name(f)).collect();
-    excluded_names.sort();
+    let checked = programs;
+    let mut readers: Vec<String> = checked
+        .iter()
+        .filter(|(file, _)| std::fs::read_to_string(file).is_ok_and(|src| reads_stdin(&src)))
+        .map(|(f, _)| name(f))
+        .collect();
+    readers.sort();
     assert_eq!(
-        excluded_names,
+        readers,
         ["debug-repl-words", "terminal-words"],
-        "the programs excluded for reading standard input changed (F165)"
+        "the suite's programs that read standard input changed; they are stepped below"
     );
 
     // Spread over the available cores: four hundred process runs in sequence

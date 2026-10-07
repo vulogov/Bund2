@@ -605,6 +605,11 @@ pub struct Interp {
     /// writes to nobody's terminal; the CLI swaps in a text reporter and a TUI
     /// would swap in its own.
     pub reporter: Box<dyn bund2_api::diag::Reporter>,
+    /// Where a word's line comes from — D112. [`bund2_api::input::NoInput`]
+    /// by default, so an `Interp` nobody has given an input never waits on
+    /// one; the CLI swaps in the terminal, a debugged session keeps the
+    /// program off the stream its commands arrive on, and a test scripts it.
+    pub input: Box<dyn bund2_api::input::Input>,
     /// **The frame stack — RFC-0003 §S4.** Bund call depth lives here, on the
     /// heap, instead of on the Rust stack.
     frames: Vec<Frame>,
@@ -715,6 +720,7 @@ impl Interp {
             autoadd: false,
             contexts: Vec::new(),
             reporter: Box::new(bund2_api::diag::SilentReporter),
+            input: Box::new(bund2_api::input::NoInput),
             frames: Vec::new(),
             pending_tail: None,
             pending_who: None,
@@ -1935,6 +1941,21 @@ impl Vm for Interp {
     /// property of *now* rather than of construction (RFC-0005 §S5, D71).
     fn wants_stack(&self, severity: bund2_api::diag::Severity) -> bool {
         self.reporter.wants_stack(severity)
+    }
+
+    fn read_line(
+        &mut self,
+        ask: &bund2_api::input::Ask<'_>,
+    ) -> Result<bund2_api::input::Read, String> {
+        self.input.line(ask)
+    }
+
+    fn remember_line(&mut self, history: &str, line: &str) {
+        self.input.remember(history, line);
+    }
+
+    fn read_secret(&mut self, prompt: &str) -> Result<String, String> {
+        self.input.secret(prompt)
     }
 
     fn report(&mut self, d: bund2_api::diag::Diagnostic) {

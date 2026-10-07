@@ -1064,3 +1064,65 @@ Nothing a program does changes, and no golden moves.
 
 - Amended by: repository owner, 2026-09-13, on RFC-0005's `Interp` seam
 - Consumes: D42 (the key reaches the entry point), RFC-0005 §S8 and criterion 20
+
+## Amendment, 2026-10-07 — `Input`, where a word's line comes from (D112)
+
+**Decided by the repository owner**, taking the minimal seam of four options
+shown. `bund2-api` gains one trait and `Vm` three methods:
+
+```rust
+pub trait Input {
+    fn line(&mut self, ask: &Ask<'_>) -> Result<Read, String>;
+    fn remember(&mut self, history: &str, line: &str) {}
+    fn secret(&mut self, prompt: &str) -> Result<String, String>;
+}
+pub enum Read { Line(String), End }
+pub struct Ask<'a> { pub prompt: &'a str, pub history: Option<&'a str> }
+
+// on `Vm`, each defaulted to "there is no input"
+fn read_line(&mut self, ask: &input::Ask<'_>) -> Result<input::Read, String>;
+fn remember_line(&mut self, history: &str, line: &str);
+fn read_secret(&mut self, prompt: &str) -> Result<String, String>;
+```
+
+`Interp` holds a `Box<dyn Input>` beside its reporter, public for the same
+reason the reporter is: the embedder replaces it after construction. It starts
+as `NoInput`, under which every line is the end and a secret is refused.
+
+**It is `report`'s mirror, and for `report`'s reason.** A word emits a
+diagnostic through the VM so that a reporter decides how it looks (D36). A
+word that called `rustyline` on raw standard input had decided where its line
+came from, which closed the same seam from the other side: such a word cannot
+run inside a TUI, cannot be given a line by a test, and cannot share a process
+with anything else that reads.
+
+**Why now, when D101 deferred it.** D101 waited for a second implementor to
+shape the seam against, and named F165 the same day as one that already
+existed: the debugger takes its commands from standard input, the four reading
+words took theirs from the same stream, and a debugged program consumed the
+session's commands as its lines. Three implementors exist as this is written —
+the terminal, the debugger's "no input", and a script for tests — and each
+needed something of the shape the other two did not.
+
+**What is deliberately absent.** Completion, cancellation, an asynchronous
+read, a prompt with structure. A TUI may want them; nothing here guesses.
+`Read::End` is one answer for the end of input and for an interrupt because
+every reading word in the reference treats the two alike
+(`reference/Bund/src/stdlib/functions/io/input.rs:46-51,117-124`).
+
+**History is a name, not a file.** A read may say which history it belongs to,
+and a word says which lines are worth remembering — `debug` does not remember
+the empty line that moves it on and `debug.shell` remembers every one. Whether
+a history exists, where it lives and when it is written is the implementor's.
+The terminal keeps RFC-0008 §D8's answer.
+
+**The three methods are defaulted**, as `wants_stack` is and `cells` is not. A
+`Vm` that does not write them never waits on a terminal, which is the safe
+omission; a `Vm` that forgot `cells` would be wrong.
+
+Nothing a program does changes against a terminal, and no golden moves: a
+capture's standard input is at its end, and so is the default.
+
+- Amended by: repository owner, 2026-10-07, on F165
+- Consumes: D99 (the two helpers this plugs into), D101 (the deferral and its
+  trigger), D36, F158, F165

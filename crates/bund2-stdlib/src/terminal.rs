@@ -12,6 +12,7 @@
 //! stdout is not a terminal, as it is under capture. The host table depends on
 //! the machine, so no golden can hold it.
 
+use bund2_api::input::{Ask, Input, Read};
 use bund2_api::{diag::Diagnostic, Error, Registry, StackEffect, Vm, WordKind};
 use bund2_value::{BundValue, EXIT, LAMBDA, NONE, STRING};
 use rustyline::error::ReadlineError;
@@ -29,45 +30,95 @@ fn prompt_of(v: Option<BundValue>) -> String {
     v.and_then(|v| v.as_str()).unwrap_or_else(|| "> ".to_string())
 }
 
-/// **The one place this crate reads a line from the terminal** — F158.
+/// **The terminal, as an input** — D112. This is what the CLI installs on its
+/// interpreter; nothing in this crate reads a terminal unless an embedder
+/// hands it one of these.
 ///
-/// `input`, `input*`, `debug` and `debug.shell` all read through
-/// [`Terminal::line`], and [`secret`] is the same thing for `password`. Nothing
-/// else in `bund2-stdlib` may touch standard input, and
-/// `every_terminal_read_goes_through_the_two_helpers`
-/// (`crates/bund2-stdlib/src/lib.rs`) scans the crate to say so.
+/// # The words no longer read; they ask
 ///
-/// # Why there is one place
+/// `input`, `input*`, `debug` and `debug.shell` ask the VM for a line
+/// ([`Vm::read_line`]) and `password` for a secret ([`Vm::read_secret`]). The
+/// VM asks its [`Input`], and this type is the implementor that asks
+/// `rustyline` and `yapp`. So where a line comes from is the embedder's
+/// choice, as where a diagnostic goes already was (D36): the terminal for a
+/// plain run, nothing for a debugged one whose own commands arrive on the
+/// same stream (F165), a script for a test.
 ///
-/// Under this crate's **own test build** a read answers end-of-file without
-/// touching standard input at all. That is not a convenience. Criterion 24's
-/// corpus audit runs every probe that has a golden *in process*, and three of
-/// those probes call the words above; with standard input at end-of-file each
-/// read returns at once, and with a pipe that stays open each waits forever.
-/// A `cargo test` moved to the background is given exactly such a pipe. Four
-/// test binaries were found blocked that way, the oldest five hours old, each
-/// holding the build lock (F158) — and F141 had recorded the same hazard a
-/// month earlier and closed only the path it found.
+/// # What F158 and D99 left here
 ///
-/// The rule that would have prevented it, "give `cargo test` a closed stdin",
-/// was true and unenforced, which is the kind that fails. This is enforced:
-/// the test build cannot read a terminal, and a new reader that bypasses these
-/// helpers fails a test instead of hanging a suite.
+/// The two reads are still in exactly two functions, [`Session::line`] and
+/// [`secret`], and `every_terminal_read_goes_through_the_two_helpers`
+/// (`crates/bund2-stdlib/src/lib.rs`) still scans the crate to say so. Under
+/// this crate's own test build both still answer without touching standard
+/// input. That guard is now the second lock and not the first: an interpreter
+/// starts with [`bund2_api::input::NoInput`], so a test meets a terminal only
+/// if it installs one.
 ///
-/// # What a test therefore does and does not exercise
-///
-/// It exercises each word's **end-of-input arm**, which is the only arm a
-/// test or a capture has ever reached — the golden runner gives a program
-/// stdin at `/dev/null`. It does not exercise `rustyline` itself. Nothing was
-/// lost that a test had: no test could type.
-///
-/// # Where this is going
-///
-/// `Vm::report` is the seam a TUI implements for *output* (D36). The same is
-/// owed for input, since a word that calls `rustyline` on raw standard input
-/// cannot run inside one. That seam is not built; this helper is the
-/// consolidation it needs, and where it would plug in.
-struct Terminal {
+/// One editor is kept per history, and one more for reads that have none, so
+/// a session's recall survives from one word to the next within a program.
+#[derive(Default)]
+pub struct Terminal {
+    plain: Option<Session>,
+    sessions: std::collections::BTreeMap<String, Session>,
+}
+
+impl Terminal {
+    pub fn new() -> Self {
+        Terminal::default()
+    }
+
+    /// The editor a read belongs to, opened the first time it is asked for.
+    fn session(&mut self, history: Option<&str>) -> Result<&mut Session, String> {
+        match history {
+            None => {
+                if self.plain.is_none() {
+                    self.plain = Some(Session::open()?);
+                }
+                self.plain
+                    .as_mut()
+                    .ok_or_else(|| "the terminal was opened and is not there".to_string())
+            }
+            Some(name) => {
+                if !self.sessions.contains_key(name) {
+                    self.sessions
+                        .insert(name.to_string(), Session::open_with_history(name)?);
+                }
+                self.sessions
+                    .get_mut(name)
+                    .ok_or_else(|| "the terminal was opened and is not there".to_string())
+            }
+        }
+    }
+}
+
+impl Input for Terminal {
+    fn line(&mut self, ask: &Ask<'_>) -> Result<Read, String> {
+        match self.session(ask.history)?.line(ask.prompt) {
+            Ok(line) => Ok(Read::Line(line)),
+            // Ctrl-C and Ctrl-D are one answer; see `Read::End`.
+            Err(ReadlineError::Interrupted | ReadlineError::Eof) => Ok(Read::End),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    /// Remembered, and written at once. The file was written when the word
+    /// returned while each word owned its editor; an editor that outlives the
+    /// word has no such moment, and a history kept only until the process
+    /// ends is one a crash loses.
+    fn remember(&mut self, history: &str, line: &str) {
+        if let Some(session) = self.sessions.get_mut(history) {
+            session.remember(line);
+            session.save();
+        }
+    }
+
+    fn secret(&mut self, prompt: &str) -> Result<String, String> {
+        secret(prompt)
+    }
+}
+
+/// One `rustyline` editor and the history it keeps, if it keeps one.
+struct Session {
     #[cfg(not(test))]
     rl: rustyline::DefaultEditor,
     /// Where this session's history is kept, when it keeps one.
@@ -129,12 +180,11 @@ fn history_path(file: &str) -> Option<std::path::PathBuf> {
     .map(|d| d.join("bund2").join(file))
 }
 
-impl Terminal {
-    fn open() -> Result<Self, Error> {
+impl Session {
+    fn open() -> Result<Self, String> {
         #[cfg(not(test))]
         let terminal = Self {
-            rl: rustyline::DefaultEditor::new()
-                .map_err(|e| Error(format!("INPUT returns: {e}")))?,
+            rl: rustyline::DefaultEditor::new().map_err(|e| e.to_string())?,
             history: None,
             dirty: false,
         };
@@ -151,7 +201,7 @@ impl Terminal {
     /// A history that is missing or will not load is not an error and is not
     /// reported: the reference logs it at a level its default configuration
     /// does not show, and a first run has none by definition.
-    fn open_with_history(file: &str) -> Result<Self, Error> {
+    fn open_with_history(file: &str) -> Result<Self, String> {
         let mut terminal = Self::open()?;
         terminal.history = history_path(file);
         #[cfg(not(test))]
@@ -213,7 +263,7 @@ impl Terminal {
 /// The history is written on the way out, **whichever way out it is** — the
 /// REPLs below return early on a failed read, and a `save` at the bottom of
 /// the loop would be skipped on exactly the session that ended badly.
-impl Drop for Terminal {
+impl Drop for Session {
     fn drop(&mut self) {
         self.save();
     }
@@ -250,11 +300,10 @@ fn input(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 1 {
         return Err(Error("Stack is too shallow for inline INPUT".into()));
     }
-    let mut rl = Terminal::open()?;
     let prompt = prompt_of(vm.pull());
-    match rl.line(&prompt) {
-        Ok(line) => vm.push(BundValue::str(line.trim())),
-        Err(ReadlineError::Interrupted | ReadlineError::Eof) => {}
+    match vm.read_line(&Ask::new(&prompt)) {
+        Ok(Read::Line(line)) => vm.push(BundValue::str(line.trim())),
+        Ok(Read::End) => {}
         Err(e) => return Err(Error(format!("INPUT line returns: {e}"))),
     }
     Ok(())
@@ -273,14 +322,13 @@ fn input_loop(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 1 {
         return Err(Error("Stack is too shallow for inline INPUT".into()));
     }
-    let mut rl = Terminal::open()?;
     let lambda = vm
         .pull()
         .ok_or_else(|| Error("Error getting INPUT* lambda from stack".into()))?;
     let prompt = prompt_of(vm.pull());
     loop {
-        match rl.line(&prompt) {
-            Ok(line) => {
+        match vm.read_line(&Ask::new(&prompt)) {
+            Ok(Read::Line(line)) => {
                 vm.push(BundValue::str(line.trim()));
                 if lambda.dt() != LAMBDA {
                     return Err(Error(
@@ -290,7 +338,7 @@ fn input_loop(vm: &mut dyn Vm) -> Result<(), Error> {
                 vm.eval_lambda(&lambda)
                     .map_err(|e| Error(format!("INPUT* returned error from LAMBDA: {}", e.0)))?;
             }
-            Err(ReadlineError::Interrupted | ReadlineError::Eof) => break,
+            Ok(Read::End) => break,
             Err(e) => return Err(Error(format!("INPUT line returns: {e}"))),
         }
     }
@@ -306,7 +354,9 @@ fn password(vm: &mut dyn Vm) -> Result<(), Error> {
     let msg = m.as_str().ok_or_else(|| {
         Error("PASSWORD error casting message: This Dynamic type is not string".into())
     })?;
-    let res = secret(&msg).map_err(|e| Error(format!("PASSWORD returns: {e}")))?;
+    let res = vm
+        .read_secret(&msg)
+        .map_err(|e| Error(format!("PASSWORD returns: {e}")))?;
     vm.push(BundValue::str(res));
     Ok(())
 }
@@ -365,18 +415,18 @@ fn debug_prompt() -> String {
 /// if the condition persists, and `input*` here already chose to error out.
 fn debug_shell(vm: &mut dyn Vm) -> Result<(), Error> {
     // §D8: the reference keeps this history in the working directory.
-    let mut rl = Terminal::open_with_history("bund_debug_shell_history.txt")?;
+    const HISTORY: &str = "bund_debug_shell_history.txt";
     let prompt = debug_prompt();
     loop {
-        match rl.line(&prompt) {
-            Ok(line) => {
+        match vm.read_line(&Ask::in_history(&prompt, HISTORY)) {
+            Ok(Read::Line(line)) => {
                 // Every line, an empty one included, as the reference does.
-                rl.remember(&line);
+                vm.remember_line(HISTORY, &line);
                 if let Err(e) = crate::singles::eval_source(vm, &line) {
                     vm.report(Diagnostic::warning(e.0));
                 }
             }
-            Err(ReadlineError::Interrupted | ReadlineError::Eof) => break,
+            Ok(Read::End) => break,
             Err(e) => return Err(Error(format!("INPUT line returns: {e}"))),
         }
     }
@@ -451,7 +501,7 @@ fn debug_word(vm: &mut dyn Vm) -> Result<(), Error> {
     // `\n` appended, as `bund_debugger` does before parsing.
     let source = format!("{snippet}\n");
     let words = bund2_syntax::compile(&source).map_err(|e| Error(e.render(&source)))?;
-    let mut rl = Terminal::open_with_history("bund_debug_debugger_history.txt")?;
+    const HISTORY: &str = "bund_debug_debugger_history.txt";
     let prompt = debug_prompt();
     for word in words {
         if word.dt() == NONE {
@@ -470,17 +520,17 @@ fn debug_word(vm: &mut dyn Vm) -> Result<(), Error> {
                 ))
             })?;
         loop {
-            match rl.line(&prompt) {
+            match vm.read_line(&Ask::in_history(&prompt, HISTORY)) {
                 // An empty line moves on, and is *not* remembered here —
                 // the reference breaks before it reaches `add_history_entry`.
-                Ok(line) if line.is_empty() => break,
-                Ok(line) => {
-                    rl.remember(&line);
+                Ok(Read::Line(line)) if line.is_empty() => break,
+                Ok(Read::Line(line)) => {
+                    vm.remember_line(HISTORY, &line);
                     if let Err(e) = crate::singles::eval_source(vm, &line) {
                         vm.report(Diagnostic::warning(e.0));
                     }
                 }
-                Err(ReadlineError::Interrupted | ReadlineError::Eof) => break,
+                Ok(Read::End) => break,
                 Err(e) => return Err(Error(format!("INPUT line returns: {e}"))),
             }
         }
@@ -724,6 +774,119 @@ mod tests {
         i.eval(&stream).map_err(|e| e.0)
     }
 
+    /// An interpreter whose input is these lines, and a handle on what it
+    /// was asked.
+    fn typed(
+        lines: &[&str],
+        secrets: &[&str],
+    ) -> (Interp, std::rc::Rc<std::cell::RefCell<bund2_api::input::Seen>>) {
+        let script = bund2_api::input::Scripted::lines(lines.iter().copied())
+            .with_secrets(secrets.iter().copied());
+        let seen = script.seen();
+        let mut i = interp();
+        i.input = Box::new(script);
+        (i, seen)
+    }
+
+    fn shown(i: &Interp) -> Vec<String> {
+        i.snapshot().iter().map(|v| v.display()).collect()
+    }
+
+    /// **D112: the words ask the VM, so a test can answer.** Before the seam
+    /// every test of these words reached one arm, the end of input. This is
+    /// `input` with a line typed: the prompt it was given is the prompt
+    /// asked, and the line is pushed with its surrounding space trimmed
+    /// (`reference/Bund/src/stdlib/functions/io/input.rs:20-57`).
+    #[test]
+    fn input_pushes_the_line_it_is_given() {
+        let (mut i, seen) = typed(&["  hello world  "], &[]);
+        run(&mut i, "\"name? \" input").expect("runs");
+        assert_eq!(shown(&i), ["hello world"]);
+        assert_eq!(seen.borrow().prompts, ["name? "]);
+
+        // A prompt that is not a string is the default one (`:30-38`).
+        let (mut i, seen) = typed(&["x"], &[]);
+        run(&mut i, "42 input").expect("runs");
+        assert_eq!(seen.borrow().prompts, ["> "]);
+
+        // The end of input pushes nothing and is not an error.
+        let (mut i, _) = typed(&[], &[]);
+        run(&mut i, "\"> \" input").expect("runs");
+        assert!(shown(&i).is_empty());
+    }
+
+    /// `input*` runs its lambda on every line until the input ends, and asks
+    /// once more than it was answered.
+    #[test]
+    fn input_star_runs_its_lambda_on_each_line() {
+        let (mut i, seen) = typed(&["a", " b ", "c"], &[]);
+        run(&mut i, "\"> \" { string.upper } input*").expect("runs");
+        assert_eq!(shown(&i), ["A", "B", "C"]);
+        assert_eq!(seen.borrow().prompts.len(), 4);
+
+        // F108: what is not a lambda is refused only when a line arrives.
+        let (mut i, _) = typed(&[], &[]);
+        run(&mut i, "\"> \" 7 input*").expect("no line, no refusal");
+        let (mut i, _) = typed(&["a"], &[]);
+        let e = run(&mut i, "\"> \" 7 input*").expect_err("refused");
+        assert!(e.ends_with("INPUT* returned error from LAMBDA: This is not a lambda"), "{e}");
+    }
+
+    /// `password` pushes the secret, asked with the message it was given, and
+    /// with no terminal it is refused in its own words.
+    #[test]
+    fn password_pushes_the_secret_it_is_given() {
+        let (mut i, seen) = typed(&[], &["hunter2"]);
+        run(&mut i, "\"pw: \" password").expect("runs");
+        assert_eq!(shown(&i), ["hunter2"]);
+        assert_eq!(seen.borrow().prompts, ["pw: "]);
+
+        let mut i = interp();
+        let e = run(&mut i, "\"pw: \" password").expect_err("no terminal");
+        assert!(
+            e.ends_with("PASSWORD returns: there is no terminal to read a secret from"),
+            "{e}"
+        );
+    }
+
+    /// `debug.shell` evaluates each line against the live VM, remembers every
+    /// one — an empty one included — and goes on past a line that fails.
+    #[test]
+    fn the_debug_shell_evaluates_what_is_typed() {
+        let (mut i, seen) = typed(&["1 2 +", "nosuchword", "", "10 *"], &[]);
+        run(&mut i, "debug.shell").expect("runs");
+        assert_eq!(shown(&i), ["30"]);
+        let seen = seen.borrow();
+        let lines: Vec<&str> = seen.remembered.iter().map(|(_, l)| l.as_str()).collect();
+        assert_eq!(lines, ["1 2 +", "nosuchword", "", "10 *"]);
+        assert!(seen.remembered.iter().all(|(h, _)| h == "bund_debug_shell_history.txt"));
+    }
+
+    /// `debug` applies one value of its snippet at a time, and after each
+    /// evaluates lines until an empty one moves it on. The empty line is not
+    /// remembered.
+    #[test]
+    fn the_snippet_debugger_reads_between_values() {
+        // After `1`: push 5, then an empty line. After `2`: nothing more.
+        let (mut i, seen) = typed(&["5", ""], &[]);
+        run(&mut i, "\"1 2\" debug").expect("runs");
+        assert_eq!(shown(&i), ["1", "5", "2"]);
+        let seen = seen.borrow();
+        assert_eq!(
+            seen.remembered,
+            [("bund_debug_debugger_history.txt".to_string(), "5".to_string())]
+        );
+    }
+
+    /// **The default is no input**, which is what closes F158 by construction:
+    /// an interpreter nobody gave an input meets the end at once.
+    #[test]
+    fn an_interpreter_given_no_input_never_waits() {
+        let mut i = interp();
+        run(&mut i, "\"> \" input \"> \" { drop } input* debug.shell \"1\" debug").expect("runs");
+        assert_eq!(shown(&i), ["1"]);
+    }
+
     #[test]
     fn the_host_table_names_bund2_crates() {
         let t = super::hostinfo_table(false);
@@ -782,7 +945,7 @@ mod tests {
     /// that matters (F10).
     #[test]
     fn a_session_that_remembers_nothing_saves_nothing() {
-        let mut t = super::Terminal::open_with_history("never-written.txt").expect("opens");
+        let mut t = super::Session::open_with_history("never-written.txt").expect("opens");
         assert!(!t.dirty);
         t.save();
         assert!(!t.dirty, "nothing to save, nothing saved");

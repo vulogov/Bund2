@@ -3547,6 +3547,78 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D112 — the input seam: a word asks the VM for its line
+
+**Authorised by the repository owner, 2026-10-07**, on being shown four
+options: a minimal seam shaped by F165, a fix for F165 in the CLI alone, the
+full seam a TUI would want, or keeping D101's deferral.
+
+- Blocks: nothing
+- Depends on: D99, D101, D36, F158, F165, RFC-0008 §D8
+- Status: **RESOLVED**, built 2026-10-07. Amends RFC-0002.
+- **Ends D101's deferral.** Its trigger was a second implementor, and it
+  named F165 as one.
+
+### The decision
+
+`bund2-api` gains `Input` — a line, a line that is not echoed, and a note of
+which lines a history should keep — and `Vm` gains `read_line`,
+`remember_line` and `read_secret`. `input`, `input*`, `debug`, `debug.shell`
+and `password` ask the VM. An interpreter holds an input beside its reporter
+and starts with none. RFC-0002's amendment of this date is the design.
+
+### The three implementors
+
+| who | answers with | why |
+|---|---|---|
+| the CLI, a plain run | the terminal: `rustyline` and `yapp`, as before | nothing a user sees changes |
+| the CLI, under `--debugger` | no input: every read is the end | **F165** — see below |
+| a test | lines given in advance | the words' other arms can be reached |
+
+### F165 is closed, and how
+
+The debugger takes its commands from standard input and the reading words
+took their lines from the same stream, so a program that read input ate the
+session's commands and never finished. **A debugged program is now given no
+input of its own.** Its reads end at once, which is what a capture gives it,
+so stepping changes nothing about what it does.
+
+`stepping_agrees_with_an_uninterrupted_run_over_the_whole_suite` excluded the
+two suite programs that read input and said why. It excludes none now, and
+still finds the two from their source — to show they were stepped.
+
+**What this does not give: a way to type into a debugged program.** That needs
+a second channel, and which — a file named by a flag, a second descriptor, a
+session command that feeds a line — is a choice not made here. The seam is
+what any of them plugs into.
+
+### What changed that a reader might not expect
+
+- **The terminal moved from the words to the embedder.** `bund2-stdlib` still
+  holds the `rustyline` and `yapp` code, as `terminal::Terminal`, an `Input`;
+  the CLI installs it. D99's two helpers are still the only two reads and its
+  scan still says so. Its test-build stub is still there and is now the second
+  lock: the first is that an interpreter has no input until given one.
+- **One editor per history, kept for the program**, where each word used to
+  open its own. So recall carries from one `debug.shell` to the next.
+- **A history is written as each line is remembered**, where it was written
+  when the word returned. An editor that outlives the word has no such moment.
+- **A terminal that will not open is reported as `INPUT line returns: …`**,
+  where it was `INPUT returns: …`. One failure path where there were two.
+
+### What checks it
+
+Six unit tests type into the words through a scripted input: `input` with a
+line, with a prompt that is not a string, and at the end of input; `input*`
+over three lines and with a lambda that is not one (F108); `password` with a
+secret and with no terminal; `debug.shell` over four lines, one failing and
+one empty; `debug` reading between the values of its snippet; and an
+interpreter given no input running all of them without waiting.
+
+The terminal itself was tried by hand through a pseudo-terminal: `input`
+answered the line typed and `password` showed a dot a key and answered the
+secret. No test does that, and none did before.
+
 ## D111 — D24 applied to the words that take one value
 
 **Authorised by the repository owner, 2026-10-07**, on being shown four
@@ -4215,6 +4287,9 @@ to debug a program that reads input**, is the second implementor, and F165 is
 the specification of the minimum it must do. RFC-0008's `Console` is already
 half of this — an input abstraction for the session — and the amendment to
 RFC-0002 should be designed together with it rather than beside it.
+
+**Dated note, 2026-10-07 — the deferral is ended by D112.** The owner took the
+minimal seam, shaped by F165 as this entry said it should be.
 
 ## D100 — `unique` gets a comparator of its own, and one answer where the reference has several
 

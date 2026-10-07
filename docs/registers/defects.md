@@ -4714,6 +4714,13 @@ provides. Until then `stepping_agrees_with_an_uninterrupted_run_over_the_whole_s
 excludes programs that read input — derived from their source, compared
 against the two names, so the exclusion cannot grow unnoticed.
 
+**Dated note, 2026-10-07 — FIXED, by D112.** The reading words ask the VM for
+their line and a debugged program is given no input of its own, so its reads
+end at once and the session's commands reach the session. Both excluded
+programs step under `s`, `n` and `f` and agree with their plain runs; the test
+excludes nothing. Typing into a debugged program is still not possible and is
+D112's open point.
+
 ## F164 — `unique` does not reliably deduplicate floats, and its answer changes between runs
 
 **An original-implementation defect, measured 2026-10-06**, found while

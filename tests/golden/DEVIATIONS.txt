@@ -20,4 +20,5 @@ probes/execute-arm-not-executable.golden	F66	13928917372238819859
 probes/sysinfo-version.golden	D50	12578083496436402489
 probes/unique-words.golden	D107	5625742492813438506
 probes/valuemap-hash-eq.golden	F29	1124794954886992390
+probes/workbench-forms-added.golden	D111	18178945816375911089
 probes/workbench-variants.golden	D106	13016324304906355781

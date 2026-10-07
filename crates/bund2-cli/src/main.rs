@@ -817,6 +817,17 @@ fn run(src: &str, args: &Args) -> Option<i32> {
     let mut reporter = bund2_stdlib::report::TextReporter::new(args.dump_stack);
     reporter.raw_values = args.raw_values;
     vm.reporter = Box::new(reporter);
+    // **Where the program's lines come from — D112.** The terminal, except
+    // under `--debugger`: the session's own commands arrive on standard input,
+    // and a program reading the same stream took them as its lines (F165). A
+    // debugged program is given no input, which is what a capture gives it —
+    // every read is the end at once — so stepping a program that reads
+    // changes nothing about what it does.
+    vm.input = if args.debugger {
+        Box::new(bund2_api::input::NoInput)
+    } else {
+        Box::new(bund2_stdlib::terminal::Terminal::new())
+    };
     // **Attached after the reporter, before any evaluation.** The debuggee
     // renders its own answers through the same `Interp` the reporter is on, so
     // a session's text and its diagnostics come from one place.

@@ -29,6 +29,7 @@
 )]
 
 pub mod diag;
+pub mod input;
 
 use std::collections::HashMap;
 
@@ -597,6 +598,25 @@ pub trait Vm {
     /// the same thing on both sides of the seam.
     fn wants_stack(&self, _severity: diag::Severity) -> bool {
         false
+    }
+
+    // --- input (D112) -------------------------------------------------------
+    /// Read one line — **the hook a word listens through**, as [`Vm::report`]
+    /// is the one it speaks through. The implementation asks whatever
+    /// [`input::Input`] its embedder installed.
+    ///
+    /// **Defaulted to "there is no input"**, which is [`input::NoInput`]'s
+    /// answer: a `Vm` that does not write this never waits on a terminal.
+    fn read_line(&mut self, _ask: &input::Ask<'_>) -> Result<input::Read, String> {
+        Ok(input::Read::End)
+    }
+
+    /// Add a line to a named history. See [`input::Input::remember`].
+    fn remember_line(&mut self, _history: &str, _line: &str) {}
+
+    /// Read one line that is not echoed.
+    fn read_secret(&mut self, _prompt: &str) -> Result<String, String> {
+        Err("there is no terminal to read a secret from".to_string())
     }
 
     // --- contexts ----------------------------------------------------------

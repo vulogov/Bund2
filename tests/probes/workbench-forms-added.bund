@@ -1,0 +1,45 @@
+//
+// PROBE: the workbench forms Bund2 adds — D18, D24, D111.
+//
+// THE ORACLE HAS NONE OF THESE WORDS. Its capture of this file is a refusal
+// at the first of them, so this golden is a deviation by construction and is
+// recorded as one under D111. What it pins is Bund2's own answer: the hash
+// in DEVIATIONS.txt fails if any line below changes.
+//
+// Each line puts one operand on the workbench with `.`, runs the form, and
+// brings the answer back with `take` to print it. The stack is dumped by the
+// capture at the end and must be empty.
+
+"probe: one operand comes from the workbench and the answer goes back" println
+16.0 . math.sqrt. take println
+2.7 . math.floor. take println
+"hello big world" . string.upper. take println
+"hello big world" . string.camel. take println
+true . not. take println
+'{"a":1}' . json. take println
+
+"probe: a word that leaves its operand in place leaves it on the workbench" println
+[ 1 2 3 ] . len. take println take println
+5 . type.of. take println take println
+
+"probe: a container word takes its container from the workbench" println
+dict . "a" 1 set. "b" 2 set. "a" get. take println
+dict "k" 7 set . "k" ?key. take println take drop
+"" convert.to_textbuffer . "a" sp. "b" concat_with_space. take println
+5 . "k" "v" tag. take println
+'{"a":{"b":2}}' json . "$.a.b" json.path. take println
+
+"probe: any other word takes the operand its plain form has on top" println
+3 . 4 <. take println
+3 . 4 >. take println
+3 . 3 ==. take println
+3 . 3 ≠. take println
+true . false and. take println
+true . false or. take println
+2.0 . 10.0 math.power. take println
+1 . 2 pair. take type.of println drop
+0.0 . 4 1.0 seq.asc. take println
+
+"probe: the stack beneath is left alone" println
+7 16.0 . math.sqrt. take println println
+7 3 . 4 <. take println println
