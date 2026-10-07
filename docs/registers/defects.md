@@ -4018,6 +4018,61 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F176 — `drop_stacks` and `clear_stacks` edit a list nothing reads
+
+**An original-implementation defect, measured 2026-10-06**, found while
+implementing the last in-scope words a default build can bind.
+
+Both words edit `stacks_stack`, the deque that `VM::to_stack` pushes a name
+onto at every switch
+(`reference/rust_multistackvm/src/multistackvm_to_stack.rs:5-19`).
+`drop_stacks` pops one entry
+(`reference/rust_multistackvm/src/stdlib/stacks.rs:12-15`) and `clear_stacks`
+keeps only the last (`stacks.rs:5-10`,
+`reference/rust_multistackvm/src/multistackvm_stacks_stack.rs:29-42`).
+
+Nothing reads the deque back. The field is named in three files: its
+declaration (`reference/rust_multistackvm/src/multistackvm.rs:31`), its own
+accessors, and `endcontext` — which tests its length against a bound it
+cannot reach (`reference/rust_multistackvm/src/stdlib/ctx.rs:6`, F60) and
+discards what it pops (`ctx.rs:20`). The stack `endcontext` returns to is
+whatever `drop_stack` leaves current (`ctx.rs:18`); no name is taken from the
+deque to decide it. So the two words cannot change what a program computes.
+
+Measured, each against the same program without the word:
+
+| program | oracle, with and without |
+|---|---|
+| `1 2 ( 5 drop_stacks )` | `1 2` on `main`, `5` on the workbench |
+| `1 2 ( 5 ( 6 clear_stacks ) )` | `1 2` on `main` |
+| `1 2 @a 3 @b 4 clear_stacks endcontext endcontext` | `1 2` on `main` |
+| `1 2 drop_stacks clear_stacks` | `1 2` on `main` |
+
+`clear_stacks` also carries a refusal, `Error in clear_stacks()`
+(`stacks.rs:9`), which needs `pop_stacks` to answer `None` for a deque longer
+than one. It cannot (`multistackvm_stacks_stack.rs:10-16`), so the refusal is
+dead in the way F60's guard is.
+
+**Disposition: PRESERVE.** Bund2 registers both and both do nothing.
+
+The alternative was considered and is worse. Bund2 keeps a context record
+where the reference keeps this deque, and the record is read: it is how
+`endcontext` knows a context is open (F60) and which stack to go back to.
+Popping it from these words would give them an effect the reference's never
+had — `( 5 drop_stacks )` would fail at its closing bracket with `Context is
+empty`, where the oracle closes it normally. That is a deviation with no
+program asking for it.
+
+What the author meant the words for is not recorded anywhere this session
+read. `[UNGROUNDED]` if a later entry wants to say.
+
+**Also here:** `concat_with_space` and its alias `sp` are implemented, as the
+source reads and the oracle answers. `tests/probes/buffer-and-nesting-words.bund`
+runs all four. With them the in-scope words not implemented are five, and none
+of the five is work: `stdin`, `stdin.` and `fs.is_file.` are bound by no
+default build of the reference (F152), and `string.grok` and `string.grok.`
+are written and off by default (D10, D40).
+
 ## F175 — the coverage remainder could not reach zero, and nothing said so
 
 **A tooling defect, measured 2026-10-06.** `cargo xtask coverage` listed

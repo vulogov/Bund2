@@ -382,6 +382,35 @@ fn endcontext(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+// --- drop_stacks, clear_stacks ----------------------------------------------
+
+/// `drop_stacks` and `clear_stacks` — **registered, and without effect**
+/// (`reference/rust_multistackvm/src/stdlib/stacks.rs:5-20`).
+///
+/// Both edit `stacks_stack`, the deque `VM::to_stack` pushes a name onto at
+/// every switch (`reference/rust_multistackvm/src/multistackvm_to_stack.rs:5-19`):
+/// `drop_stacks` pops one entry and `clear_stacks` keeps only the last
+/// (`reference/rust_multistackvm/src/multistackvm_stacks_stack.rs:10-42`).
+/// **Nothing reads that deque back.** Its one reader is `endcontext`'s guard
+/// (`reference/rust_multistackvm/src/stdlib/ctx.rs:6`), which F60 records as
+/// unable to fire, and `endcontext` discards what it pops (`ctx.rs:20`). The
+/// stack `endcontext` returns to is chosen by `drop_stack`, not by a name
+/// taken from here. So neither word can change what a program computes, and
+/// the oracle agrees: a context closes the same with either word inside it.
+///
+/// Bund2 keeps the stack to return to *in* the context record, which is what
+/// lets F60's guard fire. Editing that record here would make these words do
+/// something the reference's never did — close a context early, or send
+/// `endcontext` back to the wrong stack — so they leave it alone. F176.
+///
+/// `clear_stacks` has a refusal, `Error in clear_stacks()` (`stacks.rs:9`),
+/// that needs `pop_stacks` to answer `None` on a deque longer than one
+/// (`multistackvm_stacks_stack.rs:30-39`). It cannot, so there is no arm to
+/// write.
+fn stacks_noop(_vm: &mut dyn Vm) -> Result<(), Error> {
+    Ok(())
+}
+
 pub fn register(r: &mut Registry) {
     r.register_native("?ifthenelse", q_ifthenelse, eff(0, 1), WordKind::Sync);
     r.register_native("?try", q_try, eff(0, 1), WordKind::Sync);
@@ -392,6 +421,8 @@ pub fn register(r: &mut Registry) {
     r.register_native("curry", curry_word, eff(1, 1), WordKind::Sync);
     r.register_native("raise", raise, eff(1, 0), WordKind::Sync);
     r.register_native("endcontext", endcontext, eff(0, 0), WordKind::Sync);
+    r.register_native("drop_stacks", stacks_noop, eff(0, 0), WordKind::Sync);
+    r.register_native("clear_stacks", stacks_noop, eff(0, 0), WordKind::Sync);
     r.register_alias("?", "conditional");
 
     // The conditional table. The reference fills this from two crates through
@@ -515,6 +546,22 @@ mod tests {
     fn a_bare_endcontext_refuses() {
         let e = err_of("111 222 333 endcontext");
         assert!(e.contains("Context is empty"), "{e}");
+    }
+
+    /// **F176.** `drop_stacks` and `clear_stacks` leave the open contexts
+    /// alone, so each still closes and still returns to where it opened.
+    #[test]
+    fn the_nesting_words_change_nothing() {
+        for word in ["drop_stacks", "clear_stacks"] {
+            let src = format!("1 ( 5 ( 6 {word} ) {word} ) {word}");
+            let i = run_src(&src).expect("runs");
+            assert_eq!(i.current_name(), "main", "{word}");
+            assert_eq!(i.context_depth(), 0, "{word}");
+            assert_eq!(i.peek().and_then(|v| v.as_int()), Some(1), "{word}");
+        }
+        // And a context they ran in is still open for `endcontext` to close.
+        let i = run_src("@a 3 drop_stacks clear_stacks endcontext").expect("runs");
+        assert_eq!(i.current_name(), "main");
     }
 
     /// **F57.** A failure inside a context leaves the interpreter where it

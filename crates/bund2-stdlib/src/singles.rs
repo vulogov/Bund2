@@ -1257,6 +1257,13 @@ pub fn register(r: &mut Registry) {
     r.register_command(";", autoadd_disable, eff(0, 0), WordKind::Sync);
 
     r.register_native("pair", pair, eff(2, 1), WordKind::Sync);
+    r.register_native(
+        "concat_with_space",
+        concat_with_space,
+        eff(2, 1),
+        WordKind::Sync,
+    );
+    r.register_alias("sp", "concat_with_space");
     // **F18's fourteen, declared at the probed arity.** Each guards `< 1` in
     // the reference and pulls two, so `1 head` there reports `NO DATA #2` on
     // an emptied stack; here the guard fires first and the operand survives.
@@ -1536,6 +1543,48 @@ fn do_wb(vm: &mut dyn Vm) -> Result<(), Error> {
     do_base(vm, crate::wb::Side::Bench, "do.")
 }
 
+/// `concat_with_space` and its alias `sp` — append a value to the TEXTBUFFER
+/// beneath it, with one space between
+/// (`reference/rust_multistackvm/src/stdlib/string/concat_with_space.rs:6-48`;
+/// the alias is `reference/rust_multistackvm/src/stdlib/create_aliases.rs:20`).
+///
+/// The top is converted to a STRING first (`:12`), so a list arrives as its
+/// printed form and whatever will not convert is refused before the buffer is
+/// touched. **The space is decided by the buffer and not by the value**
+/// (`:23-27`): nothing is put in front of the first piece, and an empty piece
+/// appended to a buffer that already holds text still brings its space, so
+/// `"t"` then `""` is `"t "`.
+///
+/// **A value beneath that is not a TEXTBUFFER is refused after both have been
+/// pulled** (`:20-31`), so that failure costs the two operands.
+fn concat_with_space(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 2 {
+        return Err(Error(
+            "Stack is too shallow for inline concat_with_space".into(),
+        ));
+    }
+    let value = crate::pull::operand(vm, "CONCAT_WITH_SPACE", 1)?;
+    let piece = crate::convert::conv_value(&value, bund2_value::STRING)
+        .map_err(|e| Error(format!("CONCAT_WITH_SPACE return error: {}", e.0)))?
+        .as_str()
+        .ok_or_else(|| {
+            Error("CONCAT_WITH_SPACE return error: This Dynamic type is not string".into())
+        })?;
+    let buffer = crate::pull::operand(vm, "CONCAT_WITH_SPACE", 2)?;
+    if buffer.dt() != bund2_value::TEXTBUFFER {
+        return Err(Error("No textbuffer was found on stack".into()));
+    }
+    let piece = if buffer.as_str().is_some_and(|s| s.is_empty()) {
+        piece
+    } else {
+        format!(" {piece}")
+    };
+    let joined = crate::math::numeric_op(crate::math::Op::Add, &buffer, &BundValue::str(piece))
+        .map_err(|e| Error(format!("CONCAT_WITH_SPACE return error: {}", e.0)))?;
+    vm.push(joined);
+    Ok(())
+}
+
 #[cfg(test)]
 mod f18_tests {
     use super::*;
@@ -1778,6 +1827,49 @@ mod f18_tests {
         }
         // A BOOL still runs the branch.
         let i = run("true { 7 } if").expect("runs");
+        assert_eq!(i.peek().and_then(|v| v.as_int()), Some(7));
+    }
+
+    /// **`concat_with_space`'s refusals**, which end the program and so sit
+    /// in no golden. Each was measured against the oracle by the line its
+    /// report names: the guard at `concat_with_space.rs:8`, the conversion at
+    /// `:15`, the buffer test at `:30`.
+    #[test]
+    fn concat_with_space_refuses_as_the_reference_does() {
+        for (src, want) in [
+            ("concat_with_space", "Stack is too shallow for inline concat_with_space"),
+            ("\"a\" sp", "Stack is too shallow for inline concat_with_space"),
+            ("\"x\" \"a\" sp", "No textbuffer was found on stack"),
+            ("5 \"a\" sp", "No textbuffer was found on stack"),
+            (
+                "\"\" convert.to_textbuffer 1.0 2.0 complex sp",
+                "CONCAT_WITH_SPACE return error: Can not convert Value from 15",
+            ),
+        ] {
+            match run(src) {
+                Ok(_) => panic!("{src} was expected to fail"),
+                Err(e) => assert!(e.ends_with(want), "{src}: {e}"),
+            }
+        }
+    }
+
+    /// What each refusal costs. A value that will not convert is gone and the
+    /// buffer stays; a missing buffer takes both operands with it.
+    #[test]
+    fn concat_with_space_leaves_what_the_reference_leaves() {
+        let mut i = Interp::new();
+        crate::register_all(&mut i.registry);
+        let src = "\"\" convert.to_textbuffer 1.0 2.0 complex sp";
+        let stream = bund2_syntax::compile(src).expect("compiles");
+        assert!(i.eval(&stream).is_err());
+        assert_eq!(i.depth(), 1, "the buffer stays");
+        assert_eq!(i.peek().map(|v| v.dt()), Some(bund2_value::TEXTBUFFER));
+
+        let mut i = Interp::new();
+        crate::register_all(&mut i.registry);
+        let stream = bund2_syntax::compile("7 \"x\" \"a\" sp").expect("compiles");
+        assert!(i.eval(&stream).is_err());
+        assert_eq!(i.depth(), 1, "both operands are gone");
         assert_eq!(i.peek().and_then(|v| v.as_int()), Some(7));
     }
 

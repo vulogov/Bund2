@@ -1,0 +1,38 @@
+//
+// PROBE: concat_with_space, its alias sp, drop_stacks and clear_stacks.
+//
+// The last four in-scope words a default build could bind and did not.
+// F176 says why the two nesting words have nothing to show.
+
+"probe: concat_with_space appends to the textbuffer beneath, a space between" println
+"" convert.to_textbuffer "a" concat_with_space "b" concat_with_space println
+
+"probe: sp is concat_with_space" println
+"" convert.to_textbuffer "a" sp "b" sp println
+
+"probe: the first piece brings no space" println
+"" convert.to_textbuffer "only" sp len println println
+
+"probe: an empty piece still brings its space" println
+"t" convert.to_textbuffer "" sp len println println
+
+"probe: the piece is converted to a string first" println
+"" convert.to_textbuffer 42 sp 1.5 sp true sp :ptr sp nodata sp println
+"" convert.to_textbuffer [ 1 2 ] sp println
+"" convert.to_textbuffer dict sp println
+"" convert.to_textbuffer '{"a":1}' json sp println
+
+"probe: a textbuffer appended to a textbuffer stays one" println
+"x" convert.to_textbuffer "y" convert.to_textbuffer sp type.of println println
+
+"probe: drop_stacks inside a context changes nothing about how it closes" println
+1 2 ( 5 drop_stacks ) take println current println
+
+"probe: nor does clear_stacks, two contexts deep" println
+( 5 ( 6 clear_stacks ) ) take println take println current println
+
+"probe: after @name, drop_stacks leaves endcontext a context to close" println
+@a 3 drop_stacks endcontext take println current println
+
+"probe: with no context open both are silent" println
+drop_stacks clear_stacks current println

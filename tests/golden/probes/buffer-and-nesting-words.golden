@@ -1,0 +1,46 @@
+# golden for tests/probes/buffer-and-nesting-words.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: concat_with_space appends to the textbuffer beneath, a space between
+a b
+probe: sp is concat_with_space
+a b
+probe: the first piece brings no space
+4
+only
+probe: an empty piece still brings its space
+2
+t 
+probe: the piece is converted to a string first
+42 1.5 true ptr NODATA
+[ 1 ::  2 :: ]
+{}
+{"a":1}
+probe: a textbuffer appended to a textbuffer stays one
+22
+x y
+probe: drop_stacks inside a context changes nothing about how it closes
+5
+main
+probe: nor does clear_stacks, two contexts deep
+5
+6
+main
+probe: after @name, drop_stacks leaves endcontext a context to close
+3
+main
+probe: with no context open both are silent
+main
+╭───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Value { id: "<id>", stamp: <stamp>, dt: 2, q: 100.0, data: I64(1), attr: [], curr: -1, tags: {"stack": "main"} } │
+├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ Value { id: "<id>", stamp: <stamp>, dt: 2, q: 100.0, data: I64(2), attr: [], curr: -1, tags: {"stack": "main"} } │
+╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭╮
+╰╯
+╭╮
+╰╯
