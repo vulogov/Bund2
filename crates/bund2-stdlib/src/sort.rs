@@ -47,42 +47,61 @@ fn eff(consumes: u8, produces: u8) -> StackEffect {
     StackEffect::fixed(consumes, produces)
 }
 
-/// `PartialOrd::gt` for `Value` (`reference/rust_dynamic/src/ord.rs:87-124`).
+/// How two values of one kind order, or `None` when `sort` has no order for
+/// the pair.
 ///
-/// **Three payload arms, and that is the whole comparator: `I64`, `F64` and
-/// `Time`** (`:89,97,105`). Everything else — including **strings** — falls to
-/// `_ => return true` (`:121`), as does every cross-arm pair (`:94,102,110`).
+/// **Integers, floats and times are the reference's**: `PartialOrd::gt` and
+/// `le` have exactly those three payload arms
+/// (`reference/rust_dynamic/src/ord.rs:89,97,105` and `:50,58,66`).
 ///
-/// A first version of this function added a string comparison, on the
-/// reasonable-looking assumption that `sort` orders strings. It does not:
-/// sorting eleven fruit names against the oracle returns
-/// `lemon kiwi grape mango cherry …`, not alphabetical order, because both
-/// `a > b` and `a <= b` are true for every pair and the result is whatever the
-/// partition's swaps leave behind. Nine other cases — integers, floats, heavy
-/// ties — matched with the string arm present; only strings exposed it.
+/// **Strings are D106, and a deviation.** The reference's two operators have
+/// no string arm, so every string is both greater than and not greater than
+/// every other and `sort` returned a fixed shuffle of its input — eleven
+/// fruit names came back `lemon kiwi grape mango cherry …`. Its own `cmp`
+/// does compare strings (`:186-191`); the sort never reaches it. Bund2 orders
+/// two strings by code point, which is what that `cmp` does and what Rust's
+/// `str` ordering is for UTF-8. Like that arm, this asks about the payload
+/// and not the tag, so pointers and text buffers order among themselves and
+/// with strings.
 ///
-/// `Ord::cmp` *does* compare strings (`:186-191`), which is why the mistake is
-/// easy: the type has two orderings and only one of them is the sort's.
-///
-/// The `Time` arm is omitted because Bund2 has the tag but no constructor for
-/// it, so no `Time` value can reach here; a `TIME` value would take the `_`
-/// arm, which is where every unconstructible tag already goes.
-fn gt(a: &BundValue, b: &BundValue) -> bool {
+/// The time arm was missing while Bund2 had the tag and no way to make one.
+/// D103 made them, and a list of times then came back unsorted where the
+/// oracle orders it.
+fn order(a: &BundValue, b: &BundValue) -> Option<std::cmp::Ordering> {
     use BundValue::{Float, Int};
     match (a.unboxed(), b.unboxed()) {
-        (Int(x, _), Int(y, _)) => x > y,
-        (Float(x, _), Float(y, _)) => x > y,
-        _ => true,
+        (Int(x, _), Int(y, _)) => Some(x.cmp(y)),
+        (Float(x, _), Float(y, _)) => x.partial_cmp(y),
+        (x, y) => match (x.as_time(), y.as_time()) {
+            (Some(s), Some(t)) => Some(s.cmp(&t)),
+            _ => match (x.str_ref(), y.str_ref()) {
+                (Some(s), Some(t)) => Some(s.cmp(t)),
+                _ => None,
+            },
+        },
     }
 }
 
-/// `PartialOrd::le` (`ord.rs:48-85`), same three arms and the same fallback.
+/// `PartialOrd::gt` for `Value` (`reference/rust_dynamic/src/ord.rs:87-124`).
+///
+/// **Any pair without an order answers `true`** — the reference's
+/// `_ => return true` (`:94,102,110,121`), which every cross-kind pair
+/// reaches. Two NaNs reach it as well: `f64`'s own `>` says `false` there,
+/// and that is kept.
+fn gt(a: &BundValue, b: &BundValue) -> bool {
+    use BundValue::Float;
+    match order(a, b) {
+        Some(o) => o == std::cmp::Ordering::Greater,
+        None => !matches!((a.unboxed(), b.unboxed()), (Float(..), Float(..))),
+    }
+}
+
+/// `PartialOrd::le` (`ord.rs:48-85`), the same arms and the same fallback.
 fn le(a: &BundValue, b: &BundValue) -> bool {
-    use BundValue::{Float, Int};
-    match (a.unboxed(), b.unboxed()) {
-        (Int(x, _), Int(y, _)) => x <= y,
-        (Float(x, _), Float(y, _)) => x <= y,
-        _ => true,
+    use BundValue::Float;
+    match order(a, b) {
+        Some(o) => o != std::cmp::Ordering::Greater,
+        None => !matches!((a.unboxed(), b.unboxed()), (Float(..), Float(..))),
     }
 }
 
@@ -569,6 +588,71 @@ mod tests {
     fn sorts_more_than_the_threshold() {
         let src = "[ 9 3 7 1 8 2 6 0 5 4 11 10 ] sort";
         assert_eq!(sorted_ints(src), (0..=11).collect::<Vec<i64>>());
+    }
+
+    fn sorted_text(src: &str) -> Vec<String> {
+        let i = run_src(src).expect("runs");
+        let top = i.peek().expect("a list");
+        top.as_list()
+            .expect("a list")
+            .iter()
+            .map(|v| v.as_str().expect("text"))
+            .collect()
+    }
+
+    /// **D106.** Strings sort by code point, under the insertion-sort
+    /// threshold and over it. The reference returns a fixed shuffle for both
+    /// — `[ c a b ]` for the first — so no golden can hold this.
+    #[test]
+    fn strings_sort_by_code_point() {
+        assert_eq!(sorted_text("[ \"b\" \"a\" \"c\" ] sort"), ["a", "b", "c"]);
+        assert_eq!(
+            sorted_text(
+                "[ \"pear\" \"apple\" \"fig\" \"kiwi\" \"lemon\" \"grape\" \"mango\" \
+                 \"cherry\" \"plum\" \"lime\" \"date\" \"peach\" \"melon\" ] sort"
+            ),
+            [
+                "apple", "cherry", "date", "fig", "grape", "kiwi", "lemon", "lime", "mango",
+                "melon", "peach", "pear", "plum"
+            ]
+        );
+    }
+
+    /// Code point order is not an alphabet, and the test says which it is:
+    /// the empty string first, digits as text, capitals before small letters,
+    /// an accented letter after `z`.
+    #[test]
+    fn code_point_order_is_not_a_dictionary_s() {
+        assert_eq!(
+            sorted_text("[ \"b\" \"B\" \"a\" \"é\" \"z\" \"10\" \"9\" \"\" \"ab\" ] sort"),
+            ["", "10", "9", "B", "a", "ab", "b", "z", "é"]
+        );
+    }
+
+    /// The order is the payload's, as the reference's `cmp` arm is, so
+    /// pointers sort among themselves and with strings.
+    #[test]
+    fn pointers_sort_as_the_text_they_hold() {
+        assert_eq!(sorted_text("[ :b :a \"c\" :d ] sort"), ["a", "b", "c", "d"]);
+    }
+
+    /// **Times sort by value, as the oracle's do** — measured: 5 1 9 3 7
+    /// comes back 1 3 5 7 9. The arm was missing from before D103.
+    #[test]
+    fn times_sort_by_value() {
+        let i = run_src(
+            "[ 0 ] 5 time.timestamp + 1 time.timestamp + 9 time.timestamp + \
+             3 time.timestamp + 7 time.timestamp + cdr sort",
+        )
+        .expect("runs");
+        let top = i.peek().expect("a list");
+        let got: Vec<u128> = top
+            .as_list()
+            .expect("a list")
+            .iter()
+            .map(|v| v.as_time().expect("a time"))
+            .collect();
+        assert_eq!(got, [1, 3, 5, 7, 9]);
     }
 
     /// Under the threshold, so insertion sort runs instead.

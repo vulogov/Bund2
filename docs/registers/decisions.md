@@ -3547,6 +3547,77 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D106 — `sort` orders strings, by code point
+
+**Authorised by the repository owner, 2026-10-06**, on being shown three
+options: code point order, a language's collation, or leaving it. The owner
+stated the intent first — a list of strings is to sort by its alphabet — and
+took code point order.
+
+- Blocks: nothing
+- Depends on: D38 (the transcribed quicksort), F12, F74, F175
+- Status: **RESOLVED**, built 2026-10-06.
+
+### What the reference does
+
+`sort` is `algos`' quicksort
+(`reference/Bund/src/stdlib/functions/values/sort_lists.rs:36`), which compares
+with `>` and `<=`. `Value` overrides both, and each has arms for integers,
+floats and times and answers `true` for everything else
+(`reference/rust_dynamic/src/ord.rs:48-85`, `:87-124`). Every string is
+therefore greater than every other and also not, and the result is whatever
+the partition's swaps leave: `[ "b" "a" "c" ]` sorts to `[ c a b ]`, and
+thirteen fruit names to `plum cherry peach lime lemon kiwi fig apple date
+grape melon mango pear`. The same every run — it is a shuffle, not chance.
+
+The reference does have a string ordering. `Ord::cmp` compares two strings by
+value (`ord.rs:186-191`). The sort does not call it.
+
+No register entry recorded an intent for this. F74 says in passing that `sort`
+is not alphabetical; D38 transcribed the sort to match the oracle's order,
+strings included. It was preserved because it matched, not because anyone
+chose it.
+
+### The decision
+
+**Two values that both hold text order by code point.** That is the
+reference's own `cmp` arm, reached. It asks about the payload and not the tag,
+as that arm does, so pointers and text buffers order among themselves and with
+strings. Nothing else about the sort changes: same quicksort, same threshold,
+same instability among equals.
+
+Code point order is not a dictionary's, and this entry does not claim it is:
+the empty string first, `"10"` before `"9"`, capitals before small letters,
+an accented letter after `z`. Collation by a language was the other option
+and was not taken; it would need a collation library and a ruling on where the
+language comes from.
+
+### What it does not settle
+
+- **A list of mixed kinds still has no order.** A string against a number
+  answers `true` both ways, as before. The output for such a list does move —
+  `[ "b" 2 "a" 1.5 1 "c" 0.5 ]` was `0.5 c 1 1.5 a 2 b` and is now
+  `0.5 1 1.5 a 2 b c` — because its strings now order among themselves, and
+  neither answer means anything.
+- **`unique` is untouched.** It asks whether a list is already ascending with
+  the same `<=`, and for strings still hears yes (F149). Whether it should
+  follow is a separate question, because there the answer decides a refusal.
+
+### What it costs
+
+One golden. `tests/probes/workbench-variants.bund` sorts `[ "c" "a" "b" ]` on
+the workbench and the oracle prints `[ b a c ]`; Bund2 now prints `[ a b c ]`.
+That is this deviation and needs `--accept workbench-variants --reason D106`.
+Conformance reads 134/144 until it is accepted and 134/144 against a ceiling
+of 134 after.
+
+### Found on the way: times did not sort
+
+The time arm was left out of Bund2's comparator when Bund2 had the tag and no
+way to make a value of it. D103 made them and the comparator was not revisited,
+so a list of times came back unsorted where the oracle orders it — measured:
+5 1 9 3 7 is `1 3 5 7 9` there. A Bund2 defect, fixed here; no golden held it.
+
 ## D105 — error wording: match what shared code decides, record the rest
 
 **Authorised by the repository owner, 2026-10-06**, on being shown three

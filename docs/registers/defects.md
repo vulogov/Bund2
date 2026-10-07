@@ -4118,6 +4118,30 @@ way twice in the oracle**, which is why the stemmer's output is pinned by its
 length. That is `Value`'s ordering falling back to ids for anything but
 numbers (F47's neighbour); not investigated further here.
 
+**Dated note, 2026-10-06 — investigated, and the paragraph above is wrong on
+both counts.** `sort` on strings is the same on every run, and it reads no id.
+
+Twelve runs of the oracle on a list of thirteen fruit names, on `[ "b" "a"
+"c" ]`, and on a list mixing strings, integers and floats gave one output
+each. Twelve runs of `"…" string.tokenize.stemmed sort` gave twelve — and so
+did twelve runs of the same line without `sort`.
+
+So the instability is the tokenizer's, and it is F74, already recorded: the
+stemmed and unique forms iterate a `HashSet`
+(`reference/Bund/src/stdlib/functions/string/tokenize.rs:49-65`). `sort` then
+leaves strings unordered for a reason that has nothing to do with chance: the
+quicksort compares with `>`, and `gt` has arms for integers, floats and times
+only, answering `true` for anything else
+(`reference/rust_dynamic/src/ord.rs:87-124`). Every string is greater than
+every other, so the result is a fixed shuffle of the input — `[ "b" "a" "c" ]`
+sorts to `[ c a b ]`, every time — and an input that arrives in a different
+order each run leaves in one. F74 says as much in its own last sentence.
+
+The id fallback this note blamed is `Ord::cmp`'s (F12), which `sort` never
+calls. Bund2 answers all three lists as the oracle does, and varies exactly
+where it varies. **No defect and nothing to change;** the probe pins the
+stemmer by its length for F74's reason, which is the right one.
+
 ## F174 — the looping words, measured: no wrong answers
 
 **Measured 2026-10-06.** `times`, `loop`, `*loop`, `while`, `for`, `do` and

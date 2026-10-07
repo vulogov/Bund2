@@ -867,6 +867,19 @@ impl BundValue {
         BundValue::Heap(Rc::new(HeapValue::new(dt, p)))
     }
 
+    /// The text this holds, borrowed. `as_str` for a caller that compares and
+    /// keeps nothing, so asking does not allocate.
+    pub fn str_ref(&self) -> Option<&str> {
+        match self {
+            BundValue::Heap(h) => match &*h.payload {
+                Payload::Str(s) => Some(s.as_str()),
+                Payload::Scalar(inner) => inner.str_ref(),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     /// The string a `Str` payload holds, if this is one.
     ///
     /// Any `dt` — `STRING`, `PTR`, `CALL`, `TEXTBUFFER` all carry `Str`, and
