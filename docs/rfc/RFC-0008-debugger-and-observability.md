@@ -247,6 +247,11 @@ Research §3.3(c), unchanged:
   (`crates/bund2-interp/src/lib.rs`, `request_exit`). So a breakpoint condition
   that calls `bund.exit` ends the debugged program and **nothing can clear it**.
   A child VM is not a refinement here; it is the requirement.
+  *(Note, 2026-10-08 — F180.* The child was built with default host options,
+  so a condition ran under neither `--noio` nor `--noeval` whatever the
+  program was run under. It is now built with the program's restrictions:
+  a child isolates the program from the condition, and it is no freer than
+  the program. Found by RFC-0006's eighth review, S3.*)*
 
 **A condition that fails is not a stop**, and with a child VM that is
 achievable: a lambda that errors, exits, or leaves no value is reported and

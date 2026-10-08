@@ -967,6 +967,29 @@ fn a_bundles_debugger_words_do_nothing() {
     assert_eq!(String::from_utf8_lossy(&r.stderr), "");
 }
 
+/// **A bundle's breakpoint condition is never evaluated — D115, and D78's
+/// floor rests on it.** A condition is a string of Bund run in a child VM.
+/// D115 was ruled so a shipped program does not wait at a prompt; it is also
+/// why `debug.break.if` in a bundle evaluates nothing, and this holds that
+/// property by name, so relaxing D115 for one word cannot open the route
+/// unnoticed.
+#[test]
+fn a_bundles_breakpoint_condition_is_never_evaluated() {
+    let exe = build(
+        ":w { 1 drop } register\n\"w\" \"4242 println true\" debug.break.if\n\
+         w \"after\" println\n",
+        "inert-condition",
+        &["--noio", "--noeval"],
+    );
+    let r = Command::new(&exe)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("the artefact runs");
+    assert_eq!(String::from_utf8_lossy(&r.stdout), "after\n");
+    assert_eq!(String::from_utf8_lossy(&r.stderr), "");
+    let _ = std::fs::remove_file(&exe);
+}
+
 /// `wait_with_output`, with the child's standard input kept open until the
 /// child has ended.
 trait KeepInput {

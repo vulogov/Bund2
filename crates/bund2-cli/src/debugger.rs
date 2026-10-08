@@ -151,8 +151,30 @@ fn parse(line: &str) -> Result<Command, String> {
 /// stack, is not a stop — §D3 says a condition that "leaves no value" does not
 /// stop, and guessing a truthiness for a LIST would be inventing a rule the
 /// reference does not have.
+/// The restrictions the debugged program runs under, for the child VM a
+/// condition is evaluated in.
+///
+/// **A condition is a string of Bund, and it ran with neither restriction —
+/// F180.** The child was built with default options, so under
+/// `bund2 script --noio --noeval` a `debug.break.if` condition read the
+/// working directory and reached `bund.eval`. A child that is freer than its
+/// parent is a way round both flags, in the one place D78 says there is none.
+///
+/// Process-wide because the console is made by a plain function
+/// (`Interp::console_factory`), which can carry nothing; one process runs one
+/// program, so there is one answer.
+static RESTRICTIONS: std::sync::OnceLock<bund2_stdlib::host::HostOptions> =
+    std::sync::OnceLock::new();
+
+/// Records the program's host options before any console can exist. The first
+/// call wins: a restriction, once recorded, is not replaced.
+pub fn restrict(opts: bund2_stdlib::host::HostOptions) {
+    let _ = RESTRICTIONS.set(opts);
+}
+
 fn evaluate_in_child(source: &str, operands: &[BundValue]) -> Result<bool, String> {
-    let mut child = bund2_runtime::Runtime::new();
+    let opts = RESTRICTIONS.get().copied().unwrap_or_default();
+    let mut child = bund2_runtime::Runtime::with_options(&opts);
     for v in operands {
         child.interp.push(v.clone());
     }

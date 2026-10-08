@@ -256,7 +256,7 @@ struct Args {
     /// compilation — §S7's knob, and what RFC-0005 criterion 2's third run
     /// needs (F125).
     ///
-    /// `None` falls back to `BUND2_JIT_THRESHOLD`, then to §S7's default of 64.
+    /// `None` falls back to `BUND2_JIT_THRESHOLD`, then to D74's default of 1024.
     /// The flag wins over the environment because it is the more specific
     /// statement: a command line is about *this* run.
     ///
@@ -976,6 +976,10 @@ fn run(src: &str, args: &Args) -> Option<i32> {
     // **Attached after the reporter, before any evaluation.** The debuggee
     // renders its own answers through the same `Interp` the reporter is on, so
     // a session's text and its diagnostics come from one place.
+    // **Before either console can exist — F180.** A breakpoint's condition is
+    // evaluated in a child VM, and it is given these so it is no freer than
+    // the program that armed it.
+    debugger::restrict(args.host);
     if args.debugger {
         vm.attach_debugger(Box::new(debugger::Stdio::new()));
     } else if args.carried {

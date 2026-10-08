@@ -3558,6 +3558,45 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D122 — `--noeval` does not gate `debug`; it is named
+
+**Raised 2026-10-08** by RFC-0006's eighth review (B1). The reference's
+`debug` pulls a STRING, parses it and applies each word of it before it reads
+any line
+(`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:127-135`,
+`:52-53`, `:75`), and is registered with no gate (`:155`). Measured on a
+bundle built `--noeval --noio`, standard input closed, whose program is
+`"40 2 + println" debug`: it prints `42`. The review ran the same program on
+the oracle under both flags, with the same answer. RFC-0006 §B3a, D115, D120
+and D121 had described the word as one that reads lines.
+
+- Blocks: nothing
+- Depends on: D78, D79, D120, D121, RFC-0006 §B3a
+- Status: **RESOLVED** by the repository owner, 2026-10-08: "leave `debug`
+  and name it".
+
+### The ruling
+
+`debug` stays as the reference has it under `--noeval`: its operand is
+evaluated. No stub, no deviation, no golden moves. D78 requires the route to
+be named, and RFC-0006 §B3a names it as what it is: a string a program holds,
+run with nobody at the keyboard, beside `compile lambda! !` and, under
+`--noeval` alone, `bootstrap`.
+
+### What was not chosen
+
+Gating it — the whole word or its evaluating half. That is a deviation from
+the reference, as D119 was, and it would not make the flag mean "evaluates
+nothing" while `compile lambda! !` stands, which D79 already rules is the
+flag's boundary.
+
+### What this leaves
+
+`--noeval` stubs the reference's six words and Bund2's two (D120, D121). The
+reference's words outside the group keep the reference's behaviour. D121's
+premise is narrower than it reads — its dated note says so — and D121
+stands.
+
 ## D121 — `--noeval` gates `debug.feed`
 
 **Raised 2026-10-08** by RFC-0006's seventh review (B1), beside D120, and
@@ -3603,6 +3642,19 @@ flag is a word-group switch and not a claim that nothing is evaluated (D78).
 `noeval_reaches_debug_feed` holds the stub
 (`crates/bund2-stdlib/src/host.rs`), and
 `both_floors_hold_for_every_word_they_name` holds it in a bundle.
+
+**Note, 2026-10-08 (RFC-0006's eighth review, B1).** "`debug` and
+`debug.shell` … read lines and run them" describes `debug.shell`. `debug`
+also takes a STRING operand, parses it and applies each word of it before it
+reads any line
+(`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:127-135`,
+`:52-53`, `:75`), so `"40 2 + println" debug` prints `42` in a bundle built
+`--noeval --noio` with standard input closed, as on the oracle. So the premise here, that
+`debug.feed` before `debug.shell` is what "removes the person", holds for
+`debug.shell` only: the reference's own word runs a held string unattended.
+This decision still closes the route it names. Whether `--noeval` gates
+`debug`'s operand is a separate question and is not ruled. *(Ruled the same
+day — D122: left as the reference has it, and named.)*
 
 ## D120 — `--noeval` gates `debug.run`
 
@@ -3668,6 +3720,16 @@ under `--noeval`, and RFC-0006 §B3a names each:
 (`crates/bund2-stdlib/src/host.rs`), and
 `both_floors_hold_for_every_word_they_name` holds it in a bundle against
 `BUND2_NOEVAL` set to `0` and to empty.
+
+**Note, 2026-10-08 (RFC-0006's eighth review, B1).** "`debug` and
+`debug.shell` … read lines and run them" describes `debug.shell`. `debug`
+also takes a STRING operand, parses it and applies each word of it before it
+reads any line
+(`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:127-135`,
+`:52-53`, `:75`), so `"40 2 + println" debug` prints `42` in a bundle built
+`--noeval --noio` with standard input closed, as on the oracle. This decision is unchanged by
+it; the description of `debug` in its list of what stays ungated is short by
+the operand.
 
 ## D119 — `--noio` gates `csv` and `sqlite`
 
@@ -3925,6 +3987,19 @@ input that is kept open.
 **Note, 2026-10-08 (D120).** "`debug.run` runs its string and offers no stop"
 holds without `--noeval`. Under the flag — built in, or added by
 `BUND2_NOEVAL` — it is a stub, in a bundle and in a `script` run alike.
+
+**Note, 2026-10-08 (RFC-0006's eighth review, B1).** "`debug` and
+`debug.shell` … read lines and run them" describes `debug.shell`. `debug`
+also takes a STRING operand, parses it and applies each word of it before it
+reads any line
+(`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:127-135`,
+`:52-53`, `:75`), so `"40 2 + println" debug` prints `42` in a bundle built
+`--noeval --noio` with standard input closed, as on the oracle. This decision is unchanged:
+`debug` attaches no console. **It also carries a property it was not ruled
+for.** A breakpoint's condition runs in a child VM, which until F180 was
+built with neither restriction, and a bundle was spared only because this
+decision makes the arming words do nothing.
+`a_bundles_breakpoint_condition_is_never_evaluated` now holds that by name.
 
 ## D114 — `send` refuses a value nested past the wire format's bound
 
@@ -6748,6 +6823,11 @@ no gate), `debug.shell` writes a history file, `input`, `input*`, `password` and
 `sysinfo.*` words disclose the host. RFC-0006 §B3a carries both lists by name.
 The ruling — a floor, and not a sandbox — is unchanged, and is the stronger
 for it.
+
+**Note, 2026-10-08 (RFC-0006's eighth review, S10).** "`--stats`,
+`--dump-stack` and `--raw-values`" above: the flag that a bundle's
+environment channel carries is `--no-dump-stack`, the dump being on by
+default (D36). RFC-0006 §B3 has the name right.
 
 ## D77 — a bundle embeds source text, and the encoded container is closed
 

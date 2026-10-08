@@ -400,6 +400,35 @@ fn a_word_arms_a_conditional_breakpoint() {
     assert_eq!(out, "end\n");
 }
 
+/// **A condition runs under the program's restrictions — F180.** It is
+/// evaluated in a child VM, which was built with default options: under
+/// `--noio --noeval` this condition printed the working directory and reached
+/// `bund.eval`. Each flag is tried alone, so neither can stand in for the
+/// other.
+#[test]
+fn a_condition_is_no_freer_than_the_program_that_armed_it() {
+    for (flag, cond, refusal) in [
+        ("--noio", "fs.cwd println true", "disabled with --noio"),
+        ("--noeval", ":q bund.eval true", "disabled with --noeval"),
+    ] {
+        let path = scratch("restricted");
+        let src = format!(
+            ":w {{ 1 drop }} register\n\"w\" \"{cond}\" debug.break.if\nw\n\"end\" println\n"
+        );
+        std::fs::write(&path, src).expect("script");
+        let out = Command::new(env!("CARGO_BIN_EXE_bund2"))
+            .args(["script", flag, "--file"])
+            .arg(&path)
+            .stdin(Stdio::null())
+            .output()
+            .expect("bund2 runs");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(stdout, "end\n", "{flag}: the condition printed nothing\n{stderr}");
+        assert!(stderr.contains(refusal), "{flag}: and was refused by the stub:\n{stderr}");
+    }
+}
+
 /// **W8, D113.6: a breakpoint armed while a tier is installed still fires.**
 /// `w` is called until it is compiled, then armed. Offered to the tier first,
 /// as every body is, a compiled `w` would run whole before the breakpoint

@@ -4033,6 +4033,39 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F180 — a breakpoint's condition ran under neither `--noio` nor `--noeval`
+
+**A Bund2 defect, found 2026-10-08** by RFC-0006's eighth review (S3). The
+reference has no conditional breakpoint, so nothing of its is involved.
+
+`debug.break.if` and the console's `break <word> if <lambda>` hand a
+condition, a string of Bund, to a child VM, so that evaluating it cannot
+disturb the debugged program (RFC-0008 §D3, D113). The child was built by
+`Runtime::new()`, which is `with_options(&HostOptions::default())`: neither
+restriction, whatever the program was run under.
+
+Measured before the fix, `bund2 script --noio --noeval`, standard input
+closed, no `--debugger`:
+
+    :w { 1 drop } register
+    "w" "fs.cwd println :q bund.eval true" debug.break.if
+    w "after" println
+
+printed the working directory — `fs.cwd` under `--noio` — and then
+`the condition did not stop: … q not registered`, which is `bund.eval`
+having evaluated `q` under `--noeval`.
+
+**A bundle was not affected, and only by D115**: the arming words do nothing
+there, so no condition is evaluated. D115 was not ruled for that, and no test
+held it.
+
+**Disposition: FIX.** `crates/bund2-cli/src/debugger.rs`: the CLI records the
+program's host options before a console can exist (`restrict`), and
+`evaluate_in_child` builds the child with them.
+`a_condition_is_no_freer_than_the_program_that_armed_it` tries each flag
+alone; `a_bundles_breakpoint_condition_is_never_evaluated` holds the bundle's
+half. No golden moves: no capture arms a conditional breakpoint under a flag.
+
 ## F179 — a reader that leaves early aborts the reference, and aborted Bund2
 
 **Both implementations, found 2026-10-08.** `bund2 words | head -1` ended in a
