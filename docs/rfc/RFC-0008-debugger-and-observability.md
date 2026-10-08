@@ -1363,3 +1363,64 @@ both the same way (D112), and the console reads through it.
 
 **No test in the suite holds a terminal.** It would need a pseudo-terminal
 dependency; the claims above are a measurement and not a criterion.
+
+### A breakpoint on a native, and on an alias — Q41's second half, closed
+
+**Built 2026-10-07, on the owner's instruction.** §D3 breaks "when a frame
+for that symbol is pushed". Two kinds of word were armed and never reached:
+
+- **A native pushes no frame.** `break input` listed a breakpoint nothing hit.
+- **An alias is called under another name.** A frame and a native are both
+  known by the word the alias resolves to, so `break dup` — `dup` is an alias
+  — armed a name nothing is ever called under. The same held for an alias of
+  a lambda.
+
+Both stop now. **The stop is before the word runs**: for a native, where it
+is about to be called, with its operands still on the stack — which is what a
+condition is shown, and what `st` shows. A line fed there with `debug.feed`
+is the line an `input` reads; that was the case the gap was found on.
+
+| armed | called as | stops |
+|---|---|---|
+| a native's own name | that name, or any alias of it | once |
+| an alias | the alias | once |
+| an alias | the word's own name | not at all |
+| an alias and the word it resolves to | the alias | twice, once under each name |
+
+The stop is named by what was armed: `breakpoint: dup`, not the word `dup`
+resolves to.
+
+**What stays as it was.** A word in a line typed at a stop is not a stop.
+A line that exits at a native's stop keeps the native from running. The cost
+with nothing attached is one branch at each native call, as it is at each
+frame push. Under a tier, arming has already turned the tier off (D113.6), so
+no native is called from compiled code past a breakpoint.
+
+Checked at process level: `input` stopped and fed at its own stop; `dup` and
+`ensure_stack` armed together; an alias of a lambda; a condition on
+`println`; an exit typed at the stop; a typed line that calls the armed word.
+
+### A terminal in the suite
+
+**Built 2026-10-07, on the owner's instruction.** "No test in the suite holds
+a terminal" above is no longer so. `crates/bund2-cli/tests/terminal.rs` opens
+a pseudo-terminal and types, on Unix:
+
+- a console attached by `debug.step`: the prompt answers, the up arrow
+  recalls and re-runs a line, the history file is written, and the program's
+  `input` reads the same terminal after `c`;
+- Ctrl-D and Ctrl-C at the prompt each detach, say so, and the program ends
+  with 0;
+- `password` after a session shows a dot a key and none of the keys;
+- `--debugger` at a terminal takes a fed line and answers a typo.
+
+It costs one dev-dependency's features: `rustix`, already in the lock file
+through the line editor, asked for its pty calls. They are safe functions.
+The child's `HOME` is a scratch directory, so the history written is not the
+developer's.
+
+**One thing the test had to learn.** `password` writes its prompt and then
+turns the echo off, so keys typed on sight of the prompt are echoed by the
+terminal before the word has read anything. A person is slower than that. The
+test waits for the terminal's mode and not for the prompt's text. The word
+is unchanged.

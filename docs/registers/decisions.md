@@ -3704,6 +3704,28 @@ test in the suite holds a terminal.
 Health after: suite 622 passed, 0 failed; conform 133/145, ceiling 133/145;
 implemented 500/505; coverage 489/505.
 
+**Dated note, 2026-10-07 — a breakpoint on a native and on an alias; a
+terminal in the suite.** Both on the owner's instruction.
+
+- **"A breakpoint on a native still never fires", above, is closed.** A
+  native stops where it is about to be called, operands still on the stack.
+  The choice of *before* was the builder's: it is what a condition is shown
+  for a lambda, and it is the only point at which a line fed to `input` can
+  reach the read.
+- **An alias stops too**, under the name it was armed by. Found while testing
+  the first: `break dup` armed a name nothing is called under, because a
+  frame and a native are known by the word an alias resolves to. It held for
+  lambdas as much as natives and predates this work.
+- **`tests/terminal.rs` drives the binary at a pseudo-terminal** — prompt,
+  recall, history, Ctrl-C and Ctrl-D, `input` and `password`, `--debugger`.
+  One dev-dependency's features, `rustix`, already in the lock file.
+
+Not built, though asked for in the same message: `stdin`, `stdin.` and
+`fs.is_file.`. **They are not work**, and the list that offered them was
+wrong. F150 and F152 settled it on 2026-10-04: the reference binds all three
+only under `--noio`, as the stub that refuses, and Bund2 does the same.
+Adding them to the default build would invent words the language never had.
+
 ## D112 — the input seam: a word asks the VM for its line
 
 **Authorised by the repository owner, 2026-10-07**, on being shown four

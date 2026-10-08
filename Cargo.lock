@@ -336,6 +336,7 @@ dependencies = [
  "bund2-stdlib",
  "bund2-syntax",
  "bund2-value",
+ "rustix",
 ]
 
 [[package]]

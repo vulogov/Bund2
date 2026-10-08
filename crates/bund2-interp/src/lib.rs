@@ -856,6 +856,20 @@ impl Interp {
     /// when the native fails, or leaves a different stack current: a switch is
     /// §S5's epoch, not a depth.
     fn call_native(&mut self, name: Symbol, n: bund2_api::Native) -> Result<(), Error> {
+        // **§D3's breakpoint, for a word that pushes no frame.** A native is
+        // a word and has no body, so the frame push that stops a lambda never
+        // sees it (Q41). The stop is before the native runs: its operands are
+        // still on the stack, which is what a condition is shown. One branch
+        // when nothing is attached, as at the frame push.
+        if self.debug.is_some()
+            && let Some(word) = self.breakpoint_hit(Some(name))
+        {
+            self.safepoint_for(None, debug::Stop::Breakpoint(word));
+            // A line typed at the stop may have asked the program to exit.
+            if let Some(code) = self.exit_code {
+                return Err(Error::exited(code));
+            }
+        }
         if self.effect_audit.is_none() {
             return self.invoke(name, n);
         }
@@ -995,6 +1009,7 @@ impl Interp {
                 // so the registry is not borrowed, and handed to the loop as a
                 // tail request below (RFC-0003 §S4's frame loop).
                 let target = self.registry.resolve_target(s);
+                self.alias_breakpoint(s, target)?;
                 let body = self
                     .registry
                     .slot(target)
@@ -1016,6 +1031,7 @@ impl Interp {
             }
             Resolved::Native => {
                 let target = self.registry.resolve_target(s);
+                self.alias_breakpoint(s, target)?;
                 let n = self
                     .registry
                     .slot(target)
@@ -1033,6 +1049,24 @@ impl Interp {
                 self.registry.interner.name(s)
             ))),
         }
+    }
+
+    /// **A breakpoint on an alias stops where the alias is called.** A frame
+    /// and a native are both known by the word the alias resolves to, so
+    /// `break dup` would arm a name nothing is ever called under. Asked only
+    /// when the call was through an alias; the word's own name is asked where
+    /// it always was, so arming both stops twice.
+    fn alias_breakpoint(&mut self, called: Symbol, target: Symbol) -> Result<(), Error> {
+        if self.debug.is_none() || called == target {
+            return Ok(());
+        }
+        if let Some(word) = self.breakpoint_hit(Some(called)) {
+            self.safepoint_for(None, debug::Stop::Breakpoint(word));
+            if let Some(code) = self.exit_code {
+                return Err(Error::exited(code));
+            }
+        }
+        Ok(())
     }
 
     /// Dispatch by name, as `execute` does with a string off the stack.

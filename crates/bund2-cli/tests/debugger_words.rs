@@ -145,17 +145,50 @@ fn a_fed_line_is_how_a_debugged_program_is_typed_into() {
     assert_eq!(code, Some(0));
 }
 
-/// **Measured for Q41: a breakpoint on a native does not fire.** §D3 breaks
-/// when a frame is pushed and a native pushes none, so `break input` arms
-/// something that is never reached. The way to feed a read at the moment it
-/// happens is therefore to step to it; this pins the answer so a change to
-/// it is noticed.
+/// **Q41's second half, closed: a breakpoint on a native stops before it
+/// runs.** §D3 breaks when a frame is pushed and a native pushes none, so
+/// `break input` once armed something never reached. The stop is at the call:
+/// the operand is still on the stack, a line fed there is the line the read
+/// gets, and a line that exits there keeps the native from running.
 #[test]
-fn a_breakpoint_on_a_native_is_never_reached() {
-    let src = "\"name? \" input println\n";
-    let (_, err, code) = session(src, Some("break input\nc\n"));
-    assert_eq!(err.matches("breakpoint: input").count(), 0, "{err}");
+fn a_breakpoint_on_a_native_stops_before_it_runs() {
+    let src = "\"name? \" input println\n\"end\" println\n";
+    let (out, err, code) = session(src, Some("break input\nc\nst\n\"alice\" debug.feed\nc\n"));
+    assert_eq!(err.matches("breakpoint: input").count(), 1, "{err}");
+    assert!(err.contains("name? "), "the prompt is still an operand:\n{err}");
+    assert_eq!(out, "alice\nend\n", "the read took the line fed at its own stop");
     assert_eq!(code, Some(0));
+
+    // Every call is a stop. An alias stops under the name it was armed by,
+    // and the word it resolves to under its own: `dup` and `stack` are
+    // aliases, `ensure_stack` is what `stack` resolves to.
+    let src = "1 dup dup drop drop drop \"x\" stack\n";
+    let (_, err, _) = session(src, Some("break dup\nbreak ensure_stack\nc\nc\nc\nc\n"));
+    assert_eq!(err.matches("breakpoint: dup").count(), 2, "{err}");
+    assert_eq!(err.matches("breakpoint: ensure_stack").count(), 1, "{err}");
+
+    // The same for an alias of a lambda, which was as unreachable.
+    let src = ":w { 1 drop } register \"w\" \"v\" alias\nv w\n";
+    let (_, err, _) = session(src, Some("s\ns\ns\ns\ns\ns\nbreak v\nc\nc\n"));
+    assert_eq!(err.matches("breakpoint: v").count(), 1, "{err}");
+
+    // A condition is shown the operands, as a lambda's is.
+    let src = "1 println 2 println 3 println\n";
+    let (out, err, _) = session(src, Some("break println if { 2 == }\nc\nc\n"));
+    assert_eq!(err.matches("breakpoint: println").count(), 1, "{err}");
+    assert_eq!(out, "1\n2\n3\n");
+
+    // A line that exits at the stop: the native does not run.
+    let src = "\"shown\" println\n";
+    let (out, _, code) = session(src, Some("break println\nc\n7 bund.exit\n"));
+    assert_eq!(out, "", "the native ran after the program was told to exit");
+    assert_eq!(code, Some(7));
+
+    // Words in a line typed at a stop are not stops.
+    let src = "\"end\" println\n";
+    let (out, err, _) = session(src, Some("break println\n\"typed\" println\nc\nc\n"));
+    assert_eq!(err.matches("breakpoint: println").count(), 1, "{err}");
+    assert_eq!(out, "typed\nend\n");
 }
 
 /// **W6: a line that fails is reported and the session stays where it was;

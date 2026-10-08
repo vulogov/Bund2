@@ -34,5 +34,12 @@ aot   = ["bund2/aot", "bund2-runtime/aot"]
 jit   = ["bund2/jit", "bund2-runtime/jit"]
 async = ["bund2/async"]
 
+# `tests/terminal.rs` drives the binary at a pseudo-terminal: the prompt, its
+# editing and its history exist only where standard input is a terminal, and a
+# pipe reaches none of them. `rustix` is already in the lock file, through the
+# line editor; this asks it for the pty calls, which are safe functions.
+[target.'cfg(unix)'.dev-dependencies]
+rustix = { version = "1", features = ["pty", "fs", "termios"] }
+
 [lints]
 workspace = true
