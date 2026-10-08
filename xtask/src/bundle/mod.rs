@@ -79,11 +79,11 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     let work = repo.join("target/bundle-check");
     std::fs::create_dir_all(&work).map_err(|e| format!("creating {}: {e}", work.display()))?;
 
-    println!("# cargo xtask bundle\n");
-    println!("RFC-0006's artefact, built and run in **both** profiles.");
-    println!("`cargo test` compiles in debug only, and both of this feature's");
-    println!("blockers were release-only — one in how the region is located,");
-    println!("one in whether the runtime can observe it at all.\n");
+    bund2_api::sayln!("# cargo xtask bundle\n");
+    bund2_api::sayln!("RFC-0006's artefact, built and run in **both** profiles.");
+    bund2_api::sayln!("`cargo test` compiles in debug only, and both of this feature's");
+    bund2_api::sayln!("blockers were release-only — one in how the region is located,");
+    bund2_api::sayln!("one in whether the runtime can observe it at all.\n");
 
     let mut failures = 0usize;
     for (tag, release) in [("debug", false), ("release", true)] {
@@ -91,7 +91,7 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         match round_trip(&bund2, &work, tag) {
             Ok(out) => {
                 let ok = out.contains("bundled") && out.contains('3') && out.contains("one");
-                println!(
+                bund2_api::sayln!(
                     "  {tag:<8} {}",
                     if ok {
                         "runs, prints its answer, and sees its argument"
@@ -101,12 +101,12 @@ pub fn run(_args: &[String]) -> Result<(), String> {
                 );
                 if !ok {
                     failures += 1;
-                    println!("      output was: {}", out.replace('\n', " | "));
+                    bund2_api::sayln!("      output was: {}", out.replace('\n', " | "));
                 }
             }
             Err(e) => {
                 failures += 1;
-                println!("  {tag:<8} FAILED: {e}");
+                bund2_api::sayln!("  {tag:<8} FAILED: {e}");
             }
         }
     }
@@ -123,10 +123,10 @@ pub fn run(_args: &[String]) -> Result<(), String> {
                 .output()
                 .map_err(|e| format!("spawning codesign: {e}"))?;
             if v.status.success() {
-                println!("  signature  the release artefact validates");
+                bund2_api::sayln!("  signature  the release artefact validates");
             } else {
                 failures += 1;
-                println!(
+                bund2_api::sayln!(
                     "  signature  FAILED: {}",
                     String::from_utf8_lossy(&v.stderr).trim()
                 );
@@ -134,9 +134,9 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         }
     }
 
-    println!();
+    bund2_api::sayln!();
     if failures == 0 {
-        println!("  both profiles produce a working artefact.");
+        bund2_api::sayln!("  both profiles produce a working artefact.");
         return Ok(());
     }
     Err(format!("{failures} check(s) failed"))

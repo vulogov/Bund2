@@ -128,11 +128,11 @@ fn interp() -> Interp {
 fn say_whether_the_tier_is_installed() {
     let rt = bund2_runtime::Runtime::new();
     match rt.compiled_bodies() {
-        Some(_) => eprintln!(
+        Some(_) => bund2_api::errln!(
             "bench: tier installed (threshold {:?}) — criterion 7's A/B measures it",
             rt.jit_threshold()
         ),
-        None => eprintln!(
+        None => bund2_api::errln!(
             "bench: WARNING — `--features jit` is on and no tier is installed. \
              Every group below measures Tier 0 against itself, and any difference \
              is noise. This is F124's shape; do not record the result."
@@ -142,7 +142,7 @@ fn say_whether_the_tier_is_installed() {
 
 #[cfg(not(feature = "jit"))]
 fn say_whether_the_tier_is_installed() {
-    eprintln!("bench: no tier (built without `jit`) — this is criterion 7's baseline half");
+    bund2_api::errln!("bench: no tier (built without `jit`) — this is criterion 7's baseline half");
 }
 
 /// Parse once, here, so no benchmark below pays for it.
@@ -154,7 +154,7 @@ fn compiled(src: &str) -> Vec<BundValue> {
         // number for nothing. Report and measure an empty stream instead —
         // the group will read as ~0 and the message says why.
         Err(e) => {
-            eprintln!("bench: source failed to compile, measuring nothing: {e:?}");
+            bund2_api::errln!("bench: source failed to compile, measuring nothing: {e:?}");
             Vec::new()
         }
     }
@@ -330,7 +330,7 @@ fn warm_eval(
     g.bench_function(name, |b| {
         let mut i = interp();
         if i.eval(&setup).is_err() {
-            eprintln!("bench: warm_eval setup failed for {name}; measuring nothing");
+            bund2_api::errln!("bench: warm_eval setup failed for {name}; measuring nothing");
         }
         // Past §S7's threshold, outside the timed region: every timed entry
         // finds compiled code and none pays for compilation.
@@ -429,7 +429,7 @@ fn entry(c: &mut Criterion) {
     g.bench_function("compiled_body/e1", |b| {
         let mut i = interp();
         if i.eval(&setup).is_err() {
-            eprintln!("bench: entry setup failed; measuring nothing");
+            bund2_api::errln!("bench: entry setup failed; measuring nothing");
         }
         // **Warm past §S7's threshold, outside the timed region.** After this
         // the body is compiled and filed, so every `iter` below enters
@@ -472,7 +472,7 @@ fn compile(c: &mut Criterion) {
     // `t - 2` must exist. A threshold of 1 compiles on the first entry and
     // leaves no "one before it" to compare against.
     if t < 3 {
-        eprintln!("bench: threshold {t} is too low to isolate the crossing entry; skipping `compile`");
+        bund2_api::errln!("bench: threshold {t} is too low to isolate the crossing entry; skipping `compile`");
         return;
     }
 
@@ -484,7 +484,7 @@ fn compile(c: &mut Criterion) {
     let warmed = |entries: u32| {
         let mut i = interp();
         if i.eval(&setup).is_err() {
-            eprintln!("bench: compile setup failed; measuring nothing");
+            bund2_api::errln!("bench: compile setup failed; measuring nothing");
         }
         for _ in 0..entries {
             let _ = i.eval(&call);
@@ -503,7 +503,7 @@ fn compile(c: &mut Criterion) {
     let mut earlier = warmed(t - 2);
     let _ = earlier.eval(&call);
     let ordinary = compiled_bodies(&earlier);
-    eprintln!(
+    bund2_api::errln!(
         "bench: crossing entry {before} -> {crossing} bodies (want 0 -> 1), ordinary entry -> {ordinary} (want 0)"
     );
 
@@ -559,7 +559,7 @@ fn compile(c: &mut Criterion) {
 fn size_crossover(c: &mut Criterion) {
     let t = bund2_runtime_threshold();
     if t < 3 {
-        eprintln!("bench: threshold {t} is too low to warm an interpreted arm; skipping");
+        bund2_api::errln!("bench: threshold {t} is too low to warm an interpreted arm; skipping");
         return;
     }
 
@@ -574,7 +574,7 @@ fn size_crossover(c: &mut Criterion) {
         let warmed = |entries: u32| {
             let mut i = interp();
             if i.eval(&setup).is_err() {
-                eprintln!("bench: size_crossover setup failed at v{values}; measuring nothing");
+                bund2_api::errln!("bench: size_crossover setup failed at v{values}; measuring nothing");
             }
             for _ in 0..entries {
                 let _ = i.eval(&call);
@@ -586,7 +586,7 @@ fn size_crossover(c: &mut Criterion) {
         // failure here would report the two arms as equal and read as a
         // crossover of 1 — F129's shape.
         let hot = warmed(t + 8);
-        eprintln!("bench: v{values} compiled bodies {}", compiled_bodies(&hot));
+        bund2_api::errln!("bench: v{values} compiled bodies {}", compiled_bodies(&hot));
 
         g.bench_function(format!("interpreted/v{values}"), |b| {
             b.iter_batched(
@@ -667,7 +667,7 @@ fn hot_body(c: &mut Criterion) {
         {
             let mut probe = interp();
             if probe.eval(&setup).is_err() {
-                eprintln!("bench: hot_body setup failed at v{values}; measuring nothing");
+                bund2_api::errln!("bench: hot_body setup failed at v{values}; measuring nothing");
             }
             for _ in 0..(t + 8) {
                 let _ = probe.eval(&call);
@@ -684,7 +684,7 @@ fn hot_body(c: &mut Criterion) {
             // flagging that would cry wolf on every baseline run — which the
             // first version of this line did.
             let want = if cfg!(feature = "jit") { 1 } else { 0 };
-            eprintln!(
+            bund2_api::errln!(
                 "bench: hot_body v{values} compiled bodies {bodies}{}",
                 if bodies == want {
                     ""
@@ -697,7 +697,7 @@ fn hot_body(c: &mut Criterion) {
         g.bench_function(format!("v{values}"), |b| {
             let mut i = interp();
             if i.eval(&setup).is_err() {
-                eprintln!("bench: hot_body setup failed at v{values}; measuring nothing");
+                bund2_api::errln!("bench: hot_body setup failed at v{values}; measuring nothing");
             }
             // Warmed once, outside the timed region, so every entry below finds
             // compiled code and none pays for compilation.
@@ -754,14 +754,14 @@ fn entry_anchored(c: &mut Criterion) {
         {
             let mut probe = interp();
             if probe.eval(&setup).is_err() {
-                eprintln!("bench: entry_anchored setup failed at v{n}; measuring nothing");
+                bund2_api::errln!("bench: entry_anchored setup failed at v{n}; measuring nothing");
             }
             for _ in 0..(t + 8) {
                 let _ = probe.eval(&call);
             }
             let bodies = compiled_bodies(&probe);
             let want = if cfg!(feature = "jit") { 1 } else { 0 };
-            eprintln!(
+            bund2_api::errln!(
                 "bench: entry_anchored v{n} compiled bodies {bodies}{}",
                 if bodies == want {
                     ""
@@ -774,7 +774,7 @@ fn entry_anchored(c: &mut Criterion) {
         g.bench_function(format!("call/v{n}"), |b| {
             let mut i = interp();
             if i.eval(&setup).is_err() {
-                eprintln!("bench: entry_anchored setup failed at v{n}; measuring nothing");
+                bund2_api::errln!("bench: entry_anchored setup failed at v{n}; measuring nothing");
             }
             for _ in 0..(t + 8) {
                 let _ = i.eval(&call);
@@ -839,12 +839,12 @@ fn regimes(c: &mut Criterion) {
             {
                 let mut probe = interp();
                 if probe.eval(&setup).is_err() {
-                    eprintln!("bench: regimes {name}/v{n} setup failed; measuring nothing");
+                    bund2_api::errln!("bench: regimes {name}/v{n} setup failed; measuring nothing");
                 }
                 for _ in 0..(t + 8) {
                     let _ = probe.eval(&call);
                 }
-                eprintln!(
+                bund2_api::errln!(
                     "bench: regimes {name}/v{n} bodies {}",
                     compiled_bodies(&probe)
                 );
@@ -853,7 +853,7 @@ fn regimes(c: &mut Criterion) {
             g.bench_function(format!("{name}/v{n}"), |b| {
                 let mut i = interp();
                 if i.eval(&setup).is_err() {
-                    eprintln!("bench: regimes {name}/v{n} setup failed; measuring nothing");
+                    bund2_api::errln!("bench: regimes {name}/v{n} setup failed; measuring nothing");
                 }
                 for _ in 0..(t + 8) {
                     let _ = i.eval(&call);
@@ -922,7 +922,7 @@ fn compile_warm(c: &mut Criterion) {
                 let mut vm = bund2_runtime::Runtime::new().interp;
                 let table = bund2_stdlib::fragments::published(&vm.registry).unwrap_or_default();
                 let Ok(mut comp) = Compiler::new(table) else {
-                    eprintln!("bench: no compiler could be built; measuring nothing");
+                    bund2_api::errln!("bench: no compiler could be built; measuring nothing");
                     return total;
                 };
                 let cells = vm.cells().base();
@@ -1162,7 +1162,7 @@ fn crossing(c: &mut Criterion) {
             )));
         }
         if r.interp.eval(setup).is_err() {
-            eprintln!("bench: crossing setup failed; measuring nothing");
+            bund2_api::errln!("bench: crossing setup failed; measuring nothing");
         }
         for _ in 0..(t + 8) {
             let _ = r.interp.eval(&call);
@@ -1178,7 +1178,7 @@ fn crossing(c: &mut Criterion) {
 
         for (name, cross) in [("crossed", true), ("synced", false)] {
             let probe = build(cross, &setup);
-            eprintln!(
+            bund2_api::errln!(
                 "bench: crossing {name}/v{n} bodies {} crossed {:?}",
                 compiled_bodies(&probe.interp),
                 probe.crossed_calls()
@@ -1245,7 +1245,7 @@ fn stop_rule(c: &mut Criterion) {
             r.take_tier();
         }
         if r.interp.eval(setup).is_err() {
-            eprintln!("bench: stop_rule setup failed; measuring nothing");
+            bund2_api::errln!("bench: stop_rule setup failed; measuring nothing");
         }
         for _ in 0..(t + 8) {
             let _ = r.interp.eval(&call);
@@ -1263,7 +1263,7 @@ fn stop_rule(c: &mut Criterion) {
             let probe = build(tiered, &setup);
             let want = if tiered { 1 } else { 0 };
             let bodies = compiled_bodies(&probe.interp);
-            eprintln!(
+            bund2_api::errln!(
                 "bench: stop_rule {shape}/{name} compiled bodies {bodies}{}",
                 if bodies == want {
                     ""
@@ -1347,7 +1347,7 @@ fn compile_size(c: &mut Criterion) {
                     let table =
                         bund2_stdlib::fragments::published(&vm.registry).unwrap_or_default();
                     let Ok(mut comp) = Compiler::new(table) else {
-                        eprintln!("bench: no compiler could be built; measuring nothing");
+                        bund2_api::errln!("bench: no compiler could be built; measuring nothing");
                         return total;
                     };
                     let cells = vm.cells().base();
@@ -1409,7 +1409,7 @@ fn gain_size(c: &mut Criterion) {
             r.take_tier();
         }
         if r.interp.eval(setup).is_err() {
-            eprintln!("bench: gain_size setup failed; measuring nothing");
+            bund2_api::errln!("bench: gain_size setup failed; measuring nothing");
         }
         for _ in 0..(t + 8) {
             let _ = r.interp.eval(&call);
@@ -1425,7 +1425,7 @@ fn gain_size(c: &mut Criterion) {
             let probe = build(tiered, &setup);
             let want = if tiered { 1 } else { 0 };
             let bodies = compiled_bodies(&probe.interp);
-            eprintln!(
+            bund2_api::errln!(
                 "bench: gain_size v{values}/{name} compiled bodies {bodies}{}",
                 if bodies == want {
                     ""
@@ -1502,7 +1502,7 @@ fn guard_cost(c: &mut Criterion) {
                     Compiler::without_meaning_guards(table)
                 };
                 let Ok(mut comp) = comp else {
-                    eprintln!("bench: no compiler could be built; measuring nothing");
+                    bund2_api::errln!("bench: no compiler could be built; measuring nothing");
                     return None;
                 };
                 let cells = vm.cells().base();
@@ -1513,12 +1513,12 @@ fn guard_cost(c: &mut Criterion) {
             };
 
             match build() {
-                Some((_, comp, word)) => eprintln!(
+                Some((_, comp, word)) => bund2_api::errln!(
                     "bench: guard_cost {name}/s{pairs} sites {:?} guards {}",
                     comp.inlined_sites(word),
                     comp.guards_meaning()
                 ),
-                None => eprintln!("bench: guard_cost {name}/s{pairs} did not compile"),
+                None => bund2_api::errln!("bench: guard_cost {name}/s{pairs} did not compile"),
             }
 
             g.bench_function(format!("{name}/s{pairs}"), |b| {
@@ -1582,7 +1582,7 @@ fn crossing_isolated(c: &mut Criterion) {
             )));
         }
         if r.interp.eval(setup).is_err() {
-            eprintln!("bench: crossing_isolated setup failed; measuring nothing");
+            bund2_api::errln!("bench: crossing_isolated setup failed; measuring nothing");
         }
         for _ in 0..(bund2_runtime_threshold() + 8) {
             let _ = r.interp.eval(&call);
@@ -1600,7 +1600,7 @@ fn crossing_isolated(c: &mut Criterion) {
 
         for (name, cross) in [("crossed", true), ("synced", false)] {
             let probe = build(cross, &setup);
-            eprintln!(
+            bund2_api::errln!(
                 "bench: crossing_isolated {name}/p{pairs} bodies {} crossed {:?}",
                 compiled_bodies(&probe.interp),
                 probe.crossed_calls()
@@ -1660,7 +1660,7 @@ fn request_cost(c: &mut Criterion) {
                     Compiler::without_request_checks(table)
                 };
                 let Ok(mut comp) = comp else {
-                    eprintln!("bench: no compiler could be built; measuring nothing");
+                    bund2_api::errln!("bench: no compiler could be built; measuring nothing");
                     return None;
                 };
                 let cells = vm.cells().base();
@@ -1671,12 +1671,12 @@ fn request_cost(c: &mut Criterion) {
             };
 
             match build() {
-                Some((_, comp, word)) => eprintln!(
+                Some((_, comp, word)) => bund2_api::errln!(
                     "bench: request_cost {name}/c{calls} sites {:?} checks {}",
                     comp.inlined_sites(word),
                     comp.checks_requests()
                 ),
-                None => eprintln!("bench: request_cost {name}/c{calls} did not compile"),
+                None => bund2_api::errln!("bench: request_cost {name}/c{calls} did not compile"),
             }
 
             g.bench_function(format!("{name}/c{calls}"), |b| {

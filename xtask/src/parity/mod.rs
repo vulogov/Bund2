@@ -211,15 +211,15 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
     }
 
-    println!("\n  PARITY  {agreed}/{compared}\n");
-    println!(
+    bund2_api::sayln!("\n  PARITY  {agreed}/{compared}\n");
+    bund2_api::sayln!(
         "  Bund2's token stream against the reference's own, obtained with\n  \
          `compile`. Not a conformance number: this asks whether the two front\n  \
          ends agree, which `conform` cannot see.\n"
     );
 
     if !skipped_quote.is_empty() {
-        println!(
+        bund2_api::sayln!(
             "  {} source(s) skipped: a `'` in the source cannot be carried\n  \
              through a `'…'` literal, and a double-quoted string would corrupt\n  \
              the program (the reference does not unescape).",
@@ -227,19 +227,19 @@ pub fn run(args: &[String]) -> Result<(), String> {
         );
         if verbose {
             for n in &skipped_quote {
-                println!("      {n}");
+                bund2_api::sayln!("      {n}");
             }
         }
-        println!();
+        bund2_api::sayln!();
     }
     for (n, why) in &skipped_other {
-        println!("  skipped  {n:<42} {why}");
+        bund2_api::sayln!("  skipped  {n:<42} {why}");
     }
     for (n, a, b) in differed.iter().take(if verbose { usize::MAX } else { 3 }) {
-        println!("\n  DIFFERS  {n}");
+        bund2_api::sayln!("\n  DIFFERS  {n}");
         let (i, j) = first_difference(a, b);
-        println!("    oracle: …{}", &a[i..j.min(a.len())]);
-        println!("    bund2 : …{}", &b[i..j.min(b.len())]);
+        bund2_api::sayln!("    oracle: …{}", &a[i..j.min(a.len())]);
+        bund2_api::sayln!("    bund2 : …{}", &b[i..j.min(b.len())]);
     }
     if !differed.is_empty() {
         return Err(format!(

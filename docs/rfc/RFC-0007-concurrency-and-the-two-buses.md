@@ -293,7 +293,7 @@ Eight unimplemented words entered the denominator, so both completeness figures
 fell about 1.2 points with no code changed. That is the honest direction.
 
 **The third column is 2026-10-01, after the words landed and
-`tests/probes/bus-words.golden` was captured.** All eight are implemented and
+`tests/golden/probes/bus-words.golden` was captured.** All eight are implemented and
 all eight are now run by a golden, so IMPLEMENTED and COVERAGE each moved by
 exactly eight from the scoped-in baseline — the figure criterion 5 predicted,
 395/505, read back from the binary rather than argued. Conformance grew by two
@@ -423,7 +423,8 @@ number that does not travel.
 | behaviour | disposition |
 |---|---|
 | `send`, `send.`, `send.quick`, `send.quick.` | **Preserved**, including the bool/no-bool split and the operand order. |
-| `recv`, `recv.` | **Preserved**, including the immediate error on an empty channel. |
+| `recv`, `recv.` | **Preserved**: an absent channel is an immediate error and an existing, empty one answers `NODATA` (`reference/Bund/src/stdlib/functions/bus/mod.rs:122-131`). Until 2026-10-08 this row said an empty channel was the error, which the summary's own correction had already withdrawn. |
+| A value nested past 256 levels, at `send` | **Deliberately changed — D114.** The oracle sends it; Bund2 refuses with the reference's prefix for a failed encode. Criterion 4. |
 | `bus.data`, `bus.data.current` | **Preserved**, including that asking creates the channel, and the current-stack keying. |
 | The payload's identity | **Preserved as a deviation already recorded** — D20 materialises id and stamp, so a received value is equal and not identical. |
 | Unbounded channels | **Preserved.** A bound would be a deviation with a decision. |
@@ -474,7 +475,7 @@ words are in scope and may carry goldens.
 2. **A `send`/`recv` round trip is goldenable** — `"chan" 42 send "chan" recv`
    captured from the oracle and matched.
 
-   **Met, 2026-10-01.** `tests/probes/bus-words.golden` is captured and passes.
+   **Met, 2026-10-01.** `tests/golden/probes/bus-words.golden` is captured and passes.
    The capture refused nothing: `cargo xtask golden` runs each program twice and
    drops it if the two runs differ, which is the funnel's own test of
    reproducibility, and a process-global channel map passes it because a fresh
@@ -504,6 +505,17 @@ words are in scope and may carry goldens.
    required a refusal at `MAX_WIRE_DEPTH`'s 256 levels; the oracle sends a
    300-deep list without complaint. Refusing would be **new behaviour**, so it
    needs a decision and a deviation entry, not a criterion.
+
+   **The refusal exists, and is now decided — D114, 2026-10-08.** The
+   acceptance review of that date measured it: `send` has refused a value
+   nested past 256 levels since the bus words were built, because it encodes
+   through the codec F118 bounded, and nothing recorded that for the bus. The
+   owner ruled that it stays, as an approved deviation. 256 levels cross and
+   257 are refused with `SEND returns error Error enveloping data: the value
+   nests 257 deep, and 256 is the most the wire format can carry`;
+   `a_value_nested_past_the_wire_bound_is_refused_at_send` holds both sides.
+   So this criterion is **met as a deviation**, and the paragraph above
+   described a state the binary was never in.
 5. **Coverage moves by eight, from a denominator D87 already moved.** The
    baseline is **387/505**, not 387/497: scoping the words in lowered both
    completeness figures ~1.2 points before any were implemented. Implementing
@@ -518,7 +530,7 @@ words are in scope and may carry goldens.
    by any golden — the other five sat under "implemented but run by no golden",
    which is the gap the criterion is about and the reason COVERAGE and not
    IMPLEMENTED is the completeness number. Capturing
-   `tests/probes/bus-words.golden` closed all five, and `implemented but run by
+   `tests/golden/probes/bus-words.golden` closed all five, and `implemented but run by
    no golden` fell from 9 to 4 with no bus word left in it.
 6. **Conformance does not regress, measured after any new probes are
    captured.** Not "moves by exactly zero": criteria 1 and 2 add probes, which
@@ -709,9 +721,10 @@ reference has no concurrency vocabulary at all.
   behaviour a program sees, it is whether "a decoded value mints a fresh
   identity" is the rule for every decoder now that the bus, `sqlite` and the
   world file share one. D88 is OPEN with keeping F109 as its default.
-- **Whether a depth refusal at `send` is wanted.** The oracle sends a 300-deep
-  list without complaint, so refusing at `MAX_WIRE_DEPTH` is new behaviour.
-  Criterion 4 is withdrawn pending a decision and a deviation entry.
+- **Whether a depth refusal at `send` is wanted — answered by D114**,
+  2026-10-08: yes. The oracle sends a 300-deep list without complaint, so
+  refusing at `MAX_WIRE_DEPTH` is new behaviour, and it is recorded as an
+  approved deviation. Criterion 4 carries the measurement.
 - **Does a Bund program create tasks?** §C6. This RFC says no, following the
   reference by omission, which makes concurrency an embedding feature with a
   message vocabulary. The alternative — a `spawn` word — is a language decision.

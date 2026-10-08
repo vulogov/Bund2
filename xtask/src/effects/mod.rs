@@ -133,65 +133,65 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     let (arms, defects): (Vec<&Row>, Vec<&Row>) =
         diverge.iter().partition(|r| approved.contains_key(&r.word));
 
-    println!("# cargo xtask effects\n");
-    println!("The arity Bund2 **declares** against the arity the oracle was");
-    println!("**observed** to have. RFC-0004 criterion 2.\n");
-    println!("Nothing else checks a declared effect: it is written by hand at the");
-    println!("registration site and no test reads it, while RFC-0004 composes");
-    println!("them and RFC-0005 orders JIT guards by them. F18's point is that a");
-    println!("static arity that lies does not stay cosmetic.\n");
+    bund2_api::sayln!("# cargo xtask effects\n");
+    bund2_api::sayln!("The arity Bund2 **declares** against the arity the oracle was");
+    bund2_api::sayln!("**observed** to have. RFC-0004 criterion 2.\n");
+    bund2_api::sayln!("Nothing else checks a declared effect: it is written by hand at the");
+    bund2_api::sayln!("registration site and no test reads it, while RFC-0004 composes");
+    bund2_api::sayln!("them and RFC-0005 orders JIT guards by them. F18's point is that a");
+    bund2_api::sayln!("static arity that lies does not stay cosmetic.\n");
 
-    println!("  {:<34}{:>5}", "natives declaring an effect", declared.len());
-    println!("  {:<34}{:>5}", "comparable against the table", agree + diverge.len());
-    println!("  {:<34}{:>5}", "agree", agree);
-    println!("  {:<34}{:>5}", "recorded as an arm", arms.len());
-    println!("  {:<34}{:>5}", "DISAGREE", defects.len());
-    println!("  {:<34}{:>5}", "not in the table", not_in_table.len());
-    println!();
+    bund2_api::sayln!("  {:<34}{:>5}", "natives declaring an effect", declared.len());
+    bund2_api::sayln!("  {:<34}{:>5}", "comparable against the table", agree + diverge.len());
+    bund2_api::sayln!("  {:<34}{:>5}", "agree", agree);
+    bund2_api::sayln!("  {:<34}{:>5}", "recorded as an arm", arms.len());
+    bund2_api::sayln!("  {:<34}{:>5}", "DISAGREE", defects.len());
+    bund2_api::sayln!("  {:<34}{:>5}", "not in the table", not_in_table.len());
+    bund2_api::sayln!();
 
     if !defects.is_empty() {
-        println!("## disagree\n");
-        println!("  Each is a defect until recorded otherwise. A declared effect");
-        println!("  that does not match what the word does is what F18 forbids.\n");
+        bund2_api::sayln!("## disagree\n");
+        bund2_api::sayln!("  Each is a defect until recorded otherwise. A declared effect");
+        bund2_api::sayln!("  that does not match what the word does is what F18 forbids.\n");
         for r in &defects {
-            println!(
+            bund2_api::sayln!(
                 "  {:<30} declared {}->{}   probed {}->{}",
                 r.word, r.declared.0, r.declared.1, r.probed.0, r.probed.1
             );
         }
-        println!();
+        bund2_api::sayln!();
     }
 
     if !arms.is_empty() {
-        println!("## recorded as an arm\n");
-        println!("  The probe feeds sentinels of one type, so for a polymorphic");
-        println!("  word it measures one arm rather than the arity. These are");
-        println!("  recorded in {REGISTER} with the reason.\n");
+        bund2_api::sayln!("## recorded as an arm\n");
+        bund2_api::sayln!("  The probe feeds sentinels of one type, so for a polymorphic");
+        bund2_api::sayln!("  word it measures one arm rather than the arity. These are");
+        bund2_api::sayln!("  recorded in {REGISTER} with the reason.\n");
         for r in &arms {
             let why = approved.get(&r.word).map(String::as_str).unwrap_or("");
-            println!(
+            bund2_api::sayln!(
                 "  {:<30} declared {}->{}   probed {}->{}   {why}",
                 r.word, r.declared.0, r.declared.1, r.probed.0, r.probed.1
             );
         }
-        println!();
+        bund2_api::sayln!();
     }
 
-    println!("## not in the table\n");
-    println!("  {} native(s) Bund2 declares that the probe could not", not_in_table.len());
-    println!("  measure — it refused every sentinel on type grounds, or the word");
-    println!("  is unsafe to run. **Listed, not counted as agreement**: a word");
-    println!("  the probe could not reach is evidence of nothing, and folding it");
-    println!("  into a pass is how a criterion goes vacuous.\n");
+    bund2_api::sayln!("## not in the table\n");
+    bund2_api::sayln!("  {} native(s) Bund2 declares that the probe could not", not_in_table.len());
+    bund2_api::sayln!("  measure — it refused every sentinel on type grounds, or the word");
+    bund2_api::sayln!("  is unsafe to run. **Listed, not counted as agreement**: a word");
+    bund2_api::sayln!("  the probe could not reach is evidence of nothing, and folding it");
+    bund2_api::sayln!("  into a pass is how a criterion goes vacuous.\n");
     let names: Vec<&str> = not_in_table.iter().map(|s| s.as_str()).collect();
     for chunk in names.chunks(6) {
-        println!("      {}", chunk.join("  "));
+        bund2_api::sayln!("      {}", chunk.join("  "));
     }
-    println!();
+    bund2_api::sayln!();
 
     if defects.is_empty() {
-        println!("  RFC-0004 criterion 2: no declared effect disagrees with the");
-        println!("  probed table.\n");
+        bund2_api::sayln!("  RFC-0004 criterion 2: no declared effect disagrees with the");
+        bund2_api::sayln!("  probed table.\n");
         Ok(())
     } else {
         Err(format!(

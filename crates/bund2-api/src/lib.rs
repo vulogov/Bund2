@@ -30,6 +30,7 @@
 
 pub mod diag;
 pub mod input;
+pub mod out;
 
 use std::collections::HashMap;
 
@@ -1391,6 +1392,12 @@ impl Registry {
 
     pub fn class(&self, name: &str) -> Option<BundValue> {
         self.classes.get(name).cloned()
+    }
+
+    /// Every registered class's name, in order. For a check that a written
+    /// hierarchy names all of them (RFC-0010 criterion 4).
+    pub fn class_names(&self) -> Vec<String> {
+        self.classes.keys().cloned().collect()
     }
 
     /// Every name bound to a lambda, for `bund2 infer`.

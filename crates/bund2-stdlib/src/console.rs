@@ -65,20 +65,20 @@ fn print_base(vm: &mut dyn Vm, nl: bool, side: crate::wb::Side) -> Result<(), Er
     };
     let text = as_text(&v, prefix)?;
     if nl {
-        println!("{text}");
+        bund2_api::outln!("{text}")?;
     } else {
-        print!("{text}");
+        bund2_api::out!("{text}")?;
     }
     Ok(())
 }
 
 fn nl(_vm: &mut dyn Vm) -> Result<(), Error> {
-    println!();
+    bund2_api::outln!()?;
     Ok(())
 }
 
 fn space(_vm: &mut dyn Vm) -> Result<(), Error> {
-    print!(" ");
+    bund2_api::out!(" ")?;
     Ok(())
 }
 
@@ -129,7 +129,7 @@ pub(crate) fn draw_box_rows(rows: &[String]) -> String {
 /// rewrites the stack tag on every value it touches.
 fn display_stack(vm: &mut dyn Vm) -> Result<(), Error> {
     let rows: Vec<String> = vm.snapshot().iter().map(|v| v.render(false)).collect();
-    println!("{}", draw_box_rows(&rows));
+    bund2_api::outln!("{}", draw_box_rows(&rows))?;
     Ok(())
 }
 
@@ -139,7 +139,7 @@ fn display_workbench(vm: &mut dyn Vm) -> Result<(), Error> {
         .iter()
         .map(|v| v.render(false))
         .collect();
-    println!("{}", draw_box_rows(&rows));
+    bund2_api::outln!("{}", draw_box_rows(&rows))?;
     Ok(())
 }
 
@@ -245,7 +245,7 @@ mod tests {
 fn debug_dump(vm: &mut dyn Vm) -> Result<(), Error> {
     let v = vm.peek().ok_or_else(|| Error("DUMP: NO DATA #1".into()))?;
     for line in hexdump::hexdump_iter(&dump_bytes(&v)?) {
-        println!("{line}");
+        bund2_api::outln!("{line}")?;
     }
     Ok(())
 }

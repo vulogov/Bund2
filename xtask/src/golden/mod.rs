@@ -536,23 +536,23 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let work = repo.join("target/golden-capture");
     std::fs::create_dir_all(&work).map_err(|e| format!("creating {}: {e}", work.display()))?;
 
-    println!("# cargo xtask golden\n");
-    println!(
+    bund2_api::sayln!("# cargo xtask golden\n");
+    bund2_api::sayln!(
         "Capturing {} suite programs from the oracle.\n",
         suite.len()
     );
-    println!(
+    bund2_api::sayln!(
         "That {} is the suite, not the corpus. tests/golden/HERMETIC.txt",
         suite.len()
     );
-    println!("carries the funnel that produced it — most programs are dropped");
-    println!("there, upstream of any capture, so a `refused 0` below does NOT");
-    println!("mean every hermetic program was captured.\n");
-    println!("Each is run twice and refused if the two runs differ — see");
-    println!("tests/golden/UNSTABLE.txt for why that check exists. Output is");
-    println!("normalised for F14 (id/stamp in error text) and F15 (dict member");
-    println!("order) before comparison; neither is behaviour the reference");
-    println!("defines, so neither can be a contract.\n");
+    bund2_api::sayln!("carries the funnel that produced it — most programs are dropped");
+    bund2_api::sayln!("there, upstream of any capture, so a `refused 0` below does NOT");
+    bund2_api::sayln!("mean every hermetic program was captured.\n");
+    bund2_api::sayln!("Each is run twice and refused if the two runs differ — see");
+    bund2_api::sayln!("tests/golden/UNSTABLE.txt for why that check exists. Output is");
+    bund2_api::sayln!("normalised for F14 (id/stamp in error text) and F15 (dict member");
+    bund2_api::sayln!("order) before comparison; neither is behaviour the reference");
+    bund2_api::sayln!("defines, so neither can be a contract.\n");
 
     let mut written = 0usize;
     let mut unchanged = 0usize;
@@ -654,30 +654,30 @@ pub fn run(args: &[String]) -> Result<(), String> {
     orphans.retain(|g| !expected.contains(g));
     orphans.sort();
 
-    println!(
+    bund2_api::sayln!(
         "  {:<34}{:>5}   ({probe_count} of them probes)",
         "captured",
         jobs.len()
     );
-    println!("  {:<34}{:>5}", "written", written);
-    println!("  {:<34}{:>5}", "already current", unchanged);
-    println!("  {:<34}{:>5}", "refused (not reproducible)", refused.len());
-    println!(
+    bund2_api::sayln!("  {:<34}{:>5}", "written", written);
+    bund2_api::sayln!("  {:<34}{:>5}", "already current", unchanged);
+    bund2_api::sayln!("  {:<34}{:>5}", "refused (not reproducible)", refused.len());
+    bund2_api::sayln!(
         "  {:<34}{:>5}",
         "changed, needs --accept",
         needs_accept.len()
     );
-    println!();
+    bund2_api::sayln!();
 
     if !refused.is_empty() {
-        println!("## refused\n");
-        println!("  No golden was written for these. A golden that cannot be");
-        println!("  reproduced is worse than none: it fails forever and teaches");
-        println!("  the reader to ignore failures.\n");
+        bund2_api::sayln!("## refused\n");
+        bund2_api::sayln!("  No golden was written for these. A golden that cannot be");
+        bund2_api::sayln!("  reproduced is worse than none: it fails forever and teaches");
+        bund2_api::sayln!("  the reader to ignore failures.\n");
         for r in &refused {
-            println!("  {:<62} {}", r.program, r.reason);
+            bund2_api::sayln!("  {:<62} {}", r.program, r.reason);
         }
-        println!();
+        bund2_api::sayln!();
     }
 
     // A deliberate regeneration is recorded in tests/golden/EXCEPTIONS.md,
@@ -704,32 +704,32 @@ pub fn run(args: &[String]) -> Result<(), String> {
             doc.push_str(&format!("| `{name}` | — | — | {why} |\n"));
         }
         std::fs::write(&path, doc).map_err(|e| format!("writing EXCEPTIONS.md: {e}"))?;
-        println!(
+        bund2_api::sayln!(
             "  recorded {} regeneration(s) in tests/golden/EXCEPTIONS.md\n",
             regenerated.len()
         );
     }
 
     if !orphans.is_empty() {
-        println!("## orphaned goldens: {}\n", orphans.len());
-        println!("  These pin programs no longer in the suite — a scope decision");
-        println!("  narrowed it. Left in place: deleting a golden is not this");
-        println!("  command's call. Remove them deliberately, or widen the scope.\n");
+        bund2_api::sayln!("## orphaned goldens: {}\n", orphans.len());
+        bund2_api::sayln!("  These pin programs no longer in the suite — a scope decision");
+        bund2_api::sayln!("  narrowed it. Left in place: deleting a golden is not this");
+        bund2_api::sayln!("  command's call. Remove them deliberately, or widen the scope.\n");
         for o in &orphans {
-            println!("  tests/golden/{o}");
+            bund2_api::sayln!("  tests/golden/{o}");
         }
-        println!();
+        bund2_api::sayln!();
     }
 
     if !needs_accept.is_empty() {
-        println!("## existing golden would change\n");
-        println!("  These were left alone. If the change is intended, name the");
-        println!("  golden and say why:\n");
-        println!("    cargo xtask golden --accept <name> --reason <F-number or decision>\n");
+        bund2_api::sayln!("## existing golden would change\n");
+        bund2_api::sayln!("  These were left alone. If the change is intended, name the");
+        bund2_api::sayln!("  golden and say why:\n");
+        bund2_api::sayln!("    cargo xtask golden --accept <name> --reason <F-number or decision>\n");
         for n in &needs_accept {
-            println!("  {n}");
+            bund2_api::sayln!("  {n}");
         }
-        println!();
+        bund2_api::sayln!();
     }
 
     // What the capture still cannot see, said plainly rather than implied.
@@ -755,25 +755,25 @@ pub fn run(args: &[String]) -> Result<(), String> {
         })
         .collect();
 
-    println!("## what the capture pins\n");
-    println!("  Per program: the current stack, then every stack it names with");
-    println!("  a literal `@name`, then the workbench. Named stacks are visited");
-    println!("  in sorted order so the capture does not depend on where the");
-    println!("  names appear in the source.\n");
+    bund2_api::sayln!("## what the capture pins\n");
+    bund2_api::sayln!("  Per program: the current stack, then every stack it names with");
+    bund2_api::sayln!("  a literal `@name`, then the workbench. Named stacks are visited");
+    bund2_api::sayln!("  in sorted order so the capture does not depend on where the");
+    bund2_api::sayln!("  names appear in the source.\n");
     if computed.is_empty() {
-        println!("  No suite program builds a stack name at run time, so for this");
-        println!("  suite that is every stack there is.\n");
+        bund2_api::sayln!("  No suite program builds a stack name at run time, so for this");
+        bund2_api::sayln!("  suite that is every stack there is.\n");
     } else {
-        println!(
+        bund2_api::sayln!(
             "  {} program(s) reach a stack by a name computed at run time",
             computed.len()
         );
-        println!("  (`to_stack`/`ensure_stack`), which the lexer cannot see. Their");
-        println!("  goldens pin less than the whole state:\n");
+        bund2_api::sayln!("  (`to_stack`/`ensure_stack`), which the lexer cannot see. Their");
+        bund2_api::sayln!("  goldens pin less than the whole state:\n");
         for p in &computed {
-            println!("  {p}");
+            bund2_api::sayln!("  {p}");
         }
-        println!();
+        bund2_api::sayln!();
     }
 
     Ok(())

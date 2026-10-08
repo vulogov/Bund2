@@ -58,7 +58,7 @@ fn json_path(vm: &mut dyn Vm) -> Result<(), Error> {
             jsonpath_rust::JsonPathValue::Slice(v, _) => found.push((*v).clone()),
             _ => continue,
         }
-        println!("{:?}", &s);
+        bund2_api::outln!("{:?}", &s)?;
     }
     vm.push(BundValue::json(serde_json::Value::Array(found)));
     Ok(())

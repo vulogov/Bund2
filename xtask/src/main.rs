@@ -134,7 +134,7 @@ fn main() -> std::process::ExitCode {
     if let Some(repo) = Path::new(env!("CARGO_MANIFEST_DIR")).parent()
         && let Err(err) = toolchain::check(repo)
     {
-        eprintln!("xtask: {err}");
+        bund2_api::errln!("xtask: {err}");
         return std::process::ExitCode::FAILURE;
     }
 
@@ -148,7 +148,7 @@ fn main() -> std::process::ExitCode {
     {
         Ok(guard) => guard,
         Err(err) => {
-            eprintln!("xtask: {err}");
+            bund2_api::errln!("xtask: {err}");
             return std::process::ExitCode::FAILURE;
         }
     };
@@ -157,7 +157,7 @@ fn main() -> std::process::ExitCode {
         "corpus" => match corpus::run(&args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
-                eprintln!("xtask corpus: {err}");
+                bund2_api::errln!("xtask corpus: {err}");
                 std::process::ExitCode::FAILURE
             }
         },
@@ -165,119 +165,119 @@ fn main() -> std::process::ExitCode {
         "bundle" => match bundle::run(&args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
-                eprintln!("xtask bundle: {err}");
+                bund2_api::errln!("xtask bundle: {err}");
                 std::process::ExitCode::FAILURE
             }
         },
         "coverage" => match corpus::run_coverage(&args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
-                eprintln!("xtask coverage: {err}");
+                bund2_api::errln!("xtask coverage: {err}");
                 std::process::ExitCode::FAILURE
             }
         },
         "effects" => match effects::run(&args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
-                eprintln!("xtask effects: {err}");
+                bund2_api::errln!("xtask effects: {err}");
                 std::process::ExitCode::FAILURE
             }
         },
         "arity" => match arity::run(&args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
-                eprintln!("xtask arity: {err}");
+                bund2_api::errln!("xtask arity: {err}");
                 std::process::ExitCode::FAILURE
             }
         },
         "golden" => match golden::run(&args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
-                eprintln!("xtask golden: {err}");
+                bund2_api::errln!("xtask golden: {err}");
                 std::process::ExitCode::FAILURE
             }
         },
         "conform" => match conform::run(&args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
-                eprintln!("xtask conform: {err}");
+                bund2_api::errln!("xtask conform: {err}");
                 std::process::ExitCode::FAILURE
             }
         },
         "depth" => match depth::run_cmd(&args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
-                eprintln!("xtask depth: {err}");
+                bund2_api::errln!("xtask depth: {err}");
                 std::process::ExitCode::FAILURE
             }
         },
         "parity" => match parity::run(&args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
-                eprintln!("xtask parity: {err}");
+                bund2_api::errln!("xtask parity: {err}");
                 std::process::ExitCode::FAILURE
             }
         },
         "layout" => match layout::run(&args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
-                eprintln!("xtask layout: {err}");
+                bund2_api::errln!("xtask layout: {err}");
                 std::process::ExitCode::FAILURE
             }
         },
         "bench" => match bench::run(&args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
-                eprintln!("xtask bench: {err}");
+                bund2_api::errln!("xtask bench: {err}");
                 std::process::ExitCode::FAILURE
             }
         },
         "scope" => match scope::run(&args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
-                eprintln!("xtask scope: {err}");
+                bund2_api::errln!("xtask scope: {err}");
                 std::process::ExitCode::FAILURE
             }
         },
         "guide" => match guide::run(&args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
-                eprintln!("xtask guide: {err}");
+                bund2_api::errln!("xtask guide: {err}");
                 std::process::ExitCode::FAILURE
             }
         },
         "render" => match render::run(&args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
-                eprintln!("xtask render: {err}");
+                bund2_api::errln!("xtask render: {err}");
                 std::process::ExitCode::FAILURE
             }
         },
         "lint" => match lint::run(&args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
-                eprintln!("xtask lint: {err}");
+                bund2_api::errln!("xtask lint: {err}");
                 std::process::ExitCode::FAILURE
             }
         },
         "cite" => match cite::run(&args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
-                eprintln!("xtask cite: {err}");
+                bund2_api::errln!("xtask cite: {err}");
                 std::process::ExitCode::FAILURE
             }
         },
         "unblock" => {
-            eprintln!("xtask: `{cmd}` is not implemented yet");
+            bund2_api::errln!("xtask: `{cmd}` is not implemented yet");
             std::process::ExitCode::from(70)
         }
         "" | "-h" | "--help" | "help" => {
-            print!("{HELP}");
+            bund2_api::say!("{HELP}");
             std::process::ExitCode::SUCCESS
         }
         other => {
-            eprintln!("xtask: unknown command `{other}`\n");
-            print!("{HELP}");
+            bund2_api::errln!("xtask: unknown command `{other}`\n");
+            bund2_api::say!("{HELP}");
             std::process::ExitCode::FAILURE
         }
     }

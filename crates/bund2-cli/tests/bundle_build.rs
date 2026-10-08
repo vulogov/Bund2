@@ -666,3 +666,71 @@ fn inspecting_a_non_artefact_explains_itself() {
     );
     assert!(!err.contains("panicked"), "without panicking: {err}");
 }
+
+/// **A bundle's debugger words do nothing — D115.**
+///
+/// In a `script` run the first arming or moving word attaches a console and
+/// the program stops at it (D113.5). A bundle is a shipped program: one that
+/// stopped at a prompt would wait there for as long as its input stayed open.
+/// So the same words in a bundle neither stop nor refuse.
+///
+/// **Standard input is held open with a line in it.** A console that did
+/// attach would run that line and print `typed`; with input closed it would
+/// detach and the test could not tell the two apart.
+#[test]
+fn a_bundles_debugger_words_do_nothing() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let exe = build(
+        "\"a\" println debug.step \"b\" println \
+         \"println\" debug.break \"c\" println \
+         \"1 2 + println\" debug.run debug.next debug.finish debug.continue \
+         \"d\" println",
+        "inert-debugger",
+        &[],
+    );
+    let mut child = Command::new(&exe)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the artefact runs");
+    let mut stdin = child.stdin.take().expect("stdin");
+    stdin.write_all(b"\"typed\" println\n").expect("a line to run");
+    stdin.flush().expect("flush");
+    // Held, not dropped: the program has to end with its input still open.
+    let r = child.wait_with_output_keeping(stdin);
+    assert_eq!(r.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&r.stdout), "a\nb\nc\n3\nd\n");
+    assert_eq!(String::from_utf8_lossy(&r.stderr), "");
+}
+
+/// `wait_with_output`, with the child's standard input kept open until the
+/// child has ended.
+trait KeepInput {
+    fn wait_with_output_keeping(self, stdin: std::process::ChildStdin) -> std::process::Output;
+}
+
+impl KeepInput for std::process::Child {
+    fn wait_with_output_keeping(mut self, stdin: std::process::ChildStdin) -> std::process::Output {
+        use std::io::Read;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let status = loop {
+            if let Some(s) = self.try_wait().expect("wait") {
+                break s;
+            }
+            if std::time::Instant::now() > deadline {
+                let _ = self.kill();
+                panic!("the artefact was still running: it is waiting at a prompt");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        drop(stdin);
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        self.stdout.take().expect("stdout").read_to_end(&mut stdout).expect("stdout");
+        self.stderr.take().expect("stderr").read_to_end(&mut stderr).expect("stderr");
+        std::process::Output { status, stdout, stderr }
+    }
+}

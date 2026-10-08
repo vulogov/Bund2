@@ -3547,6 +3547,210 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D117 — the hot path's cost is read in instructions retired
+
+**Raised 2026-10-08** by the acceptance reviews of RFC-0005 (B5) and RFC-0008
+(B2): D113 added a branch at the frame push, a check before every native and
+a check at dispatch, after both documents' cost criteria were measured. And
+RFC-0008's criterion 12 records that this host's wall-clock spread on the
+sharpest row went 0.5% → 2.6% → 8.4% across three sessions, so a 5% band can
+no longer be resolved by timing here.
+
+- Blocks: nothing
+- Depends on: D70, D113, F134, F135, RFC-0005 criterion 7, RFC-0008 criteria
+  11 and 12
+- Status: **RESOLVED** by the repository owner, 2026-10-08, as recommended:
+  decide the method before measuring, and prefer a count to a clock.
+
+### The decision
+
+A claim that a change to the interpreter's hot path stays inside a band is
+shown by **instructions retired**, read with `/usr/bin/time -l` on two release
+binaries running the same program, the cost of an empty program subtracted
+from both. Five runs each; the median is the reading.
+
+**The 5% band is kept.** It was chosen against timing noise and a count has
+far less: on every looping row below the lowest of five runs is within 0.11%
+of the median. A tighter band could be held. Tightening it is a separate
+decision and is not taken here.
+
+**The median, because one run in five can still be off.** The highest run of
+the empty program was 13% above its median on three of the four binaries, and
+one looping row had a run 2% high.
+
+### What a count does not say
+
+- **It is not time.** A branch that mispredicts and a load that misses cost
+  cycles and no instructions. A change that adds few instructions and is slow
+  would pass this and fail a clock. Whether D113's three sites are of that
+  kind, this method cannot show.
+- **It is one host.** Apple M5 Pro, Darwin 27.0.0, arm64. `/usr/bin/time -l`
+  is macOS's; Linux reads the same counter with `perf stat`.
+- **It is the CLI end to end, not `bund2-bench`'s in-process groups.** The
+  programs below are the `dispatch` group's four shapes run 300,000 times
+  inside `times`, plus a call to a user's word. `value`, `arith`'s cold rows
+  and `corpus` have no reading by this method.
+
+### The first reading: D113, before and after
+
+`dff32be` (the commit before D113) against the tree of 2026-10-08. Instructions
+retired, median of five, the empty program's cost subtracted.
+
+| program, ×300,000 | Tier 0 before | Tier 0 after | change | `jit` before | `jit` after | change |
+|---|---|---|---|---|---|---|
+| `1 drop` | 474.8 M | 488.6 M | **+2.89%** | 317.6 M | 317.0 M | −0.17% |
+| eight literals, eight `drop` | 2,929.9 M | 2,977.1 M | **+1.61%** | 1,318.9 M | 1,314.2 M | −0.36% |
+| `1 dup drop` | 828.0 M | 846.8 M | **+2.26%** | 711.7 M | 716.5 M | +0.67% |
+| `1 2 + drop` | 949.6 M | 966.7 M | **+1.79%** | 328.9 M | 328.6 M | −0.07% |
+| `f`, where `:f { 1 drop } register` | 710.9 M | 736.0 M | **+3.53%** | 591.0 M | 602.3 M | +1.91% |
+
+The empty program: 37.4 M before, 36.9 M after; 37.8 M and 37.7 M with `jit`.
+
+**Every row is inside the band, and the cost is not nothing.** On Tier 0 one
+turn of `1 drop` costs 46 instructions more than it did and one turn of eight
+literals and eight `drop`s costs 157 more — about 16 for each further native
+called, which is more than "a branch" suggests. With a tier the compiled
+bodies do not pass the three sites and the reading is flat, except where a
+word is called by name.
+
+**The comparison is of two trees, not of one change.** Between them lie all of
+D113, D114 and D115 and the replacement of `println!` (F179). None of the last
+three is on these programs' path.
+
+### The second reading: the tier against no tier, today
+
+RFC-0005 criterion 7 compares a build with `jit` against one without. Same
+tree, 2026-10-08, same method:
+
+| | no tier | `jit` | change |
+|---|---|---|---|
+| the empty program (`startup`) | 36.9 M | 37.7 M | **+2.2%** |
+| `1 drop` ×300,000 | 488.6 M | 317.0 M | −35% |
+| `1 dup drop` | 846.8 M | 716.5 M | −15% |
+| `1 2 + drop` | 966.7 M | 328.6 M | −66% |
+| a user's word | 736.0 M | 602.3 M | −18% |
+
+`startup` is inside the band and nothing in `dispatch`'s shape regresses.
+
+## D116 — `bund2 build` refuses a program that does not parse
+
+**Raised 2026-10-08** by the acceptance review of RFC-0006 (B3). The
+behaviour was built with the bundle, held by
+`a_syntax_error_fails_the_build_and_writes_nothing`, listed by D82 under
+"what is not settled", and never ruled on.
+
+- Blocks: nothing
+- Depends on: D76, D82, RFC-0006 §B3
+- Status: **RESOLVED** by the repository owner, 2026-10-08: ratified as
+  built.
+
+### The decision
+
+`bund2 build` parses the program and writes nothing if it does not parse. The
+error names the file, line and column and says that nothing was written.
+
+**What it changes.** A `script` run finds a syntax error when it runs. A
+bundle's author finds it when they build, and the person running the artefact
+never does. That moves *when* an error is seen and *who* sees it, which is
+observable, and is why it needed a sentence from the owner.
+
+**What it does not change.** The artefact carries source, and the bundle
+parses it again when it starts (D77). So this is a check at build time and
+not a different representation, and a bundle that was built runs the text
+`script` would run.
+
+No golden moves: no golden builds a bundle from a program that does not parse.
+
+## D115 — a bundle is never given a debugger, by a flag or by a word
+
+**Raised 2026-10-08** by the acceptance review of RFC-0006 (B5). D113.5 lets
+the first arming or moving debugger word attach a console. The bundle front
+end's comment said a bundle is never dropped into a debugger, and it was
+written before a word could do it. Measured before this decision, a bundle of
+`"a" println debug.step "b" println`: with input closed it printed `a`, the
+console's banner, `detached`, `b`; with input open it stopped and ran a typed
+line.
+
+- Blocks: nothing
+- Depends on: D113 (part 5), D76, D78, RFC-0006 §B3, RFC-0008 §W5
+- Status: **RESOLVED** by the repository owner, 2026-10-08, as recommended.
+  Built the same day.
+
+### The decision
+
+**In a bundle the arming and moving words do nothing**: `debug.break`,
+`debug.break.if`, `debug.watch`, `debug.watch.workbench`, `debug.delete`,
+`debug.step`, `debug.next`, `debug.finish` and `debug.continue`. They take
+their operands, attach nothing, stop nowhere and leave the tier on.
+`debug.run` runs its string and offers no stop. They do not refuse: a
+`debug.break` left in a program is not a reason for the shipped program to
+fail.
+
+`Interp` gains `console_refused`, which a front end sets to say this VM is
+never to have a debugger. The bundle path sets it and gives no console
+factory. A `script` run is unchanged.
+
+**Why not let the author decide, as `input` does.** A program that calls
+`input` waits because reading is what it is for. A program that reaches a
+breakpoint its author forgot waits for a reason nobody at the keyboard can
+see, for as long as its input stays open. The debuggable form of the same
+program is `bund2 script --file`.
+
+### What it does not cover
+
+- **The views still print** — `debug.backtrace`, `debug.stacks` and
+  `debug.info`. They read the VM and wait for nobody.
+- **`debug` and `debug.shell` still read lines and run them**, in a bundle
+  and under `--noeval --noio`. They are the reference's words and it
+  registers both ungated
+  (`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:155`,
+  `reference/Bund/src/stdlib/functions/debug_fun/debug_shell.rs:67`). That is
+  D79's boundary and RFC-0006 §B3a now names it.
+
+`a_bundles_debugger_words_do_nothing` holds it, with a line waiting on an
+input that is kept open.
+
+## D114 — `send` refuses a value nested past the wire format's bound
+
+**Raised 2026-10-08** by the acceptance review of RFC-0007 (B1). The
+refusal has existed since the bus words were built: `send` encodes through
+the codec F118 bounded. RFC-0007's criterion 4 and its open questions both
+say such a refusal "would be new behaviour" needing a decision, and no entry
+recorded it for the bus.
+
+- Blocks: nothing
+- Depends on: F118, D37, D39, D87, RFC-0007 criterion 4
+- Status: **RESOLVED** by the repository owner, 2026-10-08, as recommended:
+  the refusal stays, as an approved deviation.
+
+### The deviation
+
+Measured 2026-10-08, release binaries, a list nested by
+`list N { drop list push } times`, sent and received on one channel:
+
+| levels | oracle | Bund2 |
+|---|---|---|
+| 256 | sends and receives | sends and receives |
+| 257 | sends and receives | `SEND returns error Error enveloping data: the value nests 257 deep, and 256 is the most the wire format can carry` |
+| 301 | sends and receives | the same refusal |
+
+The prefix is the reference's own for an encode that failed
+(`reference/Bund/src/stdlib/functions/bus/mod.rs:114`); the reason after it
+is Bund2's.
+
+### Why it stays
+
+The codec descends once per level in both directions, and a value that
+crossed unbounded would abort the VM that decoded it — not the one that sent
+it. F118 measured that abort at about 3,400 levels for the world file, and
+the owner bounded the format at 256 on 2026-09-12. The bus is the same
+encoder with a second VM on the far side, so the argument is stronger there:
+the failure would land in a thread that did nothing wrong.
+
+**No golden moves.** No corpus program sends a value 257 levels deep.
+`a_value_nested_past_the_wire_bound_is_refused_at_send` holds both sides of
+the bound.
+
 ## D113 — debugger words: one vocabulary for a script, a shell and the console
 
 **Raised 2026-10-07** by the repository owner's idea that the debugger's

@@ -317,20 +317,20 @@ pub fn run(args: &[String]) -> Result<(), String> {
     std::fs::create_dir_all(&scratch)
         .map_err(|e| format!("creating {}: {e}", scratch.display()))?;
 
-    println!("# cargo xtask arity\n");
-    println!("A first-cut stack-effect table. Two passes, reported side by side.\n");
-    println!("  declared  the word's own `current_stack_len() < N` guard — what");
-    println!("            its author says it needs. Static, no oracle.");
-    println!("  probed    consumed/produced observed by running the word against");
-    println!("            the oracle with sentinel operands.\n");
+    bund2_api::sayln!("# cargo xtask arity\n");
+    bund2_api::sayln!("A first-cut stack-effect table. Two passes, reported side by side.\n");
+    bund2_api::sayln!("  declared  the word's own `current_stack_len() < N` guard — what");
+    bund2_api::sayln!("            its author says it needs. Static, no oracle.");
+    bund2_api::sayln!("  probed    consumed/produced observed by running the word against");
+    bund2_api::sayln!("            the oracle with sentinel operands.\n");
     if !have_oracle {
         if static_only {
-            println!("  Probing skipped: --static-only.\n");
+            bund2_api::sayln!("  Probing skipped: --static-only.\n");
         } else {
-            println!("  Probing skipped: no oracle at target/oracle/release/bund.");
-            println!("  Build it with:");
-            println!("    cargo build --release --manifest-path reference/Bund/Cargo.toml \\");
-            println!("                --target-dir target/oracle\n");
+            bund2_api::sayln!("  Probing skipped: no oracle at target/oracle/release/bund.");
+            bund2_api::sayln!("  Build it with:");
+            bund2_api::sayln!("    cargo build --release --manifest-path reference/Bund/Cargo.toml \\");
+            bund2_api::sayln!("                --target-dir target/oracle\n");
         }
     }
 
@@ -415,77 +415,77 @@ fn report(
         }
     }
 
-    println!("  {:<34}{:>5}", "registered names", rows.len());
-    println!(
+    bund2_api::sayln!("  {:<34}{:>5}", "registered names", rows.len());
+    bund2_api::sayln!(
         "  {:<34}{:>5}",
         "with a declared depth guard", with_declared
     );
-    println!("  {:<34}{:>5}", "probed successfully", with_probe);
-    println!(
+    bund2_api::sayln!("  {:<34}{:>5}", "probed successfully", with_probe);
+    bund2_api::sayln!(
         "  {:<34}{:>5}",
         "not probed (unsafe to run)", skipped_unsafe
     );
-    println!(
+    bund2_api::sayln!(
         "  {:<34}{:>5}",
         "declared and probed disagree",
         disagree.len()
     );
     let insensitive: Vec<&Row> = rows.iter().filter(|r| r.depth_insensitive).collect();
-    println!(
+    bund2_api::sayln!(
         "  {:<34}{:>5}",
         "depth-insensitive residual",
         insensitive.len()
     );
-    println!();
+    bund2_api::sayln!();
 
     if !insensitive.is_empty() {
-        println!("## depth-insensitive residual\n");
-        println!("  Two extra operands changed nothing about what these left");
-        println!("  behind, so the probed `consumed` is a **floor** and the");
-        println!("  table writes it `N+`. Reading it as an arity is what this");
-        println!("  column exists to stop: a two-deep sentinel stack makes a");
-        println!("  whole-stack fold look binary, which is what the table said");
-        println!("  about `**`, `*+`, `*-` and `*/` before this check.\n");
-        println!("  **It does not prove variadicity.** It is a superset. A word");
-        println!("  that switches stacks measures its residual on a *different*");
-        println!("  stack and lands here too — `ensure_stack` does, probed with");
-        println!("  a string sentinel, and its depth is genuinely unchanged");
-        println!("  (verified against the oracle: 2 in, 2 out; 6 in, 6 out).");
-        println!("  Same for words that empty the stack outright. Which cause");
-        println!("  applies is a source question, not a probe question.\n");
-        println!("  D12's four are confirmed by source: `stdlib_math_op_multiple_inline`");
-        println!("  pulls until the stack yields NODATA");
-        println!("  (`reference/rust_multistackvm/src/stdlib/math/math_op.rs:38-52`),");
-        println!("  and at depth 4 they leave 1 where `+` and `++` leave 3.\n");
-        println!("  {:<28}{:>10}{:>10}", "word", "floor", "produced");
+        bund2_api::sayln!("## depth-insensitive residual\n");
+        bund2_api::sayln!("  Two extra operands changed nothing about what these left");
+        bund2_api::sayln!("  behind, so the probed `consumed` is a **floor** and the");
+        bund2_api::sayln!("  table writes it `N+`. Reading it as an arity is what this");
+        bund2_api::sayln!("  column exists to stop: a two-deep sentinel stack makes a");
+        bund2_api::sayln!("  whole-stack fold look binary, which is what the table said");
+        bund2_api::sayln!("  about `**`, `*+`, `*-` and `*/` before this check.\n");
+        bund2_api::sayln!("  **It does not prove variadicity.** It is a superset. A word");
+        bund2_api::sayln!("  that switches stacks measures its residual on a *different*");
+        bund2_api::sayln!("  stack and lands here too — `ensure_stack` does, probed with");
+        bund2_api::sayln!("  a string sentinel, and its depth is genuinely unchanged");
+        bund2_api::sayln!("  (verified against the oracle: 2 in, 2 out; 6 in, 6 out).");
+        bund2_api::sayln!("  Same for words that empty the stack outright. Which cause");
+        bund2_api::sayln!("  applies is a source question, not a probe question.\n");
+        bund2_api::sayln!("  D12's four are confirmed by source: `stdlib_math_op_multiple_inline`");
+        bund2_api::sayln!("  pulls until the stack yields NODATA");
+        bund2_api::sayln!("  (`reference/rust_multistackvm/src/stdlib/math/math_op.rs:38-52`),");
+        bund2_api::sayln!("  and at depth 4 they leave 1 where `+` and `++` leave 3.\n");
+        bund2_api::sayln!("  {:<28}{:>10}{:>10}", "word", "floor", "produced");
         for r in &insensitive {
             let (floor, produced) = r.probed.map(|(c, p, _)| (c, p)).unwrap_or((0, 0));
-            println!("  {:<28}{:>9}+{:>10}", r.word, floor, produced);
+            bund2_api::sayln!("  {:<28}{:>9}+{:>10}", r.word, floor, produced);
         }
-        println!();
+        bund2_api::sayln!();
     }
 
     if !disagree.is_empty() {
-        println!("## declared depth differs from probed consumption\n");
-        println!("  The guard is a minimum, not an arity: a word may guard for 1");
-        println!("  and consume 2, or guard for 2 and succeed on a shallower");
-        println!("  stack because the sentinel took a different branch. Each of");
-        println!("  these needs reading before RFC-0004 trusts either number.\n");
+        bund2_api::sayln!("## declared depth differs from probed consumption\n");
+        bund2_api::sayln!("  The guard is a minimum, not an arity: a word may guard for 1");
+        bund2_api::sayln!("  and consume 2, or guard for 2 and succeed on a shallower");
+        bund2_api::sayln!("  stack because the sentinel took a different branch. Each of");
+        bund2_api::sayln!("  these needs reading before RFC-0004 trusts either number.\n");
         // `disagree` is built from rows that have both numbers, so these are
         // present; defaulting rather than unwrapping keeps the report from
         // aborting if that filter ever changes.
         for r in disagree.iter().take(40) {
             let (c, p, t) = r.probed.unwrap_or((0, 0, ""));
             let declared = r.declared_stack.unwrap_or(0);
-            println!(
+            bund2_api::sayln!(
                 "  {:<26} declared {declared}  probed {c}->{p} ({t})   {}",
                 r.word, r.site
             );
         }
         if disagree.len() > 40 {
-            println!("  ... {} more", disagree.len() - 40);
+            bund2_api::sayln!("  ... {} more", disagree.len() - 40);
         }
-        println!();
+        bund2_api::sayln!();
     }
 
     let path = repo.join("docs/arity.md");
@@ -526,7 +526,7 @@ fn report(
         ));
     }
     std::fs::write(&path, s).map_err(|e| format!("writing {}: {e}", path.display()))?;
-    println!(
+    bund2_api::sayln!(
         "wrote {}",
         path.strip_prefix(repo).unwrap_or(&path).display()
     );

@@ -99,7 +99,7 @@ fn main() -> ExitCode {
         // here, failing is the only honest exit code.
         Ok(handle) => handle.join().unwrap_or(ExitCode::FAILURE),
         Err(e) => {
-            eprintln!("bund2: could not start the evaluation thread: {e}");
+            bund2_api::errln!("bund2: could not start the evaluation thread: {e}");
             ExitCode::FAILURE
         }
     }
@@ -119,7 +119,7 @@ fn run_cli() -> ExitCode {
         Ok(Some(carried)) => return run_carried(&carried, args),
         Ok(None) => {}
         Err(damaged) => {
-            eprintln!("bund2: {damaged}");
+            bund2_api::errln!("bund2: {damaged}");
             return ExitCode::FAILURE;
         }
     }
@@ -139,7 +139,7 @@ fn run_cli() -> ExitCode {
         let mut i = Interp::new();
         bund2_stdlib::register_all(&mut i.registry);
         for name in i.registry.word_names() {
-            println!("{name}");
+            bund2_api::sayln!("{name}");
         }
         return ExitCode::SUCCESS;
     }
@@ -148,7 +148,7 @@ fn run_cli() -> ExitCode {
         let mut i = Interp::new();
         bund2_stdlib::register_all(&mut i.registry);
         for (name, e) in i.registry.declared_effects() {
-            println!("{name}\t{}\t{}", e.consumes, e.produces);
+            bund2_api::sayln!("{name}\t{}\t{}", e.consumes, e.produces);
         }
         return ExitCode::SUCCESS;
     }
@@ -161,11 +161,11 @@ fn run_cli() -> ExitCode {
     // to catch.
     if args.first().map(String::as_str) == Some("infer") {
         let Some(file) = args.iter().skip_while(|a| *a != "--file").nth(1).cloned() else {
-            eprintln!("bund2: expected: bund2 infer --file <path>");
+            bund2_api::errln!("bund2: expected: bund2 infer --file <path>");
             return ExitCode::from(2);
         };
         let Ok(src) = std::fs::read_to_string(&file) else {
-            eprintln!("bund2: reading {file}");
+            bund2_api::errln!("bund2: reading {file}");
             return ExitCode::from(2);
         };
         return run_infer(&src, &file);
@@ -178,11 +178,11 @@ fn run_cli() -> ExitCode {
     // does; a program it warns about still runs and still fails as it did.
     if args.first().map(String::as_str) == Some("check") {
         let Some(file) = args.iter().skip_while(|a| *a != "--file").nth(1).cloned() else {
-            eprintln!("bund2: expected: bund2 check --file <path>");
+            bund2_api::errln!("bund2: expected: bund2 check --file <path>");
             return ExitCode::from(2);
         };
         let Ok(src) = std::fs::read_to_string(&file) else {
-            eprintln!("bund2: reading {file}");
+            bund2_api::errln!("bund2: reading {file}");
             return ExitCode::from(2);
         };
         return run_check(&src, &file);
@@ -190,14 +190,14 @@ fn run_cli() -> ExitCode {
     let args = match parse_args(&args) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("bund2: {e}");
+            bund2_api::errln!("bund2: {e}");
             return ExitCode::from(2);
         }
     };
     let src = match std::fs::read_to_string(&args.file) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("bund2: reading {}: {e}", args.file);
+            bund2_api::errln!("bund2: reading {}: {e}", args.file);
             return ExitCode::from(2);
         }
     };
@@ -234,6 +234,9 @@ struct Args {
     /// session with a tier would step over exactly the bodies a program spends
     /// its time in.
     debugger: bool,
+    /// The program came out of this executable (RFC-0006) rather than from
+    /// `--file`. **A bundle's debugger words do nothing** — D115.
+    carried: bool,
     /// `--stats`: report what the tier did, on **stderr** — RFC-0005
     /// criterion 2's statistics flag.
     ///
@@ -308,6 +311,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
         raw_values,
         stats,
         debugger,
+        carried: false,
         jit_threshold,
     })
 }
@@ -326,7 +330,7 @@ fn run_infer(src: &str, file: &str) -> ExitCode {
     let mut vm = Interp::new();
     bund2_stdlib::register_all(&mut vm.registry);
     let Ok(stream) = bund2_syntax::compile(src) else {
-        eprintln!("bund2: {file} does not parse");
+        bund2_api::errln!("bund2: {file} does not parse");
         return ExitCode::from(2);
     };
     // The program's own `register` calls are what put words in the table, so
@@ -343,13 +347,13 @@ fn run_infer(src: &str, file: &str) -> ExitCode {
         let inferred = bund2_stdlib::check::infer(&body, &vm.registry, 0);
         if inferred.opaque {
             opaque += 1;
-            println!("  {name:<28} inferred opaque");
+            bund2_api::sayln!("  {name:<28} inferred opaque");
             continue;
         }
         match observe(&vm.registry, name, inferred.consumes) {
             None => {
                 unobservable += 1;
-                println!(
+                bund2_api::sayln!(
                     "  {name:<28} inferred {}->{}   not observable on integer sentinels",
                     inferred.consumes, inferred.produces
                 );
@@ -360,7 +364,7 @@ fn run_infer(src: &str, file: &str) -> ExitCode {
                     agree += 1;
                 } else {
                     wrong += 1;
-                    println!(
+                    bund2_api::sayln!(
                         "  {name:<28} inferred {}->{} (net {want}) but ran net {delta}",
                         inferred.consumes, inferred.produces
                     );
@@ -368,7 +372,7 @@ fn run_infer(src: &str, file: &str) -> ExitCode {
             }
         }
     }
-    println!(
+    bund2_api::sayln!(
         "{file}: {} word(s) — {agree} agree, {opaque} opaque, {unobservable} unobservable, {wrong} WRONG",
         names.len()
     );
@@ -404,7 +408,7 @@ fn run_check(src: &str, file: &str) -> ExitCode {
     let lowered = match bund2_syntax::parse(src) {
         Ok(terms) => bund2_syntax::lower_with_spans(&terms, src.len()),
         Err(e) => {
-            eprintln!("{}", e.render(src));
+            bund2_api::errln!("{}", e.render(src));
             return ExitCode::from(2);
         }
     };
@@ -422,7 +426,7 @@ fn run_check(src: &str, file: &str) -> ExitCode {
                 column: 0,
                 excerpt: None,
             });
-        eprintln!(
+        bund2_api::errln!(
             "Warning: {}:{}:{}: `{}` needs {} value(s); {} can be proven here",
             where_.file.as_deref().unwrap_or(file),
             where_.line,
@@ -435,7 +439,7 @@ fn run_check(src: &str, file: &str) -> ExitCode {
 
     // **Criterion 5**: say how much was skipped, always — including when
     // nothing was found, which is exactly when a silent report misleads.
-    println!(
+    bund2_api::sayln!(
         "checked {}: {} finding(s), {} site(s) analysed, {} abandoned",
         file,
         report.findings.len(),
@@ -443,15 +447,15 @@ fn run_check(src: &str, file: &str) -> ExitCode {
         report.abandoned
     );
     if !report.reasons.is_empty() {
-        println!("  analysis stopped at:");
+        bund2_api::sayln!("  analysis stopped at:");
         for (why, n) in &report.reasons {
-            println!("    {n:>4}  {why}");
+            bund2_api::sayln!("    {n:>4}  {why}");
         }
-        println!(
+        bund2_api::sayln!(
             "  A finding is only ever about the {} site(s) above that were",
             report.analysed
         );
-        println!("  tracked. Nothing is claimed about the rest.");
+        bund2_api::sayln!("  tracked. Nothing is claimed about the rest.");
     }
     ExitCode::SUCCESS
 }
@@ -519,6 +523,12 @@ fn run_carried(carried: &bundle::Carried, argv: Vec<String>) -> ExitCode {
         // worse failure than not being able to debug it, and the debuggable
         // form of the same program is `bund2 script --file`.
         debugger: false,
+        // **Nor by a word in the program — D115.** `debug.step` and the other
+        // arming and moving words attach a console in a `script` run (D113.5).
+        // In a bundle they do nothing: the program left in a stray
+        // `debug.break` would otherwise wait at a prompt wherever it was
+        // deployed, for as long as its input stayed open.
+        carried: true,
     };
     bund2_stdlib::host::set_args(args.script_args.clone());
     match run(&carried.source, &args) {
@@ -555,25 +565,25 @@ fn build(args: &[String]) -> ExitCode {
     }
 
     let Some(src_path) = value("--file") else {
-        eprintln!("bund2: expected: bund2 build --file <path> --output <path>");
+        bund2_api::errln!("bund2: expected: bund2 build --file <path> --output <path>");
         return ExitCode::from(2);
     };
     let Some(out_path) = value("--output").or_else(|| value("-o")) else {
-        eprintln!("bund2: expected: bund2 build --file <path> --output <path>");
+        bund2_api::errln!("bund2: expected: bund2 build --file <path> --output <path>");
         return ExitCode::from(2);
     };
     let src = match std::fs::read_to_string(&src_path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("bund2: reading {src_path}: {e}");
+            bund2_api::errln!("bund2: reading {src_path}: {e}");
             return ExitCode::FAILURE;
         }
     };
     // The parse, discarded on success and reported on failure.
     if let Err(e) = bund2_syntax::parse(&src) {
         let loc = locate(&src, &src_path, e.span);
-        eprintln!("bund2: {src_path}:{}:{}: {}", loc.line, loc.column, e.what);
-        eprintln!("bund2: nothing was written");
+        bund2_api::errln!("bund2: {src_path}:{}:{}: {}", loc.line, loc.column, e.what);
+        bund2_api::errln!("bund2: nothing was written");
         return ExitCode::FAILURE;
     }
 
@@ -588,7 +598,7 @@ fn build(args: &[String]) -> ExitCode {
     let exe = match std::env::current_exe() {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("bund2: cannot locate this executable to copy: {e}");
+            bund2_api::errln!("bund2: cannot locate this executable to copy: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -606,7 +616,7 @@ fn build(args: &[String]) -> ExitCode {
     if let Ok(existing) = std::fs::canonicalize(&out_path)
         && std::fs::canonicalize(&exe).map(|e| e == existing).unwrap_or(false)
     {
-        eprintln!(
+        bund2_api::errln!(
                 "bund2: --output is this binary ({out_path}). Building over the \
                  executable doing the building would replace the interpreter with \
              the artefact. Nothing was written."
@@ -616,7 +626,7 @@ fn build(args: &[String]) -> ExitCode {
     let mut image = match std::fs::read(&exe) {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("bund2: reading {}: {e}", exe.display());
+            bund2_api::errln!("bund2: reading {}: {e}", exe.display());
             return ExitCode::FAILURE;
         }
     };
@@ -629,22 +639,22 @@ fn build(args: &[String]) -> ExitCode {
         &features_built_in(),
         &pinned_summary(),
     ) {
-        eprintln!("bund2: {e}");
+        bund2_api::errln!("bund2: {e}");
         return ExitCode::FAILURE;
     }
     if let Err(e) = std::fs::write(&out_path, &image) {
-        eprintln!("bund2: writing {out_path}: {e}");
+        bund2_api::errln!("bund2: writing {out_path}: {e}");
         return ExitCode::FAILURE;
     }
     if let Err(e) = make_executable(&out_path) {
-        eprintln!("bund2: {out_path} was written but is not executable: {e}");
+        bund2_api::errln!("bund2: {out_path} was written but is not executable: {e}");
         return ExitCode::FAILURE;
     }
     if let Err(e) = reseal(&out_path) {
-        eprintln!("bund2: {e}");
+        bund2_api::errln!("bund2: {e}");
         return ExitCode::FAILURE;
     }
-    eprintln!(
+    bund2_api::errln!(
         "bund2: wrote {out_path} — {} of {} bytes used",
         src.len(),
         bundle::CAPACITY
@@ -700,21 +710,21 @@ fn inspect(path: &str) -> ExitCode {
     let image = match std::fs::read(path) {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("bund2: reading {path}: {e}");
+            bund2_api::errln!("bund2: reading {path}: {e}");
             return ExitCode::FAILURE;
         }
     };
     let seen = match bundle::inspect(&image) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("bund2: {path} is not a bund2 artefact: {e}");
+            bund2_api::errln!("bund2: {path} is not a bund2 artefact: {e}");
             return ExitCode::FAILURE;
         }
     };
-    println!("{path}");
-    println!("  container      version {}", seen.format);
+    bund2_api::sayln!("{path}");
+    bund2_api::sayln!("  container      version {}", seen.format);
     if seen.carries_program {
-        println!(
+        bund2_api::sayln!(
             "  program        {} of {} bytes, from {}",
             seen.used,
             seen.capacity,
@@ -725,7 +735,7 @@ fn inspect(path: &str) -> ExitCode {
             }
         );
     } else {
-        println!("  program        none — this is the plain interpreter");
+        bund2_api::sayln!("  program        none — this is the plain interpreter");
     }
     // **Named even when empty.** "restrictions none" and a missing line say
     // different things to someone deciding whether to trust an artefact, and
@@ -738,7 +748,7 @@ fn inspect(path: &str) -> ExitCode {
     if seen.noeval {
         restrictions.push("--noeval");
     }
-    println!(
+    bund2_api::sayln!(
         "  restrictions   {}",
         if restrictions.is_empty() {
             "none".to_string()
@@ -746,7 +756,7 @@ fn inspect(path: &str) -> ExitCode {
             restrictions.join(" ")
         }
     );
-    println!(
+    bund2_api::sayln!(
         "  built by       bund2 {}{}",
         if seen.bund2_version.is_empty() {
             "(unrecorded)"
@@ -759,7 +769,7 @@ fn inspect(path: &str) -> ExitCode {
             format!(", features: {}", seen.features)
         }
     );
-    println!(
+    bund2_api::sayln!(
         "  conformed to   {}",
         if seen.pinned.is_empty() {
             "(unrecorded)"
@@ -770,8 +780,8 @@ fn inspect(path: &str) -> ExitCode {
     // The restrictions are a floor; run time may add. Saying so here stops a
     // reader treating the line above as the whole truth (D78).
     if seen.carries_program {
-        println!("\n  Restrictions are a floor: BUND2_NOIO and BUND2_NOEVAL may add,");
-        println!("  never remove. What a bundle does not restrict, it permits.");
+        bund2_api::sayln!("\n  Restrictions are a floor: BUND2_NOIO and BUND2_NOEVAL may add,");
+        bund2_api::sayln!("  never remove. What a bundle does not restrict, it permits.");
     }
     ExitCode::SUCCESS
 }
@@ -833,6 +843,10 @@ fn run(src: &str, args: &Args) -> Option<i32> {
     // a session's text and its diagnostics come from one place.
     if args.debugger {
         vm.attach_debugger(Box::new(debugger::Stdio::new()));
+    } else if args.carried {
+        // **D115: a bundle is given no console and says so**, so the words
+        // that would attach one do nothing rather than refuse.
+        vm.console_refused = true;
     } else {
         // **§W5: a word may ask for a debugger the flag did not.** The
         // console it gets reads through the program's own input. Not under
@@ -919,7 +933,7 @@ fn run(src: &str, args: &Args) -> Option<i32> {
                     Some(n) => format!(", {n} crossed"),
                     None => String::new(),
                 };
-                eprintln!(
+                bund2_api::errln!(
                     "bund2: tier compiled {bodies} bodies{entered}, inlined {sites} sites, \
                      promoted {promoted} values, {generic} generic of {values}{crossed}{at}"
                 );
@@ -929,16 +943,16 @@ fn run(src: &str, args: &Args) -> Option<i32> {
                     Some(n) => format!(" at threshold {n}"),
                     None => String::new(),
                 };
-                eprintln!(
+                bund2_api::errln!(
                     "bund2: tier compiled {bodies} bodies{entered}, inlined {sites} sites, \
                      promoted {promoted} values{at}"
                 );
             }
             (Some(bodies), Some(sites), None, _) => {
-                eprintln!("bund2: tier compiled {bodies} bodies{entered}, inlined {sites} sites");
+                bund2_api::errln!("bund2: tier compiled {bodies} bodies{entered}, inlined {sites} sites");
             }
-            (Some(bodies), None, _, _) => eprintln!("bund2: tier compiled {bodies} bodies{entered}"),
-            _ => eprintln!("bund2: no tier (built without `jit`)"),
+            (Some(bodies), None, _, _) => bund2_api::errln!("bund2: tier compiled {bodies} bodies{entered}"),
+            _ => bund2_api::errln!("bund2: no tier (built without `jit`)"),
         }
     }
     code

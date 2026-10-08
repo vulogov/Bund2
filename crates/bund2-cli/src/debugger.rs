@@ -266,7 +266,7 @@ impl Console for OverInput {
                     return Some(c);
                 }
                 Err(msg) if msg.is_empty() => {}
-                Err(msg) => eprintln!("{msg}"),
+                Err(msg) => bund2_api::errln!("{msg}"),
             }
         }
     }

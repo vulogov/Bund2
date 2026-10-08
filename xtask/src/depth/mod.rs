@@ -327,14 +327,14 @@ pub fn run_cmd(args: &[String]) -> Result<(), String> {
         ),
     ];
 
-    println!("# cargo xtask depth\n");
-    println!("  Does a deep Bund program abort the process? A stack overflow is");
-    println!("  not catchable, never reaches a Reporter, and takes the user's");
-    println!("  state with it — D37. Completing and failing cleanly both pass;");
-    println!("  only aborting and hanging fail.\n");
+    bund2_api::sayln!("# cargo xtask depth\n");
+    bund2_api::sayln!("  Does a deep Bund program abort the process? A stack overflow is");
+    bund2_api::sayln!("  not catchable, never reaches a Reporter, and takes the user's");
+    bund2_api::sayln!("  state with it — D37. Completing and failing cleanly both pass;");
+    bund2_api::sayln!("  only aborting and hanging fail.\n");
     // Which binary this is about — the line `conform` prints too. A depth
     // result with no provenance is F80's failure in a new place.
-    println!("  measured: {}\n", crate::buildcli::provenance(release, &features));
+    bund2_api::sayln!("  measured: {}\n", crate::buildcli::provenance(release, &features));
 
     let mut failed: Vec<String> = Vec::new();
     for (axis, n, src, what) in &cases {
@@ -353,20 +353,20 @@ pub fn run_cmd(args: &[String]) -> Result<(), String> {
             },
             _ => String::new(),
         };
-        println!("  {mark}  {axis:<8} depth {n:<7} {}{level}", outcome.label());
-        println!("        {what}");
+        bund2_api::sayln!("  {mark}  {axis:<8} depth {n:<7} {}{level}", outcome.label());
+        bund2_api::sayln!("        {what}");
         if !outcome.passed() {
             failed.push((*axis).to_string());
         }
     }
-    println!();
+    bund2_api::sayln!();
 
     if !failed.is_empty() {
-        println!("  Failing axes: {}.\n", failed.join(", "));
-        println!("  This is the expected reading until the frame loop lands.");
-        println!("  RFC-0003 §S4 replaces the call axis; RFC-0009 §S3 the class");
-        println!("  axis; the nesting axis is excluded by §S4 and measured here");
-        println!("  so the exclusion is a number rather than a claim.\n");
+        bund2_api::sayln!("  Failing axes: {}.\n", failed.join(", "));
+        bund2_api::sayln!("  This is the expected reading until the frame loop lands.");
+        bund2_api::sayln!("  RFC-0003 §S4 replaces the call axis; RFC-0009 §S3 the class");
+        bund2_api::sayln!("  axis; the nesting axis is excluded by §S4 and measured here");
+        bund2_api::sayln!("  so the exclusion is a number rather than a claim.\n");
     }
 
     // `--require` is the CI gate: name the axes that are meant to hold, and

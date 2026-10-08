@@ -466,6 +466,25 @@ by `--noeval`. The accurate statement is that **no single flag stops a program
 obtaining text and running it**: under `--noeval` alone, `url` fetches and the
 three words above evaluate the result.
 
+**Two more routes run text a program was handed, and neither flag gates
+them — added 2026-10-08, from the acceptance review's B4.** `debug` and
+`debug.shell` read lines and evaluate each one, and the reference registers
+both with no gate
+(`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:155`,
+`reference/Bund/src/stdlib/functions/debug_fun/debug_shell.rs:67`). Measured
+on a bundle built `--noeval --noio` whose program is `debug.shell`: the typed
+line `40 2 + println` prints `42`. A typed `"1" bund.eval` is refused, because
+the stub holds wherever the word is typed. This is D79's boundary again: the
+flag names a group of words, and these two are not in it.
+
+**A bundle is never given a debugger — D115, 2026-10-08.** In a `script` run
+the first arming or moving debugger word attaches a console (D113.5), and
+until D115 a bundle whose program called `debug.step` stopped at one. In a
+bundle those words now do nothing: no console, no stop, and the tier stays
+on. So a stop at a console is not a third route, and a shipped program does
+not wait at a prompt because a breakpoint was left in it.
+`a_bundles_debugger_words_do_nothing` holds it.
+
 Naming any of this a boundary would mislead exactly where it is most costly:
 D76 puts the risk of what an artefact fetches on the person running it, and a
 builder who believed either flag prevented remote code from running would be
@@ -917,10 +936,11 @@ on the answer.
   review had assumed: that sentence describes what an unsupported target gets.
 - **What `--noeval` means — answered by D79**, 2026-09-29: the `bund.eval`
   group, as its help text says. Behaviour unchanged; §B3a's framing corrected.
-- **Is parse-at-build a decision or a design call?** §B3 has `bund2 build`
-  refuse a program that does not parse, and the preservation table files it as
-  "deliberately changed" with nothing behind it. It moves when a syntax error
-  is found, which is observable. Flagged rather than assumed.
+- **Is parse-at-build a decision or a design call? — answered by D116**,
+  2026-10-08: a decision, and ratified as built. §B3 has `bund2 build` refuse
+  a program that does not parse, which moves when a syntax error is found and
+  who finds it. The preservation table's "deliberately changed" now has D116
+  behind it.
 - **Q40 — answered by measurement**, 2026-09-30, then corrected by building it:
   appending runs but can never validate; **in place does not run at all until
   re-signed**, and then does both. §B1 carries the table. Two limits remain
@@ -934,8 +954,8 @@ on the answer.
 
 **Three reviews have found six blockers between them, and all six are
 answered** — four in the design, the rest by D76, D77, D78, D79 and D80. What
-remains listed is one design call flagged for confirmation (parse-at-build),
-one ungrounded assumption (Q40), and one question for whoever takes §B8's
-gate. **No decision waits and no default is being adopted by omission** —
+remains listed is one question for whoever takes §B8's gate. (Until
+2026-10-08 this sentence also counted parse-at-build, since ruled as D116,
+and Q40, which the bullet above records as answered by measurement.) **No decision waits and no default is being adopted by omission** —
 stated carefully, because the second revision of this section claimed exactly
 that while two blockers were outstanding.

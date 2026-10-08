@@ -153,23 +153,23 @@ impl Reporter for TextReporter {
 
         let text = self.render_fatal(d);
         if self.fatal_to_stdout {
-            println!("{text}");
+            bund2_api::sayln!("{text}");
         } else {
-            eprintln!("{text}");
+            bund2_api::errln!("{text}");
         }
 
         if let Some(rows) = &d.stack {
             // Two spaces, and they are not a typo. The reference builds the
             // banner with a trailing space —
             // `format!("{}{}{}{}{}{} ", …)` — and then prints it with
-            // `println!("{} {}", &bund, …)`
+            // `bund2_api::sayln!("{} {}", &bund, …)`
             // (`reference/Bund/src/stdlib/helpers/print_error.rs:133,153`),
             // so the coloured path emits `[BUND]  Content`. Its plain path at
             // `:126` emits one space, but the goldens were captured with
             // colour on and ANSI stripped afterwards, so two is what every
             // captured golden holds.
-            println!("[BUND]  Content of the stack");
-            println!("{}", stack_box(rows));
+            bund2_api::sayln!("[BUND]  Content of the stack");
+            bund2_api::sayln!("{}", stack_box(rows));
         }
         // **The workbench is carried but not printed.** The reference's error
         // path calls `stdlib_debug_display_stack` and nothing else

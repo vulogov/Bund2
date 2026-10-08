@@ -406,7 +406,7 @@ fn method_display(vm: &mut dyn Vm) -> Result<(), Error> {
     let out = vm
         .pull()
         .ok_or_else(|| Error("'.display' produced no text".into()))?;
-    print!("{}", out.display());
+    bund2_api::out!("{}", out.display())?;
     use std::io::Write;
     let _ = std::io::stdout().flush();
     Ok(())
@@ -437,7 +437,7 @@ fn method_println(vm: &mut dyn Vm) -> Result<(), Error> {
     let Some(v) = vm.pull() else {
         return Err(Error::internal("`.str` pushed nothing for `.println`"));
     };
-    println!("{}", v.display());
+    bund2_api::outln!("{}", v.display())?;
     Ok(())
 }
 
@@ -446,7 +446,7 @@ fn method_print(vm: &mut dyn Vm) -> Result<(), Error> {
     let Some(v) = vm.pull() else {
         return Err(Error::internal("`.str` pushed nothing for `.print`"));
     };
-    print!("{}", v.display());
+    bund2_api::out!("{}", v.display())?;
     Ok(())
 }
 
@@ -1569,6 +1569,78 @@ mod tests {
                 "got {e:?}"
             ),
         }
+    }
+
+    /// **RFC-0010's diagram is what is registered — its criterion 4.**
+    ///
+    /// The diagram is read out of the document, so a class added, a parent
+    /// moved or a slot renamed fails here until the document says so, and an
+    /// edit to the document fails until the registry agrees. Three things per
+    /// row: the class exists, its `.super` is the list written, and its
+    /// slots — every key but `.class_name` and `.super` — are the ones written.
+    /// Then the other direction: the registry holds no class the diagram
+    /// leaves out.
+    #[test]
+    fn the_registry_is_the_hierarchy_rfc_0010_draws() {
+        const RFC: &str = include_str!("../../../docs/rfc/RFC-0010-class-hierarchy.md");
+        let diagram: Vec<&str> = RFC
+            .lines()
+            .skip_while(|l| !l.starts_with("### 1. The hierarchy, as registered"))
+            .skip_while(|l| !l.starts_with("```"))
+            .skip(1)
+            .take_while(|l| !l.starts_with("```"))
+            .collect();
+        assert_eq!(diagram.len(), 10, "the diagram has ten rows: {diagram:#?}");
+
+        let mut i = Interp::new();
+        crate::register_all(&mut i.registry);
+        let mut drawn = Vec::new();
+        for row in diagram {
+            // `<tree art> Name   .super [A, B]   slot, slot`
+            let (head, rest) = row.split_once(".super [").expect(row);
+            let name = head
+                .trim_matches(|c: char| !c.is_alphanumeric())
+                .to_string();
+            let (parents, slots) = rest.split_once(']').expect(row);
+            let parents: Vec<String> = parents
+                .split(',')
+                .map(str::trim)
+                .filter(|p| !p.is_empty())
+                .map(str::to_string)
+                .collect();
+            let mut slots: Vec<String> = slots.split(',').map(|s| s.trim().to_string()).collect();
+            slots.sort();
+
+            let class = i
+                .registry
+                .class(&name)
+                .unwrap_or_else(|| panic!("{name} is drawn and not registered"));
+            assert_eq!(
+                class.get(".class_name").and_then(|n| n.as_str()),
+                Some(name.clone()),
+                "{name}: D25, a class carries its own name"
+            );
+            let supers = class.get(".super").expect(".super");
+            let registered: Vec<String> = supers
+                .as_list()
+                .expect("`.super` is a LIST")
+                .iter()
+                .map(|p| p.as_str().expect("a parent is named"))
+                .collect();
+            assert_eq!(registered, parents, "{name}: parents");
+            let mut held: Vec<String> = class
+                .as_map()
+                .expect("a class is a map")
+                .keys()
+                .filter(|k| *k != ".class_name" && *k != ".super")
+                .cloned()
+                .collect();
+            held.sort();
+            assert_eq!(held, slots, "{name}: slots");
+            drawn.push(name);
+        }
+        drawn.sort();
+        assert_eq!(i.registry.class_names(), drawn, "a class the diagram leaves out");
     }
 
     #[test]

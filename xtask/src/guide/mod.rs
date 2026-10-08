@@ -196,30 +196,30 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     let reg: Registry = registry::scan(&repo, REGISTRY_ROOTS);
     let registered: BTreeSet<&str> = reg.word_names().into_iter().collect();
 
-    println!("# cargo xtask guide\n");
-    println!("Cross-reference of reference/Bund/Documentation/Bund_Library_Guide");
-    println!("against the registry. Closes Q17: the guide is read, and the claims");
-    println!("it makes that a machine can check are checked here rather than");
-    println!("paraphrased into an RFC.\n");
+    bund2_api::sayln!("# cargo xtask guide\n");
+    bund2_api::sayln!("Cross-reference of reference/Bund/Documentation/Bund_Library_Guide");
+    bund2_api::sayln!("against the registry. Closes Q17: the guide is read, and the claims");
+    bund2_api::sayln!("it makes that a machine can check are checked here rather than");
+    bund2_api::sayln!("paraphrased into an RFC.\n");
 
     // -----------------------------------------------------------------------
-    println!("## what the guide is\n");
+    bund2_api::sayln!("## what the guide is\n");
     let indexed = pages.iter().filter(|p| p.indexed).count();
-    println!("  word pages under lib/            {:>5}", pages.len());
-    println!("  rendered — named by index.csv    {:>5}", indexed);
-    println!("  callable names in the registry   {:>5}", registered.len());
-    println!(
+    bund2_api::sayln!("  word pages under lib/            {:>5}", pages.len());
+    bund2_api::sayln!("  rendered — named by index.csv    {:>5}", indexed);
+    bund2_api::sayln!("  callable names in the registry   {:>5}", registered.len());
+    bund2_api::sayln!(
         "  documented share of the language {:>5}",
         format!("{}%", pages.len() * 100 / registered.len().max(1))
     );
-    println!();
-    println!("  It is a reference for part of the standard library, not a");
-    println!("  language specification: it documents no grammar, no evaluation");
-    println!("  order, and no word outside these pages. Adopting it as the sole");
-    println!("  normative source would leave most of the language unspecified.\n");
+    bund2_api::sayln!();
+    bund2_api::sayln!("  It is a reference for part of the standard library, not a");
+    bund2_api::sayln!("  language specification: it documents no grammar, no evaluation");
+    bund2_api::sayln!("  order, and no word outside these pages. Adopting it as the sole");
+    bund2_api::sayln!("  normative source would leave most of the language unspecified.\n");
 
     // -----------------------------------------------------------------------
-    println!("## 1. documented but not callable\n");
+    bund2_api::sayln!("## 1. documented but not callable\n");
     let mut uncallable = Vec::new();
     for p in &pages {
         if !registered.contains(p.word.as_str()) {
@@ -227,37 +227,37 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         }
     }
     if uncallable.is_empty() {
-        println!("  none — every documented word resolves.\n");
+        bund2_api::sayln!("  none — every documented word resolves.\n");
     } else {
         for p in &uncallable {
             let via = reg
                 .resolve(&p.word)
                 .map(|r| r.label())
                 .unwrap_or_else(|| "unregistered".to_string());
-            println!("  {:<24}{}", p.word, via);
+            bund2_api::sayln!("  {:<24}{}", p.word, via);
         }
-        println!();
-        println!("  A page asserts the word exists. These do not, so the guide");
-        println!("  and the implementation disagree about the language's surface.\n");
+        bund2_api::sayln!();
+        bund2_api::sayln!("  A page asserts the word exists. These do not, so the guide");
+        bund2_api::sayln!("  and the implementation disagree about the language's surface.\n");
     }
 
     // -----------------------------------------------------------------------
-    println!("## 2. written but never rendered\n");
+    bund2_api::sayln!("## 2. written but never rendered\n");
     let orphans: Vec<&Page> = pages.iter().filter(|p| !p.indexed).collect();
     if orphans.is_empty() {
-        println!("  none — index.csv names every page.\n");
+        bund2_api::sayln!("  none — index.csv names every page.\n");
     } else {
         for p in &orphans {
-            println!("  {}", p.dir);
+            bund2_api::sayln!("  {}", p.dir);
         }
-        println!();
-        println!("  Library.typ renders by iterating index.csv, so a directory");
-        println!("  the index does not name never reaches the book. The text");
-        println!("  exists; the reader never sees it.\n");
+        bund2_api::sayln!();
+        bund2_api::sayln!("  Library.typ renders by iterating index.csv, so a directory");
+        bund2_api::sayln!("  the index does not name never reaches the book. The text");
+        bund2_api::sayln!("  exists; the reader never sees it.\n");
     }
 
     // -----------------------------------------------------------------------
-    println!("## 3. \"Defined in\" against the registration site\n");
+    bund2_api::sayln!("## 3. \"Defined in\" against the registration site\n");
     let mut agree = 0usize;
     let mut disagree: Vec<(String, String, String)> = Vec::new();
     let mut unticked: Vec<&str> = Vec::new();
@@ -288,38 +288,38 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         }
     }
     for (l, n) in &by_layer {
-        println!("  guide attributes to {l:<20}{n:>4}");
+        bund2_api::sayln!("  guide attributes to {l:<20}{n:>4}");
     }
-    println!();
-    println!("  agree with the registration path    {agree:>4}");
-    println!(
+    bund2_api::sayln!();
+    bund2_api::sayln!("  agree with the registration path    {agree:>4}");
+    bund2_api::sayln!(
         "  disagree                            {:>4}",
         disagree.len()
     );
-    println!(
+    bund2_api::sayln!(
         "  no box ticked                       {:>4}",
         unticked.len()
     );
     if !disagree.is_empty() {
-        println!();
-        println!("  {:<24}{:<24}path says", "word", "guide says");
+        bund2_api::sayln!();
+        bund2_api::sayln!("  {:<24}{:<24}path says", "word", "guide says");
         for (w, g, d) in &disagree {
-            println!("  {w:<24}{g:<24}{d}");
+            bund2_api::sayln!("  {w:<24}{g:<24}{d}");
         }
     }
     if !unticked.is_empty() {
-        println!("\n  unticked: {}", unticked.join(", "));
+        bund2_api::sayln!("\n  unticked: {}", unticked.join(", "));
     }
-    println!();
-    println!("  This is D14's axis with two independent sources. The guide's");
-    println!("  three checkboxes are the same three crates classify::subsystem");
-    println!("  derives from the path, so they can be compared directly.\n");
+    bund2_api::sayln!();
+    bund2_api::sayln!("  This is D14's axis with two independent sources. The guide's");
+    bund2_api::sayln!("  three checkboxes are the same three crates classify::subsystem");
+    bund2_api::sayln!("  derives from the path, so they can be compared directly.\n");
 
     // -----------------------------------------------------------------------
-    println!("## 4. #danger pages against the derived effect\n");
-    println!("  The guide flags hazards by hand. The effect audit derives them");
-    println!("  from the registration path. Comparing the two sorts the guide's");
-    println!("  warnings into two kinds it does not itself distinguish.\n");
+    bund2_api::sayln!("## 4. #danger pages against the derived effect\n");
+    bund2_api::sayln!("  The guide flags hazards by hand. The effect audit derives them");
+    bund2_api::sayln!("  from the registration path. Comparing the two sorts the guide's");
+    bund2_api::sayln!("  warnings into two kinds it does not itself distinguish.\n");
 
     let flagged: Vec<&Page> = pages.iter().filter(|p| p.danger.is_some()).collect();
     let mut external = Vec::new();
@@ -331,40 +331,40 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             None => {}
         }
     }
-    println!("  pages carrying a real #danger      {:>4}", flagged.len());
-    println!("  derived non-hermetic               {:>4}", external.len());
-    println!(
+    bund2_api::sayln!("  pages carrying a real #danger      {:>4}", flagged.len());
+    bund2_api::sayln!("  derived non-hermetic               {:>4}", external.len());
+    bund2_api::sayln!(
         "  derived hermetic                   {:>4}",
         data_loss.len()
     );
-    println!();
-    println!("  Derived non-hermetic — the audit independently reached the same");
-    println!("  verdict the author did, and none can enter the suite:\n");
+    bund2_api::sayln!();
+    bund2_api::sayln!("  Derived non-hermetic — the audit independently reached the same");
+    bund2_api::sayln!("  verdict the author did, and none can enter the suite:\n");
     for (p, e) in &external {
-        println!(
+        bund2_api::sayln!(
             "  {:<20}{:<12}{}",
             p.word,
             format!("{e:?}"),
             p.danger.as_deref().unwrap_or("")
         );
     }
-    println!();
-    println!("  Derived hermetic — the warning is real but it is about losing");
-    println!("  your own data, not about touching the world. A golden captures");
-    println!("  final state, so a program that drops a value reproduces exactly:\n");
+    bund2_api::sayln!();
+    bund2_api::sayln!("  Derived hermetic — the warning is real but it is about losing");
+    bund2_api::sayln!("  your own data, not about touching the world. A golden captures");
+    bund2_api::sayln!("  final state, so a program that drops a value reproduces exactly:\n");
     for (p, e) in &data_loss {
-        println!(
+        bund2_api::sayln!(
             "  {:<20}{:<12}{}",
             p.word,
             format!("{e:?}"),
             p.danger.as_deref().unwrap_or("")
         );
     }
-    println!();
-    println!("  The split matters because conflating them would strip every");
-    println!("  program using `drop` or `clear` out of the suite for no reason.");
-    println!("  A first cut of this check did exactly that, reporting five");
-    println!("  `drop` uses as effect-audit misses.\n");
+    bund2_api::sayln!();
+    bund2_api::sayln!("  The split matters because conflating them would strip every");
+    bund2_api::sayln!("  program using `drop` or `clear` out of the suite for no reason.");
+    bund2_api::sayln!("  A first cut of this check did exactly that, reporting five");
+    bund2_api::sayln!("  `drop` uses as effect-audit misses.\n");
 
     // End to end: none of the externally hazardous words may appear in a
     // captured program, whichever way the hazard was established.
@@ -378,19 +378,19 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         }
     }
     if leaks.is_empty() {
-        println!(
+        bund2_api::sayln!(
             "  None of the {} externally hazardous words appears in any of the",
             external.len()
         );
-        println!(
+        bund2_api::sayln!(
             "  {} suite programs. Hand-flagged and derived agree end to end.\n",
             suite.len()
         );
     } else {
         for (w, rel) in &leaks {
-            println!("  LEAK {w:<20}{rel}");
+            bund2_api::sayln!("  LEAK {w:<20}{rel}");
         }
-        println!("\n  A hand-flagged external hazard reached the suite.\n");
+        bund2_api::sayln!("\n  A hand-flagged external hazard reached the suite.\n");
     }
 
     // The reverse direction: hazards the audit finds and the guide does not
@@ -407,19 +407,19 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             unwarned.push((&p.word, e));
         }
     }
-    println!("## 5. hazardous but unflagged\n");
-    println!("  documented words the audit calls non-hermetic where the page");
-    println!("  carries no #danger:      {:>4}\n", unwarned.len());
+    bund2_api::sayln!("## 5. hazardous but unflagged\n");
+    bund2_api::sayln!("  documented words the audit calls non-hermetic where the page");
+    bund2_api::sayln!("  carries no #danger:      {:>4}\n", unwarned.len());
     for (w, e) in &unwarned {
-        println!("  {w:<24}{e:?}");
+        bund2_api::sayln!("  {w:<24}{e:?}");
     }
     if !unwarned.is_empty() {
-        println!();
-        println!("  Each is a hazard a reader of the guide would not be warned");
-        println!("  about. They are also why the derived audit, not the guide,");
-        println!("  is what the hermetic filter runs on.");
+        bund2_api::sayln!();
+        bund2_api::sayln!("  Each is a hazard a reader of the guide would not be warned");
+        bund2_api::sayln!("  about. They are also why the derived audit, not the guide,");
+        bund2_api::sayln!("  is what the hermetic filter runs on.");
     }
-    println!();
+    bund2_api::sayln!();
 
     Ok(())
 }

@@ -254,8 +254,8 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     }
     let reg = registry::scan(&repo, REGISTRY_ROOTS);
 
-    println!("# cargo xtask corpus\n");
-    println!(
+    bund2_api::sayln!("# cargo xtask corpus\n");
+    bund2_api::sayln!(
         "{} programs ({} examples, {} tests), {} lines.",
         programs.len(),
         programs
@@ -268,7 +268,7 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             .count(),
         programs.iter().map(|p| p.lines.len()).sum::<usize>(),
     );
-    println!(
+    bund2_api::sayln!(
         "Registry: {} inline words, {} aliases, {} methods, {} commands, {} classes.\n",
         reg.inline.len(),
         reg.alias.len(),
@@ -331,19 +331,19 @@ fn handler_uses_stackops(src: &str, handler: &str) -> Option<bool> {
 /// Cross-tabulate "has a `.` form" against "sources an operand", to test the
 /// criterion D18/Q11 rests on and to size the gap it implies.
 fn workbench_forms(repo: &Path, reg: &Registry) {
-    println!("\n---\n\n# Workbench-form audit  [D18 / Q11]\n");
-    println!("D18/Q11 fills a missing `W.` only where `W` sources a primary");
-    println!("operand; for a pure producer `W .` already says it (`.` is");
-    println!("`return`, stack->workbench, create_aliases.rs:4).\n");
-    println!("THIS AUDIT DOES NOT DECIDE THAT. `StackOps` is how a `.` form is");
-    println!("implemented (push.rs:10), so \"threads StackOps\" and \"has a `.`");
-    println!("form\" are near-tautologically correlated — the high agreement");
-    println!("below is circular and proves nothing about operand arity. The");
-    println!("bucket labelled `neither` is NOT a list of producers: it holds");
-    println!("`set`, `get`, `math.sqrt`, `string.upper` and other plain");
-    println!("consumers that simply have no workbench variant.\n");
-    println!("Applying Q11 needs real stack-effect data: `cargo xtask arity`.");
-    println!("What follows is useful only for the two anomaly lists.\n");
+    bund2_api::sayln!("\n---\n\n# Workbench-form audit  [D18 / Q11]\n");
+    bund2_api::sayln!("D18/Q11 fills a missing `W.` only where `W` sources a primary");
+    bund2_api::sayln!("operand; for a pure producer `W .` already says it (`.` is");
+    bund2_api::sayln!("`return`, stack->workbench, create_aliases.rs:4).\n");
+    bund2_api::sayln!("THIS AUDIT DOES NOT DECIDE THAT. `StackOps` is how a `.` form is");
+    bund2_api::sayln!("implemented (push.rs:10), so \"threads StackOps\" and \"has a `.`");
+    bund2_api::sayln!("form\" are near-tautologically correlated — the high agreement");
+    bund2_api::sayln!("below is circular and proves nothing about operand arity. The");
+    bund2_api::sayln!("bucket labelled `neither` is NOT a list of producers: it holds");
+    bund2_api::sayln!("`set`, `get`, `math.sqrt`, `string.upper` and other plain");
+    bund2_api::sayln!("consumers that simply have no workbench variant.\n");
+    bund2_api::sayln!("Applying Q11 needs real stack-effect data: `cargo xtask arity`.");
+    bund2_api::sayln!("What follows is useful only for the two anomaly lists.\n");
 
     let all: Vec<&str> = reg.word_names();
     let known: BTreeSet<&str> = all.iter().copied().collect();
@@ -382,31 +382,31 @@ fn workbench_forms(repo: &Path, reg: &Registry) {
     }
 
     let decided = consistent_yes + consistent_no + counter.len() + gaps.len();
-    println!(
+    bund2_api::sayln!(
         "  {:<44}{:>5}",
         "has `.` form AND uses StackOps", consistent_yes
     );
-    println!(
+    bund2_api::sayln!(
         "  {:<44}{:>5}",
         "has neither (NOT a producer list)", consistent_no
     );
-    println!(
+    bund2_api::sayln!(
         "  {:<44}{:>5}   <-- mostly naming artefacts",
         "no `.` form BUT uses StackOps",
         gaps.len()
     );
-    println!(
+    bund2_api::sayln!(
         "  {:<44}{:>5}   <-- two forms, separate fns",
         "has `.` form BUT no StackOps",
         counter.len()
     );
-    println!(
+    bund2_api::sayln!(
         "  {:<44}{:>5}",
         "handler not resolvable",
         undetermined.len()
     );
     if decided > 0 {
-        println!(
+        bund2_api::sayln!(
             "\n  agreement {}/{} ({:.1}%) — CIRCULAR, proves nothing (see caveat)\n",
             consistent_yes + consistent_no + gaps.len(),
             decided,
@@ -414,40 +414,40 @@ fn workbench_forms(repo: &Path, reg: &Registry) {
         );
     }
 
-    println!("## threads StackOps but has no `.` form: {}\n", gaps.len());
-    println!("  Mostly naming artefacts: the `if.*` family spells its workbench");
-    println!("  form `.in_workbench` rather than with a `.` suffix.\n");
-    println!("  {}\n", gaps.join(" "));
+    bund2_api::sayln!("## threads StackOps but has no `.` form: {}\n", gaps.len());
+    bund2_api::sayln!("  Mostly naming artefacts: the `if.*` family spells its workbench");
+    bund2_api::sayln!("  form `.in_workbench` rather than with a `.` suffix.\n");
+    bund2_api::sayln!("  {}\n", gaps.join(" "));
 
-    println!(
+    bund2_api::sayln!(
         "## has a `.` form without threading StackOps: {}\n",
         counter.len()
     );
     if counter.is_empty() {
-        println!("  (none)\n");
+        bund2_api::sayln!("  (none)\n");
     }
     for (w, cite) in counter.iter().take(40) {
-        println!("  {w:<28} {cite}");
+        bund2_api::sayln!("  {w:<28} {cite}");
     }
     if counter.len() > 40 {
-        println!("  ... {} more", counter.len() - 40);
+        bund2_api::sayln!("  ... {} more", counter.len() - 40);
     }
-    println!();
+    bund2_api::sayln!();
 
-    println!(
+    bund2_api::sayln!(
         "## has neither a `.` form nor StackOps: {}\n",
         producers.len()
     );
-    println!("  NOT a producer list. Partitioning these into producers and");
-    println!("  consumers is exactly what Q11 needs and what this audit cannot");
-    println!("  do. Listed for reference only.\n");
-    println!("  {}\n", producers.join(" "));
+    bund2_api::sayln!("  NOT a producer list. Partitioning these into producers and");
+    bund2_api::sayln!("  consumers is exactly what Q11 needs and what this audit cannot");
+    bund2_api::sayln!("  do. Listed for reference only.\n");
+    bund2_api::sayln!("  {}\n", producers.join(" "));
 
     if !undetermined.is_empty() {
-        println!("## handler not resolvable: {}\n", undetermined.len());
-        println!("  Registered through a path or macro this scan cannot follow;");
-        println!("  these need checking by hand before D18 is applied to them.\n");
-        println!("  {}\n", undetermined.join(" "));
+        bund2_api::sayln!("## handler not resolvable: {}\n", undetermined.len());
+        bund2_api::sayln!("  Registered through a path or macro this scan cannot follow;");
+        bund2_api::sayln!("  these need checking by hand before D18 is applied to them.\n");
+        bund2_api::sayln!("  {}\n", undetermined.join(" "));
     }
 }
 
@@ -642,54 +642,54 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
         .filter(|w| mentioned.contains(w))
         .collect();
 
-    println!("# cargo xtask coverage\n");
-    println!("Words Bund2 implements and a program runs, over words in scope.");
-    println!("This is NOT conformance.");
-    println!("`cargo xtask conform` is goldens passed over goldens — a regression");
-    println!("number over a fixed corpus, which is why the JIT and AOT milestones");
-    println!("must move it by exactly zero. Coverage is the completeness number.");
-    println!("Neither substitutes for the other.\n");
+    bund2_api::sayln!("# cargo xtask coverage\n");
+    bund2_api::sayln!("Words Bund2 implements and a program runs, over words in scope.");
+    bund2_api::sayln!("This is NOT conformance.");
+    bund2_api::sayln!("`cargo xtask conform` is goldens passed over goldens — a regression");
+    bund2_api::sayln!("number over a fixed corpus, which is why the JIT and AOT milestones");
+    bund2_api::sayln!("must move it by exactly zero. Coverage is the completeness number.");
+    bund2_api::sayln!("Neither substitutes for the other.\n");
 
-    println!("  registered names            {:>5}", all.len());
-    println!("  out of scope by decision    {:>5}", deferred.len());
-    println!("  {:-<32}", "");
-    println!("  words in scope              {:>5}", in_scope.len());
-    println!("  implemented by Bund2        {:>5}", implemented.len());
-    println!("  of those, run by a golden   {:>5}", covered.len());
-    println!("  {:-<32}", "");
+    bund2_api::sayln!("  registered names            {:>5}", all.len());
+    bund2_api::sayln!("  out of scope by decision    {:>5}", deferred.len());
+    bund2_api::sayln!("  {:-<32}", "");
+    bund2_api::sayln!("  words in scope              {:>5}", in_scope.len());
+    bund2_api::sayln!("  implemented by Bund2        {:>5}", implemented.len());
+    bund2_api::sayln!("  of those, run by a golden   {:>5}", covered.len());
+    bund2_api::sayln!("  {:-<32}", "");
     let ipct = 100.0 * implemented.len() as f64 / in_scope.len().max(1) as f64;
     let pct = 100.0 * covered.len() as f64 / in_scope.len().max(1) as f64;
-    println!(
+    bund2_api::sayln!(
         "  IMPLEMENTED             {:>5}/{:<5} ({ipct:.1}%)",
         implemented.len(),
         in_scope.len()
     );
-    println!(
+    bund2_api::sayln!(
         "  COVERAGE                {:>5}/{:<5} ({pct:.1}%)\n",
         covered.len(),
         in_scope.len()
     );
-    println!("  **COVERAGE is the completeness number**, and it is the smaller");
-    println!("  of the two on purpose: a word Bund2 registers but no program");
-    println!("  runs is untested code. IMPLEMENTED is reported beside it because");
-    println!("  the gap between them is the work of writing probes, not of");
-    println!("  writing words.\n");
-    println!("  Both are asked of the **binary**: `bund2 words` lists what the");
-    println!("  registry binds, and coverage joins that against the reference's");
-    println!("  registry. Until this run they were not — the numerator counted");
-    println!("  in-scope words the *corpus mentioned*, a property of the corpus");
-    println!("  that could not move as words landed, and it read 121/497 through");
-    println!("  roughly forty words arriving in a single session. A completeness");
-    println!("  number that cannot move is not one.\n");
-    println!(
+    bund2_api::sayln!("  **COVERAGE is the completeness number**, and it is the smaller");
+    bund2_api::sayln!("  of the two on purpose: a word Bund2 registers but no program");
+    bund2_api::sayln!("  runs is untested code. IMPLEMENTED is reported beside it because");
+    bund2_api::sayln!("  the gap between them is the work of writing probes, not of");
+    bund2_api::sayln!("  writing words.\n");
+    bund2_api::sayln!("  Both are asked of the **binary**: `bund2 words` lists what the");
+    bund2_api::sayln!("  registry binds, and coverage joins that against the reference's");
+    bund2_api::sayln!("  registry. Until this run they were not — the numerator counted");
+    bund2_api::sayln!("  in-scope words the *corpus mentioned*, a property of the corpus");
+    bund2_api::sayln!("  that could not move as words landed, and it read 121/497 through");
+    bund2_api::sayln!("  roughly forty words arriving in a single session. A completeness");
+    bund2_api::sayln!("  number that cannot move is not one.\n");
+    bund2_api::sayln!(
         "  Reachable at all: {} in-scope words are named by some program, so",
         reachable.len()
     );
-    println!("  that is the ceiling on COVERAGE until probes are written for the");
-    println!("  rest. It is the old numerator, kept as the bound it always was --");
-    println!("  a property of the corpus, which is why it is not the numerator");
-    println!("  any more (D95). A word outside it can never be run by a golden,");
-    println!("  whatever Bund2 implements.\n");
+    bund2_api::sayln!("  that is the ceiling on COVERAGE until probes are written for the");
+    bund2_api::sayln!("  rest. It is the old numerator, kept as the bound it always was --");
+    bund2_api::sayln!("  a property of the corpus, which is why it is not the numerator");
+    bund2_api::sayln!("  any more (D95). A word outside it can never be run by a golden,");
+    bund2_api::sayln!("  whatever Bund2 implements.\n");
 
     // **The gap, by name.** IMPLEMENTED minus COVERAGE is "probes to write",
     // and a count of them says what to do without saying to which words. This
@@ -699,11 +699,11 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
         .copied()
         .filter(|w| !used.contains(w))
         .collect();
-    println!("## implemented but run by no golden: {}\n", untested.len());
+    bund2_api::sayln!("## implemented but run by no golden: {}\n", untested.len());
     for chunk in untested.chunks(6) {
-        println!("  {}", chunk.join("  "));
+        bund2_api::sayln!("  {}", chunk.join("  "));
     }
-    println!();
+    bund2_api::sayln!();
 
     // **Which of those no golden can ever hold — F175.**
     //
@@ -742,22 +742,22 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
         .filter(|w| used.contains(w))
         .collect();
     let to_write = untested.len() - held_out.len();
-    println!("## of those, no golden can hold: {}\n", held_out.len());
+    bund2_api::sayln!("## of those, no golden can hold: {}\n", held_out.len());
     for (w, why) in &held_out {
-        println!("  {w:<32} {why}");
+        bund2_api::sayln!("  {w:<32} {why}");
     }
-    println!();
-    println!(
+    bund2_api::sayln!();
+    bund2_api::sayln!(
         "  Probes still to write: {to_write}. The reachable maximum for COVERAGE is"
     );
-    println!(
+    bund2_api::sayln!(
         "  therefore {}/{} -- IMPLEMENTED less the {} above.\n",
         implemented.len() - held_out.len(),
         in_scope.len(),
         held_out.len()
     );
     if !stale.is_empty() {
-        println!(
+        bund2_api::sayln!(
             "  **Stale entries**: {} listed as unholdable and run by a golden.\n",
             stale.join(", ")
         );
@@ -784,16 +784,16 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
         .filter(|w| in_scope.contains(w) && !implemented.contains(w))
         .collect();
     if !gated.is_empty() {
-        println!(
+        bund2_api::sayln!(
             "## implemented, but only under a Cargo feature: {}\n",
             gated.len()
         );
-        println!("  {}\n", gated.join("  "));
-        println!("  Counted as not implemented above, because COVERAGE asks the");
-        println!("  default build and the default build does not register them");
-        println!("  (D10, D40: `grok` compiles Oniguruma from C). They are named");
-        println!("  here so the remainder of `not implemented` is a worklist and");
-        println!("  not an instruction to redo finished work.\n");
+        bund2_api::sayln!("  {}\n", gated.join("  "));
+        bund2_api::sayln!("  Counted as not implemented above, because COVERAGE asks the");
+        bund2_api::sayln!("  default build and the default build does not register them");
+        bund2_api::sayln!("  (D10, D40: `grok` compiles Oniguruma from C). They are named");
+        bund2_api::sayln!("  here so the remainder of `not implemented` is a worklist and");
+        bund2_api::sayln!("  not an instruction to redo finished work.\n");
     }
 
     // **The other gap, by name — F162.**
@@ -824,9 +824,9 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
         .copied()
         .filter(|w| !implemented_set.contains(w))
         .collect();
-    println!("## in scope and not implemented: {}\n", unwritten.len());
+    bund2_api::sayln!("## in scope and not implemented: {}\n", unwritten.len());
     if unwritten.is_empty() {
-        println!("  none -- every in-scope word is registered by the default build.\n");
+        bund2_api::sayln!("  none -- every in-scope word is registered by the default build.\n");
     } else {
         let mut by_sub: BTreeMap<String, Vec<&str>> = BTreeMap::new();
         for w in &unwritten {
@@ -847,14 +847,14 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
                     }
                 })
                 .collect();
-            println!("  {sub:<20}{}", shown.join("  "));
+            bund2_api::sayln!("  {sub:<20}{}", shown.join("  "));
         }
-        println!();
-        println!("  This is `IMPLEMENTED`'s remainder, by name: in scope, and not");
-        println!("  registered by the default build. A word marked `(feature)` is");
-        println!("  written and off by default. The rest are either unwritten or");
-        println!("  bound only by a build this report does not ask -- the registers");
-        println!("  say which, and why.\n");
+        bund2_api::sayln!();
+        bund2_api::sayln!("  This is `IMPLEMENTED`'s remainder, by name: in scope, and not");
+        bund2_api::sayln!("  registered by the default build. A word marked `(feature)` is");
+        bund2_api::sayln!("  written and off by default. The rest are either unwritten or");
+        bund2_api::sayln!("  bound only by a build this report does not ask -- the registers");
+        bund2_api::sayln!("  say which, and why.\n");
     }
 
     // D14 splits the in-scope set into core and library. Coverage stays a
@@ -865,21 +865,21 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
     if !core.is_empty() {
         let core_covered = covered.iter().filter(|w| core.contains(**w)).count();
         let cpct = 100.0 * core_covered as f64 / core.len() as f64;
-        println!("## the D14 core half\n");
-        println!("  core words (D14)            {:>5}", core.len());
-        println!("  of those, covered           {:>5}", core_covered);
-        println!("  {:-<32}", "");
-        println!(
+        bund2_api::sayln!("## the D14 core half\n");
+        bund2_api::sayln!("  core words (D14)            {:>5}", core.len());
+        bund2_api::sayln!("  of those, covered           {:>5}", core_covered);
+        bund2_api::sayln!("  {:-<32}", "");
+        bund2_api::sayln!(
             "  CORE COVERAGE           {:>5}/{:<5} ({cpct:.1}%)",
             core_covered,
             core.len()
         );
-        println!();
-        println!("  This is the M6 denominator. The library half is deferrable");
-        println!("  and re-implementable out of tree, so it is not a");
-        println!("  preservation target — but it is still in scope and still");
-        println!("  needs tests, which is why COVERAGE above is over 497 and");
-        println!("  not over {}.\n", core.len());
+        bund2_api::sayln!();
+        bund2_api::sayln!("  This is the M6 denominator. The library half is deferrable");
+        bund2_api::sayln!("  and re-implementable out of tree, so it is not a");
+        bund2_api::sayln!("  preservation target — but it is still in scope and still");
+        bund2_api::sayln!("  needs tests, which is why COVERAGE above is over 497 and");
+        bund2_api::sayln!("  not over {}.\n", core.len());
 
         // **The core gap, by name, split by what closes it.** A core word
         // Bund2 registers needs a probe; one it does not register needs
@@ -896,15 +896,15 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
                 core_missing.push(w);
             }
         }
-        println!("## core words implemented, run by no golden: {}\n", core_unprobed.len());
+        bund2_api::sayln!("## core words implemented, run by no golden: {}\n", core_unprobed.len());
         for chunk in core_unprobed.chunks(6) {
-            println!("  {}", chunk.join("  "));
+            bund2_api::sayln!("  {}", chunk.join("  "));
         }
-        println!("\n## core words not implemented: {}\n", core_missing.len());
+        bund2_api::sayln!("\n## core words not implemented: {}\n", core_missing.len());
         for chunk in core_missing.chunks(6) {
-            println!("  {}", chunk.join("  "));
+            bund2_api::sayln!("  {}", chunk.join("  "));
         }
-        println!();
+        bund2_api::sayln!();
     }
 
     // The uncovered set splits into a cheap half and an expensive one.
@@ -923,17 +923,17 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
         .iter()
         .partition(|w| base_of(w).is_some_and(|b| covered_set.contains(b)));
 
-    println!("## the {} uncovered words\n", uncovered.len());
-    println!("  suffix-variant of a covered word  {:>4}", variants.len());
-    println!("      A `.` variant differs from its base only by operand source");
-    println!("      (StackOps::FromStack vs FromWorkBench —");
-    println!("      reference/Bund/src/stdlib/functions/values/push.rs:11-25), so one");
-    println!("      mechanical paired test per base covers all of them. Cheapest");
-    println!("      coverage available, and D18 preserves them as pairs anyway.");
-    println!("      {}\n", variants.join(" "));
-    println!("  no covered base                   {:>4}", orphans.len());
-    println!("      Genuinely untouched surface. Testing these means probing the");
-    println!("      oracle for behaviour, not reading its source.\n");
+    bund2_api::sayln!("## the {} uncovered words\n", uncovered.len());
+    bund2_api::sayln!("  suffix-variant of a covered word  {:>4}", variants.len());
+    bund2_api::sayln!("      A `.` variant differs from its base only by operand source");
+    bund2_api::sayln!("      (StackOps::FromStack vs FromWorkBench —");
+    bund2_api::sayln!("      reference/Bund/src/stdlib/functions/values/push.rs:11-25), so one");
+    bund2_api::sayln!("      mechanical paired test per base covers all of them. Cheapest");
+    bund2_api::sayln!("      coverage available, and D18 preserves them as pairs anyway.");
+    bund2_api::sayln!("      {}\n", variants.join(" "));
+    bund2_api::sayln!("  no covered base                   {:>4}", orphans.len());
+    bund2_api::sayln!("      Genuinely untouched surface. Testing these means probing the");
+    bund2_api::sayln!("      oracle for behaviour, not reading its source.\n");
 
     let mut by_sub: BTreeMap<String, usize> = BTreeMap::new();
     for w in &orphans {
@@ -945,14 +945,14 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
     }
     let mut rows: Vec<(String, usize)> = by_sub.into_iter().collect();
     rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-    println!("## uncovered-with-no-covered-base, by subsystem\n");
+    bund2_api::sayln!("## uncovered-with-no-covered-base, by subsystem\n");
     for (sub, n) in rows.iter().take(20) {
-        println!("  {sub:<24}{n:>4}");
+        bund2_api::sayln!("  {sub:<24}{n:>4}");
     }
     if rows.len() > 20 {
-        println!("  ... {} further subsystems", rows.len() - 20);
+        bund2_api::sayln!("  ... {} further subsystems", rows.len() - 20);
     }
-    println!();
+    bund2_api::sayln!();
 
     probes(&repo, &reg, &covered_set);
 
@@ -968,9 +968,9 @@ fn probes(repo: &Path, reg: &Registry, covered: &BTreeSet<&str>) {
     collect_bund(&dir, &mut files, false);
     files.sort();
 
-    println!("## probes (D21)\n");
+    bund2_api::sayln!("## probes (D21)\n");
     if files.is_empty() {
-        println!("  none authored yet — tests/probes/ is empty.\n");
+        bund2_api::sayln!("  none authored yet — tests/probes/ is empty.\n");
         return;
     }
 
@@ -978,11 +978,11 @@ fn probes(repo: &Path, reg: &Registry, covered: &BTreeSet<&str>) {
     let mut captured = 0usize;
     let mut anomalies = 0usize;
 
-    println!(
+    bund2_api::sayln!(
         "  {} authored. Goldens are captured from the oracle, never written",
         files.len()
     );
-    println!("  by hand (D21). Words listed are those each probe invokes.\n");
+    bund2_api::sayln!("  by hand (D21). Words listed are those each probe invokes.\n");
 
     for f in &files {
         let Ok(src) = std::fs::read_to_string(f) else {
@@ -1023,7 +1023,7 @@ fn probes(repo: &Path, reg: &Registry, covered: &BTreeSet<&str>) {
             .filter(|w| !covered.contains(w) && reg.resolve(w).is_some())
             .collect();
 
-        println!(
+        bund2_api::sayln!(
             "  {:<32} {}",
             name,
             if has_golden {
@@ -1033,26 +1033,26 @@ fn probes(repo: &Path, reg: &Registry, covered: &BTreeSet<&str>) {
             }
         );
         if !fresh.is_empty() {
-            println!("      newly covered words: {}", fresh.join(" "));
+            bund2_api::sayln!("      newly covered words: {}", fresh.join(" "));
         }
         for a in &lexed.anomalies {
             anomalies += 1;
-            println!("      LEX ANOMALY {a}");
+            bund2_api::sayln!("      LEX ANOMALY {a}");
         }
         if !unknown.is_empty() {
             anomalies += 1;
-            println!("      UNRESOLVED WORDS: {}", unknown.join(" "));
+            bund2_api::sayln!("      UNRESOLVED WORDS: {}", unknown.join(" "));
         }
     }
 
-    println!(
+    bund2_api::sayln!(
         "\n  {captured}/{} captured, {anomalies} structural problem(s).",
         files.len()
     );
     if captured < files.len() {
-        println!("  Pending probes contribute nothing to coverage: a probe without");
-        println!("  a golden asserts nothing. `cargo xtask golden` is not yet");
-        println!("  implemented, so all of them are pending by construction.\n");
+        bund2_api::sayln!("  Pending probes contribute nothing to coverage: a probe without");
+        bund2_api::sayln!("  a golden asserts nothing. `cargo xtask golden` is not yet");
+        bund2_api::sayln!("  implemented, so all of them are pending by construction.\n");
     }
 }
 
@@ -1061,7 +1061,7 @@ fn probes(repo: &Path, reg: &Registry, covered: &BTreeSet<&str>) {
 // ---------------------------------------------------------------------------
 
 fn probe(programs: &[Program], title: &str, decision: &str, words: &[(&str, &str)]) {
-    println!("## {title}  [{decision}]\n");
+    bund2_api::sayln!("## {title}  [{decision}]\n");
     let mut total = 0usize;
     let mut progs_touched: BTreeSet<&str> = BTreeSet::new();
     for (word, cite) in words {
@@ -1071,12 +1071,12 @@ fn probe(programs: &[Program], title: &str, decision: &str, words: &[(&str, &str
             progs_touched.insert(p.name.as_str());
         }
         if occ.is_empty() {
-            println!("  {word:<20} 0    (registered at {cite})");
+            bund2_api::sayln!("  {word:<20} 0    (registered at {cite})");
             continue;
         }
         let in_lambda = occ.iter().filter(|(_, _, d)| *d > 0).count();
         let progs: BTreeSet<&str> = occ.iter().map(|(p, _, _)| p.name.as_str()).collect();
-        println!(
+        bund2_api::sayln!(
             "  {word:<20} {}    in {} program(s), {in_lambda} inside a lambda body    \
              (registered at {cite})",
             occ.len(),
@@ -1088,23 +1088,23 @@ fn probe(programs: &[Program], title: &str, decision: &str, words: &[(&str, &str
             } else {
                 String::new()
             };
-            println!("      {}:{}{marker}  | {}", p.path, line, p.line(*line));
+            bund2_api::sayln!("      {}:{}{marker}  | {}", p.path, line, p.line(*line));
         }
         if occ.len() > CITE_CAP {
-            println!(
+            bund2_api::sayln!(
                 "      ... {} further occurrence(s) not listed; the count above is complete",
                 occ.len() - CITE_CAP
             );
         }
     }
-    println!(
+    bund2_api::sayln!(
         "\n  total occurrences: {total}, across {} program(s)\n",
         progs_touched.len()
     );
 }
 
 fn task1(programs: &[Program], reg: &Registry) {
-    println!("---\n\n# TASK 1 — decision evidence\n");
+    bund2_api::sayln!("---\n\n# TASK 1 — decision evidence\n");
 
     // D1. `.id` is a method, not an inline word — it is reached by object
     // dispatch. It is therefore invoked as a bare name only when a program
@@ -1176,20 +1176,20 @@ fn atom_probe(programs: &[Program], name: &str, decision: &str) {
             }
         }
     }
-    println!(
+    bund2_api::sayln!(
         "  as an atom `:{name}` (a value push, not an invocation)  [{decision}]: {}",
         hits.len()
     );
     for (p, line) in hits.iter().take(CITE_CAP) {
-        println!("      {}:{}  | {}", p.path, line, p.line(*line));
+        bund2_api::sayln!("      {}:{}  | {}", p.path, line, p.line(*line));
     }
     if hits.len() > CITE_CAP {
-        println!(
+        bund2_api::sayln!(
             "      ... {} further occurrence(s) not listed",
             hits.len() - CITE_CAP
         );
     }
-    println!();
+    bund2_api::sayln!();
 }
 
 /// D5: a mutator textually adjacent to a closing lambda.
@@ -1210,16 +1210,16 @@ fn atom_probe(programs: &[Program], name: &str, decision: &str) {
 /// told what it does and does not show.
 fn lambda_mutation(programs: &[Program]) {
     let mutators: BTreeSet<&str> = classify::MUTATORS.iter().map(|(w, _)| *w).collect();
-    println!("## mutator textually adjacent to a closing lambda  [D5]\n");
-    println!("  Shape: `}}` immediately followed by a mutator word.\n");
-    println!("  This counts adjacency, not mutation. `set` pulls stored-value,");
-    println!("  key, receiver in that order (value_dict.rs:10-27), so in");
-    println!("  `:.init {{ ... }} set` the lambda is the value being stored and the");
-    println!("  receiver is the class beneath it — the lambda body is untouched.");
-    println!("  `push` converts its receiver with conv(LIST) first (push.rs:34).");
-    println!("  Neither word writes through to an existing LAMBDA body. A count");
-    println!("  below is evidence of lambdas being *stored*, and is not by itself");
-    println!("  evidence for or against D5.\n");
+    bund2_api::sayln!("## mutator textually adjacent to a closing lambda  [D5]\n");
+    bund2_api::sayln!("  Shape: `}}` immediately followed by a mutator word.\n");
+    bund2_api::sayln!("  This counts adjacency, not mutation. `set` pulls stored-value,");
+    bund2_api::sayln!("  key, receiver in that order (value_dict.rs:10-27), so in");
+    bund2_api::sayln!("  `:.init {{ ... }} set` the lambda is the value being stored and the");
+    bund2_api::sayln!("  receiver is the class beneath it — the lambda body is untouched.");
+    bund2_api::sayln!("  `push` converts its receiver with conv(LIST) first (push.rs:34).");
+    bund2_api::sayln!("  Neither word writes through to an existing LAMBDA body. A count");
+    bund2_api::sayln!("  below is evidence of lambdas being *stored*, and is not by itself");
+    bund2_api::sayln!("  evidence for or against D5.\n");
 
     let mut hits = 0usize;
     for p in programs {
@@ -1235,7 +1235,7 @@ fn lambda_mutation(programs: &[Program]) {
                 } else {
                     String::new()
                 };
-                println!(
+                bund2_api::sayln!(
                     "      {}:{}  `}} {}`{nested}  | {}",
                     p.path,
                     w[1].line,
@@ -1246,9 +1246,9 @@ fn lambda_mutation(programs: &[Program]) {
         }
     }
     if hits == 0 {
-        println!("      (none)");
+        bund2_api::sayln!("      (none)");
     }
-    println!("\n  total: {hits}\n");
+    bund2_api::sayln!("\n  total: {hits}\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -1279,11 +1279,11 @@ fn frequency(programs: &[Program]) -> Freq {
 }
 
 fn task2(programs: &[Program], reg: &Registry) {
-    println!("---\n\n# TASK 2 — word frequency\n");
+    bund2_api::sayln!("---\n\n# TASK 2 — word frequency\n");
     let freq = frequency(programs);
     let total: usize = freq.counts.values().sum();
 
-    println!(
+    bund2_api::sayln!(
         "{} distinct words invoked, {} invocations total.\n",
         freq.counts.len(),
         total
@@ -1292,17 +1292,17 @@ fn task2(programs: &[Program], reg: &Registry) {
     let mut rows: Vec<(&String, usize)> = freq.counts.iter().map(|(k, v)| (k, *v)).collect();
     rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
 
-    println!("## words used by the corpus\n");
-    println!("  {:<28} {:>5} {:>6}  resolves to", "word", "uses", "progs");
+    bund2_api::sayln!("## words used by the corpus\n");
+    bund2_api::sayln!("  {:<28} {:>5} {:>6}  resolves to", "word", "uses", "progs");
     for (word, n) in &rows {
         let progs = freq.programs_using[*word].len();
         let res = reg
             .resolve(word)
             .map(|r| r.label())
             .unwrap_or_else(|| "UNRESOLVED".to_string());
-        println!("  {word:<28} {n:>5} {progs:>6}  {res}");
+        bund2_api::sayln!("  {word:<28} {n:>5} {progs:>6}  {res}");
     }
-    println!();
+    bund2_api::sayln!();
 
     // Registered but never used.
     let used: BTreeSet<&str> = freq.counts.keys().map(String::as_str).collect();
@@ -1313,7 +1313,7 @@ fn task2(programs: &[Program], reg: &Registry) {
         .collect();
     unused.sort_unstable();
     let all_names = reg.word_names();
-    println!(
+    bund2_api::sayln!(
         "## registered but never used: {} of {} distinct registered names\n",
         unused.len(),
         all_names.len()
@@ -1325,7 +1325,7 @@ fn task2(programs: &[Program], reg: &Registry) {
         .map(String::as_str)
         .collect();
     if !overlap.is_empty() {
-        println!(
+        bund2_api::sayln!(
             "  ({} name(s) are registered both as an inline word and as an alias: {})\n",
             overlap.len(),
             overlap.join(" ")
@@ -1340,12 +1340,12 @@ fn task2(programs: &[Program], reg: &Registry) {
         by_sub.entry(sub).or_default().push(w);
     }
     for (sub, words) in &by_sub {
-        println!("  {:<22} {:>3}  {}", sub, words.len(), words.join(" "));
+        bund2_api::sayln!("  {:<22} {:>3}  {}", sub, words.len(), words.join(" "));
     }
-    println!();
+    bund2_api::sayln!();
 
     // Used but unresolved.
-    println!("## used but not found in any registration set\n");
+    bund2_api::sayln!("## used but not found in any registration set\n");
     let mut unresolved: Vec<&String> = freq
         .counts
         .keys()
@@ -1353,7 +1353,7 @@ fn task2(programs: &[Program], reg: &Registry) {
         .collect();
     unresolved.sort();
     if unresolved.is_empty() {
-        println!("  (none)");
+        bund2_api::sayln!("  (none)");
     }
     for word in &unresolved {
         let progs = &freq.programs_using[*word];
@@ -1369,7 +1369,7 @@ fn task2(programs: &[Program], reg: &Registry) {
         } else {
             "NOT ACCOUNTED FOR"
         };
-        println!(
+        bund2_api::sayln!(
             "  {:<28} {:>3} uses  {:>2} progs  {tag}",
             word,
             freq.counts[*word],
@@ -1377,11 +1377,11 @@ fn task2(programs: &[Program], reg: &Registry) {
         );
         if !locally_defined {
             for (p, line, _) in occurrences(programs, word).iter().take(4) {
-                println!("      {}:{}  | {}", p.path, line, p.line(*line));
+                bund2_api::sayln!("      {}:{}  | {}", p.path, line, p.line(*line));
             }
         }
     }
-    println!();
+    bund2_api::sayln!();
 
     // Ptr references, which name a word without invoking it.
     let mut ptrs: BTreeMap<&str, usize> = BTreeMap::new();
@@ -1392,11 +1392,11 @@ fn task2(programs: &[Program], reg: &Registry) {
             }
         }
     }
-    println!("## named as PTR but not invoked: {}\n", ptrs.len());
+    bund2_api::sayln!("## named as PTR but not invoked: {}\n", ptrs.len());
     for (w, n) in &ptrs {
-        println!("  `{w:<26} {n:>3}");
+        bund2_api::sayln!("  `{w:<26} {n:>3}");
     }
-    println!();
+    bund2_api::sayln!();
 }
 
 // ---------------------------------------------------------------------------
@@ -1404,9 +1404,9 @@ fn task2(programs: &[Program], reg: &Registry) {
 // ---------------------------------------------------------------------------
 
 fn task3(programs: &[Program], reg: &Registry) {
-    println!("---\n\n# TASK 3 — core/library partition evidence  [D14]\n");
-    println!("Grouping is by the subsystem that *implements* the word, taken from");
-    println!("its registration path. Aliases are attributed to their target.\n");
+    bund2_api::sayln!("---\n\n# TASK 3 — core/library partition evidence  [D14]\n");
+    bund2_api::sayln!("Grouping is by the subsystem that *implements* the word, taken from");
+    bund2_api::sayln!("its registration path. Aliases are attributed to their target.\n");
 
     // word -> subsystem
     let mut sub_of: BTreeMap<&str, String> = BTreeMap::new();
@@ -1470,13 +1470,13 @@ fn task3(programs: &[Program], reg: &Registry) {
         .collect();
     rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
 
-    println!(
+    bund2_api::sayln!(
         "  {:<22} {:>7} {:>7} {:>10}  basic?",
         "subsystem", "breaks", "words", "otherwise"
     );
-    println!("  {:<22} {:>7} {:>7} {:>10}", "", "progs", "used", "basic");
+    bund2_api::sayln!("  {:<22} {:>7} {:>7} {:>10}", "", "progs", "used", "basic");
     for (sub, nbreak, nwords, nintr) in &rows {
-        println!(
+        bund2_api::sayln!(
             "  {:<22} {:>7} {:>7} {:>10}  {}",
             sub,
             nbreak,
@@ -1485,49 +1485,49 @@ fn task3(programs: &[Program], reg: &Registry) {
             if is_basic(sub) { "basic" } else { "" }
         );
     }
-    println!();
+    bund2_api::sayln!();
 
-    println!("## library-shaped subsystems the corpus leans on from otherwise-basic programs\n");
-    println!("  These are the D14 pressure points: a subsystem outside the");
-    println!("  stack/math/logic/lambda/oop set that programs reach into while");
-    println!("  touching nothing else outside it.\n");
+    bund2_api::sayln!("## library-shaped subsystems the corpus leans on from otherwise-basic programs\n");
+    bund2_api::sayln!("  These are the D14 pressure points: a subsystem outside the");
+    bund2_api::sayln!("  stack/math/logic/lambda/oop set that programs reach into while");
+    bund2_api::sayln!("  touching nothing else outside it.\n");
     let mut intr: Vec<(&&str, &BTreeSet<&str>)> = intrusions.iter().collect();
     intr.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(b.0)));
     for (sub, progs) in intr {
         let words = intruding_words.get(*sub).cloned().unwrap_or_default();
-        println!("  {sub}  — {} program(s)", progs.len());
-        println!(
+        bund2_api::sayln!("  {sub}  — {} program(s)", progs.len());
+        bund2_api::sayln!(
             "      words: {}",
             words.iter().copied().collect::<Vec<_>>().join(" ")
         );
         for p in progs.iter().take(8) {
-            println!("      {p}");
+            bund2_api::sayln!("      {p}");
         }
         if progs.len() > 8 {
-            println!("      ... and {} more", progs.len() - 8);
+            bund2_api::sayln!("      ... and {} more", progs.len() - 8);
         }
-        println!();
+        bund2_api::sayln!();
     }
 
     // The single-word view: which individual words the most programs depend
     // on, annotated with subsystem. This is what a core list would be argued
     // from — reported as counts only.
-    println!("## words by number of programs that would break without them\n");
+    bund2_api::sayln!("## words by number of programs that would break without them\n");
     let mut byprog: Vec<(&String, usize)> = freq
         .programs_using
         .iter()
         .map(|(w, s)| (w, s.len()))
         .collect();
     byprog.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
-    println!("  {:<28} {:>6}  subsystem", "word", "progs");
+    bund2_api::sayln!("  {:<28} {:>6}  subsystem", "word", "progs");
     for (w, n) in byprog.iter().take(60) {
         let sub = sub_of
             .get(w.as_str())
             .map(String::as_str)
             .unwrap_or("(in-corpus)");
-        println!("  {w:<28} {n:>6}  {sub}");
+        bund2_api::sayln!("  {w:<28} {n:>6}  {sub}");
     }
-    println!();
+    bund2_api::sayln!();
 }
 
 // ---------------------------------------------------------------------------
@@ -1562,15 +1562,15 @@ fn task4<'a>(
     reg: &Registry,
     unstable: &BTreeSet<String>,
 ) -> Vec<Verdict<'a>> {
-    println!("---\n\n# TASK 4 — hermetic partition\n");
-    println!("A program is hermetic when every word it invokes is pure, writes");
-    println!("stdout, or writes a diagnostic to stderr. Words the corpus defines");
-    println!("itself carry the effects of the words in their bodies, which are");
-    println!("counted because the lexer sees the whole file.\n");
-    println!("Scope is a second, independent filter. A word can be perfectly");
-    println!("hermetic and still be out of scope — colour output is deterministic");
-    println!("bytes on stdout that Bund2 will not emit. The conformance suite is");
-    println!("the intersection: hermetic AND in scope.\n");
+    bund2_api::sayln!("---\n\n# TASK 4 — hermetic partition\n");
+    bund2_api::sayln!("A program is hermetic when every word it invokes is pure, writes");
+    bund2_api::sayln!("stdout, or writes a diagnostic to stderr. Words the corpus defines");
+    bund2_api::sayln!("itself carry the effects of the words in their bodies, which are");
+    bund2_api::sayln!("counted because the lexer sees the whole file.\n");
+    bund2_api::sayln!("Scope is a second, independent filter. A word can be perfectly");
+    bund2_api::sayln!("hermetic and still be out of scope — colour output is deterministic");
+    bund2_api::sayln!("bytes on stdout that Bund2 will not emit. The conformance suite is");
+    bund2_api::sayln!("the intersection: hermetic AND in scope.\n");
 
     let mut verdicts = Vec::new();
     for p in programs {
@@ -1609,14 +1609,14 @@ fn task4<'a>(
     }
 
     let n_herm = verdicts.iter().filter(|v| v.hermetic).count();
-    println!(
+    bund2_api::sayln!(
         "  hermetic: {} / {}   non-hermetic: {}\n",
         n_herm,
         verdicts.len(),
         verdicts.len() - n_herm
     );
 
-    println!("## non-hermetic, with the word that disqualifies\n");
+    bund2_api::sayln!("## non-hermetic, with the word that disqualifies\n");
     for v in verdicts.iter().filter(|v| !v.hermetic) {
         let mut why: Vec<String> = v
             .blockers
@@ -1626,16 +1626,16 @@ fn task4<'a>(
         if !v.unknown.is_empty() {
             why.push(format!("unresolved: {}", v.unknown.join(" ")));
         }
-        println!(
+        bund2_api::sayln!(
             "  {:<52} {}",
             v.program.name,
             why.first().cloned().unwrap_or_default()
         );
         for extra in why.iter().skip(1) {
-            println!("  {:<52} {extra}", "");
+            bund2_api::sayln!("  {:<52} {extra}", "");
         }
     }
-    println!();
+    bund2_api::sayln!();
 
     // Effect histogram, so the reader can see what dominates.
     let mut hist: BTreeMap<&str, usize> = BTreeMap::new();
@@ -1644,26 +1644,26 @@ fn task4<'a>(
             *hist.entry(e.as_str()).or_default() += 1;
         }
     }
-    println!("## disqualifying effects, by count of (program, word) pairs\n");
+    bund2_api::sayln!("## disqualifying effects, by count of (program, word) pairs\n");
     let mut h: Vec<_> = hist.into_iter().collect();
     h.sort_by_key(|e| std::cmp::Reverse(e.1));
     for (e, n) in h {
-        println!("  {e:<14} {n:>4}");
+        bund2_api::sayln!("  {e:<14} {n:>4}");
     }
-    println!();
+    bund2_api::sayln!();
 
     // Scope, the second filter. Named explicitly: a program dropped from the
     // suite by a scope decision must be visible, not absent.
     let scoped_out: Vec<&Verdict> = verdicts.iter().filter(|v| !v.deferred.is_empty()).collect();
-    println!("## out of scope by decision\n");
+    bund2_api::sayln!("## out of scope by decision\n");
     if scoped_out.is_empty() {
-        println!("  (none)\n");
+        bund2_api::sayln!("  (none)\n");
     } else {
         for v in &scoped_out {
             let decision = v.deferred[0].1;
             let reason = v.deferred[0].2;
             let words: Vec<&str> = v.deferred.iter().map(|(w, _, _)| w.as_str()).collect();
-            println!(
+            bund2_api::sayln!(
                 "  {:<44} [{decision}] {reason}{}",
                 v.program.name,
                 if v.hermetic {
@@ -1672,24 +1672,24 @@ fn task4<'a>(
                     "  (also non-hermetic)"
                 }
             );
-            println!("      {}", words.join(" "));
+            bund2_api::sayln!("      {}", words.join(" "));
         }
-        println!();
+        bund2_api::sayln!();
     }
 
     let unstable_n = verdicts.iter().filter(|v| v.unstable).count();
-    println!("## does not reproduce between oracle runs: {unstable_n}\n");
-    println!("  Empirical, from tests/golden/UNSTABLE.txt — not derivable here.");
-    println!("  Every word these invoke is pure or stdout; the non-determinism");
-    println!("  enters through Debug formatting (F14) and map iteration order");
-    println!("  (F15). Only running the oracle twice finds them.\n");
+    bund2_api::sayln!("## does not reproduce between oracle runs: {unstable_n}\n");
+    bund2_api::sayln!("  Empirical, from tests/golden/UNSTABLE.txt — not derivable here.");
+    bund2_api::sayln!("  Every word these invoke is pure or stdout; the non-determinism");
+    bund2_api::sayln!("  enters through Debug formatting (F14) and map iteration order");
+    bund2_api::sayln!("  (F15). Only running the oracle twice finds them.\n");
     for v in verdicts.iter().filter(|v| v.unstable) {
-        println!("  {}", v.program.name);
+        bund2_api::sayln!("  {}", v.program.name);
     }
-    println!();
+    bund2_api::sayln!();
 
     let n_suite = verdicts.iter().filter(|v| v.in_suite()).count();
-    println!(
+    bund2_api::sayln!(
         "  conformance suite (hermetic AND in scope AND reproducible): {} / {}\n",
         n_suite,
         verdicts.len()
@@ -1801,7 +1801,7 @@ fn write_hermetic(repo: &Path, verdicts: &[Verdict]) -> Result<(), String> {
     }
 
     std::fs::write(&path, s).map_err(|e| format!("writing {}: {e}", path.display()))?;
-    println!(
+    bund2_api::sayln!(
         "wrote {}",
         path.strip_prefix(repo).unwrap_or(&path).display()
     );
@@ -1824,9 +1824,9 @@ fn write_hermetic(repo: &Path, verdicts: &[Verdict]) -> Result<(), String> {
 /// Import markers are indicators, not verdicts. A file may import `rand` and
 /// use it in one function of ten. The audit reports; a human decides.
 fn effect_audit(programs: &[Program], reg: &Registry) {
-    println!("\n---\n\n# Effect audit  [Q4]\n");
-    println!("Assigned effect vs. what the registering file imports. Import");
-    println!("markers are indicators, not verdicts — this is a review list.\n");
+    bund2_api::sayln!("\n---\n\n# Effect audit  [Q4]\n");
+    bund2_api::sayln!("Assigned effect vs. what the registering file imports. Import");
+    bund2_api::sayln!("markers are indicators, not verdicts — this is a review list.\n");
 
     let mut used: BTreeSet<&str> = BTreeSet::new();
     for p in programs {
@@ -1836,7 +1836,7 @@ fn effect_audit(programs: &[Program], reg: &Registry) {
     let Some(repo) = Path::new(env!("CARGO_MANIFEST_DIR")).parent() else {
         // These two report; there is nothing to report against without a
         // repository root, so say so and return rather than abort.
-        eprintln!("  cannot locate the repository root from CARGO_MANIFEST_DIR");
+        bund2_api::errln!("  cannot locate the repository root from CARGO_MANIFEST_DIR");
         return;
     };
     let mut cache: BTreeMap<String, Vec<(Effect, String)>> = BTreeMap::new();
@@ -1865,34 +1865,34 @@ fn effect_audit(programs: &[Program], reg: &Registry) {
         }
     }
 
-    println!(
+    bund2_api::sayln!(
         "## classified hermetic, imports suggest otherwise: {}\n",
         under.len()
     );
-    println!("  These are the ones that matter: a false hermetic verdict puts a");
-    println!("  program into the golden suite that cannot reproduce.\n");
+    bund2_api::sayln!("  These are the ones that matter: a false hermetic verdict puts a");
+    bund2_api::sayln!("  program into the golden suite that cannot reproduce.\n");
     if under.is_empty() {
-        println!("  (none)\n");
+        bund2_api::sayln!("  (none)\n");
     }
     for (w, a, i, cite, line) in &under {
-        println!("  {:<26} {} -> imports imply {}", w, a.as_str(), i.as_str());
-        println!("      {cite}");
-        println!("      {line}");
+        bund2_api::sayln!("  {:<26} {} -> imports imply {}", w, a.as_str(), i.as_str());
+        bund2_api::sayln!("      {cite}");
+        bund2_api::sayln!("      {line}");
     }
 
-    println!(
+    bund2_api::sayln!(
         "\n## classified effectful, no import supports it: {}\n",
         over.len()
     );
-    println!("  Lower stakes — these cost coverage rather than correctness. A");
-    println!("  word may still be effectful through a helper in another file.\n");
+    bund2_api::sayln!("  Lower stakes — these cost coverage rather than correctness. A");
+    bund2_api::sayln!("  word may still be effectful through a helper in another file.\n");
     if over.is_empty() {
-        println!("  (none)");
+        bund2_api::sayln!("  (none)");
     }
     for (w, a, cite) in &over {
-        println!("  {:<26} {:<12} {cite}", w, a.as_str());
+        bund2_api::sayln!("  {:<26} {:<12} {cite}", w, a.as_str());
     }
-    println!();
+    bund2_api::sayln!();
 }
 
 // ---------------------------------------------------------------------------
@@ -1913,15 +1913,15 @@ fn effect_audit(programs: &[Program], reg: &Registry) {
 /// could we not ship", a different question from "what does this ruling drag
 /// in". Both are reported; neither is bent into the other.
 fn reachability(programs: &[Program], reg: &Registry) {
-    println!("\n---\n\n# Implementation reachability  [Q4]\n");
-    println!("For each corpus-used word, what its implementing file references");
-    println!("in other stdlib subsystems. A per-word D14 ruling commits to");
-    println!("everything listed against it.\n");
+    bund2_api::sayln!("\n---\n\n# Implementation reachability  [Q4]\n");
+    bund2_api::sayln!("For each corpus-used word, what its implementing file references");
+    bund2_api::sayln!("in other stdlib subsystems. A per-word D14 ruling commits to");
+    bund2_api::sayln!("everything listed against it.\n");
 
     let Some(repo) = Path::new(env!("CARGO_MANIFEST_DIR")).parent() else {
         // These two report; there is nothing to report against without a
         // repository root, so say so and return rather than abort.
-        eprintln!("  cannot locate the repository root from CARGO_MANIFEST_DIR");
+        bund2_api::errln!("  cannot locate the repository root from CARGO_MANIFEST_DIR");
         return;
     };
 
@@ -1967,37 +1967,37 @@ fn reachability(programs: &[Program], reg: &Registry) {
         }
     }
 
-    println!(
+    bund2_api::sayln!(
         "  {} registration files provide the {} words the corpus uses.",
         by_file.len(),
         used.len()
     );
-    println!("  {self_contained} are self-contained; {crossing} reach another subsystem.\n");
+    bund2_api::sayln!("  {self_contained} are self-contained; {crossing} reach another subsystem.\n");
 
     rows.sort_by(|a, b| b.3.len().cmp(&a.3.len()).then(a.0.cmp(&b.0)));
     for (path, sub, words, reached) in &rows {
-        println!("  {path}");
-        println!("      subsystem: {sub}   reaches: {}", reached.join(" "));
-        println!(
+        bund2_api::sayln!("  {path}");
+        bund2_api::sayln!("      subsystem: {sub}   reaches: {}", reached.join(" "));
+        bund2_api::sayln!(
             "      corpus-used words here: {}",
             words.iter().copied().collect::<Vec<_>>().join(" ")
         );
     }
-    println!();
+    bund2_api::sayln!();
 }
 
 fn lexer_anomalies(programs: &[Program]) {
     let total: usize = programs.iter().map(|p| p.lexed.anomalies.len()).sum();
-    println!("\n---\n\n# Lexer anomalies: {total}\n");
+    bund2_api::sayln!("\n---\n\n# Lexer anomalies: {total}\n");
     if total == 0 {
-        println!("  (none — every token matched a rule in bund.pest)");
+        bund2_api::sayln!("  (none — every token matched a rule in bund.pest)");
         return;
     }
-    println!("  Places where the corpus does not match bund.pest as written.");
-    println!("  These are reported, not corrected.\n");
+    bund2_api::sayln!("  Places where the corpus does not match bund.pest as written.");
+    bund2_api::sayln!("  These are reported, not corrected.\n");
     for p in programs {
         for a in &p.lexed.anomalies {
-            println!("  {}:{}  {}", p.path, a.line, a.what);
+            bund2_api::sayln!("  {}:{}  {}", p.path, a.line, a.what);
         }
     }
 }

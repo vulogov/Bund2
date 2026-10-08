@@ -248,12 +248,12 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     let mut all = Vec::new();
     collect(&repo.join("tests/golden"), &repo, &mut all);
 
-    println!("# cargo xtask render\n");
-    println!("RFC-0001 criterion D3, checked against every rendering the");
-    println!("goldens hold rather than against five hand-copied samples.\n");
-    println!("Each captured rendering is parsed into a `BundValue`, rendered,");
-    println!("and compared. A round trip that returns its input is a rendering");
-    println!("that matches the reference for that value.\n");
+    bund2_api::sayln!("# cargo xtask render\n");
+    bund2_api::sayln!("RFC-0001 criterion D3, checked against every rendering the");
+    bund2_api::sayln!("goldens hold rather than against five hand-copied samples.\n");
+    bund2_api::sayln!("Each captured rendering is parsed into a `BundValue`, rendered,");
+    bund2_api::sayln!("and compared. A round trip that returns its input is a rendering");
+    bund2_api::sayln!("that matches the reference for that value.\n");
 
     let (mut matched, mut differed, mut unsupported) = (0usize, 0usize, 0usize);
     let mut diffs: Vec<(String, String, String)> = Vec::new();
@@ -279,35 +279,35 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         }
     }
 
-    println!("  renderings in tests/golden        {:>5}", all.len());
-    println!("  round-tripped identically         {:>5}", matched);
-    println!("  differed                          {:>5}", differed);
-    println!("  not constructible yet             {:>5}", unsupported);
-    println!();
+    bund2_api::sayln!("  renderings in tests/golden        {:>5}", all.len());
+    bund2_api::sayln!("  round-tripped identically         {:>5}", matched);
+    bund2_api::sayln!("  differed                          {:>5}", differed);
+    bund2_api::sayln!("  not constructible yet             {:>5}", unsupported);
+    bund2_api::sayln!();
 
     if !reasons.is_empty() {
-        println!("## not constructible yet, by reason\n");
-        println!("  These are values Bund2 cannot build, not renderings it gets");
-        println!("  wrong. The two are counted apart on purpose.\n");
+        bund2_api::sayln!("## not constructible yet, by reason\n");
+        bund2_api::sayln!("  These are values Bund2 cannot build, not renderings it gets");
+        bund2_api::sayln!("  wrong. The two are counted apart on purpose.\n");
         let mut rows: Vec<_> = reasons.iter().collect();
         rows.sort_by(|a, b| b.1.cmp(a.1));
         for (why, n) in rows {
-            println!("  {n:>5}  {why}");
+            bund2_api::sayln!("  {n:>5}  {why}");
         }
-        println!();
+        bund2_api::sayln!();
     }
 
     if !diffs.is_empty() {
-        println!("## differences\n");
+        bund2_api::sayln!("## differences\n");
         for (g, want, got) in &diffs {
-            println!("  {g}");
-            println!("      want: {}", trunc(want));
-            println!("      got:  {}", trunc(got));
+            bund2_api::sayln!("  {g}");
+            bund2_api::sayln!("      want: {}", trunc(want));
+            bund2_api::sayln!("      got:  {}", trunc(got));
         }
-        println!();
+        bund2_api::sayln!();
         return Err(format!("{differed} rendering(s) differ"));
     }
-    println!("  No rendering that Bund2 can build renders differently.\n");
+    bund2_api::sayln!("  No rendering that Bund2 can build renders differently.\n");
     Ok(())
 }
 

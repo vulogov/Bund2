@@ -4033,6 +4033,46 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F179 — a reader that leaves early aborts the reference, and aborted Bund2
+
+**Both implementations, found 2026-10-08.** `bund2 words | head -1` ended in a
+Rust backtrace and exit status 101. Rust's `print!` and `println!` panic when
+the write fails, and a write to a pipe whose reader has gone fails.
+
+**The reference does the same.** `print` and `println` write with `print!`
+(`reference/rust_multistackvm/src/stdlib/print.rs:18-21`). Measured on the
+oracle, `0 100000 { dup println 1 + } times` piped into `head -1`: one line,
+then `The application panicked (crashed). failed printing to stdout: Broken
+pipe (os error 32)`, exit status 101.
+
+**In Bund2 it was a defect against D37**, and a wide one: every word that
+prints, the error report itself, and each of the CLI's own listings used the
+`print` family — 114 lines under `crates/` and 866 in `xtask`. The lint table denied `panic!` and `unwrap` and said nothing of a
+macro that panics by itself.
+
+### What Bund2 does now
+
+- **A word's write can fail, and the failure is the word's error**:
+  `writing to standard output: Broken pipe (os error 32)`. The program stops
+  the way it stops for any error. Its report goes to the same closed stream
+  and is lost, which leaves nothing on the terminal — what a reader who left
+  asked for.
+- **The CLI's own messages and everything on standard error drop a failed
+  write.** There is no stream left to complain on.
+- `bund2_api::out` holds the six macros. `print_stdout` and `print_stderr`
+  are denied across the workspace beside the other panic lints; a test may
+  still print (`clippy.toml`).
+
+**A deviation, and no golden can see it.** A capture reads the whole output,
+so no golden holds a closed pipe. `a_program_whose_reader_left_stops_without_a_panic`
+holds it: the program prints more than a pipe holds, so the failing write is
+certain and not a race. It was run against the tree before the change and
+failed there.
+
+**Not done: `SIGPIPE`.** The conventional fix is to restore the signal's
+default so the process dies silently. It needs `unsafe`, which the crates
+forbid, and it does nothing on Windows.
+
 ## F178 — the words that touch the machine, measured: a missing world loaded as an empty one
 
 **A survey, measured 2026-10-07.** The earlier surveys left out every word

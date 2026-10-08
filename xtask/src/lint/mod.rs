@@ -379,11 +379,11 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     let disp = dispositions(&repo);
     let mut findings: Vec<Finding> = Vec::new();
 
-    println!("# cargo xtask lint\n");
-    println!("Self-consistency checks. `cite` verifies that a citation resolves;");
-    println!("these verify that a document agrees with itself and with the");
-    println!("artefacts it quotes. Two of the five review blockers so far were");
-    println!("of exactly this kind.\n");
+    bund2_api::sayln!("# cargo xtask lint\n");
+    bund2_api::sayln!("Self-consistency checks. `cite` verifies that a citation resolves;");
+    bund2_api::sayln!("these verify that a document agrees with itself and with the");
+    bund2_api::sayln!("artefacts it quotes. Two of the five review blockers so far were");
+    bund2_api::sayln!("of exactly this kind.\n");
 
     // --- 1. preservation rows against defect dispositions -------------------
     let mut rows_checked = 0usize;
@@ -420,7 +420,7 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             }
         }
     }
-    println!("  preservation rows cross-checked against dispositions  {rows_checked:>4}");
+    bund2_api::sayln!("  preservation rows cross-checked against dispositions  {rows_checked:>4}");
 
     // --- 2. duplicate headings ---------------------------------------------
     let mut headings_checked = 0usize;
@@ -445,7 +445,7 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             });
         }
     }
-    println!("  RFC level-2 headings checked for duplication          {headings_checked:>4}");
+    bund2_api::sayln!("  RFC level-2 headings checked for duplication          {headings_checked:>4}");
 
     // --- 3. claimed figures against artefacts -------------------------------
     let figures = figure_checks(&repo);
@@ -475,7 +475,7 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             }
         }
     }
-    println!("  figure claims checked against artefacts               {figures_checked:>4}");
+    bund2_api::sayln!("  figure claims checked against artefacts               {figures_checked:>4}");
 
     // --- 4. types used in a code block that no block introduces --------------
     // Introductions are pooled across the RFC set first: the RFCs are one
@@ -514,7 +514,7 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             });
         }
     }
-    println!("  rust blocks checked for undefined types               {blocks_checked:>4}");
+    bund2_api::sayln!("  rust blocks checked for undefined types               {blocks_checked:>4}");
 
     // **F70's shape, in Bund2's own source.**
     //
@@ -563,8 +563,8 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             }
         }
     }
-    println!("  drain loops checked for F70's shape                   {drain_loops:>4}");
-    println!();
+    bund2_api::sayln!("  drain loops checked for F70's shape                   {drain_loops:>4}");
+    bund2_api::sayln!();
 
     // --- 5. a defect's status must not be both OPEN and settled -------------
     //
@@ -580,15 +580,15 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     let open_defects = report_defect_statuses(&repo, &mut findings);
 
     if findings.is_empty() {
-        println!("  {open_defects} defect(s) genuinely open.\n");
-        println!("  no contradictions.\n");
+        bund2_api::sayln!("  {open_defects} defect(s) genuinely open.\n");
+        bund2_api::sayln!("  no contradictions.\n");
         return Ok(());
     }
-    println!("## findings\n");
+    bund2_api::sayln!("## findings\n");
     for f in &findings {
-        println!("  {}:{}\n      {}", f.doc, f.line, f.what);
+        bund2_api::sayln!("  {}:{}\n      {}", f.doc, f.line, f.what);
     }
-    println!();
+    bund2_api::sayln!();
     Err(format!("{} inconsistency/ies", findings.len()))
 }
 

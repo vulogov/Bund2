@@ -418,9 +418,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
             },
         );
         deviations::save(&repo, &rows)?;
-        println!("\n  recorded deviation  {golden}  ({why})");
-        println!("  Bund2's current output is now what that golden must keep");
-        println!("  producing; a later change to it fails as a drift.\n");
+        bund2_api::sayln!("\n  recorded deviation  {golden}  ({why})");
+        bund2_api::sayln!("  Bund2's current output is now what that golden must keep");
+        bund2_api::sayln!("  producing; a later change to it fails as a drift.\n");
     } else if accept_deviation.is_some() && newly_recorded.is_none() {
         return Err(format!(
             "no golden named `{}` was run, so nothing was recorded",
@@ -428,12 +428,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
         ));
     }
 
-    println!("# cargo xtask conform\n");
+    bund2_api::sayln!("# cargo xtask conform\n");
     // **Name the binary this number is about.** RFC-0005 recorded "criterion 2
     // has run: 73/86 with the feature on" from a run that had silently rebuilt
     // without the feature. A report that does not say what it measured invites
     // exactly that.
-    println!(
+    bund2_api::sayln!(
         "\n  measured: {}",
         crate::buildcli::provenance_with(false, &features, jit_threshold)
     );
@@ -442,12 +442,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // numbers has no other way to tell which is which. F124's lesson: a report
     // that does not say what it measured invites the wrong conclusion.
     if bundles {
-        println!("  as: `bund2 build` artefacts, executed with no arguments");
+        bund2_api::sayln!("  as: `bund2 build` artefacts, executed with no arguments");
     }
     if approved_hits.is_empty() {
-        println!("  CONFORMANCE  {passed}/{total}\n");
+        bund2_api::sayln!("  CONFORMANCE  {passed}/{total}\n");
     } else {
-        println!(
+        bund2_api::sayln!(
             "  CONFORMANCE  {passed}/{total}  (+{} approved deviation(s))\n",
             approved_hits.len()
         );
@@ -459,19 +459,19 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // a deviation is recorded.
     let ceiling = total.saturating_sub(approved_hits.len());
     let remaining = ceiling.saturating_sub(passed);
-    println!("  CEILING      {ceiling}/{total}   ({remaining} golden(s) still to reach it)\n");
-    println!(
+    bund2_api::sayln!("  CEILING      {ceiling}/{total}   ({remaining} golden(s) still to reach it)\n");
+    bund2_api::sayln!(
         "  Denominator is every captured golden: {} suite programs plus {probe_count}",
         total.saturating_sub(probe_count)
     );
-    println!("  authored probes (D21). Both are captured from the oracle, so a");
-    println!("  probe failing is a preservation failure like any other.\n");
+    bund2_api::sayln!("  authored probes (D21). Both are captured from the oracle, so a");
+    bund2_api::sayln!("  probe failing is a preservation failure like any other.\n");
     if !approved_hits.is_empty() {
-        println!("  The ceiling is below the denominator because an approved");
-        println!("  deviation is a **decision**, not a gap — an oracle defect Bund2");
-        println!("  declines to reproduce, or text no second machine can produce.");
-        println!("  No amount of implementation moves one. By the reason each was");
-        println!("  recorded under:\n");
+        bund2_api::sayln!("  The ceiling is below the denominator because an approved");
+        bund2_api::sayln!("  deviation is a **decision**, not a gap — an oracle defect Bund2");
+        bund2_api::sayln!("  declines to reproduce, or text no second machine can produce.");
+        bund2_api::sayln!("  No amount of implementation moves one. By the reason each was");
+        bund2_api::sayln!("  recorded under:\n");
         // Grouped from the register rather than described in prose, so the
         // breakdown cannot drift from what is actually recorded. An earlier
         // version said "three and three" and was wrong about both.
@@ -481,55 +481,55 @@ pub fn run(args: &[String]) -> Result<(), String> {
             *by_reason.entry(why.as_str()).or_default() += 1;
         }
         for (why, n) in &by_reason {
-            println!("      {why:<20}{n}");
+            bund2_api::sayln!("      {why:<20}{n}");
         }
-        println!();
-        println!("  The denominator stays the full set: shrinking it would make the");
-        println!("  ratio flatter by measuring against less.\n");
+        bund2_api::sayln!();
+        bund2_api::sayln!("  The denominator stays the full set: shrinking it would make the");
+        bund2_api::sayln!("  ratio flatter by measuring against less.\n");
     }
 
     if !approved_hits.is_empty() {
-        println!(
+        bund2_api::sayln!(
             "  {} golden(s) Bund2 is **approved** to disagree with — F48. Each is\n               counted apart from the ratio, not folded into it, because a\n               conformance number that silently absorbs deviations stops being a\n               regression number.\n",
             approved_hits.len()
         );
         for (g, why) in &approved_hits {
-            println!("      {g:<44} {why}");
+            bund2_api::sayln!("      {g:<44} {why}");
         }
-        println!();
+        bund2_api::sayln!();
     }
 
     if !drifted.is_empty() {
-        println!(
+        bund2_api::sayln!(
             "  {} approved deviation(s) DRIFTED: the deviation is still approved,\n               but Bund2 no longer produces what was recorded for it. That is a\n               regression inside a deviation, which a bare exclusion would hide.\n",
             drifted.len()
         );
         for (g, why) in &drifted {
-            println!("      {g:<44} {why}");
+            bund2_api::sayln!("      {g:<44} {why}");
         }
-        println!();
+        bund2_api::sayln!();
     }
 
     if uncaptured > 0 {
-        println!("  {uncaptured} program(s) have no golden and are excluded from");
-        println!("  the denominator — `cargo xtask golden` refused them as not");
-        println!("  reproducible. There is nothing there to conform to.\n");
+        bund2_api::sayln!("  {uncaptured} program(s) have no golden and are excluded from");
+        bund2_api::sayln!("  the denominator — `cargo xtask golden` refused them as not");
+        bund2_api::sayln!("  reproducible. There is nothing there to conform to.\n");
     }
 
     if not_implemented == total && total > 0 {
-        println!("  Bund2 is a scaffold: `bund2` exits 70 with \"not yet implemented\"");
-        println!("  (crates/bund2-cli/src/main.rs). 0/{total} is the correct reading,");
-        println!("  and moving it is the work.\n");
+        bund2_api::sayln!("  Bund2 is a scaffold: `bund2` exits 70 with \"not yet implemented\"");
+        bund2_api::sayln!("  (crates/bund2-cli/src/main.rs). 0/{total} is the correct reading,");
+        bund2_api::sayln!("  and moving it is the work.\n");
     } else if verbose || (passed < total && not_implemented < total) {
-        println!("## failing\n");
+        bund2_api::sayln!("## failing\n");
         for o in outcomes.iter().filter(|o| !o.passed && !o.approved).take(40) {
-            println!("  {:<62} {}", o.program, o.detail);
+            bund2_api::sayln!("  {:<62} {}", o.program, o.detail);
         }
         let failing = outcomes.iter().filter(|o| !o.passed && !o.approved).count();
         if failing > 40 {
-            println!("  ... {} more", failing - 40);
+            bund2_api::sayln!("  ... {} more", failing - 40);
         }
-        println!();
+        bund2_api::sayln!();
     }
 
     if blocked_on {
@@ -548,35 +548,35 @@ pub fn run(args: &[String]) -> Result<(), String> {
             }
         }
 
-        println!("## blocked-on\n");
-        println!("  For each failing golden, the first thing Bund2's diagnostic");
-        println!("  named as unregistered — a word, or a class. This is what");
-        println!("  RFC-0009 criterion 1 is decided by, and what makes it");
-        println!("  decidable at all: the failure list above says only `output");
-        println!("  differs`, which names nothing and so cannot distinguish a");
-        println!("  missing word from a wrong answer.\n");
+        bund2_api::sayln!("## blocked-on\n");
+        bund2_api::sayln!("  For each failing golden, the first thing Bund2's diagnostic");
+        bund2_api::sayln!("  named as unregistered — a word, or a class. This is what");
+        bund2_api::sayln!("  RFC-0009 criterion 1 is decided by, and what makes it");
+        bund2_api::sayln!("  decidable at all: the failure list above says only `output");
+        bund2_api::sayln!("  differs`, which names nothing and so cannot distinguish a");
+        bund2_api::sayln!("  missing word from a wrong answer.\n");
 
         if by_word.is_empty() {
-            println!("  No failing golden is blocked on an unregistered word.\n");
+            bund2_api::sayln!("  No failing golden is blocked on an unregistered word.\n");
         } else {
             let mut ranked: Vec<(&&Missing, &Vec<&str>)> = by_word.iter().collect();
             ranked.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(b.0)));
             let label = Missing::label;
-            println!("  {:<30}{:>9}", "missing", "goldens");
+            bund2_api::sayln!("  {:<30}{:>9}", "missing", "goldens");
             for (w, progs) in &ranked {
-                println!("  {:<30}{:>9}", label(w), progs.len());
+                bund2_api::sayln!("  {:<30}{:>9}", label(w), progs.len());
             }
-            println!();
+            bund2_api::sayln!();
             if verbose {
                 for (w, progs) in &ranked {
-                    println!("  {}", label(w));
+                    bund2_api::sayln!("  {}", label(w));
                     for p in progs.iter() {
-                        println!("      {p}");
+                        bund2_api::sayln!("      {p}");
                     }
                 }
-                println!();
+                bund2_api::sayln!();
             } else {
-                println!("  Pass -v to list the goldens under each entry.\n");
+                bund2_api::sayln!("  Pass -v to list the goldens under each entry.\n");
             }
 
             // Criterion 1's actual question, asked directly rather than left
@@ -587,14 +587,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 .filter(|m| matches!(m, Missing::Word(w) if w == "class" || w == "object"))
                 .collect();
             if blocking.is_empty() {
-                println!("  RFC-0009 criterion 1: no golden is blocked on `class` or");
-                println!("  `object`. Both are registered.\n");
+                bund2_api::sayln!("  RFC-0009 criterion 1: no golden is blocked on `class` or");
+                bund2_api::sayln!("  `object`. Both are registered.\n");
             } else {
-                println!("  RFC-0009 criterion 1 NOT met — still blocked on:");
+                bund2_api::sayln!("  RFC-0009 criterion 1 NOT met — still blocked on:");
                 for m in blocking {
-                    println!("      `{}`", m.name());
+                    bund2_api::sayln!("      `{}`", m.name());
                 }
-                println!();
+                bund2_api::sayln!();
             }
 
             let classes: usize = ranked
@@ -603,26 +603,26 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 .map(|(_, p)| p.len())
                 .sum();
             if classes > 0 {
-                println!("  {classes} golden(s) want a built-in **class** Bund2 does not");
-                println!("  register. That is not `class` missing — it works — it is the");
-                println!("  oracle's per-type class hierarchy");
-                println!("  (`reference/Bund/src/stdlib/functions/oop/int_class.rs:39` and");
-                println!("  its siblings), which RFC-0009 does not scope. Listed here so");
-                println!("  the two are never read as one blocker.\n");
+                bund2_api::sayln!("  {classes} golden(s) want a built-in **class** Bund2 does not");
+                bund2_api::sayln!("  register. That is not `class` missing — it works — it is the");
+                bund2_api::sayln!("  oracle's per-type class hierarchy");
+                bund2_api::sayln!("  (`reference/Bund/src/stdlib/functions/oop/int_class.rs:39` and");
+                bund2_api::sayln!("  its siblings), which RFC-0009 does not scope. Listed here so");
+                bund2_api::sayln!("  the two are never read as one blocker.\n");
             }
         }
 
-        println!(
+        bund2_api::sayln!(
             "  {} failing golden(s) name no unregistered word — they reach the",
             other.len()
         );
-        println!("  end and disagree, or fail for another reason. Implementing a");
-        println!("  word will not move them.\n");
+        bund2_api::sayln!("  end and disagree, or fail for another reason. Implementing a");
+        bund2_api::sayln!("  word will not move them.\n");
     }
 
-    println!("  Conformance counts goldens, never words. `cargo xtask coverage`");
-    println!("  answers how much of the language is tested at all; this number");
-    println!("  answers whether what was captured still holds.\n");
+    bund2_api::sayln!("  Conformance counts goldens, never words. `cargo xtask coverage`");
+    bund2_api::sayln!("  answers how much of the language is tested at all; this number");
+    bund2_api::sayln!("  answers whether what was captured still holds.\n");
 
     // Regression check.
     let baseline = read_baseline(&repo);
@@ -630,7 +630,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         Some(prev) if passed < prev => {
             if accept {
                 write_baseline(&repo, passed, total)?;
-                println!("  baseline lowered {prev} -> {passed} by --accept");
+                bund2_api::sayln!("  baseline lowered {prev} -> {passed} by --accept");
                 Ok(())
             } else {
                 Err(format!(
@@ -642,9 +642,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
         Some(prev) if passed > prev => {
             if accept {
                 write_baseline(&repo, passed, total)?;
-                println!("  baseline raised {prev} -> {passed}");
+                bund2_api::sayln!("  baseline raised {prev} -> {passed}");
             } else {
-                println!(
+                bund2_api::sayln!(
                     "  above baseline ({prev}); record it with `cargo xtask conform --accept`"
                 );
             }
@@ -656,16 +656,16 @@ pub fn run(args: &[String]) -> Result<(), String> {
             // Refresh so the file never claims a stale total.
             if accept {
                 write_baseline(&repo, passed, total)?;
-                println!("  baseline refreshed at {passed}/{total}");
+                bund2_api::sayln!("  baseline refreshed at {passed}/{total}");
             }
             Ok(())
         }
         None => {
             if accept {
                 write_baseline(&repo, passed, total)?;
-                println!("  baseline recorded at {passed}/{total}");
+                bund2_api::sayln!("  baseline recorded at {passed}/{total}");
             } else {
-                println!("  no baseline recorded yet; set one with `cargo xtask conform --accept`");
+                bund2_api::sayln!("  no baseline recorded yet; set one with `cargo xtask conform --accept`");
             }
             Ok(())
         }
@@ -701,17 +701,17 @@ fn parse_reach(repo: &Path, verbose: bool) -> Result<(), String> {
             Err(e) => failures.push((name.clone(), e.render(&src))),
         }
     }
-    println!("\n  PARSE-REACH  {ok}/{total}\n");
-    println!(
+    bund2_api::sayln!("\n  PARSE-REACH  {ok}/{total}\n");
+    bund2_api::sayln!(
         "  How many golden sources the front end accepts. Not a conformance\n           number: a program can parse and still fail on the first word that is\n           not implemented. `cargo xtask conform` answers that one.\n"
     );
     if !failures.is_empty() {
         let show = if verbose { failures.len() } else { 12 };
         for (name, why) in failures.iter().take(show) {
-            println!("  {name:<44} {why}");
+            bund2_api::sayln!("  {name:<44} {why}");
         }
         if failures.len() > show {
-            println!("  ... {} more", failures.len() - show);
+            bund2_api::sayln!("  ... {} more", failures.len() - show);
         }
     }
     Ok(())

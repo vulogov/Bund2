@@ -855,7 +855,7 @@ fn display(vm: &mut dyn Vm) -> Result<(), Error> {
             let text = out
                 .as_str()
                 .ok_or_else(|| Error("DISPLAY: casting out value returns error".into()))?;
-            print!("{}", termimad::term_text(&text));
+            bund2_api::out!("{}", termimad::term_text(&text))?;
         }
         OBJECT => {
             // The reference pushes the method *name* and the object and then
@@ -873,7 +873,7 @@ fn display(vm: &mut dyn Vm) -> Result<(), Error> {
                     "FMT.STR: conversion to STRING returned error: {why}"
                 )));
             }
-            None => print!("{}", termimad::term_text(&v.display())),
+            None => bund2_api::out!("{}", termimad::term_text(&v.display()))?,
         },
     }
     let _ = std::io::stdout().flush();

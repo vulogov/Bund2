@@ -633,6 +633,13 @@ pub struct Interp {
     /// commands are parsed and its conditions run by code this crate does not
     /// have.
     pub console_factory: Option<ConsoleFactory>,
+    /// **This VM is never to be given a debugger — D115.** Set by a front
+    /// end whose program must not stop and wait: a bundle is the one that
+    /// does. The arming and moving words then do nothing at all — no console,
+    /// no stop, and the tier stays on — where without this they would refuse
+    /// for want of a console. The views still print: they read the VM and
+    /// wait for nobody.
+    pub console_refused: bool,
     /// **No body is offered to the tier any more — D113.6.** Raised by the
     /// first arming or moving word and never lowered. A compiled body has no
     /// safepoint, so a breakpoint inside one would silently not fire; from
@@ -755,6 +762,7 @@ impl Interp {
             fed: VecDeque::new(),
             evaluator: None,
             console_factory: None,
+            console_refused: false,
             tier_off: false,
             frames: Vec::new(),
             pending_tail: None,
@@ -2150,6 +2158,9 @@ impl Vm for Interp {
         // **§W5: a word that arms or moves attaches a debugger if none is.**
         // Quietly, so the run goes on to where the word said to stop.
         if self.debug.is_none() {
+            if self.console_refused {
+                return Ok(None);
+            }
             let Some(make) = self.console_factory else {
                 return Err(Error(
                     "no debugger is attached, and this VM was given no console to attach".into(),

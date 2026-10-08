@@ -250,19 +250,19 @@ enum CandidateToken {
 }
 
 fn row(name: &str, size: usize, align: usize, note: &str) {
-    println!("  {name:<34}{size:>5}{align:>7}   {note}");
+    bund2_api::sayln!("  {name:<34}{size:>5}{align:>7}   {note}");
 }
 
 pub fn run(_args: &[String]) -> Result<(), String> {
-    println!("# cargo xtask layout\n");
-    println!("Phase 0 value-representation measurement. RFC-0001's acceptance");
-    println!("criteria are written against these numbers.\n");
-    println!("`BundValue` does not exist yet, so these are CANDIDATE shapes");
-    println!("declared in xtask/src/layout/mod.rs. Measuring them is what makes");
-    println!("the 16-byte claim checkable before the RFC commits to it.\n");
+    bund2_api::sayln!("# cargo xtask layout\n");
+    bund2_api::sayln!("Phase 0 value-representation measurement. RFC-0001's acceptance");
+    bund2_api::sayln!("criteria are written against these numbers.\n");
+    bund2_api::sayln!("`BundValue` does not exist yet, so these are CANDIDATE shapes");
+    bund2_api::sayln!("declared in xtask/src/layout/mod.rs. Measuring them is what makes");
+    bund2_api::sayln!("the 16-byte claim checkable before the RFC commits to it.\n");
 
-    println!("## size_of, in bytes\n");
-    println!(
+    bund2_api::sayln!("## size_of, in bytes\n");
+    bund2_api::sayln!(
         "  {:<34}{:>5}{:>7}   note",
         "representation", "size", "align"
     );
@@ -296,7 +296,7 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         align_of::<CandidateTagged>(),
         "dt and Val are independent axes",
     );
-    println!();
+    bund2_api::sayln!();
     row(
         "  Rc<Heap>",
         size_of::<Rc<Heap>>(),
@@ -315,40 +315,40 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         align_of::<HeapTagged>(),
         "carries dt",
     );
-    println!();
+    bund2_api::sayln!();
 
     let a = size_of::<CandidateHeader>();
     let b = size_of::<CandidateInline>();
     if a <= 16 {
-        println!("  Candidate A is {a} bytes — the scan's conclusion holds.");
+        bund2_api::sayln!("  Candidate A is {a} bytes — the scan's conclusion holds.");
     } else {
-        println!("  Candidate A is {a} bytes, NOT the 16 the scan predicted.");
-        println!("  RFC-0001 cannot claim 16 without changing the candidate.");
+        bund2_api::sayln!("  Candidate A is {a} bytes, NOT the 16 the scan predicted.");
+        bund2_api::sayln!("  RFC-0001 cannot claim 16 without changing the candidate.");
     }
-    println!(
+    bund2_api::sayln!(
         "  Carrying identity inline costs {} bytes per value (B - A).\n",
         b - a
     );
     let d = size_of::<CandidateTagged>();
     if d == a {
-        println!("  Candidate D carries the reference's dt tag and is still {d}");
-        println!("  bytes: the tag only needs disambiguating for heap types, so");
-        println!("  it fits in the header beside the identity and costs the value");
-        println!("  nothing. That is the shape RFC-0001 specifies.\n");
+        bund2_api::sayln!("  Candidate D carries the reference's dt tag and is still {d}");
+        bund2_api::sayln!("  bytes: the tag only needs disambiguating for heap types, so");
+        bund2_api::sayln!("  it fits in the header beside the identity and costs the value");
+        bund2_api::sayln!("  nothing. That is the shape RFC-0001 specifies.\n");
     } else {
-        println!("  Candidate D is {d} bytes against A's {a} — carrying dt costs");
-        println!("  {} bytes per value.\n", d - a);
+        bund2_api::sayln!("  Candidate D is {d} bytes against A's {a} — carrying dt costs");
+        bund2_api::sayln!("  {} bytes per value.\n", d - a);
     }
-    println!("  D4 is RESOLVED: full i64, NaN-boxing not taken. Folding the tag");
-    println!("  into unused float bits would reach 8 bytes at the cost of 51-bit");
-    println!("  integers, and the 176 -> 16 win is already banked. These figures");
-    println!("  are the full-i64 ones the decision rests on.\n");
+    bund2_api::sayln!("  D4 is RESOLVED: full i64, NaN-boxing not taken. Folding the tag");
+    bund2_api::sayln!("  into unused float bits would reach 8 bytes at the cost of 51-bit");
+    bund2_api::sayln!("  integers, and the 176 -> 16 win is already banked. These figures");
+    bund2_api::sayln!("  are the full-i64 ones the decision rests on.\n");
 
     // -----------------------------------------------------------------------
-    println!("## allocations per operation\n");
-    println!("  Counted with a global allocator across a window around each");
-    println!("  operation. Candidate types only — the reference is not linked.\n");
-    println!("  {:<44}{:>7}{:>9}", "operation", "allocs", "bytes");
+    bund2_api::sayln!("## allocations per operation\n");
+    bund2_api::sayln!("  Counted with a global allocator across a window around each");
+    bund2_api::sayln!("  operation. Candidate types only — the reference is not linked.\n");
+    bund2_api::sayln!("  {:<44}{:>7}{:>9}", "operation", "allocs", "bytes");
 
     // Warm any lazily-initialised machinery before measuring.
     let _ = measure(|| {
@@ -360,9 +360,9 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     });
 
     let (n, b, scalar) = measure(|| CandidateHeader::Int(7));
-    println!("  {:<44}{n:>7}{b:>9}", "A: construct a scalar");
+    bund2_api::sayln!("  {:<44}{n:>7}{b:>9}", "A: construct a scalar");
     let (n, b, _) = measure(|| scalar.clone());
-    println!("  {:<44}{n:>7}{b:>9}", "A: clone a scalar");
+    bund2_api::sayln!("  {:<44}{n:>7}{b:>9}", "A: clone a scalar");
 
     let (n, b, heap) = measure(|| {
         CandidateHeader::Heap(Rc::new(Heap {
@@ -371,35 +371,35 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             payload: HeapPayload::List(vec![CandidateHeader::Int(1)]),
         }))
     });
-    println!("  {:<44}{n:>7}{b:>9}", "A: construct a 1-element list");
+    bund2_api::sayln!("  {:<44}{n:>7}{b:>9}", "A: construct a 1-element list");
     let (n, b, _) = measure(|| heap.clone());
-    println!("  {:<44}{n:>7}{b:>9}", "A: clone a list (Rc bump)");
+    bund2_api::sayln!("  {:<44}{n:>7}{b:>9}", "A: clone a list (Rc bump)");
 
     // Candidate D is the shape RFC-0001 specifies, so its rows are the ones
     // the acceptance criteria are written against. A and B remain for contrast.
     let (n, b, tagged) = measure(|| CandidateTagged::Int(7));
-    println!("  {:<44}{n:>7}{b:>9}", "D: construct a scalar");
+    bund2_api::sayln!("  {:<44}{n:>7}{b:>9}", "D: construct a scalar");
     let (n, b, _) = measure(|| tagged.clone());
-    println!("  {:<44}{n:>7}{b:>9}", "D: clone a scalar");
+    bund2_api::sayln!("  {:<44}{n:>7}{b:>9}", "D: clone a scalar");
 
     let (n, b, dheap) = measure(|| {
         CandidateTagged::Heap(Rc::new(HeapTagged::on_stack(HeapPayload::List(vec![
             CandidateHeader::Int(1),
         ]))))
     });
-    println!(
+    bund2_api::sayln!(
         "  {:<44}{n:>7}{b:>9}",
         "D: construct a 1-element list on a stack"
     );
     let (n, b, _) = measure(|| dheap.clone());
-    println!("  {:<44}{n:>7}{b:>9}", "D: clone a list (Rc bump)");
+    bund2_api::sayln!("  {:<44}{n:>7}{b:>9}", "D: clone a list (Rc bump)");
     let (n, b, _) = measure(|| dheap.dup());
-    println!(
+    bund2_api::sayln!(
         "  {:<44}{n:>7}{b:>9}",
         "D: dup a list (fresh header, shared payload)"
     );
     let (n, b, _) = measure(|| scalar.clone());
-    println!(
+    bund2_api::sayln!(
         "  {:<44}{n:>7}{b:>9}",
         "D: dup an unadorned scalar (no header)"
     );
@@ -412,37 +412,37 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             CandidateHeader::Int(7),
         ))))
     });
-    println!("  {:<44}{n:>7}{b:>9}", "D: box a scalar (what push forces)");
+    bund2_api::sayln!("  {:<44}{n:>7}{b:>9}", "D: box a scalar (what push forces)");
     let (n, b, _) = measure(|| boxed.clone());
-    println!("  {:<44}{n:>7}{b:>9}", "D: clone a boxed scalar (Rc bump)");
+    bund2_api::sayln!("  {:<44}{n:>7}{b:>9}", "D: clone a boxed scalar (Rc bump)");
     let (n, b, _) = measure(|| boxed.dup());
-    println!("  {:<44}{n:>7}{b:>9}", "D: dup a boxed scalar");
+    bund2_api::sayln!("  {:<44}{n:>7}{b:>9}", "D: dup a boxed scalar");
 
     let (n, b, inline) = measure(|| CandidateInline {
         id: 0,
         stamp: 0.0,
         body: CandidateInlineBody::Int(7),
     });
-    println!("  {:<44}{n:>7}{b:>9}", "B: construct a scalar");
+    bund2_api::sayln!("  {:<44}{n:>7}{b:>9}", "B: construct a scalar");
     let (n, b, _) = measure(|| inline.clone());
-    println!("  {:<44}{n:>7}{b:>9}", "B: clone a scalar");
-    println!();
+    bund2_api::sayln!("  {:<44}{n:>7}{b:>9}", "B: clone a scalar");
+    bund2_api::sayln!();
 
-    println!("  An UNADORNED scalar allocating zero is the property that");
-    println!("  matters, and the qualifier is the point: `push` writes a stack");
-    println!("  tag with no type test, so a scalar on a stack is boxed and the");
-    println!("  `box a scalar` row above is what a pushed integer costs.");
-    println!("  RFC-0001 criterion 2 is written against the unadorned row and");
-    println!("  says so; criterion 3 is written against the boxed ones.\n");
-    println!("  Historical note: under");
-    println!("  the header design an integer never touches the heap, so the");
-    println!("  lazy identity D1 specifies costs nothing until observed.\n");
+    bund2_api::sayln!("  An UNADORNED scalar allocating zero is the property that");
+    bund2_api::sayln!("  matters, and the qualifier is the point: `push` writes a stack");
+    bund2_api::sayln!("  tag with no type test, so a scalar on a stack is boxed and the");
+    bund2_api::sayln!("  `box a scalar` row above is what a pushed integer costs.");
+    bund2_api::sayln!("  RFC-0001 criterion 2 is written against the unadorned row and");
+    bund2_api::sayln!("  says so; criterion 3 is written against the boxed ones.\n");
+    bund2_api::sayln!("  Historical note: under");
+    bund2_api::sayln!("  the header design an integer never touches the heap, so the");
+    bund2_api::sayln!("  lazy identity D1 specifies costs nothing until observed.\n");
 
     // -----------------------------------------------------------------------
     // RFC-0002 criterion 3. Until `bund2-interp` existed there was no VM to
     // dispatch in, and the criterion was listed with no tool that could run
     // it — which RFC-0002's second review recorded.
-    println!("## allocations per dispatch  (RFC-0002 criterion 3)\n");
+    bund2_api::sayln!("## allocations per dispatch  (RFC-0002 criterion 3)\n");
     {
         use bund2_api::{StackEffect, Vm, WordKind};
         use bund2_interp::Interp;
@@ -467,35 +467,35 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         let _ = measure(|| i.dispatch(plain, false));
 
         let (n, b, _) = measure(|| i.dispatch(plain, false));
-        println!("  {:<44}{n:>7}{b:>9}", "dispatch a native by Symbol");
+        bund2_api::sayln!("  {:<44}{n:>7}{b:>9}", "dispatch a native by Symbol");
         let (n, b, _) = measure(|| i.dispatch(aliased, false));
-        println!("  {:<44}{n:>7}{b:>9}", "dispatch through a two-link alias");
+        bund2_api::sayln!("  {:<44}{n:>7}{b:>9}", "dispatch through a two-link alias");
         let (n, b, _) = measure(|| i.dispatch(pushes, false));
-        println!(
+        bund2_api::sayln!(
             "  {:<44}{n:>7}{b:>9}",
             "dispatch a word that pushes a scalar"
         );
         let (n, b, _) = measure(|| i.dispatch_name("w"));
-        println!(
+        bund2_api::sayln!(
             "  {:<44}{n:>7}{b:>9}",
             "dispatch by name (lookup, no intern)"
         );
-        println!();
-        println!("  The reference allocates **thirteen** strings and hashes");
-        println!("  eight times to dispatch `dup`, itemised per call site in");
-        println!("  RFC-0002's Motivation. Dispatch by Symbol is the whole");
-        println!("  point, and the alias row shows the chain costs nothing");
-        println!("  extra because a link is an index.\n");
-        println!("  The pushing row is not zero, and that is RFC-0001's");
-        println!("  boxing cost, not a dispatch cost: `TS::push` tags every");
-        println!("  value with no type test, so a scalar reaching a stack is");
-        println!("  boxed. RFC-0003 may move the tag into the stack slot.\n");
+        bund2_api::sayln!();
+        bund2_api::sayln!("  The reference allocates **thirteen** strings and hashes");
+        bund2_api::sayln!("  eight times to dispatch `dup`, itemised per call site in");
+        bund2_api::sayln!("  RFC-0002's Motivation. Dispatch by Symbol is the whole");
+        bund2_api::sayln!("  point, and the alias row shows the chain costs nothing");
+        bund2_api::sayln!("  extra because a link is an index.\n");
+        bund2_api::sayln!("  The pushing row is not zero, and that is RFC-0001's");
+        bund2_api::sayln!("  boxing cost, not a dispatch cost: `TS::push` tags every");
+        bund2_api::sayln!("  value with no type test, so a scalar reaching a stack is");
+        bund2_api::sayln!("  boxed. RFC-0003 may move the tag into the stack slot.\n");
     }
 
-    println!("  What this does NOT measure: the reference's own allocation");
-    println!("  behaviour, since reference/ is deliberately not linked into");
-    println!("  this workspace. For that, `cargo xtask bench` times the oracle");
-    println!("  end to end instead.\n");
+    bund2_api::sayln!("  What this does NOT measure: the reference's own allocation");
+    bund2_api::sayln!("  behaviour, since reference/ is deliberately not linked into");
+    bund2_api::sayln!("  this workspace. For that, `cargo xtask bench` times the oracle");
+    bund2_api::sayln!("  end to end instead.\n");
 
     Ok(())
 }

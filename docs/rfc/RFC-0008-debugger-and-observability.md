@@ -731,6 +731,17 @@ capture and still unpinnable, which is `debug`'s case.
     which a per-step cost can reach. A reading that moved `startup` and not
     `dispatch` would be measuring the machine.
 
+    **Read again on 2026-10-08, by count — D117.** D113 put three more checks
+    on this path after the reading above: one where a frame is pushed, one
+    before every native, one at dispatch. The acceptance review of that date
+    raised that nothing had measured them. The owner ruled that the cost is
+    read in instructions retired, since criterion 12 records that this host
+    can no longer resolve the band by timing. The commit before D113 against
+    the tree of 2026-10-08, the `dispatch` shapes run 300,000 times: **Tier 0
+    costs 1.6% to 3.5% more instructions; with a tier, −0.4% to +1.9%.** Every
+    row is inside the 5% band. D117 carries the table and what a count does
+    not say — chiefly that it is not time.
+
 12. **§D2's growth is measured against a baseline taken first.**
     `Frame` gains a symbol and a span, on a structure pushed per call, so
     `dispatch` **before** the field is added and then after, inside the same 5%
@@ -916,6 +927,17 @@ capture and still unpinnable, which is `debug`'s case.
     embeds a fresh id and stamp per run, so two captures differ and the capture
     refuses them. That is the F14 class and belongs in `UNSTABLE.txt`, not in a
     claim that the words are unreachable.
+
+    **The second half is wrong too, and a golden holds both words —
+    corrected 2026-10-08.** `tests/golden/probes/debug-repl-words.golden` runs
+    `debug.shell` and `debug`, was captured from the oracle with two runs
+    agreeing, and passes. The capture normalises the id and the stamp (F14),
+    so the table is stable once they are. This criterion is therefore **met
+    by a golden**, not by a refusal. The acceptance review of this date found
+    it, and found that the claim had been repeated as advice: the owner was
+    told that no golden could hold `debug` while choosing what `debug` should
+    become. The choice made kept the word as the reference's, so the golden
+    still passes; one of the options offered would have failed it.
 
 ## Open questions
 
@@ -1273,6 +1295,11 @@ Criteria met: W1, W2, W3, W4, W5, W6, W9. W7 and W8 are Part B's.
   `next_command`, which is how a console with no stream of its own is handed
   the stopped VM to read through. The attached debugger starts running, not
   stopped.
+- **§W5, D115, 2026-10-08: not in a bundle.** A bundle sets
+  `Interp::console_refused` and supplies no factory, and there the arming and
+  moving words do nothing: no console, no stop, tier left on. D113.5 had made
+  a shipped program stop at a prompt if a breakpoint was left in it. The
+  views still print. RFC-0006 §B3a has the other half.
 - **§D8, for this console only: it has a history**, because a read through
   `Input` names one. The `--debugger` console still reads plain lines.
 - **§W5, D113.6: the tier is switched off, not removed.** It is out of the

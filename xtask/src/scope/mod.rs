@@ -156,50 +156,50 @@ pub fn run(args: &[String]) -> Result<(), String> {
         .collect();
 
     // ------------------------------------------------------------------
-    println!("# cargo xtask scope\n");
-    println!("D14's core/library partition, method B: corpus-seeded, closed over");
-    println!("implementation reach, plus D18 workbench forms. Computed, not");
-    println!("enumerated, so it cannot drift from the evidence.\n");
-    println!("This does not resolve D14. It produces the list the decision needs.\n");
+    bund2_api::sayln!("# cargo xtask scope\n");
+    bund2_api::sayln!("D14's core/library partition, method B: corpus-seeded, closed over");
+    bund2_api::sayln!("implementation reach, plus D18 workbench forms. Computed, not");
+    bund2_api::sayln!("enumerated, so it cannot drift from the evidence.\n");
+    bund2_api::sayln!("This does not resolve D14. It produces the list the decision needs.\n");
 
-    println!("## the partition\n");
-    println!(
+    bund2_api::sayln!("## the partition\n");
+    bund2_api::sayln!(
         "  registered names            {:>5}",
         reg.word_names().len()
     );
-    println!(
+    bund2_api::sayln!(
         "  out of scope by decision    {:>5}",
         reg.word_names().len() - in_scope.len()
     );
-    println!("  ---------------------------------");
-    println!("  words in scope              {:>5}", in_scope.len());
-    println!();
-    println!("  step 1  seeded by the corpus    {:>4}", seeded);
-    println!(
+    bund2_api::sayln!("  ---------------------------------");
+    bund2_api::sayln!("  words in scope              {:>5}", in_scope.len());
+    bund2_api::sayln!();
+    bund2_api::sayln!("  step 1  seeded by the corpus    {:>4}", seeded);
+    bund2_api::sayln!(
         "  step 2  + implementation closure {:>4}   (+{})",
         after_closure,
         after_closure - seeded
     );
-    println!(
+    bund2_api::sayln!(
         "  step 3  + D18 workbench forms    {:>4}   (+{})",
         after_forms,
         after_forms - after_closure
     );
-    println!("  ---------------------------------");
-    println!(
+    bund2_api::sayln!("  ---------------------------------");
+    bund2_api::sayln!(
         "  CORE                        {:>5}   ({:.1}% of in-scope)",
         core.len(),
         core.len() as f64 * 100.0 / in_scope.len().max(1) as f64
     );
-    println!("  LIBRARY                     {:>5}", library.len());
-    println!();
+    bund2_api::sayln!("  LIBRARY                     {:>5}", library.len());
+    bund2_api::sayln!();
 
     // ------------------------------------------------------------------
     // The cost of B over B': subsystems that end up split.
-    println!("## where method B splits a subsystem\n");
-    println!("  A subsystem with both core and library words. B' would have");
-    println!("  completed these; B does not. Each row is a place where a word");
-    println!("  sits beside a core sibling and is still library.\n");
+    bund2_api::sayln!("## where method B splits a subsystem\n");
+    bund2_api::sayln!("  A subsystem with both core and library words. B' would have");
+    bund2_api::sayln!("  completed these; B does not. Each row is a place where a word");
+    bund2_api::sayln!("  sits beside a core sibling and is still library.\n");
     let mut by_sub: BTreeMap<String, (Vec<&String>, Vec<&String>)> = BTreeMap::new();
     for (w, v) in &verdict {
         let Some(site) = reg.implementing_site(w) else {
@@ -218,31 +218,31 @@ pub fn run(args: &[String]) -> Result<(), String> {
         .map(|(s, (c, l))| (s, c.len(), l.len()))
         .collect();
     split.sort_by_key(|e| std::cmp::Reverse(e.2));
-    println!("  {:<26}{:>6}{:>9}", "subsystem", "core", "library");
+    bund2_api::sayln!("  {:<26}{:>6}{:>9}", "subsystem", "core", "library");
     for (s, c, l) in split.iter().take(20) {
-        println!("  {s:<26}{c:>6}{l:>9}");
+        bund2_api::sayln!("  {s:<26}{c:>6}{l:>9}");
     }
     let split_library: usize = split.iter().map(|(_, _, l)| l).sum();
-    println!();
-    println!(
+    bund2_api::sayln!();
+    bund2_api::sayln!(
         "  {} words are library while sharing a subsystem with a core word.",
         split_library
     );
-    println!("  That is the B-versus-B' delta, and it is the number to look at");
-    println!("  before treating this partition as settled.\n");
+    bund2_api::sayln!("  That is the B-versus-B' delta, and it is the number to look at");
+    bund2_api::sayln!("  before treating this partition as settled.\n");
 
     // ------------------------------------------------------------------
-    println!("## library words in otherwise-core subsystems, listed\n");
-    println!("  The ones most likely to be misfiled. Read these before D14 is");
-    println!("  recorded — a word here is one the corpus happens not to reach.\n");
+    bund2_api::sayln!("## library words in otherwise-core subsystems, listed\n");
+    bund2_api::sayln!("  The ones most likely to be misfiled. Read these before D14 is");
+    bund2_api::sayln!("  recorded — a word here is one the corpus happens not to reach.\n");
     for (s, _, _) in split.iter().take(8) {
         let (_, lib) = &by_sub[*s];
         let mut names: Vec<&str> = lib.iter().map(|w| w.as_str()).collect();
         names.sort();
-        println!("  {s}");
-        println!("      {}", names.join(" "));
+        bund2_api::sayln!("  {s}");
+        bund2_api::sayln!("      {}", names.join(" "));
     }
-    println!();
+    bund2_api::sayln!();
 
     // ------------------------------------------------------------------
     // The variant comparison D14 needs before it records anything.
@@ -321,23 +321,23 @@ pub fn run(args: &[String]) -> Result<(), String> {
     ];
     variants::report(&vs, &in_scope);
 
-    println!("## what B\u{2033} adds over B+probes\n");
+    bund2_api::sayln!("## what B\u{2033} adds over B+probes\n");
     let added = variants::delta(&vs[1].core, &vs[3].core);
-    println!("  {} words, by subsystem:\n", added.len());
+    bund2_api::sayln!("  {} words, by subsystem:\n", added.len());
     for (sub, mut ws) in variants::by_subsystem(&reg, &added) {
         ws.sort();
-        println!("  {sub}");
-        println!("      {}", ws.join(" "));
+        bund2_api::sayln!("  {sub}");
+        bund2_api::sayln!("      {}", ws.join(" "));
     }
-    println!();
+    bund2_api::sayln!();
 
     // ------------------------------------------------------------------
     // D14 records B''. Emit it, so the partition is an artefact rather than a
     // number in prose that can drift from the tool that produced it.
     let recorded = &vs[3];
-    println!("## the recorded partition (D14)\n");
-    println!("  D14 records **{}** — {}.", recorded.name, recorded.note);
-    println!(
+    bund2_api::sayln!("## the recorded partition (D14)\n");
+    bund2_api::sayln!("  D14 records **{}** — {}.", recorded.name, recorded.note);
+    bund2_api::sayln!(
         "  core {} / library {} of {} in scope.\n",
         recorded.core.len(),
         in_scope.len() - recorded.core.len(),
@@ -374,12 +374,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
         let path = repo.join("docs/core-words.md");
         std::fs::write(&path, out).map_err(|e| format!("writing {}: {e}", path.display()))?;
-        println!("  wrote docs/core-words.md\n");
+        bund2_api::sayln!("  wrote docs/core-words.md\n");
     } else {
-        println!("  Nothing written. Pass --write to record docs/core-words.md.\n");
+        bund2_api::sayln!("  Nothing written. Pass --write to record docs/core-words.md.\n");
     }
 
-    println!("## core, by how it was reached\n");
+    bund2_api::sayln!("## core, by how it was reached\n");
     let mut by_reason: BTreeMap<&str, usize> = BTreeMap::new();
     for v in verdict.values().filter(|v| v.is_core()) {
         let k = match v {
@@ -393,9 +393,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
         *by_reason.entry(k).or_default() += 1;
     }
     for (k, n) in &by_reason {
-        println!("  {k:<12}{n:>5}");
+        bund2_api::sayln!("  {k:<12}{n:>5}");
     }
-    println!();
+    bund2_api::sayln!();
 
     Ok(())
 }

@@ -79,3 +79,8 @@ unreachable = "deny"
 todo = "deny"
 unimplemented = "deny"
 exit = "deny"
+# `println!` panics when the write fails, and a write to a pipe whose reader has
+# left fails. `bund2_api::out` holds what the workspace uses instead; tests may
+# print (`clippy.toml`).
+print_stdout = "deny"
+print_stderr = "deny"

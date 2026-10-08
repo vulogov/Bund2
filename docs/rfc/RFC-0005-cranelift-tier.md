@@ -3063,9 +3063,10 @@ word's operands are already on the VM's stack, which the callee shares. So no
 signature here is variadic, and none becomes `argc/argv`.
 
 **But a native's own signature is not a boundary compiled code can use, and an
-earlier revision said it was** (the tenth review's B2):
+earlier revision said it was** (the tenth review's B2). `NativeFn` in
+`crates/bund2-api/src/lib.rs`:
 
-```rust crates/bund2-api/src/lib.rs:61
+```rust
 pub type NativeFn = fn(&mut dyn Vm) -> Result<(), Error>;
 ```
 
@@ -4774,6 +4775,17 @@ evidence, and this one is listed as runnable rather than as met.
    different profile; a "3.5× faster than Tier 0" used a 67 MB stale Tier 0
    artefact. Both were CLI medians on a ~2.3 ms process floor. A stale binary in
    a scratch directory looks exactly like a fresh one; its size is the tell.
+
+   **Read again on 2026-10-08, by count — D117.** D113 changed the path every
+   reading above was taken on: a check where a frame is pushed, one before
+   every native, one at dispatch. The acceptance review of that date raised
+   it, and the owner ruled that such a cost is read in instructions retired.
+   A build with `jit` against one without, same tree: **`startup` is +2.2%**,
+   inside the band, and the four `dispatch` shapes and a call to a user's
+   word all take fewer instructions with the tier, by 15% to 66%. **`value`,
+   `arith`'s cold rows and `corpus` have no reading by this method**, so this
+   note re-reads two of the table's groups and not the criterion. D117
+   carries the figures and what a count does not say.
 
 8. **`cite` and `lint` clean**, with `cargo xtask cite` resolving every
    `path:line` in this document. **Note what this now checks and did not

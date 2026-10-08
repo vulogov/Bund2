@@ -838,12 +838,12 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         }
     }
 
-    println!("# cargo xtask cite\n");
-    println!("Every `reference/...:N` citation across docs, registers and the");
-    println!("golden lists. Checks that the file exists, the line exists, and —");
-    println!("where the prose quotes a token — that the token is near the line");
-    println!("it points at. It cannot check that a line means what the prose");
-    println!("says; that still needs a reader.\n");
+    bund2_api::sayln!("# cargo xtask cite\n");
+    bund2_api::sayln!("Every `reference/...:N` citation across docs, registers and the");
+    bund2_api::sayln!("golden lists. Checks that the file exists, the line exists, and —");
+    bund2_api::sayln!("where the prose quotes a token — that the token is near the line");
+    bund2_api::sayln!("it points at. It cannot check that a line means what the prose");
+    bund2_api::sayln!("says; that still needs a reader.\n");
 
     // **A citation in `docs/research/` is never a hard failure.** Those
     // documents are immutable — CLAUDE.md: "Research documents are immutable …
@@ -864,7 +864,7 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         .collect();
     let (hard, soft): (Vec<&Finding>, Vec<&Finding>) = findings.iter().partition(|f| f.hard);
 
-    println!(
+    bund2_api::sayln!(
         "  {:<32}{:>6}",
         "oracle crates byte-verified",
         format!("{prov_agreed}/{prov_checked}")
@@ -874,48 +874,48 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         // the tier may have been skipped for want of vendored source, or it
         // may have run and found a difference — in which case a hard finding
         // is printed below and "not compared" would contradict it.
-        println!("      The remainder either were not compared — the vendored");
-        println!("      crate source is absent, which is the normal case in CI");
-        println!("      since these five are not Bund2 workspace dependencies —");
-        println!("      or were compared and differed, in which case a defect");
-        println!("      appears below. Build the oracle to make this meaningful.");
+        bund2_api::sayln!("      The remainder either were not compared — the vendored");
+        bund2_api::sayln!("      crate source is absent, which is the normal case in CI");
+        bund2_api::sayln!("      since these five are not Bund2 workspace dependencies —");
+        bund2_api::sayln!("      or were compared and differed, in which case a defect");
+        bund2_api::sayln!("      appears below. Build the oracle to make this meaningful.");
     }
-    println!("  {:<32}{:>6}", "citations checked", checked);
-    println!(
+    bund2_api::sayln!("  {:<32}{:>6}", "citations checked", checked);
+    bund2_api::sayln!(
         "  {:<32}{:>6}",
         "resolve (file and line)",
         checked - hard.len()
     );
-    println!("  {:<32}{:>6}", "exact-match blocks", exact_checked);
-    println!("  {:<32}{:>6}", "exact matches verified", exact_ok);
-    println!("  {:<32}{:>6}", "corroborated by a token", corroborated);
-    println!("  {:<32}{:>6}", "DEFECTS (fail the run)", hard.len());
-    println!("  {:<32}{:>6}", "advisories (do not fail)", soft.len());
-    println!();
+    bund2_api::sayln!("  {:<32}{:>6}", "exact-match blocks", exact_checked);
+    bund2_api::sayln!("  {:<32}{:>6}", "exact matches verified", exact_ok);
+    bund2_api::sayln!("  {:<32}{:>6}", "corroborated by a token", corroborated);
+    bund2_api::sayln!("  {:<32}{:>6}", "DEFECTS (fail the run)", hard.len());
+    bund2_api::sayln!("  {:<32}{:>6}", "advisories (do not fail)", soft.len());
+    bund2_api::sayln!();
 
     if !hard.is_empty() {
-        println!("## defects\n");
+        bund2_api::sayln!("## defects\n");
         for f in &hard {
-            println!("  {}:{}", f.doc, f.doc_line);
-            println!("      {}  —  {}", f.citation, f.problem);
+            bund2_api::sayln!("  {}:{}", f.doc, f.doc_line);
+            bund2_api::sayln!("      {}  —  {}", f.citation, f.problem);
         }
-        println!();
+        bund2_api::sayln!();
     }
 
     if !soft.is_empty() {
-        println!("## advisories\n");
-        println!("  Weak signal. A range citation with two quoted symbols cannot");
-        println!("  say which belongs to which, and a symbol is often defined far");
-        println!("  from the line that uses it. Read them; do not chase them.\n");
+        bund2_api::sayln!("## advisories\n");
+        bund2_api::sayln!("  Weak signal. A range citation with two quoted symbols cannot");
+        bund2_api::sayln!("  say which belongs to which, and a symbol is often defined far");
+        bund2_api::sayln!("  from the line that uses it. Read them; do not chase them.\n");
         for f in &soft {
-            println!("  {}:{}", f.doc, f.doc_line);
-            println!("      {}  —  {}", f.citation, f.problem);
+            bund2_api::sayln!("  {}:{}", f.doc, f.doc_line);
+            bund2_api::sayln!("      {}  —  {}", f.citation, f.problem);
         }
-        println!();
+        bund2_api::sayln!();
     }
 
     if hard.is_empty() {
-        println!("  Every citation resolves at the pinned SHAs.\n");
+        bund2_api::sayln!("  Every citation resolves at the pinned SHAs.\n");
         return Ok(());
     }
     Err(format!("{} citation defect(s)", hard.len()))

@@ -154,25 +154,25 @@ fn run_oop(exe: &Path, cwd: &Path, runs: usize, target: &str) -> Result<(), Stri
     let dir = std::env::temp_dir().join("bund2-xtask-bench-oop");
     std::fs::create_dir_all(&dir).map_err(|e| format!("creating {}: {e}", dir.display()))?;
 
-    println!("# cargo xtask bench --oop\n");
-    println!("What does one class-hierarchy level cost — on dispatch, and on");
-    println!("construction? Target `{target}`, {runs} runs each, min reported.\n");
-    println!("RFC-0009 §S1 flattens the method table so dispatch stops walking");
-    println!("`.super`; §S1a then has to guard or rebuild that table per object,");
-    println!("which lands on construction. Criterion 2 turns on which side is");
-    println!("actually paying, so this measures both.\n");
-    println!("Read the *slope*. Each figure below includes process start, stdlib");
-    println!("registration and parsing tens of thousands of lines. The depth-1");
-    println!("and depth-128 programs differ only in chain depth, so subtracting");
-    println!("them cancels every one of those, and the per-level cost is what is");
-    println!("left.\n");
+    bund2_api::sayln!("# cargo xtask bench --oop\n");
+    bund2_api::sayln!("What does one class-hierarchy level cost — on dispatch, and on");
+    bund2_api::sayln!("construction? Target `{target}`, {runs} runs each, min reported.\n");
+    bund2_api::sayln!("RFC-0009 §S1 flattens the method table so dispatch stops walking");
+    bund2_api::sayln!("`.super`; §S1a then has to guard or rebuild that table per object,");
+    bund2_api::sayln!("which lands on construction. Criterion 2 turns on which side is");
+    bund2_api::sayln!("actually paying, so this measures both.\n");
+    bund2_api::sayln!("Read the *slope*. Each figure below includes process start, stdlib");
+    bund2_api::sayln!("registration and parsing tens of thousands of lines. The depth-1");
+    bund2_api::sayln!("and depth-128 programs differ only in chain depth, so subtracting");
+    bund2_api::sayln!("them cancels every one of those, and the per-level cost is what is");
+    bund2_api::sayln!("left.\n");
 
     let modes: [OopMode; 2] = [
         ("dispatch", oop_dispatch_program, OOP_DISPATCHES),
         ("construct", oop_construct_program, OOP_CONSTRUCTIONS),
     ];
 
-    println!("  {:<12}{:>8}{:>12}{:>12}", "mode", "depth", "iters", "min ms");
+    bund2_api::sayln!("  {:<12}{:>8}{:>12}{:>12}", "mode", "depth", "iters", "min ms");
     let mut floor: [Option<f64>; 2] = [None, None];
     let mut top: [Option<f64>; 2] = [None, None];
     for (mi, (label, make, iters)) in modes.iter().enumerate() {
@@ -190,7 +190,7 @@ fn run_oop(exe: &Path, cwd: &Path, runs: usize, target: &str) -> Result<(), Stri
             let Some(min) = samples.iter().copied().min() else {
                 return Err("no samples".into());
             };
-            println!("  {label:<12}{depth:>8}{:>12}{:>12.1}", iters, ms(min));
+            bund2_api::sayln!("  {label:<12}{depth:>8}{:>12}{:>12.1}", iters, ms(min));
             if depth == OOP_DEPTHS[0] {
                 floor[mi] = Some(ms(min));
             }
@@ -199,10 +199,10 @@ fn run_oop(exe: &Path, cwd: &Path, runs: usize, target: &str) -> Result<(), Stri
             }
         }
     }
-    println!();
+    bund2_api::sayln!();
 
     let levels = (OOP_DEPTHS[OOP_DEPTHS.len() - 1] - OOP_DEPTHS[0]) as f64;
-    println!("## per level\n");
+    bund2_api::sayln!("## per level\n");
     let mut per_level = [0.0f64; 2];
     for (mi, (label, _, iters)) in modes.iter().enumerate() {
         let (Some(lo), Some(hi)) = (floor[mi], top[mi]) else {
@@ -211,22 +211,22 @@ fn run_oop(exe: &Path, cwd: &Path, runs: usize, target: &str) -> Result<(), Stri
         // ms over the whole program → ns per iteration per level.
         let ns = (hi - lo) * 1.0e6 / (*iters as f64) / levels;
         per_level[mi] = ns;
-        println!("  {label:<12}{ns:>9.0} ns  per hierarchy level, per operation");
+        bund2_api::sayln!("  {label:<12}{ns:>9.0} ns  per hierarchy level, per operation");
     }
-    println!();
+    bund2_api::sayln!();
 
-    println!("## reading\n");
+    bund2_api::sayln!("## reading\n");
     if per_level[0] <= 0.0 || per_level[1] <= 0.0 {
-        println!("  A slope came out at or below zero, which means the fixed cost");
-        println!("  swamped the signal on this machine. Raise --runs and re-read");
-        println!("  before drawing any conclusion; do not report this as flat.\n");
+        bund2_api::sayln!("  A slope came out at or below zero, which means the fixed cost");
+        bund2_api::sayln!("  swamped the signal on this machine. Raise --runs and re-read");
+        bund2_api::sayln!("  before drawing any conclusion; do not report this as flat.\n");
         return Ok(());
     }
     let ratio = per_level[1] / per_level[0];
-    println!("  Construction pays {ratio:.0}x what dispatch pays for the same");
-    println!("  hierarchy level. §S1's flattened table removes the cheaper of");
-    println!("  the two, and §S1a's per-object guard adds to the dearer one.");
-    println!("  RFC-0009 criterion 2 records this and what follows from it.\n");
+    bund2_api::sayln!("  Construction pays {ratio:.0}x what dispatch pays for the same");
+    bund2_api::sayln!("  hierarchy level. §S1's flattened table removes the cheaper of");
+    bund2_api::sayln!("  the two, and §S1a's per-object guard adds to the dearer one.");
+    bund2_api::sayln!("  RFC-0009 criterion 2 records this and what follows from it.\n");
     Ok(())
 }
 
@@ -302,19 +302,19 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     let suite = golden::read_suite(&repo)?;
 
-    println!("# cargo xtask bench\n");
-    println!(
+    bund2_api::sayln!("# cargo xtask bench\n");
+    bund2_api::sayln!(
         "Wall-clock baseline over the {} suite programs, {runs} runs each,",
         suite.len()
     );
-    println!("target `{target}`.\n");
-    println!("Not Criterion: this times a subprocess end to end, where cost is");
-    println!("dominated by process start and stdlib registration. Criterion");
-    println!("measures a function in-process and would measure the wrong thing");
-    println!("precisely. It becomes the right tool when Bund2 has an in-process");
-    println!("interpreter to microbenchmark.\n");
-    println!("Min is the headline — it is the least contaminated by scheduling");
-    println!("noise. Median and max are shown so the spread is visible.\n");
+    bund2_api::sayln!("target `{target}`.\n");
+    bund2_api::sayln!("Not Criterion: this times a subprocess end to end, where cost is");
+    bund2_api::sayln!("dominated by process start and stdlib registration. Criterion");
+    bund2_api::sayln!("measures a function in-process and would measure the wrong thing");
+    bund2_api::sayln!("precisely. It becomes the right tool when Bund2 has an in-process");
+    bund2_api::sayln!("interpreter to microbenchmark.\n");
+    bund2_api::sayln!("Min is the headline — it is the least contaminated by scheduling");
+    bund2_api::sayln!("noise. Median and max are shown so the spread is visible.\n");
 
     let mut timings: Vec<Timing> = Vec::new();
     for program in &suite {
@@ -341,28 +341,28 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let total_min: Duration = ok.iter().map(|t| t.min()).sum();
     let total_median: Duration = ok.iter().map(|t| t.median()).sum();
 
-    println!("## totals\n");
-    println!("  programs timed          {:>9}", ok.len());
-    println!("  failed to spawn         {:>9}", timings.len() - ok.len());
-    println!("  sum of per-program min  {:>9.1} ms", ms(total_min));
-    println!("  sum of per-program med  {:>9.1} ms", ms(total_median));
+    bund2_api::sayln!("## totals\n");
+    bund2_api::sayln!("  programs timed          {:>9}", ok.len());
+    bund2_api::sayln!("  failed to spawn         {:>9}", timings.len() - ok.len());
+    bund2_api::sayln!("  sum of per-program min  {:>9.1} ms", ms(total_min));
+    bund2_api::sayln!("  sum of per-program med  {:>9.1} ms", ms(total_median));
     if !ok.is_empty() {
-        println!(
+        bund2_api::sayln!(
             "  mean per program (min)  {:>9.1} ms",
             ms(total_min) / ok.len() as f64
         );
     }
-    println!();
+    bund2_api::sayln!();
 
     let mut slowest: Vec<&Timing> = ok.clone();
     slowest.sort_by_key(|r| std::cmp::Reverse(r.min()));
-    println!("## slowest 15 by min\n");
-    println!(
+    bund2_api::sayln!("## slowest 15 by min\n");
+    bund2_api::sayln!(
         "  {:<58}{:>9}{:>9}{:>9}",
         "program", "min ms", "med ms", "max ms"
     );
     for t in slowest.iter().take(15) {
-        println!(
+        bund2_api::sayln!(
             "  {:<58}{:>9.1}{:>9.1}{:>9.1}",
             t.program.trim_start_matches("reference/Bund/"),
             ms(t.min()),
@@ -370,19 +370,19 @@ pub fn run(args: &[String]) -> Result<(), String> {
             ms(t.max())
         );
     }
-    println!();
+    bund2_api::sayln!();
 
     // A floor worth knowing: how much of each run is just starting the binary.
-    println!("## interpretation\n");
+    bund2_api::sayln!("## interpretation\n");
     if let Some(fastest) = ok.iter().map(|t| t.min()).min() {
-        println!(
+        bund2_api::sayln!(
             "  The fastest program takes {:.1} ms. That is close to the floor for",
             ms(fastest)
         );
-        println!("  spawning this binary and registering its stdlib, so most of the");
-        println!("  per-program figure is fixed cost, not interpretation. Comparing");
-        println!("  Bund2 against this baseline measures both together — worth");
-        println!("  separating before drawing conclusions about the interpreter.\n");
+        bund2_api::sayln!("  spawning this binary and registering its stdlib, so most of the");
+        bund2_api::sayln!("  per-program figure is fixed cost, not interpretation. Comparing");
+        bund2_api::sayln!("  Bund2 against this baseline measures both together — worth");
+        bund2_api::sayln!("  separating before drawing conclusions about the interpreter.\n");
     }
 
     if write {
@@ -414,9 +414,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
             ms(total_min)
         ));
         std::fs::write(&path, s).map_err(|e| format!("writing {}: {e}", path.display()))?;
-        println!("wrote docs/bench-baseline.md");
+        bund2_api::sayln!("wrote docs/bench-baseline.md");
     } else {
-        println!("  Nothing written. Pass --write to record docs/bench-baseline.md.\n");
+        bund2_api::sayln!("  Nothing written. Pass --write to record docs/bench-baseline.md.\n");
     }
 
     Ok(())

@@ -352,6 +352,28 @@ mod tests {
         assert_eq!(out[0].summary(80), "list/3 [1, 2.5, \"x\"]", "{:?}", out[0]);
     }
 
+    /// **A value nested past the wire format's bound is refused at `send` —
+    /// D114.** The reference sends it. The bound is F118's: the codec descends
+    /// once per level, and a value that crossed unbounded would abort the VM
+    /// that decoded it. 256 levels cross and 257 do not, and the refusal is an
+    /// ordinary error with the reference's own prefix for a failed encode.
+    #[test]
+    fn a_value_nested_past_the_wire_bound_is_refused_at_send() {
+        let nested = |levels: usize| {
+            format!(
+                "list {} {{ drop list push }} times \"t_deep\" swap send drop \"t_deep\" recv",
+                levels - 1
+            )
+        };
+        let out = run(&nested(256)).expect("256 levels cross");
+        assert_eq!(out.len(), 1, "the value came back");
+        failed_with(
+            &nested(257),
+            "SEND returns error Error enveloping data: the value nests 257 deep, and 256 is \
+             the most the wire format can carry",
+        );
+    }
+
     /// **`send` answers a bool, `send.quick` answers nothing.** That is the
     /// whole difference between them.
     #[test]

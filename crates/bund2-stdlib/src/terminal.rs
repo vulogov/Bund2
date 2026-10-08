@@ -447,7 +447,7 @@ fn debug_shell(vm: &mut dyn Vm) -> Result<(), Error> {
 /// `debug.display_stack`'s goldens are built on, and this row is the same
 /// claim, so it uses the same function. Found by diffing against the oracle,
 /// not by reading.
-fn debug_print_word(v: &BundValue) {
+fn debug_print_word(v: &BundValue) -> Result<(), Error> {
     use comfy_table::modifiers::UTF8_ROUND_CORNERS;
     use comfy_table::presets::UTF8_FULL;
     use comfy_table::{ContentArrangement, Table};
@@ -462,7 +462,7 @@ fn debug_print_word(v: &BundValue) {
         .add_row(vec!["Value type", v.type_name()])
         .add_row(vec!["Value", &shown])
         .add_row(vec!["Debug", &v.render(false)]);
-    println!("{table}");
+    bund2_api::outln!("{table}")
 }
 
 /// `debug` — step a snippet, one top-level value at a time
@@ -510,7 +510,7 @@ fn debug_word(vm: &mut dyn Vm) -> Result<(), Error> {
         if word.dt() == EXIT {
             break;
         }
-        debug_print_word(&word);
+        debug_print_word(&word)?;
         vm.apply(word.clone())
             .map_err(|e| {
                 Error(format!(
@@ -547,7 +547,7 @@ fn debug_word(vm: &mut dyn Vm) -> Result<(), Error> {
 fn debug_view(vm: &mut dyn Vm, what: bund2_api::Debugging, who: &str) -> Result<(), Error> {
     match vm.debugging(what)? {
         Some(text) => {
-            print!("{text}");
+            bund2_api::out!("{text}")?;
             Ok(())
         }
         None => Err(Error(format!("{who}: this VM renders no such view"))),
@@ -741,7 +741,7 @@ fn debug_feed(vm: &mut dyn Vm) -> Result<(), Error> {
 /// rather than failing.
 fn debug_display_memstat(vm: &mut dyn Vm) -> Result<(), Error> {
     let _ = vm;
-    println!("{}", memstat_table());
+    bund2_api::outln!("{}", memstat_table())?;
     Ok(())
 }
 
@@ -950,7 +950,7 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
         r.register_native(
             "debug.display_hostinfo",
             |_vm| {
-                println!("{}", hostinfo_table(false));
+                bund2_api::outln!("{}", hostinfo_table(false))?;
                 Ok(())
             },
             eff(0, 0),
@@ -960,7 +960,7 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
         r.register_native(
             "debug.display_hostinfo",
             |_vm| {
-                println!("{}", hostinfo_table(true));
+                bund2_api::outln!("{}", hostinfo_table(true))?;
                 Ok(())
             },
             eff(0, 0),

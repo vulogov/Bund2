@@ -163,13 +163,13 @@ pub fn partition(
 
 /// Render the comparison the decision needs.
 pub fn report(variants: &[Variant], in_scope: &BTreeSet<String>) {
-    println!("## the five partitions\n");
-    println!(
+    bund2_api::sayln!("## the five partitions\n");
+    bund2_api::sayln!(
         "  {:<12}{:>7}{:>10}{:>9}   closes by",
         "variant", "core", "library", "core %"
     );
     for v in variants {
-        println!(
+        bund2_api::sayln!(
             "  {:<12}{:>7}{:>10}{:>8.1}%   {}",
             v.name,
             v.core.len(),
@@ -178,16 +178,16 @@ pub fn report(variants: &[Variant], in_scope: &BTreeSet<String>) {
             v.note
         );
     }
-    println!();
+    bund2_api::sayln!();
 
-    println!("## do they file the bellwether words as core?\n");
-    println!("  Words method B visibly misfiles. A variant that leaves these in");
-    println!("  library is one that calls a comparison operator a library word.\n");
+    bund2_api::sayln!("## do they file the bellwether words as core?\n");
+    bund2_api::sayln!("  Words method B visibly misfiles. A variant that leaves these in");
+    bund2_api::sayln!("  library is one that calls a comparison operator a library word.\n");
     let mut head = format!("  {:<24}", "word");
     for v in variants {
         head.push_str(&format!("{:>12}", v.name));
     }
-    println!("{head}   why it matters");
+    bund2_api::sayln!("{head}   why it matters");
     for (w, why) in BELLWETHERS {
         let mut row = format!("  {w:<24}");
         for v in variants {
@@ -196,9 +196,9 @@ pub fn report(variants: &[Variant], in_scope: &BTreeSet<String>) {
                 if v.core.contains(*w) { "core" } else { "—" }
             ));
         }
-        println!("{row}   {why}");
+        bund2_api::sayln!("{row}   {why}");
     }
-    println!();
+    bund2_api::sayln!();
 }
 
 /// Words that are core under `wide` but library under `narrow`.

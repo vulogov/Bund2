@@ -3,7 +3,10 @@
 - Status: **Proposed** (2026-10-05). Its three questions were answered by the
   repository owner the same day and recorded as **D96**: additive only, `?is`
   accepted, `iset` taken. §S1 and §S4 are built; §S2's rewiring is declined
-  and stays as the analysis of what it would have cost.
+  and stays as the analysis of what it would have cost. **All five criteria
+  are met as of 2026-10-08**, each with the test or tool that decided it. The
+  acceptance review of that date (`docs/rfc/reviews/`) found criterion 4
+  without a test and criterion 5 unable to fail; both are answered below.
 - Depends on: RFC-0009 (classes, objects and dispatch — Accepted), which
   specifies the *mechanism* this document reasons about and deliberately does
   not propose a hierarchy
@@ -30,10 +33,11 @@ that is a deviation and needs a decision.
 
 ## Motivation
 
-Three words are unimplemented in `bund/oop` — `List`, `Floats` and
-`Intervals` — and each is a *class* plus a constructor word, so implementing
-them means deciding where they sit. They are the last three, so this is the
-moment the shape of the whole is decided rather than extended by accident.
+When this was written three words were unimplemented in `bund/oop` — `List`,
+`Floats` and `Intervals` — and each is a *class* plus a constructor word, so
+implementing them meant deciding where they sit. They were the last three, so
+that was the moment the shape of the whole was decided rather than extended by
+accident. All three are built now (§S1) and a golden runs them.
 
 Beyond that: a reader of `Printable` and `Display` reasonably expects
 Smalltalk's arrangement and will mis-predict Bund's. Writing the difference
@@ -46,10 +50,8 @@ All of this is read from the pinned submodules and confirmed against
 
 ### 1. The hierarchy, as registered
 
-Each arrow points from a class to the parent it declares in `.super`
-(`reference/Bund/src/stdlib/functions/oop/base_classes.rs`, `register_object`
-and `register_printable`; `display_class.rs`, `register_display`;
-`value_class.rs`, `register_value`; and one file per leaf):
+Each arrow points from a class to the parent it declares in `.super`. The
+table under the diagram says where each row was read.
 
 ```
 Display                     .super []            format, display
@@ -64,41 +66,70 @@ Display                     .super []            format, display
                 └── Intervals   .super [List]    .init, push, overlap
 ```
 
+| class | declared at |
+|---|---|
+| `Display` | `reference/Bund/src/stdlib/functions/oop/display_class.rs:101-105` |
+| `Printable` | `reference/Bund/src/stdlib/functions/oop/base_classes.rs:109-115` |
+| `Object` | `reference/Bund/src/stdlib/functions/oop/base_classes.rs:95-100` |
+| `Value` | `reference/Bund/src/stdlib/functions/oop/value_class.rs:76-80` |
+| `Integer` | `reference/Bund/src/stdlib/functions/oop/int_class.rs:35-39` |
+| `Float` | `reference/Bund/src/stdlib/functions/oop/float_class.rs:35-39` |
+| `Bool` | `reference/Bund/src/stdlib/functions/oop/bool_class.rs:35-39` |
+| `List` | `reference/Bund/src/stdlib/functions/oop/list_class.rs:63-68` |
+| `Floats` | `reference/Bund/src/stdlib/functions/oop/floatlist_class.rs:72-77` |
+| `Intervals` | `reference/Bund/src/stdlib/functions/oop/intervals_class.rs:204-210` |
+
+**The diagram is read by a test**, `the_registry_is_the_hierarchy_rfc_0010_draws`
+in `crates/bund2-stdlib/src/oop.rs`, which takes the ten rows out of this file
+and compares each with what Bund2 registers: the class, its `.super`, and its
+slots. Keep the three columns in the shape they have.
+
 **`.super` is a LIST**, so multiple inheritance is representable; every
 built-in uses exactly one parent, so the hierarchy is a chain in practice and a
-DAG in principle. `locate_value_in_object` (`value_class.rs`) walks it
+DAG in principle. `locate_value_in_object`
+(`reference/Bund/src/stdlib/functions/oop/value_class.rs:10-29`) walks it
 depth-first, left to right, first match wins — which is a multiple-inheritance
 resolution order already, exercised by nothing.
 
-### 2. Only five of the ten classes have a constructor word
+### 2. Only four of the ten classes have a constructor word
 
-`True` and `False` construct `Bool`; `List`, `Floats` and `Intervals`
-construct themselves (`list_class.rs`, `stdlib_object_list_value_empty` — it
-pushes an empty LIST, pushes `"List"`, and applies `object`). **`Integer`,
+Four classes, through five words. `True` and `False` both construct `Bool`
+(`reference/Bund/src/stdlib/functions/oop/bool_class.rs:73-74`); `List`, `Floats` and
+`Intervals` construct themselves — `stdlib_object_list_value_empty`
+(`reference/Bund/src/stdlib/functions/oop/list_class.rs:71-75`, registered at
+`reference/Bund/src/stdlib/functions/oop/list_class.rs:96`) pushes an empty LIST, pushes
+`"List"`, and applies `object`. An earlier revision's heading said five of
+the ten, counting words for classes. **`Integer`,
 `Float`, `Value`, `Object`, `Printable` and `Display` have no word**: they are
 reachable only through `object` with a literal name, or through `!` on a class
 value (D23).
 
-### 3. Construction runs *every* ancestor's `.init`, bottom-up
+### 3. Construction runs *every* ancestor's `.init`, root first
 
-`make_bund_object` (`reference/rust_multistackvm/src/stdlib/bund_object.rs`)
+`make_bund_object` (`reference/rust_multistackvm/src/stdlib/bund_object.rs:27-106`)
 copies the class, flips the tag to `OBJECT`, then for each name in `.super`
 resolves that class, **recursively constructs a parent object, runs that
 parent's `.init`**, and pushes the result into a new `.super` list. So a class's
 `.super` holds *names* and an instance's holds *objects* — the asymmetry
 RFC-0009 records — and the data an `.init` consumes comes off the stack.
+The recursion constructs a parent before it runs that parent's `.init`, so
+the root's initialiser runs first and the leaf's last. An earlier revision's
+heading said "bottom-up", which is the opposite of the paragraph under it.
 
 That is how `List` works: the operand is pushed under the class name, `Value`'s
-`.init` (`.value_init`) pulls the object and then pulls the operand into
+`.init` (`.value_init`, `reference/Bund/src/stdlib/functions/oop/value_class.rs:54-70`)
+pulls the object and then pulls the operand into
 `.data`, and `List`'s own `.init` then *locates* `.data` through the ancestry
 and converts it to LIST. A leaf constructor depends on its parent's constructor
 having run and consumed the stack.
 
 ### 4. `is` is not a membership test
 
-Measured: `stdlib_object_value_is` (`value_class.rs`) takes one OBJECT and
+Measured: `stdlib_object_value_is`
+(`reference/Bund/src/stdlib/functions/oop/value_class.rs:127-146`) takes one OBJECT and
 pushes **the object back together with its `.data`**. `List "List" is` fails
-with `IS: NO OBJECT IN #1`, because the string is on top. There is no
+with `IS: NO OBJECT IN #1`
+(`reference/Bund/src/stdlib/functions/oop/value_class.rs:135`), because the string is on top. There is no
 `isKindOf:`, no `respondsTo:`, and no word that answers whether an object is of
 a class — `?object` answers only *whether a value is an object at all*.
 
@@ -129,7 +160,10 @@ Object                          the root; printing is protocol ON it
 Bund departs in five ways. Each is a fact about the reference, not a complaint.
 
 1. **The root is an output concern.** `Display` and `Printable` are the two
-   most abstract classes, and `Object` descends from them. In Smalltalk
+   most abstract classes, and `Object` descends from them
+   (`reference/Bund/src/stdlib/functions/oop/base_classes.rs:95-97`,
+   `reference/Bund/src/stdlib/functions/oop/base_classes.rs:109-111`,
+   `reference/Bund/src/stdlib/functions/oop/display_class.rs:101-103`). In Smalltalk
    `printOn:` and `displayString` are methods on `Object`. Consequence: in
    Bund a class cannot be non-printable, and the two names a reader expects to
    be mixins are instead ancestors.
@@ -137,23 +171,31 @@ Bund departs in five ways. Each is a fact about the reference, not a complaint.
 2. **There is no metaclass layer.** Smalltalk gives every class an instance
    side and a class side, and `new` lives on the class side. Bund has no
    class-side anything: `List` is a plain inline native that happens to
-   construct, registered beside `print` and `+`. So "a class" and "the word
+   construct, registered beside `print` and `+`
+   (`reference/Bund/src/stdlib/functions/oop/list_class.rs:96`). So "a class" and "the word
    that makes one" are unrelated objects, and nothing enumerates the classes.
 
 3. **`Magnitude` and `Number` are missing, and `Bool` sits where `Number`
-   would.** `Integer`, `Float` and `Bool` are siblings directly under `Value`.
+   would.** `Integer`, `Float` and `Bool` are siblings directly under `Value`
+   (`reference/Bund/src/stdlib/functions/oop/int_class.rs:37`,
+   `reference/Bund/src/stdlib/functions/oop/float_class.rs:35`,
+   `reference/Bund/src/stdlib/functions/oop/bool_class.rs:35`).
    So the hierarchy does not distinguish "can be compared" from "can be
    arithmetic", and a boolean is a kind of value in exactly the way an integer
    is.
 
 4. **`Collection` is missing.** `List` hangs directly off `Value`, and `Floats`
-   and `Intervals` hang off `List`. `Floats` *is-a* `List` whose elements are
+   and `Intervals` hang off `List`
+   (`reference/Bund/src/stdlib/functions/oop/list_class.rs:63`,
+   `reference/Bund/src/stdlib/functions/oop/floatlist_class.rs:74`,
+   `reference/Bund/src/stdlib/functions/oop/intervals_class.rs:206`). `Floats` *is-a* `List` whose elements are
    coerced to FLOAT on construction and on `push` — in Smalltalk terms a
    constrained `ArrayedCollection`, which would not be a subclass of the
    unconstrained one.
 
 5. **Construction is automatic and total, where Smalltalk's is explicit.**
-   Bund runs every ancestor's `.init` during construction (§3 above).
+   Bund runs every ancestor's `.init` during construction (§3 above;
+   `reference/rust_multistackvm/src/stdlib/bund_object.rs:42-52`).
    Smalltalk's `initialize` is one method the author overrides and chains with
    an explicit `super initialize`. So a Bund leaf class cannot decline its
    parent's constructor, and the parent's constructor is where the operand goes.
@@ -173,12 +215,20 @@ faithful reproduction.
 Two things it does need:
 
 - **`Intervals` carries a dependency.** It wraps `iset::IntervalMap<f64,
-  Value>` (`intervals_class.rs`), pinned at `iset = "0.3.1"` in the oracle's
-  manifest. `Floats` and `List` need nothing new.
+  Value>` (`reference/Bund/src/stdlib/functions/oop/intervals_class.rs:9-14`).
+  The oracle's manifest asks for `iset = "0.3.1"`
+  (`reference/Bund/Cargo.toml:103`), which is a caret requirement and not a
+  pin; its lock file resolves **0.3.3**, and Bund2 pins `=0.3.3`, the version
+  the oracle was built with. An earlier revision said "pinned at 0.3.1".
+  `Floats` and `List` need nothing new.
 - **Three message typos are preserved**, as the project's rule requires:
-  `List: error converting to BOOL` in the *List* class, `Flaots::push` in
-  `Floats`, and `List: NO WRAPPED DATA WAS FOUND` plus
-  `Stack is too shallow for method 'List::push'` inside `Floats`.
+  `List: error converting to BOOL` in the *List* class
+  (`reference/Bund/src/stdlib/functions/oop/list_class.rs:23`), `Flaots::push` in
+  `Floats` (`reference/Bund/src/stdlib/functions/oop/floatlist_class.rs:53`), and
+  `List: NO WRAPPED DATA WAS FOUND` plus
+  `Stack is too shallow for method 'List::push'` inside `Floats`
+  (`reference/Bund/src/stdlib/functions/oop/floatlist_class.rs:28`,
+  `reference/Bund/src/stdlib/functions/oop/floatlist_class.rs:35`).
 
 ### S2. The rewiring half: what a Smalltalk shape would cost
 
@@ -284,14 +334,38 @@ reader does not take its absence for an oversight.
    and message texts the reference declares, and the three constructor words
    build objects the oracle agrees with — compared as values, since F74 does
    not apply here and object construction is deterministic.
+
+   **Met, 2026-10-08.** `tests/probes/oop-collections.bund` and its golden,
+   which `cargo xtask conform` passes;
+   `the_collection_classes_keep_the_references_misnamed_messages` holds the
+   three typos; criterion 4's test holds the parents and slots.
 2. `bool-objects.golden` is **unchanged**, demonstrating S1 moved no ancestry.
-3. If S4 is accepted: `?is` answers true for a class and for every ancestor of
-   it, false otherwise, and a probe pins all of `List`, `Value`, `Object`,
-   `Printable` and `Display` against one `List` object.
+
+   **Met, 2026-10-08.** The file's last change is `088fe0c`, 2026-10-04, the
+   day before this document. `conform` passes it.
+3. `?is` answers true for a class and for every ancestor of it, false
+   otherwise, and a test pins all of `List`, `Value`, `Object`, `Printable`
+   and `Display` against one `List` object.
+
+   **Met, 2026-10-08**, by `is_a_walks_the_ancestry_up_and_not_down`. This
+   criterion first asked for "a probe". D96 records why there cannot be one:
+   a golden is captured from the oracle and the oracle has no such word. The
+   wording is corrected to what D96 says the verification is.
 4. This document's hierarchy diagram is checked against the registry by a test
    rather than by a reader, so it cannot drift from what is registered.
+
+   **Met, 2026-10-08.** `the_registry_is_the_hierarchy_rfc_0010_draws` reads
+   §1's diagram out of this file. It was run once against a copy of the
+   diagram with `Floats` moved under `Value`, and failed on that row. Until
+   that date this criterion had no test and the diagram had been checked by
+   reading.
 5. The five departures in "The Smalltalk model" each cite the file they were
    read from, and `cargo xtask cite` is clean.
+
+   **Met, 2026-10-08.** Each departure now carries a `path:line`. Until that
+   date the document named files and functions with no line anywhere, so
+   `cite` was clean on it by having nothing to check, and this criterion
+   could not fail.
 
 ## Open questions
 
