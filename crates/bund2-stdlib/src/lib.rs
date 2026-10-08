@@ -124,7 +124,7 @@ pub fn register_all_with(r: &mut bund2_api::Registry, opts: &host::HostOptions) 
     host::register(r, opts);
     random::register(r);
     terminal::register(r, opts);
-    data::register(r);
+    data::register(r, opts);
     world::register(r, opts);
     bus::register(r, opts);
     logging::register(r);

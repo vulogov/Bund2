@@ -1792,6 +1792,42 @@ mod tests {
         }
     }
 
+    /// **D119: `--noio` reaches `csv` and `sqlite`, where the reference's does
+    /// not.** Both open a file the program names. The last program is the
+    /// reason the handlers are stubbed and not only the words: `conditional`
+    /// makes a CONDITIONAL of any type, so the read is reachable without
+    /// calling `csv` at all.
+    #[test]
+    fn noio_reaches_the_two_words_that_read_a_data_file() {
+        let mut n = interp(HostOptions {
+            noio: true,
+            ..HostOptions::default()
+        });
+        for (src, group) in [
+            ("\"t.csv\" csv", "CSV"),
+            ("\"t.csv\" csv.", "CSV"),
+            ("\"t.db\" sqlite", "SQLITE"),
+            (
+                "conditional :type \"csv\" set :name \"t.csv\" set :lambda { drop } set !",
+                "CSV",
+            ),
+            (
+                "conditional :type \"sqlite\" set :name \"t.db\" set :lambda { drop } set !",
+                "SQLITE",
+            ),
+        ] {
+            let e = run(&mut n, src).expect_err(src);
+            let want = format!("bund {group} functions disabled with --noio");
+            assert!(e.ends_with(&want), "`{src}` gave: {e}");
+        }
+        // Without the flag neither is a stub: a missing file is what is wrong.
+        let mut d = interp(HostOptions::default());
+        for src in ["\"no-such-file.csv\" csv", "\"no-such-file.db\" sqlite"] {
+            let e = run(&mut d, src).expect_err(src);
+            assert!(!e.contains("disabled with --noio"), "`{src}` gave: {e}");
+        }
+    }
+
     /// F150 and F152: three names the reference registers in the `--noio`
     /// build alone. The default build binds none of them, and `--noio` binds
     /// each as the stub with the reference's own group name — so `fs.is_file.`

@@ -3558,6 +3558,51 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D119 — `--noio` gates `csv` and `sqlite`
+
+**Raised 2026-10-08** while answering RFC-0006's sixth review (B2), which
+asked for `--noio`'s ungated surface by name. Running every registered name
+under the flag showed two words that read a file and are not gated. Measured
+on a bundle built `--noio --noeval`:
+`"…/t.csv" csv :lambda { println } set !` printed the file's rows.
+
+- Blocks: nothing
+- Depends on: D78, D79, RFC-0006 §B3a
+- Status: **RESOLVED** by the repository owner, 2026-10-08: "`--noio` should
+  gate `csv` and `sqlite`". Built the same day. **An approved deviation.**
+
+### The reference
+
+It registers both with no gate
+(`reference/Bund/src/stdlib/functions/conditional/mod.rs:42-43`) and opens the
+named file at `conditional_csv.rs:62` and `conditional_sqlite.rs:38`. So under
+the reference's `--noio` a program reads any CSV file or SQLite database it
+can name.
+
+### The decision
+
+**Under `--noio`, `csv`, `csv.` and `sqlite` are stubs**, and so are the two
+conditional handlers. They fail with `bund CSV functions disabled with --noio`
+and `bund SQLITE functions disabled with --noio`. The shape is the reference's
+stub message; the group names are Bund2's, since the reference has no stub for
+either.
+
+**The handlers are stubbed because the words are not the only route.**
+`conditional :type "csv" set :name "…" set :lambda { … } set !` builds the
+same CONDITIONAL without calling `csv`, and read the file before this
+decision. It is refused now.
+
+### What it does not change
+
+- Without `--noio`, nothing. No golden moves: none runs `csv` or `sqlite`
+  under the flag.
+- **The flag is still not a sandbox** (D78). Standard input, the host's
+  address and name, the clock, and the debugger's history file stay ungated,
+  and RFC-0006 §B3a names them. The ruling names two words and gates two.
+
+`noio_reaches_the_two_words_that_read_a_data_file` holds it
+(`crates/bund2-stdlib/src/host.rs`).
+
 ## D118 — a bundle's runtime is the binary that builds it
 
 **Raised 2026-10-08** by RFC-0006's sixth review (B4). §B1 specified that

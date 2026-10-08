@@ -459,7 +459,37 @@ fn run_sqlite(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn register(r: &mut Registry) {
+/// The stubs `--noio` registers in place of `csv` and `sqlite` — **D119, an
+/// approved deviation.**
+///
+/// The reference registers both with no gate
+/// (`reference/Bund/src/stdlib/functions/conditional/mod.rs:42-43`), so under
+/// its `--noio` a program still opens a file it names and reads its rows.
+/// Here the flag reaches them. The message has the shape of the reference's
+/// other stubs, with a group name of this module's choosing since the
+/// reference has none for these.
+///
+/// **The handlers too, not only the words.** `conditional` builds a
+/// CONDITIONAL of any type, so a program can make a `csv` one without calling
+/// `csv`; stubbing the word alone would leave the read reachable.
+fn csv_disabled(_vm: &mut dyn Vm) -> Result<(), Error> {
+    Err(Error("bund CSV functions disabled with --noio".into()))
+}
+
+fn sqlite_disabled(_vm: &mut dyn Vm) -> Result<(), Error> {
+    Err(Error("bund SQLITE functions disabled with --noio".into()))
+}
+
+pub fn register(r: &mut Registry, opts: &crate::host::HostOptions) {
+    if opts.noio {
+        for name in ["csv", "csv."] {
+            r.register_native(name, csv_disabled, StackEffect::opaque(0), WordKind::Sync);
+        }
+        r.register_native("sqlite", sqlite_disabled, StackEffect::opaque(0), WordKind::Sync);
+        r.register_conditional("csv", |vm, _c| csv_disabled(vm));
+        r.register_conditional("sqlite", |vm, _c| sqlite_disabled(vm));
+        return;
+    }
     // `reference/Bund/src/stdlib/functions/conditional/mod.rs:26-27,42-43`.
     r.register_native("csv", csv_word, eff(1, 1), WordKind::Sync);
     crate::wb::bench!(r, "csv", csv_word);

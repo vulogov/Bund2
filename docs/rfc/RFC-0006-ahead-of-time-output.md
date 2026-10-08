@@ -27,6 +27,8 @@
   `bund2 build` now refuses arguments it does not understand. **The fourth is
   ruled on — D118**: §B1 specified a prebuilt runtime per target, what is
   built copies the building binary, and the building binary is the design.
+  **D119**, the same day: `--noio` gates `csv` and `sqlite`, which the
+  reference's does not.
   Revised 2026-09-29 after the first adversarial review
   (`docs/rfc/reviews/RFC-0006-review-2026-09-29.md`). The review raised three
   blockers; all three were reproduced against the code before this revision,
@@ -37,7 +39,7 @@
 - Depends on: RFC-0003 (the program stream and Tier 0), RFC-0005 (the
   Cranelift tier)
 - Decisions consumed: D10, D11, D16, D20, D40, D54, D74, D76, D77, D78, D79,
-  D80, D81, D82, D83, D115, D116, D118, and
+  D80, D81, D82, D83, D115, D116, D118, D119, and
   decisions.md's "What this forecloses" clause on tree-shaking. *(Until
   2026-10-08 this list named D44, which the body never uses, and omitted the
   last four, which it rests on.)*
@@ -572,7 +574,8 @@ which D78 requires and the second revision of this RFC gave for `--noio` only.
 
 **What `--noio` gates, by name.** Measured on Bund2 on 2026-10-08 by running
 each of the 610 names `bund2 words` lists as a one-word program under
-`--noio`: **56 answer with the stub**, and they are —
+`--noio`: **56 answered with the stub, and 59 do since D119** added the last
+line below the same day. They are —
 
 - files and directories: `fs.cwd` `cwd` `fs.cp` `cp` `fs.mv` `mv` `fs.rm` `rm`
   `fs.is_file` `fs.ls` `fs.ls.` `ls` `ls.` `fs.ls.dir` `fs.ls.dir.`
@@ -587,20 +590,26 @@ each of the 610 names `bund2 words` lists as a one-word program under
 - the bus: `send` `send.` `send.quick` `send.quick.` `recv` `recv.` `bus.data`
   `bus.data.current`
 - `io.banner` `io.banner.`
+- data files, **by D119 and not by the reference**: `csv` `csv.` `sqlite`
 
 **What `--noio` leaves ungated — rewritten 2026-10-08, the sixth review's
 B2.** Everything else. Until that day this paragraph named `args`,
 `sleep.seconds` and `io.graph`, which are the ungated words *of one module*
 (`crates/bund2-stdlib/src/host.rs`, module documentation) presented as the
-flag's whole surface. Of the 554 names the flag does not touch, these reach
+flag's whole surface. Of the 551 names the flag does not touch, these reach
 outside the program, and each was among the ones measured:
 
-- **Two read a file the program names.** `csv` and `sqlite` open a path and
-  hand its rows to a lambda. Measured on a bundle built `--noio --noeval`:
-  `"…/t.csv" csv :lambda { println } set !` printed the file's rows. The
+- **Two read a file the program names, and no longer do under the flag —
+  D119.** `csv` and `sqlite` open a path and hand its rows to a lambda. The
   reference registers both with no gate
   (`reference/Bund/src/stdlib/functions/conditional/mod.rs:42-43`) and opens
-  the file at `conditional_csv.rs:62` and `conditional_sqlite.rs:38`.
+  the file at `conditional_csv.rs:62` and `conditional_sqlite.rs:38`. Measured
+  before the ruling, on a bundle built `--noio --noeval`:
+  `"…/t.csv" csv :lambda { println } set !` printed the file's rows. **The
+  owner ruled that `--noio` gates both**, an approved deviation. The words and
+  their conditional handlers are stubs now, the handlers because
+  `conditional :type "csv" set …` reaches the same read without the word.
+  `noio_reaches_the_two_words_that_read_a_data_file`.
 - **One writes a file.** `debug.shell` saves its line history. Measured on
   the same kind of bundle: one typed line wrote
   `bund2/bund_debug_shell_history.txt` under the configuration directory of
@@ -637,7 +646,8 @@ sixteen files under `reference/Bund/src/stdlib/functions`, and none of them is
 or `debug_fun/`. What "I/O" means to the flag is the filesystem words, the
 shell, the world file and the bus. It is not "the program touches nothing
 outside itself", and a runner who reads `restrictions --noio` that way is
-wrong about `csv`, `sqlite`, the address of the machine and the history file.
+wrong about standard input, the address of the machine and the history file.
+D119 moved two words across that line and left the line where it is.
 
 **One line of this is a bundle's own.** The history file is written on the
 machine of whoever *runs* the artefact, by a word its author left in. For a
@@ -909,7 +919,8 @@ on the answer.
 | Exit code | **Preserved** — `vm.exit_requested()`. |
 | Diagnostic flags (`--stats`, `--no-dump-stack`, `--raw-values`) | **Deliberately changed.** Not argv flags in a bundle, because they would shadow the program's own arguments; they move to environment variables. |
 | `use` | **Preserved exactly** — D76, under D54's scheme set. |
-| `--noio`, `--noeval` | **Deliberately available as a build-time floor — D78.** Recorded in the trailer; run time may add either and never remove one. Not a boundary: §B3a names what each gates and what each leaves ungated — for `--noio` that includes two words that read a file, one that writes one, standard input, and the host's address and name. |
+| `--noio`, `--noeval` | **Deliberately available as a build-time floor — D78.** Recorded in the trailer; run time may add either and never remove one. Not a boundary: §B3a names what each gates and what each leaves ungated — for `--noio` that includes one word that writes a file, standard input, and the host's address and name. |
+| `csv` and `sqlite` under `--noio` | **Approved deviation — D119.** The reference leaves both ungated; Bund2 stubs them and their conditional handlers. Without the flag, preserved. |
 | `--nocolor` | **Preserved as a per-run choice**, in the environment-variable channel with the diagnostic flags. Presentational, not a capability. |
 | Diagnostic file name | **Preserved for a path of up to 256 bytes** via the trailer's recorded source path (§B3), without which a bundle's stderr differs by construction and the CEILING moves. **A longer path is changed**: its last 256 bytes are kept, and the build says so. |
 | A program larger than 1 MiB | **Changed: it runs under `script` and cannot be bundled.** Refused at build with both numbers named (§B1, criterion 11). The limit is not discoverable before it is hit except by `--inspect`, which prints the capacity. |
@@ -1248,20 +1259,18 @@ was last run by hand on the date its criterion gives.
 - **Is the runtime the builder, or a prebuilt runtime per target? — answered
   by D118**, 2026-10-08: the builder. Raised the same day by the sixth review
   (B4). Cross-target bundling is deferred with its trigger recorded in §B1.
-- **Should `--noio` gate `csv`, `sqlite` and the debugger's history file?**
-  Raised 2026-10-08. The reference gates none of them and Bund2 preserves
-  that (§B3a). Gating any would be a deviation, so it is a decision and not
-  an edit; nothing is assumed.
+- **Should `--noio` gate `csv`, `sqlite` and the debugger's history file? —
+  answered by D119**, 2026-10-08, for the first two: yes, an approved
+  deviation. The ruling does not name the history file, so it stays ungated
+  as the reference leaves it, and §B3a says so.
 
 **Three reviews have found six blockers between them, and all six are
 answered** — four in the design, the rest by D76, D77, D78, D79 and D80. What
-remains listed is one question for whoever takes §B8's gate, **and, since the
-sixth review on 2026-10-08, one for the owner: whether `--noio` should reach
-further than the reference's.** The review's other question, which
-construction §B1 means, is D118. (Until
+remains listed is one question for whoever takes §B8's gate. The sixth review
+on 2026-10-08 raised two more for the owner and both are ruled: which
+construction §B1 means is D118, and how far `--noio` reaches is D119. (Until
 2026-10-08 this sentence also counted parse-at-build, since ruled as D116,
 and Q40, which the bullet above records as answered by measurement.) **No
 default is being adopted by omission** — stated carefully, because the second
 revision of this section claimed exactly that while two blockers were
-outstanding. *One decision does wait*, as of 2026-10-08, and the sentence
-that stood here until then said none did.
+outstanding.
