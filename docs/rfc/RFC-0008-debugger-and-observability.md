@@ -951,12 +951,13 @@ are totals, they exist only under `jit`, and §D6 removes the tier.
 
 ## Amendment, 2026-10-07 — debugger words (D113)
 
-- Status: **Part A decided and built; Part B decided and not built.** Written
+- Status: **Parts A and B decided and built.** Written
   at the repository owner's request, on the idea that the debugger's commands
   should be **words** — runnable in a script, in `debug.shell`, and at the
   `--debugger` console alike. The owner ruled on D113's six questions the same
   day, each as recommended. The text below is the draft as ruled on; **"What
-  building Part A changed"**, at the end, is where it and the code differ.
+  building Part A changed"** and **"What building Part B changed"**, at the
+  end, are where it and the code differ.
 - Registers searched by subject (`debug`, `debugger`, `safepoint`,
   `breakpoint`, `debug.shell`, `stacks`, `classes`, `input`): D36, D52, D84,
   D94, D99, D101, D102, D112, F10, F37, F52, F139, F165, and criterion 6, 10
@@ -1254,3 +1255,35 @@ owner ruled on.
   longer does.
 
 Criteria met: W1, W2, W3, W4, W5, W6, W9. W7 and W8 are Part B's.
+
+### What building Part B changed
+
+- **§W1: `debug.break.if` takes STRING, STRING** — the word, then the
+  condition as Bund source — where the table says STRING, LAMBDA. §D3 runs a
+  condition in a child VM, the child is handed text, and a lambda value has
+  no source form.
+- **§W3: one type, as designed.** `Debugging` now carries the arming and
+  moving requests and `Vm::debugging` answers `Result<Option<String>, Error>`:
+  text for a view, nothing for the rest, and an error where no debugger is
+  attached and none can be.
+- **§W5, D113.5: the console is the embedder's, made on demand.**
+  `Interp::console_factory`; the CLI supplies `OverInput`, which has
+  `Stdio`'s vocabulary and conditions and reads its lines through
+  `Vm::read_line`. `Console` gains `next_command_with`, defaulted to
+  `next_command`, which is how a console with no stream of its own is handed
+  the stopped VM to read through. The attached debugger starts running, not
+  stopped.
+- **§D8, for this console only: it has a history**, because a read through
+  `Input` names one. The `--debugger` console still reads plain lines.
+- **§W5, D113.6: the tier is switched off, not removed.** It is out of the
+  interpreter while it runs, so there is nothing to drop from inside a word.
+  The body that was running compiled when the word was called finishes so.
+- **§D1: a detach is final.** Stated in D113's note; it applies to
+  `--debugger` as well.
+- **The Preservation row for `debug` is still unkept**, and this amendment
+  no longer says Part B keeps it. `debug.step` is the word that does what the
+  row describes; `debug` is the reference's loop.
+
+Criteria met: W7 and W8, the latter in both builds — the stop always, and
+that a compiled body was bypassed where there is a tier. With these all nine
+are met.

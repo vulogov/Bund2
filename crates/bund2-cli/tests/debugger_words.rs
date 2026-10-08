@@ -187,3 +187,153 @@ fn stack_is_the_bund_word_and_st_is_the_view() {
     assert!(err.contains("@side\n"), "`st` renders the current stack:\n{err}");
     assert_eq!(code, Some(0));
 }
+
+// ---------------------------------------------------------------------------
+// Part B: arming and moving from a word (RFC-0008 §W5).
+// ---------------------------------------------------------------------------
+
+/// Run a program with **no** `--debugger`, its standard input these lines:
+/// the console a word attaches reads through the program's own input.
+fn scripted(src: &str, typed: &str, flags: &[&str]) -> (String, String, Option<i32>) {
+    let path = scratch("b");
+    std::fs::write(&path, src).expect("script");
+    let mut ch = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        .args(flags)
+        .args(["script", "--file"])
+        .arg(&path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("bund2 runs");
+    let mut pipe = ch.stdin.take().expect("stdin");
+    let _ = pipe.write_all(typed.as_bytes());
+    drop(pipe);
+    let out = ch.wait_with_output().expect("waits");
+    (
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+        out.status.code(),
+    )
+}
+
+/// **D113.5: a script arms a breakpoint with no `--debugger`, and the stop
+/// is a console on the program's own input.** Nothing stops until the word
+/// is called; the stop is before its body; a line typed there is Bund.
+#[test]
+fn a_script_arms_a_breakpoint_and_is_stopped_at_it() {
+    let src = ":w { 7 8 + } register\n\"w\" debug.break\n\"before\" println\nw println\n\"end\" println\n";
+    let (out, err, code) = scripted(src, "\"at\" println\nc\n", &[]);
+    assert_eq!(err.matches("breakpoint: w").count(), 1, "{err}");
+    assert_eq!(out, "before\nat\n15\nend\n", "armed quietly, stopped before the body");
+    assert_eq!(code, Some(0));
+}
+
+/// `debug.step` in a script is where the program hands itself over: the
+/// stop is before the next value, and `s` then walks on from there.
+#[test]
+fn debug_step_in_a_script_stops_before_the_next_value() {
+    let src = "\"a\" println\ndebug.step\n\"b\" println\n\"end\" println\n";
+    let (out, err, code) = scripted(src, "st\ns\ns\nc\n", &[]);
+    assert!(err.contains("next: \"b\""), "the stop names what is next:\n{err}");
+    assert_eq!(err.matches("next:").count(), 3, "one stop, then two steps:\n{err}");
+    assert_eq!(out, "a\nb\nend\n");
+    assert_eq!(code, Some(0));
+}
+
+/// **With no input the console detaches, and for good.** Under a capture a
+/// script that arms and steps runs to its end, and says where it stopped
+/// once rather than at every hit.
+#[test]
+fn a_script_that_arms_runs_on_when_nobody_is_there() {
+    let src = ":w { 1 drop } register\n\"w\" debug.break\nw w w\n\"end\" println\n";
+    let (out, err, code) = scripted(src, "", &[]);
+    assert_eq!(out, "end\n");
+    assert_eq!(err.matches("breakpoint: w").count(), 1, "said once:\n{err}");
+    assert_eq!(code, Some(0));
+}
+
+/// **W7: what a word arms and what the console arms are one state.**
+/// `debug.info` lists both, and either may be deleted from either side.
+#[test]
+fn a_word_and_the_console_arm_the_same_debugger() {
+    let src = "\"w\" debug.break \"@errors\" debug.watch debug.watch.workbench\n\
+               debug.step\n\"end\" println\n";
+    let typed = "break v\ndebug.info\n\"w\" debug.delete\ndelete v\n\
+                 \"workbench\" debug.delete\ndebug.info\nc\n";
+    let (out, _, code) = scripted(src, typed, &[]);
+    assert_eq!(
+        out,
+        "break v\nbreak w\nwatch @errors\nwatch workbench\nwatch @errors\nend\n",
+        "both armings, then what is left"
+    );
+    assert_eq!(code, Some(0));
+}
+
+/// The moving words typed at a stop do what the short forms do, and
+/// `debug.finish` and `debug.next` in a script stop where they say.
+#[test]
+fn the_moving_words_move() {
+    // `debug.continue` as a line resumes, as `c` does.
+    let src = "debug.step\n\"a\" println\n\"b\" println\n";
+    let (out, err, _) = scripted(src, "debug.continue\n", &[]);
+    assert_eq!(err.matches("next:").count(), 1, "{err}");
+    assert_eq!(out, "a\nb\n");
+
+    // `debug.step` as a line is one step, as `s` is.
+    let (_, err, _) = scripted(src, "debug.step\ndebug.step\nc\n", &[]);
+    assert_eq!(err.matches("next:").count(), 3, "{err}");
+
+    // `debug.finish` inside a body stops once the body has returned.
+    let src = ":w { debug.finish 1 drop 2 drop } register\nw\n\"after\" println\n";
+    let (out, err, _) = scripted(src, "c\n", &[]);
+    assert_eq!(err.matches("next:").count(), 1, "{err}");
+    assert!(err.contains("next: \"after\""), "the stop is outside the body:\n{err}");
+    assert_eq!(out, "after\n");
+
+    // `debug.next` inside a body stops at the body's next value.
+    let src = ":w { debug.next 41 drop } register\nw\n";
+    let (_, err, _) = scripted(src, "c\n", &[]);
+    assert!(err.contains("w at 1  next: 41"), "the stop is in the body:\n{err}");
+}
+
+/// A condition given by a word is the console's condition: Bund source, run
+/// in a child VM, stopping when it holds and not when it does not.
+#[test]
+fn a_word_arms_a_conditional_breakpoint() {
+    let src = ":w { 1 drop } register\n\"w\" \"{ 1 1 == }\" debug.break.if\nw\n\"end\" println\n";
+    let (_, err, _) = scripted(src, "c\n", &[]);
+    assert_eq!(err.matches("breakpoint: w").count(), 1, "{err}");
+
+    let src = ":w { 1 drop } register\n\"w\" \"{ 1 2 == }\" debug.break.if\nw\n\"end\" println\n";
+    let (out, err, _) = scripted(src, "c\n", &[]);
+    assert_eq!(err.matches("breakpoint: w").count(), 0, "{err}");
+    assert_eq!(out, "end\n");
+}
+
+/// **W8, D113.6: a breakpoint armed while a tier is installed still fires.**
+/// `w` is called until it is compiled, then armed. Offered to the tier first,
+/// as every body is, a compiled `w` would run whole before the breakpoint
+/// was looked at; arming turns the tier off for every body from then on.
+///
+/// Both builds are asserted, as `exit_tier.rs` does: the stop is checked
+/// always, and that a body really was compiled only where there is a tier.
+#[test]
+fn a_breakpoint_armed_beside_a_tier_still_fires() {
+    let src = ":w { 1 2 + drop } register\nw w w w w w\n\"w\" debug.break\nw\n\"end\" println\n";
+    let (out, err, code) = scripted(src, "c\n", &["--stats", "--jit-threshold", "1"]);
+    assert_eq!(err.matches("breakpoint: w").count(), 1, "the stop was missed:\n{err}");
+    assert_eq!(out, "end\n");
+    assert_eq!(code, Some(0));
+    if err.contains("no tier") {
+        eprintln!(
+            "debugger_words: no tier in this build, so W8 checked the stop and not \
+             that a compiled body was bypassed. Run with `--features jit`."
+        );
+    } else {
+        assert!(
+            !err.contains("compiled 0 "),
+            "the precondition failed: nothing was compiled, so the tier was never beside it:\n{err}"
+        );
+    }
+}

@@ -124,6 +124,15 @@ pub trait Console {
     /// Block until the host says what to do. `None` detaches.
     fn next_command(&mut self) -> Option<Command>;
 
+    /// The same, for a host that reads its commands **through the debuggee**
+    /// — §W5. A console attached by a word has no stream of its own: its
+    /// lines come from the VM's input, the one the program already has. The
+    /// debuggee is stopped, so handing it over is safe, and a host with a
+    /// stream of its own ignores it.
+    fn next_command_with(&mut self, _vm: &mut dyn bund2_api::Vm) -> Option<Command> {
+        self.next_command()
+    }
+
     /// **Evaluate a breakpoint condition in a child VM — §D3.**
     ///
     /// `bund2-interp` cannot build one: a usable child needs the standard
@@ -171,6 +180,15 @@ pub struct Debug {
     /// that line was typed at, and a second stop nested in the first would be
     /// answered by the same console with no way to say which it is at.
     pub(crate) busy: bool,
+    /// **A moving word was typed at a stop — §W5.** `debug.continue` typed as
+    /// a line has to do what `c` does, and the line is run from inside the
+    /// stop's own loop: the word sets where to stop next and raises this, and
+    /// the loop leaves once the line has finished.
+    pub(crate) resume: bool,
+    /// **The host has gone, for good.** Nothing stops and nothing armed
+    /// fires: a stop would say where it is to nobody and be told nothing,
+    /// once per hit, for the rest of the run.
+    gone: bool,
 }
 
 impl Debug {
@@ -186,6 +204,19 @@ impl Debug {
             watch_workbench: false,
             stops: 0,
             busy: false,
+            resume: false,
+            gone: false,
+        }
+    }
+
+    /// **Attached by a word, in the middle of a run — §W5.** `Mode::Run`,
+    /// where [`Debug::new`] starts stopped: the program asked for a debugger
+    /// in order to say where to stop, and stopping at once would be answering
+    /// before the question.
+    pub fn quiet(console: Box<dyn Console>) -> Self {
+        Self {
+            mode: Mode::Run,
+            ..Self::new(console)
         }
     }
 
@@ -203,8 +234,8 @@ impl Debug {
         }
     }
 
-    pub(crate) fn next_command(&mut self) -> Option<Command> {
-        self.console.next_command()
+    pub(crate) fn next_command(&mut self, vm: &mut dyn bund2_api::Vm) -> Option<Command> {
+        self.console.next_command_with(vm)
     }
 
     pub(crate) fn answer(&mut self, text: &str) {
@@ -218,6 +249,7 @@ impl Debug {
     /// **The host went away.** Run on rather than block forever.
     pub(crate) fn detach(&mut self) {
         self.mode = Mode::Run;
+        self.gone = true;
     }
 
     /// Apply one command.
@@ -282,11 +314,11 @@ impl Debug {
     /// push and a stack push — so it is a pair of emptiness checks rather than
     /// a lookup.
     pub(crate) fn watching_words(&self) -> bool {
-        !self.busy && !self.breaks.is_empty()
+        !self.busy && !self.gone && !self.breaks.is_empty()
     }
 
     pub(crate) fn watching_stacks(&self) -> bool {
-        !self.busy && (!self.watches.is_empty() || self.watch_workbench)
+        !self.busy && !self.gone && (!self.watches.is_empty() || self.watch_workbench)
     }
 
     /// The condition on a word, if that word is watched at all.

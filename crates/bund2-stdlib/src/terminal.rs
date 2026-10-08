@@ -545,13 +545,106 @@ fn debug_word(vm: &mut dyn Vm) -> Result<(), Error> {
 /// output**, as `debug.display_stack` does (D113.3): a word's output is the
 /// program's, wherever the word was typed.
 fn debug_view(vm: &mut dyn Vm, what: bund2_api::Debugging, who: &str) -> Result<(), Error> {
-    match vm.debugging(what) {
+    match vm.debugging(what)? {
         Some(text) => {
             print!("{text}");
             Ok(())
         }
         None => Err(Error(format!("{who}: this VM renders no such view"))),
     }
+}
+
+/// Pull the name an arming word was given — a STRING, with the `@` a stack
+/// may be written with taken off, as the console takes it off.
+fn debug_name(vm: &mut dyn Vm, who: &str) -> Result<String, Error> {
+    if vm.depth() < 1 {
+        return Err(Error(format!("Stack is too shallow for inline {who}")));
+    }
+    let v = vm
+        .pull()
+        .ok_or_else(|| Error(format!("{who} returns: NO DATA #1")))?;
+    match v.as_str() {
+        Some(name) if !name.trim_start_matches('@').is_empty() => {
+            Ok(name.trim_start_matches('@').to_string())
+        }
+        Some(_) => Err(Error(format!("{who}: the name is empty"))),
+        None => Err(Error(format!("{who}: the name is not a string"))),
+    }
+}
+
+/// Ask the debugger to arm or move — RFC-0008 §W5. Prints nothing: a word
+/// that arms from a script must not write into the program's output.
+fn debug_ask(vm: &mut dyn Vm, what: bund2_api::Debugging, who: &str) -> Result<(), Error> {
+    vm.debugging(what)
+        .map(|_| ())
+        .map_err(|e| Error(format!("{who}: {}", e.0)))
+}
+
+/// `debug.break` — stop when the named word is called. Bund2's own word.
+fn debug_break(vm: &mut dyn Vm) -> Result<(), Error> {
+    let word = debug_name(vm, "DEBUG.BREAK")?;
+    debug_ask(vm, bund2_api::Debugging::Break(word), "DEBUG.BREAK")
+}
+
+/// `debug.break.if` — the same, when a condition holds. The word name, then
+/// the condition **as Bund source in a STRING**: `"w" "{ depth 3 > }"`.
+///
+/// Source and not a LAMBDA value, though §D3 calls the condition a lambda:
+/// it runs in a child VM so that it cannot change the program (§D3), the
+/// child is handed text, and a lambda value has no source form to hand it.
+/// The text may itself be a lambda literal, which the child then runs.
+fn debug_break_if(vm: &mut dyn Vm) -> Result<(), Error> {
+    const WHO: &str = "DEBUG.BREAK.IF";
+    if vm.depth() < 2 {
+        return Err(Error(format!("Stack is too shallow for inline {WHO}")));
+    }
+    let cond = vm
+        .pull()
+        .ok_or_else(|| Error(format!("{WHO} returns: NO DATA #1")))?;
+    let Some(cond) = cond.as_str() else {
+        return Err(Error(format!("{WHO}: the condition is not a string of Bund source")));
+    };
+    let word = debug_name(vm, WHO)?;
+    debug_ask(vm, bund2_api::Debugging::BreakIf(word, cond), WHO)
+}
+
+/// `debug.watch` — stop on a push to the named stack. Bund2's own word.
+fn debug_watch(vm: &mut dyn Vm) -> Result<(), Error> {
+    let stack = debug_name(vm, "DEBUG.WATCH")?;
+    debug_ask(vm, bund2_api::Debugging::Watch(stack), "DEBUG.WATCH")
+}
+
+/// `debug.watch.workbench` — stop on a push to the workbench.
+fn debug_watch_workbench(vm: &mut dyn Vm) -> Result<(), Error> {
+    debug_ask(vm, bund2_api::Debugging::WatchWorkbench, "DEBUG.WATCH.WORKBENCH")
+}
+
+/// `debug.delete` — stop watching the named word or stack; `"workbench"`
+/// names the workbench, as at the console.
+fn debug_delete(vm: &mut dyn Vm) -> Result<(), Error> {
+    let name = debug_name(vm, "DEBUG.DELETE")?;
+    debug_ask(vm, bund2_api::Debugging::Delete(name), "DEBUG.DELETE")
+}
+
+/// `debug.step` — stop before the next value. In a script this is where the
+/// program hands itself to a debugger.
+fn debug_step(vm: &mut dyn Vm) -> Result<(), Error> {
+    debug_ask(vm, bund2_api::Debugging::Step, "DEBUG.STEP")
+}
+
+/// `debug.next` — stop before the next value no deeper than here.
+fn debug_next(vm: &mut dyn Vm) -> Result<(), Error> {
+    debug_ask(vm, bund2_api::Debugging::Next, "DEBUG.NEXT")
+}
+
+/// `debug.finish` — stop when the body running now has returned.
+fn debug_finish(vm: &mut dyn Vm) -> Result<(), Error> {
+    debug_ask(vm, bund2_api::Debugging::Finish, "DEBUG.FINISH")
+}
+
+/// `debug.continue` — stop nowhere until something armed fires.
+fn debug_continue(vm: &mut dyn Vm) -> Result<(), Error> {
+    debug_ask(vm, bund2_api::Debugging::Continue, "DEBUG.CONTINUE")
 }
 
 /// `debug.backtrace` — the frame stack, innermost first. Bund2's own word.
@@ -775,6 +868,21 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
     r.register_native("debug.stacks", debug_stacks, StackEffect::opaque(0), WordKind::Sync);
     r.register_native("debug.info", debug_info, StackEffect::opaque(0), WordKind::Sync);
     r.register_native("debug.feed", debug_feed, StackEffect::opaque(1), WordKind::Sync);
+    // Part B: arming and moving. Opaque for the same reason, and because a
+    // moving word changes where the *run* goes, which no effect describes.
+    for (name, f, n) in [
+        ("debug.break", debug_break as bund2_api::NativeFn, 1),
+        ("debug.break.if", debug_break_if, 2),
+        ("debug.watch", debug_watch, 1),
+        ("debug.watch.workbench", debug_watch_workbench, 0),
+        ("debug.delete", debug_delete, 1),
+        ("debug.step", debug_step, 0),
+        ("debug.next", debug_next, 0),
+        ("debug.finish", debug_finish, 0),
+        ("debug.continue", debug_continue, 0),
+    ] {
+        r.register_native(name, f, StackEffect::opaque(n), WordKind::Sync);
+    }
     r.register_native(
         "debug.shell",
         debug_shell,
@@ -921,6 +1029,33 @@ mod tests {
         assert!(e.ends_with("DEBUG.FEED: the line is not a string"), "{e}");
     }
 
+    /// **§W5: with no console to attach, an arming or moving word refuses in
+    /// words** and the views still answer. This interpreter is a bare one: the
+    /// embedder that supplies a console is the CLI.
+    #[test]
+    fn arming_refuses_where_no_console_can_be_attached() {
+        let mut i = interp();
+        for src in ["\"w\" debug.break", "debug.step", "debug.watch.workbench"] {
+            let e = run(&mut i, src).expect_err("nothing to attach");
+            assert!(
+                e.ends_with("no debugger is attached, and this VM was given no console to attach"),
+                "{src}: {e}"
+            );
+        }
+        // And each says what it wanted, before it asks.
+        for (src, want) in [
+            ("debug.break", "Stack is too shallow for inline DEBUG.BREAK"),
+            ("42 debug.break", "DEBUG.BREAK: the name is not a string"),
+            ("\"@\" debug.watch", "DEBUG.WATCH: the name is empty"),
+            ("\"w\" debug.break.if", "Stack is too shallow for inline DEBUG.BREAK.IF"),
+            ("\"w\" { true } debug.break.if", "DEBUG.BREAK.IF: the condition is not a string of Bund source"),
+        ] {
+            let mut i = interp();
+            let e = run(&mut i, src).expect_err("refused");
+            assert!(e.ends_with(want), "{src}: {e}");
+        }
+    }
+
     /// **Criterion W1, the half a unit test can hold: the three views are the
     /// VM's, and a word only prints them.** With nothing attached `debug.info`
     /// says so; the frame stack names the word a view was asked from.
@@ -929,16 +1064,16 @@ mod tests {
         use bund2_api::Debugging;
         let mut i = interp();
         run(&mut i, "1 2 3 @other 9 @main").expect("runs");
-        let stacks = i.debugging(Debugging::Stacks).expect("a view");
+        let stacks = i.debugging(Debugging::Stacks).expect("answers").expect("a view");
         assert!(stacks.contains("* @main  3  top: 3\n"), "{stacks}");
         assert!(stacks.contains("  @other  1  top: 9\n"), "{stacks}");
         assert!(stacks.ends_with("  workbench  0\n"), "{stacks}");
         assert_eq!(
-            i.debugging(Debugging::Info).as_deref(),
+            i.debugging(Debugging::Info).expect("answers").as_deref(),
             Some("no debugger is attached\n")
         );
         assert_eq!(
-            i.debugging(Debugging::Backtrace).as_deref(),
+            i.debugging(Debugging::Backtrace).expect("answers").as_deref(),
             Some("#0  the top-level stream\n")
         );
         // And the words run.

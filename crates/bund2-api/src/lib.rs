@@ -325,11 +325,13 @@ pub struct InlineSite {
 /// rotation, named stacks and the workbench, none of which an external word
 /// wants.
 ///
-/// A view of a running program that the debugger renders — RFC-0008 §W3.
+/// What a word may ask of the debugger — RFC-0008 §W3.
 ///
-/// The three that need nothing attached. The arming and moving requests are
-/// §W5's and join this type with it.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// Three kinds. The views answer text and need nothing attached. The arming
+/// requests say where a run should stop, and the moving requests say where it
+/// stops next; both attach a debugger if none is, when the embedder has said
+/// how (§W5).
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Debugging {
     /// The frame stack, innermost first.
     Backtrace,
@@ -337,6 +339,24 @@ pub enum Debugging {
     Stacks,
     /// What is armed: breakpoints and watches.
     Info,
+    /// Break when a frame for this word is pushed (§D3).
+    Break(String),
+    /// The same, when this source answers true in a child VM (§D3).
+    BreakIf(String, String),
+    /// Stop on a push to this named stack (§D4).
+    Watch(String),
+    /// Stop on a push to the workbench (§D4's second hook).
+    WatchWorkbench,
+    /// Stop watching this word or stack; `workbench` names the workbench.
+    Delete(String),
+    /// Stop before the next value, into any body.
+    Step,
+    /// Stop before the next value no deeper than here.
+    Next,
+    /// Stop when the frame running now has left.
+    Finish,
+    /// Stop nowhere until something armed fires.
+    Continue,
 }
 
 /// The alternative is two receivers, which is the split the merge exists to
@@ -650,9 +670,12 @@ pub trait Vm {
     ///
     /// A word asks the VM, as it does for a line or to report, so the same
     /// view is one piece of code whether a script, `debug.shell` or a console
-    /// stop asked for it. `None` is a `Vm` with no such view.
-    fn debugging(&mut self, _what: Debugging) -> Option<String> {
-        None
+    /// stop asked for it. `Ok(None)` is a `Vm` with no such view.
+    ///
+    /// An arming or moving request answers no text. `Err` is a request that
+    /// could not be honoured — no debugger attached and none attachable.
+    fn debugging(&mut self, _what: Debugging) -> Result<Option<String>, Error> {
+        Ok(None)
     }
 
     // --- contexts ----------------------------------------------------------

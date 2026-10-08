@@ -833,6 +833,11 @@ fn run(src: &str, args: &Args) -> Option<i32> {
     // a session's text and its diagnostics come from one place.
     if args.debugger {
         vm.attach_debugger(Box::new(debugger::Stdio::new()));
+    } else {
+        // **§W5: a word may ask for a debugger the flag did not.** The
+        // console it gets reads through the program's own input. Not under
+        // `--debugger`, where one is attached already and owns standard input.
+        vm.console_factory = Some(debugger::OverInput::boxed);
     }
 
     // No `\n` is appended. The reference appends one at four of its five parse

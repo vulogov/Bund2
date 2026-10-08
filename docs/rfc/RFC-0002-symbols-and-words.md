@@ -1157,3 +1157,10 @@ debugger stop is run, and `Runtime` installs it.
 
 - Amended by: repository owner, 2026-10-07, on D113
 - Consumes: D112, D36, RFC-0008 §W2 to §W4
+
+**Dated note, 2026-10-07 — Part B.** `Debugging` gains the arming and moving
+requests (`Break`, `BreakIf`, `Watch`, `WatchWorkbench`, `Delete`, `Step`,
+`Next`, `Finish`, `Continue`) and is no longer `Copy`. `Vm::debugging` answers
+`Result<Option<String>, Error>`, defaulted to `Ok(None)`: an arming request
+can fail, where a view could not. `Interp` gains a public `console_factory`
+beside `evaluator`, for the console a word attaches.

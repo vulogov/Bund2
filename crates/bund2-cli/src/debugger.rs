@@ -193,20 +193,93 @@ fn evaluate_in_child(source: &str, operands: &[BundValue]) -> Result<bool, Strin
     }
 }
 
+/// **The console a word attaches — RFC-0008 §W5, D113.5.**
+///
+/// A script that calls `debug.break` or `debug.step` was started with no
+/// `--debugger`, so there is no session on standard input to take commands
+/// from. This one asks the VM for its lines, through the input the program
+/// already has (D112): at a terminal that is a prompt with editing and a
+/// history, and under a capture it is the end of input, which detaches and
+/// lets the program run on — what [`Stdio`] does when its host is gone.
+///
+/// Its vocabulary, its conditions and where it writes are [`Stdio`]'s. Only
+/// where a line comes from differs.
+pub struct OverInput {
+    greeted: bool,
+}
+
+impl OverInput {
+    /// Shaped as `bund2_interp::ConsoleFactory`.
+    pub fn boxed() -> Box<dyn Console> {
+        Box::new(Self { greeted: false })
+    }
+}
+
+/// §D8: the session's history, by name. The input decides where it lives.
+const HISTORY: &str = "bund2_debugger_history.txt";
+
+fn say_stopped(greeted: &mut bool, at: &str) {
+    let mut out = std::io::stderr();
+    if !*greeted {
+        *greeted = true;
+        let _ = writeln!(
+            out,
+            "bund2: stopped. s(tep), n(ext), f(inish), c(ontinue), bt, st, \
+             info, break <word> [if <lambda>], watch @stack, watch workbench, \
+             delete <word>. Any other line is run as Bund. EOF detaches and runs on."
+        );
+    }
+    let _ = writeln!(out, "{at}");
+    let _ = out.flush();
+}
+
+impl Console for OverInput {
+    fn stopped(&mut self, at: &str) {
+        say_stopped(&mut self.greeted, at);
+    }
+
+    /// Never asked: the debuggee calls [`Console::next_command_with`]. A host
+    /// with no VM to read through has no line to give, which is a detach.
+    fn next_command(&mut self) -> Option<Command> {
+        None
+    }
+
+    fn next_command_with(&mut self, vm: &mut dyn bund2_api::Vm) -> Option<Command> {
+        use bund2_api::input::{Ask, Read};
+        loop {
+            // The end of input and a failed read both detach, as for `Stdio`.
+            let Ok(Read::Line(line)) = vm.read_line(&Ask::in_history("(bund2) ", HISTORY)) else {
+                return None;
+            };
+            match parse(&line) {
+                Ok(c) => {
+                    vm.remember_line(HISTORY, &line);
+                    return Some(c);
+                }
+                Err(msg) if msg.is_empty() => {}
+                Err(msg) => eprintln!("{msg}"),
+            }
+        }
+    }
+
+    fn answer(&mut self, text: &str) {
+        let mut out = std::io::stderr();
+        let _ = write!(out, "{text}");
+        let _ = out.flush();
+    }
+
+    fn evaluate_condition(
+        &mut self,
+        source: &str,
+        operands: &[BundValue],
+    ) -> Result<bool, String> {
+        evaluate_in_child(source, operands)
+    }
+}
+
 impl Console for Stdio {
     fn stopped(&mut self, at: &str) {
-        let mut out = std::io::stderr();
-        if !self.greeted {
-            self.greeted = true;
-            let _ = writeln!(
-                out,
-                "bund2: stopped. s(tep), n(ext), f(inish), c(ontinue), bt, st, \
-                 info, break <word> [if <lambda>], watch @stack, watch workbench, \
-                 delete <word>. Any other line is run as Bund. EOF detaches and runs on."
-            );
-        }
-        let _ = writeln!(out, "{at}");
-        let _ = out.flush();
+        say_stopped(&mut self.greeted, at);
     }
 
     fn next_command(&mut self) -> Option<Command> {

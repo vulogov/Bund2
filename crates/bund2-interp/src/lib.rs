@@ -34,6 +34,9 @@ use std::rc::Rc;
 use bund2_api::{Error, Registry, Resolved, Symbol, Vm};
 use bund2_value::BundValue;
 
+/// How an embedder makes the console a word attaches — RFC-0008 §W5.
+pub type ConsoleFactory = fn() -> Box<dyn debug::Console>;
+
 /// How an embedder runs a line of source in a VM — RFC-0008 §W2.
 pub type Evaluator = fn(&mut dyn Vm, &str) -> Result<(), Error>;
 
@@ -623,6 +626,21 @@ pub struct Interp {
     /// child VM for a condition, so the host supplies both. A console line
     /// typed at a stop goes through it.
     pub evaluator: Option<Evaluator>,
+    /// **The console a word attaches — RFC-0008 §W5, D113.5.** A script
+    /// that arms a breakpoint has no `--debugger` flag and so no console; the
+    /// first arming or moving word makes one with this. `None` until an
+    /// embedder says, and then those words refuse in words: the console's
+    /// commands are parsed and its conditions run by code this crate does not
+    /// have.
+    pub console_factory: Option<ConsoleFactory>,
+    /// **No body is offered to the tier any more — D113.6.** Raised by the
+    /// first arming or moving word and never lowered. A compiled body has no
+    /// safepoint, so a breakpoint inside one would silently not fire; from
+    /// here every body is Tier 0. The tier is left installed so its
+    /// statistics stay readable, and because it may be *running* when the
+    /// word is called — it is taken out of [`Interp::tier`] for the length of
+    /// `enter`, so there is nothing here to drop.
+    tier_off: bool,
     /// **The frame stack — RFC-0003 §S4.** Bund call depth lives here, on the
     /// heap, instead of on the Rust stack.
     frames: Vec<Frame>,
@@ -736,6 +754,8 @@ impl Interp {
             input: Box::new(bund2_api::input::NoInput),
             fed: VecDeque::new(),
             evaluator: None,
+            console_factory: None,
+            tier_off: false,
             frames: Vec::new(),
             pending_tail: None,
             pending_who: None,
@@ -1295,6 +1315,7 @@ impl Interp {
         // only a compilation opportunity.
         if exit.is_none()
             && body.payload_key().is_some()
+            && !self.tier_off
             && let Some(mut tier) = self.tier.take()
         {
             let answered = tier.enter(&body, self);
@@ -1455,7 +1476,7 @@ impl Interp {
             };
             d.stopped(&at);
             loop {
-                match d.next_command() {
+                match d.next_command(self) {
                     // **The host is gone, so the program is not.** A debugger
                     // that dies must not take the debuggee with it, and the
                     // alternative here is a block that never returns.
@@ -1487,6 +1508,7 @@ impl Interp {
                                 return;
                             };
                             back.busy = false;
+                            let moved = std::mem::take(&mut back.resume);
                             d = back;
                             if let Some(text) = said {
                                 d.answer(&text);
@@ -1495,7 +1517,9 @@ impl Interp {
                             // the request cannot be withdrawn (§D3). Asking for
                             // another command would be asking about a program
                             // that will run nothing more.
-                            if self.exit_code.is_some() {
+                            // Or a moving word was in the line (§W5), which
+                            // has said where to stop next.
+                            if self.exit_code.is_some() || moved {
                                 break;
                             }
                         }
@@ -2055,15 +2079,49 @@ impl Vm for Interp {
         true
     }
 
-    fn debugging(&mut self, what: bund2_api::Debugging) -> Option<String> {
-        Some(match what {
-            bund2_api::Debugging::Backtrace => self.render_backtrace(),
-            bund2_api::Debugging::Stacks => self.render_stacks(),
-            bund2_api::Debugging::Info => match self.debug.as_ref() {
-                Some(d) => d.render_watched(),
-                None => "no debugger is attached\n".to_string(),
-            },
-        })
+    fn debugging(&mut self, what: bund2_api::Debugging) -> Result<Option<String>, Error> {
+        use bund2_api::Debugging as D;
+        let cmd = match what {
+            D::Backtrace => return Ok(Some(self.render_backtrace())),
+            D::Stacks => return Ok(Some(self.render_stacks())),
+            D::Info => {
+                return Ok(Some(match self.debug.as_ref() {
+                    Some(d) => d.render_watched(),
+                    None => "no debugger is attached\n".to_string(),
+                }));
+            }
+            D::Break(w) => debug::Command::Break(w),
+            D::BreakIf(w, cond) => debug::Command::BreakIf(w, cond),
+            D::Watch(s) => debug::Command::Watch(s),
+            D::WatchWorkbench => debug::Command::WatchWorkbench,
+            D::Delete(w) => debug::Command::Delete(w),
+            D::Step => debug::Command::Step,
+            D::Next => debug::Command::Next,
+            D::Finish => debug::Command::Finish,
+            D::Continue => debug::Command::Continue,
+        };
+        // **§W5: a word that arms or moves attaches a debugger if none is.**
+        // Quietly, so the run goes on to where the word said to stop.
+        if self.debug.is_none() {
+            let Some(make) = self.console_factory else {
+                return Err(Error(
+                    "no debugger is attached, and this VM was given no console to attach".into(),
+                ));
+            };
+            self.debug = Some(Box::new(debug::Debug::quiet(make())));
+        }
+        // D113.6: from the first such word, no body is compiled or run
+        // compiled. A stop inside compiled code cannot happen.
+        self.tier_off = true;
+        let depth = self.frames.len();
+        if let Some(d) = self.debug.as_mut() {
+            // A moving word resumes; typed at a stop, the stop's loop has to
+            // be told, because the line is run from inside it.
+            if matches!(d.apply(cmd, depth), debug::Next::Resume) && d.busy {
+                d.resume = true;
+            }
+        }
+        Ok(None)
     }
 
     fn remember_line(&mut self, history: &str, line: &str) {

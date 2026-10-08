@@ -3555,7 +3555,7 @@ commands be words, and drafted as RFC-0008's amendment of this date.
 - Blocks: RFC-0008's amendment "debugger words", every part
 - Depends on: D84, D94, D112, D36, D55, F165, F139
 - Status: **RESOLVED** by the repository owner, 2026-10-07 — all six as
-  recommended. Part A built the same day; Part B is not built. *(As raised:
+  recommended. Parts A and B built the same day. *(As raised:
   OPEN, six questions, each default for planning only.)*
 
 The reference's debugger evaluates every typed line as Bund in the program's
@@ -3625,6 +3625,55 @@ moves to it.
 *Checked by* nine tests at process level in `debugger_words.rs` (W1, W2, W3,
 W5, W6, the native breakpoint, `stack`), four unit tests on the words, two on
 the interpreter. Criterion 6's sweep passes unchanged, with no exclusion (W4).
+
+**Dated note, 2026-10-07 — Part B built.** Nine words arm and move:
+`debug.break`, `debug.break.if`, `debug.watch`, `debug.watch.workbench`,
+`debug.delete`, `debug.step`, `debug.next`, `debug.finish`, `debug.continue`.
+They work in a script, in `debug.shell` and at a stop, on one state.
+
+*D113.5 as built.* The first arming or moving word in a run with no
+`--debugger` attaches a debugger quietly — running, not stopped — whose
+console reads through the VM's own `Input`. At a terminal that is a prompt
+with editing and a history named `bund2_debugger_history.txt`, which is §D8
+for this console at no further cost. With no input it detaches. The embedder
+supplies the console (`Interp::console_factory`), because its commands are
+parsed and its conditions run by code the interpreter does not have; a VM
+given none refuses those words in words.
+
+*D113.6 as built.* The first such word turns the tier off for every body
+from then on. **Not uninstalled, as the ruling's words had it**: the tier is
+taken out of the interpreter while it runs, so a word called from compiled
+code finds nothing to drop, and the tier's statistics stay readable. The
+effect ruled on is the effect built — no body is offered to it again.
+Checked with a tier: `w` is compiled, then armed, and the stop fires; with
+the rule removed the same test fails, because a body is offered to the tier
+before its breakpoint is looked at.
+
+*Four things the build decided that the ruling did not.*
+
+- **A detach is final.** Once the host has gone nothing stops and nothing
+  armed fires. Before, a breakpoint hit after a detach said where it was to
+  nobody, once a hit, for the rest of the run. This changes `--debugger` too:
+  after end-of-input on standard input, armed breakpoints are silent.
+- **`debug.break.if` takes its condition as a STRING of Bund source**, where
+  the amendment's table said LAMBDA. The condition runs in a child VM so it
+  cannot change the program (§D3); the child is handed text, and a lambda
+  value has no source form to hand it. The string may hold a lambda literal.
+- **The arming words print nothing.** The console's `break w` answers with
+  what is armed; a word in a script must not write into the program's output.
+- **`debug` is unchanged.** RFC-0008's Preservation row says it becomes a
+  wrapper that steps into things. `"…" debug` is still the reference's loop
+  over top-level terms; a script that wants the other now writes `debug.step`.
+  Whether `debug` itself should change is a deviation from the reference's
+  word and was not ruled on.
+
+*What it does not do.* The body a compiled word was running when it armed
+finishes compiled, with no stop inside it; every body entered after is Tier 0.
+A breakpoint on a native still never fires.
+
+*Checked by* seven more tests at process level (a script's breakpoint,
+`debug.step`, running on with nobody there, W7, the moving words, a
+conditional, W8) and one unit test of the refusals.
 
 ## D112 — the input seam: a word asks the VM for its line
 
