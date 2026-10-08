@@ -912,6 +912,19 @@ pub fn register_noeval_stubs(r: &mut Registry) {
         StackEffect::opaque(0),
         WordKind::Sync,
     );
+    // **D121: and `debug.feed`.** It evaluates nothing itself: it queues a
+    // line for the next word that reads. But `debug.shell` reads lines and
+    // runs them, and is the reference's and ungated, so with this word a
+    // program supplied the shell's line itself and a string ran under the
+    // flag with nobody at the keyboard. The word that removes the operator is
+    // Bund2's, so it is the one that is stubbed. The cost is stated in D121:
+    // under the flag it cannot feed `input` either.
+    r.register_native(
+        "debug.feed",
+        |_vm| Err(Error("bund DEBUG.FEED functions disabled with --noeval".into())),
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
 }
 
 /// `io.graph` — draw a list of floats as a text chart with `rasciigraph`
@@ -1951,6 +1964,26 @@ mod tests {
         let mut d = interp(HostOptions::default());
         let e = run(&mut d, "\"40 2 +\" debug.run").expect_err("no console here");
         assert!(!e.contains("disabled with --noeval"), "{e}");
+    }
+
+    /// **D121: `--noeval` reaches `debug.feed` too.** With it a program hands
+    /// `debug.shell` its own line, and the shell runs it. Without the flag the
+    /// word is not a stub.
+    #[test]
+    fn noeval_reaches_debug_feed() {
+        let mut i = interp(HostOptions {
+            noeval: true,
+            ..HostOptions::default()
+        });
+        let e = run(&mut i, "\"40 2 +\" debug.feed").expect_err("stubbed");
+        assert!(
+            e.ends_with("bund DEBUG.FEED functions disabled with --noeval"),
+            "{e}"
+        );
+        let mut d = interp(HostOptions::default());
+        if let Err(e) = run(&mut d, "\"40 2 +\" debug.feed") {
+            assert!(!e.contains("disabled with --noeval"), "{e}");
+        }
     }
 
     /// D52: nothing runs after `exit`, inside a lambda or out of one, and the

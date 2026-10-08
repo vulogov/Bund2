@@ -1154,6 +1154,13 @@ RFC-0005's compiled bodies without a list to maintain.
 D112 left this open: a debugged program is given no input, because the
 console owns standard input (F165).
 
+**Under `--noeval` the word is a stub — D121, 2026-10-08.** Queued before
+`debug.shell`, a line is run by the shell, so a program built `--noeval`
+evaluated a string it held with nobody typing it. The flag now refuses
+`debug.feed` with `bund DEBUG.FEED functions disabled with --noeval`, which
+also means it cannot feed `input` under that flag. This document had not
+asked what the flag does to the word.
+
 `"alice" debug.feed` queues one line. **The queue is the interpreter's, not
 the input's**: `Vm::read_line` answers from it first and asks the installed
 `Input` only when it is empty, and `Vm::read_secret` likewise. So the rule

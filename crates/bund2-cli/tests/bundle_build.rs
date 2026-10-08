@@ -128,7 +128,7 @@ fn a_restriction_cannot_be_cleared_by_the_environment() {
 /// The test above tries `bund.eval` alone. The reference's group is six words
 /// (`register_noeval_stubs`), and the two it left out are the ones that read a
 /// *file* and run it; `--noio`'s floor was not tried at all. D120 adds a
-/// seventh, `debug.run`.
+/// seventh, `debug.run`, and D121 an eighth, `debug.feed`.
 #[test]
 fn both_floors_hold_for_every_word_they_name() {
     let clearing = [
@@ -148,6 +148,8 @@ fn both_floors_hold_for_every_word_they_name() {
         // include. Standard input is closed here, so a word that ran its
         // string would not stop at a console either — it would simply run.
         "debug.run",
+        // D121: the word that hands `debug.shell` a line nobody typed.
+        "debug.feed",
     ]
     .iter()
     .enumerate()

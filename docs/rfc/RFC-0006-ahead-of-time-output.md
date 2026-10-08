@@ -33,6 +33,8 @@
   (`docs/rfc/reviews/RFC-0006-review-2026-10-08-2.md`) found one blocker: a
   bundle built `--noeval` evaluated a string through `debug.run`, Bund2's own
   word, which no list here named. **Ruled on — D120**: the flag gates it.
+  **D121**, the same day: it gates `debug.feed` too, which handed
+  `debug.shell` a line nobody typed.
   The review's other findings are answered where they apply, each dated.
   Revised 2026-09-29 after the first adversarial review
   (`docs/rfc/reviews/RFC-0006-review-2026-09-29.md`). The review raised three
@@ -44,7 +46,7 @@
 - Depends on: RFC-0003 (the program stream and Tier 0), RFC-0005 (the
   Cranelift tier)
 - Decisions consumed: D10, D11, D16, D20, D40, D54, D74, D76, D77, D78, D79,
-  D80, D81, D82, D83, D115, D116, D118, D119, D120, and
+  D80, D81, D82, D83, D115, D116, D118, D119, D120, D121, and
   decisions.md's "What this forecloses" clause on tree-shaking. *(Until
   2026-10-08 this list named D44, which the body never uses, and omitted the
   last four, which it rests on.)*
@@ -830,8 +832,13 @@ line `40 2 + println` prints `42`. A typed `"1" bund.eval` is refused, because
 the stub holds wherever the word is typed. This is D79's boundary again: the
 flag names a group of words, and these two are not in it.
 
-**`debug.shell` needs nobody at the keyboard — added 2026-10-08, the seventh
-review's B1.** The paragraph above describes a typed line. `debug.feed` is
+**`debug.shell` needed nobody at the keyboard, and under the flag it does
+again — D121.** *The measurement below is from before D121, which the owner
+ruled the same day: `--noeval` stubs `debug.feed`, so this program is refused
+at its first word with `bund DEBUG.FEED functions disabled with --noeval`.
+The cost is that under the flag `debug.feed` cannot queue a line for `input`
+either. What follows is kept as the record of what was found.* Added
+2026-10-08, the seventh review's B1. The paragraph above describes a typed line. `debug.feed` is
 Bund2's word and queues a line for the next word that reads (RFC-0008 §W4),
 so a program can supply the line itself. Measured after D120, on a bundle
 built `--noeval --noio` with standard input closed:
@@ -846,8 +853,8 @@ because D78 requires it. A fed `"1" bund.eval` is refused like a typed one.
 **So "the reference's boundary" is the answer for the reference's words
 only.** Until 2026-10-08 this section gave it for every ungated route.
 `debug.run` showed that a word Bund2 adds has no boundary to inherit; whether
-it evaluates under the flag is chosen, and D120 is that choice for one
-word.
+it evaluates under the flag is chosen, and D120 and D121 are that choice for
+Bund2's two.
 
 **A bundle is never given a debugger — D115, 2026-10-08.** In a `script` run
 the first arming or moving debugger word attaches a console (D113.5), and
@@ -1099,7 +1106,8 @@ on the answer.
 | A syntax error's timing | **Deliberately changed**: found at build rather than at run (§B3). A build that wrote an unparseable program would move the error to whoever ran it. |
 | RFC-0005 criterion 30's excluded mirrors | **Reopened by `--emit=native`**, on that row's own stated trigger. Owed once the mode exists, not excluded. |
 | What `--noeval` stops | **Preserved exactly for the reference's words — D79.** It disables the `bund.eval` group, six words: `bund.eval`, `bund.eval.`, `bund.eval-file`, `bund.eval-file.`, `use`, `use.`. `compile` is not in the group, so `compile lambda! !` still evaluates, on both binaries. §B3a names the boundary. |
-| `debug.run` under `--noeval` | **New surface, decided — D120.** Bund2's own word, which evaluates a string; the flag stubs it. Not a deviation, the reference having no such word. `debug.feed` before `debug.shell` still runs a line with nobody typing it, and is named in §B3a and not gated. |
+| `debug.run` under `--noeval` | **New surface, decided — D120.** Bund2's own word, which evaluates a string; the flag stubs it. Not a deviation, the reference having no such word. |
+| `debug.feed` under `--noeval` | **New surface, decided — D121.** Bund2's own word; the flag stubs it, because before `debug.shell` it ran a line nobody typed. Not a deviation. Under the flag it cannot feed `input` either. |
 | `stdin`, `stdin.` under `--noio` | **Preserved.** Stubs that exist only under the flag, in the reference and in Bund2 (§B3a). |
 | A damaged or empty region | **New surface, specified.** An empty region is the plain interpreter; four kinds of damage are errors, none a panic (§B1, criterion 12). |
 | Bund2's own version | **Recorded in the trailer, and read by `--inspect` only.** The pinned SHAs name the oracle, not the interpreter. No skew can occur, because the runtime is the builder (D118), and the runtime does not check the field. |
@@ -1313,7 +1321,7 @@ on the answer.
    the build, and the two runs must differ. **Load-bearing by construction**: a
    frozen build-time stamp cannot lie inside two disjoint windows.
 10. **A restriction cannot be loosened at run time.** A bundle built `--noeval`
-    still refuses each of the group's six words and `debug.run` (D120), and one built `--noio` still
+    still refuses each of the group's six words, `debug.run` (D120) and `debug.feed` (D121), and one built `--noio` still
     refuses an I/O word, with `BUND2_NOEVAL` and `BUND2_NOIO` each set to `0`
     and to empty — the two values `env_set` reads as "unset" (§B3) — and
     `--inspect` still reports the restriction. *(Until 2026-10-08 this read
@@ -1332,7 +1340,7 @@ on the answer.
     alone. `both_floors_hold_for_every_word_they_name` tries all six words,
     `bund.eval-file` and its workbench form among them, and tries `--noio`'s
     floor with `fs.cwd`, in both directions. **`debug.run` joined the list
-    with D120.**
+    with D120, and `debug.feed` with D121.**
 
     **It checks the stubs and nothing more, deliberately.** A criterion that
     claimed more would be false: `"40 2 +" compile lambda! !` prints `42` under
@@ -1449,8 +1457,10 @@ criterion here has been run on one machine, macOS on arm64, by hand or by
   here. For whoever takes §B8's gate.
 - **Does `--noeval` gate `debug.run`? — answered by D120**, 2026-10-08: yes.
   Raised the same day by the seventh review (B1). It is Bund2's own word, so
-  no deviation. `debug.feed` before `debug.shell` was raised beside it and is
-  not ruled on; it stays ungated and §B3a names it.
+  no deviation.
+- **Does it gate `debug.feed`? — answered by D121**, 2026-10-08: yes. Raised
+  beside the question above, since the word let a program hand `debug.shell`
+  its own line.
 - **What is the `aot` feature called now? — Q42.** After D83 it compiles the
   relocation test and nothing else, a bundle built from such a `bund2`
   inspects as `features: aot`, and CLAUDE.md's terminology still defines AOT
@@ -1470,7 +1480,7 @@ all, and each is answered or ruled. What
 remains listed is one question for whoever takes §B8's gate, and Q42. The sixth review
 on 2026-10-08 raised two more for the owner and both are ruled: which
 construction §B1 means is D118, and how far `--noio` reaches is D119. The
-seventh raised one, and it is D120. (Until
+seventh raised one, and it is D120, with D121 beside it. (Until
 2026-10-08 this sentence also counted parse-at-build, since ruled as D116,
 and Q40, which the bullet above records as answered by measurement.) **No
 default is being adopted by omission** — stated carefully, because the second

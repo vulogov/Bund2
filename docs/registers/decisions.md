@@ -3558,6 +3558,52 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D121 — `--noeval` gates `debug.feed`
+
+**Raised 2026-10-08** by RFC-0006's seventh review (B1), beside D120, and
+left unruled there because D120's ruling named one word. Measured after D120,
+on a bundle built `--noeval --noio` with standard input closed:
+`"40 2 + println" debug.feed debug.shell` printed `42`.
+
+- Blocks: nothing
+- Depends on: D78, D79, D113, D120, RFC-0006 §B3a, RFC-0008 §W4
+- Status: **RESOLVED** by the repository owner, 2026-10-08: "`--noeval` should
+  also gate `debug.feed`". Built the same day.
+
+### Why this word and not `debug.shell`
+
+`debug.shell` is the word that evaluates. It is the reference's, registered
+with no gate (`reference/Bund/src/stdlib/functions/debug_fun/debug_shell.rs:67`),
+and D79 leaves the reference's boundary where it is. `debug.feed` is Bund2's
+(D113): it queues a line for the next word that reads. Alone it runs nothing.
+Before `debug.shell` it removes the person, so a program built `--noeval` ran
+a string it held, unattended.
+
+### The decision
+
+**Under `--noeval`, `debug.feed` is a stub.** It fails with
+`bund DEBUG.FEED functions disabled with --noeval`, in a bundle and in a
+`script` run alike, and D78's floor holds for it.
+
+**Not a deviation.** The reference has no `debug.feed`; no golden moves.
+
+### What it costs
+
+Under the flag `debug.feed` cannot queue a line for `input`, `input*` or
+`password` either, which evaluate nothing. The stub is on the word and not on
+the pairing, because which word reads next is not known when the line is
+queued.
+
+### What it does not change
+
+`debug` and `debug.shell` still read lines and run them under `--noeval`
+when somebody types them, and `compile lambda! !` still evaluates (D79). The
+flag is a word-group switch and not a claim that nothing is evaluated (D78).
+
+`noeval_reaches_debug_feed` holds the stub
+(`crates/bund2-stdlib/src/host.rs`), and
+`both_floors_hold_for_every_word_they_name` holds it in a bundle.
+
 ## D120 — `--noeval` gates `debug.run`
 
 **Raised 2026-10-08** by RFC-0006's seventh review (B1). D113.5 added
@@ -3614,6 +3660,9 @@ under `--noeval`, and RFC-0006 §B3a names each:
   keyboard. The evaluating word is the reference's and ungated there; the
   word that makes it need no operator is Bund2's. It was put beside this
   question and not ruled on, so it stays as it is and is named.
+
+**Note, 2026-10-08 (D121).** Ruled the same day: `--noeval` gates
+`debug.feed` too, so the third route above is closed.
 
 `noeval_reaches_debug_run` holds the stub
 (`crates/bund2-stdlib/src/host.rs`), and
