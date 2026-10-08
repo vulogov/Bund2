@@ -549,6 +549,17 @@ Two things this unblocks besides RFC-0003. **D20**'s deferred step — encoding
 available, since it was held back only on this. And it does **not** discharge
 D27's condition, which is D31.
 
+**Note, 2026-10-08 (RFC-0006's sixth review, S2 and S3).** Two sentences in
+the amendments above are wrong. **D31 was already RESOLVED** — 2026-09-11, no
+external readers — when the second amendment called it open and "the owner's",
+so the dependency drawn there is closed. And `"1 2 +" compile encode.base64`
+does not yield "exactly the bytes" `compile_to_binary` would write: the Bund
+word `compile` appends a newline and stops at the first `EXIT`
+(`reference/Bund/src/stdlib/functions/bund/bund_interpreter.rs:29-36`), and a
+`Value` serialises an `id` and `stamp` minted at construction
+(`reference/rust_dynamic/src/value.rs:15-36`), so no two parses give equal
+bytes. What holds is that it is the same *format*. The resolution stands.
+
 ## D12 — the `*` fold-family
 Restrict the whole-stack variadic words in JIT-able positions, or accept them
 as a permanent optimization barrier?
@@ -3547,6 +3558,51 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D118 — a bundle's runtime is the binary that builds it
+
+**Raised 2026-10-08** by RFC-0006's sixth review (B4). §B1 specified that
+`bund2 build` "ships or locates a prebuilt runtime per target it can bundle
+for", and §B4 and §B6 leaned on it. What was built copies
+`std::env::current_exe()` (`crates/bund2-cli/src/main.rs`, `build`), and every
+criterion of RFC-0006 was met against that.
+
+- Blocks: RFC-0006's acceptance
+- Depends on: D10, D80, D82, D116, RFC-0006 §B1, §B4, §B6
+- Status: **RESOLVED** by the repository owner, 2026-10-08: "bundle runtime
+  is the building binary".
+
+### The decision
+
+**A bundle is a copy of the `bund2` that built it, with the program written
+into its region.** There is no separate prebuilt runtime, and `bund2 build`
+neither ships nor looks for one.
+
+### What follows
+
+- **A bundle is for the builder's own target.** To bundle for a target, run a
+  `bund2` built for that target. A target Cranelift does not support is served
+  by a default-feature `bund2` built there, which is D10's toolchain-free
+  product as before; what is given up is producing it from another machine.
+- **A bundle carries the builder's own features.** A JIT bundle (D80) comes
+  from a `bund2` built with `jit`. `bund2 build --features` is refused and
+  says why.
+- **Builder and runtime cannot be different Bund2 builds.** The version the
+  region records is for a reader, through `--inspect`. The runtime does not
+  check it, and need not.
+- **Parse-at-build (D116) is exact.** The parser that accepts a program at
+  build is the one that reads it at start, so a program cannot build and then
+  fail to parse.
+
+### What is not decided
+
+Cross-target bundling is **deferred, not foreclosed**. Its trigger is a need
+to produce an artefact for a target from a machine that cannot run that
+target's `bund2`. It would need runtime discovery, a version check the
+runtime acts on, and a new answer to the bullet above, and it would be a new
+decision.
+
+No golden moves and no code changes: this ratifies what is built.
+
 ## D117 — the hot path's cost is read in instructions retired
 
 **Raised 2026-10-08** by the acceptance reviews of RFC-0005 (B5) and RFC-0008
@@ -6417,6 +6473,15 @@ does.
 should be made to mean 'evaluates nothing' is a separate question and is not
 decided here." It is decided here: no.
 
+**Note, 2026-10-08 (RFC-0006's sixth review, B1).** The group is **six**
+words, not the four named above: the reference also stubs `bund.eval-file` and
+`bund.eval-file.` (`reference/Bund/src/stdlib/functions/bund/bund_eval.rs:117-121`;
+`use` and `use.` are at `bund_use.rs:74-76`), and Bund2's
+`register_noeval_stubs` stubs the same six. Nothing about the ruling changes:
+it is the list that was short, by the two words that read a file and run it.
+The help text is at `reference/Bund/src/cmd/mod.rs:142-143`; the range above is
+off by one line.
+
 ## D78 — a bundle's restrictions have a build-time floor that run time may only tighten
 
 **Decided by the repository owner, 2026-09-29**, on RFC-0006's second review
@@ -6506,6 +6571,18 @@ stubs and may not be read as "the artefact evaluates nothing".
 **Whether `--noeval` should be made to mean "evaluates nothing" is a separate
 question and is not decided here.** It would deviate from the reference.
 
+
+**Note, 2026-10-08 (RFC-0006's sixth review, B2).** "`args`, `sleep.seconds`
+and `io.graph` have no gate" is true and is not the flag's ungated surface: it
+is the ungated words of one module. Measured on Bund2 by running each of 610
+registered names under `--noio`, 56 answer with the stub. Among the 554 that do
+not, `csv` and `sqlite` read a file the program names
+(`reference/Bund/src/stdlib/functions/conditional/mod.rs:42-43`, registered with
+no gate), `debug.shell` writes a history file, `input`, `input*`, `password` and
+`bund.prompt` read standard input, and `system.ip`, `system.locale` and the
+`sysinfo.*` words disclose the host. RFC-0006 §B3a carries both lists by name.
+The ruling — a floor, and not a sandbox — is unchanged, and is the stronger
+for it.
 
 ## D77 — a bundle embeds source text, and the encoded container is closed
 

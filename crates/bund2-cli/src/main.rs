@@ -43,6 +43,13 @@ fn features_built_in() -> String {
     if cfg!(feature = "async") {
         on.push("async");
     }
+    // **Asked of the crate that owns the feature.** `grok` is `bund2-stdlib`'s
+    // and this crate does not declare it, so a `cfg!` here would always be
+    // false and a runtime carrying `string.grok` would record itself as a
+    // default build — the very example §B4 gives for why the record exists.
+    if bund2_stdlib::GROK_BUILT_IN {
+        on.push("grok");
+    }
     on.join(",")
 }
 
@@ -545,6 +552,123 @@ fn env_set(name: &str) -> bool {
     }
 }
 
+/// What `bund2 build` was asked for, once every argument has been understood.
+enum BuildRequest {
+    /// `--inspect <artefact>`.
+    Inspect(String),
+    /// `--file <src> --output <path>`, with D78's floor.
+    Bundle {
+        src_path: String,
+        out_path: String,
+        flags: u8,
+    },
+}
+
+const BUILD_USAGE: &str =
+    "expected: bund2 build --file <path> --output <path> [--noio] [--noeval], \
+     or: bund2 build --inspect <artefact>";
+
+/// Read `bund2 build`'s arguments, refusing whatever it does not understand.
+///
+/// **Nothing is skipped.** This once looked each flag up by name and ignored
+/// the rest, so `bund2 build --emit=native --features jit …` exited 0 having
+/// written a default-feature bundle: a withdrawn mode accepted, and a request
+/// for a different runtime answered with this one. A build that does something
+/// other than what it was asked and says nothing is the silent failure
+/// RFC-0006 §B3a argues against for the restriction flags, and it is the same
+/// failure here.
+fn build_request(args: &[String]) -> Result<BuildRequest, String> {
+    let mut file: Option<String> = None;
+    let mut output: Option<String> = None;
+    let mut inspect: Option<String> = None;
+    let mut flags = 0u8;
+    let mut rest = args.iter().skip(1);
+    while let Some(arg) = rest.next() {
+        let (name, inline) = match arg.split_once('=') {
+            Some((n, v)) if n.starts_with("--") => (n, Some(v.to_string())),
+            _ => (arg.as_str(), None),
+        };
+        let mut operand = |what: &str| -> Result<String, String> {
+            inline
+                .clone()
+                .or_else(|| rest.next().cloned())
+                .ok_or_else(|| format!("`{name}` needs {what}"))
+        };
+        let once = |slot: &mut Option<String>, v: String| -> Result<(), String> {
+            if slot.is_some() {
+                return Err(format!(
+                    "`{name}` was given twice. A bundle carries exactly one program \
+                     and is written to exactly one path."
+                ));
+            }
+            *slot = Some(v);
+            Ok(())
+        };
+        match name {
+            "--file" => {
+                let v = operand("a source path")?;
+                once(&mut file, v)?;
+            }
+            "--output" | "-o" => {
+                let v = operand("a path to write")?;
+                once(&mut output, v)?;
+            }
+            "--inspect" => {
+                let v = operand("an artefact to read")?;
+                once(&mut inspect, v)?;
+            }
+            "--noio" if inline.is_none() => flags |= bundle::FLAG_NOIO,
+            "--noeval" if inline.is_none() => flags |= bundle::FLAG_NOEVAL,
+            // The one mode there is, under the name RFC-0006 gives it.
+            "--emit" => match operand("a mode")?.as_str() {
+                "bundle" => {}
+                "native" => {
+                    return Err("`--emit=native` was withdrawn and is not built (D83). \
+                                `bund2 build` produces a bundle."
+                        .to_string());
+                }
+                other => {
+                    return Err(format!(
+                        "unknown mode `--emit={other}`. `bund2 build` produces a bundle."
+                    ));
+                }
+            },
+            // **The runtime is this binary.** A bundle is a copy of the
+            // executable doing the building, so its features are the ones this
+            // was compiled with and cannot be chosen here.
+            "--features" => {
+                let built = features_built_in();
+                return Err(format!(
+                    "`--features` cannot select a runtime: a bundle is a copy of this \
+                     binary, which was built with {}. Build `bund2` itself with the \
+                     features the bundle should carry.",
+                    if built.is_empty() {
+                        "default features".to_string()
+                    } else {
+                        format!("features: {built}")
+                    }
+                ));
+            }
+            _ => return Err(format!("unknown argument `{arg}`")),
+        }
+    }
+    if let Some(target) = inspect {
+        if file.is_some() || output.is_some() || flags != 0 {
+            return Err("`--inspect` reads an artefact and takes no other argument".to_string());
+        }
+        return Ok(BuildRequest::Inspect(target));
+    }
+    match (file, output) {
+        (Some(src_path), Some(out_path)) => Ok(BuildRequest::Bundle {
+            src_path,
+            out_path,
+            flags,
+        }),
+        (None, _) => Err("no `--file` was given".to_string()),
+        (_, None) => Err("no `--output` was given".to_string()),
+    }
+}
+
 /// `bund2 build --file <src> --output <path> [--noio] [--noeval]`.
 ///
 /// **Parses before it writes** (RFC-0006 §B3): a syntax error is a build
@@ -552,25 +676,25 @@ fn env_set(name: &str) -> bool {
 /// ran it. The parse result is then discarded — the artefact parses again at
 /// start-up, which is what keeps §B2's preservation exact.
 fn build(args: &[String]) -> ExitCode {
-    let value = |flag: &str| args.iter().skip_while(|a| *a != flag).nth(1).cloned();
-
-    // `bund2 build --inspect <artefact>` — D78's readable trailer.
-    //
-    // **Reads a file, unlike everything else about a bundle.** A runtime asks
-    // its own memory what it carries; inspecting asks about *another*
-    // artefact, which is the whole point: the person handed a bundle is not
-    // the person who built it.
-    if let Some(target) = value("--inspect") {
-        return inspect(&target);
-    }
-
-    let Some(src_path) = value("--file") else {
-        bund2_api::errln!("bund2: expected: bund2 build --file <path> --output <path>");
-        return ExitCode::from(2);
-    };
-    let Some(out_path) = value("--output").or_else(|| value("-o")) else {
-        bund2_api::errln!("bund2: expected: bund2 build --file <path> --output <path>");
-        return ExitCode::from(2);
+    let (src_path, out_path, flags) = match build_request(args) {
+        // `bund2 build --inspect <artefact>` — D78's readable trailer.
+        //
+        // **Reads a file, unlike everything else about a bundle.** A runtime
+        // asks its own memory what it carries; inspecting asks about *another*
+        // artefact, which is the whole point: the person handed a bundle is
+        // not the person who built it.
+        Ok(BuildRequest::Inspect(target)) => return inspect(&target),
+        Ok(BuildRequest::Bundle {
+            src_path,
+            out_path,
+            flags,
+        }) => (src_path, out_path, flags),
+        Err(why) => {
+            bund2_api::errln!("bund2: build: {why}");
+            bund2_api::errln!("bund2: {BUILD_USAGE}");
+            bund2_api::errln!("bund2: nothing was written");
+            return ExitCode::from(2);
+        }
     };
     let src = match std::fs::read_to_string(&src_path) {
         Ok(s) => s,
@@ -585,14 +709,6 @@ fn build(args: &[String]) -> ExitCode {
         bund2_api::errln!("bund2: {src_path}:{}:{}: {}", loc.line, loc.column, e.what);
         bund2_api::errln!("bund2: nothing was written");
         return ExitCode::FAILURE;
-    }
-
-    let mut flags = 0u8;
-    if args.iter().any(|a| a == "--noio") {
-        flags |= bundle::FLAG_NOIO;
-    }
-    if args.iter().any(|a| a == "--noeval") {
-        flags |= bundle::FLAG_NOEVAL;
     }
 
     let exe = match std::env::current_exe() {
@@ -659,6 +775,16 @@ fn build(args: &[String]) -> ExitCode {
         src.len(),
         bundle::CAPACITY
     );
+    // **Said, not left to be discovered.** The recorded path is what a bundle's
+    // diagnostics name (§B3), and it is kept whole only while it fits.
+    if src_path.len() > bundle::SOURCE_NAME_BYTES {
+        bund2_api::errln!(
+            "bund2: the source path is {} bytes and a bundle records the last {}. \
+             Diagnostics from this artefact name the shortened path.",
+            src_path.len(),
+            bundle::SOURCE_NAME_BYTES
+        );
+    }
     ExitCode::SUCCESS
 }
 
@@ -756,19 +882,27 @@ fn inspect(path: &str) -> ExitCode {
             restrictions.join(" ")
         }
     );
-    bund2_api::sayln!(
-        "  built by       bund2 {}{}",
-        if seen.bund2_version.is_empty() {
-            "(unrecorded)"
-        } else {
-            seen.bund2_version.as_str()
-        },
-        if seen.features.is_empty() {
-            ", default features".to_string()
-        } else {
-            format!(", features: {}", seen.features)
-        }
-    );
+    // **A runtime nobody built from has no record, and says so.** The fields
+    // are written by `bund2 build`, so in the plain interpreter they are
+    // empty — and an empty feature field read as "default features" described
+    // a `jit` build of `bund2` as one without.
+    if seen.carries_program {
+        bund2_api::sayln!(
+            "  built by       bund2 {}{}",
+            if seen.bund2_version.is_empty() {
+                "(unrecorded)"
+            } else {
+                seen.bund2_version.as_str()
+            },
+            if seen.features.is_empty() {
+                ", default features".to_string()
+            } else {
+                format!(", features: {}", seen.features)
+            }
+        );
+    } else {
+        bund2_api::sayln!("  built by       (unrecorded — nothing was built from this runtime)");
+    }
     bund2_api::sayln!(
         "  conformed to   {}",
         if seen.pinned.is_empty() {

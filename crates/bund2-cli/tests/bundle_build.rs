@@ -123,6 +123,149 @@ fn a_restriction_cannot_be_cleared_by_the_environment() {
     let _ = std::fs::remove_file(&shut);
 }
 
+/// **The floor holds for `--noio` too, and for every word `--noeval` names.**
+///
+/// The test above tries `bund.eval` alone. The group is six words
+/// (`register_noeval_stubs`), and the two it left out are the ones that read a
+/// *file* and run it; `--noio`'s floor was not tried at all.
+#[test]
+fn both_floors_hold_for_every_word_they_name() {
+    let clearing = [
+        ("BUND2_NOEVAL", "0"),
+        ("BUND2_NOEVAL", ""),
+        ("BUND2_NOIO", "0"),
+        ("BUND2_NOIO", ""),
+    ];
+    for (i, word) in [
+        "bund.eval",
+        "bund.eval.",
+        "bund.eval-file",
+        "bund.eval-file.",
+        "use",
+        "use.",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let exe = build(&format!("\"x\" {word}\n"), &format!("floor-eval-{i}"), &["--noeval"]);
+        for env in clearing {
+            let (_, out) = run(&exe, &[], &[env]);
+            assert!(
+                out.contains("disabled with --noeval"),
+                "`{word}` with {}={:?} must stay refused: {out}",
+                env.0,
+                env.1
+            );
+        }
+        let _ = std::fs::remove_file(&exe);
+    }
+
+    let shut = build("fs.cwd println\n", "floor-io", &["--noio"]);
+    for env in clearing {
+        let (_, out) = run(&shut, &[], &[env]);
+        assert!(
+            out.contains("disabled with --noio"),
+            "{}={:?} must not clear `--noio`: {out}",
+            env.0,
+            env.1
+        );
+    }
+    let open = build("fs.cwd println\n", "floor-io-open", &[]);
+    let (_, plain) = run(&open, &[], &[]);
+    assert!(!plain.contains("disabled"), "unrestricted, it answers: {plain}");
+    let (_, added) = run(&open, &[], &[("BUND2_NOIO", "1")]);
+    assert!(
+        added.contains("disabled with --noio"),
+        "and run time may still add the restriction: {added}"
+    );
+    let _ = std::fs::remove_file(&shut);
+    let _ = std::fs::remove_file(&open);
+}
+
+/// **`bund2 build` refuses what it does not understand, and writes nothing.**
+///
+/// It once read the flags it knew and skipped the rest, so
+/// `--emit=native --features jit` exited 0 having written a default-feature
+/// bundle, and a second `--file` was dropped without a word.
+#[test]
+fn a_build_refuses_arguments_it_does_not_understand() {
+    let src = scratch("strict.bund");
+    std::fs::write(&src, "1 println\n").expect("writing the source");
+    let src = src.to_str().expect("a UTF-8 path");
+    let cases: [(&[&str], &str); 6] = [
+        (&["--emit=native"], "withdrawn"),
+        (&["--emit", "native"], "withdrawn"),
+        (&["--emit=object"], "unknown mode"),
+        (&["--features", "jit"], "copy of this binary"),
+        (&["--file", src], "given twice"),
+        (&["--nosuch"], "unknown argument `--nosuch`"),
+    ];
+    for (i, (extra, needle)) in cases.iter().enumerate() {
+        let out = scratch(&format!("strict-{i}"));
+        let r = Command::new(env!("CARGO_BIN_EXE_bund2"))
+            .args(["build", "--file", src, "--output"])
+            .arg(&out)
+            .args(*extra)
+            .output()
+            .expect("bund2 build runs");
+        let err = String::from_utf8_lossy(&r.stderr);
+        assert_eq!(r.status.code(), Some(2), "{extra:?} is a usage error: {err}");
+        assert!(err.contains(needle), "{extra:?}: looked for {needle:?} in {err}");
+        assert!(!out.exists(), "{extra:?}: and nothing is written");
+    }
+
+    // The one mode there is may be named, in either spelling.
+    for (i, extra) in [vec!["--emit=bundle"], vec!["--emit", "bundle"]].iter().enumerate() {
+        let exe = build("\"named\" println\n", &format!("emit-{i}"), extra);
+        let (code, out) = run(&exe, &[], &[]);
+        assert_eq!(code, Some(0), "output was: {out}");
+        assert!(out.contains("named"), "{out}");
+        let _ = std::fs::remove_file(&exe);
+    }
+}
+
+/// **A source path longer than the container records is said to be.**
+///
+/// The artefact keeps the path's last 256 bytes, so its diagnostics name a
+/// shortened path where a `script` run names the whole one. The build says so
+/// rather than leaving it to be found in a report.
+#[test]
+fn a_source_path_too_long_to_record_is_reported_at_build() {
+    let mut dir = scratch("long");
+    dir.push("d".repeat(150));
+    dir.push("e".repeat(150));
+    std::fs::create_dir_all(&dir).expect("making the directories");
+    let src = dir.join("prog.bund");
+    std::fs::write(&src, "1 nosuch\n").expect("writing the source");
+    let out = scratch("long-out");
+    let r = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        .args(["build", "--file"])
+        .arg(&src)
+        .arg("--output")
+        .arg(&out)
+        .output()
+        .expect("bund2 build runs");
+    let err = String::from_utf8_lossy(&r.stderr);
+    assert!(r.status.success(), "it still builds: {err}");
+    assert!(
+        err.contains("a bundle records the last 256"),
+        "and says the path was shortened: {err}"
+    );
+    // Asked of `--inspect`, because a report wraps a long path across lines.
+    let seen = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        .args(["build", "--inspect"])
+        .arg(&out)
+        .output()
+        .expect("inspect runs");
+    let seen = String::from_utf8_lossy(&seen.stdout);
+    assert!(
+        seen.lines().any(|l| l.ends_with("/prog.bund")),
+        "the tail is what is kept, so the file is still named: {seen}"
+    );
+    let _ = std::fs::remove_file(&out);
+    let _ = std::fs::remove_dir_all(scratch("long"));
+}
+
 /// **A program that does not parse is a build error** — §B3. It belongs to
 /// whoever built the artefact, not to whoever ran it, and nothing is written.
 #[test]
@@ -193,6 +336,9 @@ fn reseal(path: &PathBuf) {
 /// is there — an integration test cannot import the container's own offsets,
 /// so the next best thing is to fail loudly when its copy is stale.
 const STATE_BEFORE_PAYLOAD: usize = 652 - 36;
+/// The container version: `at::PAYLOAD` minus `at::FORMAT` (32).
+const FORMAT_BEFORE_PAYLOAD: usize = 652 - 32;
+
 /// And the length field: `at::PAYLOAD` minus `at::LEN` (40).
 const LEN_BEFORE_PAYLOAD: usize = 652 - 40;
 
@@ -221,7 +367,16 @@ fn a_damaged_artefact_is_refused_with_an_explanation() {
     /// One case: a name, the damage to apply, and what the report must say.
     /// Named because the tuple is otherwise unreadable at the call site.
     type Case = (&'static str, Box<dyn Fn(&mut Vec<u8>, usize)>, &'static str);
-    let cases: [Case; 3] = [
+    let cases: [Case; 4] = [
+        (
+            "format",
+            // A container version this runtime does not read.
+            Box::new(|img, at| {
+                img[at - FORMAT_BEFORE_PAYLOAD..at - FORMAT_BEFORE_PAYLOAD + 4]
+                    .copy_from_slice(&99u32.to_le_bytes());
+            }),
+            "container version 99",
+        ),
         (
             "state",
             Box::new(|img, at| img[at - STATE_BEFORE_PAYLOAD] = 7),
@@ -317,6 +472,25 @@ fn a_default_artefact_contains_no_code_generator() {
             String::from_utf8_lossy(needle)
         );
     }
+    let _ = std::fs::remove_file(&exe);
+}
+
+/// **Criterion 3's companion: the needle is there to be found.**
+///
+/// An absence check proves nothing unless the same search finds the thing
+/// where it is present. A bundle built from a `jit` runtime carries the code
+/// generator, and the bytes the check above looks for are in it.
+#[cfg(feature = "jit")]
+#[test]
+fn a_jit_artefact_contains_the_code_generator() {
+    let exe = build("1 2 + println\n", "withjit", &[]);
+    let image = std::fs::read(&exe).expect("reading the artefact");
+    let needle = b"cranelift".as_slice();
+    assert!(
+        image.windows(needle.len()).any(|w| w == needle),
+        "a bundle built from a `jit` runtime carries Cranelift, and the search \
+         criterion 3 relies on must be able to see it"
+    );
     let _ = std::fs::remove_file(&exe);
 }
 
@@ -665,6 +839,24 @@ fn inspecting_a_non_artefact_explains_itself() {
         "and say what it looked for: {err}"
     );
     assert!(!err.contains("panicked"), "without panicking: {err}");
+}
+
+/// **A runtime nobody built from has no record of what built it.**
+///
+/// The version and feature fields are written by `bund2 build`. Read from the
+/// plain interpreter they are empty, and an empty feature field once printed
+/// as "default features" — for a `jit` build of `bund2` as for any other.
+#[test]
+fn an_unbuilt_runtime_claims_no_feature_set() {
+    let r = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        .args(["build", "--inspect", env!("CARGO_BIN_EXE_bund2")])
+        .output()
+        .expect("inspect runs");
+    let out = String::from_utf8_lossy(&r.stdout);
+    assert!(r.status.success(), "{out}");
+    assert!(out.contains("this is the plain interpreter"), "{out}");
+    assert!(out.contains("unrecorded"), "{out}");
+    assert!(!out.contains("default features"), "{out}");
 }
 
 /// **A bundle's debugger words do nothing — D115.**

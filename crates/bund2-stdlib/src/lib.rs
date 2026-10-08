@@ -15,6 +15,12 @@ mod pull;
 /// What a `.` suffix means — three shapes, none of them the default.
 pub(crate) mod wb;
 
+/// Whether this build carries `string.grok` — D40's feature gate.
+///
+/// A constant here because the feature is this crate's: a crate that depends
+/// on this one cannot ask `cfg!(feature = "grok")` and get a true answer.
+pub const GROK_BUILT_IN: bool = cfg!(feature = "grok");
+
 pub mod stack;
 
 pub mod console;

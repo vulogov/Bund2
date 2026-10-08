@@ -20,6 +20,13 @@
   D83 and the criteria list had both ended.)* Three rulings of 2026-10-08
   are landed below: **D115**, a bundle is never given a debugger; **D116**,
   parse-at-build is ratified; and §B3a names two more ungated routes.
+  **A sixth review the same day**
+  (`docs/rfc/reviews/RFC-0006-review-2026-10-08.md`) found four blockers.
+  Three are answered: `--noeval`'s group is six words and not four, `--noio`'s
+  gated and ungated words are listed by name from a measurement, and
+  `bund2 build` now refuses arguments it does not understand. **The fourth is
+  ruled on — D118**: §B1 specified a prebuilt runtime per target, what is
+  built copies the building binary, and the building binary is the design.
   Revised 2026-09-29 after the first adversarial review
   (`docs/rfc/reviews/RFC-0006-review-2026-09-29.md`). The review raised three
   blockers; all three were reproduced against the code before this revision,
@@ -29,10 +36,13 @@
   may carry the JIT (**D80**).
 - Depends on: RFC-0003 (the program stream and Tier 0), RFC-0005 (the
   Cranelift tier)
-- Decisions consumed: D10, D11, D16, D20, D40, D44, D54, D74, D76, D77, D78, D79,
-  D80, D81, and
-  decisions.md's "What this forecloses" clause on tree-shaking
-- Touched but not consumed: D1, D2, D36 — see the preservation table
+- Decisions consumed: D10, D11, D16, D20, D40, D54, D74, D76, D77, D78, D79,
+  D80, D81, D82, D83, D115, D116, D118, and
+  decisions.md's "What this forecloses" clause on tree-shaking. *(Until
+  2026-10-08 this list named D44, which the body never uses, and omitted the
+  last four, which it rests on.)*
+- Touched but not consumed: D1, D2, D31, D36, D37, D45, D113 — see the
+  preservation table for D1, D2 and D36; the others are cited where used
 - Reference SHA: `reference/Bund` at `21b40b0`, `rust_dynamic` at `ceb27c9`,
   `bund_language_parser` at `8037772`, per `reference/PINNED.txt`
 - Supersedes: `docs/research/02-native-binaries.md` §9's phasing, recorded in
@@ -48,13 +58,22 @@ bundle carries is neither: it is the program, and a program in Bund2 is a
 predates RFC-0003's narrowing and is read here as "the program", which is what
 it meant when written.
 
+**"The trailer" means the header of the payload region.** §B1 began as an
+appended payload with a trailer at the end of the file, and measurement
+replaced that with a fixed region inside the image (Q40). The word survives
+through §B3, §B3a, §B4 and the preservation table, and everywhere after §B1's
+reversal it names the region's header fields — container version, state,
+flags, length, Bund2 version, source path, features, pinned SHAs
+(`crates/bund2-cli/src/bundle.rs`, `Region`). Nothing is read from the end of
+a file.
+
 ## Summary
 
 `bund2 build` produces a runnable artefact. Two modes, in scope together
 because D10 decides them together:
 
-- **`--emit=bundle`** — a prebuilt runtime with the program's **source text**
-  appended. **No compiler is invoked at all**: not Cranelift, not `rustc`, not
+- **`--emit=bundle`** — a copy of the building `bund2` (D118) with the
+  program's **source text** written into it. **No compiler is invoked at all**: not Cranelift, not `rustc`, not
   a linker, not `cc`. Runs on every target Rust runs on.
 - **`--emit=native`** — **withdrawn, D83.** Its stated justification was
   measured away by criterion 1, what remained was not enough against §B5's
@@ -104,16 +123,28 @@ the pinned SHAs rather than citing the register.
 the first revision of this RFC got that wrong by repeating D11's own gap.
 `encode.base64` pulls a value and calls **`to_binary`** on it
 (`reference/Bund/src/stdlib/functions/encoding/base64.rs:33`) — the same
-serialiser — so `"1 2 +" compile encode.base64` yields the base64 of exactly
-the bytes `compile_to_binary` would write. D11 is amended accordingly — **twice**, because the first amendment was also
+serialiser — so `"1 2 +" compile encode.base64` yields base64 of a LIST in the
+format `compile_to_binary` would write. **The same format, and not the same
+bytes — corrected 2026-10-08.** This sentence said "exactly the bytes", which
+is false twice over. The Bund word `compile` is not `compile_to_binary`'s front
+half: it appends a newline before parsing and stops at the first `EXIT`
+(`reference/Bund/src/stdlib/functions/bund/bund_interpreter.rs:29-36`). And a
+`Value` serialises its `id` and `stamp`, which are minted when it is
+constructed (`reference/rust_dynamic/src/value.rs:15-36`), so two parses of
+one text do not produce equal bytes at all. D11 is amended accordingly — **twice**, because the first amendment was also
 wrong. Those bytes do not "reach only a Bund string": `save.*` writes **every
 lambda** to the world file with `to_binary`, which is exactly
 `Value::compile`'s format, into a SQLite table on disk
 (`reference/Bund/src/stdlib/helpers/world/lambdas.rs:80-95`). So the format
 does reach a file, and whether anything outside Bund2 reads that file is
-**D31**, which is OPEN. D11's answer is therefore not independent of D31 the
-way D11's split assumed; this RFC does not resolve either and does not rest on
-them, since §B2 embeds source text and uses neither format.
+**D31**. **D31 is RESOLVED** — on 2026-09-11, "no external readers" — and this paragraph said it was OPEN until 2026-10-08, eighteen days
+after the ruling. So the dependency it drew is closed: nothing outside Bund2
+reads the file the format reaches. This RFC rests on neither decision, since
+§B2 embeds source text and uses neither format. **Which words write it**:
+`save` and `save.lambdas` call `save_lambdas`
+(`reference/Bund/src/stdlib/functions/bund/bund_save.rs:19`, `:53`);
+`save.aliases` and `save.stacks` were not followed, and "every lambda" above
+is a claim about those two words and not about the glob.
 
 What this section does establish is the shape: the reference's whole-program
 form is **one LIST value**, not a vector of them, so "one value per element" was
@@ -158,6 +189,10 @@ stub and link it, as `docs/research/02-native-binaries.md:44-49` describes —
 **would violate D10**, because `rustc` links through `cc` on Linux and macOS.
 That reading is rejected here, explicitly, so nobody reaches for it later.
 
+**The construction in the next three paragraphs was replaced — read on to
+"So the payload goes inside the image".** It is kept because the measurement
+that replaced it is only intelligible beside it.
+
 Instead: `bund2 build` **copies a prebuilt runtime executable for the target
 and appends the payload**, followed by a fixed-size trailer carrying a magic,
 the format version, the pinned SHAs, and the payload's length. At start-up the
@@ -170,6 +205,8 @@ silently:
 - **`bund2 build` ships or locates a prebuilt runtime per target it can bundle
   for**, including targets Cranelift does not support. Producing a bundle for
   a target is therefore gated on having that runtime, not on having a compiler.
+  **Not the design — D118, 2026-10-08.** The runtime is the binary doing the
+  building; see "What is built" below.
 - **Criterion 3 is about the prebuilt runtime, not a per-build stub.** `cargo
   tree` on a stub crate would pass today, before any bundle exists, which makes
   it worthless as written; the criterion below asks the shipped runtime binary
@@ -246,24 +283,36 @@ Windows: ELF and PE carry no equivalent whole-file signature by default, so
 appending is *expected* to be unaffected, and that is reasoning from the
 formats rather than a measurement.
 
-**What the runtime does when the trailer is not there, or is wrong.** D37
-forbids a panic, and a bundle runtime is the same binary as the interpreter, so
-this path is reached by anyone who runs the prebuilt runtime directly. Four
-cases, all of them errors and none of them aborts:
+**What the runtime does when the region is empty, or is wrong.** D37 forbids
+a panic, and a bundle runtime is the same binary as the interpreter, so this
+path is reached by every `bund2` that starts: each one asks its own image
+whether it carries a program before it reads argv
+(`crates/bund2-cli/src/main.rs`, `run_cli`). One case that is not a failure
+and four that are, none of them an abort (`crates/bund2-cli/src/bundle.rs`,
+`carried` and `Damaged`):
 
-- **No trailer** — the magic is absent. The runtime behaves as `bund2` does
-  with no program: it is the plain interpreter, not a failure.
-- **Magic present, trailer truncated**, so the length or the SHAs cannot be
-  read: refused with a diagnostic naming the artefact as damaged.
-- **Length implausible** — beyond the file, or overlapping the trailer:
-  refused the same way, and the length is checked against the file's size
-  before any read.
-- **Payload unreadable as text.** The payload is source (§B2), so this is a
-  UTF-8 failure and is refused before the parser sees it.
+- **The state byte says empty.** Nobody built from this runtime. It is the
+  plain interpreter.
+- **A container version this runtime does not read**: refused, naming both
+  versions and saying the artefact was built by a different bund2.
+- **A state byte that is neither empty nor filled**: refused as damaged.
+- **A length past the region's capacity**: refused as damaged, before any
+  read of the payload.
+- **A payload that is not UTF-8.** The payload is source (§B2), so this is
+  refused before the parser sees it.
 
-Criterion 12 checks all four, because a corrupted artefact is the one input a
+Criterion 12 checks all five, because a corrupted artefact is the one input a
 bundle's front end is guaranteed to meet eventually and the only one that could
 reach for an `unwrap`.
+
+*Until 2026-10-08 this list was the appended form's: no trailer, a truncated
+trailer, a length beyond the file, unreadable text. A fixed region cannot be
+truncated, and a bad state byte and an unknown container version were in
+neither that list nor criterion 12's. The sixth review, S6.*
+
+**Every `bund2` carries the region, bundle or not.** 1 MiB in every build, and
+a damaged region stops the plain interpreter as it stops a bundle. That is a
+change to the interpreter's start-up and not only to artefacts.
 
 **The trailer records Bund2's own version, not only `reference/`'s SHAs.** A
 builder and a prebuilt runtime can be different Bund2 builds — the pinned SHAs
@@ -271,6 +320,35 @@ say which oracle the *meaning* was fixed against and say nothing about the code
 doing the interpreting. Without Bund2's version in the trailer, a mismatch is
 undetectable; with it, the runtime can refuse or warn on one it does not
 recognise.
+
+**What is built, stated 2026-10-08 because the paragraphs above describe more
+than exists — the sixth review, B4.** `bund2 build` copies
+`std::env::current_exe()`: **the runtime is the binary doing the building**
+(`crates/bund2-cli/src/main.rs`, `build`). Four things follow, and none was
+written down:
+
+- **A bundle is always for the builder's own target.** No prebuilt runtime is
+  shipped or located, so a bundle for another target cannot be produced — the
+  case §B6 gives as the reason the mode is mandatory.
+- **A bundle always carries the builder's own feature set.** A JIT bundle is
+  made by building `bund2` with `jit` and running *that* binary's `build`,
+  which is how `a_jit_bundle_enters_compiled_code` gets one. `--features` on
+  `bund2 build` is refused, with that explanation.
+- **Builder and runtime cannot differ**, so the version skew described above
+  cannot occur today. The version is recorded and `--inspect` prints it; the
+  runtime does not read it, and "refuse or warn" is unbuilt.
+- **§B3's "the artefact re-parses at start-up" is safe because of this.** The
+  parser that accepted the program at build is the parser that reads it at
+  start. With a separate prebuilt runtime that would stop being true.
+
+**The built form is the design — D118, ruled 2026-10-08**: "bundle runtime is
+the building binary". So the first bullet is a stated limit and not a gap, the
+version field is for a reader of `--inspect`, and the skew paragraph above
+describes a construction that was not taken. **Cross-target bundling is
+deferred, not foreclosed.** Its trigger is a need to produce an artefact for a
+target from a machine that cannot run that target's `bund2`; it would need
+runtime discovery, a version check the runtime acts on, and a new answer for
+parse-at-build, and it would be a new decision.
 
 ### §B2 — What is embedded: the source text
 
@@ -351,14 +429,22 @@ parser already gets all three right.
 ### §B3 — The stub, and the evaluation thread it must reproduce
 
 **The start-up path cannot simply call `eval`.** `bund2-cli`'s `main` runs
-everything on a spawned thread sized `TIER0_PART + TIER1_SHARE +
-STACK_RESERVE`, then declares the region with `set_stack_region_with_share`
-(`crates/bund2-cli/src/main.rs`). The reason is recorded at the call:
+everything on a spawned thread sized `EVAL_STACK` — `TIER0_PART + TIER1_SHARE
++ STACK_RESERVE` — and that thread declares its region through
+`declare_region` (`crates/bund2-runtime/src/lib.rs`, both symbols; called from
+`crates/bund2-cli/src/main.rs`, `main`). The reason is recorded at the call:
 
-> A share is declared, never inferred — RFC-0005 §S8, the ninth review's S3.
-> Declaring through `set_stack_region` would leave the share at zero, putting
-> the Tier 1 floor above the thread's top so that every compiled body declines:
-> criterion 2 would then pass with no compiled code having run at all.
+> **A share is declared, never inferred** — RFC-0005 §S8, the ninth review's
+> S3. `declare_region` is the one place that does it, now that RFC-0007 §C8's
+> host spawns threads of its own: two copies of three constants and a two-line
+> call would be two chances to omit the share, which is the failure criterion
+> 18 and `compiled_entries` exist to catch.
+
+*(Until 2026-10-08 this quoted an earlier comment, since rewritten, and named
+`set_stack_region_with_share` in `main.rs` as the call. The failure is the
+same one: a share left at zero puts the Tier 1 floor above the thread's top,
+so every compiled body declines and this RFC's criterion 2 would pass with no
+compiled code having run.)*
 
 That is the state `compiled_entries` was added to expose — a tier that compiles
 everything, enters nothing, and reports success on every other figure
@@ -375,11 +461,11 @@ on that thread is the **parse**, and the depth that matters is the parser's
 `MAX_NESTING` of 1024, not `MAX_WIRE_DEPTH`'s 256 — which is also why criterion
 5 is set at 1024. Three reviews raised this sentence; it is the last of them.
 
-**Four things the artefact's front end must settle, and does here:**
+**Six things the artefact's front end must settle, and does here:**
 
 - **argv.** The runner consumes nothing. A bundle is the program, so all of
   argv reaches `args` and `args.parse` (`crates/bund2-stdlib/src/host.rs`,
-  `script_args`). The CLI's own flags — `--stats`, `--dump-stack`,
+  `script_args`). The CLI's own flags — `--stats`, `--no-dump-stack`,
   `--raw-values`, `--jit-threshold` — are **not** available in a bundle,
   because a bundle that swallowed `--stats` would shadow a program's own
   argument. They move to environment variables, and the names are part of this
@@ -392,6 +478,15 @@ on that thread is the **parse**, and the depth that matters is the parser's
   2026-10-08 this list named `BUND2_DUMP_STACK`, which the binary has never
   read: measured on a bundle of `1 nosuch`, setting it to `0` left the dump
   in the report and `BUND2_NO_DUMP_STACK=1` removed it.
+
+  **Three more are read, and were missing from this list until 2026-10-08:**
+  `BUND2_NOIO` and `BUND2_NOEVAL`, which add §B3a's restrictions at run time
+  and are the only way to exercise D78's floor, and `BUND2_NOCOLOR`. **The
+  rule for all of them except the threshold is one rule**: a variable counts
+  as set when it is present and is neither empty nor `0`
+  (`crates/bund2-cli/src/main.rs`, `env_set`). So `BUND2_NOEVAL=0` and
+  `BUND2_NOEVAL=` are both "unset", which is why those are the two values
+  criterion 10 tries against a floor.
 - **The exit code** is `vm.exit_requested()`, as the CLI returns
   (`crates/bund2-cli/src/main.rs`, `run_cli`).
 - **The reporter** is the CLI's `TextReporter`, with the same `wants_stack`
@@ -399,7 +494,8 @@ on that thread is the **parse**, and the depth that matters is the parser's
   (D45, `crates/bund2-stdlib/src/report.rs`).
 - **One program.** `bund2 build` takes exactly one source file. Not a
   directory, not several files, not standard input; a program that needs more
-  reaches them through `use`, which D76 settles.
+  reaches them through `use`, which D76 settles. **A second `--file` is
+  refused** — see "The command line" below.
 - **`bund2 build` parses before it writes.** A syntax error is a build error,
   reported with its span against the source it was given, and the parse result
   is then discarded — the artefact re-parses at start-up, which is what keeps
@@ -408,18 +504,47 @@ on that thread is the **parse**, and the depth that matters is the parser's
   by whoever built it and one found by whoever ran it.
 - **The diagnostic file name comes from the trailer.** A bundle has no file on
   disk to name, and `Diagnostic`'s location carries one. `bund2 build` records
-  the source path it was given, verbatim, and the artefact reports locations
-  against it — so a bundle's stderr matches a `script` run of the same program
-  from the same path. Without this, criterion 2 would compare stderr that
+  the source path it was given, verbatim **up to 256 bytes**, and the artefact
+  reports locations against it — so a bundle's stderr matches a `script` run
+  of the same program from the same path. **A longer path keeps its last 256
+  bytes**, so the file name survives and the leading directories do not
+  (`crates/bund2-cli/src/bundle.rs`, `write_into`), and the build says so on
+  stderr. Measured 2026-10-08 with a 353-byte path: the bundle's report names
+  the shortened path, a `script` run names the whole one, and until that day
+  the build said nothing. `a_source_path_too_long_to_record_is_reported_at_build`. Without this, criterion 2 would compare stderr that
   differs by construction, and one approved deviation's recorded hash pins a
   path Bund2 prints, so the CEILING would move.
+
+**The command line, as built — added 2026-10-08, the sixth review's B3.**
+
+    bund2 build --file <src> --output <path> [--noio] [--noeval]
+    bund2 build --inspect <artefact>
+
+`-o` is `--output`. `--emit=bundle` is accepted and changes nothing, because
+it names the only mode there is; this document writes `bund2 build
+--emit=bundle` throughout for that reason and the flag may be left off.
+**Everything else is refused, with exit status 2 and nothing written**
+(`crates/bund2-cli/src/main.rs`, `build_request`):
+
+- `--emit=native` — "withdrawn and is not built (D83)".
+- `--features` — a bundle is a copy of the building binary, so its features
+  cannot be chosen here (§B1, "What is built").
+- A second `--file`, `--output` or `--inspect`.
+- Any argument it does not know.
+
+Until 2026-10-08 the command looked up the flags it knew and skipped the
+rest. Measured on that tree: `bund2 build --emit=native --features jit --file
+p.bund --output n1` exited 0 and wrote a default-feature bundle — a withdrawn
+mode accepted and a request for a different runtime answered with this one,
+which is the silent failure §B3a argues against for the restriction flags.
+`a_build_refuses_arguments_it_does_not_understand` holds the refusals.
 
 ### §B3a — What a bundle may switch off, and what that does not mean
 
 **`--noio` and `--noeval` may be recorded in the trailer, and an environment
 variable at start-up may add either and never remove one** — D78. Both are
 `HostOptions` fields: `--noio` registers the I/O words as stubs that fail, and
-`--noeval` does the same to `bund.eval`, `use` and `use.`
+`--noeval` does the same to the six words of its group, named below
 (`crates/bund2-stdlib/src/host.rs`, `HostOptions` and `register_noeval_stubs`;
 from the reference's own command line,
 `reference/Bund/src/cmd/mod.rs:139-146`).
@@ -445,15 +570,92 @@ floor's *direction*, or the restrictions line reads as the whole truth.
 D78 rules the word out. What follows is what each flag leaves ungated, by name,
 which D78 requires and the second revision of this RFC gave for `--noio` only.
 
-**`--noio` leaves ungated:** `args`, `sleep.seconds` and `io.graph` — no gate
-in the reference and none here (`crates/bund2-stdlib/src/host.rs`, module
-documentation).
+**What `--noio` gates, by name.** Measured on Bund2 on 2026-10-08 by running
+each of the 610 names `bund2 words` lists as a one-word program under
+`--noio`: **56 answer with the stub**, and they are —
+
+- files and directories: `fs.cwd` `cwd` `fs.cp` `cp` `fs.mv` `mv` `fs.rm` `rm`
+  `fs.is_file` `fs.ls` `fs.ls.` `ls` `ls.` `fs.ls.dir` `fs.ls.dir.`
+  `fs.ls.files` `fs.ls.files.` `filename` `filename.` `file.write`
+  `file.write.` `io.textfile` `io.textfile.`
+- reading text from a file or a URL: `file` `file.` `url` `url.`
+- the shell and the process: `system.shell` `system.shell.` `sh` `sh.`
+  `system.setproctitle` `system.setproctitle.`
+- the world file: `save` `save.aliases` `save.lambdas` `save.stacks`
+  `save.model` `save.script` `load` `load.aliases` `load.lambdas`
+  `load.stacks` `load.model` `load.script` `bootstrap`
+- the bus: `send` `send.` `send.quick` `send.quick.` `recv` `recv.` `bus.data`
+  `bus.data.current`
+- `io.banner` `io.banner.`
+
+**What `--noio` leaves ungated — rewritten 2026-10-08, the sixth review's
+B2.** Everything else. Until that day this paragraph named `args`,
+`sleep.seconds` and `io.graph`, which are the ungated words *of one module*
+(`crates/bund2-stdlib/src/host.rs`, module documentation) presented as the
+flag's whole surface. Of the 554 names the flag does not touch, these reach
+outside the program, and each was among the ones measured:
+
+- **Two read a file the program names.** `csv` and `sqlite` open a path and
+  hand its rows to a lambda. Measured on a bundle built `--noio --noeval`:
+  `"…/t.csv" csv :lambda { println } set !` printed the file's rows. The
+  reference registers both with no gate
+  (`reference/Bund/src/stdlib/functions/conditional/mod.rs:42-43`) and opens
+  the file at `conditional_csv.rs:62` and `conditional_sqlite.rs:38`.
+- **One writes a file.** `debug.shell` saves its line history. Measured on
+  the same kind of bundle: one typed line wrote
+  `bund2/bund_debug_shell_history.txt` under the configuration directory of
+  whoever ran it (`crates/bund2-stdlib/src/terminal.rs`, `history_path`). The
+  reference writes the same file into the working directory
+  (`reference/Bund/src/stdlib/functions/debug_fun/debug_shell.rs:20`, `:52`)
+  and gates it no more than Bund2 does. `debug` keeps one of its own,
+  `bund_debug_debugger_history.txt`, by the same route — read from the code
+  and not measured.
+- **Standard input**: `input` `input*` `password` `bund.prompt`
+  (`reference/Bund/src/stdlib/functions/io/input.rs:142-145`), and `debug`
+  and `debug.shell`.
+- **The host's identity**: `system.ip` `system.ipv6`
+  (`reference/Bund/src/stdlib/functions/system/ip.rs:34-35`), `system.locale`
+  (`system/locale.rs:27`), `sysinfo.hostname` `sysinfo.kernel_version`
+  `sysinfo.os_version` (`sysinfo/host.rs:66-68`), `sysinfo.system`
+  `sysinfo.version` `version` `sysinfo.virtualization`
+  `sysinfo.virtualization?`, the twelve `sysinfo.mem.*` words, and
+  `debug.display_hostinfo` `debug.display_memstat`
+  `debug.display_distributed_info`.
+- **The command line**: `args` `args.parse`.
+- **The clock, sleeping and randomness**: `time.now` `time.timestamp`
+  `time.timestamp.` `sleep` `sleep.seconds` `id.ulid` `id.uuid`
+  `math.random.int` `math.securerandom.int` and the `string.random.*` words.
+- **Standard output and standard error**: `print` `println` and their
+  workbench forms, `display`, `nl`, `space`, `io.graph` `io.graph.`, the five
+  `log.*` words and the `debug.display_*` words.
+- **Ending the process**: `bund.exit` `exit`.
+
+**These are the reference's boundary and not defects in the flag** — D79's
+reading, applied to the other flag. The string `disabled with --noio` occurs in
+sixteen files under `reference/Bund/src/stdlib/functions`, and none of them is
+`conditional/`, `io/input.rs`, `system/ip.rs`, `system/locale.rs`, `sysinfo/`
+or `debug_fun/`. What "I/O" means to the flag is the filesystem words, the
+shell, the world file and the bus. It is not "the program touches nothing
+outside itself", and a runner who reads `restrictions --noio` that way is
+wrong about `csv`, `sqlite`, the address of the machine and the history file.
+
+**One line of this is a bundle's own.** The history file is written on the
+machine of whoever *runs* the artefact, by a word its author left in. For a
+`script` run that is RFC-0008's business; for a shipped artefact it belongs
+here, and nothing switches it off.
 
 **`--noeval` disables the `bund.eval` group of functions — D79 — which is what
 its own help text says it does**: `Disable bund.eval group of functions`
-(`reference/Bund/src/cmd/mod.rs:141-142`). The group is `bund.eval`,
-`bund.eval.`, `use` and `use.` (`crates/bund2-stdlib/src/host.rs`,
-`register_noeval_stubs`).
+(`reference/Bund/src/cmd/mod.rs:142-143`). **The group is six words**:
+`bund.eval`, `bund.eval.`, `bund.eval-file` and `bund.eval-file.`
+(`reference/Bund/src/stdlib/functions/bund/bund_eval.rs:117-121`), and `use`
+and `use.` (`reference/Bund/src/stdlib/functions/bund/bund_use.rs:74-76`).
+Bund2 stubs the same six (`crates/bund2-stdlib/src/host.rs`,
+`register_noeval_stubs`). **Until 2026-10-08 this document said four**, three
+times, citing the function that lists six; the two it left out are the pair
+that read a *file* and run it. The behaviour was always right — measured, a
+bundle built `--noeval` refuses `"p.bund" bund.eval-file` — and D79, which
+carries the same four, has a dated note.
 
 **It is not a claim that a program evaluates nothing**, and this RFC's second
 revision wrongly described it as failing to be one. `compile` is registered
@@ -464,23 +666,28 @@ unconditionally
 
 prints `42` under `--noeval --noio`. **Verified on both binaries** — Bund2 and
 the oracle at `21b40b0` agree. `compile` parses a string to a LIST, `lambda!`
-makes it callable, `!` runs it, and none of the three is in the group the flag
-names. **That is the boundary of what the flag is for, not a shortfall in it**
+makes it callable
+(`reference/Bund/src/stdlib/functions/bund/bund_fun.rs:218`), `!` runs it — it
+is an alias of `execute`
+(`reference/rust_multistackvm/src/stdlib/create_aliases.rs:5`) — and none of
+the three is in the group the flag names. **That is the boundary of what the flag is for, not a shortfall in it**
 (D79), and naming it is what D78 requires.
 
 **So the earlier sentence "fetching is gated by `--noeval`, not `--noio`" was
 half wrong, and D78 repeats it.** `url`, `url.`, `file` and `file.` are
-`--noio` stubs, so `--noio` *does* gate fetching through them; `use` is gated
+`--noio` stubs (`reference/Bund/src/stdlib/functions/filesystem/file.rs:92-98`),
+so `--noio` *does* gate fetching through them; `use` is gated
 by `--noeval`. The accurate statement is that **no single flag stops a program
 obtaining text and running it**: under `--noeval` alone, `url` fetches and the
 three words above evaluate the result.
 
 **Two more routes run text a program was handed, and neither flag gates
 them — added 2026-10-08, from the acceptance review's B4.** `debug` and
-`debug.shell` read lines and evaluate each one, and the reference registers
-both with no gate
-(`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:155`,
-`reference/Bund/src/stdlib/functions/debug_fun/debug_shell.rs:67`). Measured
+`debug.shell` read lines and evaluate each one
+(`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:82-89`,
+`reference/Bund/src/stdlib/functions/debug_fun/debug_shell.rs:25-29`), and the
+reference registers both with no gate (`debug_debug.rs:155`,
+`debug_shell.rs:67`). Measured
 on a bundle built `--noeval --noio` whose program is `debug.shell`: the typed
 line `40 2 + println` prints `42`. A typed `"1" bund.eval` is refused, because
 the stub holds wherever the word is typed. This is D79's boundary again: the
@@ -500,7 +707,7 @@ builder who believed either flag prevented remote code from running would be
 wrong.
 
 **`--nocolor` is not in this class.** It is presentational — it changes how one
-debug word draws its table — so it joins `--stats`, `--dump-stack` and
+debug word draws its table — so it joins `--stats`, `--no-dump-stack` and
 `--raw-values` in the environment-variable channel above, not in the trailer.
 
 **Why a switch and not analysis.** D16 means no build can prove a program never
@@ -521,10 +728,25 @@ under a `grok` build and fails in a default-feature bundle — as an unknown wor
 names (it cannot, per D16). This is D40's feature gate seen from the artefact
 side. `bund2 build` therefore records in the trailer which features its runtime
 carries, and `--emit=bundle --features` selects among the runtimes it has.
+**The second half of that sentence is not the design — D118** (§B1, "What is built"): the
+runtime is the building binary, `--features` is refused, and the record says
+what that binary was compiled with — `jit`, `aot`, `async`, and `grok`.
+**`grok` was missing from the record until 2026-10-08**, though it is this
+section's own example: the feature is `bund2-stdlib`'s, `bund2-cli` does not
+declare it, and a `cfg!` there could never see it. It is now asked of the
+crate that owns it (`crates/bund2-stdlib/src/lib.rs`, `GROK_BUILT_IN`). Read
+from the code; a `grok` build compiles C and was not made.
+
+**`--inspect` on a runtime nobody built from prints no feature set.** The
+fields are written by `bund2 build`, so the plain interpreter's are empty, and
+an empty feature field used to print as "default features" — for a `jit`
+build of `bund2` too. It now prints "unrecorded"
+(`an_unbuilt_runtime_claims_no_feature_set`).
 
 **A bundle may carry the JIT, opt-in and never by default — D80.** The default
 runtime carries no code generator, and that default is what a target Cranelift
-does not support receives; `--features jit` asks for the other one. No
+does not support receives; `--features jit` asks for the other one — today by
+building `bund2` with `jit`, as above. No
 deviation from D10 was needed: that sentence describes what an unsupported
 target gets, and the research it cites marks Cranelift "optional (for JIT
 tiering)" for this very product
@@ -584,7 +806,9 @@ mirror cases were excluded because "§S7 compiles a body *on* an entry and runs
 that entry interpreted", and that row states its own trigger: "it holds only
 while §S7 compiles on an entry rather than ahead of one. **If that changes** —
 an ahead-of-entry or background compile, which RFC-0006 may want — the mirrors
-become writable and this row reopens" (RFC-0005:6548-6561). `--emit=native`
+become writable and this row reopens" (RFC-0005:6725-6739; the passage has
+moved since this was written, and `cargo xtask cite` does not check a line
+citation from one RFC into another). `--emit=native`
 compiles ahead of every entry by definition, so **building this mode reopens
 those two cases and they become owed**, not excluded. The trigger fired as
 written, which is the argument for writing triggers that way.
@@ -601,8 +825,11 @@ D40 is inherited whole: `string.grok` is gated off by default because a C
 dependency beneath the artefact would invert D10's escape hatch, and a
 cross-compiled `cranelift-object` build inherits the same problem. A target
 Cranelift does not support gets `--emit=bundle`, which is why that mode is
-mandatory rather than convenient — and, under §B1, why it needs a prebuilt
-runtime for that target rather than a compiler on the build host.
+mandatory rather than convenient. **Under D118 that target is served by a
+default-feature `bund2` built for it**, which needs no compiler where the
+bundle is made; producing its bundle from another machine is the deferred
+part. *(Until 2026-10-08 this ended "it needs a prebuilt runtime for that
+target rather than a compiler on the build host".)*
 
 ### §B7 — `use` in a built artefact
 
@@ -668,7 +895,9 @@ on the answer.
 | behaviour | disposition |
 |---|---|
 | The reference's object formats | **Not preserved, and nothing can depend on either.** Two producers, `Value::compile` and `compile_to_binary`, both with zero reachable callers. D11. |
-| Program meaning under a bundle | **Preserved exactly**, because the artefact parses and evaluates the same source through the same entry points. Criterion 2 checks it per golden. |
+| Program meaning under a bundle | **Preserved, with one exception that is a ruling.** The artefact parses and evaluates the same source through the same entry points, and criterion 2 checks it per golden. The exception is the next row. |
+| The arming and moving debugger words | **Deliberately changed — D115.** `"a" println debug.step "b" println` stops at a console under `script` and does not in a bundle: there the words do nothing. It is the one place the same source means two things. `a_bundles_debugger_words_do_nothing`. |
+| `.id` of a literal | **Preserved, and not checked.** A literal is constructed when the program runs, so its identity is minted per run as its stamp is — the encoded stream would have fixed both at build (D1, D20). Criterion 9 checks the stamp alone; no test compares identities across two runs of one bundle. |
 | `.timestamp` of a literal | **Preserved** — literals are constructed at run time, as §B2 requires. This is the row that failed under the encoded stream. |
 | The anonymous `( … )` context name | **Preserved** — minted per run. |
 | Scalar representation, fragment admission, tier agreement | **Preserved** — scalars stay unboxed, so `TopAreInt` admits and inlining still fires. |
@@ -678,16 +907,20 @@ on the answer.
 | Which words exist | **Changed, and it is D40's gate seen from outside.** The runtime's feature set decides; a missing word fails at run time. Recorded in the trailer (§B4). |
 | `args` / `args.parse` | **Preserved.** All of argv reaches the program; the runner consumes nothing (§B3). |
 | Exit code | **Preserved** — `vm.exit_requested()`. |
-| Diagnostic flags (`--stats`, `--dump-stack`, `--raw-values`) | **Deliberately changed.** Not argv flags in a bundle, because they would shadow the program's own arguments; they move to environment variables. |
+| Diagnostic flags (`--stats`, `--no-dump-stack`, `--raw-values`) | **Deliberately changed.** Not argv flags in a bundle, because they would shadow the program's own arguments; they move to environment variables. |
 | `use` | **Preserved exactly** — D76, under D54's scheme set. |
-| `--noio`, `--noeval` | **Deliberately available as a build-time floor — D78.** Recorded in the trailer; run time may add either and never remove one. Not a boundary: §B3a names what each leaves ungated. |
+| `--noio`, `--noeval` | **Deliberately available as a build-time floor — D78.** Recorded in the trailer; run time may add either and never remove one. Not a boundary: §B3a names what each gates and what each leaves ungated — for `--noio` that includes two words that read a file, one that writes one, standard input, and the host's address and name. |
 | `--nocolor` | **Preserved as a per-run choice**, in the environment-variable channel with the diagnostic flags. Presentational, not a capability. |
-| Diagnostic file name | **Preserved** via the trailer's recorded source path (§B3), without which a bundle's stderr differs by construction and the CEILING moves. |
+| Diagnostic file name | **Preserved for a path of up to 256 bytes** via the trailer's recorded source path (§B3), without which a bundle's stderr differs by construction and the CEILING moves. **A longer path is changed**: its last 256 bytes are kept, and the build says so. |
+| A program larger than 1 MiB | **Changed: it runs under `script` and cannot be bundled.** Refused at build with both numbers named (§B1, criterion 11). The limit is not discoverable before it is hit except by `--inspect`, which prints the capacity. |
+| The debugger's history files in a shipped artefact | **New surface, and ungated.** A bundle whose program calls `debug.shell` or `debug` writes line history under the configuration directory of whoever runs it (§B3a). |
+| `bund2` itself | **Changed.** Every `bund2` carries the 1 MiB region and reads it before argv, so a damaged region stops the plain interpreter too (§B1). |
+| `bund2 build`'s arguments | **Refused when not understood** — `--emit=native`, `--features`, a repeated `--file`, anything unknown (§B3, "The command line"). |
 | A syntax error's timing | **Deliberately changed**: found at build rather than at run (§B3). A build that wrote an unparseable program would move the error to whoever ran it. |
 | RFC-0005 criterion 30's excluded mirrors | **Reopened by `--emit=native`**, on that row's own stated trigger. Owed once the mode exists, not excluded. |
-| What `--noeval` stops | **Preserved exactly — D79.** It disables the `bund.eval` group: `bund.eval`, `bund.eval.`, `use`, `use.`. `compile` is not in the group, so `compile lambda! !` still evaluates, on both binaries. §B3a names the boundary. |
-| A damaged or absent trailer | **New surface, specified.** Four cases, all errors, none a panic (§B1, criterion 12). |
-| Bund2's own version | **Recorded in the trailer.** The pinned SHAs name the oracle, not the interpreter, so a builder/runtime skew would otherwise be undetectable. |
+| What `--noeval` stops | **Preserved exactly — D79.** It disables the `bund.eval` group, six words: `bund.eval`, `bund.eval.`, `bund.eval-file`, `bund.eval-file.`, `use`, `use.`. `compile` is not in the group, so `compile lambda! !` still evaluates, on both binaries. §B3a names the boundary. |
+| A damaged or empty region | **New surface, specified.** An empty region is the plain interpreter; four kinds of damage are errors, none a panic (§B1, criterion 12). |
+| Bund2's own version | **Recorded in the trailer, and read by `--inspect` only.** The pinned SHAs name the oracle, not the interpreter. No skew can occur, because the runtime is the builder (D118), and the runtime does not check the field. |
 | Code signing of the artefact | **Measured, and the design changed — Q40.** Appending runs but can never validate, and re-signing does not repair it, so the payload goes inside a reserved region instead (§B1). |
 | Run-time-registered words under `--emit=native` | **Speed only.** No code generator in the image, so they stay interpreted. |
 | D10's "embedded IR" description | **Approved deviation — D77.** Source text is embedded instead, read as descriptive; D10's resolution about the toolchain is untouched. |
@@ -804,6 +1037,12 @@ on the answer.
    **Met, 2026-09-30** — `a_default_artefact_contains_no_code_generator`
    (`crates/bund2-cli/tests/bundle_build.rs`), which searches the produced
    artefact's bytes rather than a crate graph.
+
+   **Its companion was missing until 2026-10-08.** Criterion 7 argues for a
+   non-vacuity test beside every absence check, and this absence check had
+   none: nothing showed the search could find Cranelift where it is.
+   `a_jit_artefact_contains_the_code_generator` does, under `--features jit`.
+   Both run in debug; a stripped release binary was not searched.
 4. **A bundle is produced with no C toolchain and no compiler.** Built in an
    environment with no `cc` **and no `rustc`**, which §B1 makes possible and is
    a stronger check than reading a dependency list.
@@ -889,9 +1128,12 @@ on the answer.
    the build, and the two runs must differ. **Load-bearing by construction**: a
    frozen build-time stamp cannot lie inside two disjoint windows.
 10. **A restriction cannot be loosened at run time.** A bundle built `--noeval`
-    still refuses `bund.eval`, `use` and `use.` with every environment
-    variable the start-up path reads set to every value that would clear them,
-    and `--inspect` still reports the restriction. D78's direction made
+    still refuses each of the group's six words, and one built `--noio` still
+    refuses an I/O word, with `BUND2_NOEVAL` and `BUND2_NOIO` each set to `0`
+    and to empty — the two values `env_set` reads as "unset" (§B3) — and
+    `--inspect` still reports the restriction. *(Until 2026-10-08 this read
+    "every environment variable … set to every value that would clear them",
+    which no test can exhaust, and named three of the six words.)* D78's direction made
     checkable, because this is the failure that would otherwise be silent.
 
     **Met, 2026-09-30, both halves** —
@@ -900,6 +1142,11 @@ on the answer.
     artefact still accepts a restriction added at run time. The `--inspect`
     half, recorded as unbuilt earlier the same day, is
     `an_artefact_describes_itself` and `an_unrestricted_artefact_says_so`.
+
+    **Widened 2026-10-08** — that test tried `bund.eval` alone and `--noeval`
+    alone. `both_floors_hold_for_every_word_they_name` tries all six words,
+    `bund.eval-file` and its workbench form among them, and tries `--noio`'s
+    floor with `fs.cwd`, in both directions.
 
     **It checks the stubs and nothing more, deliberately.** A criterion that
     claimed more would be false: `"40 2 +" compile lambda! !` prints `42` under
@@ -914,9 +1161,13 @@ on the answer.
     **Met, 2026-09-30** — `a_built_artefact_validates`, plus
     `a_program_over_capacity_is_refused_and_writes_nothing`, which asserts the
     error names both numbers **and that the image is unchanged**.
-12. **A damaged artefact is refused, not aborted.** All four of §B1's cases —
-    absent magic, truncated trailer, implausible length, non-UTF-8 payload —
-    produce a diagnostic and an error status, and none reaches a panic. D37,
+12. **A damaged artefact is refused, not aborted.** All four of §B1's kinds of
+    damage — an unknown container version, a state byte that is neither value,
+    a length past capacity, a payload that is not UTF-8 — produce a diagnostic
+    and an error status, and none reaches a panic; an empty region is the
+    plain interpreter. *(Until 2026-10-08 this named the appended form's
+    cases, one of which — a truncated trailer — cannot occur in a fixed
+    region.)* D37,
     and the one input a bundle's front end will certainly meet.
 
     **Met, 2026-09-30** — `a_damaged_artefact_is_refused_with_an_explanation`
@@ -925,7 +1176,9 @@ on the answer.
     absent region, is `an_unbuilt_runtime_carries_nothing` — a runtime nobody
     built from is the plain interpreter, not a failure. Each damaged artefact
     is **re-signed before it is run**, or macOS kills it before the runtime can
-    report and the test would pass for the wrong reason.
+    report and the test would pass for the wrong reason. **The container
+    version was driven through the binary by no test until 2026-10-08**; it
+    is the fourth case of the same test now.
 13. **Conformance moves by exactly zero.** This RFC changes what Bund2 emits,
     not what a program means.
 
@@ -934,6 +1187,30 @@ on the answer.
     across the container, the builder, the carried-program front end, D78's
     floor, `conform --bundles` and the two release-only fixes. The number the
     JIT milestones had to leave alone, this one leaves alone too.
+
+    **This is a dated comparison and not a standing check.** The recorded
+    baseline is 106, so `conform` would not report a loss of up to 27 goldens
+    as a regression; the CEILING line is what holds the number today.
+
+**What runs these, stated because five of them do not run by themselves — the
+sixth review.** Read from `.github/workflows/ci.yml`, which runs
+`cargo test --workspace` and `cargo xtask conform` with default features on
+Ubuntu, and `cargo check`s `jit` and `aot`:
+
+| criterion | what checks it | does CI run it |
+|---|---|---|
+| 1 | a dated measurement; no script re-takes it | no |
+| 2 | `cargo xtask conform --bundles` | **no** |
+| 3 | `bundle_build`, debug | yes; its companion needs `jit` and does not |
+| 4, 5, 9, 10, 12 | `bundle_build` | yes |
+| 6 | `bundle_build` under `--features jit` | **no** |
+| 7 | `bund2-jit`'s relocation tests, under `aot` | **no** |
+| 11 | `bundle_build`; the signing half is macOS only | the capacity half only |
+| 13 | a before-and-after `conform` on 2026-09-30 | no |
+
+`cargo xtask bundle`, which found both release-only blockers, is in neither
+`cargo test` nor CI — D82's fourth unsettled item, still unsettled. Each "no"
+was last run by hand on the date its criterion gives.
 
 ## Open questions
 
@@ -968,11 +1245,23 @@ on the answer.
   artefact cannot execute. D81 carries the one unverified limit.
 - **Which targets get `--emit=native`.** s390x in particular is untestable
   here. For whoever takes §B8's gate.
+- **Is the runtime the builder, or a prebuilt runtime per target? — answered
+  by D118**, 2026-10-08: the builder. Raised the same day by the sixth review
+  (B4). Cross-target bundling is deferred with its trigger recorded in §B1.
+- **Should `--noio` gate `csv`, `sqlite` and the debugger's history file?**
+  Raised 2026-10-08. The reference gates none of them and Bund2 preserves
+  that (§B3a). Gating any would be a deviation, so it is a decision and not
+  an edit; nothing is assumed.
 
 **Three reviews have found six blockers between them, and all six are
 answered** — four in the design, the rest by D76, D77, D78, D79 and D80. What
-remains listed is one question for whoever takes §B8's gate. (Until
+remains listed is one question for whoever takes §B8's gate, **and, since the
+sixth review on 2026-10-08, one for the owner: whether `--noio` should reach
+further than the reference's.** The review's other question, which
+construction §B1 means, is D118. (Until
 2026-10-08 this sentence also counted parse-at-build, since ruled as D116,
-and Q40, which the bullet above records as answered by measurement.) **No decision waits and no default is being adopted by omission** —
-stated carefully, because the second revision of this section claimed exactly
-that while two blockers were outstanding.
+and Q40, which the bullet above records as answered by measurement.) **No
+default is being adopted by omission** — stated carefully, because the second
+revision of this section claimed exactly that while two blockers were
+outstanding. *One decision does wait*, as of 2026-10-08, and the sentence
+that stood here until then said none did.

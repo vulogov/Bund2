@@ -80,6 +80,9 @@ const EMPTY: u8 = 0;
 /// `state`: this runtime carries a program and runs it.
 const FILLED: u8 = 1;
 
+/// How much of the source path a bundle records. A longer one keeps its tail.
+pub const SOURCE_NAME_BYTES: usize = 256;
+
 /// `flags`: D78's build-time floor. Run time may add, never remove.
 pub const FLAG_NOIO: u8 = 1 << 0;
 pub const FLAG_NOEVAL: u8 = 1 << 1;
@@ -103,7 +106,7 @@ struct Region {
     bund2_version: [u8; 32],
     /// The source path as `bund2 build` was given it, NUL-padded, so a
     /// diagnostic from a bundle names the same file a `script` run would.
-    source_name: [u8; 256],
+    source_name: [u8; SOURCE_NAME_BYTES],
     /// **Which cargo features the runtime was built with**, NUL-padded.
     ///
     /// §B4: D16 means no word can be proven unused, so the *feature set*
@@ -146,7 +149,7 @@ static REGION: Region = Region {
     _pad: [0; 2],
     len: 0,
     bund2_version: [0; 32],
-    source_name: [0; 256],
+    source_name: [0; SOURCE_NAME_BYTES],
     features: [0; 64],
     pinned: [0; 256],
     payload: [FILLER; CAPACITY],
@@ -238,9 +241,9 @@ pub fn carried() -> Result<Option<Carried>, Damaged> {
     //
     // `black_box` exists for this: it hints that the value may be anything, so
     // the load happens. **It is a hint and not a guarantee**, which is why
-    // `a_release_bundle_runs_its_program` exists — if a future compiler folds
-    // through it, that test fails rather than a user's artefact silently
-    // becoming an interpreter. If it ever does, the recorded fallback is
+    // `cargo xtask bundle` builds and runs a release artefact — if a future
+    // compiler folds through it, that check fails rather than a user's
+    // artefact silently becoming an interpreter. If it ever does, the recorded fallback is
     // RFC-0006 §B1's separate prebuilt runtime, which reads its payload from
     // its own file and so cannot be folded at all.
     let region = std::hint::black_box(&REGION);
@@ -314,7 +317,7 @@ pub fn inspect(image: &[u8]) -> Result<Inspected, String> {
         bund2_version: field(at::VERSION, 32),
         features: field(at::FEATURES, 64),
         pinned: field(at::PINNED, 256),
-        source_name: field(at::SOURCE, 256),
+        source_name: field(at::SOURCE, SOURCE_NAME_BYTES),
     })
 }
 
@@ -437,7 +440,7 @@ pub fn write_into(
     let n = vb.len().min(ver.len());
     ver[..n].copy_from_slice(&vb[..n]);
     put(image, at::VERSION, &ver)?;
-    let mut nm = [0u8; 256];
+    let mut nm = [0u8; SOURCE_NAME_BYTES];
     let nb = name.as_bytes();
     // **The tail, not the head.** A path longer than the field is truncated
     // from the left, because the file name carries more for a diagnostic than
