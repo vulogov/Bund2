@@ -1164,3 +1164,9 @@ requests (`Break`, `BreakIf`, `Watch`, `WatchWorkbench`, `Delete`, `Step`,
 `Result<Option<String>, Error>`, defaulted to `Ok(None)`: an arming request
 can fail, where a view could not. `Interp` gains a public `console_factory`
 beside `evaluator`, for the console a word attaches.
+
+**Dated note, 2026-10-07 — `debug.run`.** `Debugging` gains `Term(usize,
+BundValue)`: a safepoint a word offers before a term of a string it is
+evaluating. The VM stops there if stepping says to; with no debugger it is
+nothing. It attaches and arms nothing, unlike the other requests. The trait
+is no wider — the request is a variant, not a method.

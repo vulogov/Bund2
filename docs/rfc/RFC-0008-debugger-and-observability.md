@@ -1287,3 +1287,79 @@ Criteria met: W1, W2, W3, W4, W5, W6, W9. W7 and W8 are Part B's.
 Criteria met: W7 and W8, the latter in both builds — the stop always, and
 that a compiled body was bypassed where there is a tier. With these all nine
 are met.
+
+### `debug.run`, and the row for `debug` — D113.5's second ruling
+
+**Ruled by the repository owner, 2026-10-07**, on being shown three options
+for `debug`: leave it and withdraw the row's promise; make it the stepping
+wrapper the row describes, which is a deviation from the reference's word;
+or leave it and add a word. The third.
+
+**The Preservation row for `debug` is withdrawn.** `"…" debug` is the
+reference's word and stays it: a table per top-level term, then a prompt
+whose every line is Bund
+(`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:81-95`). It
+does not become a wrapper and does not step into anything.
+
+**`debug.run` is the wrapper.** A fourteenth Bund2-only word: it takes a
+STRING of Bund, asks for stepping as `debug.step` does, and evaluates the
+string with a stop offered before each of its terms.
+
+| typed at the first stop | what stops |
+|---|---|
+| `s` | each term of the string, and each value of every body a term enters |
+| `n` | each term of the string, and no body |
+| `c` | nothing more, until something armed fires |
+
+**Why a word and not `debug.step` before `bund.eval`.** Measured: that pair
+stops inside the words the string calls and at none of the string's own
+terms. `bund.eval` hands each term to the VM through `apply`
+(`reference/Bund/src/stdlib/helpers/eval.rs:7-37` is the shape Bund2 keeps),
+and the safepoints are in the VM's two loops — the stream's and a body's —
+which a string's terms pass through neither of. `debug.run` offers the
+safepoint itself: `Debugging::Term(index, value)`, one per term, which the
+VM answers by stopping if stepping says to and by nothing otherwise.
+
+A stop at a term reads `debug.run's string at 2  next: w`. The index is into
+the string's own terms; the frame the word was called from is still what
+`bt` shows.
+
+**What it shares with `debug.step`.** It attaches a console if none is
+(§W5), turns the tier off (D113.6), detaches and runs the string whole when
+nobody is there, and is refused in words by a VM given no console. Stepping
+is not switched off when the string ends: `s` after its last term stops at
+the program's next value, as it would after any word.
+
+**What it does not do.**
+
+- **Typed at a stop, the string runs unstepped.** Nothing in a typed line is
+  a stop (§W2). The stepping it asked for applies to the program once the
+  line is done.
+- **A failing term is the word's failure**, with the term's own message and
+  none of `bund.eval`'s `Attempt to evaluate value …` frame.
+- **No golden holds it**, for §W5's reason: its stepped and plain runs are
+  different programs.
+
+| behaviour | disposition |
+|---|---|
+| `debug` | **Preserved as the reference has it.** The earlier row is withdrawn. |
+| `debug.run` | **New, Bund2-only.** Outside the reference's list, so `conform`, `COVERAGE` and `IMPLEMENTED` move by zero. |
+
+Checked by two tests at process level — the terms under `s`, `n`, `c` and no
+input, with the `bund.eval` gap asserted beside them; the stop inside a word
+and a failing term — and the refusals in the unit test of the arming words.
+
+### The console at a real terminal
+
+Driven through a pseudo-terminal, 2026-10-07, outside the suite: a script's
+`debug.step` with no flag gives the `(bund2)` prompt with editing and a
+recalled history; the program's own `input` and `password` read the same
+terminal after `c`; `--debugger` at a terminal takes `debug.feed`. One thing
+was added: **a detach says so** — `bund2: detached; the program runs on.` —
+where end-of-input left a running program and no explanation.
+
+**Ctrl-C at the prompt detaches, as Ctrl-D does.** The input seam answers
+both the same way (D112), and the console reads through it.
+
+**No test in the suite holds a terminal.** It would need a pseudo-terminal
+dependency; the claims above are a measurement and not a criterion.

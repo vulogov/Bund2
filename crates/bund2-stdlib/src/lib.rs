@@ -1060,7 +1060,7 @@ mod honesty_tests {
     /// outside this crate (RFC-0005 assumption 24).
     #[test]
     fn every_reentering_function_is_named() {
-        const REENTERING: [&str; 27] = [
+        const REENTERING: [&str; 28] = [
             // RFC-0008 §W2: a line typed at a debugger stop, applied value by
             // value. Called from a safepoint and never from a native.
             "lib.rs: eval_line",
@@ -1094,6 +1094,9 @@ mod honesty_tests {
             "singles.rs: do_base",
             "singles.rs: eval_source",
             "singles.rs: resolve_word",
+            // `debug.run` is `bund.eval` with a safepoint offered before each
+            // term (D113.5).
+            "terminal.rs: debug_run",
             // `debug` applies each value it steps over, so a stepped word can do
             // anything the language can -- which is the point of the word.
             "terminal.rs: debug_word",

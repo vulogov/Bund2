@@ -297,6 +297,62 @@ fn the_moving_words_move() {
     assert!(err.contains("w at 1  next: 41"), "the stop is in the body:\n{err}");
 }
 
+/// **D113.5's ruling: `debug.run` evaluates a string stopped at its first
+/// term, and the string's own terms are stops.** `debug.step` before
+/// `bund.eval` stops only inside the words the string calls, which is the gap
+/// the word exists to close; that half is asserted too, so the difference
+/// stays measured.
+#[test]
+fn debug_run_steps_the_terms_of_its_string() {
+    let src = ":w { 7 + } register\n\"1 2 w println\" debug.run\n\"end\" println\n";
+
+    // `s` walks the four terms and goes into `w`'s body.
+    let (out, err, code) = scripted(src, "s\ns\ns\ns\ns\ns\nc\n", &[]);
+    for (i, next) in [(0, "1"), (1, "2"), (2, "w"), (3, "println")] {
+        assert!(
+            err.contains(&format!("debug.run's string at {i}  next: {next}")),
+            "term {i}:\n{err}"
+        );
+    }
+    assert!(err.contains("w at 0  next: 7"), "into the body:\n{err}");
+    assert_eq!(out, "9\nend\n");
+    assert_eq!(code, Some(0));
+
+    // `n` walks the four terms and stays out of it.
+    let (out, err, _) = scripted(src, "n\nn\nn\nc\n", &[]);
+    assert_eq!(err.matches("debug.run's string at").count(), 4, "{err}");
+    assert!(!err.contains("w at 0"), "over the body:\n{err}");
+    assert_eq!(out, "9\nend\n");
+
+    // `c` at the first term runs the rest, and nobody there runs all of it.
+    for typed in ["c\n", ""] {
+        let (out, err, _) = scripted(src, typed, &[]);
+        assert_eq!(err.matches("debug.run's string at").count(), 1, "{err}");
+        assert_eq!(out, "9\nend\n");
+    }
+
+    // The gap: the same string through `bund.eval` has no stop at a term.
+    let src = ":w { 7 + } register\ndebug.step \"1 2 w println\" bund.eval\n";
+    let (_, err, _) = scripted(src, "s\ns\ns\ns\ns\nc\n", &[]);
+    assert!(err.contains("w at 0  next: 7"), "{err}");
+    assert!(!err.contains("next: 2"), "a term of the string was a stop:\n{err}");
+}
+
+/// Inside a word the stop names the string's position and not the frame's,
+/// and a failing term is the failure of the word.
+#[test]
+fn debug_run_inside_a_word_and_on_a_failing_term() {
+    let src = ":v { \"1 println\" debug.run } register\nv\n";
+    let (out, err, _) = scripted(src, "bt\nc\n", &[]);
+    assert!(err.contains("debug.run's string at 0  next: 1"), "{err}");
+    assert!(err.contains("#0  v at"), "the frame is still in the backtrace:\n{err}");
+    assert_eq!(out, "1\n");
+
+    let (out, err, _) = scripted("\"1 nosuch\" debug.run \"after\" println\n", "c\n", &[]);
+    assert!(out.contains("nosuch not registered"), "{out}\n{err}");
+    assert!(!out.contains("after\n"), "the program stopped at the failure:\n{out}");
+}
+
 /// A condition given by a word is the console's condition: Bund source, run
 /// in a child VM, stopping when it holds and not when it does not.
 #[test]

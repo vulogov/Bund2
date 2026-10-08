@@ -233,6 +233,14 @@ fn say_stopped(greeted: &mut bool, at: &str) {
     let _ = out.flush();
 }
 
+/// Said once, when the session ends and the program does not: at a terminal
+/// Ctrl-D leaves a program running with no prompt, and this is why.
+fn say_detached() {
+    let mut out = std::io::stderr();
+    let _ = writeln!(out, "bund2: detached; the program runs on.");
+    let _ = out.flush();
+}
+
 impl Console for OverInput {
     fn stopped(&mut self, at: &str) {
         say_stopped(&mut self.greeted, at);
@@ -249,6 +257,7 @@ impl Console for OverInput {
         loop {
             // The end of input and a failed read both detach, as for `Stdio`.
             let Ok(Read::Line(line)) = vm.read_line(&Ask::in_history("(bund2) ", HISTORY)) else {
+                say_detached();
                 return None;
             };
             match parse(&line) {
@@ -289,7 +298,10 @@ impl Console for Stdio {
             let _ = out.flush();
             // `None` is EOF, which detaches. A read error is treated the same
             // way: there is no further input to be had, and hanging is worse.
-            let line = self.input.next()?.ok()?;
+            let Some(Ok(line)) = self.input.next() else {
+                say_detached();
+                return None;
+            };
             match parse(&line) {
                 Ok(c) => return Some(c),
                 // An empty line repeats nothing and asks again, which is what

@@ -1457,13 +1457,18 @@ impl Interp {
             return;
         }
         let depth = self.frames.len();
-        let forced = why != debug::Stop::Stepping;
+        let forced = !matches!(why, debug::Stop::Stepping | debug::Stop::Term(..));
         if forced || d.should_stop(depth) {
             d.stops += 1;
             // **Where, before what.** Rendered here because only the debuggee
             // can read its own frames; the host receives text.
             let at = match &why {
                 debug::Stop::Stepping => self.render_position(top),
+                // The string's own position, not the frame's: the frame under
+                // a `debug.run` is stopped at the word, whichever term is next.
+                debug::Stop::Term(i, next) => {
+                    format!("debug.run's string at {i}  next: {next}")
+                }
                 debug::Stop::Breakpoint(w) => {
                     format!("breakpoint: {w}\n{}", self.render_position(top))
                 }
@@ -2099,6 +2104,14 @@ impl Vm for Interp {
             D::Next => debug::Command::Next,
             D::Finish => debug::Command::Finish,
             D::Continue => debug::Command::Continue,
+            // A safepoint offered by a word. Nothing is attached or armed by
+            // it: with no debugger this is nothing at all.
+            D::Term(i, v) => {
+                if self.debug.is_some() {
+                    self.safepoint_for(None, debug::Stop::Term(i, v.summary(48)));
+                }
+                return Ok(None);
+            }
         };
         // **§W5: a word that arms or moves attaches a debugger if none is.**
         // Quietly, so the run goes on to where the word said to stop.

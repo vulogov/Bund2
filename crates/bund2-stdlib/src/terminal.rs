@@ -632,6 +632,48 @@ fn debug_step(vm: &mut dyn Vm) -> Result<(), Error> {
     debug_ask(vm, bund2_api::Debugging::Step, "DEBUG.STEP")
 }
 
+/// `debug.run` — evaluate a STRING of Bund, stopped before its first term.
+/// Bund2's own word (D113.5).
+///
+/// `debug.step` followed by `bund.eval` stops inside the words the string
+/// calls and never at the string's own terms, because those reach the VM
+/// through `apply` and not through a loop that has a safepoint. This word
+/// offers the safepoint itself, one per term, so `s` walks the string and
+/// goes into a word's body, and `n` walks it and does not.
+///
+/// The reference's `debug` is left as it is: it prints a table per term and
+/// then reads lines (`reference/Bund/src/stdlib/functions/debug_fun/
+/// debug_debug.rs:81-95`), which is a different thing to want.
+///
+/// **Typed at a stop, the string runs unstepped**: nothing in a typed line is
+/// a stop (§W2), and the stepping the word asked for applies to the program
+/// once the line is done.
+fn debug_run(vm: &mut dyn Vm) -> Result<(), Error> {
+    const WHO: &str = "DEBUG.RUN";
+    if vm.depth() < 1 {
+        return Err(Error(format!("Stack is too shallow for inline {WHO}")));
+    }
+    let v = vm
+        .pull()
+        .ok_or_else(|| Error(format!("{WHO} returns: NO DATA #1")))?;
+    let Some(src) = v.as_str() else {
+        return Err(Error(format!("{WHO}: the source is not a string")));
+    };
+    let stream = bund2_syntax::compile(&src).map_err(|e| Error(e.render(&src)))?;
+    debug_ask(vm, bund2_api::Debugging::Step, WHO)?;
+    for (i, word) in stream.into_iter().enumerate() {
+        if word.dt() == bund2_value::NONE {
+            continue;
+        }
+        if word.dt() == bund2_value::EXIT {
+            break;
+        }
+        debug_ask(vm, bund2_api::Debugging::Term(i, word.clone()), WHO)?;
+        vm.apply(word)?;
+    }
+    Ok(())
+}
+
 /// `debug.next` — stop before the next value no deeper than here.
 fn debug_next(vm: &mut dyn Vm) -> Result<(), Error> {
     debug_ask(vm, bund2_api::Debugging::Next, "DEBUG.NEXT")
@@ -877,6 +919,7 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
         ("debug.watch.workbench", debug_watch_workbench, 0),
         ("debug.delete", debug_delete, 1),
         ("debug.step", debug_step, 0),
+        ("debug.run", debug_run, 1),
         ("debug.next", debug_next, 0),
         ("debug.finish", debug_finish, 0),
         ("debug.continue", debug_continue, 0),
@@ -1035,7 +1078,7 @@ mod tests {
     #[test]
     fn arming_refuses_where_no_console_can_be_attached() {
         let mut i = interp();
-        for src in ["\"w\" debug.break", "debug.step", "debug.watch.workbench"] {
+        for src in ["\"w\" debug.break", "debug.step", "debug.watch.workbench", "\"1\" debug.run"] {
             let e = run(&mut i, src).expect_err("nothing to attach");
             assert!(
                 e.ends_with("no debugger is attached, and this VM was given no console to attach"),
@@ -1048,6 +1091,8 @@ mod tests {
             ("42 debug.break", "DEBUG.BREAK: the name is not a string"),
             ("\"@\" debug.watch", "DEBUG.WATCH: the name is empty"),
             ("\"w\" debug.break.if", "Stack is too shallow for inline DEBUG.BREAK.IF"),
+            ("debug.run", "Stack is too shallow for inline DEBUG.RUN"),
+            ("5 debug.run", "DEBUG.RUN: the source is not a string"),
             ("\"w\" { true } debug.break.if", "DEBUG.BREAK.IF: the condition is not a string of Bund source"),
         ] {
             let mut i = interp();

@@ -357,6 +357,12 @@ pub enum Debugging {
     Finish,
     /// Stop nowhere until something armed fires.
     Continue,
+    /// **A safepoint a word offers**: this value, at this index of a string
+    /// the word is evaluating, is about to run. The VM stops if stepping says
+    /// to and otherwise does nothing. `debug.run` offers one per term, which
+    /// is what makes the terms of its string stops — a string's terms reach
+    /// the VM through `apply`, where the VM's own loops have no safepoint.
+    Term(usize, BundValue),
 }
 
 /// The alternative is two receivers, which is the split the merge exists to

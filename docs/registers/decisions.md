@@ -3675,6 +3675,35 @@ A breakpoint on a native still never fires.
 `debug.step`, running on with nobody there, W7, the moving words, a
 conditional, W8) and one unit test of the refusals.
 
+**Dated note, 2026-10-07 — `debug`, ruled.** The bullet above left open
+whether `debug` should change. The owner was shown three options — leave it
+and withdraw RFC-0008's row; make it the stepping wrapper, a deviation from
+the reference's word; leave it and add a word — and ruled the third.
+
+- **`debug` stays the reference's word**
+  (`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:81-95`).
+  RFC-0008's Preservation row for it is withdrawn.
+- **`debug.run` is added**, a fourteenth Bund2-only word: a STRING of Bund,
+  evaluated with a stop offered before each of its terms. `s` goes into the
+  bodies the terms enter and `n` does not.
+- **Why a word was needed and not a recipe.** `debug.step` before `bund.eval`
+  stops inside the words a string calls and at none of its own terms: the
+  terms reach the VM through `apply`, where neither of the VM's loops has a
+  safepoint. Measured before the ruling, and asserted in the word's test.
+- **`Debugging` gains `Term`**, the safepoint a word offers. No new `Vm`
+  method.
+- **Typed at a stop, the string is not stepped**, since nothing in a typed
+  line is a stop.
+
+Also built, on the same instruction: the console says
+`bund2: detached; the program runs on.` when its input ends. The console was
+driven at a pseudo-terminal — prompt, editing, history, the program's own
+`input` and `password`, Ctrl-C and Ctrl-D — and that was all it lacked. No
+test in the suite holds a terminal.
+
+Health after: suite 622 passed, 0 failed; conform 133/145, ceiling 133/145;
+implemented 500/505; coverage 489/505.
+
 ## D112 — the input seam: a word asks the VM for its line
 
 **Authorised by the repository owner, 2026-10-07**, on being shown four

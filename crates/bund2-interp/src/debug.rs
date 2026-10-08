@@ -40,6 +40,10 @@ pub enum Stop {
     Watch(String),
     /// A value is about to be pushed to the workbench — §D4's second hook.
     WatchWorkbench,
+    /// A stepping stop before a term of the string `debug.run` evaluates: its
+    /// index in that string and the value's summary. Not forced — the
+    /// stepping mode decides, as it does for [`Stop::Stepping`].
+    Term(usize, String),
 }
 
 /// What the host asks of a stopped debuggee.
