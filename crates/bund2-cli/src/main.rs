@@ -10,10 +10,11 @@
 //! The bund2 command line runner.
 //!
 //! **A slice.** It parses a program with `bund2-syntax`, lowers it to a value
-//! stream, and hands that to `bund2-interp`'s single evaluator — no REPL, no
-//! `--emit`, no subcommands beyond `script --file`, which is what
-//! `cargo xtask conform` invokes. RFC-0003's frame loop replaces the
-//! evaluator's middle; the front end is now the real one.
+//! stream, and hands that to `bund2-interp`'s single evaluator — no REPL.
+//! `script --file` is what `cargo xtask conform` invokes; `build` writes a
+//! bundle and `build --inspect` reads one (RFC-0006), and `words`, `effects`,
+//! `infer` and `check` serve the xtasks and RFC-0004. RFC-0003's frame loop
+//! replaces the evaluator's middle; the front end is now the real one.
 
 use std::process::ExitCode;
 

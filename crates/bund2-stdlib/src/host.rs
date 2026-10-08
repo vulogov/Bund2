@@ -877,8 +877,9 @@ fn use_word(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
 
 /// `--noeval`: the evaluating words become stubs that fail, as the reference
 /// registers them (`reference/Bund/src/stdlib/functions/bund/bund_eval.rs:117-121`,
-/// `bund_use.rs:74-76`). Applied after every other registration, so the stubs
-/// replace the real words, and `!!` follows its target.
+/// `bund_use.rs:74-76`), and `debug.run` with them (D120). Applied after every
+/// other registration, so the stubs replace the real words, and `!!` follows
+/// its target.
 pub fn register_noeval_stubs(r: &mut Registry) {
     // **All four together, as the reference stubs them** — `bund.eval-file`
     // reads a file to *run* it, so it is the evaluating flag that disables it
@@ -899,6 +900,18 @@ pub fn register_noeval_stubs(r: &mut Registry) {
             WordKind::Sync,
         );
     }
+    // **D120: `debug.run` too, and this one is not the reference's.** It is
+    // `bund.eval` with a safepoint offered before each term (D113.5), added by
+    // Bund2, so the reference has no stub to copy and no boundary to inherit:
+    // left out, a program built `--noeval` evaluated any string it held by
+    // spelling the word differently. The message has the shape of the two
+    // above, with the word as its group since the reference names none.
+    r.register_native(
+        "debug.run",
+        |_vm| Err(Error("bund DEBUG.RUN functions disabled with --noeval".into())),
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
 }
 
 /// `io.graph` — draw a list of floats as a text chart with `rasciigraph`
@@ -1918,6 +1931,26 @@ mod tests {
             let e = run(&mut i, src).expect_err("stubbed");
             assert!(e.contains("functions disabled with --noeval"), "{src}: {e}");
         }
+    }
+
+    /// **D120: `--noeval` reaches `debug.run`, which is Bund2's own word.** It
+    /// evaluates a string as `bund.eval` does, so the flag that disables one
+    /// disables the other. Without the flag it is not a stub: this VM has no
+    /// console to attach, and that is what it says instead.
+    #[test]
+    fn noeval_reaches_debug_run() {
+        let mut i = interp(HostOptions {
+            noeval: true,
+            ..HostOptions::default()
+        });
+        let e = run(&mut i, "\"40 2 +\" debug.run").expect_err("stubbed");
+        assert!(
+            e.ends_with("bund DEBUG.RUN functions disabled with --noeval"),
+            "{e}"
+        );
+        let mut d = interp(HostOptions::default());
+        let e = run(&mut d, "\"40 2 +\" debug.run").expect_err("no console here");
+        assert!(!e.contains("disabled with --noeval"), "{e}");
     }
 
     /// D52: nothing runs after `exit`, inside a lambda or out of one, and the

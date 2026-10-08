@@ -125,9 +125,10 @@ fn a_restriction_cannot_be_cleared_by_the_environment() {
 
 /// **The floor holds for `--noio` too, and for every word `--noeval` names.**
 ///
-/// The test above tries `bund.eval` alone. The group is six words
+/// The test above tries `bund.eval` alone. The reference's group is six words
 /// (`register_noeval_stubs`), and the two it left out are the ones that read a
-/// *file* and run it; `--noio`'s floor was not tried at all.
+/// *file* and run it; `--noio`'s floor was not tried at all. D120 adds a
+/// seventh, `debug.run`.
 #[test]
 fn both_floors_hold_for_every_word_they_name() {
     let clearing = [
@@ -143,6 +144,10 @@ fn both_floors_hold_for_every_word_they_name() {
         "bund.eval-file.",
         "use",
         "use.",
+        // D120: Bund2's own evaluating word, which the reference's six cannot
+        // include. Standard input is closed here, so a word that ran its
+        // string would not stop at a console either — it would simply run.
+        "debug.run",
     ]
     .iter()
     .enumerate()
@@ -485,12 +490,15 @@ fn a_default_artefact_contains_no_code_generator() {
 fn a_jit_artefact_contains_the_code_generator() {
     let exe = build("1 2 + println\n", "withjit", &[]);
     let image = std::fs::read(&exe).expect("reading the artefact");
-    let needle = b"cranelift".as_slice();
-    assert!(
-        image.windows(needle.len()).any(|w| w == needle),
-        "a bundle built from a `jit` runtime carries Cranelift, and the search \
-         criterion 3 relies on must be able to see it"
-    );
+    // Both needles the absence check looks for, not one of them.
+    for needle in [b"cranelift".as_slice(), b"ISLE".as_slice()] {
+        assert!(
+            image.windows(needle.len()).any(|w| w == needle),
+            "a bundle built from a `jit` runtime carries {}, and the search \
+             criterion 3 relies on must be able to see it",
+            String::from_utf8_lossy(needle)
+        );
+    }
     let _ = std::fs::remove_file(&exe);
 }
 
@@ -839,6 +847,65 @@ fn inspecting_a_non_artefact_explains_itself() {
         "and say what it looked for: {err}"
     );
     assert!(!err.contains("panicked"), "without panicking: {err}");
+}
+
+/// **Inspecting a damaged artefact does not say it has no region.**
+///
+/// `--inspect` finds the region by a header it can read, so one whose
+/// container version it does not know is not found. It once reported that as
+/// "the region is absent", of an artefact that names its own version when it
+/// is run. It still cannot read such a header; it no longer says something
+/// false about it.
+#[test]
+fn inspecting_a_damaged_artefact_does_not_call_it_regionless() {
+    let marker = "\"marker-for-a-damaged-inspect\" println\n";
+    let exe = build(marker, "dmg-inspect", &[]);
+    let mut image = std::fs::read(&exe).expect("reading the artefact");
+    let at = payload_at(&image, marker);
+    image[at - FORMAT_BEFORE_PAYLOAD..at - FORMAT_BEFORE_PAYLOAD + 4]
+        .copy_from_slice(&99u32.to_le_bytes());
+    std::fs::write(&exe, &image).expect("writing it back");
+    let r = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        .args(["build", "--inspect"])
+        .arg(&exe)
+        .output()
+        .expect("inspect runs");
+    assert!(!r.status.success());
+    let err = String::from_utf8_lossy(&r.stderr);
+    assert!(err.contains("built by a different bund2"), "{err}");
+    assert!(err.contains("Running it reports which"), "{err}");
+    assert!(!err.contains("The region is absent"), "{err}");
+    let _ = std::fs::remove_file(&exe);
+}
+
+/// **Criterion 11's capacity half, through the binary.** The unit test beside
+/// `write_into` shows the function refuses; this shows `bund2 build` does, and
+/// that it leaves no file behind.
+#[test]
+fn a_program_over_capacity_fails_the_build_and_writes_nothing() {
+    let src = scratch("over.bund");
+    // One byte past 1 MiB, and a program that parses.
+    let mut text = "1 drop\n".repeat(1024 * 1024 / 7);
+    while text.len() <= 1024 * 1024 {
+        text.push(' ');
+    }
+    std::fs::write(&src, &text).expect("writing the source");
+    let out = scratch("over");
+    let _ = std::fs::remove_file(&out);
+    let r = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        .args(["build", "--file"])
+        .arg(&src)
+        .arg("--output")
+        .arg(&out)
+        .output()
+        .expect("bund2 build runs");
+    let err = String::from_utf8_lossy(&r.stderr);
+    assert_eq!(r.status.code(), Some(1), "{err}");
+    let size = text.len().to_string();
+    assert!(err.contains(&size), "the size is named: {err}");
+    assert!(err.contains("1048576"), "and the capacity: {err}");
+    assert!(!out.exists(), "and nothing is written");
+    let _ = std::fs::remove_file(&src);
 }
 
 /// **A runtime nobody built from has no record of what built it.**

@@ -10,8 +10,9 @@
 //! reports "main executable failed strict validation", and `codesign -f -s -`
 //! does not repair it, while the same re-sign of an unmodified copy validates.
 //! Trailing data outside the image is what `codesign` refuses. A payload inside
-//! the image can be signed afterwards, and signing stays outside `bund2 build`
-//! so D10's toolchain-free half is untouched.
+//! the image can be signed afterwards — and has to be, before it will run at
+//! all, so `bund2 build` re-signs ad hoc on macOS. `/usr/bin/codesign` is a
+//! base-system binary and not the toolchain D10 forbids (D81).
 //!
 //! **The runtime never reads its own executable.** The region is a `static`, so
 //! a bundle asks its own memory what program it carries. That removes the whole
@@ -243,9 +244,10 @@ pub fn carried() -> Result<Option<Carried>, Damaged> {
     // the load happens. **It is a hint and not a guarantee**, which is why
     // `cargo xtask bundle` builds and runs a release artefact — if a future
     // compiler folds through it, that check fails rather than a user's
-    // artefact silently becoming an interpreter. If it ever does, the recorded fallback is
-    // RFC-0006 §B1's separate prebuilt runtime, which reads its payload from
-    // its own file and so cannot be folded at all.
+    // artefact silently becoming an interpreter. **No fallback is decided.**
+    // A runtime that reads its payload from its own file cannot be folded, and
+    // it is the construction D118 did not take; reaching for it would be a new
+    // decision (RFC-0006 §B1).
     let region = std::hint::black_box(&REGION);
     if region.format != FORMAT {
         return Err(Damaged::Format(region.format));
@@ -359,9 +361,15 @@ fn locate(image: &[u8]) -> Result<usize, String> {
              built without one is not a bundling runtime."
                 .to_string()
         } else {
+            // **Not "the region is absent".** That is one of three things this
+            // can be, and it was the only one the message named — said of an
+            // artefact whose container version was 99, which has a region and
+            // says so when it is run.
             format!(
-                "{candidates} sentinel match(es) in this binary and none carries a valid \
-                 header. The region is absent and the matches are constants in the code."
+                "{candidates} sentinel match(es) in this binary and none is followed by \
+                 a header this bund2 reads (container version {FORMAT}). The artefact was \
+                 built by a different bund2, or it is damaged, or it has no region and \
+                 the matches are constants in the code. Running it reports which."
             )
         }
     })

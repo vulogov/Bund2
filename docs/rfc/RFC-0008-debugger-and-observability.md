@@ -1370,7 +1370,7 @@ the program's next value, as it would after any word.
 | behaviour | disposition |
 |---|---|
 | `debug` | **Preserved as the reference has it.** The earlier row is withdrawn. |
-| `debug.run` | **New, Bund2-only.** Outside the reference's list, so `conform`, `COVERAGE` and `IMPLEMENTED` move by zero. |
+| `debug.run` | **New, Bund2-only.** Outside the reference's list, so `conform`, `COVERAGE` and `IMPLEMENTED` move by zero. **Under `--noeval` it is a stub — D120, 2026-10-08**: it evaluates a string as `bund.eval` does, and this document had not asked what that flag does to it. |
 
 Checked by two tests at process level — the terms under `s`, `n`, `c` and no
 input, with the `bund.eval` gap asserted beside them; the stop inside a word

@@ -3558,6 +3558,68 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D120 — `--noeval` gates `debug.run`
+
+**Raised 2026-10-08** by RFC-0006's seventh review (B1). D113.5 added
+`debug.run`, which evaluates a STRING of Bund with a stop offered before each
+term, and D115 kept it running its string in a bundle. Neither asked what
+`--noeval` does to it. Measured before this decision, on a bundle built
+`--noeval --noio` with standard input closed:
+`"40 2 + println" debug.run` printed `42`.
+
+- Blocks: RFC-0006's acceptance
+- Depends on: D78, D79, D113 (part 5), D115, RFC-0006 §B3a, RFC-0008
+- Status: **RESOLVED** by the repository owner, 2026-10-08: "`--noeval` gates
+  `debug.run`". Built the same day.
+
+### Why it is not D79's boundary
+
+D79 reads `--noeval` as the reference reads it: the flag disables the
+`bund.eval` group, six words, and what lies outside the group is the
+reference's boundary and not a shortfall. **`debug.run` is not the
+reference's.** It is Bund2's own word, and its own registration comment calls
+it "`bund.eval` with a safepoint offered before each term"
+(`crates/bund2-stdlib/src/lib.rs`). There was no boundary to inherit: the
+word was `bund.eval` under another name, added outside the group, and nobody
+had chosen that.
+
+### The decision
+
+**Under `--noeval`, `debug.run` is a stub.** It fails with
+`bund DEBUG.RUN functions disabled with --noeval`. The shape is the
+reference's stub message; the group name is the word, since the reference
+has none for it.
+
+In a bundle the stub holds wherever D78's floor does: built `--noeval`, or
+`BUND2_NOEVAL` set at start. D115 is otherwise unchanged — without the flag a
+bundle's `debug.run` runs its string and offers no stop.
+
+**Not a deviation.** The reference has no `debug.run`, so no behaviour of its
+is changed, no golden moves, and `conform`, `COVERAGE` and `IMPLEMENTED` move
+by zero.
+
+### What it does not cover
+
+**The ruling names one word and gates one.** Three routes still run text
+under `--noeval`, and RFC-0006 §B3a names each:
+
+- `compile lambda! !`, on both binaries (D79).
+- `debug` and `debug.shell`, which read lines and run them, and which the
+  reference registers ungated.
+- **`debug.feed` before `debug.shell`.** `debug.feed` is Bund2's and queues a
+  line for the next word that reads; `debug.shell` then runs it. Measured
+  after this decision, on a bundle built `--noeval --noio` with standard
+  input closed: `"40 2 + println" debug.feed debug.shell` prints `42`. So a
+  program can supply `debug.shell`'s line itself, with nobody at the
+  keyboard. The evaluating word is the reference's and ungated there; the
+  word that makes it need no operator is Bund2's. It was put beside this
+  question and not ruled on, so it stays as it is and is named.
+
+`noeval_reaches_debug_run` holds the stub
+(`crates/bund2-stdlib/src/host.rs`), and
+`both_floors_hold_for_every_word_they_name` holds it in a bundle against
+`BUND2_NOEVAL` set to `0` and to empty.
+
 ## D119 — `--noio` gates `csv` and `sqlite`
 
 **Raised 2026-10-08** while answering RFC-0006's sixth review (B2), which
@@ -3810,6 +3872,10 @@ program is `bund2 script --file`.
 
 `a_bundles_debugger_words_do_nothing` holds it, with a line waiting on an
 input that is kept open.
+
+**Note, 2026-10-08 (D120).** "`debug.run` runs its string and offers no stop"
+holds without `--noeval`. Under the flag — built in, or added by
+`BUND2_NOEVAL` — it is a stub, in a bundle and in a `script` run alike.
 
 ## D114 — `send` refuses a value nested past the wire format's bound
 
@@ -6526,6 +6592,11 @@ words, not the four named above: the reference also stubs `bund.eval-file` and
 it is the list that was short, by the two words that read a file and run it.
 The help text is at `reference/Bund/src/cmd/mod.rs:142-143`; the range above is
 off by one line.
+
+**Note, 2026-10-08 (D120).** Six is the reference's group. Bund2 stubs a
+seventh word under the flag, `debug.run`, which is its own and is `bund.eval`
+with a safepoint. The reading above — the group, and not a claim about
+evaluation — is unchanged, and `compile lambda! !` still evaluates.
 
 ## D78 — a bundle's restrictions have a build-time floor that run time may only tighten
 

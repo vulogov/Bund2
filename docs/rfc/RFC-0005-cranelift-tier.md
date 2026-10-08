@@ -90,9 +90,11 @@
     2; its per-site half was met on 2026-09-23 at under ~0.25 ns a site. **22 left this group on 2026-09-16**: all six
     of its bullets are written and pass, in ten tests, once D68 gave it a
     synced-versus-crossed record and D71 resolved F137.
-  - **Not met** — 4's reachable remainder alone. **14 and 20 moved to met on
-    2026-09-16**; 4's remainder is unreachable from a `JITModule` and belongs to
-    RFC-0006's AOT path, which that criterion's own audit records.
+  - **Not met** — none, as of 2026-09-30. **4 moved to met that day, by
+    inspection — D83**, as its own entry in the criteria list records; until
+    2026-10-08 this line still read "4's reachable remainder alone … belongs
+    to RFC-0006's AOT path", which three reviews of RFC-0006 reported as
+    contradicting that entry. **14 and 20 moved to met on 2026-09-16.**
   - **Blocked, with a named blocker** — none, as of 2026-09-16, and none
     outstanding. **27 moved to met** when D68 was built and `Word::crossings`
     gave it the synced-versus-crossed record it asks for; **bullet 5 was
