@@ -48,11 +48,18 @@ impl Stdio {
     }
 }
 
+/// What `?` answers. The short forms are the session's; every other line is
+/// Bund.
+const HELP: &str = "bund2: s(tep), n(ext), f(inish), c(ontinue), bt, st, info, \
+                    break <word> [if <lambda>], watch @stack, watch workbench, \
+                    delete <word>. Any other line is run as Bund in the program.";
+
 /// The command vocabulary, long and short forms.
 ///
-/// **Unknown input is a message, not a command**, and does not advance the
-/// program: a typo at a breakpoint that silently stepped would be the worst
-/// possible behaviour in a debugger.
+/// **A line that is none of these is Bund** (§W2, D113), and does not advance
+/// the program: a typo at a breakpoint that silently stepped would be the
+/// worst possible behaviour in a debugger, and an unknown word is a reported
+/// failure that leaves the session where it was.
 fn parse(line: &str) -> Result<Command, String> {
     let line = line.trim();
     // **The forms that take an argument, before the bare words.** `break w if
@@ -104,14 +111,20 @@ fn parse(line: &str) -> Result<Command, String> {
         "f" | "finish" => Ok(Command::Finish),
         "c" | "cont" | "continue" => Ok(Command::Continue),
         "bt" | "backtrace" | "where" => Ok(Command::Backtrace),
-        "st" | "stack" => Ok(Command::Stack),
+        // **`st`, and not `stack`** (D113.4). `stack` is a Bund word — the
+        // reference's alias of `ensure_stack`
+        // (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:35`) —
+        // and a line here is Bund unless it is one of these short forms.
+        "st" => Ok(Command::Stack),
         "i" | "info" => Ok(Command::Info),
+        "?" | "help" => Err(HELP.to_string()),
         "" => Err(String::new()),
-        other => Err(format!(
-            "bund2: `{other}` is not a command. One of: s(tep), n(ext), \
-             f(inish), c(ontinue), bt, stack, info, break <word> [if <lambda>], \
-             watch @stack, watch workbench, delete <word>."
-        )),
+        // **Anything else is Bund, run in the program's own VM** — §W2, and
+        // what the reference's `debug` does with every line that is not empty
+        // (`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:81-95`).
+        // The program does not move: a mistyped command is an unknown word,
+        // reported, and the session is where it was.
+        other => Ok(Command::Eval(other.to_string())),
     }
 }
 
@@ -187,9 +200,9 @@ impl Console for Stdio {
             self.greeted = true;
             let _ = writeln!(
                 out,
-                "bund2: stopped. s(tep), n(ext), f(inish), c(ontinue), bt, stack, \
+                "bund2: stopped. s(tep), n(ext), f(inish), c(ontinue), bt, st, \
                  info, break <word> [if <lambda>], watch @stack, watch workbench, \
-                 delete <word>. EOF detaches and runs on."
+                 delete <word>. Any other line is run as Bund. EOF detaches and runs on."
             );
         }
         let _ = writeln!(out, "{at}");
@@ -252,23 +265,29 @@ mod tests {
             ("continue", Command::Continue),
             ("bt", Command::Backtrace),
             ("where", Command::Backtrace),
-            ("stack", Command::Stack),
+            ("st", Command::Stack),
+            ("stack", Command::Eval("stack".to_string())),
         ] {
             assert_eq!(parse(text), Ok(want), "{text}");
         }
         assert_eq!(parse(""), Err(String::new()), "a bare return asks again");
-        let e = parse("stpe").expect_err("a typo is not a command");
-        assert!(e.contains("not a command"), "{e}");
-        assert!(e.contains("s(tep)"), "and it says what is: {e}");
+        let e = parse("help").expect_err("help is a message");
+        assert!(e.contains("s(tep)"), "and it says what the short forms are: {e}");
+        assert!(e.contains("run as Bund"), "and what every other line is: {e}");
     }
 
-    /// **A typo must not advance the program.** The parser returning `Err`
-    /// rather than a default is what guarantees it, and this asserts that no
-    /// unrecognised spelling maps to a `Command` at all.
+    /// **A typo must not advance the program** — and since §W2 a line that is
+    /// no short form is Bund, so the guarantee is a different one: it becomes
+    /// a line to run, which leaves the debuggee stopped, and never one of the
+    /// four commands that resume it.
     #[test]
     fn nothing_unrecognised_becomes_a_step() {
-        for text in ["", "x", "ste", "stepp", "quit", "run", "0", "s s"] {
-            assert!(parse(text).is_err(), "`{text}` became a command");
+        for text in ["x", "ste", "stepp", "quit", "run", "0", "s s", "Step"] {
+            assert_eq!(
+                parse(text),
+                Ok(Command::Eval(text.to_string())),
+                "`{text}` is a line of Bund and nothing else"
+            );
         }
     }
 }

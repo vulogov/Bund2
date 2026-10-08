@@ -1126,3 +1126,34 @@ capture's standard input is at its end, and so is the default.
 - Amended by: repository owner, 2026-10-07, on F165
 - Consumes: D99 (the two helpers this plugs into), D101 (the deferral and its
   trigger), D36, F158, F165
+
+## Amendment, 2026-10-07 — two more `Vm` methods, for the debugger's words (D113)
+
+**Decided by the repository owner** as part of D113. RFC-0008's amendment of
+this date is the design; this records what it adds to the surface.
+
+```rust
+pub enum Debugging { Backtrace, Stacks, Info }
+
+// on `Vm`, each defaulted
+fn debugging(&mut self, what: Debugging) -> Option<String>;   // None
+fn feed_line(&mut self, line: String) -> bool;                // false
+```
+
+`debugging` is `report`'s shape once more: a word asks the VM for a view and
+prints it, so the view is one piece of code wherever the word was typed. The
+default is a `Vm` with no such view, and the words say so.
+
+`feed_line` queues a line that `read_line` and `read_secret` answer before
+they ask the installed `Input`. **The queue is the VM's and `Input` is
+unchanged**, so the rule holds for the terminal, for no input and for a
+test's script alike. The default refuses and says so by its answer, because a
+word must not believe a line was kept that was dropped.
+
+`Interp` also gains a public `evaluator`, `Option<fn(&mut dyn Vm, &str) ->
+Result<(), Error>>`, beside `reporter` and `input` and for their reason: the
+embedder supplies what this crate cannot build. It is how a line typed at a
+debugger stop is run, and `Runtime` installs it.
+
+- Amended by: repository owner, 2026-10-07, on D113
+- Consumes: D112, D36, RFC-0008 §W2 to §W4

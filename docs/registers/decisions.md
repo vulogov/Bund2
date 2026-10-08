@@ -3547,6 +3547,85 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D113 — debugger words: one vocabulary for a script, a shell and the console
+
+**Raised 2026-10-07** by the repository owner's idea that the debugger's
+commands be words, and drafted as RFC-0008's amendment of this date.
+
+- Blocks: RFC-0008's amendment "debugger words", every part
+- Depends on: D84, D94, D112, D36, D55, F165, F139
+- Status: **RESOLVED** by the repository owner, 2026-10-07 — all six as
+  recommended. Part A built the same day; Part B is not built. *(As raised:
+  OPEN, six questions, each default for planning only.)*
+
+The reference's debugger evaluates every typed line as Bund in the program's
+VM (`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:81-95`) and
+has no stepping or breakpoint commands. Bund2's `--debugger` console has
+those commands and refuses Bund. The amendment proposes thirteen `debug.*`
+words and a console that evaluates Bund, in two parts: A, inspecting and
+feeding; B, arming and moving from a script.
+
+| # | question | default, for planning |
+|---|---|---|
+| 1 | Adopt the direction at all — words as the debugger's vocabulary, the console evaluating Bund? | yes |
+| 2 | Part A alone first, or A and B together? | A first |
+| 3 | Where do the inspecting words write: stdout, as `debug.display_stack` does, or the session's stderr? | stdout from a word; the console's short forms keep stderr |
+| 4 | `stack` at the console: the console's render, or the Bund alias of `ensure_stack`? | the Bund word; the render becomes `debug.display_stack` and `st` |
+| 5 | A breakpoint armed by a script with no `--debugger`: refuse, inert with a notice, or a console over the VM's `Input`? | a console over `Input` |
+| 6 | A breakpoint armed while a tier is installed: refuse to arm, uninstall the tier from then on, or pin per word? | uninstall from then on |
+
+**Risks the amendment names and does not resolve.** A typed line can change
+the program and can exit it, which §D3 forbade for conditions and the
+reference allows for typed lines. Evaluating at a watch stop happens inside a
+native that is mid-push; whether that is sound is unread (Q41). Whether a
+breakpoint on a native such as `input` stops before it runs is unmeasured, and
+`debug.feed`'s interactive use rests on it.
+
+**Dated note, 2026-10-07 — ruled, and Part A built.** The owner took all six
+recommendations: adopt the direction; Part A first; a word writes to standard
+output and the console's short forms keep standard error; `stack` at the
+console is the Bund word and `st` is the session's view; a script's breakpoint
+with nothing attached opens a console over the VM's `Input` (Part B); arming
+while a tier is installed uninstalls it from then on (Part B).
+
+*What Part A is.* Four words — `debug.backtrace`, `debug.stacks`,
+`debug.info`, `debug.feed` — and a `--debugger` console that runs any line it
+does not know as Bund in the program's VM. `Vm` gains `debugging` and
+`feed_line`; `Command` gains `Eval`; `Interp` gains a queue of fed lines and
+an `evaluator` the embedder installs, which `Runtime` fills.
+
+*What building it settled.*
+
+- **Q41, first half: a line may be typed at every stop**, with one guard that
+  reading had not found. A watch stops inside the push of the native that is
+  pushing, and that native may have filed a body to run when it returns. A
+  failing native in the typed line cleared that request (F96's clear) and the
+  body was silently dropped. `evaluate_typed` now sets the request aside for
+  the line and puts it back. A unit test builds exactly that case and fails
+  without the guard.
+- **Q41, second half: a breakpoint on a native never fires.** Measured:
+  `break input` arms and is not reached, because §D3 breaks at a frame push
+  and a native pushes none. So a read is fed by stepping to it, or by feeding
+  ahead. A stop-on-read stays undesigned. Pinned by a test.
+- **The debugger is no longer taken out of the interpreter for a typed
+  line.** It is put back marked busy, so `debug.info` typed at a stop reads
+  what the console armed, and nothing inside the line is itself a stop.
+- **A typed line's failure is shown in the word's own words**, not behind
+  `bund.eval`'s `Attempt to evaluate value …`, which carries a raw rendering.
+  `bund2_stdlib::eval_line` is the same loop without that prefix.
+- **`debug.info` says what is armed and not the stepping mode**, which the
+  draft's table had also promised. The mode is the session's and changes
+  with every command; nothing reads it.
+
+*What a person at the console will notice.* A mistyped command is now an
+unknown word, reported, where it was "not a command" with the list. `?` and
+`help` print the list. `stack` runs the Bund word, which makes a stack and
+moves to it.
+
+*Checked by* nine tests at process level in `debugger_words.rs` (W1, W2, W3,
+W5, W6, the native breakpoint, `stack`), four unit tests on the words, two on
+the interpreter. Criterion 6's sweep passes unchanged, with no exclusion (W4).
+
 ## D112 — the input seam: a word asks the VM for its line
 
 **Authorised by the repository owner, 2026-10-07**, on being shown four

@@ -34,6 +34,9 @@ use std::rc::Rc;
 use bund2_api::{Error, Registry, Resolved, Symbol, Vm};
 use bund2_value::BundValue;
 
+/// How an embedder runs a line of source in a VM — RFC-0008 §W2.
+pub type Evaluator = fn(&mut dyn Vm, &str) -> Result<(), Error>;
+
 /// One named stack.
 ///
 /// A `VecDeque`, because the reference's `Stack<T>` is one
@@ -610,6 +613,16 @@ pub struct Interp {
     /// one; the CLI swaps in the terminal, a debugged session keeps the
     /// program off the stream its commands arrive on, and a test scripts it.
     pub input: Box<dyn bund2_api::input::Input>,
+    /// **Lines fed ahead of the input — RFC-0008 §W4.** `debug.feed` writes
+    /// here; a read answers from here first and asks [`Interp::input`] only
+    /// when it is empty. Held by the interpreter so the rule is one rule for
+    /// every input an embedder may install.
+    fed: VecDeque<String>,
+    /// **How a line of source is run — RFC-0008 §W2.** `None` until an
+    /// embedder says: this crate has no parser, for the reason it builds no
+    /// child VM for a condition, so the host supplies both. A console line
+    /// typed at a stop goes through it.
+    pub evaluator: Option<Evaluator>,
     /// **The frame stack — RFC-0003 §S4.** Bund call depth lives here, on the
     /// heap, instead of on the Rust stack.
     frames: Vec<Frame>,
@@ -721,6 +734,8 @@ impl Interp {
             contexts: Vec::new(),
             reporter: Box::new(bund2_api::diag::SilentReporter),
             input: Box::new(bund2_api::input::NoInput),
+            fed: VecDeque::new(),
+            evaluator: None,
             frames: Vec::new(),
             pending_tail: None,
             pending_who: None,
@@ -1415,6 +1430,11 @@ impl Interp {
         let Some(mut d) = self.debug.take() else {
             return;
         };
+        // A line typed at a stop is running: its values are not stops.
+        if d.busy {
+            self.debug = Some(d);
+            return;
+        }
         let depth = self.frames.len();
         let forced = why != debug::Stop::Stepping;
         if forced || d.should_stop(depth) {
@@ -1453,11 +1473,86 @@ impl Interp {
                             };
                             d.answer(&text);
                         }
+                        debug::Next::Eval(source) => {
+                            // **Put back for the line, so the line can see
+                            // what is armed** — `debug.info` typed at a stop
+                            // reads it — and marked busy so nothing in the
+                            // line is itself a stop.
+                            d.busy = true;
+                            self.debug = Some(d);
+                            let said = self.evaluate_typed(&source);
+                            let Some(mut back) = self.debug.take() else {
+                                // Nothing detaches a debugger today. If the
+                                // line did, there is no host left to ask.
+                                return;
+                            };
+                            back.busy = false;
+                            d = back;
+                            if let Some(text) = said {
+                                d.answer(&text);
+                            }
+                            // **A line that exits has ended the program**, and
+                            // the request cannot be withdrawn (§D3). Asking for
+                            // another command would be asking about a program
+                            // that will run nothing more.
+                            if self.exit_code.is_some() {
+                                break;
+                            }
+                        }
                     },
                 }
             }
         }
         self.debug = Some(d);
+    }
+
+    /// **Run a line typed at a stop, in this VM — RFC-0008 §W2.**
+    ///
+    /// Answers what the host should be told, if anything: the line's failure,
+    /// or that no evaluator was installed. A line that fails does not move the
+    /// program, as in `debug.shell`.
+    ///
+    /// **The tail request is set aside for the line and put back after it.**
+    /// A stop can fall inside a native — a watch fires in the native's own
+    /// push — and that native may have filed a body to run when it returns.
+    /// The line's first word would otherwise take that body as its own, or a
+    /// failing native in the line would discard it (F96's clear). Set aside,
+    /// the line can do neither.
+    fn evaluate_typed(&mut self, source: &str) -> Option<String> {
+        let Some(run) = self.evaluator else {
+            return Some("bund2: this host cannot run a line of Bund at a stop\n".to_string());
+        };
+        let held = self.pending_tail.take();
+        let held_who = self.pending_who.take();
+        self.cells.set_request(false);
+        let out = run(self, source);
+        self.pending_tail = held;
+        self.pending_who = held_who;
+        self.cells.set_request(self.pending_tail.is_some());
+        match out {
+            Ok(()) => None,
+            // The exit's own refusal is not a failure of the line (D52).
+            Err(_) if self.exit_code.is_some() => None,
+            Err(e) => Some(format!("bund2: {}\n", e.0)),
+        }
+    }
+
+    /// Every stack by name, with its depth and its top value — §W1's
+    /// `debug.stacks`. The current one is marked.
+    fn render_stacks(&self) -> String {
+        let current = self.stacks.current_name().to_string();
+        let mut out = String::new();
+        for name in Vm::stack_names(self) {
+            let mark = if name == current { '*' } else { ' ' };
+            let items = Vm::snapshot_of(self, &name);
+            let top = items
+                .last()
+                .map(|v| v.summary(48))
+                .unwrap_or_else(|| "empty".to_string());
+            out.push_str(&format!("{mark} @{name}  {}  top: {top}\n", items.len()));
+        }
+        out.push_str(&format!("  workbench  {}\n", Vm::workbench_depth(self)));
+        out
     }
 
     /// One line saying where the debuggee is stopped — the innermost frame, or
@@ -1947,7 +2042,28 @@ impl Vm for Interp {
         &mut self,
         ask: &bund2_api::input::Ask<'_>,
     ) -> Result<bund2_api::input::Read, String> {
+        // A fed line first — §W4. Not remembered here: the reading word
+        // says which lines a history keeps, as for a typed one.
+        if let Some(line) = self.fed.pop_front() {
+            return Ok(bund2_api::input::Read::Line(line));
+        }
         self.input.line(ask)
+    }
+
+    fn feed_line(&mut self, line: String) -> bool {
+        self.fed.push_back(line);
+        true
+    }
+
+    fn debugging(&mut self, what: bund2_api::Debugging) -> Option<String> {
+        Some(match what {
+            bund2_api::Debugging::Backtrace => self.render_backtrace(),
+            bund2_api::Debugging::Stacks => self.render_stacks(),
+            bund2_api::Debugging::Info => match self.debug.as_ref() {
+                Some(d) => d.render_watched(),
+                None => "no debugger is attached\n".to_string(),
+            },
+        })
     }
 
     fn remember_line(&mut self, history: &str, line: &str) {
@@ -1955,6 +2071,9 @@ impl Vm for Interp {
     }
 
     fn read_secret(&mut self, prompt: &str) -> Result<String, String> {
+        if let Some(line) = self.fed.pop_front() {
+            return Ok(line);
+        }
         self.input.secret(prompt)
     }
 
@@ -2737,7 +2856,12 @@ mod tests {
         // leaves the mirror behind Tier 0 with nothing to notice. The RFC
         // stated this set wrongly twice, so it is derived here, in the shape
         // criterion 25's scan and criterion 11's path set already use.
-        const WRITERS: [&str; 4] = [
+        const WRITERS: [&str; 5] = [
+            // **RFC-0008 §W2, D113.** A line typed at a debugger stop sets the
+            // request aside and puts it back, so the line can neither take
+            // nor discard the body a stopped native filed. It writes the
+            // mirror at both ends. Reached only from a safepoint.
+            "evaluate_typed",
             // D56: the clear for a caller that cannot reach `invoke`.
             "clear_tail_request",
             // F96: clears one a failing native filed.

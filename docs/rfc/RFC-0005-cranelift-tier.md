@@ -6763,3 +6763,27 @@ evidence, and this one is listed as runnable rather than as met.
   built.
 - **Q37 — answered 2026-09-10: D43.** The registration id and the stable
   generation cells, built when this RFC reaches Proposed.
+
+## Amendment, 2026-10-07 — assumption 33's set is five (D113)
+
+`every_writer_of_the_request_cell_is_named` failed on a fifth writer, which is
+what it is for. The writer is `Interp::evaluate_typed`, added for RFC-0008
+§W2: a line typed at a debugger stop is run in the program's VM, and a stop
+can fall inside a native that has filed a tail request. The function takes the
+request before the line and restores it after, so the line can neither run
+that body as its own nor discard it through F96's clear.
+
+**The mirror is written at both ends**, in the same function, so assumption
+33's pairing holds: cleared when the request is taken, and set to whether one
+is held when it is put back.
+
+**Compiled code does not observe the interval.** The function is reached only
+from a safepoint, and a session started with `--debugger` installs no tier
+(RFC-0008 §D6, criterion 10). Where an embedder attaches a debugger beside a
+tier, the stop is still inside a Tier 0 native call, and the cell reads as it
+did before the stop by the time that native returns.
+
+§S8's path set gains one entry for the same change: `lib.rs: eval_line` in
+`bund2-stdlib`, the loop that applies a typed line value by value.
+
+- Amended by: repository owner's ruling on D113, 2026-10-07

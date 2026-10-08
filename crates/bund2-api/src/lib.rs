@@ -325,6 +325,20 @@ pub struct InlineSite {
 /// rotation, named stacks and the workbench, none of which an external word
 /// wants.
 ///
+/// A view of a running program that the debugger renders — RFC-0008 §W3.
+///
+/// The three that need nothing attached. The arming and moving requests are
+/// §W5's and join this type with it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Debugging {
+    /// The frame stack, innermost first.
+    Backtrace,
+    /// Every stack: its name, its depth and its top value.
+    Stacks,
+    /// What is armed: breakpoints and watches.
+    Info,
+}
+
 /// The alternative is two receivers, which is the split the merge exists to
 /// remove. Carried as a stated consequence: **the stable surface is as wide
 /// as the widest native**, and the 31 stack-layer words are the widest.
@@ -617,6 +631,28 @@ pub trait Vm {
     /// Read one line that is not echoed.
     fn read_secret(&mut self, _prompt: &str) -> Result<String, String> {
         Err("there is no terminal to read a secret from".to_string())
+    }
+
+    /// Queue a line for the next read — `debug.feed`, RFC-0008 §W4.
+    ///
+    /// The queue is the VM's and not the input's: [`Vm::read_line`] and
+    /// [`Vm::read_secret`] answer from it before they ask anything, so a fed
+    /// line reaches a word whatever input the embedder installed.
+    ///
+    /// **Defaulted to refusing**, and saying so: a `Vm` that keeps no queue
+    /// must not let a word believe its line was kept.
+    fn feed_line(&mut self, _line: String) -> bool {
+        false
+    }
+
+    // --- the debugger's views (RFC-0008 §W3) --------------------------------
+    /// Render one of the debugger's views, as text.
+    ///
+    /// A word asks the VM, as it does for a line or to report, so the same
+    /// view is one piece of code whether a script, `debug.shell` or a console
+    /// stop asked for it. `None` is a `Vm` with no such view.
+    fn debugging(&mut self, _what: Debugging) -> Option<String> {
+        None
     }
 
     // --- contexts ----------------------------------------------------------

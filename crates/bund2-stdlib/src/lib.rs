@@ -81,6 +81,31 @@ pub mod series;
 // base64, `unique` and `pull.workbench`.
 pub mod encoding;
 
+/// Run a line of Bund source in `vm`, value by value, as `bund.eval` does
+/// (`reference/Bund/src/stdlib/helpers/eval.rs:7-37`).
+///
+/// Public for the embedder: an interpreter has no parser of its own, so the
+/// line a debugger's console is handed at a stop is run through this
+/// (RFC-0008 §W2).
+///
+/// **The failure is the word's own, without `bund.eval`'s frame around it.**
+/// `eval_source` prefixes the reference's `Attempt to evaluate value …`, which
+/// carries the raw rendering of the value; that is `bund.eval`'s contract and
+/// noise at a prompt where the person has just typed the line.
+pub fn eval_line(vm: &mut dyn bund2_api::Vm, src: &str) -> Result<(), bund2_api::Error> {
+    let stream = bund2_syntax::compile(src).map_err(|e| bund2_api::Error(e.render(src)))?;
+    for word in stream {
+        if word.dt() == bund2_value::NONE {
+            continue;
+        }
+        if word.dt() == bund2_value::EXIT {
+            break;
+        }
+        vm.apply(word)?;
+    }
+    Ok(())
+}
+
 /// Register everything this crate provides.
 pub fn register_all(r: &mut bund2_api::Registry) {
     register_all_with(r, &host::HostOptions::default());
@@ -1035,7 +1060,10 @@ mod honesty_tests {
     /// outside this crate (RFC-0005 assumption 24).
     #[test]
     fn every_reentering_function_is_named() {
-        const REENTERING: [&str; 26] = [
+        const REENTERING: [&str; 27] = [
+            // RFC-0008 §W2: a line typed at a debugger stop, applied value by
+            // value. Called from a safepoint and never from a native.
+            "lib.rs: eval_line",
             "conditional.rs: run_context",
             "conditional.rs: run_error",
             "conditional.rs: run_ifthenelse",

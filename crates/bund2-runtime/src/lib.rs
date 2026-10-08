@@ -202,6 +202,9 @@ impl Runtime {
         let threshold = threshold.or_else(threshold_from_env);
         let mut interp = Interp::new();
         bund2_stdlib::register_all_with(&mut interp.registry, opts);
+        // RFC-0008 §W2: the interpreter has no parser, so the line a console
+        // is handed at a stop is run by the vocabulary's own `bund.eval`.
+        interp.evaluator = Some(bund2_stdlib::eval_line);
         #[cfg(feature = "jit")]
         if tier {
             // **§S6's fragment table, built here and nowhere else.** It is

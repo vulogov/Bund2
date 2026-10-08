@@ -948,3 +948,309 @@ corrected to follow the research, (h) is corrected to contradict it, and the
 flag follows the reference. **`docs/research/ERRATA.md` gains one entry**, for
 (h): the tier counters do not give a profiler for free in Bund2, because they
 are totals, they exist only under `jit`, and §D6 removes the tier.
+
+## Amendment, 2026-10-07 — debugger words (D113)
+
+- Status: **Part A decided and built; Part B decided and not built.** Written
+  at the repository owner's request, on the idea that the debugger's commands
+  should be **words** — runnable in a script, in `debug.shell`, and at the
+  `--debugger` console alike. The owner ruled on D113's six questions the same
+  day, each as recommended. The text below is the draft as ruled on; **"What
+  building Part A changed"**, at the end, is where it and the code differ.
+- Registers searched by subject (`debug`, `debugger`, `safepoint`,
+  `breakpoint`, `debug.shell`, `stacks`, `classes`, `input`): D36, D52, D84,
+  D94, D99, D101, D102, D112, F10, F37, F52, F139, F165, and criterion 6, 10
+  and 13 of this document. D55 (the effect audit's palette) and RFC-0002's
+  `Input` amendment are consumed below.
+
+### What the reference does, which the first design did not follow
+
+**The reference debugger's command language is Bund.** `debug` applies one
+term, then reads lines: an empty line moves on, and any other line goes to
+`bund_compile_and_eval` in the same VM
+(`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:81-95`).
+`debug.shell` is that loop with no stepping
+(`reference/Bund/src/stdlib/functions/debug_fun/debug_shell.rs:23-33`). The
+callee parses the line and `vm.apply`s each value, skipping `NONE` and
+stopping at `EXIT` (`reference/Bund/src/stdlib/helpers/eval.rs:7-37`). So at a
+reference stop **every word is a debugger word**, and it has no stepping,
+breakpoint or watch command at all. A shell is itself a Bund program there:
+`bund.prompt { … bund.eval … } input*`
+(`reference/Bund/examples/code_snippets/bund_shell.bund:24`).
+
+**Bund2 has two languages where the reference has one.** The `--debugger`
+console parses its own vocabulary and refuses anything else as "not a
+command" (`crates/bund2-cli/src/debugger.rs`, `parse`). The words `debug` and
+`debug.shell` evaluate Bund in the live VM as the reference does
+(`crates/bund2-stdlib/src/terminal.rs`, `debug_word`, `debug_shell`) and know
+nothing of frames, breakpoints or watches. Neither can do what the other
+does: a console session cannot run a word, and a word cannot arm a
+breakpoint.
+
+**And one promise of this document is unkept.** The Preservation row for
+`debug` says it "keeps working as a thin wrapper: evaluate the string with the
+debugger attached, breakpoint on entry", stepping *into* things. `debug_word`
+is the reference's loop over top-level terms. Part B below is what would keep
+the promise.
+
+### §W1 — The vocabulary
+
+Thirteen words, all Bund2-only. None is in the reference's registry, so none
+moves `COVERAGE` or `IMPLEMENTED`, and none can be held by a golden against
+the oracle.
+
+| word | operands | what it does | part |
+|---|---|---|---|
+| `debug.backtrace` | — | renders the frame stack | A |
+| `debug.stacks` | — | renders every stack: name, depth, top (§D5's `stacks`) | A |
+| `debug.info` | — | renders what is armed: breakpoints, watches, the stepping mode | A |
+| `debug.feed` | STRING | queues one line for the program's next read — §W4 | A |
+| `debug.break` | STRING | break when a frame for that word is pushed (§D3) | B |
+| `debug.break.if` | STRING, LAMBDA | the same, when the lambda answers true in a child VM (§D3) | B |
+| `debug.watch` | STRING | stop on a push to that named stack (§D4) | B |
+| `debug.watch.workbench` | — | stop on a push to the workbench (§D4's second hook) | B |
+| `debug.delete` | STRING | stop watching that word or stack | B |
+| `debug.step` | — | stop before the next value, into any body | B |
+| `debug.next` | — | stop before the next value at this depth | B |
+| `debug.finish` | — | stop when the current frame has left | B |
+| `debug.continue` | — | stop nowhere until something armed fires | B |
+
+`debug.display_stack` and `debug.display_workbench` already cover "render the
+current stack" and are not duplicated. §D5's `words` and `classes` are not in
+this table: they are views of the slot table and the class table, not of a
+debugged run, and stay §D5's.
+
+**Where the inspecting words write is a decision (D113.3).** The session
+writes to stderr so the program keeps stdout, which criterion 6's method
+depends on. `debug.display_stack` writes to stdout, as the reference's does. A
+word typed at the console is still a word, so the two rules meet here.
+
+### §W2 — The console evaluates Bund
+
+At a stop, a line the console does not recognise as one of its own short
+forms is **evaluated as Bund in the debuggee's VM**, as the reference does.
+The short forms stay, each defined as the word it stands for:
+
+| typed | means |
+|---|---|
+| `s`, `step` | `debug.step` |
+| `n`, `next` | `debug.next` |
+| `f`, `finish` | `debug.finish` |
+| `c`, `cont`, `continue` | `debug.continue` |
+| `bt`, `backtrace`, `where` | `debug.backtrace` |
+| `i`, `info` | `debug.info` |
+| `break w`, `b w` | `"w" debug.break` |
+| `break w if { … }` | `"w" { … } debug.break.if` |
+| `watch @s`, `watch workbench`, `delete w` | the three words likewise |
+
+**`stack` and `st` are a collision, and a decision (D113.4).** The console
+takes `stack` to render the current stack. The reference binds `stack` as an
+alias of `ensure_stack`
+(`reference/rust_multistackvm/src/stdlib/create_aliases.rs:35`) and Bund2
+registers it. Once lines are Bund, one meaning must give way at the console.
+No other short form is a registered word today; every one becomes
+unavailable as a *bare* Bund line at the console, which is the cost of
+keeping them.
+
+**A failing line is reported and the debuggee stays stopped**, at `Warning`,
+as `debug_shell` already does and for its reason: the program has not stopped
+(D36). An empty line is nothing, as now.
+
+**What a typed line may do to the program, stated.** It runs in the program's
+own VM, so it can push, switch stacks, rebind a word, and call `bund.exit` —
+whose request cannot be withdrawn (§D3 gives the cell). §D3 put *conditions*
+in a child VM for exactly this, because a condition runs unasked. A typed line
+is asked for; the reference permits it and so do `debug` and `debug.shell`
+here. This amendment keeps §D3's rule for conditions and does not extend it to
+typed lines.
+
+**What the mechanism has to change, read from the code.**
+
+- `Console::next_command` answers a `Command`, and only commands and text
+  cross that seam because `Interp` is not `Send`
+  (`crates/bund2-interp/src/debug.rs`, module doc). A line is text, so it
+  crosses as `Command::Eval(String)`.
+- `bund2-interp` cannot compile source: it depends on `bund2-ir`,
+  `bund2-value` and `bund2-api`, and the parser is reached through
+  `bund2-stdlib` (`singles.rs`, `eval_source`). The host already supplies the
+  child VM for conditions for the same reason (`Console::evaluate_condition`).
+  So the host supplies the evaluation too: a function the embedder installs,
+  `fn(&mut dyn Vm, &str) -> Result<(), Error>`, which the CLI fills with
+  `eval_source`.
+- **`safepoint_for` takes the whole `Debug` out of the `Interp` for the
+  length of the stop** (`crates/bund2-interp/src/lib.rs`, `safepoint_for`).
+  Two consequences. A typed line's own values are not stepped, because the
+  nested loop finds no debugger — wanted. But `debug.break` typed at the
+  console would find no debugger to arm — not wanted. So `Debug` splits:
+  **the console is taken for the stop; what is armed stays on the
+  `Interp`.**
+
+`[UNGROUNDED]` — **that evaluating a line is sound at every safepoint.** Four
+sites reach `safepoint_for`: the top-level stream, `run_to`'s loop head, the
+frame push for a breakpoint, and the two pushes for a watch. The first two sit
+between values, where a nested `Interp::apply` records its own floor exactly
+as a native's re-entry does. The breakpoint site runs after `take_pending` has
+cleared the tail request, which reads as safe. **The watch sites are inside a
+native that is mid-push**: a `+` has pulled its operands and not yet pushed
+its sum, so a typed line sees a stack the program never showed and may
+rearrange it under the native. Memory-safe by the language; whether every
+invariant the frame loop keeps holds there has not been read call by call.
+Criterion W3 is the check, and Q41 records the gap.
+
+### §W3 — Words reach the debugger through the VM
+
+`Vm` gains one method, defaulted to "nothing is attached", in the shape
+`report` and `read_line` have. The request type moves to `bund2-api` so a word
+in `bund2-stdlib` can name it — an amendment to RFC-0002's `Vm` surface, to be
+written with the build:
+
+```rust
+// bund2-api
+pub enum Debugging {
+    Backtrace, Stacks, Info,
+    Break(String), BreakIf(String, BundValue), Watch(String), WatchWorkbench,
+    Delete(String),
+    Step, Next, Finish, Continue,
+}
+// on `Vm`
+fn debugging(&mut self, _ask: Debugging) -> Result<Option<String>, Error> {
+    Ok(None)
+}
+```
+
+An inspecting request answers text; an arming or moving one answers nothing.
+`Command` in `bund2-interp` becomes this type plus `Eval`, so the console and
+the words say one thing in one vocabulary.
+
+**The words are opaque**, for the reason `debug.shell` is: what they do to the
+run is not a stack effect. That keeps them out of D55's palette and out of
+RFC-0005's compiled bodies without a list to maintain.
+
+### §W4 — Typing into a debugged program: `debug.feed`
+
+D112 left this open: a debugged program is given no input, because the
+console owns standard input (F165).
+
+`"alice" debug.feed` queues one line. **The queue is the interpreter's, not
+the input's**: `Vm::read_line` answers from it first and asks the installed
+`Input` only when it is empty, and `Vm::read_secret` likewise. So the rule
+holds for the terminal, for `NoInput` and for a test's script without any of
+them knowing, and `Input` does not change. `Vm` gains `feed_line`, defaulted
+to dropping the line.
+
+- Under `--debugger` an empty queue is still the end of input, as D112 made
+  it. A session that feeds nothing is unchanged, and so is criterion 6.
+- In a plain run a script may answer its own `input` in advance. That is new
+  behaviour for a Bund2-only word and touches no reference word.
+- A fed line is not remembered in a history unless the reading word says so;
+  `remember_line` is untouched.
+- A fed secret is visible where it was typed. Stated, not solved.
+
+**The read has to be anticipated**: the line must be queued before the word
+reads. With Part B that is `"input" debug.break`, then feed, then continue.
+`[UNGROUNDED]` — that a breakpoint on a *native* stops before it runs: §D3
+breaks "when a frame for that symbol is pushed" and a native pushes no frame.
+Criterion W5 measures it; if it fails, a stop-on-read is needed and is not
+designed here.
+
+### §W5 — Part B: arming and moving from a script
+
+Part A needs no debugger attached. Part B does, and a script has no
+`--debugger` flag. Two questions follow, and **both are D113's**.
+
+**Where does a script's breakpoint stop (D113.5)?** Nothing is attached, so
+there is no console to block on. The candidates: the arming words refuse
+without `--debugger`; they are inert with a notice; or the first arming word
+attaches a console over the VM's own `Input`, so the stop is a prompt on the
+terminal the program already has — which is `debug`'s Preservation row kept,
+and makes `debug.step` in a script what `breakpoint()` is elsewhere. Under a
+capture the third reads the end of input and detaches, which is what
+`Console` already does when its host is gone.
+
+**What of the tier (D113.6)?** §D6 disables it by the flag, in the one place
+it is installed (`Runtime::for_debugging`). A script that arms mid-run has a
+tier already installed, and a compiled body has no safepoint, so a breakpoint
+inside one would not fire. §D6 names what would be needed — "per-word pinning,
+with its own decision" — and says the machinery for the research's first
+mechanism does not exist. F139 measured that no corpus program compiles a body
+at the default threshold, so the gap is narrow; it is still a debugger that
+can miss a stop, silently.
+
+**A script that calls a moving word is outside criterion 6**, by
+construction: its stepped and plain runs are different programs.
+
+### Preservation
+
+| behaviour | disposition |
+|---|---|
+| Every reference word | **Unchanged.** No reference word is added, removed or altered. |
+| `debug`, `debug.shell` | **Unchanged in Part A.** In Part B `debug` may gain the stepping its row promised; that is D113.5's to say. |
+| The console's commands | **Preserved as short forms**, less `stack`/`st` if D113.4 rules so. |
+| A line the console does not know | **Changed**: evaluated, where it was refused. |
+| A debugged program's input | **Changed only when fed.** |
+| `conform`, `COVERAGE`, `IMPLEMENTED` | **Move by zero.** The words are outside the reference's list. |
+
+### Criteria
+
+- **W1. The three inspecting words answer the same text in a script, in
+  `debug.shell` and at a console stop**, for one program stopped at one
+  place. Checked by a scripted console and a scripted input.
+- **W2. A line typed at a stop runs in the debuggee's VM and is not stepped**:
+  the stack shows its effect, and `debugger_stops` does not move for its
+  values.
+- **W3. A line may be typed at each of the four safepoint sites** — top
+  level, loop head, breakpoint, and both watch hooks — and the program then
+  runs to the end it would have reached had the line been part of it, or the
+  site is refused by name. Closes Q41.
+- **W4. A session that only steps is byte-identical to before**: criterion
+  6's sweep passes unchanged, with no exclusion.
+- **W5. `debug.feed` reaches `input`, `input*`, `password` and `debug.shell`**
+  through a scripted run, in order, and an empty queue under `--debugger` is
+  the end of input. Whether a breakpoint on `input` stops before the read is
+  measured here.
+- **W6. A failing line and a line that calls `bund.exit`** are each shown to
+  do what §W2 says: the first reports and stays stopped, the second ends the
+  program with its code.
+- **W7 (Part B). Arming from a word and arming from the console are the same
+  state**: `debug.info` lists both, `debug.delete` removes either.
+- **W8 (Part B). The tier question is answered by a test, not by F139**:
+  build with `jit`, lower the threshold until a body compiles, arm a
+  breakpoint inside it from the script, and show what D113.6 ruled.
+- **W9. No new word is promotable or fixed-effect**: the honesty tests in
+  `bund2-stdlib` hold with the thirteen registered.
+
+### What this does not do
+
+§D7's trace stays deferred (D102). §D8's history for the `--debugger` console
+stays unbuilt. Source-location breakpoints stay blocked on RFC-0003 §S5's
+spans (§D2). `words` and `classes` stay §D5's.
+
+### What building Part A changed
+
+Recorded here rather than by rewriting the sections above, which are what the
+owner ruled on.
+
+- **§W1: `debug.info` renders what is armed, and not the stepping mode.**
+  With nothing attached it says `no debugger is attached`.
+- **§W2: the debugger is not split in two.** The draft said the console would
+  be taken for a stop and the armed state left. What was built is smaller: the
+  whole of it is put back for the length of a typed line, marked busy, so the
+  line can read what is armed and nothing in the line is a stop. Part B, where
+  a word arms from outside any stop, needs no more than that.
+- **§W2: one guard the draft did not have.** A typed line sets aside the tail
+  request of a native it interrupted and restores it. Without it a failing
+  word in the line discarded the body that native had filed. This is the
+  answer to the section's `[UNGROUNDED]` marker: sound at all four sites,
+  given the guard. Criterion W3.
+- **§W3: `Vm::debugging` takes the three inspecting requests and answers
+  `Option<String>`.** The arming and moving variants join the type with Part
+  B; `Command` is not yet that type.
+- **§W4: `feed_line` answers whether the line was kept**, so `debug.feed` on
+  a `Vm` with no queue fails in words where the draft had it drop the line.
+- **§W4's `[UNGROUNDED]` marker is answered, and the answer is no.** A
+  breakpoint on a native such as `input` never fires. A read is fed ahead, or
+  by stepping to it.
+- **§W2: `?` and `help` print the short forms**, since a mistyped command no
+  longer does.
+
+Criteria met: W1, W2, W3, W4, W5, W6, W9. W7 and W8 are Part B's.

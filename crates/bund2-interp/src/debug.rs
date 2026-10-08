@@ -84,6 +84,12 @@ pub enum Command {
     WatchWorkbench,
     /// Render what is being watched.
     Info,
+    /// **A line of Bund, run in the debuggee's own VM — §W2.** What the
+    /// reference's `debug` loop does with every line that is not empty
+    /// (`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:81-95`).
+    /// Source rather than values, because only text crosses this seam.
+    /// The debuggee stays stopped, and the line's own values are not stepped.
+    Eval(String),
 }
 
 /// Where the debuggee stops next. Private: the host says it in [`Command`]s.
@@ -160,6 +166,11 @@ pub struct Debug {
     /// `the_stepped_run_and_the_plain_run_agree` reads it to show the stepping
     /// happened rather than silently detaching.
     pub stops: usize,
+    /// **A typed line is running — §W2.** The line's values are not stepped
+    /// and nothing armed fires inside it: the host is waiting on the stop
+    /// that line was typed at, and a second stop nested in the first would be
+    /// answered by the same console with no way to say which it is at.
+    pub(crate) busy: bool,
 }
 
 impl Debug {
@@ -174,6 +185,7 @@ impl Debug {
             watches: std::collections::BTreeSet::new(),
             watch_workbench: false,
             stops: 0,
+            busy: false,
         }
     }
 
@@ -262,6 +274,7 @@ impl Debug {
                 Next::Render(Render::Info)
             }
             Command::Info => Next::Render(Render::Info),
+            Command::Eval(source) => Next::Eval(source),
         }
     }
 
@@ -269,11 +282,11 @@ impl Debug {
     /// push and a stack push — so it is a pair of emptiness checks rather than
     /// a lookup.
     pub(crate) fn watching_words(&self) -> bool {
-        !self.breaks.is_empty()
+        !self.busy && !self.breaks.is_empty()
     }
 
     pub(crate) fn watching_stacks(&self) -> bool {
-        !self.watches.is_empty() || self.watch_workbench
+        !self.busy && (!self.watches.is_empty() || self.watch_workbench)
     }
 
     /// The condition on a word, if that word is watched at all.
@@ -333,6 +346,8 @@ pub(crate) enum Next {
     Resume,
     /// Render this, answer with it, and stay stopped.
     Render(Render),
+    /// Run this line in the debuggee's VM, and stay stopped.
+    Eval(String),
 }
 
 /// Which renderer an inspecting command wants. The debuggee owns both,
@@ -534,6 +549,62 @@ mod tests {
         ])));
         i.eval(&program(s)).expect("runs");
         assert_eq!(i.debugger_stops(), Some(1), "one safepoint, three commands");
+    }
+
+    /// A native that files a body to run when it returns and *then* pushes —
+    /// so a watch on the stack stops inside it with the request outstanding.
+    fn files_then_pushes(vm: &mut dyn Vm) -> Result<(), bund2_api::Error> {
+        vm.tail_lambda(BundValue::lambda(vec![BundValue::int(8), BundValue::int(9)]));
+        vm.push(BundValue::int(5));
+        Ok(())
+    }
+
+    fn boom(_vm: &mut dyn Vm) -> Result<(), bund2_api::Error> {
+        Err(bund2_api::Error("boom".into()))
+    }
+
+    /// Stands in for a parser: the line is the name of one word to call.
+    fn call_the_line(vm: &mut dyn Vm, line: &str) -> Result<(), bund2_api::Error> {
+        vm.apply(BundValue::call(line))
+    }
+
+    /// **RFC-0008 §W2: a line typed inside a native cannot take or discard
+    /// the body that native filed.** The watch stops in `filer`'s push with
+    /// its tail request outstanding. The line calls a native that fails, and
+    /// a failing native clears the request (F96) — which, without the request
+    /// being set aside for the line, would silently drop `filer`'s body.
+    #[test]
+    fn a_typed_line_leaves_a_stopped_native_its_tail_request() {
+        let mut i = Interp::new();
+        for (name, f) in [("filer", files_then_pushes as bund2_api::NativeFn), ("boom", boom)] {
+            i.registry
+                .register_native(name, f, StackEffect::opaque(0), WordKind::Sync);
+        }
+        i.evaluator = Some(call_the_line);
+        let script = Scripted::new(vec![
+            Command::Watch(i.current_name()),
+            Command::Continue,
+            // At the watch stop, inside `filer`.
+            Command::Eval("boom".to_string()),
+            Command::Continue,
+        ]);
+        i.attach_debugger(Box::new(script));
+        i.eval(&[BundValue::call("filer")]).expect("runs");
+        assert_eq!(final_state(&i), ["5", "8", "9"], "the filed body ran");
+    }
+
+    /// A line typed at a host that installed no evaluator is refused in
+    /// words, and the program is where it was.
+    #[test]
+    fn a_line_with_no_evaluator_is_refused_and_moves_nothing() {
+        let (mut i, s) = with_body_word();
+        i.attach_debugger(Box::new(Scripted::new(vec![
+            Command::Eval("anything".to_string()),
+            Command::Continue,
+        ])));
+        i.eval(&program(s)).expect("runs");
+        assert_eq!(i.debugger_stops(), Some(1), "one stop, two commands");
+        assert_eq!(final_state(&i).len(), 4, "the program ran whole");
     }
 
     /// **The host going away does not take the program with it.** A console

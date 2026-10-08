@@ -538,6 +538,60 @@ fn debug_word(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// Print one of the debugger's views — RFC-0008 §W1.
+///
+/// The VM renders it, so a script, `debug.shell` and a line typed at a
+/// console stop print the same text from the same code. **To standard
+/// output**, as `debug.display_stack` does (D113.3): a word's output is the
+/// program's, wherever the word was typed.
+fn debug_view(vm: &mut dyn Vm, what: bund2_api::Debugging, who: &str) -> Result<(), Error> {
+    match vm.debugging(what) {
+        Some(text) => {
+            print!("{text}");
+            Ok(())
+        }
+        None => Err(Error(format!("{who}: this VM renders no such view"))),
+    }
+}
+
+/// `debug.backtrace` — the frame stack, innermost first. Bund2's own word.
+fn debug_backtrace(vm: &mut dyn Vm) -> Result<(), Error> {
+    debug_view(vm, bund2_api::Debugging::Backtrace, "DEBUG.BACKTRACE")
+}
+
+/// `debug.stacks` — every stack, its depth and its top. Bund2's own word.
+fn debug_stacks(vm: &mut dyn Vm) -> Result<(), Error> {
+    debug_view(vm, bund2_api::Debugging::Stacks, "DEBUG.STACKS")
+}
+
+/// `debug.info` — what a debugger has armed. Bund2's own word.
+fn debug_info(vm: &mut dyn Vm) -> Result<(), Error> {
+    debug_view(vm, bund2_api::Debugging::Info, "DEBUG.INFO")
+}
+
+/// `debug.feed` — queue one line for the next word that reads (§W4).
+///
+/// The way to type into a debugged program, whose console owns standard
+/// input (F165, D112). The line waits in the VM and is answered before any
+/// input is asked, so it reaches `input`, `input*`, `password` and
+/// `debug.shell` alike. Bund2's own word; the reference has no counterpart.
+fn debug_feed(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 1 {
+        return Err(Error("Stack is too shallow for inline DEBUG.FEED".into()));
+    }
+    let v = vm
+        .pull()
+        .ok_or_else(|| Error("DEBUG.FEED returns: NO DATA #1".into()))?;
+    let Some(line) = v.as_str() else {
+        return Err(Error("DEBUG.FEED: the line is not a string".into()));
+    };
+    if vm.feed_line(line.to_string()) {
+        Ok(())
+    } else {
+        Err(Error("DEBUG.FEED: this VM keeps no lines for a read".into()))
+    }
+}
+
 /// `debug.display_memstat` — this process's own memory use
 /// (`reference/Bund/src/stdlib/functions/debug_fun/debug_display_memstats.rs`).
 ///
@@ -715,6 +769,12 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
     // because they evaluate whatever is typed -- which also keeps them out of
     // D55's palette, where a word that reads stdin is F141's hazard.
     r.register_native("debug", debug_word, StackEffect::opaque(1), WordKind::Sync);
+    // RFC-0008 §W1, Part A. Opaque, as `debug.shell` is: what they read is
+    // the run and not a stack effect, which keeps them out of D55's palette.
+    r.register_native("debug.backtrace", debug_backtrace, StackEffect::opaque(0), WordKind::Sync);
+    r.register_native("debug.stacks", debug_stacks, StackEffect::opaque(0), WordKind::Sync);
+    r.register_native("debug.info", debug_info, StackEffect::opaque(0), WordKind::Sync);
+    r.register_native("debug.feed", debug_feed, StackEffect::opaque(1), WordKind::Sync);
     r.register_native(
         "debug.shell",
         debug_shell,
@@ -813,6 +873,76 @@ mod tests {
         let (mut i, _) = typed(&[], &[]);
         run(&mut i, "\"> \" input").expect("runs");
         assert!(shown(&i).is_empty());
+    }
+
+    /// **RFC-0008 §W4, criterion W5: a fed line reaches every word that
+    /// reads**, before the input is asked and in the order fed. The
+    /// interpreter here has no input at all, which is what a debugged program
+    /// has (D112): without the queue each of these reads is the end.
+    #[test]
+    fn a_fed_line_reaches_every_reading_word() {
+        let mut i = interp();
+        run(&mut i, "\"alice\" debug.feed \"name? \" input").expect("runs");
+        assert_eq!(shown(&i), ["alice"]);
+
+        let mut i = interp();
+        run(&mut i, "\"a\" debug.feed \"b\" debug.feed \"> \" { string.upper } input*")
+            .expect("runs");
+        assert_eq!(shown(&i), ["A", "B"], "both, in the order fed, then the end");
+
+        // `password` has no terminal here and is refused without a fed line.
+        let mut i = interp();
+        run(&mut i, "\"hunter2\" debug.feed \"pw: \" password").expect("runs");
+        assert_eq!(shown(&i), ["hunter2"]);
+
+        // `debug.shell` runs the fed line as Bund and then meets the end.
+        let mut i = interp();
+        run(&mut i, "\"40 2 +\" debug.feed debug.shell").expect("runs");
+        assert_eq!(shown(&i), ["42"]);
+    }
+
+    /// A fed line is answered before the input, and the input is then asked
+    /// as it always was.
+    #[test]
+    fn a_fed_line_comes_before_the_input() {
+        let (mut i, seen) = typed(&["typed"], &[]);
+        run(&mut i, "\"fed\" debug.feed \"> \" input \"> \" input").expect("runs");
+        assert_eq!(shown(&i), ["fed", "typed"]);
+        assert_eq!(seen.borrow().prompts.len(), 1, "the fed read asked nobody");
+    }
+
+    /// `debug.feed` refuses what is not a line, in its own words.
+    #[test]
+    fn debug_feed_refuses_what_is_not_a_string() {
+        let mut i = interp();
+        let e = run(&mut i, "debug.feed").expect_err("nothing to feed");
+        assert!(e.ends_with("Stack is too shallow for inline DEBUG.FEED"), "{e}");
+        let e = run(&mut i, "42 debug.feed").expect_err("not a line");
+        assert!(e.ends_with("DEBUG.FEED: the line is not a string"), "{e}");
+    }
+
+    /// **Criterion W1, the half a unit test can hold: the three views are the
+    /// VM's, and a word only prints them.** With nothing attached `debug.info`
+    /// says so; the frame stack names the word a view was asked from.
+    #[test]
+    fn the_views_are_rendered_by_the_vm() {
+        use bund2_api::Debugging;
+        let mut i = interp();
+        run(&mut i, "1 2 3 @other 9 @main").expect("runs");
+        let stacks = i.debugging(Debugging::Stacks).expect("a view");
+        assert!(stacks.contains("* @main  3  top: 3\n"), "{stacks}");
+        assert!(stacks.contains("  @other  1  top: 9\n"), "{stacks}");
+        assert!(stacks.ends_with("  workbench  0\n"), "{stacks}");
+        assert_eq!(
+            i.debugging(Debugging::Info).as_deref(),
+            Some("no debugger is attached\n")
+        );
+        assert_eq!(
+            i.debugging(Debugging::Backtrace).as_deref(),
+            Some("#0  the top-level stream\n")
+        );
+        // And the words run.
+        run(&mut i, "debug.backtrace debug.stacks debug.info").expect("they print");
     }
 
     /// `input*` runs its lambda on every line until the input ends, and asks
