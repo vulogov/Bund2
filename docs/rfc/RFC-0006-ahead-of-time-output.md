@@ -14,8 +14,12 @@
   `crates/bund2-cli/src/bundle.rs` and `bund2 build`. Criteria 3, 5, 6, 10, 11
   and 12 pass, **criterion 2 is met in three configurations**, and
   **criterion 1's gate is answered — against Product B's premise**. **Every
-  criterion now carries its evidence in the list below**; 8 waits on
-  `--emit=native` existing and 7 is deferred behind §B5.
+  criterion now carries its evidence in the list below**; 7 is met without
+  §B5's work and 8 is withdrawn with the mode (D83). *(Until 2026-10-08 this
+  line said 8 waited on `--emit=native` and 7 was deferred behind §B5, which
+  D83 and the criteria list had both ended.)* Three rulings of 2026-10-08
+  are landed below: **D115**, a bundle is never given a debugger; **D116**,
+  parse-at-build is ratified; and §B3a names two more ungated routes.
   Revised 2026-09-29 after the first adversarial review
   (`docs/rfc/reviews/RFC-0006-review-2026-09-29.md`). The review raised three
   blockers; all three were reproduced against the code before this revision,
@@ -57,9 +61,9 @@ because D10 decides them together:
   costs and a risk §B5 had missed, and criterion 4 turned out not to need the
   mode at all. §B5 stands as the record of what building it would take.
 
-`--emit=bundle` is specified in full and built first. `--emit=native` is
-specified to the depth D10 and RFC-0005's criterion 4 require, and gated on the
-measurement §B8 names.
+`--emit=bundle` is specified in full and built. `--emit=native` was specified
+to the depth D10 and RFC-0005's criterion 4 required and gated on the
+measurement §B8 names; that measurement went against it and D83 withdrew it.
 
 ## Motivation
 
@@ -380,9 +384,14 @@ on that thread is the **parse**, and the depth that matters is the parser's
   because a bundle that swallowed `--stats` would shadow a program's own
   argument. They move to environment variables, and the names are part of this
   design rather than left to the implementation: `BUND2_STATS`,
-  `BUND2_DUMP_STACK`, `BUND2_RAW_VALUES`, and **`BUND2_JIT_THRESHOLD`, which
+  `BUND2_NO_DUMP_STACK`, `BUND2_RAW_VALUES`, and **`BUND2_JIT_THRESHOLD`, which
   the interpreter already reads** (`crates/bund2-runtime/src/lib.rs`,
   `threshold_from_env`). Criteria 2, 6 and 10 name which of these they set.
+  **The stack variable switches the dump off, because it is on by default**,
+  as it is for the CLI, whose flag for this is `--no-dump-stack`. Until
+  2026-10-08 this list named `BUND2_DUMP_STACK`, which the binary has never
+  read: measured on a bundle of `1 nosuch`, setting it to `0` left the dump
+  in the report and `BUND2_NO_DUMP_STACK=1` removed it.
 - **The exit code** is `vm.exit_requested()`, as the CLI returns
   (`crates/bund2-cli/src/main.rs`, `run_cli`).
 - **The reporter** is the CLI's `TextReporter`, with the same `wants_stack`
@@ -564,8 +573,11 @@ states them rather than assuming the mode is close:
    generator in the shipped image and stay interpreted — a change in speed, not
    meaning, recorded so nobody later "fixes" it by shipping Cranelift.
 
-**Criterion 7 is deferred behind (1) and (2).** Defining it against the current
-lowering would define a criterion that cannot be implemented.
+**Criterion 7 was deferred behind (1) and (2)**, because defining it against
+the current lowering would have defined a criterion that cannot be
+implemented. **It is no longer deferred**: it was reformulated and met on
+2026-09-30 without this section's work, and D83 withdrew the mode. This
+section stands as the record of what building it would take.
 
 **§B5 reopens an exclusion RFC-0005 closed this morning.** Criterion 30's two
 mirror cases were excluded because "§S7 compiles a body *on* an entry and runs
@@ -674,7 +686,7 @@ on the answer.
 | A syntax error's timing | **Deliberately changed**: found at build rather than at run (§B3). A build that wrote an unparseable program would move the error to whoever ran it. |
 | RFC-0005 criterion 30's excluded mirrors | **Reopened by `--emit=native`**, on that row's own stated trigger. Owed once the mode exists, not excluded. |
 | What `--noeval` stops | **Preserved exactly — D79.** It disables the `bund.eval` group: `bund.eval`, `bund.eval.`, `use`, `use.`. `compile` is not in the group, so `compile lambda! !` still evaluates, on both binaries. §B3a names the boundary. |
-| A damaged or absent trailer | **New surface, specified.** Four cases, all errors, none a panic (§B1, criterion 11). |
+| A damaged or absent trailer | **New surface, specified.** Four cases, all errors, none a panic (§B1, criterion 12). |
 | Bund2's own version | **Recorded in the trailer.** The pinned SHAs name the oracle, not the interpreter, so a builder/runtime skew would otherwise be undetectable. |
 | Code signing of the artefact | **Measured, and the design changed — Q40.** Appending runs but can never validate, and re-signing does not repair it, so the payload goes inside a reserved region instead (§B1). |
 | Run-time-registered words under `--emit=native` | **Speed only.** No code generator in the image, so they stay interpreted. |
@@ -764,6 +776,11 @@ on the answer.
    | **bundles, default** | **107/116 (+9)** | **107/116** | **none** |
    | **bundles, `--features jit`** | **107/116 (+9)** | **107/116** | **none** |
    | **bundles, `jit` at threshold 1** | **107/116 (+9)** | **107/116** | **none** |
+
+   **Run again on 2026-10-08: 133/145, ceiling 133/145, none failing**, in
+   source mode and for default bundles, and in source mode with `jit` and
+   with `jit` at threshold 1. The corpus has grown since the table; the claim
+   has not changed.
 
    Threshold 1 is beyond the criterion and is where it is worth most: every
    body compiles on its first evaluation, so it is the strongest statement the

@@ -1,6 +1,11 @@
 # RFC-0010: The class hierarchy
 
-- Status: **Proposed** (2026-10-05). Its three questions were answered by the
+- Status: **Accepted** (2026-10-08) by the repository owner, with all five
+  criteria met and each naming the test or tool that decided it. Accepting
+  means: §S2's rewiring is declined, not deferred; `?is` is outside every
+  golden for good, and one unit test is its whole check; and the two open
+  questions stay open with no default taken.
+- Previously: **Proposed** (2026-10-05). Its three questions were answered by the
   repository owner the same day and recorded as **D96**: additive only, `?is`
   accepted, `iset` taken. §S1 and §S4 are built; §S2's rewiring is declined
   and stays as the analysis of what it would have cost. **All five criteria

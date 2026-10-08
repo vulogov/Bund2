@@ -3,8 +3,10 @@
 - Status: **Proposed** (2026-10-04, on the owner's authorisation — **D93**),
   after one adversarial review of the document and the implementation of
   everything in it. **All fourteen criteria are discharged**: 1, 2, 3, 5, 6 and
-  8 met against the oracle; 9, 10, 11, 12, 13 and 14 met as design; 4 deferred
-  as a deviation filed as preservation; 7 withdrawn for naming no check.
+  8 met against the oracle; 9, 10, 11, 12, 13 and 14 met as design; 4 met as
+  an approved deviation (**D114**, 2026-10-08 — until then it read "deferred"
+  here and "withdrawn" in the open questions, while the binary refused);
+  7 withdrawn for naming no check.
 
   **What "Proposed" means here is narrower than in RFC-0005 or RFC-0006, and
   that is the thing to carry away.** Those were preservation documents: the
@@ -189,7 +191,7 @@ visible** — comparing identity across `send`/`recv` answers *same* on the orac
 and *different* on Bund2, and no golden catches it because captures normalise
 ids. D86 carries the correction and names the choice it obliges: preserve the
 decoded identity and narrow F109, or keep the deviation and record that the bus
-exposes it.
+exposes it. **D88 took the second**: keep F109, as the rule for every decoder.
 
 **The channel is unbounded**, so a producer outrunning a consumer grows memory
 without limit. The reference's choice, preserved; bounding it would be a
@@ -426,7 +428,7 @@ number that does not travel.
 | `recv`, `recv.` | **Preserved**: an absent channel is an immediate error and an existing, empty one answers `NODATA` (`reference/Bund/src/stdlib/functions/bus/mod.rs:122-131`). Until 2026-10-08 this row said an empty channel was the error, which the summary's own correction had already withdrawn. |
 | A value nested past 256 levels, at `send` | **Deliberately changed — D114.** The oracle sends it; Bund2 refuses with the reference's prefix for a failed encode. Criterion 4. |
 | `bus.data`, `bus.data.current` | **Preserved**, including that asking creates the channel, and the current-stack keying. |
-| The payload's identity | **Preserved as a deviation already recorded** — D20 materialises id and stamp, so a received value is equal and not identical. |
+| The payload's identity | **Deliberately changed — D88, recording F109.** The oracle carries both id and stamp across. Bund2 carries the stamp and mints a fresh identity, as every decoder does. Until 2026-10-08 this row attributed the deviation to D20, which is the reading §C2 calls the error: D20's *materialises* means set if unset. |
 | Unbounded channels | **Preserved.** A bound would be a deviation with a decision. |
 | `WordKind::Sync` | **Unchanged.** 258 declarations, now with a stated meaning. |
 | `WordKind::Blocking` | **Defined here for the first time.** No writer existed. |
@@ -720,7 +722,9 @@ reference has no concurrency vocabulary at all.
   not registered`. Both sides carry the *stamp*. So the question is not which
   behaviour a program sees, it is whether "a decoded value mints a fresh
   identity" is the rule for every decoder now that the bus, `sqlite` and the
-  world file share one. D88 is OPEN with keeping F109 as its default.
+  world file share one. **D88 is RESOLVED: keep F109, and it is the rule for
+  every decoder.** Criterion 3 carries the test. (This bullet said OPEN until
+  2026-10-08.)
 - **Whether a depth refusal at `send` is wanted — answered by D114**,
   2026-10-08: yes. The oracle sends a 300-deep list without complaint, so
   refusing at `MAX_WIRE_DEPTH` is new behaviour, and it is recorded as an
@@ -738,7 +742,8 @@ reference has no concurrency vocabulary at all.
   `Effect::Bus`, which `Effect::hermetic` refuses. One corpus program is held
   out by it — `examples/code_snippets/internal_bus_demo.bund`, which is what
   criterion 2 wants. Narrowing grows the conformance denominator 116 → 117 and
-  changes `HERMETIC.txt`, so it is the owner's.
+  changes `HERMETIC.txt`, so it was the owner's. **D89 is RESOLVED: narrowed**,
+  and criterion 2 reports the program it admitted.
 - **Whether the audit's classification of `send`/`recv` should change.** It
   calls them effectful because "zenoh is reached through `helpers/zenoh`"
   (`docs/registers/open-questions.md:624-626`) — the wrong mechanism, since they
