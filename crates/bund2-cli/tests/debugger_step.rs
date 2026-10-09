@@ -23,6 +23,15 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// test in this file on one file: they run as threads of one process, in
 /// parallel, so each overwrote the others' program and a watchpoint test read
 /// a breakpoint test's source. Found exactly that way.
+/// The binary, with its configuration directory pointed at scratch. The
+/// debugger keeps a line history under that directory, and a test run once
+/// rewrote the developer's own.
+fn bund2() -> Command {
+    let mut c = Command::new(env!("CARGO_BIN_EXE_bund2"));
+    c.env("XDG_CONFIG_HOME", std::env::temp_dir().join(format!("bund2-test-config-{}", std::process::id())));
+    c
+}
+
 fn scratch(stem: &str) -> std::path::PathBuf {
     static N: AtomicUsize = AtomicUsize::new(0);
     let n = N.fetch_add(1, Ordering::Relaxed);
@@ -37,7 +46,7 @@ fn run(src: &str, under: Option<&'static str>) -> (String, Option<i32>) {
     let script = scratch("p");
     std::fs::write(&script, src).expect("script");
 
-    let mut c = Command::new(env!("CARGO_BIN_EXE_bund2"));
+    let mut c = bund2();
     if under.is_some() {
         c.arg("--debugger");
     }
@@ -242,7 +251,7 @@ fn run_file(
     cwd: &std::path::Path,
     under: Option<&'static str>,
 ) -> Result<(String, Option<i32>), String> {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_bund2"));
+    let mut c = bund2();
     if under.is_some() {
         c.arg("--debugger");
     }
@@ -405,7 +414,7 @@ fn the_debugger_stops_and_says_where() {
     let script = scratch("c");
     std::fs::write(&script, ":w { 7 8 + } register\n1 w\n").expect("script");
 
-    let out = Command::new(env!("CARGO_BIN_EXE_bund2"))
+    let out = bund2()
         .args(["--debugger", "script", "--file"])
         .arg(&script)
         .stdin(Stdio::piped())
@@ -447,7 +456,7 @@ fn session(src: &str, script: &str) -> (String, String, Option<i32>) {
     let script_path = scratch("s");
     std::fs::write(&script_path, src).expect("script");
 
-    let out = Command::new(env!("CARGO_BIN_EXE_bund2"))
+    let out = bund2()
         .args(["--debugger", "script", "--file"])
         .arg(&script_path)
         .stdin(Stdio::piped())

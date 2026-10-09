@@ -840,32 +840,86 @@ fn proxy_for(host: &str, env: &dyn Fn(&str) -> Option<String>) -> Result<Option<
     }
     match proxy.split_once("://") {
         Some((scheme, _)) if !scheme.eq_ignore_ascii_case("http") => Err(()),
-        Some((scheme, rest)) => on_curls_port(rest, true)
-            .map(|rest| Some(format!("{scheme}://{rest}")))
-            .ok_or(()),
-        None => on_curls_port(&proxy, false).map(Some).ok_or(()),
+        Some((_, rest)) => curls_proxy(rest, true).map(Some).ok_or(()),
+        None => curls_proxy(&proxy, false).map(Some).ok_or(()),
     }
 }
 
-/// A proxy's address, after any scheme, with libcurl's default port written
-/// in when it names none. **That port is 1080**, whatever the proxy's kind;
-/// `ureq` would take 80 for an HTTP one, and so ask a different listener
-/// (F182's note). `host:` with nothing after the colon is 1080 too when a
-/// scheme came first, and is refused when none did. Both measured.
-fn on_curls_port(rest: &str, had_scheme: bool) -> Option<String> {
-    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let (authority, tail) = rest.split_at_checked(end)?;
-    let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
-    let port = match host.rsplit_once(':') {
-        Some((_, port)) if !port.contains(']') => Some(port),
-        _ => None,
-    };
-    match port {
-        Some("") if had_scheme => Some(format!("{authority}1080{tail}")),
-        Some("") => None,
-        Some(_) => Some(rest.to_string()),
-        None => Some(format!("{authority}:1080{tail}")),
+/// An authority — `user@host:port` — taken apart as libcurl takes it, with
+/// the port read as a number. `None` is an authority libcurl refuses.
+///
+/// **Nothing after the colon is passed on as text.** `http` reads a port it
+/// cannot parse as no port, and `ureq` then supplies its default, so
+/// `:65536` once fetched from port 80 where the reference refuses the URL
+/// (F182's second note). A port is digits and nothing else, leading zeros
+/// allowed, from 1 to 65535; an empty one is `Ok(None)`, the default. And
+/// the user part holds no second `@`: `a@b@host` is refused, measured.
+struct Authority<'a> {
+    user: Option<&'a str>,
+    host: &'a str,
+    /// `Some(None)` is a colon with nothing after it.
+    port: Option<Option<u16>>,
+}
+
+impl<'a> Authority<'a> {
+    fn of(text: &'a str) -> Option<Self> {
+        let (user, hostport) = match text.rsplit_once('@') {
+            Some((user, _)) if user.contains('@') => return None,
+            Some((user, hostport)) => (Some(user), hostport),
+            None => (None, text),
+        };
+        let (host, port) = match hostport.rsplit_once(':') {
+            Some((host, port)) if !port.contains(']') => (host, Some(port)),
+            _ => (hostport, None),
+        };
+        // A colon in a host is an IPv6 address's, inside its brackets.
+        let bracketed = host.starts_with('[') && host.ends_with(']');
+        if host.is_empty() || (host.contains(':') && !bracketed) {
+            return None;
+        }
+        let port = match port {
+            None => None,
+            Some("") => Some(None),
+            Some(digits) if digits.bytes().all(|b| b.is_ascii_digit()) => {
+                // A number too long to parse is over 65535 as well.
+                let n = digits.trim_start_matches('0').parse::<u16>().ok()?;
+                Some(Some(n))
+            }
+            Some(_) => return None,
+        };
+        Some(Self { user, host, port })
     }
+
+    /// `user@host:port`, with `port` for one that was not written.
+    fn written(&self, host: &str, port: Option<u16>) -> String {
+        let mut out = String::new();
+        if let Some(user) = self.user {
+            out.push_str(user);
+            out.push('@');
+        }
+        out.push_str(host);
+        if let Some(port) = self.port.flatten().or(port) {
+            out.push(':');
+            out.push_str(&port.to_string());
+        }
+        out
+    }
+}
+
+/// The HTTP proxy `ureq` is handed: `rest` is the variable's text after any
+/// scheme. **The port is libcurl's default, 1080, when none is named**;
+/// `ureq` would take 80, and so ask a different listener (F182's first
+/// note). `host:` with nothing after the colon is 1080 too when a scheme
+/// came first, and is refused when none did. Whatever follows the address —
+/// a slash, a path, a query — is dropped, as the reference ignores it; left
+/// in, `ureq` refuses a proxy that has one and no scheme. All measured.
+fn curls_proxy(rest: &str, had_scheme: bool) -> Option<String> {
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = Authority::of(rest.get(..end)?)?;
+    if authority.port == Some(None) && !had_scheme {
+        return None;
+    }
+    Some(format!("http://{}", authority.written(authority.host, Some(1080))))
 }
 
 /// Whether `host` is on a `no_proxy` list, as libcurl 8.7.1 decides it.
@@ -1021,36 +1075,75 @@ impl Target {
     }
 }
 
-/// `rest`, the part of an `http:` URL after its slashes, with an IPv4 host
-/// rewritten as four decimal numbers, and that host. libcurl sends the
-/// rewritten form, so the `Host` header is `127.0.0.1` for `127.1`.
+/// The URL `ureq` is handed for `rest`, the part of an `http:` URL after its
+/// slashes, and the host it names. It is written as libcurl sends it, each
+/// part measured against the oracle:
+///
+/// - an IPv4 host as four decimal numbers, so `Host` is `127.0.0.1` for
+///   `127.1`;
+/// - the port as a number, or none ([`Authority`]);
+/// - the path with its dot segments removed — `/a/../b` is `/b` — and its
+///   bytes above ASCII percent-encoded. A query is sent as written, and
+///   `%2e%2e` is not a dot segment.
+///
+/// `None` is a URL libcurl refuses.
 fn http_url(rest: &str) -> Option<(String, String)> {
     let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let (authority, tail) = rest.split_at_checked(end)?;
-    let (user, hostport) = match authority.rsplit_once('@') {
-        Some((user, hostport)) => (Some(user), hostport),
-        None => (None, authority),
-    };
-    let (host, port) = match hostport.rsplit_once(':') {
-        Some((host, port)) if !port.contains(']') => (host, Some(port)),
-        _ => (hostport, None),
-    };
-    let host = match url_ipv4(host) {
+    let authority = Authority::of(authority)?;
+    let host = match url_ipv4(authority.host) {
         Some(addr) => std::net::Ipv4Addr::from(addr).to_string(),
-        None => host.to_string(),
+        None => authority.host.to_string(),
     };
-    let mut url = String::from("http://");
-    if let Some(user) = user {
-        url.push_str(user);
-        url.push('@');
+    let tail = tail.split('#').next()?;
+    let (path, query) = match tail.split_once('?') {
+        Some((path, query)) => (path, Some(query)),
+        None => (tail, None),
+    };
+    let mut url = format!("http://{}{}", authority.written(&host, None), curls_path(path));
+    if let Some(query) = query {
+        url.push('?');
+        url.push_str(query);
     }
-    url.push_str(&host);
-    if let Some(port) = port {
-        url.push(':');
-        url.push_str(port);
-    }
-    url.push_str(tail);
     Some((url, host))
+}
+
+/// A URL's path as libcurl sends it: dot segments removed as RFC 3986
+/// §5.2.4 removes them, and every byte above ASCII written `%xx` in lower
+/// case. `/a/b/..` is `/a/`, `/../x` is `/x`, and an empty path is `/`.
+fn curls_path(path: &str) -> String {
+    let mut kept: Vec<&str> = Vec::new();
+    let mut segments = path.split('/').skip(1).peekable();
+    while let Some(segment) = segments.next() {
+        let last = segments.peek().is_none();
+        match segment {
+            "." | ".." => {
+                if segment == ".." {
+                    kept.pop();
+                }
+                // A dot segment at the end leaves the slash it followed.
+                if last {
+                    kept.push("");
+                }
+            }
+            _ => kept.push(segment),
+        }
+    }
+    let mut out = String::new();
+    for segment in &kept {
+        out.push('/');
+        for byte in segment.bytes() {
+            if byte.is_ascii() {
+                out.push(byte as char);
+            } else {
+                out.push_str(&format!("%{byte:02x}"));
+            }
+        }
+    }
+    if out.is_empty() {
+        out.push('/');
+    }
+    out
 }
 
 /// The number C's `atoi` reads from the front of `text`: its leading digits,
@@ -2215,16 +2308,16 @@ mod tests {
             })
         };
         assert_eq!(pick(&[]), Ok(None));
-        assert_eq!(pick(&[("http_proxy", "p1")]), Ok(Some("p1:1080".into())));
-        assert_eq!(pick(&[("all_proxy", "p1")]), Ok(Some("p1:1080".into())));
-        assert_eq!(pick(&[("ALL_PROXY", "p1")]), Ok(Some("p1:1080".into())));
+        assert_eq!(pick(&[("http_proxy", "p1")]), Ok(Some("http://p1:1080".into())));
+        assert_eq!(pick(&[("all_proxy", "p1")]), Ok(Some("http://p1:1080".into())));
+        assert_eq!(pick(&[("ALL_PROXY", "p1")]), Ok(Some("http://p1:1080".into())));
         for ignored in ["HTTP_PROXY", "HTTPS_PROXY", "https_proxy"] {
             assert_eq!(pick(&[(ignored, "p1")]), Ok(None), "{ignored} is not read");
         }
-        assert_eq!(pick(&[("http_proxy", "p1"), ("all_proxy", "p2")]), Ok(Some("p1:1080".into())));
-        assert_eq!(pick(&[("all_proxy", "p1"), ("ALL_PROXY", "p2")]), Ok(Some("p1:1080".into())));
-        assert_eq!(pick(&[("http_proxy", ""), ("all_proxy", "p2")]), Ok(Some("p2:1080".into())));
-        assert_eq!(pick(&[("all_proxy", ""), ("ALL_PROXY", "p2")]), Ok(Some("p2:1080".into())));
+        assert_eq!(pick(&[("http_proxy", "p1"), ("all_proxy", "p2")]), Ok(Some("http://p1:1080".into())));
+        assert_eq!(pick(&[("all_proxy", "p1"), ("ALL_PROXY", "p2")]), Ok(Some("http://p1:1080".into())));
+        assert_eq!(pick(&[("http_proxy", ""), ("all_proxy", "p2")]), Ok(Some("http://p2:1080".into())));
+        assert_eq!(pick(&[("all_proxy", ""), ("ALL_PROXY", "p2")]), Ok(Some("http://p2:1080".into())));
 
         // The lower-case list wins unless it is empty.
         let p = ("http_proxy", "p1");
@@ -2233,24 +2326,39 @@ mod tests {
         assert_eq!(pick(&[p, ("no_proxy", ""), ("NO_PROXY", "127.0.0.1")]), Ok(None));
         assert_eq!(
             pick(&[p, ("no_proxy", "other.example"), ("NO_PROXY", "127.0.0.1")]),
-            Ok(Some("p1:1080".into()))
+            Ok(Some("http://p1:1080".into()))
         );
 
         // A proxy that names no port is on 1080, which is libcurl's default
         // and not `ureq`'s: the twelfth review's B1.
         let on = |proxy: &str| pick(&[("http_proxy", proxy)]);
-        assert_eq!(on("127.0.0.1"), Ok(Some("127.0.0.1:1080".into())));
-        assert_eq!(on("http://localhost"), Ok(Some("http://localhost:1080".into())));
-        assert_eq!(on("http://127.0.0.1/"), Ok(Some("http://127.0.0.1:1080/".into())));
-        assert_eq!(on("u:p@127.0.0.1"), Ok(Some("u:p@127.0.0.1:1080".into())));
-        assert_eq!(on("http://127.0.0.1:/"), Ok(Some("http://127.0.0.1:1080/".into())));
-        assert_eq!(on("http://[::1]"), Ok(Some("http://[::1]:1080".into())));
+        let at = |proxy: &str| Ok(Some(format!("http://{proxy}")));
+        assert_eq!(on("127.0.0.1"), at("127.0.0.1:1080"));
+        assert_eq!(on("http://localhost"), at("localhost:1080"));
+        assert_eq!(on("u:p@127.0.0.1"), at("u:p@127.0.0.1:1080"));
+        assert_eq!(on("http://127.0.0.1:/"), at("127.0.0.1:1080"));
+        assert_eq!(on("http://[::1]"), at("[::1]:1080"));
+        assert_eq!(on("http://[::1]:3128"), at("[::1]:3128"));
         assert_eq!(on("127.0.0.1:"), Err(()), "an empty port and no scheme");
-        assert_eq!(on("http://127.0.0.1:3128/x"), Ok(Some("http://127.0.0.1:3128/x".into())));
-        assert_eq!(on("http://[::1]:3128"), Ok(Some("http://[::1]:3128".into())));
+        assert_eq!(on("HTTP://h:1"), at("h:1"));
+
+        // What follows the address is dropped, with a scheme or without:
+        // the thirteenth review's S2.
+        for tail in ["/", "/x", "?q", "/x?q#f"] {
+            assert_eq!(on(&format!("127.0.0.1:3128{tail}")), at("127.0.0.1:3128"), "{tail}");
+            assert_eq!(on(&format!("http://127.0.0.1{tail}")), at("127.0.0.1:1080"), "{tail}");
+        }
+
+        // A port is a number from 1 to 65535 or the fetch fails. It is never
+        // left for `ureq` to read as no port: the thirteenth review's B1.
+        assert_eq!(on("http://127.0.0.1:03128"), at("127.0.0.1:3128"));
+        for port in ["0", "65536", "99999", "65616", "4294967376", "3128x", "+3128", "-1", " 3128"] {
+            assert_eq!(on(&format!("http://127.0.0.1:{port}")), Err(()), "{port:?}");
+            assert_eq!(on(&format!("127.0.0.1:{port}")), Err(()), "{port:?}, no scheme");
+        }
+        assert_eq!(on("http://a@b@127.0.0.1:3128"), Err(()), "two user parts");
 
         // A scheme `ureq` cannot speak fails the fetch; it does not go direct.
-        assert_eq!(on("HTTP://h:1"), Ok(Some("HTTP://h:1".into())));
         for scheme in ["socks5", "https", "ftp"] {
             assert_eq!(pick(&[("http_proxy", &format!("{scheme}://h:1"))]), Err(()));
         }
@@ -2319,6 +2427,52 @@ mod tests {
         }
     }
 
+    /// What `ureq` is handed for a URL, part by part, each as the oracle
+    /// sent it or refused it: the thirteenth review's B1, S4 and S5.
+    #[test]
+    fn a_url_is_rewritten_as_libcurl_sends_it() {
+        let sent = |rest: &str| http_url(rest).map(|(url, _)| url);
+        let to = |url: &str| Some(format!("http://{url}"));
+        // The port is a number or the URL is refused; an empty one is none.
+        assert_eq!(sent("h:8080/x"), to("h:8080/x"));
+        assert_eq!(sent("h:008080/x"), to("h:8080/x"));
+        assert_eq!(sent("h:/x"), to("h/x"));
+        assert_eq!(sent("h/x"), to("h/x"));
+        for port in ["0", "65536", "99999", "65616", "4294967376", "80x", "+80", "-1", " 80", "80:80"] {
+            assert_eq!(sent(&format!("127.0.0.1:{port}/x")), None, "{port:?}");
+            assert_eq!(sent(&format!("localhost:{port}/x")), None, "{port:?}");
+        }
+        // One user part.
+        assert_eq!(sent("a:b:c@h:1/x"), to("a:b:c@h:1/x"));
+        assert_eq!(sent("@h:1/x"), to("@h:1/x"));
+        assert_eq!(sent("a%40b@h:1/x"), to("a%40b@h:1/x"));
+        assert_eq!(sent("a@b@h:1/x"), None);
+        // An address in four decimal numbers; a name as written.
+        assert_eq!(sent("127.1:1/x"), to("127.0.0.1:1/x"));
+        assert_eq!(sent("LOCALHOST:1/x"), to("LOCALHOST:1/x"));
+        assert_eq!(sent("[::1]:1/x"), to("[::1]:1/x"));
+        assert_eq!(sent("[::1]/x"), to("[::1]/x"));
+
+        // The path: dot segments go, bytes above ASCII are escaped.
+        for (path, want) in [
+            ("", "/"), ("/", "/"), ("/a/../lib.bund", "/lib.bund"), ("/a/./b", "/a/b"),
+            ("/a/b/..", "/a/"), ("/a/b/.", "/a/b/"), ("/../x", "/x"), ("/a/../../x", "/x"),
+            ("/a//b", "/a//b"), ("/./", "/"), ("/..", "/"), ("/a/b/../../../c", "/c"),
+            ("/a/./../b/", "/b/"), ("/a/%2e%2e/b", "/a/%2e%2e/b"), ("/a/.%2e/b", "/a/.%2e/b"),
+            ("/a/..;x/b", "/a/..;x/b"), ("/a/...", "/a/..."), ("/a/..b/c", "/a/..b/c"),
+            ("/.a/b", "/.a/b"), ("/a/..\\b", "/a/..\\b"), ("/é.bund", "/%c3%a9.bund"),
+            ("/%C3%A9", "/%C3%A9"), ("/\u{a0}", "/%c2%a0"),
+        ] {
+            assert_eq!(curls_path(path), want, "{path:?}");
+        }
+        // A query is sent as written and a fragment is not sent.
+        assert_eq!(sent("h/a/../b?x=/../y"), to("h/b?x=/../y"));
+        assert_eq!(sent("h/a?q=é"), to("h/a?q=é"));
+        assert_eq!(sent("h/a/../b#f/../z"), to("h/b"));
+        assert_eq!(sent("h?x"), to("h/?x"));
+        assert_eq!(sent("h/x?é#é"), to("h/x?é"));
+    }
+
     /// F182, on the wire: a fetch goes to the proxy the environment names, and
     /// to the origin when the environment names it in a variable libcurl does
     /// not read. One listener plays both; the request line says which it was.
@@ -2378,6 +2532,8 @@ mod tests {
         assert_eq!(fetch("x.bund2.invalid", &[("http_proxy", &here), ("no_proxy", "invalid")]), None);
         // A proxy that cannot be used fails the fetch rather than being skipped.
         assert_eq!(fetch("127.0.0.1", &[("http_proxy", "http://")]), None);
+        // And one written with no scheme and a slash after it is used.
+        assert_eq!(fetch("127.0.0.1", &[("http_proxy", &format!("127.0.0.1:{port}/"))]), proxy);
         // F183: a scheme in any case, and one slash or three for two.
         let spelt = |url: String| fetch_uri_in(&url, &|_| None);
         assert_eq!(spelt(format!("HTTP://127.0.0.1:{port}/x")), origin);

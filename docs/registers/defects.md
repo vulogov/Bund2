@@ -4091,6 +4091,22 @@ reference's half.
 **Not known.** These are the spellings somebody tried, on one libcurl. They
 are not libcurl's URL parser, and another spelling may differ.
 
+**Note, 2026-10-09 (RFC-0006's thirteenth review, S5 and S4).** Two more
+things the reference does with an `http:` URL before it asks, both now done
+in `http_url` and `curls_path` and both measured:
+
+- **The path is rewritten.** libcurl removes dot segments, so `/a/../b` is
+  requested as `/b`, and writes each byte above ASCII as `%xx`. Bund2 sent
+  the path as written, so a server that tells the two apart answered the
+  reference and Bund2 with different bodies. A query is sent as written by
+  both, and `%2e%2e` is not a dot segment to either.
+- **`http://a@b@host/` is refused.** Bund2 fetched it.
+
+`a_url_is_rewritten_as_libcurl_sends_it`. The spellings the reference
+fetches and Bund2 still refuses — `<`, `>` or a backtick in a path, `%xx` in
+a host, an IPv6 zone, a host that is not ASCII — are not fixed: each fails
+closed, and D127 approves that as a rule.
+
 ## F182 — a fetch obeyed proxy variables the reference does not read
 
 **A Bund2 defect, found 2026-10-09** by RFC-0006's eleventh review (B1) and
@@ -4167,6 +4183,30 @@ things the 73 did not vary, both fixed the same day in `host.rs`:
 that port is free. **The settings are now recorded**:
 `docs/measurements/fetch-2026-10-09.md`, 175 of them with the script that
 ran them. The first 73 are the ones this entry counted.
+
+**Note, 2026-10-09 (RFC-0006's thirteenth review, B1 and S2).** The first
+note's fix wrote a port in where none was named and passed a named one
+through as text. Text that is not a port — `:65536`, `:99999`, `:80x`,
+`:+80` — was then read by `http` as no port at all, and `ureq` supplied its
+default. So **`"http://127.0.0.1:65536/lib.bund" use`, which the reference
+refuses, fetched from port 80 and evaluated what it got**, and a proxy
+written that way was asked on port 80. Rows 91 and 92 of the measurement
+were this case and read `fail | fail` only because nothing listened on 80.
+
+Fixed in `host.rs`, `Authority`: a port is digits, from 1 to 65535, leading
+zeros allowed, or the fetch fails; an empty one is the default; and Bund2
+writes the number itself, in the URL and in the proxy, so no text after a
+colon reaches `ureq`. A host with an unbracketed colon, an empty host, and a
+second `@` are refused there too, as measured.
+
+Beside it, the review's S2: **a proxy with no scheme and a slash, path or
+query after its address** — `127.0.0.1:3128/` — failed the fetch, where the
+reference uses the proxy. `curls_proxy` now hands `ureq` the address alone.
+
+`the_proxy_is_the_one_libcurl_would_take` and
+`a_url_is_rewritten_as_libcurl_sends_it`. The measurement was run again with
+a listener on port 80 and with every connection recorded, not only HTTP
+ones; it is 278 settings now.
 
 ## F181 — `bund2 build` wrote through `--output`, and a hard link to the builder destroyed it
 

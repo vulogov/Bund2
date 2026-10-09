@@ -10,6 +10,15 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+/// The binary, with its configuration directory pointed at scratch. The
+/// debugger keeps a line history under that directory, and a test run once
+/// rewrote the developer's own.
+fn bund2() -> Command {
+    let mut c = Command::new(env!("CARGO_BIN_EXE_bund2"));
+    c.env("XDG_CONFIG_HOME", std::env::temp_dir().join(format!("bund2-test-config-{}", std::process::id())));
+    c
+}
+
 fn scratch(stem: &str) -> std::path::PathBuf {
     static N: AtomicUsize = AtomicUsize::new(0);
     let n = N.fetch_add(1, Ordering::Relaxed);
@@ -24,7 +33,7 @@ fn scratch(stem: &str) -> std::path::PathBuf {
 fn session(src: &str, script: Option<&str>) -> (String, String, Option<i32>) {
     let path = scratch("w");
     std::fs::write(&path, src).expect("script");
-    let mut c = Command::new(env!("CARGO_BIN_EXE_bund2"));
+    let mut c = bund2();
     if script.is_some() {
         c.arg("--debugger");
     }
@@ -230,7 +239,7 @@ fn stack_is_the_bund_word_and_st_is_the_view() {
 fn scripted(src: &str, typed: &str, flags: &[&str]) -> (String, String, Option<i32>) {
     let path = scratch("b");
     std::fs::write(&path, src).expect("script");
-    let mut ch = Command::new(env!("CARGO_BIN_EXE_bund2"))
+    let mut ch = bund2()
         .args(flags)
         .args(["script", "--file"])
         .arg(&path)
@@ -416,7 +425,7 @@ fn a_condition_is_no_freer_than_the_program_that_armed_it() {
             ":w {{ 1 drop }} register\n\"w\" \"{cond}\" debug.break.if\nw\n\"end\" println\n"
         );
         std::fs::write(&path, src).expect("script");
-        let out = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        let out = bund2()
             .args(["script", flag, "--file"])
             .arg(&path)
             .stdin(Stdio::null())

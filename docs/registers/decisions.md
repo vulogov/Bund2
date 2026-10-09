@@ -3250,6 +3250,16 @@ URL with a literal space, which libcurl refuses — D125, which approves it. Wha
 fetches is whatever its libcurl parses, and only the spellings in
 `docs/measurements/fetch-2026-10-09.md` were tried.
 
+**Note, 2026-10-09 (RFC-0006's thirteenth review, B2).** "Anything else
+fails" is Bund2's rule and this entry approved it for `https://` only. The
+reference fetches `gopher://`, and `ftp://` through a proxy, and evaluates
+what comes back. Refusing them is the same deviation and was on no list.
+D126 approves it, the sixth for the fetch. The approved deviations are now:
+no scheme refused and `https://` refused (this entry), a tunnel asked of a
+proxy and a SOCKS or HTTPS proxy failing the fetch (D124), a literal space
+read (D125), every other scheme refused (D126), and an `http:` URL
+`http::Uri` does not accept refused (D127).
+
 ## D53 — `debug.display_hostinfo` reports Bund2's own crates, an approved deviation
 
 The reference's `debug.display_hostinfo` prints a table
@@ -3576,6 +3586,98 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
 - Depends on: D48 and D55 (the palette runs the four new fixed-effect
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
+
+## D127 — spellings of an `http:` URL the reference fetches and Bund2 refuses
+
+**Raised 2026-10-09** by RFC-0006's thirteenth review (S4). D126 approves
+refusing other schemes; the owner's ruling named that finding and not this
+one, so it is kept apart.
+
+For a URL whose scheme Bund2 does fetch, the reference takes spellings
+Bund2 refuses. Bund2 builds the URL in `http_url`
+(`crates/bund2-stdlib/src/host.rs`) and `ureq` parses it again with
+`http::Uri`, which has its own list of bytes. Measured against the oracle
+at `21b40b0` (libcurl 8.7.1); `docs/measurements/fetch-2026-10-09.md`, rows
+208 to 211, 239 to 242 and 261:
+
+| the URL, or the proxy | oracle | Bund2 |
+|---|---|---|
+| `<`, `>` or a backtick in the path; `<` in the query | fetches, the byte sent raw | refuses; asks nobody |
+| `%xx` in a host — `127.0.0.%31`, `%6cocalhost` | fetches the decoded host | refuses |
+| the same in a proxy's host | through it | refuses |
+| an IPv6 zone, `[::1%25lo0]` | fetches | refuses |
+| a host that is not ASCII, through a proxy | asks the proxy, the bytes raw | refuses |
+
+Each fails closed. In none does Bund2 ask anybody.
+
+- Blocks: nothing
+- Depends on: D54, D126, F183
+- Status: **RESOLVED** by the repository owner, 2026-10-09: "option 1".
+
+### The options
+
+1. **Approve them as a rule.** Bund2 fetches an `http:` URL that it and
+   `http::Uri` both accept, and refuses the rest. A seventh approved
+   deviation, covering these and any later spelling that fails the same way.
+   It does not cover Bund2 fetching where the reference refuses, or asking a
+   different listener: those stay defects.
+2. **Fix what can be fixed.** `%xx` in a host can be decoded before `ureq`
+   sees it. The raw `<`, `>` and backtick, the zone and the non-ASCII host
+   cannot be sent as the reference sends them through `http::Uri`, so they
+   would need approving anyway.
+
+### The ruling
+
+Option 1. Bund2 fetches an `http:` URL that it and `http::Uri` both accept,
+and refuses the rest. The seventh approved deviation for the fetch under
+D54. It covers the four spellings above and any later one that fails the
+same way: refused, nobody asked. It does not cover Bund2 fetching where the
+reference refuses, or asking a different listener; either is a defect
+whenever it is found. No code changes and no golden moves.
+
+*(Before the ruling this section was headed "Default, for planning only" and
+named the same option.)*
+
+## D126 — every scheme but `file` and `http` is refused; the reference fetches what its libcurl speaks
+
+**Raised 2026-10-09** by RFC-0006's thirteenth review (B2).
+
+The reference hands a string to libcurl whole
+(`reference/Bund/src/stdlib/helpers/file_helper.rs:45`), so it fetches
+whatever that libcurl speaks. Bund2 fetches `file:` and `http:`. D54 says
+"Anything else fails" and lists `https://` and a string with no scheme as
+approved deviations; it does not list the rest. Measured against the oracle
+at `21b40b0` (libcurl 8.7.1); `docs/measurements/fetch-2026-10-09.md`, rows
+161, 264 to 271, 275 and 276:
+
+- The oracle **evaluated what a listener returned** for `gopher://`,
+  `dict://` and `telnet://`, and for `ftp://` through an HTTP proxy named
+  by `ftp_proxy` or `all_proxy`.
+- It connected for `ftp://` and `smb://`, and waited.
+- Bund2 refuses each and asks nobody.
+
+- Blocks: nothing
+- Depends on: D54, D124, D125
+- Status: **RESOLVED** by the repository owner, 2026-10-09: "approve B2 as a
+  sixth deviation under D54".
+
+### The ruling
+
+Every scheme but `file` and `http` is refused, where the reference fetches
+whatever its libcurl speaks. The sixth approved deviation for the fetch
+under D54; `https://`, the second, is one case of it. No code changes and no
+golden moves.
+
+### What it costs
+
+A program that `use`s a `gopher://` or `ftp://` library runs in the
+reference and fails in Bund2. Bund2 fails closed: it asks nobody. And the
+reference reads `ftp_proxy`, which Bund2, refusing `ftp://`, never reads.
+
+### What it does not cover
+
+Spellings of an `http:` URL that the reference takes and Bund2 refuses:
+D127, which approves them as a rule.
 
 ## D125 — a URL with a literal space: the reference refuses it, Bund2 reads the file
 

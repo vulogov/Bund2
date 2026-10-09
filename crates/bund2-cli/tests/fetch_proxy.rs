@@ -100,13 +100,17 @@ fn serve_on_1080() -> Option<()> {
 
 /// **The twelfth review's B1**: a proxy that names no port is on 1080, as
 /// libcurl has it, and not on `ureq`'s 80. The port is fixed, so this checks
-/// nothing on a machine where 1080 is taken, and says so; the string Bund2
+/// nothing on a machine where 1080 is taken, and says so on standard error,
+/// past the harness's capture; the string Bund2
 /// hands `ureq` is checked wherever the tests run, in `bund2-stdlib`.
 #[test]
 fn a_proxy_that_names_no_port_is_asked_on_1080() {
     let origin = serve("origin");
     if serve_on_1080().is_none() {
-        eprintln!("port 1080 is in use; the wire half of this check did not run");
+        // Written to the descriptor and not through `eprintln!`, which the
+        // harness captures and discards for a test that passes.
+        let _ = std::io::stderr()
+            .write_all(b"\nfetch_proxy: port 1080 is in use; the wire check of a port-less proxy DID NOT RUN\n");
         return;
     }
     for proxy in ["127.0.0.1", "http://127.0.0.1", "http://localhost", "http://127.0.0.1/"] {
