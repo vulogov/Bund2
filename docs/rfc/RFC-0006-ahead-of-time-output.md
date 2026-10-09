@@ -1318,10 +1318,24 @@ on the answer.
    | **bundles, `--features jit`** | **107/116 (+9)** | **107/116** | **none** |
    | **bundles, `jit` at threshold 1** | **107/116 (+9)** | **107/116** | **none** |
 
-   **Run again on 2026-10-08: 133/145, ceiling 133/145, none failing**, in
-   source mode and for default bundles, and in source mode with `jit` and
-   with `jit` at threshold 1. The corpus has grown since the table; the claim
-   has not changed.
+   **Run again on 2026-10-08: 133/145, ceiling 133/145, twelve approved
+   deviations, none failing, in every configuration** —
+
+   | run | conformance | ceiling | failing |
+   |---|---|---|---|
+   | source, default | 133/145 (+12 approved) | 133/145 | none |
+   | bundles, default | 133/145 (+12) | 133/145 | none |
+   | source, `--features jit` | 133/145 (+12) | 133/145 | none |
+   | source, `jit` at threshold 1 | 133/145 (+12) | 133/145 | none |
+   | bundles, `--features jit` | 133/145 (+12) | 133/145 | none |
+   | bundles, `jit` at threshold 1 | 133/145 (+12) | 133/145 | none |
+
+   The corpus has grown since the first table; the claim has not changed.
+   *(Until later the same day this paragraph gave the first four rows only:
+   the two JIT-bundle rows, which are what the criterion asks for, had not
+   been run at 145 goldens — the eighth review's S9. In bundle mode the
+   threshold reaches each artefact through `BUND2_JIT_THRESHOLD`
+   (`xtask/src/conform/mod.rs`, `run`), so the last row is its own run.)*
 
    Threshold 1 is beyond the criterion and is where it is worth most: every
    body compiles on its first evaluation, so it is the strongest statement the
