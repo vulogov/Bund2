@@ -8,8 +8,11 @@ on:
   workflow_dispatch:
   push:
     branches: [development/stage2]
+    # The fetch itself, and the script that measures it.
     paths:
       - .github/workflows/measure-fetch.yml
+      - crates/bund2-stdlib/src/host.rs
+      - docs/measurements/fetch.py
 
 env:
   CARGO_TERM_COLOR: always

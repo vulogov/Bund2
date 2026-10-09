@@ -3595,6 +3595,48 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D130 — a `no_proxy` entry with a leading zero is read as the system reads it
+
+**Raised 2026-10-09** by the first measurement on Linux
+(`docs/measurements/fetch-linux-2026-10-09.md`), which the owner asked for
+after RFC-0006's fourteenth review.
+
+libcurl asks the system's `inet_pton` whether a `no_proxy` entry is an
+address, and the two systems measured answer differently for a number with
+a leading zero. The oracle at `21b40b0`:
+
+| `no_proxy`, host `127.0.0.1` | macOS, libcurl 8.7.1 | Ubuntu 24.04, libcurl 8.5.0 |
+|---|---|---|
+| `127.0.0.1` | bypassed | bypassed |
+| `127.000.0.1`, `127.0.0.01`, `0127.0.0.1`, `127.0.0.0001` | bypassed | **through the proxy** |
+| `127.0.0.010`, host `127.0.0.10` | bypassed | **through the proxy** |
+
+Bund2 read such an entry as macOS does, on every system. So on Linux it
+fetched directly where the reference asks the proxy: seven rows of 443, and
+the direction D127 names a defect. Which library decides was not traced;
+the measurement is of two systems that differ in both the C library and
+libcurl's version.
+
+- Blocks: nothing
+- Depends on: D54, D127, F182
+- Status: **RESOLVED** by the repository owner, 2026-10-09: "option 1".
+
+### The options
+
+1. **Follow the system.** Leading zeros are decimal on macOS and make the
+   entry no address anywhere else. The reference's listener on both systems
+   measured. A rule per platform, on two data points; Windows and other C
+   libraries are unmeasured and get the Linux reading.
+2. **Refuse them everywhere.** Linux's reading. On macOS Bund2 then uses a
+   proxy the reference bypasses.
+3. **Keep macOS's reading everywhere.** What the tree did.
+
+### The ruling
+
+Option 1. `ipv4` in `crates/bund2-stdlib/src/host.rs` reads an entry with
+the rule of the system it is built for. Not a deviation: it is the
+reference's behaviour, which differs by system. No golden moves.
+
 ## D129 — a response the reference evaluates and `ureq` will not read
 
 **Raised 2026-10-09** by RFC-0006's fourteenth review (S3). Not a URL and

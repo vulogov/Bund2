@@ -129,7 +129,7 @@
   Cranelift tier)
 - Decisions consumed: D10, D11, D16, D20, D40, D54, D74, D76, D77, D78, D79,
   D80, D81, D82, D83, D115, D116, D118, D119, D120, D121, D122, D123, D124, D125, D126, D127,
-  D128, D129, and
+  D128, D129, D130, and
   decisions.md's "What this forecloses" clause on tree-shaking. *(Until
   2026-10-08 this list named D44, which the body never uses, and omitted the
   last four, which it rests on.)*
@@ -1487,7 +1487,7 @@ documented rather than discovered:**
   | `no_proxy` and `NO_PROXY` both set | `no_proxy`, unless it is empty |
   | `no_proxy=*` | direct; `a,*` and ` * ` are not wildcards |
   | a host name | on the list by itself or a parent domain, ignoring case, one leading dot on the entry and one trailing dot on either; `*.example.com` matches nothing |
-  | an IPv4 host | in any spelling libcurl reads as an address — `127.1`, `2130706433`, `0x7f.0.0.1`, `0177.0.0.1` are `127.0.0.1` (the twelfth review's S1); an entry is an address only as four decimal numbers, each with any count of leading zeros, so `0127.0.0.1` is one; or `address/bits` for 1 to 32 bits, **the bits being what C's `atoi` reads and libcurl then takes as unsigned**: `/0`, `/x` and `/+` mean the whole address, `/+8` and `/4294967304` are eight bits, `/-8` and `/+33` match nothing; an entry with a port matches nothing. *(Until the fourteenth review's B2 Bund2 refused `0127`, and read a sign as no digits; the two then asked different listeners, in both directions.)* |
+  | an IPv4 host | in any spelling libcurl reads as an address — `127.1`, `2130706433`, `0x7f.0.0.1`, `0177.0.0.1` are `127.0.0.1` (the twelfth review's S1); an entry is an address only as four decimal numbers, **and whether one with a leading zero is an address is the system's answer**: on macOS `0127.0.0.1` is one, with any count of zeros, and on Linux it is not and the proxy is used. Bund2 reads an entry as the system it runs on does (D130); or `address/bits` for 1 to 32 bits, **the bits being what C's `atoi` reads and libcurl then takes as unsigned**: `/0`, `/x` and `/+` mean the whole address, `/+8` and `/4294967304` are eight bits, `/-8` and `/+33` match nothing; an entry with a port matches nothing. *(Until the fourteenth review's B2 Bund2 refused `0127`, and read a sign as no digits; the two then asked different listeners, in both directions.)* |
   | an IPv6 host | **matched as a name is, by the text it is sent in.** So `[0:0:0:0:0:0:0:1]` is on a list naming `::1` and not on one naming itself; no prefix matches, `::1/128` included; `[::1]` as an entry matches nothing; and `[::FFFF:127.0.0.1]` is on a list naming `0.1`, its last "domain". *(This row said "by its shortest text, `::1`, and nothing else", which was true of the one address tried. Bund2 compared Rust's text for the address, which is another text for `::ffff:7f00:1`.)* |
 
   **What is handed on, and who reads it.** `ureq` reads the URL it is
@@ -1564,9 +1564,20 @@ documented rather than discovered:**
      directly, which would ignore the setting. SOCKS is a feature and a
      dependency away; an HTTPS proxy waits on whatever decides `https://`.
 
-  And one thing the measurement cannot promise: **these are one libcurl's
+  And one thing the measurement cannot promise: **these are two systems'
   rules.** The reference links whatever libcurl its system has, and another
-  may match differently. Linux was not measured.
+  may match differently. *(Until 2026-10-09 this said "one libcurl's" and
+  "Linux was not measured".)* Linux was measured that day, by a workflow,
+  `measure-fetch`, on Ubuntu 24.04 x86-64 with libcurl 8.5.0:
+  `docs/measurements/fetch-linux-2026-10-09.md`, the same 443 settings. The
+  reference differs from itself on macOS in 12 rows, and one kind matters:
+  **a `no_proxy` entry with a leading zero is an address on macOS and not
+  on Linux**, so there Bund2 went directly where the reference asked the
+  proxy, in seven rows. Ruled the same day, D130: Bund2 reads such an entry
+  as its system does. The other rows are a non-ASCII host and two IPv6
+  spellings that the reference refuses on Linux, as Bund2 does everywhere.
+  **The fix was not measured again on Linux**, and no other system was
+  measured at all; one that is not macOS gets Linux's rule.
 
   `url` and `url.` share `fetch_uri` and all of this. It is the
   interpreter's behaviour — `bund2 script` does the same — and a bundle

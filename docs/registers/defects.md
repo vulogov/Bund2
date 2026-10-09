@@ -4330,6 +4330,16 @@ to different listeners in both directions:
 credentials**, where the reference does one of three things and Bund2 now
 fails the fetch (D128, F185).
 
+**Note, 2026-10-09 (the first measurement on Linux; D130).** The note above
+says of a `no_proxy` entry that its "number may have any count of leading
+zeros". That is the reference on macOS. On Ubuntu 24.04 the reference does
+not take such an entry for an address, and Bund2, reading it as macOS does,
+fetched directly where the reference asked the proxy: rows 54, 135, 138 and
+334 to 337 of `docs/measurements/fetch-linux-2026-10-09.md`. `ipv4` now
+reads an entry by the rule of the system it runs on, as D130 rules.
+`no_proxy_matches_as_libcurl_matches` tests both rules on either system.
+**Not measured again on Linux after the fix.**
+
 ## F181 — `bund2 build` wrote through `--output`, and a hard link to the builder destroyed it
 
 **A Bund2 defect, found 2026-10-08** by RFC-0006's ninth review (S1). The

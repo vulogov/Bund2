@@ -1103,15 +1103,32 @@ fn bypasses(host: &str, list: &str) -> bool {
     })
 }
 
-/// A dotted IPv4 address as a number. Leading zeros are taken as decimal,
-/// however many: `Ipv4Addr`'s parser refuses them and the oracle's libcurl
-/// took `0127.0.0.1` and a part with thirty of them (rows 334 to 337).
+/// A dotted IPv4 address as a number, as the system's `inet_pton` reads one
+/// for libcurl: that is who reads a `no_proxy` entry, and the two systems
+/// measured disagree about leading zeros (D130).
+///
+/// - **macOS** takes them as decimal, however many: the oracle took
+///   `0127.0.0.1` and a part with thirty zeros.
+/// - **Linux** refuses a part with one, so there `127.0.0.01` is not an
+///   address and is on no list for one. Every system that is not macOS is
+///   read this way; only these two were measured.
+///
+/// Rows 54, 135, 138 and 334 to 337 of the two tables in
+/// `docs/measurements/`.
 fn ipv4(text: &str) -> Option<u32> {
+    ipv4_as(text, cfg!(target_os = "macos"))
+}
+
+/// [`ipv4`] with the system's rule passed in, so both are tested on either.
+fn ipv4_as(text: &str, leading_zeros: bool) -> Option<u32> {
     let mut parts = text.split('.');
     let mut addr = 0u32;
     for _ in 0..4 {
         let part = parts.next()?;
         if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        if !leading_zeros && part.len() > 1 && part.starts_with('0') {
             return None;
         }
         let digits = part.trim_start_matches('0');
@@ -2574,10 +2591,8 @@ mod tests {
         for yes in [
             "*", "127.0.0.1", "a.example, 127.0.0.1", "a.example 127.0.0.1", "a.example\t127.0.0.1",
             "127.0.0.0/8", "127.9.9.9/8", "126.0.0.0/7", "127.0.0.1/32", "127.0.0.1/0",
-            "127.0.0.1/x", "127.000.0.1",
-            // The fourteenth review's B2: zeros without limit, and a prefix
-            // length as `atoi` reads it.
-            "0127.0.0.1", "00127.0.0.1", "127.0.0.0001", "127.0.0.0000000000000000000000000000001",
+            "127.0.0.1/x",
+            // The fourteenth review's B2: a prefix length as `atoi` reads it.
             "127.0.0.9/+8", "127.0.0.9/4294967304", "127.0.0.9/08", "127.0.0.9/8/1",
             "127.0.0.1/-0", "127.0.0.1/4294967296", "127.0.0.1/+", "127.0.0.1/", "127.0.0.1/+0x",
             "127.0.0.9/\n8",
@@ -2619,7 +2634,27 @@ mod tests {
             assert!(bypasses(host, "127.0.0.1"), "{host}");
         }
         assert_eq!(url_ipv4("127.0.0.010"), Some(0x7f00_0008), "octal in a host");
-        assert!(bypasses("127.0.0.10", "127.0.0.010"), "decimal in an entry");
+        // Leading zeros in an entry are the system's to read, and the two
+        // measured read them differently (D130).
+        let zeros = [
+            "127.000.0.1", "0127.0.0.1", "00127.0.0.1", "127.0.0.0001", "127.0.0.01",
+            "127.0.0.0000000000000000000000000000001",
+        ];
+        for entry in zeros {
+            assert_eq!(ipv4_as(entry, true), Some(0x7f00_0001), "{entry} on macOS");
+            assert_eq!(ipv4_as(entry, false), None, "{entry} on Linux");
+            assert_eq!(bypasses(v4, entry), cfg!(target_os = "macos"), "{entry} here");
+        }
+        assert_eq!(ipv4_as("127.0.0.010", true), Some(0x7f00_000a), "decimal in an entry");
+        assert_eq!(bypasses("127.0.0.10", "127.0.0.010"), cfg!(target_os = "macos"));
+        for both in [true, false] {
+            assert_eq!(ipv4_as("127.0.0.1", both), Some(0x7f00_0001));
+            assert_eq!(ipv4_as("0.0.0.0", both), Some(0));
+            assert_eq!(ipv4_as("10.0.200.255", both), Some(0x0a00_c8ff));
+            for no in ["0300.0.0.1", "127.0.0.256", "127.0.0", "1.2.3.4.5", "127.0.0.1.", "", "a.b.c.d"] {
+                assert_eq!(ipv4_as(no, both), None, "{no:?}");
+            }
+        }
         assert!(bypasses("0", "0.0.0.0"));
         for name in ["127.0.0.09", "127.0.0.256", "127.0.65536", "1.2.3.4.5", "127..1", "0x", ""] {
             assert_eq!(url_ipv4(name), None, "{name:?} is a name");
