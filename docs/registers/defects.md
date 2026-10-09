@@ -4033,6 +4033,64 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F184 — the reference's `file` cannot read a path with a space in it
+
+**A defect in the original implementation, found 2026-10-09** while
+measuring for RFC-0006's twelfth review.
+
+`file` builds `file://{path}` and hands it to libcurl
+(`reference/Bund/src/stdlib/helpers/file_helper.rs:57-59`), and libcurl
+refuses a URL that contains a space or a control character. Measured against
+the oracle at `21b40b0` (libcurl 8.7.1): `"/abs/sp ace/a.txt" file` fails and
+`"/abs/sp%20ace/a.txt" file` reads; a tab and `%09` the same;
+`"file:///abs/lib file.bund" use` fails. The path is a URL there, which is
+also why `?` and `#` end it (F183).
+
+**Disposition: FIX, by D125.** Bund2 reads the bytes after the scheme as a
+path and reads the file. An approved deviation; `%20` works in both. No
+golden names such a path.
+
+## F183 — a fetch read fewer spellings of a URL than the reference does
+
+**A Bund2 defect, found 2026-10-09** by RFC-0006's twelfth review (S2), and
+by the measurement that answered it. Older than that RFC: it is D54's code.
+
+The reference hands every string to libcurl
+(`reference/Bund/src/stdlib/helpers/file_helper.rs:42-46`). Bund2 tested
+the string for the prefixes `file://` and `http://` and, for a file, for the
+host `localhost`. Measured against the oracle at `21b40b0` (libcurl 8.7.1),
+each of these is fetched by the reference and was refused by Bund2:
+
+- a scheme not in lower case: `HTTP://…`, `Http://…`, `FILE:///…`;
+- `http:` followed by one slash or by three;
+- `file:/abs/x`, with one slash;
+- `file://LOCALHOST/abs/x` and `file://127.0.0.1/abs/x`.
+
+And one was read differently: **`file:///abs/x?q` and `file:///abs/x#f` read
+`/abs/x` in the reference**, where Bund2 looked for a file whose name ends
+in `?q`. The `file` word builds `file://{path}`
+(`reference/Bund/src/stdlib/helpers/file_helper.rs:57-59`), so
+`"/abs/x?q" file` reads `/abs/x` there too. D54 lists two approved
+deviations for the fetch and none of these is either.
+
+**Disposition: FIX.** `crates/bund2-stdlib/src/host.rs`, `Target`: the
+scheme is matched in any case; `http:` takes one to three slashes; `file:`
+takes one slash, three or more, or two and a host that is `localhost` in any
+case or `127.0.0.1`; a file's path ends at `?` or `#`. An IPv4 host is
+rewritten as four decimal numbers before the request, as libcurl sends it
+(`http_url`). `fetch_takes_file_urls_by_curls_rules` and
+`a_fetch_goes_through_the_proxy_and_only_the_one_libcurl_reads`.
+`docs/measurements/fetch-2026-10-09.md` has every spelling tried, rows 121
+to 175.
+
+**Not fixed: a literal space.** `file:///abs/a b.txt` fails in the reference
+— libcurl refuses the URL — and reads in Bund2, and so `"/abs/a b.txt" file`
+does. A tab is the same. D125 approves that, and F184 records the
+reference's half.
+
+**Not known.** These are the spellings somebody tried, on one libcurl. They
+are not libcurl's URL parser, and another spelling may differ.
+
 ## F182 — a fetch obeyed proxy variables the reference does not read
 
 **A Bund2 defect, found 2026-10-09** by RFC-0006's eleventh review (B1) and
@@ -4085,6 +4143,30 @@ offers only the tunnel, and is built without TLS and without its
 **Not known.** The rules are those of one libcurl. The reference links the
 system's, so an older one may match `no_proxy` differently; Linux was not
 measured.
+
+**Note, 2026-10-09 (RFC-0006's twelfth review, B1 and S1).** "The request
+goes to the same place in all 73" was true of the 73 and not of the fix. Two
+things the 73 did not vary, both fixed the same day in `host.rs`:
+
+- **A proxy that names no port.** libcurl asks it on port 1080; `ureq`, given
+  the variable's text, asked on 80. So `http_proxy=127.0.0.1` sent the
+  reference to one listener and Bund2 to another, and `use` evaluated what
+  either returned. `on_curls_port` writes 1080 in before `ureq` sees the
+  proxy. `host:` with an empty port is 1080 after a scheme and refused
+  without one, as measured.
+- **A URL's host in a short spelling.** libcurl reads `127.1`, `2130706433`,
+  `0x7f.0.0.1` and `0177.0.0.1` as `127.0.0.1` before it consults
+  `no_proxy`; Bund2 took them for names, so a list naming `127.0.0.1` did not
+  bypass the proxy for them. `url_ipv4` reads a host as libcurl does. An
+  entry in the list is still an address only as four decimal numbers, which
+  is also as measured.
+
+`the_proxy_is_the_one_libcurl_would_take` and
+`no_proxy_matches_as_libcurl_matches` carry both, and
+`a_proxy_that_names_no_port_is_asked_on_1080` asks a listener on 1080 when
+that port is free. **The settings are now recorded**:
+`docs/measurements/fetch-2026-10-09.md`, 175 of them with the script that
+ran them. The first 73 are the ones this entry counted.
 
 ## F181 — `bund2 build` wrote through `--output`, and a hard link to the builder destroyed it
 

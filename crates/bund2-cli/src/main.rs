@@ -989,7 +989,7 @@ fn inspect(path: &str) -> ExitCode {
     // **Never "none" for a bit this bund2 cannot name.** It does not know
     // what the bit forbids, so it says that, and that it will not run it.
     let unknown = format!(
-        "unknown (flag bits {:#04x}; this bund2 cannot enforce them and will not run the artefact)",
+        "unknown (flag bits {:#04x}; this bund2 does not define them, and the artefact's own runtime decides)",
         seen.unknown_flags
     );
     if seen.unknown_flags != 0 {

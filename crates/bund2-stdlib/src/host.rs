@@ -834,14 +834,37 @@ fn proxy_for(host: &str, env: &dyn Fn(&str) -> Option<String>) -> Result<Option<
     let Some(proxy) = ["http_proxy", "all_proxy", "ALL_PROXY"].into_iter().find_map(set) else {
         return Ok(None);
     };
-    if let Some(list) = set("no_proxy").or_else(|| set("NO_PROXY")) {
-        if bypasses(host, &list) {
-            return Ok(None);
-        }
+    let listed = set("no_proxy").or_else(|| set("NO_PROXY"));
+    if listed.is_some_and(|list| bypasses(host, &list)) {
+        return Ok(None);
     }
     match proxy.split_once("://") {
         Some((scheme, _)) if !scheme.eq_ignore_ascii_case("http") => Err(()),
-        _ => Ok(Some(proxy)),
+        Some((scheme, rest)) => on_curls_port(rest, true)
+            .map(|rest| Some(format!("{scheme}://{rest}")))
+            .ok_or(()),
+        None => on_curls_port(&proxy, false).map(Some).ok_or(()),
+    }
+}
+
+/// A proxy's address, after any scheme, with libcurl's default port written
+/// in when it names none. **That port is 1080**, whatever the proxy's kind;
+/// `ureq` would take 80 for an HTTP one, and so ask a different listener
+/// (F182's note). `host:` with nothing after the colon is 1080 too when a
+/// scheme came first, and is refused when none did. Both measured.
+fn on_curls_port(rest: &str, had_scheme: bool) -> Option<String> {
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let (authority, tail) = rest.split_at_checked(end)?;
+    let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+    let port = match host.rsplit_once(':') {
+        Some((_, port)) if !port.contains(']') => Some(port),
+        _ => None,
+    };
+    match port {
+        Some("") if had_scheme => Some(format!("{authority}1080{tail}")),
+        Some("") => None,
+        Some(_) => Some(rest.to_string()),
+        None => Some(format!("{authority}:1080{tail}")),
     }
 }
 
@@ -855,7 +878,9 @@ fn proxy_for(host: &str, env: &dyn Fn(&str) -> Option<String>) -> Result<Option<
 ///   either. `*.example.com` matches nothing: only the lone `*` is a wildcard.
 /// - **An IPv4 address** matches the same address, or `address/bits` for a
 ///   prefix of 1 to 32 bits. `/0` and a prefix that is not a number mean the
-///   whole address, as C's `atoi` leaves them.
+///   whole address, as C's `atoi` leaves them. The host is an address in any
+///   spelling [`url_ipv4`] reads, so `127.1` is on a list naming `127.0.0.1`;
+///   an entry is one only as four decimal numbers.
 /// - **An IPv6 address** matches its own text in shortest form and nothing
 ///   else. No prefix matched in the measurement, `::1/128` included.
 ///
@@ -870,7 +895,7 @@ fn bypasses(host: &str, list: &str) -> bool {
         let text = v6.to_string();
         return entries.into_iter().any(|e| e.eq_ignore_ascii_case(&text));
     }
-    if let Some(addr) = ipv4(host) {
+    if let Some(addr) = url_ipv4(host) {
         return entries.into_iter().any(|e| {
             let (net, bits) = match e.split_once('/') {
                 Some((net, bits)) => (net, leading_number(bits)),
@@ -911,6 +936,123 @@ fn ipv4(text: &str) -> Option<u32> {
     parts.next().is_none().then_some(addr)
 }
 
+/// A URL's host as an IPv4 address, in every spelling libcurl normalises
+/// before it asks whether the host is on a list: one to four numbers, each
+/// decimal, octal after a leading `0`, or hexadecimal after `0x`, the last
+/// one filling whatever bytes are left. So `127.1`, `2130706433`,
+/// `0x7f.0.0.1` and `0177.0.0.1` are all `127.0.0.1`, and `127.0.0.010` is
+/// `127.0.0.8`. Anything else — `127.0.0.09`, `127.0.0.256`, five parts — is
+/// a name. Measured against the oracle, F182's note.
+fn url_ipv4(host: &str) -> Option<u32> {
+    let mut parts = [0u32; 4];
+    let mut count = 0;
+    for part in host.split('.') {
+        let slot = parts.get_mut(count)?;
+        let lower = part.to_ascii_lowercase();
+        let (digits, radix) = match lower.strip_prefix("0x") {
+            Some(hex) => (hex, 16),
+            None if lower.len() > 1 && lower.starts_with('0') => (lower.get(1..)?, 8),
+            None => (lower.as_str(), 10),
+        };
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        *slot = u32::from_str_radix(digits, radix).ok()?;
+        count += 1;
+    }
+    let (last, firsts) = parts.get(..count)?.split_last()?;
+    // The last number has the bytes the others left: 4, 3, 2 or 1 of them.
+    let room = 8 * (4 - firsts.len() as u32);
+    if u64::from(*last) >> room != 0 {
+        return None;
+    }
+    let mut addr = *last;
+    for (i, part) in firsts.iter().enumerate() {
+        if *part > 255 {
+            return None;
+        }
+        addr |= part << (24 - 8 * i as u32);
+    }
+    Some(addr)
+}
+
+/// A fetchable URL as libcurl reads the spellings measured against the
+/// oracle (F183). The scheme is in any case and may be followed by fewer
+/// slashes than two.
+enum Target {
+    /// `file:` — the path, still percent-encoded.
+    File(String),
+    /// `http:` — everything after the slashes.
+    Http(String),
+}
+
+impl Target {
+    fn of(uri: &str) -> Option<Self> {
+        let (scheme, rest) = uri.split_once(':')?;
+        let slashes = rest.bytes().take_while(|b| *b == b'/').count();
+        if scheme.eq_ignore_ascii_case("http") {
+            // One, two or three slashes; none or four is refused.
+            return match slashes {
+                1..=3 => Some(Self::Http(rest.get(slashes..)?.to_string())),
+                _ => None,
+            };
+        }
+        if !scheme.eq_ignore_ascii_case("file") {
+            return None;
+        }
+        // `file:/abs`, `file:///abs`, or a host that is this machine by one
+        // of two names. `file://relative/x` names a host that is not.
+        let path = match slashes {
+            0 => return None,
+            2 => {
+                let after = rest.get(2..)?;
+                let (host, path) = after.split_at_checked(after.find('/')?)?;
+                if !host.eq_ignore_ascii_case("localhost") && host != "127.0.0.1" {
+                    return None;
+                }
+                path
+            }
+            1 => rest,
+            _ => rest.get(2..)?,
+        };
+        // A query or a fragment is not part of the file's name.
+        let path = path.split(['?', '#']).next()?;
+        Some(Self::File(path.to_string()))
+    }
+}
+
+/// `rest`, the part of an `http:` URL after its slashes, with an IPv4 host
+/// rewritten as four decimal numbers, and that host. libcurl sends the
+/// rewritten form, so the `Host` header is `127.0.0.1` for `127.1`.
+fn http_url(rest: &str) -> Option<(String, String)> {
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let (authority, tail) = rest.split_at_checked(end)?;
+    let (user, hostport) = match authority.rsplit_once('@') {
+        Some((user, hostport)) => (Some(user), hostport),
+        None => (None, authority),
+    };
+    let (host, port) = match hostport.rsplit_once(':') {
+        Some((host, port)) if !port.contains(']') => (host, Some(port)),
+        _ => (hostport, None),
+    };
+    let host = match url_ipv4(host) {
+        Some(addr) => std::net::Ipv4Addr::from(addr).to_string(),
+        None => host.to_string(),
+    };
+    let mut url = String::from("http://");
+    if let Some(user) = user {
+        url.push_str(user);
+        url.push('@');
+    }
+    url.push_str(&host);
+    if let Some(port) = port {
+        url.push(':');
+        url.push_str(port);
+    }
+    url.push_str(tail);
+    Some((url, host))
+}
+
 /// The number C's `atoi` reads from the front of `text`: its leading digits,
 /// or 0 when it has none. `None` is a number too large to be a prefix length,
 /// a negative one included.
@@ -927,15 +1069,11 @@ fn leading_number(text: &str) -> Option<u32> {
 /// [`fetch_uri`] with the environment as a function, so a test can name a
 /// proxy without setting a variable every other test in the process reads.
 fn fetch_uri_in(uri: &str, env: &dyn Fn(&str) -> Option<String>) -> Option<String> {
-    let bytes = if let Some(rest) = uri.strip_prefix("file://") {
-        let path = rest.strip_prefix("localhost").unwrap_or(rest);
-        if !path.starts_with('/') {
-            return None;
-        }
-        std::fs::read(percent_decode(path)?).ok()?
-    } else if uri.starts_with("http://") {
-        let target = uri.parse::<ureq::http::Uri>().ok()?;
-        let proxy = match proxy_for(target.host()?, env).ok()? {
+    let bytes = match Target::of(uri)? {
+        Target::File(path) => std::fs::read(percent_decode(&path)?).ok()?,
+        Target::Http(rest) => {
+        let (uri, host) = http_url(&rest)?;
+        let proxy = match proxy_for(&host, env).ok()? {
             Some(proxy) => Some(ureq::Proxy::new(&proxy).ok()?),
             None => None,
         };
@@ -947,14 +1085,13 @@ fn fetch_uri_in(uri: &str, env: &dyn Fn(&str) -> Option<String>) -> Option<Strin
             .user_agent("ZBUS")
             .build()
             .into();
-        let mut resp = agent.get(uri).call().ok()?;
+        let mut resp = agent.get(&uri).call().ok()?;
         resp.body_mut()
             .with_config()
             .limit(u64::MAX)
             .read_to_vec()
             .ok()?
-    } else {
-        return None;
+        }
     };
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
@@ -2043,6 +2180,26 @@ mod tests {
         assert_eq!(fetch_uri(&abs), None, "a bare path is not a URL");
         assert_eq!(fetch_uri("file://relative/x"), None, "a relative file URL names a host");
         assert_eq!(fetch_uri("https://example.com/"), None, "https is deferred");
+
+        // F183: the spellings the oracle reads, each measured.
+        for url in [
+            format!("FILE://{encoded}"),
+            format!("file:{encoded}"),
+            format!("file://LocalHost{encoded}"),
+            format!("file://127.0.0.1{encoded}"),
+            format!("file://{encoded}?x"),
+            format!("file://{encoded}#f"),
+        ] {
+            assert_eq!(fetch_uri(&url).as_deref(), Some("hi"), "{url}");
+        }
+        for url in [
+            "file://localhost".to_string(),
+            format!("file://127.1{encoded}"),
+            format!("file://localhost:80{encoded}"),
+            format!("file:{}", encoded.trim_start_matches('/')),
+        ] {
+            assert_eq!(fetch_uri(&url), None, "{url}");
+        }
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -2058,16 +2215,16 @@ mod tests {
             })
         };
         assert_eq!(pick(&[]), Ok(None));
-        assert_eq!(pick(&[("http_proxy", "p1")]), Ok(Some("p1".into())));
-        assert_eq!(pick(&[("all_proxy", "p1")]), Ok(Some("p1".into())));
-        assert_eq!(pick(&[("ALL_PROXY", "p1")]), Ok(Some("p1".into())));
+        assert_eq!(pick(&[("http_proxy", "p1")]), Ok(Some("p1:1080".into())));
+        assert_eq!(pick(&[("all_proxy", "p1")]), Ok(Some("p1:1080".into())));
+        assert_eq!(pick(&[("ALL_PROXY", "p1")]), Ok(Some("p1:1080".into())));
         for ignored in ["HTTP_PROXY", "HTTPS_PROXY", "https_proxy"] {
             assert_eq!(pick(&[(ignored, "p1")]), Ok(None), "{ignored} is not read");
         }
-        assert_eq!(pick(&[("http_proxy", "p1"), ("all_proxy", "p2")]), Ok(Some("p1".into())));
-        assert_eq!(pick(&[("all_proxy", "p1"), ("ALL_PROXY", "p2")]), Ok(Some("p1".into())));
-        assert_eq!(pick(&[("http_proxy", ""), ("all_proxy", "p2")]), Ok(Some("p2".into())));
-        assert_eq!(pick(&[("all_proxy", ""), ("ALL_PROXY", "p2")]), Ok(Some("p2".into())));
+        assert_eq!(pick(&[("http_proxy", "p1"), ("all_proxy", "p2")]), Ok(Some("p1:1080".into())));
+        assert_eq!(pick(&[("all_proxy", "p1"), ("ALL_PROXY", "p2")]), Ok(Some("p1:1080".into())));
+        assert_eq!(pick(&[("http_proxy", ""), ("all_proxy", "p2")]), Ok(Some("p2:1080".into())));
+        assert_eq!(pick(&[("all_proxy", ""), ("ALL_PROXY", "p2")]), Ok(Some("p2:1080".into())));
 
         // The lower-case list wins unless it is empty.
         let p = ("http_proxy", "p1");
@@ -2076,11 +2233,24 @@ mod tests {
         assert_eq!(pick(&[p, ("no_proxy", ""), ("NO_PROXY", "127.0.0.1")]), Ok(None));
         assert_eq!(
             pick(&[p, ("no_proxy", "other.example"), ("NO_PROXY", "127.0.0.1")]),
-            Ok(Some("p1".into()))
+            Ok(Some("p1:1080".into()))
         );
 
+        // A proxy that names no port is on 1080, which is libcurl's default
+        // and not `ureq`'s: the twelfth review's B1.
+        let on = |proxy: &str| pick(&[("http_proxy", proxy)]);
+        assert_eq!(on("127.0.0.1"), Ok(Some("127.0.0.1:1080".into())));
+        assert_eq!(on("http://localhost"), Ok(Some("http://localhost:1080".into())));
+        assert_eq!(on("http://127.0.0.1/"), Ok(Some("http://127.0.0.1:1080/".into())));
+        assert_eq!(on("u:p@127.0.0.1"), Ok(Some("u:p@127.0.0.1:1080".into())));
+        assert_eq!(on("http://127.0.0.1:/"), Ok(Some("http://127.0.0.1:1080/".into())));
+        assert_eq!(on("http://[::1]"), Ok(Some("http://[::1]:1080".into())));
+        assert_eq!(on("127.0.0.1:"), Err(()), "an empty port and no scheme");
+        assert_eq!(on("http://127.0.0.1:3128/x"), Ok(Some("http://127.0.0.1:3128/x".into())));
+        assert_eq!(on("http://[::1]:3128"), Ok(Some("http://[::1]:3128".into())));
+
         // A scheme `ureq` cannot speak fails the fetch; it does not go direct.
-        assert_eq!(pick(&[("http_proxy", "HTTP://h:1")]), Ok(Some("HTTP://h:1".into())));
+        assert_eq!(on("HTTP://h:1"), Ok(Some("HTTP://h:1".into())));
         for scheme in ["socks5", "https", "ftp"] {
             assert_eq!(pick(&[("http_proxy", &format!("{scheme}://h:1"))]), Err(()));
         }
@@ -2121,6 +2291,24 @@ mod tests {
         }
         assert!(bypasses("x.bund2.invalid.", "bund2.invalid"), "a host's trailing dot");
         assert!(bypasses("localhost", "LOCALHOST"));
+
+        // The host is an address however the URL spells it; an entry is one
+        // only as four decimal numbers. The twelfth review's S1.
+        for host in ["127.1", "2130706433", "0x7f.0.0.1", "0X7F.0.0.1", "0177.0.0.1", "127.0.1",
+            "0x7f000001", "017700000001", "127.0.0.01", "127.0.0.0x1"]
+        {
+            assert_eq!(url_ipv4(host), Some(0x7f00_0001), "{host}");
+            assert!(bypasses(host, "127.0.0.1"), "{host}");
+        }
+        assert_eq!(url_ipv4("127.0.0.010"), Some(0x7f00_0008), "octal in a host");
+        assert!(bypasses("127.0.0.10", "127.0.0.010"), "decimal in an entry");
+        assert!(bypasses("0", "0.0.0.0"));
+        for name in ["127.0.0.09", "127.0.0.256", "127.0.65536", "1.2.3.4.5", "127..1", "0x", ""] {
+            assert_eq!(url_ipv4(name), None, "{name:?} is a name");
+        }
+        for entry in ["127.1", "0x7f.0.0.1", "2130706433", "0177.0.0.1"] {
+            assert!(!bypasses(v4, entry), "{entry} is not an address in a list");
+        }
 
         // An IPv6 host is on the list in its shortest form, and no other way.
         for host in ["[::1]", "[0:0:0:0:0:0:0:1]"] {
@@ -2190,6 +2378,16 @@ mod tests {
         assert_eq!(fetch("x.bund2.invalid", &[("http_proxy", &here), ("no_proxy", "invalid")]), None);
         // A proxy that cannot be used fails the fetch rather than being skipped.
         assert_eq!(fetch("127.0.0.1", &[("http_proxy", "http://")]), None);
+        // F183: a scheme in any case, and one slash or three for two.
+        let spelt = |url: String| fetch_uri_in(&url, &|_| None);
+        assert_eq!(spelt(format!("HTTP://127.0.0.1:{port}/x")), origin);
+        assert_eq!(spelt(format!("http:/127.0.0.1:{port}/x")), origin);
+        assert_eq!(spelt(format!("http:///127.0.0.1:{port}/x")), origin);
+        assert_eq!(spelt(format!("http:////127.0.0.1:{port}/x")), None);
+        assert_eq!(spelt(format!("http:127.0.0.1:{port}/x")), None);
+        // A short spelling of the address is the address, to `no_proxy` too.
+        assert_eq!(spelt(format!("http://127.1:{port}/x")), origin);
+        assert_eq!(fetch("0x7f.1", &[("http_proxy", &here), ("no_proxy", "127.0.0.1")]), origin);
         assert_eq!(fetch("127.0.0.1", &[("http_proxy", &format!("socks5://127.0.0.1:{port}"))]), None);
     }
 

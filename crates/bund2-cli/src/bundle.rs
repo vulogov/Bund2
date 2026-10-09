@@ -216,7 +216,8 @@ impl std::fmt::Display for Damaged {
                 f,
                 "this artefact records a restriction this runtime does not know \
                  (flag bits {bits:#04x}); it cannot be enforced here, so the program is \
-                 not run. The artefact was built by a different bund2, or is damaged"
+                 not run. A bund2 writes only bits it knows into its own artefact, so \
+                 the byte was changed after the build, or the file is damaged"
             ),
         }
     }

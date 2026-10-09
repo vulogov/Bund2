@@ -3241,6 +3241,15 @@ this entry does not approve: Bund2 sends `CONNECT` to an HTTP proxy where
 the reference sends the URL, and a SOCKS or HTTPS proxy fails Bund2's fetch.
 D124 approves both.
 
+**Note, 2026-10-09 (RFC-0006's twelfth review, S2; F183, D125).** "Anything
+else fails" above was narrower than the reference in spellings this entry
+did not compare: a scheme in upper case, one slash or three after it,
+`file://127.0.0.1/…`, and a `?` or `#` after a file's path. F183 fixes
+those. One difference goes the other way: Bund2 reads a `file:`
+URL with a literal space, which libcurl refuses — D125, which approves it. What the reference
+fetches is whatever its libcurl parses, and only the spellings in
+`docs/measurements/fetch-2026-10-09.md` were tried.
+
 ## D53 — `debug.display_hostinfo` reports Bund2's own crates, an approved deviation
 
 The reference's `debug.display_hostinfo` prints a table
@@ -3568,6 +3577,54 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D125 — a URL with a literal space: the reference refuses it, Bund2 reads the file
+
+**Raised 2026-10-09** while measuring for RFC-0006's twelfth review. Not
+something a review found.
+
+libcurl refuses a URL that contains a space or a control character. The
+`file` word builds `file://{path}`
+(`reference/Bund/src/stdlib/helpers/file_helper.rs:57-59`), so in the
+reference **a path with a space in it cannot be read by `file`**. Measured
+against the oracle at `21b40b0`:
+
+| program | oracle | Bund2 |
+|---|---|---|
+| `"/abs/sp ace/a.txt" file` | fails | reads |
+| `"/abs/sp%20ace/a.txt" file` | reads | reads |
+| a path with a tab | fails | reads |
+| the same with `%09` | reads | reads |
+| `"file:///abs/lib file.bund" use` | fails | evaluates |
+
+Bund2 reads the bytes after the scheme as a path and never asks whether they
+form a URL. It has done so since D54.
+
+- Blocks: nothing
+- Depends on: D54, F183
+- Status: **RESOLVED** by the repository owner, 2026-10-09: option 1 — keep
+  reading, as an approved deviation.
+
+### The options
+
+1. **Keep reading, and approve it** as a deviation under D54, recording the
+   reference's behaviour as its defect. A program that works in Bund2 and
+   names such a path fails in the reference; nothing that works in the
+   reference changes.
+2. **Refuse it, as the reference does.** A space or a control character
+   anywhere in a fetched URL fails the fetch, `file` included. Faithful, and
+   it makes `file` unusable on a path with a space unless the program
+   writes `%20`.
+
+### The ruling
+
+Option 1. Bund2 reads a `file:` URL with a literal space or control
+character, and so does the `file` word. It is the fifth approved deviation
+for the fetch under D54, and the reference's refusal is recorded as its
+defect, F184. No code changes and no golden moves.
+
+*(Before the ruling this section was headed "Default, for planning only" and
+said the same option; the tree was left as found until it was ruled.)*
+
 ## D124 — a fetch through a proxy tunnels, and only through an HTTP proxy
 
 **Raised 2026-10-09** by F182's fix. Once the fetch chose its proxy as the
@@ -3609,6 +3666,13 @@ whose only proxy is SOCKS or HTTPS gets the reference's fetch and not
 Bund2's; the fetch fails rather than going direct, so the setting is never
 silently ignored. `socks-proxy` would close the SOCKS half for one
 dependency, and an HTTPS proxy waits on whatever decides `https://`.
+
+**Note, 2026-10-09 (RFC-0006's twelfth review, B1).** "Two differences were
+left that `ureq` 3.4.0 as Bund2 builds it cannot close" is true of these
+two. There was a third, which `ureq` could close and this entry does not
+cover: a proxy that names no port was asked on 80 where libcurl asks on
+1080. It is fixed under F182, not approved here. "Which proxy is asked … F182
+makes that the reference's" was not yet true when it was written.
 
 ## D123 — `--noeval` does not gate `decode.base64`; it is named
 

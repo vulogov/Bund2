@@ -65,6 +65,55 @@ fn used(origin: u16, vars: &[(&str, String)]) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
+/// As [`serve`], on the one port libcurl takes for a proxy that names none.
+/// `None` when something else on this machine already has it.
+fn serve_on_1080() -> Option<()> {
+    let listener = TcpListener::bind("127.0.0.1:1080").ok()?;
+    std::thread::spawn(move || {
+        for conn in listener.incoming() {
+            let Ok(mut conn) = conn else { break };
+            loop {
+                let mut head = Vec::new();
+                let mut byte = [0u8; 1];
+                while !head.ends_with(b"\r\n\r\n") {
+                    match conn.read(&mut byte) {
+                        Ok(1) => head.push(byte[0]),
+                        _ => break,
+                    }
+                }
+                if head.starts_with(b"CONNECT ") {
+                    let _ = conn.write_all(b"HTTP/1.1 200 OK\r\n\r\n");
+                    continue;
+                }
+                let body = "\"p1080\" println\n";
+                let _ = write!(
+                    conn,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                break;
+            }
+        }
+    });
+    Some(())
+}
+
+/// **The twelfth review's B1**: a proxy that names no port is on 1080, as
+/// libcurl has it, and not on `ureq`'s 80. The port is fixed, so this checks
+/// nothing on a machine where 1080 is taken, and says so; the string Bund2
+/// hands `ureq` is checked wherever the tests run, in `bund2-stdlib`.
+#[test]
+fn a_proxy_that_names_no_port_is_asked_on_1080() {
+    let origin = serve("origin");
+    if serve_on_1080().is_none() {
+        eprintln!("port 1080 is in use; the wire half of this check did not run");
+        return;
+    }
+    for proxy in ["127.0.0.1", "http://127.0.0.1", "http://localhost", "http://127.0.0.1/"] {
+        assert_eq!(used(origin, &[("http_proxy", proxy.to_string())]), "p1080", "{proxy}");
+    }
+}
+
 #[test]
 fn a_fetch_obeys_the_proxy_variables_the_reference_obeys_and_no_others() {
     let origin = serve("origin");
