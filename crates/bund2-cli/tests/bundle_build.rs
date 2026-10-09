@@ -273,6 +273,64 @@ fn a_source_path_too_long_to_record_is_reported_at_build() {
     let _ = std::fs::remove_dir_all(scratch("long"));
 }
 
+/// **An unknown restriction bit is never reported as "none".** `--inspect`
+/// is how a runner sees the floor (D78); for a bit this bund2 does not define
+/// it printed `restrictions none`.
+#[test]
+fn an_unknown_restriction_is_not_inspected_as_none() {
+    let marker = "\"unique-marker-for-locating\" println\n";
+    let exe = build(marker, "unknown-flag", &["--noeval"]);
+    let mut image = std::fs::read(&exe).expect("reading the artefact");
+    let at = payload_at(&image, marker);
+    image[at - FLAGS_BEFORE_PAYLOAD] = 2 | 4;
+    std::fs::write(&exe, &image).expect("writing it back");
+    let seen = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        .args(["build", "--inspect"])
+        .arg(&exe)
+        .output()
+        .expect("inspect runs");
+    let seen = String::from_utf8_lossy(&seen.stdout);
+    let line = seen.lines().find(|l| l.contains("restrictions")).unwrap_or_default();
+    assert!(line.contains("--noeval"), "the known one is still named: {seen}");
+    assert!(line.contains("unknown (flag bits 0x04"), "and the unknown one: {seen}");
+    let _ = std::fs::remove_file(&exe);
+}
+
+/// **A shortened source path begins on a character.** The cut was by byte;
+/// here it falls inside a two-byte `é`, which came back as U+FFFD.
+#[test]
+fn a_shortened_source_path_is_cut_on_a_character() {
+    let mut dir = scratch("long-utf8");
+    dir.push("é".repeat(100));
+    dir.push("é".repeat(100));
+    std::fs::create_dir_all(&dir).expect("making the directories");
+    // Both parities of the tail, so one of the two cuts is inside a character
+    // whatever the scratch path's own length.
+    for name in ["p.bund", "pp.bund"] {
+        let src = dir.join(name);
+        std::fs::write(&src, "1 println\n").expect("writing the source");
+        let out = scratch("long-utf8-out");
+        let r = Command::new(env!("CARGO_BIN_EXE_bund2"))
+            .args(["build", "--file"])
+            .arg(&src)
+            .arg("--output")
+            .arg(&out)
+            .output()
+            .expect("bund2 build runs");
+        assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
+        let seen = Command::new(env!("CARGO_BIN_EXE_bund2"))
+            .args(["build", "--inspect"])
+            .arg(&out)
+            .output()
+            .expect("inspect runs");
+        let seen = String::from_utf8_lossy(&seen.stdout);
+        assert!(!seen.contains('\u{FFFD}'), "{name}: no fragment of a character: {seen}");
+        assert!(seen.lines().any(|l| l.ends_with(name)), "{name}: {seen}");
+        let _ = std::fs::remove_file(&out);
+    }
+    let _ = std::fs::remove_dir_all(scratch("long-utf8"));
+}
+
 /// **A program that does not parse is a build error** — §B3. It belongs to
 /// whoever built the artefact, not to whoever ran it, and nothing is written.
 #[test]
@@ -345,6 +403,7 @@ fn reseal(path: &PathBuf) {
 const STATE_BEFORE_PAYLOAD: usize = 652 - 36;
 /// The container version: `at::PAYLOAD` minus `at::FORMAT` (32).
 const FORMAT_BEFORE_PAYLOAD: usize = 652 - 32;
+const FLAGS_BEFORE_PAYLOAD: usize = 652 - 37;
 
 /// And the length field: `at::PAYLOAD` minus `at::LEN` (40).
 const LEN_BEFORE_PAYLOAD: usize = 652 - 40;
@@ -366,7 +425,7 @@ fn payload_at(image: &[u8], marker: &str) -> usize {
     at
 }
 
-/// **Criterion 12: a damaged artefact is refused, not aborted.** Four cases,
+/// **Criterion 12: a damaged artefact is refused, not aborted.** Five cases,
 /// each an error with an explanation, none a panic — D37.
 #[test]
 fn a_damaged_artefact_is_refused_with_an_explanation() {
@@ -374,7 +433,7 @@ fn a_damaged_artefact_is_refused_with_an_explanation() {
     /// One case: a name, the damage to apply, and what the report must say.
     /// Named because the tuple is otherwise unreadable at the call site.
     type Case = (&'static str, Box<dyn Fn(&mut Vec<u8>, usize)>, &'static str);
-    let cases: [Case; 4] = [
+    let cases: [Case; 5] = [
         (
             "format",
             // A container version this runtime does not read.
@@ -403,6 +462,13 @@ fn a_damaged_artefact_is_refused_with_an_explanation() {
             // A lone continuation byte is never valid UTF-8.
             Box::new(|img, at| img[at] = 0x80),
             "UTF-8",
+        ),
+        (
+            "restriction",
+            // A restriction bit this bund2 does not define. Ignored, it read
+            // as no restriction at all.
+            Box::new(|img, at| img[at - FLAGS_BEFORE_PAYLOAD] = 4),
+            "a restriction this runtime does not know",
         ),
     ];
 

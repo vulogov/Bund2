@@ -4033,6 +4033,59 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F182 — a fetch obeyed proxy variables the reference does not read
+
+**A Bund2 defect, found 2026-10-09** by RFC-0006's eleventh review (B1) and
+ruled a defect by the owner the same day.
+
+The reference fetches through libcurl and sets no proxy option
+(`reference/Bund/src/stdlib/helpers/file_helper.rs:42-46`), so libcurl
+chooses a proxy from the environment. Bund2 fetches through `ureq` and set
+none either, so `ureq` chose, and it chooses differently: it reads
+`ALL_PROXY`, `all_proxy`, `HTTPS_PROXY`, `https_proxy`, `HTTP_PROXY`,
+`http_proxy` in that order (`ureq` 3.4.0, `src/proxy.rs:222-240`).
+
+Measured against the oracle at `21b40b0` (libcurl 8.7.1, macOS) with an
+origin and two proxy listeners on `127.0.0.1`:
+
+- `HTTP_PROXY`, `HTTPS_PROXY` and `https_proxy` each routed Bund2's
+  `http://` fetch and none routes the reference's. Upper-case `HTTP_PROXY`
+  is the name a CGI host gives a request's `Proxy` header, which is why
+  libcurl does not read it.
+- With `http_proxy` and `all_proxy` both set, the reference takes
+  `http_proxy` and Bund2 took `all_proxy`.
+- `no_proxy` differed entry by entry: Bund2 preferred `NO_PROXY` to
+  `no_proxy`, took `a,*` and `*.example.com` as wildcards, did not match a
+  parent domain without a leading dot, split on commas only, and matched no
+  address prefix.
+
+`use` evaluates what it fetches, so each of these decided who supplies code
+for a URL the program names. `url` and `url.` share the fetch.
+D54 compared four of libcurl's defaults with `ureq`'s; proxying was a fifth
+and was not compared.
+
+**Disposition: FIX.** `crates/bund2-stdlib/src/host.rs`: `proxy_for` reads
+`http_proxy`, then `all_proxy`, then `ALL_PROXY`, and `bypasses` reads
+`no_proxy` or `NO_PROXY` by libcurl's rules; `fetch_uri` hands `ureq` the
+result, so `ureq` reads no variable itself. 73 settings of the variables
+were run on the oracle and on Bund2 after the fix, and the request goes to
+the same place in all 73. RFC-0006 §B7 has the rules.
+`the_proxy_is_the_one_libcurl_would_take`,
+`no_proxy_matches_as_libcurl_matches`,
+`a_fetch_goes_through_the_proxy_and_only_the_one_libcurl_reads`, and
+`crates/bund2-cli/tests/fetch_proxy.rs`.
+
+**Not fixed; approved the same day as deviations, D124.** Bund2 asks an HTTP proxy for a tunnel
+(`CONNECT`) where the reference asks it for the URL, and a `socks*://` or
+`https://` proxy fails Bund2's fetch where libcurl uses it — the oracle
+sent a SOCKS5 greeting and a TLS hello to a listener so named. `ureq` 3.4.0
+offers only the tunnel, and is built without TLS and without its
+`socks-proxy` feature.
+
+**Not known.** The rules are those of one libcurl. The reference links the
+system's, so an older one may match `no_proxy` differently; Linux was not
+measured.
+
 ## F181 — `bund2 build` wrote through `--output`, and a hard link to the builder destroyed it
 
 **A Bund2 defect, found 2026-10-08** by RFC-0006's ninth review (S1). The

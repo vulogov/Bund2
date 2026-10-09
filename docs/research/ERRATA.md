@@ -126,6 +126,11 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   lowering at `ObjectModule`" ordering is moot, the lowering having been built
   JIT-first under RFC-0005 and baking host heap addresses as immediates.
 
+- Correction to the entry above, 2026-10-09 (RFC-0006's eleventh review, S5):
+  "needs `cc` on Linux and macOS" states for Linux what was measured on macOS
+  only. RFC-0006 §B1 has said since 2026-10-08 that Linux was not measured.
+  The supersession stands; the Linux half of its reason is unmeasured.
+
 - `02-native-binaries.md` §1 -> superseded by RFC-0006 criterion 1 (measured
   2026-09-30): "`cranelift-codegen` with its ISLE-generated instruction
   selection tables is the single largest code contributor to any binary that

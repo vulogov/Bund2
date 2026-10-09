@@ -87,6 +87,15 @@ pub const SOURCE_NAME_BYTES: usize = 256;
 /// `flags`: D78's build-time floor. Run time may add, never remove.
 pub const FLAG_NOIO: u8 = 1 << 0;
 pub const FLAG_NOEVAL: u8 = 1 << 1;
+/// Every restriction this runtime can enforce.
+///
+/// **A bit outside this is refused, not ignored.** Both readers tested the
+/// two bits they knew and passed over the rest, so an artefact carrying a
+/// restriction a later bund2 defines inspected as `restrictions none` and ran
+/// unrestricted on an earlier one — the silent loosening D78 exists to
+/// prevent, reported by the tool D78 gives for seeing it. A restriction that
+/// cannot be enforced is a reason not to run.
+pub const FLAGS_KNOWN: u8 = FLAG_NOIO | FLAG_NOEVAL;
 
 /// The reserved region, as it sits in the file and in memory.
 ///
@@ -176,6 +185,8 @@ pub enum Damaged {
     Length(u32),
     /// A payload that is not UTF-8 — the payload is source text (§B2).
     NotText,
+    /// Restriction bits outside [`FLAGS_KNOWN`]; the unknown bits are carried.
+    Restriction(u8),
 }
 
 impl std::fmt::Display for Damaged {
@@ -200,6 +211,12 @@ impl std::fmt::Display for Damaged {
                 f,
                 "this artefact's program is not valid UTF-8; a bundle carries source \
                  text, so the file is damaged"
+            ),
+            Self::Restriction(bits) => write!(
+                f,
+                "this artefact records a restriction this runtime does not know \
+                 (flag bits {bits:#04x}); it cannot be enforced here, so the program is \
+                 not run. The artefact was built by a different bund2, or is damaged"
             ),
         }
     }
@@ -263,6 +280,9 @@ pub fn carried() -> Result<Option<Carried>, Damaged> {
             let source = std::str::from_utf8(bytes)
                 .map_err(|_| Damaged::NotText)?
                 .to_string();
+            if region.flags & !FLAGS_KNOWN != 0 {
+                return Err(Damaged::Restriction(region.flags & !FLAGS_KNOWN));
+            }
             Ok(Some(Carried {
                 source,
                 name: text(&region.source_name),
@@ -281,6 +301,8 @@ pub struct Inspected {
     pub capacity: usize,
     pub noio: bool,
     pub noeval: bool,
+    /// Restriction bits this bund2 does not define; zero for anything it built.
+    pub unknown_flags: u8,
     pub bund2_version: String,
     pub features: String,
     pub pinned: String,
@@ -316,6 +338,7 @@ pub fn inspect(image: &[u8]) -> Result<Inspected, String> {
         capacity: CAPACITY,
         noio: flags & FLAG_NOIO != 0,
         noeval: flags & FLAG_NOEVAL != 0,
+        unknown_flags: flags & !FLAGS_KNOWN,
         bund2_version: field(at::VERSION, 32),
         features: field(at::FEATURES, 64),
         pinned: field(at::PINNED, 256),
@@ -453,8 +476,18 @@ pub fn write_into(
     // **The tail, not the head.** A path longer than the field is truncated
     // from the left, because the file name carries more for a diagnostic than
     // the leading directories do.
-    let keep = nb.len().min(nm.len());
-    nm[..keep].copy_from_slice(&nb[nb.len() - keep..]);
+    //
+    // **Cut on a character, not inside one.** The cut was by byte, so a path
+    // whose 256th byte from the end fell inside a character began with a
+    // fragment, which reads back as U+FFFD in `--inspect` and in every
+    // diagnostic's location. At most three bytes fewer are kept. The walk is
+    // bounded by the field: a boundary is never more than three bytes on.
+    let mut from = nb.len() - nb.len().min(nm.len());
+    while from < nb.len() && !name.is_char_boundary(from) {
+        from += 1;
+    }
+    let kept = nb.get(from..).unwrap_or_default();
+    nm[..kept.len()].copy_from_slice(kept);
     put(image, at::SOURCE, &nm)?;
     put(image, at::FEATURES, &padded::<64>(features))?;
     put(image, at::PINNED, &padded::<256>(pinned))?;

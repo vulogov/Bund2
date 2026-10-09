@@ -11,8 +11,9 @@
   `static` that release folded to its initialiser. Both fixed;
   `cargo xtask bundle` now checks both profiles, which is the gap that let them
   through. Built —
-  `crates/bund2-cli/src/bundle.rs` and `bund2 build`. Criteria 3, 5, 6, 10, 11
-  and 12 pass, **criterion 2 is met in three configurations**, and
+  `crates/bund2-cli/src/bundle.rs` and `bund2 build`. Criteria 3, 4, 5, 6, 9, 10,
+  11 and 12 pass *(4 and 9 were missing from this line until the eleventh
+  review; the list below has marked both met since 2026-09-30)*, **criterion 2 is met in three configurations**, and
   **criterion 1's gate is answered — against Product B's premise**. **Every
   criterion now carries its evidence in the list below**; 7 is met without
   §B5's work and 8 is withdrawn with the mode (D83). *(Until 2026-10-08 this
@@ -64,6 +65,15 @@
   no gate and no new ruling, D79's own reasoning being this finding.** Its
   S2, a build that replaced its own source, is fixed with F181's other loose
   ends.
+  **An eleventh review, 2026-10-09**
+  (`docs/rfc/reviews/RFC-0006-review-2026-10-09.md`) found one blocker: `use`
+  is not "preserved exactly". Bund2's fetch obeys proxy variables the
+  reference ignores and asks a proxy for a tunnel where the reference asks
+  for the URL, and `use` evaluates what comes back. **Ruled a defect the same
+  day and fixed, F182: the fetch now chooses a proxy as libcurl chooses it
+  for the reference, measured against the oracle case by case (§B7). Two
+  differences remain that `ureq` cannot close — the tunnel, and a proxy that
+  is not plain HTTP — and D124 approves both as deviations.**
   Revised 2026-09-29 after the first adversarial review
   (`docs/rfc/reviews/RFC-0006-review-2026-09-29.md`). The review raised three
   blockers; all three were reproduced against the code before this revision,
@@ -74,14 +84,15 @@
 - Depends on: RFC-0003 (the program stream and Tier 0), RFC-0005 (the
   Cranelift tier)
 - Decisions consumed: D10, D11, D16, D20, D40, D54, D74, D76, D77, D78, D79,
-  D80, D81, D82, D83, D115, D116, D118, D119, D120, D121, D122, D123, and
+  D80, D81, D82, D83, D115, D116, D118, D119, D120, D121, D122, D123, D124, and
   decisions.md's "What this forecloses" clause on tree-shaking. *(Until
   2026-10-08 this list named D44, which the body never uses, and omitted the
   last four, which it rests on.)*
-- Touched but not consumed: D1, D2, D31, D36, D37, D45, D113 — see the
+- Touched but not consumed: D1, D2, D31, D34, D36, D37, D45, D113 — see the
   preservation table for D1, D2 and D36; the others are cited where used
 - Reference SHA: `reference/Bund` at `21b40b0`, `rust_dynamic` at `ceb27c9`,
-  `bund_language_parser` at `8037772`, per `reference/PINNED.txt`
+  `bund_language_parser` at `8037772`, `rust_multistackvm` at `4605832`, per
+  `reference/PINNED.txt`
 - Supersedes: `docs/research/02-native-binaries.md` §1's construction and
   §9's phasing, both recorded in `docs/research/ERRATA.md`
 
@@ -559,7 +570,9 @@ on that thread is the **parse**, and the depth that matters is the parser's
   design rather than left to the implementation: `BUND2_STATS`,
   `BUND2_NO_DUMP_STACK`, `BUND2_RAW_VALUES`, and **`BUND2_JIT_THRESHOLD`, which
   the interpreter already reads** (`crates/bund2-runtime/src/lib.rs`,
-  `threshold_from_env`). Criteria 2, 6 and 10 name which of these they set.
+  `threshold_from_env`). Criteria 2 and 10 name which of these they set;
+  criterion 6's test sets `BUND2_JIT_THRESHOLD=2` and `BUND2_STATS=1`, which
+  its text did not say until the eleventh review.
   **The stack variable switches the dump off, because it is on by default**,
   as it is for the CLI, whose flag for this is `--no-dump-stack`. Until
   2026-10-08 this list named `BUND2_DUMP_STACK`, which the binary has never
@@ -575,8 +588,9 @@ on that thread is the **parse**, and the depth that matters is the parser's
   `BUND2_NOEVAL=` are both "unset", which is why those are the two values
   criterion 10 tries against a floor.
 
-  **Four things about this list that were not written down until
-  2026-10-08 — the seventh review.**
+  **Seven things about this list. Four were not written down until
+  2026-10-08 — the seventh review — and the last three were added by the
+  eighth, tenth and eleventh.**
   - **A literal `--` is data.** `bund2 script --file p.bund -- x y` gives the
     program `x y`; `./p -- x y` gives it `-- x y`. Measured with
     `args println`. It follows from "the runner consumes nothing" and is the
@@ -599,6 +613,16 @@ on that thread is the **parse**, and the depth that matters is the parser's
     (`crates/bund2-stdlib/src/terminal.rs`, `history_path`). With none of the
     three set no history file is written (§B3a). The list above was two short
     of whole while it said it was whole.
+  - **And five decide who answers an `http://` fetch — added 2026-10-09,
+    the eleventh review's B1, and cut from eight the same day by F182**:
+    `http_proxy`, `all_proxy`, `ALL_PROXY`, and `no_proxy`, `NO_PROXY`.
+    They are the five libcurl reads for the reference; `HTTP_PROXY`,
+    `HTTPS_PROXY` and `https_proxy`, which `ureq` read by default, are no
+    longer read (§B7). **This list has said it was
+    whole twice and been short both times, so it no longer says so**: it is
+    the variables found by reading Bund2's own `std::env::var` calls and the
+    one dependency a review traced, and a dependency not yet traced may read
+    more.
 - **The exit code** is `vm.exit_requested()`, as the CLI returns
   (`crates/bund2-cli/src/main.rs`, `run_cli`).
 - **The reporter** is the CLI's `TextReporter`, with the same `wants_stack`
@@ -619,7 +643,10 @@ on that thread is the **parse**, and the depth that matters is the parser's
   the source path it was given, verbatim **up to 256 bytes**, and the artefact
   reports locations against it — so a bundle's stderr matches a `script` run
   of the same program from the same path. **A longer path keeps its last 256
-  bytes**, so the file name survives and the leading directories do not
+  bytes** — or up to three fewer, so that what is kept begins on a character
+  and not inside one *(fixed 2026-10-09, the eleventh review's S3: a cut
+  inside a character reached `--inspect` and every diagnostic as U+FFFD;
+  `a_shortened_source_path_is_cut_on_a_character`)* — so the file name survives and the leading directories do not
   (`crates/bund2-cli/src/bundle.rs`, `write_into`), and the build says so on
   stderr. Measured 2026-10-08 with a 353-byte path: the bundle's report names
   the shortened path, a `script` run names the whole one, and until that day
@@ -853,7 +880,9 @@ were not each traced into the reference:
   (`reference/Bund/src/stdlib/functions/system/ip.rs:34-35`), `system.locale`
   (`system/locale.rs:27`), `sysinfo.hostname` `sysinfo.kernel_version`
   `sysinfo.os_version` (`sysinfo/host.rs:66-68`), `sysinfo.system`
-  `sysinfo.version` `version` `sysinfo.virtualization`
+  `sysinfo.version` (`sysinfo/host.rs:69-70`) `version`
+  (`reference/Bund/src/stdlib/functions/create_aliases.rs:32`)
+  `sysinfo.virtualization`
   `sysinfo.virtualization?`, the twelve `sysinfo.mem.*` words, and
   `debug.display_hostinfo` `debug.display_memstat`
   `debug.display_distributed_info`.
@@ -1323,12 +1352,80 @@ documented rather than discovered:**
 
 - `file://` follows curl's rules — an absolute path, optionally after the host
   `localhost`, with `%xx` decoded.
-- `http://` is fetched by `ureq` built without TLS. It keeps the defaults the
-  reference leaves curl at: no redirect is followed, the body of an error
+- `http://` is fetched by `ureq` built without TLS. It keeps three of the
+  defaults the reference leaves curl at *(until the eleventh review this
+  said "the defaults"; proxying is a fourth, kept since F182 except as said
+  below)*:
+  no redirect is followed, the body of an error
   status is still the answer, and the body has no size limit. **These three are
   what `file_helper.rs:42-54` leaves unset rather than what any one line
   states**; the user agent `ZBUS` is set, at
   `reference/Bund/src/stdlib/helpers/file_helper.rs:43`.
+- **A proxy is chosen as libcurl chooses it for the reference — F182,
+  2026-10-09, the eleventh review's B1 and the owner's ruling that it was a
+  defect.** Until then `fetch_uri` set no proxy and so had `ureq`'s default,
+  which reads `ALL_PROXY`, `all_proxy`, `HTTPS_PROXY`, `https_proxy`,
+  `HTTP_PROXY`, `http_proxy` in that order (`ureq` 3.4.0,
+  `src/proxy.rs:222-240`). The reference sets no proxy option either
+  (`reference/Bund/src/stdlib/helpers/file_helper.rs:42-46`), so it has
+  libcurl's choice, and the two were not the same: Bund2 obeyed `HTTP_PROXY`,
+  `HTTPS_PROXY` and `https_proxy`, which the reference ignores for an
+  `http://` URL, and took `ALL_PROXY` ahead of `http_proxy`. **`use`
+  evaluates what it fetches**, so the environment was deciding who supplies
+  code for a URL the program names, by variables the reference does not read.
+
+  Now `proxy_for` and `bypasses` (`crates/bund2-stdlib/src/host.rs`) make
+  the choice, and `ureq` is handed it. **The rules are libcurl's and no line
+  of the reference states them, so each was measured**: the oracle at
+  `21b40b0`, which links the system's libcurl, 8.7.1 on this machine, run
+  with `"http://<host>:<port>/lib.bund" use` against three listeners — an
+  origin and two proxies — for 73 settings of the variables.
+
+  | setting | oracle and Bund2 |
+  |---|---|
+  | none | direct |
+  | `http_proxy`, `all_proxy` or `ALL_PROXY` | through it |
+  | `HTTP_PROXY`, `HTTPS_PROXY` or `https_proxy` | direct — not read |
+  | several set | `http_proxy`, then `all_proxy`, then `ALL_PROXY`; an empty one counts as unset |
+  | a proxy with no scheme | an HTTP proxy |
+  | `http_proxy=http://` | the fetch fails; the next variable is not tried |
+  | `no_proxy` and `NO_PROXY` both set | `no_proxy`, unless it is empty |
+  | `no_proxy=*` | direct; `a,*` and ` * ` are not wildcards |
+  | a host name | on the list by itself or a parent domain, ignoring case, one leading dot on the entry and one trailing dot on either; `*.example.com` matches nothing |
+  | an IPv4 host | by address, or `address/bits` for 1 to 32 bits; `/0` and `/x` mean the whole address; an entry with a port matches nothing |
+  | an IPv6 host | by its shortest text, `::1`, and nothing else — no prefix matched, `::1/128` included, and `[::1]` does not |
+
+  All 73 agree on where the request goes. **Two differences remain, both
+  approved deviations — D124, 2026-10-09**:
+
+  1. **The request differs on the wire.** The reference asks the proxy for
+     the URL, `GET http://…/lib.bund`; Bund2 asks it for a tunnel, `CONNECT`,
+     then `GET /lib.bund`. `ureq` 3.4.0 offers no other form
+     (`src/unversioned/transport/connect.rs`). A proxy that serves one and
+     refuses the other answers the two differently; that is read from the
+     code and not measured against a real proxy.
+  2. **A proxy that is not plain HTTP fails the fetch.** libcurl speaks SOCKS
+     to `socks5://…` and TLS to `https://…`: a listener named that way
+     received a SOCKS5 greeting and a TLS hello from the oracle, and nothing
+     from Bund2. `ureq` is built with `default-features = false`
+     (`crates/bund2-stdlib/Cargo.toml`), so it has no TLS (D54) and not its
+     `socks-proxy` feature, and Bund2 fails the fetch. It does not fetch
+     directly, which would ignore the setting. SOCKS is a feature and a
+     dependency away; an HTTPS proxy waits on whatever decides `https://`.
+
+  And one thing the measurement cannot promise: **these are one libcurl's
+  rules.** The reference links whatever libcurl its system has, and prefix
+  matching in `no_proxy` is newer than some. Linux was not measured.
+
+  `url` and `url.` share `fetch_uri` and all of this. It is the
+  interpreter's behaviour — `bund2 script` does the same — and a bundle
+  inherits it. Three tests beside the code:
+  `the_proxy_is_the_one_libcurl_would_take`,
+  `no_proxy_matches_as_libcurl_matches` and
+  `a_fetch_goes_through_the_proxy_and_only_the_one_libcurl_reads`. A fourth
+  sets the variables on a spawned binary:
+  `a_fetch_obeys_the_proxy_variables_the_reference_obeys_and_no_others`, in
+  `crates/bund2-cli/tests/fetch_proxy.rs`. No golden can reach a network.
 - A string with no scheme is refused, and `https://` is refused — both approved
   deviations under D54, the second because a TLS stack compiles C or assembly
   that D10 does not allow below `bund2 build`.
@@ -1390,7 +1487,7 @@ on the answer.
 | Diagnostic flags (`--stats`, `--no-dump-stack`, `--raw-values`, `--jit-threshold`) | **Deliberately changed.** Not argv flags in a bundle, because they would shadow the program's own arguments; they move to environment variables. |
 | `--debugger` | **Deliberately absent.** No flag and no variable: a bundle is never given a debugger (D115, and §B3). The debuggable form of the program is `bund2 script --file`. |
 | `BUND2_NOIO`, `BUND2_NOEVAL` in the environment | **A bundle's alone.** `script` does not read them, so one environment can restrict the bundle of a program and not its `script` run (§B3). |
-| `use` | **Preserved exactly** — D76, under D54's scheme set. |
+| `use` | **Preserved under D54's scheme set (D76).** A proxy is chosen from the variables the reference's libcurl reads, by its rules (F182, §B7). Two differences remain, approved by D124: Bund2 asks a proxy for a tunnel where the reference asks for the URL, and a SOCKS or HTTPS proxy fails the fetch. *(This row said "Preserved exactly" until the eleventh review, and Bund2 obeyed `HTTP_PROXY`, `HTTPS_PROXY` and `https_proxy` until F182.)* |
 | `--noio`, `--noeval` | **Deliberately available as a build-time floor — D78.** Recorded in the trailer; run time may add either and never remove one. Not a boundary: §B3a names what each gates and what each leaves ungated — for `--noio` that includes two words that write a history file, standard input, and the host's address and name. |
 | `csv` and `sqlite` under `--noio` | **Approved deviation — D119.** The reference leaves both ungated; Bund2 stubs them and their conditional handlers. Without the flag, preserved. |
 | `--nocolor` | **Preserved as a per-run choice**, in the environment-variable channel with the diagnostic flags. Presentational, not a capability. |
@@ -1399,7 +1496,7 @@ on the answer.
 | The debugger's history files in a shipped artefact | **New surface, and ungated.** A bundle whose program calls `debug.shell` or `debug` writes line history under the configuration directory of whoever runs it (§B3a). |
 | `bund2` itself | **Changed.** Every `bund2` carries the 1 MiB region and reads it before it acts on argv, so a damaged region stops the plain interpreter too (§B1). |
 | `bund2 build`'s arguments | **Refused when not understood** — `--emit=native`, `--features`, a repeated `--file`, anything unknown (§B3, "The command line"). |
-| What is at `--output` | **Replaced without a word**, unless it is the building binary, which is refused (§B3). New surface, stated and not defended. |
+| What is at `--output` | **Replaced without a word**, unless it is the building binary or the program being built, each of which is refused (§B3). New surface, stated and not defended. |
 | `--output` that is another name for an existing file | **The name is replaced, the file is not — F181.** A hard link to the builder, or to anything else, becomes the artefact and every other name keeps its bytes. A symlink is followed, dangling or not. A failed build leaves `--output` as it was. |
 | `decode.base64` under either flag | **Preserved — D123.** A string becomes a lambda and `!` runs it, under `--noeval --noio`, on both binaries; each runs the other's string (§B3a). |
 | `load`, `load.lambdas`, `load.stacks` under `--noeval` alone | **Preserved.** They bring runnable values in from a world file; only `--noio` stubs them (§B3a). |
@@ -1419,7 +1516,8 @@ on the answer.
 | `bootstrap` under `--noeval` alone | **Preserved.** It evaluates the scripts a world file holds; only `--noio` stubs it (§B3a). |
 | `debug.run`, `debug.feed` under `bund2 script --noeval` | **Changed outside artefacts — D120, D121.** Both stubs hold in a `script` run as in a bundle, so this RFC moved what the plain interpreter does to two words RFC-0008 added. |
 | A breakpoint condition under either flag | **Fixed — F180.** It ran in a child VM with neither restriction; the child now has the program's. A `script`-mode change; a bundle evaluates no condition (D115). |
-| A damaged or empty region | **New surface, specified.** An empty region is the plain interpreter; four kinds of damage are errors, none a panic (§B1, criterion 12). |
+| A damaged or empty region | **New surface, specified.** An empty region is the plain interpreter; five kinds of damage are errors, none a panic (§B1, criterion 12). The fifth, since 2026-10-09: a restriction bit this bund2 does not define. |
+| A restriction a later bund2 defines | **Refused, and never shown as "none".** An artefact whose flags byte has a bit outside `--noio` and `--noeval` is not run, and `--inspect` names the unknown bits. Until 2026-10-09 it inspected as `restrictions none` and ran unrestricted. No builder writes such a byte today (D118). |
 | Bund2's own version | **Recorded in the trailer, and read by `--inspect` only.** The pinned SHAs name the oracle, not the interpreter. No skew can occur, because the runtime is the builder (D118), and the runtime does not check the field. **It reads `0.0.0` for every build today** (§B1), so the row is true of the mechanism and tells a reader nothing yet. |
 | Code signing of the artefact | **Measured, and the design changed — Q40.** Appending runs but can never validate, and re-signing does not repair it, so the payload goes inside a reserved region instead (§B1). |
 | Run-time-registered words under `--emit=native` | **Speed only.** No code generator in the image, so they stay interpreted. |
@@ -1599,6 +1697,16 @@ on the answer.
    read rather than run answers the question. Making `Emitter` generic over
    `cranelift_module::Module` was the whole prerequisite.
 
+   **How to run it: `cargo test -p bund2-jit --features jit,aot relocation`
+   — stated 2026-10-09, the eleventh review's S1.** The two tests are gated
+   on `aot` inside a module gated on `jit`
+   (`crates/bund2-jit/src/lower.rs`, `mod relocations`;
+   `crates/bund2-jit/src/lib.rs`, `mod lower`). Under `--features aot` alone
+   the crate compiles no tests and the command reports `ok` with nothing
+   run, which is what this RFC's table told a reader to do. Measured by the
+   review: `aot` alone, 0 passed and nothing filtered; `jit,aot`, 2 passed.
+   Run again 2026-10-09 with `--all-features`: 2 passed.
+
    **The first version of this test was vacuous and its companion caught it.**
    It attributed relocations to functions by section name, relying on
    `per_function_section`; on Mach-O every relocation reports `__text`, so no
@@ -1697,14 +1805,25 @@ on the answer.
     damage — an unknown container version, a state byte that is neither value,
     a length past capacity, a payload that is not UTF-8 — produce a diagnostic
     and an error status, and none reaches a panic; an empty region is the
-    plain interpreter. *(Until 2026-10-08 this named the appended form's
+    plain interpreter. **A fifth since 2026-10-09 — the eleventh review's
+    S2: a restriction bit this bund2 does not define.** Both readers tested
+    the two bits they knew and passed over the rest, so an artefact built
+    `--noeval` with its flags byte patched from 2 to 4 inspected as
+    `restrictions none` and ran unrestricted. No builder writes such a byte
+    (D118); a later bund2 that defined a third restriction in the same
+    container version would, and every earlier one would have loosened it
+    silently. The runtime now refuses to run it and `--inspect` names the
+    bits (`an_unknown_restriction_is_not_inspected_as_none`). So a new
+    restriction does not need a new container version to be safe on an old
+    runtime: the old runtime declines. *(Until 2026-10-08 this named the appended form's
     cases, one of which — a truncated trailer — cannot occur in a fixed
     region.)* D37,
     and the one input a bundle's front end will certainly meet.
 
     **Met** — `a_damaged_artefact_is_refused_with_an_explanation` drives all
-    four through the binary: a container version of 99, a `state` byte of 7,
-    a length past capacity, and a lone continuation byte in the payload. The
+    five through the binary: a container version of 99, a `state` byte of 7,
+    a length past capacity, a lone continuation byte in the payload, and a
+    flags byte of 4. The
     first three have passed since 2026-09-30 and the container version since
     2026-10-08. The empty region, which is not damage, is
     `an_unbuilt_runtime_carries_nothing` — a runtime nobody built from is the
@@ -1738,7 +1857,7 @@ Ubuntu, and `cargo check`s `jit` and `aot`:
 | 3 | `bundle_build`, debug | yes; its companion needs `jit` and does not |
 | 4, 5, 9, 10, 12 | `bundle_build` | yes |
 | 6 | `bundle_build` under `--features jit` | **no** |
-| 7 | `bund2-jit`'s relocation tests, under `aot` | **no** |
+| 7 | `bund2-jit`'s relocation tests, under `jit` **and** `aot` together | **no** |
 | 11 | `bundle_build`, and a unit test in `bundle.rs`; the signing half is macOS only | the capacity half only |
 | 13 | a before-and-after `conform` on 2026-09-30 | no |
 
@@ -1803,6 +1922,15 @@ criterion here has been run on one machine, macOS on arm64, by hand or by
   2026-10-08: yes. Raised the same day by the ninth review (B1). The word
   decodes a string to a value, a lambda included, under both flags, in the
   reference and in Bund2; it stays, and §B3a names it.
+- **How should the fetch treat a proxy? — answered 2026-10-09 by the
+  owner: a defect, fixed.** Raised the same day by the eleventh review (B1).
+  F182 reads what the reference's libcurl reads (§B7).
+- **Are the fetch's two remaining proxy differences approved? — answered
+  by D124**, 2026-10-09: yes. Bund2 tunnels where the reference asks for the
+  URL, and fails a fetch through a SOCKS or HTTPS proxy where the reference
+  uses it (§B7). They are the third and fourth deviations for the fetch
+  under D54. `ureq` as built can do neither; its `socks-proxy` feature would
+  close the SOCKS half at the cost of a dependency.
 - **What is the `aot` feature called now? — Q42.** After D83 it compiles the
   relocation test and nothing else, a bundle built from such a `bund2`
   inspects as `features: aot`, and CLAUDE.md's terminology still defines AOT
@@ -1817,12 +1945,14 @@ criterion here has been run on one machine, macOS on arm64, by hand or by
 
 **The first three reviews found six blockers between them, and all six are
 answered** — four in the design, the rest by D76, D77, D78, D79 and D80.
-Nine reviews of this document and one of the code have found twenty-one in
-all — twenty-two if the implementation review's second-pass B3 is counted,
-which this sentence never has — and each is answered or ruled.
+Ten reviews of this document and one of the code have found twenty-two in
+all — twenty-three if the implementation review's second-pass B3 is counted,
+which this sentence never has — and each is answered or ruled. The last,
+how the fetch treats a proxy, was ruled a defect and fixed (F182); what the
+fix could not close, D124 approves.
 *(Until the eighth review this sentence said seven and eighteen when the
 document had had six.)* What
-remains listed is one question for whoever takes §B8's gate, and Q42. The sixth review
+remains listed is that, one question for whoever takes §B8's gate, and Q42. The sixth review
 on 2026-10-08 raised two more for the owner and both are ruled: which
 construction §B1 means is D118, and how far `--noio` reaches is D119. The
 seventh raised one, and it is D120, with D121 beside it. The eighth raised

@@ -3231,6 +3231,16 @@ and no tier can disagree. The claim to keep is narrower: `?try` is the only
 `bund2-stdlib` native that catches the refusal **and then does work**
 (RFC-0005's fifteenth review, S1).
 
+**Note, 2026-10-09 (RFC-0006's eleventh review, B1; F182).** This entry
+compared libcurl's defaults with `ureq`'s for redirects, error statuses, the
+body limit and the user agent. Proxying is a fifth and was not compared:
+`ureq` read `HTTP_PROXY`, `HTTPS_PROXY` and `https_proxy`, which the
+reference's libcurl does not read for an `http://` URL. The owner ruled it a
+defect and F182 fixes the choice of proxy. Two differences remained that
+this entry does not approve: Bund2 sends `CONNECT` to an HTTP proxy where
+the reference sends the URL, and a SOCKS or HTTPS proxy fails Bund2's fetch.
+D124 approves both.
+
 ## D53 — `debug.display_hostinfo` reports Bund2's own crates, an approved deviation
 
 The reference's `debug.display_hostinfo` prints a table
@@ -3558,6 +3568,48 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D124 — a fetch through a proxy tunnels, and only through an HTTP proxy
+
+**Raised 2026-10-09** by F182's fix. Once the fetch chose its proxy as the
+reference's libcurl does, two differences were left that `ureq` 3.4.0 as
+Bund2 builds it cannot close. Both were measured against the oracle at
+`21b40b0` (libcurl 8.7.1, macOS) with listeners on `127.0.0.1`:
+
+1. **The request.** Through an HTTP proxy the reference sends
+   `GET http://…/lib.bund`; Bund2 sends `CONNECT`, then `GET /lib.bund`.
+   `ureq` offers no other form.
+2. **The proxy's scheme.** Named `socks5://…` the listener received a
+   SOCKS5 greeting from the oracle, and named `https://…` a TLS hello; from
+   Bund2 it received nothing and the fetch failed. `ureq` is built with
+   `default-features = false` (`crates/bund2-stdlib/Cargo.toml`), so it has
+   no TLS (D54) and not its `socks-proxy` feature.
+
+- Blocks: nothing
+- Depends on: D54, D76, F182, RFC-0006 §B7
+- Status: **RESOLVED** by the repository owner, 2026-10-09: "approve".
+
+### The ruling
+
+Both are approved deviations, the third and fourth for the fetch under D54.
+Bund2 asks an HTTP proxy for a tunnel, and a proxy of any other scheme fails
+the fetch. No golden moves: none can reach a network.
+
+### Why
+
+The alternative was another HTTP client or a hand-written request, for the
+case of a proxy that serves a URL and refuses a tunnel, or one that is not
+plain HTTP. Which proxy is asked, and for which hosts, is the part with a
+security consequence, and F182 makes that the reference's.
+
+### What it costs
+
+A proxy that refuses `CONNECT` to port 80 serves the reference and fails
+Bund2. That is read from `ureq`, not measured against such a proxy. A user
+whose only proxy is SOCKS or HTTPS gets the reference's fetch and not
+Bund2's; the fetch fails rather than going direct, so the setting is never
+silently ignored. `socks-proxy` would close the SOCKS half for one
+dependency, and an HTTPS proxy waits on whatever decides `https://`.
+
 ## D123 — `--noeval` does not gate `decode.base64`; it is named
 
 **Raised 2026-10-08** by RFC-0006's ninth review (B1). `decode.base64`
@@ -3651,6 +3703,14 @@ with no gate at `:121-124`), and under `--noeval` alone `load`,
 RFC-0006 §B3a names all of them and says how both lists were searched. This
 ruling names `debug`; whether it covers `decode.base64` is not ruled.
 *(Ruled the same day — D123: it does.)*
+
+**Note, 2026-10-09 (RFC-0006's tenth review, B1; asked for there and added
+after the eleventh pointed out it was missing).** The list above is still
+not whole, and cannot be made so. A program also builds code from strings —
+`make.call`, `ptr`, `lambda*`, `lambda!`, and `!` on a string — under both
+flags, on both binaries, with no parser and no decoder. D16 states it and
+D79 gives it as its reason. D123 carries the same note. This ruling is
+unchanged.
 
 ## D121 — `--noeval` gates `debug.feed`
 
