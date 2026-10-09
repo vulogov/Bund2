@@ -596,6 +596,100 @@ fn a_build_refuses_to_overwrite_the_binary_doing_it() {
     let _ = std::fs::remove_file(&copy);
 }
 
+/// **A build does not replace the program it was given.** `--file p.bund
+/// --output p.bund` exited 0 and left `p.bund` an executable. Tried by its
+/// own name and through a symlink, since the comparison is of where each
+/// path leads.
+#[cfg(unix)]
+#[test]
+fn a_build_refuses_to_overwrite_its_own_source() {
+    let own = scratch("same-dir");
+    std::fs::create_dir_all(&own).expect("a directory");
+    let src = own.join("same.bund");
+    let text = "\"hi\" println\n";
+    std::fs::write(&src, text).expect("writing the source");
+    let link = own.join("link");
+    std::os::unix::fs::symlink(&src, &link).expect("a link to the source");
+    for out in [&src, &link] {
+        let r = Command::new(env!("CARGO_BIN_EXE_bund2"))
+            .arg("build")
+            .arg("--file")
+            .arg(&src)
+            .arg("--output")
+            .arg(out)
+            .output()
+            .expect("it runs");
+        let err = String::from_utf8_lossy(&r.stderr);
+        assert_eq!(r.status.code(), Some(1), "{err}");
+        assert!(err.contains("the program being built"), "{err}");
+        assert!(err.contains("Nothing was written"), "{err}");
+        assert_eq!(std::fs::read_to_string(&src).expect("the source"), text);
+    }
+    let _ = std::fs::remove_dir_all(&own);
+}
+
+/// **A symlink at `--output` is followed whether or not its target exists.**
+/// A link to nothing was replaced by the artefact, where the in-place write
+/// F181 removed would have created the target.
+#[cfg(unix)]
+#[test]
+fn a_dangling_link_at_output_is_followed() {
+    let own = scratch("dangling-dir");
+    std::fs::create_dir_all(&own).expect("a directory");
+    let src = own.join("p.bund");
+    std::fs::write(&src, "\"hi\" println\n").expect("writing the source");
+    let target = own.join("target");
+    let link = own.join("link");
+    std::os::unix::fs::symlink("target", &link).expect("a link to nothing");
+    let r = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        .arg("build")
+        .arg("--file")
+        .arg(&src)
+        .arg("--output")
+        .arg(&link)
+        .output()
+        .expect("it runs");
+    assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
+    assert!(
+        std::fs::symlink_metadata(&link).expect("the link").file_type().is_symlink(),
+        "the link is still a link"
+    );
+    let (code, out) = run(&target, &[], &[]);
+    assert_eq!(code, Some(0), "{out}");
+    assert!(out.contains("hi"), "and its target is the artefact: {out}");
+    let _ = std::fs::remove_dir_all(&own);
+}
+
+/// **A build needs its destination's directory writable, and says so** —
+/// F181's cost. The artefact is assembled beside where it will go.
+#[cfg(unix)]
+#[test]
+fn a_build_into_a_read_only_directory_says_what_it_needed() {
+    use std::os::unix::fs::PermissionsExt;
+    let own = scratch("ro-dir");
+    std::fs::create_dir_all(&own).expect("a directory");
+    let src = scratch("ro.bund");
+    std::fs::write(&src, "1 println\n").expect("writing the source");
+    let out = own.join("out");
+    std::fs::write(&out, "kept").expect("an existing file");
+    std::fs::set_permissions(&own, std::fs::Permissions::from_mode(0o555)).expect("read-only");
+    let r = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        .arg("build")
+        .arg("--file")
+        .arg(&src)
+        .arg("--output")
+        .arg(&out)
+        .output()
+        .expect("it runs");
+    std::fs::set_permissions(&own, std::fs::Permissions::from_mode(0o755)).expect("restored");
+    let err = String::from_utf8_lossy(&r.stderr);
+    assert_eq!(r.status.code(), Some(1), "{err}");
+    assert!(err.contains("has to be writable"), "{err}");
+    assert!(err.contains("Nothing was written"), "{err}");
+    assert_eq!(std::fs::read_to_string(&out).expect("the file"), "kept");
+    let _ = std::fs::remove_dir_all(&own);
+}
+
 /// **A hard link to the builder at `--output` does not destroy the builder —
 /// F181.** The guard above compares canonical paths, and two names for one
 /// file have two. The write was in place, so it went through the link into

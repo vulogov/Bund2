@@ -3595,6 +3595,14 @@ was, and the floor would be where it is.
 An audit of a restricted program for text — `compile`, `debug`,
 `bootstrap` — does not find this route. The names to look for are in §B3a.
 
+**Note, 2026-10-08 (RFC-0006's tenth review, B1).** "The names to look for
+are in §B3a" above is true of the routes that have a site: a string parsed,
+a value decoded. A third has none. A program builds code from strings with
+`make.call`, `ptr`, `lambda*`, `lambda!` and `!` on a string, under both
+flags, on both binaries — which D16 states and D79 gives as its reason. So
+the name to look for is `!`, and §B3a now says the list of routes is open by
+construction. No ruling was needed: D79 is the ruling.
+
 ## D122 — `--noeval` does not gate `debug`; it is named
 
 **Raised 2026-10-08** by RFC-0006's eighth review (B1). The reference's

@@ -4063,6 +4063,29 @@ name, so every other name for the old file keeps its bytes.
 at `--output` is still followed. The signing-failure half is read from the
 code; no test makes `codesign` fail.
 
+**Note, 2026-10-08 (RFC-0006's tenth review, S1–S3).** Three things the
+fix above got wrong or did not say, all corrected the same day in
+`crates/bund2-cli/src/main.rs`:
+
+- **"A symlink at `--output` is still followed" was false of a dangling
+  link.** `place` fell back to the path as given when `canonicalize` failed,
+  so the rename replaced the link where the in-place write had created its
+  target. `destination` now follows a link by hand, bounded (D39).
+  `a_dangling_link_at_output_is_followed`.
+- **The scratch directory's own failure did not end "Nothing was written"**,
+  and did not say that the directory has to be writable. It does both now.
+  `a_build_into_a_read_only_directory_says_what_it_needed`.
+- **What the fix costs was unstated**: the destination's directory must be
+  writable; the replaced file's mode and ownership are not kept; a build
+  killed between the write and the move leaves `.bund2-build-<pid>/`. A
+  build now clears one of its own name before it starts. RFC-0006 §B3 lists
+  all three.
+
+Found beside them, the same class and the same fix: `--file` and `--output`
+naming one file replaced the source with its artefact and exited 0. Refused
+now, by where each path leads.
+`a_build_refuses_to_overwrite_its_own_source`.
+
 ## F180 — a breakpoint's condition ran under neither `--noio` nor `--noeval`
 
 **A Bund2 defect, found 2026-10-08** by RFC-0006's eighth review (S3). The

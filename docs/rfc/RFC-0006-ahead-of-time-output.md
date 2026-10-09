@@ -55,6 +55,15 @@
   D123**: D122's "leave it and name it" covers this word too. Its S1, a
   build that destroyed the builder through a hard link, is a defect and is
   fixed — **F181**.
+  **A tenth review the same day**
+  (`docs/rfc/reviews/RFC-0006-review-2026-10-08-5.md`) found one blocker: the
+  "third mechanism" §B3a hedged about exists, and D79 had already said so. A
+  program builds code from strings — `make.call`, `ptr`, `lambda*`,
+  `lambda!`, and `!` applied to a string — with no parser and no decoder.
+  **§B3a now names it and says the list of routes is open by construction;
+  no gate and no new ruling, D79's own reasoning being this finding.** Its
+  S2, a build that replaced its own source, is fixed with F181's other loose
+  ends.
   Revised 2026-09-29 after the first adversarial review
   (`docs/rfc/reviews/RFC-0006-review-2026-09-29.md`). The review raised three
   blockers; all three were reproduced against the code before this revision,
@@ -102,7 +111,12 @@ because D10 decides them together:
 
 - **`--emit=bundle`** — a copy of the building `bund2` (D118) with the
   program's **source text** written into it. **No compiler is invoked at all**: not Cranelift, not `rustc`, not
-  a linker, not `cc`. Runs on every target Rust runs on.
+  a linker, not `cc`. **Run on macOS arm64 and nowhere else** (§B1). *(Until
+  the tenth review this said "Runs on every target Rust runs on", which is
+  the research's sentence about `include_bytes!` into a linked stub
+  (`docs/research/02-native-binaries.md:46-47`), the construction ERRATA
+  superseded. What is built writes into a copy of the running executable;
+  the ELF and PE cases are unmeasured.)*
 - **`--emit=native`** — **withdrawn, D83.** Its stated justification was
   measured away by criterion 1, what remained was not enough against §B5's
   costs and a risk §B5 had missed, and criterion 4 turned out not to need the
@@ -579,6 +593,12 @@ on that thread is the **parse**, and the depth that matters is the parser's
     `BUND_LOG_LEVEL` and `COLUMNS` (`crates/bund2-stdlib/src/logging.rs`,
     `crates/bund2-stdlib/src/report.rs`). Not this design's; listed so the
     list is whole.
+  - **And three decide where the debugger words keep their line history, or
+    whether they keep any — added 2026-10-08, the tenth review's S5**:
+    `XDG_CONFIG_HOME`, `HOME` and `APPDATA`
+    (`crates/bund2-stdlib/src/terminal.rs`, `history_path`). With none of the
+    three set no history file is written (§B3a). The list above was two short
+    of whole while it said it was whole.
 - **The exit code** is `vm.exit_requested()`, as the CLI returns
   (`crates/bund2-cli/src/main.rs`, `run_cli`).
 - **The reporter** is the CLI's `TextReporter`, with the same `wants_stack`
@@ -626,8 +646,9 @@ it names the only mode there is; this document writes `bund2 build
 - A second `--file`, `--output` or `--inspect`.
 - Any argument it does not know.
 
-**Four more things `bund2 build` does, built and tested and unwritten until
-2026-10-08 — the seventh review's P5.**
+**Seven more things `bund2 build` does, four of them built and tested and
+unwritten until 2026-10-08 — the seventh review's P5 — and three that came
+with F181 and the review after it.**
 
 - **`--output` naming the binary doing the building is refused**, compared by
   canonical path (`a_build_refuses_to_overwrite_the_binary_doing_it`).
@@ -640,8 +661,31 @@ it names the only mode there is; this document writes `bund2 build
   becomes the artefact and the builder is untouched
   (`a_hard_link_to_the_builder_is_replaced_and_the_builder_survives`). For
   the same reason an artefact rebuilt while it is running is not rewritten
-  under itself — by the contract of a rename, not measured. A symlink at
-  `--output` is still followed.
+  under itself. Measured by the tenth review: an artefact waiting on `input`
+  was rebuilt from another program; the running copy finished as the old
+  program and the next run was the new one. **A symlink at `--output` is
+  followed, whether or not its target exists.** Between F181 and the tenth
+  review's S1 a link to nothing was replaced by the artefact, where the
+  in-place write had created its target
+  (`a_dangling_link_at_output_is_followed`).
+- **`--output` naming the program being built is refused — added
+  2026-10-08, the tenth review's S2.** `bund2 build --file p.bund --output
+  p.bund` exited 0 and left `p.bund` an executable. It was inside "replaced
+  without a word" below to the letter, and it is the one instance that
+  destroys what the build was given: the builder can be rebuilt and a source
+  cannot. Compared by where each path leads, so a symlink to the source is
+  refused too (`a_build_refuses_to_overwrite_its_own_source`). A hard link
+  to the source is replaced as a name, and the source survives.
+- **The destination's directory has to be writable — F181's cost.** The
+  artefact is assembled beside where it will go, so a writable file in a
+  read-only directory, which an in-place write could fill, is now refused
+  with the reason
+  (`a_build_into_a_read_only_directory_says_what_it_needed`). The file that
+  was at `--output` is replaced and not rewritten, so its mode and ownership
+  are not kept. A build killed between the write and the move leaves
+  `.bund2-build-<pid>/` beside the destination, holding a copy of the
+  runtime; a later build with the same process id clears it, and nothing
+  else does. Read from the code, not measured.
 - **A build that fails leaves `--output` as it was.** That now includes a
   signing failure, which used to leave a file there the system would kill
   (F181). Read from the code; no test makes `codesign` fail.
@@ -835,7 +879,13 @@ D119 moved two words across that line and left the line where it is.
 **One line of this is a bundle's own.** The history file is written on the
 machine of whoever *runs* the artefact, by a word its author left in. For a
 `script` run that is RFC-0008's business; for a shipped artefact it belongs
-here, and nothing switches it off.
+here, and no flag switches it off. **The environment does** *(the tenth
+review's S5; until then this said "nothing switches it off")*: the file goes
+under `XDG_CONFIG_HOME`, or the platform's convention under `HOME` or
+`APPDATA`, and with none of the three set none is written
+(`crates/bund2-stdlib/src/terminal.rs`, `history_path`). Measured by the
+tenth review on a bundle of `debug.shell` built `--noio --noeval`: with all
+three unset the typed line still ran and no file appeared.
 
 **`--noeval` disables the `bund.eval` group of functions — D79 — which is what
 its own help text says it does**: `Disable bund.eval group of functions`
@@ -1035,9 +1085,60 @@ no parser runs. So the second search, made 2026-10-08, is every call of
 - `recv` (`bus.rs`): a `--noio` stub.
 
 A word added later that parses a string or decodes a value appears in one of
-the two searches. A third mechanism, if there is one, appears in neither, and
-this section does not claim there is none: it claims these two were looked
-for and how.
+the two searches. *(Until the tenth review this paragraph ended "A third
+mechanism, if there is one, appears in neither". There is one, and the
+registers had it.)*
+
+**The third mechanism: a program builds code out of strings. No search finds
+it, because it has no site — corrected 2026-10-08, the tenth review's B1.**
+The words are the language's ordinary ones —
+
+- `make.call`, `make.call.` and the alias `call,` turn a string into a CALL
+  (`reference/Bund/src/stdlib/functions/values/make_call_value.rs:31-38`,
+  registered at `:61-62`; the alias at
+  `reference/Bund/src/stdlib/functions/create_aliases.rs:33`);
+- `ptr` turns a string into a PTR and applies it
+  (`reference/rust_multistackvm/src/stdlib/artefacts.rs:80-93`);
+- `lambda*` folds the whole stack into a LAMBDA
+  (`reference/Bund/src/stdlib/functions/bund/bund_fun.rs:189-202`,
+  registered at `:219`), and `lambda!` does it to a LIST (`:218`);
+- `!` on a STRING, a PTR or a CALL calls the word of that name
+  (`reference/rust_multistackvm/src/stdlib/execute.rs:27-30`).
+
+None has a gate, and Bund2 has the same words
+(`crates/bund2-stdlib/src/values.rs`). Measured 2026-10-08 on bundles built
+`--noeval --noio`; each prints `42`:
+
+    40 2 "+" make.call "println" make.call lambda* !               stdin closed
+    40 2 "+" ptr ! "println" !                                     stdin closed
+    42 "> " input !                                                stdin: println
+    40 2 "> " input string.tokenize { make.call } map lambda! !    stdin: + println
+
+The tenth review ran the four under `bund2 script` with both flags and on
+the oracle at `21b40b0`, with the same answers. The last reads a line of
+words from standard input, splits it, makes each callable and runs them; the
+third is three words long.
+
+**This was decided before it was found.** D16: "a call target may be named
+by a string that exists only at run time". D79, on why `--noeval` does not
+gate `compile`: "D16 means a call target can be assembled at run time, so
+evaluation cannot be switched off by name-gating a word list." D34 calls
+`call,` then `lambda*` then `register` the canonical metaprogramming idiom,
+and a hermetic golden runs it, so criterion 2 exercises this mechanism in
+every configuration. This section used D16 forty lines on to justify a
+switch and had not applied it to what the switch leaves.
+
+**So the routes are not a list a search can close, and this section no
+longer presents them as one.** The parse sites and the decode sites are
+sites: found by the two searches, and named above. Construction has none.
+Any program with a source of strings — `input`, `args`, a literal — and `!`
+is an interpreter for what it is handed, under both flags, in the reference
+and in Bund2. A reader auditing a restricted program for the names above
+has not audited it; the name to look for is `!`. What the flags do is what
+they say: `--noeval` makes the `bund.eval` group and Bund2's two words fail,
+`--noio` makes its 62 names fail, and neither says anything about what else
+a program can cause to run. No gate is proposed: it would be a deviation,
+and of the feature the language is for.
 
 **A bundle is never given a debugger — D115, 2026-10-08.** In a `script` run
 the first arming or moving debugger word attaches a console (D113.5), and
@@ -1299,13 +1400,17 @@ on the answer.
 | `bund2` itself | **Changed.** Every `bund2` carries the 1 MiB region and reads it before it acts on argv, so a damaged region stops the plain interpreter too (§B1). |
 | `bund2 build`'s arguments | **Refused when not understood** — `--emit=native`, `--features`, a repeated `--file`, anything unknown (§B3, "The command line"). |
 | What is at `--output` | **Replaced without a word**, unless it is the building binary, which is refused (§B3). New surface, stated and not defended. |
-| `--output` that is another name for an existing file | **The name is replaced, the file is not — F181.** A hard link to the builder, or to anything else, becomes the artefact and every other name keeps its bytes. A symlink is followed. A failed build leaves `--output` as it was. |
+| `--output` that is another name for an existing file | **The name is replaced, the file is not — F181.** A hard link to the builder, or to anything else, becomes the artefact and every other name keeps its bytes. A symlink is followed, dangling or not. A failed build leaves `--output` as it was. |
 | `decode.base64` under either flag | **Preserved — D123.** A string becomes a lambda and `!` runs it, under `--noeval --noio`, on both binaries; each runs the other's string (§B3a). |
 | `load`, `load.lambdas`, `load.stacks` under `--noeval` alone | **Preserved.** They bring runnable values in from a world file; only `--noio` stubs them (§B3a). |
 | A bundle asked to `build` | **It cannot.** A bundle owns all of argv, so `build` is its program's first argument (§B3). |
 | A syntax error's timing | **Deliberately changed**: found at build rather than at run (§B3). A build that wrote an unparseable program would move the error to whoever ran it. |
 | RFC-0005 criterion 30's excluded mirrors | **Reopened by `--emit=native`**, on that row's own stated trigger. Owed once the mode exists, not excluded. |
-| What `--noeval` stops | **Preserved exactly for the reference's words — D79.** It disables the `bund.eval` group, six words: `bund.eval`, `bund.eval.`, `bund.eval-file`, `bund.eval-file.`, `use`, `use.`. `compile` is not in the group, so `compile lambda! !` still evaluates, on both binaries. §B3a names the boundary. |
+| What `--noeval` stops | **Preserved exactly for the reference's words — D79.** It disables the `bund.eval` group, six words: `bund.eval`, `bund.eval.`, `bund.eval-file`, `bund.eval-file.`, `use`, `use.`. `compile` is not in the group, so `compile lambda! !` still evaluates, on both binaries. So do `debug`'s operand (D122), `decode.base64` (D123), the world-file words under `--noeval` alone, and code built from strings. §B3a names each and says why the list is open. |
+| Code built from strings, under either flag | **Preserved — D16, D79.** `make.call`, `ptr`, `lambda*`, `lambda!` and `!` on a string are ungated on both binaries; four programs print `42` under `--noeval --noio` (§B3a). A hermetic golden runs the idiom. |
+| `--output` that is the program's own source | **Refused**, by where the path leads (§B3). New surface: until 2026-10-08 the source was replaced by its artefact and the build exited 0. |
+| A dangling symlink at `--output` | **Followed**: its target is created and the link stays (§B3). |
+| What `--output`'s directory must allow, and what may be left in it | **Changed by F181.** The directory must be writable, where a writable file used to do; the replaced file's mode and ownership are not kept; a killed build can leave `.bund2-build-<pid>/` (§B3). |
 | `debug.run` under `--noeval` | **New surface, decided — D120.** Bund2's own word, which evaluates a string; the flag stubs it. Not a deviation, the reference having no such word. |
 | `debug.feed` under `--noeval` | **New surface, decided — D121.** Bund2's own word; the flag stubs it, because before `debug.shell` it ran a line nobody typed. Not a deviation. Under the flag it cannot feed `input` either. |
 | `stdin`, `stdin.` under `--noio` | **Preserved.** Stubs that exist only under the flag, in the reference and in Bund2 (§B3a). |
@@ -1564,8 +1669,11 @@ on the answer.
     **It checks the stubs and nothing more, deliberately.** A criterion that
     claimed more would be false: `"40 2 +" compile lambda! !` prints `42` under
     `--noeval` on both binaries (§B3a), so no criterion here may be read as
-    "the artefact evaluates nothing". Nor do `"…" debug` and, under `--noeval`
-    alone, `bootstrap`: neither is a stub, and this criterion cannot see them.
+    "the artefact evaluates nothing". Nor do `"…" debug`, `decode.base64`, code built
+    from strings with `make.call`, `ptr`, `lambda*` and `!`, and, under
+    `--noeval` alone, `bootstrap` and the `load` words: none is a stub, and
+    this criterion cannot see them. *(Widened 2026-10-08, the tenth review's
+    S4; it had the list as it stood two reviews earlier.)*
 
     **A refusal is text and not a status — stated 2026-10-08, the eighth
     review.** A program stopped by a stub prints its report and exits 0, in a
@@ -1709,8 +1817,8 @@ criterion here has been run on one machine, macOS on arm64, by hand or by
 
 **The first three reviews found six blockers between them, and all six are
 answered** — four in the design, the rest by D76, D77, D78, D79 and D80.
-Eight reviews of this document and one of the code have found twenty in
-all — twenty-one if the implementation review's second-pass B3 is counted,
+Nine reviews of this document and one of the code have found twenty-one in
+all — twenty-two if the implementation review's second-pass B3 is counted,
 which this sentence never has — and each is answered or ruled.
 *(Until the eighth review this sentence said seven and eighteen when the
 document had had six.)* What
@@ -1718,7 +1826,8 @@ remains listed is one question for whoever takes §B8's gate, and Q42. The sixth
 on 2026-10-08 raised two more for the owner and both are ruled: which
 construction §B1 means is D118, and how far `--noio` reaches is D119. The
 seventh raised one, and it is D120, with D121 beside it. The eighth raised
-one, and it is D122. The ninth raised one, and it is D123. (Until
+one, and it is D122. The ninth raised one, and it is D123. The tenth raised none: its blocker is
+D79's own sentence, applied. (Until
 2026-10-08 this sentence also counted parse-at-build, since ruled as D116,
 and Q40, which the bullet above records as answered by measurement.) **No
 default is being adopted by omission** — stated carefully, because the second

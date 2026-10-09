@@ -742,6 +742,20 @@ fn build(args: &[String]) -> ExitCode {
         );
         return ExitCode::FAILURE;
     }
+    // **Nor over the program it was given.** `--file p.bund --output p.bund`
+    // exited 0 and left `p.bund` an executable: the source was read, then
+    // replaced by the artefact built from it. The builder can be rebuilt and
+    // a source cannot, so the argument for the guard above holds here at
+    // least as well. The source was readable a moment ago, so it resolves.
+    if let Ok(source) = std::fs::canonicalize(&src_path)
+        && destination(&out_path) == source
+    {
+        bund2_api::errln!(
+            "bund2: --output is the program being built ({out_path}). The artefact \
+             would replace its own source. Nothing was written."
+        );
+        return ExitCode::FAILURE;
+    }
     let mut image = match std::fs::read(&exe) {
         Ok(b) => b,
         Err(e) => {
@@ -802,21 +816,36 @@ fn build(args: &[String]) -> ExitCode {
 /// one filesystem, and the file keeps its final name inside it, because an
 /// ad-hoc signature takes its identifier from the name it is signed under.
 ///
-/// A symlink at `--output` is still followed, as it was: the destination is
-/// the link's target.
+/// A symlink at `--output` is followed, as an in-place write followed it: the
+/// destination is where the link leads ([`destination`]), whether or not
+/// anything is there yet.
+///
+/// **What this costs, stated.** The destination's *directory* has to be
+/// writable, where an in-place write needed only the file. The file that was
+/// there is replaced, so its mode and ownership are not kept. And a build
+/// killed between the write and the rename leaves its scratch directory
+/// behind; the name carries the process id, and one left by an earlier
+/// process of the same id is cleared before this one starts.
 fn place(out_path: &str, image: &[u8]) -> Result<(), String> {
-    use std::path::{Path, PathBuf};
-    let dest: PathBuf = std::fs::canonicalize(out_path).unwrap_or_else(|_| PathBuf::from(out_path));
+    use std::path::Path;
+    let nothing = |e: String| format!("{e} Nothing was written to {out_path}.");
+    let dest = destination(out_path);
     let Some(name) = dest.file_name() else {
-        return Err(format!("--output {out_path} names no file"));
+        return Err(nothing(format!("--output {out_path} names no file.")));
     };
     let parent = match dest.parent() {
         Some(p) if !p.as_os_str().is_empty() => p,
         _ => Path::new("."),
     };
     let scratch = parent.join(format!(".bund2-build-{}", std::process::id()));
-    std::fs::create_dir(&scratch)
-        .map_err(|e| format!("writing {out_path}: creating {}: {e}", scratch.display()))?;
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir(&scratch).map_err(|e| {
+        nothing(format!(
+            "writing {out_path}: creating {}: {e}. The artefact is assembled beside its \
+             destination, so that directory has to be writable.",
+            scratch.display()
+        ))
+    })?;
     let staged = scratch.join(name);
     let staged_text = staged.to_string_lossy().into_owned();
     let done = std::fs::write(&staged, image)
@@ -833,7 +862,42 @@ fn place(out_path: &str, image: &[u8]) -> Result<(), String> {
     // Whether or not it worked: on success the directory is empty, and on
     // failure what is in it is an artefact that must not be found.
     let _ = std::fs::remove_dir_all(&scratch);
-    done.map_err(|e| format!("{e} Nothing was written to {out_path}."))
+    done.map_err(nothing)
+}
+
+/// Where `--output` leads: the path itself, with every symlink followed.
+///
+/// `canonicalize` answers this for a path that exists. **A link to a path
+/// that does not exist yet is the case it cannot** — it fails, and falling
+/// back to the path as given made the rename replace the *link* where an
+/// in-place write would have created its target. So a dangling link is
+/// followed by hand. The loop is bounded (D39): a chain longer than the bound,
+/// or a cycle, is left where the walk stopped, and the rename then replaces
+/// that link rather than spinning.
+fn destination(out_path: &str) -> std::path::PathBuf {
+    use std::path::PathBuf;
+    const HOPS: usize = 40;
+    let mut at = PathBuf::from(out_path);
+    for _ in 0..HOPS {
+        if let Ok(whole) = std::fs::canonicalize(&at) {
+            return whole;
+        }
+        let Ok(target) = std::fs::read_link(&at) else {
+            break;
+        };
+        at = match at.parent() {
+            Some(dir) if target.is_relative() => dir.join(target),
+            _ => target,
+        };
+    }
+    // Nothing is there yet. Resolve the directory, so the comparison in
+    // `build` sees the same spelling `canonicalize` gives an existing file.
+    match (at.parent(), at.file_name()) {
+        (Some(dir), Some(name)) if !dir.as_os_str().is_empty() => std::fs::canonicalize(dir)
+            .map(|d| d.join(name))
+            .unwrap_or(at),
+        _ => at,
+    }
 }
 
 /// Re-sign the artefact, where the platform requires it — **measured, 2026-09-30.**
