@@ -4033,6 +4033,36 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F181 — `bund2 build` wrote through `--output`, and a hard link to the builder destroyed it
+
+**A Bund2 defect, found 2026-10-08** by RFC-0006's ninth review (S1). The
+reference has no `build`.
+
+`build` refuses `--output` naming the building binary by comparing canonical
+paths. Two hard links to one file have two canonical paths. The artefact was
+then written with `std::fs::write`, which truncates and rewrites whatever
+inode the name has — the builder's.
+
+Measured by the review on a scratch copy, `ln bund2 alias`, then
+`./bund2 build --file p.bund --output alias`: exit 0 and "wrote …/alias";
+`codesign` then gave `alias` a new signed inode, and the builder was left
+holding the unsigned filled image, which macOS kills — `./bund2 words` exited
+137. It is the implementation review's B3 reached by another name, and
+`a_build_refuses_to_overwrite_the_binary_doing_it` could not see it.
+
+The same in-place write meant that **a failed signing left a file at
+`--output` that could not run**, where the RFC said only that the build
+exits 1.
+
+**Disposition: FIX.** `crates/bund2-cli/src/main.rs`, `place`: the artefact
+is written, made executable and signed in a scratch directory beside the
+destination, then renamed into place; a failure at any step removes the
+scratch directory and leaves `--output` as it was. A rename replaces the
+name, so every other name for the old file keeps its bytes.
+`a_hard_link_to_the_builder_is_replaced_and_the_builder_survives`. A symlink
+at `--output` is still followed. The signing-failure half is read from the
+code; no test makes `codesign` fail.
+
 ## F180 — a breakpoint's condition ran under neither `--noio` nor `--noeval`
 
 **A Bund2 defect, found 2026-10-08** by RFC-0006's eighth review (S3). The

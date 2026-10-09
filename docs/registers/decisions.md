@@ -3558,6 +3558,43 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D123 — `--noeval` does not gate `decode.base64`; it is named
+
+**Raised 2026-10-08** by RFC-0006's ninth review (B1). `decode.base64`
+decodes a string to a value with `Value::from_binary`
+(`reference/Bund/src/stdlib/functions/encoding/base64.rs:71-83`) and is
+registered with no gate (`:121-124`). A LAMBDA is a value, so the result is
+something `!` runs, and no parser is involved. Measured on bundles built
+`--noeval --noio`: `"<encoded lambda>" decode.base64 !` prints `42` with
+standard input closed, and `"> " input decode.base64 !` prints `42` with the
+string piped in. The review ran the first on the oracle under both flags,
+and each binary ran the other's string. D122 names `debug` and did not name
+this word.
+
+- Blocks: nothing
+- Depends on: D78, D79, D122, RFC-0006 §B3a
+- Status: **RESOLVED** by the repository owner, 2026-10-08: "'leave it and
+  name it' also covers decode.base64".
+
+### The ruling
+
+`decode.base64` and its workbench form stay as the reference has them under
+both flags. No stub, no deviation, no golden moves. RFC-0006 §B3a names the
+route, and names the search that finds its kind: every place a value is
+decoded, beside every place a string is parsed.
+
+### Why
+
+It gives a program nothing `compile lambda! !` does not, which D79 rules is
+the flag's boundary: `"> " input compile lambda! !` already runs a line from
+standard input under both flags. Gating it would be a deviation, as D119
+was, and the floor would be where it is.
+
+### What a reader should carry away
+
+An audit of a restricted program for text — `compile`, `debug`,
+`bootstrap` — does not find this route. The names to look for are in §B3a.
+
 ## D122 — `--noeval` does not gate `debug`; it is named
 
 **Raised 2026-10-08** by RFC-0006's eighth review (B1). The reference's
@@ -3596,6 +3633,16 @@ flag's boundary.
 reference's words outside the group keep the reference's behaviour. D121's
 premise is narrower than it reads — its dated note says so — and D121
 stands.
+
+**Note, 2026-10-08 (RFC-0006's ninth review, B1 and S3).** "beside
+`compile lambda! !` and, under `--noeval` alone, `bootstrap`" above is not
+the whole list. `decode.base64` turns a string into a lambda under both flags
+(`reference/Bund/src/stdlib/functions/encoding/base64.rs:71-83`, registered
+with no gate at `:121-124`), and under `--noeval` alone `load`,
+`load.lambdas` and `load.stacks` bring runnable values in from a world file.
+RFC-0006 §B3a names all of them and says how both lists were searched. This
+ruling names `debug`; whether it covers `decode.base64` is not ruled.
+*(Ruled the same day — D123: it does.)*
 
 ## D121 — `--noeval` gates `debug.feed`
 

@@ -727,9 +727,11 @@ fn build(args: &[String]) -> ExitCode {
     // gives all of argv to its program. Destructive, silent, and one keystroke
     // away from `-o` on the wrong path.
     //
-    // Compared by identity rather than by spelling — canonical paths, so a
-    // symlink or a relative path cannot slip past. An output that does not
-    // exist yet cannot be the running binary, so absence is not an error.
+    // Compared by canonical path, so a symlink or a relative path cannot slip
+    // past. **A hard link can** — two names for one file have two canonical
+    // paths — and what makes that harmless is `place`, which never writes
+    // through an existing name (F181). An output that does not exist yet
+    // cannot be the running binary, so absence is not an error.
     if let Ok(existing) = std::fs::canonicalize(&out_path)
         && std::fs::canonicalize(&exe).map(|e| e == existing).unwrap_or(false)
     {
@@ -759,15 +761,7 @@ fn build(args: &[String]) -> ExitCode {
         bund2_api::errln!("bund2: {e}");
         return ExitCode::FAILURE;
     }
-    if let Err(e) = std::fs::write(&out_path, &image) {
-        bund2_api::errln!("bund2: writing {out_path}: {e}");
-        return ExitCode::FAILURE;
-    }
-    if let Err(e) = make_executable(&out_path) {
-        bund2_api::errln!("bund2: {out_path} was written but is not executable: {e}");
-        return ExitCode::FAILURE;
-    }
-    if let Err(e) = reseal(&out_path) {
+    if let Err(e) = place(&out_path, &image) {
         bund2_api::errln!("bund2: {e}");
         return ExitCode::FAILURE;
     }
@@ -789,6 +783,59 @@ fn build(args: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// Write a finished artefact beside `out_path`, then move it into place.
+///
+/// **Never in place — F181.** `std::fs::write` truncates and rewrites
+/// whatever inode the name already has. With `--output` a hard link to the
+/// building binary that inode is the builder's: the guard in `build` compares
+/// canonical paths, two names for one file have two, and the build reported
+/// success having destroyed the interpreter. A rename replaces the *name*, so
+/// every other name for the old file, and any process running it, keeps the
+/// old bytes.
+///
+/// **And nothing is left at `--output` unless all of it worked.** The file is
+/// written, made executable and signed under a scratch directory; a failure
+/// at any step removes that directory and leaves `--output` as it was. A
+/// failed signing used to leave a file there that the system kills.
+///
+/// The scratch directory is beside the destination, so the rename stays on
+/// one filesystem, and the file keeps its final name inside it, because an
+/// ad-hoc signature takes its identifier from the name it is signed under.
+///
+/// A symlink at `--output` is still followed, as it was: the destination is
+/// the link's target.
+fn place(out_path: &str, image: &[u8]) -> Result<(), String> {
+    use std::path::{Path, PathBuf};
+    let dest: PathBuf = std::fs::canonicalize(out_path).unwrap_or_else(|_| PathBuf::from(out_path));
+    let Some(name) = dest.file_name() else {
+        return Err(format!("--output {out_path} names no file"));
+    };
+    let parent = match dest.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => Path::new("."),
+    };
+    let scratch = parent.join(format!(".bund2-build-{}", std::process::id()));
+    std::fs::create_dir(&scratch)
+        .map_err(|e| format!("writing {out_path}: creating {}: {e}", scratch.display()))?;
+    let staged = scratch.join(name);
+    let staged_text = staged.to_string_lossy().into_owned();
+    let done = std::fs::write(&staged, image)
+        .map_err(|e| format!("writing {out_path}: {e}"))
+        .and_then(|()| {
+            make_executable(&staged_text)
+                .map_err(|e| format!("{out_path} could not be made executable: {e}"))
+        })
+        .and_then(|()| reseal(&staged_text, out_path))
+        .and_then(|()| {
+            std::fs::rename(&staged, &dest)
+                .map_err(|e| format!("moving the artefact to {out_path}: {e}"))
+        });
+    // Whether or not it worked: on success the directory is empty, and on
+    // failure what is in it is an artefact that must not be found.
+    let _ = std::fs::remove_dir_all(&scratch);
+    done.map_err(|e| format!("{e} Nothing was written to {out_path}."))
+}
+
 /// Re-sign the artefact, where the platform requires it — **measured, 2026-09-30.**
 ///
 /// On macOS a binary's signature covers the bytes `bund2 build` just wrote, so
@@ -806,13 +853,13 @@ fn build(args: &[String]) -> ExitCode {
 /// Nothing to do on platforms with no whole-file signature: ELF and PE carry
 /// none by default, so the bytes just written are the bytes that run.
 #[cfg(target_os = "macos")]
-fn reseal(path: &str) -> Result<(), String> {
+fn reseal(path: &str, shown: &str) -> Result<(), String> {
     let out = std::process::Command::new("/usr/bin/codesign")
         .args(["-f", "-s", "-", path])
         .output()
         .map_err(|e| {
             format!(
-                "{path} was written but could not be signed: /usr/bin/codesign did not run \
+                "{shown} could not be signed: /usr/bin/codesign did not run \
                  ({e}). On macOS an unsigned edit to a binary is killed rather than run, so \
                  the artefact would not execute."
             )
@@ -821,14 +868,14 @@ fn reseal(path: &str) -> Result<(), String> {
         return Ok(());
     }
     Err(format!(
-        "{path} was written but codesign refused it: {}. The artefact would be killed \
+        "codesign refused {shown}: {}. The artefact would be killed \
          rather than run.",
         String::from_utf8_lossy(&out.stderr).trim()
     ))
 }
 
 #[cfg(not(target_os = "macos"))]
-fn reseal(_path: &str) -> Result<(), String> {
+fn reseal(_path: &str, _shown: &str) -> Result<(), String> {
     Ok(())
 }
 

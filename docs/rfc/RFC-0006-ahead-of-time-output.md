@@ -46,6 +46,15 @@
   The review's S3, a breakpoint condition that ran under neither restriction,
   is a defect and is fixed — **F180**. Its other findings are answered where
   they apply, each dated.
+  **A ninth review the same day**
+  (`docs/rfc/reviews/RFC-0006-review-2026-10-08-4.md`) found one blocker:
+  `decode.base64` turns a string into a lambda and `!` runs it, under both
+  flags, and no list here named the word — the search that closed the
+  `--noeval` list looked for places a string is parsed, and this route parses
+  nothing. **§B3a now names it and searches for both mechanisms. Ruled on —
+  D123**: D122's "leave it and name it" covers this word too. Its S1, a
+  build that destroyed the builder through a hard link, is a defect and is
+  fixed — **F181**.
   Revised 2026-09-29 after the first adversarial review
   (`docs/rfc/reviews/RFC-0006-review-2026-09-29.md`). The review raised three
   blockers; all three were reproduced against the code before this revision,
@@ -56,7 +65,7 @@
 - Depends on: RFC-0003 (the program stream and Tier 0), RFC-0005 (the
   Cranelift tier)
 - Decisions consumed: D10, D11, D16, D20, D40, D54, D74, D76, D77, D78, D79,
-  D80, D81, D82, D83, D115, D116, D118, D119, D120, D121, D122, and
+  D80, D81, D82, D83, D115, D116, D118, D119, D120, D121, D122, D123, and
   decisions.md's "What this forecloses" clause on tree-shaking. *(Until
   2026-10-08 this list named D44, which the body never uses, and omitted the
   last four, which it rests on.)*
@@ -622,6 +631,20 @@ it names the only mode there is; this document writes `bund2 build
 
 - **`--output` naming the binary doing the building is refused**, compared by
   canonical path (`a_build_refuses_to_overwrite_the_binary_doing_it`).
+  **A hard link to it is a second name the comparison cannot see, and until
+  2026-10-08 that destroyed the builder — F181, the ninth review's S1.** The
+  write was in place, so it went through the link into the builder's bytes
+  and reported success. The artefact is now written, made executable and
+  signed in a scratch directory beside the destination and then moved into
+  place, which replaces a name and never a file's contents: the alias
+  becomes the artefact and the builder is untouched
+  (`a_hard_link_to_the_builder_is_replaced_and_the_builder_survives`). For
+  the same reason an artefact rebuilt while it is running is not rewritten
+  under itself — by the contract of a rename, not measured. A symlink at
+  `--output` is still followed.
+- **A build that fails leaves `--output` as it was.** That now includes a
+  signing failure, which used to leave a file there the system would kill
+  (F181). Read from the code; no test makes `codesign` fail.
 - **Any other existing file at `--output` is replaced without a word.**
   Measured: built over an existing text file, the command exits 0 and leaves
   an executable. That is what a compiler's `-o` does, and it is stated here
@@ -732,6 +755,10 @@ records the misnaming and Bund2 reproduces both halves. Measured again
 name under the flag has three outcomes and the method above looked for two: a
 stub, untouched, and **removed**. Of the 610, 59 are stubs, one is removed,
 and 550 are untouched; three more stubs exist only under the flag.
+
+**The line D119 added to the list above, which the paragraphs between had
+separated from it** *(moved 2026-10-08, the ninth review's S5)* —
+
 - data files, **by D119 and not by the reference**: `csv` `csv.` `sqlite`
 
 **What `--noio` leaves ungated — rewritten 2026-10-08, the sixth review's
@@ -763,7 +790,8 @@ were not each traced into the reference:
   their conditional handlers are stubs now, the handlers because
   `conditional :type "csv" set …` reaches the same read without the word.
   `noio_reaches_the_two_words_that_read_a_data_file`.
-- **One writes a file.** `debug.shell` saves its line history. Measured on
+- **Two write a file.** *(Headed "One" until the ninth review's S4; the
+  second is at the end of this bullet.)* `debug.shell` saves its line history. Measured on
   the same kind of bundle: one typed line wrote
   `bund2/bund_debug_shell_history.txt` under the configuration directory of
   whoever ran it (`crates/bund2-stdlib/src/terminal.rs`, `history_path`). The
@@ -870,6 +898,45 @@ review, on a world file holding the script `40 2 + println` and a bundle of
 needs no `compile lambda! !`: it is `bund.eval-file` for a world file, and
 outside the group. The reference's boundary, by D79.
 
+**The world file brings in runnable values too, under `--noeval` alone —
+added 2026-10-08, the ninth review's S3.** `load.lambdas` registers every
+stored lambda and `load.stacks` restores every stored stack, each value
+decoded by `Value::from_binary`
+(`reference/Bund/src/stdlib/helpers/world/lambdas.rs:32`,
+`reference/Bund/src/stdlib/helpers/world/stacks.rs:29`); `load` does both,
+and `bootstrap` does `load` before it evaluates a script (`bund_load.rs:36`).
+Bund2 decodes the same values (`crates/bund2-stdlib/src/world.rs`,
+`load_lambdas`, `load_stacks`). Measured by the ninth review on bundles built
+`--noeval`: a world holding the lambda `hidden`, `{ 40 2 + println }`, and
+the program `"r9" load.lambdas hidden` — `42`; a world whose stack top is
+that lambda, and `"r9s" load.stacks !` — `42`. With `BUND2_NOIO=1` the first
+answers `bund LOAD functions disabled with --noio`. All are `--noio` stubs,
+so this is the reference's boundary by D79, and these are its names.
+
+**`decode.base64` makes a string runnable with no parser, under both flags —
+added 2026-10-08, the ninth review's B1.** `encode.base64` serialises any
+value (`reference/Bund/src/stdlib/functions/encoding/base64.rs:33`) and
+`decode.base64` is its inverse: it casts its operand to a string (`:71`),
+decodes it (`:77`) and hands the bytes to `Value::from_binary` (`:83`). Both
+are registered with no gate (`:121-124`), and Bund2 does the same
+(`crates/bund2-stdlib/src/encoding.rs`, `decode_base64`). A LAMBDA is a
+value, so the result is something `!` runs. Measured 2026-10-08 on bundles
+built `--noeval --noio`, where the string is the 572 characters
+`{ 40 2 + println } encode.base64 println` prints:
+
+    "<the string>" decode.base64 !        prints 42, standard input closed
+    "> " input decode.base64 !            prints 42, the string piped in
+
+`--inspect` reports both restrictions on each. The ninth review ran the first
+on the oracle at `21b40b0` under both flags, and each binary ran the other's
+string. **It gives a program nothing `compile lambda! !` does not** —
+`"> " input compile lambda! !` already runs a line from standard input under
+both flags — so the floor is where it was. What it changes is what a reader
+auditing a program must look for: not text. **The owner ruled the same day that
+D122's "leave it and name it" covers this word — D123.** It is the
+reference's word, ungated there, and preserved; gating it would have been a
+deviation, as D119 was.
+
 **Two more routes run text a program was handed, and neither flag gates
 them — added 2026-10-08, from the acceptance review's B4.** `debug` and
 `debug.shell` read lines and evaluate each one
@@ -953,6 +1020,24 @@ CLI parsing the program it was given and an embedder's own
 hands `debug.shell`. **A word added later that parses a string appears in
 that search and not in this list**, which is how four reviews in a row found
 one.
+
+**That search was one of two, and the paragraph above read as a guarantee it
+could not give — the ninth review's B1 and S2.** A value can also arrive
+already built: the wire codec decodes a LAMBDA as readily as an integer, and
+no parser runs. So the second search, made 2026-10-08, is every call of
+`wire::from_binary` under `crates/` outside tests. There are six —
+
+- `decode.base64` and its workbench form (`encoding.rs`, `decode_base64`):
+  **ungated by either flag**;
+- `load.model`, `load.lambdas`, `load.stacks`, and through them `load` and
+  `bootstrap` (`world.rs`): `--noio` stubs;
+- `sqlite`'s BLOB cells (`data.rs`): a `--noio` stub by D119;
+- `recv` (`bus.rs`): a `--noio` stub.
+
+A word added later that parses a string or decodes a value appears in one of
+the two searches. A third mechanism, if there is one, appears in neither, and
+this section does not claim there is none: it claims these two were looked
+for and how.
 
 **A bundle is never given a debugger — D115, 2026-10-08.** In a `script` run
 the first arming or moving debugger word attaches a console (D113.5), and
@@ -1205,7 +1290,7 @@ on the answer.
 | `--debugger` | **Deliberately absent.** No flag and no variable: a bundle is never given a debugger (D115, and §B3). The debuggable form of the program is `bund2 script --file`. |
 | `BUND2_NOIO`, `BUND2_NOEVAL` in the environment | **A bundle's alone.** `script` does not read them, so one environment can restrict the bundle of a program and not its `script` run (§B3). |
 | `use` | **Preserved exactly** — D76, under D54's scheme set. |
-| `--noio`, `--noeval` | **Deliberately available as a build-time floor — D78.** Recorded in the trailer; run time may add either and never remove one. Not a boundary: §B3a names what each gates and what each leaves ungated — for `--noio` that includes one word that writes a file, standard input, and the host's address and name. |
+| `--noio`, `--noeval` | **Deliberately available as a build-time floor — D78.** Recorded in the trailer; run time may add either and never remove one. Not a boundary: §B3a names what each gates and what each leaves ungated — for `--noio` that includes two words that write a history file, standard input, and the host's address and name. |
 | `csv` and `sqlite` under `--noio` | **Approved deviation — D119.** The reference leaves both ungated; Bund2 stubs them and their conditional handlers. Without the flag, preserved. |
 | `--nocolor` | **Preserved as a per-run choice**, in the environment-variable channel with the diagnostic flags. Presentational, not a capability. |
 | Diagnostic file name | **Preserved for a path of up to 256 bytes** via the trailer's recorded source path (§B3), without which a bundle's stderr differs by construction and the CEILING moves. **A longer path is changed**: its last 256 bytes are kept, and the build says so. |
@@ -1214,6 +1299,9 @@ on the answer.
 | `bund2` itself | **Changed.** Every `bund2` carries the 1 MiB region and reads it before it acts on argv, so a damaged region stops the plain interpreter too (§B1). |
 | `bund2 build`'s arguments | **Refused when not understood** — `--emit=native`, `--features`, a repeated `--file`, anything unknown (§B3, "The command line"). |
 | What is at `--output` | **Replaced without a word**, unless it is the building binary, which is refused (§B3). New surface, stated and not defended. |
+| `--output` that is another name for an existing file | **The name is replaced, the file is not — F181.** A hard link to the builder, or to anything else, becomes the artefact and every other name keeps its bytes. A symlink is followed. A failed build leaves `--output` as it was. |
+| `decode.base64` under either flag | **Preserved — D123.** A string becomes a lambda and `!` runs it, under `--noeval --noio`, on both binaries; each runs the other's string (§B3a). |
+| `load`, `load.lambdas`, `load.stacks` under `--noeval` alone | **Preserved.** They bring runnable values in from a world file; only `--noio` stubs them (§B3a). |
 | A bundle asked to `build` | **It cannot.** A bundle owns all of argv, so `build` is its program's first argument (§B3). |
 | A syntax error's timing | **Deliberately changed**: found at build rather than at run (§B3). A build that wrote an unparseable program would move the error to whoever ran it. |
 | RFC-0005 criterion 30's excluded mirrors | **Reopened by `--emit=native`**, on that row's own stated trigger. Owed once the mode exists, not excluded. |
@@ -1603,6 +1691,10 @@ criterion here has been run on one machine, macOS on arm64, by hand or by
   2026-10-08: no. Raised the same day by the eighth review (B1). The
   reference's `debug` evaluates the string it is given, under both flags;
   Bund2 preserves that and §B3a names it.
+- **Does D122's ruling cover `decode.base64`? — answered by D123**,
+  2026-10-08: yes. Raised the same day by the ninth review (B1). The word
+  decodes a string to a value, a lambda included, under both flags, in the
+  reference and in Bund2; it stays, and §B3a names it.
 - **What is the `aot` feature called now? — Q42.** After D83 it compiles the
   relocation test and nothing else, a bundle built from such a `bund2`
   inspects as `features: aot`, and CLAUDE.md's terminology still defines AOT
@@ -1617,14 +1709,16 @@ criterion here has been run on one machine, macOS on arm64, by hand or by
 
 **The first three reviews found six blockers between them, and all six are
 answered** — four in the design, the rest by D76, D77, D78, D79 and D80.
-Seven reviews of this document and one of the code have found nineteen in
-all, and each is answered or ruled. *(Until the eighth review this sentence said seven and eighteen when
-the document had had six.)* What
+Eight reviews of this document and one of the code have found twenty in
+all — twenty-one if the implementation review's second-pass B3 is counted,
+which this sentence never has — and each is answered or ruled.
+*(Until the eighth review this sentence said seven and eighteen when the
+document had had six.)* What
 remains listed is one question for whoever takes §B8's gate, and Q42. The sixth review
 on 2026-10-08 raised two more for the owner and both are ruled: which
 construction §B1 means is D118, and how far `--noio` reaches is D119. The
 seventh raised one, and it is D120, with D121 beside it. The eighth raised
-one, and it is D122. (Until
+one, and it is D122. The ninth raised one, and it is D123. (Until
 2026-10-08 this sentence also counted parse-at-build, since ruled as D116,
 and Q40, which the bullet above records as answered by measurement.) **No
 default is being adopted by omission** — stated carefully, because the second

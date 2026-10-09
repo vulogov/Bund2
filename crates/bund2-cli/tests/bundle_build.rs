@@ -596,6 +596,65 @@ fn a_build_refuses_to_overwrite_the_binary_doing_it() {
     let _ = std::fs::remove_file(&copy);
 }
 
+/// **A hard link to the builder at `--output` does not destroy the builder —
+/// F181.** The guard above compares canonical paths, and two names for one
+/// file have two. The write was in place, so it went through the link into
+/// the builder's own bytes and reported success; on macOS the builder was
+/// then killed on its next run. The artefact is now moved into place, which
+/// replaces the name and leaves the file every other name points at.
+#[cfg(unix)]
+#[test]
+fn a_hard_link_to_the_builder_is_replaced_and_the_builder_survives() {
+    use std::os::unix::fs::PermissionsExt;
+    // A directory of its own: other tests build beside each other, and the
+    // last assertion is about what this build left.
+    let own = scratch("linked-dir");
+    std::fs::create_dir_all(&own).expect("a directory");
+    let copy = own.join("builder");
+    std::fs::copy(env!("CARGO_BIN_EXE_bund2"), &copy).expect("copying the binary");
+    let mut p = std::fs::metadata(&copy).expect("mode").permissions();
+    p.set_mode(p.mode() | 0o111);
+    std::fs::set_permissions(&copy, p).expect("setting the mode");
+    let alias = own.join("alias");
+    std::fs::hard_link(&copy, &alias).expect("a second name for the builder");
+    let before = std::fs::read(&copy).expect("the builder's bytes");
+    let src = scratch("linked.bund");
+    std::fs::write(&src, "\"hi\" println\n").expect("writing the source");
+
+    let r = Command::new(&copy)
+        .arg("build")
+        .arg("--file")
+        .arg(&src)
+        .arg("--output")
+        .arg(&alias)
+        .output()
+        .expect("it runs");
+    assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
+
+    assert!(
+        std::fs::read(&copy).expect("the builder's bytes") == before,
+        "the builder's bytes are untouched"
+    );
+    let (code, out) = run(&alias, &[], &[]);
+    assert_eq!(code, Some(0), "{out}");
+    assert!(out.contains("hi"), "the alias is the artefact: {out}");
+    let after = Command::new(&copy)
+        .arg("script")
+        .arg("--file")
+        .arg(&src)
+        .output()
+        .expect("the builder still runs");
+    assert_eq!(after.status.code(), Some(0), "and is still an interpreter");
+    assert!(String::from_utf8_lossy(&after.stdout).contains("hi"));
+    // Nothing of the staging is left beside the artefact.
+    let dir = alias.parent().expect("a directory");
+    for e in std::fs::read_dir(dir).expect("listing").flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        assert!(!name.starts_with(".bund2-build-"), "left behind: {name}");
+    }
+    let _ = std::fs::remove_dir_all(&own);
+}
+
 /// **A bundle cannot be used as a builder**, because `carried()` is consulted
 /// before the `build` arm — all of argv belongs to the program (§B3).
 ///
