@@ -26,7 +26,8 @@ jobs:
       - name: what the oracle will link
         run: |
           sudo apt-get update
-          sudo apt-get install -y libcurl4-openssl-dev libssl-dev pkg-config cmake clang
+          sudo apt-get install -y libcurl4-openssl-dev libssl-dev pkg-config cmake clang \
+            libfontconfig1-dev libfreetype6-dev zlib1g-dev
           uname -a
           curl-config --version
           python3 --version
