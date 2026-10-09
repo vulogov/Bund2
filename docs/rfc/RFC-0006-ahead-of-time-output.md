@@ -1576,8 +1576,10 @@ documented rather than discovered:**
   proxy, in seven rows. Ruled the same day, D130: Bund2 reads such an entry
   as its system does. The other rows are a non-ASCII host and two IPv6
   spellings that the reference refuses on Linux, as Bund2 does everywhere.
-  **The fix was not measured again on Linux**, and no other system was
-  measured at all; one that is not macOS gets Linux's rule.
+  **The fix was measured on Linux too**: the workflow ran again on the
+  commit that made it, the seven rows go through the proxy, and no other
+  cell changed; the table in the repository is that run. No other system
+  was measured at all; one that is not macOS gets Linux's rule.
 
   `url` and `url.` share `fetch_uri` and all of this. It is the
   interpreter's behaviour — `bund2 script` does the same — and a bundle

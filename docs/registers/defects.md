@@ -4340,6 +4340,11 @@ reads an entry by the rule of the system it runs on, as D130 rules.
 `no_proxy_matches_as_libcurl_matches` tests both rules on either system.
 **Not measured again on Linux after the fix.**
 
+**Note, 2026-10-09, later.** Measured again, by the same workflow at
+`17e623a`, run 38002480092: in all seven rows Bund2 now asks the proxy, as
+the reference does there, and no other cell of the 443 changed. The Linux
+table in `docs/measurements/` is that run.
+
 ## F181 — `bund2 build` wrote through `--output`, and a hard link to the builder destroyed it
 
 **A Bund2 defect, found 2026-10-08** by RFC-0006's ninth review (S1). The

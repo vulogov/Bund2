@@ -3,9 +3,10 @@
 Measured 2026-10-09 on `ubuntu-latest`: Ubuntu 24.04, x86-64, kernel
 6.17.0-1022-azure. The oracle is `reference/Bund` at `21b40b0`, built out
 of tree by the workflow, and it links the system's libcurl dynamically
-(`libcurl.so.4`, 8.5.0). Bund2 is `bbd50c1`. The run is workflow
-`measure-fetch`, 37994971955; `fetch.py` printed the table below exactly,
-with `--port80`. It is the companion of `fetch-2026-10-09.md`, which is
+(`libcurl.so.4`, 8.5.0). Bund2 is `17e623a`. The run is workflow
+`measure-fetch`, 38002480092; `fetch.py` printed the table below exactly,
+with `--port80`. *(The first version of this file was run 37994971955, of
+Bund2 at `bbd50c1`. Seven cells differ, all Bund2's, and are named below.)* It is the companion of `fetch-2026-10-09.md`, which is
 macOS arm64 and libcurl 8.7.1, and its cells read the same way.
 
 ## What differs from macOS
@@ -26,18 +27,19 @@ In 242, 304 and 305 Bund2 refuses on both systems. Rows 54, 135, 138 and
 
 ## What differs between the two binaries, on Linux
 
-**64 rows.** In 379 the two agree, the tunnel aside. In 51 Bund2 refuses
+**57 rows.** In 386 the two agree, the tunnel aside. In 51 Bund2 refuses
 and asks nobody and in 5 it asks the same listener and evaluates nothing,
 each under the decision the macOS table names for that row. Row 174 is
-D125's file.
+D125's file. **In no row does Bund2 ask a listener the reference does not
+ask.**
 
-**In seven rows Bund2, at `bbd50c1`, did not ask the listener the
-reference asked**: 54, 135, 138 and 334 to 337. The reference went through
-the proxy and Bund2 went directly, to the origin or, in 135, to an address
-where nothing listens. Bund2 read a leading zero as macOS reads it. D130
-rules that it reads one as the system it runs on does, and the commit that
-adds this file makes it so. **The cells below are from before that
-commit**, and those seven have not been measured again.
+At `bbd50c1` that was false of seven: 54, 135, 138 and 334 to 337. The
+reference went through the proxy and Bund2 went directly, to the origin or,
+in 135, to an address where nothing listens, because Bund2 read a leading
+zero as macOS reads it. D130 rules that it reads one as the system it runs
+on does, `17e623a` makes it so, and this run is of that commit: in all
+seven Bund2 now asks the proxy, and no other cell of the 443 changed
+between the two runs.
 
 | # | setting | bund | bund2 |
 |---|---|---|---|
@@ -94,7 +96,7 @@ commit**, and those seven have not been measured again.
 | 51 | no_proxy=127.0.0.1/x | origin · origin:GET /lib.bund | origin · origin:GET /lib.bund |
 | 52 | no_proxy=.127.0.0.1 | p1 · p1:GET http://127.0.0.1:O/lib.bund | p1 · p1:CONNECT 127.0.0.1:O, p1:GET /lib.bund |
 | 53 | no_proxy=127.0.0.1. | p1 · p1:GET http://127.0.0.1:O/lib.bund | p1 · p1:CONNECT 127.0.0.1:O, p1:GET /lib.bund |
-| 54 | no_proxy=127.000.0.1 | p1 · p1:GET http://127.0.0.1:O/lib.bund | origin · origin:GET /lib.bund |
+| 54 | no_proxy=127.000.0.1 | p1 · p1:GET http://127.0.0.1:O/lib.bund | p1 · p1:CONNECT 127.0.0.1:O, p1:GET /lib.bund |
 | 55 | host [::1] no proxy vars | origin · origin:GET /lib.bund | origin · origin:GET /lib.bund |
 | 56 | host [::1] http_proxy | p1 · p1:GET http://[::1]:O/lib.bund | p1 · p1:CONNECT [::1]:O, p1:GET /lib.bund |
 | 57 | host [::1] no_proxy=::1 | origin · origin:GET /lib.bund | origin · origin:GET /lib.bund |
@@ -175,10 +177,10 @@ commit**, and those seven have not been measured again.
 | 132 | url FILE://LocalHost/abs/lib%20file.bund | file · - | file · - |
 | 133 | url file://127.0.0.1/abs/lib%20file.bund | file · - | file · - |
 | 134 | url file://abs/lib.bund | fail · - | fail · - |
-| 135 | host 127.0.0.10, no_proxy=127.0.0.010 | p1 · p1:GET http://127.0.0.10:O/lib.bund | fail · - |
+| 135 | host 127.0.0.10, no_proxy=127.0.0.010 | p1 · p1:GET http://127.0.0.10:O/lib.bund | p1 · p1:CONNECT 127.0.0.10:O, p1:GET /lib.bund |
 | 136 | host 127.0.0.8, no_proxy=127.0.0.010 | p1 · p1:GET http://127.0.0.8:O/lib.bund | p1 · p1:CONNECT 127.0.0.8:O, p1:GET /lib.bund |
 | 137 | host 127.0.0.10, no_proxy=127.0.0.012 | p1 · p1:GET http://127.0.0.10:O/lib.bund | p1 · p1:CONNECT 127.0.0.10:O, p1:GET /lib.bund |
-| 138 | host 127.0.0.1, no_proxy=127.0.0.01 | p1 · p1:GET http://127.0.0.1:O/lib.bund | origin · origin:GET /lib.bund |
+| 138 | host 127.0.0.1, no_proxy=127.0.0.01 | p1 · p1:GET http://127.0.0.1:O/lib.bund | p1 · p1:CONNECT 127.0.0.1:O, p1:GET /lib.bund |
 | 139 | host 127.0.0.1, no_proxy=127.0.0.1/8x | origin · origin:GET /lib.bund | origin · origin:GET /lib.bund |
 | 140 | host 127.0.0.010, no_proxy=127.0.0.8 | fail · - | fail · - |
 | 141 | host 127.0.0.010, no_proxy=127.0.0.10 | p1 · p1:GET http://127.0.0.8:O/lib.bund | p1 · p1:CONNECT 127.0.0.8:O, p1:GET /lib.bund |
@@ -374,10 +376,10 @@ commit**, and those seven have not been measured again.
 | 331 | host [0:0:0:0:0:0:0:2], no_proxy=::2 | fail · - | fail · - |
 | 332 | host [0:0:0:0:0:0:0:2], no_proxy=::0.0.0.2 | p1 · p1:GET http://[::2]:O/x | p1 · p1:CONNECT [::2]:O, p1:GET /x |
 | 333 | host [::2], no_proxy=::0.0.0.2 | p1 · p1:GET http://[::2]:O/x | p1 · p1:CONNECT [::2]:O, p1:GET /x |
-| 334 | no_proxy=0127.0.0.1 | p1 · p1:GET http://127.0.0.1:O/x | origin · origin:GET /x |
-| 335 | no_proxy=00127.0.0.1 | p1 · p1:GET http://127.0.0.1:O/x | origin · origin:GET /x |
-| 336 | no_proxy=127.0.0.0001 | p1 · p1:GET http://127.0.0.1:O/x | origin · origin:GET /x |
-| 337 | no_proxy=127.0.0.0000000000000000000000000000001 | p1 · p1:GET http://127.0.0.1:O/x | origin · origin:GET /x |
+| 334 | no_proxy=0127.0.0.1 | p1 · p1:GET http://127.0.0.1:O/x | p1 · p1:CONNECT 127.0.0.1:O, p1:GET /x |
+| 335 | no_proxy=00127.0.0.1 | p1 · p1:GET http://127.0.0.1:O/x | p1 · p1:CONNECT 127.0.0.1:O, p1:GET /x |
+| 336 | no_proxy=127.0.0.0001 | p1 · p1:GET http://127.0.0.1:O/x | p1 · p1:CONNECT 127.0.0.1:O, p1:GET /x |
+| 337 | no_proxy=127.0.0.0000000000000000000000000000001 | p1 · p1:GET http://127.0.0.1:O/x | p1 · p1:CONNECT 127.0.0.1:O, p1:GET /x |
 | 338 | no_proxy=127.0.0.9/+8 | origin · origin:GET /x | origin · origin:GET /x |
 | 339 | no_proxy=127.0.0.9/4294967304 | origin · origin:GET /x | origin · origin:GET /x |
 | 340 | no_proxy=127.0.0.1/+33 | p1 · p1:GET http://127.0.0.1:O/x | p1 · p1:CONNECT 127.0.0.1:O, p1:GET /x |
