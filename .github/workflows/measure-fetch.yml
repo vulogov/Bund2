@@ -1,0 +1,65 @@
+name: measure-fetch
+
+# Where a fetch goes, on the oracle and on Bund2, on Linux x86-64: the table
+# `docs/measurements/fetch.py` prints, which until now exists for macOS arm64
+# and one libcurl alone. Not a gate: nothing here fails on a difference. It
+# produces the table as an artefact for a person to read.
+on:
+  workflow_dispatch:
+  push:
+    branches: [development/stage2]
+    paths:
+      - .github/workflows/measure-fetch.yml
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: what the oracle will link
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev libssl-dev pkg-config cmake clang
+          uname -a
+          curl-config --version
+          python3 --version
+      - name: build the oracle, out of tree
+        run: |
+          cargo build --release --manifest-path reference/Bund/Cargo.toml --target-dir target/oracle
+          git -C reference/Bund status --short
+          ldd target/oracle/release/bund | grep -i -E "curl|ssl" || echo "no libcurl among the oracle's shared libraries: it is linked statically"
+      - name: build Bund2
+        run: cargo build -p bund2-cli
+      - name: measure
+        run: |
+          # Port 80 is where a client goes that has lost the port it was given.
+          sudo sysctl -w net.ipv4.ip_unprivileged_port_start=80
+          root="$PWD"
+          mkdir -p "$RUNNER_TEMP/fetch" && cd "$RUNNER_TEMP/fetch"
+          python3 "$root/docs/measurements/fetch.py" --port80 \
+            "$root/target/oracle/release/bund" "$root/target/debug/bund2" > "$root/fetch-linux.md"
+          wc -l "$root/fetch-linux.md"
+      - name: the table
+        if: always()
+        run: |
+          {
+            echo '```'
+            uname -srm
+            curl-config --version || true
+            ldd target/oracle/release/bund | grep -i curl || echo "libcurl: static"
+            git rev-parse HEAD
+            echo '```'
+            cat fetch-linux.md
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fetch-linux
+          path: fetch-linux.md
