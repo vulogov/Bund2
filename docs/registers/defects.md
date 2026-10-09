@@ -4033,6 +4033,62 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F186 — a report takes time that grows with the square of its message
+
+**A Bund2 defect, found 2026-10-09** by RFC-0006's fourteenth review (S8).
+Outside that RFC; met on the fetch's refusal path.
+
+A fatal report is a `comfy_table` with a width set
+(`crates/bund2-stdlib/src/report.rs`, `render_fatal`), and its `Error` row
+is the message whole. `use` puts its operand in the message — `USE can not
+get from {addr}` — as the reference does
+(`reference/Bund/src/stdlib/functions/bund/bund_use.rs:9-49`), so a long
+operand is a long cell with nowhere to break. Measured on `caa1e8d`, a
+`use` of a string no scheme of which is fetched:
+
+| the operand | oracle | Bund2, debug | Bund2, release |
+|---|---|---|---|
+| 10,000 bytes | 0.02 s | 0.35 s | — |
+| 20,000 | 0.02 s | 1.37 s | 0.10 s |
+| 40,000 | 0.02 s | 5.42 s | 0.32 s |
+| 80,000 | — | — | 1.27 s |
+
+Four times the time for twice the length. The fetch returns at once; the
+time is the report's. The release figures are from a binary built earlier
+the same day, before `caa1e8d`; nothing since has touched the report. The
+reference sets no width on its table and does not wrap.
+
+D36 bounds a *value* in a report with `BundValue::summary`. A message is
+not a value and has no bound.
+
+**Disposition: FIX, not yet made.** What the bound on a message is, and
+whether the report says it cut one, is not decided; nothing in the tree
+changed for this entry.
+
+## F185 — the reference fetches without the proxy when the proxy's credentials do not decode
+
+**A defect in the original implementation, found 2026-10-09** by RFC-0006's
+fourteenth review (B2). It is libcurl's, and the reference inherits it by
+setting no proxy option
+(`reference/Bund/src/stdlib/helpers/file_helper.rs:42-46`).
+
+Measured against the oracle at `21b40b0` (libcurl 8.7.1, macOS);
+`docs/measurements/fetch-2026-10-09.md`, rows 393 to 400 and 420 to 422.
+With `http_proxy=http://a%00b@127.0.0.1:<proxy>`, a `use` of an `http:` URL
+is fetched **directly from the origin**, as though the variable were unset.
+The same for `%01`, `%09`, `%0a`, `%0d` and `%1f`, in the name or in the
+password, with a scheme or without, and in `all_proxy`; and when
+`all_proxy` names a second proxy that one is not tried. `%20`, `%7f`, `%80`
+and `%ff` are decoded and sent, and the proxy is used.
+
+So one byte in a proxy's password decides whether code is fetched through
+the proxy the user set or from the origin, and nothing is reported. Why
+libcurl does it was not traced past the measurement.
+
+**Disposition: FIX, by D128**, ruled 2026-10-09. Bund2 does not go direct:
+it fails the fetch and asks nobody. Reproducing this was D128's option 2,
+and was not chosen. *(Until the ruling this read "open, with D128".)*
+
 ## F184 — the reference's `file` cannot read a path with a space in it
 
 **A defect in the original implementation, found 2026-10-09** while
@@ -4106,6 +4162,36 @@ in `http_url` and `curls_path` and both measured:
 fetches and Bund2 still refuses — `<`, `>` or a backtick in a path, `%xx` in
 a host, an IPv6 zone, a host that is not ASCII — are not fixed: each fails
 closed, and D127 approves that as a rule.
+
+**Note, 2026-10-09 (RFC-0006's fourteenth review, B3, S1 and S4).** Three
+more things the reference does with a URL before it acts on it. Each was a
+part of the string Bund2 handed on unread; all three are now read in
+`host.rs` and measured.
+
+- **A `file:` path loses its dot segments as text.** libcurl removes them
+  for every scheme, before the path is decoded and before the system sees
+  it. Bund2 gave the path to the file system, which resolves `..` against
+  what is there. So through a link, `"/d/link/../t.bund" file` read
+  `/d/t.bund` in the reference and the file above the link's target in
+  Bund2, **both silently, and it is the `file` word as much as `use`**; and
+  where the segment before `..` was a file or was missing the reference
+  read and Bund2 failed. `curls_path` is now applied to a `file:` path
+  first. Rows 424 to 434; `fetch_takes_file_urls_by_curls_rules`, with a
+  link.
+- **A URL's credentials are decoded.** `a%40b:c%3Ad@host` is sent by the
+  reference as `a@b:c:d`, and was sent by Bund2 as written, so a server
+  that checks the header answered the two differently, and a test pinned
+  the undecoded form. `credentials` decodes the name and the password and
+  Bund2 writes the header itself; the URL `ureq` reads has no user part.
+  `%00` in either is refused, as the reference refuses it — Bund2 fetched
+  it, directly, with no proxy needed. Rows 361 to 391.
+- **An IPv6 host is sent in libcurl's text when that is shorter.**
+  `[0:0:0:0:0:0:0:1]` goes out as `[::1]`; `[::A]` and `[::ffff:7f00:1]`
+  as written. `curls_host` and `curls_ipv6`. Rows 306 to 322.
+
+`a_url_is_rewritten_as_libcurl_sends_it`, and on the wire
+`a_request_carries_what_the_reference_sends` in
+`crates/bund2-cli/tests/fetch_proxy.rs`.
 
 ## F182 — a fetch obeyed proxy variables the reference does not read
 
@@ -4207,6 +4293,42 @@ reference uses the proxy. `curls_proxy` now hands `ureq` the address alone.
 `a_url_is_rewritten_as_libcurl_sends_it`. The measurement was run again with
 a listener on port 80 and with every connection recorded, not only HTTP
 ones; it is 278 settings now.
+
+**Note, 2026-10-09 (RFC-0006's fourteenth review, B1 and B2).** The second
+note's fix read the port and passed the two fields beside it on as text.
+`http::Uri` takes a host libcurl refuses, so **with a proxy set, Bund2 sent
+`CONNECT a!b.invalid:<port>` to the proxy and evaluated its answer, for a
+URL the reference refuses**: any host holding `!`, `$`, `&`, `'`, `(`, `)`,
+`*`, `+`, `,`, `;` or `=`, and a bracketed host that is not an address,
+`[zz]`. Without a proxy both failed, Bund2 by asking a resolver for the
+name. That is the direction D127 names a defect.
+
+Fixed in `host.rs`, `curls_host`, which `Authority` now calls for a URL's
+host and for a proxy's: a name is letters, digits and `-._~|`; an address
+between brackets has to parse; anything else is refused before `ureq` or a
+resolver is given it. Rows 279 to 305, and
+`a_url_the_reference_refuses_reaches_no_listener`, which counts the
+connections.
+
+Three rules of `no_proxy` were also not the reference's, and sent the two
+to different listeners in both directions:
+
+- **An entry's number may have any count of leading zeros.** `0127.0.0.1`
+  is `127.0.0.1` to the reference; `ipv4` refused a part longer than three
+  digits. Rows 334 to 337.
+- **A prefix length is what C's `atoi` reads, taken as unsigned.** `/+8` is
+  eight bits, `/+33` and `/-8` match nothing, `/4294967304` is eight.
+  `leading_number` read a sign as no digits. It is `atoi` now. Rows 338 to
+  359.
+- **An IPv6 host is matched as a name, by the text libcurl gives it.** Bund2
+  compared Rust's text for the address, which is another text for
+  `::ffff:7f00:1`, and so bypassed the proxy where the reference did not
+  and the reverse. Matched as a name, `[::FFFF:127.0.0.1]` is on a list
+  naming `0.1`, which the reference also shows. Rows 323 to 333.
+
+`no_proxy_matches_as_libcurl_matches`. **Left open: a proxy's own
+credentials**, where the reference does one of three things and Bund2 now
+fails the fetch (D128, F185).
 
 ## F181 — `bund2 build` wrote through `--output`, and a hard link to the builder destroyed it
 

@@ -767,6 +767,12 @@ fn setproctitle(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> 
 /// Decode `%xx` escapes as curl does in a `file://` path. A `%` not followed
 /// by two hex digits is kept as it is.
 fn percent_decode(s: &str) -> Option<String> {
+    String::from_utf8(percent_bytes(s)).ok()
+}
+
+/// [`percent_decode`] before the bytes are asked to be text: a credential
+/// may decode to any byte.
+fn percent_bytes(s: &str) -> Vec<u8> {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
@@ -784,7 +790,7 @@ fn percent_decode(s: &str) -> Option<String> {
             (None, _, _) => break,
         }
     }
-    String::from_utf8(out).ok()
+    out
 }
 
 /// Fetch a URI's contents as text — the reference's `get_file_from_uri`
@@ -845,18 +851,27 @@ fn proxy_for(host: &str, env: &dyn Fn(&str) -> Option<String>) -> Result<Option<
     }
 }
 
-/// An authority — `user@host:port` — taken apart as libcurl takes it, with
-/// the port read as a number. `None` is an authority libcurl refuses.
+/// An authority — `user@host:port` — taken apart as libcurl takes it. `None`
+/// is an authority libcurl refuses.
 ///
-/// **Nothing after the colon is passed on as text.** `http` reads a port it
-/// cannot parse as no port, and `ureq` then supplies its default, so
-/// `:65536` once fetched from port 80 where the reference refuses the URL
-/// (F182's second note). A port is digits and nothing else, leading zeros
-/// allowed, from 1 to 65535; an empty one is `Ok(None)`, the default. And
-/// the user part holds no second `@`: `a@b@host` is refused, measured.
+/// **No part of it is passed on as text.** `ureq` reads what it is handed
+/// with `http::Uri`, a second parser with its own rules, and whatever the two
+/// read differently is a fetch the reference would not make (D127). Each part
+/// was found that way, one review after another:
+///
+/// - **The port** is digits and nothing else, leading zeros allowed, from 1
+///   to 65535; an empty one is `Some(None)`, the default. `http` reads a port
+///   it cannot parse as no port, so `:65536` once fetched from port 80 where
+///   the reference refuses the URL (F182's second note).
+/// - **The host** is read by [`curls_host`]. `http::Uri` takes `a!b` and
+///   `[zz]`, which libcurl refuses, and a proxy was asked for them.
+/// - **The user part** holds no second `@`: `a@b@host` is refused. It is kept
+///   as written here, and neither caller writes it into a URL unread: see
+///   [`credentials`] for a URL's and [`curls_proxy`] for a proxy's.
 struct Authority<'a> {
     user: Option<&'a str>,
-    host: &'a str,
+    /// As libcurl has it after reading the URL, brackets included.
+    host: String,
     /// `Some(None)` is a colon with nothing after it.
     port: Option<Option<u16>>,
 }
@@ -872,16 +887,13 @@ impl<'a> Authority<'a> {
             Some((host, port)) if !port.contains(']') => (host, Some(port)),
             _ => (hostport, None),
         };
-        // A colon in a host is an IPv6 address's, inside its brackets.
-        let bracketed = host.starts_with('[') && host.ends_with(']');
-        if host.is_empty() || (host.contains(':') && !bracketed) {
-            return None;
-        }
+        let host = curls_host(host)?;
         let port = match port {
             None => None,
             Some("") => Some(None),
             Some(digits) if digits.bytes().all(|b| b.is_ascii_digit()) => {
-                // A number too long to parse is over 65535 as well.
+                // What is left after the zeros is at most five digits, or
+                // it is over 65535 and does not parse.
                 let n = digits.trim_start_matches('0').parse::<u16>().ok()?;
                 Some(Some(n))
             }
@@ -890,20 +902,119 @@ impl<'a> Authority<'a> {
         Some(Self { user, host, port })
     }
 
-    /// `user@host:port`, with `port` for one that was not written.
-    fn written(&self, host: &str, port: Option<u16>) -> String {
-        let mut out = String::new();
-        if let Some(user) = self.user {
-            out.push_str(user);
-            out.push('@');
+    /// `host:port`, with `port` for one that was not written. The user part
+    /// is not in it.
+    fn address(&self, port: Option<u16>) -> String {
+        match self.port.flatten().or(port) {
+            Some(port) => format!("{}:{port}", self.host),
+            None => self.host.clone(),
         }
-        out.push_str(host);
-        if let Some(port) = self.port.flatten().or(port) {
-            out.push(':');
-            out.push_str(&port.to_string());
-        }
-        out
     }
+}
+
+/// A URL's host as libcurl 8.7.1 has it once the URL is read, or `None` for
+/// one it refuses. Measured against the oracle, rows 279 to 333 of
+/// `docs/measurements/fetch-2026-10-09.md`.
+///
+/// - **A name** is letters, digits and `-`, `.`, `_`, `~`, `|`. libcurl
+///   refuses every other punctuation byte, and with a proxy set that is the
+///   only check there is: the name is never resolved here. `%xx` and a byte
+///   above ASCII it accepts; Bund2 refuses both (D127).
+/// - **An IPv4 address** in any spelling [`url_ipv4`] reads becomes four
+///   decimal numbers.
+/// - **An IPv6 address** is hex digits, colons and dots between brackets, and
+///   has to parse. It is rewritten in [`curls_ipv6`]'s text when that is
+///   shorter than what was written and left alone otherwise, so `[::A]` and
+///   `[::ffff:7f00:1]` go out as written and `[0:0:0:0:0:0:0:A]` as `[::a]`.
+///   A zone is refused (D127).
+fn curls_host(text: &str) -> Option<String> {
+    if let Some(inner) = text.strip_prefix('[') {
+        let inner = inner.strip_suffix(']')?;
+        if !inner.bytes().all(|b| b.is_ascii_hexdigit() || b == b':' || b == b'.') {
+            return None;
+        }
+        let short = curls_ipv6(inner.parse().ok()?);
+        return Some(if short.len() < inner.len() { format!("[{short}]") } else { text.to_string() });
+    }
+    let named = |b: u8| b.is_ascii_alphanumeric() || b"-._~|".contains(&b);
+    if text.is_empty() || !text.bytes().all(named) {
+        return None;
+    }
+    Some(match url_ipv4(text) {
+        Some(addr) => std::net::Ipv4Addr::from(addr).to_string(),
+        None => text.to_string(),
+    })
+}
+
+/// An IPv6 address in the text libcurl's own `inet_ntop` writes: lower-case
+/// hex, the first longest run of two or more zero groups as `::`, and the
+/// last four bytes in dotted form when the six groups before them are zero
+/// or are five zeros and `ffff`. Rust's `Display` agrees except for the
+/// first of those two, where it writes `::102:304` for `::1.2.3.4`.
+fn curls_ipv6(addr: std::net::Ipv6Addr) -> String {
+    let words = addr.segments();
+    // (start, length) of the run that becomes `::`.
+    let mut best = (0, 0);
+    let mut run = (0, 0);
+    for (i, word) in words.iter().enumerate() {
+        if *word != 0 {
+            run = (i + 1, 0);
+            continue;
+        }
+        run.1 += 1;
+        if run.1 > best.1 {
+            best = run;
+        }
+    }
+    if best.1 < 2 {
+        best = (8, 0);
+    }
+    let dotted = best.0 == 0 && (best.1 == 6 || (best.1 == 5 && words.get(5) == Some(&0xffff)));
+    let mut out = String::new();
+    for (i, word) in words.iter().enumerate() {
+        if i >= best.0 && i < best.0 + best.1 {
+            if i == best.0 {
+                out.push(':');
+            }
+            continue;
+        }
+        if i != 0 {
+            out.push(':');
+        }
+        if i == 6 && dotted {
+            let o = addr.octets();
+            if let Some([a, b, c, d]) = o.get(12..) {
+                out.push_str(&format!("{a}.{b}.{c}.{d}"));
+            }
+            return out;
+        }
+        out.push_str(&format!("{word:x}"));
+    }
+    if best.0 + best.1 == 8 && best.1 != 0 {
+        out.push(':');
+    }
+    out
+}
+
+/// What a URL's user part puts in `Authorization: Basic`, as the oracle sent
+/// it (rows 361 to 391): the name is what stands before the first colon and
+/// the password the rest, each with its `%xx` decoded, joined by a colon
+/// that is there even with no password. `None` is a user part libcurl
+/// refuses: one that decodes to a zero byte, or holds a blank or a control
+/// character as written.
+///
+/// The bytes go into the header from here and the URL `ureq` is handed has no
+/// user part. Left in the URL they were sent undecoded — `a%40b` for `a@b` —
+/// and a server that checks them answered the two differently.
+fn credentials(user: &str) -> Option<Vec<u8>> {
+    if user.bytes().any(|b| b <= b' ' || b == 0x7f) {
+        return None;
+    }
+    let (name, password) = user.split_once(':').unwrap_or((user, ""));
+    let mut out = percent_bytes(name);
+    out.push(b':');
+    out.extend(percent_bytes(password));
+    (!out.contains(&0)).then_some(out)
 }
 
 /// The HTTP proxy `ureq` is handed: `rest` is the variable's text after any
@@ -913,13 +1024,26 @@ impl<'a> Authority<'a> {
 /// came first, and is refused when none did. Whatever follows the address —
 /// a slash, a path, a query — is dropped, as the reference ignores it; left
 /// in, `ureq` refuses a proxy that has one and no scheme. All measured.
+///
+/// **Credentials with a `%xx` escape in them fail the fetch** (D128).
+/// libcurl decodes them, and `ureq` sends a proxy's credentials as its URL
+/// spells them, with nowhere to hand it bytes instead; so Bund2 cannot send
+/// what the reference sends, and what it did send — `a%40b` for `a@b` — is
+/// a different login. When the escape is for a byte below `0x20` the
+/// reference does a third thing, and fetches with no proxy at all (F185).
+/// Rows 392 to 422.
 fn curls_proxy(rest: &str, had_scheme: bool) -> Option<String> {
     let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let authority = Authority::of(rest.get(..end)?)?;
     if authority.port == Some(None) && !had_scheme {
         return None;
     }
-    Some(format!("http://{}", authority.written(authority.host, Some(1080))))
+    let address = authority.address(Some(1080));
+    match authority.user {
+        Some(user) if percent_bytes(user) != user.as_bytes() => None,
+        Some(user) => Some(format!("http://{user}@{address}")),
+        None => Some(format!("http://{address}")),
+    }
 }
 
 /// Whether `host` is on a `no_proxy` list, as libcurl 8.7.1 decides it.
@@ -931,33 +1055,37 @@ fn curls_proxy(rest: &str, had_scheme: bool) -> Option<String> {
 ///   ignoring case, one leading dot on the entry, and one trailing dot on
 ///   either. `*.example.com` matches nothing: only the lone `*` is a wildcard.
 /// - **An IPv4 address** matches the same address, or `address/bits` for a
-///   prefix of 1 to 32 bits. `/0` and a prefix that is not a number mean the
-///   whole address, as C's `atoi` leaves them. The host is an address in any
-///   spelling [`url_ipv4`] reads, so `127.1` is on a list naming `127.0.0.1`;
-///   an entry is one only as four decimal numbers.
-/// - **An IPv6 address** matches its own text in shortest form and nothing
-///   else. No prefix matched in the measurement, `::1/128` included.
+///   prefix of 1 to 32 bits. The bits are what C's [`atoi`] reads, so `/0`
+///   and `/x` mean the whole address, `/+8` is eight bits and `/-8` matches
+///   nothing. The host is an address in any spelling [`url_ipv4`] reads, so
+///   `127.1` is on a list naming `127.0.0.1`; an entry is one only as four
+///   decimal numbers ([`ipv4`]).
+/// - **An IPv6 address** is matched as a name is, by the text
+///   [`curls_host`] gives it, without its brackets. So `[0:0:0:0:0:0:0:1]`
+///   is on a list naming `::1` and not on one naming itself, no prefix
+///   matches, `::1/128` included, and `[::FFFF:127.0.0.1]` is on a list
+///   naming `0.1`, which is its last "domain". That is libcurl treating an
+///   address as a host name, and it is what decides the listener.
 ///
-/// An entry never carries a port.
+/// An entry never carries a port. A host libcurl would refuse is on no list.
 fn bypasses(host: &str, list: &str) -> bool {
     if list == "*" {
         return true;
     }
+    let Some(host) = curls_host(host) else {
+        return false;
+    };
     let host = host.trim_start_matches('[').trim_end_matches(']');
     let entries = list.split([',', ' ', '\t']).filter(|e| !e.is_empty());
-    if let Ok(v6) = host.parse::<std::net::Ipv6Addr>() {
-        let text = v6.to_string();
-        return entries.into_iter().any(|e| e.eq_ignore_ascii_case(&text));
-    }
-    if let Some(addr) = url_ipv4(host) {
+    if let Some(addr) = ipv4(host) {
         return entries.into_iter().any(|e| {
             let (net, bits) = match e.split_once('/') {
-                Some((net, bits)) => (net, leading_number(bits)),
-                None => (e, Some(0)),
+                Some((net, bits)) => (net, atoi(bits)),
+                None => (e, 0),
             };
             match (ipv4(net), bits) {
-                (Some(net), Some(0 | 32)) => net == addr,
-                (Some(net), Some(bits @ 1..=31)) => (net ^ addr) >> (32 - bits) == 0,
+                (Some(net), 0 | 32) => net == addr,
+                (Some(net), bits @ 1..=31) => (net ^ addr) >> (32 - bits) == 0,
                 _ => false,
             }
         });
@@ -976,16 +1104,19 @@ fn bypasses(host: &str, list: &str) -> bool {
 }
 
 /// A dotted IPv4 address as a number. Leading zeros are taken as decimal,
-/// which `Ipv4Addr`'s parser refuses and the oracle's libcurl accepts.
+/// however many: `Ipv4Addr`'s parser refuses them and the oracle's libcurl
+/// took `0127.0.0.1` and a part with thirty of them (rows 334 to 337).
 fn ipv4(text: &str) -> Option<u32> {
     let mut parts = text.split('.');
     let mut addr = 0u32;
     for _ in 0..4 {
         let part = parts.next()?;
-        if part.is_empty() || part.len() > 3 || !part.bytes().all(|b| b.is_ascii_digit()) {
+        if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
             return None;
         }
-        addr = (addr << 8) | u32::from(part.parse::<u8>().ok()?);
+        let digits = part.trim_start_matches('0');
+        let n = if digits.is_empty() { 0 } else { digits.parse::<u8>().ok()? };
+        addr = (addr << 8) | u32::from(n);
     }
     parts.next().is_none().then_some(addr)
 }
@@ -1075,37 +1206,48 @@ impl Target {
     }
 }
 
+/// An `http:` URL as `ureq` is handed it.
+struct HttpUrl {
+    /// With no user part: see `login`.
+    url: String,
+    /// As [`curls_host`] gives it, for [`proxy_for`].
+    host: String,
+    /// The bytes for `Authorization: Basic`, when the URL has a user part.
+    login: Option<Vec<u8>>,
+}
+
 /// The URL `ureq` is handed for `rest`, the part of an `http:` URL after its
-/// slashes, and the host it names. It is written as libcurl sends it, each
-/// part measured against the oracle:
+/// slashes. It is written as libcurl sends it, each part measured against
+/// the oracle:
 ///
-/// - an IPv4 host as four decimal numbers, so `Host` is `127.0.0.1` for
-///   `127.1`;
+/// - the host as [`curls_host`] gives it, so `Host` is `127.0.0.1` for
+///   `127.1` and `[::1]` for `[0:0:0:0:0:0:0:1]`;
 /// - the port as a number, or none ([`Authority`]);
+/// - the user part not at all: it becomes a header ([`credentials`]);
 /// - the path with its dot segments removed — `/a/../b` is `/b` — and its
 ///   bytes above ASCII percent-encoded. A query is sent as written, and
 ///   `%2e%2e` is not a dot segment.
 ///
 /// `None` is a URL libcurl refuses.
-fn http_url(rest: &str) -> Option<(String, String)> {
+fn http_url(rest: &str) -> Option<HttpUrl> {
     let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let (authority, tail) = rest.split_at_checked(end)?;
     let authority = Authority::of(authority)?;
-    let host = match url_ipv4(authority.host) {
-        Some(addr) => std::net::Ipv4Addr::from(addr).to_string(),
-        None => authority.host.to_string(),
+    let login = match authority.user {
+        Some(user) => Some(credentials(user)?),
+        None => None,
     };
     let tail = tail.split('#').next()?;
     let (path, query) = match tail.split_once('?') {
         Some((path, query)) => (path, Some(query)),
         None => (tail, None),
     };
-    let mut url = format!("http://{}{}", authority.written(&host, None), curls_path(path));
+    let mut url = format!("http://{}{}", authority.address(None), curls_path(path));
     if let Some(query) = query {
         url.push('?');
         url.push_str(query);
     }
-    Some((url, host))
+    Some(HttpUrl { url, host: authority.host, login })
 }
 
 /// A URL's path as libcurl sends it: dot segments removed as RFC 3986
@@ -1146,27 +1288,39 @@ fn curls_path(path: &str) -> String {
     out
 }
 
-/// The number C's `atoi` reads from the front of `text`: its leading digits,
-/// or 0 when it has none. `None` is a number too large to be a prefix length,
-/// a negative one included.
-fn leading_number(text: &str) -> Option<u32> {
-    let digits = text.bytes().take_while(u8::is_ascii_digit).count();
-    match text.get(..digits) {
-        Some("") if text.starts_with('-') => None,
-        Some("") => Some(0),
-        Some(n) => n.parse().ok(),
-        None => None,
+/// C's `atoi`, as libcurl calls it on a `no_proxy` entry's prefix length and
+/// then reads the result as unsigned: blanks, one sign, the digits that
+/// follow, and nothing for what comes after them. A number past 64 bits stops
+/// at the largest, as `strtol` stops, and what is kept is the low 32 bits.
+/// So `+8` is 8, `x` and `+` are 0, `4294967304` is 8, and `-8` is a number
+/// far above 32. Rows 338 to 359.
+fn atoi(text: &str) -> u32 {
+    let text = text.trim_start_matches([' ', '\t', '\n', '\x0b', '\x0c', '\r']);
+    let (negative, digits) = match text.strip_prefix('-') {
+        Some(digits) => (true, digits),
+        None => (false, text.strip_prefix('+').unwrap_or(text)),
+    };
+    let mut n = 0i64;
+    for digit in digits.bytes().take_while(u8::is_ascii_digit) {
+        let digit = i64::from(digit - b'0');
+        n = n.saturating_mul(10);
+        n = if negative { n.saturating_sub(digit) } else { n.saturating_add(digit) };
     }
+    n as u32
 }
 
 /// [`fetch_uri`] with the environment as a function, so a test can name a
 /// proxy without setting a variable every other test in the process reads.
 fn fetch_uri_in(uri: &str, env: &dyn Fn(&str) -> Option<String>) -> Option<String> {
     let bytes = match Target::of(uri)? {
-        Target::File(path) => std::fs::read(percent_decode(&path)?).ok()?,
+        // The dot segments go from the text before the file system sees a
+        // path, as libcurl takes them out for every scheme: through a link,
+        // `/d/link/../t` is `/d/t` to the reference and somewhere else to
+        // the system. `%2e%2e` is not one, so the path is decoded after.
+        Target::File(path) => std::fs::read(percent_decode(&curls_path(&path))?).ok()?,
         Target::Http(rest) => {
-        let (uri, host) = http_url(&rest)?;
-        let proxy = match proxy_for(&host, env).ok()? {
+        let target = http_url(&rest)?;
+        let proxy = match proxy_for(&target.host, env).ok()? {
             Some(proxy) => Some(ureq::Proxy::new(&proxy).ok()?),
             None => None,
         };
@@ -1178,7 +1332,13 @@ fn fetch_uri_in(uri: &str, env: &dyn Fn(&str) -> Option<String>) -> Option<Strin
             .user_agent("ZBUS")
             .build()
             .into();
-        let mut resp = agent.get(&uri).call().ok()?;
+        let mut request = agent.get(&target.url);
+        if let Some(login) = &target.login {
+            use base64ct::Encoding as _;
+            let login = base64ct::Base64::encode_string(login);
+            request = request.header("Authorization", format!("Basic {login}"));
+        }
+        let mut resp = request.call().ok()?;
         resp.body_mut()
             .with_config()
             .limit(u64::MAX)
@@ -2285,6 +2445,30 @@ mod tests {
         ] {
             assert_eq!(fetch_uri(&url).as_deref(), Some("hi"), "{url}");
         }
+        // The fourteenth review's B3: dot segments leave the text before
+        // the file system resolves anything, so a link, a file or nothing at
+        // all may stand before a `..`. `%2e%2e` is not a dot segment.
+        std::fs::create_dir_all(d.join("real/sub")).expect("mkdir");
+        std::fs::write(d.join("t.txt"), "above the link").expect("write");
+        std::fs::write(d.join("real/t.txt"), "above its target").expect("write");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(d.join("real/sub"), d.join("link")).expect("link");
+        let dir = d.display().to_string();
+        for (path, text) in [
+            #[cfg(unix)]
+            ("link/../t.txt", "above the link"),
+            #[cfg(unix)]
+            ("link/./../t.txt", "above the link"),
+            #[cfg(unix)]
+            ("link/%2e%2e/t.txt", "above its target"),
+            ("nosuch/../t.txt", "above the link"),
+            ("a%20b.txt/../t.txt", "above the link"),
+            ("real/sub/../t.txt", "above its target"),
+            ("./t.txt", "above the link"),
+        ] {
+            assert_eq!(fetch_uri(&format!("file://{dir}/{path}")).as_deref(), Some(text), "{path}");
+            assert_eq!(fetch_uri(&format!("file://localhost{dir}/{path}")).as_deref(), Some(text), "{path}");
+        }
         for url in [
             "file://localhost".to_string(),
             format!("file://127.1{encoded}"),
@@ -2336,6 +2520,23 @@ mod tests {
         assert_eq!(on("127.0.0.1"), at("127.0.0.1:1080"));
         assert_eq!(on("http://localhost"), at("localhost:1080"));
         assert_eq!(on("u:p@127.0.0.1"), at("u:p@127.0.0.1:1080"));
+        assert_eq!(on("http://0x7f.1:3128"), at("127.0.0.1:3128"), "the address, not the spelling");
+        assert_eq!(on("http://[0:0:0:0:0:0:0:1]:3128"), at("[::1]:3128"));
+        // Credentials libcurl would decode cannot be sent as it sends them,
+        // so the fetch fails; it does not send them undecoded, and it does
+        // not go on without the proxy as the reference does for a control
+        // byte (D128, F185). The fourteenth review's B2.
+        for user in ["a%00b", "u:%00", "a%01b", "a%0ab", "u:%1f", "a%20b", "a%40b:c%3Ad", "a%ffb"] {
+            assert_eq!(on(&format!("http://{user}@127.0.0.1:3128")), Err(()), "{user}");
+            assert_eq!(on(&format!("{user}@127.0.0.1:3128")), Err(()), "{user}, no scheme");
+        }
+        for user in ["", ":", "u:", ":p", "a:b:c", "%zz", "a%", "a%4", "a;b"] {
+            assert_eq!(
+                on(&format!("http://{user}@127.0.0.1:3128")),
+                at(&format!("{user}@127.0.0.1:3128")),
+                "{user}"
+            );
+        }
         assert_eq!(on("http://127.0.0.1:/"), at("127.0.0.1:1080"));
         assert_eq!(on("http://[::1]"), at("[::1]:1080"));
         assert_eq!(on("http://[::1]:3128"), at("[::1]:3128"));
@@ -2374,12 +2575,21 @@ mod tests {
             "*", "127.0.0.1", "a.example, 127.0.0.1", "a.example 127.0.0.1", "a.example\t127.0.0.1",
             "127.0.0.0/8", "127.9.9.9/8", "126.0.0.0/7", "127.0.0.1/32", "127.0.0.1/0",
             "127.0.0.1/x", "127.000.0.1",
+            // The fourteenth review's B2: zeros without limit, and a prefix
+            // length as `atoi` reads it.
+            "0127.0.0.1", "00127.0.0.1", "127.0.0.0001", "127.0.0.0000000000000000000000000000001",
+            "127.0.0.9/+8", "127.0.0.9/4294967304", "127.0.0.9/08", "127.0.0.9/8/1",
+            "127.0.0.1/-0", "127.0.0.1/4294967296", "127.0.0.1/+", "127.0.0.1/", "127.0.0.1/+0x",
+            "127.0.0.9/\n8",
         ] {
             assert!(bypasses(v4, yes), "{v4} is on {yes:?}");
         }
         for no in [
             "", " * ", "a.example,*", "127.0.0.1:80", "127.0.0", "0.0.1", "127.0.0.0/0",
             "127.0.0.1/33", "127.0.0.1/-1", "128.0.0.0/7", ".127.0.0.1", "127.0.0.1.",
+            "127.0.0.1/+33", "127.0.0.9/-8", "127.0.0.9/-0", "127.0.0.9/4294967296",
+            "127.0.0.9/4294967328", "127.0.0.1/99999999999999999999", "127.0.0.9/++8",
+            "127.0.0.9/+-8", "0300.0.0.1", "127.0.0.256",
         ] {
             assert!(!bypasses(v4, no), "{v4} is not on {no:?}");
         }
@@ -2418,12 +2628,32 @@ mod tests {
             assert!(!bypasses(v4, entry), "{entry} is not an address in a list");
         }
 
-        // An IPv6 host is on the list in its shortest form, and no other way.
-        for host in ["[::1]", "[0:0:0:0:0:0:0:1]"] {
+        // An IPv6 host is on the list by the text libcurl gives it, matched
+        // as a name is, and no other way.
+        for host in ["[::1]", "[0:0:0:0:0:0:0:1]", "[::0001]"] {
             assert!(bypasses(host, "::1"), "{host}");
-            for no in ["[::1]", "0:0:0:0:0:0:0:1", "0::1", "::1/128", "::1/0", "::/64", "::/8"] {
+            for no in ["[::1]", "0:0:0:0:0:0:0:1", "0::1", "::1/128", "::1/0", "::/64", "::/8", "::0001"] {
                 assert!(!bypasses(host, no), "{host} is not on {no:?}");
             }
+        }
+        // That text is Rust's only sometimes: the fourteenth review's B2.
+        assert!(bypasses("[::ffff:7f00:1]", "::ffff:7f00:1"));
+        assert!(!bypasses("[::ffff:7f00:1]", "::ffff:127.0.0.1"));
+        assert!(bypasses("[::FFFF:127.0.0.1]", "::ffff:127.0.0.1"));
+        assert!(bypasses("[::FFFF:127.0.0.1]", "0.1"), "an address matched as a name has domains");
+        assert!(!bypasses("[::FFFF:127.0.0.1]", "127.0.0.1"));
+        assert!(bypasses("[0:0:0:0:0:0:0:2]", "::2"));
+        assert!(!bypasses("[0:0:0:0:0:0:0:2]", "::0.0.0.2"));
+        // A host libcurl refuses is on no list, the wildcard's aside.
+        assert!(!bypasses("a!b", "a!b"));
+
+        for (text, n) in [
+            ("8", 8), ("+8", 8), ("08", 8), ("8x", 8), ("", 0), ("x", 0), ("+", 0), ("-0", 0),
+            ("++8", 0), ("+-8", 0), (" 8", 8), ("4294967296", 0), ("4294967304", 8),
+            ("-8", u32::MAX - 7), ("-1", u32::MAX), ("99999999999999999999", u32::MAX),
+            ("-99999999999999999999", 0), ("-4294967288", 8),
+        ] {
+            assert_eq!(atoi(text), n, "{text:?}");
         }
     }
 
@@ -2431,7 +2661,8 @@ mod tests {
     /// sent it or refused it: the thirteenth review's B1, S4 and S5.
     #[test]
     fn a_url_is_rewritten_as_libcurl_sends_it() {
-        let sent = |rest: &str| http_url(rest).map(|(url, _)| url);
+        let sent = |rest: &str| http_url(rest).map(|u| u.url);
+        let login = |rest: &str| http_url(rest).and_then(|u| u.login);
         let to = |url: &str| Some(format!("http://{url}"));
         // The port is a number or the URL is refused; an empty one is none.
         assert_eq!(sent("h:8080/x"), to("h:8080/x"));
@@ -2442,16 +2673,58 @@ mod tests {
             assert_eq!(sent(&format!("127.0.0.1:{port}/x")), None, "{port:?}");
             assert_eq!(sent(&format!("localhost:{port}/x")), None, "{port:?}");
         }
-        // One user part.
-        assert_eq!(sent("a:b:c@h:1/x"), to("a:b:c@h:1/x"));
-        assert_eq!(sent("@h:1/x"), to("@h:1/x"));
-        assert_eq!(sent("a%40b@h:1/x"), to("a%40b@h:1/x"));
+        // One user part, and it is a header and not part of the URL: the
+        // name and the password decoded, a colon between them always. The
+        // fourteenth review's B1 and S1.
+        assert_eq!(sent("a:b:c@h:1/x"), to("h:1/x"));
         assert_eq!(sent("a@b@h:1/x"), None);
+        assert_eq!(login("h:1/x"), None);
+        for (user, basic) in [
+            ("u:p", &b"u:p"[..]), ("a:b:c", b"a:b:c"), ("", b":"), (":", b":"), ("u:", b"u:"),
+            (":p", b":p"), ("u", b"u:"), ("a%40b:c%3Ad", b"a@b:c:d"), ("u%20s", b"u s:"),
+            ("a%0ab", b"a\nb:"), ("a%ffb", b"a\xffb:"), ("%zz", b"%zz:"), ("a%", b"a%:"),
+            ("a%4", b"a%4:"), ("a<b", b"a<b:"), ("a|b", b"a|b:"), ("é", "é:".as_bytes()),
+        ] {
+            assert_eq!(login(&format!("{user}@h:1/x")).as_deref(), Some(basic), "{user:?}");
+            assert_eq!(sent(&format!("{user}@h:1/x")), to("h:1/x"), "{user:?}");
+        }
+        for user in ["a%00b", "u:%00", "u s", "a\tb", "a\x7fb"] {
+            assert_eq!(sent(&format!("{user}@h:1/x")), None, "{user:?}");
+        }
         // An address in four decimal numbers; a name as written.
         assert_eq!(sent("127.1:1/x"), to("127.0.0.1:1/x"));
         assert_eq!(sent("LOCALHOST:1/x"), to("LOCALHOST:1/x"));
         assert_eq!(sent("[::1]:1/x"), to("[::1]:1/x"));
         assert_eq!(sent("[::1]/x"), to("[::1]/x"));
+        // A host is read here and not by `http::Uri`, which takes every one
+        // of these; with a proxy set nothing else would refuse them. The
+        // fourteenth review's B1.
+        for host in [
+            "a!b", "a$b", "a&b", "a'b", "a(b", "a)b", "a*b", "a+b", "a,b", "a;b", "a=b",
+            "127.0.0.1!", "127.0.0.1,1", "[zz]", "[::g]", "[1.2.3.4]", "[]", "[::1]x", "[:::1]",
+            "[::1", "::1]", "a b", "a%41", "bücher", "[::1%25lo0]", "",
+        ] {
+            assert_eq!(sent(&format!("{host}:1/x")), None, "{host:?}");
+            assert_eq!(curls_proxy(&format!("{host}:1"), true), None, "{host:?} as a proxy");
+        }
+        for host in ["a~b", "a_b", "a-b", "a.b", "A1"] {
+            assert_eq!(sent(&format!("{host}:1/x")), to(&format!("{host}:1/x")), "{host:?}");
+        }
+        // An IPv6 host in libcurl's text when that is shorter, and as it was
+        // written when it is not: the fourteenth review's S4.
+        for (written, sent_as) in [
+            ("[0:0:0:0:0:0:0:1]", "[::1]"), ("[::0001]", "[::1]"), ("[0::0:1]", "[::1]"),
+            ("[0:0:0:0:0:0:0:2]", "[::2]"), ("[::2]", "[::2]"), ("[0:0:0:0:0:0:0:A]", "[::a]"),
+            ("[::A]", "[::A]"), ("[::ffff:7f00:1]", "[::ffff:7f00:1]"),
+            ("[::FFFF:127.0.0.1]", "[::FFFF:127.0.0.1]"), ("[1:0:0:2:0:0:0:3]", "[1:0:0:2::3]"),
+            ("[1::2:0:0:0:3]", "[1:0:0:2::3]"), ("[0:0:1::]", "[0:0:1::]"),
+            ("[::1.2.3.4]", "[::1.2.3.4]"), ("[0:0:0:0:0:0:102:304]", "[::1.2.3.4]"),
+            ("[0:0:0:0:0:ffff:102:304]", "[::ffff:1.2.3.4]"), ("[1:2:3:4:5:6:7:8]", "[1:2:3:4:5:6:7:8]"),
+            ("[1:0:2:0:3:0:4:0]", "[1:0:2:0:3:0:4:0]"), ("[0:0:0:0:0:0:0:0]", "[::]"),
+            ("[1:0:0:0:0:0:0:0]", "[1::]"),
+        ] {
+            assert_eq!(curls_host(written).as_deref(), Some(sent_as), "{written}");
+        }
 
         // The path: dot segments go, bytes above ASCII are escaped.
         for (path, want) in [

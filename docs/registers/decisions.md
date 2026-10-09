@@ -3260,6 +3260,14 @@ proxy and a SOCKS or HTTPS proxy failing the fetch (D124), a literal space
 read (D125), every other scheme refused (D126), and an `http:` URL
 `http::Uri` does not accept refused (D127).
 
+**Note, 2026-10-09 (RFC-0006's fourteenth review, B2 and S3).** Two more,
+ruled the same day, the eighth and ninth for the fetch: a proxy whose
+credentials carry a `%xx` escape fails the fetch (D128), and so does a
+response `ureq` will not read (D129). Each fails closed. The same review
+found five things that no entry covers and none could, all fixed: Bund2
+fetching a URL the reference refuses, asking another listener, or reading
+another file (F182's and F183's notes of that day).
+
 ## D53 — `debug.display_hostinfo` reports Bund2's own crates, an approved deviation
 
 The reference's `debug.display_hostinfo` prints a table
@@ -3587,6 +3595,122 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D129 — a response the reference evaluates and `ureq` will not read
+
+**Raised 2026-10-09** by RFC-0006's fourteenth review (S3). Not a URL and
+not a proxy, so D127's rule does not reach it.
+
+What counts as an HTTP response is decided by the client, and the two
+clients decide two cases differently. Measured against the oracle at
+`21b40b0` (libcurl 8.7.1); `docs/measurements/fetch-2026-10-09.md`, rows 435
+to 441. The fourteenth review tried 28 shapes of response and found 26 the
+same.
+
+| the response | oracle | Bund2 |
+|---|---|---|
+| more header lines than `ureq` keeps room for | evaluates the body | asks the same listener; fails |
+| a status line `HTTP/2 200 OK` on a plain connection | evaluates the body | asks the same listener; fails |
+
+The limit on header lines is a constant of `ureq-proto` 0.6.2,
+`MAX_RESPONSE_HEADERS`, with no setting; the rows show where it falls.
+
+In both Bund2 has asked the listener the reference asks, and evaluates
+nothing.
+
+- Blocks: nothing
+- Depends on: D54
+- Status: **RESOLVED** by the repository owner, 2026-10-09: "approve D129".
+  Nothing in the tree was changed for it: this is what `ureq` 3.4.0 does
+  and has done since D54.
+
+### The options
+
+1. **Approve both** as a deviation under D54: Bund2 fails a fetch whose
+   response `ureq` will not parse. Fails closed. A server that sends that
+   many header lines exists; one that answers `HTTP/2` on a plain HTTP/1.1
+   connection is broken.
+2. **Close the first.** It needs a patched or different HTTP client, or the
+   response read by hand. The second is not worth reproducing either way.
+
+### The ruling
+
+Option 1. Bund2 fails a fetch whose response `ureq` will not parse: more
+than 128 header lines, or a status line that says `HTTP/2` on a plain
+connection. The ninth approved deviation for the fetch under D54. Bund2 has
+asked the listener the reference asks, and evaluates nothing. No code
+changes and no golden moves.
+
+*(Before the ruling this section was headed "Default, for planning only" and
+named the same option.)*
+
+## D128 — a proxy whose credentials carry a `%xx` escape
+
+**Raised 2026-10-09** by RFC-0006's fourteenth review (B2, S1). The review
+left the ruling to the owner and so does this entry.
+
+libcurl decodes a proxy's user name and password before it sends them.
+`ureq` 3.4.0 sends them as the proxy's URL spells them
+(`src/unversioned/transport/connect.rs:114-122`) and takes a proxy only as a
+URL, so there is nowhere to hand it decoded bytes: `a@b` cannot be written
+in a URL's user part except as `a%40b`. And when the escape is for a byte
+below `0x20`, the reference does not use the proxy at all (F185). Measured
+against the oracle at `21b40b0` (libcurl 8.7.1);
+`docs/measurements/fetch-2026-10-09.md`, rows 392 to 422.
+
+| `http_proxy` | oracle | Bund2 before | Bund2 now |
+|---|---|---|---|
+| `http://u:p@proxy` | through it, as `u:p` | the same | the same |
+| `http://a%40b:c%3Ad@proxy` | through it, as `a@b:c:d` | through it, as `a%40b:c%3Ad` | fails; asks nobody |
+| the same with `%20`, `%7f`, `%80`, `%ff` | through it, decoded | through it, undecoded | fails; asks nobody |
+| `http://a%00b@proxy`, and `%01` to `%1f` in the name or the password | **directly, from the origin** | **through the proxy** | fails; asks nobody |
+| `%zz`, `a%`, `a%4` — not an escape | through it, as written | the same | the same |
+
+"Before" is `caa1e8d`. The fourth row is two listeners for one setting, and
+D127 calls that a defect whenever it is found, so the tree could not stay
+there. **"Now" is a holding position and not a ruling**: of the things
+Bund2 can do with `ureq`, refusing is the only one that never asks a
+listener the reference would not, and it is where every option below either
+stays or starts from.
+
+- Blocks: RFC-0006's acceptance (§B7)
+- Depends on: D54, D124, D127, F182, F185
+- Status: **RESOLVED** by the repository owner, 2026-10-09: "D128 option 1".
+
+### The options
+
+1. **Refuse every such proxy** — what the tree does now. A proxy whose
+   credentials hold a `%xx` escape fails the fetch, and nobody is asked.
+   Fails closed in every row. The cost is real: a proxy password with a
+   reserved character in it has to be written with an escape, so such a
+   proxy cannot be used from Bund2 at all. Before this it could not be used
+   either, in the ordinary case: Bund2 logged in with the escaped text and
+   a proxy that checks the password refused it.
+2. **Reproduce the reference for a control byte**: fetch directly, with no
+   proxy, when the escape is for a byte below `0x20`, and refuse the others
+   as in 1. The same listener as the reference in those rows. It means
+   Bund2 ignores a proxy the user set and fetches code from the origin, on
+   the strength of what reads as a libcurl defect (F185).
+3. **Send the credentials decoded.** Faithful for every row but the control
+   byte, which still needs 1 or 2. `ureq` cannot do it as built; it means
+   making the tunnel by hand before `ureq` is given the connection, or
+   another client. Not a small change, and D124 declined the same trade for
+   the request's form.
+
+### The ruling
+
+Option 1. A proxy whose credentials hold a `%xx` escape fails the fetch and
+nobody is asked. The eighth approved deviation for the fetch under D54. It
+covers both halves of the table: where the reference decodes the
+credentials and uses the proxy, and where, for a byte below `0x20`, it
+fetches with no proxy at all. The second is recorded as the reference's
+defect, F185, and is not reproduced. The holding position is now the rule;
+no code changes with the ruling and no golden moves.
+
+*(Before the ruling this section was headed "Default, for planning only",
+named the same option, and said it was not adopted. The table's "Bund2
+now" column and the words "holding position" above were written while the
+entry was open.)*
+
 ## D127 — spellings of an `http:` URL the reference fetches and Bund2 refuses
 
 **Raised 2026-10-09** by RFC-0006's thirteenth review (S4). D126 approves
@@ -3637,6 +3761,25 @@ whenever it is found. No code changes and no golden moves.
 
 *(Before the ruling this section was headed "Default, for planning only" and
 named the same option.)*
+
+**Note, 2026-10-09 (RFC-0006's fourteenth review, S2).** The rule covers
+more spellings than the table above has, as it said it would. Measured the
+same way, each refused by Bund2 with nobody asked, where the reference
+fetches: `|` in a host (row 290); an IPv6 host with a group of five digits
+or a dotted part with a leading zero, `[00000::1]`, `[::ffff:1.2.3.04]`
+(rows 304, 305), which Rust's parser refuses; `<>` in a query (row 442); and
+`<`, `|` or a byte above ASCII in a proxy's user part (rows 410 to 412).
+The review also measured a URL longer than 65,534 bytes, which `http::Uri`
+refuses; that is not in the table.
+
+One thing left the list. A URL's own user part is no longer written into
+the URL `ureq` reads, so `<`, `|` and a byte above ASCII in it are fetched
+as the reference fetches them (rows 379 to 381; F183's note of the same
+day).
+
+A proxy's credentials with a `%xx` escape are refused too, and are **not**
+counted under this rule: for some of them the reference asks a different
+listener, which is D128's question.
 
 ## D126 — every scheme but `file` and `http` is refused; the reference fetches what its libcurl speaks
 
