@@ -3623,6 +3623,32 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D138 — RFC-0006 is Accepted
+
+**Raised 2026-10-10** by RFC-0006's acceptance review
+(`docs/rfc/reviews/RFC-0006-acceptance-review-2026-10-10.md`), which found
+no blocker and nothing needing a ruling, and left the status to the owner.
+
+- Blocks: nothing
+- Depends on: D82 (Proposed), D83, D118, D131 to D137
+- Status: **RESOLVED** by the repository owner, 2026-10-10: "wait for gate
+  and accept RFC-0006". The gate is criterion 14's Linux job; it passed on
+  `7c86e5b`, the tree the review's corrections landed in (run 38088275325).
+
+*What was accepted.* `bund2 build --emit=bundle` as built; `--emit=native`
+withdrawn (D83); the two floors `--noio` and `--noeval` (D78, D132); the
+fetch as Bund2's own HTTP reader with sixteen Linux rows approved to differ
+(D131, D133) and a job that keeps the list (D136).
+
+*What the acceptance does not claim.* The review that preceded it was
+written by the session that answered reviews fifteen to seventeen, and says
+so. A bundle has been built and run on macOS arm64 only. The write into an
+ELF image has never run, and `ci.yml` runs on `main` and on pull requests,
+so it has not run on `development/stage2`. Earlier entries in this register
+read the bar for Accepted as a review pass that finds nothing; this pass
+found no blocker and eight should-fix items,
+applied before the ruling and not reviewed again.
+
 ## D137 — `conform`'s baseline is recorded at the ceiling, by the owner
 
 **Raised 2026-10-10** by RFC-0006's seventeenth review, on criterion 13.

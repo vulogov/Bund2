@@ -1,6 +1,17 @@
 # RFC-0006: Ahead-of-time output — `bund2 build`
 
-- Status: **Proposed** (2026-09-30, on the owner's authorisation — **D82**),
+- Status: **Accepted** (2026-10-10, by the repository owner — **D138**), on
+  the acceptance review of that day
+  (`docs/rfc/reviews/RFC-0006-acceptance-review-2026-10-10.md`), which found
+  no blocker and eight corrections, all applied in `7c86e5b`. At acceptance,
+  on macOS arm64: `conform` 133/145, CEILING 133/145, in six configurations
+  (source and bundles; default, `jit`, `jit` at threshold 1), baseline 133;
+  IMPLEMENTED 500/505, COVERAGE 489/505; and criterion 14's Linux job passed
+  on the accepted tree (run 38088275325). **What acceptance does not rest on:** a
+  bundle has been built and run on macOS arm64 only, the write into an ELF
+  image has never run, and `ci.yml` has not run on this branch — criterion
+  13's "would" is still "would".
+- Previously: **Proposed** (2026-09-30, on the owner's authorisation — **D82**),
   after three adversarial reviews of this document and one of the code.
   `--emit=bundle` is **built and reviewed**. **`--emit=native` is withdrawn —
   D83** — and RFC-0005's criterion 4, the one thing it was uniquely needed for,
