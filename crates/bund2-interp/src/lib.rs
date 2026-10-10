@@ -648,6 +648,14 @@ pub struct Interp {
     /// word is called — it is taken out of [`Interp::tier`] for the length of
     /// `enter`, so there is nothing here to drop.
     tier_off: bool,
+    /// **Whose body the tier is being offered** — D139. `Some` for the length
+    /// of `Tier::enter` and `None` otherwise, so `Vm::tier_frame` records a
+    /// frame only where `push_frame` will remove it. The inner value is the
+    /// word's name, which only `push_frame` knows.
+    tier_entry: Option<Option<Symbol>>,
+    /// **Where the compiled body's frame is in `frames`** — D139. Set by
+    /// `Vm::tier_frame`, read by `Vm::tier_at`, taken when `enter` returns.
+    tier_shadow: Option<usize>,
     /// **The frame stack — RFC-0003 §S4.** Bund call depth lives here, on the
     /// heap, instead of on the Rust stack.
     frames: Vec<Frame>,
@@ -764,6 +772,8 @@ impl Interp {
             console_factory: None,
             console_refused: false,
             tier_off: false,
+            tier_entry: None,
+            tier_shadow: None,
             frames: Vec::new(),
             pending_tail: None,
             pending_who: None,
@@ -1360,8 +1370,20 @@ impl Interp {
             && !self.tier_off
             && let Some(mut tier) = self.tier.take()
         {
+            // **D139: a compiled body has a frame while it runs.** The tier
+            // asks for one through `Vm::tier_frame` when it is about to run
+            // the body, and it is removed here however `enter` answers — so
+            // a body the tier declines after asking is pushed afresh below,
+            // and one that failed leaves nothing above the caller's floor.
+            // It carries no exit action: a body with one is never offered.
+            let depth = self.frames.len();
+            self.tier_entry = Some(who);
             let answered = tier.enter(&body, self);
             self.tier = Some(tier);
+            self.tier_entry = None;
+            if self.tier_shadow.take().is_some() {
+                self.frames.truncate(depth);
+            }
             if let Some(outcome) = answered {
                 // Compiled code ran it. No frame: the caller's `run_to` finds
                 // nothing to do, which is how a body that ran without a frame
@@ -2058,13 +2080,21 @@ impl Vm for Interp {
         // the seam's contract promises.
         // A lambda a native handed us: the native is on the Rust stack, and the
         // body it is running belongs to no word.
-        self.push_frame(lambda.clone(), None, None)?;
+        //
+        // **F189: its failure is wrapped like any other.** `push_frame`
+        // answers `Err` only when a tier ran the body and it failed, and that
+        // error used to leave through `?`, past the `map_err` below — so a
+        // hot body failing under `map` or `?try` lost the wrapper an
+        // interpreted one carries, and `?try`'s `context` slot differed by
+        // tier.
+        let started = self.push_frame(lambda.clone(), None, None);
         // **F112.** `run_to` pops a finished frame without the gate, so a body
         // whose last word is `bund.exit` returns `Ok`, and the native that ran
         // it went on: `map` collected, `input*` read another line. D52 says
         // nothing more runs, so the refusal comes here, at the return to Rust,
         // as it would have at the body's next step.
-        self.run_to(floor)
+        started
+            .and_then(|()| self.run_to(floor))
             .and_then(|()| self.exit_gate())
             .map_err(|e| e.context("Lambda content evaluation returned error: "))
     }
@@ -2107,6 +2137,27 @@ impl Vm for Interp {
     /// property of *now* rather than of construction (RFC-0005 §S5, D71).
     fn wants_stack(&self, severity: bund2_api::diag::Severity) -> bool {
         self.reporter.wants_stack(severity)
+    }
+
+    fn tier_frame(&mut self, body: &BundValue) {
+        // Outside `enter` nobody would remove it, and a second request inside
+        // one entry would bury the first: both are declined.
+        let (Some(who), None) = (self.tier_entry, self.tier_shadow) else {
+            return;
+        };
+        self.tier_shadow = Some(self.frames.len());
+        self.frames.push(Frame {
+            body: body.clone(),
+            ip: 0,
+            exit: None,
+            who,
+        });
+    }
+
+    fn tier_at(&mut self, ip: usize) {
+        if let Some(f) = self.tier_shadow.and_then(|i| self.frames.get_mut(i)) {
+            f.ip = ip;
+        }
     }
 
     fn read_line(

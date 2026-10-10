@@ -8,6 +8,21 @@
   per-name generation cells — were explicitly held until this status, and are
   now unblocked.
 
+  **A twenty-third review, 2026-10-10**
+  (`docs/rfc/reviews/RFC-0005-review-2026-10-10.md`): not yet, with ten
+  blocking findings and twelve should-fix. **B1 to B5 are answered, in code,
+  the same day** — D139, D140, D141, F189 to F193 — and the amendment at the
+  end of this document, *the twenty-third review's B1 to B5*, is the record.
+  **B6 to B10 and all twelve should-fix are not answered.** Until they are,
+  three things in this block are known to be wrong and are left standing:
+  the count of reviews ("twenty-one"; a twenty-second exists and has no
+  entry), the tally "25 met, 2 measured, 1 partial, 1 not met, 1 deferred"
+  with the lists under it (B10: they sum to 29, criterion 4 is in none, and
+  18 and 30 are listed against their own notes), and every "met" that B8
+  names — criteria 5, 9, 10, 11 and 17. The review counts eight criteria
+  whose check holds as written; after this amendment 2, 6, 21, 22, 23 and 30
+  have a check that enters compiled code where they did not.
+
   **Proposed rather than Accepted, for the reason RFC-0001 gives.** This
   paragraph is kept current because it is the first thing a reader checks the
   RFC against, and on **2026-09-14 an audit of all thirty criteria found it
@@ -2819,6 +2834,18 @@ Stated once, for both:
 | **counter cap** | 4096 bodies | See below. The counter is a second structure and needs its own bound |
 | **heap consequence** | neither structure pins a body: the cache and the counter both hold a `Weak` | D35 first required the cache's reference to be strong; its amendment (Q32) withdrew that |
 
+*(2026-10-10, D140 — three rows of this table changed. The
+**compiled-function cap** is on functions **emitted** over the tier's life,
+not on bodies holding code: it was tested against the cache's length, which a
+dead or demoted body lowers while its function stays in the module, so it
+did not bound code memory (F191). The **recompile cap** is withdrawn: nothing
+called it, and a redefined word's new body is one more function emitted,
+which the first row counts. **Demotion** is therefore reached only by F133's
+route — a body with nothing to gain — and is no longer permanent in every
+case: the demoted set is a third structure, it holds a `Weak` like the other
+two, and it is bounded by the counter cap, so at 4096 entries a demotion can
+be forgotten and that body planned once more.)*
+
 These are **defaults with a stated basis**. The cap exists because
 `free_memory` is all-or-nothing, and changing it changes a correctness argument,
 not a benchmark. The threshold is the tuning knob of the two: it decides when a
@@ -2993,7 +3020,8 @@ Two behaviours worth stating because they are opposite and easy to transpose:
 the **function cap refuses** — a body past it stays interpreted, since code
 memory is never reclaimed and evicting would orphan a function — while the
 **counter cap evicts**, coldest first, because an evicted count costs only a
-recount. The **recompile cap counts per slot and demotes the body live at the
+recount. *(The sentence that follows describes a cap D140 withdrew on
+2026-10-10, and supersedes the decision it cites.)* The **recompile cap counts per slot and demotes the body live at the
 time** (the owner's decision, 2026-09-13): the two keys differ because a
 redefinition replaces one body with another, so the slot is what persists across
 it and the body is what a demotion can name.
@@ -3947,6 +3975,16 @@ Tier 1 preserves everything by construction, because it adds no word and
 changes no word's behaviour. The risks are all of the form "compiled code
 disagrees with interpreted code", and each has a named guard:
 
+*(2026-10-10 — "by construction" had two counter-examples, both found by the
+twenty-third review or by the tests it asked for, both fixed, and neither
+visible to any golden. A backtrace taken beneath a compiled body lost that
+body's line (F190, D139). And the row below about `eval_lambda`'s wrapper
+described a guard that was not there: a failure the tier answered left before
+the wrapper was applied (F189). The assumption under the first is one this
+section never stated — **no word's output depends on Tier 0's frame list** —
+and it is false of `debug.backtrace`, which is why a compiled body now has a
+frame. Two rows are added at the end of the table.)*
+
 | risk | guard |
 |---|---|
 | stale cache entry after a body is freed | the cache's `Weak` keeps the address out of reuse, and a dead entry is swept (D35 as amended); criterion 3 |
@@ -3982,7 +4020,9 @@ disagrees with interpreted code", and each has a named guard:
 | `autoadd` turned on mid-body, when the reference collects literals as well as calls, and pushes a CONTEXT value rather than switching to it | re-read after every call; the residual path applies the rest through `apply` (§S5); criterion 18, against a reference-captured probe |
 | unregistering a lambda that shadowed a native | the call slot is rewritten to the revealed native, not stubbed (§S4) |
 | a compiled body substituted at `eval_lambda`, whose errors Tier 0 wraps as `Lambda content evaluation returned error: …` and `times` wraps again as `TIMES: lambda execution returns error: …` | the compiled body returns its error unwrapped and the entry wraps it, so both prefixes come from the same code whichever tier ran (`Vm::eval_lambda`; `times_base` in `crates/bund2-stdlib/src/seq.rs`) |
-| an eval'd string's inner lambda recompiled on every evaluation | the 1024-body cap (§S7); content-hash keying is the eventual answer (§S3) |
+| an eval'd string's inner lambda recompiled on every evaluation | the 1024-body cap (§S7); content-hash keying is the eventual answer (§S3). *(2026-10-10: a cap on functions emitted, D140 — as first built it did not bound this case, F191)* |
+| **a word that reads the frame list from beneath a compiled body** — `debug.backtrace` *(added 2026-10-10)* | the tier asks the `Vm` for a frame before it runs a body and writes the body's position before each value it hands to `Vm::apply`, so the list is Tier 0's (D139); `a_backtrace_from_under_a_compiled_body_names_it` in `crates/bund2-runtime/src/tier.rs`. Not covered: a native reached by a **crossed** call, which D75 has withdrawn |
+| **a hot body failing or exiting under a native that runs it** — `map`, `times`, `?try`, `input*` *(added 2026-10-10)* | `Interp::eval_lambda` applies its wrapper to a failure the tier answered as it does to one `run_to` returned (F189); `a_hot_body_under_a_native_reaches_exit_as_tier_zero_does` and `a_hot_body_failing_under_a_native_keeps_the_natives_wrapper`, same file |
 | a guard widened to boxed values, whose operands might carry a `q` other than 100.0 | no arithmetic word averages `q` (D32 as amended, Q35), so the result is a fresh 100.0 either way; criterion 16 must then include such an operand if one can be built (§S6, constraint 2) |
 | a body compiled under one `Interp` and run by another on the same thread | one cache, `JITModule`, set of cells and fragment table per `Interp`, so another `Interp`'s code is never found (§S6, *Addressing*); criterion 23 |
 | **a lambda callee whose inferred effect changes**, because a word its body calls is rebound before the call or by the callee during it | nothing stays promoted across a call that resolves to a lambda (D46, §S5); criteria 5 and 22 |
@@ -4280,7 +4320,8 @@ evidence, and this one is listed as runnable rather than as met.
 
    **Met, 2026-09-14.** Every row of §S7's table has its test in
    `crates/bund2-jit/src/cache.rs`: `the_function_cap_leaves_the_body_past_it_interpreted`,
-   `the_third_redefinition_demotes_the_body_live_at_the_time`,
+   the third-redefinition test *(removed 2026-10-10 with the recompile cap,
+   D140; it was named for demoting the body live at the time)*,
    `the_counter_cap_holds`, and `the_counter_does_not_pin_the_bodies_it_counts`
    for the half that asks the counter to hold an entry without keeping the body
    alive. `the_threshold_decides_when_a_body_has_earned_compilation` covers the
@@ -4362,6 +4403,12 @@ evidence, and this one is listed as runnable rather than as met.
    bodies leaves the fifth interpreted. With the recompile cap set to 2, a
    third redefinition demotes the body permanently. With the counter cap set to
    8, evaluating nine distinct bodies leaves the map at 8.
+
+   *(2026-10-10, D140: the recompile-cap sentence is withdrawn with the cap.
+   Two rows are added in its place — four bodies compiled and dropped still
+   leave a fifth refused after a sweep, `the_function_cap_survives_a_sweep`;
+   and nine live demotions against a cap of 8 leave the set at 8,
+   `the_demoted_set_holds_its_cap` — both in `crates/bund2-jit/src/cache.rs`.)*
 
    **And the counter does not pin.** Evaluate a body below the threshold, drop
    every strong reference to it, and assert the body's contents are dropped
@@ -6700,6 +6747,12 @@ evidence, and this one is listed as runnable rather than as met.
 
     ### Met, with the caller-is-a-native mirrors excluded as unreachable — 2026-09-29
 
+    *(2026-10-10 — the exclusion below is wrong, and the mirrors are written.
+    A body that says `go`, warmed with `go` aliased to `drop` and then
+    re-aliased to `exit`, reaches the exit on an entry the cache answers. See
+    the amendment at the end of this document, B4. They found a defect the
+    first time they ran, F189.)*
+
     The "Partially met" above is superseded, and it is kept because it is
     accurate for its date: the blocker it names was a missing tier, and that
     account stopped being the reason long before the row stopped being partial.
@@ -6801,3 +6854,111 @@ did before the stop by the time that native returns.
 `bund2-stdlib`, the loop that applies a typed line value by value.
 
 - Amended by: repository owner's ruling on D113, 2026-10-07
+
+## Amendment, 2026-10-10 — the twenty-third review's B1 to B5
+
+The review is `docs/rfc/reviews/RFC-0005-review-2026-10-10.md`. This answers
+its first five blocking findings, which are the five that are about what the
+tier does and what the tests show. B6 to B10 are about what this document
+says, and are not answered here.
+
+**B1 — a backtrace beneath a compiled body. Fixed, D139, F190.** Reproduced:
+the review's program prints the pair of lines three times at threshold 1024
+and loses `#1 v` twice at threshold 1. With three words nested it is the
+outermost line that goes, so the hole can be anywhere in the list. The owner
+ruled for a frame per compiled entry. `Vm::tier_frame` and `Vm::tier_at` are
+the two additions to `bund2-api`; `JitTier::enter` asks for the frame before
+it runs a body, `Interp::push_frame` removes it when `enter` returns, and
+`jit_apply` and `jit_residual` write the position before each value they
+apply. Both programs now print the same text at both thresholds.
+**The cost is measured in the note at the end of this amendment.**
+
+**B2 — the function cap. Fixed, D140, F191.** The cap is on functions
+emitted. The recompile cap is withdrawn by the owner's ruling, with
+`Tiering::redefined`, which nothing called. The demoted set is bounded by the
+counter cap. §S7's table and criterion 6 carry dated notes.
+*Not done:* §S3's worked example, which the review notes no longer triggers
+at D74's threshold, is left as written.
+
+**B3 — differentials whose tiered arm ran no compiled code. Fixed, F192.**
+
+- A compiled entry that ends in an error is now counted, so `(N entered)`
+  can tell a compiled failure from an interpreted one. It could not before.
+- Criteria 21 and 22: both helpers run every call whatever the one before
+  answered, compare each call's outcome, and require a compiled entry. All
+  fourteen programs pass with the failing ones now failing *in compiled
+  code*.
+- Criterion 23, second half: the test uses the inlining fixture and asserts
+  four compiled entries in the interpreter that is dropped and four in the
+  survivor.
+- Criterion 30, the `if` branch:
+  `an_exit_in_an_if_branch_of_a_hot_body_matches_without_the_tier`
+  (`crates/bund2-cli/tests/exit_tier.rs`) reaches the branch on the third
+  entry of a word compiled on its first, and asserts `2 entered`.
+- Criteria 17 and 18: the three `autoadd`-at-entry tests now assert that the
+  entry **declines**, which is what they test, and the mid-body one asserts
+  that it **runs**. Guard three, the `autoadd` read at an inlined site, is
+  still reached by no test, and this amendment's reading is that no program
+  can reach it: the entry declines when the mode is on, and the mode can only
+  come on through a call, after which the body is on the residual path.
+- *Not changed:* criterion 22's sixth bullet. Its test installs a reporter
+  that wants the stack at every severity, and D71 has the tier decline such
+  a body, so both arms are Tier 0. The rule is working; the bullet's claim
+  that it compares a compiled snapshot is what is false, and it belongs to
+  B6's account of D75.
+- *Not done:* criterion 30's two probes at threshold 1. Both compile no body
+  there, as the review says, and no test names them.
+
+**B4 — criterion 30's mirror cases. Written; they found F189.**
+`a_hot_body_under_a_native_reaches_exit_as_tier_zero_does`
+(`crates/bund2-runtime/src/tier.rs`) runs eight programs — `map` over one
+and two items, `?try` directly and through `map` and `times`, the drained
+body, the residual-path program, and `input*` with a fed line. In each the
+hot body is compiled, the exit happens on an entry the cache answers, and
+the count of compiled entries rises across the exiting call. The verdict of
+2026-09-29 said no writing of them reaches compiled execution.
+
+Two of the criterion's rows are **not** written this way and are not
+claimed: `?try` through `bund.eval`, whose body is a fresh stream on every
+evaluation and so is never hot; and `?try` through a `context` body, which
+`Vm::scoped_call` runs as a keyless LIST the tier is never offered. Those
+two are unreachable for the reason the verdict gave for all of them.
+
+The review found the `map` case passing and inferred the tier was right.
+With `?try` around the same body it was not: the `context` slot lost
+`eval_lambda`'s wrapper. That is F189, fixed, and
+`a_hot_body_failing_under_a_native_keeps_the_natives_wrapper` shows it for
+an ordinary error.
+
+**B5 — criterion 2. Fixed as scoped by D141, F193.** `conform` asks every
+program of a `jit` run for its `--stats` line and prints the total under
+`measured:`. At `--jit-threshold 1` zero bodies fails the run. At the
+shipped threshold zero bodies is reported and labelled Tier 0 against
+Tier 0, by the owner's ruling, because that run compiles nothing by design.
+
+**Criterion 2 as it now reads**, replacing "A `jit` run that compiles no
+body over the corpus fails": *a `jit` run at `--jit-threshold 1` that
+compiles no body over the corpus fails; a `jit` run at any other threshold
+that compiles none says so, and is not evidence about the tier.* Its second
+bullet, "every body compiles on its first evaluation", was already false
+(F133, F136): at threshold 1 the corpus compiles 12 bodies in 10 of 145
+programs.
+
+**Figures, 2026-10-10, macOS arm64, after every change above.**
+
+| check | result |
+|---|---|
+| `cargo test --workspace` | 668 passed, 0 failed, 1 ignored |
+| the same with `--features jit,relocation-test` | 797 passed, 0 failed, 1 ignored |
+| `cargo xtask conform` | 133/145, CEILING 133/145 |
+| `cargo xtask conform --features jit` | 133/145, CEILING 133/145; 0 bodies, labelled Tier 0 against Tier 0 |
+| `cargo xtask conform --features jit --jit-threshold 1` | 133/145, CEILING 133/145; 12 bodies in 10 of 145 programs, 53 compiled entries |
+| the same three with `--bundles` | the same three results |
+
+**What B1's frame costs** is in D139's dated note: about 5 ns for each
+compiled entry on `hot_body`, under 3 ns on `entry_anchored`, measured
+across two processes. Against the roughly 10 ns a value that D74 records a
+compiled entry as saving, that is half of one value's saving per entry, and
+it moves criterion 10 further below its stop rule. The ruling for a frame
+was given before it was measured, and **confirmed with the figure the same
+day**: "keep the frame" (D139's second note).

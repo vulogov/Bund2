@@ -29,7 +29,6 @@ use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::rc::Weak;
 
-use bund2_api::Symbol;
 use bund2_value::{BundValue, Payload};
 
 use crate::lower::WordHandle;
@@ -88,24 +87,31 @@ type AddrMap<T> = HashMap<usize, Entry<T>, BuildHasherDefault<AddrHasher>>;
 /// §S7's knobs, with its defaults.
 ///
 /// **Configurable, and the configuration is recorded rather than silent** —
-/// §S7 says so, and criterion 6 depends on it: it sets the function cap to 4,
-/// the recompile cap to 2 and the counter cap to 8 rather than exercising a
-/// thousand bodies.
+/// §S7 says so, and criterion 6 depends on it: it sets the function cap to 4
+/// and the counter cap to 8 rather than exercising a thousand bodies.
+///
+/// **There is no recompile cap — D140.** §S7 named one, four per slot, and
+/// this type carried it with a method no tier ever called. A redefined word
+/// holds a new body, compiling it is one more function emitted, and
+/// `functions` counts exactly that.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Caps {
     /// Evaluations of one body before it has earned compilation. §S7's tuning
     /// knob: no correctness argument rests on it.
     pub threshold: u32,
-    /// How many bodies may hold compiled code. **At the cap, compilation
-    /// stops** — code memory is never reclaimed (§S4), so this is the only
-    /// bound on it, and a body past it stays interpreted.
+    /// How many functions may be **emitted**, over the tier's life. **At the
+    /// cap, compilation stops** — code memory is never reclaimed (§S4), so
+    /// this is the only bound on it, and a body past it stays interpreted.
+    ///
+    /// **Emitted, not held** — D140. This was tested against the cache's
+    /// length, which a sweep, a demotion or a dead body lowers while the
+    /// function stays in the module; a program that kept making short-lived
+    /// hot bodies compiled without limit.
     pub functions: usize,
-    /// Redefinitions of one **slot** before the body live at the time is
-    /// demoted. Without it a word redefined in a REPL loop orphans a function
-    /// per redefinition.
-    pub recompiles: u32,
-    /// How many bodies the counter may track. **At the cap the coldest go
-    /// first** — unlike the function cap, this one evicts.
+    /// How many bodies the counter may track, **and how many the demoted set
+    /// may**. At the cap the coldest counter entry goes first — unlike the
+    /// function cap, this one evicts — and a demoted entry is dropped, which
+    /// costs that body one more planning if it becomes hot again.
     pub counter: usize,
 }
 
@@ -130,7 +136,6 @@ impl Default for Caps {
         Self {
             threshold: 1024,
             functions: 1024,
-            recompiles: 4,
             counter: 4096,
         }
     }
@@ -192,9 +197,9 @@ pub struct Tiering {
     /// tier owns, one module per `Interp`. So a cache entry is inert on its
     /// own, and this map neither owns code memory nor can outlive it usefully.
     cache: AddrMap<WordHandle>,
-    /// Redefinitions per **slot** — a `Symbol`, not a body. §S7's recompile cap
-    /// is per slot while demotion is per body, and this is the half that counts.
-    redefinitions: HashMap<Symbol, u32>,
+    /// **Functions emitted for this tier, ever** — D140. Counted where code is
+    /// filed and never lowered, because the module never gives the code back.
+    emitted: usize,
     /// Bodies demoted permanently. Holds a `Weak` for the same reason the other
     /// two maps do: a demoted body's address must not be reused under another
     /// body that would inherit the demotion.
@@ -213,7 +218,7 @@ impl Tiering {
             caps,
             counter: AddrMap::default(),
             cache: AddrMap::default(),
-            redefinitions: HashMap::new(),
+            emitted: 0,
             demoted: AddrMap::default(),
         }
     }
@@ -303,10 +308,12 @@ impl Tiering {
 
         if seen < self.caps.threshold {
             Decision::Interpret
-        } else if self.cache.len() >= self.caps.functions {
+        } else if self.emitted >= self.caps.functions {
             // **The function cap refuses rather than evicting.** Code memory is
             // never reclaimed (§S4), so evicting an entry would orphan its
             // function and buy nothing; past the cap a body stays interpreted.
+            // It is tested against what was emitted and not what is held
+            // (D140): a freed cache slot gives no code memory back.
             Decision::Interpret
         } else {
             Decision::Compile
@@ -322,10 +329,11 @@ impl Tiering {
         let (Some(key), Some(weak)) = (body.payload_key(), body.payload_weak()) else {
             return false;
         };
-        if self.demoted.contains_key(&key) || self.cache.len() >= self.caps.functions {
+        if self.demoted.contains_key(&key) || self.emitted >= self.caps.functions {
             return false;
         }
         self.cache.insert(key, Entry { weak, value: code });
+        self.emitted = self.emitted.saturating_add(1);
         true
     }
 
@@ -343,42 +351,19 @@ impl Tiering {
         Some(entry.value)
     }
 
-    /// **A slot was redefined — §S7's recompile cap.**
-    ///
-    /// Counts per **slot**, and demotes the body **live at the time**, which is
-    /// the owner's decision of 2026-09-13. The two keys differ on purpose: a
-    /// redefinition replaces one body with another, so the slot is what
-    /// persists across it and the body is what the demotion can name.
-    ///
-    /// `live` is the body the slot held when it was redefined — the one whose
-    /// compiled code the redefinition orphans. `None` when the slot held no
-    /// body with a key.
-    pub fn redefined(&mut self, slot: Symbol, live: Option<&BundValue>) {
-        let count = self.redefinitions.entry(slot).or_insert(0);
-        *count = count.saturating_add(1);
-        if *count <= self.caps.recompiles {
-            return;
-        }
-        let Some(body) = live else {
-            return;
-        };
-        let (Some(key), Some(weak)) = (body.payload_key(), body.payload_weak()) else {
-            return;
-        };
-        // Permanent, per body: it returns to Tier 0 and is never promoted
-        // again. Dropping its cache entry is what returns it; the `demoted`
-        // entry is what keeps it there.
-        self.cache.remove(&key);
-        self.counter.remove(&key);
-        self.demoted.insert(key, Entry { weak, value: () });
-    }
-
     /// **Demote `body` permanently, on the caller's judgement** — F133.
     ///
-    /// [`Tiering::redefined`] demotes on §S7's recompile cap. This is the same
-    /// permanence reached by a different route: the tier asks for it when
-    /// compiling a body could not pay — no inlinable site and nothing to
-    /// promote — so the body stays at Tier 0 for good.
+    /// The tier asks for it when compiling a body could not pay — no inlinable
+    /// site and nothing to promote — so the body stays at Tier 0 for as long
+    /// as the record is kept. *(§S7's recompile cap was the other route here
+    /// until D140 withdrew it.)*
+    ///
+    /// **The set is bounded, by the counter's cap** — D140. It grew by one for
+    /// every hot body with no site and was swept only when the *counter*
+    /// filled, so §S7's heap bound covered two maps of three. At the cap the
+    /// dead go first and then one live entry: forgetting a demotion is safe,
+    /// because that body is counted from zero and, if it gets hot again,
+    /// planned once more to the same answer.
     ///
     /// **The record is the point, not the refusal.** Refusing without it would
     /// leave the counter past the threshold, so every later entry would re-plan
@@ -395,8 +380,22 @@ impl Tiering {
         };
         self.cache.remove(&key);
         self.counter.remove(&key);
+        if self.demoted.len() >= self.caps.counter && !self.demoted.contains_key(&key) {
+            self.demoted.retain(|_, e| !e.is_dead());
+            if self.demoted.len() >= self.caps.counter
+                && let Some(&any) = self.demoted.keys().next()
+            {
+                self.demoted.remove(&any);
+            }
+        }
         self.demoted.insert(key, Entry { weak, value: () });
         true
+    }
+
+    /// **How many functions this tier has emitted** — D140's figure, and what
+    /// [`Caps::functions`] is tested against. It never falls.
+    pub fn emitted_count(&self) -> usize {
+        self.emitted
     }
 
     /// Whether `body` has been demoted permanently.
@@ -512,12 +511,12 @@ mod tests {
     }
 
     /// Small caps, as criterion 6 requires: "with the compiled-function cap set
-    /// to 4 … the recompile cap set to 2 … the counter cap set to 8".
+    /// to 4 … the counter cap set to 8". *(And "the recompile cap set to 2",
+    /// until D140 withdrew that cap.)*
     fn small() -> Caps {
         Caps {
             threshold: 2,
             functions: 4,
-            recompiles: 2,
             counter: 8,
         }
     }
@@ -624,38 +623,74 @@ mod tests {
         assert_eq!(t.observe(fifth), Decision::Interpret, "past the cap");
     }
 
-    /// **Criterion 6, the recompile cap.** "With the recompile cap set to 2, a
-    /// third redefinition demotes the body permanently."
-    ///
-    /// Per the owner's decision of 2026-09-13: the count is per **slot**, and
-    /// what is demoted is the body **live at the time**.
+    /// **D140: the function cap counts functions emitted, not bodies held.**
+    /// RFC-0005's twenty-third review, B2. Four bodies are compiled and
+    /// dropped, the sweep empties the cache, and a fifth is still refused —
+    /// because the four functions are still in the module. The test above
+    /// holds every body alive and so never met a sweep.
     #[test]
-    fn the_third_redefinition_demotes_the_body_live_at_the_time() {
+    fn the_function_cap_survives_a_sweep() {
         let mut t = Tiering::new(small());
         let mut c = Compiler::new(Vec::new()).expect("a compiler");
-        let mut r = bund2_api::Registry::new();
-        // `Registry` has no by-name symbol method of its own; interning goes
-        // through the public `interner`, as `bund2-interp`'s dispatch does.
-        let slot = r.interner.intern("w");
+        {
+            let short_lived: Vec<BundValue> = (0..4).map(body).collect();
+            for b in &short_lived {
+                assert!(t.insert(b, code(&mut c)), "the first four are compiled");
+            }
+        }
+        t.sweep();
+        assert_eq!(t.compiled_count(), 0, "the sweep freed every cache slot");
+        assert_eq!(t.emitted_count(), 4, "and gave no code memory back");
 
-        let first = body(1);
-        assert!(t.insert(&first, code(&mut c)));
+        let fifth = body(9);
+        for _ in 0..small().threshold {
+            let _ = t.observe(&fifth);
+        }
+        assert_eq!(t.observe(&fifth), Decision::Interpret, "past the cap");
+        assert!(!t.insert(&fifth, code(&mut c)), "and `insert` agrees");
 
-        t.redefined(slot, Some(&first));
-        t.redefined(slot, Some(&first));
-        assert!(!t.is_demoted(&first), "two is within the cap of 2");
-        assert!(t.compiled(&first).is_some(), "and it keeps its code");
+        // A demotion frees a slot the same way, and buys nothing either.
+        let mut u = Tiering::new(small());
+        let held: Vec<BundValue> = (0..4).map(body).collect();
+        for b in &held {
+            assert!(u.insert(b, code(&mut c)));
+        }
+        assert!(u.demote(&held[0]));
+        assert_eq!(u.compiled_count(), 3);
+        assert!(!u.insert(&fifth, code(&mut c)), "a demoted body's function is still emitted");
+    }
 
-        t.redefined(slot, Some(&first));
-        assert!(t.is_demoted(&first), "the third exceeds it");
-        assert!(t.compiled(&first).is_none(), "the code is dropped");
-        assert!(!t.insert(&first, code(&mut c)), "and it is never promoted again");
+    /// **D140: the demoted set is bounded by the counter's cap.** Nine live
+    /// bodies are demoted against a cap of 8 and the set holds 8; the body
+    /// forgotten is counted afresh, which is all forgetting costs.
+    #[test]
+    fn the_demoted_set_holds_its_cap() {
+        let mut t = Tiering::new(small());
+        let held: Vec<BundValue> = (0..9).map(body).collect();
+        for b in &held {
+            assert!(t.demote(b));
+        }
+        assert_eq!(t.demoted_count(), 8, "the cap is 8");
+        let forgotten = held.iter().filter(|b| !t.is_demoted(b)).count();
+        assert_eq!(forgotten, 1, "one live entry made room");
 
-        // **Per slot, not per body**: a different slot has its own count.
-        let other = r.interner.intern("x");
-        let second = body(2);
-        t.redefined(other, Some(&second));
-        assert!(!t.is_demoted(&second), "another slot starts at zero");
+        // The dead go before the living.
+        let mut u = Tiering::new(small());
+        let kept: Vec<BundValue> = (0..4).map(body).collect();
+        for b in &kept {
+            assert!(u.demote(b));
+        }
+        {
+            let dying: Vec<BundValue> = (10..14).map(body).collect();
+            for b in &dying {
+                assert!(u.demote(b));
+            }
+        }
+        assert_eq!(u.demoted_count(), 8);
+        let ninth = body(20);
+        assert!(u.demote(&ninth));
+        assert!(kept.iter().all(|b| u.is_demoted(b)), "no live entry was dropped");
+        assert!(u.is_demoted(&ninth));
     }
 
     /// **Criterion 6, the counter cap.** "With the counter cap set to 8,

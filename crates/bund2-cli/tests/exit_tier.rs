@@ -27,8 +27,27 @@ use std::process::Command;
 /// `1 2 + drop` gives the body a site (`+` and `drop` both publish arms) and
 /// changes nothing it observes: the sum is dropped, and the program's output
 /// and exit code are what they were. With it the tier compiles 1 body, inlines
-/// 2 sites, promotes 2 values and crosses 2 calls.
+/// 2 sites and promotes 2 values. *(This said "and crosses 2 calls" until
+/// RFC-0005's twenty-third review: the shipped tier crosses none, by D75.)*
+///
+/// **What this program cannot show**, and the same review's B3: the `times`
+/// body exits on its first iteration, which is the one that compiles it, so
+/// the compiled form is produced and never entered. It is the criterion's
+/// own program and stays for that reason; [`HOT_PROGRAM`] is the one whose
+/// exit is reached from compiled code.
 const PROGRAM: &str = "3 { \"tick\" println 1 2 + drop true { \"bye\" println 7 exit } if \"after if\" println } times\n";
+
+/// The same branch, reached on an entry the cache answers.
+///
+/// `w` holds the `if`; its condition is the word `c`, registered `false`
+/// while `w` is entered twice and then registered `true`. So the first entry
+/// compiles `w`, the second runs it compiled past the branch, and the third
+/// runs it compiled into the branch that exits. `--stats` then reports
+/// `2 entered`: the exiting entry is counted, because a compiled entry that
+/// ends in an error is one.
+const HOT_PROGRAM: &str = ":c { false } register\n\
+:w { \"tick\" println 1 2 + drop c { \"bye\" println 7 exit } if \"after if\" println } register\n\
+w w :c { true } register w \"unreached\" println\n";
 
 /// Run at a threshold, returning `(stdout, exit code, stats line)`.
 fn run_at(script: &std::path::Path, threshold: &str) -> (String, Option<i32>, String) {
@@ -153,4 +172,43 @@ fn an_exit_in_an_if_branch_matches_without_the_tier() {
              `--features jit` for the other half."
         );
     }
+}
+
+/// **Criterion 30's `if`-branch case with the body hot** — RFC-0005's
+/// twenty-third review, B3. The test above runs the criterion's program,
+/// whose compiled body is never entered; this one enters it.
+#[test]
+fn an_exit_in_an_if_branch_of_a_hot_body_matches_without_the_tier() {
+    let dir = std::env::temp_dir().join(format!("bund2-exit-tier-hot-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("scratch dir");
+    let script = dir.join("if-branch-hot.bund");
+    std::fs::write(&script, HOT_PROGRAM).expect("script");
+
+    let (tiered, tiered_code, tiered_stats) = run_at(&script, "1");
+    let (plain, plain_code, plain_stats) = run_at(&script, "1000000");
+
+    assert_eq!(plain_code, Some(7), "the program exits with the code it asked for");
+    assert_eq!(
+        plain, "tick\nafter if\ntick\nafter if\ntick\nbye\n",
+        "two entries pass the branch and the third takes it"
+    );
+    assert_eq!(tiered_code, plain_code, "exit code");
+    assert_eq!(tiered, plain, "output");
+
+    if tiered_stats.contains("no tier") {
+        eprintln!(
+            "exit_tier: no tier in this build, so the hot `if`-branch case checked \
+             output and exit code only. Run with `--features jit` for the comparison."
+        );
+        return;
+    }
+    assert!(
+        tiered_stats.contains("compiled 1 bodies (2 entered)"),
+        "`w` must compile on its first entry and run compiled on the next two, \
+         the second of them into the exit: {tiered_stats:?}"
+    );
+    assert!(
+        plain_stats.contains("compiled 0 bodies"),
+        "the control must compile nothing: {plain_stats:?}"
+    );
 }

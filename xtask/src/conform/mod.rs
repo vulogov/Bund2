@@ -207,10 +207,21 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // compiles on its first evaluation, which is the strongest test of meaning
     // the corpus can give. Unavailable until F125 built the flag.
     let (jit_threshold, args) = crate::buildcli::take_jit_threshold(&args)?;
-    let threshold_args: Vec<String> = match jit_threshold {
+    let mut threshold_args: Vec<String> = match jit_threshold {
         Some(n) => vec!["--jit-threshold".to_string(), n.to_string()],
         None => Vec::new(),
     };
+    // **RFC-0005 criterion 2's total — D141.** The criterion has always said
+    // "`conform` prints the total beside its `measured:` line. A `jit` run
+    // that compiles no body over the corpus fails", and until the
+    // twenty-third review this file asked the binary for nothing and failed
+    // on nothing. A `jit` run now asks every program for its `--stats` line,
+    // takes it back out of the output before the comparison, and sums it.
+    let with_tier = features.split(',').any(|f| f.trim() == "jit");
+    if with_tier {
+        threshold_args.push("--stats".to_string());
+    }
+    let mut tier = TierTotal::default();
     let args = args.as_slice();
 
     let accept = args.iter().any(|a| a == "--accept");
@@ -305,6 +316,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     if let Some(n) = jit_threshold {
                         env.push(("BUND2_JIT_THRESHOLD".into(), n.to_string()));
                     }
+                    if with_tier {
+                        env.push(("BUND2_STATS".into(), "1".into()));
+                    }
                     golden::run_artifact_once(&artefact, cwd, &env)
                 }
                 Err(e) => Err(e),
@@ -314,7 +328,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
         };
 
         match executed {
-            Ok(got) => {
+            Ok(mut got) => {
+                if with_tier {
+                    tier.take(&mut got.output);
+                }
                 // The scaffold exits 70 with a message. Distinguish that from
                 // a real mismatch so the report says "unimplemented", not
                 // "wrong".
@@ -443,6 +460,17 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // that does not say what it measured invites the wrong conclusion.
     if bundles {
         bund2_api::sayln!("  as: `bund2 build` artefacts, executed with no arguments");
+    }
+    if with_tier {
+        bund2_api::sayln!(
+            "  tier: compiled {} bodies in {} of {} programs, {} compiled entries",
+            tier.bodies, tier.programs, tier.reported, tier.entered
+        );
+        if tier.bodies == 0 && jit_threshold != Some(1) {
+            // D141: not a failure at this threshold, and not evidence either.
+            bund2_api::sayln!("        no body compiled at this threshold, so this run is Tier 0");
+            bund2_api::sayln!("        against Tier 0; `--jit-threshold 1` is the run that tests the tier");
+        }
     }
     if approved_hits.is_empty() {
         bund2_api::sayln!("  CONFORMANCE  {passed}/{total}\n");
@@ -624,9 +652,32 @@ pub fn run(args: &[String]) -> Result<(), String> {
     bund2_api::sayln!("  answers how much of the language is tested at all; this number");
     bund2_api::sayln!("  answers whether what was captured still holds.\n");
 
+    // **A threshold-1 run that compiled nothing fails — D141.** Scoped to
+    // that run by the owner's ruling: at the shipped threshold the corpus
+    // compiles nothing by design (F139), so the rule as criterion 2 first
+    // wrote it would fail a run that is behaving as intended. `reported == 0`
+    // fails too: a `jit` run in which no program printed its line has shown
+    // nothing about the tier, and the usual cause is a binary built without
+    // the feature.
+    let tier_failure = if with_tier && jit_threshold == Some(1) && tier.bodies == 0 {
+        Some(format!(
+            "NO TIER: a `jit` run at threshold 1 compiled no body over {} programs \
+             ({} printed a `--stats` line). RFC-0005 criterion 2 counts that as a failure: \
+             the run compared Tier 0 with itself.",
+            total, tier.reported
+        ))
+    } else if with_tier && tier.reported == 0 {
+        Some(format!(
+            "NO TIER: `--features {features}` was asked for and none of {total} programs \
+             printed a `--stats` line, so nothing here says a tier was installed."
+        ))
+    } else {
+        None
+    };
+
     // Regression check.
     let baseline = read_baseline(&repo);
-    match baseline {
+    let verdict = match baseline {
         Some(prev) if passed < prev => {
             if accept {
                 write_baseline(&repo, passed, total)?;
@@ -669,7 +720,73 @@ pub fn run(args: &[String]) -> Result<(), String> {
             }
             Ok(())
         }
+    };
+    verdict?;
+    match tier_failure {
+        Some(why) => Err(why),
+        None => Ok(()),
     }
+}
+
+/// What the tier did over a whole `conform` run — RFC-0005 criterion 2.
+#[derive(Default)]
+struct TierTotal {
+    /// Bodies compiled, summed over every program.
+    bodies: usize,
+    /// Entries that ran compiled code, summed the same way.
+    entered: usize,
+    /// Programs that compiled at least one body.
+    programs: usize,
+    /// Programs that printed a `--stats` line at all.
+    reported: usize,
+}
+
+impl TierTotal {
+    /// Take the `--stats` line out of `output` and add it to the total.
+    ///
+    /// The line goes to stderr, which the runner appends to stdout before it
+    /// normalises, so it arrives here as one line of the text about to be
+    /// compared with a golden. It is removed whether or not it parses: a
+    /// golden never holds one.
+    fn take(&mut self, output: &mut String) {
+        const MARK: &str = "bund2: tier compiled ";
+        // **By line, rejoined as `normalise` joins them** — with `\n` between
+        // and none after the last. Rebuilding with a newline after every line
+        // made all 145 goldens differ by one trailing byte.
+        let mut kept: Vec<&str> = Vec::new();
+        for line in output.lines() {
+            // **Found anywhere in the line, not only at its start.** A
+            // program whose last output has no newline leaves stdout ending
+            // mid-line, and stderr is appended straight after it.
+            let Some(at) = line.find(MARK) else {
+                kept.push(line);
+                continue;
+            };
+            if at > 0 {
+                kept.push(&line[..at]);
+            }
+            let rest = &line[at + MARK.len()..];
+            self.reported += 1;
+            let bodies = leading_number(rest).unwrap_or(0);
+            let entered = rest
+                .split_once('(')
+                .and_then(|(_, after)| leading_number(after))
+                .unwrap_or(0);
+            self.bodies = self.bodies.saturating_add(bodies);
+            self.entered = self.entered.saturating_add(entered);
+            if bodies > 0 {
+                self.programs += 1;
+            }
+        }
+        let kept = kept.join("\n");
+        *output = kept;
+    }
+}
+
+/// The decimal number `s` starts with, if it starts with one.
+fn leading_number(s: &str) -> Option<usize> {
+    let digits: String = s.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
 }
 
 

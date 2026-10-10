@@ -4033,6 +4033,131 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F193 — `conform` printed no compiled total and failed no `jit` run
+
+**A Bund2 defect, found 2026-10-10** by RFC-0005's twenty-third review, B5.
+
+RFC-0005's criterion 2 has `conform` print the number of bodies compiled
+beside its `measured:` line and fail a `jit` run that compiles none.
+`xtask/src/conform/mod.rs` passed no `--stats`, printed no total and failed
+on nothing but the baseline. The criterion was marked met on three equal
+ratios, of which the shipped-threshold `jit` run compiles nothing at all
+(F139).
+
+**Disposition: FIX, as scoped by D141.** Measured after the fix, at
+`--jit-threshold 1`: 12 bodies in 10 of 145 programs, 53 compiled entries,
+133/145, CEILING 133/145.
+
+## F192 — differentials listed as met compared Tier 0 with itself
+
+**A Bund2 defect in its tests, found 2026-10-10** by RFC-0005's
+twenty-third review, B3.
+
+At threshold 1 the first entry of a body compiles it and runs it
+interpreted. A differential whose body fails or exits on that entry, and
+which stops calling at the first failure, never enters the compiled form.
+And `JitTier::enter` counted an entry only when compiled code returned
+`Ok`, so no figure could tell a compiled failure from an interpreted one.
+
+What that covered, in `crates/bund2-runtime/src/tier.rs` unless named:
+
+- `assert_switch_matches_tier0` and `assert_promoted_matches_tier0`, the
+  helpers under RFC-0005 criteria 21 and 22: both stopped at the first
+  failure. Four of criterion 21's six programs and seven of criterion 22's
+  eight fail by design.
+- `a_dropped_interps_code_does_not_serve_another` (criterion 23) used a
+  runtime with an empty fragment table, so nothing compiled.
+- `an_exit_in_an_if_branch_matches_without_the_tier`
+  (`crates/bund2-cli/tests/exit_tier.rs`, criterion 30): the body exits on
+  the entry that compiles it.
+- Three `autoadd` tests in `crates/bund2-jit/src/lower.rs` (criteria 17 and
+  18) ran through a helper that fell back to Tier 0 when the entry declined,
+  and it declines in all three.
+
+**Disposition: FIX.** A compiled entry that ends in an error is counted;
+both helpers run every call, compare every call's outcome and require a
+compiled entry; criterion 23's test uses the inlining fixture and asserts
+four compiled entries in each interpreter;
+`an_exit_in_an_if_branch_of_a_hot_body_matches_without_the_tier` enters the
+body twice before the branch exits; and the `autoadd` helper is told whether
+the entry runs or declines and panics when it is wrong. **Every test passed
+once it ran compiled code** — the tier was right in each case, and the tests
+had not shown it.
+
+*One consequence a reader of `--stats` should know:* `(N entered)` now
+includes entries that ended in an error or an exit.
+
+*Not changed:* `a_mid_body_warning_carries_tier_zeros_snapshot` still runs
+its body at Tier 0, because its reporter wants the stack at every severity
+and D71 has the tier decline such a body. That is the rule working; the
+criterion's wording is what is wrong, and RFC-0005 is corrected there.
+
+## F191 — the function cap bounded bodies held, not functions emitted
+
+**A Bund2 defect, found 2026-10-10** by RFC-0005's twenty-third review, B2,
+by reading; the review did not run it.
+
+`Tiering::observe` and `insert` tested `Caps::functions` against the
+compiled cache's length (`crates/bund2-jit/src/cache.rs`). `sweep` drops
+entries whose body is dead and `demote` removes one, and each frees a slot
+while the function stays in the module, which never reclaims code. So a
+program that keeps making short-lived hot bodies compiled without limit,
+and RFC-0005 §S3's bound on code memory — "after 1024, Tier 1 is off for
+the rest of the process" — was not enforced. Two more in the same place:
+`Tiering::redefined` had no caller, so §S7's recompile cap was a knob the
+running tier did not have; and the demoted set grew by one for every hot
+body with no inlinable site and was swept only when the counter filled.
+
+**Disposition: FIX, by D140.**
+
+## F190 — a backtrace taken beneath a compiled body lost that body's line
+
+**A Bund2 defect, found 2026-10-10** by RFC-0005's twenty-third review, B1,
+and reproduced the same day.
+
+`debug.backtrace` renders `Interp`'s frame list
+(`crates/bund2-interp/src/lib.rs`, `render_backtrace`), and a body the tier
+ran had no frame. Stdout differed by tier in a session with no debugger;
+D139 has the program and both outputs. It is the only word that reads the
+frame list in such a session: the debugger's readers run with the tier off
+(D113), and `debug.stacks` reads stacks.
+
+RFC-0005's Preservation section opens "Tier 1 preserves everything by
+construction". This was a counter-example no golden could see, because the
+word is Bund2's own and no golden runs it.
+
+**Disposition: FIX, by D139.**
+
+## F189 — a hot body failing under a native lost the native's wrapper
+
+**A Bund2 defect, found 2026-10-10** by the mirror cases RFC-0005's
+twenty-third review asked for (B4), the first time they ran.
+
+`Interp::eval_lambda` — what `map`, `times`, `?try` and `input*` run a body
+through — wraps a failure in `Lambda content evaluation returned error: `.
+It applied the wrapper to what `run_to` returned. When the tier ran the
+body, the failure came back from `push_frame` and left through `?` before
+the wrapper (`crates/bund2-interp/src/lib.rs`, `eval_lambda`). So under the
+tier:
+
+    ?try :try { 1 2 + drop 7 go } set … !
+
+with the body hot and `go` an alias of `exit`, left a CONDITIONAL whose
+`context` slot read `the program asked to exit with code 7`, where Tier 0
+leaves `Lambda content evaluation returned error: the program asked to exit
+with code 7`. Any error does it, not only an exit: with `go` rebound to `+`
+over a boolean, the text of the failure differed the same way.
+
+The review's own run of the mirror case passed, because it used `map` with
+no `?try` around it, and compared the exit code and stdout, which do not
+carry the text.
+
+**Disposition: FIX.** The wrapper is applied to the tier's failure too.
+Tests: `a_hot_body_under_a_native_reaches_exit_as_tier_zero_does` (eight
+programs, RFC-0005 criterion 30's mirror cases) and
+`a_hot_body_failing_under_a_native_keeps_the_natives_wrapper`, both in
+`crates/bund2-runtime/src/tier.rs`.
+
 ## F188 — what the reference's fetch reads depends on the libcurl the system has
 
 **Found 2026-10-10** by the first measurement of D131 on Linux.

@@ -3623,6 +3623,179 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D141 — `conform` fails a `jit` run that compiles nothing only at threshold 1
+
+**Raised 2026-10-10** by RFC-0005's twenty-third review, B5
+(`docs/rfc/reviews/RFC-0005-review-2026-10-10.md`).
+
+RFC-0005's criterion 2 says "`conform` prints the total beside its
+`measured:` line. A `jit` run that compiles no body over the corpus fails."
+`cargo xtask conform` printed no total and failed on nothing (F193). Built as
+written, the rule fails the run at the shipped threshold, which compiles no
+body over the whole corpus by design (D74, F139).
+
+**Options.**
+
+1. *Scope the failure to the threshold-1 run*, and label a `jit` run that
+   compiled nothing at any other threshold as Tier 0 against Tier 0.
+2. *Keep the rule as written*, and add programs to the corpus that run a
+   body a thousand times, so the shipped-threshold run compiles something.
+   Each is a golden, captured by the owner.
+3. *Lower the shipped threshold for `conform`'s default `jit` run.* Then the
+   run no longer measures the shipped configuration.
+
+- Blocks: RFC-0005 criterion 2
+- Depends on: D74, F139, F193
+- Status: **RESOLVED — option 1**, by the repository owner, 2026-10-10:
+  "agree on B2's recompile cap and B5's scoping".
+
+*What is built.* A `jit` run passes `--stats` to every program (through
+`BUND2_STATS` for a bundle), takes the line back out of the output before the
+comparison, and prints `tier: compiled N bodies in P of M programs, E compiled
+entries` under `measured:` (`xtask/src/conform/mod.rs`, `TierTotal`). At
+`--jit-threshold 1` zero bodies is a failure. A `jit` run in which no program
+printed the line fails at any threshold, since nothing then says a tier was
+installed.
+
+*What it does not do.* It does not widen what compiles. Measured on
+2026-10-10 at threshold 1: 12 bodies in 10 of 145 programs, 53 compiled
+entries. Criterion 2's equality is evidence about those ten programs, and
+widening it means new probes, whose goldens are the owner's to capture.
+
+## D140 — the function cap counts functions emitted; the recompile cap is withdrawn
+
+**Raised 2026-10-10** by RFC-0005's twenty-third review, B2.
+
+RFC-0005 §S3 and §S7 rest the bound on code memory on a cap of 1024
+compiled functions, and §S7 names a second cap, four recompiles per slot,
+decided by the owner on 2026-09-13. As built (F191): the function cap was
+tested against the cache's length, which falls when a body dies or is
+demoted while its function stays in the module; `Tiering::redefined`, which
+carried the recompile cap, had no caller outside its unit test; and the
+demoted set had no bound.
+
+**Options for the recompile cap.**
+
+1. *Withdraw it.* A redefined word holds a new body; compiling that body is
+   one more function emitted, and a cap on functions emitted counts it. The
+   per-slot cap bounds nothing the emitted cap does not.
+2. *Wire it*: give `bund2_api::Tier` a redefinition hook and call it from
+   `register`. It then demotes a word redefined five times while the
+   process is far below the function cap, which is a second policy and not
+   a bound.
+
+- Blocks: RFC-0005 §S3, §S7, criterion 6
+- Depends on: F191
+- Status: **RESOLVED — option 1**, by the repository owner, 2026-10-10:
+  "agree on B2's recompile cap and B5's scoping". **This supersedes the
+  decision of 2026-09-13** that the recompile count is per slot and demotes
+  the body live at the time: there is no recompile count.
+
+*What is built* (`crates/bund2-jit/src/cache.rs`). `Tiering` counts functions
+emitted, in `insert`, and never lowers the count; `observe` and `insert` test
+`Caps::functions` against it. `Caps::recompiles`, `Tiering::redefined` and
+the test `the_third_redefinition_demotes_the_body_live_at_the_time` are
+removed. The demoted set is bounded by `Caps::counter`: at the cap the dead
+entries go first, then one live one, which costs that body one more planning
+if it becomes hot again. Tests: `the_function_cap_survives_a_sweep`,
+`the_demoted_set_holds_its_cap`.
+
+*Consequence, stated.* A long session that defines and drops hot bodies now
+reaches the cap, after which nothing more is compiled for the life of that
+`Interp`. Before, it compiled without limit. That is the trade §S3 always
+described and the code did not make.
+
+## D139 — a compiled body has a frame while it runs
+
+**Raised 2026-10-10** by RFC-0005's twenty-third review, B1. An unplanned
+deviation, so it is here before the code that answers it.
+
+`debug.backtrace` prints `Interp`'s frame list. A body the tier ran had no
+frame, so a backtrace taken beneath one lost that body's line (F190):
+
+    :w { debug.backtrace } register  :v { w 1 drop } register  v v v
+
+prints `#0 w at 1` / `#1 v at 1` three times at threshold 1024, and at
+threshold 1 the pair once and then `#0 w at 1` alone. With `u` calling `v`
+calling `w` it is `u`'s line that goes, from the far end of the list.
+Measured 2026-10-10 on a `--features jit` build. The word is Bund2's own
+(RFC-0008), so no golden holds its output and criterion 2 could not see it.
+
+**Options.**
+
+1. *Record a frame for each compiled entry*: the body and the word's name
+   on entry, removed on exit, and its position written before each value
+   compiled code hands to `Vm::apply`. Output is the same in both tiers.
+   Cost: a push and a pop per compiled entry and a store per generic call.
+2. *Approve the deviation*: under the tier a backtrace omits compiled
+   bodies, and RFC-0005's preservation table says so.
+3. *`debug.backtrace` turns the tier off*, as the moving debugger words do
+   (D113). The first call is already beneath compiled code, so alone this
+   does not fix it.
+
+- Blocks: RFC-0005's Preservation section
+- Depends on: D113, F190
+- Status: **RESOLVED — option 1**, by the repository owner, 2026-10-10:
+  "B1: 1".
+
+*What is built.* `bund2_api::Vm` gains `tier_frame` and `tier_at`, both
+defaulted to nothing. `JitTier::enter` calls `tier_frame` immediately
+before it runs a body (`crates/bund2-runtime/src/tier.rs`); `Interp` pushes
+a frame naming the word it is offering and removes it when `enter` returns,
+whatever it answers (`crates/bund2-interp/src/lib.rs`, `push_frame`).
+`jit_apply` and `jit_residual` call `tier_at` with the index after the value
+they are about to apply, which is what Tier 0's frame holds while that value
+runs (`crates/bund2-jit/src/lower.rs`). Test:
+`a_backtrace_from_under_a_compiled_body_names_it`, which fails with any of
+the three calls removed.
+
+*What it does not cover.* `jit_call_native` — a native reached by a
+**crossed** call — does not write a position, because the adapter is not
+handed the value's index. D75 withdrew crossing and the shipped runtime
+installs no crossable table, so no shipped body reaches it. If crossing
+returns, that adapter owes the position, or a backtrace from a crossed
+native will show the position of the last generic call.
+
+*The cost is not yet measured.* The owner's ruling was given on the
+understanding that a benchmark follows; see the dated note below.
+
+*Note, 2026-10-10 — the cost, measured.* `cargo bench -p bund2-bench
+--features jit --bench interpret`, groups `hot_body` and `entry_anchored`,
+macOS arm64, release profile. Two processes, the commit before this change
+and the tree with it, run alternately twice; figures are Criterion's
+medians, the two rounds of each side by side.
+
+| benchmark | before, ns | after, ns | mean difference |
+|---|---|---|---|
+| `hot_body/v2` | 49.23, 47.52 | 56.32, 52.44 | +6.0 ns, +12.4% |
+| `hot_body/v4` | 60.68, 61.93 | 68.11, 63.82 | +4.7 ns, +7.6% |
+| `hot_body/v8` | 91.86, 89.50 | 94.87, 96.28 | +4.9 ns, +5.4% |
+| `hot_body/v16` | 147.50, 148.60 | 151.69, 152.50 | +4.0 ns, +2.7% |
+| `hot_body/v32` | 263.55, 267.13 | 264.91, 272.35 | +3.3 ns, +1.2% |
+| `hot_body/v64` | 501.78, 505.56 | 506.60, 511.90 | +5.6 ns, +1.1% |
+| `entry_anchored/call/v1` | 77.37, 78.98 | 78.93, 77.85 | +0.2 ns |
+| `entry_anchored/call/v4` | 103.96, 105.07 | 105.53, 104.65 | +0.6 ns |
+| `entry_anchored/call/v16` | 211.52, 214.57 | 212.92, 214.25 | +0.5 ns |
+
+So about **5 ns for each compiled entry** on `hot_body`, near constant in
+the body's length, which is the shape a push and a pop per entry would give;
+and under 3 ns on every `entry_anchored` row, inside what two identical runs
+differ by. The two groups disagree and this note does not explain why. It is
+a comparison across processes, which this register has recorded as drifting
+by several nanoseconds on its own (the `stop_rule` group's note in
+`crates/bund2-bench/benches/interpret.rs`), so the figure is an estimate
+with that much slack and not a bound.
+
+*What 5 ns is against.* D74 records a compiled entry as saving about 10 ns
+a value. A frame per entry therefore costs about half of one value's saving,
+on every entry. RFC-0005's criterion 10 already reads below its stop rule,
+and this moves it further the same way. **Whether that is acceptable is the
+owner's**: option 2 of this decision — approve the deviation and drop the
+frame — remains open, and the change is three calls and one field to undo.
+
+*Note, 2026-10-10 — ruled, with the figure in hand.* The repository owner:
+"keep the frame". Option 1 stands at the measured cost.
+
 ## D138 — RFC-0006 is Accepted
 
 **Raised 2026-10-10** by RFC-0006's acceptance review

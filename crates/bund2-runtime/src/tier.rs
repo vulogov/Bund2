@@ -293,6 +293,10 @@ impl Tier for JitTier {
                 // compiled code having run to a return. `Ok(false)` is §S8's
                 // floor declining it, which runs nothing, and a compilation
                 // happens in the arm above without running anything either.
+                // D139: the body has a frame while compiled code runs it. Asked
+                // for here, after every way of declining but the floor's, and
+                // the `Vm` removes it when this returns.
+                vm.tier_frame(body);
                 let ran = compiler.run(code, vm, values);
                 match ran {
                     Ok(true) => {
@@ -300,7 +304,17 @@ impl Tier for JitTier {
                         Some(Ok(()))
                     }
                     Ok(false) => None,
-                    Err(e) => Some(Err(e)),
+                    // **A body that failed compiled was entered compiled** —
+                    // RFC-0005's twenty-third review, B3 and B4. This arm was
+                    // uncounted, so a differential whose body fails or exits
+                    // had no figure that could tell a compiled failure from
+                    // an interpreted one, and seven of them compared Tier 0
+                    // with itself. Compiled code ran until the error; only the
+                    // floor's refusal above runs nothing.
+                    Err(e) => {
+                        self.entered = self.entered.saturating_add(1);
+                        Some(Err(e))
+                    }
                 }
             }
         }
@@ -650,12 +664,20 @@ mod tests {
         tiered.interp.reporter = Box::new(tier_seen.clone());
         tiered.eval_str(setup).expect("setup runs");
 
-        let mut tier_outcome = Ok(());
+        // **Every call runs, whatever the one before it answered** — B3.
+        // At threshold 1 the first entry compiles the body and runs it
+        // interpreted, so a loop that stopped at the first failure never
+        // entered the compiled form of a body that fails: Tier 0 against
+        // Tier 0. The failures are kept, in order, and compared below.
+        let mut tier_outcomes = Vec::with_capacity(calls);
         for _ in 0..calls {
-            if tier_outcome.is_ok() {
-                tier_outcome = tiered.eval_str("w");
-            }
+            tier_outcomes.push(tiered.eval_str("w").map_err(|e| norm_msg(&e.0)));
         }
+        let tier_outcome = Ok(());
+        assert!(
+            tiered.compiled_entries().unwrap_or(0) > 0,
+            "{label}: no entry ran compiled, so this compares Tier 0 with itself"
+        );
 
         assert!(
             tiered.compiled_bodies().unwrap_or(0) > 0,
@@ -671,16 +693,15 @@ mod tests {
         plain.take_tier();
         plain.interp.reporter = Box::new(plain_seen.clone());
         plain.eval_str(setup).expect("setup runs");
-        let mut plain_outcome = Ok(());
+        let mut plain_outcomes = Vec::with_capacity(calls);
         for _ in 0..calls {
-            if plain_outcome.is_ok() {
-                plain_outcome = plain.eval_str("w");
-            }
+            plain_outcomes.push(plain.eval_str("w").map_err(|e| norm_msg(&e.0)));
         }
+        let plain_outcome = Ok(());
 
         let a = observe(&mut tiered, tier_outcome, &tier_seen);
         let b = observe(&mut plain, plain_outcome, &plain_seen);
-        assert_eq!(a.outcome, b.outcome, "{label}: outcome");
+        assert_eq!(tier_outcomes, plain_outcomes, "{label}: each call's outcome");
         assert_eq!(a.current, b.current, "{label}: current stack");
         assert_eq!(a.stacks, b.stacks, "{label}: stacks");
         assert_eq!(a.workbench, b.workbench, "{label}: workbench");
@@ -1127,6 +1148,162 @@ mod tests {
         assert_eq!(a.current, b.current, "current stack");
         assert_eq!(a.stacks, b.stacks, "stacks");
         assert_eq!(a.workbench, b.workbench, "workbench");
+    }
+
+    /// **Criterion 30's mirror cases: a compiled body whose caller is a
+    /// native reaches `exit`** — RFC-0005's twenty-third review, B4.
+    ///
+    /// The 2026-09-29 verdict excluded these as unreachable: a body whose
+    /// `exit` is unconditional ends the program on the entry that compiles
+    /// it, and a conditional one moves the exit into a different, cold body.
+    /// There is a third writing. The body says `go`, an alias; it is warmed
+    /// with `go` bound to `drop`, and then `go` is rebound to `exit`. The
+    /// body is the same value throughout, so the entry that exits is one the
+    /// cache answers.
+    ///
+    /// **`HOT` is the body under test**: `1 2 +` and `drop` give it the sites
+    /// F136 asks for, and `7 go` is the exit. Each case hands it to a native.
+    ///
+    /// **The precondition is a count, not an inference.** A compiled entry
+    /// that ends in an error is counted since B3, so `compiled_entries` must
+    /// rise across the exiting call, or the case compares Tier 0 with itself.
+    ///
+    /// **What is compiled is `HOT` and nothing around it.** The bodies that
+    /// hold the native have no site, so F136 leaves them interpreted; the
+    /// "drained" and "residual-path" rows keep the criterion's names for the
+    /// programs it lists, and assert only what the others do — that `HOT`,
+    /// compiled, reached from that program's native, ends the program as
+    /// Tier 0 does.
+    ///
+    /// **These found F189 the first time they ran**: `?try` directly over
+    /// `HOT` left a `context` slot without `eval_lambda`'s wrapper.
+    #[test]
+    fn a_hot_body_under_a_native_reaches_exit_as_tier_zero_does() {
+        const HOT: &str = "{ 1 2 + drop 7 go }";
+        let tried = |body: &str| {
+            format!(
+                "?try :try {body} set :except {{ \"EXCEPT\" println }} set \
+                 :recovery {{ \"RECOVERY\" println }} set !"
+            )
+        };
+        let cases: Vec<(String, &str, bool)> = vec![
+            (format!("[ 1 ] {HOT} map"), "map over one item", false),
+            (format!("[ 1 2 ] {HOT} map"), "map over two items", false),
+            (tried(HOT), "?try, directly", false),
+            (tried(&format!("{{ [ 1 ] {HOT} map }}")), "?try through map", false),
+            (tried(&format!("{{ 1 {HOT} times }}")), "?try through times", false),
+            (
+                tried(&format!("{{ {{ [ 1 ] {HOT} map }} ! }}")),
+                "a drained body",
+                false,
+            ),
+            (
+                tried(&format!("{{ :scratch to_stack {{ [ 1 ] {HOT} map }} ! :main to_stack }}")),
+                "a residual-path value",
+                false,
+            ),
+            (
+                "\"p> \" { println 1 2 + drop 7 go } input*".to_string(),
+                "input*",
+                true,
+            ),
+        ];
+
+        for (body, label, feeds) in cases {
+            let setup = format!(":drop :go alias\n:m {{ {body} }} register\n");
+            let run = |r: &mut crate::Runtime| -> (Result<(), String>, usize) {
+                r.eval_str(&setup).expect("setup runs");
+                for _ in 0..3 {
+                    if feeds {
+                        bund2_api::Vm::feed_line(&mut r.interp, "a line".to_string());
+                    }
+                    r.eval_str("m").unwrap_or_else(|e| panic!("{label}: warm-up: {}", e.0));
+                }
+                let before = r.compiled_entries().unwrap_or(0);
+                r.eval_str(":exit :go alias\n").expect("the rebind runs");
+                if feeds {
+                    bund2_api::Vm::feed_line(&mut r.interp, "a line".to_string());
+                }
+                (r.eval_str("m").map_err(|e| norm_msg(&e.0)), before)
+            };
+
+            let mut tiered = inlining_runtime_with(1);
+            let (tier_outcome, before) = run(&mut tiered);
+            assert!(
+                tiered.compiled_entries().unwrap_or(0) > before,
+                "{label}: the exiting entry did not run compiled ({before} before, \
+                 {:?} after), so this compares Tier 0 with itself",
+                tiered.compiled_entries()
+            );
+
+            let mut plain = crate::Runtime::new();
+            plain.take_tier();
+            let (plain_outcome, _) = run(&mut plain);
+
+            assert_eq!(
+                bund2_api::Vm::exit_requested(&plain.interp),
+                Some(7),
+                "{label}: Tier 0 records the exit"
+            );
+            assert_eq!(
+                bund2_api::Vm::exit_requested(&tiered.interp),
+                Some(7),
+                "{label}: and so does the tier"
+            );
+            // The `error` CONDITIONAL's `context` slot, as text: Tier 0 keeps
+            // each native's wrapper in it, and a helper whose status replaced
+            // the native's error would lose one.
+            let context = |r: &crate::Runtime| {
+                bund2_api::Vm::peek(&r.interp)
+                    .and_then(|v| v.get("context"))
+                    .and_then(|v| v.as_str().map(|t| norm_msg(&t)))
+            };
+            assert_eq!(context(&tiered), context(&plain), "{label}: the context slot");
+
+            // The outcome is not compared, for the reason the cold-callee row
+            // gives: Tier 0 records an exit and may answer `Ok` where compiled
+            // code answers `Err(Error::exited)`, and a program sees neither.
+            let _ = (tier_outcome, plain_outcome);
+            let a = observe(&mut tiered, Ok(()), &SharedReporter::default());
+            let b = observe(&mut plain, Ok(()), &SharedReporter::default());
+            assert_eq!(a.current, b.current, "{label}: current stack");
+            assert_eq!(a.stacks, b.stacks, "{label}: stacks");
+            assert_eq!(a.workbench, b.workbench, "{label}: workbench");
+        }
+    }
+
+    /// **F189: a hot body that fails under a native fails with Tier 0's
+    /// text.** `eval_lambda` wraps a body's failure in `Lambda content
+    /// evaluation returned error: `, and a failure the tier answered from
+    /// `push_frame` used to leave before the wrapper was applied. No exit is
+    /// involved: `go` is rebound from `drop` to `+`, which fails on a
+    /// boolean above the value `map` handed the body.
+    #[test]
+    fn a_hot_body_failing_under_a_native_keeps_the_natives_wrapper() {
+        let run = |r: &mut crate::Runtime| {
+            r.eval_str(":drop :go alias\n:m { [ 1 ] { 1 2 + drop true go } map } register\n")
+                .expect("setup runs");
+            for _ in 0..3 {
+                r.eval_str("m").expect("the warm-up entries run");
+            }
+            let before = r.compiled_entries().unwrap_or(0);
+            r.eval_str(":+ :go alias\n").expect("the rebind runs");
+            (r.eval_str("m").map_err(|e| norm_msg(&e.0)), before)
+        };
+        let mut tiered = inlining_runtime_with(1);
+        let (a, before) = run(&mut tiered);
+        assert!(
+            tiered.compiled_entries().unwrap_or(0) > before,
+            "the failing entry must run compiled, or this compares Tier 0 with itself"
+        );
+        let mut plain = crate::Runtime::new();
+        plain.take_tier();
+        let (b, _) = run(&mut plain);
+        assert!(
+            b.as_ref().is_err_and(|t| t.contains("Lambda content evaluation returned error: ")),
+            "Tier 0 wraps the failure, or this row has nothing to keep: {b:?}"
+        );
+        assert_eq!(a, b, "the failure's text");
     }
 
     /// **F140's regression: a promoted value must not ride across a stack
@@ -1857,12 +2034,20 @@ mod tests {
             "main",
             "{label}: the body must start on `main`, or its switch is a no-op"
         );
-        let mut tier_outcome = Ok(());
+        // **Every call runs, whatever the one before it answered** — B3.
+        // At threshold 1 the first entry compiles the body and runs it
+        // interpreted, so a loop that stopped at the first failure never
+        // entered the compiled form of a body that fails: Tier 0 against
+        // Tier 0. The failures are kept, in order, and compared below.
+        let mut tier_outcomes = Vec::with_capacity(calls);
         for _ in 0..calls {
-            if tier_outcome.is_ok() {
-                tier_outcome = tiered.eval_str("w");
-            }
+            tier_outcomes.push(tiered.eval_str("w").map_err(|e| norm_msg(&e.0)));
         }
+        let tier_outcome = Ok(());
+        assert!(
+            tiered.compiled_entries().unwrap_or(0) > 0,
+            "{label}: no entry ran compiled, so this compares Tier 0 with itself"
+        );
 
         assert!(
             tiered.compiled_bodies().unwrap_or(0) > 0,
@@ -1879,16 +2064,15 @@ mod tests {
             "main",
             "{label}: the untiered body must start on `main` too"
         );
-        let mut plain_outcome = Ok(());
+        let mut plain_outcomes = Vec::with_capacity(calls);
         for _ in 0..calls {
-            if plain_outcome.is_ok() {
-                plain_outcome = plain.eval_str("w");
-            }
+            plain_outcomes.push(plain.eval_str("w").map_err(|e| norm_msg(&e.0)));
         }
+        let plain_outcome = Ok(());
 
         let a = observe(&mut tiered, tier_outcome, &tier_seen);
         let b = observe(&mut plain, plain_outcome, &plain_seen);
-        assert_eq!(a.outcome, b.outcome, "{label}: outcome");
+        assert_eq!(tier_outcomes, plain_outcomes, "{label}: each call's outcome");
         assert_eq!(a.current, b.current, "{label}: current stack");
         assert_eq!(a.stacks, b.stacks, "{label}: stacks");
         assert_eq!(a.workbench, b.workbench, "{label}: workbench");
@@ -2080,24 +2264,105 @@ mod tests {
             BundValue::call("+"),
         ]);
 
-        let mut first = runtime_with(1);
+        // **The inlining fixture** — RFC-0005's twenty-third review, B3.
+        // This used `runtime_with`, whose table is empty, so `{ 1 2 + }` had
+        // no site, F133 demoted it, and neither interpreter compiled
+        // anything: nothing was dropped and nothing survived it.
+        let mut first = inlining_runtime_with(1);
         first.interp.registry.register_lambda("f", body.clone());
-        let mut second = runtime_with(1);
+        let mut second = inlining_runtime_with(1);
         second.interp.registry.register_lambda("f", body.clone());
 
         for _ in 0..5 {
             first.eval_str("f").expect("runs");
         }
+        assert_eq!(
+            first.compiled_entries(),
+            Some(4),
+            "the interpreter about to be dropped has code, and ran it"
+        );
         drop(first);
 
         for _ in 0..5 {
             second.eval_str("f").expect("the survivor still runs");
         }
+        assert_eq!(
+            second.compiled_entries(),
+            Some(4),
+            "the survivor compiled its own and ran it: one compiling entry, \
+             then four compiled"
+        );
         let stack = second.interp.snapshot();
         assert_eq!(stack.len(), 5, "one sum per call: {stack:?}");
         for v in &stack {
             assert_eq!(v.as_int(), Some(3), "Tier 0's answer: {stack:?}");
         }
+    }
+
+    /// **D139: a word that reads the frame list reads the same one under the
+    /// tier.** RFC-0005's twenty-third review, B1: `debug.backtrace` walks
+    /// Tier 0's frames, a compiled body had none, and so a backtrace printed
+    /// from under one lost that body's line.
+    ///
+    /// `bt` is the view `debug.backtrace` prints, pushed instead of printed so
+    /// the two arms can be compared. Three shapes, because the frame's
+    /// position is written from two places: `u` and `v` reach `w` through
+    /// `jit_apply` at two different indices each, and `x` reaches it through
+    /// `jit_residual`, after `+`'s guard has declined a float.
+    #[test]
+    fn a_backtrace_from_under_a_compiled_body_names_it() {
+        fn bt(vm: &mut dyn Vm) -> Result<(), Error> {
+            let text = vm.debugging(bund2_api::Debugging::Backtrace)?;
+            vm.push(BundValue::str(text.unwrap_or_default()));
+            Ok(())
+        }
+        let setup = ":w { bt } register\n\
+                     :v { 1 2 + drop w 3 4 + drop w } register\n\
+                     :u { w 1 2 + drop v 5 6 + drop } register\n\
+                     :x { 1 2.5 + drop w } register\n";
+        let run = |r: &mut crate::Runtime| {
+            r.interp.registry.register_native(
+                "bt",
+                bt,
+                bund2_api::StackEffect::opaque(0),
+                bund2_api::WordKind::Sync,
+            );
+            r.eval_str(setup).expect("setup runs");
+            for _ in 0..4 {
+                r.eval_str("u x").expect("the words run");
+            }
+            let seen: Vec<String> = bund2_api::Vm::snapshot(&r.interp)
+                .iter()
+                .map(|v| v.summary(400))
+                .collect();
+            seen
+        };
+
+        let mut tiered = inlining_runtime_with(1);
+        let a = run(&mut tiered);
+        assert!(
+            tiered.compiled_entries().unwrap_or(0) >= 6,
+            "u, v and x must each have run compiled, or this compares Tier 0 \
+             with itself: {:?} entries",
+            tiered.compiled_entries()
+        );
+
+        let mut plain = crate::Runtime::new();
+        plain.take_tier();
+        let b = run(&mut plain);
+
+        assert_eq!(b.len(), 16, "four rounds of four backtraces");
+        assert!(
+            b.iter().any(|t| t.contains("v at 10") && t.contains("u at 6")),
+            "the control must show positions past the first value: {b:?}"
+        );
+        assert_eq!(a, b, "the frame list a word reads is Tier 0's");
+        assert_eq!(
+            bund2_api::Vm::debugging(&mut tiered.interp, bund2_api::Debugging::Backtrace)
+                .expect("the view answers"),
+            Some("#0  the top-level stream\n".to_string()),
+            "and no frame outlives the body it was recorded for"
+        );
     }
 
     /// A body with no values is never compiled — `compile_word` refuses an

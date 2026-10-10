@@ -839,6 +839,8 @@ extern "C" fn jit_apply(c: *mut Ctx<'_>, index: usize) -> i32 {
         )));
         return FAIL;
     };
+    // D139: Tier 0's frame has stepped past a value by the time it runs.
+    c.vm.tier_at(index.saturating_add(1));
     let r = c.vm.apply(v);
     // Same helper, same two obligations. `Vm::apply` is `Interp::apply`, which
     // already consults the exit gate after `run_to` (F112), so a value that
@@ -891,7 +893,9 @@ extern "C" fn jit_residual(c: *mut Ctx<'_>, index: usize) -> i32 {
     // Cloned up front: `c.vm` is borrowed mutably by `apply`, so the slice
     // cannot stay borrowed from `c` across the loop.
     let rest: Vec<BundValue> = c.body[index..].to_vec();
-    for v in rest {
+    for (k, v) in rest.into_iter().enumerate() {
+        // D139, as `jit_apply`.
+        c.vm.tier_at(index.saturating_add(k).saturating_add(1));
         let r = c.vm.apply(v);
         // **Every value goes through `status_of`**, not just the last. It is
         // §S5's one status-maker: it substitutes `Error::exited` after an `Ok`
@@ -3274,8 +3278,23 @@ fn run_as_the_tier_would(
     word: WordHandle,
     vm: &mut bund2_interp::Interp,
     body: &[BundValue],
+    runs: bool,
 ) -> Result<(), String> {
-    match c.run(word, vm, body) {
+    // **Which of the two happened is asserted, not absorbed** — RFC-0005's
+    // twenty-third review, B3. Falling back silently let three `autoadd`
+    // tests read as tests of compiled code while the entry declined in each
+    // and Tier 0 ran the body: Tier 0 against Tier 0. `runs` is what the
+    // caller says the entry does, and a caller that is wrong panics here.
+    let ran = c.run(word, vm, body);
+    if let Ok(ran) = ran {
+        assert_eq!(
+            ran, runs,
+            "the compiled entry {} where the test says it {}",
+            if ran { "ran" } else { "declined" },
+            if runs { "runs" } else { "declines" },
+        );
+    }
+    match ran {
         Ok(true) => Ok(()),
         Ok(false) => vm.eval(body).map_err(|e| e.0),
         Err(e) => Err(e.0),
@@ -4892,7 +4911,10 @@ mod tests {
         let mut compiled = with_stdlib();
         let word = word_in(&mut c, &mut compiled, &body, LastCall::Ordinary);
         compiled.set_autoadd(true);
-        let by_compiled = run_as_the_tier_would(&mut c, word, &mut compiled, &body);
+        // The mode is on before the body starts, so the entry declines and
+        // Tier 0 runs it: what this compares is the *decline*, and the
+        // helper panics if compiled code ran instead.
+        let by_compiled = run_as_the_tier_would(&mut c, word, &mut compiled, &body, false);
 
         assert_eq!(by_tier0.is_ok(), by_compiled.is_ok(), "autoadd: outcome");
         let (a, b) = (tier0.snapshot(), compiled.snapshot());
@@ -4951,7 +4973,10 @@ mod tests {
         );
         compiled.push(BundValue::str("beneath"));
         compiled.set_autoadd(true);
-        let by_compiled = run_as_the_tier_would(&mut c, word, &mut compiled, &body);
+        // The mode is on before the body starts, so the entry declines and
+        // Tier 0 runs it: what this compares is the *decline*, and the
+        // helper panics if compiled code ran instead.
+        let by_compiled = run_as_the_tier_would(&mut c, word, &mut compiled, &body, false);
 
         assert_eq!(by_tier0.is_ok(), by_compiled.is_ok(), "autoadd: outcome");
         let (a, b) = (tier0.snapshot(), compiled.snapshot());
@@ -5434,7 +5459,9 @@ mod tests {
         let mut c = Compiler::new(table).expect("a compiler");
         let word = word_in(&mut c, &mut compiled, &body, LastCall::Ordinary);
         compiled.push(BundValue::list(vec![BundValue::int(0)]));
-        let by_compiled = run_as_the_tier_would(&mut c, word, &mut compiled, &body);
+        // The mode is off at entry, so compiled code runs and meets `:`
+        // mid-body; the helper panics if the entry declined instead.
+        let by_compiled = run_as_the_tier_would(&mut c, word, &mut compiled, &body, true);
 
         assert_eq!(
             by_tier0.is_ok(),
@@ -5478,7 +5505,10 @@ mod tests {
         // Set *after* compiling: the guard is emitted against the state at
         // compile time and reads the cell at run time.
         compiled.set_autoadd(true);
-        let by_compiled = run_as_the_tier_would(&mut c, word, &mut compiled, &body);
+        // The mode is on before the body starts, so the entry declines and
+        // Tier 0 runs it: what this compares is the *decline*, and the
+        // helper panics if compiled code ran instead.
+        let by_compiled = run_as_the_tier_would(&mut c, word, &mut compiled, &body, false);
 
         assert_eq!(by_tier0.is_ok(), by_compiled.is_ok(), "autoadd: outcome");
         let (a, b) = (tier0.snapshot(), compiled.snapshot());

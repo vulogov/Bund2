@@ -641,6 +641,26 @@ pub trait Vm {
         false
     }
 
+    // --- the tier's frame (D139) --------------------------------------------
+    /// **Compiled code is about to run `body`** — D139. Tier 0 answers by
+    /// recording a frame for it, so a word that reads the frame list while the
+    /// body runs (`debug.backtrace`) sees the body it was called from, as it
+    /// would with no tier.
+    ///
+    /// A tier calls this once, immediately before it starts a body, and only
+    /// from inside [`Tier::enter`]; the `Vm` that offered the body removes the
+    /// frame when `enter` returns, whatever it answers. **Defaulted to
+    /// nothing**: a `Vm` that keeps no frame list has no backtrace to keep
+    /// true.
+    fn tier_frame(&mut self, _body: &BundValue) {}
+
+    /// **Where the running compiled body is** — the index of the value after
+    /// the one about to be applied, which is what Tier 0's frame holds while
+    /// that value runs. Called before each value a compiled body hands to
+    /// [`Vm::apply`]. An inlined site does not call it: nothing inlined can
+    /// read a frame.
+    fn tier_at(&mut self, _ip: usize) {}
+
     // --- input (D112) -------------------------------------------------------
     /// Read one line — **the hook a word listens through**, as [`Vm::report`]
     /// is the one it speaks through. The implementation asks whatever
