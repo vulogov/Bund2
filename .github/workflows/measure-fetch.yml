@@ -12,6 +12,7 @@ on:
     paths:
       - .github/workflows/measure-fetch.yml
       - crates/bund2-stdlib/src/host.rs
+      - crates/bund2-stdlib/src/http.rs
       - docs/measurements/fetch.py
 
 env:

@@ -129,6 +129,11 @@ fn a_restriction_cannot_be_cleared_by_the_environment() {
 /// (`register_noeval_stubs`), and the two it left out are the ones that read a
 /// *file* and run it; `--noio`'s floor was not tried at all. D120 adds a
 /// seventh, `debug.run`, and D121 an eighth, `debug.feed`.
+///
+/// **And `--noio`'s floor is tried with the four words that fetch and run**
+/// (D132): the sixteenth review measured a bundle built `--noio` evaluating
+/// a remote library, and this criterion had tried the floor with `fs.cwd`
+/// alone.
 #[test]
 fn both_floors_hold_for_every_word_they_name() {
     let clearing = [
@@ -159,6 +164,20 @@ fn both_floors_hold_for_every_word_they_name() {
             let (_, out) = run(&exe, &[], &[env]);
             assert!(
                 out.contains("disabled with --noeval"),
+                "`{word}` with {}={:?} must stay refused: {out}",
+                env.0,
+                env.1
+            );
+        }
+        let _ = std::fs::remove_file(&exe);
+    }
+
+    for (i, word) in ["use", "use.", "bund.eval-file", "bund.eval-file."].iter().enumerate() {
+        let exe = build(&format!("\"file:///x\" {word}\n"), &format!("floor-fetch-{i}"), &["--noio"]);
+        for env in clearing {
+            let (_, out) = run(&exe, &[], &[env]);
+            assert!(
+                out.contains("disabled with --noio"),
                 "`{word}` with {}={:?} must stay refused: {out}",
                 env.0,
                 env.1

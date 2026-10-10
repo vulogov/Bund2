@@ -2,7 +2,8 @@
 //!
 //! `bund2-stdlib` tests the choice with the environment passed in. This
 //! spawns the binary with the variables really set, because the defect was a
-//! default nobody had passed anything to: `ureq` read the environment itself.
+//! default nobody had passed anything to: `ureq`, which fetched for Bund2
+//! until D131, read the environment itself.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::io::{Read, Write};
@@ -10,7 +11,8 @@ use std::net::TcpListener;
 use std::process::{Command, Stdio};
 
 /// Answer every request with a Bund program that prints `tag`. A `CONNECT` is
-/// granted first, which is how `ureq` asks a proxy for anything.
+/// granted first: Bund2 asked a proxy that way while `ureq` wrote its
+/// requests (D124), and asks for the whole URL now, as libcurl does (D131).
 fn serve(tag: &'static str) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
     let port = listener.local_addr().expect("addr").port();
@@ -110,10 +112,10 @@ fn serve_recording(tag: &'static str) -> (u16, std::sync::Arc<std::sync::Mutex<V
 }
 
 /// **The fourteenth review's B1 and B2**: with a proxy set, a URL the
-/// reference refuses is not fetched, and a proxy Bund2 cannot log in to as
-/// the reference would is not asked. Before, the proxy was sent a `CONNECT`
-/// for `a!b.invalid` and its answer was evaluated. Each row is one the
-/// oracle refused, or fetched from somewhere else, on 2026-10-09.
+/// reference refuses is not fetched, and a proxy the reference would pass
+/// over for its credentials (F185) is not asked. Before, the proxy was sent
+/// a `CONNECT` for `a!b.invalid` and its answer was evaluated. Each row is
+/// one the oracle refused, or fetched from somewhere else, on 2026-10-09.
 #[test]
 fn a_url_the_reference_refuses_reaches_no_listener() {
     let (origin, at_origin) = serve_recording("origin");
@@ -129,7 +131,7 @@ fn a_url_the_reference_refuses_reaches_no_listener() {
         assert!(refused(&url, &through), "{user} through a proxy");
         assert!(refused(&url, &[]), "{user} directly");
     }
-    for user in ["a%00b", "a%0ab", "u:%1f", "a%40b"] {
+    for user in ["a%00b", "a%0ab", "u:%1f"] {
         let vars = [("http_proxy", format!("http://{user}@127.0.0.1:{proxy}"))];
         assert!(refused(&format!("http://127.0.0.1:{origin}/x"), &vars), "proxy user {user}");
     }
@@ -137,6 +139,27 @@ fn a_url_the_reference_refuses_reaches_no_listener() {
     assert_eq!(*at_proxy.lock().expect("heads"), Vec::<String>::new(), "the proxy was asked");
     // And the listeners do answer.
     assert_eq!(used_url(&format!("http://a~b.invalid:{origin}/x"), &through), "proxy");
+}
+
+/// **D131: a proxy is asked for the whole URL, with no tunnel, and its
+/// credentials go decoded**, as the oracle's request was captured. While
+/// `ureq` wrote the request the first was a `CONNECT` (D124) and the second
+/// failed the fetch (D128).
+#[test]
+fn a_proxy_is_asked_as_the_reference_asks_it() {
+    let (proxy, heads) = serve_recording("proxy");
+    let vars = [("http_proxy", format!("http://a%40b:c%3Ad@127.0.0.1:{proxy}"))];
+    assert_eq!(used_url("http://u:p@x.bund2.invalid:8080/a/../lib.bund?q", &vars), "proxy");
+    let heads = heads.lock().expect("heads");
+    assert_eq!(
+        *heads,
+        vec![
+            "get http://x.bund2.invalid:8080/lib.bund?q http/1.1\r\nhost: x.bund2.invalid:8080\r\n\
+             proxy-authorization: basic yubiomm6za==\r\nauthorization: basic dtpw\r\n\
+             user-agent: zbus\r\naccept: */*\r\nproxy-connection: keep-alive\r\n\r\n"
+                .to_string()
+        ]
+    );
 }
 
 /// **The fourteenth review's S1 and S4**: a URL's credentials are sent
@@ -190,10 +213,10 @@ fn serve_on_1080() -> Option<()> {
 }
 
 /// **The twelfth review's B1**: a proxy that names no port is on 1080, as
-/// libcurl has it, and not on `ureq`'s 80. The port is fixed, so this checks
-/// nothing on a machine where 1080 is taken, and says so on standard error,
-/// past the harness's capture; the string Bund2
-/// hands `ureq` is checked wherever the tests run, in `bund2-stdlib`.
+/// libcurl has it, and not on 80. The port is fixed, so this checks nothing
+/// on a machine where 1080 is taken, and says so on standard error, past the
+/// harness's capture; the port Bund2 chooses is checked wherever the tests
+/// run, in `bund2-stdlib`.
 #[test]
 fn a_proxy_that_names_no_port_is_asked_on_1080() {
     let origin = serve("origin");
@@ -219,7 +242,8 @@ fn a_fetch_obeys_the_proxy_variables_the_reference_obeys_and_no_others() {
     for obeyed in ["http_proxy", "all_proxy", "ALL_PROXY"] {
         assert_eq!(used(origin, &[(obeyed, there.clone())]), "proxy", "{obeyed}");
     }
-    // The three `ureq` read by default and libcurl does not, for `http://`.
+    // The three `ureq` read by default and libcurl does not, for `http://`:
+    // F182, from when `ureq` chose the proxy.
     for ignored in ["HTTP_PROXY", "HTTPS_PROXY", "https_proxy"] {
         assert_eq!(used(origin, &[(ignored, there.clone())]), "origin", "{ignored}");
     }

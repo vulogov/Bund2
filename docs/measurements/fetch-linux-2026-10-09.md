@@ -9,6 +9,16 @@ with `--port80`. *(The first version of this file was run 37994971955, of
 Bund2 at `bbd50c1`. Seven cells differ, all Bund2's, and are named below.)* It is the companion of `fetch-2026-10-09.md`, which is
 macOS arm64 and libcurl 8.7.1, and its cells read the same way.
 
+**This file is of the tree before D131, and its companion is not.** At
+`17e623a` `ureq` wrote Bund2's requests, so a proxied row here shows Bund2
+asking for a tunnel, `CONNECT`. Since D131 Bund2 writes its own requests
+and reads its own responses, and `fetch-2026-10-09.md` was measured again
+on macOS with 741 settings: the 443 here, in the same rows, and 298 more,
+of which 251 are about the response. **None of that has been run on
+Linux.** The counts below are of the 443 at `17e623a` and say nothing of
+the tree after it. The workflow replaces this file's table when it next
+runs.
+
 ## What differs from macOS
 
 **The reference's cell differs in 12 rows of 443.** One is the version

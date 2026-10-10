@@ -1411,9 +1411,10 @@ pub fn register(r: &mut Registry) {
     r.register_native("do.", do_wb, StackEffect::opaque(0), WordKind::Sync);
     r.register_native("bund.eval", bund_eval, StackEffect::opaque(1), WordKind::Sync);
     r.register_native("bund.eval.", bund_eval_wb, StackEffect::opaque(0), WordKind::Sync);
-    // **Also `--noeval`, not `--noio`** — the reference stubs all four
+    // **`--noeval` in the reference, not `--noio`** — it stubs all four
     // together (`bund_eval.rs`), which puts reading a file to run under the
-    // flag about *evaluating* rather than the one about I/O.
+    // flag about *evaluating* rather than the one about I/O. Bund2 puts
+    // the file pair under both (D132).
     r.register_native(
         "bund.eval-file",
         bund_eval_file,
@@ -1654,8 +1655,9 @@ mod f18_tests {
     }
 
     /// **`--noeval` stubs all four, not two.** Reading a file in order to run
-    /// it is evaluation, so `bund.eval-file` is behind the evaluating flag
-    /// rather than `--noio` — the reference registers the four together.
+    /// it is evaluation, so `bund.eval-file` is behind the evaluating flag —
+    /// the reference registers the four together. `--noio` stubs the file
+    /// pair too, which is Bund2's (D132) and is tested in `host.rs`.
     #[test]
     fn noeval_stubs_the_file_forms_too() {
         let opts = crate::host::HostOptions {

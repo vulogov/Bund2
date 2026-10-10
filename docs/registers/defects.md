@@ -4033,6 +4033,42 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F187 — a fetch read a response as `ureq` reads one, not as the reference does
+
+**A Bund2 defect, found 2026-10-09** by RFC-0006's fifteenth review (B1) and
+reproduced by the sixteenth (B2).
+
+The reference's fetch is libcurl's
+(`reference/Bund/src/stdlib/helpers/file_helper.rs:42-46`), so which bytes
+are an answer, and what its body is, are libcurl's to say. Bund2 fetched
+with `ureq` 3.4.0, and D54 compared four of the two clients' defaults. How
+each reads a response was not compared until the fourteenth review tried 28
+shapes and found two, which D129 approved.
+
+Measured against the oracle at `21b40b0` (libcurl 8.7.1, macOS), Bund2 at
+`cd10669`, 94 shapes of response, each fetched with `url` so the text is on
+the page. **33 differed:**
+
+| | shapes | which |
+|---|---|---|
+| both fetch, and the text differs | 10 | a `300`, `301`, `302`, `303`, `307` or `308` with no `Content-Length`, a `302` with no `Location`, and a `101` with a body: the body in the reference, **the empty string in Bund2**. `Transfer-Encoding: gzip, chunked`: the framing in the reference, the body in Bund2. A chunked answer to HTTP/1.0: the body in the reference, the framing in Bund2 |
+| Bund2 fetches a body the reference's fetch refuses | 6 | a blank line before the status line; `chunked` named twice, in two lines or in one; a chunk size written `+11`, with a blank before it, or of seventeen digits |
+| Bund2 fails where the reference fetches | 17 | `Content-Length` written `+17`, `17abc`, `0x11`, past 64 bits, or given twice with two values; a folded header line; a header whose name holds a blank, is empty, or holds a byte above ASCII; a blank before a header's colon; a bare carriage return in a value; a header of 100,000 bytes; a status line in lower case, with a tab after the version, or with nothing after it; chunks ended by line feeds alone |
+
+The first row is the one a program meets. `use` follows no redirect in
+either binary, so a redirect's body is what is evaluated, and a server that
+closes the connection instead of sending a length is an ordinary one. The
+reference then fails loudly on a page of HTML. Bund2 evaluated nothing and
+went on as though a library had loaded.
+
+The second row is Bund2 running what the reference will not read.
+
+**Disposition: FIX, by D131**, ruled and built 2026-10-09. `ureq` is
+removed and `crates/bund2-stdlib/src/http.rs` writes the request and reads
+the response by rules measured against the oracle. The 94 shapes and 139
+more are rows 444 to 676 of `docs/measurements/fetch-2026-10-09.md`, and
+the two binaries return the same text for every one.
+
 ## F186 — a report takes time that grows with the square of its message
 
 **A Bund2 defect, found 2026-10-09** by RFC-0006's fourteenth review (S8).
@@ -4065,6 +4101,34 @@ not a value and has no bound.
 whether the report says it cut one, is not decided; nothing in the tree
 changed for this entry.
 
+**Note, 2026-10-09 (met again under D131) — the `Source` row does it too,
+and a longer operand now reaches it.** Two things this entry did not have.
+
+- **The message is not the only long cell.** A report's `Source` row is the
+  line of the program the failing word stands on, whole. Measured on a
+  debug build of the tree that carries D131, with other work running: a
+  failing `file` whose operand is a literal of n bytes, where the message
+  is `FILE gets no data` and holds no operand.
+
+  | n | the operand on the word's line | the operand on the line before | `use`, the operand on the line before |
+  |---|---|---|---|
+  | 20,000 | 0.81 s | 0.01 s | 0.78 s |
+  | 40,000 | 3.04 s | 0.01 s | 2.93 s |
+  | 80,000 | 11.66 s | 0.01 s | 11.56 s |
+
+  The first column is the excerpt alone; the third is the message alone,
+  as this entry measured it. Four times the time for twice the length in
+  both.
+- **`ureq` refused a URL past 65,534 bytes and Bund2 no longer does**: its
+  limits are libcurl's, a request of 1,048,575 bytes and a URL of 8,000,000
+  (D131). So a `use` that fails on a URL of a megabyte is now possible,
+  and its report did not finish in 20 seconds. `docs/measurements/fetch.py`
+  puts such an operand on a line of its own and fetches it with `url` or
+  `file`, so that its rows 734 to 741 measure the fetch and not this.
+
+The disposition is unchanged: FIX, not yet made, and the bound not
+decided.
+
 ## F185 — the reference fetches without the proxy when the proxy's credentials do not decode
 
 **A defect in the original implementation, found 2026-10-09** by RFC-0006's
@@ -4088,6 +4152,12 @@ libcurl does it was not traced past the measurement.
 **Disposition: FIX, by D128**, ruled 2026-10-09. Bund2 does not go direct:
 it fails the fetch and asks nobody. Reproducing this was D128's option 2,
 and was not chosen. *(Until the ruling this read "open, with D128".)*
+
+**Note, 2026-10-09 (D131).** D128 is superseded: Bund2 now sends a proxy's
+credentials decoded, as the reference does. The disposition here is
+unchanged and no longer rests on D128. Where the credentials decode to a
+byte below `0x20` Bund2 fails the fetch and asks nobody (`curls_proxy`,
+`crates/bund2-stdlib/src/host.rs`); rows 393 to 400 and 420 to 422.
 
 ## F184 — the reference's `file` cannot read a path with a space in it
 
@@ -4344,6 +4414,25 @@ reads an entry by the rule of the system it runs on, as D130 rules.
 `17e623a`, run 38002480092: in all seven rows Bund2 now asks the proxy, as
 the reference does there, and no other cell of the 443 changed. The Linux
 table in `docs/measurements/` is that run.
+
+**Note, 2026-10-09 (RFC-0006's fifteenth review, S1 and S2).** Two more of
+the proxy's choice, both fixed.
+
+- **A `no_proxy` entry of 128 bytes or more matched an address in Bund2 and
+  matches none in the reference.** With `no_proxy` set to `127.0.0.0/`, 117
+  zeros and `8`, the reference asks the proxy for `127.0.0.1` and Bund2
+  went directly: a different listener, and the direction D127 names a
+  defect. The limit is on one entry, only for a host that is an address,
+  and the entries after it are still read. `bypasses` passes over such an
+  entry now. Rows 695 to 704 of `docs/measurements/fetch-2026-10-09.md`;
+  why libcurl has the limit was not traced.
+- **A proxy written `http:/host`, `http:///host` or `host:port/a://b` is
+  used by the reference and failed the fetch in Bund2**, which split a
+  proxy at the first `://` and nowhere else. `proxy_for` now takes a scheme
+  as libcurl does — a letter, then letters, digits, `+`, `-` and `.`, then
+  `:/` — and one to three slashes after it. Rows 705 to 720.
+
+Linux was not measured for either.
 
 ## F181 — `bund2 build` wrote through `--output`, and a hard link to the builder destroyed it
 

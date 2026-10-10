@@ -69,6 +69,7 @@ pub mod convert;
 pub mod report;
 // Script arguments, the filesystem, the clock, the process title, `io.graph`.
 pub mod host;
+mod http;
 // Ids, random integers and strings, and `generator`.
 pub mod random;
 // `input`, `input*`, `password`, `bund.prompt`, `io.banner`, the host table.
@@ -147,6 +148,11 @@ pub fn register_all_with(r: &mut bund2_api::Registry, opts: &host::HostOptions) 
     graph::register(r);
     library::register(r);
     library_string::register(r);
+    // After `singles`, which registers `bund.eval-file`, and before
+    // `--noeval`'s stubs, whose message wins when both flags are set (D132).
+    if opts.noio {
+        host::register_noio_fetch_stubs(r);
+    }
     // Last of all, so the stubs replace `bund.eval`, which `singles`
     // registers above, and `use`.
     if opts.noeval {

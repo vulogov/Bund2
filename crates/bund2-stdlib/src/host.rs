@@ -805,13 +805,21 @@ fn percent_bytes(s: &str) -> Vec<u8> {
 /// - **`file://`** takes an absolute path, optionally after the host
 ///   `localhost`, and decodes `%xx` as curl does. `file://relative/x` names a
 ///   host and fails, as it does under curl.
-/// - **`http://`** is fetched by `ureq` with curl's defaults as the reference
-///   leaves them: no redirect is followed, a 404's body is still the answer,
-///   the body has no size limit, and the user agent is `ZBUS` (`:43`).
+/// - **`http://`** is fetched by Bund2's own exchange (`http.rs`, D131)
+///   with curl's defaults as the reference leaves them: no redirect is
+///   followed, a 404's body is still the answer, the body has no size limit,
+///   and the user agent is `ZBUS` (`:43`).
 /// - **Anything else fails**, `https://` included until it is decided (D54).
 ///
 /// The reference sets no proxy option (`:42-46`), so libcurl chooses one from
 /// the environment, and [`proxy_for`] chooses the same one (F182).
+///
+/// **A string longer than 8,000,000 bytes is no URL to libcurl**, and an
+/// `http:` one of exactly that length is refused as well, before any
+/// connection; a `file:` URL of that length is read. Why the two differ by
+/// a byte was not traced. `http::Uri` once stopped Bund2 at 65,534; when
+/// Bund2 began writing its own requests (D131) nothing did, and it fetched
+/// a URL of eight megabytes that the reference refuses.
 ///
 /// Any failure is `None`, and the bytes are decoded lossily (`:46-54`).
 pub(crate) fn fetch_uri(uri: &str) -> Option<String> {
@@ -832,10 +840,16 @@ pub(crate) fn fetch_uri(uri: &str) -> Option<String> {
 /// - The exceptions are `no_proxy`, or `NO_PROXY` when that is unset or empty.
 ///   See [`bypasses`].
 /// - A proxy with no scheme is an HTTP one. One with any other scheme fails
-///   the fetch here. libcurl would speak SOCKS or TLS to it; `ureq` is built
-///   without either, and fetching directly instead would ignore the setting.
-///   An approved deviation, as is asking the proxy for a tunnel (D124).
-fn proxy_for(host: &str, env: &dyn Fn(&str) -> Option<String>) -> Result<Option<String>, ()> {
+///   the fetch here. libcurl would speak SOCKS or TLS to it; Bund2 speaks
+///   neither, and fetching directly instead would ignore the setting. An
+///   approved deviation (D124).
+/// - **A scheme is letters, digits, `+`, `-` and `.` after a letter, then
+///   `:/`**, and one to three slashes follow it, as for a URL
+///   ([`Target::of`]). So `http:/127.0.0.1:8080` names a proxy, and
+///   `127.0.0.1:8080/a://b` has no scheme: its `://` is in a path, which is
+///   dropped. Splitting at the first `://` refused all three, where the
+///   reference went through the proxy. Rows 705 to 720.
+fn proxy_for(host: &str, env: &dyn Fn(&str) -> Option<String>) -> Result<Option<Proxy>, ()> {
     let set = |name: &str| env(name).filter(|v| !v.is_empty());
     let Some(proxy) = ["http_proxy", "all_proxy", "ALL_PROXY"].into_iter().find_map(set) else {
         return Ok(None);
@@ -844,20 +858,37 @@ fn proxy_for(host: &str, env: &dyn Fn(&str) -> Option<String>) -> Result<Option<
     if listed.is_some_and(|list| bypasses(host, &list)) {
         return Ok(None);
     }
-    match proxy.split_once("://") {
-        Some((scheme, _)) if !scheme.eq_ignore_ascii_case("http") => Err(()),
-        Some((_, rest)) => curls_proxy(rest, true).map(Some).ok_or(()),
-        None => curls_proxy(&proxy, false).map(Some).ok_or(()),
+    let Some((scheme, rest)) = proxy_scheme(&proxy) else {
+        return curls_proxy(&proxy, false).map(Some).ok_or(());
+    };
+    let slashes = rest.bytes().take_while(|b| *b == b'/').count();
+    if !scheme.eq_ignore_ascii_case("http") || !(1..=3).contains(&slashes) {
+        return Err(());
     }
+    rest.get(slashes..).and_then(|rest| curls_proxy(rest, true)).map(Some).ok_or(())
+}
+
+/// A proxy's scheme and what follows its colon, when it has a scheme as
+/// libcurl decides that for a string it may have to guess one for: a letter,
+/// then letters, digits, `+`, `-` and `.`, then `:/`. `localhost:1080` has
+/// none, since no slash follows the colon.
+fn proxy_scheme(proxy: &str) -> Option<(&str, &str)> {
+    let (scheme, rest) = proxy.split_once(':')?;
+    let mut bytes = scheme.bytes();
+    let named = bytes.next().is_some_and(|b| b.is_ascii_alphabetic())
+        && bytes.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'));
+    (named && rest.starts_with('/')).then_some((scheme, rest))
 }
 
 /// An authority — `user@host:port` — taken apart as libcurl takes it. `None`
 /// is an authority libcurl refuses.
 ///
-/// **No part of it is passed on as text.** `ureq` reads what it is handed
-/// with `http::Uri`, a second parser with its own rules, and whatever the two
-/// read differently is a fetch the reference would not make (D127). Each part
-/// was found that way, one review after another:
+/// **No part of it is passed on as text.** Bund2 once handed a URL to `ureq`,
+/// which read it again with `http::Uri`, a second parser with its own rules;
+/// whatever the two read differently was a fetch the reference would not
+/// make (D127). Each part was found that way, one review after another, and
+/// since D131 there is no second parser: the request is written from these
+/// parts.
 ///
 /// - **The port** is digits and nothing else, leading zeros allowed, from 1
 ///   to 65535; an empty one is `Some(None)`, the default. `http` reads a port
@@ -902,14 +933,6 @@ impl<'a> Authority<'a> {
         Some(Self { user, host, port })
     }
 
-    /// `host:port`, with `port` for one that was not written. The user part
-    /// is not in it.
-    fn address(&self, port: Option<u16>) -> String {
-        match self.port.flatten().or(port) {
-            Some(port) => format!("{}:{port}", self.host),
-            None => self.host.clone(),
-        }
-    }
 }
 
 /// A URL's host as libcurl 8.7.1 has it once the URL is read, or `None` for
@@ -1003,9 +1026,9 @@ fn curls_ipv6(addr: std::net::Ipv6Addr) -> String {
 /// refuses: one that decodes to a zero byte, or holds a blank or a control
 /// character as written.
 ///
-/// The bytes go into the header from here and the URL `ureq` is handed has no
-/// user part. Left in the URL they were sent undecoded — `a%40b` for `a@b` —
-/// and a server that checks them answered the two differently.
+/// The bytes go into a header and the request's URL has no user part. Sent
+/// as written they were undecoded — `a%40b` for `a@b` — and a server that
+/// checks them answered the two differently.
 fn credentials(user: &str) -> Option<Vec<u8>> {
     if user.bytes().any(|b| b <= b' ' || b == 0x7f) {
         return None;
@@ -1017,33 +1040,42 @@ fn credentials(user: &str) -> Option<Vec<u8>> {
     (!out.contains(&0)).then_some(out)
 }
 
-/// The HTTP proxy `ureq` is handed: `rest` is the variable's text after any
-/// scheme. **The port is libcurl's default, 1080, when none is named**;
-/// `ureq` would take 80, and so ask a different listener (F182's first
-/// note). `host:` with nothing after the colon is 1080 too when a scheme
-/// came first, and is refused when none did. Whatever follows the address —
-/// a slash, a path, a query — is dropped, as the reference ignores it; left
-/// in, `ureq` refuses a proxy that has one and no scheme. All measured.
+/// An HTTP proxy: where it listens, and what it is told of who asks.
+#[derive(Debug, PartialEq)]
+struct Proxy {
+    /// As [`curls_host`] gives it.
+    host: String,
+    port: u16,
+    /// The bytes for `Proxy-Authorization: Basic`.
+    login: Option<Vec<u8>>,
+}
+
+/// The HTTP proxy a variable names: `rest` is its text after any scheme.
+/// **The port is libcurl's default, 1080, when none is named**, and not 80,
+/// where a different listener is (F182's first note). `host:` with nothing
+/// after the colon is 1080 too when a scheme came first, and is refused when
+/// none did. Whatever follows the address — a slash, a path, a query — is
+/// dropped, as the reference ignores it. All measured.
 ///
-/// **Credentials with a `%xx` escape in them fail the fetch** (D128).
-/// libcurl decodes them, and `ureq` sends a proxy's credentials as its URL
-/// spells them, with nowhere to hand it bytes instead; so Bund2 cannot send
-/// what the reference sends, and what it did send — `a%40b` for `a@b` — is
-/// a different login. When the escape is for a byte below `0x20` the
-/// reference does a third thing, and fetches with no proxy at all (F185).
-/// Rows 392 to 422.
-fn curls_proxy(rest: &str, had_scheme: bool) -> Option<String> {
+/// **Its credentials are a URL's** ([`credentials`]): the name and the
+/// password decoded, sent in a header, as the oracle sent them (rows 401 to
+/// 419). Bund2 once could not, and failed any proxy whose credentials held
+/// an escape (D128); since it writes the request itself it can (D131).
+///
+/// **One case is left of that, and it is the reference's defect**: when an
+/// escape decodes to a byte below `0x20` the reference uses no proxy at all
+/// and fetches directly (F185). Bund2 fails the fetch. Rows 393 to 400.
+fn curls_proxy(rest: &str, had_scheme: bool) -> Option<Proxy> {
     let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let authority = Authority::of(rest.get(..end)?)?;
     if authority.port == Some(None) && !had_scheme {
         return None;
     }
-    let address = authority.address(Some(1080));
-    match authority.user {
-        Some(user) if percent_bytes(user) != user.as_bytes() => None,
-        Some(user) => Some(format!("http://{user}@{address}")),
-        None => Some(format!("http://{address}")),
-    }
+    let login = match authority.user {
+        Some(user) => Some(credentials(user).filter(|login| login.iter().all(|b| *b >= b' '))?),
+        None => None,
+    };
+    Some(Proxy { port: authority.port.flatten().unwrap_or(1080), host: authority.host, login })
 }
 
 /// Whether `host` is on a `no_proxy` list, as libcurl 8.7.1 decides it.
@@ -1059,7 +1091,10 @@ fn curls_proxy(rest: &str, had_scheme: bool) -> Option<String> {
 ///   and `/x` mean the whole address, `/+8` is eight bits and `/-8` matches
 ///   nothing. The host is an address in any spelling [`url_ipv4`] reads, so
 ///   `127.1` is on a list naming `127.0.0.1`; an entry is one only as four
-///   decimal numbers ([`ipv4`]).
+///   decimal numbers ([`ipv4`]). **An entry of 128 bytes or more matches no
+///   address**, its prefix length included: libcurl copies an entry into a
+///   buffer of that size to read it, and passes over one that does not fit.
+///   A name's entry has no such limit. Rows 695 to 704.
 /// - **An IPv6 address** is matched as a name is, by the text
 ///   [`curls_host`] gives it, without its brackets. So `[0:0:0:0:0:0:0:1]`
 ///   is on a list naming `::1` and not on one naming itself, no prefix
@@ -1078,7 +1113,7 @@ fn bypasses(host: &str, list: &str) -> bool {
     let host = host.trim_start_matches('[').trim_end_matches(']');
     let entries = list.split([',', ' ', '\t']).filter(|e| !e.is_empty());
     if let Some(addr) = ipv4(host) {
-        return entries.into_iter().any(|e| {
+        return entries.into_iter().filter(|e| e.len() < 128).any(|e| {
             let (net, bits) = match e.split_once('/') {
                 Some((net, bits)) => (net, atoi(bits)),
                 None => (e, 0),
@@ -1111,7 +1146,13 @@ fn bypasses(host: &str, list: &str) -> bool {
 ///   `0127.0.0.1` and a part with thirty zeros.
 /// - **Linux** refuses a part with one, so there `127.0.0.01` is not an
 ///   address and is on no list for one. Every system that is not macOS is
-///   read this way; only these two were measured.
+///   read this way; only these two were measured, and Linux with glibc
+///   alone.
+///
+/// That `inet_pton` is who decides is an inference: on macOS it reads the
+/// strings the oracle's cells show, and libcurl was not read. And the rule
+/// here is chosen when Bund2 is compiled, where the reference's is its C
+/// library's when it runs (D130's note).
 ///
 /// Rows 54, 135, 138 and 334 to 337 of the two tables in
 /// `docs/measurements/`.
@@ -1223,30 +1264,47 @@ impl Target {
     }
 }
 
-/// An `http:` URL as `ureq` is handed it.
+/// An `http:` URL, in the parts a request is written from.
 struct HttpUrl {
-    /// With no user part: see `login`.
-    url: String,
-    /// As [`curls_host`] gives it, for [`proxy_for`].
+    /// As [`curls_host`] gives it.
     host: String,
+    /// `None` for 80, the scheme's own, whether it was written or not.
+    port: Option<u16>,
+    /// The path and the query, as they are sent.
+    target: String,
     /// The bytes for `Authorization: Basic`, when the URL has a user part.
     login: Option<Vec<u8>>,
 }
 
-/// The URL `ureq` is handed for `rest`, the part of an `http:` URL after its
-/// slashes. It is written as libcurl sends it, each part measured against
-/// the oracle:
+impl HttpUrl {
+    /// `host`, or `host:port`: what `Host` carries, and what a proxy is
+    /// asked for. The oracle sent no port for `:80` or `:080`.
+    fn authority(&self) -> String {
+        match self.port {
+            Some(port) => format!("{}:{port}", self.host),
+            None => self.host.clone(),
+        }
+    }
+}
+
+/// The parts of `rest`, which is an `http:` URL after its slashes, each as
+/// libcurl sends it and each measured against the oracle:
 ///
 /// - the host as [`curls_host`] gives it, so `Host` is `127.0.0.1` for
 ///   `127.1` and `[::1]` for `[0:0:0:0:0:0:0:1]`;
-/// - the port as a number, or none ([`Authority`]);
+/// - the port as a number, and no port for 80 ([`Authority`]);
 /// - the user part not at all: it becomes a header ([`credentials`]);
 /// - the path with its dot segments removed — `/a/../b` is `/b` — and its
 ///   bytes above ASCII percent-encoded. A query is sent as written, and
 ///   `%2e%2e` is not a dot segment.
 ///
-/// `None` is a URL libcurl refuses.
+/// `None` is a URL libcurl refuses. **A blank or a control character
+/// anywhere in it is one**, its fragment included: those are the bytes that
+/// would end a line of the request.
 fn http_url(rest: &str) -> Option<HttpUrl> {
+    if rest.bytes().any(|b| b <= b' ' || b == 0x7f) {
+        return None;
+    }
     let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let (authority, tail) = rest.split_at_checked(end)?;
     let authority = Authority::of(authority)?;
@@ -1259,12 +1317,13 @@ fn http_url(rest: &str) -> Option<HttpUrl> {
         Some((path, query)) => (path, Some(query)),
         None => (tail, None),
     };
-    let mut url = format!("http://{}{}", authority.address(None), curls_path(path));
+    let mut target = curls_path(path);
     if let Some(query) = query {
-        url.push('?');
-        url.push_str(query);
+        target.push('?');
+        target.push_str(query);
     }
-    Some(HttpUrl { url, host: authority.host, login })
+    let port = authority.port.flatten().filter(|port| *port != 80);
+    Some(HttpUrl { host: authority.host, port, target, login })
 }
 
 /// A URL's path as libcurl sends it: dot segments removed as RFC 3986
@@ -1326,41 +1385,36 @@ fn atoi(text: &str) -> u32 {
     n as u32
 }
 
+/// The longest string libcurl takes for a URL.
+const URL_MAX: usize = 8_000_000;
+
 /// [`fetch_uri`] with the environment as a function, so a test can name a
 /// proxy without setting a variable every other test in the process reads.
 fn fetch_uri_in(uri: &str, env: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+    if uri.len() > URL_MAX {
+        return None;
+    }
     let bytes = match Target::of(uri)? {
         // The dot segments go from the text before the file system sees a
         // path, as libcurl takes them out for every scheme: through a link,
         // `/d/link/../t` is `/d/t` to the reference and somewhere else to
         // the system. `%2e%2e` is not one, so the path is decoded after.
         Target::File(path) => std::fs::read(percent_decode(&curls_path(&path))?).ok()?,
+        Target::Http(_) if uri.len() == URL_MAX => return None,
         Target::Http(rest) => {
-        let target = http_url(&rest)?;
-        let proxy = match proxy_for(&target.host, env).ok()? {
-            Some(proxy) => Some(ureq::Proxy::new(&proxy).ok()?),
-            None => None,
-        };
-        let agent: ureq::Agent = ureq::Agent::config_builder()
-            .proxy(proxy)
-            .max_redirects(0)
-            .max_redirects_will_error(false)
-            .http_status_as_error(false)
-            .user_agent("ZBUS")
-            .build()
-            .into();
-        let mut request = agent.get(&target.url);
-        if let Some(login) = &target.login {
-            use base64ct::Encoding as _;
-            let login = base64ct::Base64::encode_string(login);
-            request = request.header("Authorization", format!("Basic {login}"));
-        }
-        let mut resp = request.call().ok()?;
-        resp.body_mut()
-            .with_config()
-            .limit(u64::MAX)
-            .read_to_vec()
-            .ok()?
+            let url = http_url(&rest)?;
+            let proxy = proxy_for(&url.host, env).ok()?;
+            let host = url.authority();
+            crate::http::get(&crate::http::Request {
+                connect: match &proxy {
+                    Some(proxy) => (&proxy.host, proxy.port),
+                    None => (&url.host, url.port.unwrap_or(80)),
+                },
+                host: &host,
+                target: &url.target,
+                login: url.login.as_deref(),
+                proxy: proxy.as_ref().map(|proxy| proxy.login.as_deref()),
+            })?
         }
     };
     Some(String::from_utf8_lossy(&bytes).into_owned())
@@ -1409,6 +1463,38 @@ fn use_word(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
     crate::singles::eval_source(vm, &src)
 }
 
+/// `--noio`: the four words that read a file or a URL in order to run it
+/// become stubs (D132). **The reference does not gate them**: `use` and
+/// `bund.eval-file` are switched on `--noeval` alone
+/// (`reference/Bund/src/stdlib/functions/bund/bund_use.rs:74-80`,
+/// `bund_eval.rs:117-124`), so under its `--noio` a program still fetches any
+/// `http://` URL and reads any file it can name, and runs what it gets. They
+/// are the fetch's other two callers; `file` and `url`, which only return
+/// the text, the reference does stub.
+///
+/// The messages have the reference's shape and Bund2's group names, since
+/// the reference has no stub of this flag's for either. Applied after the
+/// real words are registered and before `--noeval`'s stubs, so with both
+/// flags a program is told what the reference tells it.
+pub fn register_noio_fetch_stubs(r: &mut Registry) {
+    for name in ["use", "use."] {
+        r.register_native(
+            name,
+            |_vm| Err(Error("bund USE functions disabled with --noio".into())),
+            StackEffect::opaque(0),
+            WordKind::Sync,
+        );
+    }
+    for name in ["bund.eval-file", "bund.eval-file."] {
+        r.register_native(
+            name,
+            |_vm| Err(Error("bund BUND.EVAL-FILE functions disabled with --noio".into())),
+            StackEffect::opaque(0),
+            WordKind::Sync,
+        );
+    }
+}
+
 /// `--noeval`: the evaluating words become stubs that fail, as the reference
 /// registers them (`reference/Bund/src/stdlib/functions/bund/bund_eval.rs:117-121`,
 /// `bund_use.rs:74-76`), and `debug.run` with them (D120). Applied after every
@@ -1416,8 +1502,10 @@ fn use_word(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
 /// its target.
 pub fn register_noeval_stubs(r: &mut Registry) {
     // **All four together, as the reference stubs them** — `bund.eval-file`
-    // reads a file to *run* it, so it is the evaluating flag that disables it
-    // and not `--noio` (`reference/Bund/src/stdlib/functions/bund/bund_eval.rs`).
+    // reads a file to *run* it, so in the reference it is the evaluating flag
+    // that disables it and not `--noio`
+    // (`reference/Bund/src/stdlib/functions/bund/bund_eval.rs`). In Bund2
+    // `--noio` disables the file pair as well (D132).
     for name in ["bund.eval", "bund.eval.", "bund.eval-file", "bund.eval-file."] {
         r.register_native(
             name,
@@ -1757,7 +1845,8 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
     }
 
     // `reference/Bund/src/stdlib/functions/bund/bund_use.rs:78-79`. Opaque:
-    // the source can do anything. `--noeval` replaces both, afterwards.
+    // the source can do anything. `--noeval` replaces both, afterwards, and
+    // so does `--noio` (D132).
     r.register_native(
         "use",
         |vm| use_word(vm, Side::Stack, "USE"),
@@ -2352,6 +2441,41 @@ mod tests {
         }
     }
 
+    /// **D132: `--noio` reaches the four words that read a file or a URL and
+    /// run it**, where the reference's does not. D119's survey counted two
+    /// words that read a file ungated and there were six; these are the
+    /// other four. With both flags the message is `--noeval`'s, as it is in
+    /// the reference.
+    #[test]
+    fn noio_reaches_the_four_words_that_fetch_and_run() {
+        let lib = scratch("noio-fetch").join("lib.bund");
+        std::fs::write(&lib, "\"ran\" println").expect("write");
+        let path = lib.display().to_string();
+        let programs = [
+            (format!("\"file://{path}\" use"), "USE"),
+            (format!("\"file://{path}\" use."), "USE"),
+            ("\"http://127.0.0.1:9/lib.bund\" use".to_string(), "USE"),
+            (format!("\"{path}\" bund.eval-file"), "BUND.EVAL-FILE"),
+            (format!("\"{path}\" bund.eval-file."), "BUND.EVAL-FILE"),
+        ];
+        let mut n = interp(HostOptions { noio: true, ..HostOptions::default() });
+        let mut both = interp(HostOptions { noio: true, noeval: true, ..HostOptions::default() });
+        for (src, group) in &programs {
+            let e = run(&mut n, src).expect_err(src);
+            let want = format!("bund {group} functions disabled with --noio");
+            assert!(e.ends_with(&want), "`{src}` gave: {e}");
+            let e = run(&mut both, src).expect_err(src);
+            assert!(e.ends_with("functions disabled with --noeval"), "`{src}` gave: {e}");
+        }
+        // The flag does not reach evaluating a string the program holds.
+        run(&mut n, "\"1\" bund.eval").expect("bund.eval is --noeval's");
+        // And without it both words read the file.
+        let mut d = interp(HostOptions::default());
+        run(&mut d, &programs[0].0).expect("use");
+        run(&mut d, &programs[3].0).expect("bund.eval-file");
+        let _ = std::fs::remove_dir_all(lib.parent().expect("dir"));
+    }
+
     /// **D119: `--noio` reaches `csv` and `sqlite`, where the reference's does
     /// not.** Both open a file the program names. The last program is the
     /// reason the handlers are stubbed and not only the words: `conditional`
@@ -2462,6 +2586,14 @@ mod tests {
         ] {
             assert_eq!(fetch_uri(&url).as_deref(), Some("hi"), "{url}");
         }
+        // A `file:` URL of URL_MAX bytes is read, and one byte more is not.
+        let padded = |n: usize| {
+            let url = format!("file://{encoded}?");
+            let fill = "a".repeat(n - url.len());
+            format!("{url}{fill}")
+        };
+        assert_eq!(fetch_uri(&padded(URL_MAX)).as_deref(), Some("hi"));
+        assert_eq!(fetch_uri(&padded(URL_MAX + 1)), None);
         // The fourteenth review's B3: dot segments leave the text before
         // the file system resolves anything, so a link, a file or nothing at
         // all may stand before a `..`. `%2e%2e` is not a dot segment.
@@ -2501,12 +2633,18 @@ mod tests {
     /// Every row is a measurement of the oracle, 2026-10-09.
     #[test]
     fn the_proxy_is_the_one_libcurl_would_take() {
+        // A proxy as a URL would spell it, its credentials decoded.
+        let shown = |proxy: Proxy| match proxy.login {
+            Some(login) => format!("http://{}@{}:{}", String::from_utf8_lossy(&login), proxy.host, proxy.port),
+            None => format!("http://{}:{}", proxy.host, proxy.port),
+        };
         let pick = |vars: &[(&str, &str)]| {
             let vars: Vec<(String, String)> =
                 vars.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect();
             proxy_for("127.0.0.1", &|name| {
                 vars.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone())
             })
+            .map(|proxy| proxy.map(shown))
         };
         assert_eq!(pick(&[]), Ok(None));
         assert_eq!(pick(&[("http_proxy", "p1")]), Ok(Some("http://p1:1080".into())));
@@ -2531,7 +2669,7 @@ mod tests {
         );
 
         // A proxy that names no port is on 1080, which is libcurl's default
-        // and not `ureq`'s: the twelfth review's B1.
+        // and not 80: the twelfth review's B1.
         let on = |proxy: &str| pick(&[("http_proxy", proxy)]);
         let at = |proxy: &str| Ok(Some(format!("http://{proxy}")));
         assert_eq!(on("127.0.0.1"), at("127.0.0.1:1080"));
@@ -2539,21 +2677,43 @@ mod tests {
         assert_eq!(on("u:p@127.0.0.1"), at("u:p@127.0.0.1:1080"));
         assert_eq!(on("http://0x7f.1:3128"), at("127.0.0.1:3128"), "the address, not the spelling");
         assert_eq!(on("http://[0:0:0:0:0:0:0:1]:3128"), at("[::1]:3128"));
-        // Credentials libcurl would decode cannot be sent as it sends them,
-        // so the fetch fails; it does not send them undecoded, and it does
-        // not go on without the proxy as the reference does for a control
-        // byte (D128, F185). The fourteenth review's B2.
-        for user in ["a%00b", "u:%00", "a%01b", "a%0ab", "u:%1f", "a%20b", "a%40b:c%3Ad", "a%ffb"] {
+        // The fifteenth review's S2: a scheme takes one to three slashes, as
+        // a URL's does, and a `://` in a path is not one.
+        assert_eq!(on("http:/127.0.0.1:3128"), at("127.0.0.1:3128"));
+        assert_eq!(on("http:///127.0.0.1:3128"), at("127.0.0.1:3128"));
+        assert_eq!(on("HTTP:/u:p@127.0.0.1"), at("u:p@127.0.0.1:1080"));
+        assert_eq!(on("u@127.0.0.1"), at("u:@127.0.0.1:1080"), "a colon even with no password");
+        assert_eq!(on("127.0.0.1:3128/a://b"), at("127.0.0.1:3128"));
+        assert_eq!(on("localhost:3128/a://b"), at("localhost:3128"));
+        for refused in [
+            "http:////127.0.0.1:3128", "http:127.0.0.1:3128", "//127.0.0.1:3128", "x:/127.0.0.1:3128",
+            "socks5:/127.0.0.1:3128", "http+x://127.0.0.1:3128", "1http://127.0.0.1:3128",
+            "http:\\\\127.0.0.1:3128",
+        ] {
+            assert_eq!(on(refused), Err(()), "{refused}");
+        }
+        // Credentials are decoded as libcurl decodes them, and sent (D131).
+        // Where one decodes to a control byte the reference goes on without
+        // the proxy, and Bund2 fails the fetch (F185). The fourteenth
+        // review's B2.
+        for user in ["a%00b", "u:%00", "a%01b", "a%0ab", "u:%1f"] {
             assert_eq!(on(&format!("http://{user}@127.0.0.1:3128")), Err(()), "{user}");
             assert_eq!(on(&format!("{user}@127.0.0.1:3128")), Err(()), "{user}, no scheme");
         }
-        for user in ["", ":", "u:", ":p", "a:b:c", "%zz", "a%", "a%4", "a;b"] {
+        for (user, login) in [
+            ("", ":"), (":", ":"), ("u:", "u:"), (":p", ":p"), ("a:b:c", "a:b:c"), ("%zz", "%zz:"),
+            ("a%", "a%:"), ("a%4", "a%4:"), ("a;b", "a;b:"), ("a%20b", "a b:"),
+            ("a%40b:c%3Ad", "a@b:c:d"), ("a<b", "a<b:"), ("é", "é:"),
+        ] {
             assert_eq!(
                 on(&format!("http://{user}@127.0.0.1:3128")),
-                at(&format!("{user}@127.0.0.1:3128")),
+                at(&format!("{login}@127.0.0.1:3128")),
                 "{user}"
             );
         }
+        let bytes = |proxy: &str| curls_proxy(proxy, true).and_then(|proxy| proxy.login);
+        assert_eq!(bytes("a%ffb@h:1").as_deref(), Some(&b"a\xffb:"[..]));
+        assert_eq!(bytes("a%7fb@h:1").as_deref(), Some(&b"a\x7fb:"[..]));
         assert_eq!(on("http://127.0.0.1:/"), at("127.0.0.1:1080"));
         assert_eq!(on("http://[::1]"), at("[::1]:1080"));
         assert_eq!(on("http://[::1]:3128"), at("[::1]:3128"));
@@ -2568,7 +2728,7 @@ mod tests {
         }
 
         // A port is a number from 1 to 65535 or the fetch fails. It is never
-        // left for `ureq` to read as no port: the thirteenth review's B1.
+        // read as no port: the thirteenth review's B1.
         assert_eq!(on("http://127.0.0.1:03128"), at("127.0.0.1:3128"));
         for port in ["0", "65536", "99999", "65616", "4294967376", "3128x", "+3128", "-1", " 3128"] {
             assert_eq!(on(&format!("http://127.0.0.1:{port}")), Err(()), "{port:?}");
@@ -2576,7 +2736,7 @@ mod tests {
         }
         assert_eq!(on("http://a@b@127.0.0.1:3128"), Err(()), "two user parts");
 
-        // A scheme `ureq` cannot speak fails the fetch; it does not go direct.
+        // A scheme Bund2 cannot speak fails the fetch; it does not go direct.
         for scheme in ["socks5", "https", "ftp"] {
             assert_eq!(pick(&[("http_proxy", &format!("{scheme}://h:1"))]), Err(()));
         }
@@ -2609,7 +2769,19 @@ mod tests {
             assert!(!bypasses(v4, no), "{v4} is not on {no:?}");
         }
 
+        // The fifteenth review's S1: an entry of 128 bytes matches no
+        // address, and is passed over.
+        let long = |text: &str, n: usize, tail: &str| format!("{text}{}{tail}", "0".repeat(n));
+        assert!(bypasses(v4, &long("127.0.0.0/", 116, "8")), "127 bytes");
+        assert!(!bypasses(v4, &long("127.0.0.0/", 117, "8")), "128 bytes");
+        assert!(bypasses(v4, &format!("127.0.0.1/{}", "x".repeat(117))), "127 bytes");
+        assert!(!bypasses(v4, &format!("127.0.0.1/{}", "x".repeat(118))), "128 bytes");
+        assert!(bypasses(v4, &format!("127.0.0.1/{},127.0.0.1", "x".repeat(118))), "the next entry is read");
+        assert!(bypasses(v4, &format!("{},127.0.0.1", "a".repeat(200))));
+
         let name = "x.bund2.invalid";
+        // A name's entry has no such limit.
+        assert!(bypasses(&format!("{}.{}.invalid", "a".repeat(40), "b".repeat(121)), &format!("{}.invalid", "b".repeat(121))));
         for yes in [
             "x.bund2.invalid", "X.BUND2.INVALID", "bund2.invalid", ".bund2.invalid", "invalid",
             "x.bund2.invalid.",
@@ -2692,11 +2864,11 @@ mod tests {
         }
     }
 
-    /// What `ureq` is handed for a URL, part by part, each as the oracle
-    /// sent it or refused it: the thirteenth review's B1, S4 and S5.
+    /// What a request is written from for a URL, part by part, each as the
+    /// oracle sent it or refused it: the thirteenth review's B1, S4 and S5.
     #[test]
     fn a_url_is_rewritten_as_libcurl_sends_it() {
-        let sent = |rest: &str| http_url(rest).map(|u| u.url);
+        let sent = |rest: &str| http_url(rest).map(|u| format!("http://{}{}", u.authority(), u.target));
         let login = |rest: &str| http_url(rest).and_then(|u| u.login);
         let to = |url: &str| Some(format!("http://{url}"));
         // The port is a number or the URL is refused; an empty one is none.
@@ -2704,6 +2876,17 @@ mod tests {
         assert_eq!(sent("h:008080/x"), to("h:8080/x"));
         assert_eq!(sent("h:/x"), to("h/x"));
         assert_eq!(sent("h/x"), to("h/x"));
+        // 80 is the scheme's own port and is not sent, however it is written.
+        assert_eq!(sent("h:80/x"), to("h/x"));
+        assert_eq!(sent("h:080/x"), to("h/x"));
+        // A blank or a control character anywhere refuses the URL.
+        for url in ["h/a b", "h/a\tb", "h/x?a b", "h/x#a b", "h/x\n", "h/\x7f", "h /x"] {
+            assert_eq!(sent(url), None, "{url:?}");
+        }
+        // What `http::Uri` refused and libcurl sends: rows 208 to 211.
+        for path in ["/a<b", "/a>b", "/a`b", "/a?<", "/a^b|c{d}e[f]", "/a\\b"] {
+            assert_eq!(sent(&format!("h{path}")), to(&format!("h{path}")), "{path}");
+        }
         for port in ["0", "65536", "99999", "65616", "4294967376", "80x", "+80", "-1", " 80", "80:80"] {
             assert_eq!(sent(&format!("127.0.0.1:{port}/x")), None, "{port:?}");
             assert_eq!(sent(&format!("localhost:{port}/x")), None, "{port:?}");
@@ -2731,9 +2914,8 @@ mod tests {
         assert_eq!(sent("LOCALHOST:1/x"), to("LOCALHOST:1/x"));
         assert_eq!(sent("[::1]:1/x"), to("[::1]:1/x"));
         assert_eq!(sent("[::1]/x"), to("[::1]/x"));
-        // A host is read here and not by `http::Uri`, which takes every one
-        // of these; with a proxy set nothing else would refuse them. The
-        // fourteenth review's B1.
+        // A host is read here; with a proxy set nothing else would refuse
+        // these. The fourteenth review's B1.
         for host in [
             "a!b", "a$b", "a&b", "a'b", "a(b", "a)b", "a*b", "a+b", "a,b", "a;b", "a=b",
             "127.0.0.1!", "127.0.0.1,1", "[zz]", "[::g]", "[1.2.3.4]", "[]", "[::1]x", "[:::1]",
@@ -2792,29 +2974,21 @@ mod tests {
         std::thread::spawn(move || {
             for conn in listener.incoming() {
                 let Ok(mut conn) = conn else { break };
-                let mut tunnelled = false;
-                loop {
-                    let mut head = Vec::new();
-                    let mut byte = [0u8; 1];
-                    while !head.ends_with(b"\r\n\r\n") {
-                        match conn.read(&mut byte) {
-                            Ok(1) => head.push(byte[0]),
-                            _ => break,
-                        }
+                let mut head = Vec::new();
+                let mut byte = [0u8; 1];
+                while !head.ends_with(b"\r\n\r\n") {
+                    match conn.read(&mut byte) {
+                        Ok(1) => head.push(byte[0]),
+                        _ => break,
                     }
-                    if head.starts_with(b"CONNECT ") {
-                        tunnelled = true;
-                        let _ = conn.write_all(b"HTTP/1.1 200 OK\r\n\r\n");
-                        continue;
-                    }
-                    let body = if tunnelled { "proxy" } else { "origin" };
-                    let _ = write!(
-                        conn,
-                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                        body.len()
-                    );
-                    break;
                 }
+                // A proxy is asked for the whole URL, as libcurl asks.
+                let body = if head.starts_with(b"GET http://") { "proxy" } else { "origin" };
+                let _ = write!(
+                    conn,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
             }
         });
         let here = format!("http://127.0.0.1:{port}");
