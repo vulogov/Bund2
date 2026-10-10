@@ -4033,6 +4033,41 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F188 — what the reference's fetch reads depends on the libcurl the system has
+
+**Found 2026-10-10** by the first measurement of D131 on Linux.
+
+The reference's fetch is libcurl's, linked from the system
+(`reference/Bund/src/stdlib/helpers/file_helper.rs:42-46`). The oracle at
+`21b40b0` was run on the same 741 settings with libcurl 8.7.1 on macOS and
+with 8.5.0 on `ubuntu-latest` (workflow `measure-fetch`, run 38026701887).
+**Sixteen settings give a different result, with no line of the reference
+different:**
+
+- `chunked` named twice over a body framed once: 8.7.1 fails, 8.5.0
+  returns the body (rows 499, 500, 688, 693).
+- `chunked` named and framed two to six times: 8.7.1 returns the body up
+  to four and fails past it, 8.5.0 takes off one layer and returns the
+  rest of the framing as the text (621, 622, 655, 656, 657). The same with
+  the inner framing damaged (658, 659); with the outer one unfinished
+  8.7.1 returns the body and 8.5.0 fails (660).
+- An answer that ends after a `Transfer-Encoding: chunked` line: the empty
+  string from 8.7.1, a failure from 8.5.0 (570).
+- A last chunk whose final line ends at a carriage return: 8.7.1 fails,
+  8.5.0 returns the body (635).
+- A request of 1,048,575 bytes: 8.7.1 sends it and fetches the answer,
+  8.5.0 fails with part of it sent (734, 735).
+
+So a program that loads a library with `use` from a server that frames
+its answer twice runs the library on one system and the library's framing
+on another.
+
+Both tables: `docs/measurements/fetch-2026-10-09.md` and
+`docs/measurements/fetch-linux-2026-10-09.md`, same row numbers.
+
+**Disposition: recorded; Bund2 is 8.7.1's reading on every system, by
+D133.** Only these two versions were measured.
+
 ## F187 — a fetch read a response as `ureq` reads one, not as the reference does
 
 **A Bund2 defect, found 2026-10-09** by RFC-0006's fifteenth review (B1) and
@@ -4068,6 +4103,10 @@ removed and `crates/bund2-stdlib/src/http.rs` writes the request and reads
 the response by rules measured against the oracle. The 94 shapes and 139
 more are rows 444 to 676 of `docs/measurements/fetch-2026-10-09.md`, and
 the two binaries return the same text for every one.
+
+*(Note, 2026-10-10. "The two binaries return the same text for every one"
+is of macOS. On Linux the reference links libcurl 8.5.0 and 16 rows
+differ: F188, approved by D133.)*
 
 ## F186 — a report takes time that grows with the square of its message
 

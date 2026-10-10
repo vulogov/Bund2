@@ -3623,6 +3623,73 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D133 — one reader of HTTP on every system; where the reference's libcurls disagree, Bund2 is 8.7.1's
+
+**Raised 2026-10-10** by the first measurement of D131 on Linux.
+
+D131 has Bund2 read a response by rules measured against the oracle on
+macOS, where the reference links libcurl 8.7.1. The reference links
+whatever libcurl the system has
+(`reference/Bund/src/stdlib/helpers/file_helper.rs:42-46`), and on
+`ubuntu-latest` that is 8.5.0. Workflow `measure-fetch`, run 38026701887,
+ran the 741 settings there against Bund2 at `6c84d9e`:
+`docs/measurements/fetch-linux-2026-10-09.md`.
+
+**In 16 rows of the 298 that D131 added, the reference on Linux does not do
+what the reference on macOS does**, and Bund2, which does on both what the
+reference does on macOS, differs from it there:
+
+| | rows | what |
+|---|---|---|
+| Bund2 fails where the Linux reference fetches | 499, 500, 635, 656, 657, 688, 693 | `chunked` named twice over a body framed once; named and framed five or six times; a last chunk whose final line ends at a carriage return |
+| both fetch, and the text differs | 621, 622, 655, 658, 659 | `chunked` named and framed two to four times: the Linux reference takes off one layer and evaluates the rest of the framing as text, Bund2 takes off all |
+| **Bund2 fetches where the Linux reference fails** | 570, 660, 734, 735 | an answer that ends after a `Transfer-Encoding: chunked` line (the empty string); an outer layer of two left unfinished; a request of 1,048,575 bytes |
+
+In the other 725 rows the Linux table shows what the macOS one shows, D130's
+rows and the three hosts the Linux reference refuses aside.
+
+This is D130's question again, where the reference differs from itself by
+system. D130 answered it by following the system, because there the rule
+is the C library's and a program can ask which it runs on. Here the rule is
+a version of libcurl, which Bund2 does not link and cannot ask about.
+
+- Blocks: nothing
+- Depends on: D131, D130, F187, F188, RFC-0006 §B7
+- Status: **RESOLVED** by the repository owner, 2026-10-10: "option 1".
+  **An approved deviation, on Linux.** No code changes.
+
+### The options
+
+1. **Keep the model of 8.7.1 everywhere, and record the 16 rows as a
+   deviation on Linux.** One behaviour on every system. Every row is a
+   response framed more than once or cut short, or a request of a megabyte.
+   The cost: in 660, 734 and 735 Bund2 evaluates a body the Linux reference
+   refuses, and in 570 goes on with the empty string.
+2. **Model both libcurls and choose by system.** Matches both tables, and
+   ties Bund2 to the libcurl a distribution ships this year.
+3. **Fail wherever the two disagree.** Bund2 never runs what either
+   refuses, and differs from both references in those rows.
+
+### The ruling
+
+Option 1. **Bund2 reads a response, and bounds a request, the same way on
+every system: as `crates/bund2-stdlib/src/http.rs` does now.** Where a
+system's reference differs because its libcurl is not 8.7.1, that is an
+approved deviation there. The 16 rows are the ones measured, on one
+version.
+
+### What it does not say
+
+- **Nothing was measured but 8.7.1 and 8.5.0.** A third libcurl may differ
+  from both in rows where these two agree, and no table would show it. The
+  ruling covers that case in kind; it names no rows for it.
+- **It does not reach D130.** A `no_proxy` entry with a leading zero is
+  still read as the system Bund2 was compiled for reads it.
+- **It does not say which libcurl is right.** F188 records that the two
+  differ; neither reading is called the reference's defect here.
+- No golden moves and `conform` is not affected: no golden fetches over
+  HTTP.
+
 ## D132 — `--noio` gates the four words that fetch and run
 
 **Raised 2026-10-09** by RFC-0006's sixteenth review (B1).
@@ -3803,6 +3870,13 @@ limits, that were a library's and are Bund2's to find.
   named more than once it stops reading with the piece of the connection in
   which a layer ended, where Bund2 reads to the end of the outermost layer;
   and what either does with a connection that never ends was not compared.
+
+*(Note, 2026-10-10. The reader was measured on Linux the day after it was
+built: run 38026701887, Bund2 at `6c84d9e`. The reference there links
+libcurl 8.5.0 and differs from the reference on macOS in 16 of the rows
+this entry added; Bund2 does on both what the macOS reference does. D133
+approves that. "Measured against the oracle" in this entry means the
+oracle on macOS.)*
 
 ## D130 — a `no_proxy` entry with a leading zero is read as the system reads it
 

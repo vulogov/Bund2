@@ -137,8 +137,10 @@
   a file or fetch a URL and run it, §B3a's list for the flag had lost that,
   and D119 had been ruled on a survey that missed the four. **Ruled the
   same day, D132: `--noio` gates them, an approved deviation.** The
-  measurement is 741 settings, on macOS. **Linux has not been measured
-  since D131**: its table is of the tree before it.
+  measurement is 741 settings, on macOS. *(Until 2026-10-10 this said
+  Linux had not been measured since D131.)* **Linux was measured on
+  2026-10-10, the same 741: 16 rows differ there that agree on macOS,
+  because the reference links another libcurl, and D133 approves them.**
   Revised 2026-09-29 after the first adversarial review
   (`docs/rfc/reviews/RFC-0006-review-2026-09-29.md`). The review raised three
   blockers; all three were reproduced against the code before this revision,
@@ -150,7 +152,7 @@
   Cranelift tier)
 - Decisions consumed: D10, D11, D16, D20, D40, D54, D74, D76, D77, D78, D79,
   D80, D81, D82, D83, D115, D116, D118, D119, D120, D121, D122, D123, D124, D125, D126, D127,
-  D128, D129, D130, D131, D132, and
+  D128, D129, D130, D131, D132, D133, and
   decisions.md's "What this forecloses" clause on tree-shaking. *(Until
   2026-10-08 this list named D44, which the body never uses, and omitted the
   last four, which it rests on.)*
@@ -1701,12 +1703,20 @@ documented rather than discovered:**
   reference's is its C library's when it runs, and musl, the BSDs and
   Windows are unmeasured (D130's note).
 
-  **Since D131 Linux has not been measured at all.** That table is of
-  `17e623a`, where `ureq` wrote the requests, and it has none of rows 444
-  to 741. The reader of responses was built from the answers of libcurl
-  8.7.1, and Ubuntu's is 8.5.0; nothing here says the two libcurls read a
-  response alike. The workflow runs the script on the push that carries
-  this revision.
+  *(Until 2026-10-10 this paragraph said that since D131 Linux had not
+  been measured at all.)* **Linux was measured again on 2026-10-10**, run
+  38026701887 of Bund2 at `6c84d9e`, all 741 settings. In 686 rows the two
+  binaries' cells are identical; in 37 Bund2 refuses and asks nobody, and
+  two are D125's file, as on macOS. **In 16 the two differ on Linux and
+  agree on macOS**, all among the rows about the response and the
+  request's length: the reference links libcurl 8.5.0 there, and it reads
+  an answer framed as chunked more than once, an answer cut short in two
+  places, and a request of 1,048,575 bytes otherwise than 8.7.1 does
+  (F188). Bund2 is 8.7.1's reading on both. In seven of the 16 Bund2 fails
+  where the Linux reference fetches, in five the text differs, and **in
+  four Bund2 fetches where the Linux reference fails**: the empty string
+  once and a body three times. **D133 approves all 16: one reader on every
+  system.** Only these two libcurls were measured.
 
   `url`, `url.`, `file`, `file.`, `bund.eval-file` and `bund.eval-file.`
   share `fetch_uri` and all of this: **the fetch has eight words.** *(Six
@@ -2386,12 +2396,10 @@ criterion here has been run on one machine, macOS on arm64, by hand or by
   2026-10-09: yes, an approved deviation, as D119 was. Raised the same day
   by the sixteenth review (B1).
 - **Does Bund2's reader of responses agree with the reference on Linux? —
-  open, and a measurement before it is anybody's ruling.** The reader was
-  built from libcurl 8.7.1's answers and Ubuntu's libcurl is 8.5.0. If the
-  two libcurls read a response differently the reference differs from
-  itself by system, as it does for a leading zero, and that is D130's
-  question again. The workflow measures it on the push that carries this
-  revision.
+  answered by D133**, 2026-10-10: not in 16 rows of 741, and that is an
+  approved deviation there. *(Until that day this was open, awaiting the
+  measurement.)* The reference links libcurl 8.5.0 on Ubuntu and differs
+  from itself (F188); Bund2 keeps the one reader, 8.7.1's.
 - **What is the `aot` feature called now? — Q42.** After D83 it compiles the
   relocation test and nothing else, a bundle built from such a `bund2`
   inspects as `features: aot`, and CLAUDE.md's terminology still defines AOT
@@ -2421,8 +2429,9 @@ is `--noio`'s list, which had lost the route D78 was ruled on.
 document had had six.)* What
 remains listed is one question for whoever takes §B8's gate, and Q42. The
 fourteenth raised two, and they are D128 and D129. The fifteenth raised
-one, D131, and the sixteenth one, D132. One question is open that no
-review raised and no ruling can yet answer: what the reader does on Linux.
+one, D131, and the sixteenth one, D132. One question that no review
+raised, what the reader does on Linux, was measured on 2026-10-10 and is
+D133.
 The sixth review
 on 2026-10-08 raised two more for the owner and both are ruled: which
 construction §B1 means is D118, and how far `--noio` reaches is D119. The
