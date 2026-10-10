@@ -22,6 +22,10 @@ bund2-syntax.workspace = true
 # padding, row separators and unicode widths would be a near-miss that fails a
 # golden while looking right.
 comfy-table = "7.1"
+# What comfy-table measures and breaks a cell with, at the versions it uses,
+# so that the report's own wrapping (`wrap_cell`, F186) lands where its does.
+unicode-width = "0.2"
+unicode-segmentation = "1"
 # The reference's template crate, same major version -- leon = "3.0.1" in
 # reference/rust_multistackvm/Cargo.toml. Same argument as comfy-table: the
 # goldens capture rendered text, so the renderer has to be the same one.

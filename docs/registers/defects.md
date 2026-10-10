@@ -4168,6 +4168,52 @@ and a longer operand now reaches it.** Two things this entry did not have.
 The disposition is unchanged: FIX, not yet made, and the bound not
 decided.
 
+**Note, 2026-10-10 — fixed, and without a bound.** The owner asked for the
+fix. The cause is in `comfy_table` 7.2.2, read that day in the registry's
+copy of its source: its `split_line` breaks a word wider than the column by
+calling `split_long_word`, which returns the front that fits and collects
+everything after it into a new string, and the loop measures that string
+again on its next pass. Once for each line of output, over what is left of
+the word. Its `longest_line_after_split` does the whole of that a second
+time to decide the column's width.
+
+`crates/bund2-stdlib/src/report.rs` now breaks the second column's cells
+itself, in `lay_out`, before the table sees them: the same rules, with what
+is left of a word kept as a slice and its width kept by subtraction. The
+table is told the column's width and finds no line to break.
+
+- **No byte of a report changes.** `a_cell_is_broken_where_the_table_would_break_it`
+  in that file renders 1,932 reports both ways, at every width from 40 to
+  200, over text with long words, runs of blanks, line ends, tabs, and
+  wide and combining characters, and asserts they are equal. `conform` is
+  where it was.
+- **Measured** on a debug build of the tree with the fix. The first two
+  columns are the first and third of the table above; the last pays for
+  the message and the excerpt both:
+
+  | n | `file`, the operand on the word's line | `use`, the operand on the line before | `use`, the operand on the word's line |
+  |---|---|---|---|
+  | 20,000 | 0.00 s | 0.00 s | 0.01 s |
+  | 80,000 | 0.01 s | 0.01 s | 0.02 s |
+  | 1,000,000 | 0.13 s | 0.13 s | 0.21 s |
+
+- **The bound this entry called undecided was not needed and is not set.**
+  The report prints the message and the line of source whole, as before
+  and as the reference prints its message: a failed `use` of a megabyte is
+  2.5 megabytes of report in 23,540 lines. Whether a report should cut a
+  long message is still nobody's ruling; it is no longer a question of
+  time.
+- **Two limits of the fix.** Below a width of 40 columns the cells go to
+  the table as they came, since it shares so little room by rules not
+  reproduced here; a terminal's width under 40 is already read as 100
+  (`terminal_width`), so only a caller that sets `TextReporter::width`
+  itself reaches that. And for a word that holds characters other than
+  printable ASCII, the width of what is left is the whole word's less what
+  was taken, where the table measured the remainder afresh; the test found
+  no text where the two differ, and nothing proves there is none.
+
+**Disposition: FIXED 2026-10-10.**
+
 ## F185 — the reference fetches without the proxy when the proxy's credentials do not decode
 
 **A defect in the original implementation, found 2026-10-09** by RFC-0006's

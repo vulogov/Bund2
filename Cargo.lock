@@ -446,6 +446,8 @@ dependencies = [
  "termimad",
  "textwrap",
  "ulid",
+ "unicode-segmentation",
+ "unicode-width 0.2.2",
  "unix_path",
  "uuid 1.25.0",
  "wildmatch",

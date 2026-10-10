@@ -1849,6 +1849,10 @@ documented rather than discovered:**
   takes time that grows with the square of either: 11 seconds for 80,000
   bytes on a debug build. `http::Uri` refused a URL past 65,534 bytes;
   since D131 one of up to eight megabytes reaches the report.
+  *(Fixed 2026-10-10. The report now breaks its own cells in one pass and
+  prints the same bytes: 0.02 seconds for those 80,000 bytes and 0.21 for
+  a megabyte, on a debug build. The report is not shortened, so a failed
+  `use` of a megabyte URL prints a megabyte, as the reference's does.)*
 
 A `file://` path resolves on the machine running the artefact, not the one that
 built it, and an `http://` target is fetched in the clear.
