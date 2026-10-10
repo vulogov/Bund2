@@ -1272,6 +1272,59 @@ mod tests {
         }
     }
 
+    /// **Criterion 5's row "aliased to another word, before the caller
+    /// runs", run** — RFC-0005's twenty-third review, B8. The row was held by
+    /// `an_aliased_name_is_called_rather_than_inlined`
+    /// (`crates/bund2-jit/src/lower.rs`), which compiles a body and counts its
+    /// sites: it never runs the word, redefines nothing and compares no tiers.
+    ///
+    /// Here `w` is `{ 1 2 + }`. It is entered until `+` is inlined and has run
+    /// compiled, then `+` is made an alias of `-`, and `w` is entered again.
+    /// The site's meaning guard must decline, and the result must be Tier 0's
+    /// — which must itself have **changed**, or the alias never took and the
+    /// row would pass on two tiers agreeing about nothing.
+    #[test]
+    fn an_inlined_name_aliased_to_another_word_gives_tier_zeros_result() {
+        let run = |r: &mut crate::Runtime| {
+            r.eval_str(":w { 1 2 + } register\n").expect("setup runs");
+            for _ in 0..3 {
+                r.eval_str("w").expect("the warm-up entries run");
+            }
+            let before = r.compiled_entries().unwrap_or(0);
+            r.eval_str(":- :+ alias\n").expect("the alias is made");
+            let outcome = r.eval_str("w").map_err(|e| norm_msg(&e.0));
+            let stack: Vec<Option<i64>> = bund2_api::Vm::snapshot(&r.interp)
+                .iter()
+                .map(BundValue::as_int)
+                .collect();
+            (outcome, stack, before)
+        };
+
+        let mut tiered = inlining_runtime_with(1);
+        let (a_outcome, a, before) = run(&mut tiered);
+        assert!(
+            tiered.inlined_sites().unwrap_or(0) > 0,
+            "`+` must have been inlined, or there is no site for the alias to invalidate"
+        );
+        assert!(
+            before >= 2 && tiered.compiled_entries().unwrap_or(0) > before,
+            "`w` must run compiled before the alias and after it: {before} before, {:?} after",
+            tiered.compiled_entries()
+        );
+
+        let mut plain = crate::Runtime::new();
+        plain.take_tier();
+        let (b_outcome, b, _) = run(&mut plain);
+
+        assert_eq!(
+            b,
+            vec![Some(3), Some(3), Some(3), Some(1)],
+            "Tier 0: three sums, then what `1 2 -` leaves once `+` names `-`"
+        );
+        assert_eq!(a_outcome, b_outcome, "outcome");
+        assert_eq!(a, b, "the stack");
+    }
+
     /// **F189: a hot body that fails under a native fails with Tier 0's
     /// text.** `eval_lambda` wraps a body's failure in `Lambda content
     /// evaluation returned error: `, and a failure the tier answered from

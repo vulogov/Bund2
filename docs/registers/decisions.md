@@ -3623,6 +3623,102 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D144 — is RFC-0005 §S9, tier pinning, withdrawn?
+
+**Raised 2026-10-10** by RFC-0005's twenty-third review, B7.
+
+§S9 specifies a `pinned` mark on a body, for RFC-0007 to hold a word at
+Tier 0 across an await and RFC-0008 to hold one while a breakpoint is set in
+it, and says the policy waits on D6 and D7, "both OPEN". Both were resolved
+on 2026-09-30 (D84, D85): a task is a VM, and nothing suspends inside a
+word. RFC-0008 turns the tier off for the whole `Interp` instead (D113.6).
+No `pinned` mark exists in `crates/bund2-jit` or `crates/bund2-runtime`, and
+none of RFC-0005's thirty criteria covers the section.
+
+**Options.**
+
+1. *Withdraw §S9*, by a dated note that says so. Nothing depends on it.
+2. *Keep it as a plan*, for a later need — a per-word breakpoint that leaves
+   the rest of the program compiled is the one in sight.
+
+**Recommendation: 1.** A mechanism with no user, no code and no criterion
+is not a specification, and option 2's need can bring its own section when
+it is real.
+
+- Blocks: RFC-0005 reaching Accepted
+- Depends on: D84, D85, D113
+- Status: **OPEN**
+
+## D143 — what is RFC-0005 criterion 9's rule?
+
+**Raised 2026-10-10** by RFC-0005's twenty-third review, B8.
+
+Criterion 9 reads as measured: "the crossover is 4, and promotion is skipped
+beneath it". No such rule is built — `Compiler::plan_body`
+(`crates/bund2-jit/src/lower.rs`) promotes every int literal — and the figure
+comes from the `sync` bench group, which times hand-written Rust and not
+compiled code. What decides whether a body is compiled is F136's rule: a
+body with no inlinable site is not.
+
+**Options.**
+
+1. *Re-word the criterion to the rule that is built* — F136's — and record
+   the crossover of 4 as a measurement of a model that no code uses.
+2. *Build the run-length rule* and measure it on compiled code. D139 has
+   since added about 5 ns to every compiled entry, so a crossover measured
+   now would not be 4.
+
+**Recommendation: 1.** F136's rule was chosen by the owner over a ratio
+test on corpus evidence; a second rule beneath it needs a case the first
+gets wrong, and none is recorded.
+
+- Blocks: RFC-0005 criterion 9
+- Depends on: F136, D139
+- Status: **OPEN**
+
+## D142 — which denominator does RFC-0005 criterion 10's stop rule have?
+
+**Raised 2026-10-10** by RFC-0005's twenty-third review, B8.
+
+The criterion says a speedup below 1.2× on `1 2 + drop` reopens §S1's gate,
+and fixes how it is taken: "stated on the tier as shipped, measured under
+the CLI's default reporter on a program". On those terms the figure of
+record is 1.06×, which is below the rule. The verdict "measured, the rule
+does not trigger" rests on 2.40× and 2.31× from the `stop_rule` bench group,
+which compares one compiled entry of a word with one interpreted entry, in
+process, under `SilentReporter` — the substitution the criterion's own
+paragraph rules out. D59 said this criterion "remains the experiment that
+can fail … a speedup below 1.2× reopens the gate rather than being
+explained".
+
+Since either figure was taken: F136 and D74 changed which bodies compile,
+D139 added about 5 ns to every compiled entry, and the review's B9 shows
+§S1's floor was the bench harness's own cost. Nothing was re-measured on
+2026-10-10.
+
+**Options.**
+
+1. *Keep the criterion's text.* Re-measure the program under the CLI's
+   reporter at the shipped threshold. If it reads below 1.2×, the gate is
+   reopened, as D59 says.
+2. *Amend the criterion to a per-entry rule*, which is what was measured.
+   That is a change to a gate after its result was seen, and needs to be
+   recorded as one.
+3. *Re-measure first, both ways, and rule with the two numbers in hand.*
+
+**Recommendation: 3, then 1 unless the numbers argue otherwise.** The rule
+was written to be able to fail. Changing its denominator before looking is
+the thing D59 forbade; looking costs one bench run.
+
+**Risk of 1.** At the shipped threshold a program of a million iterations
+of `1 2 + drop` compiles two bodies and still read 1.06×. If it reads the
+same again, Tier 1 as shipped does not pay on the shape its own gate names,
+and the question becomes what the tier is for.
+
+- Blocks: RFC-0005 criterion 10, and so RFC-0005 reaching Accepted
+- Depends on: D59, D74, D139, F136
+- Status: **OPEN**
+
 ## D141 — `conform` fails a `jit` run that compiles nothing only at threshold 1
 
 **Raised 2026-10-10** by RFC-0005's twenty-third review, B5
