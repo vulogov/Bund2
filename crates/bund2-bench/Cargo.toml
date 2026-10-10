@@ -44,7 +44,7 @@ jit = ["dep:bund2-runtime", "bund2-runtime/jit", "dep:bund2-jit", "bund2-jit/jit
 # guards — unsound code, timed and never run as a program. See that feature's
 # own note. `cargo bench -p bund2-bench --features unguarded -- guard_cost`.
 unguarded = ["jit", "bund2-jit/unguarded-bench"]
-aot = ["dep:bund2-runtime", "bund2-runtime/aot"]
+relocation-test = ["dep:bund2-runtime", "bund2-runtime/relocation-test"]
 
 # A regular dependency, not a dev one: Cargo forbids optional
 # dev-dependencies, and the feature has to be optional for the A/B to mean

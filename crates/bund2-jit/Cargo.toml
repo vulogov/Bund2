@@ -53,9 +53,11 @@ bund2-stdlib.workspace = true
 
 [features]
 default = []
-# AOT via cranelift-object. Build this before the JIT: object output
-# can be disassembled, diffed, and checked into a test corpus.
-aot = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-module", "dep:cranelift-object"]
+# Compiles one test and no shipped code: with `jit` on as well, the test in
+# `lower.rs` that reads an object's relocations (RFC-0005 criterion 4). It
+# was called `aot` until D134. There is no ahead-of-time build: D83 withdrew
+# `--emit=native`, and `cranelift-object` is here to be read by that test.
+relocation-test = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-module", "dep:cranelift-object"]
 jit = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-module", "dep:cranelift-jit"]
 # **Measurement only, and unsound when used.** RFC-0005 criterion 17 bounds the
 # cost of §S6's meaning guards — the generation compare and the `autoadd` load

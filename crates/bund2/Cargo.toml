@@ -16,7 +16,7 @@ bund2-async = { workspace = true, optional = true }
 
 [features]
 default = []
-aot   = ["bund2-runtime/aot"]
+relocation-test = ["bund2-runtime/relocation-test"]
 jit   = ["bund2-runtime/jit"]
 async = ["dep:bund2-async"]
 

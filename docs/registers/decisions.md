@@ -3623,6 +3623,172 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D137 — `conform`'s baseline is recorded at the ceiling, by the owner
+
+**Raised 2026-10-10** by RFC-0006's seventeenth review, on criterion 13.
+
+`cargo xtask conform` fails on one condition: a pass count below the
+recorded baseline (`xtask/src/conform/mod.rs`, the match on
+`read_baseline`). The baseline is 106 and the count is 133, CEILING
+133/145. So 27 goldens could stop passing with the job green, in source
+mode and under `--bundles`, and RFC-0006's criterion 13 said "the CEILING
+line is what holds the number today" of a line that is printed and fails
+nothing.
+
+- Blocks: nothing
+- Depends on: RFC-0006 criteria 2 and 13
+- Status: **RESOLVED** by the repository owner, 2026-10-10: "I run conform
+  --accept". **Not yet carried out when this entry was written**: the
+  command is the owner's to run.
+
+### The options
+
+1. **The owner records the baseline with `cargo xtask conform --accept`.**
+   No tool changes. The job then fails below 133.
+2. **`conform` fails below the CEILING, baseline or not.** Stricter, and a
+   change to a tool every RFC uses.
+3. **Only correct the sentence.**
+
+### The ruling
+
+Option 1. RFC-0006's criterion 13 is corrected to say what fails and what
+does not, and says nothing mechanical holds 133 until the command has been
+run.
+
+### What it does not say
+
+- Nothing about `--bundles`' own count: whether `--accept` records one
+  baseline or two was not read for this entry.
+- The baseline has to be recorded again each time the count rises, or the
+  gap reopens. Option 2 would not have that cost and was not chosen.
+
+## D136 — the fetch is RFC-0006's, and a criterion gates it
+
+**Raised 2026-10-10** by RFC-0006's seventeenth review.
+
+Ten decisions RFC-0006 consumes are the fetch, D124 to D133, and so is its
+longest preservation row. The RFC said of itself that "no acceptance
+criterion covers the fetch: it is the interpreter's and not this RFC's
+artefact", and that the workflow that measures it "gates nothing". So
+D133's sixteen rows were a count nobody was asked to keep: a change to the
+fetch, or a new libcurl on the runner, would move it with no job failing.
+Eight of the nine reviews before the seventeenth found their blocker in
+the fetch.
+
+- Blocks: nothing
+- Depends on: D131, D133, RFC-0006 §B7
+- Status: **RESOLVED** by the repository owner, 2026-10-10: "Yes, with a
+  gating criterion". Built the same day.
+
+### The options
+
+1. **The fetch is RFC-0006's, with a criterion that gates.** The Linux
+   workflow fails if its table differs from the recorded one.
+2. **It is the interpreter's.** RFC-0006 keeps §B7 as a record and no
+   review of it covers the fetch. The tables still gate nothing.
+3. **Its own RFC.** The cleanest, the largest edit, and a new document to
+   review.
+
+### The ruling
+
+Option 1. **RFC-0006 has criterion 14**: `measure-fetch` compares the
+table `docs/measurements/fetch.py` prints on Linux with the one recorded in
+`docs/measurements/fetch-linux-2026-10-09.md` and fails on any difference
+(`.github/workflows/measure-fetch.yml`, the step "the table is the
+recorded one").
+
+Built with it: `fetch.py` names a listener's port before it cuts a long
+cell short (`named`), since one cell, row 735's, held the first digits of
+a port and would have differed every run.
+
+### What it does not say
+
+- **macOS is not gated.** No job runs there; a person runs the script, and
+  did on 2026-10-10 with every cell as recorded.
+- **It runs on a push that touches the fetch, the script, the workflow or
+  the recorded table**, not on every push. A runner image that changes its
+  libcurl is found on the next such push and not before.
+- **Two rows wait on a clock**, 140 and 276. A failure in one of those is
+  to be read before it is believed.
+- It does not make the measurement a proof. 741 settings were tried, and
+  what they did not try is not claimed.
+
+## D135 — which targets get `--emit=native` is moot while D83 stands
+
+**Raised 2026-09-29** in RFC-0006 §B5 and carried as its last open question
+"for whoever takes §B8's gate"; put to the owner 2026-10-10.
+
+RFC-0005 names four Cranelift backends in a passage about `return_call`,
+and RFC-0006 §B5 asked which of them Bund2 would ship an ahead-of-time
+build for, s390x being one nothing in this repository can test. D83
+withdrew `--emit=native` on 2026-09-30. There is no such build on any
+target.
+
+- Blocks: nothing
+- Depends on: D83, RFC-0006 §B5 and §B8
+- Status: **RESOLVED** by the repository owner, 2026-10-10: "Moot under
+  D83".
+
+### The ruling
+
+**The question is closed without an answer. No target is accepted and none
+is refused**, s390x included. It reopens with the mode, and after the two
+questions D83 names as what would reopen it: what fraction of a program's
+bodies is statically known, and where the meaning guards get their cells.
+The list of targets depends on whether per-target linking is taken on at
+all, which is what those two decide.
+
+## D134 — the `aot` feature is `relocation-test`, and a bundle does not record it
+
+**Raised 2026-10-08** as Q42 by RFC-0006's sixth review, and measured by
+its seventh; ruled 2026-10-10.
+
+D83 withdrew `--emit=native`, so there is no ahead-of-time build. The cargo
+feature `aot` survived it in five manifests and one CI step, and did two
+things: it compiled the test that discharges RFC-0005's criterion 4,
+`no_relocation_names_a_compiled_body_from_inside_another`
+(`crates/bund2-jit/src/lower.rs`, `mod relocations`), and it made
+`features_built_in` (`crates/bund2-cli/src/main.rs`) write `aot` into a
+bundle's trailer. A bundle built from `bund2 --features aot` inspected as
+`features: aot` and held no Cranelift string: measured 2026-10-08, by the
+seventh review.
+
+- Blocks: nothing
+- Depends on: D83, Q42, RFC-0006 §B4 and criterion 7
+- Status: **RESOLVED** by the repository owner, 2026-10-10: "Rename it".
+  Built the same day.
+
+### The options
+
+1. **Rename the feature to what it does.**
+2. **Keep the name and stop recording it.** The trailer stops claiming it;
+   the name still promises a build that does not exist.
+3. **Leave it and say so.** A bundle goes on saying `features: aot`.
+
+### The ruling
+
+Option 1. **The feature is `relocation-test`** in `bund2-jit`,
+`bund2-runtime`, `bund2`, `bund2-cli` and `bund2-bench`, and in CI's
+feature matrix. **`features_built_in` does not record it**: it compiles a
+test and nothing a bundle carries. The test runs under `--features
+jit,relocation-test`, as it ran under `jit,aot`.
+
+`--features aot` is now an unknown feature. Nothing in this repository
+passes it.
+
+### What it does not change, and what is proposed and not done
+
+- **The word "AOT" is not removed from the project's vocabulary.** D83 says
+  withdrawal is not a finding that the mode is impossible. `README.md`'s
+  tier table now says AOT is withdrawn by D83.
+- **CLAUDE.md is the owner's and was not edited.** It defines "AOT = the
+  cranelift-object build" and speaks of "the JIT and AOT milestones".
+  Proposed wording for its terminology line: "AOT = the cranelift-object
+  build, withdrawn by D83; no such build exists." The owner did not ask
+  for the edit, so it is not made.
+- RFC-0006's title, "Ahead-of-time output", stands. A bundle is built
+  ahead of its run, and nothing in it is compiled ahead.
+
 ## D133 — one reader of HTTP on every system; where the reference's libcurls disagree, Bund2 is 8.7.1's
 
 **Raised 2026-10-10** by the first measurement of D131 on Linux.

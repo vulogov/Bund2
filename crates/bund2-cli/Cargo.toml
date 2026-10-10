@@ -30,7 +30,7 @@ bund2-runtime.workspace = true
 default = []
 # Chained through `bund2-runtime` rather than the `bund2` facade: the facade
 # re-exports nothing, so a feature routed through it reached no code (F124).
-aot   = ["bund2/aot", "bund2-runtime/aot"]
+relocation-test = ["bund2/relocation-test", "bund2-runtime/relocation-test"]
 jit   = ["bund2/jit", "bund2-runtime/jit"]
 async = ["bund2/async"]
 

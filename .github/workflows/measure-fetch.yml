@@ -2,8 +2,16 @@ name: measure-fetch
 
 # Where a fetch goes, on the oracle and on Bund2, on Linux x86-64: the table
 # `docs/measurements/fetch.py` prints, which until now exists for macOS arm64
-# and one libcurl alone. Not a gate: nothing here fails on a difference. It
-# produces the table as an artefact for a person to read.
+# and one libcurl alone.
+#
+# **A gate since RFC-0006's criterion 14.** The table it prints is compared,
+# cell for cell, with the one in `docs/measurements/fetch-linux-2026-10-09.md`,
+# and a difference fails the job. So the rows where the two binaries differ
+# on Linux, D133's sixteen among them, are a list a job keeps: a change to
+# the fetch that moves a cell fails here, and so does a runner image whose
+# libcurl reads a response another way. The answer to a failure is the
+# artefact: read what moved, and either fix Bund2 or record the new table
+# with the decision that approves it.
 on:
   workflow_dispatch:
   push:
@@ -14,6 +22,7 @@ on:
       - crates/bund2-stdlib/src/host.rs
       - crates/bund2-stdlib/src/http.rs
       - docs/measurements/fetch.py
+      - docs/measurements/fetch-linux-2026-10-09.md
 
 env:
   CARGO_TERM_COLOR: always
@@ -68,3 +77,11 @@ jobs:
         with:
           name: fetch-linux
           path: fetch-linux.md
+      - name: the table is the recorded one
+        run: |
+          # The recorded file is prose and then the table; the table begins at
+          # its heading row.
+          sed -n '/^| # | setting | bund | bund2 |$/,$p' \
+            docs/measurements/fetch-linux-2026-10-09.md > recorded.md
+          test -s recorded.md
+          diff recorded.md fetch-linux.md

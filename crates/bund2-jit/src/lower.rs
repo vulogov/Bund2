@@ -3295,7 +3295,7 @@ fn run_as_the_tier_would(
 /// execute in another process (RFC-0006 §B5). Immediates are not relocations,
 /// which is precisely why the criterion is answerable without fixing that —
 /// and why answering it does not amount to building `--emit=native`.
-#[cfg(all(test, feature = "aot"))]
+#[cfg(all(test, feature = "relocation-test"))]
 mod relocations {
     use super::*;
     use cranelift_object::{ObjectBuilder, ObjectModule};

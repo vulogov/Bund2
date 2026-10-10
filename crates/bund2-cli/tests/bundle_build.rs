@@ -149,6 +149,10 @@ fn both_floors_hold_for_every_word_they_name() {
         "bund.eval-file.",
         "use",
         "use.",
+        // An alias of `bund.eval`, and a ninth name the flag stubs. The floor
+        // holds for it because an alias is resolved by name when it is
+        // called, and so reaches the stub; this is what holds that.
+        "!!",
         // D120: Bund2's own evaluating word, which the reference's six cannot
         // include. Standard input is closed here, so a word that ran its
         // string would not stop at a console either — it would simply run.
@@ -185,6 +189,19 @@ fn both_floors_hold_for_every_word_they_name() {
         }
         let _ = std::fs::remove_file(&exe);
     }
+
+    // The same for an alias under the other flag: `cwd` is `fs.cwd`.
+    let alias = build("cwd println\n", "floor-io-alias", &["--noio"]);
+    for env in clearing {
+        let (_, out) = run(&alias, &[], &[env]);
+        assert!(
+            out.contains("disabled with --noio"),
+            "`cwd` with {}={:?} must stay refused: {out}",
+            env.0,
+            env.1
+        );
+    }
+    let _ = std::fs::remove_file(&alias);
 
     let shut = build("fs.cwd println\n", "floor-io", &["--noio"]);
     for env in clearing {

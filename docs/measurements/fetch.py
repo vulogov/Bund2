@@ -54,9 +54,18 @@ def extras(data):
             out += " [host %s]" % value.decode("latin-1")
     return out
 
+def named(text):
+    """The listeners' ports by name. Done before a cell is cut short, so that
+    no part of a port's number is left in one: a table is compared with the
+    last one, cell for cell, and a port is different every run."""
+    for name in ("O", "P1", "P2", "P3"):
+        port = globals().get(name)
+        if port: text = text.replace(str(port), name)
+    return text
+
 def short(text):
     """A request line, or its first bytes and its length when it is long."""
-    return text if len(text) < 200 else "%s… (%d bytes)" % (text[:24], len(text))
+    return text if len(text) < 200 else "%s… (%d bytes)" % (named(text)[:24], len(text))
 
 def first(data):
     """What a connection's first bytes are, when they are not an HTTP head."""
@@ -64,7 +73,7 @@ def first(data):
     if data[:1] == b"\x05": return "SOCKS5"
     if data[:1] == b"\x04": return "SOCKS4"
     if data[:2] == b"\x16\x03": return "TLS"
-    return "other " + repr(data[:24])[2:-1]
+    return "other " + repr(named(data[:64].decode("latin-1")).encode("latin-1")[:24])[2:-1]
 
 def chunks(body, size=None, end=b"\r\n", last=b"0"):
     """A body as one chunk and the closing one."""

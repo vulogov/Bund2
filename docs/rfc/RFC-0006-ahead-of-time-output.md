@@ -53,7 +53,7 @@
   flags, and no list here named the word — the search that closed the
   `--noeval` list looked for places a string is parsed, and this route parses
   nothing. **§B3a now names it and searches for both mechanisms. Ruled on —
-  D123**: D122's "leave it and name it" covers this word too. Its S1, a
+  D123**: D122's "leave `debug` and name it" is the ruling that covers this word too. Its S1, a
   build that destroyed the builder through a hard link, is a defect and is
   fixed — **F181**.
   **A tenth review the same day**
@@ -141,6 +141,17 @@
   Linux had not been measured since D131.)* **Linux was measured on
   2026-10-10, the same 741: 16 rows differ there that agree on macOS,
   because the reference links another libcurl, and D133 approves them.**
+  **A seventeenth review, 2026-10-10**
+  (`docs/rfc/reviews/RFC-0006-review-2026-10-10.md`) found one blocker and
+  none in behaviour: D133 was in the registers, this header and §B7, and
+  the preservation table still said the opposite in three sentences. The
+  table now has D133's row and the fetch's row is scoped by system. Its
+  smaller findings are answered where they stand. **Four rulings the same
+  day close what was listed as open: D134**, the `aot` feature is
+  `relocation-test` and a bundle no longer records it (Q42); **D135**, the
+  §B8 question of targets is moot while D83 stands; **D136**, the fetch is
+  this RFC's and has a criterion that gates, 14; **D137**, `conform`'s
+  baseline is to be recorded at the ceiling by the owner.
   Revised 2026-09-29 after the first adversarial review
   (`docs/rfc/reviews/RFC-0006-review-2026-09-29.md`). The review raised three
   blockers; all three were reproduced against the code before this revision,
@@ -150,15 +161,21 @@
   may carry the JIT (**D80**).
 - Depends on: RFC-0003 (the program stream and Tier 0), RFC-0005 (the
   Cranelift tier)
-- Decisions consumed: D10, D11, D16, D20, D40, D54, D74, D76, D77, D78, D79,
+- Decisions consumed: D10, D11, D16, D20, D40, D52, D54, D74, D76, D77, D78, D79,
   D80, D81, D82, D83, D115, D116, D118, D119, D120, D121, D122, D123, D124, D125, D126, D127,
-  D128, D129, D130, D131, D132, D133, and
+  D128, D129, D130, D131, D132, D133, D134, D135, D136, D137, and
   decisions.md's "What this forecloses" clause on tree-shaking. *(Until
   2026-10-08 this list named D44, which the body never uses, and omitted the
   last four, which it rests on.)*
-- Touched but not consumed: D1, D2, D28, D31, D34, D36, D37, D45, D87, D113 —
+- Touched but not consumed: D1, D2, D28, D31, D34, D36, D37, D45, D51, D87, D113 —
   see the preservation table for D1, D2 and D36; the others are cited where
-  used
+  used. *(D52 and D51 were in neither list until the seventeenth review's
+  S5. D52 is the ruling that makes `vm.exit_requested()` the exit code, and
+  is consumed. D51 is why `csv`, `sqlite` and the world file compile no C,
+  which is what leaves `grok` the only word §B6 has to name. Neither
+  declares this RFC in `Blocks:`, which is how both were missed. The same
+  search found D3, D27, D86 and D93, and F110, which mention this RFC's
+  subject in passing; nothing here rests on them.)*
 - Reference SHA: `reference/Bund` at `21b40b0`, `rust_dynamic` at `ceb27c9`,
   `bund_language_parser` at `8037772`, `rust_multistackvm` at `4605832`, per
   `reference/PINNED.txt`
@@ -705,7 +722,14 @@ on that thread is the **parse**, and the depth that matters is the parser's
     one dependency a review traced, and a dependency not yet traced may read
     more.
 - **The exit code** is `vm.exit_requested()`, as the CLI returns
-  (`crates/bund2-cli/src/main.rs`, `run_cli`).
+  (`crates/bund2-cli/src/main.rs`, `run`), and it is that by D52:
+  `bund.exit` is a request the embedder honours. *(Until the seventeenth
+  review this named `run_cli`, which does not make the call, and no
+  decision.)*
+- **`args` does not hold the artefact's own name.** "All of argv" in this
+  section is every argument after it: `run_cli` drops the first element
+  before it asks whether the binary is a bundle, as `script` does before
+  it reads its flags.
 - **The reporter** is the CLI's `TextReporter`, with the same `wants_stack`
   policy, so a fatal report carries a stack snapshot and a warning does not
   (D45, `crates/bund2-stdlib/src/report.rs`).
@@ -796,10 +820,12 @@ with F181 and the review after it.**
   are not kept. A build killed between the write and the move leaves
   `.bund2-build-<pid>/` beside the destination, holding a copy of the
   runtime; a later build with the same process id clears it, and nothing
-  else does. Read from the code, not measured.
+  else does. Read from the code, not measured: `place` in
+  `crates/bund2-cli/src/main.rs`.
 - **A build that fails leaves `--output` as it was.** That now includes a
   signing failure, which used to leave a file there the system would kill
-  (F181). Read from the code; no test makes `codesign` fail.
+  (F181). Read from the code, `reseal` and its caller `place` in
+  `crates/bund2-cli/src/main.rs`; no test makes `codesign` fail.
 - **Any other existing file at `--output` is replaced without a word.**
   Measured: built over an existing text file, the command exits 0 and leaves
   an executable. That is what a compiler's `-o` does, and it is stated here
@@ -825,7 +851,8 @@ which is the silent failure §B3a argues against for the restriction flags.
 **`--noio` and `--noeval` may be recorded in the trailer, and an environment
 variable at start-up may add either and never remove one** — D78. Both are
 `HostOptions` fields: `--noio` registers the I/O words as stubs that fail, and
-`--noeval` does the same to the six words of its group, named below
+`--noeval` does the same to the six words of its group and to `!!`, the
+alias of one of them, named below
 (`crates/bund2-stdlib/src/host.rs`, `HostOptions` and `register_noeval_stubs`;
 from the reference's own command line,
 `reference/Bund/src/cmd/mod.rs:139-146`).
@@ -891,7 +918,8 @@ line below the same day. They are —
 under the flag, as stubs
 (`reference/Bund/src/stdlib/functions/filesystem/file.rs:95-96`; the other
 arm, `:100-103`, has neither), and Bund2 does the same. `bund2 words` lists
-an unrestricted registry, so a name that exists only when the flag is set is
+an unrestricted registry (F152 records exactly this of these two names), so
+a name that exists only when the flag is set is
 not among the 610. Run by hand, both answer
 `bund FILE functions disabled with --noio`. **So 61 names answer with the
 stub**, and the method above finds every one that is also a word without the
@@ -923,7 +951,10 @@ separated from it** *(moved 2026-10-08, the ninth review's S5)* —
 are untouched; with the three that exist only under it, 66 names answer
 with the stub.** The 610 were not run again for this: the four are added to
 the counts above, and each is tried by name
-(`noio_reaches_the_four_words_that_fetch_and_run`).
+(`noio_reaches_the_four_words_that_fetch_and_run`). *(Run again by the
+seventeenth review, 2026-10-10, on a debug build of `e2fc0b0`: 63 answer
+with a stub and `fs_is_file.` is not registered, which are these
+counts.)*
 
 **What `--noio` leaves ungated — rewritten 2026-10-08, the sixth review's
 B2.** Everything else. Until that day this paragraph named `args`,
@@ -994,7 +1025,9 @@ were not each traced into the reference:
   reference writes the same file into the working directory
   (`reference/Bund/src/stdlib/functions/debug_fun/debug_shell.rs:20`, `:51`)
   and gates it no more than Bund2 does. `debug` keeps one of its own,
-  `bund_debug_debugger_history.txt`, by the same route. Measured by the
+  `bund_debug_debugger_history.txt`, by the same route
+  (`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:48`,
+  `:119`). Measured by the
   eighth review on a bundle built `--noio --noeval` whose program is
   `"40 2 + println" debug`: one typed line wrote it; with standard input
   closed nothing was written.
@@ -1024,8 +1057,10 @@ were not each traced into the reference:
 reading, applied to the other flag. The string `disabled with --noio` occurs in
 sixteen files under `reference/Bund/src/stdlib/functions`, and none of them is
 `conditional/`, `io/input.rs`, `system/ip.rs`, `system/locale.rs`, `sysinfo/`
-or `debug_fun/`. What "I/O" means to the flag is the filesystem words, the
-shell, the world file and the bus. It is not "the program touches nothing
+or `debug_fun/`. What "I/O" means to the flag is, in the main, the
+filesystem words, the shell, the world file and the bus; the sixteen files
+also hold a banner and the process title, and the list above, which was
+measured, is the whole of it where this sentence is a summary. It is not "the program touches nothing
 outside itself", and a runner who reads `restrictions --noio` that way is
 wrong about standard input, the address of the machine and the history file.
 D119 moved two words across that line and left the line where it is.
@@ -1052,7 +1087,17 @@ its own help text says it does**: `Disable bund.eval group of functions`
 (`reference/Bund/src/stdlib/functions/bund/bund_eval.rs:117-121`), and `use`
 and `use.` (`reference/Bund/src/stdlib/functions/bund/bund_use.rs:74-76`).
 Bund2 stubs the same six (`crates/bund2-stdlib/src/host.rs`,
-`register_noeval_stubs`). **Until 2026-10-08 this document said four**, three
+`register_noeval_stubs`). **And a ninth name with Bund2's two: `!!`**, an
+alias of `bund.eval`
+(`reference/Bund/src/stdlib/functions/create_aliases.rs:13`), which this
+section did not name until the seventeenth review's S2. Under `--noeval`
+`"40 2 + println" !!` answers `bund EVAL functions disabled with --noeval`
+on both binaries, and prints `42` on both without it: measured by that
+review against the oracle at `21b40b0`. **An alias is a name, and it is
+refused because it is resolved when it is called and so reaches the stub.**
+That holds for `cwd`, `cp`, `ls` and `sh` under `--noio` in the same way,
+and `both_floors_hold_for_every_word_they_name` now tries `!!` and `cwd`.
+**Until 2026-10-08 this document said four**, three
 times, citing the function that lists six; the two it left out are the pair
 that read a *file* and run it. The behaviour was always right — measured, a
 bundle built `--noeval` refuses `"p.bund" bund.eval-file` — and D79, which
@@ -1152,7 +1197,7 @@ string. **It gives a program nothing `compile lambda! !` does not** —
 `"> " input compile lambda! !` already runs a line from standard input under
 both flags — so the floor is where it was. What it changes is what a reader
 auditing a program must look for: not text. **The owner ruled the same day that
-D122's "leave it and name it" covers this word — D123.** It is the
+D122's "leave `debug` and name it" is the ruling that covers this word — D123.** It is the
 reference's word, ungated there, and preserved; gating it would have been a
 deviation, as D119 was.
 
@@ -1305,7 +1350,8 @@ is an interpreter for what it is handed, under both flags, in the reference
 and in Bund2. A reader auditing a restricted program for the names above
 has not audited it; the name to look for is `!`. What the flags do is what
 they say: `--noeval` makes the `bund.eval` group and Bund2's two words fail,
-`--noio` makes its 62 names fail, and neither says anything about what else
+`--noio` makes its 66 names fail *(62 here until the seventeenth review's
+S1; four short since D132)*, and neither says anything about what else
 a program can cause to run. No gate is proposed: it would be a deviation,
 and of the feature the language is for.
 
@@ -1359,7 +1405,10 @@ side. `bund2 build` therefore records in the trailer which features its runtime
 carries, and `--emit=bundle --features` selects among the runtimes it has.
 **The second half of that sentence is not the design — D118** (§B1, "What is built"): the
 runtime is the building binary, `--features` is refused, and the record says
-what that binary was compiled with — `jit`, `aot`, `async`, and `grok`.
+what that binary was compiled with — `jit`, `async`, and `grok`. *(And
+`aot` until D134, 2026-10-10: the feature compiled a test and no code a
+bundle carries, so a bundle said of itself something that was not so. It
+is now `relocation-test` and is not recorded — Q42.)*
 **`grok` was missing from the record until 2026-10-08**, though it is this
 section's own example: the feature is `bund2-stdlib`'s, `bund2-cli` does not
 declare it, and a `cfg!` there could never see it. It is now asked of the
@@ -1462,10 +1511,13 @@ written, which is the argument for writing triggers that way.
 
 **Which targets get `--emit=native` is not answered here.** RFC-0005 names
 x86-64, aarch64, s390x and riscv64 as what Cranelift supports
-(RFC-0005:3031-3039); whether Bund2
+(RFC-0005:3031-3039, a passage about which of the four lower
+`return_call`, and where the four are named, not a statement of what
+Cranelift supports); whether Bund2
 *ships* AOT for all four — s390x in particular, which nothing in this
-repository can test — is a question for whoever takes the §B8 gate, and is
-listed in the open questions.
+repository can test — was a question for whoever took the §B8 gate. **It is
+moot while D83 stands — D135, 2026-10-10**: no target is accepted and none
+refused.
 
 ### §B6 — Cross-compilation and the C dependency
 
@@ -1500,8 +1552,10 @@ documented rather than discovered:**
   B3 Bund2 left `..` to the system, and `"/d/link/../t.bund" file` read one
   file in the reference and another in Bund2, both silently. `%2e%2e` is not
   a dot segment to either.)* A path whose
-  decoded bytes are not UTF-8 — `%ff` — fails here; that is read from
-  `percent_decode` and not measured against the oracle. The
+  decoded bytes are not UTF-8 — `%ff` — fails here. *(Until 2026-10-10
+  this was read from `percent_decode` and not measured. Measured that day:
+  `"file:///tmp/%ff" file` fails on both binaries with `FILE gets no
+  data`, the oracle's libcurl saying `Bad file:// URL`.)* The
   scheme is in any case, and so is `http`, which takes one to three slashes.
   *(Until F183, 2026-10-09, Bund2 took `file://` and `http://` in lower case
   only, and `localhost` alone; the twelfth review's S2.)* **One spelling
@@ -1615,7 +1669,7 @@ documented rather than discovered:**
   | a proxy's host and port | `curls_host`, `Authority` | as for a URL, with 1080 for no port |
   | what follows a proxy's address | `curls_proxy` | nothing |
   | a `no_proxy` list | `bypasses`, `ipv4`, `atoi` | nothing |
-  | a `file:` path | `curls_path`, `percent_decode` | the decoded bytes, as a path. Bytes that are not UTF-8 fail here, read and not measured |
+  | a `file:` path | `curls_path`, `percent_decode` | the decoded bytes, as a path. Bytes that are not UTF-8 fail here, as they do in the reference: `%ff`, measured 2026-10-10 |
   | the request's lines | `Request::head`, in `http.rs` | the oracle's own, captured: the request line, `Host`, the two `Authorization` headers, `User-Agent`, `Accept`, and `Proxy-Connection` to a proxy, in that order |
   | the response | `read_response`, in `http.rs` | **read by Bund2, by rules measured on 233 shapes.** Until D131 this row said "nobody" and "all of it is `ureq`'s" |
 
@@ -1684,8 +1738,9 @@ documented rather than discovered:**
   may match differently. *(Until 2026-10-09 this said "one libcurl's" and
   "Linux was not measured".)* Linux was measured that day, by a workflow,
   `measure-fetch`, on Ubuntu 24.04 x86-64 with libcurl 8.5.0:
-  `docs/measurements/fetch-linux-2026-10-09.md`, the 443 settings there
-  were then. The
+  `docs/measurements/fetch-linux-2026-10-09.md`, which then held 443
+  settings and holds 741 now; its name keeps the day of its first version
+  and its table is of 2026-10-10. The
   reference differs from itself on macOS in 12 rows, and one kind matters:
   **a `no_proxy` entry with a leading zero is an address on macOS and not
   on Linux**, so there Bund2 went directly where the reference asked the
@@ -1697,7 +1752,10 @@ documented rather than discovered:**
   review's S3 this named three of the five.)*
   **The fix was measured on Linux too**: the workflow ran again on the
   commit that made it, the seven rows go through the proxy, and no other
-  cell changed; the table in the repository is that run. No other system
+  cell changed. *(This said "the table in the repository is that run"
+  until the seventeenth review's S3. That was run 38002480092; the file
+  has held a later run since D133, and the earlier table is in the
+  repository's history.)* No other system
   was measured at all; one that is not macOS gets Linux's rule, which is
   glibc's by one run. The rule is chosen when Bund2 is compiled, where the
   reference's is its C library's when it runs, and musl, the BSDs and
@@ -1756,12 +1814,15 @@ documented rather than discovered:**
   `chunked_is_named_or_the_body_is_taken_as_it_arrives`,
   `chunked_framing_is_taken_off_as_libcurl_takes_it_off` and
   `a_request_is_written_as_libcurl_writes_it`. No golden
-  can reach a network, **and no acceptance criterion covers the fetch**: it
-  is the interpreter's and not this RFC's artefact, and its instrument is
-  `docs/measurements/fetch.py`. A person runs that on macOS. A workflow,
-  `measure-fetch`, runs it on Ubuntu on a push that touches the script,
-  `host.rs` or `http.rs`; it gates nothing and uploads the table for a
-  person to read. *(Until the fifteenth review's S3 this said "nothing runs
+  can reach a network. *(Until 2026-10-10 this said "no acceptance
+  criterion covers the fetch: it is the interpreter's and not this RFC's
+  artefact", and that the workflow "gates nothing". The seventeenth review
+  pointed out that ten of this RFC's decisions are the fetch and nothing
+  held them.)* **The fetch is this RFC's, by D136, and criterion 14 holds
+  it.** Its instrument is `docs/measurements/fetch.py`. A person runs that
+  on macOS. A workflow, `measure-fetch`, runs it on Ubuntu on a push that
+  touches the script, `host.rs`, `http.rs` or the recorded table, **and
+  fails if a cell differs from the recorded one**. *(Until the fifteenth review's S3 this said "nothing runs
   that but a person", after the workflow existed.)*
 - A string with no scheme is refused, and `https://` is refused — both approved
   deviations under D54, the second because a TLS stack compiles C or assembly
@@ -1841,7 +1902,9 @@ documented rather than discovered:**
   with `chunked` named more than once it stops with the piece of the
   connection in which a layer ended, where Bund2 reads to the end of the
   outermost layer and so may refuse what follows; and neither sets a limit
-  on how long an answer takes, which was read and not compared.
+  on how long an answer takes, which was read and not compared. So a
+  bundle that fetches from a listener which accepts and says nothing
+  waits, as the reference does; the preservation table has that row.
 
 - **A fetch that fails on a very long URL is slow to say so — F186, a
   defect outside this RFC, and not fixed.** The fetch fails at once. The
@@ -1911,12 +1974,15 @@ on the answer.
 | Diagnostic flags (`--stats`, `--no-dump-stack`, `--raw-values`, `--jit-threshold`) | **Deliberately changed.** Not argv flags in a bundle, because they would shadow the program's own arguments; they move to environment variables. |
 | `--debugger` | **Deliberately absent.** No flag and no variable: a bundle is never given a debugger (D115, and §B3). The debuggable form of the program is `bund2 script --file`. |
 | `BUND2_NOIO`, `BUND2_NOEVAL` in the environment | **A bundle's alone.** `script` does not read them, so one environment can restrict the bundle of a program and not its `script` run (§B3). |
-| `use`, `use.`, `url`, `url.`, `file`, `file.`, `bund.eval-file`, `bund.eval-file.` | **Not preserved whole: Bund2 fetches `file:` and `http:` and the reference fetches whatever its libcurl speaks.** For those two schemes, in the 741 settings measured and no further, it is preserved (F182, F183, F187, D131): the proxy is the one the reference's libcurl would choose, on its default port, and is asked as libcurl asks it; the URL's host, credentials and path are sent as libcurl sends them, in a request written line for line as the oracle's; a `file:` path loses its dot segments before the system resolves it; and the response is read by rules measured on 233 shapes of answer. Approved differences: no scheme and `https://` refused (D54); a SOCKS or HTTPS proxy failing the fetch (D124); a path with a literal space or control character read (D125, F184); every other scheme refused (D126); a host with `%xx`, a zone or a byte above ASCII in it refused (D127). And one that follows a defect of the reference's instead of reproducing it: a proxy whose credentials decode to a control byte fails the fetch, where the reference goes direct (F185). In all of these but D125's Bund2 fails closed, and in no measured row does it ask a listener the reference does not or fetch other text (`docs/measurements/fetch-2026-10-09.md`). **Preserved per system**: the reference links its system's libcurl and differs from itself between the two systems measured, and Bund2 follows it where that was found (D130). **The Linux measurement is of the tree before D131** and has none of the rows about a response. **What the measurement did not try is not claimed**: §B7 lists each part of what is exchanged and who reads it, and says of the response's reader that it is a model. *(Until the sixteenth review this row was headed with six of the eight words. Until D131 it listed a tunnel asked of a proxy (D124), a proxy whose credentials carry an escape failing the fetch (D128), and two shapes of response failing it (D129); the first is gone and the other two are superseded.)* *(Until the fourteenth review this row was headed with three of the six words, and `file` is where a path through a link matters most.)* *(This row said "Preserved exactly" until the eleventh review and "Preserved under D54's scheme set" until the thirteenth, when D54's set was Bund2's and not the reference's. Bund2 obeyed `HTTP_PROXY`, `HTTPS_PROXY` and `https_proxy` until F182, asked a port-less proxy on 80 until the twelfth review, refused `HTTP://` until F183, and fetched `:65536` from port 80 until the thirteenth. Until the fourteenth it asked a proxy for a host the reference refuses, sent credentials undecoded, read three kinds of `no_proxy` entry differently, and left `..` in a `file:` path to the system.)* |
+| `use`, `use.`, `url`, `url.`, `file`, `file.`, `bund.eval-file`, `bund.eval-file.` | **Not preserved whole: Bund2 fetches `file:` and `http:` and the reference fetches whatever its libcurl speaks.** For those two schemes, in the 741 settings measured and no further, it is preserved (F182, F183, F187, D131): the proxy is the one the reference's libcurl would choose, on its default port, and is asked as libcurl asks it; the URL's host, credentials and path are sent as libcurl sends them, in a request written line for line as the oracle's; a `file:` path loses its dot segments before the system resolves it; and the response is read by rules measured on 233 shapes of answer. Approved differences: no scheme and `https://` refused (D54); a SOCKS or HTTPS proxy failing the fetch (D124); a path with a literal space or control character read (D125, F184); every other scheme refused (D126); a host with `%xx`, a zone or a byte above ASCII in it refused (D127). And one that follows a defect of the reference's instead of reproducing it: a proxy whose credentials decode to a control byte fails the fetch, where the reference goes direct (F185). **On macOS, against libcurl 8.7.1**, in all of these but D125's Bund2 fails closed, and in no measured row does it ask a listener the reference does not or fetch other text (`docs/measurements/fetch-2026-10-09.md`). **On Linux that is not so, and the next row says how** (D133). **The reference differs from itself by system in two ways, and they are ruled two ways.** It links its system's libcurl and C library. Where the C library decides, a `no_proxy` entry with a leading zero, Bund2 follows the system it was compiled for (D130, seven rows). Where the version of libcurl decides, how a response is read, Bund2 does not follow and is 8.7.1's reading everywhere (D133, sixteen rows). So Bund2 differs from itself between systems in the seven, and from the Linux reference in the sixteen. **Both systems are measured at `6c84d9e`, all 741 rows** (`docs/measurements/fetch-linux-2026-10-09.md` for Linux). *(Until the seventeenth review this row said the Linux measurement was of the tree before D131, that Bund2 fails closed in all but D125's rows without saying on which system, and that Bund2 follows the reference per system, citing D130 alone. All three were false of Linux from the day D133 was ruled.)* **What the measurement did not try is not claimed**: §B7 lists each part of what is exchanged and who reads it, and says of the response's reader that it is a model. *(Until the sixteenth review this row was headed with six of the eight words. Until D131 it listed a tunnel asked of a proxy (D124), a proxy whose credentials carry an escape failing the fetch (D128), and two shapes of response failing it (D129); the first is gone and the other two are superseded.)* *(Until the fourteenth review this row was headed with three of the six words, and `file` is where a path through a link matters most.)* *(This row said "Preserved exactly" until the eleventh review and "Preserved under D54's scheme set" until the thirteenth, when D54's set was Bund2's and not the reference's. Bund2 obeyed `HTTP_PROXY`, `HTTPS_PROXY` and `https_proxy` until F182, asked a port-less proxy on 80 until the twelfth review, refused `HTTP://` until F183, and fetched `:65536` from port 80 until the thirteenth. Until the fourteenth it asked a proxy for a host the reference refuses, sent credentials undecoded, read three kinds of `no_proxy` entry differently, and left `..` in a `file:` path to the system.)* |
+| How a response is read, and how long a request may be, on Linux | **Deliberately changed — D133, an approved deviation on Linux, 16 rows of 741.** The reference there links libcurl 8.5.0 and reads these otherwise than 8.7.1 (F188). **In four Bund2 fetches where the Linux reference fails**: it goes on with the empty string when an answer ends after a `Transfer-Encoding: chunked` line (row 570), and it evaluates a body when the outer of two chunked layers is unfinished (660) and when the request is of exactly 1,048,575 bytes (734, 735). In five the two fetch different text: `chunked` named and framed two to four times, where the Linux reference evaluates the inner framing as text (621, 622, 655, 658, 659). In seven Bund2 fails where the Linux reference fetches (499, 500, 635, 656, 657, 688, 693). **So on Linux Bund2 does not fail closed in the first nine.** Every row is an answer framed more than once or cut short, or a request of a megabyte. Only 8.5.0 and 8.7.1 were measured; a third libcurl is covered by the ruling in kind and by no row. Criterion 14 holds the sixteen. |
+| How long a fetch waits | **Preserved, read and not measured.** Neither the reference nor Bund2 sets a limit on how long a connection or an answer takes (§B7; `crates/bund2-stdlib/src/http.rs`, `get`). A bundle that fetches from a listener which accepts and then says nothing does not return. `ureq`, until D131, was not compared on this either. |
 | `--noio`, `--noeval` | **Deliberately available as a build-time floor — D78.** Recorded in the trailer; run time may add either and never remove one. Not a boundary: §B3a names what each gates and what each leaves ungated — for `--noio` that includes two words that write a history file, standard input, and the host's address and name. *(Until D132, 2026-10-09, it also included `use` and `bund.eval-file`, and this row's list did not say so.)* |
 | `use`, `use.`, `bund.eval-file`, `bund.eval-file.` under `--noio` | **Approved deviation — D132.** The reference stubs the four under `--noeval` alone, so under its `--noio` a program fetches a URL or reads a file and runs it. Bund2 stubs them under `--noio` too. Without the flag, preserved; with both flags the message is `--noeval`'s on both binaries. |
 | `csv` and `sqlite` under `--noio` | **Approved deviation — D119.** The reference leaves both ungated; Bund2 stubs them and their conditional handlers. Without the flag, preserved. |
 | `--nocolor` | **Preserved as a per-run choice**, in the environment-variable channel with the diagnostic flags. Presentational, not a capability. |
-| Diagnostic file name | **Preserved for a path of up to 256 bytes** via the trailer's recorded source path (§B3), without which a bundle's report differs by construction and the CEILING moves. **A longer path is changed**: its last 256 bytes are kept, and the build says so. |
+| Diagnostic file name | **Preserved for a path of up to 256 bytes** via the trailer's recorded source path (§B3), without which a bundle's report differs by construction and the CEILING moves. **A longer path is changed**: its last 256 bytes are kept, and the build says so. **And the path is disclosed**: an artefact carries the path its builder gave, to whoever runs it or inspects it, and two builds of one source from two directories are two different artefacts. That is new surface a `script` run does not have, the like of §B2's cost for the source text. |
+| How a report's lines are broken | **Preserved, on a test and not a proof — F186, 2026-10-10.** A report's cells are now broken by Bund2 before `comfy_table` sees them, for time and not for appearance. 1,932 reports rendered both ways are equal byte for byte. Two limits: a report narrower than 40 columns is broken by the table as before, and for a word that holds characters outside printable ASCII nothing proves the two agree where the test did not look. A bundle and a `script` run share the reporter, so this is the same in both. |
 | A program larger than 1 MiB | **Changed: it runs under `script` and cannot be bundled.** Refused at build with both numbers named (§B1, criterion 11). The limit is not discoverable before it is hit except by `--inspect`, which prints the capacity. |
 | The debugger's history files in a shipped artefact | **New surface, and ungated.** A bundle whose program calls `debug.shell` or `debug` writes line history under the configuration directory of whoever runs it (§B3a). |
 | `bund2` itself | **Changed.** Every `bund2` carries the 1 MiB region and reads it before it acts on argv, so a damaged region stops the plain interpreter too (§B1). |
@@ -1928,7 +1994,7 @@ on the answer.
 | A bundle asked to `build` | **It cannot.** A bundle owns all of argv, so `build` is its program's first argument (§B3). |
 | A syntax error's timing | **Deliberately changed**: found at build rather than at run (§B3). A build that wrote an unparseable program would move the error to whoever ran it. |
 | RFC-0005 criterion 30's excluded mirrors | **Reopened by `--emit=native`**, on that row's own stated trigger. Owed once the mode exists, not excluded. |
-| What `--noeval` stops | **Preserved exactly for the reference's words — D79.** It disables the `bund.eval` group, six words: `bund.eval`, `bund.eval.`, `bund.eval-file`, `bund.eval-file.`, `use`, `use.`. `compile` is not in the group, so `compile lambda! !` still evaluates, on both binaries. So do `debug`'s operand (D122), `decode.base64` (D123), the world-file words under `--noeval` alone, and code built from strings. §B3a names each and says why the list is open. |
+| What `--noeval` stops | **Preserved exactly for the reference's words — D79.** It disables the `bund.eval` group, six words: `bund.eval`, `bund.eval.`, `bund.eval-file`, `bund.eval-file.`, `use`, `use.`, and with them `!!`, which is an alias of the first and so a seventh name (§B3a). `compile` is not in the group, so `compile lambda! !` still evaluates, on both binaries. So do `debug`'s operand (D122), `decode.base64` (D123), the world-file words under `--noeval` alone, and code built from strings. §B3a names each and says why the list is open. |
 | Code built from strings, under either flag | **Preserved — D16, D79.** `make.call`, `ptr`, `lambda*`, `lambda!` and `!` on a string are ungated on both binaries; four programs print `42` under `--noeval --noio` (§B3a). A hermetic golden runs the idiom. |
 | `--output` that is the program's own source | **Refused**, by where the path leads (§B3). New surface: until 2026-10-08 the source was replaced by its artefact and the build exited 0. |
 | A dangling symlink at `--output` | **Followed**: its target is created and the link stays (§B3). |
@@ -2122,8 +2188,10 @@ on the answer.
    read rather than run answers the question. Making `Emitter` generic over
    `cranelift_module::Module` was the whole prerequisite.
 
-   **How to run it: `cargo test -p bund2-jit --features jit,aot relocation`
-   — stated 2026-10-09, the eleventh review's S1.** The two tests are gated
+   **How to run it: `cargo test -p bund2-jit --features jit,relocation-test relocation`.**
+   *(The feature was `aot` until D134, 2026-10-10, and the rest of this
+   paragraph is of that name.)* Stated 2026-10-09, the eleventh review's
+   S1. The two tests are gated
    on `aot` inside a module gated on `jit`
    (`crates/bund2-jit/src/lower.rs`, `mod relocations`;
    `crates/bund2-jit/src/lib.rs`, `mod lower`). Under `--features aot` alone
@@ -2178,8 +2246,8 @@ on the answer.
    the build, and the two runs must differ. **Load-bearing by construction**: a
    frozen build-time stamp cannot lie inside two disjoint windows.
 10. **A restriction cannot be loosened at run time.** A bundle built `--noeval`
-    still refuses each of the group's six words, `debug.run` (D120) and `debug.feed` (D121), and one built `--noio` still
-    refuses an I/O word, with `BUND2_NOEVAL` and `BUND2_NOIO` each set to `0`
+    still refuses each of the group's six words, the alias `!!`, `debug.run` (D120) and `debug.feed` (D121), and one built `--noio` still
+    refuses an I/O word and an alias of one, with `BUND2_NOEVAL` and `BUND2_NOIO` each set to `0`
     and to empty — the two values `env_set` reads as "unset" (§B3) — and
     `--inspect` still reports the restriction. *(Until 2026-10-08 this read
     "every environment variable … set to every value that would clear them",
@@ -2197,7 +2265,10 @@ on the answer.
     alone. `both_floors_hold_for_every_word_they_name` tries all six words,
     `bund.eval-file` and its workbench form among them, and tries `--noio`'s
     floor with `fs.cwd`, in both directions. **`debug.run` joined the list
-    with D120, and `debug.feed` with D121.**
+    with D120, and `debug.feed` with D121.** **`!!` and `cwd` joined it
+    2026-10-10**, the seventeenth review's S2: an alias is refused because
+    it resolves to a stub when called, and until then no test of the floor
+    held that.
 
     **Widened 2026-10-09, D132** — `--noio`'s floor is tried with `use`,
     `use.`, `bund.eval-file` and `bund.eval-file.` as well, in the same
@@ -2278,12 +2349,42 @@ on the answer.
 
     **This is a dated comparison and not a standing check.** The recorded
     baseline is 106, so `conform` would not report a loss of up to 27 goldens
-    as a regression; the CEILING line is what holds the number today.
+    as a regression. *(Until the seventeenth review this went on "the
+    CEILING line is what holds the number today". The CEILING is printed and
+    fails nothing: `conform` returns an error on one condition, a count
+    below the baseline — `xtask/src/conform/mod.rs`, the match on
+    `read_baseline`.)* **Nothing mechanical holds 133 until the baseline
+    is recorded there — D137, 2026-10-10**: the owner records it with
+    `cargo xtask conform --accept`, which is the owner's to run and had
+    not been run when this was written. The same holds for criterion 2's
+    "none failing" under `--bundles`.
+14. **The fetch does on each measured system what its recorded table says —
+    D136, 2026-10-10.** `docs/measurements/fetch.py` prints one row for each
+    of 741 settings, the oracle's cell and Bund2's. The table recorded for
+    Linux is in `docs/measurements/fetch-linux-2026-10-09.md`, and the
+    workflow `measure-fetch` fails if the table it prints differs from that
+    one in any cell (`.github/workflows/measure-fetch.yml`, the step "the
+    table is the recorded one"). So the rows where the two binaries differ
+    are a list a job keeps: 37 where Bund2 refuses and asks nobody, D125's
+    two, and D133's sixteen.
+
+    **What it holds and what it does not.** It fails on a change to the
+    fetch that moves a cell, and on a runner whose libcurl is no longer
+    8.5.0 and reads something otherwise, with no commit here. It runs on a
+    push that touches the fetch, the script or the recorded table, not on
+    every push. **It holds Linux alone.** The macOS table,
+    `docs/measurements/fetch-2026-10-09.md`, is run by a person, as before.
+    A cell that is a wait, rows 140 and 276, depends on a clock, and a
+    failure there is to be read before it is believed.
+
+    **Met for Linux when the workflow first passes with the gate**, which
+    is the run of the commit that adds it.
 
 **What runs these, stated because five of them do not run by themselves — the
 sixth review.** Read from `.github/workflows/ci.yml`, which runs
 `cargo test --workspace` and `cargo xtask conform` with default features on
-Ubuntu, and `cargo check`s `jit` and `aot`:
+Ubuntu, and `cargo check`s `jit` and `relocation-test`, which was `aot`
+until D134:
 
 | criterion | what checks it | does CI run it |
 |---|---|---|
@@ -2292,9 +2393,10 @@ Ubuntu, and `cargo check`s `jit` and `aot`:
 | 3 | `bundle_build`, debug | yes; its companion needs `jit` and does not |
 | 4, 5, 9, 10, 12 | `bundle_build` | yes |
 | 6 | `bundle_build` under `--features jit` | **no** |
-| 7 | `bund2-jit`'s relocation tests, under `jit` **and** `aot` together | **no** |
+| 7 | `bund2-jit`'s relocation tests, under `jit` **and** `relocation-test` together | **no** |
 | 11 | `bundle_build`, and a unit test in `bundle.rs`; the signing half is macOS only | the capacity half only |
 | 13 | a before-and-after `conform` on 2026-09-30 | no |
+| 14 | `measure-fetch`, its own workflow, on a push that touches the fetch | yes, for Linux; macOS by hand |
 
 `cargo xtask bundle`, which found both release-only blockers, is in neither
 `cargo test` nor CI — D82's fourth unsettled item, still unsettled. Each "no"
@@ -2306,6 +2408,40 @@ S7.** The workflow runs on a push to `main` and on pull requests
 2026-09-11, and failed; `bundle.rs` did not exist until 2026-09-30. Every
 criterion here has been run on one machine, macOS on arm64, by hand or by
 `cargo test` there.
+
+## What this document assumes — stated 2026-10-10, the seventeenth review
+
+- **That the 741 rows hold for the tree that carries this text.** Both
+  tables were of `6c84d9e`. The commit after it changed how a report's
+  lines are broken and nothing in the fetch. Criterion 14's first run is of
+  the tree with that change, on Linux; the macOS table was run again by
+  hand the same day, and its header says what that found.
+- **That `ubuntu-latest` keeps libcurl 8.5.0.** D133's sixteen is a fact
+  about a runner image. Criterion 14 fails when it stops being one.
+- **That an alias reaches the stub of the word it names.** Criterion 10
+  now tries one under each flag.
+- **What "all of argv" is**: every argument after the artefact's own name
+  (§B3).
+- **That a reader can open `ureq` 3.4.0.** Two citations in §B7 are into
+  that crate, `src/proxy.rs:222-240` and
+  `src/unversioned/transport/connect.rs:107`. They were right at that
+  version. The workspace has not had the crate since D131, so a fresh
+  checkout cannot open them and `cargo xtask cite` does not try. They are
+  history: what Bund2 did until D131.
+- **That a measurement of one profile is a measurement of the artefact.**
+  It is not, and §B1 says why: a release build once folded the region away.
+  The bundles `bundle_build` builds are debug builds. This document does
+  not record which profile §B3a's hand measurements used. `cargo xtask
+  bundle` is the only check of a release artefact and is in neither
+  `cargo test` nor CI (D82's fourth item). A restriction is a byte in that
+  region, so the floor on a release artefact rests on that command.
+- **That "one reader on every system" is one behaviour.** It is one reader
+  of responses (D133). The `no_proxy` rule is per system (D130). The
+  preservation table's fetch row now puts the two side by side.
+- **A tool's limit, found by the same review.** `cargo xtask cite` reads
+  `:65536`, a port in this document's prose, as a line number against the
+  last path before it, reports it past the end of that file, and passes.
+  The same reading would pass a real bare `:N` that ran off its file.
 
 ## Open questions
 
@@ -2341,8 +2477,10 @@ criterion here has been run on one machine, macOS on arm64, by hand or by
 - **Invoking `codesign` — answered by D81**, 2026-09-30: permitted. It is a
   base-system binary, not the C toolchain D10 forbids, and without it a macOS
   artefact cannot execute. D81 carries the one unverified limit.
-- **Which targets get `--emit=native`.** s390x in particular is untestable
-  here. For whoever takes §B8's gate.
+- **Which targets get `--emit=native`? — moot, by D135**, 2026-10-10. D83
+  withdrew the mode, so there is nothing to ship on any target. No target
+  was accepted and none refused, s390x included. It reopens with the mode,
+  after D83's two questions.
 - **Does `--noeval` gate `debug.run`? — answered by D120**, 2026-10-08: yes.
   Raised the same day by the seventh review (B1). It is Bund2's own word, so
   no deviation.
@@ -2404,10 +2542,14 @@ criterion here has been run on one machine, macOS on arm64, by hand or by
   approved deviation there. *(Until that day this was open, awaiting the
   measurement.)* The reference links libcurl 8.5.0 on Ubuntu and differs
   from itself (F188); Bund2 keeps the one reader, 8.7.1's.
-- **What is the `aot` feature called now? — Q42.** After D83 it compiles the
-  relocation test and nothing else, a bundle built from such a `bund2`
-  inspects as `features: aot`, and CLAUDE.md's terminology still defines AOT
-  as "the cranelift-object build". Not this RFC's to rename alone.
+- **What is the `aot` feature called now? — Q42, answered by D134**,
+  2026-10-10: `relocation-test`, and a bundle does not record it. After D83
+  it compiled the relocation test and nothing else, and a bundle built from
+  such a `bund2` inspected as `features: aot`. CLAUDE.md's terminology still
+  defines AOT as "the cranelift-object build"; that file is the owner's and
+  D134 proposes its wording without making the edit.
+- **Is the fetch this RFC's? — answered by D136**, 2026-10-10: yes, with
+  criterion 14. Raised the same day by the seventeenth review.
 - **Is the runtime the builder, or a prebuilt runtime per target? — answered
   by D118**, 2026-10-08: the builder. Raised the same day by the sixth review
   (B4). Cross-target bundling is deferred with its trigger recorded in §B1.
@@ -2418,10 +2560,12 @@ criterion here has been run on one machine, macOS on arm64, by hand or by
 
 **The first three reviews found six blockers between them, and all six are
 answered** — four in the design, the rest by D76, D77, D78, D79 and D80.
-Fifteen reviews of this document and one of the code have found
-thirty in all — thirty-one if the implementation review's second-pass
+Sixteen reviews of this document and one of the code have found
+thirty-one in all — thirty-two if the implementation review's second-pass
 B3 is counted, which this sentence never has — and each is answered or
-ruled. *(Thirteen and twenty-eight until this revision. The sixteenth
+ruled. *(Fifteen and thirty until the seventeenth review, whose one
+blocker was this document's own table and no behaviour; thirteen and
+twenty-eight before that. The sixteenth
 review's second blocker is the fifteenth's, reproduced, and is counted
 once.)* Of
 the last nine, eight are the fetch: which variables name a
@@ -2431,7 +2575,10 @@ were handed on unread, and then the answer, which nobody read. The ninth
 is `--noio`'s list, which had lost the route D78 was ruled on.
 *(Until the eighth review this sentence said seven and eighteen when the
 document had had six.)* What
-remains listed is one question for whoever takes §B8's gate, and Q42. The
+remained listed until 2026-10-10 was one question for whoever takes §B8's
+gate, and Q42; they are D135 and D134, and **nothing is listed as open
+now**. The seventeenth review raised one for the owner, whether the fetch
+is this RFC's, and it is D136; D137 is how criterion 13's number is held. The
 fourteenth raised two, and they are D128 and D129. The fifteenth raised
 one, D131, and the sixteenth one, D132. One question that no review
 raised, what the reader does on Linux, was measured on 2026-10-10 and is

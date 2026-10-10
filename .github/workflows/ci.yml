@@ -38,7 +38,7 @@ jobs:
         run: cargo xtask lint
       - name: feature matrix
         run: |
-          cargo check --workspace --features aot
+          cargo check --workspace --features relocation-test
           cargo check --workspace --features jit
           cargo check --workspace --features async
 

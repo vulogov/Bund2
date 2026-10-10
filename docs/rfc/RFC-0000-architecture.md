@@ -312,7 +312,7 @@ so conformance can read 100% with three quarters of the language untested.
 Three files are the shared state between sessions, and this RFC does not
 duplicate them:
 
-- `docs/registers/decisions.md` — 133 entries, **none OPEN**. Append-only; a status may
+- `docs/registers/decisions.md` — 137 entries, **none OPEN**. Append-only; a status may
   change, an entry may not be deleted or renumbered.
 - `docs/registers/defects.md` — 188 entries. The roadmap's §5 listed eleven;
   the rest were found by running the oracle rather than reading it. F14, F15 and
@@ -480,7 +480,7 @@ root-level `*.pest` is now compared too. The two copies agree.
 
 **D-1. `cargo tree --no-default-features` pulls in no `ai`, `image`, `bus`,
 `forecast`, `statistics`, `internaldb` or `console` dependency.** No Bund2
-crate declares any of those features; the only features that exist are `aot`,
+crate declares any of those features; the only features that exist are `aot` (`relocation-test` since D134, 2026-10-10),
 `jit` and `async` (`crates/bund2/Cargo.toml`, `crates/bund2-jit/Cargo.toml`).
 The command can produce no evidence either way, so asserting it would pass by
 vacuity. D28 is a commitment until RFC-0002 declares the feature set.

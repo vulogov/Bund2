@@ -9,6 +9,24 @@ with `--port80`. It is the companion of `fetch-2026-10-09.md`, which is
 macOS arm64 and libcurl 8.7.1, of the same tree and the same 741 settings
 in the same rows, and its cells read the same way.
 
+**This table is a recorded expectation since RFC-0006's criterion 14
+(D136).** The workflow compares the table it prints with the one below,
+cell for cell, and fails on a difference. To change a cell here is to say
+the fetch changed, or the runner's libcurl did, and which decision approves
+it.
+
+**The file's name is the day of its first version; the measurement is of
+2026-10-10.** It is not renamed because decisions and defects cite it by
+this name.
+
+**Two cells in row 735 are written by hand and not by that run**, both to
+the same end. The run printed a long request line cut after the first
+three digits of a listener's port, `http://127.0.0.1:441`, and a port
+differs every run, so no later table could equal this one. `fetch.py` now
+names the port before it cuts and the cells read `http://127.0.0.1:O/a`.
+The macOS table's cell was rewritten the same way and a run there printed
+exactly that. On Linux the first run of the gate is what confirms it.
+
 *(This is the third version. The first was run 37994971955, of Bund2 at
 `bbd50c1`, and the second run 38002480092, of `17e623a`: 443 settings each,
 of the tree before D131, where `ureq` wrote Bund2's requests and read its
@@ -809,7 +827,7 @@ request arrives.
 | 732 | `bund.eval-file` of /abs/d/nosuch.bund | fail · - | fail · - |
 | 733 | `bund.eval-file` of  | fail · - | fail · - |
 | 734 | a request of 1,048,575 bytes | fail · origin:other GET /aaaaaaaaaaaaaaaaaaa | body · origin:GET /aaaaaaaaaaaaaaaaaaa… (1048508 bytes) |
-| 735 | a request of 1,048,575 bytes, via http_proxy | fail · p1:other GET http://127.0.0.1:441 | `"p1" println\n` · p1:GET http://127.0.0.1:441… (1048478 bytes) |
+| 735 | a request of 1,048,575 bytes, via http_proxy | fail · p1:other GET http://127.0.0.1:O/a | `"p1" println\n` · p1:GET http://127.0.0.1:O/a… (1048478 bytes) |
 | 736 | a request of 1,048,576 bytes | fail · origin:silent | fail · origin:silent |
 | 737 | a request of 1,048,576 bytes, via http_proxy | fail · p1:silent | fail · p1:silent |
 | 738 | an `http:` URL of 7,999,999 bytes | fail · origin:silent | fail · origin:silent |

@@ -38,9 +38,8 @@ fn features_built_in() -> String {
     if cfg!(feature = "jit") {
         on.push("jit");
     }
-    if cfg!(feature = "aot") {
-        on.push("aot");
-    }
+    // `relocation-test` is not recorded: it compiles a test and nothing a
+    // bundle carries. As `aot` it was, and a bundle said so of itself (D134).
     if cfg!(feature = "async") {
         on.push("async");
     }

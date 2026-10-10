@@ -24,7 +24,7 @@ Pre-implementation. The RFC series is being drafted; see `docs/rfc/` and
 
     Tier 0   BundIR interpreter          mandatory, every target
     Tier 1   Cranelift JIT               optional, feature = "jit"
-    AOT      cranelift-object -> native  optional, feature = "aot"
+    AOT      withdrawn (D83): there is no native build
 
 ## Health metric
 

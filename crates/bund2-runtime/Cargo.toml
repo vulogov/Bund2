@@ -25,7 +25,7 @@ bund2-jit = { workspace = true, optional = true }
 [features]
 default = []
 # bund2-async depends on bund2-runtime, so it must NOT appear here.
-aot = ["dep:bund2-jit", "bund2-jit/aot"]
+relocation-test = ["dep:bund2-jit", "bund2-jit/relocation-test"]
 jit = ["dep:bund2-jit", "bund2-jit/jit"]
 
 [lints]
