@@ -152,6 +152,16 @@
   §B8 question of targets is moot while D83 stands; **D136**, the fetch is
   this RFC's and has a criterion that gates, 14; **D137**, `conform`'s
   baseline is to be recorded at the ceiling by the owner.
+  **An eighteenth review, 2026-10-10, the second acceptance review**
+  (`docs/rfc/reviews/RFC-0006-acceptance-review-2026-10-10.md`) found no
+  blocker and nothing that needs a ruling. It ran what the seventeenth had
+  not: the suite in both feature sets, `conform` in six configurations,
+  `cargo xtask bundle`. Its eight smaller findings are answered where they
+  stand; the one with weight is that criterion 14's gate did not run on a
+  change to `bund.eval-file` or to the report, and it does now. **Criteria
+  13 and 14 are met and were missing from the tally at the head of this
+  line**: 13 is held by a baseline of 133 since the owner recorded it, and
+  14 passed on Linux in run 38049339369.
   Revised 2026-09-29 after the first adversarial review
   (`docs/rfc/reviews/RFC-0006-review-2026-09-29.md`). The review raised three
   blockers; all three were reproduced against the code before this revision,
@@ -653,7 +663,10 @@ on that thread is the **parse**, and the depth that matters is the parser's
 `MAX_NESTING` of 1024, not `MAX_WIRE_DEPTH`'s 256 — which is also why criterion
 5 is set at 1024. Three reviews raised this sentence; it is the last of them.
 
-**Six things the artefact's front end must settle, and does here:**
+**Seven things the artefact's front end must settle, and does here**
+*("Six" until the eighteenth review's S5; the bullet on `args` and the
+artefact's own name was added for the seventeenth and the count was not
+moved)*:
 
 - **argv.** The runner consumes nothing. A bundle is the program, so all of
   argv reaches `args` and `args.parse` (`crates/bund2-stdlib/src/host.rs`,
@@ -1821,8 +1834,12 @@ documented rather than discovered:**
   held them.)* **The fetch is this RFC's, by D136, and criterion 14 holds
   it.** Its instrument is `docs/measurements/fetch.py`. A person runs that
   on macOS. A workflow, `measure-fetch`, runs it on Ubuntu on a push that
-  touches the script, `host.rs`, `http.rs` or the recorded table, **and
-  fails if a cell differs from the recorded one**. *(Until the fifteenth review's S3 this said "nothing runs
+  touches the script, `host.rs`, `http.rs`, `singles.rs`, `report.rs` or
+  the recorded table, **and fails if a cell differs from the recorded
+  one**. *(Without `singles.rs` and `report.rs` until the eighteenth
+  review's S1. The first holds `bund.eval-file` and its workbench form,
+  `bund_eval_file_base`, which is rows 721 to 733; the second draws the
+  report every failing row prints.)* *(Until the fifteenth review's S3 this said "nothing runs
   that but a person", after the workflow existed.)*
 - A string with no scheme is refused, and `https://` is refused — both approved
   deviations under D54, the second because a TLS stack compiles C or assembly
@@ -2113,6 +2130,12 @@ on the answer.
    | bundles, `jit` at threshold 1 | 133/145 (+12) | 133/145 | none |
 
    The corpus has grown since the first table; the claim has not changed.
+
+   **Run again on 2026-10-10, by the eighteenth review, in the same six
+   configurations: each reads 133/145, ceiling 133/145, none failing.**
+   Between the two dates D131 replaced the client that fetches, D132 moved
+   four words behind `--noio`, F186 changed how a report's lines are
+   broken and D134 renamed a feature; no golden moved.
    *(Until later the same day this paragraph gave the first four rows only:
    the two JIT-bundle rows, which are what the criterion asks for, had not
    been run at 145 goldens — the eighth review's S9. In bundle mode the
@@ -2362,7 +2385,10 @@ on the answer.
     **Recorded, 2026-10-10.** The owner ran `cargo xtask conform --accept`
     and it printed `baseline raised 106 -> 133`;
     `tests/golden/CONFORMANCE.txt` reads `133/145`. From here a count below
-    133 fails `conform`, which CI runs.
+    133 fails `conform`. *(This ended "which CI runs" until the eighteenth
+    review's S4. The `conformance` job in `.github/workflows/ci.yml` would
+    run it, on a push to `main` or a pull request, and has not run on this
+    branch; until it does the command is run by a person.)*
 14. **The fetch does on each measured system what its recorded table says —
     D136, 2026-10-10.** `docs/measurements/fetch.py` prints one row for each
     of 741 settings, the oracle's cell and Bund2's. The table recorded for
@@ -2377,7 +2403,12 @@ on the answer.
     fetch that moves a cell, and on a runner whose libcurl is no longer
     8.5.0 and reads something otherwise, with no commit here. It runs on a
     push that touches the fetch, the script or the recorded table, not on
-    every push. **It holds Linux alone.** The macOS table,
+    every push. *("The fetch" is four files since the eighteenth review's
+    S1: `host.rs`, `http.rs`, `singles.rs` and `report.rs` under
+    `crates/bund2-stdlib/src`. It was the first two, which left out
+    `bund.eval-file` and the report a failing row prints. A change
+    anywhere else that moves a cell is still found only on the next such
+    push.)* **It holds Linux alone.** The macOS table,
     `docs/measurements/fetch-2026-10-09.md`, is run by a person, as before.
     A cell that is a wait, rows 140 and 276, depends on a clock, and a
     failure there is to be read before it is believed.
@@ -2404,7 +2435,7 @@ until D134:
 | 6 | `bundle_build` under `--features jit` | **no** |
 | 7 | `bund2-jit`'s relocation tests, under `jit` **and** `relocation-test` together | **no** |
 | 11 | `bundle_build`, and a unit test in `bundle.rs`; the signing half is macOS only | the capacity half only |
-| 13 | a before-and-after `conform` on 2026-09-30 | no |
+| 13 | `cargo xtask conform` against a baseline of 133, since 2026-10-10; before that a before-and-after run on 2026-09-30 | yes |
 | 14 | `measure-fetch`, its own workflow, on a push that touches the fetch | yes, for Linux; macOS by hand |
 
 `cargo xtask bundle`, which found both release-only blockers, is in neither
@@ -2416,7 +2447,12 @@ S7.** The workflow runs on a push to `main` and on pull requests
 (`.github/workflows/ci.yml:3-6`). Its one recorded run is on `main`,
 2026-09-11, and failed; `bundle.rs` did not exist until 2026-09-30. Every
 criterion here has been run on one machine, macOS on arm64, by hand or by
-`cargo test` there.
+`cargo test` there. *(True of `ci.yml`, whose one run is still that one,
+and not of criterion 14 since 2026-10-10 — the eighteenth review's S2.
+`measure-fetch` is its own workflow, runs on this branch, and has run five
+times on Ubuntu; the last, on `dde6ed4`, is the gate's first pass. So 14
+is the one criterion that has run anywhere but that machine, and the
+write into an ELF image is still not among the things it runs.)*
 
 ## What this document assumes — stated 2026-10-10, the seventeenth review
 
@@ -2554,9 +2590,11 @@ criterion here has been run on one machine, macOS on arm64, by hand or by
 - **What is the `aot` feature called now? — Q42, answered by D134**,
   2026-10-10: `relocation-test`, and a bundle does not record it. After D83
   it compiled the relocation test and nothing else, and a bundle built from
-  such a `bund2` inspected as `features: aot`. CLAUDE.md's terminology still
-  defines AOT as "the cranelift-object build"; that file is the owner's and
-  D134 proposes its wording without making the edit.
+  such a `bund2` inspected as `features: aot`. CLAUDE.md's terminology
+  line reads as D134 proposed since 2026-10-10: the owner asked for the
+  edit that day. *(Until the eighteenth review's S6 this said the file
+  still defined AOT as "the cranelift-object build" and that the edit was
+  not made.)*
 - **Is the fetch this RFC's? — answered by D136**, 2026-10-10: yes, with
   criterion 14. Raised the same day by the seventeenth review.
 - **Is the runtime the builder, or a prebuilt runtime per target? — answered
@@ -2569,7 +2607,8 @@ criterion here has been run on one machine, macOS on arm64, by hand or by
 
 **The first three reviews found six blockers between them, and all six are
 answered** — four in the design, the rest by D76, D77, D78, D79 and D80.
-Sixteen reviews of this document and one of the code have found
+Seventeen reviews of this document and one of the code *(sixteen until
+the eighteenth, which found no blocker)* have found
 thirty-one in all — thirty-two if the implementation review's second-pass
 B3 is counted, which this sentence never has — and each is answered or
 ruled. *(Fifteen and thirty until the seventeenth review, whose one

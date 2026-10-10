@@ -26,6 +26,8 @@ differs every run, so no later table could equal this one. `fetch.py` now
 names the port before it cuts and the cells read `http://127.0.0.1:O/a`.
 The macOS table's cell was rewritten the same way and a run there printed
 exactly that. On Linux the first run of the gate is what confirms it.
+*(It did: run 38049339369, on `dde6ed4`, printed both cells as written
+here and the job passed.)*
 
 *(This is the third version. The first was run 37994971955, of Bund2 at
 `bbd50c1`, and the second run 38002480092, of `17e623a`: 443 settings each,

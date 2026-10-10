@@ -16,11 +16,16 @@ on:
   workflow_dispatch:
   push:
     branches: [development/stage2]
-    # The fetch itself, and the script that measures it.
+    # The fetch itself, and the script that measures it. `singles.rs` holds
+    # `bund.eval-file`, the one pair of the fetch's eight words that is not
+    # in `host.rs`; `report.rs` draws the report a failing row prints, and a
+    # cell is what was printed.
     paths:
       - .github/workflows/measure-fetch.yml
       - crates/bund2-stdlib/src/host.rs
       - crates/bund2-stdlib/src/http.rs
+      - crates/bund2-stdlib/src/singles.rs
+      - crates/bund2-stdlib/src/report.rs
       - docs/measurements/fetch.py
       - docs/measurements/fetch-linux-2026-10-09.md
 

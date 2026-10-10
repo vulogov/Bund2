@@ -3662,6 +3662,12 @@ run.
 - The baseline has to be recorded again each time the count rises, or the
   gap reopens. Option 2 would not have that cost and was not chosen.
 
+**Note, 2026-10-10, later the same day.** Carried out. The owner ran
+`cargo xtask conform --accept`; it printed `baseline raised 106 -> 133`
+and `tests/golden/CONFORMANCE.txt` reads `133/145`. One file was written.
+`conform --bundles` was run after it and passes at 133/145 against the
+same file.
+
 ## D136 — the fetch is RFC-0006's, and a criterion gates it
 
 **Raised 2026-10-10** by RFC-0006's seventeenth review.
@@ -3712,6 +3718,14 @@ a port and would have differed every run.
   to be read before it is believed.
 - It does not make the measurement a proof. 741 settings were tried, and
   what they did not try is not claimed.
+
+**Note, 2026-10-10, later the same day.** The gate's first run, 38049339369
+on `dde6ed4`, passed with every cell as recorded. RFC-0006's eighteenth
+review, S1, found that "a push that touches the fetch" left out two files:
+`crates/bund2-stdlib/src/singles.rs`, which holds `bund.eval-file` and its
+workbench form (`bund_eval_file_base`), and
+`crates/bund2-stdlib/src/report.rs`, which draws the report a failing row
+prints. Both are in the workflow's `paths` now.
 
 ## D135 — which targets get `--emit=native` is moot while D83 stands
 
@@ -3788,6 +3802,11 @@ passes it.
   for the edit, so it is not made.
 - RFC-0006's title, "Ahead-of-time output", stands. A bundle is built
   ahead of its run, and nothing in it is compiled ahead.
+
+**Note, 2026-10-10, later the same day.** The owner asked for the edit and
+CLAUDE.md's terminology line now reads as proposed above. Its two other
+mentions, "an optional Cranelift JIT and AOT compiler" and "the JIT and AOT
+milestones", stand as they were.
 
 ## D133 — one reader of HTTP on every system; where the reference's libcurls disagree, Bund2 is 8.7.1's
 
