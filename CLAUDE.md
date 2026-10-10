@@ -125,7 +125,8 @@ in `docs/research/ERRATA.md` — do not edit the original.
 ## Terminology
 
 Tier 0 = the BundIR interpreter (mandatory, every target).
-Tier 1 = the Cranelift JIT (optional). AOT = the cranelift-object build.
+Tier 1 = the Cranelift JIT (optional). AOT = the cranelift-object build,
+withdrawn by D83; no such build exists.
 Word = a named callable. Slot = a word table entry. Workbench = the auxiliary
 stack. Effect = a word's stack arity. Conformance = passing goldens over total.
 Ceiling = total minus approved deviations. Coverage = in-scope words Bund2

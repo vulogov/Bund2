@@ -2358,6 +2358,11 @@ on the answer.
     `cargo xtask conform --accept`, which is the owner's to run and had
     not been run when this was written. The same holds for criterion 2's
     "none failing" under `--bundles`.
+
+    **Recorded, 2026-10-10.** The owner ran `cargo xtask conform --accept`
+    and it printed `baseline raised 106 -> 133`;
+    `tests/golden/CONFORMANCE.txt` reads `133/145`. From here a count below
+    133 fails `conform`, which CI runs.
 14. **The fetch does on each measured system what its recorded table says —
     D136, 2026-10-10.** `docs/measurements/fetch.py` prints one row for each
     of 741 settings, the oracle's cell and Bund2's. The table recorded for
@@ -2379,6 +2384,10 @@ on the answer.
 
     **Met for Linux when the workflow first passes with the gate**, which
     is the run of the commit that adds it.
+
+    **Met for Linux, 2026-10-10.** Run 38049339369 of `measure-fetch`, on
+    `dde6ed4`, the commit that adds the gate, passed: the table it printed
+    is the recorded one in every cell, row 735's included.
 
 **What runs these, stated because five of them do not run by themselves — the
 sixth review.** Read from `.github/workflows/ci.yml`, which runs
