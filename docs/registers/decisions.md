@@ -3736,6 +3736,27 @@ macOS's; a bad spread costs speed only. Linux.
 stands, the repository owner: "keep the callback". `Vm::tier_never` is the
 decision, and `Tier::enter`'s contract is as D42 and D145 left it.
 
+*Note, 2026-10-11 — the `refused` group was run, and the clock does not
+resolve it.* Criterion 7's two commands on that group alone, three rounds,
+each a feature-off baseline, two `jit` runs against it and the feature-off
+binary again as a control; macOS arm64. Medians of every run of each build:
+
+| row | no tier | `jit` |
+|---|---|---|
+| `refused/loop_body/20000` | 2.355 ms | 2.350 ms |
+| `refused/word/20000` | 3.116 ms | 3.138 ms |
+
+That is about 0% and about +0.7%, and neither is a finding. In two of the
+three rounds the saved baseline was itself an outlier, so the control read
+−23% and −5.5% against its own baseline and those rounds' percentages mean
+nothing. In the one round whose control held (0.0% and +0.8%), the two
+`jit` runs read +2.1% and −0.1% on the first row and +5.3% and +2.0% on
+the second: two runs of one binary differ by more than what is being
+looked for. Single runs ranged 2.327 to 2.405 ms and 3.080 to 3.254 ms with
+the tier, 2.349 to 2.485 ms and 3.090 to 3.222 ms without. So the clock is
+consistent with the count's +0.6% and +0.8% and does not confirm them; the
+count is the reading, as D117 rules.
+
 ## D145 — a body entered beneath a compiled body may run compiled
 
 **Raised 2026-10-10** by F194, which D142's measurements found.

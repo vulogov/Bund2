@@ -38,9 +38,9 @@
   command run by hand. 7 is re-measured on the current tree: the groups it
   names are inside the band by clock and by count, and a refused body, which
   none of them enters, cost up to 5.5% (F201). **That is fixed, the same
-  day, under D146**: it costs 0.8%, and 7 has a bench group for it that has
-  not yet been run. What stays held by less is 5, 7 until that group is
-  read, 9, 11 and 17.
+  day, under D146**: it costs 0.8% by count, and 7 has a bench group for
+  it, read that day at about 0% and +0.7% by a clock whose noise is larger
+  than either. What stays held by less is 5, 9, 11 and 17.
 
   **Proposed rather than Accepted, for the reason RFC-0001 gives.** This
   paragraph is kept current because it is the first thing a reader checks the
@@ -5279,6 +5279,16 @@ evidence, and this one is listed as runnable rather than as met.
    `refused`, two rows, in `crates/bund2-bench/benches/interpret.rs`. It
    has not been run, so no clock reading of it is claimed here.
 
+   **The `refused` group, run 2026-10-11: inside the band, and inside the
+   noise.** The two commands at the head of this criterion on that group,
+   three rounds with a feature-off control each. Medians over every run:
+   2.355 ms without the tier and 2.350 ms with it for `loop_body/20000`,
+   3.116 ms and 3.138 ms for `word/20000` — about 0% and +0.7%. Two runs of
+   one binary differed by up to 3.3%, and two of the three saved baselines
+   were outliers their own control disowned, so this says the shape is
+   inside 5% and cannot say more. The count above is the reading (D117).
+   D146 has the runs.
+
 8. **`cite` and `lint` clean**, with `cargo xtask cite` resolving every
    `path:line` in this document. **Note what this now checks and did not
    before:** citations into `crates/` were invisible to the extractor until
@@ -7761,3 +7771,8 @@ and has not been run.
 
 **The form is ruled, the same day.** The owner, asked which of the two
 stands: "keep the callback". D146 carries it.
+
+**The `refused` group was run, the same day.** About 0% and +0.7% by the
+clock, inside its noise. Note at criterion 7; the runs are in D146. The
+paragraph above that says it "has not been run" is as of when it was
+written.
