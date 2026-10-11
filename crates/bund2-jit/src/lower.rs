@@ -58,6 +58,7 @@ use cranelift_codegen::ir::{
 // needs no `Layout`, which the `ProgramPoint` form would.
 use cranelift_codegen::dominator_tree::DominatorTree;
 use cranelift_codegen::flowgraph::ControlFlowGraph;
+use cranelift_codegen::ir;
 use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::isa::CallConv;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
@@ -135,6 +136,10 @@ const DECLINE: i32 = 0;
 /// body" — which is what `JitTier::enter` returning `None` already means, so
 /// the decline needs no recovery path of its own.
 const DECLINED: i32 = 2;
+/// **The entry declined because the collecting mode is on** — criterion 18.
+/// Apart from [`DECLINED`] since D147, so that a decline at §S8's floor can be
+/// counted as one; both mean "nothing ran, Tier 0 runs this body".
+const DECLINED_COLLECTING: i32 = 3;
 
 /// Everything one generic call site needs — the path a value takes when it is
 /// not inlined, and the path every guard falls back to.
@@ -159,6 +164,9 @@ struct GenericCall {
     /// Code emitted with it false is **unsound**: a native that files a tail
     /// request would have nothing drain it, so the body it filed never runs.
     /// It is timed, never used to run a program.
+    ///
+    /// The `autoadd` read after a call is left out with it, by the word
+    /// lowering, which reads the same flag.
     request_check: bool,
 }
 
@@ -1284,6 +1292,141 @@ impl CompiledBody {
     }
 }
 
+/// One inlined region and the two blocks its meaning guards are decided in
+/// — criterion 17's side table.
+#[derive(Debug, Clone, Copy)]
+struct GuardedRegion {
+    /// Where guard two, the generation compare, branches.
+    generation: Block,
+    /// Where guard three, the `autoadd` read, branches. `None` only for code
+    /// emitted with the guards switched off.
+    mode: Option<Block>,
+    /// The arm's first block.
+    region: Block,
+}
+
+/// The one block that branches to `to`, or why there is not exactly one.
+fn only_predecessor(cfg: &ControlFlowGraph, to: Block) -> Result<Block, String> {
+    let mut preds = cfg.pred_iter(to);
+    match (preds.next(), preds.next()) {
+        (Some(one), None) => Ok(one.block),
+        (None, _) => Err(format!("{to} has no predecessor")),
+        (Some(_), Some(_)) => Err(format!("{to} is entered from more than one block")),
+    }
+}
+
+/// The condition and the two destinations of the `brif` that ends `block`.
+fn brif_of(func: &ir::Function, block: Block) -> Result<(ir::Value, Block, Block), String> {
+    let last = func
+        .layout
+        .last_inst(block)
+        .ok_or_else(|| format!("{block} is empty"))?;
+    match &func.dfg.insts[last] {
+        ir::InstructionData::Brif { arg, blocks, .. } => Ok((
+            *arg,
+            blocks[0].block(&func.dfg.value_lists),
+            blocks[1].block(&func.dfg.value_lists),
+        )),
+        other => Err(format!(
+            "{block} ends in `{}` where a guard's branch belongs",
+            other.opcode()
+        )),
+    }
+}
+
+/// The instruction that defines `v`, if one does.
+fn defined_by(func: &ir::Function, v: ir::Value) -> Option<&ir::InstructionData> {
+    match func.dfg.value_def(v) {
+        ir::ValueDef::Result(inst, _) => Some(&func.dfg.insts[inst]),
+        _ => None,
+    }
+}
+
+/// **RFC-0005 criterion 17, read off the emitted function**: is `site`'s
+/// region entered only through its two meaning guards?
+///
+/// "Every inlined region … is preceded, on every path into it, by a load and
+/// compare of the name's generation cell and of the `autoadd` cell." Asked as
+/// five things, each of which fails with its own reason:
+///
+/// 1. the region has one predecessor, and it is the block guard three ends;
+/// 2. that block ends in a branch on a 32-bit load at the `autoadd` cell's
+///    offset, and the region is its **zero** destination — the mode is clear;
+/// 3. that block has one predecessor, and it is the block guard two ends;
+/// 4. guard two's block ends in a branch on a compare of a 32-bit load, and
+///    guard three's block is its **non-zero** destination — the generations
+///    are equal;
+/// 5. guard two's block dominates the region, which 1 and 3 already imply and
+///    which is what this check asked by itself before 2026-10-11.
+///
+/// The destinations are the point of 2 and 4: a guard with its arms the wrong
+/// way round is still a load, a compare and a branch.
+///
+/// **What it does not read**: which address guard two loads from, or which
+/// generation it compares with. Those are constants the lowering chose, and
+/// `a_body_that_redefines_its_own_inlined_site_matches_tier_zero` and its
+/// neighbours are what show they are the right ones.
+fn guards_hold(
+    func: &ir::Function,
+    cfg: &ControlFlowGraph,
+    domtree: &DominatorTree,
+    site: &GuardedRegion,
+    autoadd_off: i32,
+) -> Result<(), String> {
+    let Some(mode) = site.mode else {
+        return Err("no guard was emitted for it".to_string());
+    };
+
+    let into_region = only_predecessor(cfg, site.region)?;
+    if into_region != mode {
+        return Err(format!(
+            "it is entered from {into_region} and not from the autoadd guard at {mode}"
+        ));
+    }
+    let (mode_cond, mode_set, mode_clear) = brif_of(func, mode)?;
+    if mode_clear != site.region || mode_set == site.region {
+        return Err("the autoadd guard enters it when the mode is set".to_string());
+    }
+    match defined_by(func, mode_cond) {
+        Some(ir::InstructionData::Load {
+            opcode: ir::Opcode::Uload32,
+            offset,
+            ..
+        }) if i32::from(*offset) == autoadd_off => {}
+        _ => return Err("the autoadd guard does not branch on the autoadd cell".to_string()),
+    }
+
+    let into_mode = only_predecessor(cfg, mode)?;
+    if into_mode != site.generation {
+        return Err(format!(
+            "the autoadd guard is entered from {into_mode} and not from the generation \
+             guard at {}",
+            site.generation
+        ));
+    }
+    let (gen_cond, gen_same, gen_changed) = brif_of(func, site.generation)?;
+    if gen_same != mode || gen_changed == mode {
+        return Err("the generation guard goes on when the generation has changed".to_string());
+    }
+    let compares_a_load = defined_by(func, gen_cond).is_some_and(|cmp| {
+        cmp.opcode() == ir::Opcode::Icmp
+            && cmp.arguments(&func.dfg.value_lists).iter().any(|v| {
+                defined_by(func, *v).is_some_and(|d| d.opcode() == ir::Opcode::Uload32)
+            })
+    });
+    if !compares_a_load {
+        return Err("the generation guard does not branch on a compare of a loaded cell".to_string());
+    }
+
+    if !domtree.block_dominates(site.generation, site.region) {
+        return Err(format!(
+            "a path reaches it without passing the generation guard at {}",
+            site.generation
+        ));
+    }
+    Ok(())
+}
+
 /// Which Rust adapter a body's thunks call.
 ///
 /// The thunk-and-slot machinery is the same either way — §S8's third piece with
@@ -1523,6 +1666,12 @@ enum Plan {
 pub struct Compiler {
     emitter: Emitter<JITModule>,
     words: Vec<Word>,
+    /// **How many entries §S8's Tier 1 floor has turned away** — D147, and
+    /// RFC-0005 criterion 11's "the depth at which compiled bodies begin
+    /// declining" starts from it. A `Cell` because [`Compiler::run`] takes
+    /// `&self`, which it must: a body entered beneath a compiled body runs
+    /// through the same compiler (D145).
+    floor_declines: std::cell::Cell<usize>,
     /// **The fragment table — `(registration id, Fragment)` pairs** §S6 has
     /// `bund2-stdlib` publish and this crate read.
     ///
@@ -1602,6 +1751,12 @@ struct Emitter<M> {
     /// [`Emitter::meaning_guards`] is: a runtime flag rather than a `cfg`, so
     /// both arms live in one binary and one window.
     request_checks: bool,
+    /// **Criterion 11's switch**: whether an entry compares the stack pointer
+    /// with §S8's Tier 1 floor before it starts. False only under
+    /// `unguarded-bench`, for the same reason and with the same warning as
+    /// the two above — code emitted without it recurses until the machine
+    /// stack ends.
+    floor_check: bool,
     /// **The thunks this module has already emitted, by index** — F130.
     ///
     /// A thunk bakes an index and nothing else, and the index is resolved
@@ -1660,8 +1815,10 @@ impl Compiler {
                 thunks: Thunks::default(),
                 meaning_guards: true,
                 request_checks: true,
+                floor_check: true,
             },
             words: Vec::new(),
+            floor_declines: std::cell::Cell::new(0),
             table,
             crossable,
         })
@@ -1673,7 +1830,10 @@ impl Compiler {
         self.emitter.request_checks
     }
 
-    /// **A compiler that omits §S5's request check — measurement only.**
+    /// **A compiler that omits §S5's request check, and the `autoadd` read
+    /// beside it — measurement only.** Both of the loads a shipped build emits
+    /// after a call, since 2026-10-11; it left the `autoadd` read in until
+    /// then, and criterion 17's per-call figure was a bound on one load of two.
     ///
     /// The difference between a body compiled by this and one compiled by
     /// [`Compiler::new`] is criterion 17's per-call cost, which has no other
@@ -1690,6 +1850,28 @@ impl Compiler {
     ) -> Result<Self, String> {
         let mut c = Self::new(table)?;
         c.emitter.request_checks = false;
+        Ok(c)
+    }
+
+    /// **Does this compiler emit §S8's floor check at every entry?** Always
+    /// `true` unless a bench build turned it off (criterion 11).
+    pub fn checks_the_floor(&self) -> bool {
+        self.emitter.floor_check
+    }
+
+    /// **A compiler whose entries do not check §S8's Tier 1 floor —
+    /// measurement only.** The difference between a body compiled by this and
+    /// one compiled by [`Compiler::new`] is criterion 11's cost per entry.
+    ///
+    /// **Code it emits is unsound and must never run a program**: a compiled
+    /// recursion has nothing to stop it short of the end of the machine stack.
+    /// Behind `unguarded-bench`, which neither `default` nor `jit` enables.
+    #[cfg(feature = "unguarded-bench")]
+    pub fn without_floor_check(
+        table: Vec<(bund2_api::RegistrationId, Fragment)>,
+    ) -> Result<Self, String> {
+        let mut c = Self::new(table)?;
+        c.emitter.floor_check = false;
         Ok(c)
     }
 
@@ -1711,7 +1893,7 @@ impl Compiler {
     /// against has been rebound, unregistered or shadowed — §S6's *Inlining
     /// freezes a name*, with the freeze removed. Behind `unguarded-bench`,
     /// which neither `default` nor `jit` enables.
-    #[cfg(feature = "unguarded-bench")]
+    #[cfg(any(test, feature = "unguarded-bench"))]
     pub fn without_meaning_guards(
         table: Vec<(bund2_api::RegistrationId, Fragment)>,
     ) -> Result<Self, String> {
@@ -2038,12 +2220,24 @@ impl Compiler {
             None if status == OK => Ok(true),
             // **§S8's floor refused it** — F142. Nothing ran and nothing
             // failed, so this is neither `Ok(())` nor an error: the caller
-            // runs the body at Tier 0 instead.
-            None if status == DECLINED => Ok(false),
+            // runs the body at Tier 0 instead. Counted, for D147.
+            None if status == DECLINED => {
+                self.floor_declines
+                    .set(self.floor_declines.get().saturating_add(1));
+                Ok(false)
+            }
+            // The collecting mode refused it. The same answer, uncounted.
+            None if status == DECLINED_COLLECTING => Ok(false),
             None => Err(Error::internal(
                 "a compiled word returned a failing status with no error in the context",
             )),
         }
+    }
+
+    /// How many entries §S8's Tier 1 floor has declined. A decline for the
+    /// collecting mode is not one.
+    pub fn floor_declines(&self) -> usize {
+        self.floor_declines.get()
     }
 
     /// How many values the word applies.
@@ -2214,6 +2408,7 @@ fn emit_body(
         module: new_module(adapter)?,
         meaning_guards: true,
         request_checks: true,
+        floor_check: true,
         // This path builds a module per body and throws it away, so the cache
         // has nothing to share with: a fresh one, used once.
         thunks: Thunks::default(),
@@ -2322,9 +2517,11 @@ fn emit_into<M: cranelift_module::Module>(
         thunks,
         meaning_guards,
         request_checks,
+        floor_check,
     } = e;
     let meaning_guards = *meaning_guards;
     let request_check = *request_checks;
+    let floor_check = *floor_check;
     // One value, one call slot — whether or not the value is inlined, because
     // an inlined site keeps its generic path beside it and reaches it through
     // that slot when a guard refuses.
@@ -2509,7 +2706,7 @@ fn emit_into<M: cranelift_module::Module>(
     // return needs the figure after that borrow ends.
     let syncs: usize;
     // Filled by the body emitter, read by the dominance check after it.
-    let side_table: Vec<(Block, Block)>;
+    let side_table: Vec<GuardedRegion>;
     // Assumption 38's map, escaping the builder's block the way `side_table`
     // does: site index, and the source-body index its residual resumes at.
     let resume_table: Vec<(usize, usize)>;
@@ -2606,7 +2803,7 @@ fn emit_into<M: cranelift_module::Module>(
 
         // Criterion 17's side table: for each inlined region, the block its
         // guard was decided in and the block its ops begin in.
-        let mut regions: Vec<(Block, Block)> = Vec::with_capacity(inlined);
+        let mut regions: Vec<GuardedRegion> = Vec::with_capacity(inlined);
 
         // **Assumption 38's side table**: for each inlined site, the index in
         // the source body at which its residual path resumes. Criterion 21
@@ -2921,7 +3118,12 @@ fn emit_into<M: cranelift_module::Module>(
                 // emitted after it is unreachable and Cranelift is right to
                 // reject it. The mode is then the *caller's* concern, and the
                 // caller has this same check after the call it made.
-                if !tail_here {
+                //
+                // **Left out with the request check, under `unguarded-bench`**:
+                // criterion 17's per-call bound is on both loads, and until
+                // 2026-10-11 its switch removed only the other one, so the
+                // figure it gave excluded this.
+                if !tail_here && request_check {
                     let collecting = f
                         .ins()
                         .uload32(MemFlagsData::trusted(), cells_base, autoadd_off);
@@ -3016,6 +3218,11 @@ fn emit_into<M: cranelift_module::Module>(
                 // arm below.
                 f.ins().jump(region, &[]);
                 f.switch_to_block(region);
+                regions.push(GuardedRegion {
+                    generation: guard_block,
+                    mode: None,
+                    region,
+                });
             } else {
 
             // **Guard two: the slot still holds the binding we inlined
@@ -3045,6 +3252,11 @@ fn emit_into<M: cranelift_module::Module>(
                 .ins()
                 .uload32(MemFlagsData::trusted(), cells_base, autoadd_off);
             f.ins().brif(aa, generic, &[], region, &[]);
+            regions.push(GuardedRegion {
+                generation: guard_block,
+                mode: Some(mode),
+                region,
+            });
             }
 
             // The arm itself. **No request check follows it**: a fragment calls
@@ -3061,7 +3273,6 @@ fn emit_into<M: cranelift_module::Module>(
             let snapshot = promoted.clone();
             emit_fragment_ops(&mut f, fragment, &helpers, &mut promoted, true)?;
             f.ins().jump(join, &[]);
-            regions.push((guard_block, region));
 
             // **§S5's residual path.** A refusing guard does not take the
             // generic call and rejoin: it syncs every promoted value and then
@@ -3118,18 +3329,30 @@ fn emit_into<M: cranelift_module::Module>(
     // function is defined, makes a lowering that could skip a guard *fail to
     // compile* rather than ship and be caught by a test; and it cannot panic,
     // which a `debug_assert` in emitted-code territory would.
-    if !side_table.is_empty() {
+    //
+    // **It reads the guards themselves, since 2026-10-11.** It used to ask
+    // only whether the block the guards begin in dominates the region, which
+    // is true of that block with the guards left out (the twenty-third
+    // review's B8). [`guards_hold`] says what is asked now.
+    //
+    // **Skipped for one build**: `unguarded-bench` with the guards switched
+    // off, which exists to emit exactly what this refuses and is timed, never
+    // run. Without that feature an unguarded region does not compile.
+    if !side_table.is_empty() && (meaning_guards || !cfg!(feature = "unguarded-bench")) {
         let cfg = ControlFlowGraph::with_function(&cg.func);
         let mut domtree = DominatorTree::new();
         domtree.compute(&cg.func, &cfg);
-        for (guard, region) in &side_table {
-            if !domtree.block_dominates(*guard, *region) {
-                return Err(format!(
-                    "an inlined region at {region} is reachable by a path that does not pass \
-                     its guard at {guard}: RFC-0005 criterion 17 requires the guard to \
-                     dominate every path into the region"
-                ));
-            }
+        let autoadd_off = i32::try_from(bund2_api::Cells::autoadd_offset())
+            .map_err(|_| "the autoadd cell's offset does not fit".to_string())?;
+        for site in &side_table {
+            guards_hold(&cg.func, &cfg, &domtree, site, autoadd_off).map_err(|why| {
+                format!(
+                    "an inlined region at {} is not behind its meaning guards: {why}. \
+                     RFC-0005 criterion 17 requires a load and compare of the name's \
+                     generation cell and of the autoadd cell on every path into it",
+                    site.region
+                )
+            })?;
         }
     }
 
@@ -3166,7 +3389,13 @@ fn emit_into<M: cranelift_module::Module>(
         let refuse = f.create_block();
         let start = f.create_block();
         let not_below = f.create_block();
-        f.ins().brif(below, refuse, &[], not_below, &[]);
+        if floor_check {
+            f.ins().brif(below, refuse, &[], not_below, &[]);
+        } else {
+            // `unguarded-bench` only: the difference this makes against the
+            // branch above is criterion 11's cost per entry.
+            f.ins().jump(not_below, &[]);
+        }
 
         // **`autoadd` declines too — RFC-0005 criterion 18.**
         //
@@ -3195,11 +3424,16 @@ fn emit_into<M: cranelift_module::Module>(
         let collecting = f
             .ins()
             .uload32(MemFlagsData::trusted(), aa_base, aa_off);
-        f.ins().brif(collecting, refuse, &[], start, &[]);
+        let refuse_mode = f.create_block();
+        f.ins().brif(collecting, refuse_mode, &[], start, &[]);
 
         f.switch_to_block(refuse);
         let declined = f.ins().iconst(types::I32, i64::from(DECLINED));
         f.ins().return_(&[declined]);
+
+        f.switch_to_block(refuse_mode);
+        let declined_mode = f.ins().iconst(types::I32, i64::from(DECLINED_COLLECTING));
+        f.ins().return_(&[declined_mode]);
 
         f.switch_to_block(start);
         let call = f.ins().call(body, &[ctx_val]);
@@ -3361,6 +3595,7 @@ mod relocations {
             thunks: Thunks::default(),
             meaning_guards: true,
             request_checks: true,
+            floor_check: true,
         };
 
         // Body 0 calls a word; body 1 is a bare literal. A direct call would
@@ -5296,6 +5531,60 @@ mod tests {
 
     // --- §S5's promotion ----------------------------------------------------
 
+    /// **RFC-0005 criterion 9 as D143 re-worded it, second half: within a body
+    /// that is compiled, every int literal is promoted** — whatever the length
+    /// of the run it stands in.
+    ///
+    /// The criterion once said promotion "is skipped beneath" a run of four,
+    /// which no code ever did. This is what the code does, held: runs of one,
+    /// two, three and five int literals are each promoted whole, with the
+    /// real fragment table so that the bodies have the site that lets them
+    /// compile at all; and a float literal among them is not promoted, since
+    /// D66's promoted literal is an `i64`.
+    #[test]
+    fn every_int_literal_is_promoted_whatever_the_run() {
+        let int = BundValue::int;
+        let call = BundValue::call;
+        let rows: Vec<(&str, Vec<BundValue>, usize)> = vec![
+            ("a run of one", vec![int(1), call("dup"), call("+")], 1),
+            ("a run of two", vec![int(1), int(2), call("+")], 2),
+            ("a run of three", vec![int(1), int(2), int(3), call("+"), call("+")], 3),
+            (
+                "a run of five",
+                vec![int(1), int(2), int(3), int(4), int(5), call("+"), call("+"), call("+"), call("+")],
+                5,
+            ),
+            (
+                "two runs of one",
+                vec![int(1), call("dup"), call("+"), int(2), call("+")],
+                2,
+            ),
+            (
+                "a float among ints",
+                vec![int(1), int(2), call("+"), BundValue::float(2.5), call("drop")],
+                2,
+            ),
+        ];
+        for (label, body, ints) in rows {
+            let (mut vm, table) = with_fragments();
+            let mut c = Compiler::new(table).expect("a compiler");
+            let word = word_in(&mut c, &mut vm, &body, LastCall::Ordinary);
+            assert!(c.inlined_sites(word).unwrap_or(0) > 0, "{label}: no site, so F136 would refuse it");
+            assert_eq!(c.promoted_values(word), Some(ints), "{label}");
+            // And promoted is not merely counted: the body leaves what Tier 0
+            // leaves.
+            let mut tier0 = with_stdlib();
+            let by_tier0 = tier0.eval(&body);
+            let by_compiled = run_as_the_tier_would(&mut c, word, &mut vm, &body, true);
+            assert_eq!(by_tier0.is_ok(), by_compiled.is_ok(), "{label}: outcome");
+            let (a, b) = (tier0.snapshot(), vm.snapshot());
+            assert_eq!(a.len(), b.len(), "{label}: depth");
+            for (x, y) in a.iter().zip(b.iter()) {
+                assert_eq!(norm(&x.render(false)), norm(&y.render(false)), "{label}");
+            }
+        }
+    }
+
     /// **Promotion fires at all.**
     ///
     /// Every other test here would pass unchanged if `Plan::Literal` were never
@@ -5473,6 +5762,124 @@ mod tests {
         }
     }
 
+    /// **Criterion 17's check refuses what it exists to refuse.** A compiler
+    /// with the meaning guards switched off emits the inlined arm behind a
+    /// bare jump. Until 2026-10-11 the check passed that: it asked whether
+    /// the block the guards begin in dominates the region, and it does, guards
+    /// or no guards. Now the body does not compile.
+    ///
+    /// Not built under `unguarded-bench`, where the check stands aside for
+    /// exactly this code so that it can be timed.
+    #[cfg(not(feature = "unguarded-bench"))]
+    #[test]
+    fn an_unguarded_region_does_not_compile() {
+        let (mut vm, table) = with_fragments();
+        let cells = vm.cells().base();
+
+        let mut guarded = Compiler::new(table.clone()).expect("a compiler");
+        let word = guarded
+            .compile_word(&add_body(), LastCall::Ordinary, cells, &mut vm)
+            .expect("the guarded body lowers");
+        assert_eq!(guarded.inlined_sites(word), Some(1), "`+` is a site");
+
+        let mut bare = Compiler::without_meaning_guards(table).expect("a compiler");
+        let refused = bare
+            .compile_word(&add_body(), LastCall::Ordinary, cells, &mut vm)
+            .expect_err("an inlined region with no guard must not compile");
+        assert!(refused.contains("not behind its meaning guards"), "{refused}");
+        assert!(refused.contains("no guard was emitted"), "{refused}");
+    }
+
+    /// The two guards as the lowering emits them, built by hand so that each
+    /// can be got wrong one way at a time, and [`guards_hold`]'s verdict.
+    fn guard_shape(wrong: &str) -> Result<(), String> {
+        let config = JITModule::new(
+            JITBuilder::new(default_libcall_names()).expect("a builder"),
+        )
+        .target_config();
+        let off = i32::try_from(bund2_api::Cells::autoadd_offset()).expect("fits");
+        let mut func = ir::Function::with_name_signature(
+            ir::UserFuncName::default(),
+            Signature::new(CallConv::SystemV),
+        );
+        let mut ctx = FunctionBuilderContext::new();
+        let mut f = FunctionBuilder::new(&mut func, &mut ctx);
+        let entry = f.create_block();
+        let generation = f.create_block();
+        let mode = f.create_block();
+        let region = f.create_block();
+        let generic = f.create_block();
+
+        f.switch_to_block(entry);
+        let base = f.ins().iconst(types::I64, 0x1000);
+        if wrong == "a side door" {
+            let door = f.ins().iconst(types::I32, 0);
+            f.ins().brif(door, region, &[], generation, &[]);
+        } else {
+            f.ins().jump(generation, &[]);
+        }
+
+        f.switch_to_block(generation);
+        let now = f.ins().uload32(MemFlagsData::trusted(), base, 0);
+        let same = if wrong == "no compare" {
+            now
+        } else {
+            f.ins().icmp_imm_u(IntCC::Equal, now, 7)
+        };
+        match wrong {
+            "generation arms swapped" => f.ins().brif(same, generic, &[], mode, &[]),
+            "autoadd guard skipped" => f.ins().brif(same, region, &[], generic, &[]),
+            _ => f.ins().brif(same, mode, &[], generic, &[]),
+        };
+
+        f.switch_to_block(mode);
+        let at = if wrong == "another cell" { off + 4 } else { off };
+        let aa = f.ins().uload32(MemFlagsData::trusted(), base, at);
+        match wrong {
+            "autoadd arms swapped" => f.ins().brif(aa, region, &[], generic, &[]),
+            "autoadd guard skipped" => f.ins().jump(generic, &[]),
+            _ => f.ins().brif(aa, generic, &[], region, &[]),
+        };
+
+        f.switch_to_block(region);
+        f.ins().return_(&[]);
+        f.switch_to_block(generic);
+        f.ins().return_(&[]);
+        f.seal_all_blocks();
+        f.finalize(config);
+
+        let cfg = ControlFlowGraph::with_function(&func);
+        let mut domtree = DominatorTree::new();
+        domtree.compute(&func, &cfg);
+        let site = GuardedRegion {
+            generation,
+            mode: Some(mode),
+            region,
+        };
+        guards_hold(&func, &cfg, &domtree, &site, off)
+    }
+
+    /// **Each way of getting a guard wrong is refused, for its own reason** —
+    /// criterion 17, and what makes it more than a dominance check. The right
+    /// shape passes; six wrong ones do not. Two of the six are a load, a
+    /// compare and a branch with the arms the wrong way round, which no
+    /// question about dominance can tell from the right shape.
+    #[test]
+    fn the_guard_check_reads_the_guards_and_not_only_the_blocks() {
+        guard_shape("").expect("the shape the lowering emits holds");
+        for (wrong, why) in [
+            ("autoadd arms swapped", "when the mode is set"),
+            ("generation arms swapped", "when the generation has changed"),
+            ("another cell", "does not branch on the autoadd cell"),
+            ("no compare", "compare of a loaded cell"),
+            ("a side door", "more than one block"),
+            ("autoadd guard skipped", "not from the autoadd guard"),
+        ] {
+            let refused = guard_shape(wrong).expect_err(wrong);
+            assert!(refused.contains(why), "{wrong}: {refused}");
+        }
+    }
+
     /// **`autoadd` sends an inlined site to the residual.** Guard three: under
     /// `autoadd` a `CALL` is appended into the value beneath rather than run
     /// (§S4's step 3), so the arm would be the wrong thing entirely. The
@@ -5560,6 +5967,9 @@ mod tests {
         // Tier 0 runs it: what this compares is the *decline*, and the
         // helper panics if compiled code ran instead.
         let by_compiled = run_as_the_tier_would(&mut c, word, &mut compiled, &body, false);
+        // D147: this decline is the mode's and not §S8's floor's, and the
+        // count that criterion 11 reads must not take one for the other.
+        assert_eq!(c.floor_declines(), 0, "a decline for the mode was counted as the floor's");
 
         assert_eq!(by_tier0.is_ok(), by_compiled.is_ok(), "autoadd: outcome");
         let (a, b) = (tier0.snapshot(), compiled.snapshot());
@@ -5762,10 +6172,24 @@ mod tests {
     /// `unguarded-bench` exists to measure what those guards cost, and a switch
     /// that can remove a soundness check is worth a test saying it is off by
     /// default. Every constructor a shipped build can reach must answer `true`;
-    /// the one that answers `false` does not exist without the feature.
+    /// the one that answers `false` exists only with the feature or in this
+    /// crate's tests, and without the feature what it emits is refused:
+    /// `an_unguarded_region_does_not_compile`.
     #[test]
     fn the_shipped_compiler_always_guards_its_inlined_sites() {
         let (_, table) = with_fragments();
+        // Criterion 11's switch, held to the same rule: every constructor a
+        // shipped build can reach checks §S8's floor at entry.
+        assert!(
+            Compiler::new(table.clone()).expect("a compiler").checks_the_floor(),
+            "`Compiler::new` must check the Tier 1 floor"
+        );
+        assert!(
+            Compiler::with_crossable(table.clone(), std::collections::BTreeSet::new())
+                .expect("a compiler")
+                .checks_the_floor(),
+            "`Compiler::with_crossable` must check it too"
+        );
         assert!(
             Compiler::new(table.clone())
                 .expect("a compiler")

@@ -105,6 +105,12 @@ fn loop_level(n: usize, text: &str) -> Option<usize> {
     n.checked_sub(counter)
 }
 
+/// The line `--stats` prints about §S8's floors, without its `bund2: ` prefix.
+/// `None` when the run printed none — it aborted, or timed out.
+fn floors_line(text: &str) -> Option<&str> {
+    text.lines().find_map(|l| l.strip_prefix("bund2: ").filter(|r| r.starts_with("floors:")))
+}
+
 /// Run one program under a wall clock, and classify how it ended.
 ///
 /// Returns the output beside the outcome. `dump_stack` keeps the error
@@ -124,7 +130,10 @@ fn run(
 
     let started = Instant::now();
     let mut cmd = Command::new(bin);
-    cmd.arg("script").arg("--file").arg(&file);
+    // `--stats`, for the line that names §S8's two floors and says what the
+    // upper one turned away — RFC-0005 criterion 11 as D147 leaves it. It
+    // goes to stderr and changes nothing the program does.
+    cmd.arg("script").arg("--stats").arg("--file").arg(&file);
     if !dump_stack {
         cmd.arg("--no-dump-stack");
     }
@@ -355,6 +364,13 @@ pub fn run_cmd(args: &[String]) -> Result<(), String> {
         };
         bund2_api::sayln!("  {mark}  {axis:<8} depth {n:<7} {}{level}", outcome.label());
         bund2_api::sayln!("        {what}");
+        // **Both floors, and where compiled bodies began declining** —
+        // criterion 11. Printed for every axis that ran: the floors are the
+        // binary's, and an axis the upper floor never turned an entry away
+        // on says so, which is a reading too.
+        if let Some(floors) = floors_line(&text) {
+            bund2_api::sayln!("        {floors}");
+        }
         if !outcome.passed() {
             failed.push((*axis).to_string());
         }

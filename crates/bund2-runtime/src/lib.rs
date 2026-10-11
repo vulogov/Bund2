@@ -377,6 +377,12 @@ impl Runtime {
         self.interp.tier().and_then(|t| t.compiled_entries())
     }
 
+    /// Entries the Tier 1 floor declined, and the compiled depth at the first
+    /// — see `bund2_api::Tier::floor_declines`.
+    pub fn floor_declines(&self) -> Option<(usize, Option<usize>)> {
+        self.interp.tier().and_then(|t| t.floor_declines())
+    }
+
     /// Install a tier, replacing any already there.
     #[cfg(feature = "jit")]
     pub fn install_tier(&mut self, tier: Box<dyn bund2_api::Tier>) {

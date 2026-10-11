@@ -449,6 +449,17 @@ impl Interp {
         }
     }
 
+    /// **§S8's two floors, as addresses: Tier 0's, then Tier 1's** — RFC-0005
+    /// criterion 11 as D147 leaves it, which asks a run to report both.
+    ///
+    /// Tier 0 refuses to nest a body below the first; a compiled body
+    /// declines to start below the second, which is the higher address
+    /// wherever a share was declared. On a thread with no share the second is
+    /// above the thread's own top, so every compiled entry declines.
+    pub fn floors(&self) -> (usize, usize) {
+        (self.stack_floor, self.cells.floor())
+    }
+
     /// **The cells compiled code reads** — RFC-0005 §S6. See [`Interp::cells`].
     pub fn cells(&self) -> &bund2_api::Cells {
         &self.cells

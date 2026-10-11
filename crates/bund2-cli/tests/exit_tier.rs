@@ -212,3 +212,53 @@ fn an_exit_in_an_if_branch_of_a_hot_body_matches_without_the_tier() {
         "the control must compile nothing: {plain_stats:?}"
     );
 }
+
+/// **`--stats` names §S8's two floors** — RFC-0005 criterion 11 as D147
+/// leaves it: "reported with the result: both floors". On stderr, on a line
+/// of its own, with the upper floor above the lower by the same distance in
+/// every run of one binary, and, where there is a tier, what that floor has
+/// turned away — nothing, for a program that nests nothing.
+#[test]
+fn stats_names_both_floors() {
+    let dir = std::env::temp_dir().join(format!("bund2-floors-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a scratch directory");
+    let script = dir.join("floors.bund");
+    std::fs::write(&script, "1 2 + drop\n").expect("the program");
+
+    let floors = || {
+        let out = Command::new(env!("CARGO_BIN_EXE_bund2"))
+            .args(["script", "--stats", "--file"])
+            .arg(&script)
+            .output()
+            .expect("bund2 runs");
+        assert!(
+            !String::from_utf8_lossy(&out.stdout).contains("floors:"),
+            "the floors belong on stderr: a golden captures stdout"
+        );
+        String::from_utf8_lossy(&out.stderr)
+            .lines()
+            .find(|l| l.starts_with("bund2: floors: tier 0 at 0x"))
+            .map(str::to_string)
+            .expect("`--stats` prints the floors line")
+    };
+    let gap = |line: &str| {
+        line.split('(')
+            .nth(1)
+            .and_then(|r| r.split(')').next())
+            .map(str::to_string)
+            .expect("the distance between the floors")
+    };
+
+    let (first, second) = (floors(), floors());
+    assert!(first.contains(", tier 1 at 0x"), "{first}");
+    assert!(gap(&first).ends_with("bytes above"), "tier 1's floor is the higher: {first}");
+    assert_eq!(gap(&first), gap(&second), "the distance is the binary's, not the run's");
+    // A build with a tier also says what the floor did; one without has
+    // nothing to say, and says nothing rather than a zero that means less.
+    let with_tier = first.contains("declined");
+    assert!(
+        !with_tier || first.ends_with("no entry declined at the tier 1 floor"),
+        "{first}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

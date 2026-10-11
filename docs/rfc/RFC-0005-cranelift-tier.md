@@ -40,7 +40,13 @@
   none of them enters, cost up to 5.5% (F201). **That is fixed, the same
   day, under D146**: it costs 0.8% by count, and 7 has a bench group for
   it, read that day at about 0% and +0.7% by a clock whose noise is larger
-  than either. What stays held by less is 5, 9, 11 and 17.
+  than either. **17 is answered the same day**: its check reads the guards
+  and not only their block, and its per-call bound is measured over both
+  loads. **5 and 9 leave the list too**: 5's note of 2026-10-10 had already
+  answered it, and 9 as D143 words it now has a test for each half. **11
+  is re-worded under D147** to what a run reports, and reports it. Nothing
+  is now listed as held by less than its text; that is a statement about
+  these checks on macOS arm64, and the status of this RFC is the owner's.
 
   **Proposed rather than Accepted, for the reason RFC-0001 gives.** This
   paragraph is kept current because it is the first thing a reader checks the
@@ -4722,6 +4728,12 @@ evidence, and this one is listed as runnable rather than as met.
    that is not so: `a_lambda_callee_rebound_before_the_body_runs_matches_tier_zero`
    goes through `assert_redefinition_changes_the_result`.)*
 
+   *(2026-10-11: with that row checked and the other claim not so, nothing
+   the review's B8 names under this criterion is outstanding. It stayed on
+   the list of criteria held by less than their text for a day after the
+   note above answered it, which was a miscount and not a finding. The two
+   tests were run again today and pass.)*
+
 6. **The caps hold**, checked by a test per row of §S7's table rather than by
    inspection. With the compiled-function cap set to 4, compiling five distinct
    bodies leaves the fifth interpreted. With the recompile cap set to 2, a
@@ -5389,6 +5401,16 @@ evidence, and this one is listed as runnable rather than as met.
    Whether unconditional promotion of a short run pays on compiled code has
    not been measured.
 
+   **Both halves have a check, 2026-10-11.** The two tests named above hold
+   the first half. The second, "every int literal is promoted", had only a
+   count on `1 2 +`. `every_int_literal_is_promoted_whatever_the_run`
+   (`crates/bund2-jit/src/lower.rs`) compiles runs of one, two, three and
+   five int literals with the shipped fragment table, requires each to be
+   promoted whole and a float among them not to be, and compares what each
+   body leaves with Tier 0. So the criterion as D143 words it is held as
+   written. What stays unmeasured is what it no longer claims: whether
+   promoting a short run pays.
+
 10. **The dispatch share is measured, not estimated.** §S1 withdraws an Amdahl
     bound rather than correcting it, because no benchmark here separates
     dispatching a word from the work the word does once dispatched:
@@ -5930,6 +5952,68 @@ evidence, and this one is listed as runnable rather than as met.
     show — a deep program reports instead of aborting, and no sooner with
     the tier on — holds today, and the rest is unmeasured.)*
 
+    **What can be read without building more is read, 2026-10-11; the rest
+    is D147, OPEN.**
+
+    *The two commands at the head of this criterion*, release, macOS arm64,
+    on the tree after D146: all four axes pass in both builds, and on the
+    `loop` axis Tier 0's floor fired at level **4,405** with no feature and
+    **7,557** with `jit`. So the level with the feature on is no lower. It
+    was 8,810 on 2026-10-10 before D145 and 7,632 after it.
+
+    *The floor check's cost per entry*, which no bench took: `floor_cost`
+    (`crates/bund2-bench/benches/interpret.rs`), taken as criterion 17's
+    figures are — one binary, two compilers, `Compiler::without_floor_check`
+    behind `unguarded-bench` supplying the difference. Three runs. On a body
+    of one site, where the entry is most of what is timed: **+0.21, +0.08
+    and +0.49 ns** an entry, on 53.7 ns. The bound is 2. On a body of four
+    sites the checked arm reads 4.8 to 11.9 ns *faster* than the unchecked
+    one in all three runs, which is not a cost of anything; it is the same
+    layout effect criterion 17's first attempt met, and that row says
+    nothing. `the_shipped_compiler_always_guards_its_inlined_sites` asserts
+    that every compiler a shipped build can construct checks the floor.
+
+    *The depth at which a compiled body declines* has one reading, in D145's
+    note of 2026-10-10: 6,192 levels ran compiled before the floor turned
+    the rest back, for one program. It is not printed by any command and was
+    not taken again. `a_compiled_recursion_stops_at_the_floor_and_goes_on_at_tier_zero`
+    (`crates/bund2-runtime/src/tier.rs`) holds that it happens.
+
+    *Not built, and so not shown*: the two floors' addresses in the report;
+    the case with the share already held, and `c` and `δ` from it; `c_p` and
+    `δ_p` for each re-entering path; a margin `m` set from them; and
+    `TIER0_PART` set from any ratio. Each needs `depth` or the binary to
+    report something it does not report. Whether they are built or this
+    criterion is re-worded to what is shown above is the owner's: **D147**.
+
+    **Criterion 11 as it now reads — D147, resolved by the repository owner
+    on 2026-10-11, option C.** *A deep program reports and does not abort,
+    in both builds, on every axis `cargo xtask depth` runs. On the `loop`
+    axis the level at which Tier 0's floor fires is no lower with the tier
+    than without. Each run reports both floors and, with the tier, how many
+    entries the Tier 1 floor declined and how many compiled bodies were
+    running at the first. The Tier 1 floor check costs under 2 ns an entry,
+    measured by `floor_cost`.*
+
+    As read on 2026-10-11, release, macOS arm64: all four axes pass in both
+    builds; the level is 4,405 without the tier and 7,557 with it; the
+    floors are 8,650,752 bytes apart; on the `loop` axis with the tier,
+    4,543 entries were declined at the Tier 1 floor, the first with 1,989
+    compiled bodies running; and the check costs under 0.5 ns. **"No lower
+    with the tier" is two commands compared by whoever runs them**: `depth`
+    builds one binary a run and does not compare.
+
+    **What it no longer asks, and nothing shows**: a case with the share
+    already held, `c` and `δ` from it, `c_p` and `δ_p` for each re-entering
+    path, and a margin `m`. §S8 defers to this criterion for each; those
+    deferrals are now to nothing. `TIER0_PART` is 8 MiB, chosen from no
+    ratio, and D62 records that it carries no margin.
+
+    **Two things the new figures said the first time they were printed.**
+    The `call` axis compiles no body at all, so it has never run a compiled
+    recursion in either build; only the `loop` axis does. And the floors
+    are 262,144 bytes further apart than `TIER0_PART`. D147's note has both.
+
 12. **A synced value keeps its stack tag.** §S5's rule writes promoted values
     back to the real stack; **D41 put the stack tag inside the value for
     scalars**, so a sync that pushes a bare `BundValue` leaves `StackSym::NONE`
@@ -6301,6 +6385,47 @@ evidence, and this one is listed as runnable rather than as met.
     that a guard does. That reading was not re-derived for this note. **Guard
     three**, the `autoadd` read at an inlined site, is reached by no test and,
     on the amendment's reading at the end of this document, by no program.)*
+
+    **All three answered, 2026-10-11.**
+
+    *Dominance.* The review's reading is right and is re-derived: the side
+    table recorded the block the guards begin in, that block dominates the
+    region whether or not a guard follows it, and a compiler with the guards
+    switched off passed the check. The check now reads the guards. For each
+    inlined region `guards_hold` (`crates/bund2-jit/src/lower.rs`) requires
+    that the region has one predecessor; that it is a block ending in a
+    branch on a 32-bit load at the `autoadd` cell's offset, with the region
+    on the branch's zero side; that this block in turn has one predecessor;
+    and that it is a block ending in a branch on a compare of a 32-bit load,
+    going on when the compare holds. A body that fails any of these does not
+    compile. `an_unguarded_region_does_not_compile` shows the old gap closed,
+    and `the_guard_check_reads_the_guards_and_not_only_the_blocks` builds the
+    two guards by hand and gets them wrong six ways — each arm pair swapped,
+    the wrong cell, no compare, a second way in, the `autoadd` guard jumped
+    past — and each is refused for its own reason. **What it does not read**
+    is which address the generation guard loads or which generation it
+    compares with; those are held by criterion 5's differentials.
+
+    *Guard three.* It is reached by no program, and that is by construction
+    and not an oversight: the entry declines while the mode is set, and the
+    mode is read after every call that returns, so no inlined site is
+    arrived at with it set. A test cannot reach it either without calling a
+    body past its entry, which the body's calling convention does not allow
+    from Rust. What a test can show, and the check above now does on every
+    compilation, is that the guard is there, reads the right cell, and sends
+    a set mode away from the arm. It is a second lock on a door the first
+    two keep shut; whether it stays is a design question nobody has raised.
+
+    *The per-call bound.* `Compiler::without_request_checks` now leaves out
+    the `autoadd` read with the request check, so the difference it gives is
+    both loads a shipped build emits after a call. `request_cost`, three
+    runs, macOS arm64, per call at 4, 8, 16 and 32 calls: **−0.51, 0.00,
+    +0.19, −0.07 ns**; −0.30, (−3.6), −0.51, +0.28 ns; +0.07, +0.05, −0.78,
+    −0.67 ns. The bracketed figure is one row of a run whose two arms
+    differed by 10% for no reason the code gives. The sign is random and the
+    largest reading that is not that row is 0.8 ns, against 2 allowed. The
+    table above that says the `autoadd` load after a call is "not emitted"
+    was true until 2026-09-30.
 
 18. **Compiled code honours `autoadd`** — at entry, after every call, and for
     every kind of value the mode affects. Bind `:` and `;`, compile a body that
@@ -7776,3 +7901,42 @@ stands: "keep the callback". D146 carries it.
 clock, inside its noise. Note at criterion 7; the runs are in D146. The
 paragraph above that says it "has not been run" is as of when it was
 written.
+
+## Amendment, 2026-10-11 — criteria 5, 9, 11 and 17
+
+The four the status block still listed as held by less than their text.
+Notes stand under each; this is the account.
+
+**17 — every inlined site carries its meaning guard.** Three gaps, three
+answers. The mechanical check asked whether the block the guards begin in
+dominates the region, which holds with no guard emitted; it now reads the
+two guards — what each branches on and which way — and a body that fails
+does not compile. Guard three is unreachable at run time by construction,
+and is now verified on every compilation in place of a test that cannot
+exist. The per-call bound was a bound on one load of two; the switch now
+removes both and the figure is under 0.8 ns against 2.
+
+**11 — a promoted recursion does not overflow the machine stack.** The
+levels are re-read and the floor check's cost is measured for the first
+time: under 0.5 ns an entry against 2. Five things this criterion's text
+asks to be reported are not reported by anything, and building them or
+re-wording the criterion is **D147**. *Resolved the same day, option C:*
+the two floors and the depth at which compiled bodies begin declining are
+built and printed by `--stats` and by `cargo xtask depth`; the other three
+are dropped from the criterion, which is re-worded in its note.
+
+**9 — the sync is worth its cost**, as D143 re-worded it. A test for the
+half that had none.
+
+**5 — a redefined word is observed.** Already answered on 2026-10-10;
+miscounted since.
+
+**What changed in code.** `guards_hold` and `GuardedRegion` in
+`crates/bund2-jit/src/lower.rs`, with the check that calls them;
+`Compiler::without_request_checks` leaves out the `autoadd` read as well;
+`Compiler::without_floor_check` and `Compiler::checks_the_floor`; a
+`floor_cost` bench group. Three tests: `an_unguarded_region_does_not_compile`,
+`the_guard_check_reads_the_guards_and_not_only_the_blocks`,
+`every_int_literal_is_promoted_whatever_the_run`. Nothing a shipped build
+emits is different: the two switches are behind `unguarded-bench`, and the
+strengthened check refuses nothing the lowering produces.

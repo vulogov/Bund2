@@ -1217,6 +1217,27 @@ fn run(src: &str, args: &Args) -> Option<i32> {
             (Some(bodies), None, _, _) => bund2_api::errln!("bund2: tier compiled {bodies} bodies{entered}"),
             _ => bund2_api::errln!("bund2: no tier (built without `jit`)"),
         }
+        // **§S8's floors, and what the upper one has done** — RFC-0005
+        // criterion 11 as D147 leaves it. A line of its own, because the
+        // addresses differ from run to run and the line above is compared
+        // between runs by tests and by `conform`'s sweep.
+        let (tier0, tier1) = rt.interp.floors();
+        let gap = match tier1.checked_sub(tier0) {
+            Some(n) => format!("{n} bytes above"),
+            None => format!("{} bytes below", tier0.saturating_sub(tier1)),
+        };
+        let declined = match rt.floor_declines() {
+            Some((0, _)) => "; no entry declined at the tier 1 floor".to_string(),
+            Some((n, Some(depth))) => format!(
+                "; {n} entries declined at the tier 1 floor, the first with {depth} \
+                 compiled bodies running"
+            ),
+            Some((n, None)) => format!("; {n} entries declined at the tier 1 floor"),
+            None => String::new(),
+        };
+        bund2_api::errln!(
+            "bund2: floors: tier 0 at {tier0:#x}, tier 1 at {tier1:#x} ({gap}){declined}"
+        );
     }
     code
 }

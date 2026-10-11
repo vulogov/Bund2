@@ -1556,6 +1556,72 @@ fn guard_cost(c: &mut Criterion) {
 #[cfg(not(all(feature = "jit", feature = "unguarded")))]
 fn guard_cost(_: &mut Criterion) {}
 
+/// **RFC-0005 criterion 11's bound: what §S8's floor check costs an entry.**
+///
+/// Every compiled entry reads the stack pointer, loads the Tier 1 floor and
+/// compares them before the body starts (F142). The criterion allows that
+/// 2 ns and until 2026-10-11 no bench took it. Taken as `guard_cost` takes
+/// its figure: one binary, two compilers, `Compiler::without_floor_check`
+/// supplying the difference an unconditional check otherwise denies.
+///
+/// **One check an entry, so it cannot be amortised** the way a per-site cost
+/// can. The bodies are short on purpose — the entry is most of what is timed
+/// — and each row's two arms differ in that one compare and branch.
+#[cfg(feature = "unguarded")]
+fn floor_cost(c: &mut Criterion) {
+    use bund2_jit::lower::{Compiler, LastCall};
+
+    let mut g = c.benchmark_group("floor_cost");
+
+    for (shape, src) in [("one_site", "1 drop"), ("four_sites", "1 drop 1 drop 1 drop 1 drop")] {
+        let body = compiled(src);
+
+        for (name, checked) in [("checked", true), ("unchecked", false)] {
+            let build = || {
+                declare_share();
+                let mut vm = bund2_runtime::Runtime::new().interp;
+                let table =
+                    bund2_stdlib::fragments::published(&vm.registry).unwrap_or_default();
+                let comp = if checked {
+                    Compiler::new(table)
+                } else {
+                    Compiler::without_floor_check(table)
+                };
+                let Ok(mut comp) = comp else {
+                    bund2_api::errln!("bench: no compiler could be built; measuring nothing");
+                    return None;
+                };
+                let cells = vm.cells().base();
+                let word = comp
+                    .compile_word(&body, LastCall::Ordinary, cells, &mut vm)
+                    .ok()?;
+                Some((vm, comp, word))
+            };
+
+            match build() {
+                Some((_, comp, word)) => bund2_api::errln!(
+                    "bench: floor_cost {name}/{shape} sites {:?} floor check {}",
+                    comp.inlined_sites(word),
+                    comp.checks_the_floor()
+                ),
+                None => bund2_api::errln!("bench: floor_cost {name}/{shape} did not compile"),
+            }
+
+            g.bench_function(format!("{name}/{shape}"), |b| {
+                let Some((mut vm, comp, word)) = build() else {
+                    return;
+                };
+                b.iter(|| black_box(comp.run(word, &mut vm, black_box(&body))).is_ok());
+            });
+        }
+    }
+
+    g.finish();
+}
+
+#[cfg(not(feature = "unguarded"))]
+fn floor_cost(_: &mut Criterion) {}
+
 /// **D68's payoff, on the shape it was designed for** — the measurement the
 /// first `crossing` group did not take.
 ///
@@ -1735,6 +1801,7 @@ criterion_group!(
     compile_size,
     gain_size,
     guard_cost,
+    floor_cost,
     lambda,
     refused,
     corpus,

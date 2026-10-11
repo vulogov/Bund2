@@ -943,6 +943,23 @@ pub trait Tier {
         None
     }
 
+    /// **Entries the Tier 1 floor turned away, and how deep compiled code was
+    /// at the first** — RFC-0005 criterion 11 as D147 leaves it.
+    ///
+    /// The first figure counts entries of a compiled body that found the
+    /// stack pointer beneath §S8's floor and ran interpreted instead. The
+    /// second is how many compiled bodies were running, one beneath another,
+    /// when that first happened: the depth at which compiled bodies begin
+    /// declining. `None` for the second while nothing has been declined, and
+    /// `None` for both from a tier that does not count.
+    ///
+    /// It exists because the floor's working is otherwise invisible: F142
+    /// records a fortnight in which no emitted code read the floor at all,
+    /// and nothing a run printed could have said so.
+    fn floor_declines(&self) -> Option<(usize, Option<usize>)> {
+        None
+    }
+
     /// **How many bodies the promotion counter is tracking** — §S7's counter,
     /// criterion 20.
     ///

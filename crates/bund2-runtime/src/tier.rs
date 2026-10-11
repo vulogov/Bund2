@@ -49,6 +49,9 @@ pub struct JitTier {
     /// Above zero, nothing is compiled: the compiler and its module are being
     /// executed from.
     running: std::cell::Cell<usize>,
+    /// **How many compiled bodies were running when §S8's floor first turned
+    /// an entry away** — D147. `None` until it has.
+    first_floor_decline: std::cell::Cell<Option<usize>>,
     /// **Bodies that earned compilation while one was running**, compiled when
     /// the outermost has returned. Bounded by [`PENDING`]; a body turned away
     /// at the bound asks again on its next entry.
@@ -97,6 +100,7 @@ impl JitTier {
             entered: std::cell::Cell::new(0),
             compiler: std::cell::RefCell::new(None),
             running: std::cell::Cell::new(0),
+            first_floor_decline: std::cell::Cell::new(None),
             pending: std::cell::RefCell::new(Vec::new()),
             table,
             crossable: std::collections::BTreeSet::new(),
@@ -177,6 +181,13 @@ impl Tier for JitTier {
 
     fn compiled_entries(&self) -> Option<usize> {
         Some(self.entered.get())
+    }
+
+    fn floor_declines(&self) -> Option<(usize, Option<usize>)> {
+        Some((
+            self.with_compiler(Compiler::floor_declines),
+            self.first_floor_decline.get(),
+        ))
     }
 
     fn threshold(&self) -> Option<u32> {
@@ -282,9 +293,17 @@ impl Tier for JitTier {
                 // never compiled. **Since D145 this is also what ends a
                 // compiled recursion**: each level is a nested entry, and the
                 // one that starts below the floor is interpreted, on the heap.
+                let turned_away = compiler.floor_declines();
                 self.running.set(self.running.get().saturating_add(1));
                 let ran = compiler.run(code, vm, values);
                 self.running.set(self.running.get().saturating_sub(1));
+                // D147: the first entry the floor declines, and how many
+                // compiled bodies were running above it when it did.
+                if self.first_floor_decline.get().is_none()
+                    && compiler.floor_declines() > turned_away
+                {
+                    self.first_floor_decline.set(Some(self.running.get()));
+                }
                 drop(slot);
                 if self.running.get() == 0 {
                     self.compile_pending(vm);
@@ -2823,7 +2842,7 @@ mod tests {
     fn a_compiled_recursion_stops_at_the_floor_and_goes_on_at_tier_zero() {
         const STACK: usize = 16 * 1024 * 1024;
         const LEVELS: i64 = 50_000;
-        let (entries, top) = std::thread::Builder::new()
+        let (entries, top, turned_away) = std::thread::Builder::new()
             .stack_size(STACK)
             .spawn(|| {
                 bund2_interp::set_stack_region_with_share(
@@ -2851,11 +2870,25 @@ mod tests {
                 (
                     r.compiled_entries().unwrap_or(0),
                     r.interp.snapshot().last().and_then(BundValue::as_int),
+                    r.floor_declines(),
                 )
             })
             .expect("a thread")
             .join()
             .expect("the recursion did not take the thread down");
+
+        // **D147: the floor's working is reported, not inferred.** The count
+        // of entries it turned away, and how many compiled bodies were
+        // running when it first did — RFC-0005 criterion 11's "the depth at
+        // which compiled bodies begin declining".
+        let Some((declined, Some(first_at))) = turned_away else {
+            panic!("the tier must report a decline and where it began: {turned_away:?}");
+        };
+        assert!(declined > 0, "the floor declined no entry");
+        assert!(
+            first_at > 100 && first_at <= entries,
+            "the first decline came with {first_at} compiled bodies running, of {entries} entered"
+        );
 
         assert_eq!(top, Some(0), "counted down to zero");
         assert!(

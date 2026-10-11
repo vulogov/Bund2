@@ -40,10 +40,13 @@ fn run_at(script: &std::path::Path, threshold: &str) -> (String, String, Option<
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
     let is_stats = |l: &&str| l.contains("tier compiled") || l.contains("no tier");
+    // `--stats` prints a second line, the two stack floors, whose addresses
+    // differ from run to run (D147). It is no part of what is compared.
+    let is_floors = |l: &&str| l.starts_with("bund2: floors:");
     let stats = stderr.lines().find(is_stats).unwrap_or_default().to_string();
     let rest: String = stderr
         .lines()
-        .filter(|l| !is_stats(l))
+        .filter(|l| !is_stats(l) && !is_floors(l))
         .map(|l| format!("{l}\n"))
         .collect();
     (stdout, rest, out.status.code(), stats)

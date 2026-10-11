@@ -750,11 +750,19 @@ impl TierTotal {
     /// golden never holds one.
     fn take(&mut self, output: &mut String) {
         const MARK: &str = "bund2: tier compiled ";
+        const FLOORS: &str = "bund2: floors: ";
         // **By line, rejoined as `normalise` joins them** — with `\n` between
         // and none after the last. Rebuilding with a newline after every line
         // made all 145 goldens differ by one trailing byte.
         let mut kept: Vec<&str> = Vec::new();
         for line in output.lines() {
+            // **`--stats` has a second line since D147**, naming §S8's two
+            // floors. It is the binary's and the run's, not the program's —
+            // its addresses differ from run to run — and no golden holds one.
+            // It always starts a line: the line above it ends in a newline.
+            if line.starts_with(FLOORS) {
+                continue;
+            }
             // **Found anywhere in the line, not only at its start.** A
             // program whose last output has no newline leaves stdout ending
             // mid-line, and stderr is appended straight after it.
@@ -832,4 +840,33 @@ fn parse_reach(repo: &Path, verbose: bool) -> Result<(), String> {
         }
     }
     Ok(())
+}
+#[cfg(test)]
+mod tier_total_tests {
+    use super::TierTotal;
+
+    /// **Both of `--stats`'s lines leave the text, and nothing else does** —
+    /// D147. The second line, the floors, was added to the binary before this
+    /// knew of it, and every golden in every `jit` configuration differed by
+    /// that one line: 0/145. The count is still taken from the first.
+    #[test]
+    fn both_stats_lines_are_taken_out_of_what_is_compared() {
+        let mut text = "one\ntwo\n\
+            bund2: tier compiled 3 bodies (7 entered), inlined 2 sites\n\
+            bund2: floors: tier 0 at 0x16d94ea2f, tier 1 at 0x16e18ea2f (8650752 bytes above); \
+            no entry declined at the tier 1 floor"
+            .to_string();
+        let mut total = TierTotal::default();
+        total.take(&mut text);
+        assert_eq!(text, "one\ntwo", "what a golden is compared with");
+        assert_eq!((total.bodies, total.entered, total.programs, total.reported), (3, 7, 1, 1));
+
+        // A program whose output ends mid-line: the first stats line follows
+        // it on the same line, and the floors line still starts its own.
+        let mut text = "no newlinebund2: tier compiled 0 bodies (0 entered)\n\
+            bund2: floors: tier 0 at 0x1, tier 1 at 0x2 (1 bytes above)"
+            .to_string();
+        total.take(&mut text);
+        assert_eq!(text, "no newline");
+    }
 }

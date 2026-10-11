@@ -3623,6 +3623,98 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D147 — is RFC-0005's criterion 11 built out, or re-worded to what is shown?
+
+**Raised 2026-10-11**, answering the twenty-third review's B8 on that
+criterion. Its text asks a run to report seven things. Two are shown: a
+deep program reports instead of aborting in both builds, with the `loop`
+axis's level no lower with the tier (4,405 and 7,557), and the Tier 1
+floor check costs under 2 ns an entry (under 0.5 ns, `floor_cost`). Five
+are reported by nothing:
+
+1. both floors' addresses;
+2. the depth at which compiled bodies begin declining — read once by hand,
+   6,192 levels, in D145's note;
+3. a case with the share already held, and `c` and `δ` from it;
+4. `c_p` and `δ_p` for each re-entering path;
+5. a margin `m` set from the largest ratio, and with it `TIER0_PART`,
+   which is 8 MiB from no ratio and by D62 carries no margin.
+
+**Options.**
+
+- *A. Build them.* `cargo xtask depth` gains a share-held axis and a run
+  per re-entering path, the binary reports its floors and the level at
+  which an entry first declined, and `TIER0_PART` is set from the result.
+  The largest of these by far is 4: §S8's set of re-entering paths is
+  found by a source scan and each needs a program that recurses through
+  it.
+- *B. Re-word the criterion to what is shown*, as D143 did for criterion
+  9: reports and does not abort, in both builds; level no lower with the
+  tier; floor check under 2 ns. The five become a recorded limit and
+  `TIER0_PART` stays a constant chosen without a ratio, said so.
+- *C. Build 1 and 2 and re-word the rest.* The two are small — a line in
+  `--stats` and a counter — and they are what would have shown F142 on
+  the day it was true, that no emitted code read the floor.
+
+**Recommendation: C.** 3 to 5 exist to set a margin for a hazard that has
+a floor on each side of it already and has not been observed past either;
+1 and 2 are cheap and are the two that make the floor's working visible.
+
+- Blocks: RFC-0005 criterion 11
+- Depends on: D44, D62, D145, F85, F142
+- Status: **RESOLVED — option C**, by the repository owner, 2026-10-11:
+  "C".
+
+*Note, 2026-10-11 — built, and the criterion re-worded.* Items 1 and 2 are
+reported by the binary and printed by `cargo xtask depth`. `--stats` has a
+second line, on stderr:
+
+    bund2: floors: tier 0 at 0x…, tier 1 at 0x… (8650752 bytes above); 4543
+    entries declined at the tier 1 floor, the first with 1989 compiled
+    bodies running
+
+The floors are `Interp::floors` (`crates/bund2-interp/src/lib.rs`). The
+count is `Compiler::floor_declines` (`crates/bund2-jit/src/lower.rs`): an
+entry that declines for the collecting mode now returns a status of its
+own, so that the count is the floor's alone. The depth is how many compiled
+bodies `JitTier` was running when the count first moved
+(`crates/bund2-runtime/src/tier.rs`), reached through a defaulted
+`Tier::floor_declines`. The figures above are `depth`'s `loop` axis with
+`jit`, release, macOS arm64; without a tier the line stops at the bracket.
+
+**The two floors are 8,650,752 bytes apart, and that is 8 MiB and
+262,144 bytes.** `TIER0_PART` is 8 MiB, so Tier 0's floor sits a quarter
+of a mebibyte further down than the constant alone says. It is reported
+here as read; why was not looked into.
+
+**One thing the figure showed at once.** `depth`'s `call` axis — a word
+that calls itself 100,000 deep — compiles nothing: its `--stats` reads 0
+bodies. So that axis has never exercised a compiled recursion, with the
+tier on or off, and the 6,192 levels in D145's note came from another
+program. The `loop` axis does: one body, 1,989 levels compiled before the
+floor.
+
+Items 3 to 5 are not built and criterion 11 no longer asks for them; its
+note carries the new text and names them as a limit. `TIER0_PART` stays
+8 MiB, chosen from no ratio, as D62 says.
+
+**`conform` had to be told.** It asks every `jit` run for `--stats` and
+takes the line out of what it compares with a golden; it knew of one line.
+With the second, all four `jit` configurations read 0/145 until
+`TierTotal::take` (`xtask/src/conform/mod.rs`) dropped it too. Nothing was
+committed in that state, no golden was touched, and a test now holds the
+removal: `both_stats_lines_are_taken_out_of_what_is_compared`. Anything
+else that reads `--stats` by position would meet the same thing; the two
+CLI tests that compare stderr between runs match the first line by its
+text, and one of them now sets the second aside by name.
+
+Tests: `a_compiled_recursion_stops_at_the_floor_and_goes_on_at_tier_zero`
+now requires a count and a first depth from the tier;
+`autoadd_sends_an_inlined_site_to_the_residual` requires that a decline for
+the mode is not counted; `stats_names_both_floors`
+(`crates/bund2-cli/tests/exit_tier.rs`) requires the line, on stderr, with
+the same distance in two runs.
+
 ## D146 — may the tier tell the interpreter never to offer a body again?
 
 **Raised 2026-10-11** by F201. A body the tier has refused and demoted is
