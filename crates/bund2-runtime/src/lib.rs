@@ -238,7 +238,7 @@ impl Runtime {
             // carries F143's generation compare and D73's epoch compare and
             // those exceed the push and pop they avoid. Restoring it is this
             // one call.
-            interp.tier = Some(Box::new(JitTier::with_fragments(caps, table)));
+            interp.tier = Some(std::rc::Rc::new(JitTier::with_fragments(caps, table)));
         }
         #[cfg(not(feature = "jit"))]
         let _ = (threshold, tier);
@@ -278,7 +278,7 @@ impl Runtime {
     /// counter and `Interp` owns the tier: there is no way to look at them
     /// while they are installed. Put it back with [`Runtime::install_tier`].
     #[cfg(feature = "jit")]
-    pub fn take_tier(&mut self) -> Option<Box<dyn bund2_api::Tier>> {
+    pub fn take_tier(&mut self) -> Option<std::rc::Rc<dyn bund2_api::Tier>> {
         self.interp.tier.take()
     }
 
@@ -344,6 +344,6 @@ impl Runtime {
     /// Install a tier, replacing any already there.
     #[cfg(feature = "jit")]
     pub fn install_tier(&mut self, tier: Box<dyn bund2_api::Tier>) {
-        self.interp.tier = Some(tier);
+        self.interp.tier = Some(std::rc::Rc::from(tier));
     }
 }

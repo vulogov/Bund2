@@ -3623,6 +3623,119 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D145 — a body entered beneath a compiled body may run compiled
+
+**Raised 2026-10-10** by F194, which D142's measurements found.
+
+`Interp::push_frame` takes the tier out of the `Interp` for the length of a
+compiled entry, so a body entered beneath a compiled body is interpreted.
+RFC-0005 records this as "the recursion guard … a correctness property":
+without it a self-recursive word would spend a Rust frame per Bund level.
+It was written before §S8's Tier 1 floor existed in emitted code (F142,
+2026-09-28). The floor is what §S8 designed for that case — a compiled body
+entered below it declines, and the recursion goes on at Tier 0 on the heap.
+
+The guard's cost is F194: the program RFC-0005's criterion 10 was measured
+on reads 1.06× because the word it is about runs interpreted beneath a
+compiled loop body, and the same program with that word running compiled
+reads 1.40×.
+
+**Options** (D142's note has the measurements).
+
+- *A. Let a nested body run compiled*, bounded by §S8's floor.
+- *B. Leave it* and document the limit.
+- *C. Refuse to compile a body whose callees it would hide*: a heuristic,
+  wrong in both directions because a name resolves at run time.
+
+- Blocks: D142, RFC-0005 criterion 10
+- Depends on: F142, F194, D139, D44
+- Status: **RESOLVED — option A, stage 1**, by the repository owner,
+  2026-10-10: "A and 1: scope the F194 fix", then "approve stage 1".
+
+*What stage 1 is.* A body entered beneath a compiled body is offered to the
+tier, counted, and run compiled **if it already has code**. A body that
+crosses the threshold while a compiled body is running is **not compiled
+then**: it is queued, and compiled when the outermost compiled body has
+returned. So nothing is added to the code module or to the compiler's
+tables while a frame is executing in them.
+
+*What it supersedes.* RFC-0005 §S2's "at most one compiled body runs at a
+time" and the recursion-guard paragraph of §S6; the test
+`a_self_recursive_word_does_not_spend_a_rust_frame_per_level`, as named.
+
+*Stated consequence, for RFC-0003 (Accepted).* Its criterion 2 is "Bund
+call depth is bounded by heap, not by the Rust stack", decided by
+`cargo xtask depth`. With this, the levels of a compiled recursion above the
+Tier 1 floor sit on the Rust stack, inside the 8 MiB share D62 declares,
+and the levels below it are on the heap as before. The criterion holds as
+its own check decides it if `depth` still completes at 100,000 in both
+builds; that is measured and reported, not assumed.
+
+*Stage 2 is not approved*: compiling at once while nested. It depends on
+what `cranelift-jit` does to executable memory during a compilation, which
+has not been read.
+
+*Note, 2026-10-10 — built and measured.* `bund2_api::Tier::enter` takes
+`&self`; `Interp::tier` is an `Rc`, cloned for the call and left in place
+(`crates/bund2-interp/src/lib.rs`, `push_frame`), with D139's frame saved
+and restored around a nested entry; and `JitTier` keeps its state behind
+`Cell` and `RefCell`, counts the compiled bodies it is running, queues a
+body that earns compilation while that count is above zero, and compiles
+the queue when it returns to zero (`crates/bund2-runtime/src/tier.rs`,
+`defer`, `compile_pending`). Every borrow is a `try_` borrow, and one that
+fails declines.
+
+**The program of RFC-0005's criterion 10**, same method as D142's note —
+release, `bund2 script --file`, shipped threshold, ten alternating rounds,
+medians, three binaries:
+
+| program | no feature | tier before | tier with nesting | before | with nesting |
+|---|---|---|---|---|---|
+| the recorded `for` program, batch 1 | 316.4 ms | 297.2 ms | 222.4 ms | 1.065× | **1.423×** |
+| the same, batch 2 | 316.9 ms | 297.2 ms | 221.5 ms | 1.066× | **1.431×** |
+| `1000000 { w } times` | 148.0 ms | 84.1 ms | 86.6 ms | 1.758× | 1.708× |
+| `1000000 { 1 2 + drop } times` | 110.8 ms | 40.8 ms | 42.4 ms | 2.719× | 2.615× |
+| the `for` program with `inc` | 358.1 ms | 252.9 ms | 257.1 ms | 1.416× | 1.393× |
+| a recursion 200,000 deep, twice | 179.0 ms | 182.5 ms | 187.8 ms | 0.981× | 0.953× |
+
+The recorded program reports 1,997,952 compiled entries where it reported
+998,976: the word runs compiled. All twenty pairs favour the tier.
+
+**What it costs.** The three programs that already ran their word compiled
+are 2% to 4% slower than before, which is the `Rc` and the borrows on every
+entry. The recursion is slower than no tier at all by 5%, where it was 2%:
+its body has a site, so it is compiled, 6,192 levels run compiled one
+beneath another, the floor turns the rest back, and what a compiled level
+saves does not cover what entering it costs.
+
+**RFC-0003's criterion 2, as promised above.** `cargo xtask depth`, release:
+the `call` axis completes at 100,000 with no feature and with `jit`. The
+`loop` axis reports Tier 0's floor at level 4,405 with no feature and
+**7,632** with `jit`; before this change `jit` read 8,810. So the tier
+still gives a native-mediated recursion more room than no tier does, which
+is D44's requirement, and less than it gave this morning.
+
+**Checks.** 668 passed, 0 failed, 1 ignored with no feature; 802 passed,
+0 failed, 1 ignored with `jit,relocation-test`. `conform` reads 133/145,
+CEILING 133/145, in all six configurations, with 12 bodies in 10 of 145
+programs and 53 compiled entries at threshold 1 — the same 53 as before,
+so no corpus program has one compiled body beneath another, and criterion 2
+says nothing about nesting. What does is four tests in
+`crates/bund2-runtime/src/tier.rs`:
+`a_word_beneath_a_compiled_body_runs_compiled`,
+`a_body_that_gets_hot_beneath_a_compiled_one_is_compiled_afterwards`,
+`a_nested_compiled_body_ends_as_tier_zero_does` (an exit, an error, and
+`autoadd` turned on and off, each beneath a compiled body) and
+`a_compiled_recursion_stops_at_the_floor_and_goes_on_at_tier_zero`. All
+four passed the first time they ran; none found a defect.
+
+**Not covered.** A tail request filed beneath a nested compiled body and
+failing; a reporter that wants the stack, beneath one; a debugger word
+arming beneath one. And `a_self_recursive_word_does_not_spend_a_rust_frame_per_level`,
+which RFC-0005 cites for the guard this removes, never compiled anything:
+its fixture has an empty fragment table. It was not evidence for the guard
+and is not evidence against this.
+
 ## D144 — is RFC-0005 §S9, tier pinning, withdrawn?
 
 **Raised 2026-10-10** by RFC-0005's twenty-third review, B7.
@@ -3720,7 +3833,11 @@ and the question becomes what the tier is for.
 
 - Blocks: RFC-0005 criterion 10, and so RFC-0005 reaching Accepted
 - Depends on: D59, D74, D139, F136
-- Status: **OPEN** — the owner took option 3 on 2026-10-10 ("agree on all
+- Status: **RESOLVED — the criterion keeps its denominator and its
+  recorded program, and F194 is fixed first (D145)**, by the repository
+  owner, 2026-10-10: "A and 1". The program then reads **1.42× and 1.43×**,
+  above the 1.2× rule; D145's note has the table. The steps that led here:
+  the owner took option 3 on 2026-10-10 ("agree on all
   three, run the D142 measurements"). The measurements are in the note
   below; the ruling on the denominator is still to be given.
 

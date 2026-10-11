@@ -812,7 +812,14 @@ pub trait Vm {
 /// restores the stack, and a tier that ran the body would bypass it.
 pub trait Tier {
     /// A body is about to start running. See the trait docs for the contract.
-    fn enter(&mut self, body: &BundValue, vm: &mut dyn Vm) -> Option<Result<(), Error>>;
+    ///
+    /// **`&self`, since D145.** A body entered beneath a compiled body is
+    /// offered too, so `enter` is called again while an earlier call of it is
+    /// still on the stack, and a tier that keeps state keeps it behind
+    /// interior mutability. It took `&mut self` while the `Vm` took the tier
+    /// out of itself for the length of the call, which is what kept a nested
+    /// body from ever being offered (F194).
+    fn enter(&self, body: &BundValue, vm: &mut dyn Vm) -> Option<Result<(), Error>>;
 
     /// **How many bodies this tier has compiled** — RFC-0005 criterion 2's
     /// statistics, reported by `bund2 --stats`.

@@ -392,6 +392,12 @@ impl Tiering {
         true
     }
 
+    /// Whether one more function may be emitted — D140's cap, asked before a
+    /// body is compiled where [`Tiering::observe`] has not just answered.
+    pub fn has_room(&self) -> bool {
+        self.emitted < self.caps.functions
+    }
+
     /// **How many functions this tier has emitted** — D140's figure, and what
     /// [`Caps::functions`] is tested against. It never falls.
     pub fn emitted_count(&self) -> usize {

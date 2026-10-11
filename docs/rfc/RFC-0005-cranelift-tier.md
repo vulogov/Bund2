@@ -22,7 +22,11 @@
   10's stop rule has (B8, **D142**). All three are OPEN.
   *(Later the same day: D143 and D144 are resolved — criterion 9 is
   re-worded and §S9 is withdrawn. D142 is measured and still OPEN; the
-  measurement found F194, which is why the gate's program reads 1.06×.)*
+  measurement found F194, which is why the gate's program reads 1.06×.
+  **Later still: D145 fixes F194, D142 is resolved, and criterion 10 is
+  met at 1.42× on its own terms.** In the restatement below, 10 moves from
+  "held by less than its text" to "the check holds as written", so the
+  three groups are 11, 5 and 14.)*
 
   **Proposed rather than Accepted, for the reason RFC-0001 gives.** This
   paragraph is kept current because it is the first thing a reader checks the
@@ -2403,6 +2407,21 @@ exactly the "conformance change, not an optimisation" §S8 warns of. At most one
 compiled body runs at a time. A test recurses 2,000 levels with the tier
 installed to say so.
 
+*(2026-10-10 — **this paragraph is superseded by D145.** The guard is gone:
+a body entered beneath a compiled body is offered to the tier and runs
+compiled if it has code. What bounds a compiled recursion is §S8's Tier 1
+floor, which did not exist in emitted code when this was written (F142):
+the level that starts below it declines and is interpreted on the heap.
+The guard cost more than "a compilation opportunity" — it hid every hot
+word beneath a compiled body from the tier, which is why criterion 10's own
+program read 1.06× (F194). And the test named above never compiled
+anything; its fixture has an empty fragment table.
+`a_compiled_recursion_stops_at_the_floor_and_goes_on_at_tier_zero`
+(`crates/bund2-runtime/src/tier.rs`) is the test of the bound. **One thing
+is not built**: a body that earns compilation while a compiled body is
+running is queued and compiled when the outermost has returned, not at
+once.)*
+
 **Criterion 23 is still not met**, and the wiring does not change that: it wants
 one cache, one `JITModule` and one set of cells *per `Interp`*, and while the
 cache is now per-`Interp`, each `compile_word_body` still builds a module of its
@@ -3506,6 +3525,16 @@ and `m` is sized for a model the code does not have. The `#[inline(never)]`
 lookup helper at `eval_lambda` that passage names does not exist. None of
 this is unsound: it means the passage bounds something that does not happen,
 and that the rule it derives has never been exercised.)*
+
+*(Later on 2026-10-10 — **the note above was true for some hours.** D145
+lets a body entered beneath a compiled body run compiled, so compiled
+bodies do nest, compiled frames can hold the share when a native nests, and
+the passage below describes a case that now arises. It is still entered
+from one place. The rule it derives is exercised by
+`a_compiled_recursion_stops_at_the_floor_and_goes_on_at_tier_zero`; the
+`#[inline(never)]` helper it names still does not exist, and `cargo xtask
+depth` reads the `loop` axis at level 7,632 with `jit` against 4,405
+without, so the tier-on level is above the tier-off one as D44 requires.)*
 
 **A decline is a return, not a call.** A compiled body is entered from the
 three places a body starts:
@@ -5573,6 +5602,23 @@ evidence, and this one is listed as runnable rather than as met.
     **The stop rule's status is therefore: fires on the recorded program,
     does not fire on three other writings of the same shape, and D142 is
     OPEN.** Nothing here is marked met.
+
+    **Met, 2026-10-10 — the stop rule does not fire.** D142 is resolved: the
+    criterion keeps its terms and its recorded program, and F194 is fixed
+    first, by D145. On those terms — the recorded `for` program, under the
+    CLI's reporter, at the shipped threshold, release, ten alternating
+    rounds — the tier reads **1.423× and 1.431×** against a build with no
+    feature, all twenty pairs favouring it, with the word `1 2 + drop`
+    running compiled (1,997,952 compiled entries). 1.2× is cleared, and by
+    the denominator the criterion always named. **The program, which this
+    criterion never wrote down, is:**
+
+        :w { 1 2 + drop } register
+        0 { w 1 + dup 1000000 > } for drop
+
+    What this does not show: §S1's floor is still withdrawn (B9), so the
+    size of the gate's margin is not known; and the 2× rule on inlining
+    alone was never measured.
 
 11. **A promoted recursion does not overflow the machine stack.** §S8's
     correctness problem, and the criterion is one that already exists:

@@ -21,15 +21,20 @@ fn items(body: &BundValue) -> Option<&[BundValue]> {
 ///
 /// **It owns the `Tiering`.** `Interp` owns the `Box<dyn Tier>`, so a cache
 /// held beside the `Interp` would be unreachable while the tier was installed.
+///
+/// **Its state is behind `Cell` and `RefCell` since D145**, because
+/// `Tier::enter` is called again while an earlier call is still running a
+/// compiled body. Every borrow is `try_`: one that cannot be had makes the
+/// tier decline, which is always correct, and nothing here can panic (D37).
 pub struct JitTier {
-    tiering: Tiering,
+    tiering: std::cell::RefCell<Tiering>,
     /// **Entries compiled code actually ran** — see
     /// `bund2_api::Tier::compiled_entries`.
     ///
     /// Incremented where the emitted body *returns*, so it counts neither a
     /// compilation nor a decline. It is the only figure this tier reports that
     /// distinguishes compiled code running from compiled code existing.
-    entered: usize,
+    entered: std::cell::Cell<usize>,
     /// **The code, and the one `JITModule` behind it.**
     ///
     /// One compiler per tier, one tier per `Interp`, so one module per `Interp`
@@ -39,7 +44,15 @@ pub struct JitTier {
     /// `None` until the first body earns compilation. A program that never goes
     /// hot never reserves code memory, and a compiler that cannot be built
     /// leaves the tier interpreting rather than failing the program.
-    compiler: Option<Compiler>,
+    compiler: std::cell::RefCell<Option<Compiler>>,
+    /// **How many compiled bodies this tier is running right now** — D145.
+    /// Above zero, nothing is compiled: the compiler and its module are being
+    /// executed from.
+    running: std::cell::Cell<usize>,
+    /// **Bodies that earned compilation while one was running**, compiled when
+    /// the outermost has returned. Bounded by [`PENDING`]; a body turned away
+    /// at the bound asks again on its next entry.
+    pending: std::cell::RefCell<Vec<BundValue>>,
     /// **§S6's published fragments, carried down to the compiler.**
     ///
     /// Built by [`crate::Runtime`] rather than fetched here:
@@ -80,9 +93,11 @@ impl JitTier {
         table: Vec<(bund2_api::RegistrationId, bund2_ir::Fragment)>,
     ) -> Self {
         Self {
-            tiering: Tiering::new(caps),
-            entered: 0,
-            compiler: None,
+            tiering: std::cell::RefCell::new(Tiering::new(caps)),
+            entered: std::cell::Cell::new(0),
+            compiler: std::cell::RefCell::new(None),
+            running: std::cell::Cell::new(0),
+            pending: std::cell::RefCell::new(Vec::new()),
             table,
             crossable: std::collections::BTreeSet::new(),
         }
@@ -106,13 +121,25 @@ impl JitTier {
     }
 
     /// The cache and counter, for a test or an embedder that wants the figures.
-    pub fn tiering(&self) -> &Tiering {
-        &self.tiering
+    ///
+    /// `None` only while `enter` holds them for the length of one `observe`,
+    /// which no caller of this can be inside.
+    pub fn tiering(&self) -> Option<std::cell::Ref<'_, Tiering>> {
+        self.tiering.try_borrow().ok()
     }
 
     /// How many words this tier has compiled into its module.
     pub fn compiled_words(&self) -> usize {
-        self.compiler.as_ref().map_or(0, Compiler::compiled_words)
+        self.with_compiler(Compiler::compiled_words)
+    }
+
+    /// A figure read off the compiler, or 0 where there is none yet.
+    fn with_compiler(&self, f: impl Fn(&Compiler) -> usize) -> usize {
+        self.compiler
+            .try_borrow()
+            .ok()
+            .and_then(|c| c.as_ref().map(&f))
+            .unwrap_or(0)
     }
 }
 
@@ -129,31 +156,31 @@ impl Tier for JitTier {
     }
 
     fn inlined_sites(&self) -> Option<usize> {
-        Some(self.compiler.as_ref().map_or(0, Compiler::inlined_total))
+        Some(self.with_compiler(Compiler::inlined_total))
     }
 
     fn promoted_values(&self) -> Option<usize> {
-        Some(self.compiler.as_ref().map_or(0, Compiler::promoted_total))
+        Some(self.with_compiler(Compiler::promoted_total))
     }
 
     fn compiled_values(&self) -> Option<usize> {
-        Some(self.compiler.as_ref().map_or(0, Compiler::values_total))
+        Some(self.with_compiler(Compiler::values_total))
     }
 
     fn counted_bodies(&self) -> Option<usize> {
-        Some(self.tiering.counted())
+        self.tiering.try_borrow().ok().map(|t| t.counted())
     }
 
     fn crossed_calls(&self) -> Option<usize> {
-        Some(self.compiler.as_ref().map_or(0, Compiler::crossable_total))
+        Some(self.with_compiler(Compiler::crossable_total))
     }
 
     fn compiled_entries(&self) -> Option<usize> {
-        Some(self.entered)
+        Some(self.entered.get())
     }
 
     fn threshold(&self) -> Option<u32> {
-        Some(self.tiering.caps().threshold)
+        self.tiering.try_borrow().ok().map(|t| t.caps().threshold)
     }
 
     /// See `bund2_api::Tier` for the contract. In short: `None` interprets,
@@ -178,71 +205,21 @@ impl Tier for JitTier {
     /// one Rust frame per Bund level, breaking RFC-0003's criterion 2 and
     /// making promotion "a conformance change, not an optimisation" (§S8). At
     /// most one compiled body runs at a time.
-    fn enter(&mut self, body: &BundValue, vm: &mut dyn Vm) -> Option<Result<(), Error>> {
-        match self.tiering.observe(body) {
+    fn enter(&self, body: &BundValue, vm: &mut dyn Vm) -> Option<Result<(), Error>> {
+        // Held for one `observe` and no longer: a nested entry needs it too.
+        let decision = self.tiering.try_borrow_mut().ok()?.observe(body);
+        match decision {
             Decision::Interpret => None,
             Decision::Compile => {
-                // A body whose values cannot be read is not one this tier
-                // compiles; Tier 0 will report whatever is wrong with it.
-                let len = items(body)?.len();
-                if len > 0 {
-                    // The module is built on the first promotion and kept for
-                    // the tier's life. Failing to build one is treated exactly
-                    // as a failed compilation, one line down.
-                    let compiler = match self.compiler {
-                        Some(ref mut c) => c,
-                        // The table is cloned rather than moved: the tier may
-                        // outlive a compiler that failed to build, and §S6's
-                        // fragments are small and built once per `Runtime`.
-                        // **Both tables, for the same reason.** §S6's fragments
-                        // say what may be inlined; D47/D48's say what may be
-                        // crossed. Neither is reachable from a `&mut dyn Vm`,
-                        // so both are cloned down from the tier (D68).
-                        None => match Compiler::with_crossable(
-                            self.table.clone(),
-                            self.crossable.clone(),
-                        ) {
-                            Ok(c) => self.compiler.insert(c),
-                            Err(_) => return None,
-                        },
-                    };
-                    // **§S6's addressing.** The emitted body loads the request
-                    // cell through this address, so a `Vm` that keeps no cells
-                    // gets no compiled body — the lowering refuses a zero base
-                    // rather than emitting a load from null.
-                    let cells = vm.cells().map(bund2_api::Cells::base)?;
-                    // A failure to compile is not the program's fault and not
-                    // its problem: the body is interpreted, as it would have
-                    // been with no tier at all. It is dropped rather than
-                    // reported because there is no diagnostic a *user* could
-                    // act on, and the body still runs correctly.
-                    // **The body itself, not just its length** — §S6's join
-                    // decides per value whether to inline, which needs the
-                    // values. `items` answered `Some` above, and the body is
-                    // cloned because planning borrows `vm` mutably to ask
-                    // `inline_site` while `body` borrows it immutably.
-                    let values: Vec<BundValue> = items(body)?.to_vec();
-                    // **F133: a body the tier cannot help is not compiled.**
-                    // Every value that is not an inlined site goes through
-                    // `Vm::apply` anyway — Tier 0's own path — with the boundary
-                    // added around it, so a body with no site and nothing to
-                    // promote is strictly slower compiled: **+24%** measured on
-                    // `arith/float_mul/1000`, at 0 sites and 0 promoted.
-                    //
-                    // The demotion is what makes this affordable. Refusing alone
-                    // would leave the counter hot, so every later entry would
-                    // re-plan the body to reach the same answer; demoted, it is
-                    // turned away at the top of `observe` instead. It also keeps
-                    // the body out of §S7's 1024 function slots, which it would
-                    // otherwise occupy to no purpose.
-                    if !compiler.would_gain(&values, vm) {
-                        self.tiering.demote(body);
-                        return None;
-                    }
-                    if let Ok(code) = compiler.compile_word(&values, LastCall::Ordinary, cells, vm)
-                    {
-                        self.tiering.insert(body, code);
-                    }
+                // **Not while a compiled body is running — D145, stage 1.**
+                // The compiler's module is being executed from and its tables
+                // are borrowed by that run, so this body waits: it is queued
+                // and compiled when the outermost body has returned. This
+                // entry is interpreted, as the compiling entry always was.
+                if self.running.get() > 0 {
+                    self.defer(body);
+                } else {
+                    self.compile(body, vm);
                 }
                 None
             }
@@ -257,7 +234,12 @@ impl Tier for JitTier {
                 // The handle is `Copy` and inert; the code it names lives in
                 // this tier's own compiler, which is what makes running it
                 // safe. A cache without its compiler simply interprets.
-                let compiler = self.compiler.as_ref()?;
+                //
+                // **A shared borrow, held across the run** — D145. A nested
+                // entry takes another; only compiling needs it exclusively,
+                // and compiling waits for `running` to reach zero.
+                let slot = self.compiler.try_borrow().ok()?;
+                let compiler = slot.as_ref()?;
                 // **§S5's reporter rule, read at each body's entry** — D71,
                 // F137. A body that crosses a call holds values in registers
                 // across it; a native reporting a `Warning` or `Notice` there
@@ -283,24 +265,32 @@ impl Tier for JitTier {
                 {
                     return None;
                 }
+                // D139: the body has a frame while compiled code runs it. Asked
+                // for here, after every way of declining but the floor's, and
+                // the `Vm` removes it when this returns.
+                vm.tier_frame(body);
                 // **A declined body is not a failure** — §S8's Tier 1 floor,
                 // F142. `Ok(false)` says the entry refused to start because
                 // the stack pointer was beneath the floor: nothing ran and
                 // nothing is wrong, so this answers `None` and the caller
                 // interprets the body, exactly as it does for a body that was
-                // never compiled.
+                // never compiled. **Since D145 this is also what ends a
+                // compiled recursion**: each level is a nested entry, and the
+                // one that starts below the floor is interpreted, on the heap.
+                self.running.set(self.running.get().saturating_add(1));
+                let ran = compiler.run(code, vm, values);
+                self.running.set(self.running.get().saturating_sub(1));
+                drop(slot);
+                if self.running.get() == 0 {
+                    self.compile_pending(vm);
+                }
                 // **The count goes here and nowhere else**: `Ok(true)` is
                 // compiled code having run to a return. `Ok(false)` is §S8's
                 // floor declining it, which runs nothing, and a compilation
                 // happens in the arm above without running anything either.
-                // D139: the body has a frame while compiled code runs it. Asked
-                // for here, after every way of declining but the floor's, and
-                // the `Vm` removes it when this returns.
-                vm.tier_frame(body);
-                let ran = compiler.run(code, vm, values);
                 match ran {
                     Ok(true) => {
-                        self.entered = self.entered.saturating_add(1);
+                        self.entered.set(self.entered.get().saturating_add(1));
                         Some(Ok(()))
                     }
                     Ok(false) => None,
@@ -312,12 +302,123 @@ impl Tier for JitTier {
                     // with itself. Compiled code ran until the error; only the
                     // floor's refusal above runs nothing.
                     Err(e) => {
-                        self.entered = self.entered.saturating_add(1);
+                        self.entered.set(self.entered.get().saturating_add(1));
                         Some(Err(e))
                     }
                 }
             }
         }
+    }
+}
+
+/// How many bodies may wait to be compiled at once — D145, and D39's bound on
+/// the queue. A body turned away here is offered again on its next entry.
+const PENDING: usize = 64;
+
+impl JitTier {
+    /// Queue `body` to be compiled once no compiled body is running.
+    fn defer(&self, body: &BundValue) {
+        let Ok(mut pending) = self.pending.try_borrow_mut() else {
+            return;
+        };
+        let key = body.payload_key();
+        if pending.len() < PENDING && !pending.iter().any(|b| b.payload_key() == key) {
+            pending.push(body.clone());
+        }
+    }
+
+    /// Compile what [`JitTier::defer`] queued. Called with nothing running.
+    fn compile_pending(&self, vm: &mut dyn Vm) {
+        let waiting = match self.pending.try_borrow_mut() {
+            Ok(mut pending) if !pending.is_empty() => std::mem::take(&mut *pending),
+            _ => return,
+        };
+        for body in &waiting {
+            // It may have been compiled, demoted or capped since it was
+            // queued; `observe` is not asked again, because that would count
+            // an entry that did not happen.
+            let wanted = self
+                .tiering
+                .try_borrow()
+                .is_ok_and(|t| t.compiled(body).is_none() && !t.is_demoted(body));
+            if wanted {
+                self.compile(body, vm);
+            }
+        }
+    }
+
+    /// Compile `body` and file its code. `None` wherever it was not compiled,
+    /// for any reason; the body is interpreted either way.
+    fn compile(&self, body: &BundValue, vm: &mut dyn Vm) -> Option<()> {
+        // A body whose values cannot be read is not one this tier
+        // compiles; Tier 0 will report whatever is wrong with it.
+        let len = items(body)?.len();
+        if len > 0 {
+            // The module is built on the first promotion and kept for
+            // the tier's life. Failing to build one is treated exactly
+            // as a failed compilation, one line down.
+            let mut slot = self.compiler.try_borrow_mut().ok()?;
+            if slot.is_none() {
+                // The table is cloned rather than moved: the tier may
+                // outlive a compiler that failed to build, and §S6's
+                // fragments are small and built once per `Runtime`.
+                // **Both tables, for the same reason.** §S6's fragments
+                // say what may be inlined; D47/D48's say what may be
+                // crossed. Neither is reachable from a `&mut dyn Vm`,
+                // so both are cloned down from the tier (D68).
+                *slot = Some(
+                    Compiler::with_crossable(self.table.clone(), self.crossable.clone())
+                        .ok()?,
+                );
+            }
+            let compiler = slot.as_mut()?;
+            // **§S6's addressing.** The emitted body loads the request
+            // cell through this address, so a `Vm` that keeps no cells
+            // gets no compiled body — the lowering refuses a zero base
+            // rather than emitting a load from null.
+            let cells = vm.cells().map(bund2_api::Cells::base)?;
+            // A failure to compile is not the program's fault and not
+            // its problem: the body is interpreted, as it would have
+            // been with no tier at all. It is dropped rather than
+            // reported because there is no diagnostic a *user* could
+            // act on, and the body still runs correctly.
+            // **The body itself, not just its length** — §S6's join
+            // decides per value whether to inline, which needs the
+            // values. `items` answered `Some` above, and the body is
+            // cloned because planning borrows `vm` mutably to ask
+            // `inline_site` while `body` borrows it immutably.
+            let values: Vec<BundValue> = items(body)?.to_vec();
+            // **F133: a body the tier cannot help is not compiled.**
+            // Every value that is not an inlined site goes through
+            // `Vm::apply` anyway — Tier 0's own path — with the boundary
+            // added around it, so a body with no site and nothing to
+            // promote is strictly slower compiled: **+24%** measured on
+            // `arith/float_mul/1000`, at 0 sites and 0 promoted.
+            //
+            // The demotion is what makes this affordable. Refusing alone
+            // would leave the counter hot, so every later entry would
+            // re-plan the body to reach the same answer; demoted, it is
+            // turned away at the top of `observe` instead. It also keeps
+            // the body out of §S7's 1024 function slots, which it would
+            // otherwise occupy to no purpose.
+            if !compiler.would_gain(&values, vm) {
+                self.tiering.try_borrow_mut().ok()?.demote(body);
+                return None;
+            }
+            // **Asked before compiling, not after** — D140. `insert`
+            // refuses past the cap, and a function compiled and then
+            // refused would be emitted and counted nowhere. `observe`
+            // already asks on the ordinary path; a queued body reaches
+            // here without it.
+            if !self.tiering.try_borrow().is_ok_and(|t| t.has_room()) {
+                return None;
+            }
+            if let Ok(code) = compiler.compile_word(&values, LastCall::Ordinary, cells, vm)
+            {
+                self.tiering.try_borrow_mut().ok()?.insert(body, code);
+            }
+        }
+        Some(())
     }
 }
 
@@ -2225,6 +2326,240 @@ mod tests {
         }
     }
 
+    // --- D145: a body beneath a compiled body --------------------------------
+
+    /// **F194: a word called from a compiled body runs compiled.** Until D145
+    /// the `Interp` took the tier out of itself for the length of a compiled
+    /// entry, so `w` below was interpreted on every call `v` made once `v` had
+    /// code — and the program RFC-0005's criterion 10 is measured on is that
+    /// shape.
+    ///
+    /// Four calls of `v` at threshold 1. The first compiles `v` and, beneath
+    /// it, `w`, and runs both interpreted. Each of the other three runs `v`
+    /// compiled and `w` compiled beneath it: six entries. Before D145 it was
+    /// three.
+    #[test]
+    fn a_word_beneath_a_compiled_body_runs_compiled() {
+        let mut r = inlining_runtime_with(1);
+        r.eval_str(":w { 1 2 + drop } register\n:v { w 3 4 + } register\n")
+            .expect("setup runs");
+        for _ in 0..4 {
+            r.eval_str("v").expect("runs");
+        }
+        assert_eq!(r.compiled_bodies(), Some(2), "`v` and `w`");
+        assert_eq!(
+            r.compiled_entries(),
+            Some(6),
+            "three compiled entries of `v`, and one of `w` beneath each"
+        );
+        let stack: Vec<Option<i64>> = r.interp.snapshot().iter().map(BundValue::as_int).collect();
+        assert_eq!(stack, vec![Some(7); 4], "and the answer is Tier 0's");
+    }
+
+    /// **D145, stage 1: nothing is compiled while a compiled body runs.** A
+    /// body that earns compilation beneath one is queued, interpreted on that
+    /// entry, and compiled when the outermost has returned.
+    ///
+    /// `v` is warmed with `go` an alias of `drop`. Then `go` is made an alias
+    /// of `w`, a word nothing has entered, so `w`'s first entry — the one
+    /// that earns it code at threshold 1 — happens beneath compiled `v`.
+    #[test]
+    fn a_body_that_gets_hot_beneath_a_compiled_one_is_compiled_afterwards() {
+        let mut r = inlining_runtime_with(1);
+        r.eval_str(":drop :go alias\n:v { 1 2 + drop 0 go } register\n")
+            .expect("setup runs");
+        for _ in 0..3 {
+            r.eval_str("v").expect("the warm-up entries run");
+        }
+        assert_eq!(r.compiled_bodies(), Some(1), "`v` alone so far");
+        let before = r.compiled_entries().unwrap_or(0);
+
+        r.eval_str(":w { 5 6 + drop drop } register\n:w :go alias\n")
+            .expect("the rebind runs");
+        r.eval_str("v").expect("runs");
+        assert_eq!(
+            r.compiled_entries(),
+            Some(before + 1),
+            "`v` ran compiled; `w` beneath it was interpreted, having no code yet"
+        );
+        assert_eq!(
+            r.compiled_bodies(),
+            Some(2),
+            "and `w` was compiled once `v` had returned"
+        );
+
+        r.eval_str("v").expect("runs");
+        assert_eq!(
+            r.compiled_entries(),
+            Some(before + 3),
+            "the next call runs both compiled"
+        );
+        assert_eq!(r.interp.depth(), 0, "every `0` was dropped, by `drop` and then by `w`");
+    }
+
+    /// **The status protocol, one compiled body beneath another** — D145.
+    /// §S5's rules for an exit, an error and `autoadd` were written for
+    /// nested compiled bodies and had only ever run one deep, which the
+    /// twenty-third review lists as an assumption nobody stated.
+    ///
+    /// `v` calls `w` between two inlined sums; `w` ends in `go`. Both are
+    /// warmed with `go` harmless, then `go` is rebound and `v` is called once
+    /// more. Each row requires **two** more compiled entries across that
+    /// call — `v` and `w` beneath it — or it compares Tier 0 with itself.
+    #[test]
+    fn a_nested_compiled_body_ends_as_tier_zero_does() {
+        struct Row {
+            label: &'static str,
+            setup: &'static str,
+            rebind: &'static str,
+            exits: Option<i32>,
+        }
+        let rows = [
+            Row {
+                label: "an exit beneath a compiled body",
+                setup: ":drop :go alias\n\
+                        :w { 1 2 + drop 7 go } register\n\
+                        :v { 3 4 + w 5 6 + } register\n",
+                rebind: ":exit :go alias\n",
+                exits: Some(7),
+            },
+            Row {
+                label: "an error beneath a compiled body",
+                setup: ":drop :go alias\n\
+                        :w { 1 2 + drop true go } register\n\
+                        :v { 3 4 + w 5 6 + } register\n",
+                rebind: ":+ :go alias\n",
+                exits: None,
+            },
+            Row {
+                label: "autoadd turned on and off beneath a compiled body",
+                setup: ":drop :go alias\n\
+                        :w { 1 2 + drop 0 go } register\n\
+                        :v { 3 4 + drop w 5 6 + drop } register\n\
+                        :c { : 7 ; } register\n\
+                        [ 0 ]\n",
+                rebind: ":c :go alias\n",
+                exits: None,
+            },
+        ];
+
+        for row in rows {
+            let run = |r: &mut crate::Runtime| {
+                r.eval_str(row.setup).expect("setup runs");
+                for _ in 0..3 {
+                    r.eval_str("v")
+                        .unwrap_or_else(|e| panic!("{}: warm-up: {}", row.label, e.0));
+                }
+                let before = r.compiled_entries().unwrap_or(0);
+                r.eval_str(row.rebind).expect("the rebind runs");
+                (r.eval_str("v").map_err(|e| norm_msg(&e.0)), before)
+            };
+
+            let mut tiered = inlining_runtime_with(1);
+            let (tier_outcome, before) = run(&mut tiered);
+            assert!(
+                tiered.compiled_entries().unwrap_or(0) >= before + 2,
+                "{}: `v` and `w` must both run compiled on the last call ({before} before, {:?} after)",
+                row.label,
+                tiered.compiled_entries()
+            );
+
+            let mut plain = crate::Runtime::new();
+            plain.take_tier();
+            let (plain_outcome, _) = run(&mut plain);
+
+            assert_eq!(
+                bund2_api::Vm::exit_requested(&plain.interp),
+                row.exits,
+                "{}: what Tier 0 records",
+                row.label
+            );
+            assert_eq!(
+                bund2_api::Vm::exit_requested(&tiered.interp),
+                row.exits,
+                "{}: what the tier records",
+                row.label
+            );
+            // Tier 0 may answer `Ok` after an exit where compiled code answers
+            // the refusal; a program sees neither, so only a row with no exit
+            // compares the outcome.
+            if row.exits.is_none() {
+                assert_eq!(tier_outcome, plain_outcome, "{}: outcome", row.label);
+            }
+            let a = observe(&mut tiered, Ok(()), &SharedReporter::default());
+            let b = observe(&mut plain, Ok(()), &SharedReporter::default());
+            assert_eq!(a.current, b.current, "{}: current stack", row.label);
+            assert_eq!(a.stacks, b.stacks, "{}: stacks", row.label);
+            assert_eq!(a.workbench, b.workbench, "{}: workbench", row.label);
+        }
+    }
+
+    /// **A compiled recursion is turned back by §S8's floor, not by the
+    /// absence of a tier** — D145. Each level of `down` is a compiled body
+    /// entered beneath the last, so the machine stack grows per level until
+    /// one starts below the Tier 1 floor, declines, and is interpreted; from
+    /// there the recursion is on the heap, as RFC-0003's frame loop has it.
+    ///
+    /// **On a thread of its own, with a stack the share is really inside.**
+    /// `declare_share` tells the runtime this thread has 8 MiB; a test thread
+    /// has 2, and a recursion that trusts the declaration would run off it.
+    #[test]
+    fn a_compiled_recursion_stops_at_the_floor_and_goes_on_at_tier_zero() {
+        const STACK: usize = 16 * 1024 * 1024;
+        const LEVELS: i64 = 50_000;
+        let (entries, top) = std::thread::Builder::new()
+            .stack_size(STACK)
+            .spawn(|| {
+                bund2_interp::set_stack_region_with_share(
+                    bund2_interp::stack_marker(),
+                    8 * 1024 * 1024,
+                    1024 * 1024,
+                );
+                let mut r = crate::Runtime::new();
+                let table = bund2_stdlib::fragments::published(&r.interp.registry)
+                    .unwrap_or_default();
+                r.install_tier(Box::new(JitTier::with_fragments(
+                    Caps {
+                        threshold: 1,
+                        ..Caps::default()
+                    },
+                    table,
+                )));
+                // `1 2 + drop` is the site F136 asks for. The comparison and
+                // the subtraction take the top as their first operand, as the
+                // test below this one explains.
+                r.eval_str(":down { 1 2 + drop dup 0 < { 1 swap - down } if } register\n")
+                    .expect("defines");
+                r.eval_str("3 down drop").expect("the entry that compiles it");
+                r.eval_str(&format!("{LEVELS} down")).expect("recurses and returns");
+                (
+                    r.compiled_entries().unwrap_or(0),
+                    r.interp.snapshot().last().and_then(BundValue::as_int),
+                )
+            })
+            .expect("a thread")
+            .join()
+            .expect("the recursion did not take the thread down");
+
+        assert_eq!(top, Some(0), "counted down to zero");
+        assert!(
+            entries > 100,
+            "the recursion must have run compiled, one level beneath another: {entries}"
+        );
+        assert!(
+            usize::try_from(LEVELS).is_ok_and(|n| entries < n),
+            "and the floor must have turned it back before the last level: {entries}"
+        );
+    }
+
+    /// *(D145, 2026-10-10: this test never showed what the paragraph below
+    /// says. It uses `runtime_with`, whose fragment table is empty, and
+    /// `countdown` has no inlinable site besides, so no body in it is ever
+    /// compiled and no tier is involved in the recursion. It is kept as what
+    /// it is — 2,000 levels with a tier installed — and the guard it names is
+    /// gone: `a_compiled_recursion_stops_at_the_floor_and_goes_on_at_tier_zero`
+    /// is the test of what bounds a compiled recursion now.)*
+    ///
     /// **The recursion guard, which is a correctness property and not an
     /// optimisation.** A self-recursive word must not spend a Rust frame per
     /// Bund level: the seam takes the tier out while it runs, so a body entered
@@ -2277,7 +2612,7 @@ mod tests {
         // one that does.
         let table = bund2_stdlib::fragments::published(&crate::Runtime::new().interp.registry)
             .unwrap_or_default();
-        let mut first = JitTier::with_fragments(hot, table.clone());
+        let first = JitTier::with_fragments(hot, table.clone());
         let second = JitTier::with_fragments(hot, table);
 
         // A vocabulary to run against, with its own tier removed so the only
@@ -2297,7 +2632,7 @@ mod tests {
         assert!(first.compiled_words() >= 1, "the first tier compiled it");
         assert_eq!(second.compiled_words(), 0, "the second compiled nothing");
         assert!(
-            second.tiering().compiled(&body).is_none(),
+            second.tiering().expect("nothing holds it").compiled(&body).is_none(),
             "and its cache misses the very body the first tier compiled"
         );
     }

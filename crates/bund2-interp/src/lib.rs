@@ -745,11 +745,19 @@ pub struct Interp {
     /// `bund2-jit`. Consulted in [`Interp::push_frame`], the one place a body
     /// starts running (D42). See [`bund2_api::Tier`] for the contract.
     ///
-    /// **Taken and replaced while it runs**, because the tier needs a
-    /// `&mut dyn Vm` that is this very `Interp`. A re-entrant body entry while
-    /// the tier is out finds `None` and is interpreted, which is correct rather
-    /// than merely convenient: nothing is lost but a compilation opportunity.
-    pub tier: Option<Box<dyn bund2_api::Tier>>,
+    /// *(Until D145:)* **Taken and replaced while it runs**, because the tier
+    /// needs a `&mut dyn Vm` that is this very `Interp`. A re-entrant body
+    /// entry while the tier is out finds `None` and is interpreted, which is
+    /// correct rather than merely convenient: nothing is lost but a
+    /// compilation opportunity.
+    ///
+    /// **Shared, and left in place, since D145.** The paragraph above is how
+    /// it was: the tier was a `Box`, taken out for the length of `enter`. A
+    /// body entered beneath a compiled body then found no tier at all, however
+    /// hot it was (F194). It is an `Rc` now, cloned for the call, so a nested
+    /// entry is offered like any other; §S8's Tier 1 floor, not this field, is
+    /// what stops a compiled recursion from running down the machine stack.
+    pub tier: Option<std::rc::Rc<dyn bund2_api::Tier>>,
 }
 
 impl Default for Interp {
@@ -1361,14 +1369,16 @@ impl Interp {
         // unrestored. Both conditions are cheap and neither is a special case:
         // they are the same rule the cache keys on.
         //
-        // The tier is **taken and replaced** because `enter` needs a
-        // `&mut dyn Vm` that is this `Interp`. While it is out, a re-entrant
-        // body entry sees `None` and is interpreted — correct, and it costs
-        // only a compilation opportunity.
+        // The tier is **cloned for the call and left in place** — D145. It
+        // was taken out and put back, because `enter` needs a `&mut dyn Vm`
+        // that is this `Interp`; while it was out a body entered beneath a
+        // compiled one saw `None` and was interpreted, however hot (F194).
+        // An `Rc` and a `&self` method give `enter` the same `Interp` without
+        // hiding the tier from what it calls.
         if exit.is_none()
             && body.payload_key().is_some()
             && !self.tier_off
-            && let Some(mut tier) = self.tier.take()
+            && let Some(tier) = self.tier.clone()
         {
             // **D139: a compiled body has a frame while it runs.** The tier
             // asks for one through `Vm::tier_frame` when it is about to run
@@ -1376,14 +1386,19 @@ impl Interp {
             // a body the tier declines after asking is pushed afresh below,
             // and one that failed leaves nothing above the caller's floor.
             // It carries no exit action: a body with one is never offered.
+            //
+            // **Saved and restored, not cleared** — D145. This entry may be
+            // beneath a compiled body that has a frame of its own, and
+            // `Vm::tier_at` must go on writing to that one once this returns.
             let depth = self.frames.len();
-            self.tier_entry = Some(who);
+            let outer_entry = self.tier_entry.replace(who);
+            let outer_shadow = self.tier_shadow.take();
             let answered = tier.enter(&body, self);
-            self.tier = Some(tier);
-            self.tier_entry = None;
             if self.tier_shadow.take().is_some() {
                 self.frames.truncate(depth);
             }
+            self.tier_entry = outer_entry;
+            self.tier_shadow = outer_shadow;
             if let Some(outcome) = answered {
                 // Compiled code ran it. No frame: the caller's `run_to` finds
                 // nothing to do, which is how a body that ran without a frame
@@ -3374,7 +3389,7 @@ mod tests {
     }
 
     impl bund2_api::Tier for FakeTier {
-        fn enter(&mut self, body: &BundValue, vm: &mut dyn Vm) -> Option<Result<(), Error>> {
+        fn enter(&self, body: &BundValue, vm: &mut dyn Vm) -> Option<Result<(), Error>> {
             if let Some(k) = body.payload_key() {
                 self.offered.borrow_mut().push(k);
             }
@@ -3390,7 +3405,7 @@ mod tests {
     fn with_tier(answer: Option<Result<(), Error>>) -> (Interp, std::rc::Rc<std::cell::RefCell<Vec<usize>>>) {
         let offered = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let mut i = Interp::new();
-        i.tier = Some(Box::new(FakeTier {
+        i.tier = Some(std::rc::Rc::new(FakeTier {
             offered: std::rc::Rc::clone(&offered),
             answer,
         }));

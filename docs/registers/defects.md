@@ -4074,6 +4074,11 @@ directions, so no golden moves. Letting a compiled body's callee run
 compiled is a change to the seam and to §S8's bound, and it is a decision:
 it belongs with D142, which this was found for.
 
+*Note, 2026-10-10 — **FIX, by D145**, the same day.* A body entered beneath
+a compiled body is offered to the tier and runs compiled if it has code.
+The program above reports 1,997,952 compiled entries and reads 1.42× to
+1.43×.
+
 ## F193 — `conform` printed no compiled total and failed no `jit` run
 
 **A Bund2 defect, found 2026-10-10** by RFC-0005's twenty-third review, B5.
