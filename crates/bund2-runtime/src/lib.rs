@@ -39,6 +39,14 @@ pub struct Runtime {
     /// The interpreter. Public because an embedder needs its stacks, registry
     /// and reporter, exactly as the CLI does today.
     pub interp: Interp,
+    /// **A defect found while assembling the runtime, kept until there is a
+    /// reporter to give it to** — RFC-0005 §S6, the twenty-third review's S5.
+    ///
+    /// `build` runs before an embedder has installed its reporter, so a
+    /// report made there would go to the default one, which discards.
+    /// [`Runtime::take_startup_defect`] hands it over; [`Runtime::eval_str`]
+    /// reports it itself before the first line runs.
+    startup_defect: Option<Error>,
 }
 
 impl Default for Runtime {
@@ -201,6 +209,8 @@ impl Runtime {
         // run, an environment variable about the shell it happened to run in.
         let threshold = threshold.or_else(threshold_from_env);
         let mut interp = Interp::new();
+        #[cfg_attr(not(feature = "jit"), allow(unused_mut))]
+        let mut startup_defect = None;
         bund2_stdlib::register_all_with(&mut interp.registry, opts);
         // RFC-0008 §W2: the interpreter has no parser, so the line a console
         // is handed at a stop is run by the vocabulary's own `bund.eval`.
@@ -213,7 +223,22 @@ impl Runtime {
             // empty, every site would compile generic, and nothing would report
             // why. `published` takes a `&Registry`, which this crate has and a
             // tier does not (D9 keeps `Fragment` out of `bund2-api`).
-            let table = bund2_stdlib::fragments::published(&interp.registry).unwrap_or_default();
+            //
+            // **A malformed fragment is kept and reported, not swallowed.**
+            // `published` returns a `Result` so that this consumer can say
+            // so (D37); `unwrap_or_default` here turned it into the empty
+            // table the paragraph above warns about.
+            let table = match bund2_stdlib::fragments::published(&interp.registry) {
+                Ok(table) => table,
+                Err(e) => {
+                    startup_defect = Some(Error::internal(format!(
+                        "a fragment `bund2-stdlib` publishes is malformed ({e}), so the tier \
+                         has no fragment table and will inline nothing; programs run \
+                         correctly and no faster than without the tier"
+                    )));
+                    Vec::new()
+                }
+            };
             // **D47 and D48's table, taken at the same moment and for the same
             // reason** (D68). `promotable::crossable` keys on the registration
             // ids `register_all_with` just minted, so it must be taken after
@@ -238,11 +263,18 @@ impl Runtime {
             // carries F143's generation compare and D73's epoch compare and
             // those exceed the push and pop they avoid. Restoring it is this
             // one call.
-            interp.tier = Some(std::rc::Rc::new(JitTier::with_fragments(caps, table)));
+            interp.install_tier(std::rc::Rc::new(JitTier::with_fragments(caps, table)));
         }
         #[cfg(not(feature = "jit"))]
         let _ = (threshold, tier);
-        Self { interp }
+        Self { interp, startup_defect }
+    }
+
+    /// The defect `build` found, if any, once. An embedder that drives
+    /// `interp` directly reports it after installing its reporter, as the CLI
+    /// does; one that uses [`Runtime::eval_str`] need not ask.
+    pub fn take_startup_defect(&mut self) -> Option<Error> {
+        self.startup_defect.take()
     }
 
     /// **The threshold the tier is actually using**, so a report can name it.
@@ -254,7 +286,7 @@ impl Runtime {
     /// --stats` prints this beside the compiled-body count.
     #[cfg(feature = "jit")]
     pub fn jit_threshold(&self) -> Option<u32> {
-        self.interp.tier.as_ref().and_then(|t| t.threshold())
+        self.interp.tier().and_then(|t| t.threshold())
     }
 
     /// `None` without the feature: there is no tier to configure.
@@ -268,6 +300,10 @@ impl Runtime {
     /// Parse failures and evaluation failures arrive the same way, as the CLI
     /// reports them.
     pub fn eval_str(&mut self, src: &str) -> Result<(), Error> {
+        // A `Warning`: the program runs, and runs correctly (D36).
+        if let Some(e) = self.startup_defect.take() {
+            bund2_api::Vm::report(&mut self.interp, bund2_api::diag::Diagnostic::warning(e.0));
+        }
         let stream = bund2_syntax::compile(src).map_err(|e| Error(format!("{e:?}")))?;
         self.interp.eval(&stream)
     }
@@ -279,7 +315,7 @@ impl Runtime {
     /// while they are installed. Put it back with [`Runtime::install_tier`].
     #[cfg(feature = "jit")]
     pub fn take_tier(&mut self) -> Option<std::rc::Rc<dyn bund2_api::Tier>> {
-        self.interp.tier.take()
+        self.interp.take_tier()
     }
 
     /// **How many bodies the tier has compiled** — RFC-0005 criterion 2's
@@ -302,48 +338,87 @@ impl Runtime {
         // Asked through the trait object the `Interp` holds: a `Box<dyn Tier>`
         // cannot be narrowed back to a `JitTier`, so the figure comes from a
         // defaulted trait method rather than a downcast.
-        self.interp.tier.as_ref().and_then(|t| t.compiled_bodies())
+        self.interp.tier().and_then(|t| t.compiled_bodies())
     }
 
     /// **How many sites the tier inlined** — the figure that makes a timing
     /// attributable. See [`bund2_api::Tier::inlined_sites`].
     pub fn inlined_sites(&self) -> Option<usize> {
-        self.interp.tier.as_ref().and_then(|t| t.inlined_sites())
+        self.interp.tier().and_then(|t| t.inlined_sites())
     }
 
     /// **How many values the tier promoted** — the third figure a timing needs
     /// to be attributable. See [`bund2_api::Tier::promoted_values`].
     pub fn promoted_values(&self) -> Option<usize> {
-        self.interp.tier.as_ref().and_then(|t| t.promoted_values())
+        self.interp.tier().and_then(|t| t.promoted_values())
     }
 
     /// Values across every compiled body — the denominator for the three
     /// figures above. See [`bund2_api::Tier::compiled_values`], F136.
     pub fn compiled_values(&self) -> Option<usize> {
-        self.interp.tier.as_ref().and_then(|t| t.compiled_values())
+        self.interp.tier().and_then(|t| t.compiled_values())
     }
 
     /// Bodies the promotion counter is tracking — §S7's counter, criterion 20.
     /// See [`bund2_api::Tier::counted_bodies`].
     pub fn counted_bodies(&self) -> Option<usize> {
-        self.interp.tier.as_ref().and_then(|t| t.counted_bodies())
+        self.interp.tier().and_then(|t| t.counted_bodies())
     }
 
     /// Calls promotion may cross — D68. See [`bund2_api::Tier::crossed_calls`].
     pub fn crossed_calls(&self) -> Option<usize> {
-        self.interp.tier.as_ref().and_then(|t| t.crossed_calls())
+        self.interp.tier().and_then(|t| t.crossed_calls())
     }
 
     /// **How many entries compiled code actually ran** — see
     /// `bund2_api::Tier::compiled_entries`. The only figure here that reports
     /// what *ran* rather than what the compiler did.
     pub fn compiled_entries(&self) -> Option<usize> {
-        self.interp.tier.as_ref().and_then(|t| t.compiled_entries())
+        self.interp.tier().and_then(|t| t.compiled_entries())
     }
 
     /// Install a tier, replacing any already there.
     #[cfg(feature = "jit")]
     pub fn install_tier(&mut self, tier: Box<dyn bund2_api::Tier>) {
-        self.interp.tier = Some(std::rc::Rc::from(tier));
+        self.interp.install_tier(std::rc::Rc::from(tier));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug)]
+    struct Keeping(std::rc::Rc<std::cell::RefCell<Vec<String>>>);
+
+    impl bund2_api::diag::Reporter for Keeping {
+        fn report(&mut self, d: &bund2_api::diag::Diagnostic) {
+            self.0.borrow_mut().push(d.reason.clone());
+        }
+    }
+
+    /// **A defect found while the runtime was assembled reaches the reporter
+    /// installed afterwards, once** — the twenty-third review's S5.
+    ///
+    /// `fragments::published` cannot be made to fail from here: its three
+    /// fragments are constants and each validates. So the defect is put where
+    /// `build` would put it, and what is tested is everything after that —
+    /// that it waits for a reporter, is reported as a warning before the first
+    /// line runs, says it is Bund2's, and does not stop the program.
+    #[test]
+    fn a_startup_defect_waits_for_the_reporter_and_is_reported_once() {
+        let mut rt = Runtime::new();
+        assert!(rt.startup_defect.is_none(), "the shipped fragments are well formed");
+        rt.startup_defect = Some(Error::internal("a fragment is malformed"));
+
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        rt.interp.reporter = Box::new(Keeping(std::rc::Rc::clone(&seen)));
+        rt.eval_str("1 2 +").expect("the program still runs");
+        rt.eval_str("drop").expect("and goes on");
+
+        let seen = seen.borrow();
+        assert_eq!(seen.len(), 1, "{seen:?}");
+        assert!(seen[0].starts_with("internal error: a fragment is malformed"), "{seen:?}");
+        assert!(rt.take_startup_defect().is_none(), "reported, so nothing is left to take");
     }
 }

@@ -958,8 +958,7 @@ fn compile_warm(_: &mut Criterion) {}
 /// tier, which is what the feature-off half of the A/B sees.
 #[cfg(feature = "jit")]
 fn compiled_bodies(i: &Interp) -> usize {
-    i.tier
-        .as_ref()
+    i.tier()
         .and_then(|t| bund2_api::Tier::compiled_bodies(t.as_ref()))
         .unwrap_or(0)
 }
@@ -994,6 +993,27 @@ fn lambda(c: &mut Criterion) {
         &format!(":inc {{ 1 + }} register 0 {}drop", "inc ".repeat(500)),
     );
     timed_eval(&mut g, "apply_lambda/500", &"{ 1 } apply drop ".repeat(500));
+    g.finish();
+}
+
+/// **A body the tier refuses, entered long after it was refused** — F201,
+/// D146, and the row RFC-0005's criterion 7 had no group for.
+///
+/// `1 2 swap clear` has no site the tier can inline, so the body is planned
+/// once at the threshold, refused and demoted (F136), and every entry after
+/// that is one the tier adds nothing to. Until D146 each of them was still
+/// offered, at about 120 instructions; this is where that would show again.
+/// `word` enters two refused bodies a turn, the loop's and the word's, and
+/// `loop_body` one. Both run well past the shipped threshold, so most of
+/// what is timed is the refused state and not the road to it.
+fn refused(c: &mut Criterion) {
+    let mut g = c.benchmark_group("refused");
+    timed_eval(&mut g, "loop_body/20000", "20000 { 1 2 swap clear } times");
+    timed_eval(
+        &mut g,
+        "word/20000",
+        ":g { 1 2 swap clear } register 20000 { g } times",
+    );
     g.finish();
 }
 
@@ -1716,6 +1736,7 @@ criterion_group!(
     gain_size,
     guard_cost,
     lambda,
+    refused,
     corpus,
     rendering
 );

@@ -369,6 +369,19 @@ mod honesty_tests {
         intact: bool,
         breaches: Vec<String>,
         observed: Vec<String>,
+        /// Whether the native reported anything through `Vm::report` — S4.
+        reported: bool,
+    }
+
+    /// A reporter that only notes it was called. `Interp::reporter` is a
+    /// `Box<dyn Reporter>`, so the note is shared rather than read back.
+    #[derive(Debug)]
+    struct Noting(std::rc::Rc<std::cell::Cell<bool>>);
+
+    impl bund2_api::diag::Reporter for Noting {
+        fn report(&mut self, _: &bund2_api::diag::Diagnostic) {
+            self.0.set(true);
+        }
     }
 
     impl Run {
@@ -459,6 +472,8 @@ mod honesty_tests {
             i.push_workbench(v.clone());
         }
         i.effect_audit = Some(Vec::new());
+        let reported = std::rc::Rc::new(std::cell::Cell::new(false));
+        i.reporter = Box::new(Noting(std::rc::Rc::clone(&reported)));
         let r = i.eval_indexed(&[BundValue::call(name)]);
         let breaches = i.effect_audit.take().unwrap_or_default();
         let observed = i.observations.take();
@@ -485,6 +500,7 @@ mod honesty_tests {
                 .collect(),
             breaches,
             observed,
+            reported: reported.get(),
         }
     }
 
@@ -626,6 +642,7 @@ mod honesty_tests {
         let mut breaches = std::collections::BTreeSet::new();
         let mut reached = std::collections::BTreeSet::new();
         // D55: natives seen reading beyond their operands, with why.
+        let mut reporters = std::collections::BTreeSet::new();
         let mut observers: std::collections::BTreeMap<String, String> =
             std::collections::BTreeMap::new();
         // What lies beneath the operands: the usual padding, and other values
@@ -682,6 +699,9 @@ mod honesty_tests {
                         reached.insert(name.clone());
                     }
                     for r in [&a1, &a2, &b, &c] {
+                        if r.reported {
+                            reporters.insert(name.clone());
+                        }
                         breaches.extend(r.breaches.iter().cloned());
                         if let Some(o) = r.observed.first() {
                             observers.entry(name.clone()).or_insert_with(|| o.clone());
@@ -739,6 +759,23 @@ mod honesty_tests {
             breaches.is_empty(),
             "{} breach(es) of a declared effect, first 20:\n{shown:#?}",
             breaches.len()
+        );
+
+        // **D71's list against what ran — the twenty-third review's S4.**
+        // `promotable::REPORTS_MID_BODY` is kept by hand and F157 is what that
+        // cost: a reporting native was certified crossable. Every native this
+        // audit runs has a fixed effect, so one that reported here is one D68
+        // does not refuse, and it has to be on the list. One-directional: a
+        // listed word that stayed quiet under this palette (`alias`, or a
+        // `log.*` word beneath the threshold) is not a failure.
+        let unlisted: Vec<&String> = reporters
+            .iter()
+            .filter(|n| !crate::promotable::reports_mid_body(n))
+            .collect();
+        assert!(
+            unlisted.is_empty(),
+            "fixed-effect natives reported through `Vm::report` and are not in \
+             `promotable::REPORTS_MID_BODY`: {unlisted:?}"
         );
 
         // D55: a native seen reading beyond its operands is never crossed.
@@ -828,6 +865,59 @@ mod honesty_tests {
             "PROMOTABLE.txt is stale: now reached {gained:?}, no longer reached {lost:?}; \
              of those, D55 observers: {why:#?}"
         );
+    }
+
+    /// **RFC-0005 assumption 27, checked.** Every scan in this module cuts a
+    /// file at its first `#[cfg(test)]` module and reads what precedes it, so
+    /// shipped code after a test module is code no scan sees. `world.rs` had
+    /// five functions there and `console.rs` one (the twenty-third review's
+    /// S2). After the first test module, the only items a file may open at
+    /// column 0 are further test modules.
+    #[test]
+    fn nothing_shipped_follows_a_test_module() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut dirs = vec![src.clone()];
+        let mut found = Vec::new();
+        let mut files = 0usize;
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).expect("src exists") {
+                let path = entry.expect("entry").path();
+                if path.is_dir() {
+                    dirs.push(path);
+                    continue;
+                }
+                if path.extension().is_none_or(|x| x != "rs") {
+                    continue;
+                }
+                files += 1;
+                let text = std::fs::read_to_string(&path).expect("reads");
+                let Some((_, after)) = text.split_once("#[cfg(test)]\nmod ") else {
+                    continue;
+                };
+                let mut gated = false;
+                for line in after.lines().skip(1) {
+                    // By keyword rather than "anything at column 0": a test's
+                    // multi-line string literal puts Bund source there.
+                    const OPENERS: [&str; 12] = [
+                        "fn ", "pub ", "const ", "static ", "struct ", "enum ", "impl", "type ",
+                        "use ", "mod ", "macro_rules!", "#[",
+                    ];
+                    if !OPENERS.iter().any(|o| line.starts_with(o)) {
+                        continue;
+                    }
+                    if line == "#[cfg(test)]" {
+                        gated = true;
+                        continue;
+                    }
+                    if !(gated && line.starts_with("mod ")) {
+                        found.push(format!("{}: {line}", path.display()));
+                    }
+                    gated = false;
+                }
+            }
+        }
+        assert!(files > 20, "the scan found {files} files; it is looking in the wrong place");
+        assert!(found.is_empty(), "shipped code after a test module, unseen by the scans: {found:#?}");
     }
 
     /// **Criterion 25.** No shipped code in this crate reports at `Error`
@@ -979,17 +1069,30 @@ mod honesty_tests {
     ///
     /// `promotable::SWITCHES_STACK` keeps these out of the crossable table, and
     /// this is what stops that list going stale: shipped code that gains a
-    /// ninth switcher fails here until someone names it and decides whether it
+    /// new switcher fails here until someone names it and decides whether it
     /// is reachable as a crossed call.
     ///
     /// A source scan, cut at each file's test module as criterion 25's is, and
     /// descending into subdirectories as criterion 11's does.
     #[test]
     fn every_native_that_changes_the_current_stack_is_named() {
-        const SWITCHES: [&str; 8] = [
+        const SWITCHES: [&str; 19] = [
             // Restores the stack it came from, but a scan cannot tell that and
             // the gate does not lean on it.
             "conditional.rs: endcontext",
+            // **F195.** These push to, create or drop a stack by name. A stack
+            // a push or an `ensure` creates becomes current (F89), and
+            // dropping the current one moves the front.
+            "singles.rs: conditional_move",
+            "stack.rs: drop_stack",
+            "stack.rs: dup_many_in",
+            "stack.rs: dup_one_in",
+            "stack.rs: ensure_stack",
+            "stack.rs: ensure_stack_with_capacity",
+            "stack.rs: fold_stack",
+            "stack.rs: move_from",
+            "stack.rs: move_word",
+            "stack.rs: return_to",
             "stack.rs: rotate_stack_left",
             "stack.rs: rotate_stack_right",
             // The two that F140 is actually about: `eff(0, 0)`, so a crossing
@@ -999,12 +1102,20 @@ mod honesty_tests {
             "stack.rs: swap_in",
             "stack.rs: to_current",
             "stack.rs: to_stack",
+            "world.rs: load_stacks",
         ];
         const QUALIFIERS: [&str; 5] = ["pub", "const", "unsafe", "async", "extern"];
-        const SWITCHERS: [&str; 3] = [
+        const SWITCHERS: [&str; 7] = [
             ".to_stack(",
             ".rotate_stacks_left(",
             ".rotate_stacks_right(",
+            // A stack these create becomes current (F89), and dropping the
+            // current one moves the front. The scan did not look for them
+            // until F195.
+            ".ensure_stack(",
+            ".ensure_stack_with_capacity(",
+            ".push_to(",
+            ".drop_stack(",
         ];
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut found = std::collections::BTreeSet::new();

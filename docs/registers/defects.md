@@ -4033,6 +4033,230 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F201 — a body the tier refuses still costs about 120 instructions each time it is entered
+
+**A Bund2 defect of speed, not of meaning; measured 2026-10-11** while
+re-reading RFC-0005's criterion 7 for its twenty-third review (S10). D142's
+note saw it through the clock on 2026-10-10, as "3% to 7%" for a `jit` build
+that compiles nothing.
+
+A body with no inlinable site is planned once, refused and demoted (F136).
+It is still a body with a key and no exit action, so `Interp::push_frame`
+offers every later entry of it to the tier (`crates/bund2-interp/src/lib.rs`):
+the tier is cloned, `Tier::enter` is called through the trait object, and
+`Tiering::observe` finds the body in its demoted set and answers
+`Decision::Interpret` (`crates/bund2-jit/src/cache.rs`). Nothing in that is
+wasteful by itself and the sum is about 120 instructions.
+
+By D117's method — instructions retired, two release binaries of one tree,
+median of five, the empty program subtracted, each program 300,000 turns
+inside `times`:
+
+| program | no tier | `jit` | change |
+|---|---|---|---|
+| `1 2 swap clear` | 1,051.4 M | 1,088.1 M | +3.5% |
+| `g`, where `:g { 1 2 swap clear } register` | 1,299.4 M | 1,371.3 M | +5.5% |
+
+`--stats` reports 0 bodies compiled for both. The first enters one refused
+body a turn and the second two. RFC-0005's criterion 7 allows 5%, and names
+groups — `startup`, `value`, `dispatch`, `arith`, `corpus` — none of which
+shows this, so the criterion as written is met and does not see it. The same day's reading of those groups is under the
+criterion. Of the 120, the registry check F197 added is about 4.
+
+**Disposition: recorded, not fixed.** Meaning is unchanged, so no golden
+moves. What would remove most of it is letting the tier answer "do not offer
+this body again" and having `push_frame` remember that, before it clones the
+tier. That changes `Tier::enter`'s contract, which D42 and D145 fix, and it
+needs a rule for what the memory is keyed on and when it is forgotten — a
+remembered address that a new body later reuses would keep that body
+interpreted, which is safe and is still a thing to decide. So it is a
+decision and is not taken here.
+
+*Note, 2026-10-11 — fixed, under D146.* The owner ruled for the remembered
+refusal. A demoted body is offered twice in all — once to be planned and
+refused, once to be told so — and not again while the tier stands. By the
+method above, the same two programs read +0.6% and +0.8% against no tier,
+where they read +3.5% and +5.5%; a compiled entry pays about 5 instructions
+for it, or 12 once any body has been declined. D146 has the table, what was
+built, and how it differs from what this entry proposed: the tier says so
+through `Vm::tier_never` and `Tier::enter`'s contract is as it was.
+
+## F200 — a malformed fragment disabled all inlining and said nothing
+
+**A Bund2 defect, latent; found 2026-10-10** by RFC-0005's twenty-third
+review (S5).
+
+`fragments::published` returns a `Result` because a malformed fragment is a
+defect in Bund2 and shipped code may not `expect` (D37): "the error travels
+to the caller, which is the consumer best placed to report it"
+(`crates/bund2-stdlib/src/fragments.rs`). Its one shipped consumer, `build`
+in `crates/bund2-runtime/src/lib.rs`, called it with `unwrap_or_default`,
+four lines under a comment warning that an empty table means "every site
+would compile generic, and nothing would report why". Latent: the three
+published fragments are constants and each validates.
+
+**Status:** FIXED 2026-10-11. `build` keeps the error as an
+`Error::internal` in `Runtime`'s `startup_defect`, because it runs before an
+embedder has installed a reporter and the default one discards.
+`take_startup_defect` hands it over, which is what the CLI does after
+installing its reporter, and `eval_str` reports it as a warning before the
+first line. The tier is installed with an empty table, so programs run
+correctly and no faster.
+`a_startup_defect_waits_for_the_reporter_and_is_reported_once` pins what
+follows the failure; the failure itself cannot be produced from outside
+`fragments`.
+
+## F199 — five source scans did not read shipped code that follows a test module
+
+**A Bund2 defect in its own checks; found 2026-10-10** by RFC-0005's
+twenty-third review (S2).
+
+The scans in `crates/bund2-stdlib/src/lib.rs` cut each file at its first
+`#[cfg(test)]` module and read what precedes it, on RFC-0005's assumption 27
+that the test module comes last. In `world.rs` it did not: `load_lambdas`,
+`load_stacks`, `bootstrap`, `save_script` and `load_script` followed it. In
+`console.rs` `debug_dump` followed the first of two. So
+`every_terminal_read_goes_through_the_two_helpers`,
+`no_native_reports_at_error_severity`, `every_native_reporting_mid_body_is_named`,
+`every_native_that_changes_the_current_stack_is_named` and
+`every_reentering_function_is_named` passed without having read those six
+functions.
+
+**Status:** FIXED 2026-10-11. Both test modules are moved to the end of
+their files, and `nothing_shipped_follows_a_test_module` fails for any file
+in the crate that opens an item after its first test module, so the
+assumption is checked. With the six functions in view the five scans still
+pass as they stood. Looking for why `load_stacks` did not trip the
+stack-switch scan found F195.
+
+## F198 — the current stack could be moved without the epoch cell hearing of it
+
+**A Bund2 defect, latent; found 2026-10-10** by RFC-0005's twenty-third
+review (S1).
+
+Compiled code learns that the current stack changed by re-reading
+`Cells::epoch` (RFC-0005 §S5). RFC-0005's assumption 40 called that
+structural: "`Stacks::order` is private … a switch that does not bump cannot
+be written". Two things made it nominal. `Stacks` and `Interp` shared a
+module, so `Interp` could write `order` directly. And the counter `Stacks`
+bumped was not the cell: `Interp` copied one to the other by hand, in
+`publish_epoch`, after each of five calls, while `Interp`'s `stacks` field
+and `Stacks::to_stack` were both `pub`. `interp.stacks.to_stack("x")` from
+any crate moved the front and left the cell where it was. No shipped code
+did.
+
+**Status:** FIXED 2026-10-11. `Stack` and `Stacks` have a module of their own
+(`crates/bund2-interp/src/stacks.rs`), so `order` and `epoch` are private to
+the code that keeps them in step. Every function that moves the front takes
+the cells and `bump_epoch` writes the cell in the statement that moves the
+counter, so there is nothing to copy and `publish_epoch` is gone. `Interp`'s
+field is private, with `Interp::stacks` to read through; outside the crate
+the current stack moves through `Vm` and no other way. The two epoch tests
+pass unchanged.
+
+## F197 — a registry assigned under an installed tier left compiled code reading freed cells
+
+**A Bund2 defect of memory safety, reachable by an embedder and by no
+shipped caller; found 2026-10-10** by RFC-0005's twenty-third review (S6).
+
+An inlined site's meaning guard loads a generation cell by address, and the
+cells belong to the `Registry` (`Registry::generation_cell`,
+`crates/bund2-api/src/lib.rs`). `Interp`'s `registry` is a `pub` field, and
+that function's own documentation says what assigning it does: "replaces the
+cells wholesale". So `interp.registry = other` under a tier freed the cells
+that compiled code held addresses of, and the cache went on answering for
+any body value the new registry shared with the old. RFC-0005 §S6 says "the
+cells outlive every compiled function", which holds for `Cells` and did not
+for these. A second fault rode with it: the fragment table is keyed by
+registration ids, and those are a per-registry counter, so in another
+registry the same id is another native.
+
+Demonstrated before the fix, with the check disabled: `f` compiled with `+`
+inlined, the registry replaced by one whose `+` is a test native, and `f`
+entered compiled five times against cells the first registry had freed. The
+guard happened to fail and the result was right, which is luck.
+
+**Status:** FIXED 2026-10-11. A `Registry` has an identity
+(`RegistryIdentity`); a clone is a different registry. `Interp::install_tier`
+records the identity of the registry the tier is installed for, the `tier`
+field is private so nothing installs one any other way, and `push_frame`
+compares before it offers a body. A tier whose registry has gone is removed,
+once, with a warning, and every body is Tier 0 from there. The check is at
+the offer and that is enough: only a holder of `&mut Interp` can assign the
+registry, evaluation holds that for as long as it runs, and a native or a
+tier is given `&mut dyn Vm`, which has no method that replaces it. So no
+compiled body is on the stack when it happens. Tests:
+`a_tier_is_removed_when_its_registry_is_replaced`,
+`a_tier_survives_registrations_and_reinstalling`,
+`a_registry_is_itself_and_no_clone_is` and, end to end,
+`a_replaced_registry_is_run_at_tier_zero`.
+
+## F196 — a nested payload aborted the process where it was decoded
+
+**A Bund2 defect under D37; found 2026-10-10** by RFC-0005's twenty-third
+review (S3), which read it and did not run it. Run 2026-10-11.
+
+F118 bounded *writing* a value to the wire at `MAX_WIRE_DEPTH` and recorded
+that reading could not be bounded: "bincode builds the whole nested
+`WireValue` before any code here runs" (`crates/bund2-value/src/wire.rs`).
+That left every payload `to_binary` did not write. `decode.base64` hands
+`from_binary` bytes from a program's own string, and `bus` `recv`,
+`load.lambdas`, `load.stacks` and `load.model` reach it from a file or a
+channel. A payload of 100,000 nested one-element lists, assembled from
+bytes, overflowed the stack inside the derived `Deserialize` and the process
+aborted.
+
+**Status:** FIXED 2026-10-11. `WireValue`'s `Deserialize` is written by hand
+over a `remote` derive and counts each level before it descends, so a
+payload past `MAX_WIRE_DEPTH` is an error from `from_binary` and not an
+abort. F118's sentence is true of code that runs after the decode and not of
+the type's own deserialiser, which runs during it.
+`a_payload_nested_past_the_bound_is_refused_not_decoded` decodes the
+100,000-level payload on a 2 MiB thread.
+
+**The margin above the bound is thinner than F118's table says, and was
+before this change.** F118 records that a debug build on a 2 MiB thread
+aborts at 512 levels. Measured 2026-10-11 by raising the constant and running
+`a_value_at_the_bound_survives_the_wire_on_a_small_thread`: the committed
+code passes at 280 and aborts at 290; with this change it passes at 270 and
+aborts at 280. The bound is 256. A release build has several times the room.
+A `deserialize_with` on the two nesting fields was tried first and cost
+more: it aborted below 300 on the decode alone. The bound is left where it
+is, since lowering it would refuse values Bund2 has already written.
+
+## F195 — the stack-switch scan missed three ways of moving the current stack
+
+**A Bund2 defect, dormant while D75 stands; found 2026-10-11** while fixing
+F199.
+
+D73 keeps a native that changes the current stack out of the crossable
+table, by name (`SWITCHES_STACK`, `crates/bund2-stdlib/src/promotable.rs`),
+and `every_native_that_changes_the_current_stack_is_named`
+(`crates/bund2-stdlib/src/lib.rs`) is what stops that list going stale. The
+scan looked for calls of `Vm::to_stack` and the two rotations. It did not
+look for `Vm::ensure_stack`, `Vm::push_to` or `Vm::drop_stack`, and each
+can move the front too: a stack that an `ensure` or a named push creates
+becomes current (F89), and dropping the current stack leaves another in its
+place. Eleven functions were unseen. Nine could not be crossed anyway: their
+effects are opaque, or D55's audit kept them off `PROMOTABLE.txt`.
+`ensure_stack` and `ensure_stack_with_capacity` declare fixed effects and
+are on that list, so every gate admitted them.
+
+**What stood between them and F140 was not a rule.** Both take the stack's
+name as an operand, a name is not a promotable literal, and pushing one
+syncs everything first, so nothing is held across the call today.
+`SWITCHES_STACK`'s documentation says the same of `to_stack` and names it
+regardless: "a consequence of what happens to be promotable, not a rule,
+and it would go quietly if that ever changed". These two were owed the same
+entry and had none.
+
+Nothing shipped crosses a call (D75), so no program was affected.
+
+**Status:** FIXED 2026-10-11. The scan looks for all seven calls and names
+nineteen functions; `SWITCHES_STACK` names their twenty-one words, and
+`a_native_that_changes_the_current_stack_is_not_crossable` asserts the two
+that mattered.
+
 ## F194 — a hot word called from a compiled body is never run compiled
 
 **A Bund2 defect of speed, not of meaning; found 2026-10-10** by the

@@ -174,57 +174,6 @@ pub fn register(r: &mut Registry) {
     r.register_native("debug.dump", debug_dump, eff(1, 1), WordKind::Sync);
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The two lines every golden ends with, twice over, when a program
-    /// leaves nothing behind.
-    #[test]
-    fn an_empty_stack_is_a_zero_width_box() {
-        assert_eq!(draw_box_rows(&[]), "╭╮\n╰╯");
-    }
-
-    /// The box, byte-for-byte, against bytes lifted out of a golden.
-    ///
-    /// These are `tests/golden/tests/string_concatenation.golden:8-12` with
-    /// the two long renderings replaced by short stand-ins — what is under
-    /// test is the frame, not what goes in the cells. The dashed `├╌╌┤` row
-    /// separator is the tell that `UTF8_ROUND_CORNERS` was applied: plain
-    /// `UTF8_FULL` draws it solid.
-    #[test]
-    fn a_non_empty_stack_is_a_rounded_table() {
-        assert_eq!(
-            draw_box_rows(&["alpha".to_string(), "bb".to_string()]),
-            concat!(
-                "╭───────╮\n",
-                "│ alpha │\n",
-                "├╌╌╌╌╌╌╌┤\n",
-                "│ bb    │\n",
-                "╰───────╯",
-            )
-        );
-    }
-
-    /// One row per value, in stack order, and the box is as wide as the
-    /// widest. A single row gets no separator at all.
-    #[test]
-    fn one_row_has_no_separator() {
-        assert_eq!(
-            draw_box_rows(&["x".to_string()]),
-            "╭───╮\n│ x │\n╰───╯"
-        );
-    }
-
-    /// `println` prints contents, not the `Debug` rendering. Conflating the
-    /// two would put `Value { id: … }` where `Hello World!` belongs.
-    #[test]
-    fn println_prints_contents_not_the_rendering() {
-        assert_eq!(display(&BundValue::str("Hello World!")), "Hello World!");
-        assert_eq!(display(&BundValue::int(42)), "42");
-    }
-}
-
 /// **`debug.dump` — RFC-0008 criterion 3.**
 ///
 /// A hexdump of a value's bytes, to stdout, through the reference's own
@@ -346,5 +295,56 @@ mod dump_tests {
             let got = super::dump_bytes(&out[0]).expect(src);
             assert_eq!(got.len(), bytes, "{src}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The two lines every golden ends with, twice over, when a program
+    /// leaves nothing behind.
+    #[test]
+    fn an_empty_stack_is_a_zero_width_box() {
+        assert_eq!(draw_box_rows(&[]), "╭╮\n╰╯");
+    }
+
+    /// The box, byte-for-byte, against bytes lifted out of a golden.
+    ///
+    /// These are `tests/golden/tests/string_concatenation.golden:8-12` with
+    /// the two long renderings replaced by short stand-ins — what is under
+    /// test is the frame, not what goes in the cells. The dashed `├╌╌┤` row
+    /// separator is the tell that `UTF8_ROUND_CORNERS` was applied: plain
+    /// `UTF8_FULL` draws it solid.
+    #[test]
+    fn a_non_empty_stack_is_a_rounded_table() {
+        assert_eq!(
+            draw_box_rows(&["alpha".to_string(), "bb".to_string()]),
+            concat!(
+                "╭───────╮\n",
+                "│ alpha │\n",
+                "├╌╌╌╌╌╌╌┤\n",
+                "│ bb    │\n",
+                "╰───────╯",
+            )
+        );
+    }
+
+    /// One row per value, in stack order, and the box is as wide as the
+    /// widest. A single row gets no separator at all.
+    #[test]
+    fn one_row_has_no_separator() {
+        assert_eq!(
+            draw_box_rows(&["x".to_string()]),
+            "╭───╮\n│ x │\n╰───╯"
+        );
+    }
+
+    /// `println` prints contents, not the `Debug` rendering. Conflating the
+    /// two would put `Value { id: … }` where `Hello World!` belongs.
+    #[test]
+    fn println_prints_contents_not_the_rendering() {
+        assert_eq!(display(&BundValue::str("Hello World!")), "Hello World!");
+        assert_eq!(display(&BundValue::int(42)), "42");
     }
 }

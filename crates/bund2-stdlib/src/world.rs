@@ -254,117 +254,6 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
     crate::wb::bench!(r, "alias=", alias_get);
 }
 
-#[cfg(test)]
-mod tests {
-    use bund2_api::Vm as _;
-    use bund2_interp::Interp;
-
-    #[test]
-    fn a_world_name_is_cleaned_as_the_reference_cleans_it() {
-        assert_eq!(super::world_file("my/models"), "mymodels.world");
-        assert_eq!(super::world_file("m.world"), "m.world");
-    }
-
-    /// **F178.** A world no `save` has written is refused by every loader,
-    /// in the reference's words. Each was measured against the oracle; none
-    /// can sit in a golden, because a refusal ends the program.
-    #[test]
-    fn a_world_never_saved_is_refused_by_every_loader() {
-        let world = format!("bund2-world-fresh-{}", std::process::id());
-        let file = format!("{world}.world");
-        let sqlite = |t: &str| {
-            format!(
-                "SqliteFailure(Error {{ code: Unknown, extended_code: 1 }}, \
-                 Some(\"no such table: {t}\"))"
-            )
-        };
-        for (src, want) in [
-            (
-                format!("\"{world}\" load"),
-                format!("Aliases LOAD returns: Error compiling ALIASES select: {}", sqlite("ALIASES")),
-            ),
-            (
-                format!("\"{world}\" load.aliases"),
-                format!("Aliases LOAD returns: Error compiling ALIASES select: {}", sqlite("ALIASES")),
-            ),
-            (
-                format!("\"{world}\" load.lambdas"),
-                format!("Lambdas LOAD returns: Error compiling LAMBDAS select: {}", sqlite("LAMBDAS")),
-            ),
-            (
-                format!("\"{world}\" load.stacks"),
-                "Stacks LOAD returns: Error compiling SELECT for stack data: no such table: \
-                 STACK_DATA"
-                    .to_string(),
-            ),
-            (
-                format!("\"{world}\" bootstrap"),
-                format!(
-                    "LOAD returns: Aliases LOAD returns: Error compiling ALIASES select: {}",
-                    sqlite("ALIASES")
-                ),
-            ),
-            (
-                format!("\"n\" \"{world}\" load.script"),
-                format!(
-                    "Bootstrap LOAD.SCRIPT returns: Error getting script n: Error compiling \
-                     BOOTSTRAP select: {}",
-                    sqlite("BOOTSTRAP")
-                ),
-            ),
-        ] {
-            let _ = std::fs::remove_file(&file);
-            let mut i = Interp::new();
-            crate::register_all(&mut i.registry);
-            let stream = bund2_syntax::compile(&src).expect("compiles");
-            let e = i.eval(&stream).expect_err("refused").0;
-            assert!(e.ends_with(&want), "{src}: {e}");
-        }
-        let _ = std::fs::remove_file(&file);
-    }
-
-    /// `load.script` pulls both operands and casts the name first, so two
-    /// wrong operands are `#3` and a wrong file still costs the name.
-    #[test]
-    fn load_script_casts_the_name_before_the_file() {
-        for (src, want, left) in [
-            ("7 2 2 load.script", "LOAD.SCRIPT casting string #3 returns: This Dynamic type is not string", 1),
-            ("7 \"n\" 2 load.script", "LOAD.SCRIPT casting string #1 returns: This Dynamic type is not string", 1),
-        ] {
-            let mut i = Interp::new();
-            crate::register_all(&mut i.registry);
-            let stream = bund2_syntax::compile(src).expect("compiles");
-            let e = i.eval(&stream).expect_err("refused").0;
-            assert!(e.ends_with(want), "{src}: {e}");
-            assert_eq!(i.depth(), left, "{src}");
-        }
-    }
-
-    /// Save two models, load under a name that matches neither: both come
-    /// back, in save order (F110).
-    #[test]
-    fn load_model_pushes_every_model_in_save_order() {
-        // The cleaner strips path separators, so a world file always lands in
-        // the working directory. The name is this process's own, so no other
-        // test can see it, and the file is removed afterwards. The working
-        // directory is not changed, because tests share it across threads.
-        let world = format!("bund2-world-test-{}", std::process::id());
-        let file = format!("{world}.world");
-        let _ = std::fs::remove_file(&file);
-        let mut i = Interp::new();
-        crate::register_all(&mut i.registry);
-        let src = format!(
-            "\"a\" 1 \"{world}\" save.model \"b\" \"two\" \"{world}\" save.model \"zz\" \"{world}\" load.model"
-        );
-        let stream = bund2_syntax::compile(&src).expect("compiles");
-        let r = i.eval(&stream);
-        let _ = std::fs::remove_file(&file);
-        r.expect("runs");
-        let got: Vec<String> = i.snapshot().iter().map(|v| v.display()).collect();
-        assert_eq!(got, vec!["1".to_string(), "two".to_string()]);
-    }
-}
-
 // ---------------------------------------------------------------------------
 // `save`/`load` and their four families — the rest of `bund/bund`'s world.
 // ---------------------------------------------------------------------------
@@ -886,4 +775,115 @@ fn alias_get(vm: &mut dyn Vm) -> Result<(), Error> {
         })?;
     vm.push(bund2_value::BundValue::str(target));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use bund2_api::Vm as _;
+    use bund2_interp::Interp;
+
+    #[test]
+    fn a_world_name_is_cleaned_as_the_reference_cleans_it() {
+        assert_eq!(super::world_file("my/models"), "mymodels.world");
+        assert_eq!(super::world_file("m.world"), "m.world");
+    }
+
+    /// **F178.** A world no `save` has written is refused by every loader,
+    /// in the reference's words. Each was measured against the oracle; none
+    /// can sit in a golden, because a refusal ends the program.
+    #[test]
+    fn a_world_never_saved_is_refused_by_every_loader() {
+        let world = format!("bund2-world-fresh-{}", std::process::id());
+        let file = format!("{world}.world");
+        let sqlite = |t: &str| {
+            format!(
+                "SqliteFailure(Error {{ code: Unknown, extended_code: 1 }}, \
+                 Some(\"no such table: {t}\"))"
+            )
+        };
+        for (src, want) in [
+            (
+                format!("\"{world}\" load"),
+                format!("Aliases LOAD returns: Error compiling ALIASES select: {}", sqlite("ALIASES")),
+            ),
+            (
+                format!("\"{world}\" load.aliases"),
+                format!("Aliases LOAD returns: Error compiling ALIASES select: {}", sqlite("ALIASES")),
+            ),
+            (
+                format!("\"{world}\" load.lambdas"),
+                format!("Lambdas LOAD returns: Error compiling LAMBDAS select: {}", sqlite("LAMBDAS")),
+            ),
+            (
+                format!("\"{world}\" load.stacks"),
+                "Stacks LOAD returns: Error compiling SELECT for stack data: no such table: \
+                 STACK_DATA"
+                    .to_string(),
+            ),
+            (
+                format!("\"{world}\" bootstrap"),
+                format!(
+                    "LOAD returns: Aliases LOAD returns: Error compiling ALIASES select: {}",
+                    sqlite("ALIASES")
+                ),
+            ),
+            (
+                format!("\"n\" \"{world}\" load.script"),
+                format!(
+                    "Bootstrap LOAD.SCRIPT returns: Error getting script n: Error compiling \
+                     BOOTSTRAP select: {}",
+                    sqlite("BOOTSTRAP")
+                ),
+            ),
+        ] {
+            let _ = std::fs::remove_file(&file);
+            let mut i = Interp::new();
+            crate::register_all(&mut i.registry);
+            let stream = bund2_syntax::compile(&src).expect("compiles");
+            let e = i.eval(&stream).expect_err("refused").0;
+            assert!(e.ends_with(&want), "{src}: {e}");
+        }
+        let _ = std::fs::remove_file(&file);
+    }
+
+    /// `load.script` pulls both operands and casts the name first, so two
+    /// wrong operands are `#3` and a wrong file still costs the name.
+    #[test]
+    fn load_script_casts_the_name_before_the_file() {
+        for (src, want, left) in [
+            ("7 2 2 load.script", "LOAD.SCRIPT casting string #3 returns: This Dynamic type is not string", 1),
+            ("7 \"n\" 2 load.script", "LOAD.SCRIPT casting string #1 returns: This Dynamic type is not string", 1),
+        ] {
+            let mut i = Interp::new();
+            crate::register_all(&mut i.registry);
+            let stream = bund2_syntax::compile(src).expect("compiles");
+            let e = i.eval(&stream).expect_err("refused").0;
+            assert!(e.ends_with(want), "{src}: {e}");
+            assert_eq!(i.depth(), left, "{src}");
+        }
+    }
+
+    /// Save two models, load under a name that matches neither: both come
+    /// back, in save order (F110).
+    #[test]
+    fn load_model_pushes_every_model_in_save_order() {
+        // The cleaner strips path separators, so a world file always lands in
+        // the working directory. The name is this process's own, so no other
+        // test can see it, and the file is removed afterwards. The working
+        // directory is not changed, because tests share it across threads.
+        let world = format!("bund2-world-test-{}", std::process::id());
+        let file = format!("{world}.world");
+        let _ = std::fs::remove_file(&file);
+        let mut i = Interp::new();
+        crate::register_all(&mut i.registry);
+        let src = format!(
+            "\"a\" 1 \"{world}\" save.model \"b\" \"two\" \"{world}\" save.model \"zz\" \"{world}\" load.model"
+        );
+        let stream = bund2_syntax::compile(&src).expect("compiles");
+        let r = i.eval(&stream);
+        let _ = std::fs::remove_file(&file);
+        r.expect("runs");
+        let got: Vec<String> = i.snapshot().iter().map(|v| v.display()).collect();
+        assert_eq!(got, vec!["1".to_string(), "two".to_string()]);
+    }
 }

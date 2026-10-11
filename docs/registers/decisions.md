@@ -3623,6 +3623,119 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D146 — may the tier tell the interpreter never to offer a body again?
+
+**Raised 2026-10-11** by F201. A body the tier has refused and demoted is
+still offered on every later entry, and each offer costs about 120
+instructions to reach an answer that cannot change: +3.5% on a program that
+enters one refused body a turn and +5.5% on one that enters two, by D117's
+method. RFC-0005's criterion 7 allows 5% and names no group that shows it.
+
+**Options.**
+
+- *A. A third answer.* `Tier::enter` may say "never offer this body again",
+  and `Interp` remembers the body and tests that memory before it touches
+  the tier. Keyed on the payload address and holding a `Weak`, as the tier's
+  own demoted set is, so an address cannot be reused while it is remembered;
+  bounded; forgotten when a tier is installed or removed. Amends the
+  contract D42 and D145 fix.
+- *B. Mark the body itself*: a bit in the heap value. Puts the tier's
+  bookkeeping in `bund2-value`, which every build carries, and the bit
+  outlives the tier that set it.
+- *C. Trim the existing path* with no change of contract. The trait call,
+  the borrow and the hash remain.
+- *D. Accept F201 as recorded.*
+
+- Blocks: nothing
+- Depends on: F201, D42, D145, D140, D117, F136
+- Status: **RESOLVED — option A, with a fallback to D**, by the repository
+  owner, 2026-10-11: "A, with a fallback to D".
+
+*The conditions it was offered on, which the ruling takes.* It is measured
+by D117's method on F201's two programs and on programs whose bodies run
+compiled, and kept only if the refused rows fall under about 1.5% and no
+compiled row rises by more than 1%; otherwise it is reverted and F201
+stands as recorded. `conform` must read the same in all six configurations.
+RFC-0005's criterion 7 gains a row for a refused body either way.
+
+*Note, 2026-10-11 — built, measured, and kept; and it is not built the way
+the option was worded.* Option A said `Tier::enter` would gain a third
+answer. That was built first: an `Offer` of three variants in place of the
+`Option`. It was then built a second way, and the second is what stands:
+`Tier::enter` is unchanged, and the tier says "never" by calling a new
+defaulted method, `Vm::tier_never`, before it answers `None`
+(`crates/bund2-api/src/lib.rs`), as D139 has it ask for its frame through
+`Vm::tier_frame`. The reason is the condition above. With the third answer
+the worst compiled row read +1.2%, over the 1% it was allowed; said through
+the `Vm` it reads +0.9%. The difference is two or three instructions an
+entry. What it changes for a reader of D42 and D145 is that the contract
+they fix is not amended after all: a `Vm` gains a method no implementor has
+to write. **This is a choice the ruling did not make, and it is the
+owner's to reverse**; the third-answer form passes every test this one does.
+
+*What is built.* `Tiering::observe` answers `Decision::Demoted` for a
+demoted body, apart from `Decision::Interpret`
+(`crates/bund2-jit/src/cache.rs`); `JitTier::enter` calls `tier_never` on
+it (`crates/bund2-runtime/src/tier.rs`); and `Interp` keeps the bodies so
+named in `Declined` (`crates/bund2-interp/src/declined.rs`), which
+`push_frame` asks before it touches the tier. `Declined` is a table of
+1,024 slots, one body to a slot chosen by bits of the payload address, each
+holding the `Weak` that keeps that address out of reuse; a second body that
+lands on a slot takes it, and the first is offered once more. It does not
+exist until a body is declined, and it is dropped by `install_tier`,
+`take_tier` and the removal F197 added. `tier_never` is heeded only inside
+`enter`. **Two differences from what was offered**: the bound is the
+table's size and not `Caps::counter`, which `Interp` cannot see; and a
+demotion the tier evicts (D140) stays remembered here, so that body is not
+planned again, where it would have been.
+
+*Measured*, D117's method — instructions retired, release, median of five,
+the empty program subtracted, 300,000 turns, macOS arm64 — on four
+binaries: with and without `jit`, before and after. Millions of
+instructions:
+
+| program | no tier | `jit` before | `jit` after | `jit`, after against before | `jit` after against no tier |
+|---|---|---|---|---|---|
+| `1 drop` | 488.3 | 368.7 | 370.1 | +0.39% | −24.2% |
+| eight literals, eight `drop` | 2,985.4 | 1,370.5 | 1,372.1 | +0.12% | −54.0% |
+| `1 dup drop` | 847.2 | 772.9 | 774.4 | +0.20% | −8.6% |
+| `1 2 + drop` | 968.6 | 380.6 | 382.1 | +0.39% | −60.6% |
+| `f`, where `f` is `1 drop` | 735.7 | 663.7 | 634.3 | −4.43% | −13.8% |
+| `1 2 swap clear` | 1,050.4 | 1,087.5 | 1,056.6 | −2.84% | **+0.59%** |
+| `g`, where `g` is `1 2 swap clear` | 1,297.8 | 1,371.6 | 1,308.3 | −4.61% | **+0.81%** |
+| 2,000 of `g`, then `1 2 + drop` | 977.4 | 396.1 | 399.6 | **+0.89%** | −59.1% |
+| 2,000 of `g`, then `f` | 744.7 | 672.8 | 643.9 | −4.29% | −13.5% |
+
+The two refused rows were +3.5% and +5.6% against no tier and are +0.6%
+and +0.8%: a refused entry costs about 103 instructions fewer. A compiled
+entry costs about 5 more while nothing has been declined and about 12 more
+once something has, which is the eighth row, the worst there is, built to
+be. The fifth and ninth fall because the loop body around `f` is itself
+refused. The build with no tier moves by −0.4% to 0.0% across the nine.
+**Both conditions are met, the second by a tenth of a point.**
+
+*Checks.* 682 passed, 0 failed, 1 ignored with no feature; 824 passed,
+0 failed, 1 ignored with `jit,relocation-test`; clippy clean in both;
+`conform` reads 133/145, CEILING 133/145, in all six configurations, with
+12 bodies in 10 of 145 programs and 53 compiled entries at threshold 1, as
+before. The tests are four in `crates/bund2-interp/src/declined.rs`, three
+in `crates/bund2-interp/src/lib.rs` (`a_body_declined_for_good_is_offered_once`,
+`a_body_declined_for_now_is_offered_every_time`,
+`what_a_tier_declined_is_forgotten_when_the_tier_changes`) and one through
+the shipped tier in `crates/bund2-runtime/src/tier.rs`,
+`a_demoted_body_is_offered_twice_and_a_compiled_one_every_time`.
+
+*The row for criterion 7.* A `refused` group in
+`crates/bund2-bench/benches/interpret.rs`, two rows. It compiles and has
+not been run: no clock reading is claimed from it.
+
+*Not covered.* How the slot choice spreads under an allocator other than
+macOS's; a bad spread costs speed only. Linux.
+
+*Note, 2026-10-11 — the form is ruled.* Asked which of the two forms
+stands, the repository owner: "keep the callback". `Vm::tier_never` is the
+decision, and `Tier::enter`'s contract is as D42 and D145 left it.
+
 ## D145 — a body entered beneath a compiled body may run compiled
 
 **Raised 2026-10-10** by F194, which D142's measurements found.

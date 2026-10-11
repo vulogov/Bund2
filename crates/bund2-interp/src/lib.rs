@@ -24,11 +24,13 @@
 
 /// Executing a word's specialised arm — RFC-0005 §S6's first consumer.
 pub mod frag;
+mod declined;
+mod stacks;
 
 /// §D1's safepoint — RFC-0008's first consumer.
 pub mod debug;
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 use std::rc::Rc;
 
 use bund2_api::{Error, Registry, Resolved, Symbol, Vm};
@@ -40,391 +42,7 @@ pub type ConsoleFactory = fn() -> Box<dyn debug::Console>;
 /// How an embedder runs a line of source in a VM — RFC-0008 §W2.
 pub type Evaluator = fn(&mut dyn Vm, &str) -> Result<(), Error>;
 
-/// One named stack.
-///
-/// A `VecDeque`, because the reference's `Stack<T>` is one
-/// (`reference/rust_multistack/src/stack.rs:11`) and the Library Guide
-/// describes stacks as **circular buffers** you can rotate in either
-/// direction while consuming from one end
-/// (`reference/Bund/Documentation/Bund_Library_Guide/Introduction_the_art_of_stack_operations.typ:15`).
-/// A `Vec` would make `rotate_left` O(n) and `stacks_left` is a real word.
-///
-/// **LIFO only.** The reference carries a `policy` flag for FIFO
-/// (`reference/rust_multistack/src/stack.rs:30`), but nothing constructs one:
-/// `add_named_fifo` has no caller, so every stack in a running Bund is LIFO
-/// and both FIFO branches are dead. That is F27, and exposing the policy would
-/// add a feature the reference advertises and does not have.
-#[derive(Debug)]
-pub struct Stack {
-    /// This stack's own name, for the tag every push writes.
-    ///
-    /// Held here rather than passed in because `current_mut` had to hand back
-    /// an owned `String` alongside the `&mut Stack` — the borrow checker will
-    /// not lend both out of one map — and that cost **two allocations per
-    /// push**: one for `current_name().to_string()` and one for the
-    /// `entry(name.clone())` lookup. Neither had anything to do with the tag.
-    ///
-    /// `Rc<str>` rather than `String` so `Stacks::to_stack` can hand the name
-    /// over without copying it.
-    name: Rc<str>,
-    /// The interned `"stack"` key, cached so a push clones an `Rc` instead of
-    /// allocating a `String`. Two `String` allocations per push measured
-    /// 36.5 ns against 16.3 ns for two `Rc` clones
-    /// (`crates/bund2-bench/benches/boxing.rs`).
-    tag_key: Rc<str>,
-    /// This stack's name, interned. **D41**: a pushed scalar stores this
-    /// symbol inline instead of being boxed to carry a map entry.
-    sym: bund2_value::StackSym,
-    items: VecDeque<BundValue>,
-    /// A bound set by `ensure_stack_with_capacity`, if one was.
-    ///
-    /// Per-stack rather than a side table, so a push cannot consult one
-    /// stack's length against another's bound — which is exactly what the
-    /// reference does (`ts_push.rs:47-48` reads `current_stack_len()` and
-    /// `stack_capacity(name)`), and F39 records.
-    cap: Option<usize>,
-}
-
-impl Default for Stack {
-    fn default() -> Self {
-        Self::named("main")
-    }
-}
-
-impl Stack {
-    /// A stack that knows its own name.
-    pub fn named(name: &str) -> Self {
-        Self::from_rc(Rc::from(name))
-    }
-
-    /// The same, sharing an already-interned name — so the map key and the
-    /// stack's own copy are one allocation, not two.
-    pub fn from_rc(name: Rc<str>) -> Self {
-        Self {
-            sym: bund2_value::intern_stack_name(&name),
-            name,
-            tag_key: bund2_value::stack_tag_key(),
-            items: VecDeque::new(),
-            cap: None,
-        }
-    }
-
-    /// Push, **writing the stack tag**.
-    ///
-    /// `TS::push` calls `set_tag("stack", …)` on every push with no type test
-    /// (`reference/rust_multistack/src/ts_push.rs:25`), which is why a scalar
-    /// that reaches a stack is boxed: an inline `Int` has nowhere to keep a
-    /// tag. 47 of the 54 scalar renderings in the goldens carry one.
-    ///
-    /// This is the faithful shape, and it is what criterion 3 measures.
-    /// RFC-0001 floats an alternative — carry the tag in the *slot* rather
-    /// than the value, so a scalar on a stack stays unboxed — and defers it
-    /// here, to RFC-0003, because it depends on how stacks are represented.
-    /// It cannot fix the fossil case either: a value collected into a list
-    /// keeps the tag of the stack it *was* on, which is why the inner values
-    /// of the `valuemap` probe render `tags: {"stack": "main"}` while sitting
-    /// inside a map.
-    /// Push, dropping the **newest** value first when a capacity is set.
-    ///
-    /// The reference reads the capacity, and if the stack is already that
-    /// deep, calls `curr.pull()` before pushing
-    /// (`reference/rust_multistack/src/ts_push.rs:52-57`). `pull` takes from
-    /// the top, so a capped stack discards the value most recently pushed,
-    /// not the oldest — a stack with capacity 2 given `1 2 3 4` ends up
-    /// holding `1` and `4`, confirmed against the oracle.
-    ///
-    /// That is not what "capacity" usually means, and it is preserved as
-    /// written.
-    fn push(&mut self, v: BundValue) {
-        let (sym, name) = (self.sym, Rc::clone(&self.name));
-        self.push_as(v, sym, &name);
-    }
-
-
-    /// Push, tagging with a name that is **not** this stack's own.
-    ///
-    /// One caller, and it is the reason this exists: the workbench "does not
-    /// carry a specific name", so a value pushed there keeps the tag of the
-    /// stack it came from — a fossil rather than a location. Tagging it with
-    /// the workbench's own name would erase that.
-    fn push_as(&mut self, v: BundValue, sym: bund2_value::StackSym, stack_name: &Rc<str>) {
-        if let Some(cap) = self.cap
-            && self.items.len() >= cap
-        {
-            self.items.pop_back();
-        }
-        // **D41.** A scalar takes the symbol inline — no allocation, no
-        // boxing. A heap value already has a header, so its tag goes in the
-        // map as it always did.
-        let tagged = match v {
-            BundValue::Heap(_) => v.with_tag(Rc::clone(&self.tag_key), Rc::clone(stack_name)),
-            scalar => scalar.with_stack_sym(sym),
-        };
-        self.items.push_back(tagged);
-    }
-
-    fn pull(&mut self) -> Option<BundValue> {
-        self.items.pop_back()
-    }
-
-    /// Bottom-first, which is the order the reference's box draws in.
-    pub fn contents(&self) -> Vec<BundValue> {
-        self.items.iter().cloned().collect()
-    }
-
-    /// **`pull` does not honour the policy and is right not to.** The
-    /// reference's `pull` always pops the back, with the FIFO branch commented
-    /// out (`reference/rust_multistack/src/stack_pull.rs:9-13`) — and that is
-    /// correct, because pushing at the opposite end is what makes a queue. The
-    /// error F27 records is in `peek`, which *does* branch and would disagree
-    /// with `pull` on a FIFO stack.
-    pub fn peek(&self) -> Option<&BundValue> {
-        self.items.back()
-    }
-
-    /// The value `n` places below the top, without copying the stack.
-    ///
-    /// `n == 0` is the top, so this is `peek` generalised. It exists for
-    /// fragment guards (RFC-0005 §S5), which ask about the top *few* values:
-    /// the obvious spelling — `snapshot()` and index — clones every value on
-    /// the stack to look at two of them, which is `O(depth)` allocation on the
-    /// path whose whole purpose is to be cheaper than a call.
-    pub fn peek_at(&self, n: usize) -> Option<&BundValue> {
-        let len = self.items.len();
-        if n >= len {
-            return None;
-        }
-        self.items.get(len - 1 - n)
-    }
-
-    pub fn len(&self) -> usize {
-        self.items.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.items.is_empty()
-    }
-
-    /// `stacks_left`'s per-stack cousin. Rotation is why this is a `VecDeque`.
-    pub fn rotate_left(&mut self) {
-        if !self.items.is_empty() {
-            self.items.rotate_left(1);
-        }
-    }
-
-    pub fn rotate_right(&mut self) {
-        if !self.items.is_empty() {
-            self.items.rotate_right(1);
-        }
-    }
-}
-
-/// The stack of stacks, plus the workbench.
-#[derive(Debug)]
-pub struct Stacks {
-    stacks: BTreeMap<Rc<str>, Stack>,
-    /// Names in rotation order. The reference's stack-of-stacks is itself a
-    /// circular buffer, and selecting a named stack **rotates it to the top**
-    /// (`…/Introduction_the_art_of_stack_operations.typ:43`).
-    order: VecDeque<Rc<str>>,
-    /// "a circular stack that … does not carry a specific name" (`:72`).
-    workbench: Stack,
-    /// **The current stack's epoch — RFC-0005 §S6, *Addressing*.**
-    ///
-    /// Bumped on every change of *which* stack is current, and on nothing else:
-    /// pushing, pulling and clearing leave it alone, because compiled code
-    /// holding promoted values only needs to know that the stack it resolved
-    /// against is still in force.
-    ///
-    /// **It lives here, in the type that owns `order`, because that is what
-    /// makes it a property rather than a list to keep in step.** Three writers
-    /// used to reach past this type into `order` directly — `drop_stack` and
-    /// the two rotations, on `Interp`'s `Vm` impl — and any of them could have
-    /// moved the front while leaving an epoch held elsewhere untouched. `order`
-    /// is now private to this type's own mutators, each of which bumps, so a
-    /// switch that does not bump cannot be written. Same shape as
-    /// `Registry::touch`, for the same reason (assumption 37).
-    ///
-    /// A plain counter, not a `Cell`: `Interp` publishes it to §S6's cell,
-    /// which is one read at one place rather than a cell write at six.
-    epoch: u64,
-}
-
-impl Default for Stacks {
-    fn default() -> Self {
-        let mut stacks = BTreeMap::new();
-        let main: Rc<str> = Rc::from("main");
-        stacks.insert(Rc::clone(&main), Stack::from_rc(Rc::clone(&main)));
-        Self {
-            stacks,
-            order: VecDeque::from([main]),
-            workbench: Stack::named("main"),
-            epoch: 0,
-        }
-    }
-}
-
-impl Stacks {
-    pub fn current_name(&self) -> &str {
-        self.order.front().map(|n| &**n).unwrap_or("main")
-    }
-
-    /// The current stack, creating it if it has somehow gone missing.
-    ///
-    /// The invariant is that a current stack always exists, and asserting it
-    /// put a panic on the hottest path in the interpreter. Creating an empty
-    /// one instead is indistinguishable in every reachable case and cannot
-    /// abort the program in an unreachable one.
-    fn current_mut(&mut self) -> &mut Stack {
-        // **No allocation.** Cloning the front `Rc` is a refcount bump; this
-        // used to be `current_name().to_string()`, which allocated on every
-        // push and every pull.
-        let name = match self.order.front() {
-            Some(n) => Rc::clone(n),
-            None => Rc::from("main"),
-        };
-        self.stacks
-            .entry(name)
-            .or_insert_with_key(|k| Stack::from_rc(Rc::clone(k)))
-    }
-
-    /// Put a newly created stack in the ring as the current one — **F89**.
-    ///
-    /// The reference appends a new stack to the back of its deque
-    /// (`reference/rust_multistack/src/ts_add.rs:14`) and reads the current
-    /// stack from the back (`reference/rust_multistack/src/ts_current.rs:7`),
-    /// so creating a stack makes it current. This deque keeps the current
-    /// stack at the front and the others after it in the reference's cyclic
-    /// order. Mirrored, the reference's append is two moves: the old current
-    /// goes from the front to the back, and the new name goes on the front.
-    /// A bare `push_front` gets the current stack right and the ring wrong, and
-    /// `stacks_right` then reaches a different stack than the reference's.
-    fn add_as_current(&mut self, name: Rc<str>) {
-        if !self.order.is_empty() {
-            self.order.rotate_left(1);
-        }
-        self.order.push_front(name);
-        // A new stack becomes current, so the epoch always moves here.
-        self.bump_epoch();
-    }
-
-    /// The current stack's epoch — RFC-0005 §S6. See [`Stacks::epoch`].
-    pub fn epoch(&self) -> u64 {
-        self.epoch
-    }
-
-    /// Move the epoch on. Saturating, so it can never wrap onto a value a
-    /// guard is holding; at `u64` that bound is unreachable in practice, and
-    /// saturating rather than wrapping makes it unreachable by construction.
-    fn bump_epoch(&mut self) {
-        self.epoch = self.epoch.saturating_add(1);
-    }
-
-    /// Drop a named stack, restoring `main` if that emptied the ring.
-    ///
-    /// **Sealed here rather than done through `order` from outside**, so the
-    /// epoch cannot be forgotten: this is one of the three writers that used to
-    /// reach past this type.
-    ///
-    /// **The bump is exact, not conservative.** `retain` moves the front only
-    /// when the dropped name *is* the front, and the `main` restored below only
-    /// changes it when the ring had emptied. Bumping unconditionally would fire
-    /// every guard in a compiled body on a drop that touched some other stack.
-    fn drop_named(&mut self, name: &str) {
-        let before = self.current_name().to_string();
-        self.stacks.remove(name);
-        self.order.retain(|n| &**n != name);
-        if self.order.is_empty() {
-            let main: Rc<str> = Rc::from("main");
-            self.order.push_back(Rc::clone(&main));
-            self.stacks
-                .entry(main)
-                .or_insert_with_key(|k| Stack::from_rc(Rc::clone(k)));
-        }
-        if self.current_name() != before {
-            self.bump_epoch();
-        }
-    }
-
-    /// Rotate the ring one step left, as `stacks_left` does.
-    ///
-    /// Sealed for the epoch, as [`Stacks::drop_named`] is. **A ring of one does
-    /// not move**, so it does not bump: the front name is unchanged and a guard
-    /// that fired on it would be reacting to nothing.
-    fn rotate_left(&mut self) {
-        if self.order.len() > 1 {
-            self.order.rotate_left(1);
-            self.bump_epoch();
-        }
-    }
-
-    /// Rotate the ring one step right, as `stacks_right` does.
-    fn rotate_right(&mut self) {
-        if self.order.len() > 1 {
-            self.order.rotate_right(1);
-            self.bump_epoch();
-        }
-    }
-
-    /// Whether a stack of this name exists.
-    fn has(&self, name: &str) -> bool {
-        self.stacks.contains_key(name)
-    }
-
-    /// Whether the ring already carries this name.
-    fn in_ring(&self, name: &str) -> bool {
-        self.order.iter().any(|n| &**n == name)
-    }
-
-    /// Make a named stack current, creating it if needed.
-    ///
-    /// Rotates rather than reassigns, matching the guide: "when positioning a
-    /// named stack to become the current stack, the buffer rotates to bring
-    /// the required stack to the proper position".
-    pub fn to_stack(&mut self, name: &str) {
-        self.stacks
-            .entry(Rc::from(name))
-            .or_insert_with_key(|k| Stack::from_rc(Rc::clone(k)));
-        if !self.order.iter().any(|n| &**n == name) {
-            self.add_as_current(Rc::from(name));
-            return;
-        }
-        // **Bounded by the deque's length, so termination is structural.**
-        //
-        // The membership test above already guarantees `name` is present, so
-        // an unbounded `while current_name() != name` would in fact stop. But
-        // that argument lives ten lines from the loop, and F70 is what happens
-        // when a loop's termination depends on a fact established elsewhere:
-        // the reference's drain is correct exactly until pushing to a stack
-        // creates it, and then it never returns.
-        //
-        // The reference guards the same rotation by counting a full circle and
-        // failing — "We made a full circle over stacks and did not find {}"
-        // (`reference/rust_multistack/src/ts_to_current.rs:24-26`). This bounds
-        // it instead: at most one full rotation, after which the deque is back
-        // where it started and nothing has been lost.
-        let before = self.current_name().to_string();
-        for _ in 0..self.order.len() {
-            if self.current_name() == name {
-                break;
-            }
-            self.order.rotate_left(1);
-        }
-        // Exact, as in `drop_named`: `to_stack` to the stack already current
-        // rotates zero times and changes nothing, and must not bump.
-        if self.current_name() != before {
-            self.bump_epoch();
-        }
-    }
-
-    pub fn names(&self) -> impl Iterator<Item = &str> {
-        self.stacks.keys().map(|k| &**k)
-    }
-
-    pub fn workbench(&mut self) -> &mut Stack {
-        &mut self.workbench
-    }
-}
+pub use stacks::{Stack, Stacks};
 
 // --- the machine-stack floor: RFC-0005 §S8, F85 ------------------------------
 
@@ -645,9 +263,12 @@ pub struct Interp {
     /// safepoint, so a breakpoint inside one would silently not fire; from
     /// here every body is Tier 0. The tier is left installed so its
     /// statistics stay readable, and because it may be *running* when the
-    /// word is called — it is taken out of [`Interp::tier`] for the length of
-    /// `enter`, so there is nothing here to drop.
+    /// word is called.
     tier_off: bool,
+    /// **The bodies the tier said never to offer again** — D146, through
+    /// `Vm::tier_never`. Asked before
+    /// the tier is, and emptied whenever the tier changes.
+    declined: declined::Declined,
     /// **Whose body the tier is being offered** — D139. `Some` for the length
     /// of `Tier::enter` and `None` otherwise, so `Vm::tier_frame` records a
     /// frame only where `push_frame` will remove it. The inner value is the
@@ -706,7 +327,7 @@ pub struct Interp {
     /// [`Error::stack_exhausted`] instead of nesting until the process aborts.
     stack_floor: usize,
     pub registry: Registry,
-    pub stacks: Stacks,
+    stacks: Stacks,
     /// `apply` tests this in three places, and it does **not** precede the
     /// command check — `is_command` returns at
     /// `reference/rust_multistackvm/src/multistackvm_apply.rs:17`, before the
@@ -757,7 +378,28 @@ pub struct Interp {
     /// hot it was (F194). It is an `Rc` now, cloned for the call, so a nested
     /// entry is offered like any other; §S8's Tier 1 floor, not this field, is
     /// what stops a compiled recursion from running down the machine stack.
-    pub tier: Option<std::rc::Rc<dyn bund2_api::Tier>>,
+    ///
+    /// **Private, and installed through [`Interp::install_tier`]**, which
+    /// records the registry it was installed for — see `tier_for`.
+    tier: Option<std::rc::Rc<dyn bund2_api::Tier>>,
+    /// **The registry the tier was installed for** — RFC-0005 §S6, the
+    /// twenty-third review's S6.
+    ///
+    /// Compiled code loads generation cells that belong to a `Registry`, by
+    /// address, and the tier's fragment table is keyed by that registry's
+    /// registration ids. [`Interp::registry`] is a public field, so an
+    /// embedder can assign another registry under an installed tier: the old
+    /// cells are freed and the ids mean other natives. `push_frame` compares
+    /// this with the registry in place before it offers a body, and a tier
+    /// whose registry has gone is removed rather than entered.
+    ///
+    /// **Checked at the offer, which is enough.** The registry can be replaced
+    /// only by whoever holds `&mut Interp`, and evaluation holds that for as
+    /// long as it runs; a native and a tier are given `&mut dyn Vm`, which has
+    /// no method that replaces it. So a replacement happens between
+    /// evaluations, no compiled body is on the stack when it does, and the
+    /// next compiled entry would have to pass through here.
+    tier_for: Option<bund2_api::RegistryIdentity>,
 }
 
 impl Default for Interp {
@@ -780,6 +422,8 @@ impl Interp {
             console_factory: None,
             console_refused: false,
             tier_off: false,
+            declined: declined::Declined::default(),
+            tier_for: None,
             tier_entry: None,
             tier_shadow: None,
             frames: Vec::new(),
@@ -810,24 +454,69 @@ impl Interp {
         &self.cells
     }
 
-    /// Publish the current stack's epoch into §S6's cell.
+    /// Install a tier, **built for the registry this `Interp` holds now**.
     ///
-    /// Called wherever a switch can have happened. It is a *publish*, not a
-    /// bump: `Stacks` decides whether the epoch moved, and this copies whatever
-    /// it decided. So an extra call costs a store and can never invent a
-    /// change, which is why the `Vm` methods call it unconditionally rather
-    /// than each deciding for itself whether its path switched.
-    fn publish_epoch(&mut self) {
-        self.cells.set_epoch(self.stacks.epoch());
+    /// The registry is recorded, and a tier is never entered once another
+    /// registry has taken its place: see `tier_for`. A tier built from some
+    /// other registry's fragment table is the caller's mistake and nothing
+    /// here can see it, which is why `bund2-runtime` builds the table and
+    /// installs the tier in one place.
+    pub fn install_tier(&mut self, tier: std::rc::Rc<dyn bund2_api::Tier>) {
+        self.tier_for = Some(self.registry.identity());
+        self.tier = Some(tier);
+        // What the last tier declined says nothing about this one.
+        self.declined.clear();
+    }
+
+    /// The installed tier, to read its statistics.
+    pub fn tier(&self) -> Option<&std::rc::Rc<dyn bund2_api::Tier>> {
+        self.tier.as_ref()
+    }
+
+    /// Take the tier out. Put it back with [`Interp::install_tier`].
+    pub fn take_tier(&mut self) -> Option<std::rc::Rc<dyn bund2_api::Tier>> {
+        self.tier_for = None;
+        self.declined.clear();
+        self.tier.take()
+    }
+
+    /// The tier a body may be offered to: the installed one, unless the
+    /// registry it was installed for has been replaced. Then it is removed,
+    /// once, with a warning, and every body from here is Tier 0 — which is
+    /// correct, and all that can be said for a tier whose guards read another
+    /// registry's cells.
+    fn tier_to_offer(&mut self) -> Option<std::rc::Rc<dyn bund2_api::Tier>> {
+        let tier = self.tier.as_ref()?;
+        if self.tier_for.as_ref().is_some_and(|id| self.registry.is(id)) {
+            return Some(std::rc::Rc::clone(tier));
+        }
+        self.tier = None;
+        self.tier_for = None;
+        self.declined.clear();
+        <Self as Vm>::report(
+            self,
+            bund2_api::diag::Diagnostic::warning(
+                "the word table was replaced after the compiled tier was installed for it; \
+                 the tier is removed and every body runs interpreted from here",
+            ),
+        );
+        None
+    }
+
+    /// The stacks, to read. Nothing outside this crate can move the current
+    /// stack except through [`Vm`], which is what keeps §S6's epoch cell true
+    /// (RFC-0005 assumption 40).
+    pub fn stacks(&self) -> &Stacks {
+        &self.stacks
     }
 
     /// **Set `autoadd` — the only writer**, so the mode and RFC-0005 §S6's
     /// mirror are written together and cannot drift.
     ///
-    /// `:` and `;` will call this when they are bound; today its callers are
-    /// tests and the lowering's differential, which is why the field is private
-    /// now rather than when those words land: the invariant is cheap to make
-    /// structural while there are few writers, and expensive afterwards.
+    /// `:` and `;` call this, through `Vm::set_autoadd`, since F84's fix. The
+    /// field was made private before they were bound, while its only callers
+    /// were tests: the invariant is cheap to make structural while there are
+    /// few writers, and expensive afterwards.
     pub fn set_autoadd(&mut self, on: bool) {
         self.autoadd = on;
         self.cells.set_autoadd(on);
@@ -1375,10 +1064,16 @@ impl Interp {
         // compiled one saw `None` and was interpreted, however hot (F194).
         // An `Rc` and a `&self` method give `enter` the same `Interp` without
         // hiding the tier from what it calls.
+        //
+        // **A body the tier declined for good is not offered** — D146. It is
+        // asked for before the tier is touched, which is the point: reaching
+        // the tier's own answer cost about 120 instructions an entry (F201).
         if exit.is_none()
-            && body.payload_key().is_some()
+            && self.tier.is_some()
             && !self.tier_off
-            && let Some(tier) = self.tier.clone()
+            && let Some(key) = body.payload_key()
+            && !self.declined.holds(key)
+            && let Some(tier) = self.tier_to_offer()
         {
             // **D139: a compiled body has a frame while it runs.** The tier
             // asks for one through `Vm::tier_frame` when it is about to run
@@ -1894,8 +1589,7 @@ impl Vm for Interp {
     }
 
     fn to_stack(&mut self, name: &str) {
-        self.stacks.to_stack(name);
-        self.publish_epoch();
+        self.stacks.to_stack(name, &self.cells);
     }
 
     fn stack_exists(&self, name: &str) -> bool {
@@ -1918,9 +1612,8 @@ impl Vm for Interp {
             .entry(Rc::from(name))
             .or_insert_with_key(|k| Stack::from_rc(Rc::clone(k)));
         if !self.stacks.in_ring(name) {
-            self.stacks.add_as_current(Rc::from(name));
+            self.stacks.add_as_current(Rc::from(name), &self.cells);
         }
-        self.publish_epoch();
     }
 
     fn ensure_stack_with_capacity(&mut self, name: &str, cap: usize) {
@@ -1946,7 +1639,7 @@ impl Vm for Interp {
     /// reason a program could predict.
     fn stack_names(&self) -> Vec<String> {
         self.note_observation("enumerates the stacks");
-        self.stacks.order.iter().map(|n| n.to_string()).collect()
+        self.stacks.ring().map(str::to_string).collect()
     }
 
     fn snapshot_of(&self, name: &str) -> Vec<BundValue> {
@@ -1985,18 +1678,15 @@ impl Vm for Interp {
     }
 
     fn drop_stack(&mut self, name: &str) {
-        self.stacks.drop_named(name);
-        self.publish_epoch();
+        self.stacks.drop_named(name, &self.cells);
     }
 
     fn rotate_stacks_left(&mut self) {
-        self.stacks.rotate_left();
-        self.publish_epoch();
+        self.stacks.rotate_left(&self.cells);
     }
 
     fn rotate_stacks_right(&mut self) {
-        self.stacks.rotate_right();
-        self.publish_epoch();
+        self.stacks.rotate_right(&self.cells);
     }
 
     fn apply(&mut self, v: BundValue) -> Result<(), Error> {
@@ -2172,6 +1862,15 @@ impl Vm for Interp {
     fn tier_at(&mut self, ip: usize) {
         if let Some(f) = self.tier_shadow.and_then(|i| self.frames.get_mut(i)) {
             f.ip = ip;
+        }
+    }
+
+    fn tier_never(&mut self, body: &BundValue) {
+        // Only from inside `enter`, which is where a tier is speaking. Said
+        // from anywhere else it would be a word keeping a body interpreted,
+        // which is harmless and is still not what this is for.
+        if self.tier_entry.is_some() {
+            self.declined.remember(body);
         }
     }
 
@@ -2805,7 +2504,7 @@ mod tests {
     #[test]
     fn boxing_a_tagged_scalar_carries_the_tag_into_the_header() {
         let mut i = Interp::new();
-        i.stacks.to_stack("side");
+        i.to_stack("side");
         i.push(BundValue::int(1));
         let v = i.pull().expect("pushed");
         assert!(!v.is_boxed());
@@ -2821,7 +2520,7 @@ mod tests {
     #[test]
     fn a_named_stack_becomes_current_and_carries_its_own_tag() {
         let mut i = Interp::new();
-        i.stacks.to_stack("side");
+        i.to_stack("side");
         assert_eq!(i.stacks.current_name(), "side");
         i.push(BundValue::int(1));
         assert_eq!(
@@ -2842,7 +2541,7 @@ mod tests {
     #[test]
     fn the_workbench_keeps_the_tag_of_the_stack_a_value_came_from() {
         let mut i = Interp::new();
-        i.stacks.to_stack("foo");
+        i.to_stack("foo");
         i.push(BundValue::int(1));
         let v = i.pull().expect("pushed");
         i.push_workbench(v);
@@ -2880,9 +2579,9 @@ mod tests {
     #[test]
     fn selecting_a_stack_rotates_rather_than_reassigns() {
         let mut i = Interp::new();
-        i.stacks.to_stack("a");
-        i.stacks.to_stack("b");
-        i.stacks.to_stack("main");
+        i.to_stack("a");
+        i.to_stack("b");
+        i.to_stack("main");
         assert_eq!(i.stacks.current_name(), "main");
         assert_eq!(i.stacks.names().count(), 3, "no stack was lost");
     }
@@ -3386,12 +3085,18 @@ mod tests {
         /// The `payload_key` of each body offered, in order.
         offered: std::rc::Rc<std::cell::RefCell<Vec<usize>>>,
         answer: Option<Result<(), Error>>,
+        /// Decline, and say so for good through `Vm::tier_never`.
+        never: bool,
     }
 
     impl bund2_api::Tier for FakeTier {
         fn enter(&self, body: &BundValue, vm: &mut dyn Vm) -> Option<Result<(), Error>> {
             if let Some(k) = body.payload_key() {
                 self.offered.borrow_mut().push(k);
+            }
+            if self.never {
+                vm.tier_never(body);
+                return None;
             }
             // A tier that claims the body leaves its effect behind, so the test
             // can tell "ran by the tier" from "interpreted".
@@ -3405,9 +3110,10 @@ mod tests {
     fn with_tier(answer: Option<Result<(), Error>>) -> (Interp, std::rc::Rc<std::cell::RefCell<Vec<usize>>>) {
         let offered = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let mut i = Interp::new();
-        i.tier = Some(std::rc::Rc::new(FakeTier {
+        i.install_tier(std::rc::Rc::new(FakeTier {
             offered: std::rc::Rc::clone(&offered),
             answer,
+            never: false,
         }));
         (i, offered)
     }
@@ -3439,6 +3145,120 @@ mod tests {
             "a declined body must be interpreted exactly as with no tier"
         );
         assert!(!offered.borrow().is_empty(), "and it was actually offered");
+    }
+
+    /// **A tier is not entered once its registry has been replaced** —
+    /// RFC-0005 §S6, the twenty-third review's S6.
+    ///
+    /// The tier here claims every body and leaves a 99, so "was it entered"
+    /// is what is on the stack. The registry is replaced by a clone of itself:
+    /// the same words, and different generation cells at different addresses,
+    /// which is all a compiled guard would need to be reading freed memory.
+    #[test]
+    fn a_tier_is_removed_when_its_registry_is_replaced() {
+        #[derive(Debug)]
+        struct Keeping(Rc<std::cell::RefCell<Vec<String>>>);
+        impl bund2_api::diag::Reporter for Keeping {
+            fn report(&mut self, d: &bund2_api::diag::Diagnostic) {
+                self.0.borrow_mut().push(d.reason.clone());
+            }
+        }
+        let (mut i, offered) = with_tier(Some(Ok(())));
+        let said = Rc::new(std::cell::RefCell::new(Vec::new()));
+        i.reporter = Box::new(Keeping(Rc::clone(&said)));
+        let body = BundValue::lambda(vec![BundValue::int(1)]);
+
+        i.eval_lambda(&body).expect("the tier ran it");
+        assert_eq!(i.snapshot().last().and_then(BundValue::as_int), Some(99));
+        assert!(said.borrow().is_empty(), "nothing to say while the registry stands");
+
+        i.registry = i.registry.clone();
+        i.eval_lambda(&body).expect("interpreted");
+        i.eval_lambda(&body).expect("and again");
+        let stack: Vec<_> = i.snapshot().iter().filter_map(BundValue::as_int).collect();
+        assert_eq!(stack, [99, 1, 1], "the body's own 1 twice: Tier 0 ran it");
+        assert_eq!(offered.borrow().len(), 1, "offered before the replacement and never after");
+        assert!(i.tier().is_none(), "the tier is gone, not merely skipped");
+        let said = said.borrow();
+        assert_eq!(said.len(), 1, "said once: {said:?}");
+        assert!(said[0].contains("word table was replaced"), "{said:?}");
+    }
+
+    /// **D146: a body declined for good is offered once.** The tier says
+    /// `Vm::tier_never` of every body, and five entries of one body reach it once;
+    /// each of the five is interpreted. A second body is its own question.
+    #[test]
+    fn a_body_declined_for_good_is_offered_once() {
+        let offered = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut i = Interp::new();
+        i.install_tier(std::rc::Rc::new(FakeTier {
+            offered: std::rc::Rc::clone(&offered),
+            answer: None,
+            never: true,
+        }));
+        let body = BundValue::lambda(vec![BundValue::int(1)]);
+        let other = BundValue::lambda(vec![BundValue::int(2)]);
+        for _ in 0..5 {
+            i.eval_lambda(&body).expect("interpreted");
+        }
+        let stack: Vec<_> = i.snapshot().iter().filter_map(BundValue::as_int).collect();
+        assert_eq!(stack, [1, 1, 1, 1, 1], "Tier 0 ran every entry");
+        assert_eq!(*offered.borrow(), [body.payload_key().expect("a key")]);
+
+        i.eval_lambda(&other).expect("interpreted");
+        i.eval_lambda(&other).expect("interpreted");
+        assert_eq!(offered.borrow().len(), 2, "another body is offered, once");
+    }
+
+    /// **Declining is not declining for good.** A tier that answers `None`
+    /// and says nothing more is asked again on every entry, as it was before D146: that is how a body below
+    /// the threshold is counted.
+    #[test]
+    fn a_body_declined_for_now_is_offered_every_time() {
+        let (mut i, offered) = with_tier(None);
+        let body = BundValue::lambda(vec![BundValue::int(1)]);
+        for _ in 0..5 {
+            i.eval_lambda(&body).expect("interpreted");
+        }
+        assert_eq!(offered.borrow().len(), 5);
+    }
+
+    /// **What one tier declined is forgotten with it** — D146. The tier is
+    /// taken out and installed again, and the body it had declined for good
+    /// is offered to it once more.
+    #[test]
+    fn what_a_tier_declined_is_forgotten_when_the_tier_changes() {
+        let offered = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut i = Interp::new();
+        i.install_tier(std::rc::Rc::new(FakeTier {
+            offered: std::rc::Rc::clone(&offered),
+            answer: None,
+            never: true,
+        }));
+        let body = BundValue::lambda(vec![BundValue::int(1)]);
+        i.eval_lambda(&body).expect("interpreted");
+        i.eval_lambda(&body).expect("interpreted");
+        assert_eq!(offered.borrow().len(), 1);
+
+        let tier = i.take_tier().expect("installed");
+        i.install_tier(tier);
+        i.eval_lambda(&body).expect("interpreted");
+        i.eval_lambda(&body).expect("interpreted");
+        assert_eq!(offered.borrow().len(), 2, "asked again after the change, once");
+    }
+
+    /// **Taking a tier out and installing it again is not a replacement**, and
+    /// neither is registering a word: the registry is the same registry.
+    #[test]
+    fn a_tier_survives_registrations_and_reinstalling() {
+        let (mut i, offered) = with_tier(Some(Ok(())));
+        let body = BundValue::lambda(vec![BundValue::int(1)]);
+        i.registry.register_lambda("f", body.clone());
+        i.eval_lambda(&body).expect("the tier ran it");
+        let tier = i.take_tier().expect("installed");
+        i.install_tier(tier);
+        i.eval_lambda(&body).expect("the tier ran it again");
+        assert_eq!(offered.borrow().len(), 2);
     }
 
     /// **`Some(Ok(()))` means compiled code ran it**: no frame is pushed, so the

@@ -195,21 +195,26 @@ impl Tier for JitTier {
     /// from every other — and the threshold is a tuning knob (§S7), not a
     /// semantic boundary, so the fewer behaviours that hang off it the better.
     ///
-    /// # Why this cannot recurse into itself
+    /// # It is entered again beneath itself
     ///
-    /// The seam **takes the tier out of the `Interp`** while this runs, so a
-    /// body entered during compiled execution finds `None` and is interpreted.
-    /// That is not merely a lost optimisation: without it, a self-recursive
-    /// word would enter compiled code, whose `jit_apply` calls `Vm::apply`,
-    /// which reaches `push_frame`, which would enter compiled code again —
-    /// one Rust frame per Bund level, breaking RFC-0003's criterion 2 and
-    /// making promotion "a conformance change, not an optimisation" (§S8). At
-    /// most one compiled body runs at a time.
+    /// Since D145 a body entered while compiled code runs is offered here
+    /// too, so this is called with an earlier call of it still on the stack.
+    /// That is why it takes `&self` and every borrow below is a `try_`
+    /// borrow that declines when it fails. What bounds a compiled recursion
+    /// is §S8's floor: the entry that starts beneath it declines, and the
+    /// recursion goes on at Tier 0, on the heap.
     fn enter(&self, body: &BundValue, vm: &mut dyn Vm) -> Option<Result<(), Error>> {
         // Held for one `observe` and no longer: a nested entry needs it too.
         let decision = self.tiering.try_borrow_mut().ok()?.observe(body);
         match decision {
             Decision::Interpret => None,
+            // **A demoted body is declined for good** — D146. It is the one
+            // answer here that no later entry can change, so it is the one
+            // the `Vm` is told it may stop asking for.
+            Decision::Demoted => {
+                vm.tier_never(body);
+                None
+            }
             Decision::Compile => {
                 // **Not while a compiled body is running — D145, stage 1.**
                 // The compiler's module is being executed from and its tables
@@ -641,6 +646,85 @@ mod tests {
         );
     }
 
+    /// **D146, through the real tier: a demoted body stops being offered.**
+    ///
+    /// The tier is wrapped so that every offer is counted. A body with nothing
+    /// to inline is entered forty times at threshold 1: the first offer plans
+    /// it, refuses and demotes it; at the second the tier calls
+    /// `Vm::tier_never`; and the other thirty-eight never reach the tier. A body the tier compiles is
+    /// offered all forty times, because that is how it is run. Every entry of
+    /// both leaves what Tier 0 leaves.
+    #[test]
+    fn a_demoted_body_is_offered_twice_and_a_compiled_one_every_time() {
+        struct Counting {
+            inner: JitTier,
+            offers: std::rc::Rc<std::cell::RefCell<Vec<usize>>>,
+        }
+        impl Tier for Counting {
+            fn enter(&self, body: &BundValue, vm: &mut dyn Vm) -> Option<Result<(), Error>> {
+                if let Some(k) = body.payload_key() {
+                    self.offers.borrow_mut().push(k);
+                }
+                self.inner.enter(body, vm)
+            }
+            fn compiled_bodies(&self) -> Option<usize> {
+                self.inner.compiled_bodies()
+            }
+            fn compiled_entries(&self) -> Option<usize> {
+                self.inner.compiled_entries()
+            }
+        }
+
+        declare_share();
+        let mut r = crate::Runtime::new();
+        let table = bund2_stdlib::fragments::published(&r.interp.registry).unwrap_or_default();
+        assert!(!table.is_empty(), "the fixture must be able to inline");
+        let offers = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        r.install_tier(Box::new(Counting {
+            inner: JitTier::with_fragments(
+                Caps {
+                    threshold: 1,
+                    ..Caps::default()
+                },
+                table,
+            ),
+            offers: std::rc::Rc::clone(&offers),
+        }));
+
+        let refused = BundValue::lambda(vec![
+            BundValue::float(2.5),
+            BundValue::float(4.0),
+            BundValue::call("*"),
+        ]);
+        let gains = BundValue::lambda(vec![
+            BundValue::int(1),
+            BundValue::int(2),
+            BundValue::call("+"),
+        ]);
+        r.interp.registry.register_lambda("refused", refused.clone());
+        r.interp.registry.register_lambda("gains", gains.clone());
+
+        for _ in 0..40 {
+            r.interp.eval(&[BundValue::call("refused")]).expect("runs");
+            assert_eq!(r.interp.depth(), 1, "the product is the one value it leaves");
+            r.interp.clear();
+            r.interp.eval(&[BundValue::call("gains")]).expect("runs");
+            assert_eq!(r.interp.snapshot().last().and_then(BundValue::as_int), Some(3));
+            r.interp.clear();
+        }
+
+        let offers = offers.borrow();
+        let of = |b: &BundValue| offers.iter().filter(|k| Some(**k) == b.payload_key()).count();
+        assert_eq!(of(&refused), 2, "planned and demoted, said never, and not asked again");
+        assert_eq!(of(&gains), 40, "a body the tier runs is offered at every entry");
+        assert_eq!(r.compiled_bodies(), Some(1), "only the body with a site");
+        assert_eq!(
+            r.interp.tier().and_then(|t| t.compiled_entries()),
+            Some(39),
+            "the compiling entry is interpreted and the other thirty-nine run compiled"
+        );
+    }
+
     /// **The whole chain, end to end.** Seam, counter, threshold, cache,
     /// lowering, trampoline, thunks and adapter, running as one: a body
     /// evaluated past the threshold is compiled and filed, and the next entry
@@ -956,6 +1040,78 @@ mod tests {
         );
     }
 
+    /// **Criterion 22, bullet 3: "Repeat with `$stacks_left`"** — the
+    /// twenty-third review's S10. Neither repeat was written.
+    ///
+    /// The sigil skips the lambda and alias checks (D16), so `$stacks_left`
+    /// reaches the native whatever `stacks_left` is rebound to. The rows above
+    /// require the rebinding to change Tier 0's result; here it must *not*,
+    /// and a tier that resolved the sigiled name as it resolves a plain one
+    /// would run the lambda. Two stacks, so the rotation moves something.
+    #[test]
+    fn a_sigiled_call_to_a_rebound_name_matches_tier_zero() {
+        const STACKS: &str = ":other ensure_stack\n:main to_stack\n";
+        for (label, body) in [
+            (
+                "`$stacks_left`, rebound before the body runs",
+                ":w { 1 2 + $stacks_left } register\n:stacks_left { drop drop } register\n",
+            ),
+            (
+                "`$stacks_left`, rebound mid-body",
+                ":w { 1 2 + :stacks_left { drop drop } register $stacks_left } register\n",
+            ),
+        ] {
+            assert_promoted_matches_tier0(&format!("{STACKS}{body}"), 3, label);
+        }
+    }
+
+    /// **Criterion 22, bullet 3: "and with a callee whose slot generation is
+    /// saturated"** — the same review item.
+    ///
+    /// A saturated slot keeps `u32::MAX` through every later rewrite, so a
+    /// guard compiled against it would never fire; §S6's rule is that such a
+    /// site is called and not inlined. `drop` is saturated here, the body is
+    /// compiled and entered, and then `drop` is rebound to a lambda that
+    /// pushes. Compiled code that had inlined `drop` would go on dropping.
+    #[test]
+    fn a_callee_with_a_saturated_generation_is_called_and_sees_its_rebinding() {
+        let run = |r: &mut crate::Runtime, saturate: bool| {
+            if saturate {
+                let (s, _) = r.interp.registry.interner.lookup_call("drop").expect("registered");
+                r.interp.registry.saturate_generation(s);
+            }
+            r.eval_str(":w { 1 2 + 7 drop } register").expect("setup runs");
+            let mut outcomes = Vec::new();
+            for _ in 0..3 {
+                outcomes.push(r.eval_str("w").map_err(|e| norm_msg(&e.0)));
+            }
+            r.eval_str(":drop { 1 } register").expect("the rebinding");
+            for _ in 0..3 {
+                outcomes.push(r.eval_str("w").map_err(|e| norm_msg(&e.0)));
+            }
+            let stack: Vec<_> = r.interp.snapshot().iter().filter_map(BundValue::as_int).collect();
+            (outcomes, stack)
+        };
+
+        let mut control = inlining_runtime_with(1);
+        run(&mut control, false);
+        assert_eq!(control.inlined_sites(), Some(2), "the premise: `+` and `drop` both inline");
+
+        let mut tiered = inlining_runtime_with(1);
+        let got = run(&mut tiered, true);
+        assert_eq!(tiered.inlined_sites(), Some(1), "`+` inlines and the saturated `drop` does not");
+        assert!(tiered.compiled_entries().unwrap_or(0) >= 4, "entered before and after the rebinding");
+
+        let mut tier0 = crate::Runtime::for_debugging(&Default::default(), None);
+        let want = run(&mut tier0, true);
+        assert_eq!(got, want, "Tier 0's result");
+        assert_eq!(
+            got.1,
+            [3, 3, 3, 3, 7, 1, 3, 7, 1, 3, 7, 1],
+            "three sums, then the lambda's 1 beside each 7 it no longer drops"
+        );
+    }
+
     /// **Criterion 22, bullet 4 — a lambda callee whose callee is rebound
     /// (D46).**
     ///
@@ -1180,6 +1336,145 @@ mod tests {
              still cross a call (D45); zero here means §S5's rule was applied \
              to a configuration it does not govern"
         );
+    }
+
+    /// **Criterion 18's other two kinds: a CALL and a CONTEXT after `:`** —
+    /// the twenty-third review's S10.
+    ///
+    /// `autoadd_set_inside_a_compiled_body_reaches_the_residual`
+    /// (`crates/bund2-jit/src/lower.rs`) follows `:` with one literal. The
+    /// criterion names three kinds: a literal and a CALL are appended into the
+    /// value beneath, and a CONTEXT is pushed as a value of its own. Each row
+    /// is a body that inlines `+`, so it compiles, and turns the mode on
+    /// mid-body; `[ 0 ]` is the collector.
+    ///
+    /// Tier 0 is the other arm here. The first two rows were also run under
+    /// the oracle, 2026-10-11, and its stack display with `id` and `stamp`
+    /// blanked was byte-identical to Bund2's with no tier and at threshold 1:
+    /// `nl` is collected as a CALL and not run, and `@side` arrives as a
+    /// CONTEXT value beside the collector.
+    #[test]
+    fn a_call_and_a_context_after_the_collecting_mode_match_tier_zero() {
+        const ROWS: [(&str, &str); 3] = [
+            ("a call", ":w { 1 2 + drop : 7 nl ; } register\n"),
+            ("a context", ":w { 1 2 + drop : 7 @side ; } register\n"),
+            ("both", ":w { 1 2 + drop : nl @side 7 nl ; } register\n"),
+        ];
+        for (label, setup) in ROWS {
+            let run = |r: &mut crate::Runtime| {
+                r.eval_str(setup).expect("setup runs");
+                r.eval_str("[ 0 ]").expect("the collector");
+                let outcomes: Vec<_> = (0..3)
+                    .map(|_| r.eval_str("w").map_err(|e| norm_msg(&e.0)))
+                    .collect();
+                let stack: Vec<_> = r.interp.snapshot().iter().map(norm).collect();
+                (outcomes, stack, r.interp.current_name())
+            };
+            let mut tiered = inlining_runtime_with(1);
+            let got = run(&mut tiered);
+            assert!(
+                tiered.compiled_entries().unwrap_or(0) > 0,
+                "{label}: the body ran compiled, or this compares Tier 0 with itself"
+            );
+            let mut tier0 = crate::Runtime::for_debugging(&Default::default(), None);
+            assert_eq!(got, run(&mut tier0), "{label}");
+            assert!(
+                got.1.iter().any(|v| v.contains("nl") || v.contains("side")),
+                "{label}: something was collected or pushed as a value: {:?}",
+                got.1
+            );
+        }
+    }
+
+    /// **Criterion 26, as programs spell it** — the twenty-third review's S10.
+    ///
+    /// The nine tests in `crates/bund2-jit/src/lower.rs` reach the drain
+    /// through natives the tests register. These are the criterion's own
+    /// programs, with the shipped vocabulary filing the requests: `!`, `if`
+    /// and a registered word, each with the call followed by a value and with
+    /// the call last; two requests in sequence; and a failing body under
+    /// `?try`, whose request must not outlive the failure. Every body opens
+    /// with `1 2 + drop` so that it has a site and is compiled at all (F136).
+    #[test]
+    fn a_body_a_call_asks_for_runs_before_the_next_value_in_real_programs() {
+        const ROWS: [(&str, &str); 9] = [
+            ("! then a value", "{ 10 } ! 20"),
+            ("! last", "20 { 10 } !"),
+            ("if then a value", "true { 10 } if 20"),
+            ("if last", "20 true { 10 } if"),
+            ("a word then a value", "f 20"),
+            ("a word last", "20 f"),
+            ("two requests", "{ 1 } ! { 2 } !"),
+            ("a request inside a drained body", "{ { 1 } ! 2 } ! 3"),
+            (
+                "a failing body under ?try",
+                "?try :try { 5 \"boom\" raise } set :except { drop 99 } set ! 20",
+            ),
+        ];
+        for (label, program) in ROWS {
+            let run = |r: &mut crate::Runtime| {
+                r.eval_str(":f { 10 } register").expect("setup runs");
+                r.eval_str(&format!(":w {{ 1 2 + drop {program} }} register"))
+                    .expect("setup runs");
+                let outcomes: Vec<_> = (0..3)
+                    .map(|_| r.eval_str("w").map_err(|e| norm_msg(&e.0)))
+                    .collect();
+                let stack: Vec<_> = r.interp.snapshot().iter().map(norm).collect();
+                (outcomes, stack)
+            };
+            let mut tiered = inlining_runtime_with(1);
+            let got = run(&mut tiered);
+            assert!(
+                tiered.compiled_entries().unwrap_or(0) > 0,
+                "{label}: the body ran compiled, or this compares Tier 0 with itself"
+            );
+            let mut tier0 = crate::Runtime::for_debugging(&Default::default(), None);
+            assert_eq!(got, run(&mut tier0), "{label}");
+            assert!(!got.1.is_empty(), "{label}: the program left something to compare");
+        }
+    }
+
+    /// **Criterion 14, with the list doing the work** — the twenty-third
+    /// review's S10.
+    ///
+    /// `a_native_reading_beneath_its_operand_sees_tier_zeros_stack`
+    /// (`crates/bund2-jit/src/lower.rs`) holds the barrier with an empty
+    /// crossable set and a native registered by the test, so it would pass
+    /// whatever `PROMOTABLE.txt` said. This is the shipped vocabulary under a
+    /// tier that *does* cross. `rotate_current_left` declares `eff(0, 0)` and
+    /// rotates what lies beneath it; D55's audit flags it for that, and the
+    /// flag is the only gate that refuses it: D46, D47, D68, D71 and D73 all
+    /// admit it. `7 8` are promoted when it is reached, so a crossing would
+    /// rotate a stack that does not hold them yet.
+    #[test]
+    fn a_flagged_observer_is_not_crossed_by_a_tier_that_crosses() {
+        const OBSERVER: &str = ":w { 1 2 + 7 8 rotate_current_left } register\n";
+        // The control: the same promoted values before a certified word.
+        const CERTIFIED: &str = ":w { 1 2 + 7 8 nl } register\n";
+
+        let run = |r: &mut crate::Runtime, setup: &str| {
+            r.eval_str(setup).expect("setup runs");
+            for _ in 0..3 {
+                r.eval_str("w").expect("the body runs");
+            }
+            r.interp.snapshot().iter().map(BundValue::display).collect::<Vec<_>>()
+        };
+
+        let mut control = crossing_runtime_with(1);
+        run(&mut control, CERTIFIED);
+        assert!(
+            control.crossed_calls().unwrap_or(0) > 0,
+            "the premise: this tier crosses a certified `eff(0, 0)` word with \
+             the same values promoted"
+        );
+
+        let mut tiered = crossing_runtime_with(1);
+        let got = run(&mut tiered, OBSERVER);
+        assert!(tiered.compiled_entries().unwrap_or(0) > 0, "the body ran compiled");
+        assert_eq!(tiered.crossed_calls(), Some(0), "and the observer was not crossed");
+
+        let mut tier0 = crate::Runtime::for_debugging(&Default::default(), None);
+        assert_eq!(got, run(&mut tier0, OBSERVER), "Tier 0's stack, in Tier 0's order");
     }
 
     /// **Criterion 30, the twelfth review's first B1 case: a compiled caller of
@@ -1843,6 +2138,27 @@ mod tests {
         // the cache before it increments.
         assert_eq!(r.compiled_bodies(), Some(0), "the threshold is never reached");
 
+        // **"At 100", through the seam** — the twenty-third review's S10. The
+        // count above is of entries; this is the one entry's count, for the
+        // very body `times` ran. The tier is held here as well as installed,
+        // because `Rc<dyn Tier>` cannot be narrowed back to read its counter.
+        declare_share();
+        let mut held = crate::Runtime::new();
+        let tier = std::rc::Rc::new(JitTier::with_fragments(
+            Caps {
+                threshold: 1_000_000,
+                ..Caps::default()
+            },
+            Vec::new(),
+        ));
+        held.interp.install_tier(std::rc::Rc::clone(&tier) as std::rc::Rc<dyn bund2_api::Tier>);
+        let body = BundValue::lambda(vec![BundValue::call("drop")]);
+        held.interp.push(BundValue::int(100));
+        held.interp.push(body.clone());
+        held.eval_str("times").expect("the loop runs");
+        let count = tier.tiering().and_then(|t| t.count_of(&body));
+        assert_eq!(count, Some(100), "one entry, at 100");
+
         // A tier that is absent answers `None`, as the other figures do — the
         // distinction the CLI's match arms turn on.
         let mut bare = crate::Runtime::new();
@@ -2126,7 +2442,7 @@ mod tests {
     }
 
     fn observe(r: &mut crate::Runtime, outcome: Result<(), Error>, seen: &SharedReporter) -> Observed {
-        let names: Vec<String> = r.interp.stacks.names().map(str::to_string).collect();
+        let names: Vec<String> = r.interp.stacks().names().map(str::to_string).collect();
         let current = bund2_api::Vm::current_name(&r.interp);
         let mut stacks = Vec::with_capacity(names.len());
         for n in &names {
@@ -2635,6 +2951,52 @@ mod tests {
             second.tiering().expect("nothing holds it").compiled(&body).is_none(),
             "and its cache misses the very body the first tier compiled"
         );
+    }
+
+    /// **A registry assigned under a tier takes the tier with it** — §S6, the
+    /// twenty-third review's S6.
+    ///
+    /// `f` is compiled with `+` inlined, guarded by a generation cell that
+    /// belongs to the registry. Then the registry is replaced by one in which
+    /// `+` is another native, and `f` is the *same body value*, so the cache
+    /// still holds code for it. Entering that code would load a cell the old
+    /// registry freed, and, were the memory still readable, run an addition
+    /// where the word table now says otherwise.
+    #[test]
+    fn a_replaced_registry_is_run_at_tier_zero() {
+        fn hundred(vm: &mut dyn bund2_api::Vm) -> Result<(), Error> {
+            vm.pull();
+            vm.pull();
+            vm.push(BundValue::int(100));
+            Ok(())
+        }
+        let body = BundValue::lambda(vec![
+            BundValue::int(1),
+            BundValue::int(2),
+            BundValue::call("+"),
+        ]);
+        let mut r = inlining_runtime_with(1);
+        r.interp.registry.register_lambda("f", body.clone());
+        for _ in 0..3 {
+            r.eval_str("f").expect("runs");
+        }
+        assert_eq!(r.compiled_entries(), Some(2), "`f` is compiled and was entered");
+
+        let mut other = bund2_api::Registry::new();
+        other.register_native(
+            "+",
+            hundred,
+            bund2_api::StackEffect::fixed(2, 1),
+            bund2_api::WordKind::Sync,
+        );
+        other.register_lambda("f", body);
+        r.interp.registry = other;
+        for _ in 0..3 {
+            r.eval_str("f").expect("runs");
+        }
+        let stack: Vec<_> = r.interp.snapshot().iter().filter_map(BundValue::as_int).collect();
+        assert_eq!(stack, [3, 3, 3, 100, 100, 100], "the word table in place decides");
+        assert_eq!(r.compiled_entries(), None, "and no tier is left to enter");
     }
 
     /// **Criterion 23, second half: dropping an `Interp` drops its code, and

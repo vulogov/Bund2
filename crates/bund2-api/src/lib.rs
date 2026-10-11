@@ -144,15 +144,15 @@ pub fn panicked(what: &str, message: &str) -> Error {
 ///
 /// - `autoadd` is written by `Interp::set_autoadd`, the only writer, because
 ///   the field behind it is private;
-/// - `epoch` is published from `Stacks`'s own counter, which is bumped inside
-///   the type that owns the current stack, at every site that can move it;
+/// - `epoch` is written by `Stacks`'s own `bump_epoch`, in the statement that
+///   moves its counter, inside the type that owns the current stack (F198);
 /// - `request` is written in the same four functions that write
 ///   `pending_tail` (assumption 33), paired with each write.
 ///
-/// **No compiled code reads these yet.** There is no residual path, no drain
-/// helper and no `status_of`, so today the value of the cells is that the
-/// mirrors provably track the truth — which is the part a later lowering
-/// cannot check for itself, and the part that is testable now.
+/// Compiled code loads all four: the floor and `autoadd` at entry, and the
+/// epoch, `autoadd` and the request after every call. What the lowering
+/// cannot check for itself is that each mirror tracks the truth, which is
+/// why the writers are held to the list above.
 /// **`repr(C)`, because compiled code loads these by address.** §S6 has the
 /// JIT embed a cell's address as an immediate and load it directly, which is a
 /// base-plus-offset read of this struct's fields from machine code. Rust's
@@ -661,6 +661,16 @@ pub trait Vm {
     /// read a frame.
     fn tier_at(&mut self, _ip: usize) {}
 
+    /// **The tier will decline `body` at every later entry** — D146. A `Vm`
+    /// that offers bodies to a tier may stop offering this one.
+    ///
+    /// Called from inside [`Tier::enter`], before it answers `None`. It is a
+    /// permission and never a requirement: a tier offered the body again
+    /// declines it again, so a `Vm` that forgets, or never listens — which is
+    /// the default — is correct and only slower (F201). What is promised is
+    /// about this tier: a `Vm` forgets it all when its tier changes.
+    fn tier_never(&mut self, _body: &BundValue) {}
+
     // --- input (D112) -------------------------------------------------------
     /// Read one line — **the hook a word listens through**, as [`Vm::report`]
     /// is the one it speaks through. The implementation asks whatever
@@ -804,6 +814,14 @@ pub trait Vm {
 ///   frame is pushed, and the caller's `run_to` therefore finds nothing to do.
 /// - `Some(Err(e))` means compiled code ran it and it failed. The error is the
 ///   caller's, as an interpreted failure would have been.
+///
+/// **A tier that will decline a body at every later entry says so** — D146 —
+/// by calling [`Vm::tier_never`] before it answers `None`. The `Vm` may then
+/// stop offering that body. It is said through the `Vm`, as the tier's frame
+/// is (D139), and not in the answer: a third answer was built and measured
+/// first, and it cost every compiled entry two or three instructions more
+/// than this does, for something only a refused body has to say. D146 has
+/// the figures.
 ///
 /// **A body with no key is never offered**, which is not a special case but the
 /// same rule the cache keys on: `Vm::scoped_call` wraps a freshly built `Vec`
@@ -1211,6 +1229,12 @@ impl Slot {
         self.generation = self.generation.saturating_add(1);
     }
 
+    /// Pin the generation where `bump` would leave it after 2^32 rewrites.
+    /// For [`Registry::saturate_generation`] alone.
+    fn saturate(&mut self) {
+        self.generation = u32::MAX;
+    }
+
     /// Is every binding absent?
     ///
     /// **Exhaustive over the four that exist**, and deliberately written out
@@ -1376,6 +1400,34 @@ pub struct Registry {
     /// **The registration counter — D43.** Minted by
     /// [`Registry::register_native`], per `Registry`, never reused.
     next_registration: u64,
+    /// Which registry this is. See [`RegistryIdentity`].
+    identity: RegistryIdentity,
+}
+
+/// **Which `Registry` this is** — RFC-0005 §S6, the twenty-third review's S6.
+///
+/// A tier is built for one registry: its fragment table is keyed by that
+/// registry's registration ids, which are a per-registry counter, and its
+/// compiled code embeds the addresses of that registry's generation cells.
+/// `Registry` is `Clone` and an `Interp`'s registry can be assigned, so "the
+/// registry the tier was built for" and "the registry in the `Interp` now"
+/// are two things, and this is what tells them apart.
+///
+/// **A clone is a different registry**, as its cells are different cells, so
+/// `Clone` here mints a new identity rather than copying one. To *hold* an
+/// identity for comparison, use [`Registry::identity`], which shares it.
+///
+/// An allocation and not a counter, so no global is needed; whoever holds one
+/// keeps the allocation alive, so a registry dropped and another built in its
+/// place cannot be given the same address while the first is being asked
+/// about.
+#[derive(Debug, Default)]
+pub struct RegistryIdentity(std::rc::Rc<()>);
+
+impl Clone for RegistryIdentity {
+    fn clone(&self) -> Self {
+        Self(std::rc::Rc::new(()))
+    }
 }
 
 /// A conditional handler: it receives the CONDITIONAL value itself, because
@@ -1386,6 +1438,17 @@ pub type ConditionalFn = fn(&mut dyn Vm, BundValue) -> Result<(), Error>;
 impl Registry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// This registry's identity, shared: the value answers
+    /// [`Registry::is`] for this registry and for no other, clones included.
+    pub fn identity(&self) -> RegistryIdentity {
+        RegistryIdentity(std::rc::Rc::clone(&self.identity.0))
+    }
+
+    /// Whether `held` was taken from this registry.
+    pub fn is(&self, held: &RegistryIdentity) -> bool {
+        std::rc::Rc::ptr_eq(&self.identity.0, &held.0)
     }
 
     /// Bind a conditional `type` string to its handler.
@@ -1687,6 +1750,23 @@ impl Registry {
         // structural rather than a list to keep in step.
         let g = self.slot(s).map_or(0, Slot::generation);
         self.generation_cell(s).set(g);
+    }
+
+    /// **A test seam: put a name's generation where 2^32 rewrites would.**
+    ///
+    /// RFC-0005 §S6's saturation rule is about a slot pinned at `u32::MAX`,
+    /// and criterion 22 asks for a callee in that state. A program reaches it
+    /// only by registering one name four billion times, so nothing outside
+    /// this crate could build the case, and the rule's one branch in
+    /// `Vm::inline_site` ran in no test (the twenty-third review's S10).
+    ///
+    /// It writes the slot and the mirror together, as `touch` does, and it
+    /// can only move a generation *forward* to the value that stops caching —
+    /// so calling it can make a tier slower and cannot make it wrong.
+    #[doc(hidden)]
+    pub fn saturate_generation(&mut self, s: Symbol) {
+        self.slot_mut(s).saturate();
+        self.generation_cell(s).set(u32::MAX);
     }
 
     /// Register a lambda. **Does not disturb the native binding**, matching
@@ -2172,7 +2252,9 @@ mod tests {
     /// first inline test module, and two spellings.
     #[test]
     fn every_writer_of_a_slot_generation_is_named() {
-        const WRITERS: [&str; 2] = ["bump", "touch"];
+        // `saturate` is the test seam `Registry::saturate_generation` calls,
+        // which writes the mirror beside it as `touch` does.
+        const WRITERS: [&str; 3] = ["bump", "saturate", "touch"];
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs");
         let text = std::fs::read_to_string(&path).expect("reads");
         let shipped = text.split("#[cfg(test)]\nmod ").next().unwrap_or_default();
@@ -2340,6 +2422,21 @@ mod tests {
         r.register_command("w", noop, StackEffect::fixed(0, 0), WordKind::Sync);
         let expect = slot_gen(&r);
         assert_eq!(r.generation_cell(s).get(), expect, "after register_command");
+    }
+
+    /// **A clone is another registry** — S6. Its cells are other cells and a
+    /// tier built for one must not be entered for the other.
+    #[test]
+    fn a_registry_is_itself_and_no_clone_is() {
+        let mut r = Registry::new();
+        let held = r.identity();
+        assert!(r.is(&held));
+        r.register_alias("a", "b");
+        assert!(r.is(&held), "registering does not make it another registry");
+        let copy = r.clone();
+        assert!(!copy.is(&held), "a clone is not the registry it came from");
+        assert!(copy.is(&copy.identity()));
+        assert!(!Registry::new().is(&held));
     }
 
     /// **D43, and the whole reason the cells exist.** A `Slot`'s address is

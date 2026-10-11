@@ -28,6 +28,20 @@
   "held by less than its text" to "the check holds as written", so the
   three groups are 11, 5 and 14.)*
 
+  **2026-10-11: the twelve should-fix are answered**, in code where the
+  finding was about code and by dated notes where it was about this text;
+  the third amendment at the end, *the twenty-third review's should-fix*, is
+  the record. Six were defects and are filed and fixed: F195 to F200. The
+  restatement below moves with it: 3, 4, 14, 18, 20, 22, 26, 27 and 29 leave
+  "held by less than its text" for "the check was repaired", 18 with two
+  parts of its text still unbuilt, and 15 is asserted by CI where it was a
+  command run by hand. 7 is re-measured on the current tree: the groups it
+  names are inside the band by clock and by count, and a refused body, which
+  none of them enters, cost up to 5.5% (F201). **That is fixed, the same
+  day, under D146**: it costs 0.8%, and 7 has a bench group for it that has
+  not yet been run. What stays held by less is 5, 7 until that group is
+  read, 9, 11 and 17.
+
   **Proposed rather than Accepted, for the reason RFC-0001 gives.** This
   paragraph is kept current because it is the first thing a reader checks the
   RFC against, and on **2026-09-14 an audit of all thirty criteria found it
@@ -40,7 +54,8 @@
   `bund2-runtime`; bodies are compiled, cached per `Interp`, inlined behind
   §S6's three guards, and promoted; §S5's residual path applies the rest of a
   body and never rejoins. `crates/bund2-jit` carries **63** tests under
-  `--features jit`, not the seventeen this paragraph claimed.
+  `--features jit`, not the seventeen this paragraph claimed. *(91 on
+  2026-10-11, and 93 with `relocation-test`.)*
 
   **The audit's result, restated 2026-10-10, and it replaces every tally and
   list below it in this block.** The twenty-second review (2026-10-08) found
@@ -644,7 +659,7 @@
   under `--features jit`; conform unmoved at 106/114.
 
   **A compiled body is a real Bund word, 2026-09-13 — and it is a shape, not a
-  speedup.** `compile_word_body` lowers a body's values, each through its own
+  speedup.** `compile_word_body` *(`Compiler::compile_word` since)* lowers a body's values, each through its own
   `Tail` thunk called indirectly through the slot table, and a differential
   asserts the compiled word leaves the same stack as `Interp::eval` over the
   same body — `{ 1 2 + }`, `4 4 + 2 *`, a lambda call that files and drains a
@@ -658,7 +673,7 @@
   fragments are inlined into, and **criterion 10 measures the tier as shipped,
   not this**. Still absent: the cache, `Interp` integration, promotion, inlining
   and the meaning guard — nothing consults a compiled body when a word runs, and
-  `compile_word_body` has no caller outside tests. Twenty-seven tests under
+  `compile_word_body` *(`Compiler::compile_word` since)* has no caller outside tests. Twenty-seven tests under
   `--features jit`; conform unmoved at 106/114 on both tiers.
 
   **F96's parity gap is closed, 2026-09-13, and the request cell is not what
@@ -681,8 +696,8 @@
   helper, as this entry said it would. `status_of` consults
   `Vm::exit_requested` first, substitutes `Error::exited` after an `Ok`, passes
   an `Err` through unchanged, and clears the tail request on every error it
-  answers — through `Vm::clear_tail_request`, which is one of the four writers
-  that write §S6's mirror beside `pending_tail`. So the sentence above is
+  answers — through `Vm::clear_tail_request`, which is one of the writers
+  (four then, five since D113) that write §S6's mirror beside `pending_tail`. So the sentence above is
   superseded in one respect: the cell is now read and written on the compiled
   path, rather than only mirrored. **The other half stands** — no compiled body
   continues past a call, so nothing *loads* the cell to decide whether to
@@ -789,7 +804,16 @@
   arity are found by audit and kept off `PROMOTABLE.txt`, so they are
   barriers — Q34's answer; criterion 14), **D49** (a panic in a native is caught where the
   native is called, in both tiers), **D37** (no panic), **D39** (an
-  internal loop must be bounded)
+  internal loop must be bounded).
+  *Added 2026-10-11, for the twenty-third review's S9, which found these
+  consumed and unlisted:* **D59** (the gate is answered and Tier 1 is
+  authorised), **D68** (promotion crosses a call only when the callee
+  produces nothing), **D71** (never a callee that can report mid-body),
+  **D73** (never one that changes which stack is current), **D74** (the
+  threshold is 1024), **D75** (D68's crossing is withdrawn from use and its
+  rule kept), **D83** (`--emit=native` is withdrawn; criterion 4 is discharged
+  by inspection) and **D134** (the `aot` feature is `relocation-test`). **D10**
+  above is consumed in its second half only, since D83.
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
   `80377728f45b`; `bundcore` `3b0b8ba219a6`; `rust_dynamic` `ceb27c96fa10`;
   `rust_multistack` `9a97675ee5d8`; `rust_multistackvm` `4605832678d4`
@@ -861,7 +885,7 @@ each `CALL` through the slot table.
 
 ---
 
-# S1. The gate, measured — half met
+# S1. The gate, measured
 
 `00-jit-feasibility.md` §2.2 divides the work in two and puts a decision gate
 between them:
@@ -1336,9 +1360,10 @@ Therefore:
   orphaned; its pages are never reclaimed.
 - **Unregistering rewrites the call slot to whatever the name now resolves
   to**, and writes a failing stub only when nothing does. Bund2's registry
-  `Slot` declares six fields and holds **four live bindings** —
+  `Slot` holds **four bindings** —
   `command`, `alias`, `lambda`, `native` (`crates/bund2-api/src/lib.rs`,
-  `Slot`). `class` and `method` are declared and never written: classes live
+  `Slot`) — and its generation. *(It declared six until F121 removed `class`
+  and `method`, which nothing wrote.)* Classes live
   in `Registry::classes` and methods in `Registry::methods`, each with its own
   counter read through `oop_generation`, so class and method resolution does
   not pass through a `Slot` at all (F121; the twentieth review's S2). §S6's
@@ -1971,7 +1996,14 @@ excluded from the crossable table outright, whatever the reporter wants
 (`REPORTS_MID_BODY`, `crates/bund2-stdlib/src/promotable.rs`). Shipped
 `bund2-stdlib` reports mid-body in five places and four are already unreachable
 as a crossed call — `while`, `for` and `*loop` are opaque, `run_error` is run by
-`!` — so the exclusion is `alias` alone, one native out of 56 survivors. The
+`!` — so the exclusion is `alias` alone, one native out of 56 survivors. *(As
+of 2026-10-11 the list holds seven names: `alias`, D90's five `log.*` words and
+`debug.display_distributed_info`, the last added by F157 after it had been
+certified crossable. The function-level scan never checked this list, and
+`REPORTS_MID_BODY`'s own documentation said so. Since this date the palette
+audit does: it runs every fixed-effect native under a reporter that notes a
+call and fails for one that reported and is not listed — the twenty-third
+review's S4. It sees what the palette reaches and no further.)* The
 rule above then holds unconditionally rather than while a reporter happens to
 want nothing, which is the property a cached compiled body needs.
 
@@ -2065,7 +2097,7 @@ inlining rules:
   **native** binding's, since `$` skips the lambda. A lambda registered on the
   same name bumps that slot's generation, so the check still fails when one
   arrives.
-- **Never against a saturated slot.** `Slot::touch` stops at `u32::MAX`
+- **Never against a saturated slot.** `Slot::bump` stops at `u32::MAX`
   (`crates/bund2-api/src/lib.rs`), so a check compiled against a saturated
   generation can never fail. A callee whose slot is saturated at compile time
   is treated as an alias is: the body syncs before the call.
@@ -2122,6 +2154,9 @@ inlining rules:
   two sit below everything the real stack holds. Q39 filed the stronger version
   and D68 corrects it.
 
+  *(Figures of 2026-09-16. The list holds 351 entries on 2026-10-11, and
+  `to_stack`, `to_current`, `stacks_left`, `stacks_right`, `ensure_stack` and
+  `alias` are all excluded since — by D73, F195 and D71.)*
   **56 of `PROMOTABLE.txt`'s 222 natives survive**, and they are the mid-run
   effectful words — `println`, `print`, `nl`, `space`, `drop`, `return`,
   `to_stack`, `to_current`, `stacks_left`, `stacks_right`, `register`,
@@ -2422,9 +2457,10 @@ is not built**: a body that earns compilation while a compiled body is
 running is queued and compiled when the outermost has returned, not at
 once.)*
 
-**Criterion 23 is still not met**, and the wiring does not change that: it wants
+*(As of 2026-09-13; criterion 23 has since been met, and its own entry says
+how.)* **Criterion 23 is still not met**, and the wiring does not change that: it wants
 one cache, one `JITModule` and one set of cells *per `Interp`*, and while the
-cache is now per-`Interp`, each `compile_word_body` still builds a module of its
+cache is now per-`Interp`, each `compile_word_body` *(`Compiler::compile_word` since)* still builds a module of its
 own. Sharing one module across compilations is a `lower.rs` refactor and is not
 done here.
 
@@ -2456,7 +2492,7 @@ test-only entry points, `compile` and `compile_body`, still build a module
 each: neither is on an `Interp`'s path, and both exist to give the fragment
 lowering and §S8's boundary a call site.
 
-**A body that is a real Bund word, 2026-09-13.** `compile_word_body` lowers a
+**A body that is a real Bund word, 2026-09-13.** `compile_word_body` *(`Compiler::compile_word` since)* lowers a
 body's *values* — literals, `CALL`s, `CONTEXT`s — each through its own `Tail`
 thunk, called indirectly through the slot table. `{ 1 2 + }` compiles and runs,
 and a differential asserts the compiled word leaves the same stack as
@@ -2489,7 +2525,7 @@ inside `apply`, where Tier 0 drains, rather than deciding for itself. Adding the
 cell now would be surface with no consumer, which is the argument that deferred
 D43's id set, so it waits for the reader that gives it meaning. Nor is this a
 tier: **no cache and no `Interp` integration** — nothing consults a compiled
-body when a word runs, and `compile_word_body` is called by tests alone — no
+body when a word runs, and `compile_word_body` *(`Compiler::compile_word` since)* is called by tests alone — no
 promotion, no inlining, no meaning guard. `bund2-jit` gains `bund2-api` as a
 dependency for `dyn Vm` and `bund2-stdlib` as a *dev*-dependency so the
 differential has real words to run; criterion 15's direction still holds,
@@ -2509,6 +2545,18 @@ the build would have complained. `+` and `drop` are registered under their own
 names. Criterion 16's differential test still dispatches by the name `dup`,
 because dispatch resolves the alias — the two spellings are right for different
 jobs and `fragments.rs` says so beside each.
+
+*(2026-10-11, the twenty-third review's S7 — **and so the arm is not reached
+by the spelling programs use.** `inline_site` refuses a name that resolves
+through an alias, for the reason *Inlining freezes a name* gives: there would
+be two generations to guard. `dup` is that alias. The review counted 48
+corpus and probe files that write `dup` and 2 that write `dup_one`, so of the
+three published fragments, one is inlined only where a program writes the
+target name. The figures this RFC gives for `dup` are to be read with that:
+criterion 10's rows are spelled `dup_one`, and which spelling the `dup drop`
+rows of §S1 and of this section were measured on was not re-checked on this
+date. Guarding an alias and its target together would reach `dup` and is not
+designed here.)*
 
 **What it costs**: two loads and two compares per inlined site, both
 predictable — addressed as *Addressing* below describes. Criterion 17 checks that every inlined region carries the guard
@@ -2580,21 +2628,25 @@ body whose meaning had changed:
 - `autoadd` is now a **private** field with one writer, `Interp::set_autoadd`,
   which writes the mode and the cell together. It was `pub`, and a public field
   cannot be mirrored: any writer would bypass the cell. Privatising it cost five
-  call sites, all tests, because `:` and `;` are still unbound — cheap now and
-  expensive once they land, which is why it was done now;
+  call sites, all tests, because `:` and `;` were then unbound — cheap then and
+  expensive once they landed, which is why it was done then *(they are bound
+  since F84's fix, 2026-09-30, and both call it)*;
 - the **epoch** is published from a counter inside `Stacks`, bumped at every
   site that can change which stack is current, and **exact rather than
   conservative**: a `to_stack` to the stack already current, a rotation of a
   one-stack ring, and a drop of a stack that is not current all leave it alone,
   so a guard cannot fire on a program that never switched. Assumption 40 records
   what makes it a property;
-- the **request mirror** is written in the four writers this section names, and
+- the **request mirror** is written in the writers this section names — four
+  when this was written, five since D113 added `evaluate_typed`, and
+  `request_tail_for` in `request_tail`'s place — and
   `every_writer_of_the_request_cell_is_named` now asserts the mirrored set
   *equals* the named set, so a half-write in either direction fails the scan
   rather than shipping. `take_pending` clears the mirror **before** it pushes
   the frame, since the body it runs may file a request of its own.
 
-**What this does not yet do.** No compiled code reads any of it: there is no
+**What this did not yet do, when written.** *(All three now exist and compiled
+code loads all four cells; criterion 23's entry lists them.)* No compiled code reads any of it: there is no
 residual path, no drain helper and no `status_of`. The value of the cells today
 is that the mirrors provably track the truth, which is the part a later lowering
 cannot check for itself, and the part that is testable now.
@@ -2603,9 +2655,11 @@ cannot check for itself, and the part that is testable now.
 (§S5, *A call may end the program*) clears the request on every error it
 answers, through `Vm::clear_tail_request`, which writes the mirror beside
 `pending_tail`. That is the first code on the compiled path to touch a cell
-rather than merely keep it in step. **The other three are still unread**:
-`autoadd`, the epoch and the floor are written and never loaded, because no
-lowering emits a guard, a residual path or an entry check. The paragraph above
+rather than merely keep it in step. **The other three were still unread
+then**: `autoadd`, the epoch and the floor were written and never loaded,
+because no lowering emitted a guard, a residual path or an entry check.
+*(Each is loaded now: the floor and `autoadd` at entry, the epoch and
+`autoadd` after every call.)* The paragraph above
 holds for them.
 
 **Dated note, 2026-09-13 (4) — the request cell is now acted on, not only
@@ -2665,7 +2719,14 @@ vacuously. They arrive with fragment inlining.
 
 At compile time the JIT embeds each cell's address as an immediate. That is
 safe to do because the cells outlive every compiled function: both die with the
-runtime. A check is then one load and one compare per cell. That makes **two
+runtime. *(2026-10-11, the twenty-third review's S6, F197: true of `Cells`
+and, until this date, not of the generation cells. Those belong to the
+`Registry`, which is a public field of `Interp`, and assigning another
+registry freed them under compiled code that held their addresses.
+`Interp::install_tier` now records which registry a tier is installed for,
+and `push_frame` removes a tier whose registry has been replaced before it
+offers a body. The fragment table had the same exposure: it is keyed by a
+per-registry counter.)* A check is then one load and one compare per cell. That makes **two
 per inlined site** (generation, `autoadd`) and **three after every call**
 (epoch, `autoadd`, request). **A third comes before a call across which values stay promoted**:
 the callee's generation (§S5), so generation cells are read at call sites as
@@ -2702,7 +2763,8 @@ opaque `RegistrationId` minted per `Registry` by `register_native` (and left
 `Registry::generation_cell` hands out one `Cell<u32>` per symbol from boxed
 chunks of 256, written by `touch` beside the bump. RFC-0002's amendment records
 the surface. The id *set* §S5 wants `register_all` to record is not built:
-`bund2-jit` is still a placeholder, and it is that consumer's to shape.
+`bund2-jit` was a placeholder then, and it was that consumer's to shape.
+*(`promotable::crossable` builds the set now, in `bund2-stdlib`.)*
 
 **So both halves of this design carry risk.** Inlining carries the
 *redefinition* risk, closed by this guard. Promotion carries the
@@ -3462,7 +3524,8 @@ ends.**
 The thread is sized at Tier 0's part plus Tier 1's share. Tier 0's part is
 8 MiB — `EVAL_STACK` is that plus `bund2_interp::STACK_RESERVE`, which is the
 reserve below the floor rather than part of Tier 0's capacity
-(`crates/bund2-cli/src/main.rs`). The main thread's stack
+(`crates/bund2-runtime/src/lib.rs`; it was in the CLI's main file when this
+was written). The main thread's stack
 on this machine, 8176 KiB by `ulimit -s`, is the reason for that default,
 since it is roughly what Tier 0 ran on before F85's fix. It is not the value.
 Compiled frames start only above the Tier 1 floor. The reserve beneath that
@@ -3496,7 +3559,7 @@ value's depth at about 550 bytes a level, so the 256 KiB reserve carried about
 470 levels and a 20,000-deep list aborted the process (F114, fixed by a heap
 worklist). Two more paths outside this design recursed the same way, and
 §S8's floors reached neither: dropping a deep value (F115, since fixed the same
-way) and parsing a deep run-time string (F116, open), assumptions 34 and 35. Two things come out of
+way) and parsing a deep run-time string (F116, fixed 2026-09-11), assumptions 34 and 35. Two things come out of
 the reserve and are not measured, though both are small against 256 KiB:
 
 - the thread-entry frames, because the declared top is `stack_marker()` called
@@ -3611,7 +3674,8 @@ the limit. Two rules close it:
 
   Within those limits the set cannot go stale. Add
   §S5's drain helper. On 2026-09-11 the
-  scan finds 21:
+  scan found 21 *(`REENTERING` holds 28 on 2026-10-11; the test's own list is
+  the current one, and this paragraph is the set as first derived)*:
   - through `Vm::eval_lambda`: the loop words (`times`, `loop`, `map`,
     `while`, `for`, `*loop`, `input*`), the conditional runners, the method
     paths, `?.` and `?MOVE` (`conditional_move`), and **`csv` and `sqlite`**
@@ -3881,7 +3945,13 @@ is stated here, with the place that enforces or decides it.
 27. **Every `bund2-stdlib` source file's inline test module comes last.** The
     re-entry scan cuts each file at its first `#[cfg(test)]` module, so
     shipped code after it would go unscanned (§S8). This holds in every file
-    on 2026-09-11, and nothing enforces it.
+    on 2026-09-11, and nothing enforces it. *(2026-10-11, the twenty-third
+    review's S2, F199: by 2026-10-10 it no longer held — `world.rs` had five
+    shipped functions after its test module and `console.rs` one — and it is
+    enforced now. `nothing_shipped_follows_a_test_module`
+    (`crates/bund2-stdlib/src/lib.rs`) fails for a file that opens an item
+    after its first test module. The scans passed unchanged once they could
+    see the six functions, and the look that followed found F195.)*
 37. **No code bumps a `Slot`'s generation without writing that name's mirror
     cell.** §S6 gives compiled code a cell per name, and a write that reaches
     the `Slot` alone leaves an inlined fragment running a meaning the name no
@@ -4006,7 +4076,11 @@ is stated here, with the place that enforces or decides it.
     (F119, iterative), the **wire codec** (`crates/bund2-value/src/wire.rs` —
     F118: an arena for the half Bund2 owns, and a bound for bincode's, which
     cannot be checked on read because the nested value is built before any
-    Bund2 code runs. **Encoding** refuses past `MAX_WIRE_DEPTH`, 256, in
+    Bund2 code runs. *(Superseded 2026-10-11, the twenty-third review's S3,
+    F196: it is checked on read. `WireValue`'s `Deserialize` counts each
+    level as it descends and refuses past the same 256, so a payload no
+    `to_binary` wrote — `decode.base64` reads a program's own string — is an
+    error and not an abort. A 100,000-level payload aborted before.)* **Encoding** refuses past `MAX_WIRE_DEPTH`, 256, in
     `to_binary`'s own `depth_of` walk, so `save.model` reports at 257 and never
     reaches bincode's encode recursion — the arena's ~39,000 is what the
     encoder could take, not what a program can reach. **Decoding** has no depth
@@ -4066,8 +4140,8 @@ is stated here, with the place that enforces or decides it.
     from" reads naturally as including the workbench, and a reader
     implementing §S5 from that phrase could promote a value destined for the
     workbench and find no epoch, no sync rule and no barrier for it.
-    `tests/golden/PROMOTABLE.txt` lists **52** `.`-suffixed natives among its
-    222 entries, every one of which takes or leaves a workbench operand; `+.`
+    `tests/golden/PROMOTABLE.txt` lists **136** `.`-suffixed natives among its
+    351 entries (2026-10-11; 52 of 222 when this was written), every one of which takes or leaves a workbench operand; `+.`
     declares `eff(1, 0)`
     (`crates/bund2-stdlib/src/math.rs`, `add_wb`'s registration), honest
     about the current stack and silent about the workbench, which is the
@@ -4081,7 +4155,14 @@ is stated here, with the place that enforces or decides it.
     the check defeated. The property is **structural rather than enumerated**,
     as assumption 37 is: `Stacks::order` is private to `Stacks`, and every
     mutator that can move its front bumps the epoch, so a switch that does not
-    bump cannot be written.
+    bump cannot be written. *(2026-10-11, the twenty-third review's S1, F198:
+    that was nominal until this date. `Stacks` shared `Interp`'s module, so
+    the privacy bound nothing; the counter was copied to the cell by hand at
+    five sites; and `Interp`'s `stacks` field and `Stacks::to_stack` were
+    both `pub`. `Stacks` has a module of its own now
+    (`crates/bund2-interp/src/stacks.rs`), each front-moving function takes
+    the cells and `bump_epoch` writes the cell with the counter, and the
+    field is private.)*
 
     It had to be made structural rather than asserted, because it was already
     violated in the direction that matters: `drop_stack`, `rotate_stacks_left`
@@ -4130,7 +4211,9 @@ is (D40).
 
 D10's resolution is the governing rule and it cuts both ways here: `bund2 build
 --emit=native` may require a C toolchain, and **nothing below `bund2 build` may
-require one**. Cranelift is pure Rust and needs no `cc`, so the JIT feature
+require one**. *(2026-10-11, the twenty-third review's S9: D83 withdrew
+`--emit=native`, so the first half governs nothing that exists. The second
+half is what this section needs and it stands.)* Cranelift is pure Rust and needs no `cc`, so the JIT feature
 does not violate D10 — but it must not drag in anything that does.
 
 Exact version pins are already in place (`=0.135.0`) and §3.2e's instruction —
@@ -4144,7 +4227,8 @@ compiling any Bund2 code, in every crate gating on it. The toolchain pin is now
 **1.95.0** (Q31, decided by the repository owner), which was the only option of
 three that keeps Tier 1 the same build as Tier 0 rather than a second one.
 
-`--features jit` and `--features aot` are declared in five crates —
+`--features jit` and `--features relocation-test` *(named `aot` until D134)*
+are declared in five crates —
 `bund2-jit`, `bund2-runtime`, the umbrella `bund2`, `bund2-cli` and
 `bund2-bench`. `conform --features jit` builds `bund2-cli` with the feature,
 and **criterion 2 has run**: 105/113 with the feature on and 105/113 with it
@@ -4163,6 +4247,11 @@ unchanged: the output of `bund2 build --emit=native` must read the same N/M
 and CEILING as Tier 0, because AOT changes speed and not meaning exactly as the
 JIT does. Criterion 2 here covers the JIT; RFC-0006 states the AOT
 counterpart.
+
+*(2026-10-11, the twenty-third review's S9: the paragraph above describes a
+build that does not exist. D83 withdrew `--emit=native`, and RFC-0006 as
+accepted (D138) is `--emit=bundle`, which carries no compiled code and states
+no AOT counterpart to criterion 2. There is nothing here for it to inherit.)*
 
 # S11. Errors stay a return-value protocol
 
@@ -4272,7 +4361,9 @@ An earlier version of this entry rejected the alternative on an Amdahl bound of
 "~1.3× at best". That figure is withdrawn (§S1) and this entry no longer rests
 on it.
 
-**A threaded interpreter instead of a JIT.** §2.1 rates this ~2× and it needs
+**A threaded interpreter instead of a JIT.** §2.1 rates this ~2× (a table
+`docs/research/ERRATA.md` records as superseded by this RFC's own §S1, so the
+figure is the research document's and not a measurement) and it needs
 no code generator, no platform restriction and no code-memory policy. It is a
 genuine competitor to this RFC and it is **not** ruled out here — but it is
 RFC-0003's territory (Tier 0's implementation), not this one's. §S1's
@@ -4333,7 +4424,8 @@ evidence, and this one is listed as runnable rather than as met.
    three must read the same N/M **and the same CEILING**. Any movement is a bug,
    per CLAUDE.md — which also requires the ceiling beside the number, since an
    approved deviation can never enter the numerator and N/M alone overstates
-   the remaining work. Today: **106/114, ceiling 106/114**, across all three
+   the remaining work. On 2026-10-10: **133/145, ceiling 133/145**, in all six configurations
+   (D145's note). When this paragraph was written: **106/114, ceiling 106/114**, across all three
    runs, re-measured 2026-09-14 (105/113 on 2026-09-11 after that day's
    probes, and 82/90 that morning); eight approved deviations, D50's among
    them. This criterion measures the **dev** profile and criterion 11
@@ -4344,8 +4436,8 @@ evidence, and this one is listed as runnable rather than as met.
    vacuous.
    - `bund2`'s thread had no Tier 1 share, which §S8's
      `set_stack_region_with_share` now fixes.
-   - §S7's threshold is 64 evaluations of one body, and most corpus programs
-     are short.
+   - §S7's threshold is 1024 evaluations of one body (D74; 64 when this was
+     written), and most corpus programs are short.
 
    So `bund2` reports how many bodies it compiled when asked, through a
    statistics flag, and `conform` prints the total beside its `measured:`
@@ -4381,7 +4473,7 @@ evidence, and this one is listed as runnable rather than as met.
    evidence, and it is now a passing test rather than an assertion.
 
    The `measured:` line names the threshold when a run overrides it, because
-   the same number at 64 and at 1 says two different things.
+   the same number at the default and at 1 says two different things.
 
    **Once a tier exists, this criterion exercises promotion across calls
    under the CLI's default reporter.** D45 made `TextReporter` want a snapshot
@@ -4398,12 +4490,6 @@ evidence, and this one is listed as runnable rather than as met.
    review found it still carrying a private one — and `conform` prints the line
    `measured: bund2-cli, dev profile, features: jit` above its result.
 
-   **Met, 2026-09-14**, by `a_cache_entry_cannot_answer_for_a_different_body`
-   (`crates/bund2-jit/src/cache.rs`), beside `a_dup_shares_the_originals_cache_entry`
-   and `an_unboxed_scalar_is_not_a_body` in the same module. The `Weak` D35's
-   amendment requires is what makes the entry answer for nothing once its body
-   is gone.
-
 3. **A cache entry cannot answer for a different body.** D35 requires this as
    a test, not a comment, and names the failure: an entry whose body was freed
    can be answered for a *different* body at the reused address — wrong code
@@ -4418,6 +4504,19 @@ evidence, and this one is listed as runnable rather than as met.
 
    §S7's counter is criterion 6, and it now holds the same kind of reference:
    both must drop a body's contents with its last strong reference.
+
+   *(The next paragraph stood at the end of criterion 2 until 2026-10-11; the
+   twenty-third review's S12. The test gained two assertions the same day, for
+   that review's S10: the dead entry no longer upgrades, and
+   `Tiering::live_at`, which `Tiering::compiled` answers through, refuses it.
+   Through a live body the refusal could not be reached, since the `Weak`
+   keeps the address out of reuse, so the branch had run in no test.)*
+
+   **Met, 2026-09-14**, by `a_cache_entry_cannot_answer_for_a_different_body`
+   (`crates/bund2-jit/src/cache.rs`), beside `a_dup_shares_the_originals_cache_entry`
+   and `an_unboxed_scalar_is_not_a_body` in the same module. The `Weak` D35's
+   amendment requires is what makes the entry answer for nothing once its body
+   is gone.
 
 4. **Every inter-word call in compiled code is indirect**, checked
    mechanically rather than by reading.
@@ -4453,6 +4552,22 @@ evidence, and this one is listed as runnable rather than as met.
    *present*, which is what caught the first version of this check attributing
    relocations by section name — on Mach-O every relocation reports `__text`,
    so no offender could match and the check passed vacuously.
+
+   *(2026-10-11, the twenty-third review's S8 — three corrections.* **The
+   probe emitted two bodies, a generic call and a bare literal**, so "any
+   lowering path" was checked on one. It emits four now: the third has an
+   inlined site behind its guards, a crossed call and a generic call, and the
+   fourth ends in a tail call; the companion test asserts the third body
+   names `jit_stack_moved` and `jit_residual`, so the paths were taken. **"The
+   two permitted relocations are the only direct calls emitted", below, is
+   not so**: a body also calls the Rust helpers directly — `jit_push_int`,
+   `jit_residual`, `jit_stack_moved` — and the test permits any import. What
+   it forbids, and what the criterion is about, is a body naming a body.
+   **"Corroborated by asserting the CLIF text" was never built**; the
+   relocation records are the whole check. And the command, which no
+   paragraph here named:
+   `cargo test -p bund2-jit --features jit,relocation-test relocations`. CI
+   runs it since this date.)*
 
    The note below stands as what was true for seventeen days, and its
    conclusion — that this belonged to RFC-0006's path — is what D83 withdrew.
@@ -4522,15 +4637,6 @@ evidence, and this one is listed as runnable rather than as met.
    `f` is `{ g }`, with `g` rebound to a word of a different effect, once
    before the caller runs and once by `f` itself mid-call. Nothing was
    promoted across `f` (D46), so the result must match Tier 0's.
-
-   **Met, 2026-09-14.** Every row of §S7's table has its test in
-   `crates/bund2-jit/src/cache.rs`: `the_function_cap_leaves_the_body_past_it_interpreted`,
-   the third-redefinition test *(removed 2026-10-10 with the recompile cap,
-   D140; it was named for demoting the body live at the time)*,
-   `the_counter_cap_holds`, and `the_counter_does_not_pin_the_bodies_it_counts`
-   for the half that asks the counter to hold an entry without keeping the body
-   alive. `the_threshold_decides_when_a_body_has_earned_compilation` covers the
-   knob F125 later exposed to the command line.
 
    **Partially met, 2026-09-14.** Two of the chain's cases are covered:
    `an_aliased_name_is_called_rather_than_inlined` shows §S6's
@@ -4635,6 +4741,18 @@ evidence, and this one is listed as runnable rather than as met.
    *counter* pins none; without it, "the counter holds a `Weak`" is a comment
    rather than a property. It is the counterpart of criterion 3, and it fails
    the same way: silently, and only under memory pressure.
+
+   *(The next paragraph stood inside criterion 5 until 2026-10-11; the
+   twenty-third review's S12.)*
+
+   **Met, 2026-09-14.** Every row of §S7's table has its test in
+   `crates/bund2-jit/src/cache.rs`: `the_function_cap_leaves_the_body_past_it_interpreted`,
+   the third-redefinition test *(removed 2026-10-10 with the recompile cap,
+   D140; it was named for demoting the body live at the time)*,
+   `the_counter_cap_holds`, and `the_counter_does_not_pin_the_bodies_it_counts`
+   for the half that asks the counter to hold an entry without keeping the body
+   alive. `the_threshold_decides_when_a_body_has_earned_compilation` covers the
+   knob F125 later exposed to the command line.
 
 7. **The feature does not move what it must not**, with a stated tolerance.
 
@@ -5054,6 +5172,113 @@ evidence, and this one is listed as runnable rather than as met.
    note re-reads two of the table's groups and not the criterion. D117
    carries the figures and what a count does not say.
 
+   **Re-measured 2026-10-11, by the clock and then by count; the groups this
+   criterion names are inside the band, and a shape none of them has is
+   not (F201)** — the twenty-third review's S10. The
+   last full reading was of 2026-09-15, before D74's threshold, F142's floor
+   check at entry, D113's branches, D139's frame and D145's nesting; the
+   review's objection was that "met" rested on a tree that no longer exists.
+   The two commands at the head of this criterion, on the five groups it
+   names, macOS arm64, on the tree that answers that review's should-fix.
+   One feature-off baseline, two feature-on runs against it, and then the
+   feature-**off** binary again against the same baseline, which is what the
+   machine does to an unchanged build:
+
+   | row | baseline | `jit`, run 1 | `jit`, run 2 | feature off, again |
+   |---|---|---|---|---|
+   | `startup/registry/register_all` | 73.60 µs | +3.04% | −0.93% | −1.03% |
+   | `startup/parse/mixed` | 4.393 µs | −0.12% (p = 0.49) | +0.69% | +0.09% (p = 0.63) |
+   | `value/with_tag/scalar_unique` | 52.29 ns | −0.78% | −0.29% | +0.75% |
+   | `value/with_tag/heap_shared` | 41.76 ns | −1.51% | −1.18% | +1.09% |
+   | `value/promote/scalar` | 34.99 ns | −2.54% | −2.89% | −1.15% |
+   | `value/clone/scalar` | 4.059 ns | +3.04% | +3.15% | +3.18% |
+   | `value/push_pull/balanced` | 11.25 ns | +0.85% | +1.23% | +1.14% |
+   | `dispatch/dup_drop/w3000` | 85.41 µs | +1.68% | +2.63% | +3.13% |
+   | `dispatch/native_call/w4000` | 99.38 µs | +2.58% | +3.65% | +3.10% |
+   | `dispatch/literal_only/w1000` | 19.60 µs | +1.82% | +0.47% (p = 0.12) | +0.71% |
+   | `dispatch/literal_push/w2000` | 46.96 µs | +0.85% | +1.69% | +0.33% (p = 0.09) |
+   | `arith/int_add/1000` | 51.53 µs | −97.94% | −97.94% | −2.00% |
+   | `arith/float_mul/1000` | 51.28 µs | −2.23% | −1.61% | −0.52% |
+   | `arith/times_body/1000` | 65.60 µs | −18.67% | −18.50% | −0.51% |
+   | `arith/int_add/1000/cold` | 62.71 µs | +1.35% | −0.97% | +2.10% |
+   | `arith/float_mul/1000/cold` | 62.68 µs | +0.85% | −0.59% | +2.41% |
+   | `arith/times_body/1000/cold` | 80.54 µs | +5.28% | +4.85% | +0.24% (p = 0.09) |
+   | `corpus/mixed` | 21.35 µs | +2.47% | +1.31% | −0.10% (p = 0.86) |
+   | `corpus/sequence_generate_2` | 16.44 µs | −2.39% | −1.99% | −3.67% |
+   | `corpus/sorting_numbers_in_list` | 14.07 µs | +0.46% (p = 0.49) | +0.70% (p = 0.30) | −1.50% |
+
+   Criterion reports p < 0.05 wherever none is shown.
+
+   **By the clock every verdict row is inside the band.** `startup` and
+   `value` move by at most 3.15%; `dispatch` by at most 3.65%; `corpus` by at
+   most 2.47%. The one row past 5% is `arith/times_body/1000/cold`, which D69
+   makes first-entry evidence and not a verdict row: it is the compilation,
+   paid once and measured per iteration, and it read +121% when the threshold
+   was 64.
+
+   **The fourth column is why D117 prefers a count.** A build with no
+   feature, measured against itself minutes later, moves by up to +3.18% and
+   −3.67%, and `value/clone/scalar` and both `dispatch` call rows move as far
+   without the feature as with it. A 5% band cannot be held on an instrument
+   that moves 3.7% by itself, which is what D117 ruled on 2026-10-08. So the
+   table above is a reading and not the verdict.
+
+   **By count, the same day — D117's method.** Instructions retired,
+   `/usr/bin/time -l`, two release binaries of this tree, median of five,
+   the empty program's cost subtracted. D117's second reading was of
+   2026-10-08, before D139 and D145; this is that table again with two rows
+   it did not have.
+
+   | program, ×300,000 inside `times` | no tier | `jit` | change | `jit` on 2026-10-08 |
+   |---|---|---|---|---|
+   | the empty program (`startup`) | 37.11 M | 37.66 M | **+1.5%** | 37.7 M |
+   | `1 drop` | 489.4 M | 368.7 M | −25% | 317.0 M |
+   | eight literals, eight `drop` | 2,986.4 M | 1,370.2 M | −54% | 1,314.2 M |
+   | `1 dup drop` | 848.3 M | 772.9 M | −9% | 716.5 M |
+   | `1 2 + drop` | 969.4 M | 380.5 M | −61% | 328.6 M |
+   | `f`, where `:f { 1 drop } register` | 737.7 M | 663.2 M | −10% | 602.3 M |
+   | `1 2 swap clear` — **a body the tier refuses** | 1,051.4 M | 1,088.1 M | **+3.5%** | not read |
+   | `g`, where `:g { 1 2 swap clear } register` — **two refused bodies a turn** | 1,299.4 M | 1,371.3 M | **+5.5%** | not read |
+
+   `--stats` on the first five programs: 1 body compiled, 298,976 compiled
+   entries. On the last two: 0 bodies.
+
+   **`startup` and every `dispatch` shape are inside the band**, and
+   `corpus` is `startup` by this method: its three programs retire 37.3 M to
+   37.7 M instructions without the tier and 38.1 M to 38.4 M with it, +1.6%
+   to +2.0%, almost all of it the process starting. `value` has no reading
+   by count and needs none, since `bund2-value` has no `jit` feature and is
+   the same code in both builds.
+
+   **A compiled entry costs more than it did on 2026-10-08, and still wins.**
+   The last column is D117's own. Tier 0's figures are within 0.4% of that
+   day's; the tier's are 52 M to 61 M higher on each compiled row, which is
+   about 170 to 200 instructions for each compiled entry. Between the two
+   dates lie D139's frame for each compiled entry and D145's bookkeeping
+   around `enter`; how the difference divides between them was not measured.
+   `1 drop` was −35% and is −25%.
+
+   **The last two rows are what this criterion has no group for, and one of
+   them is outside its band.** A body with no inlinable site is planned
+   once, refused and demoted (F136), and every later entry is still offered
+   to the tier, which looks it up and declines: about 120 instructions an
+   offer. One refused body a turn reads +3.5%; two read +5.5%. None of the
+   named groups shows it: `dispatch` runs a stream, which is never a body;
+   `arith`'s warm rows compile; and `corpus`'s three programs compile nothing
+   and retire under a million instructions past startup. So the criterion as
+   written does not fail. D142's 3% to 7% on
+   whole programs is this cost seen through the clock. **F201** files it,
+   with what would remove it and why that is a decision.
+
+   **F201 is fixed, 2026-10-11 — D146.** A body the tier has demoted is no
+   longer offered: the tier says so once, through `Vm::tier_never`, and
+   `Interp` remembers. By the same count, the two rows above read +0.6% and
+   +0.8% where they read +3.5% and +5.5%, and the compiled rows rise by
+   0.1% to 0.4%, or 0.9% for a compiled loop that follows a refused body.
+   D146 has the table. **This criterion has a group for the shape now**:
+   `refused`, two rows, in `crates/bund2-bench/benches/interpret.rs`. It
+   has not been run, so no clock reading of it is claimed here.
+
 8. **`cite` and `lint` clean**, with `cargo xtask cite` resolving every
    `path:line` in this document. **Note what this now checks and did not
    before:** citations into `crates/` were invisible to the extractor until
@@ -5169,7 +5394,7 @@ evidence, and this one is listed as runnable rather than as met.
     building, and it is deliberately the one that can fail.
 
     **The first compiled body is not this measurement, 2026-09-13.**
-    `compile_word_body` (§S6) applies each of a body's values through
+    `compile_word_body` *(`Compiler::compile_word` since)* (§S6) applies each of a body's values through
     `Vm::apply`, which is Tier 0's own path, so it is *slower* than interpreting
     and measuring it would answer a question this criterion does not ask. It is
     the structure fragments are inlined into; the A/B this criterion requires
@@ -5825,6 +6050,16 @@ evidence, and this one is listed as runnable rather than as met.
     itself, which is F127's shape and how four earlier tests passed while
     exercising nothing.
 
+    *(2026-10-11, the twenty-third review's S10: that test holds the barrier with an empty crossable
+    set and a native the test registers, which could never be on the list, so
+    it would pass whatever `PROMOTABLE.txt` said.
+    `a_flagged_observer_is_not_crossed_by_a_tier_that_crosses`
+    (`crates/bund2-runtime/src/tier.rs`) is the shipped vocabulary under a
+    tier that crosses. `rotate_current_left` declares `eff(0, 0)` and D55's
+    flag is the only gate that refuses it; with `7 8` promoted before it the
+    tier crosses a certified word in the control and does not cross this one,
+    and the stack is Tier 0's.)*
+
 15. **The dependency direction is not inverted.** §S6's mechanism rests on
     `bund2-jit → bund2-stdlib` being permitted while the reverse is not.
     RFC-0000's B3 already checks one half:
@@ -5844,6 +6079,15 @@ evidence, and this one is listed as runnable rather than as met.
     direction is exercised in the other sense at the same time: `bund2-jit`
     depends on `bund2-stdlib` for `fragments::published`, which is what §S6
     needs and what D9's amendment allows.
+
+    *(2026-10-11, the twenty-third review's S11: "asserts it so a later
+    change cannot invert it quietly" was a `cargo tree` someone ran.
+    `.github/workflows/ci.yml` runs it now, with `--all-features`, and fails
+    if `bund2-stdlib` reaches `bund2-jit` or a `cranelift` crate. The same
+    workflow runs `cargo test --workspace --features jit,relocation-test`;
+    until this date it ran no `jit`-gated test, so every criterion here that
+    a test holds was held by a command run by hand. `ci.yml` runs on a pull
+    request and on `main`, and has not yet run with these steps.)*
 
 16. **Every BundIR fragment agrees with the word it specialises.** A
     differential test per fragment runs the arm and the word on **the same
@@ -6002,7 +6246,8 @@ evidence, and this one is listed as runnable rather than as met.
     absent", which are the reference's literal and CONTEXT arms. Both tiers
     push, so both agree. And no program can turn the mode on in any case:
     `Interp::set_autoadd` is the only writer and no word calls it, which is
-    criterion 18's standing blocker.
+    criterion 18's standing blocker. *(True when written. `:` and `;` call it
+    since F84's fix, 2026-09-30, and criterion 18 is met.)*
 
     `autoadd_leaves_a_promoted_literal_alone_in_both_tiers`
     (`crates/bund2-jit/src/lower.rs`) asserts the agreement with a value beneath
@@ -6107,6 +6352,20 @@ evidence, and this one is listed as runnable rather than as met.
     asserts the collector holds **one** value, which the old code could not
     produce.
 
+    *(2026-10-11, the twenty-third review's S10: the test follows `:` with one literal, and the
+    criterion names a CALL and a CONTEXT as well.
+    `a_call_and_a_context_after_the_collecting_mode_match_tier_zero`
+    (`crates/bund2-runtime/src/tier.rs`) has a row for each and one for both,
+    against Tier 0, with the body entered compiled. The first two were also
+    run under the oracle on this date: `:w { 1 2 + drop : 7 nl ; } register`
+    and the same with `@side` for `nl`, each after `[ 0 ]` and three calls,
+    give a stack display that is byte-identical, `id` and `stamp` blanked,
+    under the oracle, under Bund2 with no tier, and at `--jit-threshold 1`
+    with 1 body compiled and 2 entered. **Two parts of the text are still
+    unbuilt**: the mode is turned on by `:` and not "through `!`", and there
+    is no probe golden — no file under `tests/probes` uses `:`, and a golden
+    is the owner's to capture.)*
+
     **Conformance is unmoved in all three configurations**: 107/116, ceiling
     107/116, default and `--features jit` and `jit` at threshold 1.
 
@@ -6176,6 +6435,11 @@ evidence, and this one is listed as runnable rather than as met.
     unseen body answers `None`. `the_counter_cap_holds` and
     `the_threshold_decides_when_a_body_has_earned_compilation` remain about
     *capacity* and *threshold*; neither is this row.
+
+    *(2026-10-11, the twenty-third review's S10: "at 100" was asserted for a synthetic body handed to
+    `observe` a hundred times, and nowhere for a body `times` ran. The first
+    test now holds its tier as well as installing it and reads
+    `count_of` for the body `times` was given: `Some(100)`.)*
 
     **The threshold is raised above the iteration count on purpose.**
     `Tiering::observe` answers `Decision::Compiled` from the cache *before* it
@@ -6309,6 +6573,19 @@ evidence, and this one is listed as runnable rather than as met.
       rebind `stacks_left` to a lambda that consumes two, before the body runs
       and mid-body. The stacks must match. Repeat with `$stacks_left`, and
       with a callee whose slot generation is saturated.
+      *(2026-10-11, the twenty-third review's S10: neither repeat was written. Both are now, in
+      `crates/bund2-runtime/src/tier.rs`.
+      `a_sigiled_call_to_a_rebound_name_matches_tier_zero` rebinds
+      `stacks_left` before the body and mid-body and calls `$stacks_left`,
+      which must go on reaching the native.
+      `a_callee_with_a_saturated_generation_is_called_and_sees_its_rebinding`
+      saturates `drop`, asserts the tier inlines one site where the control
+      inlines two, rebinds `drop` to a lambda, and requires Tier 0's stack.
+      A saturated slot takes 2^32 registrations to reach, so the test uses a
+      hidden seam, `Registry::saturate_generation`
+      (`crates/bund2-api/src/lib.rs`), which can only move a generation
+      forward to the value that stops caching. §S6's saturation rule had run
+      in no test before it.)*
     - **A lambda callee whose callee is rebound (D46).** With
       `:g { drop } register  :f { g } register`, run a body `1 2 3 f`, and
       rebind `g` to `{ drop drop drop }` before the body runs. Then use
@@ -6483,7 +6760,7 @@ evidence, and this one is listed as runnable rather than as met.
     **Dated note, 2026-09-13 — a tier exists, and this is still not met.** The
     *cache* half is now satisfiable: `bund2-runtime` installs a `JitTier` per
     `Runtime`, each holding its own `Tiering`, so two `Interp`s share no cache.
-    The *module* half is not: each `compile_word_body` builds a `JITModule` of
+    The *module* half is not: each `compile_word_body` *(`Compiler::compile_word` since)* builds a `JITModule` of
     its own, so there is one module per compiled body rather than one per
     `Interp`. That is stricter than the criterion asks in the direction that
     matters — no module is shared *across* `Interp`s, so the failure it names
@@ -6553,7 +6830,7 @@ evidence, and this one is listed as runnable rather than as met.
     by the `Compiler` the tier holds, so two `Interp`s share no code memory and
     a `WordHandle` is meaningless to the compiler that did not issue it. An
     earlier note here recorded the module half as unmet because each
-    `compile_word_body` built a module of its own; that is no longer how the
+    `compile_word_body` *(`Compiler::compile_word` since)* built a module of its own; that is no longer how the
     tier compiles.
 
     **Dated note, 2026-10-03 — a measured cost, and a correction to how it was
@@ -6690,6 +6967,15 @@ evidence, and this one is listed as runnable rather than as met.
     each covered, and the drain is reached through its own slot rather than a
     direct call, so criterion 4's rule holds across it.
 
+    *(2026-10-11, the twenty-third review's S10: all nine reach the drain through natives the tests
+    register; none compiles the programs this criterion names.
+    `a_body_a_call_asks_for_runs_before_the_next_value_in_real_programs`
+    (`crates/bund2-runtime/src/tier.rs`) does, with the shipped vocabulary
+    filing the requests: `!`, `if` and a registered word, each followed by a
+    value and each last; two requests in sequence; a request inside a drained
+    body; and a failing body under `?try`. Nine rows against Tier 0, each
+    entered compiled.)*
+
     The review's own program was `?try` over `[ { 10 } 5 ] !`, when
     `execute_value` filed each lambda a list reached. F113 runs one at once
     instead, so the arm no longer files and the case is an embedder's native
@@ -6700,16 +6986,6 @@ evidence, and this one is listed as runnable rather than as met.
     `a_lambda_reached_through_a_dict_in_a_list_runs_at_once`
     (`crates/bund2-stdlib/src/host.rs` and
     `crates/bund2-stdlib/src/values.rs`).
-
-    **Not met, 2026-09-14, and the blocker is gone.** This row closed "Needs a
-    tier" and one exists. No test registers an embedder's native and asserts a
-    compiled body syncs before it. **It is also blocked in part**: the row asks
-    the side table to record the call as *synced, not crossed*, and nothing is
-    crossed today — D66/D67 sync before every call. The half that is writable
-    now is the differential: an embedder's native with an honest pair that
-    still observes beyond its operand must give Tier 0's result from compiled
-    code. D47's rule that makes this matter — promotion crosses only
-    registrations `bund2-stdlib` minted — is decided and unexercised.
 
 27. **Promotion does not cross a native `bund2-stdlib` did not register
     (D47).** From the test, register a native declaring `eff(1, 1)` that
@@ -6728,6 +7004,14 @@ evidence, and this one is listed as runnable rather than as met.
     test-registered native is **recorded synced, not crossed**, which is this
     criterion's own wording and what `Word::crossings` now makes assertable.
     The result matches Tier 0's besides.
+
+    *(2026-10-11, the twenty-third review's S10: `embedders` declares `eff(1, 1)`, and D68's gate
+    refuses anything that produces before the table is asked, so the test
+    would pass with a table that admitted every registration.
+    `a_native_with_a_certified_words_effect_is_still_not_crossed`, in the
+    same file, registers a native with `eff(0, 0)` — `nl`'s pair, asserted
+    equal — beside `nl` in one body. `nl` is recorded crossed and the test's
+    native synced, and it finds the depth Tier 0's finds.)*
 
     **What refuses it is the table, not the registration.** `register_native`
     mints a `RegistrationId` for any caller — an embedder's native is
@@ -6755,6 +7039,19 @@ evidence, and this one is listed as runnable rather than as met.
     the substitution refused for criterion 22's last two bullets, which are
     blocked on the same thing. **It moves from *not met* to *blocked with a
     named blocker*,** which is a plan rather than work nobody has done.
+
+    *(The next paragraph is this criterion's first status note. It stood at
+    the end of criterion 26 until 2026-10-11; the twenty-third review's S12.)*
+
+    **Not met, 2026-09-14, and the blocker is gone.** This row closed "Needs a
+    tier" and one exists. No test registers an embedder's native and asserts a
+    compiled body syncs before it. **It is also blocked in part**: the row asks
+    the side table to record the call as *synced, not crossed*, and nothing is
+    crossed today — D66/D67 sync before every call. The half that is writable
+    now is the differential: an embedder's native with an honest pair that
+    still observes beyond its operand must give Tier 0's result from compiled
+    code. D47's rule that makes this matter — promotion crosses only
+    registrations `bund2-stdlib` minted — is decided and unexercised.
 
 28. **Promotion crosses only natives a palette has checked (D48).** Criterion
     24 checks the arms the corpus reaches, and `drop_stack`, which no program
@@ -6784,10 +7081,11 @@ evidence, and this one is listed as runnable rather than as met.
     beyond its operands (criterion 14). Runs today: `cargo test -p bund2-stdlib promotable`.
 
     **Three limits.** The first two were stated for the eleventh review's S4;
-    the third is F123, found 2026-09-13 and fixed 2026-09-14. First, six natives
-    that act on the host are never run: `fs.rm`, `sleep.seconds`,
-    `system.setproctitle`, `system.setproctitle.`, `password` and
-    `save.model` (`ACTS_ON_HOST`, `crates/bund2-stdlib/src/lib.rs`). So
+    the third is F123, found 2026-09-13 and fixed 2026-09-14. First, natives
+    that act on the host are never run: six when this was written — `fs.rm`,
+    `sleep.seconds`, `system.setproctitle`, `system.setproctitle.`, `password`
+    and `save.model` — and thirteen on 2026-10-11 (`ACTS_ON_HOST`,
+    `crates/bund2-stdlib/src/lib.rs`, which is the list). So
     "every fixed-effect native" means every one but those. That is the
     conservative side, since an unrun native is not listed and not crossed.
     But the exclusions are kept by hand, so a new host-acting native runs for
@@ -6853,6 +7151,15 @@ evidence, and this one is listed as runnable rather than as met.
     native directly through its thunk, with no `#` or `#.` between them.
 
     Runs today: `cargo test -p bund2-jit --features jit`.
+
+    *(2026-10-11, the twenty-third review's S10: "nothing reaches stderr" was said and not asserted —
+    nothing in process can see a stream — and the text was compared with a
+    constant. `a_panicking_native_under_a_compiled_body_matches_without_the_tier`
+    (`crates/bund2-cli/tests/panic_tier.rs`) runs the binary. F95's
+    `string.distance.jarowinkler` panics inside a dependency, so the panic is
+    a real one; `w` is entered compiled into it, in a non-tail and a tail
+    position, and stdout, stderr and the exit code are compared with the same
+    binary at a threshold nothing reaches. Stderr is empty in both.)*
 
 30. **A program ended by `bund.exit` ends at the same point in compiled code
     (D52).** Run `tests/probes/bund-exit.bund` and
@@ -7337,3 +7644,120 @@ debugger armed beside a tier. The review's twelve unstated assumptions
 beyond the three this day's changes answer. And no benchmark but
 `hot_body` and `entry_anchored` was run, so every other nanosecond in this
 document is as it was recorded.
+
+## Amendment, 2026-10-11 — the twenty-third review's should-fix
+
+The twelve, in the review's order. Where a finding was a defect it has an
+entry in `docs/registers/defects.md` and that entry is the account; this
+lists what changed and where the note stands.
+
+**S1 — assumption 40 was not structural.** F198. `Stacks` has its own
+module, the epoch bump writes the cell, and `Interp`'s field is private.
+Note at assumption 40.
+
+**S2 — assumption 27 did not hold.** F199. Two test modules moved to the end
+of their files, and a test enforces the assumption. The scans pass with the
+six functions in view. Note at assumption 27. **Found on the way: F195** —
+the stack-switch scan did not look for `ensure_stack`, `push_to` or
+`drop_stack`, and two certified fixed-effect words were not on D73's list.
+Dormant under D75; both lists are extended.
+
+**S3 — a decode with no bound.** F196. Run, not only read: a 100,000-level
+payload aborted the process. The decode refuses past `MAX_WIRE_DEPTH` now.
+Note at assumption 35. The entry also records the room above that bound in
+a debug build on a 2 MiB thread: F118's table implies 256 levels, and
+measured it is between 14 and 24, and was between 24 and 34 before this
+change.
+
+**S4 — `REPORTS_MID_BODY` had no check.** The palette audit cross-checks it
+by running: a fixed-effect native that reports and is not listed fails.
+Removing `debug.display_distributed_info` from the list fails it, which is
+F157's case. Note in §S5.
+
+**S5 — `published`'s error was discarded.** F200. Kept, and reported once a
+reporter exists.
+
+**S6 — generation cells did not outlive compiled code.** F197. A tier is
+removed when the registry it was installed for is replaced. Note in §S6,
+*Addressing*.
+
+**S7 — the `dup` fragment is unreachable as programs spell it.** Not
+changed; stated where the section claims the arm. Note in §S6.
+
+**S8 — criterion 4's statements exceeded its test.** The probe emits four
+bodies and the companion asserts the paths were taken; two sentences of the
+criterion are corrected and the command is named. Note at criterion 4.
+
+**S9 — §S10 against D83 and D134.** Three notes in §S10, and eight
+decisions added to the list this RFC consumes.
+
+**S10 — checks weaker than their criterion.** Eight of the nine have a
+check that reaches the claim now: 3, 14, 18, 20, 22's third bullet, 26, 27
+and 29, each with a note under the criterion naming the test. Criterion 18
+keeps two unbuilt parts, named there. **Criterion 7 is the ninth, and it is
+re-measured twice**, by the clock and by D117's count, on the tree as it
+stands. The groups it names are inside 5% by both. A shape it has no group
+for is not: a body the tier refuses costs about 120 instructions each time
+it is entered, and a program that enters two a turn reads +5.5% by count.
+That is **F201**, recorded and not fixed.
+
+**S11 — no `jit`-gated check ran in CI.** Two steps added to `ci.yml`: the
+workspace's tests under `jit,relocation-test`, and criterion 15's
+dependency direction. Not yet run there. Note at criterion 15.
+
+**S12 — stale present tense.** Each listed statement is corrected where it
+stands, with what it said and until when; three status notes are moved to
+the criteria they belong to. Dated notes that were true on their date are
+left as dated.
+
+**Three things in this are choices and not repairs**, and are the owner's
+to reverse. `Interp`'s `tier` and `stacks` fields are private, with
+`install_tier`, `take_tier`, `tier` and `stacks` in their place, which is a
+change to what an embedder may write. `Registry::saturate_generation` is a
+hidden public function that exists for one test. And a tier whose registry
+is replaced is removed with a warning rather than rebuilt for the new one.
+
+**Not done, and not claimed.** Criterion 18's probe golden. F201's cost,
+which is measured and left as it is. A bench row for a body the tier
+refuses, so that criterion 7's own groups would show it. The Preservation section's unlisted rows and the review's
+unstated assumptions, as the amendment above this one leaves them, except
+that "the decoders with no bound" is answered by F196 and "generation cells
+outlive compiled code" by F197. The verification behind this amendment ran
+on macOS arm64 alone.
+
+## Amendment, 2026-10-11 — F201 is fixed under D146
+
+The amendment above leaves F201 "measured and left as it is", and a bench
+row for a refused body among what was not done. Both are done, by the
+owner's ruling of the same day: D146, option A with a fallback to
+accepting the cost.
+
+**What changed in the design.** §S2's seam offers every body with a key
+and no exit action. It now offers every such body **the tier has not
+declined for good**. The tier declines for good exactly the bodies it has
+demoted (F136), and says so by calling `Vm::tier_never` from inside
+`Tier::enter`; `Interp` keeps them in a table of 1,024 slots, keyed on the
+payload address and holding the `Weak` that D35 as amended has every such
+structure hold, and forgets them all when its tier is installed, taken out
+or removed. `Tier::enter`'s contract, which D42 and D145 fix, is unchanged.
+A third answer from `enter` was built first and measured two or three
+instructions an entry dearer; D146 records both and that the choice
+between them is the owner's to reverse.
+
+**What it does not change.** Meaning: a body not offered is interpreted,
+which is what the tier would have answered. `conform` reads 133/145,
+CEILING 133/145, in all six configurations. A body that is not demoted is
+offered at every entry as before, since that is how it is counted and how
+it is run. The demoted set in the tier stays, bounded as D140 has it.
+
+**One consequence to know.** A demotion the tier evicts under D140 used to
+cost that body one more planning if it became hot again. `Interp` now goes
+on remembering it, so it is not planned again while the tier stands. The
+plan would have reached the same refusal.
+
+**Criterion 7.** Note there. The refused rows are +0.6% and +0.8% by
+count; the dearest compiled row is +0.9%; the `refused` bench group exists
+and has not been run.
+
+**The form is ruled, the same day.** The owner, asked which of the two
+stands: "keep the callback". D146 carries it.

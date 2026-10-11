@@ -34,7 +34,9 @@ use std::collections::HashMap;
 ///
 /// Field order matters for the same reason variant order does: bincode writes
 /// struct fields in declaration order with no names.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+///
+/// **`Deserialize` is written by hand, over [`WireValueDef`]** — F196.
+#[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct WireValue {
     pub id: String,
     pub stamp: f64,
@@ -44,6 +46,56 @@ pub struct WireValue {
     pub attr: Vec<WireValue>,
     pub curr: i32,
     pub tags: HashMap<String, String>,
+}
+
+/// [`WireValue`]'s fields again, for the derive that reads them — F196.
+///
+/// `remote` makes the derive produce a `deserialize` function that builds a
+/// `WireValue` rather than an implementation of the trait, which leaves the
+/// trait's implementation free to count the level first. **The fields must
+/// stay in `WireValue`'s order**: a name or a type that differs fails to
+/// compile, an order that differs reads every payload wrongly, and
+/// `decodes_what_the_oracle_saved` is what would say so.
+#[derive(Deserialize)]
+#[serde(remote = "WireValue")]
+struct WireValueDef {
+    id: String,
+    stamp: f64,
+    dt: u16,
+    q: f64,
+    data: Val,
+    attr: Vec<WireValue>,
+    curr: i32,
+    tags: HashMap<String, String>,
+}
+
+/// **The bound on reading — F196.** Every level of nesting is a `WireValue`
+/// inside a `WireValue`, so each passes through here once, and refusing here
+/// bounds the recursion the derived code does inside the dependency.
+///
+/// F118 bounded writing and recorded that "a decode cannot be bounded at all:
+/// bincode builds the whole nested `WireValue` before any code here runs".
+/// That is true of code *after* the decode and not of the type's own
+/// `Deserialize`, which runs during it. It mattered because not every payload
+/// was written by `to_binary`: `decode.base64` reads a program's own string.
+///
+/// The same number as the writing bound, so everything `to_binary` writes is
+/// read back.
+///
+/// **One frame per level, and a small one.** A `deserialize_with` on `data`
+/// and `attr` did the same job and cost stack: in a debug build on a 2 MiB
+/// thread the decode then overflowed below 300 levels, where F118 measured
+/// 512 without it.
+impl<'de> Deserialize<'de> for WireValue {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let Some(_level) = Level::enter() else {
+            return Err(too_deep());
+        };
+        WireValueDef::deserialize(d)
+    }
 }
 
 /// The reference's `Val`, **in its declaration order**.
@@ -138,6 +190,48 @@ pub const JSON_WRAPPED: u16 = 25;
 /// chooses thresholds this way: far past any real program, far below where it
 /// breaks.
 pub const MAX_WIRE_DEPTH: usize = 256;
+
+thread_local! {
+    /// How many `WireValue`s deep the decode running on this thread is — F196.
+    static DECODING: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// One level of a decode, counted while it lasts. Leaving the level is its
+/// `Drop`, so a decode that fails part-way leaves the count where it found it.
+struct Level;
+
+impl Level {
+    /// Enter one level, or `None` past the bound. Counted either way, and the
+    /// refusal's count is undone here because no `Level` is made to undo it.
+    #[inline(never)]
+    fn enter() -> Option<Self> {
+        DECODING.with(|c| {
+            let n = c.get().saturating_add(1);
+            if n > MAX_WIRE_DEPTH {
+                return None;
+            }
+            c.set(n);
+            Some(Level)
+        })
+    }
+}
+
+impl Drop for Level {
+    fn drop(&mut self) {
+        DECODING.with(|d| d.set(d.get().saturating_sub(1)));
+    }
+}
+
+/// Out of line and never inlined: the message is built on the one path that
+/// has stopped descending, and each level's own frame stays a call and a
+/// test. Each level's frames are what the bound exists to count.
+#[cold]
+#[inline(never)]
+fn too_deep<E: serde::de::Error>() -> E {
+    E::custom(format!(
+        "the payload nests more than {MAX_WIRE_DEPTH} deep, the most the wire format reads"
+    ))
+}
 
 impl WireValue {
     /// A Bund2 value as the reference's `Value`, field for field.
@@ -774,6 +868,56 @@ mod conversion_tests {
         }
         assert_eq!(levels, MAX_WIRE_DEPTH - 1, "every level came back");
         assert_eq!(cur.as_int(), Some(7));
+    }
+
+    /// **A payload nested past the bound is refused where it is read — F196.**
+    ///
+    /// `to_binary` cannot write one, so this one is assembled from bytes: the
+    /// encoding of a one-element list is a prefix, its element, and a
+    /// twenty-byte suffix (an empty `attr`, `curr`, an empty `tags`), so
+    /// 100,000 prefixes, a leaf and 100,000 suffixes is a well-formed payload
+    /// 100,000 levels deep. A program can hold exactly that in a string and
+    /// hand it to `decode.base64`. On a 2 MiB thread, where an unbounded
+    /// decode aborted at 512.
+    #[test]
+    fn a_payload_nested_past_the_bound_is_refused_not_decoded() {
+        let leaf = to_binary(&BundValue::int(7)).expect("encodes");
+        let one = to_binary(&BundValue::list(vec![BundValue::int(7)])).expect("encodes");
+        const SUFFIX: usize = 20;
+        let at = one.len() - leaf.len() - SUFFIX;
+        let (prefix, suffix) = (&one[..at], &one[one.len() - SUFFIX..]);
+        let nested = |levels: usize| {
+            let mut bytes = Vec::with_capacity(levels * (prefix.len() + SUFFIX) + leaf.len());
+            for _ in 0..levels {
+                bytes.extend_from_slice(prefix);
+            }
+            // Each level's identity is the leaf's; only the shape matters.
+            bytes.extend_from_slice(&leaf);
+            for _ in 0..levels {
+                bytes.extend_from_slice(suffix);
+            }
+            bytes
+        };
+        // The assembly is the wire format: two levels of it decode.
+        let two = from_binary(&nested(2)).expect("a hand-assembled payload decodes");
+        let inner = two.as_list().and_then(|l| l.first()).and_then(|v| v.as_list());
+        assert_eq!(inner.and_then(|l| l.first()).and_then(BundValue::as_int), Some(7));
+
+        let deep = nested(100_000);
+        let shallow = nested(2);
+        let done = std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(move || {
+                let refused = from_binary(&deep).map(|_| ());
+                // The count is per decode: a refusal leaves nothing behind.
+                (refused, from_binary(&shallow).is_ok())
+            })
+            .expect("spawns")
+            .join()
+            .expect("the decode returned");
+        let e = done.0.expect_err("past the bound");
+        assert!(e.contains("nests") && e.contains(&MAX_WIRE_DEPTH.to_string()), "{e}");
+        assert!(done.1, "a later decode on the same thread starts from zero");
     }
 
     /// **F118's arena, on the smallest stack that matters.**

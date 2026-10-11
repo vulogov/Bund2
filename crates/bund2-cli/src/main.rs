@@ -1077,10 +1077,15 @@ fn run(src: &str, args: &Args) -> Option<i32> {
     } else {
         bund2_runtime::Runtime::with_options_and_threshold(&args.host, args.jit_threshold)
     };
+    let startup_defect = rt.take_startup_defect();
     let vm = &mut rt.interp;
     let mut reporter = bund2_stdlib::report::TextReporter::new(args.dump_stack);
     reporter.raw_values = args.raw_values;
     vm.reporter = Box::new(reporter);
+    // Found while the runtime was assembled, before this reporter existed.
+    if let Some(e) = startup_defect {
+        bund2_api::Vm::report(vm, bund2_api::diag::Diagnostic::warning(e.0));
+    }
     // **Where the program's lines come from — D112.** The terminal, except
     // under `--debugger`: the session's own commands arrive on standard input,
     // and a program reading the same stream took them as its lines (F165). A

@@ -144,9 +144,12 @@ impl Default for Caps {
 /// What the caller should do with a body it is about to run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Decision {
-    /// Run it at Tier 0. Below the threshold, past the function cap, or
-    /// permanently demoted.
+    /// Run it at Tier 0. Below the threshold, or past the function cap.
     Interpret,
+    /// Run it at Tier 0, **and it is demoted**: no later observation of this
+    /// body will answer otherwise while the demotion is held. Apart from
+    /// `Interpret` so the tier can tell the `Vm` to stop offering it (D146).
+    Demoted,
     /// It has crossed the threshold and has no code yet.
     Compile,
     /// **Compiled code is held for it, and this is the handle** — F130.
@@ -249,7 +252,7 @@ impl Tiering {
         // **Demotion is rare and the map is usually empty.** Testing that first
         // costs a length compare and saves hashing the key.
         if !self.demoted.is_empty() && self.demoted.contains_key(&key) {
-            return Decision::Interpret;
+            return Decision::Demoted;
         }
         // **One lookup, and it carries the handle out** — F130. This was
         // `contains_key`, which forced the caller to ask again through
@@ -343,7 +346,19 @@ impl Tiering {
     /// The `Weak` is what makes the second half true: a dead entry answers for
     /// nothing, so a reused address cannot be served another body's code.
     pub fn compiled(&self, body: &BundValue) -> Option<WordHandle> {
-        let key = body.payload_key()?;
+        self.live_at(body.payload_key()?)
+    }
+
+    /// What the cache answers at `key`: the code filed there, unless the body
+    /// it was filed for has died.
+    ///
+    /// By key, apart from [`Tiering::compiled`], so the refusal can be run. A
+    /// live body cannot present a dead entry's key — the entry's `Weak` keeps
+    /// that address out of reuse — so through `compiled` the dead arm is
+    /// never taken, and a test that reached it only through a body could not
+    /// tell a working refusal from a missing one (the twenty-third review's
+    /// S10).
+    fn live_at(&self, key: usize) -> Option<WordHandle> {
         let entry = self.cache.get(&key)?;
         if entry.is_dead() {
             return None;
@@ -589,6 +604,9 @@ mod tests {
         // The body is gone. The entry is still in the map, and must answer for
         // nothing: this is the false hit §S3 calls the worst failure here.
         assert_eq!(t.compiled_count(), 1, "the entry outlives the body");
+        let entry = t.cache.get(&key).expect("still filed");
+        assert!(entry.weak.upgrade().is_none(), "its entry no longer upgrades");
+        assert!(t.live_at(key).is_none(), "and answers for nothing");
         let ghost = body(1);
         if ghost.payload_key() == Some(key) {
             // The allocator reused the address — which the `Weak` is supposed to

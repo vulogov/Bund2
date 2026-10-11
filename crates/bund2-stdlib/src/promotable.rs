@@ -120,10 +120,13 @@ const LIST: &str = include_str!("../../../tests/golden/PROMOTABLE.txt");
 /// commit that added them — but that was a reader acting on the scan's
 /// failure, not the scan enforcing this list.
 ///
-/// **So adding a reporting native with a non-opaque effect means adding it
-/// here, by hand, and no test will say so.** A real cross-check needs the
-/// function-to-word map that `register` holds implicitly and nothing exposes;
-/// until that exists, this paragraph is the mechanism.
+/// **A cross-check by running, since 2026-10-11** (the twenty-third review's
+/// S4). The palette audit that writes `PROMOTABLE.txt` runs every fixed-effect
+/// native under a reporter that notes a call, and fails for one that reported
+/// and is not named here. It sees what the palette reaches and no further: a
+/// native that reports only on a path the fifteen operand kinds do not take
+/// is still this paragraph's to catch, by hand. `debug.display_distributed_info`
+/// reports on every run, so F157 would have failed there.
 ///
 /// # What it rests on
 ///
@@ -154,6 +157,12 @@ const REPORTS_MID_BODY: [&str; 7] = [
     "debug.display_distributed_info",
 ];
 
+/// Whether D71's list names this word. For the palette audit's cross-check.
+#[cfg(test)]
+pub(crate) fn reports_mid_body(name: &str) -> bool {
+    REPORTS_MID_BODY.contains(&name)
+}
+
 /// **The natives that change which stack is current** — D73's gate, F140.
 ///
 /// Promotion holds values in registers and syncs them by *pushing*, and a push
@@ -182,8 +191,32 @@ const REPORTS_MID_BODY: [&str; 7] = [
 /// Pinned by `every_native_that_changes_the_current_stack_is_named`
 /// (`crates/bund2-stdlib/src/lib.rs`), so a new one fails the build until it is
 /// named here.
-const SWITCHES_STACK: [&str; 8] = [
+///
+/// **By word name, and the scan finds functions**, so one function here can be
+/// several words: `conditional_move` is `?.` and `?move`, and `load_stacks` is
+/// `load` and `load.stacks`.
+///
+/// **F195.** Eight names until 2026-10-11. The scan looked for `to_stack` and
+/// the two rotations and not for `ensure_stack`, `push_to` or `drop_stack`,
+/// each of which can also move the front: a stack that a push or an `ensure`
+/// creates becomes current (F89). `ensure_stack` and
+/// `ensure_stack_with_capacity` are on `PROMOTABLE.txt` with fixed effects, so
+/// every other gate admitted them.
+const SWITCHES_STACK: [&str; 21] = [
+    "?.",
+    "?move",
+    "drop_stack",
+    "dup_many_in",
+    "dup_one_in",
     "endcontext",
+    "ensure_stack",
+    "ensure_stack_with_capacity",
+    "fold_stack",
+    "load",
+    "load.stacks",
+    "move",
+    "move_from",
+    "return_to",
     "rotate_stack_left",
     "rotate_stack_right",
     "stacks_left",
@@ -406,7 +439,16 @@ mod tests {
         crate::register_all(&mut r);
         let ids = crossable(&r);
 
-        for word in ["stacks_left", "stacks_right", "to_stack", "to_current"] {
+        // The last two are F195's: certified, fixed-effect, and a stack they
+        // create becomes current.
+        for word in [
+            "stacks_left",
+            "stacks_right",
+            "to_stack",
+            "to_current",
+            "ensure_stack",
+            "ensure_stack_with_capacity",
+        ] {
             let Some((s, _)) = r.interner.lookup_call(word) else {
                 panic!("`{word}` is registered");
             };

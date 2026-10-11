@@ -3319,9 +3319,17 @@ mod relocations {
     use super::*;
     use cranelift_object::{ObjectBuilder, ObjectModule};
 
-    /// Emit two bodies, the first of which calls a word by name, and return
-    /// every relocation as (containing function, target symbol).
-    fn relocations_of_two_bodies() -> Result<Vec<(String, String)>, String> {
+    /// Emit four bodies and return every relocation as (containing function,
+    /// target symbol).
+    ///
+    /// **Four, since the twenty-third review's S8.** There were two — a
+    /// generic call and a bare literal — so the criterion's "any lowering
+    /// path" was checked on one path. The third body takes the others an
+    /// ordinary body can: an inlined site behind its guards, with the
+    /// residual its guard failure reaches; a crossed call, with the
+    /// generation and epoch compares around it; and a generic call after
+    /// both. The fourth ends in a tail call.
+    fn relocations_of_the_probe_bodies() -> Result<Vec<(String, String)>, String> {
         let isa = cranelift_codegen::isa::lookup_by_name(
             &std::env::var("BUND2_RELOC_TRIPLE").unwrap_or_else(|_| {
                 // The host, named explicitly: this test reads an object file
@@ -3366,6 +3374,39 @@ mod relocations {
         let plan1 = vec![Plan::Literal(2)];
         emit_into(&mut e, 0, &plan0, &[], LastCall::Ordinary, Adapter::Apply, cells)?;
         emit_into(&mut e, 1, &plan1, &[], LastCall::Ordinary, Adapter::Apply, cells)?;
+
+        // The published arms, from a real registry: `+` is the one inlined.
+        // The generation cells are fabricated for the reason `cells` is.
+        let mut registry = bund2_api::Registry::new();
+        bund2_stdlib::register_all(&mut registry);
+        let sites: Vec<Fragment> = bund2_stdlib::fragments::published(&registry)?
+            .into_iter()
+            .map(|(_, fragment)| fragment)
+            .collect();
+        let add = sites
+            .iter()
+            .position(|f| f.needs() == 2)
+            .ok_or("no published fragment needs two operands, so `+` is not among them")?;
+        let plan2 = vec![
+            Plan::Literal(1),
+            Plan::Literal(2),
+            Plan::Inline {
+                site: add,
+                generation: 1,
+                cell: 0x2000,
+            },
+            Plan::Call {
+                cross: Some(Crossing {
+                    consumes: 0,
+                    generation: 1,
+                    cell: 0x3000,
+                }),
+            },
+            Plan::Literal(3),
+            Plan::Call { cross: None },
+        ];
+        emit_into(&mut e, 2, &plan2, &sites, LastCall::Ordinary, Adapter::Apply, cells)?;
+        emit_into(&mut e, 3, &plan0, &[], LastCall::Tail, Adapter::Apply, cells)?;
 
         let bytes = e
             .module
@@ -3415,7 +3456,7 @@ mod relocations {
 
     #[test]
     fn no_relocation_names_a_compiled_body_from_inside_another() {
-        let relocs = relocations_of_two_bodies().expect("the object is emitted and parsed");
+        let relocs = relocations_of_the_probe_bodies().expect("the object is emitted and parsed");
         assert!(
             !relocs.is_empty(),
             "an object with no relocations at all would pass this vacuously;              the runtime helpers are imports and must appear"
@@ -3441,7 +3482,17 @@ mod relocations {
     /// set rather than about an empty one.
     #[test]
     fn the_permitted_relocations_are_present() {
-        let relocs = relocations_of_two_bodies().expect("the object is emitted and parsed");
+        let relocs = relocations_of_the_probe_bodies().expect("the object is emitted and parsed");
+        // **The third body took the paths it was written to take** — S8. A
+        // crossed call is followed by `jit_stack_moved`'s compare and an
+        // inlined site's guard failure reaches `jit_residual`; a body that
+        // named neither would be the two-body probe again under another name.
+        let from = |body: &str, import: &str| {
+            relocs.iter().any(|(w, t)| w.contains(body) && t.contains(import))
+        };
+        assert!(from("bund2_body_2", "jit_stack_moved"), "a crossed call: {relocs:?}");
+        assert!(from("bund2_body_2", "jit_residual"), "a guarded site: {relocs:?}");
+        assert!(from("bund2_entry_3", "bund2_body_3"), "the tail-call body: {relocs:?}");
         let names: Vec<&str> = relocs.iter().map(|(_, t)| t.as_str()).collect();
         assert!(
             names.iter().any(|n| n.contains("jit_apply") || n.contains("bund2_adapter")
@@ -6203,6 +6254,77 @@ mod tests {
             1,
             "1 2 println +",
         );
+    }
+
+    /// **Criterion 27, where the table is the only gate that can refuse** —
+    /// the twenty-third review's S10.
+    ///
+    /// The test below registers an `eff(1, 1)` native, and D68's produce gate
+    /// refuses anything that produces before the table is asked: it would
+    /// pass with a table that admitted every registration. `quiet` here
+    /// declares `eff(0, 0)`, the pair `nl` declares, and `nl` is crossed in the
+    /// same body — so every gate that reads the effect answers alike for the
+    /// two, and what separates them is that one is on `PROMOTABLE.txt`.
+    ///
+    /// It is an observer as well, so the refusal matters: it records the
+    /// depth it finds, and crossed, it would find the stack two values short.
+    #[test]
+    fn a_native_with_a_certified_words_effect_is_still_not_crossed() {
+        thread_local! {
+            static SEEN: std::cell::Cell<usize> = const { std::cell::Cell::new(usize::MAX) };
+        }
+        /// `eff(0, 0)`: takes nothing, leaves nothing, and looks.
+        fn quiet(vm: &mut dyn Vm) -> Result<(), Error> {
+            SEEN.with(|s| s.set(vm.depth()));
+            Ok(())
+        }
+        let registered = || {
+            let mut vm = with_stdlib();
+            vm.registry.register_native(
+                "quiet",
+                quiet,
+                bund2_api::StackEffect::fixed(0, 0),
+                bund2_api::WordKind::Sync,
+            );
+            vm
+        };
+        let body = vec![
+            BundValue::int(1),
+            BundValue::int(2),
+            BundValue::call("nl"),
+            BundValue::int(3),
+            BundValue::call("quiet"),
+        ];
+
+        let mut vm = registered();
+        let effect_of = |vm: &mut Interp, name: &str| {
+            let (s, _) = vm.registry.interner.lookup_call(name).expect("registered");
+            vm.registry.slot(s).and_then(|sl| sl.native.as_ref()).map(|n| n.effect)
+        };
+        assert_eq!(
+            effect_of(&mut vm, "nl"),
+            effect_of(&mut vm, "quiet"),
+            "the premise: the two declare one effect, so no effect gate tells them apart"
+        );
+        let crossable = bund2_stdlib::promotable::crossable(&vm.registry);
+        let mut c = Compiler::with_crossable(Vec::new(), crossable).expect("a compiler");
+        let cells = vm.cells().base();
+        let word = c
+            .compile_word(&body, LastCall::Ordinary, cells, &mut vm)
+            .expect("lowers");
+        let crossings = c.crossings(word).expect("the word was issued");
+        let verdict = |i: usize| crossings.iter().find(|(at, _)| *at == i).map(|(_, x)| *x);
+        assert_eq!(verdict(2), Some(true), "`nl` is crossed: {crossings:?}");
+        assert_eq!(verdict(4), Some(false), "`quiet` is synced before: {crossings:?}");
+
+        c.run(word, &mut vm, &body).expect("the compiled word ran");
+        let compiled_saw = SEEN.with(std::cell::Cell::get);
+
+        let mut tier0 = registered();
+        tier0.eval(&body).expect("Tier 0 runs the same body");
+        let tier0_saw = SEEN.with(std::cell::Cell::get);
+        assert_eq!(tier0_saw, 3, "Tier 0's native finds all three values");
+        assert_eq!(compiled_saw, tier0_saw, "and so does the compiled body's");
     }
 
     /// **Criterion 27 — promotion does not cross a native `bund2-stdlib` did
