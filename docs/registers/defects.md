@@ -4033,6 +4033,47 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F194 — a hot word called from a compiled body is never run compiled
+
+**A Bund2 defect of speed, not of meaning; found 2026-10-10** by the
+measurements D142 asked for.
+
+`Interp::push_frame` takes the tier out of the `Interp` before it calls
+`Tier::enter` and puts it back after, because `enter` needs a
+`&mut dyn Vm` that is this `Interp` (`crates/bund2-interp/src/lib.rs`). Its
+comment says what follows: "While it is out, a re-entrant body entry sees
+`None` and is interpreted — correct, and it costs only a compilation
+opportunity."
+
+It costs more than that. A body entered beneath a compiled body is not
+offered to the tier **at all**, so it is neither counted nor run compiled,
+however hot it is and whether or not it was compiled earlier. Measured:
+
+    :w { 1 2 + drop } register
+    0 { w 1 + dup 1000000 > } for drop
+
+compiles two bodies and reports 998,976 compiled entries, not twice that.
+The loop's body runs compiled; `w` runs interpreted a million times. The
+program reads 1.06× to 1.07× against a build with no tier. With `1 +` moved
+out of the loop body into a word, so that the loop body has no site and is
+not compiled, both words run compiled, 1,997,952 entries, and the program
+reads 1.40× to 1.42×. D142's note has the table.
+
+So compiling an outer body can make a program slower than leaving it
+interpreted, by hiding every hot body beneath it from the tier — and the
+program RFC-0005's criterion 10 was measured on is one of these. The
+1.06× that has stood against that criterion since 2026-09-14 is this.
+
+RFC-0005 states the rule only as a consequence — §S2 and the twenty-third
+review's fourth unstated assumption, "compiled bodies never nest" — and
+§S8's stack-share reasoning relies on it in the other direction: with
+nesting, compiled frames can hold the share when a native nests.
+
+**Disposition: recorded, not fixed.** Meaning is unchanged in both
+directions, so no golden moves. Letting a compiled body's callee run
+compiled is a change to the seam and to §S8's bound, and it is a decision:
+it belongs with D142, which this was found for.
+
 ## F193 — `conform` printed no compiled total and failed no `jit` run
 
 **A Bund2 defect, found 2026-10-10** by RFC-0005's twenty-third review, B5.

@@ -3647,7 +3647,8 @@ it is real.
 
 - Blocks: RFC-0005 reaching Accepted
 - Depends on: D84, D85, D113
-- Status: **OPEN**
+- Status: **RESOLVED — option 1, §S9 is withdrawn**, by the repository
+  owner, 2026-10-10: "agree on all three". RFC-0005 §S9 carries the note.
 
 ## D143 — what is RFC-0005 criterion 9's rule?
 
@@ -3674,7 +3675,9 @@ gets wrong, and none is recorded.
 
 - Blocks: RFC-0005 criterion 9
 - Depends on: F136, D139
-- Status: **OPEN**
+- Status: **RESOLVED — option 1, the criterion is re-worded to F136's
+  rule**, by the repository owner, 2026-10-10: "agree on all three".
+  RFC-0005 criterion 9 carries the new wording.
 
 ## D142 — which denominator does RFC-0005 criterion 10's stop rule have?
 
@@ -3717,7 +3720,77 @@ and the question becomes what the tier is for.
 
 - Blocks: RFC-0005 criterion 10, and so RFC-0005 reaching Accepted
 - Depends on: D59, D74, D139, F136
-- Status: **OPEN**
+- Status: **OPEN** — the owner took option 3 on 2026-10-10 ("agree on all
+  three, run the D142 measurements"). The measurements are in the note
+  below; the ruling on the denominator is still to be given.
+
+*Note, 2026-10-10 — the measurements.* macOS arm64, release profile, two
+binaries built from `923ca86`: `bund2-cli` with no feature and with `jit`.
+Each program is run through `bund2 script --file`, so under the CLI's
+reporter, at the shipped threshold of 1024. Ten rounds, the arms run
+alternately in each; medians, with the range in brackets.
+
+**The criterion's own measurement, reproduced.** The program is not
+recorded anywhere. This one gives the same `--stats` as the record of
+2026-09-14 — 2 bodies, 3 sites, 4 promoted — and the same Tier 0 time:
+
+    :w { 1 2 + drop } register
+    0 { w 1 + dup 1000000 > } for drop
+
+| batch | no feature | `jit` | speedup | pairs favouring `jit` |
+|---|---|---|---|---|
+| 1 | 323.9 ms [316.6–327.5] | 302.3 ms [299.8–310.6] | **1.072×** | 10 of 10 |
+| 2 | 321.7 ms [318.4–331.2] | 303.7 ms [299.6–305.9] | **1.059×** | 10 of 10 |
+
+So on the criterion's terms the figure is still 1.06×–1.07×, below 1.2×.
+
+**Why, which the record did not have.** `--stats` reports
+`2 bodies (998976 entered)`: two bodies compiled and one million entries,
+where two bodies entered a million times each would be two million. The
+body that runs compiled is the **loop's**. `w` — the `1 2 + drop` the gate
+is about — runs **interpreted** on every one of its million calls, because
+a body entered beneath a compiled body is never offered to the tier: the
+tier is taken out of the `Interp` for the length of `enter`
+(`crates/bund2-interp/src/lib.rs`, `push_frame`). That is F194.
+
+**The same word under a loop body that is not compiled**, so that the word
+itself runs compiled:
+
+| program | no feature | `jit` | speedup | compiled entries |
+|---|---|---|---|---|
+| `:w { 1 2 + drop } register` `1000000 { w } times` | 152.2 ms | 85.8 ms | **1.77×** | 998,976 |
+| `1000000 { 1 2 + drop } times` | 113.6 ms | 41.7 ms | **2.73×** | 998,976 |
+| the `for` program with `1 +` moved into a word `inc`, so the loop body has no site | 361.2, 364.2 ms | 257.5, 256.5 ms | **1.40×, 1.42×** | 1,997,952 |
+
+All thirty pairs favour `jit`. The last row is the first program with one
+change, and that change is what lets `w` run compiled.
+
+**Per entry, on the same tree** (`stop_rule` bench group, in process):
+`int_add` 57.0 ns compiled against 126.0 ns interpreted, **2.21×**;
+`dup_drop` 79.2 ns against 183.1 ns, **2.31×**. The record has 2.40× and
+2.31× for `int_add`.
+
+**The cost of a tier that compiles nothing**, measured beside these: the
+`jit` binary run with a threshold no program reaches is **3% to 7% slower**
+than the binary with no feature on all four programs (0.936×, 0.967×,
+0.971×/0.962×, 0.953×/0.956×). RFC-0005 criterion 7 allows 5%.
+
+**What this says about the three options.**
+
+- The 1.06× is a true reading of the criterion's program and a poor reading
+  of the tier: it measures a compiled loop around an interpreted word.
+- A per-program figure with the word itself compiled is 1.4× to 2.7×, which
+  clears 1.2× on every writing tried.
+- Neither is an argument for changing the denominator to per entry. The
+  criterion's terms — a program, under the CLI's reporter, as shipped — are
+  met by all four programs above. What is not fixed by those terms is
+  *which program*, and the criterion names only the shape `1 2 + drop`.
+
+**Recommendation, with the numbers in hand.** Keep the denominator: a
+program, under the CLI's reporter, as shipped (option 1). Name the program
+in the criterion, which it never did. And decide F194 before reading the
+result as the gate's answer, because the one program that fails does so on
+a rule that can be changed and was never chosen for its cost.
 
 ## D141 — `conform` fails a `jit` run that compiles nothing only at threshold 1
 
@@ -3891,6 +3964,17 @@ frame — remains open, and the change is three calls and one field to undo.
 
 *Note, 2026-10-10 — ruled, with the figure in hand.* The repository owner:
 "keep the frame". Option 1 stands at the measured cost.
+
+*Note, 2026-10-10 — a correction to the table above, and it does not move
+the ruling's figure.* The three `entry_anchored` rows compare Tier 0 with
+Tier 0: the bench's own pre-flight prints `compiled bodies 0` for every
+length of that group, because its bodies are int literals with no inlinable
+site and F133 refuses them. So those rows say nothing about a frame, and
+"the two groups disagree and this note does not explain why" is explained:
+one of them never ran compiled code. The `hot_body` rows did — its
+pre-flight prints `compiled bodies 1` at every length — and the cost stands
+at about 5 ns for each compiled entry. I did not read the pre-flight lines
+when the table was written.
 
 ## D138 — RFC-0006 is Accepted
 

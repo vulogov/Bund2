@@ -20,6 +20,9 @@
   for the owner rather than a fix: whether §S9 is withdrawn (B7, **D144**),
   what criterion 9's rule is (B8, **D143**), and which denominator criterion
   10's stop rule has (B8, **D142**). All three are OPEN.
+  *(Later the same day: D143 and D144 are resolved — criterion 9 is
+  re-worded and §S9 is withdrawn. D142 is measured and still OPEN; the
+  measurement found F194, which is why the gate's program reads 1.06×.)*
 
   **Proposed rather than Accepted, for the reason RFC-0001 gives.** This
   paragraph is kept current because it is the first thing a reader checks the
@@ -4086,6 +4089,9 @@ none of the thirty criteria covers this section.** It is left standing as
 what was once planned. Whether it is withdrawn is the owner's, and is
 **D144**, OPEN; nothing in this RFC depends on it.)*
 
+**§S9 is withdrawn — D144, resolved by the repository owner on 2026-10-10.**
+There is no tier pinning in this RFC. The text above is the record.
+
 # S10. The feature gate, and portability
 
 Cranelift targets x86-64, aarch64, s390x and riscv64 — no 32-bit x86, no 32-bit
@@ -5109,6 +5115,16 @@ evidence, and this one is listed as runnable rather than as met.
    criterion is re-worded to what F136's rule does instead — a body with no
    inlinable site is not compiled. That choice is the owner's: **D143**, OPEN.)*
 
+   **Criterion 9 as it now reads — D143, resolved by the repository owner on
+   2026-10-10.** *A body is compiled only if it has an inlinable site
+   (F136); within a body that is compiled, every int literal is promoted.*
+   It is checked by `a_body_with_nothing_to_gain_is_not_compiled` and
+   `a_body_with_a_site_still_compiles`
+   (`crates/bund2-runtime/src/tier.rs`). The crossover of 4 above is a
+   measurement of a model, taken on hand-written Rust, and no code uses it.
+   Whether unconditional promotion of a short run pays on compiled code has
+   not been measured.
+
 10. **The dispatch share is measured, not estimated.** §S1 withdraws an Amdahl
     bound rather than correcting it, because no benchmark here separates
     dispatching a word from the work the word does once dispatched:
@@ -5541,6 +5557,22 @@ evidence, and this one is listed as runnable rather than as met.
     about 5 ns to every compiled entry; and B9 above withdraws §S1's floor.
     **None of the figures here was re-measured today.** Which denominator
     the stop rule has is a decision, and it is the owner's: **D142**, OPEN.)*
+
+    **Re-measured, 2026-10-10, for D142; the figures and the method are in
+    its note.** On this criterion's own terms — a program, under the CLI's
+    reporter, at the shipped threshold — the program of the 2026-09-14 record
+    reads **1.072× and 1.059×**. That is the same result, and the reason for
+    it is new: in that program the word `1 2 + drop` runs **interpreted**. It
+    is called from the loop's body, which is compiled, and a body entered
+    beneath a compiled body is never offered to the tier (F194). The loop is
+    what was measured. With the word itself running compiled, the same shape
+    as a program reads **1.77×** (`{ w } times`), **2.73×** (the body inline
+    under `times`) and **1.40× and 1.42×** (the same `for` loop with its
+    loop body not compiled). Per entry it reads 2.21×.
+
+    **The stop rule's status is therefore: fires on the recorded program,
+    does not fire on three other writings of the same shape, and D142 is
+    OPEN.** Nothing here is marked met.
 
 11. **A promoted recursion does not overflow the machine stack.** §S8's
     correctness problem, and the criterion is one that already exists:
