@@ -1,0 +1,98 @@
+name: linux-reading
+
+# What the tree reads on Linux x86-64. `ci` runs on `main` and on pull
+# requests, so a branch that is neither has no Linux run at all, and RFC-0005
+# had every one of its checks taken on macOS arm64 alone.
+#
+# Not a gate. Every step runs whatever the one before it answered, so one
+# run gives the whole reading; the job is red if any step was. It wakes on a
+# push that touches this file, which is how a reading is asked for: a
+# workflow that is not on the default branch cannot be dispatched by hand.
+on:
+  push:
+    branches: [development/stage2]
+    paths:
+      - .github/workflows/linux-reading.yml
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  reading:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: the host
+        run: |
+          uname -a
+          rustc --version
+          cargo --version
+          nproc
+          ulimit -s
+      - name: fmt
+        if: ${{ !cancelled() }}
+        run: cargo fmt --all -- --check
+      - name: clippy
+        if: ${{ !cancelled() }}
+        env:
+          RUSTFLAGS: -D warnings
+        run: |
+          cargo clippy --workspace --all-targets
+          cargo clippy --workspace --all-targets --features jit,relocation-test
+      - name: the suite
+        if: ${{ !cancelled() }}
+        run: cargo test --workspace --no-fail-fast
+      - name: the suite, with the tier
+        if: ${{ !cancelled() }}
+        run: cargo test --workspace --no-fail-fast --features jit,relocation-test
+      - name: cite
+        if: ${{ !cancelled() }}
+        run: cargo xtask cite
+      - name: lint
+        if: ${{ !cancelled() }}
+        run: cargo xtask lint
+      - name: conform, Tier 0
+        if: ${{ !cancelled() }}
+        run: cargo xtask conform
+      - name: conform, the tier at its default threshold
+        if: ${{ !cancelled() }}
+        run: cargo xtask conform --features jit
+      - name: conform, the tier at threshold 1
+        if: ${{ !cancelled() }}
+        run: cargo xtask conform --features jit --jit-threshold 1
+      - name: goldens unmodified
+        if: ${{ !cancelled() }}
+        run: git diff --exit-code -- tests/golden/
+      - name: depth
+        if: ${{ !cancelled() }}
+        run: cargo xtask depth --features jit
+      # RFC-0005 assumption 48: how the addresses of bodies made in a row
+      # spread over `Declined`'s slots is the allocator's doing.
+      - name: the spread of declined bodies
+        if: ${{ !cancelled() }}
+        run: cargo test -p bund2-interp ten_thousand_bodies -- --nocapture
+      # RFC-0005 criterion 11 as D149 words it: the floor check's cost in
+      # instructions an entry, checked less unchecked, over ten million
+      # entries. macOS reads the count from `/usr/bin/time -l`. A hosted
+      # runner exposes no hardware counter, so this one is callgrind's `Ir`:
+      # instructions executed in user space, counted and not sampled.
+      - name: the floor check, by count
+        if: ${{ !cancelled() }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y valgrind
+          cargo build --release -p bund2-bench --example floor_count --features unguarded
+          for sites in 1 4 16 64; do
+            for arm in checked unchecked; do
+              echo "== $arm, $sites"
+              valgrind --tool=callgrind --callgrind-out-file=/dev/null \
+                target/release/examples/floor_count $arm 10000000 $sites 2>&1 \
+                | grep -E "floor_count|Collected"
+            done
+          done

@@ -5933,6 +5933,11 @@ criterion.)*
    by-product. None of the three is in this document, so this criterion's own
    claim holds; the command it names does not pass there.)*
 
+   *(2026-10-12: `cite` no longer depends on that file being there. A cited
+   path that its submodule ignores is counted as a build by-product and not
+   read, on any host (F21's note of this date). Four citations are counted
+   so on macOS.)*
+
 9. **The sync is worth its cost.** §S5's second rule requires promoted values
    to be written back — each to the stack it was taken from — before an opaque
    call. **It is not

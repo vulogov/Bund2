@@ -980,9 +980,34 @@ mod honesty_tests {
             .cloned()
             .collect();
 
+        // **Natives the host decides.** `system.ipv6` answers `Err` on a host
+        // with no IPv6 address and `system.locale` on one with no locale set
+        // (`crates/bund2-stdlib/src/host.rs`), which is the usual state of a
+        // CI runner or a container. `PROMOTABLE.txt` is one file for every
+        // host and lists both, from a host that has both. So a host where one
+        // of them fails is not shown a stale list: the native is unreached
+        // *here*, which says nothing about the list. Their pair is `0 -> 1`
+        // on `Ok` and nothing is pushed on `Err`, so crossing one costs no
+        // meaning on either kind of host.
+        //
+        // Kept by hand, as the two lists above are. A third such native shows
+        // as `no longer reached` on the host where it fails.
+        const HOST_DECIDED: [&str; 2] = ["system.ipv6", "system.locale"];
+        let absent_here: Vec<&str> = HOST_DECIDED
+            .iter()
+            .copied()
+            .filter(|n| !reached.contains(*n))
+            .collect();
+
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let list = root.join("tests/golden/PROMOTABLE.txt");
         if std::env::var_os("BUND2_UPDATE_PROMOTABLE").is_some() {
+            // A list written here would drop them for every host.
+            assert!(
+                absent_here.is_empty(),
+                "this host cannot regenerate PROMOTABLE.txt: {absent_here:?} answered `Err` \
+                 on it, and the list is written from a host where they answer `Ok`"
+            );
             let mut out = String::from(
                 "# Natives RFC-0005 §S5's promotion may cross (D48, D55): every\n\
                  # fixed-effect native criterion 28's palette brought to `Ok` with no\n\
@@ -1050,7 +1075,10 @@ mod honesty_tests {
             .map(str::to_string)
             .collect();
         let gained: Vec<&String> = promotable.difference(&listed).collect();
-        let lost: Vec<&String> = listed.difference(&promotable).collect();
+        let lost: Vec<&String> = listed
+            .difference(&promotable)
+            .filter(|n| !absent_here.contains(&n.as_str()))
+            .collect();
         // Why each lost native left, when D55 is the reason, so the review of a
         // stale list does not need the list rewritten first.
         let why: Vec<String> = lost

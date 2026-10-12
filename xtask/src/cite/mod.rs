@@ -317,6 +317,32 @@ fn quoted_blocks(text: &str) -> Vec<(usize, String, usize, Vec<String>)> {
     out
 }
 
+/// Whether `path` is under a submodule in `reference/` and that submodule's
+/// own ignore rules exclude it.
+///
+/// Such a file is a build by-product: it is not in the commit the submodule
+/// is pinned at, so nothing about it can resolve "at the pinned SHA", and
+/// whether it exists depends on whether this checkout has built the oracle.
+/// `reference/Bund/Cargo.lock` is the case that showed it: three citations
+/// that resolved on the machine that built the oracle and were "file does
+/// not exist" in a clean checkout. Asked of git, so the rule is the
+/// submodule's and not a list kept here.
+fn ignored_by_its_submodule(repo: &Path, path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("reference/") else {
+        return false;
+    };
+    let Some((sub, inside)) = rest.split_once('/') else {
+        return false;
+    };
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo.join("reference").join(sub))
+        .args(["check-ignore", "-q", "--", inside])
+        .stdin(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
 /// Verify the oracle is built from the code the citations point at.
 ///
 /// It is not, by construction, and that is the finding this check exists for.
@@ -551,6 +577,10 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     let mut corroborated = 0usize;
     let mut exact_checked = 0usize;
     let mut exact_ok = 0usize;
+    // Citations of a file its submodule ignores, and the answer for each
+    // path so git is asked once.
+    let mut by_products = 0usize;
+    let mut ignored: BTreeMap<String, bool> = BTreeMap::new();
 
     // Does the oracle run the code these citations point at?
     let (prov_checked, prov_agreed) = check_oracle_provenance(&repo, &mut findings);
@@ -655,6 +685,16 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             for (path, nums) in all {
                 checked += 1;
                 let abs = repo.join(&path);
+                // **A build by-product resolves the same way whether or not
+                // it is there.** Not checked for existence or for lines, on
+                // any host, and counted so the report says how many.
+                if *ignored
+                    .entry(path.clone())
+                    .or_insert_with(|| ignored_by_its_submodule(&repo, &path))
+                {
+                    by_products += 1;
+                    continue;
+                }
                 if !abs.is_file() {
                     findings.push(Finding {
                         doc: doc_rel.clone(),
@@ -896,6 +936,11 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         "resolve (file and line)",
         checked - hard.len()
     );
+    bund2_api::sayln!("  {:<32}{:>6}", "of a build by-product", by_products);
+    if by_products > 0 {
+        bund2_api::sayln!("      A file its submodule ignores is not in the pinned commit.");
+        bund2_api::sayln!("      These are counted as resolving and were not read.");
+    }
     bund2_api::sayln!("  {:<32}{:>6}", "exact-match blocks", exact_checked);
     bund2_api::sayln!("  {:<32}{:>6}", "exact matches verified", exact_ok);
     bund2_api::sayln!("  {:<32}{:>6}", "corroborated by a token", corroborated);
@@ -942,6 +987,23 @@ mod tests {
         assert_eq!(c[0].1, vec![12, 34]);
         assert_eq!(c[1].0, "reference/c/d.rs");
         assert!(c[1].1.is_empty());
+    }
+
+    /// The lock file the oracle's build leaves in its submodule is ignored
+    /// there; the manifest beside it is tracked; and a path outside
+    /// `reference/` is never a by-product, whatever git says of it.
+    #[test]
+    fn a_file_its_submodule_ignores_is_a_by_product() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("a root");
+        assert!(ignored_by_its_submodule(repo, "reference/Bund/Cargo.lock"));
+        assert!(!ignored_by_its_submodule(repo, "reference/Bund/Cargo.toml"));
+        assert!(!ignored_by_its_submodule(repo, "target/debug/xtask"));
+        assert!(!ignored_by_its_submodule(
+            repo,
+            "reference/no_such_submodule/x"
+        ));
     }
 
     #[test]

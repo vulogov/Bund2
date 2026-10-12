@@ -190,6 +190,35 @@ mod tests {
         );
     }
 
+    /// **The spread [`slot`]'s comment quotes, measured where this runs.**
+    /// Ten thousand bodies made one after another, and how many of the 1,024
+    /// slots their addresses fill at a spacing of 32, 64 and 128 bytes. It
+    /// is a property of the allocator, so the figures are printed for the
+    /// host to be read from (`--nocapture`), and only the spacing in use is
+    /// held to anything: more than half the slots, the same floor the test
+    /// above sets.
+    #[test]
+    fn ten_thousand_bodies_in_a_row_spread_over_the_slots() {
+        let bodies: Vec<BundValue> = (0..10_000).map(body).collect();
+        let filled = |spacing: u32| -> usize {
+            let mut seen = [false; SLOTS];
+            for b in &bodies {
+                let key = b.payload_key().expect("a key");
+                seen[(key >> spacing) & (SLOTS - 1)] = true;
+            }
+            seen.iter().filter(|s| **s).count()
+        };
+        let (at32, at64, at128) = (filled(5), filled(6), filled(7));
+        eprintln!(
+            "declined spread: {at32} slots at 32 bytes, {at64} at 64, {at128} at 128, of {SLOTS}"
+        );
+        assert_eq!(SPACING, 7, "the third figure is the spacing in use");
+        assert!(
+            at128 > SLOTS / 2,
+            "{at128} of {SLOTS} slots at the spacing in use"
+        );
+    }
+
     /// A scalar has no payload, so there is nothing to remember.
     #[test]
     fn a_scalar_is_not_remembered() {

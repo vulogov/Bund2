@@ -685,6 +685,15 @@ workspace must avoid the shape entirely.
 - `reference/Bund/Cargo.toml:13,14,23,24,43`, `reference/Bund/Cargo.lock`
 - Methodological. Disposition:
 
+*2026-10-12.* `reference/Bund/Cargo.lock` is not in the pinned commit: the
+submodule's own `.gitignore` excludes it, and it exists only where the
+oracle has been built. The versions quoted above are what that build
+resolved on the author's machine, and are measured, not cited. `cite` had
+reported the three citations of it as "file does not exist" in a clean
+checkout. It now asks the submodule whether it ignores a cited path
+(`ignored_by_its_submodule`, `xtask/src/cite/mod.rs`) and counts such a
+citation as a build by-product, unread, on every host.
+
 ## F22 — `<-` and `←` alias a word that dispatch cannot reach
 `stacks_left` is registered only through `register_function`
 (`reference/rust_multistack/src/stdlib/rotate.rs:93`), the dead table of F19,
