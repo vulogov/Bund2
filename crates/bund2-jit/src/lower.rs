@@ -2518,6 +2518,24 @@ fn emit_body(
     })
 }
 
+/// **The code generator's settings for a module of bodies** — F204.
+///
+/// `return_call_indirect` is how a body's last call is lowered under
+/// [`LastCall::Tail`]. Cranelift's x86-64 backend emits one only with frame
+/// pointers kept, and asserts it: `emit_return_call_common_sequence`
+/// (`cranelift-codegen` 0.135.0, `src/isa/x64/inst/emit.rs`) panics with
+/// "frame pointers aren't fundamentally required for tail calls, but the
+/// current implementation relies on them being present". With the default
+/// settings that assertion fired on Linux x86-64 for every tail-position
+/// lowering, inside the dependency, where no `Result` of this crate's could
+/// catch it (D37). aarch64 has no such assertion, which is why macOS never
+/// showed it.
+///
+/// Set on every target and not on x86-64 alone, so that one configuration is
+/// what every host measures. On aarch64 each function this module emits
+/// makes a call and so keeps its frame record already.
+const BODY_FLAGS: &[(&str, &str)] = &[("preserve_frame_pointers", "true")];
+
 /// A fresh module with `adapter`'s symbol bound.
 ///
 /// The symbol must be bound on the *builder*, before the module exists, which
@@ -2526,8 +2544,8 @@ fn emit_body(
 fn new_module(adapter: Adapter) -> Result<JITModule, String> {
     let (name, ptr) = adapter.symbol();
     let (drain_name, drain_ptr) = Adapter::drain_symbol();
-    let mut builder =
-        JITBuilder::new(default_libcall_names()).map_err(|e| format!("JIT builder: {e}"))?;
+    let mut builder = JITBuilder::with_flags(BODY_FLAGS, default_libcall_names())
+        .map_err(|e| format!("JIT builder: {e}"))?;
     builder.symbol(name, ptr);
     // §S5's drain helper, which the body reaches through its own slot when the
     // request cell is set.
@@ -3697,9 +3715,18 @@ mod relocations {
             }),
         )
         .map_err(|e| format!("no isa: {e}"))?
-        .finish(cranelift_codegen::settings::Flags::new(
-            cranelift_codegen::settings::builder(),
-        ))
+        .finish(cranelift_codegen::settings::Flags::new({
+            // The settings a shipped module of bodies is built with (F204):
+            // the fourth probe body ends in a tail call.
+            use cranelift_codegen::settings::Configurable;
+            let mut flags = cranelift_codegen::settings::builder();
+            for (name, value) in BODY_FLAGS {
+                flags
+                    .set(name, value)
+                    .map_err(|e| format!("flag {name}: {e}"))?;
+            }
+            flags
+        }))
         .map_err(|e| format!("isa flags: {e}"))?;
 
         let builder = ObjectBuilder::new(isa, "bund2_reloc_probe", default_libcall_names())

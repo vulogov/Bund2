@@ -4049,6 +4049,40 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F204 — a tail-position lowering panicked inside Cranelift on x86-64
+
+**A Bund2 defect against D37, on x86-64 only; found 2026-10-12** by the
+first Linux run of the tier's tests (`linux-reading`, run 38304261478).
+
+`new_module` (`crates/bund2-jit/src/lower.rs`) built its module with
+Cranelift's default settings. Under `LastCall::Tail` a body's last call is a
+`return_call_indirect`, and Cranelift 0.135.0's x86-64 backend emits one
+only with `preserve_frame_pointers` set. It asserts that, in
+`emit_return_call_common_sequence` of its `src/isa/x64/inst/emit.rs`, with
+the message "frame pointers aren't fundamentally required for tail calls,
+but the current implementation relies on them being present". The assertion
+is in the dependency, so no `Result` of Bund2's stood between it and the
+process. Eight tests failed that way on Linux x86-64: the five that lower a
+tail call and run it, and the three of criterion 4's relocation module,
+whose fourth probe body ends in one. aarch64 has no such assertion, and
+every earlier run of these tests was on macOS arm64.
+
+**No shipped body reached it.** The tier compiles every body with
+`LastCall::Ordinary` (RFC-0005 assumption 44), so `bund2` built with the tier
+did not panic on Linux: conformance ran there in both tier configurations
+and `depth` passed. What could reach it was the public `compile_body` and
+`Compiler::compile_word` handed `LastCall::Tail`.
+
+The comment above the `Tail` signature in the same file says there is "no
+per-target predicate to ask" about tail calls. That is true of the
+convention and false of the settings: this is one.
+
+**Status:** FIXED 2026-10-12, read on macOS arm64 and awaiting its Linux
+run. Modules of bodies are built with `BODY_FLAGS`, which sets
+`preserve_frame_pointers`, on every target; the relocation probe builds its
+object with the same. On aarch64 the instruction count of `floor_count` at
+64 sites is unchanged within what the count resolves there.
+
 ## F203 — a body queued beneath a compiled body was compiled after the tier was turned off
 
 **A Bund2 defect of speed, not of meaning; found 2026-10-12** while writing

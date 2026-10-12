@@ -164,6 +164,44 @@ fn write_baseline(repo: &Path, passed: usize, total: usize) -> Result<(), String
     std::fs::write(repo.join(BASELINE), body).map_err(|e| format!("writing {BASELINE}: {e}"))
 }
 
+/// How many differing lines `-v` shows for one golden. A program whose
+/// every line differs would otherwise bury the rest of the report.
+const DIFF_LINES: usize = 12;
+
+/// The lines at which `got` and `want` differ, for `-v`: the report said only
+/// how many lines each had, which names a failing golden and not what failed
+/// in it. Compared by position, since a golden is a transcript; a line one
+/// side lacks is shown as absent.
+fn differing_lines(got: &str, want: &str) -> String {
+    let (g, w): (Vec<&str>, Vec<&str>) = (got.lines().collect(), want.lines().collect());
+    let mut out = String::new();
+    let mut shown = 0usize;
+    for at in 0..g.len().max(w.len()) {
+        let (a, b) = (g.get(at), w.get(at));
+        if a == b {
+            continue;
+        }
+        if shown == DIFF_LINES {
+            out.push_str("\n      ... and further lines differ");
+            break;
+        }
+        shown += 1;
+        let show = |l: Option<&&str>| l.map_or("<no such line>".to_string(), |l| format!("{l:?}"));
+        out.push_str(&format!(
+            "\n      line {}\n        golden: {}\n        bund2:  {}",
+            at + 1,
+            show(b),
+            show(a)
+        ));
+    }
+    out
+}
+
+/// `text`, each line indented to sit under a report row.
+fn indented(text: &str) -> String {
+    text.lines().map(|l| format!("        {l}\n")).collect()
+}
+
 /// Locate the bund2 binary, building it if needed.
 fn bund2_binary(repo: &Path, features: &str) -> Result<PathBuf, String> {
     crate::buildcli::bund2(repo, false, features)
@@ -382,7 +420,17 @@ pub fn run(args: &[String]) -> Result<(), String> {
                             program: program.clone(),
                             passed: false,
                             approved: false,
-                            detail: "approved deviation, but its output changed".into(),
+                            detail: if verbose {
+                                // Only a hash of what was recorded is kept, so
+                                // there is nothing to set this beside: it is
+                                // shown whole, to be compared by whoever reads.
+                                format!(
+                                    "approved deviation, but its output changed; it is now:\n{}",
+                                    indented(&got.output)
+                                )
+                            } else {
+                                "approved deviation, but its output changed".into()
+                            },
                             blocked_on: first_unregistered(&got.output),
                         });
                         continue;
@@ -398,7 +446,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 } else {
                     let g = got.output.lines().count();
                     let w = want_output.lines().count();
-                    format!("output differs ({g} lines vs {w})")
+                    let lines = if verbose {
+                        differing_lines(&got.output, want_output)
+                    } else {
+                        String::new()
+                    };
+                    format!("output differs ({g} lines vs {w}){lines}")
                 };
                 outcomes.push(Outcome {
                     program: program.clone(),
@@ -856,7 +909,23 @@ fn parse_reach(repo: &Path, verbose: bool) -> Result<(), String> {
 }
 #[cfg(test)]
 mod tier_total_tests {
-    use super::TierTotal;
+
+    /// `-v` names the lines, by position, and a line one side lacks.
+    #[test]
+    fn differing_lines_names_each_line_that_differs() {
+        assert_eq!(differing_lines("a\nb\n", "a\nb\n"), "");
+        let d = differing_lines("a\nX\n", "a\nb\nc\n");
+        assert!(d.contains("line 2") && d.contains("golden: \"b\"") && d.contains("bund2:  \"X\""));
+        assert!(
+            d.contains("line 3") && d.contains("bund2:  <no such line>"),
+            "{d}"
+        );
+        let many = "x\n".repeat(40);
+        let d = differing_lines(&many, &"y\n".repeat(40));
+        assert_eq!(d.matches("golden:").count(), DIFF_LINES);
+        assert!(d.contains("further lines differ"));
+    }
+    use super::{DIFF_LINES, TierTotal, differing_lines};
 
     /// **Both of `--stats`'s lines leave the text, and nothing else does** —
     /// D147. The second line, the floors, was added to the binary before this

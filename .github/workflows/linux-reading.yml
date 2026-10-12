@@ -57,9 +57,10 @@ jobs:
       - name: lint
         if: ${{ !cancelled() }}
         run: cargo xtask lint
+      # `-v` shows the lines at which a failing golden differs.
       - name: conform, Tier 0
         if: ${{ !cancelled() }}
-        run: cargo xtask conform
+        run: cargo xtask conform -v
       - name: conform, the tier at its default threshold
         if: ${{ !cancelled() }}
         run: cargo xtask conform --features jit
@@ -77,13 +78,24 @@ jobs:
       - name: the spread of declined bodies
         if: ${{ !cancelled() }}
         run: cargo test -p bund2-interp ten_thousand_bodies -- --nocapture
-      # RFC-0005 criterion 11 as D149 words it: the floor check's cost in
-      # instructions an entry, checked less unchecked, over ten million
-      # entries. macOS reads the count from `/usr/bin/time -l`. A hosted
-      # runner exposes no hardware counter, so this one is callgrind's `Ir`:
-      # instructions executed in user space, counted and not sampled.
+
+  # RFC-0005 criterion 11 as D149 words it: the floor check's cost in
+  # instructions an entry, checked less unchecked. macOS reads the count from
+  # `/usr/bin/time -l`, over ten million entries. A hosted runner exposes no
+  # hardware counter, so this one is callgrind's `Ir`: instructions executed
+  # in user space, counted and not sampled, which makes the difference exact
+  # at any number of entries. One million, because the first reading took ten
+  # million and two hours to say the same thing. A job of its own, so the
+  # other's log is not kept waiting for it.
+  floor-count:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
       - name: the floor check, by count
-        if: ${{ !cancelled() }}
         run: |
           sudo apt-get update
           sudo apt-get install -y valgrind
@@ -92,7 +104,7 @@ jobs:
             for arm in checked unchecked; do
               echo "== $arm, $sites"
               valgrind --tool=callgrind --callgrind-out-file=/dev/null \
-                target/release/examples/floor_count $arm 10000000 $sites 2>&1 \
+                target/release/examples/floor_count $arm 1000000 $sites 2>&1 \
                 | grep -E "floor_count|Collected"
             done
           done
