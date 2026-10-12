@@ -275,6 +275,13 @@
   `GUARD [CONTAMINATED] peak=23.2% (claude)`, the agent session itself — with
   numbers nobody would have objected to.
 
+  *(2026-10-12, RFC-0005's twenty-fourth review, S12: the name in brackets is
+  the guard's report of the busiest process on the machine during the window,
+  quoted as printed. It is not authorship of anything. Since this date the guard script
+   (`crates/bund2-bench/scripts/guarded_bench.sh`) prints no
+  process name on its verdict line and writes the name to an untracked log, so
+  later readings do not carry one.)*
+
   **One caveat, recorded because it runs the dangerous way.** All three clean
   runs read slightly negative across nearly every group, which says the baseline
   `q1` was taken warm: it was the first block after a build, with no preceding
@@ -4834,7 +4841,7 @@ without going through `status_of`.)*
 | **a helper that makes a failing status without `status_of`** — `jit_pop_int`, `jit_dup_top`, `jit_drop_top`, `jit_stack_moved` *(added 2026-10-12)* | each parks an `Error::internal` and returns the failing status, and none clears a tail request. The first three fail only when a guard admitted what its ops could not run, which `Fragment::new` rules out; the fourth only around a crossed call, which no shipped body makes (D75). No native has run between the guard and the op, so no request can have been filed there. Stated as assumption 43, and not guarded |
 | **a moved epoch under a crossed call** *(added 2026-10-12)* | `Error::internal` by decision (D73), where Tier 0 would give a result. Unreachable while D75 stands: the shipped runtime installs no crossable table. Criterion 21's fixture reaches it and asserts the internal error |
 | **the per-call LIST `scoped_call` builds** *(added 2026-10-12)* | never offered to the tier, because its frame carries an exit action. `a_scoped_call_body_is_never_offered_to_the_tier`. It has a key and `entry_log` records it; `--stats` does not count it |
-| **what D145 lists as not covered beneath a nested compiled body** — a tail request filed there and failing; a reporter that wants the stack; a debugger word arming *(added 2026-10-12)* | the same rules as beneath one compiled body — `status_of` clears the request, D71 keeps such a body out of the tier when the reporter wants warnings' stacks, D113.6 switches the tier off — and **no test runs any of the three nested**. A gap, stated |
+| **what D145 lists as not covered beneath a nested compiled body** — a tail request filed there and failing; a reporter that wants the stack; a debugger word arming *(added 2026-10-12)* | the same rules as beneath one compiled body — `status_of` clears the request, D71 keeps such a body out of the tier when the reporter wants warnings' stacks, D113.6 switches the tier off — and **no test runs any of the three nested**. A gap, stated. *(Later the same day: each has a test. `a_failed_natives_request_beneath_a_nested_compiled_body_is_discarded` and `a_warning_beneath_a_nested_compiled_body_carries_tier_zeros_snapshot` in `crates/bund2-runtime/src/tier.rs`, and `a_breakpoint_armed_beneath_two_compiled_bodies_fires_and_turns_the_tier_off` in `crates/bund2-cli/tests/debugger_words.rs`. The first found that this row names the wrong guard for a shipped body: the native is run by `Interp::invoke`, which discards the request, and `status_of`'s clear is a second one behind it.)* |
 
 ## Alternatives considered
 
@@ -5448,6 +5455,14 @@ criterion.)*
    fourth run was taken and **discarded on its window** —
    `GUARD [CONTAMINATED] peak=23.2% (claude)` — its numbers unremarkable, which
    is the rule working in the direction that costs something.
+
+   *(2026-10-12, RFC-0005's twenty-fourth review, S12: as in the status block:
+   the name in brackets is the guard's report of the busiest process on the
+   machine during the window, quoted as printed. It is not authorship of
+   anything. Since this date the guard script
+   (`crates/bund2-bench/scripts/guarded_bench.sh`) prints no process name on
+   its verdict line and writes the name to an untracked log, so later readings
+   do not carry one.)*
 
    *(2026-10-12, the twenty-fourth review's S10: the guard had a defect of its
    own, F145: it chose what to ignore by matching command strings, and so
@@ -9083,6 +9098,12 @@ observe is different.
 recorded; removing bench output from a design document is the owner's
 choice. Nothing was measured for this amendment.
 
+*(Later the same day, by the owner's ruling on S12: the lines stand as
+recorded, each with a dated note saying what the name is, here and in
+RFC-0008 and F135; and `guarded_bench.sh` no longer prints a process name
+on its verdict line, so no later reading carries one. The name goes to an
+untracked log.)*
+
 **Later the same day: criterion 18's golden is captured**, by the owner.
 `conform` reads 134/146, CEILING 134/146, in all three configurations, 17
 bodies in 11 programs at threshold 1. The status block moves 18 to "holds
@@ -9093,3 +9114,40 @@ a count, fewer than 20 instructions an entry by `floor_count`, and holds on
 the readings already taken. So 23 criteria hold as written, 7 as re-worded,
 and none is held by less than its text. That is a statement about checks on
 macOS arm64; the status of this RFC is the owner's.
+
+## Amendment, 2026-10-12 — D145's three uncovered cases have tests
+
+D145 lists three things it did not cover beneath a nested compiled body, and
+the amendment above carried them as a stated gap. Each now has a test that
+requires both bodies to run compiled on the call it compares.
+
+**A tail request filed there by a native that then fails.**
+`a_failed_natives_request_beneath_a_nested_compiled_body_is_discarded`
+(`crates/bund2-runtime/src/tier.rs`). The outcome, the stacks and the next
+line agree with Tier 0, and the request cell is clear. **It does not test
+`status_of`.** A shipped body reaches a native through `jit_apply` and
+`Vm::apply`, so `Interp::invoke` runs it and discards the request on failure
+(F96), as at Tier 0. Removing `status_of`'s clear on the error arm leaves
+this test and the rest of that crate's passing; that was tried. So that
+clear is a second guard in a shipped body, and the first only where a
+compiled body calls a native's adapter directly, which the tests in
+`crates/bund2-jit/src/lower.rs` do.
+
+**A reporter that wants the stack.**
+`a_warning_beneath_a_nested_compiled_body_carries_tier_zeros_snapshot`, same
+file. A warning raised two compiled bodies down carries both bodies' sums in
+its snapshot, and all four snapshots equal Tier 0's. Nothing can be held
+across a call in a runtime that crosses nothing (D75), so this shows the
+rule holding and could not have shown it failing.
+
+**A debugger word arming.**
+`a_breakpoint_armed_beneath_two_compiled_bodies_fires_and_turns_the_tier_off`
+(`crates/bund2-cli/tests/debugger_words.rs`). Both bodies finish compiled,
+the breakpoint fires once, and `--stats` reads six compiled entries where it
+would read ten had the tier stayed on. **One thing it found, of speed
+only:** the arming word's own body is queued for compilation beneath the
+compiled body (D145, stage 1) and is compiled when that body returns, after
+the tier has been switched off. It is never entered. One compilation is
+spent on a body nothing will run; nothing is filed for it.
+
+None of the three found a difference between the tiers.

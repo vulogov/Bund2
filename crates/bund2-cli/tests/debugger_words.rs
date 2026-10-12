@@ -464,3 +464,50 @@ fn a_breakpoint_armed_beside_a_tier_still_fires() {
         );
     }
 }
+
+/// **D113.6 beneath two compiled bodies — D145's third uncovered case.**
+/// `v` calls `w`, both compiled; `w` ends in `go`, which is rebound to a
+/// word that arms a breakpoint. So the arming word runs with two compiled
+/// bodies above it on the machine stack. Both finish compiled, with no stop
+/// inside them; the tier is off from then on, so the two calls of `v` that
+/// follow add no compiled entry; and the breakpoint fires.
+///
+/// The count is the evidence that the arming was beneath compiled code.
+/// Call 1 compiles `v` and `w` and runs both interpreted; calls 2, 3 and 4
+/// run both compiled: six entries. Without the arming, calls 5 and 6 would
+/// make it ten.
+///
+/// The number of bodies is not asserted. It is three: `arm` has a site of
+/// its own, `drop`, and its first entry is beneath compiled `v`, so D145's
+/// queue compiles it when `v` returns, after the tier is off. That body is
+/// never entered.
+#[test]
+fn a_breakpoint_armed_beneath_two_compiled_bodies_fires_and_turns_the_tier_off() {
+    let src = ":drop :go alias\n\
+               :t { 9 drop } register\n\
+               :arm { drop \"t\" debug.break } register\n\
+               :w { 1 2 + drop 0 go } register\n\
+               :v { 3 4 + drop w 5 6 + drop } register\n\
+               v v v\n\
+               :arm :go alias\n\
+               v\n\
+               \"armed\" println\n\
+               v v\n\
+               t\n\
+               \"end\" println\n";
+    let (out, err, code) = scripted(src, "c\n", &["--stats", "--jit-threshold", "1"]);
+    assert_eq!(err.matches("breakpoint: t").count(), 1, "the stop was missed:\n{err}");
+    assert_eq!(out, "armed\nend\n", "{err}");
+    assert_eq!(code, Some(0));
+    if err.contains("no tier") {
+        eprintln!(
+            "debugger_words: no tier in this build, so this checked the stop and not \
+             that the arming was beneath compiled bodies. Run with `--features jit`."
+        );
+    } else {
+        assert!(
+            err.contains("(6 entered)"),
+            "six compiled entries and none after the arming:\n{err}"
+        );
+    }
+}

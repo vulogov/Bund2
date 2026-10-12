@@ -7848,6 +7848,12 @@ were not present at all.
 - Depends on: criterion 7, D41 (the work the group protects), D70 (the band it
   polices), F134
 
+*Note, 2026-10-12 — RFC-0005's twenty-fourth review, S12.* The guard line
+quoted above names the busiest process in its window, as printed. It is not
+authorship. `crates/bund2-bench/scripts/guarded_bench.sh` no longer prints a
+process name on its verdict line: the line says where the name is, and the
+name goes to an untracked log under `target/`.
+
 ## F134 — criterion 7's "no statistically significant difference" clause cannot be satisfied by any build — RESOLVED as D70
 
 **A defect in an acceptance criterion's wording**, not in Bund2. Found by

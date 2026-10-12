@@ -705,6 +705,11 @@ capture and still unpinnable, which is `debug`'s case.
     largest being `literal_only` at +2.49%. Guard verdicts: `peak=12.3%
     (Brave)`, `peak=5.3% (claude)`, `peak=8.6% (launchd)`, means 2.8–2.9%.
 
+    *(2026-10-12: the process names here are the guard's report of the busiest
+    process during a window, quoted as printed, and not authorship.
+    `guarded_bench.sh` no longer prints one on its verdict line; RFC-0005's
+    note of this date under its criterion 7 has the detail.)*
+
     **`literal_push` reads +5.77%, outside the band, and it is one of the two
     rows this document already disqualified** — "a 4% move there is
     indistinguishable from another Tuesday", and neither criterion "may rest a
@@ -845,6 +850,11 @@ capture and still unpinnable, which is `debug`'s case.
     through the window — and may still be unable to produce a CLEAN run, which
     makes these two baselines a human's to take.
 
+    *(2026-10-12: the process names here are the guard's report of the busiest
+    process during a window, quoted as printed, and not authorship.
+    `guarded_bench.sh` no longer prints one on its verdict line; RFC-0005's
+    note of this date under its criterion 7 has the detail.)*
+
     ### The baseline — three CLEAN runs, 2026-09-30
 
     Taken before either change exists, which is what both criteria require.
@@ -902,6 +912,11 @@ capture and still unpinnable, which is `debug`'s case.
     protocol does not say this, and it should: it is the difference between a
     measurement an agent can take and one it cannot.
 
+    *(2026-10-12: the process names here are the guard's report of the busiest
+    process during a window, quoted as printed, and not authorship.
+    `guarded_bench.sh` no longer prints one on its verdict line; RFC-0005's
+    note of this date under its criterion 7 has the detail.)*
+
     **A second agent session on the same machine is a contaminant this session
     can neither see nor stop — and the guard could not see it either (F145).**
     On 2026-10-01 criterion 11's reading was abandoned after twenty-two minutes
@@ -925,6 +940,10 @@ capture and still unpinnable, which is `debug`'s case.
     not load**: each offender was idle when checked beforehand and spiked inside
     the sixty-second window. Quiet here means those agents quit, not merely
     unoccupied.
+    *(2026-10-12: the process names here are the guard's report of the busiest
+    process during a window, quoted as printed, and not authorship.
+    `guarded_bench.sh` no longer prints one on its verdict line; RFC-0005's
+    note of this date under its criterion 7 has the detail.)*
 13. **`debug` and `debug.shell` run under a capture, and are refused as
     unstable.** Measured, correcting an `[UNGROUNDED]` claim: with stdin closed
     the oracle's `debug` runs to completion — readline gets EOF and advances —
@@ -932,6 +951,7 @@ capture and still unpinnable, which is `debug`'s case.
     embeds a fresh id and stamp per run, so two captures differ and the capture
     refuses them. That is the F14 class and belongs in `UNSTABLE.txt`, not in a
     claim that the words are unreachable.
+
 
     **The second half is wrong too, and a golden holds both words —
     corrected 2026-10-08.** `tests/golden/probes/debug-repl-words.golden` runs

@@ -4177,6 +4177,15 @@ of what was built; §S2 never said it. Found by that RFC's twenty-fourth
 review (S11). The same review found §S7 and §S8 of the RFC still describing
 the tier as it was before this entry, and notes of this date stand there.
 
+*Note, 2026-10-12 — the three cases listed as not covered have tests.*
+`a_failed_natives_request_beneath_a_nested_compiled_body_is_discarded` and
+`a_warning_beneath_a_nested_compiled_body_carries_tier_zeros_snapshot`
+(`crates/bund2-runtime/src/tier.rs`), and
+`a_breakpoint_armed_beneath_two_compiled_bodies_fires_and_turns_the_tier_off`
+(`crates/bund2-cli/tests/debugger_words.rs`). None found a difference
+between the tiers. RFC-0005's last amendment says what each does and does
+not show.
+
 ## D144 — is RFC-0005 §S9, tier pinning, withdrawn?
 
 **Raised 2026-10-10** by RFC-0005's twenty-third review, B7.

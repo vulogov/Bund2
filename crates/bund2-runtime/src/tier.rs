@@ -2972,6 +2972,139 @@ mod tests {
         }
     }
 
+    /// **A request filed beneath a nested compiled body by a native that then
+    /// fails is not left behind** — D145's first uncovered case, RFC-0005's
+    /// twenty-fourth review.
+    ///
+    /// `ff` files a body that would push 99 and then fails, two compiled
+    /// bodies down. A request that survived would run at the next value the
+    /// program evaluates, so the line after the failure is what shows it.
+    ///
+    /// **What discards it here is `Interp::invoke`, as at Tier 0.** A shipped
+    /// body reaches a native through `jit_apply` and `Vm::apply`, so the
+    /// native is still run by `invoke`, which clears on failure (F96).
+    /// `status_of` clears as well and is the second of two: removing its
+    /// clear leaves this test passing, which was tried. This is a
+    /// differential on what a program sees, not a test of that line.
+    #[test]
+    fn a_failed_natives_request_beneath_a_nested_compiled_body_is_discarded() {
+        fn ff(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.tail_lambda(BundValue::lambda(vec![BundValue::int(99)]));
+            Err(Error("ff failed after filing".into()))
+        }
+        let run = |r: &mut crate::Runtime| {
+            r.interp.registry.register_native(
+                "ff",
+                ff,
+                bund2_api::StackEffect::opaque(0),
+                bund2_api::WordKind::Sync,
+            );
+            r.eval_str(
+                ":drop :go alias\n\
+                 :w { 1 2 + drop 0 go } register\n\
+                 :v { 3 4 + w 5 6 + } register\n",
+            )
+            .expect("setup runs");
+            for _ in 0..3 {
+                r.eval_str("v").expect("the warm-up entries run");
+            }
+            let before = r.compiled_entries().unwrap_or(0);
+            r.eval_str(":ff :go alias\n").expect("the rebind runs");
+            let failed = r.eval_str("v").map_err(|e| norm_msg(&e.0));
+            (failed, before)
+        };
+
+        let mut tiered = inlining_runtime_with(1);
+        let (tier_outcome, before) = run(&mut tiered);
+        assert!(
+            tiered.compiled_entries().unwrap_or(0) >= before + 2,
+            "`v` and `w` must both run compiled on the failing call ({before} before, {:?} after)",
+            tiered.compiled_entries()
+        );
+        let mut plain = crate::Runtime::new();
+        plain.take_tier();
+        let (plain_outcome, _) = run(&mut plain);
+
+        assert!(plain_outcome.is_err(), "the control must fail: {plain_outcome:?}");
+        assert_eq!(tier_outcome, plain_outcome, "the failure");
+        assert!(
+            !tiered.interp.cells().request(),
+            "the request cell is clear once the failure has reached Rust"
+        );
+
+        // The next line is where a surviving request would run.
+        tiered.eval_str("8").expect("the next line runs");
+        plain.eval_str("8").expect("the next line runs");
+        let a = observe(&mut tiered, Ok(()), &SharedReporter::default());
+        let b = observe(&mut plain, Ok(()), &SharedReporter::default());
+        assert_eq!(a.stacks, b.stacks, "stacks");
+        assert_eq!(a.workbench, b.workbench, "workbench");
+        assert!(
+            !bund2_api::Vm::snapshot(&tiered.interp)
+                .iter()
+                .any(|v| v.as_int() == Some(99)),
+            "the body `ff` filed ran after all"
+        );
+    }
+
+    /// **A warning raised beneath a nested compiled body carries Tier 0's
+    /// snapshot, under a reporter that wants one** — D145's second uncovered
+    /// case.
+    ///
+    /// `w` warns through `alias` with its own sum on the stack and `v`'s
+    /// beneath it. Nothing is held in a register across either call in this
+    /// runtime, which crosses nothing (D75), so both sums must be in the
+    /// snapshot; a value held by the outer body across its call to `w` would
+    /// be missing from it.
+    #[test]
+    fn a_warning_beneath_a_nested_compiled_body_carries_tier_zeros_snapshot() {
+        let setup = ":w { 1 2 + :x :x alias } register\n\
+                     :v { 3 4 + w 5 6 + clear } register\n";
+        type Snap = (Option<Vec<String>>, Option<Vec<String>>);
+        let snaps = |w: &WantingReporter| -> Vec<Snap> {
+            w.0.borrow()
+                .iter()
+                .filter(|d| d.severity == bund2_api::diag::Severity::Warning)
+                .map(|d| (d.stack.clone(), d.workbench.clone()))
+                .collect()
+        };
+        let run = |r: &mut crate::Runtime| {
+            let seen = WantingReporter::default();
+            r.interp.reporter = Box::new(seen.clone());
+            r.eval_str(setup).expect("setup runs");
+            for _ in 0..3 {
+                r.eval_str("v").expect("the warm-up entries run");
+            }
+            let before = r.compiled_entries().unwrap_or(0);
+            r.eval_str("v").expect("runs");
+            (seen, before)
+        };
+
+        let mut tiered = inlining_runtime_with(1);
+        let (seen, before) = run(&mut tiered);
+        assert!(
+            tiered.compiled_entries().unwrap_or(0) >= before + 2,
+            "`v` and `w` must both run compiled on the last call ({before} before, {:?} after)",
+            tiered.compiled_entries()
+        );
+        let mut plain = crate::Runtime::new();
+        plain.take_tier();
+        let (plain_seen, _) = run(&mut plain);
+
+        let (tier_snaps, plain_snaps) = (snaps(&seen), snaps(&plain_seen));
+        assert_eq!(plain_snaps.len(), 4, "one warning a call: {plain_snaps:?}");
+        let last = tier_snaps.last().and_then(|(s, _)| s.clone()).unwrap_or_default();
+        assert!(
+            last.iter().any(|r| r.contains('7')) && last.iter().any(|r| r.contains('3')),
+            "the snapshot taken beneath both compiled bodies must hold `v`'s sum \
+             and `w`'s: {last:?}"
+        );
+        assert_eq!(tier_snaps, plain_snaps, "every snapshot, value for value");
+        let a = observe(&mut tiered, Ok(()), &SharedReporter::default());
+        let b = observe(&mut plain, Ok(()), &SharedReporter::default());
+        assert_eq!(a.stacks, b.stacks, "stacks");
+    }
+
     /// **A compiled recursion is turned back by §S8's floor, not by the
     /// absence of a tier** — D145. Each level of `down` is a compiled body
     /// entered beneath the last, so the machine stack grows per level until
