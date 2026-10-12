@@ -671,6 +671,19 @@ pub trait Vm {
     /// about this tier: a `Vm` forgets it all when its tier changes.
     fn tier_never(&mut self, _body: &BundValue) {}
 
+    /// **Whether this `Vm` still offers bodies to its tier** — F203. A `Vm`
+    /// may stop for good, as Tier 0 does at the first word that arms a
+    /// breakpoint (D113.6). A tier holding bodies it has yet to compile asks
+    /// before compiling them: one compiled after this answers `false` would
+    /// never be entered.
+    ///
+    /// **Defaulted to `true`**, which is correct for a `Vm` that never stops
+    /// offering, and costs one that does only the compilations it could have
+    /// been spared.
+    fn tier_offered(&self) -> bool {
+        true
+    }
+
     // --- input (D112) -------------------------------------------------------
     /// Read one line — **the hook a word listens through**, as [`Vm::report`]
     /// is the one it speaks through. The implementation asks whatever

@@ -504,6 +504,237 @@ mod honesty_tests {
         }
     }
 
+    /// The class the palette's OBJECT kind is made from.
+    const CLASS: &str = ":C1 class :.class_name \"C1\" set register";
+    /// Criterion 28's fifteen operand kinds. `"main"` is the current stack's
+    /// name, so a word that takes a stack name is tried on the stack promotion
+    /// would be holding (D55).
+    const KINDS: &str = "7 2.5 true \"zz_nofile\" \"A\" \"C1\" \"main\" [ 1 2 ] list dict \
+                         { 1 } { drop } nodata `dup :C1 object";
+    // Natives that act on the host are never run here: the palette's `7`
+    // would make `sleep.seconds` wait seven seconds, and its strings would
+    // hand `fs.rm` real relative paths. Left unrun, they are not reached,
+    // so promotion syncs before them as it does before an embedder's
+    // native (D48, dated note 2026-09-11).
+    // `password` and `bund.prompt` wait on the terminal for a line nobody
+    // will type, and `save.model` would write a world file for each palette
+    // string.
+    //
+    // **`bund.prompt` was missing from this list until F141**, and the cost
+    // was not a failure but a *hang*: with stdin on a pipe or tty that
+    // never reaches EOF, the read blocks and the whole crate's suite stops
+    // with it. Two test binaries were found still resident five days after
+    // the runs that started them, and a background run chained to a commit
+    // never reached the commit. A hang leaves no failing test — only a run
+    // that never ends, which in the background is indistinguishable from
+    // one still going.
+    //
+    // `input` and `input*` read the terminal too and are not here: both are
+    // `StackEffect::opaque`, which this audit skips before it runs
+    // anything.
+    //
+    // **The four writers were found by the files they left behind.** The
+    // palette's strings are filenames to `file.write`, so the first run
+    // after it was implemented wrote `A`, `C1`, `dup`, `main` and
+    // `zz_nofile` into the crate directory -- in the repository working
+    // tree, as untracked files. The visible symptom was not those files
+    // but the audit's own answer: `csv` and `sqlite` turned up as `now
+    // reached`, because a palette string had become the name of a file
+    // that existed and they could open it. A host write does not only act
+    // on the host, it changes what the rest of the audit measures.
+    //
+    // `fs.is_file`, `fs.ls` and `filename` stay: the first two read the
+    // working directory and answer `Ok` whatever is in it, and `filename`
+    // is lexical and touches no filesystem at all.
+    // **`system.shell` is the sharpest case, and it was not caught by a
+    // symptom.** It hands its operand to `/bin/sh -c`, so leaving it here
+    // unlisted means the audit executes fifteen palette strings as shell
+    // commands on every run of `cargo test`. It never appeared as `now
+    // reached` -- every palette string fails as a command, so the native
+    // returns `Err` and is never certified -- and that is luck rather than
+    // safety: the spawn had already happened by then, and a palette string
+    // that happened to name a real command would have run it. Listed for
+    // what it does, not for what it managed to do.
+    const ACTS_ON_HOST: [&str; 13] = [
+        "system.shell",
+        "system.shell.",
+        "fs.rm",
+        "fs.cp",
+        "fs.mv",
+        "file.write",
+        "file.write.",
+        "sleep.seconds",
+        "system.setproctitle",
+        "system.setproctitle.",
+        "password",
+        "bund.prompt",
+        "save.model",
+    ];
+
+    /// **RFC-0005's assumption 23, scanned.** Criterion 28's palette varies a
+    /// native's top two operands, or its top operand and the workbench for a
+    /// workbench form, and puts `7` in every operand beneath those. So a
+    /// native that took a stack name in one of the operands beneath would
+    /// never be handed `"main"`, and D55's reason for having that kind in the
+    /// palette would not reach it.
+    ///
+    /// Two checks. **The natives with such an operand are exactly the ones
+    /// listed**, so the next one fails here until somebody reads what it does
+    /// with that operand and adds it. And **none of them treats that operand
+    /// as a stack's name**: each is run with the name of a second stack
+    /// there, over every palette kind in the operands the palette does vary,
+    /// and afterwards the current stack is still `main`, no stack has been
+    /// made or dropped, and the second stack holds what it held.
+    ///
+    /// What this does not see is a native that only *read* the named stack.
+    /// The list is what covers that: its entries were read when it was
+    /// written, and none takes a name.
+    #[test]
+    fn no_native_takes_a_stack_name_in_an_operand_the_palette_leaves_at_seven() {
+        // Sorted as `declared_effects` sorts. `save.model` is here because of
+        // its depth and is not run: it writes a world file (`ACTS_ON_HOST`).
+        const UNVARIED: [&str; 14] = [
+            "get,",
+            "graph.path",
+            "graph.path.",
+            "save.model",
+            "seq.asc",
+            "seq.asc.",
+            "seq.desc",
+            "seq.desc.",
+            "set",
+            "set,",
+            "set.",
+            "set.,",
+            "tag",
+            "tag.",
+        ];
+        const OTHER: &str = "zz_other";
+        let mut setup = Interp::new();
+        crate::register_all(&mut setup.registry);
+        let src = format!("{CLASS}\n{KINDS}");
+        setup
+            .eval(&bund2_syntax::compile(&src).expect("compiles"))
+            .expect("the palette builds");
+        let palette = setup.snapshot();
+        let template = setup.registry.clone();
+        let k = palette.len();
+        // How many operands the palette varies for this native: the same
+        // rule as the audit below.
+        let varied_of = |name: &str, e: &bund2_api::StackEffect| -> usize {
+            let bench = name.ends_with('.') || name.ends_with(',');
+            usize::from(e.consumes).min(if bench { 1 } else { 2 })
+        };
+        let unvaried: Vec<(String, bund2_api::StackEffect)> = setup
+            .registry
+            .declared_effects()
+            .into_iter()
+            .filter(|(n, e)| !e.opaque && usize::from(e.consumes) > varied_of(n, e))
+            .collect();
+        let names: Vec<&str> = unvaried.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(
+            names, UNVARIED,
+            "a fixed-effect native has an operand the palette never varies and is \
+             not on the list; read what it does with that operand first"
+        );
+
+        let held = [BundValue::int(11), BundValue::str("held")];
+        // An interpreter with a second stack holding two values, `main`
+        // current, and `ops` on it.
+        let prepared = |ops: &[BundValue], wb: Option<&BundValue>| -> Interp {
+            let mut i = Interp::new();
+            i.registry = template.clone();
+            for v in &held {
+                i.push_to(OTHER, v.clone());
+            }
+            // `push_to` leaves the stack it pushed to current.
+            i.to_stack("main");
+            for v in ops {
+                i.push(v.clone());
+            }
+            if let Some(v) = wb {
+                i.push_workbench(v.clone());
+            }
+            let quiet = std::rc::Rc::new(std::cell::Cell::new(false));
+            i.reporter = Box::new(Noting(quiet));
+            i
+        };
+        // What a native that took `OTHER` as a stack's name would have done.
+        let disturbed = |i: &Interp| -> Option<String> {
+            let mut stacks = i.stack_names();
+            stacks.sort();
+            if stacks != ["main", OTHER] {
+                return Some(format!("the stacks are now {stacks:?}"));
+            }
+            let now: Vec<String> = i.snapshot_of(OTHER).iter().map(BundValue::display).collect();
+            let was: Vec<String> = held.iter().map(BundValue::display).collect();
+            if now != was {
+                return Some(format!("{OTHER} now holds {now:?}"));
+            }
+            (i.current_name() != "main")
+                .then(|| format!("the current stack is now {}", i.current_name()))
+        };
+        assert_eq!(disturbed(&prepared(&[], None)), None, "as prepared");
+
+        // **The detector fires on natives that do take a name**, one for each
+        // of its three arms, so a pass below is not the detector being blind.
+        for (word, name, arm) in [
+            ("to_stack", OTHER, "current"),
+            ("ensure_stack", "zz_made", "stacks are"),
+            ("clear_in", OTHER, "holds"),
+        ] {
+            let mut i = prepared(&[BundValue::str(name)], None);
+            i.eval_indexed(&[BundValue::call(word)])
+                .unwrap_or_else(|(_, e)| panic!("{word} runs: {}", e.0));
+            let why = disturbed(&i).unwrap_or_else(|| panic!("{word} was not seen"));
+            assert!(why.contains(arm), "{word}: {why}");
+        }
+
+        let (mut runs, mut oks) = (0usize, 0usize);
+        let mut offenders = std::collections::BTreeSet::new();
+        for (name, e) in &unvaried {
+            if ACTS_ON_HOST.contains(&name.as_str()) {
+                continue;
+            }
+            let depth = usize::from(e.consumes);
+            let bench = name.ends_with('.') || name.ends_with(',');
+            let varied = varied_of(name, e);
+            let wb: Vec<Option<usize>> = if bench {
+                std::iter::once(None).chain((0..k).map(Some)).collect()
+            } else {
+                vec![None]
+            };
+            // Each operand beneath the varied ones takes the name in turn.
+            for at in 0..depth - varied {
+                for mut n in 0..k.pow(varied as u32) {
+                    let mut ops = vec![BundValue::int(7); depth - varied];
+                    ops[at] = BundValue::str(OTHER);
+                    for _ in 0..varied {
+                        ops.push(palette[n % k].clone());
+                        n /= k;
+                    }
+                    for w in &wb {
+                        let mut i = prepared(&ops, w.map(|x| &palette[x]));
+                        let r = i.eval_indexed(&[BundValue::call(name)]);
+                        runs += 1;
+                        oks += usize::from(r.is_ok());
+                        if let Some(why) = disturbed(&i) {
+                            offenders.insert(format!("{name}, operand {at} from the bottom: {why}"));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "a native used an operand the palette leaves at `7` as a stack's name: \
+             {offenders:#?}"
+        );
+        // Thirteen natives were run, and some run of them reached `Ok` with
+        // the name in place: the scan is not a list of early type errors.
+        assert!(runs > 0 && oks > 0, "{runs} runs, {oks} of them Ok");
+    }
+
     /// **Criterion 28 — D48, F94, D55.** Every fixed-effect native, run under
     /// the effect audit against a palette of fifteen operand kinds, with the top
     /// two operands drawn from every pair of kinds (deeper ones and three
@@ -522,11 +753,6 @@ mod honesty_tests {
     /// rewrites the list after a deliberate change; the diff is the review.
     #[test]
     fn every_fixed_effect_native_keeps_its_pair_over_the_promotable_palette() {
-        const CLASS: &str = ":C1 class :.class_name \"C1\" set register";
-        // `"main"` is the current stack's name, so a word that takes a stack
-        // name is tried on the stack promotion would be holding (D55).
-        const KINDS: &str = "7 2.5 true \"zz_nofile\" \"A\" \"C1\" \"main\" [ 1 2 ] list dict \
-                             { 1 } { drop } nodata `dup :C1 object";
         let mut setup = Interp::new();
         crate::register_all(&mut setup.registry);
         let src = format!("{CLASS}\n{KINDS}");
@@ -546,65 +772,6 @@ mod honesty_tests {
             .map(|v| v.display().to_ascii_lowercase().contains("stamp"))
             .collect();
         let template = setup.registry.clone();
-        // Natives that act on the host are never run here: the palette's `7`
-        // would make `sleep.seconds` wait seven seconds, and its strings would
-        // hand `fs.rm` real relative paths. Left unrun, they are not reached,
-        // so promotion syncs before them as it does before an embedder's
-        // native (D48, dated note 2026-09-11).
-        // `password` and `bund.prompt` wait on the terminal for a line nobody
-        // will type, and `save.model` would write a world file for each palette
-        // string.
-        //
-        // **`bund.prompt` was missing from this list until F141**, and the cost
-        // was not a failure but a *hang*: with stdin on a pipe or tty that
-        // never reaches EOF, the read blocks and the whole crate's suite stops
-        // with it. Two test binaries were found still resident five days after
-        // the runs that started them, and a background run chained to a commit
-        // never reached the commit. A hang leaves no failing test — only a run
-        // that never ends, which in the background is indistinguishable from
-        // one still going.
-        //
-        // `input` and `input*` read the terminal too and are not here: both are
-        // `StackEffect::opaque`, which this audit skips before it runs
-        // anything.
-        //
-        // **The four writers were found by the files they left behind.** The
-        // palette's strings are filenames to `file.write`, so the first run
-        // after it was implemented wrote `A`, `C1`, `dup`, `main` and
-        // `zz_nofile` into the crate directory -- in the repository working
-        // tree, as untracked files. The visible symptom was not those files
-        // but the audit's own answer: `csv` and `sqlite` turned up as `now
-        // reached`, because a palette string had become the name of a file
-        // that existed and they could open it. A host write does not only act
-        // on the host, it changes what the rest of the audit measures.
-        //
-        // `fs.is_file`, `fs.ls` and `filename` stay: the first two read the
-        // working directory and answer `Ok` whatever is in it, and `filename`
-        // is lexical and touches no filesystem at all.
-        // **`system.shell` is the sharpest case, and it was not caught by a
-        // symptom.** It hands its operand to `/bin/sh -c`, so leaving it here
-        // unlisted means the audit executes fifteen palette strings as shell
-        // commands on every run of `cargo test`. It never appeared as `now
-        // reached` -- every palette string fails as a command, so the native
-        // returns `Err` and is never certified -- and that is luck rather than
-        // safety: the spawn had already happened by then, and a palette string
-        // that happened to name a real command would have run it. Listed for
-        // what it does, not for what it managed to do.
-        const ACTS_ON_HOST: [&str; 13] = [
-            "system.shell",
-            "system.shell.",
-            "fs.rm",
-            "fs.cp",
-            "fs.mv",
-            "file.write",
-            "file.write.",
-            "sleep.seconds",
-            "system.setproctitle",
-            "system.setproctitle.",
-            "password",
-            "bund.prompt",
-            "save.model",
-        ];
         // **Natives a feature gate may or may not have registered — F123.**
         //
         // `PROMOTABLE.txt` is one file and there are two builds. `string.grok`

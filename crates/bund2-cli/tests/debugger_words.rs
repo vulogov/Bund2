@@ -477,10 +477,9 @@ fn a_breakpoint_armed_beside_a_tier_still_fires() {
 /// run both compiled: six entries. Without the arming, calls 5 and 6 would
 /// make it ten.
 ///
-/// The number of bodies is not asserted. It is three: `arm` has a site of
-/// its own, `drop`, and its first entry is beneath compiled `v`, so D145's
-/// queue compiles it when `v` returns, after the tier is off. That body is
-/// never entered.
+/// Two bodies, and not three — F203. `arm` has a site of its own, `drop`,
+/// and its first entry is beneath compiled `v`, so D145's queue holds it when
+/// `v` returns. The tier is off by then, and it is not compiled.
 #[test]
 fn a_breakpoint_armed_beneath_two_compiled_bodies_fires_and_turns_the_tier_off() {
     let src = ":drop :go alias\n\
@@ -506,8 +505,9 @@ fn a_breakpoint_armed_beneath_two_compiled_bodies_fires_and_turns_the_tier_off()
         );
     } else {
         assert!(
-            err.contains("(6 entered)"),
-            "six compiled entries and none after the arming:\n{err}"
+            err.contains("compiled 2 bodies (6 entered)"),
+            "`v` and `w` compiled, six compiled entries, and neither figure \
+             moves after the arming:\n{err}"
         );
     }
 }

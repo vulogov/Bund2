@@ -361,6 +361,13 @@ impl JitTier {
             Ok(mut pending) if !pending.is_empty() => std::mem::take(&mut *pending),
             _ => return,
         };
+        // **Not for a `Vm` that has stopped offering** — F203, D113.6. A
+        // word that armed a breakpoint beneath a compiled body turned the
+        // tier off while these waited; compiled now they would never be
+        // entered. The queue was emptied above and stays empty.
+        if !vm.tier_offered() {
+            return;
+        }
         for body in &waiting {
             // It may have been compiled, demoted or capped since it was
             // queued; `observe` is not asked again, because that would count

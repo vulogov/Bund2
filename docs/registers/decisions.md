@@ -4186,6 +4186,10 @@ the tier as it was before this entry, and notes of this date stand there.
 between the tiers. RFC-0005's last amendment says what each does and does
 not show.
 
+*2026-10-12, later: F203.* The third test left the number of compiled bodies
+unasserted because stage 1's queue compiled the arming word after the tier
+was off. That is fixed, and the test asserts two.
+
 ## D144 — is RFC-0005 §S9, tier pinning, withdrawn?
 
 **Raised 2026-10-10** by RFC-0005's twenty-third review, B7.
@@ -6168,6 +6172,11 @@ Not built, though asked for in the same message: `stdin`, `stdin.` and
 wrong. F150 and F152 settled it on 2026-10-04: the reference binds all three
 only under `--noio`, as the stub that refuses, and Bund2 does the same.
 Adding them to the default build would invent words the language never had.
+
+*2026-10-12: F203.* "No body is offered to it again" held as built. A body
+D145 had queued before the arming was still compiled afterwards, once, and
+never entered. `Vm::tier_offered` (`crates/bund2-api/src/lib.rs`) lets the
+tier ask, and the queue is dropped.
 
 ## D112 — the input seam: a word asks the VM for its line
 

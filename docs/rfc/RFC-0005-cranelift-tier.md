@@ -4262,6 +4262,16 @@ is stated here, with the place that enforces or decides it.
     asserts it. The palette would not notice a native that took a name third
     from the top; a reader of that native's registration would. It stays an
     assumption with no check.)*
+    *(2026-10-12, later: it has a scan,
+    `no_native_takes_a_stack_name_in_an_operand_the_palette_leaves_at_seven`
+    (`crates/bund2-stdlib/src/lib.rs`). And "the top two" was loose. For a
+    workbench form the palette varies the top operand and the workbench, so
+    its second operand is always `7` as well. Fourteen fixed-effect natives
+    have an operand the palette never varies, not the seven that consume
+    three. The scan pins those fourteen by name and runs thirteen of them
+    with a second stack's name in each such operand; none switches to that
+    stack, makes or drops one, or changes what it holds. The amendment of
+    this date has the figures and what the scan cannot see.)*
 24. **Criterion 11's margin covers only `bund2-stdlib`'s re-entering paths.**
     The scan reads that crate alone (§S8). An embedder's native, or an
     embedder's method native reached through `run_init` or `dispatch_method`
@@ -4626,6 +4636,15 @@ the D146 amendment's qualified sentence), its tenth is a note under assumption
     and the trampoline (D145). A lowering that called a compiled body's code
     directly would nest with no check, and nothing but this sentence forbids
     it.
+    *(2026-10-12: "nothing but this sentence" was wrong when written.
+    Criterion 4's relocation test already forbade a body naming a body. It
+    did not forbid a thunk naming a body, a body naming a trampoline, or a
+    slot filled from a body. All three are checked now, by
+    `nothing_emitted_reaches_a_compiled_body_but_its_own_trampoline`
+    (`crates/bund2-jit/src/lower.rs`), over criterion 4's four probe bodies.
+    An address embedded as an immediate and called through is still
+    forbidden by nothing but the `Plan` type having no variant that carries
+    one.)*
 47. **One predicate decides whether an arm runs.** `Fragment::admits_with`
     (`crates/bund2-ir/src/fragment.rs`) is asked by `bund2_interp::frag::run`,
     by `jit_admits` for an inlined site, and by `Compiled::run` for a fragment
@@ -9149,5 +9168,49 @@ only:** the arming word's own body is queued for compilation beneath the
 compiled body (D145, stage 1) and is compiled when that body returns, after
 the tier has been switched off. It is never entered. One compilation is
 spent on a body nothing will run; nothing is filed for it.
+*(2026-10-12, later: filed as F203 and fixed. The arming word's body is no
+longer compiled, and the test asserts two bodies.)*
 
 None of the three found a difference between the tiers.
+
+## Amendment, 2026-10-12 — assumptions 23 and 46 have checks; F203
+
+**Assumption 23.** The palette of criterion 28 puts `7` in every operand it
+does not vary. That is every operand beneath the top two, and for a
+workbench form every operand beneath the top one. Fourteen fixed-effect
+natives have such an operand: `get,`, `graph.path`, `graph.path.`,
+`save.model`, `seq.asc`, `seq.asc.`, `seq.desc`, `seq.desc.`, `set`, `set,`,
+`set.`, `set.,`, `tag` and `tag.`. The assumption counted the seven that
+consume three and missed the seven workbench forms that consume two.
+
+The scan is one test in `crates/bund2-stdlib/src/lib.rs`. It asserts the
+list, so a fifteenth native fails it until its registration is read. And it
+runs thirteen of the fourteen, all but `save.model`, which writes a file,
+with the name of a second stack in each unvaried operand and every palette
+kind in the varied ones: 3,285 runs, 462 of them `Ok`. After each, the
+current stack is `main`, the stacks are the two it started with, and the
+second holds what it held. Three natives that do take a name, `to_stack`,
+`ensure_stack` and `clear_in`, are run first and each trips one of the three
+checks.
+
+It does not see a native that only reads the named stack. The list covers
+that by having been read: none of the fourteen takes a name.
+
+**Assumption 46.** Its last sentence was wrong: criterion 4's relocation
+test forbade a body naming a body before the assumption was written. What
+was unforbidden was narrower, and is closed for the four probe bodies. Of
+the relocations that name a function the object defines, exactly four exist
+and each is a trampoline naming its own body. And each of the sixteen call
+slots is filled from a thunk, a drain thunk or a guard thunk, none from a
+body or a trampoline. The test needs the `relocation-test` feature, as
+criterion 4's does.
+
+Not closed: a body's address embedded as an immediate and called through.
+No `Plan` variant carries an address to call, and no test says so.
+
+**F203.** A body queued under D145 was compiled after D113.6 had turned the
+tier off. It is fixed: the queue is dropped when the `Vm` has stopped
+offering bodies. The test of D145's third nested case, which had left the
+number of bodies unasserted because of this, now asserts two.
+
+**Not done.** No Linux reading of any of this.

@@ -4040,6 +4040,34 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F203 — a body queued beneath a compiled body was compiled after the tier was turned off
+
+**A Bund2 defect of speed, not of meaning; found 2026-10-12** while writing
+the test of D145's third nested case, by the count `--stats` printed.
+
+D145's stage 1 queues a body that earns compilation while compiled code is
+running, and `JitTier::compile_pending` (`crates/bund2-runtime/src/tier.rs`)
+compiles the queue when the outermost body returns. D113.6 turns the tier
+off at the first word that arms a breakpoint, and `Interp` then offers no
+body. The queue was not told. A word that armed beneath a compiled body, and
+was itself queued there, was compiled once the outer body returned: one
+Cranelift compilation, and one of §S7's function slots, for code no entry
+could reach. D113's dated note says "no body is offered to it again", which
+held; the comment where the flag is raised says "no body is compiled or run
+compiled", which did not.
+
+Measured with the test's program at threshold 1: `--stats` read
+`compiled 3 bodies (6 entered)`, the third being the arming word.
+
+**Status:** FIXED 2026-10-12. `Vm::tier_offered` (`crates/bund2-api/src/lib.rs`)
+says whether a `Vm` still offers bodies, defaulting to `true`; `Interp`
+answers from the flag D113.6 raises; `compile_pending` asks before compiling
+and drops the queue when the answer is `false`. The same program now reads
+`compiled 2 bodies (6 entered)`, which
+`a_breakpoint_armed_beneath_two_compiled_bodies_fires_and_turns_the_tier_off`
+(`crates/bund2-cli/tests/debugger_words.rs`) asserts under a tier. Conformance
+does not move: no corpus program arms a breakpoint.
+
 ## F202 — a body that failed to compile was lowered again on every entry, and nothing said so
 
 **A Bund2 defect of speed and of reporting, not of meaning; latent; found

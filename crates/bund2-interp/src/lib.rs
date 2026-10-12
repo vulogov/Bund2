@@ -1887,6 +1887,10 @@ impl Vm for Interp {
         }
     }
 
+    fn tier_offered(&self) -> bool {
+        !self.tier_off
+    }
+
     fn read_line(
         &mut self,
         ask: &bund2_api::input::Ask<'_>,

@@ -3669,6 +3669,22 @@ mod relocations {
     /// generation and epoch compares around it; and a generic call after
     /// both. The fourth ends in a tail call.
     fn relocations_of_the_probe_bodies() -> Result<Vec<(String, String)>, String> {
+        probe().map(|p| p.relocs)
+    }
+
+    /// What the four probe bodies' object says.
+    struct Probe {
+        /// Every relocation, as (containing function, target symbol).
+        relocs: Vec<(String, String)>,
+        /// Every symbol the object defines: the emitted functions.
+        defined: Vec<String>,
+        /// The function each call slot is filled from, by linkage name, for
+        /// all four bodies. A slot is the one way a body reaches a callee
+        /// with no relocation, so this is what the relocations cannot show.
+        slot_callees: Vec<String>,
+    }
+
+    fn probe() -> Result<Probe, String> {
         let isa = cranelift_codegen::isa::lookup_by_name(
             &std::env::var("BUND2_RELOC_TRIPLE").unwrap_or_else(|_| {
                 // The host, named explicitly: this test reads an object file
@@ -3712,8 +3728,9 @@ mod relocations {
         let cells = 0x1000i64;
         let plan0 = vec![Plan::Literal(1), Plan::Call { cross: None }];
         let plan1 = vec![Plan::Literal(2)];
-        emit_into(&mut e, 0, &plan0, &[], LastCall::Ordinary, Adapter::Apply, cells)?;
-        emit_into(&mut e, 1, &plan1, &[], LastCall::Ordinary, Adapter::Apply, cells)?;
+        let mut laid = Vec::new();
+        laid.push(emit_into(&mut e, 0, &plan0, &[], LastCall::Ordinary, Adapter::Apply, cells)?);
+        laid.push(emit_into(&mut e, 1, &plan1, &[], LastCall::Ordinary, Adapter::Apply, cells)?);
 
         // The published arms, from a real registry: `+` is the one inlined.
         // The generation cells are fabricated for the reason `cells` is.
@@ -3745,8 +3762,22 @@ mod relocations {
             Plan::Literal(3),
             Plan::Call { cross: None },
         ];
-        emit_into(&mut e, 2, &plan2, &sites, LastCall::Ordinary, Adapter::Apply, cells)?;
-        emit_into(&mut e, 3, &plan0, &[], LastCall::Tail, Adapter::Apply, cells)?;
+        laid.push(emit_into(&mut e, 2, &plan2, &sites, LastCall::Ordinary, Adapter::Apply, cells)?);
+        laid.push(emit_into(&mut e, 3, &plan0, &[], LastCall::Tail, Adapter::Apply, cells)?);
+
+        // `finish_jit` fills a body's slots from `thunk_ids` and from nothing
+        // else, so these names are everything a slot of these bodies can hold.
+        let slot_callees: Vec<String> = laid
+            .iter()
+            .flat_map(|l| l.thunk_ids.iter())
+            .map(|&id| {
+                e.module
+                    .declarations()
+                    .get_function_decl(id)
+                    .linkage_name(id)
+                    .into_owned()
+            })
+            .collect();
 
         let bytes = e
             .module
@@ -3791,7 +3822,73 @@ mod relocations {
                 out.push((containing(base + offset), target));
             }
         }
-        Ok(out)
+        Ok(Probe {
+            relocs: out,
+            defined: defined.into_iter().map(|(_, n)| n).collect(),
+            slot_callees,
+        })
+    }
+
+    /// **RFC-0005's assumption 46: one compiled body never calls another
+    /// directly.** The Tier 1 floor is checked in the entry trampoline, once
+    /// for each entry Rust makes, so a call that reached a body's code from
+    /// compiled code would nest with no check. Two ways exist to emit one, and
+    /// each is looked at here.
+    ///
+    /// **By relocation.** Of all the relocations that name a function this
+    /// object defines, the only kind allowed is a trampoline naming its own
+    /// body. The test above forbids a body naming a body; this one also
+    /// forbids a thunk naming a body or a trampoline, a body naming a
+    /// trampoline or a thunk, and a trampoline naming another's body.
+    ///
+    /// **Through a slot.** A body's other calls are indirect, through its slot
+    /// table, and leave no relocation. Every slot is filled from a thunk, the
+    /// drain thunk or a guard thunk, each of which calls a Rust helper and
+    /// returns.
+    ///
+    /// **What neither sees**: a lowering that embedded a body's address as an
+    /// immediate and called through it. No `Plan` variant carries one.
+    #[test]
+    fn nothing_emitted_reaches_a_compiled_body_but_its_own_trampoline() {
+        let p = probe().expect("the object is emitted and parsed");
+        let index = |s: &str| s.rsplit('_').next().map(str::to_string);
+        let defined = |s: &str| p.defined.iter().any(|d| d == s);
+        let mut within = 0usize;
+        let mut offenders = Vec::new();
+        for (where_, target) in &p.relocs {
+            if !defined(target) {
+                continue;
+            }
+            within += 1;
+            let own = where_.contains("bund2_entry_")
+                && target.contains("bund2_body_")
+                && index(where_) == index(target);
+            if !own {
+                offenders.push(format!("{where_} -> {target}"));
+            }
+        }
+        assert_eq!(within, 4, "one trampoline-to-body relocation for each of four bodies");
+        assert!(
+            offenders.is_empty(),
+            "emitted code names an emitted function other than a trampoline its \
+             own body: {offenders:?}"
+        );
+
+        // Four bodies with 2, 1, 6 and 2 values: a slot for each value, one
+        // for each body's drain, and one for the single inlined site.
+        assert_eq!(p.slot_callees.len(), 2 + 1 + 6 + 2 + 4 + 1, "{:?}", p.slot_callees);
+        for name in &p.slot_callees {
+            assert!(
+                name.starts_with("bund2_thunk_")
+                    || name.starts_with("bund2_drain")
+                    || name.starts_with("bund2_admits_"),
+                "a slot would be filled from {name}"
+            );
+            assert!(
+                !name.contains("bund2_body_") && !name.contains("bund2_entry_"),
+                "a slot would hold compiled body code: {name}"
+            );
+        }
     }
 
     #[test]
