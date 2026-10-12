@@ -105,7 +105,10 @@ fn boxing(c: &mut Criterion) {
     g.bench_function("tag_insert/two_strings", |b| {
         b.iter(|| {
             let mut m: BTreeMap<String, String> = BTreeMap::new();
-            m.insert(black_box("stack").to_string(), black_box("main").to_string());
+            m.insert(
+                black_box("stack").to_string(),
+                black_box("main").to_string(),
+            );
             black_box(m)
         });
     });

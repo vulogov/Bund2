@@ -102,20 +102,20 @@ Evidence
 use std::path::Path;
 
 mod arity;
-mod buildcli;
-mod effects;
 mod bench;
+mod buildcli;
 mod bundle;
 mod cite;
 mod conform;
-mod depth;
-mod parity;
 mod corpus;
+mod depth;
+mod effects;
 mod golden;
 mod guide;
 mod layout;
-mod lock;
 mod lint;
+mod lock;
+mod parity;
 mod render;
 mod scope;
 mod toolchain;

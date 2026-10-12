@@ -25,7 +25,7 @@
 //! say nothing at the default level; a Bund2 without the filter would emit
 //! where the oracle is quiet and fail all four.
 
-use bund2_api::{diag::Diagnostic, Error, Registry, StackEffect, Vm, WordKind};
+use bund2_api::{Error, Registry, StackEffect, Vm, WordKind, diag::Diagnostic};
 
 fn eff(consumes: u8, produces: u8) -> StackEffect {
     StackEffect::fixed(consumes, produces)
@@ -223,9 +223,8 @@ mod tests {
             // covered by `the_threshold_is_read_from_the_environment` below.
             return;
         }
-        let (out, said) = run(
-            r#""a" log.info "b" log.warning "c" log.debug "d" log.trace "e" log.error"#,
-        );
+        let (out, said) =
+            run(r#""a" log.info "b" log.warning "c" log.debug "d" log.trace "e" log.error"#);
         out.expect("none of them fails");
         assert_eq!(said.len(), 1, "only log.error speaks: {said:?}");
         assert_eq!(said[0].0, Severity::Warning, "and not at Error severity");
@@ -287,7 +286,10 @@ mod tests {
         ] {
             let (out, _) = run(src);
             let e = out.expect_err(src);
-            assert!(e.ends_with(&format!("returned error: {want}")), "{src}: {e}");
+            assert!(
+                e.ends_with(&format!("returned error: {want}")),
+                "{src}: {e}"
+            );
         }
     }
 
@@ -308,8 +310,16 @@ mod tests {
     #[test]
     fn the_threshold_is_read_from_the_environment() {
         assert_eq!(level_named("error"), Some(Level::Error));
-        assert_eq!(level_named("WARN"), Some(Level::Warning), "env_logger's spelling");
-        assert_eq!(level_named("warning"), Some(Level::Warning), "the word's spelling");
+        assert_eq!(
+            level_named("WARN"),
+            Some(Level::Warning),
+            "env_logger's spelling"
+        );
+        assert_eq!(
+            level_named("warning"),
+            Some(Level::Warning),
+            "the word's spelling"
+        );
         assert_eq!(level_named("off"), Some(Level::Off));
         assert_eq!(level_named("nonsense"), None, "and the caller falls back");
     }

@@ -362,7 +362,8 @@ fn run_infer(src: &str, file: &str) -> ExitCode {
                 unobservable += 1;
                 bund2_api::sayln!(
                     "  {name:<28} inferred {}->{}   not observable on integer sentinels",
-                    inferred.consumes, inferred.produces
+                    inferred.consumes,
+                    inferred.produces
                 );
             }
             Some(delta) => {
@@ -373,7 +374,8 @@ fn run_infer(src: &str, file: &str) -> ExitCode {
                     wrong += 1;
                     bund2_api::sayln!(
                         "  {name:<28} inferred {}->{} (net {want}) but ran net {delta}",
-                        inferred.consumes, inferred.produces
+                        inferred.consumes,
+                        inferred.produces
                     );
                 }
             }
@@ -564,8 +566,7 @@ enum BuildRequest {
     },
 }
 
-const BUILD_USAGE: &str =
-    "expected: bund2 build --file <path> --output <path> [--noio] [--noeval], \
+const BUILD_USAGE: &str = "expected: bund2 build --file <path> --output <path> [--noio] [--noeval], \
      or: bund2 build --inspect <artefact>";
 
 /// Read `bund2 build`'s arguments, refusing whatever it does not understand.
@@ -732,10 +733,12 @@ fn build(args: &[String]) -> ExitCode {
     // through an existing name (F181). An output that does not exist yet
     // cannot be the running binary, so absence is not an error.
     if let Ok(existing) = std::fs::canonicalize(&out_path)
-        && std::fs::canonicalize(&exe).map(|e| e == existing).unwrap_or(false)
+        && std::fs::canonicalize(&exe)
+            .map(|e| e == existing)
+            .unwrap_or(false)
     {
         bund2_api::errln!(
-                "bund2: --output is this binary ({out_path}). Building over the \
+            "bund2: --output is this binary ({out_path}). Building over the \
                  executable doing the building would replace the interpreter with \
              the artefact. Nothing was written."
         );
@@ -1135,9 +1138,13 @@ fn print_stats(rt: &bund2_runtime::Runtime) {
             );
         }
         (Some(bodies), Some(sites), None, _) => {
-            bund2_api::errln!("bund2: tier compiled {bodies} bodies{entered}, inlined {sites} sites");
+            bund2_api::errln!(
+                "bund2: tier compiled {bodies} bodies{entered}, inlined {sites} sites"
+            );
         }
-        (Some(bodies), None, _, _) => bund2_api::errln!("bund2: tier compiled {bodies} bodies{entered}"),
+        (Some(bodies), None, _, _) => {
+            bund2_api::errln!("bund2: tier compiled {bodies} bodies{entered}")
+        }
         _ => bund2_api::errln!("bund2: no tier (built without `jit`)"),
     }
     // **§S8's floors, and what the upper one has done** — RFC-0005
@@ -1231,8 +1238,7 @@ fn run(src: &str, args: &Args) -> Option<i32> {
         Ok(t) => t,
         Err(e) => {
             vm.report(
-                bund2_api::diag::Diagnostic::error(e.what.clone())
-                    .at(locate(src, file, e.span)),
+                bund2_api::diag::Diagnostic::error(e.what.clone()).at(locate(src, file, e.span)),
             );
             if args.stats {
                 print_stats(&rt);

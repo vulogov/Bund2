@@ -116,7 +116,10 @@ fn args_parse(vm: &mut dyn Vm) -> Result<(), Error> {
     let (plain, flags) = argmap::parse(a.iter());
     let mut out = BundValue::map(Default::default());
     for (k, v) in flags {
-        out = out.set(&k, BundValue::list(v.into_iter().map(BundValue::str).collect()));
+        out = out.set(
+            &k,
+            BundValue::list(v.into_iter().map(BundValue::str).collect()),
+        );
     }
     out = out.set(
         "args",
@@ -225,7 +228,9 @@ fn fs_copy_base(vm: &mut dyn Vm, op: FsOp, prefix: &str) -> Result<(), Error> {
     if vm.depth() < need {
         return Err(Error(format!("Stack is too shallow for inline {prefix}")));
     }
-    let v = vm.pull().ok_or_else(|| Error(format!("{prefix} NO DATA #1")))?;
+    let v = vm
+        .pull()
+        .ok_or_else(|| Error(format!("{prefix} NO DATA #1")))?;
     // The target is cast before the source's type is examined, so a bad
     // target wins over a bad source (`cp.rs`, the `target_file_name` match).
     let target = if op == FsOp::Remove {
@@ -240,8 +245,11 @@ fn fs_copy_base(vm: &mut dyn Vm, op: FsOp, prefix: &str) -> Result<(), Error> {
             ))
         })?
     };
-    let not_string =
-        || Error(format!("Error casting string for {prefix}: This Dynamic type is not string"));
+    let not_string = || {
+        Error(format!(
+            "Error casting string for {prefix}: This Dynamic type is not string"
+        ))
+    };
     let paths: Vec<String> = match v.dt() {
         STRING => vec![v.as_str().ok_or_else(not_string)?],
         LIST => {
@@ -313,8 +321,7 @@ fn file_write(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
             "{prefix} returns: NO CAST #2: This Dynamic type is not string"
         ))
     })?;
-    fs_extra::file::write_all(&name, &data)
-        .map_err(|e| Error(format!("{prefix} returns: {e}")))?;
+    fs_extra::file::write_all(&name, &data).map_err(|e| Error(format!("{prefix} returns: {e}")))?;
     Ok(())
 }
 
@@ -461,7 +468,11 @@ fn io_textfile(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
     let file = open()?;
     // Taken before the reader owns the file: D39's bound is on data already
     // in hand. *n* bytes hold at most *n + 1* lines, and F159 adds one.
-    let bound = file.metadata().map(|m| m.len()).unwrap_or(0).saturating_add(2);
+    let bound = file
+        .metadata()
+        .map(|m| m.len())
+        .unwrap_or(0)
+        .saturating_add(2);
 
     // The scan `build_index` would run, bounded.
     let mut probe = reader_of(file)?;
@@ -483,13 +494,13 @@ fn io_textfile(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
         Scan::Never => {
             return Err(Error(format!(
                 "{prefix} returns error: the reader did not reach the end of the file"
-            )))
+            )));
         }
         // F161. With two or more lines read the reference's replay indexes
         // past its short index and the process dies; with fewer it never
         // reaches the indexed path and answers what it read.
         Scan::Unreadable(e) if seen.len() >= 2 => {
-            return Err(Error(format!("{prefix} returns error: {e}")))
+            return Err(Error(format!("{prefix} returns error: {e}")));
         }
         Scan::Unreadable(_) => seen,
         Scan::AtEof => {
@@ -559,8 +570,8 @@ fn system_ip(vm: &mut dyn Vm, v6: bool) -> Result<(), Error> {
 ///
 /// A locale that cannot be determined is an **error**, not an empty string.
 fn system_locale(vm: &mut dyn Vm) -> Result<(), Error> {
-    let l = sys_locale::get_locale()
-        .ok_or_else(|| Error("SYSTEM.LOCALE can not be found".into()))?;
+    let l =
+        sys_locale::get_locale().ok_or_else(|| Error("SYSTEM.LOCALE can not be found".into()))?;
     vm.push(BundValue::str(l));
     Ok(())
 }
@@ -758,7 +769,9 @@ fn setproctitle(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> 
         .pull(vm)
         .ok_or_else(|| Error(format!("{prefix} returns NO DATA #1")))?;
     let title = v.as_str().ok_or_else(|| {
-        Error(format!("{prefix} returned for #1: This Dynamic type is not string"))
+        Error(format!(
+            "{prefix} returned for #1: This Dynamic type is not string"
+        ))
     })?;
     proctitle::set_title(title);
     Ok(())
@@ -778,7 +791,11 @@ fn percent_bytes(s: &str) -> Vec<u8> {
     let mut i = 0;
     while i < b.len() {
         let hex = |c: u8| (c as char).to_digit(16);
-        match (b.get(i), b.get(i + 1).copied().and_then(hex), b.get(i + 2).copied().and_then(hex)) {
+        match (
+            b.get(i),
+            b.get(i + 1).copied().and_then(hex),
+            b.get(i + 2).copied().and_then(hex),
+        ) {
             (Some(b'%'), Some(h), Some(l)) => {
                 out.push((h * 16 + l) as u8);
                 i += 3;
@@ -851,7 +868,10 @@ pub(crate) fn fetch_uri(uri: &str) -> Option<String> {
 ///   reference went through the proxy. Rows 705 to 720.
 fn proxy_for(host: &str, env: &dyn Fn(&str) -> Option<String>) -> Result<Option<Proxy>, ()> {
     let set = |name: &str| env(name).filter(|v| !v.is_empty());
-    let Some(proxy) = ["http_proxy", "all_proxy", "ALL_PROXY"].into_iter().find_map(set) else {
+    let Some(proxy) = ["http_proxy", "all_proxy", "ALL_PROXY"]
+        .into_iter()
+        .find_map(set)
+    else {
         return Ok(None);
     };
     let listed = set("no_proxy").or_else(|| set("NO_PROXY"));
@@ -865,7 +885,10 @@ fn proxy_for(host: &str, env: &dyn Fn(&str) -> Option<String>) -> Result<Option<
     if !scheme.eq_ignore_ascii_case("http") || !(1..=3).contains(&slashes) {
         return Err(());
     }
-    rest.get(slashes..).and_then(|rest| curls_proxy(rest, true)).map(Some).ok_or(())
+    rest.get(slashes..)
+        .and_then(|rest| curls_proxy(rest, true))
+        .map(Some)
+        .ok_or(())
 }
 
 /// A proxy's scheme and what follows its colon, when it has a scheme as
@@ -932,7 +955,6 @@ impl<'a> Authority<'a> {
         };
         Some(Self { user, host, port })
     }
-
 }
 
 /// A URL's host as libcurl 8.7.1 has it once the URL is read, or `None` for
@@ -953,11 +975,18 @@ impl<'a> Authority<'a> {
 fn curls_host(text: &str) -> Option<String> {
     if let Some(inner) = text.strip_prefix('[') {
         let inner = inner.strip_suffix(']')?;
-        if !inner.bytes().all(|b| b.is_ascii_hexdigit() || b == b':' || b == b'.') {
+        if !inner
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() || b == b':' || b == b'.')
+        {
             return None;
         }
         let short = curls_ipv6(inner.parse().ok()?);
-        return Some(if short.len() < inner.len() { format!("[{short}]") } else { text.to_string() });
+        return Some(if short.len() < inner.len() {
+            format!("[{short}]")
+        } else {
+            text.to_string()
+        });
     }
     let named = |b: u8| b.is_ascii_alphanumeric() || b"-._~|".contains(&b);
     if text.is_empty() || !text.bytes().all(named) {
@@ -1075,7 +1104,11 @@ fn curls_proxy(rest: &str, had_scheme: bool) -> Option<Proxy> {
         Some(user) => Some(credentials(user).filter(|login| login.iter().all(|b| *b >= b' '))?),
         None => None,
     };
-    Some(Proxy { port: authority.port.flatten().unwrap_or(1080), host: authority.host, login })
+    Some(Proxy {
+        port: authority.port.flatten().unwrap_or(1080),
+        host: authority.host,
+        login,
+    })
 }
 
 /// Whether `host` is on a `no_proxy` list, as libcurl 8.7.1 decides it.
@@ -1133,7 +1166,9 @@ fn bypasses(host: &str, list: &str) -> bool {
             return false;
         };
         !e.is_empty()
-            && host.get(at..).is_some_and(|tail| tail.eq_ignore_ascii_case(e))
+            && host
+                .get(at..)
+                .is_some_and(|tail| tail.eq_ignore_ascii_case(e))
             && (at == 0 || host.as_bytes().get(at - 1) == Some(&b'.'))
     })
 }
@@ -1173,7 +1208,11 @@ fn ipv4_as(text: &str, leading_zeros: bool) -> Option<u32> {
             return None;
         }
         let digits = part.trim_start_matches('0');
-        let n = if digits.is_empty() { 0 } else { digits.parse::<u8>().ok()? };
+        let n = if digits.is_empty() {
+            0
+        } else {
+            digits.parse::<u8>().ok()?
+        };
         addr = (addr << 8) | u32::from(n);
     }
     parts.next().is_none().then_some(addr)
@@ -1323,7 +1362,12 @@ fn http_url(rest: &str) -> Option<HttpUrl> {
         target.push_str(query);
     }
     let port = authority.port.flatten().filter(|port| *port != 80);
-    Some(HttpUrl { host: authority.host, port, target, login })
+    Some(HttpUrl {
+        host: authority.host,
+        port,
+        target,
+        login,
+    })
 }
 
 /// A URL's path as libcurl sends it: dot segments removed as RFC 3986
@@ -1380,7 +1424,11 @@ fn atoi(text: &str) -> u32 {
     for digit in digits.bytes().take_while(u8::is_ascii_digit) {
         let digit = i64::from(digit - b'0');
         n = n.saturating_mul(10);
-        n = if negative { n.saturating_sub(digit) } else { n.saturating_add(digit) };
+        n = if negative {
+            n.saturating_sub(digit)
+        } else {
+            n.saturating_add(digit)
+        };
     }
     n as u32
 }
@@ -1435,10 +1483,14 @@ fn fetch_word(vm: &mut dyn Vm, side: Side, prefix: &str, as_file: bool) -> Resul
     let v = side
         .pull(vm)
         .ok_or_else(|| Error(format!("{prefix} returns: NO DATA")))?;
-    let name = v.as_str().ok_or_else(|| {
-        Error(format!("{prefix} returns: This Dynamic type is not string"))
-    })?;
-    let uri = if as_file { format!("file://{name}") } else { name };
+    let name = v
+        .as_str()
+        .ok_or_else(|| Error(format!("{prefix} returns: This Dynamic type is not string")))?;
+    let uri = if as_file {
+        format!("file://{name}")
+    } else {
+        name
+    };
     let text = fetch_uri(&uri).ok_or_else(|| Error(format!("{prefix} gets no data")))?;
     side.push(vm, BundValue::str(text));
     Ok(())
@@ -1456,9 +1508,9 @@ fn use_word(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
     let v = side
         .pull(vm)
         .ok_or_else(|| Error(format!("{prefix} returns: NO DATA")))?;
-    let addr = v.as_str().ok_or_else(|| {
-        Error(format!("{prefix} returns: This Dynamic type is not string"))
-    })?;
+    let addr = v
+        .as_str()
+        .ok_or_else(|| Error(format!("{prefix} returns: This Dynamic type is not string")))?;
     let src = fetch_uri(&addr).ok_or_else(|| Error(format!("{prefix} can not get from {addr}")))?;
     crate::singles::eval_source(vm, &src)
 }
@@ -1488,7 +1540,11 @@ pub fn register_noio_fetch_stubs(r: &mut Registry) {
     for name in ["bund.eval-file", "bund.eval-file."] {
         r.register_native(
             name,
-            |_vm| Err(Error("bund BUND.EVAL-FILE functions disabled with --noio".into())),
+            |_vm| {
+                Err(Error(
+                    "bund BUND.EVAL-FILE functions disabled with --noio".into(),
+                ))
+            },
             StackEffect::opaque(0),
             WordKind::Sync,
         );
@@ -1506,7 +1562,12 @@ pub fn register_noeval_stubs(r: &mut Registry) {
     // that disables it and not `--noio`
     // (`reference/Bund/src/stdlib/functions/bund/bund_eval.rs`). In Bund2
     // `--noio` disables the file pair as well (D132).
-    for name in ["bund.eval", "bund.eval.", "bund.eval-file", "bund.eval-file."] {
+    for name in [
+        "bund.eval",
+        "bund.eval.",
+        "bund.eval-file",
+        "bund.eval-file.",
+    ] {
         r.register_native(
             name,
             |_vm| Err(Error("bund EVAL functions disabled with --noeval".into())),
@@ -1530,7 +1591,11 @@ pub fn register_noeval_stubs(r: &mut Registry) {
     // above, with the word as its group since the reference names none.
     r.register_native(
         "debug.run",
-        |_vm| Err(Error("bund DEBUG.RUN functions disabled with --noeval".into())),
+        |_vm| {
+            Err(Error(
+                "bund DEBUG.RUN functions disabled with --noeval".into(),
+            ))
+        },
         StackEffect::opaque(0),
         WordKind::Sync,
     );
@@ -1543,7 +1608,11 @@ pub fn register_noeval_stubs(r: &mut Registry) {
     // under the flag it cannot feed `input` either.
     r.register_native(
         "debug.feed",
-        |_vm| Err(Error("bund DEBUG.FEED functions disabled with --noeval".into())),
+        |_vm| {
+            Err(Error(
+                "bund DEBUG.FEED functions disabled with --noeval".into(),
+            ))
+        },
         StackEffect::opaque(0),
         WordKind::Sync,
     );
@@ -1578,7 +1647,7 @@ fn io_graph(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
                 return Err(Error(format!(
                     "{prefix} casting data element returns: This Dynamic type is not float: {}",
                     i.dt()
-                )))
+                )));
             }
         }
     }
@@ -1598,7 +1667,12 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
     // `reference/Bund/src/stdlib/functions/bund/bund_exit.rs:41`, aliased at
     // `reference/Bund/src/stdlib/functions/create_aliases.rs:31`. Opaque: it
     // takes a value only when there is one.
-    r.register_native("bund.exit", bund_exit, StackEffect::opaque(0), WordKind::Sync);
+    r.register_native(
+        "bund.exit",
+        bund_exit,
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
     r.register_alias("exit", "bund.exit");
     r.register_native(
         "io.graph",
@@ -1620,8 +1694,18 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
 
     // Ungated, as the reference leaves them: `ip.rs` and `locale.rs` take the
     // command line and never read it.
-    r.register_native("system.ip", |vm| system_ip(vm, false), eff(0, 1), WordKind::Sync);
-    r.register_native("system.ipv6", |vm| system_ip(vm, true), eff(0, 1), WordKind::Sync);
+    r.register_native(
+        "system.ip",
+        |vm| system_ip(vm, false),
+        eff(0, 1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "system.ipv6",
+        |vm| system_ip(vm, true),
+        eff(0, 1),
+        WordKind::Sync,
+    );
     r.register_native("system.locale", system_locale, eff(0, 1), WordKind::Sync);
 
     // Ungated, because the reference does not gate them: pure string work.
@@ -1917,9 +2001,15 @@ mod tests {
             ..HostOptions::default()
         });
         let e = run(&mut i, "fs.cwd").expect_err("stubbed");
-        assert!(e.contains("bund FS.CWD functions disabled with --noio"), "{e}");
+        assert!(
+            e.contains("bund FS.CWD functions disabled with --noio"),
+            "{e}"
+        );
         let e = run(&mut i, "\"x\" rm").expect_err("stubbed");
-        assert!(e.contains("bund FS.CP functions disabled with --noio"), "{e}");
+        assert!(
+            e.contains("bund FS.CP functions disabled with --noio"),
+            "{e}"
+        );
         // Ungated words still run.
         run(&mut i, "0 sleep").expect("sleep is not gated");
     }
@@ -1935,7 +2025,9 @@ mod tests {
         assert_eq!(i.peek().and_then(|v| v.as_str()).as_deref(), Some("hello"));
 
         run(&mut i, &format!("\"{}\" ls", d.display())).expect("ls");
-        let listed = i.peek().and_then(|v| v.as_list().map(<[BundValue]>::to_vec));
+        let listed = i
+            .peek()
+            .and_then(|v| v.as_list().map(<[BundValue]>::to_vec));
         assert_eq!(listed.map(|l| l.len()), Some(1));
 
         run(&mut i, &format!("\"{}\" rm", f.display())).expect("rm");
@@ -2016,19 +2108,29 @@ mod tests {
         let mut i = interp(HostOptions::default());
         run(&mut i, "\"no/such/../file.txt\" filename").expect("absolutize");
         let answered = i.peek().and_then(|v| v.as_str()).expect("a path");
-        let want = std::env::current_dir()
-            .expect("cwd")
-            .join("no/file.txt");
+        let want = std::env::current_dir().expect("cwd").join("no/file.txt");
         assert_eq!(answered, format!("{}", want.display()));
-        assert!(!std::path::Path::new(&answered).exists(), "no lookup happened");
+        assert!(
+            !std::path::Path::new(&answered).exists(),
+            "no lookup happened"
+        );
 
         for (src, want) in [
             ("filename", "Stack is too shallow for inline FILENAME"),
-            ("42 filename", "FILENAME returns: This Dynamic type is not string"),
+            (
+                "42 filename",
+                "FILENAME returns: This Dynamic type is not string",
+            ),
             // F151: `.` moved the operand and emptied the stack, which is the
             // ordinary way to use a workbench form and the one that fails.
-            ("\"x\" . filename.", "Stack is too shallow for inline FILENAME."),
-            ("0 filename.", "Workbench is too shallow for inline FILENAME."),
+            (
+                "\"x\" . filename.",
+                "Stack is too shallow for inline FILENAME.",
+            ),
+            (
+                "0 filename.",
+                "Workbench is too shallow for inline FILENAME.",
+            ),
         ] {
             let mut i = interp(HostOptions::default());
             let e = run(&mut i, src).expect_err(src);
@@ -2056,14 +2158,23 @@ mod tests {
         std::fs::create_dir_all(&into).expect("target dir");
         let mut i = interp(HostOptions::default());
 
-        run(&mut i, &format!("\"{}\" \"{}\" fs.cp", into.display(), from.display()))
-            .expect("copy");
-        assert!(into.join("a.txt").is_file() && from.is_file(), "copied, not moved");
+        run(
+            &mut i,
+            &format!("\"{}\" \"{}\" fs.cp", into.display(), from.display()),
+        )
+        .expect("copy");
+        assert!(
+            into.join("a.txt").is_file() && from.is_file(),
+            "copied, not moved"
+        );
         assert_eq!(i.pull().as_ref().and_then(truth), Some(true));
 
         // `overwrite` is false, so the same copy twice is an error.
-        let e = run(&mut i, &format!("\"{}\" \"{}\" fs.cp", into.display(), from.display()))
-            .expect_err("exists");
+        let e = run(
+            &mut i,
+            &format!("\"{}\" \"{}\" fs.cp", into.display(), from.display()),
+        )
+        .expect_err("exists");
         assert!(
             e.contains("FS.CP returns: Path \"") && e.ends_with("\" exists"),
             "{e}"
@@ -2071,16 +2182,25 @@ mod tests {
 
         let moved = d.join("b.txt");
         std::fs::write(&moved, "y").expect("seed");
-        run(&mut i, &format!("\"{}\" \"{}\" fs.mv", into.display(), moved.display()))
-            .expect("move");
-        assert!(into.join("b.txt").is_file() && !moved.exists(), "the source is gone");
+        run(
+            &mut i,
+            &format!("\"{}\" \"{}\" fs.mv", into.display(), moved.display()),
+        )
+        .expect("move");
+        assert!(
+            into.join("b.txt").is_file() && !moved.exists(),
+            "the source is gone"
+        );
 
         // Both names read the stack; a directory and a missing path are false.
         for (src, want) in [
             (format!("\"{}\" fs.is_file", from.display()), true),
             (format!("\"{}\" fs_is_file.", from.display()), true),
             (format!("\"{}\" fs.is_file", d.display()), false),
-            (format!("\"{}\" fs.is_file", d.join("gone").display()), false),
+            (
+                format!("\"{}\" fs.is_file", d.join("gone").display()),
+                false,
+            ),
         ] {
             let mut i = interp(HostOptions::default());
             run(&mut i, &src).expect(&src);
@@ -2129,7 +2249,11 @@ mod tests {
         let mut i = interp(HostOptions::default());
         let e = run(
             &mut i,
-            &format!("\"{}\" \"{}\" fs.cp", into.display(), d.join("gone").display()),
+            &format!(
+                "\"{}\" \"{}\" fs.cp",
+                into.display(),
+                d.join("gone").display()
+            ),
         )
         .expect_err("missing source");
         assert!(
@@ -2185,10 +2309,19 @@ mod tests {
                 "SYSTEM.PATH.FILENAME returned for #1: This Dynamic type is not string",
             ),
             // The five paths with no last component. The word is not named.
-            ("\"/\" system.path.filename", "Error getting filename for: /"),
+            (
+                "\"/\" system.path.filename",
+                "Error getting filename for: /",
+            ),
             ("\"\" system.path.filename", "Error getting filename for: "),
-            ("\".\" system.path.filename", "Error getting filename for: ."),
-            ("\"..\" system.path.filename", "Error getting filename for: .."),
+            (
+                "\".\" system.path.filename",
+                "Error getting filename for: .",
+            ),
+            (
+                "\"..\" system.path.filename",
+                "Error getting filename for: ..",
+            ),
             (
                 "\"a/..\" system.path.filename",
                 "Error getting filename for: a/..",
@@ -2257,7 +2390,10 @@ mod tests {
         };
 
         // No final newline: the lines, and nothing else.
-        assert_eq!(lines(&write("a", b"one\ntwo\nthree")), ["one", "two", "three"]);
+        assert_eq!(
+            lines(&write("a", b"one\ntwo\nthree")),
+            ["one", "two", "three"]
+        );
         // F159: one byte more, one element more -- the last line with its
         // terminator.
         assert_eq!(
@@ -2292,7 +2428,9 @@ mod tests {
         ] {
             let e = failure(&write(name, bytes));
             assert!(
-                e.ends_with("IO.TEXTFILE returns error: the reader did not reach the end of the file"),
+                e.ends_with(
+                    "IO.TEXTFILE returns error: the reader did not reach the end of the file"
+                ),
                 "{name}: {e}"
             );
         }
@@ -2458,14 +2596,24 @@ mod tests {
             (format!("\"{path}\" bund.eval-file"), "BUND.EVAL-FILE"),
             (format!("\"{path}\" bund.eval-file."), "BUND.EVAL-FILE"),
         ];
-        let mut n = interp(HostOptions { noio: true, ..HostOptions::default() });
-        let mut both = interp(HostOptions { noio: true, noeval: true, ..HostOptions::default() });
+        let mut n = interp(HostOptions {
+            noio: true,
+            ..HostOptions::default()
+        });
+        let mut both = interp(HostOptions {
+            noio: true,
+            noeval: true,
+            ..HostOptions::default()
+        });
         for (src, group) in &programs {
             let e = run(&mut n, src).expect_err(src);
             let want = format!("bund {group} functions disabled with --noio");
             assert!(e.ends_with(&want), "`{src}` gave: {e}");
             let e = run(&mut both, src).expect_err(src);
-            assert!(e.ends_with("functions disabled with --noeval"), "`{src}` gave: {e}");
+            assert!(
+                e.ends_with("functions disabled with --noeval"),
+                "`{src}` gave: {e}"
+            );
         }
         // The flag does not reach evaluating a string the program holds.
         run(&mut n, "\"1\" bund.eval").expect("bund.eval is --noeval's");
@@ -2556,8 +2704,14 @@ mod tests {
         let mut i = interp(HostOptions::default());
         run(&mut i, "args.parse").expect("parse");
         let m = i.peek().expect("a map");
-        assert_eq!(m.get("name").map(|v| v.display()).as_deref(), Some("[ x :: ]"));
-        assert_eq!(m.get("args").map(|v| v.display()).as_deref(), Some("[ plain :: ]"));
+        assert_eq!(
+            m.get("name").map(|v| v.display()).as_deref(),
+            Some("[ x :: ]")
+        );
+        assert_eq!(
+            m.get("args").map(|v| v.display()).as_deref(),
+            Some("[ plain :: ]")
+        );
         set_args(Vec::new());
     }
 
@@ -2569,10 +2723,20 @@ mod tests {
         std::fs::write(&f, "hi").expect("write");
         let abs = f.display().to_string();
         let encoded = abs.replace(' ', "%20");
-        assert_eq!(fetch_uri(&format!("file://{encoded}")).as_deref(), Some("hi"));
-        assert_eq!(fetch_uri(&format!("file://localhost{encoded}")).as_deref(), Some("hi"));
+        assert_eq!(
+            fetch_uri(&format!("file://{encoded}")).as_deref(),
+            Some("hi")
+        );
+        assert_eq!(
+            fetch_uri(&format!("file://localhost{encoded}")).as_deref(),
+            Some("hi")
+        );
         assert_eq!(fetch_uri(&abs), None, "a bare path is not a URL");
-        assert_eq!(fetch_uri("file://relative/x"), None, "a relative file URL names a host");
+        assert_eq!(
+            fetch_uri("file://relative/x"),
+            None,
+            "a relative file URL names a host"
+        );
         assert_eq!(fetch_uri("https://example.com/"), None, "https is deferred");
 
         // F183: the spellings the oracle reads, each measured.
@@ -2615,8 +2779,16 @@ mod tests {
             ("real/sub/../t.txt", "above its target"),
             ("./t.txt", "above the link"),
         ] {
-            assert_eq!(fetch_uri(&format!("file://{dir}/{path}")).as_deref(), Some(text), "{path}");
-            assert_eq!(fetch_uri(&format!("file://localhost{dir}/{path}")).as_deref(), Some(text), "{path}");
+            assert_eq!(
+                fetch_uri(&format!("file://{dir}/{path}")).as_deref(),
+                Some(text),
+                "{path}"
+            );
+            assert_eq!(
+                fetch_uri(&format!("file://localhost{dir}/{path}")).as_deref(),
+                Some(text),
+                "{path}"
+            );
         }
         for url in [
             "file://localhost".to_string(),
@@ -2635,34 +2807,65 @@ mod tests {
     fn the_proxy_is_the_one_libcurl_would_take() {
         // A proxy as a URL would spell it, its credentials decoded.
         let shown = |proxy: Proxy| match proxy.login {
-            Some(login) => format!("http://{}@{}:{}", String::from_utf8_lossy(&login), proxy.host, proxy.port),
+            Some(login) => format!(
+                "http://{}@{}:{}",
+                String::from_utf8_lossy(&login),
+                proxy.host,
+                proxy.port
+            ),
             None => format!("http://{}:{}", proxy.host, proxy.port),
         };
         let pick = |vars: &[(&str, &str)]| {
-            let vars: Vec<(String, String)> =
-                vars.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect();
+            let vars: Vec<(String, String)> = vars
+                .iter()
+                .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                .collect();
             proxy_for("127.0.0.1", &|name| {
                 vars.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone())
             })
             .map(|proxy| proxy.map(shown))
         };
         assert_eq!(pick(&[]), Ok(None));
-        assert_eq!(pick(&[("http_proxy", "p1")]), Ok(Some("http://p1:1080".into())));
-        assert_eq!(pick(&[("all_proxy", "p1")]), Ok(Some("http://p1:1080".into())));
-        assert_eq!(pick(&[("ALL_PROXY", "p1")]), Ok(Some("http://p1:1080".into())));
+        assert_eq!(
+            pick(&[("http_proxy", "p1")]),
+            Ok(Some("http://p1:1080".into()))
+        );
+        assert_eq!(
+            pick(&[("all_proxy", "p1")]),
+            Ok(Some("http://p1:1080".into()))
+        );
+        assert_eq!(
+            pick(&[("ALL_PROXY", "p1")]),
+            Ok(Some("http://p1:1080".into()))
+        );
         for ignored in ["HTTP_PROXY", "HTTPS_PROXY", "https_proxy"] {
             assert_eq!(pick(&[(ignored, "p1")]), Ok(None), "{ignored} is not read");
         }
-        assert_eq!(pick(&[("http_proxy", "p1"), ("all_proxy", "p2")]), Ok(Some("http://p1:1080".into())));
-        assert_eq!(pick(&[("all_proxy", "p1"), ("ALL_PROXY", "p2")]), Ok(Some("http://p1:1080".into())));
-        assert_eq!(pick(&[("http_proxy", ""), ("all_proxy", "p2")]), Ok(Some("http://p2:1080".into())));
-        assert_eq!(pick(&[("all_proxy", ""), ("ALL_PROXY", "p2")]), Ok(Some("http://p2:1080".into())));
+        assert_eq!(
+            pick(&[("http_proxy", "p1"), ("all_proxy", "p2")]),
+            Ok(Some("http://p1:1080".into()))
+        );
+        assert_eq!(
+            pick(&[("all_proxy", "p1"), ("ALL_PROXY", "p2")]),
+            Ok(Some("http://p1:1080".into()))
+        );
+        assert_eq!(
+            pick(&[("http_proxy", ""), ("all_proxy", "p2")]),
+            Ok(Some("http://p2:1080".into()))
+        );
+        assert_eq!(
+            pick(&[("all_proxy", ""), ("ALL_PROXY", "p2")]),
+            Ok(Some("http://p2:1080".into()))
+        );
 
         // The lower-case list wins unless it is empty.
         let p = ("http_proxy", "p1");
         assert_eq!(pick(&[p, ("no_proxy", "127.0.0.1")]), Ok(None));
         assert_eq!(pick(&[p, ("NO_PROXY", "127.0.0.1")]), Ok(None));
-        assert_eq!(pick(&[p, ("no_proxy", ""), ("NO_PROXY", "127.0.0.1")]), Ok(None));
+        assert_eq!(
+            pick(&[p, ("no_proxy", ""), ("NO_PROXY", "127.0.0.1")]),
+            Ok(None)
+        );
         assert_eq!(
             pick(&[p, ("no_proxy", "other.example"), ("NO_PROXY", "127.0.0.1")]),
             Ok(Some("http://p1:1080".into()))
@@ -2675,19 +2878,32 @@ mod tests {
         assert_eq!(on("127.0.0.1"), at("127.0.0.1:1080"));
         assert_eq!(on("http://localhost"), at("localhost:1080"));
         assert_eq!(on("u:p@127.0.0.1"), at("u:p@127.0.0.1:1080"));
-        assert_eq!(on("http://0x7f.1:3128"), at("127.0.0.1:3128"), "the address, not the spelling");
+        assert_eq!(
+            on("http://0x7f.1:3128"),
+            at("127.0.0.1:3128"),
+            "the address, not the spelling"
+        );
         assert_eq!(on("http://[0:0:0:0:0:0:0:1]:3128"), at("[::1]:3128"));
         // The fifteenth review's S2: a scheme takes one to three slashes, as
         // a URL's does, and a `://` in a path is not one.
         assert_eq!(on("http:/127.0.0.1:3128"), at("127.0.0.1:3128"));
         assert_eq!(on("http:///127.0.0.1:3128"), at("127.0.0.1:3128"));
         assert_eq!(on("HTTP:/u:p@127.0.0.1"), at("u:p@127.0.0.1:1080"));
-        assert_eq!(on("u@127.0.0.1"), at("u:@127.0.0.1:1080"), "a colon even with no password");
+        assert_eq!(
+            on("u@127.0.0.1"),
+            at("u:@127.0.0.1:1080"),
+            "a colon even with no password"
+        );
         assert_eq!(on("127.0.0.1:3128/a://b"), at("127.0.0.1:3128"));
         assert_eq!(on("localhost:3128/a://b"), at("localhost:3128"));
         for refused in [
-            "http:////127.0.0.1:3128", "http:127.0.0.1:3128", "//127.0.0.1:3128", "x:/127.0.0.1:3128",
-            "socks5:/127.0.0.1:3128", "http+x://127.0.0.1:3128", "1http://127.0.0.1:3128",
+            "http:////127.0.0.1:3128",
+            "http:127.0.0.1:3128",
+            "//127.0.0.1:3128",
+            "x:/127.0.0.1:3128",
+            "socks5:/127.0.0.1:3128",
+            "http+x://127.0.0.1:3128",
+            "1http://127.0.0.1:3128",
             "http:\\\\127.0.0.1:3128",
         ] {
             assert_eq!(on(refused), Err(()), "{refused}");
@@ -2697,13 +2913,31 @@ mod tests {
         // the proxy, and Bund2 fails the fetch (F185). The fourteenth
         // review's B2.
         for user in ["a%00b", "u:%00", "a%01b", "a%0ab", "u:%1f"] {
-            assert_eq!(on(&format!("http://{user}@127.0.0.1:3128")), Err(()), "{user}");
-            assert_eq!(on(&format!("{user}@127.0.0.1:3128")), Err(()), "{user}, no scheme");
+            assert_eq!(
+                on(&format!("http://{user}@127.0.0.1:3128")),
+                Err(()),
+                "{user}"
+            );
+            assert_eq!(
+                on(&format!("{user}@127.0.0.1:3128")),
+                Err(()),
+                "{user}, no scheme"
+            );
         }
         for (user, login) in [
-            ("", ":"), (":", ":"), ("u:", "u:"), (":p", ":p"), ("a:b:c", "a:b:c"), ("%zz", "%zz:"),
-            ("a%", "a%:"), ("a%4", "a%4:"), ("a;b", "a;b:"), ("a%20b", "a b:"),
-            ("a%40b:c%3Ad", "a@b:c:d"), ("a<b", "a<b:"), ("é", "é:"),
+            ("", ":"),
+            (":", ":"),
+            ("u:", "u:"),
+            (":p", ":p"),
+            ("a:b:c", "a:b:c"),
+            ("%zz", "%zz:"),
+            ("a%", "a%:"),
+            ("a%4", "a%4:"),
+            ("a;b", "a;b:"),
+            ("a%20b", "a b:"),
+            ("a%40b:c%3Ad", "a@b:c:d"),
+            ("a<b", "a<b:"),
+            ("é", "é:"),
         ] {
             assert_eq!(
                 on(&format!("http://{user}@127.0.0.1:3128")),
@@ -2723,16 +2957,38 @@ mod tests {
         // What follows the address is dropped, with a scheme or without:
         // the thirteenth review's S2.
         for tail in ["/", "/x", "?q", "/x?q#f"] {
-            assert_eq!(on(&format!("127.0.0.1:3128{tail}")), at("127.0.0.1:3128"), "{tail}");
-            assert_eq!(on(&format!("http://127.0.0.1{tail}")), at("127.0.0.1:1080"), "{tail}");
+            assert_eq!(
+                on(&format!("127.0.0.1:3128{tail}")),
+                at("127.0.0.1:3128"),
+                "{tail}"
+            );
+            assert_eq!(
+                on(&format!("http://127.0.0.1{tail}")),
+                at("127.0.0.1:1080"),
+                "{tail}"
+            );
         }
 
         // A port is a number from 1 to 65535 or the fetch fails. It is never
         // read as no port: the thirteenth review's B1.
         assert_eq!(on("http://127.0.0.1:03128"), at("127.0.0.1:3128"));
-        for port in ["0", "65536", "99999", "65616", "4294967376", "3128x", "+3128", "-1", " 3128"] {
+        for port in [
+            "0",
+            "65536",
+            "99999",
+            "65616",
+            "4294967376",
+            "3128x",
+            "+3128",
+            "-1",
+            " 3128",
+        ] {
             assert_eq!(on(&format!("http://127.0.0.1:{port}")), Err(()), "{port:?}");
-            assert_eq!(on(&format!("127.0.0.1:{port}")), Err(()), "{port:?}, no scheme");
+            assert_eq!(
+                on(&format!("127.0.0.1:{port}")),
+                Err(()),
+                "{port:?}, no scheme"
+            );
         }
         assert_eq!(on("http://a@b@127.0.0.1:3128"), Err(()), "two user parts");
 
@@ -2741,7 +2997,10 @@ mod tests {
             assert_eq!(pick(&[("http_proxy", &format!("{scheme}://h:1"))]), Err(()));
         }
         // And a bypassed host never asks what the scheme was.
-        assert_eq!(pick(&[("http_proxy", "socks5://h:1"), ("no_proxy", "*")]), Ok(None));
+        assert_eq!(
+            pick(&[("http_proxy", "socks5://h:1"), ("no_proxy", "*")]),
+            Ok(None)
+        );
     }
 
     /// F182: `no_proxy`, entry by entry, as the oracle's libcurl matched it.
@@ -2749,22 +3008,54 @@ mod tests {
     fn no_proxy_matches_as_libcurl_matches() {
         let v4 = "127.0.0.1";
         for yes in [
-            "*", "127.0.0.1", "a.example, 127.0.0.1", "a.example 127.0.0.1", "a.example\t127.0.0.1",
-            "127.0.0.0/8", "127.9.9.9/8", "126.0.0.0/7", "127.0.0.1/32", "127.0.0.1/0",
+            "*",
+            "127.0.0.1",
+            "a.example, 127.0.0.1",
+            "a.example 127.0.0.1",
+            "a.example\t127.0.0.1",
+            "127.0.0.0/8",
+            "127.9.9.9/8",
+            "126.0.0.0/7",
+            "127.0.0.1/32",
+            "127.0.0.1/0",
             "127.0.0.1/x",
             // The fourteenth review's B2: a prefix length as `atoi` reads it.
-            "127.0.0.9/+8", "127.0.0.9/4294967304", "127.0.0.9/08", "127.0.0.9/8/1",
-            "127.0.0.1/-0", "127.0.0.1/4294967296", "127.0.0.1/+", "127.0.0.1/", "127.0.0.1/+0x",
+            "127.0.0.9/+8",
+            "127.0.0.9/4294967304",
+            "127.0.0.9/08",
+            "127.0.0.9/8/1",
+            "127.0.0.1/-0",
+            "127.0.0.1/4294967296",
+            "127.0.0.1/+",
+            "127.0.0.1/",
+            "127.0.0.1/+0x",
             "127.0.0.9/\n8",
         ] {
             assert!(bypasses(v4, yes), "{v4} is on {yes:?}");
         }
         for no in [
-            "", " * ", "a.example,*", "127.0.0.1:80", "127.0.0", "0.0.1", "127.0.0.0/0",
-            "127.0.0.1/33", "127.0.0.1/-1", "128.0.0.0/7", ".127.0.0.1", "127.0.0.1.",
-            "127.0.0.1/+33", "127.0.0.9/-8", "127.0.0.9/-0", "127.0.0.9/4294967296",
-            "127.0.0.9/4294967328", "127.0.0.1/99999999999999999999", "127.0.0.9/++8",
-            "127.0.0.9/+-8", "0300.0.0.1", "127.0.0.256",
+            "",
+            " * ",
+            "a.example,*",
+            "127.0.0.1:80",
+            "127.0.0",
+            "0.0.1",
+            "127.0.0.0/0",
+            "127.0.0.1/33",
+            "127.0.0.1/-1",
+            "128.0.0.0/7",
+            ".127.0.0.1",
+            "127.0.0.1.",
+            "127.0.0.1/+33",
+            "127.0.0.9/-8",
+            "127.0.0.9/-0",
+            "127.0.0.9/4294967296",
+            "127.0.0.9/4294967328",
+            "127.0.0.1/99999999999999999999",
+            "127.0.0.9/++8",
+            "127.0.0.9/+-8",
+            "0300.0.0.1",
+            "127.0.0.256",
         ] {
             assert!(!bypasses(v4, no), "{v4} is not on {no:?}");
         }
@@ -2774,61 +3065,128 @@ mod tests {
         let long = |text: &str, n: usize, tail: &str| format!("{text}{}{tail}", "0".repeat(n));
         assert!(bypasses(v4, &long("127.0.0.0/", 116, "8")), "127 bytes");
         assert!(!bypasses(v4, &long("127.0.0.0/", 117, "8")), "128 bytes");
-        assert!(bypasses(v4, &format!("127.0.0.1/{}", "x".repeat(117))), "127 bytes");
-        assert!(!bypasses(v4, &format!("127.0.0.1/{}", "x".repeat(118))), "128 bytes");
-        assert!(bypasses(v4, &format!("127.0.0.1/{},127.0.0.1", "x".repeat(118))), "the next entry is read");
+        assert!(
+            bypasses(v4, &format!("127.0.0.1/{}", "x".repeat(117))),
+            "127 bytes"
+        );
+        assert!(
+            !bypasses(v4, &format!("127.0.0.1/{}", "x".repeat(118))),
+            "128 bytes"
+        );
+        assert!(
+            bypasses(v4, &format!("127.0.0.1/{},127.0.0.1", "x".repeat(118))),
+            "the next entry is read"
+        );
         assert!(bypasses(v4, &format!("{},127.0.0.1", "a".repeat(200))));
 
         let name = "x.bund2.invalid";
         // A name's entry has no such limit.
-        assert!(bypasses(&format!("{}.{}.invalid", "a".repeat(40), "b".repeat(121)), &format!("{}.invalid", "b".repeat(121))));
+        assert!(bypasses(
+            &format!("{}.{}.invalid", "a".repeat(40), "b".repeat(121)),
+            &format!("{}.invalid", "b".repeat(121))
+        ));
         for yes in [
-            "x.bund2.invalid", "X.BUND2.INVALID", "bund2.invalid", ".bund2.invalid", "invalid",
+            "x.bund2.invalid",
+            "X.BUND2.INVALID",
+            "bund2.invalid",
+            ".bund2.invalid",
+            "invalid",
             "x.bund2.invalid.",
         ] {
             assert!(bypasses(name, yes), "{name} is on {yes:?}");
         }
         for no in [
-            "*.bund2.invalid", "d2.invalid", "y.x.bund2.invalid", "..bund2.invalid",
-            "bund2.invalid..", ".",
+            "*.bund2.invalid",
+            "d2.invalid",
+            "y.x.bund2.invalid",
+            "..bund2.invalid",
+            "bund2.invalid..",
+            ".",
         ] {
             assert!(!bypasses(name, no), "{name} is not on {no:?}");
         }
-        assert!(bypasses("x.bund2.invalid.", "bund2.invalid"), "a host's trailing dot");
+        assert!(
+            bypasses("x.bund2.invalid.", "bund2.invalid"),
+            "a host's trailing dot"
+        );
         assert!(bypasses("localhost", "LOCALHOST"));
 
         // The host is an address however the URL spells it; an entry is one
         // only as four decimal numbers. The twelfth review's S1.
-        for host in ["127.1", "2130706433", "0x7f.0.0.1", "0X7F.0.0.1", "0177.0.0.1", "127.0.1",
-            "0x7f000001", "017700000001", "127.0.0.01", "127.0.0.0x1"]
-        {
+        for host in [
+            "127.1",
+            "2130706433",
+            "0x7f.0.0.1",
+            "0X7F.0.0.1",
+            "0177.0.0.1",
+            "127.0.1",
+            "0x7f000001",
+            "017700000001",
+            "127.0.0.01",
+            "127.0.0.0x1",
+        ] {
             assert_eq!(url_ipv4(host), Some(0x7f00_0001), "{host}");
             assert!(bypasses(host, "127.0.0.1"), "{host}");
         }
-        assert_eq!(url_ipv4("127.0.0.010"), Some(0x7f00_0008), "octal in a host");
+        assert_eq!(
+            url_ipv4("127.0.0.010"),
+            Some(0x7f00_0008),
+            "octal in a host"
+        );
         // Leading zeros in an entry are the system's to read, and the two
         // measured read them differently (D130).
         let zeros = [
-            "127.000.0.1", "0127.0.0.1", "00127.0.0.1", "127.0.0.0001", "127.0.0.01",
+            "127.000.0.1",
+            "0127.0.0.1",
+            "00127.0.0.1",
+            "127.0.0.0001",
+            "127.0.0.01",
             "127.0.0.0000000000000000000000000000001",
         ];
         for entry in zeros {
             assert_eq!(ipv4_as(entry, true), Some(0x7f00_0001), "{entry} on macOS");
             assert_eq!(ipv4_as(entry, false), None, "{entry} on Linux");
-            assert_eq!(bypasses(v4, entry), cfg!(target_os = "macos"), "{entry} here");
+            assert_eq!(
+                bypasses(v4, entry),
+                cfg!(target_os = "macos"),
+                "{entry} here"
+            );
         }
-        assert_eq!(ipv4_as("127.0.0.010", true), Some(0x7f00_000a), "decimal in an entry");
-        assert_eq!(bypasses("127.0.0.10", "127.0.0.010"), cfg!(target_os = "macos"));
+        assert_eq!(
+            ipv4_as("127.0.0.010", true),
+            Some(0x7f00_000a),
+            "decimal in an entry"
+        );
+        assert_eq!(
+            bypasses("127.0.0.10", "127.0.0.010"),
+            cfg!(target_os = "macos")
+        );
         for both in [true, false] {
             assert_eq!(ipv4_as("127.0.0.1", both), Some(0x7f00_0001));
             assert_eq!(ipv4_as("0.0.0.0", both), Some(0));
             assert_eq!(ipv4_as("10.0.200.255", both), Some(0x0a00_c8ff));
-            for no in ["0300.0.0.1", "127.0.0.256", "127.0.0", "1.2.3.4.5", "127.0.0.1.", "", "a.b.c.d"] {
+            for no in [
+                "0300.0.0.1",
+                "127.0.0.256",
+                "127.0.0",
+                "1.2.3.4.5",
+                "127.0.0.1.",
+                "",
+                "a.b.c.d",
+            ] {
                 assert_eq!(ipv4_as(no, both), None, "{no:?}");
             }
         }
         assert!(bypasses("0", "0.0.0.0"));
-        for name in ["127.0.0.09", "127.0.0.256", "127.0.65536", "1.2.3.4.5", "127..1", "0x", ""] {
+        for name in [
+            "127.0.0.09",
+            "127.0.0.256",
+            "127.0.65536",
+            "1.2.3.4.5",
+            "127..1",
+            "0x",
+            "",
+        ] {
             assert_eq!(url_ipv4(name), None, "{name:?} is a name");
         }
         for entry in ["127.1", "0x7f.0.0.1", "2130706433", "0177.0.0.1"] {
@@ -2839,7 +3197,16 @@ mod tests {
         // as a name is, and no other way.
         for host in ["[::1]", "[0:0:0:0:0:0:0:1]", "[::0001]"] {
             assert!(bypasses(host, "::1"), "{host}");
-            for no in ["[::1]", "0:0:0:0:0:0:0:1", "0::1", "::1/128", "::1/0", "::/64", "::/8", "::0001"] {
+            for no in [
+                "[::1]",
+                "0:0:0:0:0:0:0:1",
+                "0::1",
+                "::1/128",
+                "::1/0",
+                "::/64",
+                "::/8",
+                "::0001",
+            ] {
                 assert!(!bypasses(host, no), "{host} is not on {no:?}");
             }
         }
@@ -2847,7 +3214,10 @@ mod tests {
         assert!(bypasses("[::ffff:7f00:1]", "::ffff:7f00:1"));
         assert!(!bypasses("[::ffff:7f00:1]", "::ffff:127.0.0.1"));
         assert!(bypasses("[::FFFF:127.0.0.1]", "::ffff:127.0.0.1"));
-        assert!(bypasses("[::FFFF:127.0.0.1]", "0.1"), "an address matched as a name has domains");
+        assert!(
+            bypasses("[::FFFF:127.0.0.1]", "0.1"),
+            "an address matched as a name has domains"
+        );
         assert!(!bypasses("[::FFFF:127.0.0.1]", "127.0.0.1"));
         assert!(bypasses("[0:0:0:0:0:0:0:2]", "::2"));
         assert!(!bypasses("[0:0:0:0:0:0:0:2]", "::0.0.0.2"));
@@ -2855,10 +3225,24 @@ mod tests {
         assert!(!bypasses("a!b", "a!b"));
 
         for (text, n) in [
-            ("8", 8), ("+8", 8), ("08", 8), ("8x", 8), ("", 0), ("x", 0), ("+", 0), ("-0", 0),
-            ("++8", 0), ("+-8", 0), (" 8", 8), ("4294967296", 0), ("4294967304", 8),
-            ("-8", u32::MAX - 7), ("-1", u32::MAX), ("99999999999999999999", u32::MAX),
-            ("-99999999999999999999", 0), ("-4294967288", 8),
+            ("8", 8),
+            ("+8", 8),
+            ("08", 8),
+            ("8x", 8),
+            ("", 0),
+            ("x", 0),
+            ("+", 0),
+            ("-0", 0),
+            ("++8", 0),
+            ("+-8", 0),
+            (" 8", 8),
+            ("4294967296", 0),
+            ("4294967304", 8),
+            ("-8", u32::MAX - 7),
+            ("-1", u32::MAX),
+            ("99999999999999999999", u32::MAX),
+            ("-99999999999999999999", 0),
+            ("-4294967288", 8),
         ] {
             assert_eq!(atoi(text), n, "{text:?}");
         }
@@ -2868,7 +3252,8 @@ mod tests {
     /// oracle sent it or refused it: the thirteenth review's B1, S4 and S5.
     #[test]
     fn a_url_is_rewritten_as_libcurl_sends_it() {
-        let sent = |rest: &str| http_url(rest).map(|u| format!("http://{}{}", u.authority(), u.target));
+        let sent =
+            |rest: &str| http_url(rest).map(|u| format!("http://{}{}", u.authority(), u.target));
         let login = |rest: &str| http_url(rest).and_then(|u| u.login);
         let to = |url: &str| Some(format!("http://{url}"));
         // The port is a number or the URL is refused; an empty one is none.
@@ -2880,14 +3265,27 @@ mod tests {
         assert_eq!(sent("h:80/x"), to("h/x"));
         assert_eq!(sent("h:080/x"), to("h/x"));
         // A blank or a control character anywhere refuses the URL.
-        for url in ["h/a b", "h/a\tb", "h/x?a b", "h/x#a b", "h/x\n", "h/\x7f", "h /x"] {
+        for url in [
+            "h/a b", "h/a\tb", "h/x?a b", "h/x#a b", "h/x\n", "h/\x7f", "h /x",
+        ] {
             assert_eq!(sent(url), None, "{url:?}");
         }
         // What `http::Uri` refused and libcurl sends: rows 208 to 211.
         for path in ["/a<b", "/a>b", "/a`b", "/a?<", "/a^b|c{d}e[f]", "/a\\b"] {
             assert_eq!(sent(&format!("h{path}")), to(&format!("h{path}")), "{path}");
         }
-        for port in ["0", "65536", "99999", "65616", "4294967376", "80x", "+80", "-1", " 80", "80:80"] {
+        for port in [
+            "0",
+            "65536",
+            "99999",
+            "65616",
+            "4294967376",
+            "80x",
+            "+80",
+            "-1",
+            " 80",
+            "80:80",
+        ] {
             assert_eq!(sent(&format!("127.0.0.1:{port}/x")), None, "{port:?}");
             assert_eq!(sent(&format!("localhost:{port}/x")), None, "{port:?}");
         }
@@ -2898,12 +3296,29 @@ mod tests {
         assert_eq!(sent("a@b@h:1/x"), None);
         assert_eq!(login("h:1/x"), None);
         for (user, basic) in [
-            ("u:p", &b"u:p"[..]), ("a:b:c", b"a:b:c"), ("", b":"), (":", b":"), ("u:", b"u:"),
-            (":p", b":p"), ("u", b"u:"), ("a%40b:c%3Ad", b"a@b:c:d"), ("u%20s", b"u s:"),
-            ("a%0ab", b"a\nb:"), ("a%ffb", b"a\xffb:"), ("%zz", b"%zz:"), ("a%", b"a%:"),
-            ("a%4", b"a%4:"), ("a<b", b"a<b:"), ("a|b", b"a|b:"), ("é", "é:".as_bytes()),
+            ("u:p", &b"u:p"[..]),
+            ("a:b:c", b"a:b:c"),
+            ("", b":"),
+            (":", b":"),
+            ("u:", b"u:"),
+            (":p", b":p"),
+            ("u", b"u:"),
+            ("a%40b:c%3Ad", b"a@b:c:d"),
+            ("u%20s", b"u s:"),
+            ("a%0ab", b"a\nb:"),
+            ("a%ffb", b"a\xffb:"),
+            ("%zz", b"%zz:"),
+            ("a%", b"a%:"),
+            ("a%4", b"a%4:"),
+            ("a<b", b"a<b:"),
+            ("a|b", b"a|b:"),
+            ("é", "é:".as_bytes()),
         ] {
-            assert_eq!(login(&format!("{user}@h:1/x")).as_deref(), Some(basic), "{user:?}");
+            assert_eq!(
+                login(&format!("{user}@h:1/x")).as_deref(),
+                Some(basic),
+                "{user:?}"
+            );
             assert_eq!(sent(&format!("{user}@h:1/x")), to("h:1/x"), "{user:?}");
         }
         for user in ["a%00b", "u:%00", "u s", "a\tb", "a\x7fb"] {
@@ -2917,27 +3332,68 @@ mod tests {
         // A host is read here; with a proxy set nothing else would refuse
         // these. The fourteenth review's B1.
         for host in [
-            "a!b", "a$b", "a&b", "a'b", "a(b", "a)b", "a*b", "a+b", "a,b", "a;b", "a=b",
-            "127.0.0.1!", "127.0.0.1,1", "[zz]", "[::g]", "[1.2.3.4]", "[]", "[::1]x", "[:::1]",
-            "[::1", "::1]", "a b", "a%41", "bücher", "[::1%25lo0]", "",
+            "a!b",
+            "a$b",
+            "a&b",
+            "a'b",
+            "a(b",
+            "a)b",
+            "a*b",
+            "a+b",
+            "a,b",
+            "a;b",
+            "a=b",
+            "127.0.0.1!",
+            "127.0.0.1,1",
+            "[zz]",
+            "[::g]",
+            "[1.2.3.4]",
+            "[]",
+            "[::1]x",
+            "[:::1]",
+            "[::1",
+            "::1]",
+            "a b",
+            "a%41",
+            "bücher",
+            "[::1%25lo0]",
+            "",
         ] {
             assert_eq!(sent(&format!("{host}:1/x")), None, "{host:?}");
-            assert_eq!(curls_proxy(&format!("{host}:1"), true), None, "{host:?} as a proxy");
+            assert_eq!(
+                curls_proxy(&format!("{host}:1"), true),
+                None,
+                "{host:?} as a proxy"
+            );
         }
         for host in ["a~b", "a_b", "a-b", "a.b", "A1"] {
-            assert_eq!(sent(&format!("{host}:1/x")), to(&format!("{host}:1/x")), "{host:?}");
+            assert_eq!(
+                sent(&format!("{host}:1/x")),
+                to(&format!("{host}:1/x")),
+                "{host:?}"
+            );
         }
         // An IPv6 host in libcurl's text when that is shorter, and as it was
         // written when it is not: the fourteenth review's S4.
         for (written, sent_as) in [
-            ("[0:0:0:0:0:0:0:1]", "[::1]"), ("[::0001]", "[::1]"), ("[0::0:1]", "[::1]"),
-            ("[0:0:0:0:0:0:0:2]", "[::2]"), ("[::2]", "[::2]"), ("[0:0:0:0:0:0:0:A]", "[::a]"),
-            ("[::A]", "[::A]"), ("[::ffff:7f00:1]", "[::ffff:7f00:1]"),
-            ("[::FFFF:127.0.0.1]", "[::FFFF:127.0.0.1]"), ("[1:0:0:2:0:0:0:3]", "[1:0:0:2::3]"),
-            ("[1::2:0:0:0:3]", "[1:0:0:2::3]"), ("[0:0:1::]", "[0:0:1::]"),
-            ("[::1.2.3.4]", "[::1.2.3.4]"), ("[0:0:0:0:0:0:102:304]", "[::1.2.3.4]"),
-            ("[0:0:0:0:0:ffff:102:304]", "[::ffff:1.2.3.4]"), ("[1:2:3:4:5:6:7:8]", "[1:2:3:4:5:6:7:8]"),
-            ("[1:0:2:0:3:0:4:0]", "[1:0:2:0:3:0:4:0]"), ("[0:0:0:0:0:0:0:0]", "[::]"),
+            ("[0:0:0:0:0:0:0:1]", "[::1]"),
+            ("[::0001]", "[::1]"),
+            ("[0::0:1]", "[::1]"),
+            ("[0:0:0:0:0:0:0:2]", "[::2]"),
+            ("[::2]", "[::2]"),
+            ("[0:0:0:0:0:0:0:A]", "[::a]"),
+            ("[::A]", "[::A]"),
+            ("[::ffff:7f00:1]", "[::ffff:7f00:1]"),
+            ("[::FFFF:127.0.0.1]", "[::FFFF:127.0.0.1]"),
+            ("[1:0:0:2:0:0:0:3]", "[1:0:0:2::3]"),
+            ("[1::2:0:0:0:3]", "[1:0:0:2::3]"),
+            ("[0:0:1::]", "[0:0:1::]"),
+            ("[::1.2.3.4]", "[::1.2.3.4]"),
+            ("[0:0:0:0:0:0:102:304]", "[::1.2.3.4]"),
+            ("[0:0:0:0:0:ffff:102:304]", "[::ffff:1.2.3.4]"),
+            ("[1:2:3:4:5:6:7:8]", "[1:2:3:4:5:6:7:8]"),
+            ("[1:0:2:0:3:0:4:0]", "[1:0:2:0:3:0:4:0]"),
+            ("[0:0:0:0:0:0:0:0]", "[::]"),
             ("[1:0:0:0:0:0:0:0]", "[1::]"),
         ] {
             assert_eq!(curls_host(written).as_deref(), Some(sent_as), "{written}");
@@ -2945,13 +3401,29 @@ mod tests {
 
         // The path: dot segments go, bytes above ASCII are escaped.
         for (path, want) in [
-            ("", "/"), ("/", "/"), ("/a/../lib.bund", "/lib.bund"), ("/a/./b", "/a/b"),
-            ("/a/b/..", "/a/"), ("/a/b/.", "/a/b/"), ("/../x", "/x"), ("/a/../../x", "/x"),
-            ("/a//b", "/a//b"), ("/./", "/"), ("/..", "/"), ("/a/b/../../../c", "/c"),
-            ("/a/./../b/", "/b/"), ("/a/%2e%2e/b", "/a/%2e%2e/b"), ("/a/.%2e/b", "/a/.%2e/b"),
-            ("/a/..;x/b", "/a/..;x/b"), ("/a/...", "/a/..."), ("/a/..b/c", "/a/..b/c"),
-            ("/.a/b", "/.a/b"), ("/a/..\\b", "/a/..\\b"), ("/é.bund", "/%c3%a9.bund"),
-            ("/%C3%A9", "/%C3%A9"), ("/\u{a0}", "/%c2%a0"),
+            ("", "/"),
+            ("/", "/"),
+            ("/a/../lib.bund", "/lib.bund"),
+            ("/a/./b", "/a/b"),
+            ("/a/b/..", "/a/"),
+            ("/a/b/.", "/a/b/"),
+            ("/../x", "/x"),
+            ("/a/../../x", "/x"),
+            ("/a//b", "/a//b"),
+            ("/./", "/"),
+            ("/..", "/"),
+            ("/a/b/../../../c", "/c"),
+            ("/a/./../b/", "/b/"),
+            ("/a/%2e%2e/b", "/a/%2e%2e/b"),
+            ("/a/.%2e/b", "/a/.%2e/b"),
+            ("/a/..;x/b", "/a/..;x/b"),
+            ("/a/...", "/a/..."),
+            ("/a/..b/c", "/a/..b/c"),
+            ("/.a/b", "/.a/b"),
+            ("/a/..\\b", "/a/..\\b"),
+            ("/é.bund", "/%c3%a9.bund"),
+            ("/%C3%A9", "/%C3%A9"),
+            ("/\u{a0}", "/%c2%a0"),
         ] {
             assert_eq!(curls_path(path), want, "{path:?}");
         }
@@ -2983,7 +3455,11 @@ mod tests {
                     }
                 }
                 // A proxy is asked for the whole URL, as libcurl asks.
-                let body = if head.starts_with(b"GET http://") { "proxy" } else { "origin" };
+                let body = if head.starts_with(b"GET http://") {
+                    "proxy"
+                } else {
+                    "origin"
+                };
                 let _ = write!(
                     conn,
                     "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -2993,8 +3469,10 @@ mod tests {
         });
         let here = format!("http://127.0.0.1:{port}");
         let fetch = |host: &str, vars: &[(&str, &str)]| {
-            let vars: Vec<(String, String)> =
-                vars.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect();
+            let vars: Vec<(String, String)> = vars
+                .iter()
+                .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                .collect();
             fetch_uri_in(&format!("http://{host}:{port}/lib.bund"), &|name| {
                 vars.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone())
             })
@@ -3004,18 +3482,43 @@ mod tests {
         assert_eq!(fetch("127.0.0.1", &[]), origin);
         assert_eq!(fetch("127.0.0.1", &[("http_proxy", &here)]), proxy);
         assert_eq!(fetch("127.0.0.1", &[("ALL_PROXY", &here)]), proxy);
-        assert_eq!(fetch("127.0.0.1", &[("http_proxy", &format!("127.0.0.1:{port}"))]), proxy);
+        assert_eq!(
+            fetch("127.0.0.1", &[("http_proxy", &format!("127.0.0.1:{port}"))]),
+            proxy
+        );
         assert_eq!(fetch("127.0.0.1", &[("HTTP_PROXY", &here)]), origin, "F182");
-        assert_eq!(fetch("127.0.0.1", &[("HTTPS_PROXY", &here)]), origin, "F182");
-        assert_eq!(fetch("127.0.0.1", &[("http_proxy", &here), ("no_proxy", "127.0.0.0/8")]), origin);
+        assert_eq!(
+            fetch("127.0.0.1", &[("HTTPS_PROXY", &here)]),
+            origin,
+            "F182"
+        );
+        assert_eq!(
+            fetch(
+                "127.0.0.1",
+                &[("http_proxy", &here), ("no_proxy", "127.0.0.0/8")]
+            ),
+            origin
+        );
         // A host nothing resolves is the proxy's to resolve, and nobody's when
         // the list takes the proxy away.
         assert_eq!(fetch("x.bund2.invalid", &[("http_proxy", &here)]), proxy);
-        assert_eq!(fetch("x.bund2.invalid", &[("http_proxy", &here), ("no_proxy", "invalid")]), None);
+        assert_eq!(
+            fetch(
+                "x.bund2.invalid",
+                &[("http_proxy", &here), ("no_proxy", "invalid")]
+            ),
+            None
+        );
         // A proxy that cannot be used fails the fetch rather than being skipped.
         assert_eq!(fetch("127.0.0.1", &[("http_proxy", "http://")]), None);
         // And one written with no scheme and a slash after it is used.
-        assert_eq!(fetch("127.0.0.1", &[("http_proxy", &format!("127.0.0.1:{port}/"))]), proxy);
+        assert_eq!(
+            fetch(
+                "127.0.0.1",
+                &[("http_proxy", &format!("127.0.0.1:{port}/"))]
+            ),
+            proxy
+        );
         // F183: a scheme in any case, and one slash or three for two.
         let spelt = |url: String| fetch_uri_in(&url, &|_| None);
         assert_eq!(spelt(format!("HTTP://127.0.0.1:{port}/x")), origin);
@@ -3025,8 +3528,20 @@ mod tests {
         assert_eq!(spelt(format!("http:127.0.0.1:{port}/x")), None);
         // A short spelling of the address is the address, to `no_proxy` too.
         assert_eq!(spelt(format!("http://127.1:{port}/x")), origin);
-        assert_eq!(fetch("0x7f.1", &[("http_proxy", &here), ("no_proxy", "127.0.0.1")]), origin);
-        assert_eq!(fetch("127.0.0.1", &[("http_proxy", &format!("socks5://127.0.0.1:{port}"))]), None);
+        assert_eq!(
+            fetch(
+                "0x7f.1",
+                &[("http_proxy", &here), ("no_proxy", "127.0.0.1")]
+            ),
+            origin
+        );
+        assert_eq!(
+            fetch(
+                "127.0.0.1",
+                &[("http_proxy", &format!("socks5://127.0.0.1:{port}"))]
+            ),
+            None
+        );
     }
 
     #[test]
@@ -3116,10 +3631,17 @@ mod tests {
     /// sleep that would panic on it. The reference aborts on both of these.
     #[test]
     fn sleep_refuses_a_count_the_clock_cannot_hold() {
-        for src in ["-3 sleep.seconds", "-1 sleep", "9223372036854775807 sleep.seconds"] {
+        for src in [
+            "-3 sleep.seconds",
+            "-1 sleep",
+            "9223372036854775807 sleep.seconds",
+        ] {
             let mut i = interp(HostOptions::default());
             let e = run(&mut i, src).expect_err("refused");
-            assert!(e.contains("SLEEP::SECONDS: the clock cannot wait"), "{src}: {e}");
+            assert!(
+                e.contains("SLEEP::SECONDS: the clock cannot wait"),
+                "{src}: {e}"
+            );
             assert!(!e.contains("internal error"), "{src}: {e}");
         }
         let mut i = interp(HostOptions::default());
@@ -3147,7 +3669,11 @@ mod tests {
             run(&mut i, src).expect("an exit is not a failure");
             assert_eq!(i.exit_requested(), Some(7), "{src}");
             let left: Vec<Option<i64>> = i.snapshot().iter().map(BundValue::as_int).collect();
-            assert_eq!(left, vec![Some(1)], "{src}: `map` stopped at the first item");
+            assert_eq!(
+                left,
+                vec![Some(1)],
+                "{src}: `map` stopped at the first item"
+            );
         }
         // The control: `exit` not last already stopped at the next step.
         let mut k = interp(HostOptions::default());
@@ -3168,9 +3694,18 @@ mod tests {
         use bund2_api::Vm as _;
         let cases = [
             ("{ 7 exit }", None),
-            ("{ [ 1 ] { 7 exit } map }", Some("MAP: lambda execution returns error: ")),
-            ("{ 1 { 7 exit } times }", Some("TIMES: lambda execution returns error: ")),
-            ("{ \"7 exit\" bund.eval }", Some("Attempt to evaluate value")),
+            (
+                "{ [ 1 ] { 7 exit } map }",
+                Some("MAP: lambda execution returns error: "),
+            ),
+            (
+                "{ 1 { 7 exit } times }",
+                Some("TIMES: lambda execution returns error: "),
+            ),
+            (
+                "{ \"7 exit\" bund.eval }",
+                Some("Attempt to evaluate value"),
+            ),
             (
                 "{ :scratch context :run { 7 exit } set :run swap ! }",
                 Some("CONTEXT lambda returns: "),
@@ -3185,13 +3720,19 @@ mod tests {
             run(&mut i, &src).expect("an exit is not a failure");
             assert_eq!(i.exit_requested(), Some(7), "{body}");
             let top = i.peek().expect("`?try` left its CONDITIONAL");
-            let ctx = top.get("context").and_then(|v| v.as_str()).unwrap_or_default();
+            let ctx = top
+                .get("context")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
             assert!(
                 ctx.ends_with("the program asked to exit with code 7"),
                 "{body}: {ctx}"
             );
             if let Some(w) = wrapper {
-                assert!(ctx.contains(w), "{body}: the native's wrapper is kept: {ctx}");
+                assert!(
+                    ctx.contains(w),
+                    "{body}: the native's wrapper is kept: {ctx}"
+                );
             }
         }
     }
@@ -3217,7 +3758,10 @@ mod tests {
             run(&mut i, &src).expect("an exit is not a failure");
             assert_eq!(i.exit_requested(), Some(7), "{body}");
             let top = i.peek().expect("`?try` left its CONDITIONAL");
-            let ctx = top.get("context").and_then(|v| v.as_str()).unwrap_or_default();
+            let ctx = top
+                .get("context")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
             assert!(
                 ctx.contains("MAP: lambda execution returns error: "),
                 "{body}: the native's wrapper is kept: {ctx}"
@@ -3249,7 +3793,10 @@ mod tests {
         assert_eq!(i.exit_requested(), None, "nothing asked to exit");
         assert_eq!(i.depth(), 2, "`10` beneath `?try`'s CONDITIONAL");
         let top = i.peek().expect("`?try` left its CONDITIONAL");
-        let ctx = top.get("context").and_then(|v| v.as_str()).unwrap_or_default();
+        let ctx = top
+            .get("context")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
         assert!(
             ctx.contains("Received value is not of executable type"),
             "{ctx}"
@@ -3344,8 +3891,7 @@ mod tests {
         for (src, dt) in [("1 2 pair", 10), ("1.0 2.0 complex", 15)] {
             let mut i = interp(HostOptions::default());
             let e = run(&mut i, &format!("{src} convert.to_string")).expect_err(src);
-            let want =
-                format!("CONVERT.TO_STRING returned error: Can not convert Value from {dt}");
+            let want = format!("CONVERT.TO_STRING returned error: Can not convert Value from {dt}");
             assert!(e.ends_with(&want), "{src}: {e}");
         }
     }

@@ -61,14 +61,22 @@ fn used_url(url: &str, vars: &[(&str, String)]) -> String {
     std::fs::write(&path, format!("\"{url}\" use\n")).expect("script");
     let mut c = Command::new(env!("CARGO_BIN_EXE_bund2"));
     for name in [
-        "http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY",
-        "no_proxy", "NO_PROXY",
+        "http_proxy",
+        "HTTP_PROXY",
+        "https_proxy",
+        "HTTPS_PROXY",
+        "all_proxy",
+        "ALL_PROXY",
+        "no_proxy",
+        "NO_PROXY",
     ] {
         c.env_remove(name);
     }
     c.envs(vars.iter().map(|(k, v)| (*k, v.as_str())));
     c.args(["script", "--file"]).arg(&path);
-    c.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    c.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     let out = c.output().expect("bund2 runs");
     let _ = std::fs::remove_dir_all(&dir);
     String::from_utf8_lossy(&out.stdout).trim().to_string()
@@ -93,7 +101,9 @@ fn serve_recording(tag: &'static str) -> (u16, std::sync::Arc<std::sync::Mutex<V
                         _ => break,
                     }
                 }
-                seen.lock().expect("heads").push(String::from_utf8_lossy(&head).to_lowercase());
+                seen.lock()
+                    .expect("heads")
+                    .push(String::from_utf8_lossy(&head).to_lowercase());
                 if head.starts_with(b"CONNECT ") {
                     let _ = conn.write_all(b"HTTP/1.1 200 OK\r\n\r\n");
                     continue;
@@ -122,9 +132,20 @@ fn a_url_the_reference_refuses_reaches_no_listener() {
     let (proxy, at_proxy) = serve_recording("proxy");
     let through = [("http_proxy", format!("http://127.0.0.1:{proxy}"))];
     // A refusal is a report, and the report is on standard output.
-    let refused = |url: &str, vars: &[(&str, String)]| used_url(url, vars).contains("USE can not get from");
-    for host in ["a!b.invalid", "a,b.invalid", "a+b.invalid", "127.0.0.1!", "[zz]", "[1.2.3.4]"] {
-        assert!(refused(&format!("http://{host}:{origin}/x"), &through), "{host}");
+    let refused =
+        |url: &str, vars: &[(&str, String)]| used_url(url, vars).contains("USE can not get from");
+    for host in [
+        "a!b.invalid",
+        "a,b.invalid",
+        "a+b.invalid",
+        "127.0.0.1!",
+        "[zz]",
+        "[1.2.3.4]",
+    ] {
+        assert!(
+            refused(&format!("http://{host}:{origin}/x"), &through),
+            "{host}"
+        );
     }
     for user in ["a%00b", "u:%00"] {
         let url = format!("http://{user}@127.0.0.1:{origin}/x");
@@ -133,12 +154,26 @@ fn a_url_the_reference_refuses_reaches_no_listener() {
     }
     for user in ["a%00b", "a%0ab", "u:%1f"] {
         let vars = [("http_proxy", format!("http://{user}@127.0.0.1:{proxy}"))];
-        assert!(refused(&format!("http://127.0.0.1:{origin}/x"), &vars), "proxy user {user}");
+        assert!(
+            refused(&format!("http://127.0.0.1:{origin}/x"), &vars),
+            "proxy user {user}"
+        );
     }
-    assert_eq!(*at_origin.lock().expect("heads"), Vec::<String>::new(), "the origin was asked");
-    assert_eq!(*at_proxy.lock().expect("heads"), Vec::<String>::new(), "the proxy was asked");
+    assert_eq!(
+        *at_origin.lock().expect("heads"),
+        Vec::<String>::new(),
+        "the origin was asked"
+    );
+    assert_eq!(
+        *at_proxy.lock().expect("heads"),
+        Vec::<String>::new(),
+        "the proxy was asked"
+    );
     // And the listeners do answer.
-    assert_eq!(used_url(&format!("http://a~b.invalid:{origin}/x"), &through), "proxy");
+    assert_eq!(
+        used_url(&format!("http://a~b.invalid:{origin}/x"), &through),
+        "proxy"
+    );
 }
 
 /// **D131: a proxy is asked for the whole URL, with no tunnel, and its
@@ -148,8 +183,14 @@ fn a_url_the_reference_refuses_reaches_no_listener() {
 #[test]
 fn a_proxy_is_asked_as_the_reference_asks_it() {
     let (proxy, heads) = serve_recording("proxy");
-    let vars = [("http_proxy", format!("http://a%40b:c%3Ad@127.0.0.1:{proxy}"))];
-    assert_eq!(used_url("http://u:p@x.bund2.invalid:8080/a/../lib.bund?q", &vars), "proxy");
+    let vars = [(
+        "http_proxy",
+        format!("http://a%40b:c%3Ad@127.0.0.1:{proxy}"),
+    )];
+    assert_eq!(
+        used_url("http://u:p@x.bund2.invalid:8080/a/../lib.bund?q", &vars),
+        "proxy"
+    );
     let heads = heads.lock().expect("heads");
     assert_eq!(
         *heads,
@@ -167,16 +208,46 @@ fn a_proxy_is_asked_as_the_reference_asks_it() {
 #[test]
 fn a_request_carries_what_the_reference_sends() {
     let (origin, heads) = serve_recording("origin");
-    let last = || heads.lock().expect("heads").last().cloned().unwrap_or_default();
+    let last = || {
+        heads
+            .lock()
+            .expect("heads")
+            .last()
+            .cloned()
+            .unwrap_or_default()
+    };
     // `a@b:c:d`, `u s:` and `a<b:` in base64.
-    for (user, basic) in [("a%40b:c%3Ad", "yubiomm6za=="), ("u%20s", "dsbzog=="), ("a<b", "ytxiog==")] {
-        assert_eq!(used_url(&format!("http://{user}@127.0.0.1:{origin}/x"), &[]), "origin", "{user}");
-        assert!(last().contains(&format!("authorization: basic {basic}\r\n")), "{user}: {}", last());
+    for (user, basic) in [
+        ("a%40b:c%3Ad", "yubiomm6za=="),
+        ("u%20s", "dsbzog=="),
+        ("a<b", "ytxiog=="),
+    ] {
+        assert_eq!(
+            used_url(&format!("http://{user}@127.0.0.1:{origin}/x"), &[]),
+            "origin",
+            "{user}"
+        );
+        assert!(
+            last().contains(&format!("authorization: basic {basic}\r\n")),
+            "{user}: {}",
+            last()
+        );
     }
-    assert_eq!(used_url(&format!("http://127.0.0.1:{origin}/x"), &[]), "origin");
-    assert!(!last().contains("authorization"), "no user part, no header: {}", last());
+    assert_eq!(
+        used_url(&format!("http://127.0.0.1:{origin}/x"), &[]),
+        "origin"
+    );
+    assert!(
+        !last().contains("authorization"),
+        "no user part, no header: {}",
+        last()
+    );
     assert_eq!(used_url(&format!("http://127.1:{origin}/x"), &[]), "origin");
-    assert!(last().contains(&format!("host: 127.0.0.1:{origin}\r\n")), "{}", last());
+    assert!(
+        last().contains(&format!("host: 127.0.0.1:{origin}\r\n")),
+        "{}",
+        last()
+    );
 }
 
 /// As [`serve`], on the one port libcurl takes for a proxy that names none.
@@ -227,8 +298,17 @@ fn a_proxy_that_names_no_port_is_asked_on_1080() {
             .write_all(b"\nfetch_proxy: port 1080 is in use; the wire check of a port-less proxy DID NOT RUN\n");
         return;
     }
-    for proxy in ["127.0.0.1", "http://127.0.0.1", "http://localhost", "http://127.0.0.1/"] {
-        assert_eq!(used(origin, &[("http_proxy", proxy.to_string())]), "p1080", "{proxy}");
+    for proxy in [
+        "127.0.0.1",
+        "http://127.0.0.1",
+        "http://localhost",
+        "http://127.0.0.1/",
+    ] {
+        assert_eq!(
+            used(origin, &[("http_proxy", proxy.to_string())]),
+            "p1080",
+            "{proxy}"
+        );
     }
 }
 
@@ -240,15 +320,29 @@ fn a_fetch_obeys_the_proxy_variables_the_reference_obeys_and_no_others() {
 
     assert_eq!(used(origin, &[]), "origin");
     for obeyed in ["http_proxy", "all_proxy", "ALL_PROXY"] {
-        assert_eq!(used(origin, &[(obeyed, there.clone())]), "proxy", "{obeyed}");
+        assert_eq!(
+            used(origin, &[(obeyed, there.clone())]),
+            "proxy",
+            "{obeyed}"
+        );
     }
     // The three `ureq` read by default and libcurl does not, for `http://`:
     // F182, from when `ureq` chose the proxy.
     for ignored in ["HTTP_PROXY", "HTTPS_PROXY", "https_proxy"] {
-        assert_eq!(used(origin, &[(ignored, there.clone())]), "origin", "{ignored}");
+        assert_eq!(
+            used(origin, &[(ignored, there.clone())]),
+            "origin",
+            "{ignored}"
+        );
     }
     assert_eq!(
-        used(origin, &[("http_proxy", there.clone()), ("NO_PROXY", "127.0.0.1".into())]),
+        used(
+            origin,
+            &[
+                ("http_proxy", there.clone()),
+                ("NO_PROXY", "127.0.0.1".into())
+            ]
+        ),
         "origin"
     );
 }

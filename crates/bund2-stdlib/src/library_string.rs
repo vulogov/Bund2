@@ -88,7 +88,13 @@ enum Out {
 ///
 /// The `.` form's guard is fixed at one workbench cell plus one stack cell for
 /// a binary word, one workbench cell for a unary one (`:29-34`).
-fn guard(vm: &dyn Vm, side: Side, stack_min: usize, binary: bool, prefix: &str) -> Result<(), Error> {
+fn guard(
+    vm: &dyn Vm,
+    side: Side,
+    stack_min: usize,
+    binary: bool,
+    prefix: &str,
+) -> Result<(), Error> {
     match side {
         Side::Stack => {
             if vm.depth() < stack_min {
@@ -158,9 +164,14 @@ fn text(v: &BundValue, prefix: &str, n: usize) -> Result<String, Error> {
 
 /// Which words' source files number the operand in a cast refusal.
 fn numbers_its_operands(prefix: &str) -> bool {
-    ["STRING.FUZZYMATCH", "STRING.WRAP.", "STRING.DISTANCE", "STRING.EXPRESSIONMATCH"]
-        .iter()
-        .any(|p| prefix.starts_with(p))
+    [
+        "STRING.FUZZYMATCH",
+        "STRING.WRAP.",
+        "STRING.DISTANCE",
+        "STRING.EXPRESSIONMATCH",
+    ]
+    .iter()
+    .any(|p| prefix.starts_with(p))
 }
 
 // --- the shapes ------------------------------------------------------------
@@ -365,8 +376,8 @@ fn wrap_english(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> 
     // (`reference/Bund/src/stdlib/functions/string/textwrap.rs:68`): nothing
     // wraps and the text comes back as one line. Clamping it to zero wrapped
     // every character onto its own.
-    let options = textwrap::Options::new(n as usize)
-        .word_splitter(textwrap::WordSplitter::Hyphenation(dict));
+    let options =
+        textwrap::Options::new(n as usize).word_splitter(textwrap::WordSplitter::Hyphenation(dict));
     let wrapped = textwrap::wrap(&s, &options);
     let r = list_of(wrapped.iter().map(|l| l.to_string()));
     deliver(vm, side, Out::Mirror, r);
@@ -669,9 +680,11 @@ pub fn register(r: &mut Registry) {
         };
     }
     // Reports under the algorithm's name, as the plain form does.
-    dist!("string.distance.", "STRING.DISTANCE.LEVENSHTEIN.", |a, b| Ok(
-        BundValue::int(distance::levenshtein(a, b) as i64)
-    ));
+    dist!(
+        "string.distance.",
+        "STRING.DISTANCE.LEVENSHTEIN.",
+        |a, b| Ok(BundValue::int(distance::levenshtein(a, b) as i64))
+    );
     dist!(
         "string.distance.levenshtein.",
         "STRING.DISTANCE.LEVENSHTEIN.",
@@ -756,13 +769,13 @@ mod tests {
         // Deleted, not split on: two tokens, not four.
         assert_eq!(tokens("\"a,b c.d\" string.tokenize.stemmed"), ["ab", "cd"]);
         // ...where the plain tokeniser breaks on the punctuation.
-        assert_eq!(
-            tokens("\"a,b c.d\" string.tokenize"),
-            ["a", "b", "c", "d"]
-        );
+        assert_eq!(tokens("\"a,b c.d\" string.tokenize"), ["a", "b", "c", "d"]);
 
         // The stemmer folds case and the set deduplicates.
-        assert_eq!(tokens("\"Running RUNS running\" string.tokenize.stemmed"), ["run"]);
+        assert_eq!(
+            tokens("\"Running RUNS running\" string.tokenize.stemmed"),
+            ["run"]
+        );
         // ...where `unique` folds case but does not stem.
         assert_eq!(
             tokens("\"Running RUNS\" string.tokenize.unique"),
@@ -920,13 +933,28 @@ mod tests {
     #[test]
     fn workbench_forms_report_under_their_own_names() {
         for (src, want) in [
-            ("2 2 . string.distance.", "STRING.DISTANCE.LEVENSHTEIN. returned for #1: This Dynamic type is not string"),
+            (
+                "2 2 . string.distance.",
+                "STRING.DISTANCE.LEVENSHTEIN. returned for #1: This Dynamic type is not string",
+            ),
             ("2 2 . map.", "MAP.: #1 parameter must be lambda"),
-            ("2 . pull.", "PULL. casting of list returned: This is not a LIST/PAIR value but 2"),
+            (
+                "2 . pull.",
+                "PULL. casting of list returned: This is not a LIST/PAIR value but 2",
+            ),
             ("2 . ++.", "Workbench is too shallow for inline MERGE."),
-            ("2 true . merge.", "MERGE. returns error for default operation: Incompartible X argument for the math operations: 1"),
-            ("2 . ifthenelse.", "Stack is too shallow for inline IFTHENELSE."),
-            ("\"s\" dict \"a\" 1 set . get.,", "GET.,: Key not found: s due to: Key not found: s"),
+            (
+                "2 true . merge.",
+                "MERGE. returns error for default operation: Incompartible X argument for the math operations: 1",
+            ),
+            (
+                "2 . ifthenelse.",
+                "Stack is too shallow for inline IFTHENELSE.",
+            ),
+            (
+                "\"s\" dict \"a\" 1 set . get.,",
+                "GET.,: Key not found: s due to: Key not found: s",
+            ),
         ] {
             match run(src) {
                 Ok(_) => panic!("{src} was expected to fail"),

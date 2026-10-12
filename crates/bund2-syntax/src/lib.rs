@@ -56,7 +56,11 @@ pub struct Span {
 impl Span {
     /// The 1-based line this span starts on, for error text.
     pub fn line_in(&self, src: &str) -> usize {
-        src[..self.start.min(src.len())].bytes().filter(|b| *b == b'\n').count() + 1
+        src[..self.start.min(src.len())]
+            .bytes()
+            .filter(|b| *b == b'\n')
+            .count()
+            + 1
     }
 }
 
@@ -134,8 +138,22 @@ fn is_element(c: char) -> bool {
         || is_symbol(c)
         || matches!(
             c,
-            '.' | ',' | '=' | '>' | '<' | '-' | '+' | '^' | '?' | '!' | '/' | '*' | '|' | '&'
-                | '#' | '%' | '_'
+            '.' | ','
+                | '='
+                | '>'
+                | '<'
+                | '-'
+                | '+'
+                | '^'
+                | '?'
+                | '!'
+                | '/'
+                | '*'
+                | '|'
+                | '&'
+                | '#'
+                | '%'
+                | '_'
         )
 }
 
@@ -312,7 +330,10 @@ impl<'a> Parser<'a> {
                     // `term+`: all three bracket forms require at least one
                     // term, so the empty form is a parse error (F51).
                     if out.is_empty() {
-                        return self.err(open, format!("empty block: `{close}` needs a term before it"));
+                        return self.err(
+                            open,
+                            format!("empty block: `{close}` needs a term before it"),
+                        );
                     }
                     return Ok(out);
                 }
@@ -769,7 +790,12 @@ mod tests {
                 close.repeat(MAX_NESTING + 1)
             );
             let e = parse(&over).expect_err("refused");
-            assert!(e.what.contains("nesting deeper than"), "{}: {}", open, e.what);
+            assert!(
+                e.what.contains("nesting deeper than"),
+                "{}: {}",
+                open,
+                e.what
+            );
         }
     }
 
@@ -794,8 +820,16 @@ mod tests {
     fn a_comment_marker_abutting_a_word_is_part_of_the_word() {
         let t = names("1 2 +// add");
         assert_eq!(t.len(), 4, "the comment was eaten, so `add` is code: {t:?}");
-        assert!(matches!(&t[2], Term::Name(n, _) if n == "+//"), "{:?}", t[2]);
-        assert!(matches!(&t[3], Term::Name(n, _) if n == "add"), "{:?}", t[3]);
+        assert!(
+            matches!(&t[2], Term::Name(n, _) if n == "+//"),
+            "{:?}",
+            t[2]
+        );
+        assert!(
+            matches!(&t[3], Term::Name(n, _) if n == "add"),
+            "{:?}",
+            t[3]
+        );
         // With whitespace it is an ordinary comment and `add` disappears.
         let u = names("1 2 + // add");
         assert_eq!(u.len(), 3);
@@ -816,7 +850,11 @@ mod tests {
     #[test]
     fn a_digit_separator_is_a_hard_error() {
         let e = parse("1_000").expect_err("must fail");
-        assert!(e.what.contains("Error converting INT to VALUE"), "{}", e.what);
+        assert!(
+            e.what.contains("Error converting INT to VALUE"),
+            "{}",
+            e.what
+        );
         assert!(parse("1_000.5").is_err());
     }
 
@@ -912,11 +950,19 @@ mod tests {
     fn string_escapes_are_not_translated() {
         // Source: "a\nb"  ->  value: a\nb, four characters, backslash kept.
         let t = names(BACKSLASH_N_SRC);
-        assert!(matches!(&t[0], Term::Str(s, _) if s == BACKSLASH_N_VAL), "{:?}", t[0]);
+        assert!(
+            matches!(&t[0], Term::Str(s, _) if s == BACKSLASH_N_VAL),
+            "{:?}",
+            t[0]
+        );
         // \" does not end the string, and both characters survive.
         let u = names(ESCAPED_QUOTE_SRC);
         assert_eq!(u.len(), 2, "{u:?}");
-        assert!(matches!(&u[0], Term::Str(s, _) if s == ESCAPED_QUOTE_VAL), "{:?}", u[0]);
+        assert!(
+            matches!(&u[0], Term::Str(s, _) if s == ESCAPED_QUOTE_VAL),
+            "{:?}",
+            u[0]
+        );
     }
 
     /// A `'…'` literal has no escaping at all: the body runs to the next `'`
@@ -925,7 +971,11 @@ mod tests {
     fn a_literal_runs_to_the_next_quote() {
         // 'a\nb' -> a, backslash, n, b. No escaping inside a literal at all.
         let t = names("\u{27}a\u{5c}nb\u{27} x");
-        assert!(matches!(&t[0], Term::Str(s, _) if s == BACKSLASH_N_VAL), "{:?}", t[0]);
+        assert!(
+            matches!(&t[0], Term::Str(s, _) if s == BACKSLASH_N_VAL),
+            "{:?}",
+            t[0]
+        );
     }
 
     #[test]
@@ -978,9 +1028,15 @@ mod tests {
     /// Lowering is total over the AST and always ends with EXIT.
     #[test]
     fn the_stream_ends_with_exit() {
-        for src in ["1", "\"s\"", "`p", "@s", "{ 1 }", "[ 1 ]", "( 1 )", ":a", ":"] {
+        for src in [
+            "1", "\"s\"", "`p", "@s", "{ 1 }", "[ 1 ]", "( 1 )", ":a", ":",
+        ] {
             let s = compile(src).unwrap_or_else(|e| panic!("{src}: {e}"));
-            assert_eq!(s.last().map(BundValue::dt), Some(bund2_value::EXIT), "{src}");
+            assert_eq!(
+                s.last().map(BundValue::dt),
+                Some(bund2_value::EXIT),
+                "{src}"
+            );
         }
     }
 }

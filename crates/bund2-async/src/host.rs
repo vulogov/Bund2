@@ -153,9 +153,7 @@ impl<T> Vm<T> {
         };
         match (taken, ended) {
             (Some(v), _) => Ok(v),
-            (None, Err(_)) => {
-                Err("a VM thread ended by panicking; its answer is lost".to_string())
-            }
+            (None, Err(_)) => Err("a VM thread ended by panicking; its answer is lost".to_string()),
             // Joined cleanly with no answer: either this VM was already
             // awaited, or the lock was poisoned by a panic inside it.
             (None, Ok(())) => Err(
@@ -712,7 +710,11 @@ mod tests {
         // under any long-running embedder.
         let third = two.spawn(|_| 3u8).expect("a slot was freed");
         assert_eq!(third.join().expect("c"), 3);
-        assert_eq!(two.spawned(), 3, "three over the host's life, two at a time");
+        assert_eq!(
+            two.spawned(),
+            3,
+            "three over the host's life, two at a time"
+        );
 
         assert!(
             Host::with_limit(0).is_err(),

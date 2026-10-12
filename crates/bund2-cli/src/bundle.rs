@@ -58,9 +58,8 @@ const FILLER: u8 = 0xA5;
 /// validates**, and a bare constant in the text section is not. The masking
 /// stays because fewer candidates is still better than more.
 const SENTINEL_MASKED: [u8; 32] = [
-    0xE7, 0xC8, 0xC7, 0xC3, 0xC9, 0xF1, 0xD7, 0xC4, 0xC9, 0xD2, 0xF1, 0xD6, 0xC4, 0xC2, 0xC8,
-    0xC9, 0xC7, 0xD7, 0xF1, 0xB4, 0xB1, 0xB0, 0xB6, 0xF4, 0x19, 0x2A, 0x3B, 0x4C, 0x5D, 0x6E,
-    0x7F, 0x80,
+    0xE7, 0xC8, 0xC7, 0xC3, 0xC9, 0xF1, 0xD7, 0xC4, 0xC9, 0xD2, 0xF1, 0xD6, 0xC4, 0xC2, 0xC8, 0xC9,
+    0xC7, 0xD7, 0xF1, 0xB4, 0xB1, 0xB0, 0xB6, 0xF4, 0x19, 0x2A, 0x3B, 0x4C, 0x5D, 0x6E, 0x7F, 0x80,
 ];
 
 const fn unmask(mut m: [u8; 32]) -> [u8; 32] {
@@ -277,7 +276,10 @@ pub fn carried() -> Result<Option<Carried>, Damaged> {
             if len > CAPACITY {
                 return Err(Damaged::Length(region.len));
             }
-            let bytes = region.payload.get(..len).ok_or(Damaged::Length(region.len))?;
+            let bytes = region
+                .payload
+                .get(..len)
+                .ok_or(Damaged::Length(region.len))?;
             let source = std::str::from_utf8(bytes)
                 .map_err(|_| Damaged::NotText)?
                 .to_string();
@@ -608,7 +610,10 @@ mod tests {
             std::str::from_utf8(&image[start + at::PAYLOAD..start + at::PAYLOAD + len]),
             Ok("1 2 + println\n")
         );
-        assert_eq!(text(&image[start + at::VERSION..start + at::VERSION + 32]), "9.9.9");
+        assert_eq!(
+            text(&image[start + at::VERSION..start + at::VERSION + 32]),
+            "9.9.9"
+        );
 
         // The two fields the RFC promised and the container lacked until now.
         let seen = inspect(&image).expect("the artefact describes itself");
@@ -628,10 +633,15 @@ mod tests {
         let mut image = std::fs::read(&exe).expect("and it is readable");
         let untouched = image.clone();
         let big = "x".repeat(CAPACITY + 1);
-        let err = write_into(&mut image, &big, "big.bund", 0, "1.0", "", "")
-            .expect_err("refused");
-        assert!(err.contains(&format!("{}", CAPACITY + 1)), "names the size: {err}");
-        assert!(err.contains(&CAPACITY.to_string()), "names the capacity: {err}");
+        let err = write_into(&mut image, &big, "big.bund", 0, "1.0", "", "").expect_err("refused");
+        assert!(
+            err.contains(&format!("{}", CAPACITY + 1)),
+            "names the size: {err}"
+        );
+        assert!(
+            err.contains(&CAPACITY.to_string()),
+            "names the capacity: {err}"
+        );
         assert_eq!(image, untouched, "and the image is unchanged");
     }
 

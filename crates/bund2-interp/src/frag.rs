@@ -189,13 +189,21 @@ mod tests {
         i.push(BundValue::int(1));
         i.push(BundValue::float(2.0));
         let before = i.snapshot();
-        assert_eq!(run(&mut i, &add_fragment()).ok(), Some(false), "float must decline");
+        assert_eq!(
+            run(&mut i, &add_fragment()).ok(),
+            Some(false),
+            "float must decline"
+        );
         assert_eq!(i.snapshot(), before);
 
         let mut i = Interp::new();
         i.push(BundValue::int(1));
         let before = i.snapshot();
-        assert_eq!(run(&mut i, &add_fragment()).ok(), Some(false), "too shallow must decline");
+        assert_eq!(
+            run(&mut i, &add_fragment()).ok(),
+            Some(false),
+            "too shallow must decline"
+        );
         assert_eq!(i.snapshot(), before);
     }
 

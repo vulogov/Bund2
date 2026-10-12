@@ -292,8 +292,7 @@ const KNOWN: &[&str] = &[
     // `payload_weak` and RFC-0005's cache and counter hold (D35 as amended).
     // A document cannot "introduce" it, and writing `type Weak = …` to satisfy
     // this check would state a design that does not exist.
-    "Weak",
-    // Reference types RFC-0001 carries over verbatim rather than defining.
+    "Weak", // Reference types RFC-0001 carries over verbatim rather than defining.
     "Metric", "Operator",
 ];
 
@@ -445,7 +444,9 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             });
         }
     }
-    bund2_api::sayln!("  RFC level-2 headings checked for duplication          {headings_checked:>4}");
+    bund2_api::sayln!(
+        "  RFC level-2 headings checked for duplication          {headings_checked:>4}"
+    );
 
     // --- 3. claimed figures against artefacts -------------------------------
     let figures = figure_checks(&repo);
@@ -475,7 +476,9 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             }
         }
     }
-    bund2_api::sayln!("  figure claims checked against artefacts               {figures_checked:>4}");
+    bund2_api::sayln!(
+        "  figure claims checked against artefacts               {figures_checked:>4}"
+    );
 
     // --- 4. types used in a code block that no block introduces --------------
     // Introductions are pooled across the RFC set first: the RFCs are one
@@ -514,7 +517,9 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             });
         }
     }
-    bund2_api::sayln!("  rust blocks checked for undefined types               {blocks_checked:>4}");
+    bund2_api::sayln!(
+        "  rust blocks checked for undefined types               {blocks_checked:>4}"
+    );
 
     // **F70's shape, in Bund2's own source.**
     //

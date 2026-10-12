@@ -244,8 +244,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         match a.as_str() {
             "--accept-deviation" => accept_deviation = it.next().cloned(),
             "--reason" => reason = it.next().cloned(),
-            "--accept" | "-v" | "--verbose" | "--parse-only" | "--blocked-on"
-            | "--bundles" => {}
+            "--accept" | "-v" | "--verbose" | "--parse-only" | "--blocked-on" | "--bundles" => {}
             other => return Err(format!("unknown argument `{other}`")),
         }
     }
@@ -464,12 +463,17 @@ pub fn run(args: &[String]) -> Result<(), String> {
     if with_tier {
         bund2_api::sayln!(
             "  tier: compiled {} bodies in {} of {} programs, {} compiled entries",
-            tier.bodies, tier.programs, tier.reported, tier.entered
+            tier.bodies,
+            tier.programs,
+            tier.reported,
+            tier.entered
         );
         if tier.bodies == 0 && jit_threshold != Some(1) {
             // D141: not a failure at this threshold, and not evidence either.
             bund2_api::sayln!("        no body compiled at this threshold, so this run is Tier 0");
-            bund2_api::sayln!("        against Tier 0; `--jit-threshold 1` is the run that tests the tier");
+            bund2_api::sayln!(
+                "        against Tier 0; `--jit-threshold 1` is the run that tests the tier"
+            );
         }
     }
     if approved_hits.is_empty() {
@@ -487,7 +491,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // a deviation is recorded.
     let ceiling = total.saturating_sub(approved_hits.len());
     let remaining = ceiling.saturating_sub(passed);
-    bund2_api::sayln!("  CEILING      {ceiling}/{total}   ({remaining} golden(s) still to reach it)\n");
+    bund2_api::sayln!(
+        "  CEILING      {ceiling}/{total}   ({remaining} golden(s) still to reach it)\n"
+    );
     bund2_api::sayln!(
         "  Denominator is every captured golden: {} suite programs plus {probe_count}",
         total.saturating_sub(probe_count)
@@ -550,7 +556,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
         bund2_api::sayln!("  and moving it is the work.\n");
     } else if verbose || (passed < total && not_implemented < total) {
         bund2_api::sayln!("## failing\n");
-        for o in outcomes.iter().filter(|o| !o.passed && !o.approved).take(40) {
+        for o in outcomes
+            .iter()
+            .filter(|o| !o.passed && !o.approved)
+            .take(40)
+        {
             bund2_api::sayln!("  {:<62} {}", o.program, o.detail);
         }
         let failing = outcomes.iter().filter(|o| !o.passed && !o.approved).count();
@@ -634,7 +644,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 bund2_api::sayln!("  {classes} golden(s) want a built-in **class** Bund2 does not");
                 bund2_api::sayln!("  register. That is not `class` missing — it works — it is the");
                 bund2_api::sayln!("  oracle's per-type class hierarchy");
-                bund2_api::sayln!("  (`reference/Bund/src/stdlib/functions/oop/int_class.rs:39` and");
+                bund2_api::sayln!(
+                    "  (`reference/Bund/src/stdlib/functions/oop/int_class.rs:39` and"
+                );
                 bund2_api::sayln!("  its siblings), which RFC-0009 does not scope. Listed here so");
                 bund2_api::sayln!("  the two are never read as one blocker.\n");
             }
@@ -716,7 +728,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 write_baseline(&repo, passed, total)?;
                 bund2_api::sayln!("  baseline recorded at {passed}/{total}");
             } else {
-                bund2_api::sayln!("  no baseline recorded yet; set one with `cargo xtask conform --accept`");
+                bund2_api::sayln!(
+                    "  no baseline recorded yet; set one with `cargo xtask conform --accept`"
+                );
             }
             Ok(())
         }
@@ -797,7 +811,6 @@ fn leading_number(s: &str) -> Option<usize> {
     digits.parse().ok()
 }
 
-
 /// **RFC-0003 criterion 1's parse-reach number.**
 ///
 /// How many golden sources the front end accepts, which is a different
@@ -859,7 +872,10 @@ mod tier_total_tests {
         let mut total = TierTotal::default();
         total.take(&mut text);
         assert_eq!(text, "one\ntwo", "what a golden is compared with");
-        assert_eq!((total.bodies, total.entered, total.programs, total.reported), (3, 7, 1, 1));
+        assert_eq!(
+            (total.bodies, total.entered, total.programs, total.reported),
+            (3, 7, 1, 1)
+        );
 
         // A program whose output ends mid-line: the first stats line follows
         // it on the same line, and the floors line still starts its own.

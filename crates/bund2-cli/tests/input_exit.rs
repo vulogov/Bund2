@@ -54,6 +54,9 @@ fn input_loop_reads_no_line_after_an_exit() {
         .read_to_string(&mut out)
         .expect("reads");
     assert_eq!(status.code(), Some(7));
-    assert!(out.contains('a'), "the first line reached the body: {out:?}");
+    assert!(
+        out.contains('a'),
+        "the first line reached the body: {out:?}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

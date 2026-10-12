@@ -227,7 +227,11 @@ fn loop_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     }
     let items = seq_val
         .as_list()
-        .ok_or_else(|| Error(format!("{prefix} returns error: This Dynamic type is not list")))?
+        .ok_or_else(|| {
+            Error(format!(
+                "{prefix} returns error: This Dynamic type is not list"
+            ))
+        })?
         .to_vec();
     let body = lambda_val.clone();
     for v in items {
@@ -291,7 +295,11 @@ fn map_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     }
     let items = seq_val
         .as_list()
-        .ok_or_else(|| Error(format!("{prefix} returns error: This Dynamic type is not list")))?
+        .ok_or_else(|| {
+            Error(format!(
+                "{prefix} returns error: This Dynamic type is not list"
+            ))
+        })?
         .to_vec();
     let body = lambda_val.clone();
     let mut out: Vec<BundValue> = Vec::with_capacity(items.len());
@@ -318,7 +326,12 @@ pub fn register(r: &mut Registry) {
     // `reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:122-123`.
     // Opaque: each runs a body until the stack is empty or a NODATA.
     r.register_native("*loop", loop_over, StackEffect::opaque(1), WordKind::Sync);
-    r.register_native("*loop.", loop_over_wb, StackEffect::opaque(1), WordKind::Sync);
+    r.register_native(
+        "*loop.",
+        loop_over_wb,
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
     // Each `.` sibling keeps the lambda as a stack operand and moves only its
     // other one, so each consumes one from the stack rather than none.
     r.register_native("times.", times_wb, StackEffect::opaque(1), WordKind::Sync);

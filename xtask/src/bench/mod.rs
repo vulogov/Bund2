@@ -172,7 +172,13 @@ fn run_oop(exe: &Path, cwd: &Path, runs: usize, target: &str) -> Result<(), Stri
         ("construct", oop_construct_program, OOP_CONSTRUCTIONS),
     ];
 
-    bund2_api::sayln!("  {:<12}{:>8}{:>12}{:>12}", "mode", "depth", "iters", "min ms");
+    bund2_api::sayln!(
+        "  {:<12}{:>8}{:>12}{:>12}",
+        "mode",
+        "depth",
+        "iters",
+        "min ms"
+    );
     let mut floor: [Option<f64>; 2] = [None, None];
     let mut top: [Option<f64>; 2] = [None, None];
     for (mi, (label, make, iters)) in modes.iter().enumerate() {
@@ -359,7 +365,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
     bund2_api::sayln!("## slowest 15 by min\n");
     bund2_api::sayln!(
         "  {:<58}{:>9}{:>9}{:>9}",
-        "program", "min ms", "med ms", "max ms"
+        "program",
+        "min ms",
+        "med ms",
+        "max ms"
     );
     for t in slowest.iter().take(15) {
         bund2_api::sayln!(

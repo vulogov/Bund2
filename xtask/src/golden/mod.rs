@@ -725,7 +725,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
         bund2_api::sayln!("## existing golden would change\n");
         bund2_api::sayln!("  These were left alone. If the change is intended, name the");
         bund2_api::sayln!("  golden and say why:\n");
-        bund2_api::sayln!("    cargo xtask golden --accept <name> --reason <F-number or decision>\n");
+        bund2_api::sayln!(
+            "    cargo xtask golden --accept <name> --reason <F-number or decision>\n"
+        );
         for n in &needs_accept {
             bund2_api::sayln!("  {n}");
         }
@@ -802,7 +804,6 @@ pub(crate) fn parse_golden(body: &str) -> Option<(i32, String)> {
         .to_string();
     Some((status, output))
 }
-
 
 #[cfg(test)]
 mod tests {

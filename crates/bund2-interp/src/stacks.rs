@@ -109,14 +109,18 @@ impl Stack {
         self.push_as(v, sym, &name);
     }
 
-
     /// Push, tagging with a name that is **not** this stack's own.
     ///
     /// One caller, and it is the reason this exists: the workbench "does not
     /// carry a specific name", so a value pushed there keeps the tag of the
     /// stack it came from — a fossil rather than a location. Tagging it with
     /// the workbench's own name would erase that.
-    pub(super) fn push_as(&mut self, v: BundValue, sym: bund2_value::StackSym, stack_name: &Rc<str>) {
+    pub(super) fn push_as(
+        &mut self,
+        v: BundValue,
+        sym: bund2_value::StackSym,
+        stack_name: &Rc<str>,
+    ) {
         if let Some(cap) = self.cap
             && self.items.len() >= cap
         {

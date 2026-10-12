@@ -48,9 +48,7 @@ fn eff(consumes: u8, produces: u8) -> StackEffect {
 /// `rotate_stack_left` for `rotate_stack_right`, `stack exists() returned`
 /// with a space and no `error`. So the caller passes the phrase. D105.
 fn name_arg(vm: &mut dyn Vm, what: &str) -> Result<String, Error> {
-    let v = vm
-        .pull()
-        .ok_or_else(|| Error(format!("{what}: NO DATA")))?;
+    let v = vm.pull().ok_or_else(|| Error(format!("{what}: NO DATA")))?;
     match v.as_str() {
         Some(s) => Ok(s),
         None => {
@@ -62,9 +60,7 @@ fn name_arg(vm: &mut dyn Vm, what: &str) -> Result<String, Error> {
 
 /// Pull a count, as `dup_many` and `swap` do. `what` as for [`name_arg`].
 fn count_arg(vm: &mut dyn Vm, what: &str) -> Result<i64, Error> {
-    let v = vm
-        .pull()
-        .ok_or_else(|| Error(format!("{what}: NO DATA")))?;
+    let v = vm.pull().ok_or_else(|| Error(format!("{what}: NO DATA")))?;
     match v.as_int() {
         Some(n) => Ok(n),
         None => Err(Error(format!("{what}: This Dynamic type is not integer"))),
@@ -431,9 +427,7 @@ fn move_word(vm: &mut dyn Vm) -> Result<(), Error> {
 /// Snapshot-drained for F70's reason, exactly as `move` is.
 fn move_from(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 2 {
-        return Err(Error(
-            "Stack is too shallow for inline move_from()".into(),
-        ));
+        return Err(Error("Stack is too shallow for inline move_from()".into()));
     }
     let from = name_arg(vm, "Operation move_from() returned error")?;
     let to = name_arg(vm, "Operation move_from() returned error")?;
@@ -498,7 +492,9 @@ fn return_to(vm: &mut dyn Vm) -> Result<(), Error> {
 fn return_from(vm: &mut dyn Vm) -> Result<(), Error> {
     // `reference/rust_multistack/src/stdlib/workbench.rs:35-37`.
     if vm.depth() < 1 {
-        return Err(Error("Stack is too shallow for inline return_from()".into()));
+        return Err(Error(
+            "Stack is too shallow for inline return_from()".into(),
+        ));
     }
     let name = name_arg(vm, "Operation return_from() returned error")?;
     let Some(v) = vm.pull_from(&name) else {

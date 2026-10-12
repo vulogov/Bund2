@@ -190,20 +190,13 @@ impl Runtime {
     /// The threshold is still taken, and still ignored, for the reason
     /// [`Runtime::with_options_and_threshold`] takes it without the feature: a
     /// uniform command line must parse whether or not anything will use it.
-    pub fn for_debugging(
-        opts: &bund2_stdlib::host::HostOptions,
-        threshold: Option<u32>,
-    ) -> Self {
+    pub fn for_debugging(opts: &bund2_stdlib::host::HostOptions, threshold: Option<u32>) -> Self {
         Self::build(opts, threshold, false)
     }
 
     /// The one place a tier is installed, so §D6 is one `if` and not a policy
     /// spread over the constructors.
-    fn build(
-        opts: &bund2_stdlib::host::HostOptions,
-        threshold: Option<u32>,
-        tier: bool,
-    ) -> Self {
+    fn build(opts: &bund2_stdlib::host::HostOptions, threshold: Option<u32>, tier: bool) -> Self {
         // **Flag, then environment, then §S7's default.** The flag wins because
         // it is the more specific statement: a command line is about *this*
         // run, an environment variable about the shell it happened to run in.
@@ -267,7 +260,10 @@ impl Runtime {
         }
         #[cfg(not(feature = "jit"))]
         let _ = (threshold, tier);
-        Self { interp, startup_defect }
+        Self {
+            interp,
+            startup_defect,
+        }
     }
 
     /// The defect `build` found, if any, once. An embedder that drives
@@ -414,7 +410,10 @@ mod tests {
     #[test]
     fn a_startup_defect_waits_for_the_reporter_and_is_reported_once() {
         let mut rt = Runtime::new();
-        assert!(rt.startup_defect.is_none(), "the shipped fragments are well formed");
+        assert!(
+            rt.startup_defect.is_none(),
+            "the shipped fragments are well formed"
+        );
         rt.startup_defect = Some(Error::internal("a fragment is malformed"));
 
         let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
@@ -424,7 +423,13 @@ mod tests {
 
         let seen = seen.borrow();
         assert_eq!(seen.len(), 1, "{seen:?}");
-        assert!(seen[0].starts_with("internal error: a fragment is malformed"), "{seen:?}");
-        assert!(rt.take_startup_defect().is_none(), "reported, so nothing is left to take");
+        assert!(
+            seen[0].starts_with("internal error: a fragment is malformed"),
+            "{seen:?}"
+        );
+        assert!(
+            rt.take_startup_defect().is_none(),
+            "reported, so nothing is left to take"
+        );
     }
 }

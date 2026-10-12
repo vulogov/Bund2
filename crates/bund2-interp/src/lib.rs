@@ -22,9 +22,9 @@
     )
 )]
 
+mod declined;
 /// Executing a word's specialised arm — RFC-0005 §S6's first consumer.
 pub mod frag;
-mod declined;
 mod stacks;
 
 /// §D1's safepoint — RFC-0008's first consumer.
@@ -498,7 +498,11 @@ impl Interp {
     /// registry's cells.
     fn tier_to_offer(&mut self) -> Option<std::rc::Rc<dyn bund2_api::Tier>> {
         let tier = self.tier.as_ref()?;
-        if self.tier_for.as_ref().is_some_and(|id| self.registry.is(id)) {
+        if self
+            .tier_for
+            .as_ref()
+            .is_some_and(|id| self.registry.is(id))
+        {
             return Some(std::rc::Rc::clone(tier));
         }
         self.tier = None;
@@ -601,7 +605,10 @@ impl Interp {
         }
         if let Some(outer) = self.audit_inside {
             let callee = self.registry.interner.name(name).to_string();
-            self.audit_breach(outer, &format!("declares a fixed effect and dispatched `{callee}`"));
+            self.audit_breach(
+                outer,
+                &format!("declares a fixed effect and dispatched `{callee}`"),
+            );
         }
         let outer_native = self.audit_native.replace(name);
         let r = self.call_audited(name, n);
@@ -632,7 +639,10 @@ impl Interp {
         self.audit_inside = outer;
         if r.is_ok() && self.stacks.current_name() == stack {
             let (main1, wb1) = (self.depth(), self.stacks.workbench.len());
-            let (c, p) = (usize::from(n.effect.consumes), usize::from(n.effect.produces));
+            let (c, p) = (
+                usize::from(n.effect.consumes),
+                usize::from(n.effect.produces),
+            );
             if main0.checked_sub(c).map(|d| d + p) != Some(main1) {
                 self.audit_breach(
                     name,
@@ -926,20 +936,19 @@ impl Interp {
     /// is preserved verbatim in *shape*; the interpolated value cannot
     /// reproduce, because `{:?}` embeds `id` and `stamp` (F14).
     pub fn eval(&mut self, stream: &[BundValue]) -> Result<(), Error> {
-        self.eval_observed(stream, &mut |_| {})
-            .map_err(|(i, e)| {
-                // The reference wraps the failure with the value that caused
-                // it (`reference/bundcore/src/bundcore_eval.rs:33`), which is
-                // how it says *where* — it has no source positions. Bund2 has
-                // spans, so `eval_indexed` hands back the index and the bare
-                // reason and lets the caller say where properly. This wrapper
-                // survives only for callers that want the reference's text.
-                let v = stream.get(i).map(|v| v.render(false)).unwrap_or_default();
-                Error(format!(
-                    "Attempt to evaluate value {v} returned error: {}",
-                    e.0
-                ))
-            })
+        self.eval_observed(stream, &mut |_| {}).map_err(|(i, e)| {
+            // The reference wraps the failure with the value that caused
+            // it (`reference/bundcore/src/bundcore_eval.rs:33`), which is
+            // how it says *where* — it has no source positions. Bund2 has
+            // spans, so `eval_indexed` hands back the index and the bare
+            // reason and lets the caller say where properly. This wrapper
+            // survives only for callers that want the reference's text.
+            let v = stream.get(i).map(|v| v.render(false)).unwrap_or_default();
+            Error(format!(
+                "Attempt to evaluate value {v} returned error: {}",
+                e.0
+            ))
+        })
     }
 
     /// [`Interp::eval`], reporting **which value** failed.
@@ -1524,17 +1533,12 @@ impl Vm for Interp {
         // so the stop shows the stack as it was and the value as "next".
         if self.watch_hit() {
             let name = self.stacks.current_name().to_string();
-            if self
-                .debug
-                .as_ref()
-                .is_some_and(|d| d.watches_stack(&name))
-            {
+            if self.debug.as_ref().is_some_and(|d| d.watches_stack(&name)) {
                 self.safepoint_for(None, debug::Stop::Watch(name));
             }
         }
         self.stacks.current_mut().push(v);
     }
-
 
     fn pull(&mut self) -> Option<BundValue> {
         self.stacks.current_mut().pull()
@@ -2631,7 +2635,8 @@ mod tests {
         let mut i = Interp::new();
         i.registry
             .register_native("e", reports_error, StackEffect::opaque(0), WordKind::Sync);
-        i.registry.register_native("w", warns, eff(), WordKind::Sync);
+        i.registry
+            .register_native("w", warns, eff(), WordKind::Sync);
         i.effect_audit = Some(Vec::new());
         let _ = i.eval(&[BundValue::call("w"), BundValue::call("e")]);
         assert_eq!(
@@ -2685,18 +2690,21 @@ mod tests {
             Ok(())
         }
         let mut off = Interp::new();
-        off.registry.register_native("p", pushes, eff(), WordKind::Sync);
+        off.registry
+            .register_native("p", pushes, eff(), WordKind::Sync);
         assert!(off.eval(&[BundValue::call("p")]).is_ok());
         assert!(off.effect_audit.is_none());
 
         let mut on = Interp::new();
-        on.registry.register_native("p", pushes, eff(), WordKind::Sync);
+        on.registry
+            .register_native("p", pushes, eff(), WordKind::Sync);
         on.effect_audit = Some(Vec::new());
         assert!(on.eval(&[BundValue::call("p")]).is_ok());
         let log = on.effect_audit.take().unwrap_or_default();
         assert_eq!(log.len(), 1, "{log:?}");
         assert!(
-            log.iter().all(|l| l.starts_with("`p` declares a fixed effect and declares (0, 0)")),
+            log.iter()
+                .all(|l| l.starts_with("`p` declares a fixed effect and declares (0, 0)")),
             "{log:?}"
         );
     }
@@ -2710,15 +2718,19 @@ mod tests {
             panic!("boom from a dependency");
         }
         let mut i = Interp::new();
-        i.registry.register_native("boom", boom, eff(), WordKind::Sync);
-        let e = i.eval(&[BundValue::call("boom")]).expect_err("the panic is an error");
+        i.registry
+            .register_native("boom", boom, eff(), WordKind::Sync);
+        let e = i
+            .eval(&[BundValue::call("boom")])
+            .expect_err("the panic is an error");
         // `eval` wraps what it returns, so the internal error is inside it.
         assert!(
             e.0.contains("internal error: native `boom` panicked: boom from a dependency"),
             "{}",
             e.0
         );
-        i.eval(&[BundValue::int(1)]).expect("the interpreter still runs");
+        i.eval(&[BundValue::int(1)])
+            .expect("the interpreter still runs");
         assert_eq!(i.depth(), 1);
     }
 
@@ -3071,7 +3083,12 @@ mod tests {
             Err(Error("failed after filing".into()))
         }
         let mut i = Interp::new();
-        i.registry.register_native("ff", files_then_fails, StackEffect::opaque(0), WordKind::Sync);
+        i.registry.register_native(
+            "ff",
+            files_then_fails,
+            StackEffect::opaque(0),
+            WordKind::Sync,
+        );
         assert!(i.eval(&[BundValue::call("ff")]).is_err());
         i.eval(&[BundValue::int(1)]).expect("runs");
         assert_eq!(i.depth(), 1, "only the 1: the stale body did not run");
@@ -3090,7 +3107,8 @@ mod tests {
             Ok(())
         }
         let mut i = Interp::new();
-        i.registry.register_native("ex", exits, StackEffect::fixed(0, 0), WordKind::Sync);
+        i.registry
+            .register_native("ex", exits, StackEffect::fixed(0, 0), WordKind::Sync);
         i.effect_audit = Some(Vec::new());
         let _ = i.eval(&[BundValue::call("ex")]);
         let log = i.effect_audit.take().unwrap_or_default();
@@ -3133,7 +3151,9 @@ mod tests {
         }
     }
 
-    fn with_tier(answer: Option<Result<(), Error>>) -> (Interp, std::rc::Rc<std::cell::RefCell<Vec<usize>>>) {
+    fn with_tier(
+        answer: Option<Result<(), Error>>,
+    ) -> (Interp, std::rc::Rc<std::cell::RefCell<Vec<usize>>>) {
         let offered = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let mut i = Interp::new();
         i.install_tier(std::rc::Rc::new(FakeTier {
@@ -3196,14 +3216,21 @@ mod tests {
 
         i.eval_lambda(&body).expect("the tier ran it");
         assert_eq!(i.snapshot().last().and_then(BundValue::as_int), Some(99));
-        assert!(said.borrow().is_empty(), "nothing to say while the registry stands");
+        assert!(
+            said.borrow().is_empty(),
+            "nothing to say while the registry stands"
+        );
 
         i.registry = i.registry.clone();
         i.eval_lambda(&body).expect("interpreted");
         i.eval_lambda(&body).expect("and again");
         let stack: Vec<_> = i.snapshot().iter().filter_map(BundValue::as_int).collect();
         assert_eq!(stack, [99, 1, 1], "the body's own 1 twice: Tier 0 ran it");
-        assert_eq!(offered.borrow().len(), 1, "offered before the replacement and never after");
+        assert_eq!(
+            offered.borrow().len(),
+            1,
+            "offered before the replacement and never after"
+        );
         assert!(i.tier().is_none(), "the tier is gone, not merely skipped");
         let said = said.borrow();
         assert_eq!(said.len(), 1, "said once: {said:?}");
@@ -3270,7 +3297,11 @@ mod tests {
         i.install_tier(tier);
         i.eval_lambda(&body).expect("interpreted");
         i.eval_lambda(&body).expect("interpreted");
-        assert_eq!(offered.borrow().len(), 2, "asked again after the change, once");
+        assert_eq!(
+            offered.borrow().len(),
+            2,
+            "asked again after the change, once"
+        );
     }
 
     /// **Taking a tier out and installing it again is not a replacement**, and

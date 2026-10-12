@@ -68,8 +68,8 @@ fn with_pipes<T>(
 /// The reference's `bus_push`: serialise, then send, creating the channel if
 /// this is the first push to that name.
 fn push(name: String, v: &BundValue) -> Result<bool, String> {
-    let bytes = bund2_value::wire::to_binary(v)
-        .map_err(|e| format!("Error enveloping data: {e}"))?;
+    let bytes =
+        bund2_value::wire::to_binary(v).map_err(|e| format!("Error enveloping data: {e}"))?;
     with_pipes("a send", |m| {
         let (s, _) = m.entry(name).or_insert_with(unbounded);
         s.send(bytes)
@@ -418,7 +418,10 @@ mod tests {
         let out = run(r#""t_ensure" bus.data "t_ensure" recv"#).expect("runs");
         assert_eq!(out.len(), 2);
         assert_eq!(truth(&out[0]), Some(false), "nothing in it yet");
-        assert!(out[1].dt() == bund2_value::NODATA, "and so NODATA, not an error");
+        assert!(
+            out[1].dt() == bund2_value::NODATA,
+            "and so NODATA, not an error"
+        );
     }
 
     /// `bus.data.current` names the channel after the current stack, so the
@@ -445,7 +448,11 @@ mod tests {
         assert_eq!(out[1].as_int(), Some(9));
 
         let out = run(r#""t_wbr" 5 send.quick "t_wbr" { true } ?. recv."#).expect("runs");
-        assert_eq!(out.len(), 1, "the name left the workbench, the value came to the stack");
+        assert_eq!(
+            out.len(),
+            1,
+            "the name left the workbench, the value came to the stack"
+        );
         assert_eq!(out[0].as_int(), Some(5));
     }
 

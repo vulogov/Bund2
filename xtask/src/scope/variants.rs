@@ -166,7 +166,10 @@ pub fn report(variants: &[Variant], in_scope: &BTreeSet<String>) {
     bund2_api::sayln!("## the five partitions\n");
     bund2_api::sayln!(
         "  {:<12}{:>7}{:>10}{:>9}   closes by",
-        "variant", "core", "library", "core %"
+        "variant",
+        "core",
+        "library",
+        "core %"
     );
     for v in variants {
         bund2_api::sayln!(

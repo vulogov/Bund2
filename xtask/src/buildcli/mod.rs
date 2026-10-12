@@ -76,8 +76,7 @@ pub fn take_jit_threshold(args: &[String]) -> Result<(Option<u32>, Vec<String>),
 /// **Builds, never finds.** A path that happens to exist is not evidence about
 /// the code being measured.
 pub fn bund2(repo: &Path, release: bool, features: &str) -> Result<PathBuf, String> {
-    let mut cmd =
-        std::process::Command::new(std::env::var("CARGO").as_deref().unwrap_or("cargo"));
+    let mut cmd = std::process::Command::new(std::env::var("CARGO").as_deref().unwrap_or("cargo"));
     cmd.args(["build", "-q", "-p", "bund2-cli"]);
     if release {
         cmd.arg("--release");

@@ -54,7 +54,10 @@ impl Terminal {
         grantpt(&master).expect("grantpt");
         unlockpt(&master).expect("unlockpt");
         let name = ptsname(&master, Vec::new()).expect("ptsname");
-        let name = name.to_str().expect("a terminal's name is text").to_string();
+        let name = name
+            .to_str()
+            .expect("a terminal's name is text")
+            .to_string();
         let side = || {
             std::fs::OpenOptions::new()
                 .read(true)
@@ -87,7 +90,14 @@ impl Terminal {
                 }
             }
         });
-        Self { child, keys, screen, seen: String::new(), at: 0, home }
+        Self {
+            child,
+            keys,
+            screen,
+            seen: String::new(),
+            at: 0,
+            home,
+        }
     }
 
     /// Wait until `what` has been written, past whatever was last expected.
@@ -102,14 +112,19 @@ impl Terminal {
             match self.screen.recv_timeout(left) {
                 Ok(bytes) => self.seen.push_str(&String::from_utf8_lossy(&bytes)),
                 Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => {
-                    panic!("never saw {what:?} after byte {}. The terminal held:\n{:?}", self.at, self.seen)
+                    panic!(
+                        "never saw {what:?} after byte {}. The terminal held:\n{:?}",
+                        self.at, self.seen
+                    )
                 }
             }
         }
     }
 
     fn type_keys(&mut self, keys: &str) {
-        self.keys.write_all(keys.as_bytes()).expect("the terminal takes keys");
+        self.keys
+            .write_all(keys.as_bytes())
+            .expect("the terminal takes keys");
         self.keys.flush().expect("flush");
     }
 
@@ -123,7 +138,9 @@ impl Terminal {
         use rustix::termios::{LocalModes, tcgetattr};
         let deadline = Instant::now() + PATIENCE;
         loop {
-            let modes = tcgetattr(&self.keys).expect("the terminal's modes").local_modes;
+            let modes = tcgetattr(&self.keys)
+                .expect("the terminal's modes")
+                .local_modes;
             if !modes.contains(LocalModes::ECHO) {
                 return;
             }
@@ -146,7 +163,11 @@ impl Terminal {
             if let Some(status) = self.child.try_wait().expect("wait") {
                 return status.code();
             }
-            assert!(Instant::now() < deadline, "the program never ended:\n{:?}", self.seen);
+            assert!(
+                Instant::now() < deadline,
+                "the program never ended:\n{:?}",
+                self.seen
+            );
             // Keep the terminal drained, or a full buffer blocks the child.
             if let Ok(bytes) = self.screen.recv_timeout(Duration::from_millis(20)) {
                 self.seen.push_str(&String::from_utf8_lossy(&bytes));
@@ -163,7 +184,10 @@ impl Terminal {
                     if let Some(found) = find(&p) {
                         return Some(found);
                     }
-                } else if p.file_name().is_some_and(|n| n == "bund2_debugger_history.txt") {
+                } else if p
+                    .file_name()
+                    .is_some_and(|n| n == "bund2_debugger_history.txt")
+                {
                     return Some(p);
                 }
             }
@@ -178,7 +202,8 @@ impl Terminal {
 /// program's own `input` on the same terminal once it runs on.
 #[test]
 fn a_console_attached_by_a_word_is_a_prompt_with_a_history() {
-    let src = "\"start\" println\ndebug.step\n\"name? \" input string.upper println\n\"end\" println\n";
+    let src =
+        "\"start\" println\ndebug.step\n\"name? \" input string.upper println\n\"end\" println\n";
     let mut t = Terminal::run(src, &[]);
     t.expect("start");
 
@@ -232,7 +257,11 @@ fn a_password_is_read_on_the_terminal_after_a_session() {
     t.expect("....");
     t.expect("HUSH");
     assert_eq!(t.ends(), Some(0));
-    assert!(!t.seen.contains("hush"), "the keys were echoed:\n{:?}", t.seen);
+    assert!(
+        !t.seen.contains("hush"),
+        "the keys were echoed:\n{:?}",
+        t.seen
+    );
 }
 
 /// `--debugger` at a terminal: the plain console, a line fed to the program,

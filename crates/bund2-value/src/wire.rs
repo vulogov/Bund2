@@ -158,7 +158,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use super::{
-    format_id, mint, now_ms, BundValue, HeapValue, Metric, Payload, StackSym, JSON, NODATA, NONE,
+    BundValue, HeapValue, JSON, Metric, NODATA, NONE, Payload, StackSym, format_id, mint, now_ms,
 };
 
 /// The tag the reference gives a JSON value it has wrapped as a string for
@@ -269,7 +269,9 @@ impl WireValue {
             };
             let data = match node.shape {
                 Shape::Leaf(val) => val,
-                Shape::List(ids) => Val::List(ids.into_iter().map(|k| take(k, &mut built)).collect()),
+                Shape::List(ids) => {
+                    Val::List(ids.into_iter().map(|k| take(k, &mut built)).collect())
+                }
                 Shape::Lambda(ids) => {
                     Val::Lambda(ids.into_iter().map(|k| take(k, &mut built)).collect())
                 }
@@ -291,11 +293,7 @@ impl WireValue {
                         .collect(),
                 ),
             };
-            let attr = node
-                .attr
-                .into_iter()
-                .map(|k| take(k, &mut built))
-                .collect();
+            let attr = node.attr.into_iter().map(|k| take(k, &mut built)).collect();
             built[i] = Some(WireValue {
                 id: node.id,
                 stamp: node.stamp,
@@ -425,7 +423,7 @@ impl WireValue {
             // The four container arms never reach here: `wire_node_of` turns
             // them into child indices before this is called.
             Val::List(_) | Val::Lambda(_) | Val::Map(_) | Val::ValueMap(_) => {
-                return Err("a container reached the leaf decoder".to_string())
+                return Err("a container reached the leaf decoder".to_string());
             }
             Val::Metrics(ms) => Payload::Metrics(
                 ms.into_iter()
@@ -483,17 +481,11 @@ fn wire_node_of(mut w: WireValue, queue: &mut Vec<WireValue>) -> Result<WireNode
         queue.len() - 1
     };
     let shape = match data {
-        Val::List(items) => {
-            WireShape::List(items.into_iter().map(|x| push(x, queue)).collect())
-        }
+        Val::List(items) => WireShape::List(items.into_iter().map(|x| push(x, queue)).collect()),
         Val::Lambda(items) => {
             WireShape::Lambda(items.into_iter().map(|x| push(x, queue)).collect())
         }
-        Val::Map(m) => WireShape::Map(
-            m.into_iter()
-                .map(|(k, x)| (k, push(x, queue)))
-                .collect(),
-        ),
+        Val::Map(m) => WireShape::Map(m.into_iter().map(|(k, x)| (k, push(x, queue))).collect()),
         Val::ValueMap(pairs) => WireShape::ValueMap(
             pairs
                 .into_iter()
@@ -684,9 +676,7 @@ fn node_of(v: &BundValue, queue: &mut Vec<BundValue>) -> Node {
                     })
                     .collect(),
             )),
-            Payload::List(items) => {
-                Shape::List(items.iter().map(|x| push(x, queue)).collect())
-            }
+            Payload::List(items) => Shape::List(items.iter().map(|x| push(x, queue)).collect()),
             // Rows of indices: the cells are queued like any other child, and
             // the row structure is rebuilt when the node is assembled.
             Payload::Matrix(rows) => Shape::Matrix(
@@ -694,14 +684,10 @@ fn node_of(v: &BundValue, queue: &mut Vec<BundValue>) -> Node {
                     .map(|row| row.iter().map(|x| push(x, queue)).collect())
                     .collect(),
             ),
-            Payload::Lambda(items) => {
-                Shape::Lambda(items.iter().map(|x| push(x, queue)).collect())
+            Payload::Lambda(items) => Shape::Lambda(items.iter().map(|x| push(x, queue)).collect()),
+            Payload::Map(m) => {
+                Shape::Map(m.iter().map(|(k, x)| (k.clone(), push(x, queue))).collect())
             }
-            Payload::Map(m) => Shape::Map(
-                m.iter()
-                    .map(|(k, x)| (k.clone(), push(x, queue)))
-                    .collect(),
-            ),
             Payload::ValueMap(m) => Shape::ValueMap(
                 m.iter()
                     .map(|(k, x)| (push(k, queue), push(x, queue)))
@@ -820,7 +806,12 @@ mod conversion_tests {
         // `[ 1 2.5 "x" true ]`. Inside a list literal `true` is not evaluated,
         // so the oracle stored it as the word call it is.
         assert_eq!(v[0].dt(), LIST);
-        let kinds: Vec<u16> = v[0].as_list().expect("list").iter().map(BundValue::dt).collect();
+        let kinds: Vec<u16> = v[0]
+            .as_list()
+            .expect("list")
+            .iter()
+            .map(BundValue::dt)
+            .collect();
         assert_eq!(kinds, vec![INTEGER, FLOAT, STRING, CALL]);
         // `dict "a" 1 set`
         assert_eq!(v[1].dt(), MAP);
@@ -900,8 +891,14 @@ mod conversion_tests {
         };
         // The assembly is the wire format: two levels of it decode.
         let two = from_binary(&nested(2)).expect("a hand-assembled payload decodes");
-        let inner = two.as_list().and_then(|l| l.first()).and_then(|v| v.as_list());
-        assert_eq!(inner.and_then(|l| l.first()).and_then(BundValue::as_int), Some(7));
+        let inner = two
+            .as_list()
+            .and_then(|l| l.first())
+            .and_then(|v| v.as_list());
+        assert_eq!(
+            inner.and_then(|l| l.first()).and_then(BundValue::as_int),
+            Some(7)
+        );
 
         let deep = nested(100_000);
         let shallow = nested(2);
@@ -916,7 +913,10 @@ mod conversion_tests {
             .join()
             .expect("the decode returned");
         let e = done.0.expect_err("past the bound");
-        assert!(e.contains("nests") && e.contains(&MAX_WIRE_DEPTH.to_string()), "{e}");
+        assert!(
+            e.contains("nests") && e.contains(&MAX_WIRE_DEPTH.to_string()),
+            "{e}"
+        );
         assert!(done.1, "a later decode on the same thread starts from zero");
     }
 
@@ -1042,7 +1042,11 @@ mod conversion_tests {
         };
         let v = w.into_value().expect("TIME has a form now");
         assert_eq!(v.dt(), 13);
-        assert!(v.render(true).contains("Time(1700000000)"), "{}", v.render(true));
+        assert!(
+            v.render(true).contains("Time(1700000000)"),
+            "{}",
+            v.render(true)
+        );
     }
 }
 

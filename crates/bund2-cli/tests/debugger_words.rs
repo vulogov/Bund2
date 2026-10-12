@@ -15,7 +15,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// rewrote the developer's own.
 fn bund2() -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_bund2"));
-    c.env("XDG_CONFIG_HOME", std::env::temp_dir().join(format!("bund2-test-config-{}", std::process::id())));
+    c.env(
+        "XDG_CONFIG_HOME",
+        std::env::temp_dir().join(format!("bund2-test-config-{}", std::process::id())),
+    );
     c
 }
 
@@ -39,7 +42,11 @@ fn session(src: &str, script: Option<&str>) -> (String, String, Option<i32>) {
     }
     c.args(["script", "--file"]).arg(&path);
     c.stdout(Stdio::piped()).stderr(Stdio::piped());
-    c.stdin(if script.is_some() { Stdio::piped() } else { Stdio::null() });
+    c.stdin(if script.is_some() {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    });
     let mut ch = c.spawn().expect("bund2 runs");
     if let Some(script) = script {
         let mut pipe = ch.stdin.take().expect("stdin");
@@ -77,7 +84,10 @@ fn a_view_is_the_same_text_in_a_script_a_shell_and_a_console() {
 #[test]
 fn the_views_see_the_run_they_are_asked_from() {
     let (out, _, _) = session(":w { debug.backtrace } register\nw\n", None);
-    assert!(out.starts_with("#0  w at "), "the frame is the word's:\n{out}");
+    assert!(
+        out.starts_with("#0  w at "),
+        "the frame is the word's:\n{out}"
+    );
 
     let (out, _, _) = session("debug.info\n", None);
     assert_eq!(out, "no debugger is attached\n");
@@ -93,8 +103,15 @@ fn the_views_see_the_run_they_are_asked_from() {
 #[test]
 fn a_typed_line_runs_in_the_program_and_is_not_stepped() {
     let (out, err, code) = session("println\n", Some("10 20 +\nst\nc\n"));
-    assert!(err.contains("@main\n  30\n"), "the line's effect is on the stack:\n{err}");
-    assert_eq!(err.matches("next:").count(), 1, "the line's values were stops:\n{err}");
+    assert!(
+        err.contains("@main\n  30\n"),
+        "the line's effect is on the stack:\n{err}"
+    );
+    assert_eq!(
+        err.matches("next:").count(),
+        1,
+        "the line's values were stops:\n{err}"
+    );
     assert_eq!(out, "30\n", "and the program ran on with it");
     assert_eq!(code, Some(0));
 }
@@ -135,7 +152,10 @@ fn a_line_typed_at_a_watch_stop_runs_before_the_watched_push() {
     let src = "@other 3 debug.display_stack\n";
     let (out, _, _) = session(src, Some("watch @other\nc\n77\nc\n"));
     let (a, b) = (out.find("I64(77)"), out.find("I64(3)"));
-    assert!(a.is_some() && b.is_some(), "both values are on the stack:\n{out}");
+    assert!(
+        a.is_some() && b.is_some(),
+        "both values are on the stack:\n{out}"
+    );
 }
 
 /// **W5, the console half: a fed line reaches a debugged program's read**,
@@ -164,8 +184,14 @@ fn a_breakpoint_on_a_native_stops_before_it_runs() {
     let src = "\"name? \" input println\n\"end\" println\n";
     let (out, err, code) = session(src, Some("break input\nc\nst\n\"alice\" debug.feed\nc\n"));
     assert_eq!(err.matches("breakpoint: input").count(), 1, "{err}");
-    assert!(err.contains("name? "), "the prompt is still an operand:\n{err}");
-    assert_eq!(out, "alice\nend\n", "the read took the line fed at its own stop");
+    assert!(
+        err.contains("name? "),
+        "the prompt is still an operand:\n{err}"
+    );
+    assert_eq!(
+        out, "alice\nend\n",
+        "the read took the line fed at its own stop"
+    );
     assert_eq!(code, Some(0));
 
     // Every call is a stop. An alias stops under the name it was armed by,
@@ -206,10 +232,23 @@ fn a_breakpoint_on_a_native_stops_before_it_runs() {
 fn a_failing_line_stays_stopped_and_an_exiting_line_ends_the_program() {
     let src = "\"end\" println\n";
     let (out, err, code) = session(src, Some("stpe\nst\nc\n"));
-    assert!(err.contains("bund2: stpe not registered"), "the failure is said:\n{err}");
-    assert!(!err.contains("Attempt to evaluate"), "in the word's own words:\n{err}");
-    assert_eq!(err.matches("next:").count(), 1, "the typo moved the program:\n{err}");
-    assert!(err.contains("@main"), "and the next command was answered:\n{err}");
+    assert!(
+        err.contains("bund2: stpe not registered"),
+        "the failure is said:\n{err}"
+    );
+    assert!(
+        !err.contains("Attempt to evaluate"),
+        "in the word's own words:\n{err}"
+    );
+    assert_eq!(
+        err.matches("next:").count(),
+        1,
+        "the typo moved the program:\n{err}"
+    );
+    assert!(
+        err.contains("@main"),
+        "and the next command was answered:\n{err}"
+    );
     assert_eq!(out, "end\n");
     assert_eq!(code, Some(0));
 
@@ -225,8 +264,14 @@ fn stack_is_the_bund_word_and_st_is_the_view() {
     // `stack` is `ensure_stack`: it makes the stack it names and moves to it,
     // so the session's own view then shows that stack.
     let (out, err, code) = session("1\n", Some("\"side\" stack\ndebug.stacks\nst\nc\n"));
-    assert!(out.contains("* @side"), "`stack` ran as the Bund word:\n{out}");
-    assert!(err.contains("@side\n"), "`st` renders the current stack:\n{err}");
+    assert!(
+        out.contains("* @side"),
+        "`stack` ran as the Bund word:\n{out}"
+    );
+    assert!(
+        err.contains("@side\n"),
+        "`st` renders the current stack:\n{err}"
+    );
     assert_eq!(code, Some(0));
 }
 
@@ -267,7 +312,10 @@ fn a_script_arms_a_breakpoint_and_is_stopped_at_it() {
     let src = ":w { 7 8 + } register\n\"w\" debug.break\n\"before\" println\nw println\n\"end\" println\n";
     let (out, err, code) = scripted(src, "\"at\" println\nc\n", &[]);
     assert_eq!(err.matches("breakpoint: w").count(), 1, "{err}");
-    assert_eq!(out, "before\nat\n15\nend\n", "armed quietly, stopped before the body");
+    assert_eq!(
+        out, "before\nat\n15\nend\n",
+        "armed quietly, stopped before the body"
+    );
     assert_eq!(code, Some(0));
 }
 
@@ -277,8 +325,15 @@ fn a_script_arms_a_breakpoint_and_is_stopped_at_it() {
 fn debug_step_in_a_script_stops_before_the_next_value() {
     let src = "\"a\" println\ndebug.step\n\"b\" println\n\"end\" println\n";
     let (out, err, code) = scripted(src, "st\ns\ns\nc\n", &[]);
-    assert!(err.contains("next: \"b\""), "the stop names what is next:\n{err}");
-    assert_eq!(err.matches("next:").count(), 3, "one stop, then two steps:\n{err}");
+    assert!(
+        err.contains("next: \"b\""),
+        "the stop names what is next:\n{err}"
+    );
+    assert_eq!(
+        err.matches("next:").count(),
+        3,
+        "one stop, then two steps:\n{err}"
+    );
     assert_eq!(out, "a\nb\nend\n");
     assert_eq!(code, Some(0));
 }
@@ -305,8 +360,7 @@ fn a_word_and_the_console_arm_the_same_debugger() {
                  \"workbench\" debug.delete\ndebug.info\nc\n";
     let (out, _, code) = scripted(src, typed, &[]);
     assert_eq!(
-        out,
-        "break v\nbreak w\nwatch @errors\nwatch workbench\nwatch @errors\nend\n",
+        out, "break v\nbreak w\nwatch @errors\nwatch workbench\nwatch @errors\nend\n",
         "both armings, then what is left"
     );
     assert_eq!(code, Some(0));
@@ -330,13 +384,19 @@ fn the_moving_words_move() {
     let src = ":w { debug.finish 1 drop 2 drop } register\nw\n\"after\" println\n";
     let (out, err, _) = scripted(src, "c\n", &[]);
     assert_eq!(err.matches("next:").count(), 1, "{err}");
-    assert!(err.contains("next: \"after\""), "the stop is outside the body:\n{err}");
+    assert!(
+        err.contains("next: \"after\""),
+        "the stop is outside the body:\n{err}"
+    );
     assert_eq!(out, "after\n");
 
     // `debug.next` inside a body stops at the body's next value.
     let src = ":w { debug.next 41 drop } register\nw\n";
     let (_, err, _) = scripted(src, "c\n", &[]);
-    assert!(err.contains("w at 1  next: 41"), "the stop is in the body:\n{err}");
+    assert!(
+        err.contains("w at 1  next: 41"),
+        "the stop is in the body:\n{err}"
+    );
 }
 
 /// **D113.5's ruling: `debug.run` evaluates a string stopped at its first
@@ -377,7 +437,10 @@ fn debug_run_steps_the_terms_of_its_string() {
     let src = ":w { 7 + } register\ndebug.step \"1 2 w println\" bund.eval\n";
     let (_, err, _) = scripted(src, "s\ns\ns\ns\ns\nc\n", &[]);
     assert!(err.contains("w at 0  next: 7"), "{err}");
-    assert!(!err.contains("next: 2"), "a term of the string was a stop:\n{err}");
+    assert!(
+        !err.contains("next: 2"),
+        "a term of the string was a stop:\n{err}"
+    );
 }
 
 /// Inside a word the stop names the string's position and not the frame's,
@@ -387,12 +450,18 @@ fn debug_run_inside_a_word_and_on_a_failing_term() {
     let src = ":v { \"1 println\" debug.run } register\nv\n";
     let (out, err, _) = scripted(src, "bt\nc\n", &[]);
     assert!(err.contains("debug.run's string at 0  next: 1"), "{err}");
-    assert!(err.contains("#0  v at"), "the frame is still in the backtrace:\n{err}");
+    assert!(
+        err.contains("#0  v at"),
+        "the frame is still in the backtrace:\n{err}"
+    );
     assert_eq!(out, "1\n");
 
     let (out, err, _) = scripted("\"1 nosuch\" debug.run \"after\" println\n", "c\n", &[]);
     assert!(out.contains("nosuch not registered"), "{out}\n{err}");
-    assert!(!out.contains("after\n"), "the program stopped at the failure:\n{out}");
+    assert!(
+        !out.contains("after\n"),
+        "the program stopped at the failure:\n{out}"
+    );
 }
 
 /// A condition given by a word is the console's condition: Bund source, run
@@ -433,8 +502,14 @@ fn a_condition_is_no_freer_than_the_program_that_armed_it() {
             .expect("bund2 runs");
         let stdout = String::from_utf8_lossy(&out.stdout);
         let stderr = String::from_utf8_lossy(&out.stderr);
-        assert_eq!(stdout, "end\n", "{flag}: the condition printed nothing\n{stderr}");
-        assert!(stderr.contains(refusal), "{flag}: and was refused by the stub:\n{stderr}");
+        assert_eq!(
+            stdout, "end\n",
+            "{flag}: the condition printed nothing\n{stderr}"
+        );
+        assert!(
+            stderr.contains(refusal),
+            "{flag}: and was refused by the stub:\n{stderr}"
+        );
     }
 }
 
@@ -449,7 +524,11 @@ fn a_condition_is_no_freer_than_the_program_that_armed_it() {
 fn a_breakpoint_armed_beside_a_tier_still_fires() {
     let src = ":w { 1 2 + drop } register\nw w w w w w\n\"w\" debug.break\nw\n\"end\" println\n";
     let (out, err, code) = scripted(src, "c\n", &["--stats", "--jit-threshold", "1"]);
-    assert_eq!(err.matches("breakpoint: w").count(), 1, "the stop was missed:\n{err}");
+    assert_eq!(
+        err.matches("breakpoint: w").count(),
+        1,
+        "the stop was missed:\n{err}"
+    );
     assert_eq!(out, "end\n");
     assert_eq!(code, Some(0));
     if err.contains("no tier") {
@@ -495,7 +574,11 @@ fn a_breakpoint_armed_beneath_two_compiled_bodies_fires_and_turns_the_tier_off()
                t\n\
                \"end\" println\n";
     let (out, err, code) = scripted(src, "c\n", &["--stats", "--jit-threshold", "1"]);
-    assert_eq!(err.matches("breakpoint: t").count(), 1, "the stop was missed:\n{err}");
+    assert_eq!(
+        err.matches("breakpoint: t").count(),
+        1,
+        "the stop was missed:\n{err}"
+    );
     assert_eq!(out, "armed\nend\n", "{err}");
     assert_eq!(code, Some(0));
     if err.contains("no tier") {

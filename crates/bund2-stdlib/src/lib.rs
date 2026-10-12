@@ -41,13 +41,13 @@ pub mod oop;
 
 /// The specialised arms Bund2 publishes — RFC-0005 §S6.
 pub mod fragments;
+pub mod library;
+/// `bund/string`'s library group, and every `.`-suffixed sibling.
+pub mod library_string;
 /// The natives promotion may cross, as registration ids — D48's list read as a
 /// table, beside §S6's fragments. D68 needs both: which calls may be inlined,
 /// and which may be crossed.
 pub mod promotable;
-pub mod library;
-/// `bund/string`'s library group, and every `.`-suffixed sibling.
-pub mod library_string;
 /// The Porter stemmer `string.tokenize.stemmed` needs, written out rather than
 /// brought in -- see the module's own note for why, and for what verifies it.
 mod stem;
@@ -319,13 +319,19 @@ mod honesty_tests {
             let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
                 continue;
             };
-            let golden = root.join("tests/golden/probes").join(format!("{stem}.golden"));
+            let golden = root
+                .join("tests/golden/probes")
+                .join(format!("{stem}.golden"));
             if path.extension().is_some_and(|x| x == "bund") && golden.exists() {
                 programs.push(path);
             }
         }
         programs.sort();
-        assert!(programs.len() > 80, "found only {} programs", programs.len());
+        assert!(
+            programs.len() > 80,
+            "found only {} programs",
+            programs.len()
+        );
 
         let mut breaches = Vec::new();
         for path in &programs {
@@ -340,7 +346,11 @@ mod honesty_tests {
             i.effect_audit = Some(Vec::new());
             // Failing is fine: many programs fail on purpose.
             let _ = i.eval(&values);
-            let shown = path.strip_prefix(&root).unwrap_or(path).display().to_string();
+            let shown = path
+                .strip_prefix(&root)
+                .unwrap_or(path)
+                .display()
+                .to_string();
             for b in i.effect_audit.take().unwrap_or_default() {
                 breaches.push(format!("{shown}: {b}"));
             }
@@ -407,7 +417,11 @@ mod honesty_tests {
     fn without_ids(s: &str) -> String {
         let number = |c: char| !(c.is_ascii_digit() || matches!(c, '.' | 'e' | '+' | '-'));
         let mut s = blank(s, "id: \"", |c| c == '"');
-        for prefix in ["stamp: ", "identity: Cell { value: ", "stamp: Cell { value: "] {
+        for prefix in [
+            "stamp: ",
+            "identity: Cell { value: ",
+            "stamp: Cell { value: ",
+        ] {
             s = blank(&s, prefix, number);
         }
         s
@@ -486,7 +500,10 @@ mod honesty_tests {
         let switched = i.current_name() != "main";
         let intact = switched
             || (snap.len() >= pad.len()
-                && snap.iter().zip(pad).all(|(got, put)| got.display() == put.display()));
+                && snap
+                    .iter()
+                    .zip(pad)
+                    .all(|(got, put)| got.display() == put.display()));
         Run {
             intact,
             ok: r.is_ok(),
@@ -666,7 +683,11 @@ mod honesty_tests {
             if stacks != ["main", OTHER] {
                 return Some(format!("the stacks are now {stacks:?}"));
             }
-            let now: Vec<String> = i.snapshot_of(OTHER).iter().map(BundValue::display).collect();
+            let now: Vec<String> = i
+                .snapshot_of(OTHER)
+                .iter()
+                .map(BundValue::display)
+                .collect();
             let was: Vec<String> = held.iter().map(BundValue::display).collect();
             if now != was {
                 return Some(format!("{OTHER} now holds {now:?}"));
@@ -719,7 +740,8 @@ mod honesty_tests {
                         runs += 1;
                         oks += usize::from(r.is_ok());
                         if let Some(why) = disturbed(&i) {
-                            offenders.insert(format!("{name}, operand {at} from the bottom: {why}"));
+                            offenders
+                                .insert(format!("{name}, operand {at} from the bottom: {why}"));
                         }
                     }
                 }
@@ -815,7 +837,11 @@ mod honesty_tests {
         // What lies beneath the operands: the usual padding, and other values
         // for the comparison.
         let pad_a = vec![BundValue::int(7); 3];
-        let pad_c = vec![BundValue::str("pad"), BundValue::float(0.5), BundValue::int(-3)];
+        let pad_c = vec![
+            BundValue::str("pad"),
+            BundValue::float(0.5),
+            BundValue::int(-3),
+        ];
         for (name, e) in &natives {
             let depth = usize::from(e.consumes);
             let bench = name.ends_with('.') || name.ends_with(',');
@@ -849,8 +875,9 @@ mod honesty_tests {
                     let mut ops: Vec<BundValue> = vec![BundValue::int(7); depth - varied];
                     ops.extend(t.iter().map(|&x| palette[x].clone()));
                     let wbv = w.map(|x| palette[x].clone());
-                    let run =
-                        |pad: &[BundValue]| run_one(&template, name, e.produces, pad, &ops, wbv.as_ref());
+                    let run = |pad: &[BundValue]| {
+                        run_one(&template, name, e.produces, pad, &ops, wbv.as_ref())
+                    };
                     // How many more identical runs F163's recheck makes.
                     // Sixteen puts a two-outcome coin at 1 in 131,072 and
                     // `string.random.word` far beyond counting.
@@ -879,7 +906,8 @@ mod honesty_tests {
                             });
                         }
                     }
-                    let compare = !t.iter().any(|&x| f14_kind[x]) && !w.is_some_and(|x| f14_kind[x]);
+                    let compare =
+                        !t.iter().any(|&x| f14_kind[x]) && !w.is_some_and(|x| f14_kind[x]);
                     if compare {
                         if !a1.same(&a2) {
                             nondet = true;
@@ -984,7 +1012,9 @@ mod honesty_tests {
                 out.push_str(n);
                 out.push('\n');
             }
-            out.push_str("#\n# Reached, but seen reading beyond their operands (D55), so never crossed:\n");
+            out.push_str(
+                "#\n# Reached, but seen reading beyond their operands (D55), so never crossed:\n",
+            );
             for (n, why) in &observers {
                 if reached.contains(n) {
                     out.push_str(&format!("# observes: {n} — {why}\n"));
@@ -1066,8 +1096,18 @@ mod honesty_tests {
                     // By keyword rather than "anything at column 0": a test's
                     // multi-line string literal puts Bund source there.
                     const OPENERS: [&str; 12] = [
-                        "fn ", "pub ", "const ", "static ", "struct ", "enum ", "impl", "type ",
-                        "use ", "mod ", "macro_rules!", "#[",
+                        "fn ",
+                        "pub ",
+                        "const ",
+                        "static ",
+                        "struct ",
+                        "enum ",
+                        "impl",
+                        "type ",
+                        "use ",
+                        "mod ",
+                        "macro_rules!",
+                        "#[",
                     ];
                     if !OPENERS.iter().any(|o| line.starts_with(o)) {
                         continue;
@@ -1083,8 +1123,14 @@ mod honesty_tests {
                 }
             }
         }
-        assert!(files > 20, "the scan found {files} files; it is looking in the wrong place");
-        assert!(found.is_empty(), "shipped code after a test module, unseen by the scans: {found:#?}");
+        assert!(
+            files > 20,
+            "the scan found {files} files; it is looking in the wrong place"
+        );
+        assert!(
+            found.is_empty(),
+            "shipped code after a test module, unseen by the scans: {found:#?}"
+        );
     }
 
     /// **Criterion 25.** No shipped code in this crate reports at `Error`

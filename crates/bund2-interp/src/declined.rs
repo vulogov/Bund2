@@ -127,7 +127,10 @@ mod tests {
     fn a_remembered_body_is_held_and_no_other() {
         let mut d = Declined::default();
         let (a, b) = (body(1), body(2));
-        let (ka, kb) = (a.payload_key().expect("a key"), b.payload_key().expect("a key"));
+        let (ka, kb) = (
+            a.payload_key().expect("a key"),
+            b.payload_key().expect("a key"),
+        );
         assert!(!d.holds(ka), "nothing is held by an empty table");
         assert!(d.table.is_none(), "and there is no table yet");
         d.remember(&a);
@@ -152,7 +155,11 @@ mod tests {
             later.iter().all(|b| b.payload_key() != Some(key)),
             "the allocation was reused under a remembered key"
         );
-        assert!(later.iter().all(|b| !d.holds(b.payload_key().expect("a key"))));
+        assert!(
+            later
+                .iter()
+                .all(|b| !d.holds(b.payload_key().expect("a key")))
+        );
     }
 
     /// **Bounded by construction.** Ten thousand bodies are remembered and
@@ -165,14 +172,22 @@ mod tests {
             d.remember(b);
         }
         assert!(d.len() <= SLOTS, "{} entries", d.len());
-        assert!(d.len() > SLOTS / 2, "{} entries: the slots are not being used", d.len());
+        assert!(
+            d.len() > SLOTS / 2,
+            "{} entries: the slots are not being used",
+            d.len()
+        );
         let last = bodies.last().expect("ten thousand");
         assert!(d.holds(last.payload_key().expect("a key")));
         let held = bodies
             .iter()
             .filter(|b| d.holds(b.payload_key().expect("a key")))
             .count();
-        assert_eq!(held, d.len(), "every entry answers for exactly its own body");
+        assert_eq!(
+            held,
+            d.len(),
+            "every entry answers for exactly its own body"
+        );
     }
 
     /// A scalar has no payload, so there is nothing to remember.

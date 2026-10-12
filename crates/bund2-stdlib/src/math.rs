@@ -611,7 +611,9 @@ fn data_series(vm: &mut dyn Vm, prefix: &str) -> Result<Vec<f64>, Error> {
         let f = crate::convert::conv_value(v, bund2_value::FLOAT)?;
         match *f.unboxed() {
             BundValue::Float(x, _) => Ok(x),
-            _ => Err(Error::internal("a conversion to FLOAT answered another kind")),
+            _ => Err(Error::internal(
+                "a conversion to FLOAT answered another kind",
+            )),
         }
     };
     let mut res: Vec<f64> = Vec::new();
@@ -634,9 +636,9 @@ fn data_series(vm: &mut dyn Vm, prefix: &str) -> Result<Vec<f64>, Error> {
             let m = vm
                 .pull()
                 .ok_or_else(|| Error(format!("{prefix} returns NO DATA")))?;
-            let metrics = m
-                .as_metrics()
-                .ok_or_else(|| Error(format!("{prefix} did not find a metric type on the stack")))?;
+            let metrics = m.as_metrics().ok_or_else(|| {
+                Error(format!("{prefix} did not find a metric type on the stack"))
+            })?;
             res.extend(metrics.iter().map(|x| x.data));
         }
         bund2_value::NODATA => return Err(Error(format!("{prefix} END OF DATA"))),
@@ -645,9 +647,11 @@ fn data_series(vm: &mut dyn Vm, prefix: &str) -> Result<Vec<f64>, Error> {
                 if v.dt() == bund2_value::NODATA {
                     break;
                 }
-                res.push(as_float(&v).map_err(|e| {
-                    Error(format!("{prefix} returns during conversion: {}", e.0))
-                })?);
+                res.push(
+                    as_float(&v).map_err(|e| {
+                        Error(format!("{prefix} returns during conversion: {}", e.0))
+                    })?,
+                );
             }
         }
     }
@@ -744,14 +748,54 @@ pub fn register(r: &mut Registry) {
     // The folds (D12): opaque, because each consumes the stack down to its end
     // or a NODATA. Registered at `reference/rust_multistackvm/src/stdlib/math/`
     // `add.rs:25-26`, `sub.rs:25-26`, `mul.rs:25-26` and `div.rs:25-26`.
-    r.register_native("*+", |vm| fold(Op::Add, vm, crate::wb::Side::Stack), StackEffect::opaque(2), WordKind::Sync);
-    r.register_native("*-", |vm| fold(Op::Sub, vm, crate::wb::Side::Stack), StackEffect::opaque(2), WordKind::Sync);
-    r.register_native("**", |vm| fold(Op::Mul, vm, crate::wb::Side::Stack), StackEffect::opaque(2), WordKind::Sync);
-    r.register_native("*/", |vm| fold(Op::Div, vm, crate::wb::Side::Stack), StackEffect::opaque(2), WordKind::Sync);
-    r.register_native("*+.",|vm| fold(Op::Add, vm, crate::wb::Side::Bench), StackEffect::opaque(1), WordKind::Sync);
-    r.register_native("*-.", |vm| fold(Op::Sub, vm, crate::wb::Side::Bench), StackEffect::opaque(1), WordKind::Sync);
-    r.register_native("**.", |vm| fold(Op::Mul, vm, crate::wb::Side::Bench), StackEffect::opaque(1), WordKind::Sync);
-    r.register_native("*/.", |vm| fold(Op::Div, vm, crate::wb::Side::Bench), StackEffect::opaque(1), WordKind::Sync);
+    r.register_native(
+        "*+",
+        |vm| fold(Op::Add, vm, crate::wb::Side::Stack),
+        StackEffect::opaque(2),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "*-",
+        |vm| fold(Op::Sub, vm, crate::wb::Side::Stack),
+        StackEffect::opaque(2),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "**",
+        |vm| fold(Op::Mul, vm, crate::wb::Side::Stack),
+        StackEffect::opaque(2),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "*/",
+        |vm| fold(Op::Div, vm, crate::wb::Side::Stack),
+        StackEffect::opaque(2),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "*+.",
+        |vm| fold(Op::Add, vm, crate::wb::Side::Bench),
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "*-.",
+        |vm| fold(Op::Sub, vm, crate::wb::Side::Bench),
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "**.",
+        |vm| fold(Op::Mul, vm, crate::wb::Side::Bench),
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "*/.",
+        |vm| fold(Op::Div, vm, crate::wb::Side::Bench),
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
     // `reference/rust_multistackvm/src/stdlib/create_aliases.rs:38-39`.
     r.register_alias("Σ", "*+");
     r.register_alias("Σ.", "*+.");
@@ -899,15 +943,36 @@ mod tests {
     fn each_arm_refuses_in_its_own_words() {
         for (src, want) in [
             // The last arm: no payload arm and no tag arm. The tag is named.
-            ("1 true +", "ADD returns error: Incompartible X argument for the math operations: 1"),
-            ("\"s\" { 7 } +", "ADD returns error: Incompartible X argument for the math operations: 17"),
-            ("1 dict +", "ADD returns error: Incompartible X argument for the math operations: 11"),
-            ("1 nodata -", "SUB returns error: Incompartible X argument for the math operations: 97"),
+            (
+                "1 true +",
+                "ADD returns error: Incompartible X argument for the math operations: 1",
+            ),
+            (
+                "\"s\" { 7 } +",
+                "ADD returns error: Incompartible X argument for the math operations: 17",
+            ),
+            (
+                "1 dict +",
+                "ADD returns error: Incompartible X argument for the math operations: 11",
+            ),
+            (
+                "1 nodata -",
+                "SUB returns error: Incompartible X argument for the math operations: 97",
+            ),
             // ...which under a list is an append, and only under `+`.
-            ("[ 9 ] true -", "SUB returns error: Incompartible operation for the list"),
+            (
+                "[ 9 ] true -",
+                "SUB returns error: Incompartible operation for the list",
+            ),
             // A float on top says `X`; an integer on top says `Y`. No tag.
-            ("true 2.5 +", "ADD returns error: Incompartible X argument for the math operations"),
-            ("true 2 +", "ADD returns error: Incompartible Y argument for the math operations"),
+            (
+                "true 2.5 +",
+                "ADD returns error: Incompartible X argument for the math operations",
+            ),
+            (
+                "true 2 +",
+                "ADD returns error: Incompartible Y argument for the math operations",
+            ),
             // A string on top: what will not convert is refused in `conv`'s words.
             (
                 "1 2 pair \"s\" +",
@@ -922,10 +987,22 @@ mod tests {
                 "ADD returns error: Incompartible Y argument for the string operations: Can not convert list to 4",
             ),
             // The containers.
-            ("1 [ [ 1 ] ] matrix +", "ADD returns error: Incompartible operation for the matrix"),
-            ("[ 1 ] [ [ 1 ] ] matrix -", "SUB returns error: Incompartible operation for the list"),
-            ("1 1.0 2.0 complex +", "ADD returns error: Incompartible Y argument for the math operations"),
-            ("\"s\" metrics +", "ADD returns error: Incompartible Y argument for the metrics math operations"),
+            (
+                "1 [ [ 1 ] ] matrix +",
+                "ADD returns error: Incompartible operation for the matrix",
+            ),
+            (
+                "[ 1 ] [ [ 1 ] ] matrix -",
+                "SUB returns error: Incompartible operation for the list",
+            ),
+            (
+                "1 1.0 2.0 complex +",
+                "ADD returns error: Incompartible Y argument for the math operations",
+            ),
+            (
+                "\"s\" metrics +",
+                "ADD returns error: Incompartible Y argument for the metrics math operations",
+            ),
             (
                 "1 '{\"a\":1}' json +",
                 "ADD returns error: Incompartible X and Y argument for the JSON math operations",
@@ -950,11 +1027,17 @@ mod tests {
         // `+` shifts one sample in and keeps the buffer's 128; the other
         // three return it untouched.
         let i = run_src("7 metrics +").expect("runs");
-        let m = i.peek().and_then(|v| v.as_metrics().map(<[Metric]>::to_vec)).expect("metrics");
+        let m = i
+            .peek()
+            .and_then(|v| v.as_metrics().map(<[Metric]>::to_vec))
+            .expect("metrics");
         assert_eq!(m.len(), 128);
         assert_eq!(m.last().map(|s| s.data), Some(7.0));
         let i = run_src("7 metrics *").expect("runs");
-        let m = i.peek().and_then(|v| v.as_metrics().map(<[Metric]>::to_vec)).expect("metrics");
+        let m = i
+            .peek()
+            .and_then(|v| v.as_metrics().map(<[Metric]>::to_vec))
+            .expect("metrics");
         assert_eq!(m.last().map(|s| s.data), Some(0.0));
     }
 
@@ -986,8 +1069,16 @@ mod tests {
                 r#"{"value1":"a","value2":"c","value3":"d"}"#,
             ),
             ("[]", r#"{"field1":"value1"}"#, r#"[{"field1":"value1"}]"#),
-            (r#"{"field1":"value1"}"#, r#"["value2","value3"]"#, r#"["value2","value3"]"#),
-            (r#"{"a":{"b":{"c":1}}}"#, r#"{"a":{"b":{"d":2}}}"#, r#"{"a":{"b":{"c":1,"d":2}}}"#),
+            (
+                r#"{"field1":"value1"}"#,
+                r#"["value2","value3"]"#,
+                r#"["value2","value3"]"#,
+            ),
+            (
+                r#"{"a":{"b":{"c":1}}}"#,
+                r#"{"a":{"b":{"d":2}}}"#,
+                r#"{"a":{"b":{"c":1,"d":2}}}"#,
+            ),
         ] {
             let mut got = j(a);
             json_merge(&mut got, &j(b));

@@ -56,7 +56,12 @@ fn locate(value: &BundValue, name: &str) -> Option<BundValue> {
 /// reference recurses (`bund_object.rs:50`), which is the third depth axis
 /// RFC-0003 §S4 names; until the frame loop exists this keeps the recursion
 /// shallow enough to report rather than abort, satisfying D37.
-fn make_object(vm: &mut dyn Vm, name: &str, class: &BundValue, budget: usize) -> Result<BundValue, Error> {
+fn make_object(
+    vm: &mut dyn Vm,
+    name: &str,
+    class: &BundValue,
+    budget: usize,
+) -> Result<BundValue, Error> {
     if budget == 0 {
         return Err(Error(format!(
             "OBJECT class {name}: hierarchy is deeper than the construction budget"
@@ -73,7 +78,10 @@ fn make_object(vm: &mut dyn Vm, name: &str, class: &BundValue, budget: usize) ->
 
     // Rebuild `.super`: names in, objects out.
     let mut parents: Vec<BundValue> = Vec::new();
-    if let Some(list) = class.get(".super").and_then(|v| v.as_list().map(<[BundValue]>::to_vec)) {
+    if let Some(list) = class
+        .get(".super")
+        .and_then(|v| v.as_list().map(<[BundValue]>::to_vec))
+    {
         for p in list {
             let Some(pname) = p.as_str() else { continue };
             let Some(pclass) = vm.class(&pname) else {
@@ -215,13 +223,16 @@ fn object_word(vm: &mut dyn Vm) -> Result<(), Error> {
 /// here, because an OBJECT without a class name is malformed: `.str` reads it,
 /// and so does the object-reuse test.
 pub fn construct_from_value(vm: &mut dyn Vm, class: BundValue) -> Result<(), Error> {
-    let name = class.get(".class_name").and_then(|v| v.as_str()).ok_or_else(|| {
-        Error(
-            "OBJECT: the class carries no .class_name, so the object would have none. \
+    let name = class
+        .get(".class_name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            Error(
+                "OBJECT: the class carries no .class_name, so the object would have none. \
              Set one on the class, as every built-in class does."
-                .into(),
-        )
-    })?;
+                    .into(),
+            )
+        })?;
     let obj = make_object(vm, &name, &class, 512)?;
     push_and_init(vm, &name, obj)
 }
@@ -232,9 +243,9 @@ pub fn execute_object(vm: &mut dyn Vm, obj: BundValue) -> Result<(), Error> {
     let Some(nv) = vm.pull() else {
         return Err(Error("EXECUTE.OBJECT NO DATA #1".into()));
     };
-    let name = nv
-        .as_str()
-        .ok_or_else(|| Error("EXECUTE.OBJECT casting name returns: This Dynamic type is not string".into()))?;
+    let name = nv.as_str().ok_or_else(|| {
+        Error("EXECUTE.OBJECT casting name returns: This Dynamic type is not string".into())
+    })?;
     vm.push(obj);
     dispatch_method(vm, &name)
 }
@@ -248,7 +259,9 @@ pub fn dispatch_method(vm: &mut dyn Vm, name: &str) -> Result<(), Error> {
         return Err(Error("VM stack is empty".into()));
     };
     if recv.dt() != OBJECT {
-        return Err(Error("VM there is no value of type OBJECT in the stack".into()));
+        return Err(Error(
+            "VM there is no value of type OBJECT in the stack".into(),
+        ));
     }
     let Some(slot) = locate(&recv, name) else {
         return Err(Error(format!("VM no method {name} has been registered")));
@@ -263,7 +276,9 @@ pub fn dispatch_method(vm: &mut dyn Vm, name: &str) -> Result<(), Error> {
                 Some(f) => bund2_api::catch_panic(|| f(vm)).unwrap_or_else(|msg| {
                     Err(bund2_api::panicked(&format!("method `{mname}`"), &msg))
                 }),
-                None => Err(Error(format!("m({name}) returned: method {mname} not registered"))),
+                None => Err(Error(format!(
+                    "m({name}) returned: method {mname} not registered"
+                ))),
             }
         }
         LAMBDA => {
@@ -612,14 +627,10 @@ fn method_list_push(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 2 {
         return Err(Error("Stack is too shallow for method 'List::push'".into()));
     }
-    let obj = vm
-        .pull()
-        .ok_or_else(|| Error("List: NO DATA #1".into()))?;
-    let item = vm
-        .pull()
-        .ok_or_else(|| Error("List: NO DATA #2".into()))?;
-    let data = locate(&obj, ".data")
-        .ok_or_else(|| Error("List: NO WRAPPED DATA WAS FOUND".into()))?;
+    let obj = vm.pull().ok_or_else(|| Error("List: NO DATA #1".into()))?;
+    let item = vm.pull().ok_or_else(|| Error("List: NO DATA #2".into()))?;
+    let data =
+        locate(&obj, ".data").ok_or_else(|| Error("List: NO WRAPPED DATA WAS FOUND".into()))?;
     let mut items = data
         .as_list()
         .map(<[BundValue]>::to_vec)
@@ -641,8 +652,8 @@ fn method_floats_init(vm: &mut dyn Vm) -> Result<(), Error> {
     let obj = vm
         .pull()
         .ok_or_else(|| Error("Floats: stack is empty".into()))?;
-    let data = locate(&obj, ".data")
-        .ok_or_else(|| Error("List: NO WRAPPED DATA WAS FOUND".into()))?;
+    let data =
+        locate(&obj, ".data").ok_or_else(|| Error("List: NO WRAPPED DATA WAS FOUND".into()))?;
     let mut out: Vec<BundValue> = Vec::new();
     for v in data.as_list().unwrap_or(&[]) {
         let f = crate::convert::conv_value(v, bund2_value::FLOAT)
@@ -663,14 +674,10 @@ fn method_floats_push(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 2 {
         return Err(Error("Stack is too shallow for method 'List::push'".into()));
     }
-    let obj = vm
-        .pull()
-        .ok_or_else(|| Error("List: NO DATA #1".into()))?;
-    let item = vm
-        .pull()
-        .ok_or_else(|| Error("List: NO DATA #2".into()))?;
-    let data = locate(&obj, ".data")
-        .ok_or_else(|| Error("Floats: NO WRAPPED DATA WAS FOUND".into()))?;
+    let obj = vm.pull().ok_or_else(|| Error("List: NO DATA #1".into()))?;
+    let item = vm.pull().ok_or_else(|| Error("List: NO DATA #2".into()))?;
+    let data =
+        locate(&obj, ".data").ok_or_else(|| Error("Floats: NO WRAPPED DATA WAS FOUND".into()))?;
     let mut items = data
         .as_list()
         .map(<[BundValue]>::to_vec)
@@ -717,16 +724,17 @@ fn interval_pair(v: &BundValue, stored: bool) -> Result<(f64, f64), Error> {
                 // The quoted value is `items[0]` in the two constructing
                 // copies even for the *end* failure -- `&v_start_value` was
                 // left in the message -- and `items[1]` in `overlap`.
-                if stored { x.display() } else { items[0].display() }
+                if stored {
+                    x.display()
+                } else {
+                    items[0].display()
+                }
             ))
         };
         let c = crate::convert::conv_value(x, bund2_value::FLOAT).map_err(|e| say(e.0))?;
         match c.unboxed() {
             BundValue::Float(f, _) => Ok(*f),
-            other => Err(say(format!(
-                "This is not a FLOAT value but {}",
-                other.dt()
-            ))),
+            other => Err(say(format!("This is not a FLOAT value but {}", other.dt()))),
         }
     };
     let start = as_float(&items[0], "start of interval")?;
@@ -845,7 +853,7 @@ fn method_intervals_overlap(vm: &mut dyn Vm) -> Result<(), Error> {
         None => {
             return Err(Error(format!(
                 "Intervals::overlap returned error: Interval key error: {probe}"
-            )))
+            )));
         }
     }
     Ok(())
@@ -1090,7 +1098,12 @@ fn register_wrapped(r: &mut Registry) {
     // **Opaque.** `#` ends by executing a lambda whose own effect is unknown,
     // so its consumption is not a constant (RFC-0004 §S6).
     r.register_native("#", object_execute, StackEffect::opaque(2), WordKind::Sync);
-    r.register_native("#.", object_execute_wb, StackEffect::opaque(1), WordKind::Sync);
+    r.register_native(
+        "#.",
+        object_execute_wb,
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
 }
 
 /// `List`, `Floats` and `Intervals` — an empty object of that class.
@@ -1137,7 +1150,12 @@ pub fn register(r: &mut Registry) {
     // parent's, through `run_init`: a lambda, or a method native called
     // directly. What that leaves is the constructor's business, so the pair
     // `1 -> 1` described only a class with no `.init`.
-    r.register_native("object", object_word, StackEffect::opaque(1), WordKind::Sync);
+    r.register_native(
+        "object",
+        object_word,
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
     r.register_native("?class", is_class_word, eff(1, 1), WordKind::Sync);
     crate::wb::bench!(r, "?class", is_class_word);
     // **1 -> 2, because `?object` peeks.** It leaves the receiver and pushes
@@ -1318,7 +1336,10 @@ mod tests {
         let i = run_src(":A class :hello \"hi\" set register :A object").expect("runs");
         let o = i.peek().expect("an object");
         assert_eq!(o.dt(), OBJECT);
-        assert_eq!(o.get(".class_name").and_then(|v| v.as_str()).as_deref(), Some("A"));
+        assert_eq!(
+            o.get(".class_name").and_then(|v| v.as_str()).as_deref(),
+            Some("A")
+        );
     }
 
     /// **`.super` holds names on a class and objects on an instance** — the
@@ -1351,17 +1372,18 @@ mod tests {
         let i = run_src(":B class \".super\" [ :A ] set register").expect("registers");
         assert!(i.is_class("B"));
         let e = err_of(":B class \".super\" [ :A ] set register :B object");
-        assert!(e.contains("class A not registered"), "names the parent: {e}");
+        assert!(
+            e.contains("class A not registered"),
+            "names the parent: {e}"
+        );
     }
 
     /// Dispatch walks `.super` depth-first and calls a PTR through the method
     /// table. `.id` lives on `Object`, two levels above a user class.
     #[test]
     fn dispatch_reaches_an_inherited_method() {
-        let i = run_src(
-            ":A class \".super\" [ :Object ] set register\n:.id :A object !",
-        )
-        .expect("runs");
+        let i = run_src(":A class \".super\" [ :Object ] set register\n:.id :A object !")
+            .expect("runs");
         let id = i.peek().and_then(|v| v.as_str()).expect("an id");
         assert_eq!(id.chars().count(), 21, "a nanoid-shaped string: {id}");
     }
@@ -1393,7 +1415,10 @@ mod tests {
         let i = run_src(":A class :.class_name \"A\" set :greet { 7 } set !").expect("runs");
         let o = i.peek().expect("an object");
         assert_eq!(o.dt(), OBJECT);
-        assert_eq!(o.get(".class_name").and_then(|v| v.as_str()).as_deref(), Some("A"));
+        assert_eq!(
+            o.get(".class_name").and_then(|v| v.as_str()).as_deref(),
+            Some("A")
+        );
     }
 
     /// D25: a class with no `.class_name` fails rather than producing an
@@ -1564,10 +1589,7 @@ mod tests {
     fn a_failing_subclass_init_names_the_class() {
         match run_src("nodata :Integer object") {
             Ok(_) => panic!("expected a failure"),
-            Err(e) => assert!(
-                e.contains("Integer: error converting to INT"),
-                "got {e:?}"
-            ),
+            Err(e) => assert!(e.contains("Integer: error converting to INT"), "got {e:?}"),
         }
     }
 
@@ -1640,7 +1662,11 @@ mod tests {
             drawn.push(name);
         }
         drawn.sort();
-        assert_eq!(i.registry.class_names(), drawn, "a class the diagram leaves out");
+        assert_eq!(
+            i.registry.class_names(),
+            drawn,
+            "a class the diagram leaves out"
+        );
     }
 
     #[test]

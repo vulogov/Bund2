@@ -131,9 +131,9 @@ fn get(vm: &mut dyn Vm) -> Result<(), Error> {
             None => Err(Error("GET returns error: key not found".into())),
         };
     }
-    let key = key_val
-        .as_str()
-        .ok_or_else(|| Error("GET key expected to be string: This Dynamic type is not string".into()))?;
+    let key = key_val.as_str().ok_or_else(|| {
+        Error("GET key expected to be string: This Dynamic type is not string".into())
+    })?;
     // **A receiver that is not a map is returned as it came**
     // (`reference/rust_dynamic/src/get.rs:18-20`): `2 "k" get` is `2`. Bund2
     // refused it as a missing key (F171).
@@ -154,9 +154,9 @@ fn has_key(vm: &mut dyn Vm) -> Result<(), Error> {
     }
     let key_val = crate::pull::operand(vm, "?KEY", 1)?;
     let container = crate::pull::operand(vm, "?KEY", 2)?;
-    let key = key_val
-        .as_str()
-        .ok_or_else(|| Error("GET key expected to be string: This Dynamic type is not string".into()))?;
+    let key = key_val.as_str().ok_or_else(|| {
+        Error("GET key expected to be string: This Dynamic type is not string".into())
+    })?;
     let present = container.has_key(&key);
     vm.push(container);
     vm.push(BundValue::boolean(present));
@@ -174,9 +174,9 @@ fn register(vm: &mut dyn Vm) -> Result<(), Error> {
     }
     let body = crate::pull::operand(vm, "REGISTER", 1)?;
     let name_val = crate::pull::operand(vm, "REGISTER", 2)?;
-    let name = name_val
-        .as_str()
-        .ok_or_else(|| Error("REGISTER expecting lambda name to be string: This Dynamic type is not string".into()))?;
+    let name = name_val.as_str().ok_or_else(|| {
+        Error("REGISTER expecting lambda name to be string: This Dynamic type is not string".into())
+    })?;
     // A CLASS goes to the **class registry**, a LAMBDA to the word table. They
     // are different tables, which is why `:Probe class register` then `Probe`
     // reports `Probe not registered` — the class is filed, just not as a word.
@@ -197,9 +197,12 @@ fn unregister(vm: &mut dyn Vm) -> Result<(), Error> {
     let Some(name_val) = vm.pull() else {
         return Err(Error("Stack is too shallow for inline unregister".into()));
     };
-    let name = name_val
-        .as_str()
-        .ok_or_else(|| Error("UNREGISTER.CLASS expecting lanbda name to be string: This Dynamic type is not string".into()))?;
+    let name = name_val.as_str().ok_or_else(|| {
+        Error(
+            "UNREGISTER.CLASS expecting lanbda name to be string: This Dynamic type is not string"
+                .into(),
+        )
+    })?;
     vm.unregister_lambda(&name);
     Ok(())
 }
@@ -265,14 +268,20 @@ fn make_call_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     if side.depth(vm) < 1 {
         return Err(Error(format!(
             "{} is too shallow for inline {prefix}",
-            if side == crate::wb::Side::Stack { "Stack" } else { "Workbench" }
+            if side == crate::wb::Side::Stack {
+                "Stack"
+            } else {
+                "Workbench"
+            }
         )));
     }
     let Some(v) = side.pull(vm) else {
         return Err(Error(format!("{prefix} returns NO DATA #1")));
     };
     let name = v.as_str().ok_or_else(|| {
-        Error(format!("{prefix} casting of string returned: This Dynamic type is not string"))
+        Error(format!(
+            "{prefix} casting of string returned: This Dynamic type is not string"
+        ))
     })?;
     side.push(vm, BundValue::call(name));
     Ok(())
@@ -467,9 +476,11 @@ fn ask(vm: &mut dyn Vm, word: &str, f: impl Fn(&dyn Vm, &str) -> bool) -> Result
     let Some(v) = vm.pull() else {
         return Err(Error(format!("Stack is too shallow for {word}")));
     };
-    let name = v
-        .as_str()
-        .ok_or_else(|| Error(format!("{word} casting string returns: This Dynamic type is not string")))?;
+    let name = v.as_str().ok_or_else(|| {
+        Error(format!(
+            "{word} casting string returns: This Dynamic type is not string"
+        ))
+    })?;
     let answer = f(vm, &name);
     vm.push(BundValue::boolean(answer));
     Ok(())
@@ -499,15 +510,17 @@ fn get_lambda(vm: &mut dyn Vm) -> Result<(), Error> {
     let Some(v) = vm.pull() else {
         return Err(Error("Stack is too shallow for LAMBDA.GET".into()));
     };
-    let name = v
-        .as_str()
-        .ok_or_else(|| Error("LAMBDA.GET casting string returns: This Dynamic type is not string".into()))?;
+    let name = v.as_str().ok_or_else(|| {
+        Error("LAMBDA.GET casting string returns: This Dynamic type is not string".into())
+    })?;
     match vm.get_lambda(&name) {
         Some(body) => {
             vm.push(body);
             Ok(())
         }
-        None => Err(Error(format!("LAMBDA.GET returned: {name} is not a lambda"))),
+        None => Err(Error(format!(
+            "LAMBDA.GET returned: {name} is not a lambda"
+        ))),
     }
 }
 
@@ -544,7 +557,9 @@ fn value_type_of(vm: &mut dyn Vm) -> Result<(), Error> {
 fn value_if_type(vm: &mut dyn Vm) -> Result<(), Error> {
     let name = crate::pull::operand(vm, "TYPE", 1)?;
     let Some(name) = name.unboxed().as_str() else {
-        return Err(Error("Error casting type name: This Dynamic type is not string".into()));
+        return Err(Error(
+            "Error casting type name: This Dynamic type is not string".into(),
+        ));
     };
     let name = name.to_string();
     let v = crate::pull::top(vm, "TYPE")?;
@@ -622,7 +637,12 @@ pub fn register_words(r: &mut Registry) {
     crate::wb::bench!(r, "lambda!", to_lambda);
     // Opaque: folds the **whole stack** into a LAMBDA, so its consumption is
     // the depth it finds (`bund_fun.rs:189-202`).
-    r.register_native("lambda*", fold_lambda, StackEffect::opaque(0), WordKind::Sync);
+    r.register_native(
+        "lambda*",
+        fold_lambda,
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
     r.register_native("make.call", make_call, eff(1, 1), WordKind::Sync);
     r.register_native("make.call.", make_call_wb, eff(0, 0), WordKind::Sync);
     // **Opaque — RFC-0004 §S6's first barrier.** `execute` dispatches on
@@ -630,11 +650,21 @@ pub fn register_words(r: &mut Registry) {
     // and each arm has a different effect: the MAP arm pulls a second operand,
     // the LAMBDA arm runs a body, the OBJECT arm dispatches a method. It is
     // also one of the five most-used words in the corpus, spelled `!`.
-    r.register_native("execute", execute_top, StackEffect::opaque(1), WordKind::Sync);
+    r.register_native(
+        "execute",
+        execute_top,
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
     // F87: opaque, as `execute` is — it reaches the same `execute_value`, so
     // it runs whatever it is handed. And it consumes nothing from the main
     // stack: the receiver comes off the workbench.
-    r.register_native("execute.", execute_from_workbench, StackEffect::opaque(0), WordKind::Sync);
+    r.register_native(
+        "execute.",
+        execute_from_workbench,
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
 
     // The reference's alias table, for the words above
     // (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:5,21,28,29,40,41`
@@ -763,13 +793,19 @@ mod tests {
     fn set_preserves_the_receivers_tag() {
         let c = BundValue::conditional(Default::default()).set("type", BundValue::str("tryexcept"));
         assert_eq!(c.dt(), CONDITIONAL);
-        assert_eq!(c.get("type").and_then(|v| v.as_str()).as_deref(), Some("tryexcept"));
+        assert_eq!(
+            c.get("type").and_then(|v| v.as_str()).as_deref(),
+            Some("tryexcept")
+        );
     }
 
     /// F42, preserved: `set` on a LIST throws the container and the key away.
     #[test]
     fn set_on_a_list_discards_the_container() {
-        let l = BundValue::list(vec![BundValue::Int(1, bund2_value::StackSym::NONE), BundValue::Int(2, bund2_value::StackSym::NONE)]);
+        let l = BundValue::list(vec![
+            BundValue::Int(1, bund2_value::StackSym::NONE),
+            BundValue::Int(2, bund2_value::StackSym::NONE),
+        ]);
         let after = l.set("k", BundValue::Int(9, bund2_value::StackSym::NONE));
         assert_eq!(after.as_list().map(|v| v.len()), Some(1));
     }
@@ -779,10 +815,17 @@ mod tests {
     /// write-once, and therefore what D35's cache rests on.
     #[test]
     fn set_on_a_lambda_replaces_the_body_without_mutating_it() {
-        let orig = BundValue::lambda(vec![BundValue::Int(1, bund2_value::StackSym::NONE), BundValue::Int(2, bund2_value::StackSym::NONE)]);
+        let orig = BundValue::lambda(vec![
+            BundValue::Int(1, bund2_value::StackSym::NONE),
+            BundValue::Int(2, bund2_value::StackSym::NONE),
+        ]);
         let after = orig.set("k", BundValue::Int(9, bund2_value::StackSym::NONE));
         assert_eq!(after.as_lambda().map(|b| b.len()), Some(1));
-        assert_eq!(orig.as_lambda().map(|b| b.len()), Some(2), "original intact");
+        assert_eq!(
+            orig.as_lambda().map(|b| b.len()),
+            Some(2),
+            "original intact"
+        );
     }
 
     #[test]
@@ -840,7 +883,8 @@ mod tests {
     fn execute_from_the_workbench_works_on_an_empty_stack() {
         let i = run(":Five { 5 } register
 `Five return
-execute.").expect("runs");
+execute.")
+        .expect("runs");
         assert_eq!(i.peek().and_then(|v| v.as_int()), Some(5));
     }
 
@@ -851,7 +895,8 @@ execute.").expect("runs");
     fn only_the_receiver_comes_from_the_workbench() {
         let i = run(":Five { 5 } register
 [ `Five ] return
-execute.").expect("runs");
+execute.")
+        .expect("runs");
         assert_eq!(i.peek().and_then(|v| v.as_int()), Some(5));
     }
 
@@ -866,7 +911,10 @@ execute.").expect("runs");
         assert_eq!(v.dt(), bund2_value::METRICS);
         let m = v.as_metrics().expect("a METRICS payload");
         assert_eq!(m.len(), 128);
-        assert!(m.iter().all(|s| s.data == 0.0), "every sample starts at 0.0");
+        assert!(
+            m.iter().all(|s| s.data == 0.0),
+            "every sample starts at 0.0"
+        );
         assert!(
             m.iter().any(|s| s.stamp != m[0].stamp),
             "every sample carried one shared stamp; the reference reads the \
@@ -878,9 +926,29 @@ execute.").expect("runs");
     fn every_word_here_resolves() {
         let i = vm();
         for name in [
-            "dict", "config", "list", "lambda", "λ", "nodata", "|", "set", ",", "get", "?key",
-            "register", "unregister", "lambda!", "lambda*", "make.call", "call,", "execute", "!", "execute.", "!.",
-            "metrics", "sample",
+            "dict",
+            "config",
+            "list",
+            "lambda",
+            "λ",
+            "nodata",
+            "|",
+            "set",
+            ",",
+            "get",
+            "?key",
+            "register",
+            "unregister",
+            "lambda!",
+            "lambda*",
+            "make.call",
+            "call,",
+            "execute",
+            "!",
+            "execute.",
+            "!.",
+            "metrics",
+            "sample",
         ] {
             assert!(
                 i.registry.interner.lookup_call(name).is_some(),

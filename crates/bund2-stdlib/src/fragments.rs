@@ -119,7 +119,11 @@ pub fn published(
         let Some((s, _)) = r.interner.lookup_call(name) else {
             continue;
         };
-        let Some(id) = r.slot(s).and_then(|sl| sl.native.as_ref()).and_then(|n| n.id) else {
+        let Some(id) = r
+            .slot(s)
+            .and_then(|sl| sl.native.as_ref())
+            .and_then(|n| n.id)
+        else {
             continue;
         };
         out.push((id, build()?));
@@ -192,7 +196,10 @@ mod tests {
     /// `None` if the guard declined. An internal error fails the test: it means
     /// the fragment is malformed, which `validate` should have refused first.
     fn via_fragment(f: &Fragment, operands: &[BundValue]) -> Option<Vec<BundValue>> {
-        assert!(f.validate().is_ok(), "a fragment under test must be well-formed");
+        assert!(
+            f.validate().is_ok(),
+            "a fragment under test must be well-formed"
+        );
         let mut i = interp();
         for v in operands {
             i.push(v.clone());
@@ -263,8 +270,11 @@ mod tests {
     /// fault that broke both paths identically would pass the test above.
     #[test]
     fn the_int_add_arm_wraps() {
-        let out = via_fragment(&int_add().expect("well-formed"), &[BundValue::int(i64::MAX), BundValue::int(1)])
-            .expect("admitted");
+        let out = via_fragment(
+            &int_add().expect("well-formed"),
+            &[BundValue::int(i64::MAX), BundValue::int(1)],
+        )
+        .expect("admitted");
         assert_eq!(out.last().and_then(|v| v.as_int()), Some(i64::MIN));
     }
 
@@ -309,14 +319,21 @@ mod tests {
     #[test]
     fn the_dup_and_drop_arms_agree_with_their_words() {
         for v in shapes() {
-            for (word, f) in [("dup", dup().expect("well-formed")), ("drop", drop_top().expect("well-formed"))] {
+            for (word, f) in [
+                ("dup", dup().expect("well-formed")),
+                ("drop", drop_top().expect("well-formed")),
+            ] {
                 let by_word = via_word(word, std::slice::from_ref(&v));
                 let by_frag = via_fragment(&f, std::slice::from_ref(&v))
                     .unwrap_or_else(|| panic!("{word} declined {v:?}"));
                 assert_eq!(by_word.len(), by_frag.len(), "{v:?} {word}: depth");
                 for (w, g) in by_word.iter().zip(by_frag.iter()) {
                     assert_eq!(w.dt(), g.dt(), "{v:?} {word}: dt");
-                    assert_eq!(norm(&w.render(false)), norm(&g.render(false)), "{v:?} {word}");
+                    assert_eq!(
+                        norm(&w.render(false)),
+                        norm(&g.render(false)),
+                        "{v:?} {word}"
+                    );
                 }
             }
         }
@@ -334,9 +351,15 @@ mod tests {
     fn dup_mints_a_fresh_identity_in_the_arm_and_the_word() {
         for v in shapes() {
             let by_word = via_word("dup", std::slice::from_ref(&v));
-            let by_frag = via_fragment(&dup().expect("well-formed"), std::slice::from_ref(&v)).expect("admitted");
+            let by_frag = via_fragment(&dup().expect("well-formed"), std::slice::from_ref(&v))
+                .expect("admitted");
             for (label, stack) in [("word", by_word), ("arm", by_frag)] {
-                assert_eq!(stack.len(), 2, "{label}: dup of {v:?} left {} values", stack.len());
+                assert_eq!(
+                    stack.len(),
+                    2,
+                    "{label}: dup of {v:?} left {} values",
+                    stack.len()
+                );
                 let (below, _) = stack[0].identity();
                 let (top, _) = stack[1].identity();
                 assert_ne!(
@@ -359,7 +382,9 @@ mod tests {
 
     fn id_of(r: &bund2_api::Registry, name: &str) -> Option<bund2_api::RegistrationId> {
         let (s, _) = r.interner.lookup_call(name)?;
-        r.slot(s).and_then(|sl| sl.native.as_ref()).and_then(|n| n.id)
+        r.slot(s)
+            .and_then(|sl| sl.native.as_ref())
+            .and_then(|n| n.id)
     }
 
     /// **RFC-0005 §S6, D43.** The table names three registrations, each the one
@@ -386,7 +411,11 @@ mod tests {
     #[test]
     fn the_dup_arm_is_keyed_by_the_native_and_not_by_its_alias() {
         let r = stdlib_registry();
-        assert_eq!(id_of(&r, "dup"), None, "`dup` is an alias: no Native, no id");
+        assert_eq!(
+            id_of(&r, "dup"),
+            None,
+            "`dup` is an alias: no Native, no id"
+        );
         let native = id_of(&r, "dup_one").expect("`dup_one` is the native");
 
         let table = published(&r).expect("well-formed");

@@ -75,8 +75,12 @@ fn bund2_effects(repo: &Path) -> Result<BTreeMap<String, (u32, u32)>, String> {
 /// nothing.
 fn probed_effects(repo: &Path) -> Result<BTreeMap<String, (u32, u32)>, String> {
     let path = repo.join("docs/arity.md");
-    let body = std::fs::read_to_string(&path)
-        .map_err(|e| format!("reading {}: {e}. Run `cargo xtask arity` first.", path.display()))?;
+    let body = std::fs::read_to_string(&path).map_err(|e| {
+        format!(
+            "reading {}: {e}. Run `cargo xtask arity` first.",
+            path.display()
+        )
+    })?;
     let mut map = BTreeMap::new();
     for line in body.lines() {
         let cells: Vec<&str> = line.split('|').map(str::trim).collect();
@@ -141,8 +145,16 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     bund2_api::sayln!("them and RFC-0005 orders JIT guards by them. F18's point is that a");
     bund2_api::sayln!("static arity that lies does not stay cosmetic.\n");
 
-    bund2_api::sayln!("  {:<34}{:>5}", "natives declaring an effect", declared.len());
-    bund2_api::sayln!("  {:<34}{:>5}", "comparable against the table", agree + diverge.len());
+    bund2_api::sayln!(
+        "  {:<34}{:>5}",
+        "natives declaring an effect",
+        declared.len()
+    );
+    bund2_api::sayln!(
+        "  {:<34}{:>5}",
+        "comparable against the table",
+        agree + diverge.len()
+    );
     bund2_api::sayln!("  {:<34}{:>5}", "agree", agree);
     bund2_api::sayln!("  {:<34}{:>5}", "recorded as an arm", arms.len());
     bund2_api::sayln!("  {:<34}{:>5}", "DISAGREE", defects.len());
@@ -156,7 +168,11 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         for r in &defects {
             bund2_api::sayln!(
                 "  {:<30} declared {}->{}   probed {}->{}",
-                r.word, r.declared.0, r.declared.1, r.probed.0, r.probed.1
+                r.word,
+                r.declared.0,
+                r.declared.1,
+                r.probed.0,
+                r.probed.1
             );
         }
         bund2_api::sayln!();
@@ -171,14 +187,21 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             let why = approved.get(&r.word).map(String::as_str).unwrap_or("");
             bund2_api::sayln!(
                 "  {:<30} declared {}->{}   probed {}->{}   {why}",
-                r.word, r.declared.0, r.declared.1, r.probed.0, r.probed.1
+                r.word,
+                r.declared.0,
+                r.declared.1,
+                r.probed.0,
+                r.probed.1
             );
         }
         bund2_api::sayln!();
     }
 
     bund2_api::sayln!("## not in the table\n");
-    bund2_api::sayln!("  {} native(s) Bund2 declares that the probe could not", not_in_table.len());
+    bund2_api::sayln!(
+        "  {} native(s) Bund2 declares that the probe could not",
+        not_in_table.len()
+    );
     bund2_api::sayln!("  measure — it refused every sentinel on type grounds, or the word");
     bund2_api::sayln!("  is unsafe to run. **Listed, not counted as agreement**: a word");
     bund2_api::sayln!("  the probe could not reach is evidence of nothing, and folding it");

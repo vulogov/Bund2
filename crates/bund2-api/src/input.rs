@@ -52,12 +52,18 @@ pub struct Ask<'a> {
 impl<'a> Ask<'a> {
     /// A read with no history.
     pub fn new(prompt: &'a str) -> Self {
-        Ask { prompt, history: None }
+        Ask {
+            prompt,
+            history: None,
+        }
     }
 
     /// A read that belongs to the named history.
     pub fn in_history(prompt: &'a str, history: &'a str) -> Self {
-        Ask { prompt, history: Some(history) }
+        Ask {
+            prompt,
+            history: Some(history),
+        }
     }
 }
 

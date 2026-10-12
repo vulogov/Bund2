@@ -104,9 +104,9 @@ fn render_message(vm: &mut dyn Vm, c: &BundValue, msg: &BundValue) -> Result<Str
     if msg.dt() != STRING {
         return Ok(msg.display());
     }
-    let text = msg
-        .as_str()
-        .ok_or_else(|| Error("FMT.STR error casting template: This Dynamic type is not string".into()))?;
+    let text = msg.as_str().ok_or_else(|| {
+        Error("FMT.STR error casting template: This Dynamic type is not string".into())
+    })?;
     let template = leon::Template::parse(text.as_str())
         .map_err(|e| Error(format!("FMT.STR error parsing template: {e}")))?;
 
@@ -172,9 +172,9 @@ fn named(vm: &mut dyn Vm, ty: &str, word: &str) -> Result<(), Error> {
     let Some(name_val) = vm.pull() else {
         return Err(Error(format!("Stack is too shallow for {word}")));
     };
-    let name = name_val
-        .as_str()
-        .ok_or_else(|| Error("CONTEXT: Error name casting: This Dynamic type is not string".into()))?;
+    let name = name_val.as_str().ok_or_else(|| {
+        Error("CONTEXT: Error name casting: This Dynamic type is not string".into())
+    })?;
     vm.push(new_conditional(ty).set("name", BundValue::str(name)));
     Ok(())
 }
@@ -218,7 +218,11 @@ fn run_through(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
 /// mechanism exists for: this is not a tail call, so an exit action cannot
 /// express it. Until the frame loop lands it re-enters evaluation directly.
 fn run_ifthenelse(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
-    let (if_l, then_l, else_l) = (slot_body(&c, "if"), slot_body(&c, "then"), slot_body(&c, "else"));
+    let (if_l, then_l, else_l) = (
+        slot_body(&c, "if"),
+        slot_body(&c, "then"),
+        slot_body(&c, "else"),
+    );
     vm.eval_lambda(&if_l)
         .map_err(|e| e.context("IFTHENELSE IF lambda returns: "))?;
     let cond_val = vm
@@ -448,9 +452,8 @@ pub fn execute_conditional(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
         .ok_or_else(|| Error("EXECUTE:CONDITIONAL can not detect conditional type".into()))?;
     match vm.conditional(&ty) {
         // D49: a conditional runner is native code, called here directly.
-        Some(f) => bund2_api::catch_panic(|| f(vm, c)).unwrap_or_else(|msg| {
-            Err(bund2_api::panicked(&format!("conditional `{ty}`"), &msg))
-        }),
+        Some(f) => bund2_api::catch_panic(|| f(vm, c))
+            .unwrap_or_else(|msg| Err(bund2_api::panicked(&format!("conditional `{ty}`"), &msg))),
         None => Err(Error(format!(
             "EXECUTE:CONDITIONAL conditionals handler does not exist: {ty}"
         ))),
@@ -513,8 +516,14 @@ mod tests {
             .into_iter()
             .find(|v| v.dt() == CONDITIONAL)
             .expect("the error conditional was pushed");
-        assert_eq!(c.get("type").and_then(|t| t.as_str()).as_deref(), Some("error"));
-        let ctx = c.get("context").and_then(|t| t.as_str()).unwrap_or_default();
+        assert_eq!(
+            c.get("type").and_then(|t| t.as_str()).as_deref(),
+            Some("error")
+        );
+        let ctx = c
+            .get("context")
+            .and_then(|t| t.as_str())
+            .unwrap_or_default();
         assert!(ctx.contains("boom"), "the message survives: {ctx}");
     }
 
@@ -587,7 +596,14 @@ mod tests {
         let mut i = Interp::new();
         crate::register_all(&mut i.registry);
         for name in [
-            "?ifthenelse", "?try", "?error", "conditional", "?", "context", "curry", "raise",
+            "?ifthenelse",
+            "?try",
+            "?error",
+            "conditional",
+            "?",
+            "context",
+            "curry",
+            "raise",
             "endcontext",
         ] {
             assert!(
@@ -595,7 +611,14 @@ mod tests {
                 "{name} is not registered"
             );
         }
-        for ty in ["through", "ifthenelse", "tryexcept", "error", "context", "curry"] {
+        for ty in [
+            "through",
+            "ifthenelse",
+            "tryexcept",
+            "error",
+            "context",
+            "curry",
+        ] {
             assert!(i.registry.conditional(ty).is_some(), "{ty} has no handler");
         }
     }

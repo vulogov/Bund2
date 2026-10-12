@@ -65,7 +65,13 @@ struct Finding {
 /// `.md`, `.txt` and `.bund`, so 256 of the repository's 1746 citations were
 /// invisible to the tool that exists to verify them. The ones nearest the code
 /// are the ones a reader trusts most.
-const ROOTS: &[&str] = &["docs", "tests/golden", "tests/probes", "crates", "CLAUDE.md"];
+const ROOTS: &[&str] = &[
+    "docs",
+    "tests/golden",
+    "tests/probes",
+    "crates",
+    "CLAUDE.md",
+];
 
 fn markdown_and_text(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -694,7 +700,11 @@ pub fn run(_args: &[String]) -> Result<(), String> {
                             !t.starts_with(':') && t.chars().any(char::is_alphanumeric)
                         };
                         let tail = |t: &str| {
-                            t.rsplit("::").next().unwrap_or(t).trim_end_matches("()").to_string()
+                            t.rsplit("::")
+                                .next()
+                                .unwrap_or(t)
+                                .trim_end_matches("()")
+                                .to_string()
                         };
                         // **At least one, not all.** A prose line often names
                         // one file and several unrelated things — a register

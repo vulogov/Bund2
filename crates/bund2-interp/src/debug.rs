@@ -553,7 +553,11 @@ mod tests {
         j.eval(&program(s)).expect("runs");
         let nexted = j.debugger_stops().expect("attached");
 
-        assert_eq!(final_state(&i), final_state(&j), "neither changes the program");
+        assert_eq!(
+            final_state(&i),
+            final_state(&j),
+            "neither changes the program"
+        );
         assert!(
             nexted < stepped,
             "next stopped as often as step: {nexted} vs {stepped}"
@@ -590,7 +594,10 @@ mod tests {
     /// A native that files a body to run when it returns and *then* pushes —
     /// so a watch on the stack stops inside it with the request outstanding.
     fn files_then_pushes(vm: &mut dyn Vm) -> Result<(), bund2_api::Error> {
-        vm.tail_lambda(BundValue::lambda(vec![BundValue::int(8), BundValue::int(9)]));
+        vm.tail_lambda(BundValue::lambda(vec![
+            BundValue::int(8),
+            BundValue::int(9),
+        ]));
         vm.push(BundValue::int(5));
         Ok(())
     }
@@ -612,7 +619,10 @@ mod tests {
     #[test]
     fn a_typed_line_leaves_a_stopped_native_its_tail_request() {
         let mut i = Interp::new();
-        for (name, f) in [("filer", files_then_pushes as bund2_api::NativeFn), ("boom", boom)] {
+        for (name, f) in [
+            ("filer", files_then_pushes as bund2_api::NativeFn),
+            ("boom", boom),
+        ] {
             i.registry
                 .register_native(name, f, StackEffect::opaque(0), WordKind::Sync);
         }
@@ -676,7 +686,10 @@ mod tests {
 
         // `finish` at depth 2: only once the frame is gone.
         assert!(matches!(d.apply(Command::Finish, 2), Next::Resume));
-        assert!(!d.should_stop(2), "finish does not stop in the frame it left");
+        assert!(
+            !d.should_stop(2),
+            "finish does not stop in the frame it left"
+        );
         assert!(d.should_stop(1), "it stops once the frame has gone");
 
         assert!(matches!(d.apply(Command::Continue, 0), Next::Resume));
@@ -923,7 +936,11 @@ mod watch_tests {
             at_break.contains("the top-level stream"),
             "stopped inside the body rather than at the call:\n{at_break}"
         );
-        assert_eq!(i.depth(), 4, "1, 2 and the body's 7 and 9 all ran in the end");
+        assert_eq!(
+            i.depth(),
+            4,
+            "1, 2 and the body's 7 and 9 all ran in the end"
+        );
     }
 
     /// **Criterion 8: a conditional breakpoint cannot change the program it

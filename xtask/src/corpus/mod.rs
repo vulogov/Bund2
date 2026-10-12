@@ -384,11 +384,13 @@ fn workbench_forms(repo: &Path, reg: &Registry) {
     let decided = consistent_yes + consistent_no + counter.len() + gaps.len();
     bund2_api::sayln!(
         "  {:<44}{:>5}",
-        "has `.` form AND uses StackOps", consistent_yes
+        "has `.` form AND uses StackOps",
+        consistent_yes
     );
     bund2_api::sayln!(
         "  {:<44}{:>5}",
-        "has neither (NOT a producer list)", consistent_no
+        "has neither (NOT a producer list)",
+        consistent_no
     );
     bund2_api::sayln!(
         "  {:<44}{:>5}   <-- mostly naming artefacts",
@@ -720,16 +722,43 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
     // *does* run is reported, because then the entry is wrong.
     const NO_GOLDEN_CAN_HOLD: [(&str, &str); 11] = [
         ("$", "the oracle does not take `$` as a word"),
-        ("<-", "alias of `stacks_left`, which only Bund2 registers (F71)"),
-        ("←", "alias of `stacks_left`, which only Bund2 registers (F71)"),
+        (
+            "<-",
+            "alias of `stacks_left`, which only Bund2 registers (F71)",
+        ),
+        (
+            "←",
+            "alias of `stacks_left`, which only Bund2 registers (F71)",
+        ),
         ("password", "reads a terminal"),
-        ("log.error", "its one line carries a wall clock in the oracle"),
-        ("debug.display_distributed_info", "its only output is a reporter line with a wall clock"),
-        ("debug.display_memstat", "prints this process's memory, which moves between runs"),
-        ("debug.display_hostinfo", "prints crate versions, and the two engines are different crates"),
-        ("system.ip", "names the machine, and fails without a network"),
-        ("system.ipv6", "names the machine, and fails on a host without IPv6"),
-        ("system.locale", "names the machine, and fails where no locale is set"),
+        (
+            "log.error",
+            "its one line carries a wall clock in the oracle",
+        ),
+        (
+            "debug.display_distributed_info",
+            "its only output is a reporter line with a wall clock",
+        ),
+        (
+            "debug.display_memstat",
+            "prints this process's memory, which moves between runs",
+        ),
+        (
+            "debug.display_hostinfo",
+            "prints crate versions, and the two engines are different crates",
+        ),
+        (
+            "system.ip",
+            "names the machine, and fails without a network",
+        ),
+        (
+            "system.ipv6",
+            "names the machine, and fails on a host without IPv6",
+        ),
+        (
+            "system.locale",
+            "names the machine, and fails where no locale is set",
+        ),
     ];
     let held_out: Vec<(&str, &str)> = NO_GOLDEN_CAN_HOLD
         .iter()
@@ -747,9 +776,7 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
         bund2_api::sayln!("  {w:<32} {why}");
     }
     bund2_api::sayln!();
-    bund2_api::sayln!(
-        "  Probes still to write: {to_write}. The reachable maximum for COVERAGE is"
-    );
+    bund2_api::sayln!("  Probes still to write: {to_write}. The reachable maximum for COVERAGE is");
     bund2_api::sayln!(
         "  therefore {}/{} -- IMPLEMENTED less the {} above.\n",
         implemented.len() - held_out.len(),
@@ -896,7 +923,10 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
                 core_missing.push(w);
             }
         }
-        bund2_api::sayln!("## core words implemented, run by no golden: {}\n", core_unprobed.len());
+        bund2_api::sayln!(
+            "## core words implemented, run by no golden: {}\n",
+            core_unprobed.len()
+        );
         for chunk in core_unprobed.chunks(6) {
             bund2_api::sayln!("  {}", chunk.join("  "));
         }
@@ -1472,7 +1502,10 @@ fn task3(programs: &[Program], reg: &Registry) {
 
     bund2_api::sayln!(
         "  {:<22} {:>7} {:>7} {:>10}  basic?",
-        "subsystem", "breaks", "words", "otherwise"
+        "subsystem",
+        "breaks",
+        "words",
+        "otherwise"
     );
     bund2_api::sayln!("  {:<22} {:>7} {:>7} {:>10}", "", "progs", "used", "basic");
     for (sub, nbreak, nwords, nintr) in &rows {
@@ -1487,7 +1520,9 @@ fn task3(programs: &[Program], reg: &Registry) {
     }
     bund2_api::sayln!();
 
-    bund2_api::sayln!("## library-shaped subsystems the corpus leans on from otherwise-basic programs\n");
+    bund2_api::sayln!(
+        "## library-shaped subsystems the corpus leans on from otherwise-basic programs\n"
+    );
     bund2_api::sayln!("  These are the D14 pressure points: a subsystem outside the");
     bund2_api::sayln!("  stack/math/logic/lambda/oop set that programs reach into while");
     bund2_api::sayln!("  touching nothing else outside it.\n");
@@ -1972,7 +2007,9 @@ fn reachability(programs: &[Program], reg: &Registry) {
         by_file.len(),
         used.len()
     );
-    bund2_api::sayln!("  {self_contained} are self-contained; {crossing} reach another subsystem.\n");
+    bund2_api::sayln!(
+        "  {self_contained} are self-contained; {crossing} reach another subsystem.\n"
+    );
 
     rows.sort_by(|a, b| b.3.len().cmp(&a.3.len()).then(a.0.cmp(&b.0)));
     for (path, sub, words, reached) in &rows {

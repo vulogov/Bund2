@@ -118,6 +118,16 @@ pub fn register(r: &mut Registry) {
     // **Opaque, both forms.** One workbench value is drained per name in the
     // list, so what either consumes is not a constant — the same reason
     // `pull` is opaque (F92).
-    r.register_native("pull.workbench", p_s, StackEffect::opaque(1), WordKind::Sync);
-    r.register_native("pull.workbench.", p_w, StackEffect::opaque(0), WordKind::Sync);
+    r.register_native(
+        "pull.workbench",
+        p_s,
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "pull.workbench.",
+        p_w,
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
 }

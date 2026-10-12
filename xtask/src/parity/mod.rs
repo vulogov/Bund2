@@ -100,10 +100,7 @@ fn normalise(s: &str) -> String {
 /// wrapped cell shows up — the harness reports that rather than reassembling
 /// text whose breaks it cannot distinguish from content.
 fn unbox(out: &str) -> Option<String> {
-    let rows: Vec<&str> = out
-        .lines()
-        .filter(|l| l.starts_with('│'))
-        .collect();
+    let rows: Vec<&str> = out.lines().filter(|l| l.starts_with('│')).collect();
     if rows.len() != 1 {
         return None;
     }
@@ -197,7 +194,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     .render(false)
             }
             Err(e) => {
-                skipped_other.push((name.clone(), format!("bund2 parse error: {}", e.render(&src))));
+                skipped_other.push((
+                    name.clone(),
+                    format!("bund2 parse error: {}", e.render(&src)),
+                ));
                 continue;
             }
         };

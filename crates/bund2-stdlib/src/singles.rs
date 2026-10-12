@@ -33,7 +33,9 @@ fn push_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Result<(),
             return Err(Error(format!("Stack is too shallow for inline {prefix}")));
         }
         crate::wb::Side::Bench if vm.workbench_depth() < 1 || vm.depth() < 1 => {
-            return Err(Error(format!("Workbench is too shallow for inline {prefix}")));
+            return Err(Error(format!(
+                "Workbench is too shallow for inline {prefix}"
+            )));
         }
         _ => {}
     }
@@ -75,7 +77,9 @@ fn unfold_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Result<(
             return Err(Error(format!("Stack is too shallow for inline {prefix}")));
         }
         crate::wb::Side::Bench if vm.workbench_depth() < 1 => {
-            return Err(Error(format!("Workbench is too shallow for inline {prefix}")));
+            return Err(Error(format!(
+                "Workbench is too shallow for inline {prefix}"
+            )));
         }
         _ => {}
     }
@@ -165,9 +169,9 @@ fn conditional_move(vm: &mut dyn Vm, to_stack: bool, prefix: &str) -> Result<(),
             let name_val = vm
                 .pull()
                 .ok_or_else(|| Error(format!("{prefix} returns: NO DATA for stack name")))?;
-            let name = name_val
-                .as_str()
-                .ok_or_else(|| Error(format!("{prefix} returns: This Dynamic type is not string")))?;
+            let name = name_val.as_str().ok_or_else(|| {
+                Error(format!("{prefix} returns: This Dynamic type is not string"))
+            })?;
             vm.push_to(&name, value);
         } else {
             vm.push_workbench(value);
@@ -225,7 +229,12 @@ fn attribute(vm: &mut dyn Vm) -> Result<(), Error> {
 /// (`value_carcdr.rs:27-33,39-42`). That is *not* the `.` contract D24
 /// describes and not the one `bund/string` uses — see `crate::wb` for the
 /// three shapes.
-fn car_cdr(vm: &mut dyn Vm, side: crate::wb::Side, want_car: bool, base: &str) -> Result<(), Error> {
+fn car_cdr(
+    vm: &mut dyn Vm,
+    side: crate::wb::Side,
+    want_car: bool,
+    base: &str,
+) -> Result<(), Error> {
     let prefix = &format!("{base}{}", side.dot());
     crate::wb::shallow(vm, side, 1, prefix)?;
     let v = crate::wb::operand(vm, side, prefix)?;
@@ -234,12 +243,20 @@ fn car_cdr(vm: &mut dyn Vm, side: crate::wb::Side, want_car: bool, base: &str) -
         LIST => {
             let items = v.as_list().unwrap_or_default();
             let (first, rest) = items.split_first().ok_or_else(nothing)?;
-            if want_car { first.clone() } else { BundValue::list(rest.to_vec()) }
+            if want_car {
+                first.clone()
+            } else {
+                BundValue::list(rest.to_vec())
+            }
         }
         bund2_value::MATRIX => {
             let rows = v.as_matrix().unwrap_or_default();
             let (first, rest) = rows.split_first().ok_or_else(nothing)?;
-            if want_car { BundValue::list(first.clone()) } else { BundValue::matrix(rest.to_vec()) }
+            if want_car {
+                BundValue::list(first.clone())
+            } else {
+                BundValue::matrix(rest.to_vec())
+            }
         }
         bund2_value::METRICS => {
             let samples = v.as_metrics().unwrap_or_default();
@@ -291,11 +308,15 @@ fn compile(vm: &mut dyn Vm) -> Result<(), Error> {
         return Err(Error("Stack is too shallow for inline compile".into()));
     }
     let v = crate::pull::operand(vm, "BUND.COMPILE", 1)?;
-    let src = v
-        .as_str()
-        .ok_or_else(|| Error("BUND.COMPILE casting string returns: This Dynamic type is not string".into()))?;
-    let stream = bund2_syntax::compile(&src)
-        .map_err(|e| Error(format!("BUND.COMPILE error in parsing of BUND code: {}", e.render(&src))))?;
+    let src = v.as_str().ok_or_else(|| {
+        Error("BUND.COMPILE casting string returns: This Dynamic type is not string".into())
+    })?;
+    let stream = bund2_syntax::compile(&src).map_err(|e| {
+        Error(format!(
+            "BUND.COMPILE error in parsing of BUND code: {}",
+            e.render(&src)
+        ))
+    })?;
     let body: Vec<BundValue> = stream.into_iter().take_while(|v| v.dt() != EXIT).collect();
     vm.push(BundValue::list(body));
     Ok(())
@@ -328,7 +349,9 @@ fn bund_eval_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Resul
             return Err(Error(format!("Stack is too shallow for inline {prefix}")));
         }
         crate::wb::Side::Bench if vm.workbench_depth() < 1 => {
-            return Err(Error(format!("Workbench is too shallow for inline {prefix}")));
+            return Err(Error(format!(
+                "Workbench is too shallow for inline {prefix}"
+            )));
         }
         _ => {}
     }
@@ -361,7 +384,9 @@ fn bund_eval_file_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> 
             return Err(Error(format!("Stack is too shallow for inline {prefix}")));
         }
         crate::wb::Side::Bench if vm.workbench_depth() < 1 => {
-            return Err(Error(format!("Workbench is too shallow for inline {prefix}")));
+            return Err(Error(format!(
+                "Workbench is too shallow for inline {prefix}"
+            )));
         }
         _ => {}
     }
@@ -374,9 +399,7 @@ fn bund_eval_file_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> 
         )));
     };
     let Some(src) = crate::host::fetch_uri(&format!("file://{path}")) else {
-        return Err(Error(format!(
-            "{prefix} can not get code from file {path}"
-        )));
+        return Err(Error(format!("{prefix} can not get code from file {path}")));
     };
     eval_source(vm, &src)
 }
@@ -402,8 +425,11 @@ pub(crate) fn eval_source(vm: &mut dyn Vm, src: &str) -> Result<(), Error> {
             break;
         }
         let shown = word.render(false);
-        vm.apply(word)
-            .map_err(|e| e.context(format!("Attempt to evaluate value {shown} returned error: ")))?;
+        vm.apply(word).map_err(|e| {
+            e.context(format!(
+                "Attempt to evaluate value {shown} returned error: "
+            ))
+        })?;
     }
     Ok(())
 }
@@ -470,17 +496,21 @@ fn getset_inplace(vm: &mut dyn Vm, side: crate::wb::Side, is_set: bool) -> Resul
         let key_val = vm
             .pull()
             .ok_or_else(|| Error(format!("{prefix} returns NO DATA #2")))?;
-        let key = key_val
-            .as_str()
-            .ok_or_else(|| Error(format!("{prefix} error in GET: This Dynamic type is not string")))?;
+        let key = key_val.as_str().ok_or_else(|| {
+            Error(format!(
+                "{prefix} error in GET: This Dynamic type is not string"
+            ))
+        })?;
         side.push(vm, container.set(&key, obj));
     } else {
         let key_val = vm
             .pull()
             .ok_or_else(|| Error(format!("{prefix} returns NO DATA #2")))?;
-        let key = key_val
-            .as_str()
-            .ok_or_else(|| Error(format!("{prefix} error in GET: This Dynamic type is not string")))?;
+        let key = key_val.as_str().ok_or_else(|| {
+            Error(format!(
+                "{prefix} error in GET: This Dynamic type is not string"
+            ))
+        })?;
         let val = container
             .get(&key)
             // The reference wraps `get`'s own refusal in a sentence that already
@@ -514,7 +544,11 @@ fn pull_word(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     if side.depth(vm) < 1 {
         return Err(Error(format!(
             "{} is too shallow for inline {prefix}",
-            if side == crate::wb::Side::Stack { "Stack" } else { "Workbench" }
+            if side == crate::wb::Side::Stack {
+                "Stack"
+            } else {
+                "Workbench"
+            }
         )));
     }
     let names_val = crate::wb::operand(vm, side, prefix)?;
@@ -526,13 +560,19 @@ fn pull_word(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     }
     let names = names_val
         .as_list()
-        .ok_or_else(|| Error(format!("{prefix} casting of list returned: This Dynamic type is not list")))?
+        .ok_or_else(|| {
+            Error(format!(
+                "{prefix} casting of list returned: This Dynamic type is not list"
+            ))
+        })?
         .to_vec();
     let mut res = BundValue::map(Default::default());
     for n in names {
-        let name = n
-            .as_str()
-            .ok_or_else(|| Error(format!("{prefix} error casting name from string: This Dynamic type is not string")))?;
+        let name = n.as_str().ok_or_else(|| {
+            Error(format!(
+                "{prefix} error casting name from string: This Dynamic type is not string"
+            ))
+        })?;
         let value = vm
             .pull()
             .ok_or_else(|| Error(format!("{prefix} can not pull value from stack")))?;
@@ -555,9 +595,9 @@ fn var(vm: &mut dyn Vm) -> Result<(), Error> {
     }
     let value = crate::pull::operand(vm, "VAR", 1)?;
     let name_val = crate::pull::operand(vm, "VAR", 2)?;
-    let name = name_val
-        .as_str()
-        .ok_or_else(|| Error("VAR expecting var name to be string: This Dynamic type is not string".into()))?;
+    let name = name_val.as_str().ok_or_else(|| {
+        Error("VAR expecting var name to be string: This Dynamic type is not string".into())
+    })?;
     vm.register_var(&name, value);
     Ok(())
 }
@@ -598,9 +638,9 @@ fn var_unregister(vm: &mut dyn Vm) -> Result<(), Error> {
         return Err(Error("Stack is too shallow for inline var-".into()));
     }
     let name_val = crate::pull::operand(vm, "VAR-", 1)?;
-    let name = name_val
-        .as_str()
-        .ok_or_else(|| Error("VAR- expecting lanbda name to be string: This Dynamic type is not string".into()))?;
+    let name = name_val.as_str().ok_or_else(|| {
+        Error("VAR- expecting lanbda name to be string: This Dynamic type is not string".into())
+    })?;
     vm.unregister_var(&name);
     Ok(())
 }
@@ -754,12 +794,16 @@ fn merge_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
         }
         crate::wb::Side::Bench => {
             if vm.workbench_depth() < 1 {
-                return Err(Error(format!("Workbench is too shallow for inline {prefix}")));
+                return Err(Error(format!(
+                    "Workbench is too shallow for inline {prefix}"
+                )));
             }
             // Both guards say `Workbench`, though this one asks the stack
             // (`reference/Bund/src/stdlib/functions/values/merge.rs:33,36`).
             if vm.depth() < 1 {
-                return Err(Error(format!("Workbench is too shallow for inline {prefix}")));
+                return Err(Error(format!(
+                    "Workbench is too shallow for inline {prefix}"
+                )));
             }
         }
     }
@@ -1040,13 +1084,23 @@ fn effect_of_word(vm: &mut dyn Vm) -> Result<(), Error> {
 ///   passes the guard and then indexes `[-1]`, which is why Bund2 refuses 0.
 /// - A **non-LIST answers itself** for all three (`:26-28`), so `42 1 head` is
 ///   `42`. Preserved.
-fn head_tail_at(vm: &mut dyn Vm, side: crate::wb::Side, which: u8, base: &str) -> Result<(), Error> {
+fn head_tail_at(
+    vm: &mut dyn Vm,
+    side: crate::wb::Side,
+    which: u8,
+    base: &str,
+) -> Result<(), Error> {
     let prefix = &format!("{base}{}", side.dot());
     // The plain form is declared at the arity it *consumes*, per F18. The `.`
     // form guards **one** workbench cell and then pulls two from it
     // (`value_carcdr.rs:20-22,64-67`) — the reference's own shape, and the
     // one place the two forms genuinely differ.
-    crate::wb::shallow(vm, side, if side == crate::wb::Side::Stack { 2 } else { 1 }, prefix)?;
+    crate::wb::shallow(
+        vm,
+        side,
+        if side == crate::wb::Side::Stack { 2 } else { 1 },
+        prefix,
+    )?;
     // **The list is on top and the count beneath it.** `stdlib_carcdr_base`
     // pulls the value before the match (`value_carcdr.rs:27-33`) and each arm
     // then pulls its count (`:64-67`), so the source reads `<n> <list> head`.
@@ -1271,16 +1325,46 @@ pub fn register(r: &mut Registry) {
     // the reference and pulls two, so `1 head` there reports `NO DATA #2` on
     // an emptied stack; here the guard fires first and the operand survives.
     use crate::wb::Side;
-    r.register_native("head", |vm| head_tail_at(vm, Side::Stack, 0, "HEAD"), eff(2, 1), WordKind::Sync);
-    r.register_native("tail", |vm| head_tail_at(vm, Side::Stack, 1, "TAIL"), eff(2, 1), WordKind::Sync);
-    r.register_native("at", |vm| head_tail_at(vm, Side::Stack, 2, "AT"), eff(2, 1), WordKind::Sync);
+    r.register_native(
+        "head",
+        |vm| head_tail_at(vm, Side::Stack, 0, "HEAD"),
+        eff(2, 1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "tail",
+        |vm| head_tail_at(vm, Side::Stack, 1, "TAIL"),
+        eff(2, 1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "at",
+        |vm| head_tail_at(vm, Side::Stack, 2, "AT"),
+        eff(2, 1),
+        WordKind::Sync,
+    );
     // The `.` siblings take **both** operands off the workbench and leave the
     // answer there, so they consume nothing from the stack and produce nothing
     // on it — an effect the type cannot express, which is RFC-0004 §S1's
     // missing second axis showing through.
-    r.register_native("head.", |vm| head_tail_at(vm, Side::Bench, 0, "HEAD"), eff(0, 0), WordKind::Sync);
-    r.register_native("tail.", |vm| head_tail_at(vm, Side::Bench, 1, "TAIL"), eff(0, 0), WordKind::Sync);
-    r.register_native("at.", |vm| head_tail_at(vm, Side::Bench, 2, "AT"), eff(0, 0), WordKind::Sync);
+    r.register_native(
+        "head.",
+        |vm| head_tail_at(vm, Side::Bench, 0, "HEAD"),
+        eff(0, 0),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "tail.",
+        |vm| head_tail_at(vm, Side::Bench, 1, "TAIL"),
+        eff(0, 0),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "at.",
+        |vm| head_tail_at(vm, Side::Bench, 2, "AT"),
+        eff(0, 0),
+        WordKind::Sync,
+    );
     r.register_native("car.", car_wb, eff(0, 0), WordKind::Sync);
     r.register_native("cdr.", cdr_wb, eff(0, 0), WordKind::Sync);
     r.register_native("complex", complex, eff(2, 1), WordKind::Sync);
@@ -1371,7 +1455,13 @@ pub fn register(r: &mut Registry) {
     // lengths rather than answering.
     r.register_native(
         "string.distance.sift3",
-        |vm| distance_f(vm, |a, b| f64::from(distance::sift3(a, b)), "STRING.DISTANCE.SIFT3"),
+        |vm| {
+            distance_f(
+                vm,
+                |a, b| f64::from(distance::sift3(a, b)),
+                "STRING.DISTANCE.SIFT3",
+            )
+        },
         eff(2, 1),
         WordKind::Sync,
     );
@@ -1387,11 +1477,26 @@ pub fn register(r: &mut Registry) {
         eff(2, 1),
         WordKind::Sync,
     );
-    r.register_native("string.distance.hamming", hamming, eff(2, 1), WordKind::Sync);
+    r.register_native(
+        "string.distance.hamming",
+        hamming,
+        eff(2, 1),
+        WordKind::Sync,
+    );
     // Opaque: the lambda runs first and its result becomes the condition, so
     // it may push from anywhere (`conditional_move.rs:16-45`).
-    r.register_native("?.", q_move_workbench, StackEffect::opaque(2), WordKind::Sync);
-    r.register_native("?move", q_move_stack, StackEffect::opaque(3), WordKind::Sync);
+    r.register_native(
+        "?.",
+        q_move_workbench,
+        StackEffect::opaque(2),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "?move",
+        q_move_stack,
+        StackEffect::opaque(3),
+        WordKind::Sync,
+    );
     r.register_native("attribute", attribute, eff(2, 1), WordKind::Sync);
     crate::wb::bench!(r, "attribute", attribute, 2, 1);
     r.register_native("car", car, eff(1, 1), WordKind::Sync);
@@ -1404,13 +1509,28 @@ pub fn register(r: &mut Registry) {
     // string can do anything.
     // **Opaque, all four.** `resolve` applies whatever it finds and `do` runs
     // a body until the stack empties, so none of them has a pair.
-    r.register_native("resolve", resolve_word, StackEffect::opaque(1), WordKind::Sync);
+    r.register_native(
+        "resolve",
+        resolve_word,
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
     r.register_native("resolve.class", resolve_class, eff(1, 1), WordKind::Sync);
     crate::wb::bench!(r, "resolve.class", resolve_class);
     r.register_native("do", do_stack, StackEffect::opaque(1), WordKind::Sync);
     r.register_native("do.", do_wb, StackEffect::opaque(0), WordKind::Sync);
-    r.register_native("bund.eval", bund_eval, StackEffect::opaque(1), WordKind::Sync);
-    r.register_native("bund.eval.", bund_eval_wb, StackEffect::opaque(0), WordKind::Sync);
+    r.register_native(
+        "bund.eval",
+        bund_eval,
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "bund.eval.",
+        bund_eval_wb,
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
     // **`--noeval` in the reference, not `--noio`** — it stubs all four
     // together (`bund_eval.rs`), which puts reading a file to run under the
     // flag about *evaluating* rather than the one about I/O. Bund2 puts
@@ -1428,19 +1548,49 @@ pub fn register(r: &mut Registry) {
         WordKind::Sync,
     );
     r.register_alias("!!", "bund.eval");
-    r.register_native("get,", |vm| getset_inplace(vm, Side::Stack, false), eff(2, 2), WordKind::Sync);
-    r.register_native("set,", |vm| getset_inplace(vm, Side::Stack, true), eff(3, 1), WordKind::Sync);
+    r.register_native(
+        "get,",
+        |vm| getset_inplace(vm, Side::Stack, false),
+        eff(2, 2),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "set,",
+        |vm| getset_inplace(vm, Side::Stack, true),
+        eff(3, 1),
+        WordKind::Sync,
+    );
     // The `.` forms keep the dictionary on the workbench: `get.,` takes the
     // key off the stack and leaves the value there (1 -> 1); `set.,` takes the
     // value and the key and leaves nothing (2 -> 0).
-    r.register_native("get.,", |vm| getset_inplace(vm, Side::Bench, false), eff(1, 1), WordKind::Sync);
-    r.register_native("set.,", |vm| getset_inplace(vm, Side::Bench, true), eff(2, 0), WordKind::Sync);
+    r.register_native(
+        "get.,",
+        |vm| getset_inplace(vm, Side::Bench, false),
+        eff(1, 1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "set.,",
+        |vm| getset_inplace(vm, Side::Bench, true),
+        eff(2, 0),
+        WordKind::Sync,
+    );
     // Opaque, both forms: one stack value is pulled per name in the list, so
     // neither consumes a fixed number. `pull` said `1 -> 1`, true only of an
     // empty list (F92). `pull.` takes the names off the workbench, values off
     // the stack, and puts the MAP back on the workbench.
-    r.register_native("pull", |vm| pull_word(vm, Side::Stack), StackEffect::opaque(1), WordKind::Sync);
-    r.register_native("pull.", |vm| pull_word(vm, Side::Bench), StackEffect::opaque(0), WordKind::Sync);
+    r.register_native(
+        "pull",
+        |vm| pull_word(vm, Side::Stack),
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "pull.",
+        |vm| pull_word(vm, Side::Bench),
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
     // **D72's `noop`**, the one word here the reference does not have. `eff(0, 0)`
     // is the honest pair and it is what makes `{ noop }` a body that compiles,
     // promotes nothing and does nothing.
@@ -1465,9 +1615,9 @@ fn resolve_word(vm: &mut dyn Vm) -> Result<(), Error> {
     let v = vm
         .pull()
         .ok_or_else(|| Error("RESOLVE returns: NO DATA".into()))?;
-    let name = v.as_str().ok_or_else(|| {
-        Error("RESOLVE returns error: This Dynamic type is not string".into())
-    })?;
+    let name = v
+        .as_str()
+        .ok_or_else(|| Error("RESOLVE returns error: This Dynamic type is not string".into()))?;
     // An alias resolves to its target; anything else resolves to itself.
     let real = vm
         .alias_pairs()
@@ -1527,19 +1677,11 @@ fn do_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Result<(), E
         .pull(vm)
         .ok_or_else(|| Error(format!("{} returns: NO DATA #1", said)))?;
     if lambda.dt() != bund2_value::LAMBDA {
-        return Err(Error(format!(
-            "{}: #1 parameter must be lambda",
-            said
-        )));
+        return Err(Error(format!("{}: #1 parameter must be lambda", said)));
     }
     loop {
-        vm.eval_lambda(&lambda).map_err(|e| {
-            Error(format!(
-                "{}: lambda execution returns error: {}",
-                said,
-                e.0
-            ))
-        })?;
+        vm.eval_lambda(&lambda)
+            .map_err(|e| Error(format!("{}: lambda execution returns error: {}", said, e.0)))?;
         if vm.depth() == 0 {
             break;
         }
@@ -1666,7 +1808,12 @@ mod f18_tests {
         };
         let mut i = Interp::new();
         crate::register_all_with(&mut i.registry, &opts);
-        for name in ["bund.eval", "bund.eval.", "bund.eval-file", "bund.eval-file."] {
+        for name in [
+            "bund.eval",
+            "bund.eval.",
+            "bund.eval-file",
+            "bund.eval-file.",
+        ] {
             let stream = bund2_syntax::compile(name).expect("compiles");
             let e = i.eval(&stream).expect_err(name).0;
             assert!(
@@ -1735,8 +1882,13 @@ mod f18_tests {
             "an empty block is still refused, as the oracle refuses it"
         );
         let i = run(":f { noop } register
-1 f").expect("a noop body registers and runs");
-        assert_eq!(bund2_api::Vm::depth(&i), 1, "the caller's value is untouched");
+1 f")
+        .expect("a noop body registers and runs");
+        assert_eq!(
+            bund2_api::Vm::depth(&i),
+            1,
+            "the caller's value is untouched"
+        );
     }
 
     /// `noop` declares the pair it keeps: it takes nothing and leaves nothing.
@@ -1771,10 +1923,19 @@ mod f18_tests {
             ("[ 1 ] at", "AT()"),
             ("1.0 complex", "pair()"),
             ("\"a\" string.distance", "STRING.DISTANCE"),
-            ("\"a\" string.distance.levenshtein", "STRING.DISTANCE.LEVENSHTEIN"),
-            ("\"a\" string.distance.dameraulevenshtein", "STRING.DISTANCE.DAMERAULEVENSHTEIN"),
+            (
+                "\"a\" string.distance.levenshtein",
+                "STRING.DISTANCE.LEVENSHTEIN",
+            ),
+            (
+                "\"a\" string.distance.dameraulevenshtein",
+                "STRING.DISTANCE.DAMERAULEVENSHTEIN",
+            ),
             ("\"a\" string.distance.hamming", "STRING.DISTANCE.HAMMING"),
-            ("\"a\" string.distance.jarowinkler", "STRING.DISTANCE.JAROWINKLER"),
+            (
+                "\"a\" string.distance.jarowinkler",
+                "STRING.DISTANCE.JAROWINKLER",
+            ),
             ("\"a\" string.distance.sift3", "STRING.DISTANCE.SIFT3"),
             ("\"a\" string.regex", "STRING.REGEX"),
             ("\"a\" string.wildcard", "STRING.WILDCARD"),
@@ -1813,14 +1974,23 @@ mod f18_tests {
     fn the_survey_s_refusals_are_the_reference_s() {
         for (src, want) in [
             // A condition is a BOOL and nothing else.
-            ("2 { 7 } if", "IF returns error: This Dynamic type is not bool"),
-            ("0 { 7 } ?false", "?FALSE returns error: This Dynamic type is not bool"),
+            (
+                "2 { 7 } if",
+                "IF returns error: This Dynamic type is not bool",
+            ),
+            (
+                "0 { 7 } ?false",
+                "?FALSE returns error: This Dynamic type is not bool",
+            ),
             (
                 "2 { 7 } { 8 } ifthenelse",
                 "IFTHENELSE: #3 parameter must be boolean: This Dynamic type is not bool",
             ),
             // A stack that is not there, or has nothing in it.
-            ("\"nope\" clear_in", "Operation clear_in() can not find the stack: nope"),
+            (
+                "\"nope\" clear_in",
+                "Operation clear_in() can not find the stack: nope",
+            ),
             (
                 "\"nope\" drop_in",
                 "Operation drop_in() returned: Can not detect stack nope for drop_in() operation",
@@ -1829,7 +1999,10 @@ mod f18_tests {
                 "\"e\" ensure_stack \"e\" drop_in",
                 "Operation drop_in() returned: Stack is empty for drop_in() operation",
             ),
-            ("2 ?class", "?CLASS casting string returns: This Dynamic type is not string"),
+            (
+                "2 ?class",
+                "?CLASS casting string returns: This Dynamic type is not string",
+            ),
             ("dict \"k\" get", "GET returns error: Key not found: k"),
             ("2 graph", "GRAPH: Nodes list must be a list"),
         ] {
@@ -1850,8 +2023,14 @@ mod f18_tests {
     #[test]
     fn concat_with_space_refuses_as_the_reference_does() {
         for (src, want) in [
-            ("concat_with_space", "Stack is too shallow for inline concat_with_space"),
-            ("\"a\" sp", "Stack is too shallow for inline concat_with_space"),
+            (
+                "concat_with_space",
+                "Stack is too shallow for inline concat_with_space",
+            ),
+            (
+                "\"a\" sp",
+                "Stack is too shallow for inline concat_with_space",
+            ),
             ("\"x\" \"a\" sp", "No textbuffer was found on stack"),
             ("5 \"a\" sp", "No textbuffer was found on stack"),
             (
@@ -1891,19 +2070,46 @@ mod f18_tests {
     #[test]
     fn looping_words_and_empty_stacks_say_what_the_reference_says() {
         for (src, want) in [
-            ("2 . { false } while.", "WHILE. returns error: This Dynamic type is not bool"),
-            ("2 . { drop } loop.", "LOOP. returns error: This is not a LIST/PAIR value but 2"),
+            (
+                "2 . { false } while.",
+                "WHILE. returns error: This Dynamic type is not bool",
+            ),
+            (
+                "2 . { drop } loop.",
+                "LOOP. returns error: This is not a LIST/PAIR value but 2",
+            ),
             ("2 . 2 loop.", "LOOP.: #1 parameter must be lambda"),
-            ("2.5 { drop } times", "TIMES returns error: This Dynamic type is not integer"),
+            (
+                "2.5 { drop } times",
+                "TIMES returns error: This Dynamic type is not integer",
+            ),
             // `do.` reports as `DO` once past its guard.
             ("8 . 2 do.", "DO: #1 parameter must be lambda"),
-            ("drop", "VM inline function returned error: Function drop() returned: Stack is empty for drop() operation"),
-            ("dup", "VM inline function returned error: Error duplicating data in current stack: unable to peek()"),
-            (".", "VM inline function returned error: Nothing has been returned from current stack to workbench"),
+            (
+                "drop",
+                "VM inline function returned error: Function drop() returned: Stack is empty for drop() operation",
+            ),
+            (
+                "dup",
+                "VM inline function returned error: Error duplicating data in current stack: unable to peek()",
+            ),
+            (
+                ".",
+                "VM inline function returned error: Nothing has been returned from current stack to workbench",
+            ),
             // F178: the two named moves say what the reference's stack layer says.
-            ("return_from", "VM inline function returned error: Stack is too shallow for inline return_from()"),
-            ("\"s\" return_from", "VM inline function returned error: Nothing has been returned from stack s to workbench"),
-            ("\"s\" return_to", "VM inline function returned error: Nothing has been returned from workbench to stack s"),
+            (
+                "return_from",
+                "VM inline function returned error: Stack is too shallow for inline return_from()",
+            ),
+            (
+                "\"s\" return_from",
+                "VM inline function returned error: Nothing has been returned from stack s to workbench",
+            ),
+            (
+                "\"s\" return_to",
+                "VM inline function returned error: Nothing has been returned from workbench to stack s",
+            ),
         ] {
             match run(src) {
                 Ok(_) => panic!("{src} was expected to fail"),

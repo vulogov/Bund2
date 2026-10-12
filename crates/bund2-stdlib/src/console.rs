@@ -145,16 +145,36 @@ fn display_workbench(vm: &mut dyn Vm) -> Result<(), Error> {
 
 pub fn register(r: &mut Registry) {
     use crate::wb::Side;
-    r.register_native("println", |vm| print_base(vm, true, Side::Stack), eff(1, 0), WordKind::Sync);
-    r.register_native("print", |vm| print_base(vm, false, Side::Stack), eff(1, 0), WordKind::Sync);
+    r.register_native(
+        "println",
+        |vm| print_base(vm, true, Side::Stack),
+        eff(1, 0),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "print",
+        |vm| print_base(vm, false, Side::Stack),
+        eff(1, 0),
+        WordKind::Sync,
+    );
     // F77: the guard still reads the current stack, so the `.` forms do
     // require one value there — declared, because `check` would otherwise
     // miss an underflow the reference really reports. But they take nothing
     // from it: the value printed comes off the workbench. `consumes` is a
     // floor, so a floor of one and a net of zero is `1 -> 1`. It said `1 -> 0`,
     // a net of minus one on a stack the word never touches (F92).
-    r.register_native("println.", |vm| print_base(vm, true, Side::Bench), eff(1, 1), WordKind::Sync);
-    r.register_native("print.", |vm| print_base(vm, false, Side::Bench), eff(1, 1), WordKind::Sync);
+    r.register_native(
+        "println.",
+        |vm| print_base(vm, true, Side::Bench),
+        eff(1, 1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "print.",
+        |vm| print_base(vm, false, Side::Bench),
+        eff(1, 1),
+        WordKind::Sync,
+    );
     r.register_native("nl", nl, eff(0, 0), WordKind::Sync);
     r.register_native("space", space, eff(0, 0), WordKind::Sync);
     r.register_native(
@@ -218,7 +238,7 @@ fn dump_bytes(v: &BundValue) -> Result<Vec<u8>, Error> {
             _ => {
                 return Err(Error::internal(
                     "a value tagged FLOAT whose payload is not a float",
-                ))
+                ));
             }
         },
         bund2_value::BOOL => vec![u8::from(match v.unboxed() {
@@ -226,7 +246,7 @@ fn dump_bytes(v: &BundValue) -> Result<Vec<u8>, Error> {
             _ => {
                 return Err(Error::internal(
                     "a value tagged BOOL whose payload is not a bool",
-                ))
+                ));
             }
         })],
         bund2_value::STRING => v
@@ -334,10 +354,7 @@ mod tests {
     /// widest. A single row gets no separator at all.
     #[test]
     fn one_row_has_no_separator() {
-        assert_eq!(
-            draw_box_rows(&["x".to_string()]),
-            "╭───╮\n│ x │\n╰───╯"
-        );
+        assert_eq!(draw_box_rows(&["x".to_string()]), "╭───╮\n│ x │\n╰───╯");
     }
 
     /// `println` prints contents, not the `Debug` rendering. Conflating the

@@ -87,7 +87,9 @@ pub fn catch_panic(f: impl FnOnce() -> Result<(), Error>) -> Result<Result<(), E
         let previous = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
             if CATCHING.with(std::cell::Cell::get) > 0 {
-                let at = info.location().map(|l| format!("{}:{}", l.file(), l.line()));
+                let at = info
+                    .location()
+                    .map(|l| format!("{}:{}", l.file(), l.line()));
                 CAUGHT_AT.with(|c| c.replace(at));
             } else {
                 previous(info);
@@ -1545,7 +1547,9 @@ impl Registry {
     pub fn lambda_value(&self, name: &str) -> Option<BundValue> {
         let &s = self.interner.index.get(name)?;
         let t = self.follow(s);
-        self.slots.get(t.index()).and_then(|slot| slot.lambda.clone())
+        self.slots
+            .get(t.index())
+            .and_then(|slot| slot.lambda.clone())
     }
 
     pub fn lambda_body(&self, name: &str) -> Option<Vec<BundValue>> {
@@ -1576,7 +1580,10 @@ impl Registry {
         let (s, sigil) = self.interner.lookup_call(name)?;
         match self.resolve(s, sigil) {
             Resolved::Command => self.slots.get(s.index()).and_then(|sl| sl.command),
-            Resolved::Native => self.slots.get(self.follow(s).index()).and_then(|sl| sl.native),
+            Resolved::Native => self
+                .slots
+                .get(self.follow(s).index())
+                .and_then(|sl| sl.native),
             Resolved::Lambda | Resolved::Unbound => None,
         }
         .map(|n| n.effect)
@@ -1707,7 +1714,12 @@ impl Registry {
     ) -> Symbol {
         let s = self.interner.intern(name);
         let id = Some(self.mint_registration());
-        self.slot_mut(s).native = Some(Native { f, effect, kind, id });
+        self.slot_mut(s).native = Some(Native {
+            f,
+            effect,
+            kind,
+            id,
+        });
         self.touch(s);
         s
     }
@@ -1892,7 +1904,12 @@ impl Registry {
         // **No D43 id.** RFC-0005 §S5: "A command carries no D43 id, so no
         // command is ever crossed." Promotion syncs before one, as before an
         // embedder's native.
-        self.slot_mut(s).command = Some(Native { f, effect, kind, id: None });
+        self.slot_mut(s).command = Some(Native {
+            f,
+            effect,
+            kind,
+            id: None,
+        });
         self.touch(s);
         s
     }
@@ -2296,9 +2313,11 @@ mod tests {
                 continue;
             }
             if let Some(at) = t.find("fn ") {
-                let head_ok = t[..at]
-                    .split_whitespace()
-                    .all(|w| ["pub", "const", "unsafe", "async", "extern"].iter().any(|q| w.starts_with(q)));
+                let head_ok = t[..at].split_whitespace().all(|w| {
+                    ["pub", "const", "unsafe", "async", "extern"]
+                        .iter()
+                        .any(|q| w.starts_with(q))
+                });
                 if head_ok {
                     current = t[at + 3..]
                         .split(['(', '<'])
@@ -2409,7 +2428,10 @@ mod tests {
         // The replay: same name, same function, new registration.
         r.register_native("dup", noop, StackEffect::fixed(0, 0), WordKind::Sync);
         let again = r.slot(a).and_then(|s| s.native.as_ref()).and_then(|n| n.id);
-        assert_ne!(first, again, "a replayed registration mints a fresh id (F32)");
+        assert_ne!(
+            first, again,
+            "a replayed registration mints a fresh id (F32)"
+        );
     }
 
     /// **D43, and RFC-0005 §S5's rule.** "A command carries no D43 id, so no
@@ -2418,7 +2440,10 @@ mod tests {
     fn a_command_carries_no_registration_id() {
         let mut r = Registry::new();
         let s = r.register_command("c", noop, StackEffect::fixed(0, 0), WordKind::Sync);
-        let id = r.slot(s).and_then(|sl| sl.command.as_ref()).and_then(|n| n.id);
+        let id = r
+            .slot(s)
+            .and_then(|sl| sl.command.as_ref())
+            .and_then(|n| n.id);
         assert_eq!(id, None, "a command is never crossed, so it needs no id");
     }
 
@@ -2557,7 +2582,11 @@ mod tests {
         let mut copy = r.clone();
 
         let before = r.generation_cell(s).get();
-        assert_eq!(copy.generation_cell(s).get(), before, "the clone starts equal");
+        assert_eq!(
+            copy.generation_cell(s).get(),
+            before,
+            "the clone starts equal"
+        );
         assert_ne!(
             std::ptr::from_ref(r.generation_cell(s)),
             std::ptr::from_ref(copy.generation_cell(s)),
@@ -2565,7 +2594,10 @@ mod tests {
         );
 
         copy.register_lambda("w", BundValue::int(1));
-        assert!(copy.generation_cell(s).get() > before, "the clone's cell moved");
+        assert!(
+            copy.generation_cell(s).get() > before,
+            "the clone's cell moved"
+        );
         assert_eq!(
             r.generation_cell(s).get(),
             before,

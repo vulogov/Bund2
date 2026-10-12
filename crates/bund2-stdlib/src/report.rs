@@ -173,7 +173,11 @@ fn lay_out(texts: &[&str], room: Option<usize>) -> (Vec<String>, Option<usize>) 
     let Some(room) = room else {
         return (whole(), None);
     };
-    if !texts.iter().flat_map(|t| t.split('\n')).any(|line| line.width() > room) {
+    if !texts
+        .iter()
+        .flat_map(|t| t.split('\n'))
+        .any(|line| line.width() > room)
+    {
         return (whole(), None);
     }
     let broken = |width: usize| -> Vec<Vec<String>> {
@@ -186,7 +190,10 @@ fn lay_out(texts: &[&str], room: Option<usize>) -> (Vec<String>, Option<usize>) 
         width = longest;
         cells = broken(width);
     }
-    (cells.iter().map(|lines| lines.join("\n")).collect(), Some(width))
+    (
+        cells.iter().map(|lines| lines.join("\n")).collect(),
+        Some(width),
+    )
 }
 
 /// A cell's lines, each one wider than `room` broken.
@@ -245,8 +252,19 @@ impl<'a> Word<'a> {
             taken = c.width().unwrap_or(0);
         }
         let (front, rest) = self.text.split_at_checked(at).unwrap_or((self.text, ""));
-        let width = if rest.is_empty() { 0 } else { self.width.saturating_sub(taken) };
-        (front, Word { text: rest, width, plain: self.plain })
+        let width = if rest.is_empty() {
+            0
+        } else {
+            self.width.saturating_sub(taken)
+        };
+        (
+            front,
+            Word {
+                text: rest,
+                width,
+                plain: self.plain,
+            },
+        )
     }
 }
 
@@ -424,16 +442,34 @@ mod tests {
     /// blanks, line ends, wide and combining characters.
     fn drawn(seed: &mut u64, n: usize) -> String {
         const PIECES: [&str; 14] = [
-            "a", "word", " ", "  ", "\n", "http://host/", "é", "日本", "e\u{301}", "-", "x=1&y=2",
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "ü", "\t",
+            "a",
+            "word",
+            " ",
+            "  ",
+            "\n",
+            "http://host/",
+            "é",
+            "日本",
+            "e\u{301}",
+            "-",
+            "x=1&y=2",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "ü",
+            "\t",
         ];
         let mut text = String::new();
         for _ in 0..n {
-            *seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            *seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             let pick = (*seed >> 33) as usize;
             let piece = PIECES[pick % PIECES.len()];
             // Long words are the case: repeat a piece without a blank in it.
-            let times = if piece.trim().is_empty() { 1 } else { 1 + (pick / 14) % 40 };
+            let times = if piece.trim().is_empty() {
+                1
+            } else {
+                1 + (pick / 14) % 40
+            };
             for _ in 0..times {
                 text.push_str(piece);
             }
@@ -458,7 +494,10 @@ mod tests {
                         excerpt: Some(drawn(&mut seed, 2 + round * 2)),
                     });
                 }
-                let r = TextReporter { width, ..TextReporter::default() };
+                let r = TextReporter {
+                    width,
+                    ..TextReporter::default()
+                };
                 assert_eq!(
                     r.render_fatal(&d),
                     broken_by_the_table(width, &d),
@@ -480,9 +519,16 @@ mod tests {
             column: 1,
             excerpt: Some(format!("\"{word}\" use")),
         });
-        let text = TextReporter { width: 100, ..TextReporter::default() }.render_fatal(&d);
+        let text = TextReporter {
+            width: 100,
+            ..TextReporter::default()
+        }
+        .render_fatal(&d);
         let kept = text.bytes().filter(|b| *b == b'a').count();
-        assert!(kept >= 2 << 20, "{kept} of the message's and the excerpt's bytes");
+        assert!(
+            kept >= 2 << 20,
+            "{kept} of the message's and the excerpt's bytes"
+        );
         assert!(text.lines().all(|l| l.width() <= 100));
     }
 

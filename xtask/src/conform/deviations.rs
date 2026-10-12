@@ -166,7 +166,10 @@ mod tests {
     #[test]
     fn a_listed_golden_producing_its_recorded_output_is_approved() {
         let rows = one("F33", "expected");
-        assert_eq!(judge(&rows, "probes/x.golden", "expected"), Verdict::Approved);
+        assert_eq!(
+            judge(&rows, "probes/x.golden", "expected"),
+            Verdict::Approved
+        );
     }
 
     /// **The reason this stores a hash rather than an exclusion.** A deviating

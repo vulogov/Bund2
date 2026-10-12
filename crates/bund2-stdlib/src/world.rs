@@ -160,7 +160,11 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
         for name in ["save.model", "load.model"] {
             r.register_native(
                 name,
-                |_vm| Err(Error("bund SAVE.MODEL functions disabled with --noio".into())),
+                |_vm| {
+                    Err(Error(
+                        "bund SAVE.MODEL functions disabled with --noio".into(),
+                    ))
+                },
                 StackEffect::opaque(0),
                 WordKind::Sync,
             );
@@ -173,7 +177,12 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
             WordKind::Sync,
         );
         // Opaque: it pushes as many values as the world holds.
-        r.register_native("load.model", load_model, StackEffect::opaque(2), WordKind::Sync);
+        r.register_native(
+            "load.model",
+            load_model,
+            StackEffect::opaque(2),
+            WordKind::Sync,
+        );
     }
 
     // --- `save`/`load` and their families ---------------------------------
@@ -237,20 +246,70 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
         // D55's audit calls observing beyond its operands, and `load` pushes
         // as many values as a world holds. Neither is a pair.
         r.register_native("save", s_all, StackEffect::opaque(1), WordKind::Sync);
-        r.register_native("save.aliases", s_aliases, StackEffect::opaque(1), WordKind::Sync);
-        r.register_native("save.lambdas", s_lambdas, StackEffect::opaque(1), WordKind::Sync);
-        r.register_native("save.stacks", s_stacks, StackEffect::opaque(1), WordKind::Sync);
+        r.register_native(
+            "save.aliases",
+            s_aliases,
+            StackEffect::opaque(1),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "save.lambdas",
+            s_lambdas,
+            StackEffect::opaque(1),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "save.stacks",
+            s_stacks,
+            StackEffect::opaque(1),
+            WordKind::Sync,
+        );
         r.register_native("load", l_all, StackEffect::opaque(1), WordKind::Sync);
-        r.register_native("load.aliases", l_aliases, StackEffect::opaque(1), WordKind::Sync);
-        r.register_native("load.lambdas", l_lambdas, StackEffect::opaque(1), WordKind::Sync);
-        r.register_native("load.stacks", l_stacks, StackEffect::opaque(1), WordKind::Sync);
-        r.register_native("bootstrap", bootstrap, StackEffect::opaque(1), WordKind::Sync);
-        r.register_native("save.script", save_script, StackEffect::opaque(3), WordKind::Sync);
-        r.register_native("load.script", load_script, StackEffect::opaque(2), WordKind::Sync);
+        r.register_native(
+            "load.aliases",
+            l_aliases,
+            StackEffect::opaque(1),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "load.lambdas",
+            l_lambdas,
+            StackEffect::opaque(1),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "load.stacks",
+            l_stacks,
+            StackEffect::opaque(1),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "bootstrap",
+            bootstrap,
+            StackEffect::opaque(1),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "save.script",
+            save_script,
+            StackEffect::opaque(3),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "load.script",
+            load_script,
+            StackEffect::opaque(2),
+            WordKind::Sync,
+        );
     }
 
     // **`alias=` is not an I/O word**, so no flag stubs it.
-    r.register_native("alias=", alias_get, StackEffect::fixed(1, 1), WordKind::Sync);
+    r.register_native(
+        "alias=",
+        alias_get,
+        StackEffect::fixed(1, 1),
+        WordKind::Sync,
+    );
     crate::wb::bench!(r, "alias=", alias_get);
 }
 
@@ -304,7 +363,9 @@ fn replace_aliases(db: &Database, vm: &dyn Vm) -> Result<(), Error> {
 }
 
 fn replace_lambdas(db: &Database, vm: &dyn Vm) -> Result<(), Error> {
-    let tx = db.begin_write().map_err(|e| write_err("Saving lambda", e))?;
+    let tx = db
+        .begin_write()
+        .map_err(|e| write_err("Saving lambda", e))?;
     {
         let mut t = tx
             .open_table(LAMBDAS)
@@ -406,7 +467,7 @@ fn load_aliases(db: &Database, vm: &mut dyn Vm) -> Result<(), Error> {
             return Err(Error(format!(
                 "Error compiling ALIASES select: {}",
                 no_such_table("ALIASES")
-            )))
+            )));
         }
         Err(e) => return Err(Error(format!("Error compiling ALIASES select: {e}"))),
     };
@@ -414,8 +475,7 @@ fn load_aliases(db: &Database, vm: &mut dyn Vm) -> Result<(), Error> {
         .iter()
         .map_err(|e| Error(format!("Error performing ALIASES select: {e}")))?;
     for row in rows {
-        let (alias, target) =
-            row.map_err(|e| Error(format!("Error getting ALIAS row: {e}")))?;
+        let (alias, target) = row.map_err(|e| Error(format!("Error getting ALIAS row: {e}")))?;
         vm.register_alias(alias.value(), target.value());
     }
     Ok(())
@@ -431,7 +491,7 @@ fn load_lambdas(db: &Database, vm: &mut dyn Vm) -> Result<(), Error> {
             return Err(Error(format!(
                 "Error compiling LAMBDAS select: {}",
                 no_such_table("LAMBDAS")
-            )))
+            )));
         }
         Err(e) => return Err(Error(format!("Error compiling LAMBDAS select: {e}"))),
     };
@@ -465,20 +525,16 @@ fn load_stacks(db: &Database, vm: &mut dyn Vm) -> Result<(), Error> {
         Err(TableError::TableDoesNotExist(_)) => {
             return Err(Error(
                 "Error compiling SELECT for stack data: no such table: STACK_DATA".into(),
-            ))
+            ));
         }
-        Err(e) => {
-            return Err(Error(format!(
-                "Error compiling SELECT for stack data: {e}"
-            )))
-        }
+        Err(e) => return Err(Error(format!("Error compiling SELECT for stack data: {e}"))),
     };
     let names = match tx.open_table(STACKS) {
         Ok(t) => t,
         Err(TableError::TableDoesNotExist(_)) => {
             return Err(Error(
                 "Error compiling SELECT for stacks: no such table: STACKS".into(),
-            ))
+            ));
         }
         Err(e) => return Err(Error(format!("Error compiling SELECT for stacks: {e}"))),
     };
@@ -514,7 +570,7 @@ fn read_all_bootstrap(db: &Database) -> Result<Vec<String>, Error> {
             return Err(Error(format!(
                 "Error compiling BOOTSTRAP select: {}",
                 no_such_table("BOOTSTRAP")
-            )))
+            )));
         }
         Err(e) => return Err(Error(format!("Error compiling BOOTSTRAP select: {e}"))),
     };
@@ -560,8 +616,7 @@ fn save_world(vm: &mut dyn Vm, family: Family) -> Result<(), Error> {
             replace_aliases(&db, vm).map_err(wrong)?;
             replace_lambdas(&db, vm).map_err(wrong)?;
             replace_stacks(&db, vm).map_err(wrong)?;
-            prime_bootstrap(&db)
-                .map_err(|e| Error(format!("Priming bootstrap returns: {}", e.0)))
+            prime_bootstrap(&db).map_err(|e| Error(format!("Priming bootstrap returns: {}", e.0)))
         }
     }
 }
@@ -653,7 +708,10 @@ fn save_script(vm: &mut dyn Vm) -> Result<(), Error> {
         let tx = db
             .begin_read()
             .map_err(|e| Error(format!("Bootstrap SAVE.SCRIPT returns: {e}")))?;
-        !matches!(tx.open_table(BOOTSTRAP), Err(TableError::TableDoesNotExist(_)))
+        !matches!(
+            tx.open_table(BOOTSTRAP),
+            Err(TableError::TableDoesNotExist(_))
+        )
     };
     if !primed {
         return Err(Error(
@@ -717,7 +775,7 @@ fn load_script(vm: &mut dyn Vm) -> Result<(), Error> {
                     "Bootstrap LOAD.SCRIPT returns: Error getting script {name}: Error \
                      compiling BOOTSTRAP select: {}",
                     no_such_table("BOOTSTRAP")
-                )))
+                )));
             }
             Err(e) => return Err(Error(format!("Error compiling BOOTSTRAP select: {e}"))),
         }
@@ -737,12 +795,7 @@ fn load_script(vm: &mut dyn Vm) -> Result<(), Error> {
 
 /// One operand for the three-operand words, whose NO DATA prefix and casting
 /// prefix differ from each other.
-fn pull_string3(
-    vm: &mut dyn Vm,
-    nodata: &str,
-    casting: &str,
-    n: u8,
-) -> Result<String, Error> {
+fn pull_string3(vm: &mut dyn Vm, nodata: &str, casting: &str, n: u8) -> Result<String, Error> {
     let v = vm
         .pull()
         .ok_or_else(|| Error(format!("{nodata} returns NO DATA #{n}")))?;
@@ -804,15 +857,24 @@ mod tests {
         for (src, want) in [
             (
                 format!("\"{world}\" load"),
-                format!("Aliases LOAD returns: Error compiling ALIASES select: {}", sqlite("ALIASES")),
+                format!(
+                    "Aliases LOAD returns: Error compiling ALIASES select: {}",
+                    sqlite("ALIASES")
+                ),
             ),
             (
                 format!("\"{world}\" load.aliases"),
-                format!("Aliases LOAD returns: Error compiling ALIASES select: {}", sqlite("ALIASES")),
+                format!(
+                    "Aliases LOAD returns: Error compiling ALIASES select: {}",
+                    sqlite("ALIASES")
+                ),
             ),
             (
                 format!("\"{world}\" load.lambdas"),
-                format!("Lambdas LOAD returns: Error compiling LAMBDAS select: {}", sqlite("LAMBDAS")),
+                format!(
+                    "Lambdas LOAD returns: Error compiling LAMBDAS select: {}",
+                    sqlite("LAMBDAS")
+                ),
             ),
             (
                 format!("\"{world}\" load.stacks"),
@@ -851,8 +913,16 @@ mod tests {
     #[test]
     fn load_script_casts_the_name_before_the_file() {
         for (src, want, left) in [
-            ("7 2 2 load.script", "LOAD.SCRIPT casting string #3 returns: This Dynamic type is not string", 1),
-            ("7 \"n\" 2 load.script", "LOAD.SCRIPT casting string #1 returns: This Dynamic type is not string", 1),
+            (
+                "7 2 2 load.script",
+                "LOAD.SCRIPT casting string #3 returns: This Dynamic type is not string",
+                1,
+            ),
+            (
+                "7 \"n\" 2 load.script",
+                "LOAD.SCRIPT casting string #1 returns: This Dynamic type is not string",
+                1,
+            ),
         ] {
             let mut i = Interp::new();
             crate::register_all(&mut i.registry);

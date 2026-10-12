@@ -83,7 +83,7 @@ fn from_list(vm: &mut dyn Vm, side: Side, mode: Mode, prefix: &str) -> Result<Ve
             _ => {
                 return Err(Error(format!(
                     "{prefix} error FLOAT casting: This Dynamic type is not float"
-                )))
+                )));
             }
         }
     }
@@ -132,7 +132,7 @@ fn drain(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<Vec<f64>, Error> {
             _ => {
                 return Err(Error(format!(
                     "{prefix} returns during conversion: This Dynamic type is not float"
-                )))
+                )));
             }
         }
     }
@@ -273,14 +273,54 @@ pub fn register(r: &mut Registry) {
     // these consume is not a number the audit can model — the same reason
     // `*loop` is opaque. The `.` forms take their series off the workbench and
     // leave their answer there, so they touch the stack not at all.
-    r.register_native("math.normalize", n_s, StackEffect::opaque(1), WordKind::Sync);
-    r.register_native("math.normalize,", n_sk, StackEffect::opaque(1), WordKind::Sync);
-    r.register_native("math.normalize.", n_w, StackEffect::opaque(0), WordKind::Sync);
-    r.register_native("math.normalize.,", n_wk, StackEffect::opaque(0), WordKind::Sync);
-    r.register_native("math.smoothing", s_s, StackEffect::opaque(1), WordKind::Sync);
-    r.register_native("math.smoothing,", s_sk, StackEffect::opaque(1), WordKind::Sync);
-    r.register_native("math.smoothing.", s_w, StackEffect::opaque(0), WordKind::Sync);
-    r.register_native("math.smoothing.,", s_wk, StackEffect::opaque(0), WordKind::Sync);
+    r.register_native(
+        "math.normalize",
+        n_s,
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "math.normalize,",
+        n_sk,
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "math.normalize.",
+        n_w,
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "math.normalize.,",
+        n_wk,
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "math.smoothing",
+        s_s,
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "math.smoothing,",
+        s_sk,
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "math.smoothing.",
+        s_w,
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "math.smoothing.,",
+        s_wk,
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
     r.register_native("seq.asc", asc, eff(3, 1), WordKind::Sync);
     crate::wb::bench!(r, "seq.asc", asc, 3, 0);
     r.register_native("seq.desc", desc, eff(3, 1), WordKind::Sync);
@@ -327,7 +367,10 @@ mod tests {
 
         // A `NODATA` on top is the end of a series, not an empty one.
         let e = run("nodata math.normalize").expect_err("END OF DATA");
-        assert!(e.ends_with("MATH.NORMALIZE returned: MATH.NORMALIZE END OF DATA"), "{e}");
+        assert!(
+            e.ends_with("MATH.NORMALIZE returned: MATH.NORMALIZE END OF DATA"),
+            "{e}"
+        );
     }
 
     /// **An all-equal series comes back unchanged**, which is the guard the

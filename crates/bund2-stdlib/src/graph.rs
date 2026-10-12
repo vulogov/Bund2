@@ -105,7 +105,9 @@ fn build(nodes: &BundValue, edges: &BundValue) -> Result<Built, Error> {
     for n in node_list {
         // A node that is not a string is an error (`:23-26`), not skipped.
         let name = n.as_str().map(|s| node_name(&s)).ok_or_else(|| {
-            Error("MAKE_FAST_GRAPH: error casting node name: This Dynamic type is not string".into())
+            Error(
+                "MAKE_FAST_GRAPH: error casting node name: This Dynamic type is not string".into(),
+            )
         })?;
         if !ix.contains_key(&name) {
             let c = ix.len();
@@ -155,7 +157,7 @@ fn build(nodes: &BundValue, edges: &BundValue) -> Result<Built, Error> {
                     return Err(Error(format!(
                         "MAKE_FAST_GRAPH: Error casting weight: This Dynamic type is not float: {}",
                         w.dt()
-                    )))
+                    )));
                 }
             },
             _ => 100,
@@ -178,9 +180,12 @@ fn build(nodes: &BundValue, edges: &BundValue) -> Result<Built, Error> {
 /// as a **FLOAT** even though `fast_paths` computes in `usize` (`:88`), which
 /// is why the golden prints `Weight: 3.0` and not `3`.
 fn graph_path(vm: &mut dyn Vm) -> Result<(), Error> {
-    let g = vm.pull().ok_or_else(|| Error("GRAPH.PATH: NO DATA #1".into()))?;
+    let g = vm
+        .pull()
+        .ok_or_else(|| Error("GRAPH.PATH: NO DATA #1".into()))?;
     let ty = g
-        .get_or_self("type").ok()
+        .get_or_self("type")
+        .ok()
         .ok_or_else(|| Error("GRAPH.PATH: MISSED TYPE".into()))?;
     // The cast and the comparison fail separately, as they do for the other
     // three graph queries (`graph_operand`).
@@ -193,8 +198,14 @@ fn graph_path(vm: &mut dyn Vm) -> Result<(), Error> {
             ));
         }
     }
-    let nodes = g.get_or_self("nodes").ok().unwrap_or_else(|| BundValue::list(Vec::new()));
-    let edges = g.get_or_self("edges").ok().unwrap_or_else(|| BundValue::list(Vec::new()));
+    let nodes = g
+        .get_or_self("nodes")
+        .ok()
+        .unwrap_or_else(|| BundValue::list(Vec::new()));
+    let edges = g
+        .get_or_self("edges")
+        .ok()
+        .unwrap_or_else(|| BundValue::list(Vec::new()));
     if nodes.dt() != LIST {
         return Err(Error("GRAPH.PATH: Nodes list must be a list".into()));
     }
@@ -204,7 +215,9 @@ fn graph_path(vm: &mut dyn Vm) -> Result<(), Error> {
     let (ix, names, input) = build(&nodes, &edges)?;
     let prepared = fast_paths::prepare(&input);
 
-    let start_val = vm.pull().ok_or_else(|| Error("GRAPH.PATH: NO DATA #2".into()))?;
+    let start_val = vm
+        .pull()
+        .ok_or_else(|| Error("GRAPH.PATH: NO DATA #2".into()))?;
     let start = start_val
         .as_str()
         .map(|s| node_name(&s))
@@ -212,7 +225,9 @@ fn graph_path(vm: &mut dyn Vm) -> Result<(), Error> {
     let Some(&start_ix) = ix.get(&start) else {
         return Err(Error(format!("GRAPH.PATH: unknown start node: {start}")));
     };
-    let end_val = vm.pull().ok_or_else(|| Error("GRAPH.PATH: NO DATA #3".into()))?;
+    let end_val = vm
+        .pull()
+        .ok_or_else(|| Error("GRAPH.PATH: NO DATA #3".into()))?;
     let end = end_val
         .as_str()
         .map(|s| node_name(&s))
@@ -265,23 +280,37 @@ fn graph_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Result<()
             return Err(Error(format!("Stack is too shallow for inline {prefix}")));
         }
         crate::wb::Side::Bench if vm.workbench_depth() < 1 => {
-            return Err(Error(format!("Workbench is too shallow for inline {prefix}")));
+            return Err(Error(format!(
+                "Workbench is too shallow for inline {prefix}"
+            )));
         }
         _ => {}
     }
     let g = side
         .pull(vm)
         .ok_or_else(|| Error(format!("{prefix}: NO DATA #1")))?;
-    let ty = g.get_or_self("type").ok().unwrap_or_else(|| BundValue::str("graph"));
-    let nodes = g.get_or_self("nodes").ok().unwrap_or_else(|| BundValue::list(Vec::new()));
-    let edges = g.get_or_self("edges").ok().unwrap_or_else(|| BundValue::list(Vec::new()));
+    let ty = g
+        .get_or_self("type")
+        .ok()
+        .unwrap_or_else(|| BundValue::str("graph"));
+    let nodes = g
+        .get_or_self("nodes")
+        .ok()
+        .unwrap_or_else(|| BundValue::list(Vec::new()));
+    let edges = g
+        .get_or_self("edges")
+        .ok()
+        .unwrap_or_else(|| BundValue::list(Vec::new()));
     if nodes.dt() != LIST {
         return Err(Error(format!("{prefix}: Nodes list must be a list")));
     }
     if edges.dt() != LIST {
         return Err(Error(format!("{prefix}: Edges list must be a list")));
     }
-    side.push(vm, g.set("type", ty).set("nodes", nodes).set("edges", edges));
+    side.push(
+        vm,
+        g.set("type", ty).set("nodes", nodes).set("edges", edges),
+    );
     Ok(())
 }
 
@@ -340,14 +369,20 @@ fn build_algos(nodes: &BundValue, edges: &BundValue) -> Result<AlgosBuilt, Error
             .and_then(BundValue::as_str)
             .map(|s| node_name(&s))
             .ok_or_else(|| {
-                Error("NAME_GRAPH: error casting from node name: This Dynamic type is not string".into())
+                Error(
+                    "NAME_GRAPH: error casting from node name: This Dynamic type is not string"
+                        .into(),
+                )
             })?;
         let to = rel
             .get(1)
             .and_then(BundValue::as_str)
             .map(|s| node_name(&s))
             .ok_or_else(|| {
-                Error("MAKE_GRAPH: error casting from node name: This Dynamic type is not string".into())
+                Error(
+                    "MAKE_GRAPH: error casting from node name: This Dynamic type is not string"
+                        .into(),
+                )
             })?;
         let (Some(&from_ix), Some(&to_ix)) = (ix.get(&from), ix.get(&to)) else {
             return Err(Error(format!("MAKE_GRAPH: {from} and {to} unknown nodes")));
@@ -359,7 +394,7 @@ fn build_algos(nodes: &BundValue, edges: &BundValue) -> Result<AlgosBuilt, Error
                     return Err(Error(format!(
                         "MAKE_GRAPH: Error casting weight: This Dynamic type is not float: {}",
                         w.dt()
-                    )))
+                    )));
                 }
             },
             _ => 100.0,
@@ -377,7 +412,8 @@ fn graph_operand(vm: &mut dyn Vm, prefix: &str) -> Result<(BundValue, BundValue)
         .pull()
         .ok_or_else(|| Error(format!("{prefix}: NO DATA #1")))?;
     let ty = g
-        .get_or_self("type").ok()
+        .get_or_self("type")
+        .ok()
         .ok_or_else(|| Error(format!("{prefix}: MISSED TYPE")))?;
     let Some(ty) = ty.as_str() else {
         return Err(Error(format!(
@@ -387,8 +423,14 @@ fn graph_operand(vm: &mut dyn Vm, prefix: &str) -> Result<(BundValue, BundValue)
     if ty != "graph" {
         return Err(Error(format!("{prefix}: unknown data type")));
     }
-    let nodes = g.get_or_self("nodes").ok().unwrap_or_else(|| BundValue::list(Vec::new()));
-    let edges = g.get_or_self("edges").ok().unwrap_or_else(|| BundValue::list(Vec::new()));
+    let nodes = g
+        .get_or_self("nodes")
+        .ok()
+        .unwrap_or_else(|| BundValue::list(Vec::new()));
+    let edges = g
+        .get_or_self("edges")
+        .ok()
+        .unwrap_or_else(|| BundValue::list(Vec::new()));
     if nodes.dt() != LIST {
         return Err(Error(format!("{prefix}: Nodes list must be a list")));
     }
@@ -562,7 +604,10 @@ mod tests {
         let e = err_of("list [ 1 ] graph! graph.allpath");
         assert!(e.contains("MAKE_GRAPH: error casting node name"), "{e}");
         let f = err_of(":A list [ 1 ] graph! graph.path");
-        assert!(f.contains("MAKE_FAST_GRAPH: error casting node name"), "{f}");
+        assert!(
+            f.contains("MAKE_FAST_GRAPH: error casting node name"),
+            "{f}"
+        );
     }
 
     #[test]

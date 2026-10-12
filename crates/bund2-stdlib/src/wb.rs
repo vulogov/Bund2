@@ -200,15 +200,64 @@ mod bench_form_tests {
     /// Every form D111 added. Kept here by hand, so that removing one from a
     /// registration is a failing test and not a quiet loss.
     const ADDED: [&str; 58] = [
-        "?alias", "?class", "?effect", "?lambda", "?object", "?stdlib", "?word", "alias=",
-        "compile", "context", "csv", "curry", "generator.sample", "graph.allpath",
-        "graph.transitiveclosure", "is", "json", "json.from_value", "json.to_value", "lambda!",
-        "lambda=", "len", "math.abs", "math.acos", "math.asin", "math.atan", "math.cbrt",
-        "math.ceil", "math.cos", "math.cosecant", "math.cosh", "math.exp", "math.factorial",
-        "math.floor", "math.fract", "math.ln", "math.log10", "math.round", "math.signum",
-        "math.sin", "math.sinh", "math.sqrt", "math.tan", "math.tanh", "not", "ptr",
-        "resolve.class", "seq", "string.camel", "string.lower", "string.snake", "string.title",
-        "string.upper", "time.timestamp", "type", "type.of", "unwrap", "var?",
+        "?alias",
+        "?class",
+        "?effect",
+        "?lambda",
+        "?object",
+        "?stdlib",
+        "?word",
+        "alias=",
+        "compile",
+        "context",
+        "csv",
+        "curry",
+        "generator.sample",
+        "graph.allpath",
+        "graph.transitiveclosure",
+        "is",
+        "json",
+        "json.from_value",
+        "json.to_value",
+        "lambda!",
+        "lambda=",
+        "len",
+        "math.abs",
+        "math.acos",
+        "math.asin",
+        "math.atan",
+        "math.cbrt",
+        "math.ceil",
+        "math.cos",
+        "math.cosecant",
+        "math.cosh",
+        "math.exp",
+        "math.factorial",
+        "math.floor",
+        "math.fract",
+        "math.ln",
+        "math.log10",
+        "math.round",
+        "math.signum",
+        "math.sin",
+        "math.sinh",
+        "math.sqrt",
+        "math.tan",
+        "math.tanh",
+        "not",
+        "ptr",
+        "resolve.class",
+        "seq",
+        "string.camel",
+        "string.lower",
+        "string.snake",
+        "string.title",
+        "string.upper",
+        "time.timestamp",
+        "type",
+        "type.of",
+        "unwrap",
+        "var?",
     ];
 
     /// Operands of enough kinds that each word both answers and refuses.
@@ -268,7 +317,10 @@ mod bench_form_tests {
                 match (plain, bench) {
                     (Ok((stack, wb)), Ok((bstack, bwb))) => {
                         answered += 1;
-                        assert!(wb.is_empty(), "{operand} {word}: plain touched the workbench");
+                        assert!(
+                            wb.is_empty(),
+                            "{operand} {word}: plain touched the workbench"
+                        );
                         assert_eq!(bstack, ["7"], "{operand} {word}.: the stack beneath moved");
                         if !by_chance {
                             assert_eq!(&stack[1..], &bwb[..], "{operand} {word}.");
@@ -344,14 +396,30 @@ mod bench_form_tests {
         ("∈", &["dict", "\"a\"", "1"], 2),
         ("get", &["dict \"a\" 1 set", "\"a\""], 1),
         ("?key", &["dict \"a\" 1 set", "\"a\""], 1),
-        ("concat_with_space", &["\"t\" convert.to_textbuffer", "\"x\""], 1),
+        (
+            "concat_with_space",
+            &["\"t\" convert.to_textbuffer", "\"x\""],
+            1,
+        ),
         ("sp", &["\"t\" convert.to_textbuffer", "\"x\""], 1),
         ("tag", &["5", "\"k\"", "\"v\""], 2),
         ("attribute", &["5", "\"a\""], 1),
         ("?type", &["5", "\"Integer\""], 1),
         ("json.path", &["\"$.a\"", "'{\"a\":1}' json"], 0),
-        ("graph.paths", &[":A", "[ [ :A :B 1.0 ] [ :B :C 2.0 ] ] [ :A :B :C ] graph!"], 0),
-        ("graph.path", &[":C", ":A", "[ [ :A :B 1.0 ] [ :B :C 2.0 ] ] [ :A :B :C ] graph!"], 0),
+        (
+            "graph.paths",
+            &[":A", "[ [ :A :B 1.0 ] [ :B :C 2.0 ] ] [ :A :B :C ] graph!"],
+            0,
+        ),
+        (
+            "graph.path",
+            &[
+                ":C",
+                ":A",
+                "[ [ :A :B 1.0 ] [ :B :C 2.0 ] ] [ :A :B :C ] graph!",
+            ],
+            0,
+        ),
         ("wrap", &["9", "\"x\" \"List\" object"], 0),
         ("?is", &["\"x\" \"List\" object", "\"List\""], 1),
     ];
@@ -404,7 +472,10 @@ mod bench_form_tests {
             let (_, wrong) = both(word, operands, 0);
             let right = outcome(&plain).map(|(s, _)| s[1..].to_vec());
             let other = outcome(&wrong).map(|(_, w)| w);
-            assert_ne!(right, other, "{wrong} answered as if the key were the container");
+            assert_ne!(
+                right, other,
+                "{wrong} answered as if the key were the container"
+            );
         }
     }
 

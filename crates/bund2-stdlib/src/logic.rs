@@ -126,9 +126,8 @@ fn numeric_eq(a: &BundValue, b: &BundValue) -> bool {
     match (a.unboxed(), b.unboxed()) {
         (BundValue::Int(x, _), BundValue::Int(y, _)) => x == y,
         (BundValue::Float(x, _), BundValue::Float(y, _)) => x == y,
-        (BundValue::Int(i, _), BundValue::Float(f, _)) | (BundValue::Float(f, _), BundValue::Int(i, _)) => {
-            exact_int_float(*i, *f)
-        }
+        (BundValue::Int(i, _), BundValue::Float(f, _))
+        | (BundValue::Float(f, _), BundValue::Int(i, _)) => exact_int_float(*i, *f),
         // Reached only if a value carries a numeric `dt` over a non-numeric
         // payload, which no word can currently produce — nothing sets `dt`
         // independently of the payload. The reference falls back to comparing
@@ -663,7 +662,9 @@ mod tests {
                 match run(&src) {
                     Ok(_) => panic!("{src} was expected to fail"),
                     Err(e) => assert!(
-                        e.ends_with(&format!("{op} returns error: COMPARE: unsupported operand #2")),
+                        e.ends_with(&format!(
+                            "{op} returns error: COMPARE: unsupported operand #2"
+                        )),
                         "{src}: {e}"
                     ),
                 }
@@ -672,7 +673,10 @@ mod tests {
         // Complex against complex still compares.
         assert!(run("1.0 2.0 complex 1.0 2.0 complex ==").is_ok());
         // The plain number on top is the reference's own answer: false, true.
-        for (src, want) in [("1.0 2.0 complex 2 ==", false), ("1.0 2.0 complex 2 <", true)] {
+        for (src, want) in [
+            ("1.0 2.0 complex 2 ==", false),
+            ("1.0 2.0 complex 2 <", true),
+        ] {
             let i = run(src).unwrap_or_else(|e| panic!("{src}: {e}"));
             let top = i.peek().expect("a value");
             assert_eq!(*top.unboxed(), BundValue::boolean(want), "{src}");

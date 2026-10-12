@@ -30,7 +30,9 @@ fn if_base(vm: &mut dyn Vm, side: crate::wb::Side, want: bool, prefix: &str) -> 
         return Err(Error(format!("Stack is too shallow for inline {prefix}")));
     }
     if side == crate::wb::Side::Bench && vm.workbench_depth() < 1 {
-        return Err(Error(format!("Workbench is too shallow for inline {prefix}")));
+        return Err(Error(format!(
+            "Workbench is too shallow for inline {prefix}"
+        )));
     }
     let lambda_val = crate::pull::operand(vm, prefix, 1)?;
     if lambda_val.dt() != LAMBDA {
@@ -39,8 +41,8 @@ fn if_base(vm: &mut dyn Vm, side: crate::wb::Side, want: bool, prefix: &str) -> 
     let cond_val = side
         .pull(vm)
         .ok_or_else(|| Error(format!("{prefix} returns: NO DATA #2")))?;
-    let cond = cast_bool(&cond_val)
-        .map_err(|e| Error(format!("{prefix} returns error: {}", e.0)))?;
+    let cond =
+        cast_bool(&cond_val).map_err(|e| Error(format!("{prefix} returns error: {}", e.0)))?;
     if cond == want {
         let body = lambda_val.clone();
         // Tail position: nothing here runs after the branch, so the loop takes
@@ -167,7 +169,9 @@ fn ifthenelse_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Resu
         return Err(Error(format!("Stack is too shallow for inline {prefix}")));
     }
     if side == crate::wb::Side::Bench && vm.workbench_depth() < 1 {
-        return Err(Error(format!("Workbench is too shallow for inline {prefix}")));
+        return Err(Error(format!(
+            "Workbench is too shallow for inline {prefix}"
+        )));
     }
     let then_val = crate::pull::operand(vm, prefix, 1)?;
     let else_val = crate::pull::operand(vm, prefix, 2)?;
@@ -260,9 +264,9 @@ fn while_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
         let cond = match cond_val.unboxed() {
             BundValue::Bool(b, _) => *b,
             _ => {
-                return Err(Error(
-                    format!("{prefix} returns error: This Dynamic type is not bool"),
-                ));
+                return Err(Error(format!(
+                    "{prefix} returns error: This Dynamic type is not bool"
+                )));
             }
         };
         if !cond {
@@ -357,7 +361,9 @@ fn format_wb(vm: &mut dyn Vm) -> Result<(), Error> {
 fn format_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     let dot = side.dot();
     if side.depth(vm) < 1 {
-        return Err(Error(format!("Stack is too shallow for inline format{dot}")));
+        return Err(Error(format!(
+            "Stack is too shallow for inline format{dot}"
+        )));
     }
     let Some(tpl_value) = side.pull(vm) else {
         return Err(Error(format!("FORMAT{dot} returns: NO DATA #1")));
@@ -397,7 +403,6 @@ fn format_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     Ok(())
 }
 
-
 pub fn register(r: &mut Registry) {
     // **Opaque, all four: they run a lambda.** What `if` leaves is whatever
     // its branch leaves, which is a property of the branch and not of `if`.
@@ -409,19 +414,49 @@ pub fn register(r: &mut Registry) {
     // it can start. Only what it leaves is unknown.
     r.register_native("if", if_true, StackEffect::opaque(2), WordKind::Sync);
     r.register_native("if.false", if_false, StackEffect::opaque(2), WordKind::Sync);
-    r.register_native("ifthenelse", ifthenelse, StackEffect::opaque(3), WordKind::Sync);
+    r.register_native(
+        "ifthenelse",
+        ifthenelse,
+        StackEffect::opaque(3),
+        WordKind::Sync,
+    );
     r.register_native("while", while_word, StackEffect::opaque(2), WordKind::Sync);
     // The `.` siblings: the lambda is still a stack operand, so each consumes
     // one fewer than its base rather than none.
-    r.register_native("if.in_workbench", if_true_wb, StackEffect::opaque(1), WordKind::Sync);
+    r.register_native(
+        "if.in_workbench",
+        if_true_wb,
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
     // opaque(2), not opaque(1): F78 means this one really does take both
     // operands off the stack.
-    r.register_native("if.false.in_workbench", if_false_wb, StackEffect::opaque(2), WordKind::Sync);
-    r.register_native("ifthenelse.", ifthenelse_wb, StackEffect::opaque(2), WordKind::Sync);
+    r.register_native(
+        "if.false.in_workbench",
+        if_false_wb,
+        StackEffect::opaque(2),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "ifthenelse.",
+        ifthenelse_wb,
+        StackEffect::opaque(2),
+        WordKind::Sync,
+    );
     r.register_native("while.", while_wb, StackEffect::opaque(1), WordKind::Sync);
     // Opaque, as `ifthenelse` and `if` are: what they leave is the branch's.
-    r.register_native("notifthenelse", notifthenelse, StackEffect::opaque(3), WordKind::Sync);
-    r.register_native("notifthenelse.", notifthenelse_wb, StackEffect::opaque(2), WordKind::Sync);
+    r.register_native(
+        "notifthenelse",
+        notifthenelse,
+        StackEffect::opaque(3),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "notifthenelse.",
+        notifthenelse_wb,
+        StackEffect::opaque(2),
+        WordKind::Sync,
+    );
     r.register_native("if.stack", if_stack, StackEffect::opaque(2), WordKind::Sync);
     // `reference/rust_multistackvm/src/stdlib/logic/for_fun.rs:101-102`.
     r.register_native("for", for_word, StackEffect::opaque(1), WordKind::Sync);
@@ -491,7 +526,11 @@ mod tests {
         let i = run_src("42 42 != {\n  true\n} {\n  false\n} ?true*").expect("runs");
         let v = i.peek().expect("a value");
         assert_eq!(v.dt(), bund2_value::BOOL);
-        assert_eq!(*v.unboxed(), BundValue::boolean(true), "the else branch ran");
+        assert_eq!(
+            *v.unboxed(),
+            BundValue::boolean(true),
+            "the else branch ran"
+        );
     }
 
     #[test]
@@ -525,7 +564,15 @@ mod tests {
     fn every_word_here_resolves() {
         let mut i = Interp::new();
         crate::register_all(&mut i.registry);
-        for name in ["if", "?true", "if.false", "?false", "ifthenelse", "?true*", "format"] {
+        for name in [
+            "if",
+            "?true",
+            "if.false",
+            "?false",
+            "ifthenelse",
+            "?true*",
+            "format",
+        ] {
             assert!(
                 i.registry.interner.lookup_call(name).is_some(),
                 "{name} is not registered"

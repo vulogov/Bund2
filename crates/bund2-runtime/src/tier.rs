@@ -768,22 +768,44 @@ mod tests {
             BundValue::int(2),
             BundValue::call("+"),
         ]);
-        r.interp.registry.register_lambda("refused", refused.clone());
+        r.interp
+            .registry
+            .register_lambda("refused", refused.clone());
         r.interp.registry.register_lambda("gains", gains.clone());
 
         for _ in 0..40 {
             r.interp.eval(&[BundValue::call("refused")]).expect("runs");
-            assert_eq!(r.interp.depth(), 1, "the product is the one value it leaves");
+            assert_eq!(
+                r.interp.depth(),
+                1,
+                "the product is the one value it leaves"
+            );
             r.interp.clear();
             r.interp.eval(&[BundValue::call("gains")]).expect("runs");
-            assert_eq!(r.interp.snapshot().last().and_then(BundValue::as_int), Some(3));
+            assert_eq!(
+                r.interp.snapshot().last().and_then(BundValue::as_int),
+                Some(3)
+            );
             r.interp.clear();
         }
 
         let offers = offers.borrow();
-        let of = |b: &BundValue| offers.iter().filter(|k| Some(**k) == b.payload_key()).count();
-        assert_eq!(of(&refused), 2, "planned and demoted, said never, and not asked again");
-        assert_eq!(of(&gains), 40, "a body the tier runs is offered at every entry");
+        let of = |b: &BundValue| {
+            offers
+                .iter()
+                .filter(|k| Some(**k) == b.payload_key())
+                .count()
+        };
+        assert_eq!(
+            of(&refused),
+            2,
+            "planned and demoted, said never, and not asked again"
+        );
+        assert_eq!(
+            of(&gains),
+            40,
+            "a body the tier runs is offered at every entry"
+        );
         assert_eq!(r.compiled_bodies(), Some(1), "only the body with a site");
         assert_eq!(
             r.interp.tier().and_then(|t| t.compiled_entries()),
@@ -960,7 +982,10 @@ mod tests {
 
         let a = observe(&mut tiered, tier_outcome, &tier_seen);
         let b = observe(&mut plain, plain_outcome, &plain_seen);
-        assert_eq!(tier_outcomes, plain_outcomes, "{label}: each call's outcome");
+        assert_eq!(
+            tier_outcomes, plain_outcomes,
+            "{label}: each call's outcome"
+        );
         assert_eq!(a.current, b.current, "{label}: current stack");
         assert_eq!(a.stacks, b.stacks, "{label}: stacks");
         assert_eq!(a.workbench, b.workbench, "{label}: workbench");
@@ -1151,10 +1176,16 @@ mod tests {
     fn a_callee_with_a_saturated_generation_is_called_and_sees_its_rebinding() {
         let run = |r: &mut crate::Runtime, saturate: bool| {
             if saturate {
-                let (s, _) = r.interp.registry.interner.lookup_call("drop").expect("registered");
+                let (s, _) = r
+                    .interp
+                    .registry
+                    .interner
+                    .lookup_call("drop")
+                    .expect("registered");
                 r.interp.registry.saturate_generation(s);
             }
-            r.eval_str(":w { 1 2 + 7 drop } register").expect("setup runs");
+            r.eval_str(":w { 1 2 + 7 drop } register")
+                .expect("setup runs");
             let mut outcomes = Vec::new();
             for _ in 0..3 {
                 outcomes.push(r.eval_str("w").map_err(|e| norm_msg(&e.0)));
@@ -1163,18 +1194,34 @@ mod tests {
             for _ in 0..3 {
                 outcomes.push(r.eval_str("w").map_err(|e| norm_msg(&e.0)));
             }
-            let stack: Vec<_> = r.interp.snapshot().iter().filter_map(BundValue::as_int).collect();
+            let stack: Vec<_> = r
+                .interp
+                .snapshot()
+                .iter()
+                .filter_map(BundValue::as_int)
+                .collect();
             (outcomes, stack)
         };
 
         let mut control = inlining_runtime_with(1);
         run(&mut control, false);
-        assert_eq!(control.inlined_sites(), Some(2), "the premise: `+` and `drop` both inline");
+        assert_eq!(
+            control.inlined_sites(),
+            Some(2),
+            "the premise: `+` and `drop` both inline"
+        );
 
         let mut tiered = inlining_runtime_with(1);
         let got = run(&mut tiered, true);
-        assert_eq!(tiered.inlined_sites(), Some(1), "`+` inlines and the saturated `drop` does not");
-        assert!(tiered.compiled_entries().unwrap_or(0) >= 4, "entered before and after the rebinding");
+        assert_eq!(
+            tiered.inlined_sites(),
+            Some(1),
+            "`+` inlines and the saturated `drop` does not"
+        );
+        assert!(
+            tiered.compiled_entries().unwrap_or(0) >= 4,
+            "entered before and after the rebinding"
+        );
 
         let mut tier0 = crate::Runtime::for_debugging(&Default::default(), None);
         let want = run(&mut tier0, true);
@@ -1324,7 +1371,11 @@ mod tests {
         }
 
         let a = observe(&mut tiered, outcome, &SharedReporter(seen.0.clone()));
-        let b = observe(&mut plain, plain_outcome, &SharedReporter(plain_seen.0.clone()));
+        let b = observe(
+            &mut plain,
+            plain_outcome,
+            &SharedReporter(plain_seen.0.clone()),
+        );
         assert!(
             a.diagnostics.iter().any(|(sev, _, _)| sev == "Warning"),
             "`alias` did not warn, so this test asserts nothing: {:?}",
@@ -1516,8 +1567,7 @@ mod tests {
                     })
                     .collect();
                 let stack: Vec<_> = r.interp.snapshot().iter().map(norm).collect();
-                let shown: Vec<String> =
-                    r.interp.snapshot().iter().map(|v| v.display()).collect();
+                let shown: Vec<String> = r.interp.snapshot().iter().map(|v| v.display()).collect();
                 (outcomes, stack, shown, r.interp.autoadd(), before_last)
             };
             let mut tiered = inlining_runtime_with(1);
@@ -1581,7 +1631,10 @@ mod tests {
             );
             let mut tier0 = crate::Runtime::for_debugging(&Default::default(), None);
             assert_eq!(got, run(&mut tier0), "{label}");
-            assert!(!got.1.is_empty(), "{label}: the program left something to compare");
+            assert!(
+                !got.1.is_empty(),
+                "{label}: the program left something to compare"
+            );
         }
     }
 
@@ -1608,7 +1661,11 @@ mod tests {
             for _ in 0..3 {
                 r.eval_str("w").expect("the body runs");
             }
-            r.interp.snapshot().iter().map(BundValue::display).collect::<Vec<_>>()
+            r.interp
+                .snapshot()
+                .iter()
+                .map(BundValue::display)
+                .collect::<Vec<_>>()
         };
 
         let mut control = crossing_runtime_with(1);
@@ -1621,11 +1678,22 @@ mod tests {
 
         let mut tiered = crossing_runtime_with(1);
         let got = run(&mut tiered, OBSERVER);
-        assert!(tiered.compiled_entries().unwrap_or(0) > 0, "the body ran compiled");
-        assert_eq!(tiered.crossed_calls(), Some(0), "and the observer was not crossed");
+        assert!(
+            tiered.compiled_entries().unwrap_or(0) > 0,
+            "the body ran compiled"
+        );
+        assert_eq!(
+            tiered.crossed_calls(),
+            Some(0),
+            "and the observer was not crossed"
+        );
 
         let mut tier0 = crate::Runtime::for_debugging(&Default::default(), None);
-        assert_eq!(got, run(&mut tier0, OBSERVER), "Tier 0's stack, in Tier 0's order");
+        assert_eq!(
+            got,
+            run(&mut tier0, OBSERVER),
+            "Tier 0's stack, in Tier 0's order"
+        );
     }
 
     /// **Criterion 30, the twelfth review's first B1 case: a compiled caller of
@@ -1737,15 +1805,25 @@ mod tests {
             (format!("[ 1 ] {HOT} map"), "map over one item", false),
             (format!("[ 1 2 ] {HOT} map"), "map over two items", false),
             (tried(HOT), "?try, directly", false),
-            (tried(&format!("{{ [ 1 ] {HOT} map }}")), "?try through map", false),
-            (tried(&format!("{{ 1 {HOT} times }}")), "?try through times", false),
+            (
+                tried(&format!("{{ [ 1 ] {HOT} map }}")),
+                "?try through map",
+                false,
+            ),
+            (
+                tried(&format!("{{ 1 {HOT} times }}")),
+                "?try through times",
+                false,
+            ),
             (
                 tried(&format!("{{ {{ [ 1 ] {HOT} map }} ! }}")),
                 "a drained body",
                 false,
             ),
             (
-                tried(&format!("{{ :scratch to_stack {{ [ 1 ] {HOT} map }} ! :main to_stack }}")),
+                tried(&format!(
+                    "{{ :scratch to_stack {{ [ 1 ] {HOT} map }} ! :main to_stack }}"
+                )),
                 "a residual-path value",
                 false,
             ),
@@ -1764,7 +1842,8 @@ mod tests {
                     if feeds {
                         bund2_api::Vm::feed_line(&mut r.interp, "a line".to_string());
                     }
-                    r.eval_str("m").unwrap_or_else(|e| panic!("{label}: warm-up: {}", e.0));
+                    r.eval_str("m")
+                        .unwrap_or_else(|e| panic!("{label}: warm-up: {}", e.0));
                 }
                 let before = r.compiled_entries().unwrap_or(0);
                 r.eval_str(":exit :go alias\n").expect("the rebind runs");
@@ -1805,7 +1884,11 @@ mod tests {
                     .and_then(|v| v.get("context"))
                     .and_then(|v| v.as_str().map(|t| norm_msg(&t)))
             };
-            assert_eq!(context(&tiered), context(&plain), "{label}: the context slot");
+            assert_eq!(
+                context(&tiered),
+                context(&plain),
+                "{label}: the context slot"
+            );
 
             // The outcome is not compared, for the reason the cold-callee row
             // gives: Tier 0 records an exit and may answer `Ok` where compiled
@@ -1911,7 +1994,8 @@ mod tests {
         plain.take_tier();
         let (b, _) = run(&mut plain);
         assert!(
-            b.as_ref().is_err_and(|t| t.contains("Lambda content evaluation returned error: ")),
+            b.as_ref()
+                .is_err_and(|t| t.contains("Lambda content evaluation returned error: ")),
             "Tier 0 wraps the failure, or this row has nothing to keep: {b:?}"
         );
         assert_eq!(a, b, "the failure's text");
@@ -1970,9 +2054,11 @@ mod tests {
     #[test]
     fn an_unconditional_exit_fires_on_the_entry_that_compiles_it() {
         let mut r = crossing_runtime_with(1);
-        r.eval_str(":w { 1 2 + drop 7 exit } register
-")
-            .expect("setup runs");
+        r.eval_str(
+            ":w { 1 2 + drop 7 exit } register
+",
+        )
+        .expect("setup runs");
 
         let outcome = r.eval_str("w");
 
@@ -2237,7 +2323,8 @@ mod tests {
         r.eval_str(":w { 1 2 + drop } register\n")
             .expect("setup runs");
         for _ in 0..4 {
-            r.eval_str("w").expect("every entry runs, one way or another");
+            r.eval_str("w")
+                .expect("every entry runs, one way or another");
         }
 
         assert!(
@@ -2298,7 +2385,11 @@ mod tests {
         // about the key rather than about the threshold: a body that compiled
         // would have frozen its count, since `observe` answers `Compiled` from
         // the cache before it increments.
-        assert_eq!(r.compiled_bodies(), Some(0), "the threshold is never reached");
+        assert_eq!(
+            r.compiled_bodies(),
+            Some(0),
+            "the threshold is never reached"
+        );
 
         // **"At 100", through the seam** — the twenty-third review's S10. The
         // count above is of entries; this is the one entry's count, for the
@@ -2313,7 +2404,8 @@ mod tests {
             },
             Vec::new(),
         ));
-        held.interp.install_tier(std::rc::Rc::clone(&tier) as std::rc::Rc<dyn bund2_api::Tier>);
+        held.interp
+            .install_tier(std::rc::Rc::clone(&tier) as std::rc::Rc<dyn bund2_api::Tier>);
         let body = BundValue::lambda(vec![BundValue::call("drop")]);
         held.interp.push(BundValue::int(100));
         held.interp.push(body.clone());
@@ -2376,7 +2468,11 @@ mod tests {
             &bund2_stdlib::host::HostOptions::default(),
             Some(1),
         );
-        assert_eq!(both.jit_threshold(), Some(1), "the flag beats the environment");
+        assert_eq!(
+            both.jit_threshold(),
+            Some(1),
+            "the flag beats the environment"
+        );
 
         // **A malformed value is ignored, not adopted and not fatal** — the
         // runtime reads this in a constructor that cannot report. What keeps
@@ -2603,7 +2699,11 @@ mod tests {
         out
     }
 
-    fn observe(r: &mut crate::Runtime, outcome: Result<(), Error>, seen: &SharedReporter) -> Observed {
+    fn observe(
+        r: &mut crate::Runtime,
+        outcome: Result<(), Error>,
+        seen: &SharedReporter,
+    ) -> Observed {
         let names: Vec<String> = r.interp.stacks().names().map(str::to_string).collect();
         let current = bund2_api::Vm::current_name(&r.interp);
         let mut stacks = Vec::with_capacity(names.len());
@@ -2611,7 +2711,10 @@ mod tests {
             bund2_api::Vm::to_stack(&mut r.interp, n);
             stacks.push((
                 n.clone(),
-                bund2_api::Vm::snapshot(&r.interp).iter().map(norm).collect(),
+                bund2_api::Vm::snapshot(&r.interp)
+                    .iter()
+                    .map(norm)
+                    .collect(),
             ));
         }
         Observed {
@@ -2711,7 +2814,10 @@ mod tests {
 
         let a = observe(&mut tiered, tier_outcome, &tier_seen);
         let b = observe(&mut plain, plain_outcome, &plain_seen);
-        assert_eq!(tier_outcomes, plain_outcomes, "{label}: each call's outcome");
+        assert_eq!(
+            tier_outcomes, plain_outcomes,
+            "{label}: each call's outcome"
+        );
         assert_eq!(a.current, b.current, "{label}: current stack");
         assert_eq!(a.stacks, b.stacks, "{label}: stacks");
         assert_eq!(a.workbench, b.workbench, "{label}: workbench");
@@ -2770,7 +2876,10 @@ mod tests {
             // the differential is unchanged; and it drops the `9` from the
             // workbench after `endcontext` has already moved it there, which is
             // the switch this row exists to observe.
-            ("1 2 @s 9 endcontext drop", "a CONTEXT literal and endcontext"),
+            (
+                "1 2 @s 9 endcontext drop",
+                "a CONTEXT literal and endcontext",
+            ),
             ("1 2 @s +", "a CONTEXT literal"),
             // The same F136 fix as the row above, for the same reason: `true`
             // and `ifthenelse` are unpublished, so the outer body planned zero
@@ -2879,7 +2988,11 @@ mod tests {
             Some(before + 3),
             "the next call runs both compiled"
         );
-        assert_eq!(r.interp.depth(), 0, "every `0` was dropped, by `drop` and then by `w`");
+        assert_eq!(
+            r.interp.depth(),
+            0,
+            "every `0` was dropped, by `drop` and then by `w`"
+        );
     }
 
     /// **The status protocol, one compiled body beneath another** — D145.
@@ -3032,7 +3145,10 @@ mod tests {
         plain.take_tier();
         let (plain_outcome, _) = run(&mut plain);
 
-        assert!(plain_outcome.is_err(), "the control must fail: {plain_outcome:?}");
+        assert!(
+            plain_outcome.is_err(),
+            "the control must fail: {plain_outcome:?}"
+        );
         assert_eq!(tier_outcome, plain_outcome, "the failure");
         assert!(
             !tiered.interp.cells().request(),
@@ -3100,7 +3216,10 @@ mod tests {
 
         let (tier_snaps, plain_snaps) = (snaps(&seen), snaps(&plain_seen));
         assert_eq!(plain_snaps.len(), 4, "one warning a call: {plain_snaps:?}");
-        let last = tier_snaps.last().and_then(|(s, _)| s.clone()).unwrap_or_default();
+        let last = tier_snaps
+            .last()
+            .and_then(|(s, _)| s.clone())
+            .unwrap_or_default();
         assert!(
             last.iter().any(|r| r.contains('7')) && last.iter().any(|r| r.contains('3')),
             "the snapshot taken beneath both compiled bodies must hold `v`'s sum \
@@ -3134,8 +3253,8 @@ mod tests {
                     1024 * 1024,
                 );
                 let mut r = crate::Runtime::new();
-                let table = bund2_stdlib::fragments::published(&r.interp.registry)
-                    .unwrap_or_default();
+                let table =
+                    bund2_stdlib::fragments::published(&r.interp.registry).unwrap_or_default();
                 r.install_tier(Box::new(JitTier::with_fragments(
                     Caps {
                         threshold: 1,
@@ -3148,8 +3267,10 @@ mod tests {
                 // test below this one explains.
                 r.eval_str(":down { 1 2 + drop dup 0 < { 1 swap - down } if } register\n")
                     .expect("defines");
-                r.eval_str("3 down drop").expect("the entry that compiles it");
-                r.eval_str(&format!("{LEVELS} down")).expect("recurses and returns");
+                r.eval_str("3 down drop")
+                    .expect("the entry that compiles it");
+                r.eval_str(&format!("{LEVELS} down"))
+                    .expect("recurses and returns");
                 (
                     r.compiled_entries().unwrap_or(0),
                     r.interp.snapshot().last().and_then(BundValue::as_int),
@@ -3264,7 +3385,11 @@ mod tests {
         assert!(first.compiled_words() >= 1, "the first tier compiled it");
         assert_eq!(second.compiled_words(), 0, "the second compiled nothing");
         assert!(
-            second.tiering().expect("nothing holds it").compiled(&body).is_none(),
+            second
+                .tiering()
+                .expect("nothing holds it")
+                .compiled(&body)
+                .is_none(),
             "and its cache misses the very body the first tier compiled"
         );
     }
@@ -3305,10 +3430,16 @@ mod tests {
         assert_eq!(tier.compiled_words(), 0, "and was not lowered again");
 
         let seen = seen.0.borrow();
-        assert_eq!(seen.len(), 1, "the first failure is reported, the second counted");
+        assert_eq!(
+            seen.len(),
+            1,
+            "the first failure is reported, the second counted"
+        );
         assert_eq!(seen[0].severity, bund2_api::diag::Severity::Warning);
         assert!(
-            seen[0].reason.starts_with("internal error: the tier could not compile a body")
+            seen[0]
+                .reason
+                .starts_with("internal error: the tier could not compile a body")
                 && seen[0].reason.contains("the guards do not hold"),
             "{}",
             seen[0].reason
@@ -3343,7 +3474,11 @@ mod tests {
         for _ in 0..3 {
             r.eval_str("f").expect("runs");
         }
-        assert_eq!(r.compiled_entries(), Some(2), "`f` is compiled and was entered");
+        assert_eq!(
+            r.compiled_entries(),
+            Some(2),
+            "`f` is compiled and was entered"
+        );
 
         let mut other = bund2_api::Registry::new();
         other.register_native(
@@ -3357,8 +3492,17 @@ mod tests {
         for _ in 0..3 {
             r.eval_str("f").expect("runs");
         }
-        let stack: Vec<_> = r.interp.snapshot().iter().filter_map(BundValue::as_int).collect();
-        assert_eq!(stack, [3, 3, 3, 100, 100, 100], "the word table in place decides");
+        let stack: Vec<_> = r
+            .interp
+            .snapshot()
+            .iter()
+            .filter_map(BundValue::as_int)
+            .collect();
+        assert_eq!(
+            stack,
+            [3, 3, 3, 100, 100, 100],
+            "the word table in place decides"
+        );
         assert_eq!(r.compiled_entries(), None, "and no tier is left to enter");
     }
 
@@ -3466,7 +3610,8 @@ mod tests {
 
         assert_eq!(b.len(), 16, "four rounds of four backtraces");
         assert!(
-            b.iter().any(|t| t.contains("v at 10") && t.contains("u at 6")),
+            b.iter()
+                .any(|t| t.contains("v at 10") && t.contains("u at 6")),
             "the control must show positions past the first value: {b:?}"
         );
         assert_eq!(a, b, "the frame list a word reads is Tier 0's");
@@ -3488,7 +3633,8 @@ mod tests {
             .registry
             .register_lambda("nothing", BundValue::lambda(Vec::new()));
         for _ in 0..3 {
-            r.eval_str("nothing").expect("an empty body is still a body");
+            r.eval_str("nothing")
+                .expect("an empty body is still a body");
         }
         assert_eq!(r.interp.depth(), 0);
     }

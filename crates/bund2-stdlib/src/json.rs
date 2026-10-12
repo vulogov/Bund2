@@ -114,18 +114,19 @@ pub(crate) fn to_value(j: &serde_json::Value) -> Result<BundValue, Error> {
         J::Array(items) => {
             let mut out = Vec::with_capacity(items.len());
             for v in items {
-                out.push(to_value(v).map_err(|e| {
-                    Error(format!("JSON returns error during casting: {}", e.0))
-                })?);
+                out.push(
+                    to_value(v).map_err(|e| {
+                        Error(format!("JSON returns error during casting: {}", e.0))
+                    })?,
+                );
             }
             Ok(BundValue::list(out))
         }
         J::Object(map) => {
             let mut out = BundValue::map(Default::default());
             for (k, v) in map {
-                let inner = to_value(v).map_err(|e| {
-                    Error(format!("JSON returns error during casting: {}", e.0))
-                })?;
+                let inner = to_value(v)
+                    .map_err(|e| Error(format!("JSON returns error during casting: {}", e.0)))?;
                 out = out.set(k, inner);
             }
             Ok(out)
@@ -181,11 +182,15 @@ fn value_to_json(v: &BundValue) -> Result<serde_json::Value, Error> {
             BundValue::Float(f, _) => serde_json::Number::from_f64(*f)
                 .map(serde_json::Value::Number)
                 .ok_or_else(|| Error("Error casting FLOAT: not representable in JSON".into())),
-            _ => Err(Error("Error casting FLOAT: This Dynamic type is not float".into())),
+            _ => Err(Error(
+                "Error casting FLOAT: This Dynamic type is not float".into(),
+            )),
         },
         BOOL => match v.unboxed() {
             BundValue::Bool(b, _) => Ok(serde_json::Value::Bool(*b)),
-            _ => Err(Error("Error casting BOOL: This Dynamic type is not bool".into())),
+            _ => Err(Error(
+                "Error casting BOOL: This Dynamic type is not bool".into(),
+            )),
         },
         bund2_value::NONE => Ok(serde_json::Value::Null),
         LIST => {
@@ -200,7 +205,11 @@ fn value_to_json(v: &BundValue) -> Result<serde_json::Value, Error> {
         }
         MAP => {
             let mut out = serde_json::Map::new();
-            for (k, item) in v.as_map().map(|m| m.iter().collect::<Vec<_>>()).unwrap_or_default() {
+            for (k, item) in v
+                .as_map()
+                .map(|m| m.iter().collect::<Vec<_>>())
+                .unwrap_or_default()
+            {
                 out.insert(
                     k.clone(),
                     value_to_json(item)
@@ -229,14 +238,18 @@ fn json_from_value(vm: &mut dyn Vm) -> Result<(), Error> {
     if v.dt() == JSON {
         return Err(Error("Stack already having a JSON value".into()));
     }
-    let j = value_to_json(&v)
-        .map_err(|e| Error(format!("Error casting JSON value: {}", e.0)))?;
+    let j = value_to_json(&v).map_err(|e| Error(format!("Error casting JSON value: {}", e.0)))?;
     vm.push(BundValue::json(j));
     Ok(())
 }
 
 pub fn register(r: &mut Registry) {
-    r.register_native("json.from_value", json_from_value, eff(1, 1), WordKind::Sync);
+    r.register_native(
+        "json.from_value",
+        json_from_value,
+        eff(1, 1),
+        WordKind::Sync,
+    );
     crate::wb::bench!(r, "json.from_value", json_from_value);
     r.register_native("json", json, eff(1, 1), WordKind::Sync);
     crate::wb::bench!(r, "json", json);
@@ -276,7 +289,10 @@ mod tests {
     #[test]
     fn a_path_that_does_not_compile_is_reported() {
         let e = err_of("'$[' '{}' json json.path");
-        assert!(e.contains("JSON.PATH compilation of search path returns"), "{e}");
+        assert!(
+            e.contains("JSON.PATH compilation of search path returns"),
+            "{e}"
+        );
     }
 
     /// JSON prints as compact `serde_json` text (`conv.rs:677`).

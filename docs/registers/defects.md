@@ -2497,7 +2497,7 @@ courtesy.
 
 `citations_in` matched one prefix:
 
-```rust xtask/src/cite/mod.rs:137
+```rust xtask/src/cite/mod.rs:143
     let starts_at = |i: usize| {
 ```
 

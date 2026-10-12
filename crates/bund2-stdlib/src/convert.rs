@@ -145,9 +145,7 @@ pub(crate) fn conv_value(v: &BundValue, target: u16) -> Result<BundValue, Error>
                     let text = s.clone();
                     rustils::parse::long::string_to_i64_res(text)
                         .map(BundValue::int)
-                        .map_err(|e| {
-                            Error(format!("Can not convert string to integer {e:?}"))
-                        })
+                        .map_err(|e| Error(format!("Can not convert string to integer {e:?}")))
                 }
                 FLOAT => {
                     let text = s.clone();
@@ -441,8 +439,12 @@ fn not(vm: &mut dyn Vm) -> Result<(), Error> {
         return Err(Error("Stack is too shallow for inline not".into()));
     }
     let v = crate::pull::operand(vm, "NOT", 1)?;
-    let b = conv_value(&v, BOOL)
-        .map_err(|e| Error(format!("NOT returns error during boolean conversion: {}", e.0)))?;
+    let b = conv_value(&v, BOOL).map_err(|e| {
+        Error(format!(
+            "NOT returns error during boolean conversion: {}",
+            e.0
+        ))
+    })?;
     let Some(BundValue::Bool(b, _)) = Some(b.unboxed().clone()) else {
         return Err(Error("NOT returns error: not a boolean".into()));
     };
@@ -475,8 +477,12 @@ fn bool_pair(vm: &mut dyn Vm, op: fn(bool, bool) -> bool) -> Result<(), Error> {
     let a = crate::pull::operand(vm, "AND", 1)?;
     let b = crate::pull::operand(vm, "AND", 2)?;
     let as_bool = |v: &BundValue| -> Result<bool, Error> {
-        let c = conv_value(v, BOOL)
-            .map_err(|e| Error(format!("AND returns error during boolean conversion: {}", e.0)))?;
+        let c = conv_value(v, BOOL).map_err(|e| {
+            Error(format!(
+                "AND returns error during boolean conversion: {}",
+                e.0
+            ))
+        })?;
         match c.unboxed() {
             BundValue::Bool(b, _) => Ok(*b),
             _ => Err(Error("AND returns error: not a boolean".into())),
@@ -689,7 +695,10 @@ mod tests {
         use bund2_api::Vm;
         // A line break is CRLF -- the crate's choice, and the surprising one.
         let mut i = run("\"one<br>two\" convert.from_html").expect("converts");
-        assert_eq!(i.pull().and_then(|v| v.as_str()).as_deref(), Some("one\r\ntwo"));
+        assert_eq!(
+            i.pull().and_then(|v| v.as_str()).as_deref(),
+            Some("one\r\ntwo")
+        );
 
         // The workbench form leaves the stack alone.
         let i = run("\"<b>x</b>\" . convert.from_html.").expect("the dot form");
@@ -737,11 +746,7 @@ mod tests {
             ("\"1\"", true),
             ("\"0\"", false),
         ] {
-            assert_eq!(
-                top_bool(&format!("{src} convert.to_bool")),
-                want,
-                "{src}"
-            );
+            assert_eq!(top_bool(&format!("{src} convert.to_bool")), want, "{src}");
         }
     }
 
@@ -800,7 +805,10 @@ mod tests {
     /// round-trips rather than being a dead end.
     #[test]
     fn a_textbuffer_converts_onward() {
-        assert_eq!(top_str("\"a\" convert.to_textbuffer convert.to_string"), "a");
+        assert_eq!(
+            top_str("\"a\" convert.to_textbuffer convert.to_string"),
+            "a"
+        );
         let i = run("\"1\" convert.to_textbuffer convert.to_int").expect("runs");
         assert_eq!(i.peek().and_then(|v| v.as_int()), Some(1));
     }
@@ -828,10 +836,7 @@ mod tests {
         ] {
             match run(&format!("{src} convert.to_textbuffer")) {
                 Ok(_) => panic!("{src} convert.to_textbuffer was expected to fail"),
-                Err(e) => assert!(
-                    e.contains(want),
-                    "{src}: wanted {want:?}, got {e:?}"
-                ),
+                Err(e) => assert!(e.contains(want), "{src}: wanted {want:?}, got {e:?}"),
             }
             // NODATA and PTR *do* convert to STRING -- that is what makes the
             // refusal above a fact about the table and not about `display`.
@@ -854,7 +859,8 @@ mod tests {
     /// row measured on the oracle.
     #[test]
     fn the_kinds_conv_refuses_are_refused_by_every_word_that_asks() {
-        let map = |dt: u16| format!("Source value is not MAP but {dt} and not suitable for conversion");
+        let map =
+            |dt: u16| format!("Source value is not MAP but {dt} and not suitable for conversion");
         for (src, why) in [
             ("valuemap", map(30)),
             ("class", map(31)),
@@ -882,7 +888,9 @@ mod tests {
             match run(&format!("{src} display")) {
                 Ok(_) => panic!("{src} display was expected to fail"),
                 Err(e) => assert!(
-                    e.ends_with(&format!("FMT.STR: conversion to STRING returned error: {why}")),
+                    e.ends_with(&format!(
+                        "FMT.STR: conversion to STRING returned error: {why}"
+                    )),
                     "{src} display: {e}"
                 ),
             }
@@ -904,13 +912,41 @@ mod tests {
     #[test]
     fn json_refuses_every_target_but_text_naming_what_it_decoded() {
         for (src, word, want) in [
-            ("'{\"a\":1}' json", "convert.to_int", "CONVERT.TO_INTEGER returned error: Can not convert map to 24"),
-            ("'[1,2]' json", "convert.to_list", "CONVERT.TO_LIST returned error: Can not convert list to 24"),
-            ("'7' json", "convert.to_float", "CONVERT.TO_FLOAT returned error: Can not convert integer to 24"),
-            ("'7.5' json", "convert.to_int", "CONVERT.TO_INTEGER returned error: Can not convert float to 24"),
-            ("'\"q\"' json", "convert.to_bool", "CONVERT.TO_BOOL returned error: Can not convert string to 24"),
-            ("'true' json", "convert.to_int", "CONVERT.TO_INTEGER returned error: Can not convert bool to 24"),
-            ("'null' json", "convert.to_matrix", "CONVERT.TO_MATRIX returned error: Can not convert NONE to 24"),
+            (
+                "'{\"a\":1}' json",
+                "convert.to_int",
+                "CONVERT.TO_INTEGER returned error: Can not convert map to 24",
+            ),
+            (
+                "'[1,2]' json",
+                "convert.to_list",
+                "CONVERT.TO_LIST returned error: Can not convert list to 24",
+            ),
+            (
+                "'7' json",
+                "convert.to_float",
+                "CONVERT.TO_FLOAT returned error: Can not convert integer to 24",
+            ),
+            (
+                "'7.5' json",
+                "convert.to_int",
+                "CONVERT.TO_INTEGER returned error: Can not convert float to 24",
+            ),
+            (
+                "'\"q\"' json",
+                "convert.to_bool",
+                "CONVERT.TO_BOOL returned error: Can not convert string to 24",
+            ),
+            (
+                "'true' json",
+                "convert.to_int",
+                "CONVERT.TO_INTEGER returned error: Can not convert bool to 24",
+            ),
+            (
+                "'null' json",
+                "convert.to_matrix",
+                "CONVERT.TO_MATRIX returned error: Can not convert NONE to 24",
+            ),
             (
                 "'18446744073709551615' json",
                 "convert.to_int",

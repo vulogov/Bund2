@@ -111,7 +111,10 @@ impl Request<'_> {
 pub(crate) fn get(request: &Request) -> Option<Vec<u8>> {
     let head = request.head()?;
     let (host, port) = request.connect;
-    let host = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host);
+    let host = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
     let mut stream = std::net::TcpStream::connect((host, port)).ok()?;
     if head.len() > REQUEST_MAX {
         return None;
@@ -138,7 +141,12 @@ enum Line {
 
 impl<'a> Wire<'a> {
     fn new(from: &'a mut dyn Read) -> Self {
-        Self { from, held: Vec::new(), at: 0, ended: false }
+        Self {
+            from,
+            held: Vec::new(),
+            at: 0,
+            ended: false,
+        }
     }
 
     /// The next byte, or `Some(None)` where the answer ends. `None` is a
@@ -232,10 +240,11 @@ fn status(line: &[u8]) -> Option<u16> {
     let space = |at: usize| line.get(at).copied().is_some_and(is_space);
     let code = |at: usize| {
         let digits = line.get(at..at + 3)?;
-        digits
-            .iter()
-            .all(u8::is_ascii_digit)
-            .then(|| digits.iter().fold(0u16, |n, d| n * 10 + u16::from(d - b'0')))
+        digits.iter().all(u8::is_ascii_digit).then(|| {
+            digits
+                .iter()
+                .fold(0u16, |n, d| n * 10 + u16::from(d - b'0'))
+        })
     };
     match line.get(5).copied()? {
         b'1' => {
@@ -266,7 +275,10 @@ enum Length {
 /// is 1 and `0x11` is 0; `-0`, `++1`, a value with no digit and an empty one
 /// are refused.
 fn content_length(value: &[u8]) -> Length {
-    let from = value.iter().position(|b| !matches!(b, b' ' | b'\t')).unwrap_or(value.len());
+    let from = value
+        .iter()
+        .position(|b| !matches!(b, b' ' | b'\t'))
+        .unwrap_or(value.len());
     let value = value.get(from..).unwrap_or_default();
     let digits = match value.first() {
         Some(b'+') => value.get(1..).unwrap_or_default(),
@@ -278,7 +290,9 @@ fn content_length(value: &[u8]) -> Length {
     }
     let mut n = 0u64;
     for digit in digits.iter().take(count) {
-        let next = n.checked_mul(10).and_then(|n| n.checked_add(u64::from(digit - b'0')));
+        let next = n
+            .checked_mul(10)
+            .and_then(|n| n.checked_add(u64::from(digit - b'0')));
         match next {
             Some(next) if next <= i64::MAX as u64 => n = next,
             _ => return Length::Past,
@@ -297,8 +311,14 @@ fn content_length(value: &[u8]) -> Length {
 fn chunked_layers(value: &[u8]) -> usize {
     let mut layers = 0;
     for name in value.split(|b| *b == b',') {
-        let from = name.iter().position(|b| !matches!(b, b' ' | b'\t')).unwrap_or(name.len());
-        let to = name.iter().rposition(|b| !is_space(*b)).map_or(0, |last| last + 1);
+        let from = name
+            .iter()
+            .position(|b| !matches!(b, b' ' | b'\t'))
+            .unwrap_or(name.len());
+        let to = name
+            .iter()
+            .rposition(|b| !is_space(*b))
+            .map_or(0, |last| last + 1);
         let Some(name) = name.get(from..to) else {
             continue;
         };
@@ -333,7 +353,10 @@ fn header_is_kept(line: &[u8], first: bool, filed: &mut bool) -> bool {
     if folded && *filed {
         return true;
     }
-    let end = line.iter().position(|b| matches!(b, b'\r' | b'\n')).unwrap_or(line.len());
+    let end = line
+        .iter()
+        .position(|b| matches!(b, b'\r' | b'\n'))
+        .unwrap_or(line.len());
     *filed = true;
     line.get(..end).is_some_and(|text| text.contains(&b':'))
 }
@@ -383,7 +406,12 @@ struct Dechunker {
 
 impl Dechunker {
     fn new() -> Self {
-        Self { state: ChunkState::Hex, digits: 0, size: 0, trailer: Vec::new() }
+        Self {
+            state: ChunkState::Hex,
+            digits: 0,
+            size: 0,
+            trailer: Vec::new(),
+        }
     }
 
     fn done(&self) -> bool {
@@ -413,7 +441,11 @@ impl Dechunker {
                 }
                 ChunkState::Lf => {
                     if byte == b'\n' {
-                        self.state = if self.size == 0 { ChunkState::Trailer } else { ChunkState::Data };
+                        self.state = if self.size == 0 {
+                            ChunkState::Trailer
+                        } else {
+                            ChunkState::Data
+                        };
                     }
                     return Some(None);
                 }
@@ -631,7 +663,11 @@ mod tests {
 
     /// The body as one chunk and the closing one.
     fn chunks(body: &[u8]) -> Vec<u8> {
-        cat(&[format!("{:x}\r\n", body.len()).as_bytes(), body, b"\r\n0\r\n\r\n"])
+        cat(&[
+            format!("{:x}\r\n", body.len()).as_bytes(),
+            body,
+            b"\r\n0\r\n\r\n",
+        ])
     }
 
     /// One chunk, with the body's size written as `size`, and then `after`.
@@ -656,12 +692,20 @@ mod tests {
 
     /// A `Content-Length` value, before the body.
     fn sized(value: &str) -> Option<Vec<u8>> {
-        read(&cat(&[OK, format!("Content-Length:{value}\r\n\r\n").as_bytes(), B]))
+        read(&cat(&[
+            OK,
+            format!("Content-Length:{value}\r\n\r\n").as_bytes(),
+            B,
+        ]))
     }
 
     /// A `Transfer-Encoding` value, before the body as one chunk.
     fn coded(value: &str) -> Option<Vec<u8>> {
-        read(&cat(&[OK, format!("Transfer-Encoding:{value}\r\n\r\n").as_bytes(), &chunks(B)]))
+        read(&cat(&[
+            OK,
+            format!("Transfer-Encoding:{value}\r\n\r\n").as_bytes(),
+            &chunks(B),
+        ]))
     }
 
     fn body() -> Option<Vec<u8>> {
@@ -677,19 +721,49 @@ mod tests {
     #[test]
     fn a_status_line_is_read_as_libcurl_reads_it() {
         for status in [
-            "HTTP/1.1 200 OK", "HTTP/1.0 200 OK", "HTTP/1.1 200", "HTTP/1.1\t200 OK", "HTTP/1.1 200\tOK",
-            "HTTP/1.1 404 Not Found", "HTTP/1.1 999 Odd", "HTTP/2 200 OK", "HTTP/2\t200 OK", "HTTP/2 200",
+            "HTTP/1.1 200 OK",
+            "HTTP/1.0 200 OK",
+            "HTTP/1.1 200",
+            "HTTP/1.1\t200 OK",
+            "HTTP/1.1 200\tOK",
+            "HTTP/1.1 404 Not Found",
+            "HTTP/1.1 999 Odd",
+            "HTTP/2 200 OK",
+            "HTTP/2\t200 OK",
+            "HTTP/2 200",
             // Not a status line libcurl parses, and so status 200.
-            "http/1.1 200 OK", "Http/1.1 200 OK", "http/1.2 200 OK", "http/1.1 304 Not Modified",
-            "HTTP/2.0 200 OK", "HTTP/2 20 OK", "HTTP/2 2000 OK", "HTTP/3 20 OK", "HTTP/3.0 200 OK",
+            "http/1.1 200 OK",
+            "Http/1.1 200 OK",
+            "http/1.2 200 OK",
+            "http/1.1 304 Not Modified",
+            "HTTP/2.0 200 OK",
+            "HTTP/2 20 OK",
+            "HTTP/2 2000 OK",
+            "HTTP/3 20 OK",
+            "HTTP/3.0 200 OK",
         ] {
             assert_eq!(after(status), body(), "{status}");
         }
         for status in [
-            "HTTP/1.1 99 Odd", "HTTP/1.1 1000 Odd", "HTTP/1.1 099 Odd", "HTTP/1.1 000 Odd", "HTTP/1.2 200 OK",
-            "HTTP/3 200 OK", "HTTP/4 200 OK", "HTTP/1 200 OK", "HTTP/0.9 200 OK", "HTTP/ 200 OK",
-            "HTTP/1.1200 OK", "HTTP/1.1  200 OK", "HTTP/1.1 abc OK", "HTTP/1.1 200OK", "HTTP/2 099 OK",
-            "ICY 200 OK", " HTTP/1.1 200 OK", "HTTP/1.1 200 O\0K", "",
+            "HTTP/1.1 99 Odd",
+            "HTTP/1.1 1000 Odd",
+            "HTTP/1.1 099 Odd",
+            "HTTP/1.1 000 Odd",
+            "HTTP/1.2 200 OK",
+            "HTTP/3 200 OK",
+            "HTTP/4 200 OK",
+            "HTTP/1 200 OK",
+            "HTTP/0.9 200 OK",
+            "HTTP/ 200 OK",
+            "HTTP/1.1200 OK",
+            "HTTP/1.1  200 OK",
+            "HTTP/1.1 abc OK",
+            "HTTP/1.1 200OK",
+            "HTTP/2 099 OK",
+            "ICY 200 OK",
+            " HTTP/1.1 200 OK",
+            "HTTP/1.1 200 O\0K",
+            "",
         ] {
             assert_eq!(after(status), None, "{status:?}");
         }
@@ -698,7 +772,11 @@ mod tests {
         assert_eq!(read(b"HTT"), None);
         assert_eq!(read(b"HTTP/"), None);
         assert_eq!(read(b"HTTP/1.1 200 OK"), None, "no line feed");
-        assert_eq!(read(&cat(&[b"\n", OK, &len(), B])), None, "a line before it");
+        assert_eq!(
+            read(&cat(&[b"\n", OK, &len(), B])),
+            None,
+            "a line before it"
+        );
     }
 
     #[test]
@@ -706,7 +784,14 @@ mod tests {
         let moved = |status: &str| read(&cat(&[status.as_bytes(), b"\r\nLocation: /x\r\n\r\n", B]));
         // A redirect is its own body, with a length or without: the
         // fifteenth review's B1.
-        for status in ["HTTP/1.1 300 M", "HTTP/1.1 301 M", "HTTP/1.1 302 Found", "HTTP/1.1 303 S", "HTTP/1.1 307 T", "HTTP/1.1 308 P"] {
+        for status in [
+            "HTTP/1.1 300 M",
+            "HTTP/1.1 301 M",
+            "HTTP/1.1 302 Found",
+            "HTTP/1.1 303 S",
+            "HTTP/1.1 307 T",
+            "HTTP/1.1 308 P",
+        ] {
             assert_eq!(moved(status), body(), "{status}");
             assert_eq!(after(status), body(), "{status}, with a length");
         }
@@ -715,39 +800,91 @@ mod tests {
         for status in ["HTTP/1.1 204 No Content", "HTTP/1.1 304 Not Modified"] {
             assert_eq!(moved(status), empty(), "{status}");
             assert_eq!(after(status), empty(), "{status}, with a length");
-            let said = |header: &str| read(&cat(&[status.as_bytes(), b"\r\n", header.as_bytes(), b"\r\n\r\n", &chunks(B)]));
+            let said = |header: &str| {
+                read(&cat(&[
+                    status.as_bytes(),
+                    b"\r\n",
+                    header.as_bytes(),
+                    b"\r\n\r\n",
+                    &chunks(B),
+                ]))
+            };
             assert_eq!(said("Transfer-Encoding: chunked"), empty(), "{status}");
-            assert_eq!(said("Content-Length: abc"), empty(), "{status}: a bad length is not read");
+            assert_eq!(
+                said("Content-Length: abc"),
+                empty(),
+                "{status}: a bad length is not read"
+            );
         }
         // A provisional answer is passed over, and what it says of a body is
         // not read.
         let then = |first: &str| read(&cat(&[first.as_bytes(), OK, &len(), B]));
         assert_eq!(then("HTTP/1.1 100 Continue\r\n\r\n"), body());
-        assert_eq!(then("HTTP/1.1 103 Early Hints\r\nLink: </x>\r\n\r\n"), body());
+        assert_eq!(
+            then("HTTP/1.1 103 Early Hints\r\nLink: </x>\r\n\r\n"),
+            body()
+        );
         assert_eq!(then("HTTP/1.1 199 Odd\r\n\r\n"), body());
-        assert_eq!(then("HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 100 Continue\r\n\r\n"), body());
-        assert_eq!(then("HTTP/1.1 100 Continue\r\nContent-Length: 5\r\n\r\n"), body());
-        assert_eq!(then("HTTP/1.1 100 Continue\r\nTransfer-Encoding: chunked\r\n\r\n"), body());
-        assert_eq!(read(&cat(&[b"HTTP/1.1 100 Continue\r\n\r\nhttp/1.1 200 OK\r\n", &len(), B])), body());
+        assert_eq!(
+            then("HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 100 Continue\r\n\r\n"),
+            body()
+        );
+        assert_eq!(
+            then("HTTP/1.1 100 Continue\r\nContent-Length: 5\r\n\r\n"),
+            body()
+        );
+        assert_eq!(
+            then("HTTP/1.1 100 Continue\r\nTransfer-Encoding: chunked\r\n\r\n"),
+            body()
+        );
+        assert_eq!(
+            read(&cat(&[
+                b"HTTP/1.1 100 Continue\r\n\r\nhttp/1.1 200 OK\r\n",
+                &len(),
+                B
+            ])),
+            body()
+        );
         assert_eq!(read(b"HTTP/1.1 100 Continue\r\n\r\n"), None);
         assert_eq!(read(b"HTTP/1.1 103 Early Hints\r\n\r\n"), None);
         assert_eq!(read(b"HTTP/1.1 100 Continue\r\n\r\ngarbage\r\n\r\n"), None);
         assert_eq!(read(b"HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK"), None);
-        assert_eq!(read(b"HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\n"), empty());
+        assert_eq!(
+            read(b"HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\n"),
+            empty()
+        );
         // 101 ends the heads, and its body runs to the end of the connection.
         assert_eq!(read(&cat(&[b"HTTP/1.1 101 Switching\r\n\r\n", B])), body());
-        assert_eq!(read(&cat(&[b"HTTP/1.1 101 Switching\r\nContent-Length: 4\r\n\r\n", B])), body());
-        assert_eq!(read(&cat(&[b"HTTP/1.1 101 S\r\n", CHUNKED, b"\r\n", &chunks(B)])), Some(chunks(B)));
+        assert_eq!(
+            read(&cat(&[
+                b"HTTP/1.1 101 Switching\r\nContent-Length: 4\r\n\r\n",
+                B
+            ])),
+            body()
+        );
+        assert_eq!(
+            read(&cat(&[b"HTTP/1.1 101 S\r\n", CHUNKED, b"\r\n", &chunks(B)])),
+            Some(chunks(B))
+        );
         assert_eq!(read(b"HTTP/1.1 101 Switching\r\n\r\n"), None);
         // The heads together are bounded, so the provisional ones are.
-        let many = |n: usize| read(&cat(&[&b"HTTP/1.1 100 Continue\r\n\r\n".repeat(n), OK, &len(), B]));
+        let many = |n: usize| {
+            read(&cat(&[
+                &b"HTTP/1.1 100 Continue\r\n\r\n".repeat(n),
+                OK,
+                &len(),
+                B,
+            ]))
+        };
         assert_eq!(many(12_000), body());
         assert_eq!(many(12_300), None);
     }
 
     #[test]
     fn a_length_is_read_as_libcurl_reads_it() {
-        for value in [" 17", "17", "\t17", "   17  ", " 00017", " +17", " 17abc", " 17, 17"] {
+        for value in [
+            " 17", "17", "\t17", "   17  ", " 00017", " +17", " 17abc", " 17, 17",
+        ] {
             assert_eq!(sized(value), body(), "{value:?}");
         }
         assert_eq!(sized(" 0"), empty());
@@ -757,21 +894,61 @@ mod tests {
         // Past 63 bits is no length at all, and the body runs to the end.
         assert_eq!(sized(" 9223372036854775808"), body());
         assert_eq!(sized(" 99999999999999999999"), body());
-        for value in [" -1", " -0", " abc", "", " ", " ++17", " +", " \x0b17", " 22", " 9223372036854775807"] {
+        for value in [
+            " -1",
+            " -0",
+            " abc",
+            "",
+            " ",
+            " ++17",
+            " +",
+            " \x0b17",
+            " 22",
+            " 9223372036854775807",
+        ] {
             assert_eq!(sized(value), None, "{value:?}");
         }
-        let two = |a: &str, b: &str| read(&cat(&[OK, format!("Content-Length: {a}\r\nContent-Length: {b}\r\n\r\n").as_bytes(), B]));
+        let two = |a: &str, b: &str| {
+            read(&cat(&[
+                OK,
+                format!("Content-Length: {a}\r\nContent-Length: {b}\r\n\r\n").as_bytes(),
+                B,
+            ]))
+        };
         assert_eq!(two("4", "17"), body(), "the last one read wins");
         assert_eq!(two("17", "4"), Some(b"\"ori".to_vec()));
         assert_eq!(two("17", "abc"), None, "and every one is read");
-        assert_eq!(two("4", "99999999999999999999"), Some(b"\"ori".to_vec()), "one past 63 bits is passed over");
+        assert_eq!(
+            two("4", "99999999999999999999"),
+            Some(b"\"ori".to_vec()),
+            "one past 63 bits is passed over"
+        );
         // The name, in any case and from the line's first byte.
-        assert_eq!(read(&cat(&[OK, b"content-length: 17\r\n\r\n", B, b"extra"])), body());
-        assert_eq!(read(&cat(&[OK, b"Content-Length : 4\r\n\r\n", B])), body(), "not the header");
-        assert_eq!(read(&cat(&[OK, b"Content-Length-X: 4\r\n\r\n", B])), body(), "not the header");
-        assert_eq!(read(&cat(&[OK, b"\r\n", B])), body(), "no length: to the end");
+        assert_eq!(
+            read(&cat(&[OK, b"content-length: 17\r\n\r\n", B, b"extra"])),
+            body()
+        );
+        assert_eq!(
+            read(&cat(&[OK, b"Content-Length : 4\r\n\r\n", B])),
+            body(),
+            "not the header"
+        );
+        assert_eq!(
+            read(&cat(&[OK, b"Content-Length-X: 4\r\n\r\n", B])),
+            body(),
+            "not the header"
+        );
+        assert_eq!(
+            read(&cat(&[OK, b"\r\n", B])),
+            body(),
+            "no length: to the end"
+        );
         assert_eq!(read(&cat(&[b"HTTP/1.0 200 OK\r\n\r\n", B])), body());
-        assert_eq!(read(&cat(&[b"HTTP/1.1 200 OK\nContent-Length: 17\n\n", B])), body(), "line feeds alone");
+        assert_eq!(
+            read(&cat(&[b"HTTP/1.1 200 OK\nContent-Length: 17\n\n", B])),
+            body(),
+            "line feeds alone"
+        );
     }
 
     #[test]
@@ -780,34 +957,64 @@ mod tests {
         assert_eq!(read(b"HTTP/1.1 200 OK\n"), empty());
         assert_eq!(read(&cat(&[OK, b"\r\n"])), empty());
         assert_eq!(read(&cat(&[OK, b"X-A: y"])), empty());
-        assert_eq!(read(&cat(&[OK, b"Content-Length: 5"])), empty(), "a line that never ended was never read");
+        assert_eq!(
+            read(&cat(&[OK, b"Content-Length: 5"])),
+            empty(),
+            "a line that never ended was never read"
+        );
         assert_eq!(read(&cat(&[OK, b"Content-Length: 0\r\n"])), empty());
         assert_eq!(read(&cat(&[OK, CHUNKED])), empty());
         assert_eq!(read(b"HTTP/1.1 204 No Content\r\n"), empty());
         assert_eq!(read(&cat(&[OK, b"Content-Length: 17\r\n"])), None);
         assert_eq!(read(&cat(&[OK, b"Content-Length: 17\r\nX-A"])), None);
         // All one line: a carriage return ends nothing.
-        assert_eq!(read(&cat(&[b"HTTP/1.1 200 OK\rContent-Length: 17\r\r", B])), empty());
+        assert_eq!(
+            read(&cat(&[b"HTTP/1.1 200 OK\rContent-Length: 17\r\r", B])),
+            empty()
+        );
     }
 
     #[test]
     fn a_header_line_is_kept_or_refuses_the_answer() {
         for header in [
-            &b"X-A: one\r\n two\r\n"[..], b"X A: y\r\n", b": y\r\n", b"X-A: one\rtwo\r\n", b"X-A: \xe9\r\n",
-            b"X-\xe9: y\r\n", b" X-A: y\r\n", b"X-A: one\r\n Content-Length: 4\r\n",
-            b"Content-Encoding: gzip\r\n", b"Transfer-Encoding: x\r\n", b"Transfer-Encoding: identity\r\n",
-            b"Transfer-Encoding:\r\n", b"WWW-Authenticate: Basic realm=\"x\"\r\n",
+            &b"X-A: one\r\n two\r\n"[..],
+            b"X A: y\r\n",
+            b": y\r\n",
+            b"X-A: one\rtwo\r\n",
+            b"X-A: \xe9\r\n",
+            b"X-\xe9: y\r\n",
+            b" X-A: y\r\n",
+            b"X-A: one\r\n Content-Length: 4\r\n",
+            b"Content-Encoding: gzip\r\n",
+            b"Transfer-Encoding: x\r\n",
+            b"Transfer-Encoding: identity\r\n",
+            b"Transfer-Encoding:\r\n",
+            b"WWW-Authenticate: Basic realm=\"x\"\r\n",
         ] {
-            assert_eq!(with(header), body(), "{:?}", String::from_utf8_lossy(header));
+            assert_eq!(
+                with(header),
+                body(),
+                "{:?}",
+                String::from_utf8_lossy(header)
+            );
         }
-        for header in [&b"X-A\r\n"[..], b"X-A: one\0two\r\n", b" two\r\n", b"X-A\rb: y\r\n", b"Content-Length:\r\n 17\r\n"] {
+        for header in [
+            &b"X-A\r\n"[..],
+            b"X-A: one\0two\r\n",
+            b" two\r\n",
+            b"X-A\rb: y\r\n",
+            b"Content-Length:\r\n 17\r\n",
+        ] {
             assert_eq!(with(header), None, "{:?}", String::from_utf8_lossy(header));
         }
         // A line that begins with a carriage return ends the head, and all
         // of that line goes with it.
         assert_eq!(with(b"\rX-A: y\r\n"), Some(cat(&[&len(), B])));
         // A folded line after the length does not change it.
-        assert_eq!(read(&cat(&[OK, b"Content-Length: 17\r\n 5\r\n\r\n", B])), body());
+        assert_eq!(
+            read(&cat(&[OK, b"Content-Length: 17\r\n 5\r\n\r\n", B])),
+            body()
+        );
         // A line of LINE_MAX bytes is read and one byte more is not; and
         // HEAD_MAX bytes of head are read and one more is not.
         let line = |n: usize| with(&cat(&[b"X-A: ", &b"y".repeat(n - 7), b"\r\n"]));
@@ -815,7 +1022,12 @@ mod tests {
         assert_eq!(line(LINE_MAX + 1), None);
         let head = |n: usize| {
             let fill = n - OK.len() - len().len();
-            let lines = cat(&[&b"X-A: yyy\r\n".repeat(fill / 10 - 1), b"X-A: ", &b"y".repeat(fill % 10 + 3), b"\r\n"]);
+            let lines = cat(&[
+                &b"X-A: yyy\r\n".repeat(fill / 10 - 1),
+                b"X-A: ",
+                &b"y".repeat(fill % 10 + 3),
+                b"\r\n",
+            ]);
             assert_eq!(OK.len() + lines.len() + len().len(), n);
             with(&lines)
         };
@@ -825,21 +1037,75 @@ mod tests {
 
     #[test]
     fn chunked_is_named_or_the_body_is_taken_as_it_arrives() {
-        for value in [" chunked", "chunked", "\tchunked\t", " CHUNKED", " chunked, gzip", " , chunked", " chunked,"] {
+        for value in [
+            " chunked",
+            "chunked",
+            "\tchunked\t",
+            " CHUNKED",
+            " chunked, gzip",
+            " , chunked",
+            " chunked,",
+        ] {
             assert_eq!(coded(value), body(), "{value:?}");
         }
         // The list is read up to the first coding that is not `chunked`.
-        for value in [" gzip, chunked", " identity, chunked", " chunked;q=1", " chunkedx", " x"] {
+        for value in [
+            " gzip, chunked",
+            " identity, chunked",
+            " chunked;q=1",
+            " chunkedx",
+            " x",
+        ] {
             assert_eq!(coded(value), Some(chunks(B)), "{value:?}");
         }
         let lines = |head: &[u8], body: &[u8]| read(&cat(&[OK, head, b"\r\n", body]));
-        assert_eq!(lines(b"Transfer-Encoding: x\r\nTransfer-Encoding: chunked\r\n", &chunks(B)), body());
-        assert_eq!(lines(b"Transfer-Encoding: chunked\r\nTransfer-Encoding: x\r\n", &chunks(B)), body());
+        assert_eq!(
+            lines(
+                b"Transfer-Encoding: x\r\nTransfer-Encoding: chunked\r\n",
+                &chunks(B)
+            ),
+            body()
+        );
+        assert_eq!(
+            lines(
+                b"Transfer-Encoding: chunked\r\nTransfer-Encoding: x\r\n",
+                &chunks(B)
+            ),
+            body()
+        );
         // It outranks a length, before it or after, and HTTP/1.0.
-        assert_eq!(lines(b"Content-Length: 4\r\nTransfer-Encoding: chunked\r\n", &chunks(B)), body());
-        assert_eq!(lines(b"Transfer-Encoding: chunked\r\nContent-Length: 4\r\n", &chunks(B)), body());
-        assert_eq!(read(&cat(&[b"HTTP/1.0 200 OK\r\n", CHUNKED, b"\r\n", &chunks(B)])), body());
-        assert_eq!(read(&cat(&[b"http/1.1 200 OK\r\n", CHUNKED, b"\r\n", &chunks(B)])), body());
+        assert_eq!(
+            lines(
+                b"Content-Length: 4\r\nTransfer-Encoding: chunked\r\n",
+                &chunks(B)
+            ),
+            body()
+        );
+        assert_eq!(
+            lines(
+                b"Transfer-Encoding: chunked\r\nContent-Length: 4\r\n",
+                &chunks(B)
+            ),
+            body()
+        );
+        assert_eq!(
+            read(&cat(&[
+                b"HTTP/1.0 200 OK\r\n",
+                CHUNKED,
+                b"\r\n",
+                &chunks(B)
+            ])),
+            body()
+        );
+        assert_eq!(
+            read(&cat(&[
+                b"http/1.1 200 OK\r\n",
+                CHUNKED,
+                b"\r\n",
+                &chunks(B)
+            ])),
+            body()
+        );
         // Named twice it is taken off twice: the fifteenth review's B1.
         let twice = cat(&[CHUNKED, CHUNKED]);
         assert_eq!(lines(&twice, &chunks(B)), None);
@@ -848,47 +1114,110 @@ mod tests {
         assert_eq!(lines(CHUNKED, &chunks(&chunks(B))), Some(chunks(B)));
         let nested = |n: usize| (0..n).fold(B.to_vec(), |inner, _| chunks(&inner));
         assert_eq!(lines(&CHUNKED.repeat(3), &nested(3)), body());
-        assert_eq!(lines(&CHUNKED.repeat(LAYERS_MAX), &nested(LAYERS_MAX)), body());
-        assert_eq!(lines(&CHUNKED.repeat(LAYERS_MAX + 1), &nested(LAYERS_MAX + 1)), None);
+        assert_eq!(
+            lines(&CHUNKED.repeat(LAYERS_MAX), &nested(LAYERS_MAX)),
+            body()
+        );
+        assert_eq!(
+            lines(&CHUNKED.repeat(LAYERS_MAX + 1), &nested(LAYERS_MAX + 1)),
+            None
+        );
         // Either layer's end is the end.
         let inner_open = chunks(&cat(&[b"11\r\n", B, b"\r\n"]));
         assert_eq!(lines(&twice, &inner_open), body());
-        let outer_open = cat(&[format!("{:x}\r\n", chunks(B).len()).as_bytes(), &chunks(B), b"\r\n"]);
+        let outer_open = cat(&[
+            format!("{:x}\r\n", chunks(B).len()).as_bytes(),
+            &chunks(B),
+            b"\r\n",
+        ]);
         assert_eq!(lines(&twice, &outer_open), body());
         assert_eq!(lines(&twice, &cat(&[&outer_open, b"zz\r\n"])), None);
-        assert_eq!(lines(&twice, &chunks(&cat(&[&chunks(B), b"extra"]))), body());
+        assert_eq!(
+            lines(&twice, &chunks(&cat(&[&chunks(B), b"extra"]))),
+            body()
+        );
     }
 
     #[test]
     fn chunked_framing_is_taken_off_as_libcurl_takes_it_off() {
         let end = b"\r\n0\r\n\r\n";
-        for size in ["11", "11 ", "11\t", "0011", "00000000000011", "11;a=b", "11g"] {
+        for size in [
+            "11",
+            "11 ",
+            "11\t",
+            "0011",
+            "00000000000011",
+            "11;a=b",
+            "11g",
+        ] {
             assert_eq!(read(&chunk(size, end)), body(), "{size:?}");
         }
-        assert_eq!(read(&cat(&[OK, CHUNKED, b"\r\n11\n", B, b"\n0\n\n"])), body(), "line feeds alone");
-        assert_eq!(read(&cat(&[OK, CHUNKED, b"\r\n4\r\n\"ori\r\nd\r\ngin\" println\n\r\n0\r\n\r\n"])), body());
+        assert_eq!(
+            read(&cat(&[OK, CHUNKED, b"\r\n11\n", B, b"\n0\n\n"])),
+            body(),
+            "line feeds alone"
+        );
+        assert_eq!(
+            read(&cat(&[
+                OK,
+                CHUNKED,
+                b"\r\n4\r\n\"ori\r\nd\r\ngin\" println\n\r\n0\r\n\r\n"
+            ])),
+            body()
+        );
         assert_eq!(read(&cat(&[OK, CHUNKED, b"\r\n0\r\n\r\n"])), empty());
         for size in ["+11", " 11", "0x11", "000000000000000011", "zz", "", "-1"] {
             assert_eq!(read(&chunk(size, end)), None, "{size:?}");
         }
         for after in [
-            &b"\r\n0\r\n\r\n"[..], b"\r\r\n0\r\n\r\n", b"\n0\n\n", b"\r\n00\r\n\r\n", b"\r\n0;a=b\r\n\r\n",
-            b"\r\n0\r\n\r\nextra", b"\r\n0\r\nX-T: y\r\n\r\n", b"\r\n0\r\nX-T: y\r\nX-U: z\r\n\r\n",
-            b"\r\n0\r\nX-T: y\n\n", b"\r\n0\r\nX-T: y\r\n z\r\n\r\n", b"\r\n0\r\n X-T: y\r\n\r\n",
-            b"\r\n0\r\n: y\r\n\r\n", b"\r\n0\r\n  \r\n\r\n",
+            &b"\r\n0\r\n\r\n"[..],
+            b"\r\r\n0\r\n\r\n",
+            b"\n0\n\n",
+            b"\r\n00\r\n\r\n",
+            b"\r\n0;a=b\r\n\r\n",
+            b"\r\n0\r\n\r\nextra",
+            b"\r\n0\r\nX-T: y\r\n\r\n",
+            b"\r\n0\r\nX-T: y\r\nX-U: z\r\n\r\n",
+            b"\r\n0\r\nX-T: y\n\n",
+            b"\r\n0\r\nX-T: y\r\n z\r\n\r\n",
+            b"\r\n0\r\n X-T: y\r\n\r\n",
+            b"\r\n0\r\n: y\r\n\r\n",
+            b"\r\n0\r\n  \r\n\r\n",
         ] {
-            assert_eq!(read(&chunk("11", after)), body(), "{:?}", String::from_utf8_lossy(after));
+            assert_eq!(
+                read(&chunk("11", after)),
+                body(),
+                "{:?}",
+                String::from_utf8_lossy(after)
+            );
         }
         for after in [
-            &b""[..], b"\r\n", b"0\r\n\r\n", b"\r\n0\r\n", b"\r\n0\r\n\r", b"\r\n0\r\n\r\r\n",
-            b"\r\n0\r\nX-T\r\n\r\n", b"\r\n0\r\nX-T: \0y\r\n\r\n", b"\r\n0\r\nX-T: y\rz\r\n\r\n",
+            &b""[..],
+            b"\r\n",
+            b"0\r\n\r\n",
+            b"\r\n0\r\n",
+            b"\r\n0\r\n\r",
+            b"\r\n0\r\n\r\r\n",
+            b"\r\n0\r\nX-T\r\n\r\n",
+            b"\r\n0\r\nX-T: \0y\r\n\r\n",
+            b"\r\n0\r\nX-T: y\rz\r\n\r\n",
             b"\r\n0\r\nX-T: y\r\n",
         ] {
-            assert_eq!(read(&chunk("11", after)), None, "{:?}", String::from_utf8_lossy(after));
+            assert_eq!(
+                read(&chunk("11", after)),
+                None,
+                "{:?}",
+                String::from_utf8_lossy(after)
+            );
         }
         assert_eq!(read(&chunk("16", b"")), None, "a chunk cut short");
         // A trailer of TRAILER_MAX bytes is read and one byte more is not.
-        let trailer = |n: usize| read(&chunk("11", &cat(&[b"\r\n0\r\nX-T: ", &b"y".repeat(n - 5), b"\r\n\r\n"])));
+        let trailer = |n: usize| {
+            read(&chunk(
+                "11",
+                &cat(&[b"\r\n0\r\nX-T: ", &b"y".repeat(n - 5), b"\r\n\r\n"]),
+            ))
+        };
         assert_eq!(trailer(TRAILER_MAX), body());
         assert_eq!(trailer(TRAILER_MAX + 1), None);
     }
@@ -896,11 +1225,23 @@ mod tests {
     /// The request, as the oracle's was captured on 2026-10-09.
     #[test]
     fn a_request_is_written_as_libcurl_writes_it() {
-        let text = |request: Request| request.head().map(|head| String::from_utf8_lossy(&head).into_owned());
-        let plain = Request { connect: ("h", 80), host: "127.0.0.1:8080", target: "/a?b", login: None, proxy: None };
+        let text = |request: Request| {
+            request
+                .head()
+                .map(|head| String::from_utf8_lossy(&head).into_owned())
+        };
+        let plain = Request {
+            connect: ("h", 80),
+            host: "127.0.0.1:8080",
+            target: "/a?b",
+            login: None,
+            proxy: None,
+        };
         assert_eq!(
             text(plain).as_deref(),
-            Some("GET /a?b HTTP/1.1\r\nHost: 127.0.0.1:8080\r\nUser-Agent: ZBUS\r\nAccept: */*\r\n\r\n")
+            Some(
+                "GET /a?b HTTP/1.1\r\nHost: 127.0.0.1:8080\r\nUser-Agent: ZBUS\r\nAccept: */*\r\n\r\n"
+            )
         );
         let both = Request {
             connect: ("p", 1080),
@@ -917,7 +1258,13 @@ mod tests {
                  User-Agent: ZBUS\r\nAccept: */*\r\nProxy-Connection: Keep-Alive\r\n\r\n"
             )
         );
-        let through = Request { connect: ("p", 1080), host: "[::1]:9", target: "/", login: None, proxy: Some(None) };
+        let through = Request {
+            connect: ("p", 1080),
+            host: "[::1]:9",
+            target: "/",
+            login: None,
+            proxy: Some(None),
+        };
         assert_eq!(
             text(through).as_deref(),
             Some(
@@ -947,17 +1294,36 @@ mod tests {
             sizes
         });
         let host = format!("127.0.0.1:{port}");
-        let fixed = format!("GET  HTTP/1.1\r\nHost: {host}\r\nUser-Agent: ZBUS\r\nAccept: */*\r\n\r\n").len();
+        let fixed =
+            format!("GET  HTTP/1.1\r\nHost: {host}\r\nUser-Agent: ZBUS\r\nAccept: */*\r\n\r\n")
+                .len();
         let ask = |size: usize| {
             let target = format!("/{}", "a".repeat(size - fixed - 1));
-            get(&Request { connect: ("127.0.0.1", port), host: &host, target: &target, login: None, proxy: None })
+            get(&Request {
+                connect: ("127.0.0.1", port),
+                host: &host,
+                target: &target,
+                login: None,
+                proxy: None,
+            })
         };
         assert_eq!(ask(REQUEST_MAX), Some(b"hi".to_vec()));
         assert_eq!(ask(REQUEST_MAX + 1), None);
         assert_eq!(seen.join().expect("listener"), vec![REQUEST_MAX, 0]);
 
-        for (host, target) in [("h", "/a b"), ("h", "/a\r\nX: y"), ("h\n", "/"), ("h", "/\x7f")] {
-            let request = Request { connect: ("h", 80), host, target, login: None, proxy: None };
+        for (host, target) in [
+            ("h", "/a b"),
+            ("h", "/a\r\nX: y"),
+            ("h\n", "/"),
+            ("h", "/\x7f"),
+        ] {
+            let request = Request {
+                connect: ("h", 80),
+                host,
+                target,
+                login: None,
+                proxy: None,
+            };
             assert_eq!(request.head(), None, "{host:?} {target:?}");
         }
     }

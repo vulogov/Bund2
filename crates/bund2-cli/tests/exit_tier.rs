@@ -187,7 +187,11 @@ fn an_exit_in_an_if_branch_of_a_hot_body_matches_without_the_tier() {
     let (tiered, tiered_code, tiered_stats) = run_at(&script, "1");
     let (plain, plain_code, plain_stats) = run_at(&script, "1000000");
 
-    assert_eq!(plain_code, Some(7), "the program exits with the code it asked for");
+    assert_eq!(
+        plain_code,
+        Some(7),
+        "the program exits with the code it asked for"
+    );
     assert_eq!(
         plain, "tick\nafter if\ntick\nafter if\ntick\nbye\n",
         "two entries pass the branch and the third takes it"
@@ -251,8 +255,15 @@ fn stats_names_both_floors() {
 
     let (first, second) = (floors(), floors());
     assert!(first.contains(", tier 1 at 0x"), "{first}");
-    assert!(gap(&first).ends_with("bytes above"), "tier 1's floor is the higher: {first}");
-    assert_eq!(gap(&first), gap(&second), "the distance is the binary's, not the run's");
+    assert!(
+        gap(&first).ends_with("bytes above"),
+        "tier 1's floor is the higher: {first}"
+    );
+    assert_eq!(
+        gap(&first),
+        gap(&second),
+        "the distance is the binary's, not the run's"
+    );
     // A build with a tier also says what the floor did; one without has
     // nothing to say, and says nothing rather than a zero that means less.
     let with_tier = first.contains("declined");
@@ -278,7 +289,10 @@ fn floors_of(script: &std::path::Path, threshold: &str) -> (String, String) {
             .unwrap_or_default()
             .to_string()
     };
-    (line("bund2: floors: tier 0 at 0x"), line("bund2: tier compiled"))
+    (
+        line("bund2: floors: tier 0 at 0x"),
+        line("bund2: tier compiled"),
+    )
 }
 
 /// The number that precedes `after` in `line`.
@@ -420,8 +434,16 @@ fn a_hot_body_under_a_native_prints_and_exits_as_without_the_tier() {
         ("map over one item", format!("[ 1 ] {MIRROR_HOT} map"), 3),
         ("map over two items", format!("[ 1 2 ] {MIRROR_HOT} map"), 6),
         ("?try, directly", tried(MIRROR_HOT), 3),
-        ("?try through map", tried(&format!("{{ [ 1 ] {MIRROR_HOT} map }}")), 3),
-        ("?try through times", tried(&format!("{{ 1 {MIRROR_HOT} times }}")), 3),
+        (
+            "?try through map",
+            tried(&format!("{{ [ 1 ] {MIRROR_HOT} map }}")),
+            3,
+        ),
+        (
+            "?try through times",
+            tried(&format!("{{ 1 {MIRROR_HOT} times }}")),
+            3,
+        ),
         (
             "a drained body",
             tried(&format!("{{ {{ [ 1 ] {MIRROR_HOT} map }} ! }}")),
@@ -453,7 +475,11 @@ fn a_hot_body_under_a_native_prints_and_exits_as_without_the_tier() {
         let (tiered, tiered_code, tiered_stats) = run_at(&script, "1");
         let (plain, plain_code, plain_stats) = run_at(&script, "1000000");
 
-        assert_eq!(plain_code, Some(7), "{label}: the code the program asked for");
+        assert_eq!(
+            plain_code,
+            Some(7),
+            "{label}: the code the program asked for"
+        );
         assert_eq!(
             plain, "in\nin\nin\nin\n",
             "{label}: four calls, nothing after the exit, and neither `?try` branch"
@@ -547,9 +573,19 @@ fn a_hot_input_loop_body_exits_with_the_pipe_held_open() {
         drop(stdin);
 
         let mut out = String::new();
-        child.stdout.take().expect("stdout").read_to_string(&mut out).expect("reads");
+        child
+            .stdout
+            .take()
+            .expect("stdout")
+            .read_to_string(&mut out)
+            .expect("reads");
         let mut err = String::new();
-        child.stderr.take().expect("stderr").read_to_string(&mut err).expect("reads");
+        child
+            .stderr
+            .take()
+            .expect("stderr")
+            .read_to_string(&mut err)
+            .expect("reads");
         let stats = err
             .lines()
             .find(|l| l.contains("tier compiled") || l.contains("no tier"))
@@ -563,7 +599,10 @@ fn a_hot_input_loop_body_exits_with_the_pipe_held_open() {
     let _ = std::fs::remove_dir_all(&dir);
 
     assert_eq!(plain_code, Some(7), "the code the body asked for");
-    assert_eq!(plain, "a\na\na\nx\n", "four lines reached the body and nothing followed");
+    assert_eq!(
+        plain, "a\na\na\nx\n",
+        "four lines reached the body and nothing followed"
+    );
     assert_eq!(tiered_code, plain_code, "exit code");
     assert_eq!(tiered, plain, "output");
 

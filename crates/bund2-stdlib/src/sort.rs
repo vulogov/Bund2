@@ -121,8 +121,9 @@ fn order(a: &BundValue, b: &BundValue) -> std::cmp::Ordering {
         (Rank::Int(i), Rank::Float(f)) => {
             crate::logic::exact_int_float_ord(*i, *f).unwrap_or(Ordering::Less)
         }
-        (Rank::Float(f), Rank::Int(i)) => crate::logic::exact_int_float_ord(*i, *f)
-            .map_or(Ordering::Greater, Ordering::reverse),
+        (Rank::Float(f), Rank::Int(i)) => {
+            crate::logic::exact_int_float_ord(*i, *f).map_or(Ordering::Greater, Ordering::reverse)
+        }
         (Rank::Time(s), Rank::Time(t)) => s.cmp(t),
         (Rank::Text(s), Rank::Text(t)) => s.cmp(t),
         _ => x.kind().cmp(&y.kind()),
@@ -267,7 +268,11 @@ fn sort_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     if side.depth(vm) < 1 {
         return Err(Error(format!(
             "{} is too shallow for inline {prefix}",
-            if side == crate::wb::Side::Stack { "Stack" } else { "Workbench" }
+            if side == crate::wb::Side::Stack {
+                "Stack"
+            } else {
+                "Workbench"
+            }
         )));
     }
     let v = crate::wb::operand(vm, side, prefix)?;
@@ -279,7 +284,11 @@ fn sort_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
     }
     let mut items = v
         .as_list()
-        .ok_or_else(|| Error(format!("{prefix} casting of list returned: This Dynamic type is not list")))?
+        .ok_or_else(|| {
+            Error(format!(
+                "{prefix} casting of list returned: This Dynamic type is not list"
+            ))
+        })?
         .to_vec();
     quicksort(&mut items);
     side.push(vm, BundValue::list(items));
@@ -385,9 +394,11 @@ fn unique_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Error> {
             "{prefix} casting of list returned: This is not a LIST/PAIR value but {dt}"
         )));
     }
-    let items = v
-        .as_list()
-        .ok_or_else(|| Error(format!("{prefix} casting of list returned: This Dynamic type is not list")))?;
+    let items = v.as_list().ok_or_else(|| {
+        Error(format!(
+            "{prefix} casting of list returned: This Dynamic type is not list"
+        ))
+    })?;
     let mut kept: Vec<BundValue> = Vec::new();
     let mut seen: std::collections::HashSet<Same> = std::collections::HashSet::new();
     for item in items {
@@ -447,7 +458,10 @@ mod tests {
     fn unique_leaves_no_repeat() {
         for (src, want) in [
             // the reference: `[ c b a a ]`
-            ("[ \"c\" \"b\" \"a\" \"c\" \"a\" ] unique", "[ c ::  b ::  a :: ]"),
+            (
+                "[ \"c\" \"b\" \"a\" \"c\" \"a\" ] unique",
+                "[ c ::  b ::  a :: ]",
+            ),
             ("[ \"a\" \"a\" \"b\" ] unique", "[ a ::  b :: ]"),
             ("[ \"b\" \"a\" \"b\" ] unique", "[ b ::  a :: ]"),
             ("[ true true false ] unique", "[ F(true) ::  F(false) :: ]"),
@@ -458,7 +472,10 @@ mod tests {
             ("[ 3 1 3 1 2 ] unique", "[ 3 ::  1 ::  2 :: ]"),
             ("[ 5 4 3 2 1 ] unique", "[ 5 ::  4 ::  3 ::  2 ::  1 :: ]"),
             // the reference answers this one differently between runs (F164)
-            ("[ 1.0 1.0 2.0 2.0 3.0 ] unique", "[ 1.0 ::  2.0 ::  3.0 :: ]"),
+            (
+                "[ 1.0 1.0 2.0 2.0 3.0 ] unique",
+                "[ 1.0 ::  2.0 ::  3.0 :: ]",
+            ),
             ("[ 2.5 1.5 2.5 ] unique", "[ 2.5 ::  1.5 :: ]"),
             ("[ 1 \"a\" 1 \"a\" ] unique", "[ 1 ::  a :: ]"),
             ("[ [ 1 ] [ 1 ] ] unique", "[ [ 1 :: ] ::  [ 1 :: ] :: ]"),
@@ -524,7 +541,10 @@ mod tests {
             shown("[ \"b\" 2 \"a\" 1.5 1 \"c\" 0.5 ] sort"),
             "[ 0.5 ::  1 ::  1.5 ::  2 ::  a ::  b ::  c :: ]"
         );
-        assert_eq!(shown("[ 3 1.5 2 0.5 1 ] sort"), "[ 0.5 ::  1 ::  1.5 ::  2 ::  3 :: ]");
+        assert_eq!(
+            shown("[ 3 1.5 2 0.5 1 ] sort"),
+            "[ 0.5 ::  1 ::  1.5 ::  2 ::  3 :: ]"
+        );
         assert_eq!(
             shown("[ \"z\" [ 9 ] 3 \"a\" 1 ] sort"),
             "[ 1 ::  3 ::  a ::  z ::  [ 9 :: ] :: ]"

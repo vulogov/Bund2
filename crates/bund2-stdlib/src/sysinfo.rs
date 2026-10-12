@@ -103,8 +103,8 @@ enum MemOp {
 /// Neither form takes an operand; the side decides only where the answer
 /// goes.
 fn mem(vm: &mut dyn Vm, side: Side, op: MemOp, prefix: &str) -> Result<(), Error> {
-    let m = sys_metrics::memory::get_memory()
-        .map_err(|e| Error(format!("{prefix} returns: {e}")))?;
+    let m =
+        sys_metrics::memory::get_memory().map_err(|e| Error(format!("{prefix} returns: {e}")))?;
     let mib = match op {
         MemOp::Total => m.total,
         MemOp::Free => m.free,
@@ -128,7 +128,12 @@ pub fn register(r: &mut Registry) {
         eff(0, 1),
         WordKind::Sync,
     );
-    r.register_native("sysinfo.virtualization?", is_virtualized, eff(0, 1), WordKind::Sync);
+    r.register_native(
+        "sysinfo.virtualization?",
+        is_virtualized,
+        eff(0, 1),
+        WordKind::Sync,
+    );
 
     // `host.rs:66-70`. The lower-case word name is the error text, not a
     // prefix -- see `host_string`.
@@ -277,10 +282,7 @@ mod tests {
         let mut i = interp();
         run(&mut i, "sysinfo.mem.total").expect("total");
         let total = int_of(&mut i);
-        assert!(
-            total >= 256 * 1024 * 1024,
-            "a byte count, not MiB: {total}"
-        );
+        assert!(total >= 256 * 1024 * 1024, "a byte count, not MiB: {total}");
         assert_eq!(total % (1024 * 1024), 0, "MiB scaled up, so exact: {total}");
     }
 

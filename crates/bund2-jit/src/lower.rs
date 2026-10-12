@@ -206,7 +206,9 @@ fn emit_generic_call(f: &mut FunctionBuilder<'_>, c: &GenericCall, join: Option<
     let drain_callee = f
         .ins()
         .load(c.ptr, MemFlagsData::trusted(), c.base, c.drain_off);
-    let drain_call = f.ins().call_indirect(c.tail_sig, drain_callee, &[c.ctx_val]);
+    let drain_call = f
+        .ins()
+        .call_indirect(c.tail_sig, drain_callee, &[c.ctx_val]);
     let drain_status = f.inst_results(drain_call)[0];
     f.ins().brif(drain_status, c.fail, &[], after, &[]);
 
@@ -300,7 +302,9 @@ fn emit_fragment_ops(
                     f.ins().stack_load(ptr, types::I64, slot, 0)
                 };
                 if file.is_empty() {
-                    return Err("a fragment popped into a register file it declared as empty".into());
+                    return Err(
+                        "a fragment popped into a register file it declared as empty".into(),
+                    );
                 }
                 file.rotate_right(1);
                 let Some(&dst) = file.first() else {
@@ -808,7 +812,6 @@ extern "C" fn jit_call_native(c: *mut Ctx<'_>, native: usize) -> i32 {
     status_of(c, r)
 }
 
-
 /// **Apply one of the body's values — the first lowering of a real Bund word.**
 ///
 /// `index` names a value in [`Ctx::body`], and this hands it to `Vm::apply`,
@@ -966,10 +969,7 @@ impl Compiled {
     /// never an unwind (§S11).
     pub fn run(&self, vm: &mut dyn Vm) -> Result<bool, Error> {
         let depth = vm.depth();
-        if !self
-            .fragment
-            .admits_with(depth, |n| vm.peek_at(n))
-        {
+        if !self.fragment.admits_with(depth, |n| vm.peek_at(n)) {
             return Ok(false);
         }
         let mut c = Ctx {
@@ -1412,12 +1412,15 @@ fn guards_hold(
     }
     let compares_a_load = defined_by(func, gen_cond).is_some_and(|cmp| {
         cmp.opcode() == ir::Opcode::Icmp
-            && cmp.arguments(&func.dfg.value_lists).iter().any(|v| {
-                defined_by(func, *v).is_some_and(|d| d.opcode() == ir::Opcode::Uload32)
-            })
+            && cmp
+                .arguments(&func.dfg.value_lists)
+                .iter()
+                .any(|v| defined_by(func, *v).is_some_and(|d| d.opcode() == ir::Opcode::Uload32))
     });
     if !compares_a_load {
-        return Err("the generation guard does not branch on a compare of a loaded cell".to_string());
+        return Err(
+            "the generation guard does not branch on a compare of a loaded cell".to_string(),
+        );
     }
 
     if !domtree.block_dominates(site.generation, site.region) {
@@ -2641,8 +2644,7 @@ fn emit_into<M: cranelift_module::Module>(
     // **And one per inlined site**, for §S6's type guard: an inlined site asks
     // `jit_admits` through a slot for the same reason a call reaches its
     // adapter through one.
-    let slots: Box<[*const u8]> =
-        vec![std::ptr::null(); calls + 1 + inlined].into_boxed_slice();
+    let slots: Box<[*const u8]> = vec![std::ptr::null(); calls + 1 + inlined].into_boxed_slice();
     let slots_base = slots.as_ptr() as i64;
     let drain_slot = calls;
     let admits_slot_base = calls + 1;
@@ -3043,13 +3045,10 @@ fn emit_into<M: cranelift_module::Module>(
                         // thing this check could not have done.
                         {
                             let cell_addr = f.ins().iconst(ptr, cross.cell);
-                            let now =
-                                f.ins().uload32(MemFlagsData::trusted(), cell_addr, 0);
-                            let unchanged = f.ins().icmp_imm_u(
-                                IntCC::Equal,
-                                now,
-                                i64::from(cross.generation),
-                            );
+                            let now = f.ins().uload32(MemFlagsData::trusted(), cell_addr, 0);
+                            let unchanged =
+                                f.ins()
+                                    .icmp_imm_u(IntCC::Equal, now, i64::from(cross.generation));
                             let stale = f.create_block();
                             let fresh = f.create_block();
                             f.ins().brif(unchanged, fresh, &[], stale, &[]);
@@ -3085,9 +3084,12 @@ fn emit_into<M: cranelift_module::Module>(
                         // because the defect was live and a static gate is
                         // total and free; this is what says when the
                         // enumeration was wrong.
-                        let epoch_before =
-                            f.ins()
-                                .load(types::I64, MemFlagsData::trusted(), cells_base, epoch_off);
+                        let epoch_before = f.ins().load(
+                            types::I64,
+                            MemFlagsData::trusted(),
+                            cells_base,
+                            epoch_off,
+                        );
 
                         // **§S5's invariant dies here, and is replaced rather
                         // than dropped.** "A sync precedes every call" made the
@@ -3142,8 +3144,7 @@ fn emit_into<M: cranelift_module::Module>(
                                 cells_base,
                                 epoch_off,
                             );
-                            let steady =
-                                f.ins().icmp(IntCC::Equal, epoch_before, epoch_after);
+                            let steady = f.ins().icmp(IntCC::Equal, epoch_before, epoch_after);
                             let moved = f.create_block();
                             let same_stack = f.create_block();
                             f.ins().brif(steady, same_stack, &[], moved, &[]);
@@ -3209,9 +3210,9 @@ fn emit_into<M: cranelift_module::Module>(
                 // 2026-10-11 its switch removed only the other one, so the
                 // figure it gave excluded this.
                 if !tail_here && request_check {
-                    let collecting = f
-                        .ins()
-                        .uload32(MemFlagsData::trusted(), cells_base, autoadd_off);
+                    let collecting =
+                        f.ins()
+                            .uload32(MemFlagsData::trusted(), cells_base, autoadd_off);
                     let collect = f.create_block();
                     let carry = f.create_block();
                     f.ins().brif(collecting, collect, &[], carry, &[]);
@@ -3310,40 +3311,37 @@ fn emit_into<M: cranelift_module::Module>(
                     join,
                 });
             } else {
+                // **Guard two: the slot still holds the binding we inlined
+                // against.** §S6, *Inlining freezes a name* — an inlined fragment
+                // goes through no slot, so a redefinition would otherwise be
+                // invisible to it.
+                let cell_addr = f.ins().iconst(ptr, cell);
+                let now = f.ins().uload32(MemFlagsData::trusted(), cell_addr, 0);
+                // **`_u`, because the generation is unsigned.** `uload32` brings
+                // the cell in zero-extended, and `Slot::bump` saturates at
+                // `u32::MAX` rather than wrapping — so a generation above
+                // `i32::MAX` is reachable, and the sign-extending form would
+                // compare it against a negative immediate and never match. The
+                // bare `icmp_imm` is deprecated at 0.135 for exactly this
+                // ambiguity, as `iadd_imm` was.
+                let unchanged = f.ins().icmp_imm_u(IntCC::Equal, now, i64::from(generation));
+                let mode = f.create_block();
+                f.ins().brif(unchanged, mode, &[], generic, &[]);
 
-            // **Guard two: the slot still holds the binding we inlined
-            // against.** §S6, *Inlining freezes a name* — an inlined fragment
-            // goes through no slot, so a redefinition would otherwise be
-            // invisible to it.
-            let cell_addr = f.ins().iconst(ptr, cell);
-            let now = f.ins().uload32(MemFlagsData::trusted(), cell_addr, 0);
-            // **`_u`, because the generation is unsigned.** `uload32` brings
-            // the cell in zero-extended, and `Slot::bump` saturates at
-            // `u32::MAX` rather than wrapping — so a generation above
-            // `i32::MAX` is reachable, and the sign-extending form would
-            // compare it against a negative immediate and never match. The
-            // bare `icmp_imm` is deprecated at 0.135 for exactly this
-            // ambiguity, as `iadd_imm` was.
-            let unchanged = f
-                .ins()
-                .icmp_imm_u(IntCC::Equal, now, i64::from(generation));
-            let mode = f.create_block();
-            f.ins().brif(unchanged, mode, &[], generic, &[]);
-
-            // **Guard three: `autoadd` is clear.** Under it a `CALL` is not a
-            // call at all (§S4's step 3), so an inlined arm would be the wrong
-            // thing entirely rather than merely stale.
-            f.switch_to_block(mode);
-            let aa = f
-                .ins()
-                .uload32(MemFlagsData::trusted(), cells_base, autoadd_off);
-            f.ins().brif(aa, generic, &[], region, &[]);
-            regions.push(GuardedRegion {
-                generation: guard_block,
-                mode: Some(mode),
-                region,
-                join,
-            });
+                // **Guard three: `autoadd` is clear.** Under it a `CALL` is not a
+                // call at all (§S4's step 3), so an inlined arm would be the wrong
+                // thing entirely rather than merely stale.
+                f.switch_to_block(mode);
+                let aa = f
+                    .ins()
+                    .uload32(MemFlagsData::trusted(), cells_base, autoadd_off);
+                f.ins().brif(aa, generic, &[], region, &[]);
+                regions.push(GuardedRegion {
+                    generation: guard_block,
+                    mode: Some(mode),
+                    region,
+                    join,
+                });
             }
 
             // The arm itself. **No request check follows it**: a fragment calls
@@ -3489,7 +3487,9 @@ fn emit_into<M: cranelift_module::Module>(
         // already the whole of it.
         let sp = f.ins().get_stack_pointer(ptr);
         let floor_base = f.ins().iconst(ptr, cells);
-        let floor = f.ins().load(ptr, MemFlagsData::trusted(), floor_base, floor_off);
+        let floor = f
+            .ins()
+            .load(ptr, MemFlagsData::trusted(), floor_base, floor_off);
         let below = f.ins().icmp(IntCC::UnsignedLessThan, sp, floor);
         let refuse = f.create_block();
         let start = f.create_block();
@@ -3526,9 +3526,7 @@ fn emit_into<M: cranelift_module::Module>(
         let aa_base = f.ins().iconst(ptr, cells);
         let aa_off = i32::try_from(bund2_api::Cells::autoadd_offset())
             .map_err(|_| "the autoadd cell's offset does not fit".to_string())?;
-        let collecting = f
-            .ins()
-            .uload32(MemFlagsData::trusted(), aa_base, aa_off);
+        let collecting = f.ins().uload32(MemFlagsData::trusted(), aa_base, aa_off);
         let refuse_mode = f.create_block();
         f.ins().brif(collecting, refuse_mode, &[], start, &[]);
 
@@ -3627,7 +3625,8 @@ fn run_as_the_tier_would(
     let ran = c.run(word, vm, body);
     if let Ok(ran) = ran {
         assert_eq!(
-            ran, runs,
+            ran,
+            runs,
             "the compiled entry {} where the test says it {}",
             if ran { "ran" } else { "declined" },
             if runs { "runs" } else { "declines" },
@@ -3729,8 +3728,24 @@ mod relocations {
         let plan0 = vec![Plan::Literal(1), Plan::Call { cross: None }];
         let plan1 = vec![Plan::Literal(2)];
         let mut laid = Vec::new();
-        laid.push(emit_into(&mut e, 0, &plan0, &[], LastCall::Ordinary, Adapter::Apply, cells)?);
-        laid.push(emit_into(&mut e, 1, &plan1, &[], LastCall::Ordinary, Adapter::Apply, cells)?);
+        laid.push(emit_into(
+            &mut e,
+            0,
+            &plan0,
+            &[],
+            LastCall::Ordinary,
+            Adapter::Apply,
+            cells,
+        )?);
+        laid.push(emit_into(
+            &mut e,
+            1,
+            &plan1,
+            &[],
+            LastCall::Ordinary,
+            Adapter::Apply,
+            cells,
+        )?);
 
         // The published arms, from a real registry: `+` is the one inlined.
         // The generation cells are fabricated for the reason `cells` is.
@@ -3762,8 +3777,24 @@ mod relocations {
             Plan::Literal(3),
             Plan::Call { cross: None },
         ];
-        laid.push(emit_into(&mut e, 2, &plan2, &sites, LastCall::Ordinary, Adapter::Apply, cells)?);
-        laid.push(emit_into(&mut e, 3, &plan0, &[], LastCall::Tail, Adapter::Apply, cells)?);
+        laid.push(emit_into(
+            &mut e,
+            2,
+            &plan2,
+            &sites,
+            LastCall::Ordinary,
+            Adapter::Apply,
+            cells,
+        )?);
+        laid.push(emit_into(
+            &mut e,
+            3,
+            &plan0,
+            &[],
+            LastCall::Tail,
+            Adapter::Apply,
+            cells,
+        )?);
 
         // `finish_jit` fills a body's slots from `thunk_ids` and from nothing
         // else, so these names are everything a slot of these bodies can hold.
@@ -3867,7 +3898,10 @@ mod relocations {
                 offenders.push(format!("{where_} -> {target}"));
             }
         }
-        assert_eq!(within, 4, "one trampoline-to-body relocation for each of four bodies");
+        assert_eq!(
+            within, 4,
+            "one trampoline-to-body relocation for each of four bodies"
+        );
         assert!(
             offenders.is_empty(),
             "emitted code names an emitted function other than a trampoline its \
@@ -3876,7 +3910,12 @@ mod relocations {
 
         // Four bodies with 2, 1, 6 and 2 values: a slot for each value, one
         // for each body's drain, and one for the single inlined site.
-        assert_eq!(p.slot_callees.len(), 2 + 1 + 6 + 2 + 4 + 1, "{:?}", p.slot_callees);
+        assert_eq!(
+            p.slot_callees.len(),
+            2 + 1 + 6 + 2 + 4 + 1,
+            "{:?}",
+            p.slot_callees
+        );
         for name in &p.slot_callees {
             assert!(
                 name.starts_with("bund2_thunk_")
@@ -3925,14 +3964,26 @@ mod relocations {
         // inlined site's guard failure reaches `jit_residual`; a body that
         // named neither would be the two-body probe again under another name.
         let from = |body: &str, import: &str| {
-            relocs.iter().any(|(w, t)| w.contains(body) && t.contains(import))
+            relocs
+                .iter()
+                .any(|(w, t)| w.contains(body) && t.contains(import))
         };
-        assert!(from("bund2_body_2", "jit_stack_moved"), "a crossed call: {relocs:?}");
-        assert!(from("bund2_body_2", "jit_residual"), "a guarded site: {relocs:?}");
-        assert!(from("bund2_entry_3", "bund2_body_3"), "the tail-call body: {relocs:?}");
+        assert!(
+            from("bund2_body_2", "jit_stack_moved"),
+            "a crossed call: {relocs:?}"
+        );
+        assert!(
+            from("bund2_body_2", "jit_residual"),
+            "a guarded site: {relocs:?}"
+        );
+        assert!(
+            from("bund2_entry_3", "bund2_body_3"),
+            "the tail-call body: {relocs:?}"
+        );
         let names: Vec<&str> = relocs.iter().map(|(_, t)| t.as_str()).collect();
         assert!(
-            names.iter().any(|n| n.contains("jit_apply") || n.contains("bund2_adapter")
+            names.iter().any(|n| n.contains("jit_apply")
+                || n.contains("bund2_adapter")
                 || n.contains("jit_")),
             "a runtime import must appear among {names:?}"
         );
@@ -3997,9 +4048,7 @@ mod tests {
             if let Some(j) = rest.find("stamp: ") {
                 let head = j + 7;
                 out.push_str(&rest[..head]);
-                let tail = rest[head..]
-                    .find(',')
-                    .map_or(rest.len(), |k| head + k);
+                let tail = rest[head..].find(',').map_or(rest.len(), |k| head + k);
                 out.push_str("<stamp>");
                 rest = &rest[tail..];
             }
@@ -4140,10 +4189,7 @@ mod tests {
     #[test]
     fn the_lowered_dup_mints_a_fresh_identity() {
         let compiled = compile(&dup_arm()).expect("lowers");
-        for v in [
-            BundValue::int(7),
-            BundValue::list(vec![BundValue::int(1)]),
-        ] {
+        for v in [BundValue::int(7), BundValue::list(vec![BundValue::int(1)])] {
             let mut vm = interp_with(std::slice::from_ref(&v));
             assert_eq!(compiled.run(&mut vm), Ok(true));
             let stack = vm.snapshot();
@@ -4251,7 +4297,8 @@ mod tests {
     fn a_compiled_body_calls_a_native_through_its_thunk() {
         let mut vm = fresh_interp();
         let body = lowered(&vm, 1, LastCall::Ordinary);
-        body.run(&mut vm, &[("push7", pushes_seven)]).expect("it ran");
+        body.run(&mut vm, &[("push7", pushes_seven)])
+            .expect("it ran");
         assert_eq!(vm.depth(), 1, "the native ran exactly once");
         assert_eq!(vm.snapshot().first().and_then(BundValue::as_int), Some(7));
     }
@@ -4264,7 +4311,11 @@ mod tests {
         assert_eq!(body.calls(), 3);
         body.run(
             &mut vm,
-            &[("a", pushes_seven), ("b", pushes_seven), ("c", pushes_seven)],
+            &[
+                ("a", pushes_seven),
+                ("b", pushes_seven),
+                ("c", pushes_seven),
+            ],
         )
         .expect("it ran");
         assert_eq!(vm.depth(), 3, "one push per call");
@@ -4298,7 +4349,9 @@ mod tests {
     fn a_panicking_native_in_a_non_tail_position_matches_tier_zero() {
         let mut vm = fresh_interp();
         let body = lowered(&vm, 1, LastCall::Ordinary);
-        let e = body.run(&mut vm, &[("boom", boom)]).expect_err("the panic is an error");
+        let e = body
+            .run(&mut vm, &[("boom", boom)])
+            .expect_err("the panic is an error");
         assert!(e.is_internal(), "{}", e.0);
         assert!(
             e.0.contains("internal error: native `boom` panicked: boom from a dependency"),
@@ -4321,7 +4374,9 @@ mod tests {
         let mut vm = fresh_interp();
         let body = lowered(&vm, 1, LastCall::Tail);
         assert_eq!(body.last_call(), LastCall::Tail);
-        let e = body.run(&mut vm, &[("boom", boom)]).expect_err("the panic is an error");
+        let e = body
+            .run(&mut vm, &[("boom", boom)])
+            .expect_err("the panic is an error");
         assert!(
             e.0.contains("internal error: native `boom` panicked: boom from a dependency"),
             "{}",
@@ -4337,7 +4392,8 @@ mod tests {
     fn a_tail_call_body_runs_and_leaves_no_unreachable_block_behind() {
         let mut vm = fresh_interp();
         let body = lowered(&vm, 1, LastCall::Tail);
-        body.run(&mut vm, &[("push7", pushes_seven)]).expect("it ran");
+        body.run(&mut vm, &[("push7", pushes_seven)])
+            .expect("it ran");
         assert_eq!(vm.depth(), 1);
     }
 
@@ -4448,7 +4504,8 @@ mod tests {
         assert_eq!(e.0, "failed after filing");
 
         // The loop's next chance to run a pending body.
-        vm.eval(&[BundValue::int(1)]).expect("the interpreter still runs");
+        vm.eval(&[BundValue::int(1)])
+            .expect("the interpreter still runs");
         assert_eq!(
             vm.depth(),
             1,
@@ -4563,7 +4620,11 @@ mod tests {
             .compile_word(&body, LastCall::Ordinary, cells, &mut vm)
             .expect("lowers");
 
-        assert_eq!(c.inlined_sites(word), Some(0), "nothing published, nothing inlined");
+        assert_eq!(
+            c.inlined_sites(word),
+            Some(0),
+            "nothing published, nothing inlined"
+        );
         c.run(word, &mut vm, &body).expect("it ran");
         assert_eq!(vm.snapshot().first().and_then(BundValue::as_int), Some(3));
     }
@@ -4739,8 +4800,11 @@ mod tests {
     fn a_non_tail_call_drains_before_the_next_value() {
         let mut vm = fresh_interp();
         let body = lowered(&vm, 2, LastCall::Ordinary);
-        body.run(&mut vm, &[("fs", files_then_succeeds), ("p7", pushes_seven)])
-            .expect("it ran");
+        body.run(
+            &mut vm,
+            &[("fs", files_then_succeeds), ("p7", pushes_seven)],
+        )
+        .expect("it ran");
 
         let stack = vm.snapshot();
         assert_eq!(stack.len(), 2, "{stack:?}");
@@ -5057,7 +5121,12 @@ mod tests {
     /// an `iconst`, so a word is now tied to the body it was planned from —
     /// which is what the cache guarantees for every real caller (D35's
     /// payload-pointer key) and what [`Compiler::run`] now checks.
-    fn word_in(c: &mut Compiler, vm: &mut Interp, body: &[BundValue], last: LastCall) -> WordHandle {
+    fn word_in(
+        c: &mut Compiler,
+        vm: &mut Interp,
+        body: &[BundValue],
+        last: LastCall,
+    ) -> WordHandle {
         let cells = vm.cells().base();
         c.compile_word(body, last, cells, vm).expect("lowers")
     }
@@ -5123,12 +5192,7 @@ mod tests {
     /// which is what makes the "inlined `+`" rows inline rather than call. It
     /// is asserted rather than assumed: with the table the `+` must be a site,
     /// and without it none.
-    fn assert_exit_matches_tier0(
-        body: &[BundValue],
-        last: LastCall,
-        inlining: bool,
-        label: &str,
-    ) {
+    fn assert_exit_matches_tier0(body: &[BundValue], last: LastCall, inlining: bool, label: &str) {
         let mut tier0 = with_stdlib();
         let by_tier0 = tier0.eval(body);
 
@@ -5378,8 +5442,13 @@ mod tests {
         assert_matches_tier0(&add_body(), "1 2 +");
         assert_matches_tier0(&[BundValue::int(7)], "a lone literal");
         assert_matches_tier0(
-            &[BundValue::int(4), BundValue::int(4), BundValue::call("+"),
-              BundValue::int(2), BundValue::call("*")],
+            &[
+                BundValue::int(4),
+                BundValue::int(4),
+                BundValue::call("+"),
+                BundValue::int(2),
+                BundValue::call("*"),
+            ],
             "4 4 + 2 *",
         );
         assert_matches_tier0(
@@ -5412,7 +5481,11 @@ mod tests {
 
         assert_eq!(by_tier0.is_ok(), by_compiled.is_ok(), "autoadd: outcome");
         let (a, b) = (tier0.snapshot(), compiled.snapshot());
-        assert_eq!(a.len(), b.len(), "autoadd: depth — a CALL was appended, not run");
+        assert_eq!(
+            a.len(),
+            b.len(),
+            "autoadd: depth — a CALL was appended, not run"
+        );
         for (x, y) in a.iter().zip(b.iter()) {
             assert_eq!(norm(&x.render(false)), norm(&y.render(false)), "autoadd");
         }
@@ -5551,11 +5624,7 @@ mod tests {
         // beneath it, checked against `bund2 script` rather than assumed, after
         // the first draft of this test asserted 6 and was wrong about the
         // order. Same slot shape, so every thunk index it needs is cached.
-        let second = vec![
-            BundValue::int(10),
-            BundValue::int(4),
-            BundValue::call("-"),
-        ];
+        let second = vec![BundValue::int(10), BundValue::int(4), BundValue::call("-")];
         let w2 = word_in(&mut c, &mut vm, &second, LastCall::Ordinary);
         assert_eq!(
             c.thunk_count(),
@@ -5756,10 +5825,24 @@ mod tests {
         let rows: Vec<(&str, Vec<BundValue>, usize)> = vec![
             ("a run of one", vec![int(1), call("dup"), call("+")], 1),
             ("a run of two", vec![int(1), int(2), call("+")], 2),
-            ("a run of three", vec![int(1), int(2), int(3), call("+"), call("+")], 3),
+            (
+                "a run of three",
+                vec![int(1), int(2), int(3), call("+"), call("+")],
+                3,
+            ),
             (
                 "a run of five",
-                vec![int(1), int(2), int(3), int(4), int(5), call("+"), call("+"), call("+"), call("+")],
+                vec![
+                    int(1),
+                    int(2),
+                    int(3),
+                    int(4),
+                    int(5),
+                    call("+"),
+                    call("+"),
+                    call("+"),
+                    call("+"),
+                ],
                 5,
             ),
             (
@@ -5769,7 +5852,13 @@ mod tests {
             ),
             (
                 "a float among ints",
-                vec![int(1), int(2), call("+"), BundValue::float(2.5), call("drop")],
+                vec![
+                    int(1),
+                    int(2),
+                    call("+"),
+                    BundValue::float(2.5),
+                    call("drop"),
+                ],
                 2,
             ),
         ];
@@ -5777,7 +5866,10 @@ mod tests {
             let (mut vm, table) = with_fragments();
             let mut c = Compiler::new(table).expect("a compiler");
             let word = word_in(&mut c, &mut vm, &body, LastCall::Ordinary);
-            assert!(c.inlined_sites(word).unwrap_or(0) > 0, "{label}: no site, so F136 would refuse it");
+            assert!(
+                c.inlined_sites(word).unwrap_or(0) > 0,
+                "{label}: no site, so F136 would refuse it"
+            );
             assert_eq!(c.promoted_values(word), Some(ints), "{label}");
             // And promoted is not merely counted: the body leaves what Tier 0
             // leaves.
@@ -5864,7 +5956,12 @@ mod tests {
     fn a_body_ending_in_a_literal_syncs_before_it_returns() {
         assert_matches_tier0(&[BundValue::int(1), BundValue::int(2)], "1 2");
         assert_matches_tier0(
-            &[BundValue::int(1), BundValue::int(2), BundValue::call("+"), BundValue::int(9)],
+            &[
+                BundValue::int(1),
+                BundValue::int(2),
+                BundValue::call("+"),
+                BundValue::int(9),
+            ],
             "1 2 + 9",
         );
     }
@@ -5980,20 +6077,19 @@ mod tests {
     /// branch to `fail`, a jump to the join — built by hand so that it can be
     /// got wrong one way at a time, and [`region_is_one_value`]'s verdict.
     fn region_shape(wrong: &str) -> Result<(), String> {
-        let config = JITModule::new(
-            JITBuilder::new(default_libcall_names()).expect("a builder"),
-        )
-        .target_config();
+        let config = JITModule::new(JITBuilder::new(default_libcall_names()).expect("a builder"))
+            .target_config();
         let mut sig = Signature::new(CallConv::SystemV);
         sig.params.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::I32));
-        let mut func =
-            ir::Function::with_name_signature(ir::UserFuncName::default(), sig.clone());
+        let mut func = ir::Function::with_name_signature(ir::UserFuncName::default(), sig.clone());
         let mut ctx = FunctionBuilderContext::new();
         let mut f = FunctionBuilder::new(&mut func, &mut ctx);
         let sig_ref = f.import_signature(sig.clone());
         let import = |f: &mut FunctionBuilder<'_>, n: u32| {
-            let name = f.func.declare_imported_user_function(ir::UserExternalName::new(0, n));
+            let name = f
+                .func
+                .declare_imported_user_function(ir::UserExternalName::new(0, n));
             f.import_function(ir::ExtFuncData {
                 name: ir::ExternalName::user(name),
                 signature: sig_ref,
@@ -6016,7 +6112,11 @@ mod tests {
         f.ins().jump(region, &[]);
 
         f.switch_to_block(region);
-        let callee = if wrong == "a call to something else" { other } else { helper };
+        let callee = if wrong == "a call to something else" {
+            other
+        } else {
+            helper
+        };
         let call = f.ins().call(callee, &[ctx_val]);
         let status = f.inst_results(call)[0];
         f.ins().brif(status, fail, &[], rest, &[]);
@@ -6075,7 +6175,10 @@ mod tests {
             ("a slot call", "spans a call site"),
             ("a tail call", "spans a call site"),
             ("a return", "ends the body inside the region"),
-            ("a call to something else", "not one of the four stack helpers"),
+            (
+                "a call to something else",
+                "not one of the four stack helpers",
+            ),
             ("no join", "never reaches its join"),
         ] {
             let refused = region_shape(wrong).expect_err(wrong);
@@ -6134,10 +6237,17 @@ mod tests {
             "each site resumes at its own position, and no two share one"
         );
         for &(_, at) in side {
-            assert!(!called.contains(&at), "a region resumes at a call site: {at}");
+            assert!(
+                !called.contains(&at),
+                "a region resumes at a call site: {at}"
+            );
         }
 
-        assert_eq!(c.run(word, &mut vm, &body), Ok(true), "and it runs compiled");
+        assert_eq!(
+            c.run(word, &mut vm, &body),
+            Ok(true),
+            "and it runs compiled"
+        );
         let mut tier0 = with_stdlib();
         tier0.eval(&body).expect("Tier 0 runs the same body");
         let (a, b) = (tier0.snapshot(), vm.snapshot());
@@ -6168,17 +6278,18 @@ mod tests {
         let refused = bare
             .compile_word(&add_body(), LastCall::Ordinary, cells, &mut vm)
             .expect_err("an inlined region with no guard must not compile");
-        assert!(refused.contains("not behind its meaning guards"), "{refused}");
+        assert!(
+            refused.contains("not behind its meaning guards"),
+            "{refused}"
+        );
         assert!(refused.contains("no guard was emitted"), "{refused}");
     }
 
     /// The two guards as the lowering emits them, built by hand so that each
     /// can be got wrong one way at a time, and [`guards_hold`]'s verdict.
     fn guard_shape(wrong: &str) -> Result<(), String> {
-        let config = JITModule::new(
-            JITBuilder::new(default_libcall_names()).expect("a builder"),
-        )
-        .target_config();
+        let config = JITModule::new(JITBuilder::new(default_libcall_names()).expect("a builder"))
+            .target_config();
         let off = i32::try_from(bund2_api::Cells::autoadd_offset()).expect("fits");
         let mut func = ir::Function::with_name_signature(
             ir::UserFuncName::default(),
@@ -6215,7 +6326,11 @@ mod tests {
         };
 
         f.switch_to_block(mode);
-        let at = if wrong == "another cell" { off + 4 } else { off };
+        let at = if wrong == "another cell" {
+            off + 4
+        } else {
+            off
+        };
         let aa = f.ins().uload32(MemFlagsData::trusted(), base, at);
         match wrong {
             "autoadd arms swapped" => f.ins().brif(aa, region, &[], generic, &[]),
@@ -6268,7 +6383,7 @@ mod tests {
     /// `autoadd` a `CALL` is appended into the value beneath rather than run
     /// (§S4's step 3), so the arm would be the wrong thing entirely. The
     /// residual syncs and resumes, and the result must match Tier 0's.
-        /// **Criterion 18's second half: `autoadd` set *inside* a compiled body.**
+    /// **Criterion 18's second half: `autoadd` set *inside* a compiled body.**
     ///
     /// The entry check cannot catch this — the mode is off when the body
     /// starts. §S5 requires the flag to be read "after every call" beside the
@@ -6353,7 +6468,11 @@ mod tests {
         let by_compiled = run_as_the_tier_would(&mut c, word, &mut compiled, &body, false);
         // D147: this decline is the mode's and not §S8's floor's, and the
         // count that criterion 11 reads must not take one for the other.
-        assert_eq!(c.floor_declines(), 0, "a decline for the mode was counted as the floor's");
+        assert_eq!(
+            c.floor_declines(),
+            0,
+            "a decline for the mode was counted as the floor's"
+        );
 
         assert_eq!(by_tier0.is_ok(), by_compiled.is_ok(), "autoadd: outcome");
         let (a, b) = (tier0.snapshot(), compiled.snapshot());
@@ -6471,8 +6590,10 @@ mod tests {
         }
 
         let mut vm = with_stdlib();
-        vm.registry
-            .register_lambda("g", BundValue::lambda(vec![BundValue::int(1), BundValue::call("drop")]));
+        vm.registry.register_lambda(
+            "g",
+            BundValue::lambda(vec![BundValue::int(1), BundValue::call("drop")]),
+        );
         vm.registry.register_command(
             "cmd",
             a_command,
@@ -6565,7 +6686,9 @@ mod tests {
         // Criterion 11's switch, held to the same rule: every constructor a
         // shipped build can reach checks §S8's floor at entry.
         assert!(
-            Compiler::new(table.clone()).expect("a compiler").checks_the_floor(),
+            Compiler::new(table.clone())
+                .expect("a compiler")
+                .checks_the_floor(),
             "`Compiler::new` must check the Tier 1 floor"
         );
         assert!(
@@ -6933,11 +7056,7 @@ mod tests {
     /// emits *no* push before the call and the synced form emits two.
     #[test]
     fn a_crossed_call_emits_fewer_pushes_than_a_synced_one() {
-        let body = [
-            BundValue::int(1),
-            BundValue::int(2),
-            BundValue::call("nl"),
-        ];
+        let body = [BundValue::int(1), BundValue::int(2), BundValue::call("nl")];
 
         // The synced form: an empty crossable table, so D68 classifies nothing
         // and every promoted value is pushed before the call.
@@ -7017,11 +7136,7 @@ mod tests {
     #[test]
     fn a_crossed_call_that_consumes_nothing_keeps_every_value_held() {
         assert_crossing_matches_tier0(
-            &[
-                BundValue::int(1),
-                BundValue::int(2),
-                BundValue::call("nl"),
-            ],
+            &[BundValue::int(1), BundValue::int(2), BundValue::call("nl")],
             1,
             "1 2 nl",
         );
@@ -7116,7 +7231,10 @@ mod tests {
         let mut vm = registered();
         let effect_of = |vm: &mut Interp, name: &str| {
             let (s, _) = vm.registry.interner.lookup_call(name).expect("registered");
-            vm.registry.slot(s).and_then(|sl| sl.native.as_ref()).map(|n| n.effect)
+            vm.registry
+                .slot(s)
+                .and_then(|sl| sl.native.as_ref())
+                .map(|n| n.effect)
         };
         assert_eq!(
             effect_of(&mut vm, "nl"),
@@ -7132,7 +7250,11 @@ mod tests {
         let crossings = c.crossings(word).expect("the word was issued");
         let verdict = |i: usize| crossings.iter().find(|(at, _)| *at == i).map(|(_, x)| *x);
         assert_eq!(verdict(2), Some(true), "`nl` is crossed: {crossings:?}");
-        assert_eq!(verdict(4), Some(false), "`quiet` is synced before: {crossings:?}");
+        assert_eq!(
+            verdict(4),
+            Some(false),
+            "`quiet` is synced before: {crossings:?}"
+        );
 
         // `Ok(false)` is a decline, which runs nothing: asserted, so this is
         // compiled code's result and not an empty stack compared with itself.
@@ -7353,11 +7475,7 @@ mod tests {
         let mut c = Compiler::with_crossable(Vec::new(), crossable).expect("a compiler");
         let cells = vm.cells().base();
 
-        let body = vec![
-            BundValue::int(1),
-            BundValue::int(2),
-            BundValue::call("+"),
-        ];
+        let body = vec![BundValue::int(1), BundValue::int(2), BundValue::call("+")];
         let word = c
             .compile_word(&body, LastCall::Ordinary, cells, &mut vm)
             .expect("lowers");
@@ -7528,8 +7646,12 @@ mod tests {
         }
 
         let (mut vm, table) = with_fragments();
-        vm.registry
-            .register_native("obs", observes, bund2_api::StackEffect::fixed(0, 1), bund2_api::WordKind::Sync);
+        vm.registry.register_native(
+            "obs",
+            observes,
+            bund2_api::StackEffect::fixed(0, 1),
+            bund2_api::WordKind::Sync,
+        );
 
         // `1 2 +` promotes both literals and inlines the site; `obs` is the
         // call the promoted result must be synced before.
@@ -7580,9 +7702,12 @@ mod tests {
         // The differential, as the rest of this module does it: Tier 0's
         // answer, tags included.
         let mut tier0 = with_stdlib();
-        tier0
-            .registry
-            .register_native("obs", observes, bund2_api::StackEffect::fixed(0, 1), bund2_api::WordKind::Sync);
+        tier0.registry.register_native(
+            "obs",
+            observes,
+            bund2_api::StackEffect::fixed(0, 1),
+            bund2_api::WordKind::Sync,
+        );
         tier0.eval(&body).expect("Tier 0 runs the same body");
         let want = tier0.snapshot();
         assert_eq!(want.len(), stack.len(), "depth");

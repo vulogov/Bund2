@@ -28,7 +28,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// rewrote the developer's own.
 fn bund2() -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_bund2"));
-    c.env("XDG_CONFIG_HOME", std::env::temp_dir().join(format!("bund2-test-config-{}", std::process::id())));
+    c.env(
+        "XDG_CONFIG_HOME",
+        std::env::temp_dir().join(format!("bund2-test-config-{}", std::process::id())),
+    );
     c
 }
 
@@ -334,7 +337,11 @@ fn run_file(
 #[test]
 fn stepping_agrees_with_an_uninterrupted_run_over_the_whole_suite() {
     let programs = suite();
-    assert!(programs.len() > 100, "found only {} programs", programs.len());
+    assert!(
+        programs.len() > 100,
+        "found only {} programs",
+        programs.len()
+    );
 
     let name = |p: &std::path::Path| {
         p.file_stem()
@@ -362,35 +369,37 @@ fn stepping_agrees_with_an_uninterrupted_run_over_the_whole_suite() {
     let problems = std::sync::Mutex::new(Vec::<String>::new());
     std::thread::scope(|scope| {
         for _ in 0..workers {
-            scope.spawn(|| loop {
-                let i = next.fetch_add(1, Ordering::Relaxed);
-                let Some((file, cwd)) = checked.get(i) else {
-                    break;
-                };
-                let what = name(file);
-                let plain = match run_file(file, cwd, None) {
-                    Ok(p) => p,
-                    Err(e) => {
+            scope.spawn(|| {
+                loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    let Some((file, cwd)) = checked.get(i) else {
+                        break;
+                    };
+                    let what = name(file);
+                    let plain = match run_file(file, cwd, None) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            problems
+                                .lock()
+                                .expect("lock")
+                                .push(format!("{what}: the plain run {e}"));
+                            continue;
+                        }
+                    };
+                    for cmd in ["s", "n", "f"] {
+                        let verdict = match run_file(file, cwd, Some(cmd)) {
+                            Ok(stepped) if stepped == plain => continue,
+                            Ok((_, code)) if code != plain.1 => {
+                                format!("`{cmd}` changed the exit code: {:?} for {code:?}", plain.1)
+                            }
+                            Ok(_) => format!("`{cmd}` changed the program's output"),
+                            Err(e) => format!("`{cmd}` {e}"),
+                        };
                         problems
                             .lock()
                             .expect("lock")
-                            .push(format!("{what}: the plain run {e}"));
-                        continue;
+                            .push(format!("{what}: {verdict}"));
                     }
-                };
-                for cmd in ["s", "n", "f"] {
-                    let verdict = match run_file(file, cwd, Some(cmd)) {
-                        Ok(stepped) if stepped == plain => continue,
-                        Ok((_, code)) if code != plain.1 => {
-                            format!("`{cmd}` changed the exit code: {:?} for {code:?}", plain.1)
-                        }
-                        Ok(_) => format!("`{cmd}` changed the program's output"),
-                        Err(e) => format!("`{cmd}` {e}"),
-                    };
-                    problems
-                        .lock()
-                        .expect("lock")
-                        .push(format!("{what}: {verdict}"));
                 }
             });
         }

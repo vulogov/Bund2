@@ -13,11 +13,11 @@
 //! the machine, so no golden can hold it.
 
 use bund2_api::input::{Ask, Input, Read};
-use bund2_api::{diag::Diagnostic, Error, Registry, StackEffect, Vm, WordKind};
+use bund2_api::{Error, Registry, StackEffect, Vm, WordKind, diag::Diagnostic};
 use bund2_value::{BundValue, EXIT, LAMBDA, NONE, STRING};
 use rustyline::error::ReadlineError;
 
-use crate::host::{guard, HostOptions};
+use crate::host::{HostOptions, guard};
 use crate::wb::Side;
 
 fn eff(consumes: u8, produces: u8) -> StackEffect {
@@ -27,7 +27,8 @@ fn eff(consumes: u8, produces: u8) -> StackEffect {
 /// The prompt a reader was given, or `"> "` when there was none or it would
 /// not cast (`input.rs:30-38`).
 fn prompt_of(v: Option<BundValue>) -> String {
-    v.and_then(|v| v.as_str()).unwrap_or_else(|| "> ".to_string())
+    v.and_then(|v| v.as_str())
+        .unwrap_or_else(|| "> ".to_string())
 }
 
 /// **The terminal, as an input** — D112. This is what the CLI installs on its
@@ -143,9 +144,8 @@ fn config_home(
     home: Option<std::ffi::OsString>,
     appdata: Option<std::ffi::OsString>,
 ) -> Option<std::path::PathBuf> {
-    let dir = |v: Option<std::ffi::OsString>| {
-        v.filter(|s| !s.is_empty()).map(std::path::PathBuf::from)
-    };
+    let dir =
+        |v: Option<std::ffi::OsString>| v.filter(|s| !s.is_empty()).map(std::path::PathBuf::from);
     if let Some(x) = dir(xdg).filter(|p| p.is_absolute()) {
         return Some(x);
     }
@@ -511,14 +511,13 @@ fn debug_word(vm: &mut dyn Vm) -> Result<(), Error> {
             break;
         }
         debug_print_word(&word)?;
-        vm.apply(word.clone())
-            .map_err(|e| {
-                Error(format!(
-                    "Attempt to evaluate value {} returned error: {}",
-                    word.render(false),
-                    e.0
-                ))
-            })?;
+        vm.apply(word.clone()).map_err(|e| {
+            Error(format!(
+                "Attempt to evaluate value {} returned error: {}",
+                word.render(false),
+                e.0
+            ))
+        })?;
         loop {
             match vm.read_line(&Ask::in_history(&prompt, HISTORY)) {
                 // An empty line moves on, and is *not* remembered here —
@@ -602,7 +601,9 @@ fn debug_break_if(vm: &mut dyn Vm) -> Result<(), Error> {
         .pull()
         .ok_or_else(|| Error(format!("{WHO} returns: NO DATA #1")))?;
     let Some(cond) = cond.as_str() else {
-        return Err(Error(format!("{WHO}: the condition is not a string of Bund source")));
+        return Err(Error(format!(
+            "{WHO}: the condition is not a string of Bund source"
+        )));
     };
     let word = debug_name(vm, WHO)?;
     debug_ask(vm, bund2_api::Debugging::BreakIf(word, cond), WHO)
@@ -616,7 +617,11 @@ fn debug_watch(vm: &mut dyn Vm) -> Result<(), Error> {
 
 /// `debug.watch.workbench` — stop on a push to the workbench.
 fn debug_watch_workbench(vm: &mut dyn Vm) -> Result<(), Error> {
-    debug_ask(vm, bund2_api::Debugging::WatchWorkbench, "DEBUG.WATCH.WORKBENCH")
+    debug_ask(
+        vm,
+        bund2_api::Debugging::WatchWorkbench,
+        "DEBUG.WATCH.WORKBENCH",
+    )
 }
 
 /// `debug.delete` — stop watching the named word or stack; `"workbench"`
@@ -723,7 +728,9 @@ fn debug_feed(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.feed_line(line.to_string()) {
         Ok(())
     } else {
-        Err(Error("DEBUG.FEED: this VM keeps no lines for a read".into()))
+        Err(Error(
+            "DEBUG.FEED: this VM keeps no lines for a read".into(),
+        ))
     }
 }
 
@@ -755,7 +762,7 @@ fn memstat_table() -> String {
     let Some(usage) = memory_stats::memory_stats() else {
         return "Couldn't get the current memory usage.".to_string();
     };
-    use humansize::{format_size, DECIMAL};
+    use humansize::{DECIMAL, format_size};
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL)
@@ -834,7 +841,8 @@ fn hostinfo_table(color: bool) -> String {
     use comfy_table::modifiers::UTF8_ROUND_CORNERS;
     use comfy_table::presets::UTF8_FULL;
     use comfy_table::{Cell, Color, ContentArrangement, Table};
-    let or_unknown = |r: Result<String, _>| r.unwrap_or_else(|_: std::io::Error| "Unknown".to_string());
+    let or_unknown =
+        |r: Result<String, _>| r.unwrap_or_else(|_: std::io::Error| "Unknown".to_string());
     let version = env!("CARGO_PKG_VERSION").to_string();
     let rows: Vec<(&str, String, Color)> = vec![
         ("bund2-value version", version.clone(), Color::Green),
@@ -844,9 +852,21 @@ fn hostinfo_table(color: bool) -> String {
         ("bund2-interp version", version.clone(), Color::Green),
         ("bund2-stdlib version", version, Color::Green),
         ("Distributed mode", "false".to_string(), Color::Blue),
-        ("Hostname", or_unknown(sys_metrics::host::get_hostname()), Color::Blue),
-        ("OS version", or_unknown(sys_metrics::host::get_os_version()), Color::Blue),
-        ("Virtualization", crate::sysinfo::virtualization(), Color::Blue),
+        (
+            "Hostname",
+            or_unknown(sys_metrics::host::get_hostname()),
+            Color::Blue,
+        ),
+        (
+            "OS version",
+            or_unknown(sys_metrics::host::get_os_version()),
+            Color::Blue,
+        ),
+        (
+            "Virtualization",
+            crate::sysinfo::virtualization(),
+            Color::Blue,
+        ),
         (
             "Kernel version",
             or_unknown(sys_metrics::host::get_kernel_version()),
@@ -881,8 +901,16 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
         for name in ["io.banner", "io.banner."] {
             r.register_native(
                 name,
-                |_vm| Err(Error("bund IO.BANNER functions disabled with --noio".into())),
-                if name == "io.banner" { eff(1, 1) } else { eff(0, 1) },
+                |_vm| {
+                    Err(Error(
+                        "bund IO.BANNER functions disabled with --noio".into(),
+                    ))
+                },
+                if name == "io.banner" {
+                    eff(1, 1)
+                } else {
+                    eff(0, 1)
+                },
                 WordKind::Sync,
             );
         }
@@ -906,10 +934,30 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
     r.register_native("debug", debug_word, StackEffect::opaque(1), WordKind::Sync);
     // RFC-0008 §W1, Part A. Opaque, as `debug.shell` is: what they read is
     // the run and not a stack effect, which keeps them out of D55's palette.
-    r.register_native("debug.backtrace", debug_backtrace, StackEffect::opaque(0), WordKind::Sync);
-    r.register_native("debug.stacks", debug_stacks, StackEffect::opaque(0), WordKind::Sync);
-    r.register_native("debug.info", debug_info, StackEffect::opaque(0), WordKind::Sync);
-    r.register_native("debug.feed", debug_feed, StackEffect::opaque(1), WordKind::Sync);
+    r.register_native(
+        "debug.backtrace",
+        debug_backtrace,
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "debug.stacks",
+        debug_stacks,
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "debug.info",
+        debug_info,
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "debug.feed",
+        debug_feed,
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
     // Part B: arming and moving. Opaque for the same reason, and because a
     // moving word changes where the *run* goes, which no effect describes.
     for (name, f, n) in [
@@ -990,7 +1038,10 @@ mod tests {
     fn typed(
         lines: &[&str],
         secrets: &[&str],
-    ) -> (Interp, std::rc::Rc<std::cell::RefCell<bund2_api::input::Seen>>) {
+    ) -> (
+        Interp,
+        std::rc::Rc<std::cell::RefCell<bund2_api::input::Seen>>,
+    ) {
         let script = bund2_api::input::Scripted::lines(lines.iter().copied())
             .with_secrets(secrets.iter().copied());
         let seen = script.seen();
@@ -1037,9 +1088,16 @@ mod tests {
         assert_eq!(shown(&i), ["alice"]);
 
         let mut i = interp();
-        run(&mut i, "\"a\" debug.feed \"b\" debug.feed \"> \" { string.upper } input*")
-            .expect("runs");
-        assert_eq!(shown(&i), ["A", "B"], "both, in the order fed, then the end");
+        run(
+            &mut i,
+            "\"a\" debug.feed \"b\" debug.feed \"> \" { string.upper } input*",
+        )
+        .expect("runs");
+        assert_eq!(
+            shown(&i),
+            ["A", "B"],
+            "both, in the order fed, then the end"
+        );
 
         // `password` has no terminal here and is refused without a fed line.
         let mut i = interp();
@@ -1067,7 +1125,10 @@ mod tests {
     fn debug_feed_refuses_what_is_not_a_string() {
         let mut i = interp();
         let e = run(&mut i, "debug.feed").expect_err("nothing to feed");
-        assert!(e.ends_with("Stack is too shallow for inline DEBUG.FEED"), "{e}");
+        assert!(
+            e.ends_with("Stack is too shallow for inline DEBUG.FEED"),
+            "{e}"
+        );
         let e = run(&mut i, "42 debug.feed").expect_err("not a line");
         assert!(e.ends_with("DEBUG.FEED: the line is not a string"), "{e}");
     }
@@ -1078,7 +1139,12 @@ mod tests {
     #[test]
     fn arming_refuses_where_no_console_can_be_attached() {
         let mut i = interp();
-        for src in ["\"w\" debug.break", "debug.step", "debug.watch.workbench", "\"1\" debug.run"] {
+        for src in [
+            "\"w\" debug.break",
+            "debug.step",
+            "debug.watch.workbench",
+            "\"1\" debug.run",
+        ] {
             let e = run(&mut i, src).expect_err("nothing to attach");
             assert!(
                 e.ends_with("no debugger is attached, and this VM was given no console to attach"),
@@ -1090,10 +1156,16 @@ mod tests {
             ("debug.break", "Stack is too shallow for inline DEBUG.BREAK"),
             ("42 debug.break", "DEBUG.BREAK: the name is not a string"),
             ("\"@\" debug.watch", "DEBUG.WATCH: the name is empty"),
-            ("\"w\" debug.break.if", "Stack is too shallow for inline DEBUG.BREAK.IF"),
+            (
+                "\"w\" debug.break.if",
+                "Stack is too shallow for inline DEBUG.BREAK.IF",
+            ),
             ("debug.run", "Stack is too shallow for inline DEBUG.RUN"),
             ("5 debug.run", "DEBUG.RUN: the source is not a string"),
-            ("\"w\" { true } debug.break.if", "DEBUG.BREAK.IF: the condition is not a string of Bund source"),
+            (
+                "\"w\" { true } debug.break.if",
+                "DEBUG.BREAK.IF: the condition is not a string of Bund source",
+            ),
         ] {
             let mut i = interp();
             let e = run(&mut i, src).expect_err("refused");
@@ -1109,7 +1181,10 @@ mod tests {
         use bund2_api::Debugging;
         let mut i = interp();
         run(&mut i, "1 2 3 @other 9 @main").expect("runs");
-        let stacks = i.debugging(Debugging::Stacks).expect("answers").expect("a view");
+        let stacks = i
+            .debugging(Debugging::Stacks)
+            .expect("answers")
+            .expect("a view");
         assert!(stacks.contains("* @main  3  top: 3\n"), "{stacks}");
         assert!(stacks.contains("  @other  1  top: 9\n"), "{stacks}");
         assert!(stacks.ends_with("  workbench  0\n"), "{stacks}");
@@ -1118,7 +1193,9 @@ mod tests {
             Some("no debugger is attached\n")
         );
         assert_eq!(
-            i.debugging(Debugging::Backtrace).expect("answers").as_deref(),
+            i.debugging(Debugging::Backtrace)
+                .expect("answers")
+                .as_deref(),
             Some("#0  the top-level stream\n")
         );
         // And the words run.
@@ -1139,7 +1216,10 @@ mod tests {
         run(&mut i, "\"> \" 7 input*").expect("no line, no refusal");
         let (mut i, _) = typed(&["a"], &[]);
         let e = run(&mut i, "\"> \" 7 input*").expect_err("refused");
-        assert!(e.ends_with("INPUT* returned error from LAMBDA: This is not a lambda"), "{e}");
+        assert!(
+            e.ends_with("INPUT* returned error from LAMBDA: This is not a lambda"),
+            "{e}"
+        );
     }
 
     /// `password` pushes the secret, asked with the message it was given, and
@@ -1169,7 +1249,11 @@ mod tests {
         let seen = seen.borrow();
         let lines: Vec<&str> = seen.remembered.iter().map(|(_, l)| l.as_str()).collect();
         assert_eq!(lines, ["1 2 +", "nosuchword", "", "10 *"]);
-        assert!(seen.remembered.iter().all(|(h, _)| h == "bund_debug_shell_history.txt"));
+        assert!(
+            seen.remembered
+                .iter()
+                .all(|(h, _)| h == "bund_debug_shell_history.txt")
+        );
     }
 
     /// `debug` applies one value of its snippet at a time, and after each
@@ -1184,7 +1268,10 @@ mod tests {
         let seen = seen.borrow();
         assert_eq!(
             seen.remembered,
-            [("bund_debug_debugger_history.txt".to_string(), "5".to_string())]
+            [(
+                "bund_debug_debugger_history.txt".to_string(),
+                "5".to_string()
+            )]
         );
     }
 
@@ -1193,7 +1280,11 @@ mod tests {
     #[test]
     fn an_interpreter_given_no_input_never_waits() {
         let mut i = interp();
-        run(&mut i, "\"> \" input \"> \" { drop } input* debug.shell \"1\" debug").expect("runs");
+        run(
+            &mut i,
+            "\"> \" input \"> \" { drop } input* debug.shell \"1\" debug",
+        )
+        .expect("runs");
         assert_eq!(shown(&i), ["1"]);
     }
 

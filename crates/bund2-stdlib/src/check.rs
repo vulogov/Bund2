@@ -131,8 +131,7 @@ pub fn check(stream: &[BundValue], registry: &Registry, depth_in: i64) -> Report
                         // unimplemented word from a lambda the program
                         // registered, and those want opposite responses —
                         // implement the first, infer the second.
-                        *why
-                            .entry(format!("`{name}`, which declares no effect"))
+                        *why.entry(format!("`{name}`, which declares no effect"))
                             .or_default() += 1;
                     }
                     depth = None;

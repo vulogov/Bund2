@@ -67,7 +67,9 @@ fn math_random_int(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 fn math_securerandom_int(vm: &mut dyn Vm) -> Result<(), Error> {
-    let mut g = CHACHA.lock().map_err(|_| poisoned("math.securerandom.int"))?;
+    let mut g = CHACHA
+        .lock()
+        .map_err(|_| poisoned("math.securerandom.int"))?;
     let rng = g.get_or_insert_with(rand_chacha::ChaCha20Rng::from_os_rng);
     let v = rng.next_u64();
     drop(g);
@@ -133,7 +135,9 @@ fn lorem(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
         .pull(vm)
         .ok_or_else(|| Error(format!("{prefix} returns: NO DATA #1")))?;
     let n = v.as_int().ok_or_else(|| {
-        Error(format!("Error casting in {prefix}: This Dynamic type is not integer"))
+        Error(format!(
+            "Error casting in {prefix}: This Dynamic type is not integer"
+        ))
     })?;
     let Ok(n) = usize::try_from(n) else {
         return Err(Error(format!(
@@ -169,7 +173,9 @@ struct Entry {
 static GENERATORS: Mutex<BTreeMap<String, Entry>> = Mutex::new(BTreeMap::new());
 
 fn generators() -> Result<MutexGuard<'static, BTreeMap<String, Entry>>, Error> {
-    GENERATORS.lock().map_err(|_| poisoned("the generator table"))
+    GENERATORS
+        .lock()
+        .map_err(|_| poisoned("the generator table"))
 }
 
 /// A FLOAT parameter from the configuration, or its default when absent
@@ -214,7 +220,9 @@ fn int_param(conf: &BundValue, key: &str, default: i64) -> Result<i64, Error> {
 /// with the same name replaces the first.
 fn generator(vm: &mut dyn Vm) -> Result<(), Error> {
     use statrs::distribution::{LogNormal, Normal, Uniform};
-    use statrs::generate::{InfinitePeriodic, InfiniteSawtooth, InfiniteSinusoidal, InfiniteSquare};
+    use statrs::generate::{
+        InfinitePeriodic, InfiniteSawtooth, InfiniteSinusoidal, InfiniteSquare,
+    };
     if vm.depth() < 2 {
         return Err(Error("Stack is too shallow for inline GENERATOR".into()));
     }
@@ -227,10 +235,15 @@ fn generator(vm: &mut dyn Vm) -> Result<(), Error> {
     let name = name_v.as_str().ok_or_else(|| {
         Error("GENERATOR name casting returns: This Dynamic type is not string".into())
     })?;
-    let ty_v = conf.get("type").unwrap_or_else(|| BundValue::str("unknown"));
+    let ty_v = conf
+        .get("type")
+        .unwrap_or_else(|| BundValue::str("unknown"));
     // `cast_string().unwrap()` in the reference (`generator.rs:25`): F105.
     let ty = ty_v.as_str().ok_or_else(|| {
-        Error(format!("GENERATOR: parameter type must be a string, not {}", ty_v.dt()))
+        Error(format!(
+            "GENERATOR: parameter type must be a string, not {}",
+            ty_v.dt()
+        ))
     })?;
     // Each statrs distribution has its own error type; all display.
     fn dist_err(e: impl std::fmt::Display) -> Error {
@@ -270,7 +283,9 @@ fn generator(vm: &mut dyn Vm) -> Result<(), Error> {
             let amplitude = float_param(&conf, "Amplitude", 10.0)?;
             let phase = float_param(&conf, "Phase", 1.0)?;
             let delay = int_param(&conf, "Delay", 1)?;
-            Gen::Periodic(InfinitePeriodic::new(sampling, freq, amplitude, phase, delay))
+            Gen::Periodic(InfinitePeriodic::new(
+                sampling, freq, amplitude, phase, delay,
+            ))
         }
         // `generators/sinusoidal.rs:24-32`: Mean is read after Phase.
         "sinusoidal" => {
@@ -342,9 +357,13 @@ fn generator_sample(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 1 {
         return Err(Error(format!("Stack is too shallow for inline {P}")));
     }
-    let name_v = vm.pull().ok_or_else(|| Error(format!("{P} returns: NO DATA #1")))?;
+    let name_v = vm
+        .pull()
+        .ok_or_else(|| Error(format!("{P} returns: NO DATA #1")))?;
     let name = name_v.as_str().ok_or_else(|| {
-        Error(format!("{P} casting a name returns: This Dynamic type is not string"))
+        Error(format!(
+            "{P} casting a name returns: This Dynamic type is not string"
+        ))
     })?;
     let mut table = generators()?;
     let e = table
@@ -370,13 +389,21 @@ fn generator_sample_n(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 2 {
         return Err(Error(format!("Stack is too shallow for inline {P}")));
     }
-    let n_v = vm.pull().ok_or_else(|| Error(format!("{P} returns: NO DATA #2")))?;
+    let n_v = vm
+        .pull()
+        .ok_or_else(|| Error(format!("{P} returns: NO DATA #2")))?;
     let n = n_v.as_int().ok_or_else(|| {
-        Error(format!("{P} casting a name returns: This Dynamic type is not integer"))
+        Error(format!(
+            "{P} casting a name returns: This Dynamic type is not integer"
+        ))
     })?;
-    let name_v = vm.pull().ok_or_else(|| Error(format!("{P} returns: NO DATA #1")))?;
+    let name_v = vm
+        .pull()
+        .ok_or_else(|| Error(format!("{P} returns: NO DATA #1")))?;
     let name = name_v.as_str().ok_or_else(|| {
-        Error(format!("{P} casting a name returns: This Dynamic type is not string"))
+        Error(format!(
+            "{P} casting a name returns: This Dynamic type is not string"
+        ))
     })?;
     let mut table = generators()?;
     let e = table
@@ -399,7 +426,12 @@ pub fn register(r: &mut Registry) {
     r.register_native("id.uuid", id_uuid, eff(0, 1), WordKind::Sync);
     r.register_native("id.ulid", id_ulid, eff(0, 1), WordKind::Sync);
     // `reference/Bund/src/stdlib/functions/math/rand.rs:60-61`.
-    r.register_native("math.random.int", math_random_int, eff(0, 1), WordKind::Sync);
+    r.register_native(
+        "math.random.int",
+        math_random_int,
+        eff(0, 1),
+        WordKind::Sync,
+    );
     r.register_native(
         "math.securerandom.int",
         math_securerandom_int,
@@ -409,14 +441,36 @@ pub fn register(r: &mut Registry) {
     // `reference/Bund/src/stdlib/functions/string/random.rs:155-170`.
     macro_rules! fake_pair {
         ($name:literal, $dot:literal, $what:expr) => {
-            r.register_native($name, |vm| fake(vm, Side::Stack, $what), eff(0, 1), WordKind::Sync);
-            r.register_native($dot, |vm| fake(vm, Side::Bench, $what), eff(0, 0), WordKind::Sync);
+            r.register_native(
+                $name,
+                |vm| fake(vm, Side::Stack, $what),
+                eff(0, 1),
+                WordKind::Sync,
+            );
+            r.register_native(
+                $dot,
+                |vm| fake(vm, Side::Bench, $what),
+                eff(0, 0),
+                WordKind::Sync,
+            );
         };
     }
     fake_pair!("string.random.name", "string.random.name.", Fake::Name);
-    fake_pair!("string.random.lastname", "string.random.lastname.", Fake::LastName);
-    fake_pair!("string.random.fullname", "string.random.fullname.", Fake::FullName);
-    fake_pair!("string.random.password", "string.random.password.", Fake::Password);
+    fake_pair!(
+        "string.random.lastname",
+        "string.random.lastname.",
+        Fake::LastName
+    );
+    fake_pair!(
+        "string.random.fullname",
+        "string.random.fullname.",
+        Fake::FullName
+    );
+    fake_pair!(
+        "string.random.password",
+        "string.random.password.",
+        Fake::Password
+    );
     fake_pair!("string.random.phone", "string.random.phone.", Fake::Phone);
     fake_pair!("string.random.ipv4", "string.random.ipv4.", Fake::IPv4);
     fake_pair!("string.random.word", "string.random.word.", Fake::Word);
@@ -434,9 +488,19 @@ pub fn register(r: &mut Registry) {
     );
     // `reference/Bund/src/stdlib/functions/generators/mod.rs:68-70`.
     r.register_native("generator", generator, eff(2, 0), WordKind::Sync);
-    r.register_native("generator.sample", generator_sample, eff(1, 1), WordKind::Sync);
+    r.register_native(
+        "generator.sample",
+        generator_sample,
+        eff(1, 1),
+        WordKind::Sync,
+    );
     crate::wb::bench!(r, "generator.sample", generator_sample);
-    r.register_native("generator.sample*", generator_sample_n, eff(2, 1), WordKind::Sync);
+    r.register_native(
+        "generator.sample*",
+        generator_sample_n,
+        eff(2, 1),
+        WordKind::Sync,
+    );
 }
 
 #[cfg(test)]
@@ -473,7 +537,10 @@ mod tests {
 
     #[test]
     fn lorem_counts_words_and_refuses_a_negative_count() {
-        assert_eq!(top_text("5 string.random.lorem").split_whitespace().count(), 5);
+        assert_eq!(
+            top_text("5 string.random.lorem").split_whitespace().count(),
+            5
+        );
         let e = match run("-1 string.random.lorem") {
             Ok(_) => panic!("a negative count was accepted"),
             Err(e) => e,

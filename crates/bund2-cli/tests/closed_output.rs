@@ -32,7 +32,9 @@ fn a_program_whose_reader_left_stops_without_a_panic() {
         .expect("bund2 starts");
     let mut stdout = child.stdout.take().expect("stdout");
     let mut first = [0u8; 1];
-    stdout.read_exact(&mut first).expect("the program printed something");
+    stdout
+        .read_exact(&mut first)
+        .expect("the program printed something");
     drop(stdout);
 
     let deadline = Instant::now() + Duration::from_secs(30);

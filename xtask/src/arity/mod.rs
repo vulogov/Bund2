@@ -288,7 +288,11 @@ fn probe_word(
                 // report the fixed reading rather than guess.
                 _ => false,
             };
-            return (Some((consumed, produced, tyname)), depth_insensitive, String::new());
+            return (
+                Some((consumed, produced, tyname)),
+                depth_insensitive,
+                String::new(),
+            );
         }
     }
     (None, false, last_note)
@@ -329,7 +333,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
         } else {
             bund2_api::sayln!("  Probing skipped: no oracle at target/oracle/release/bund.");
             bund2_api::sayln!("  Build it with:");
-            bund2_api::sayln!("    cargo build --release --manifest-path reference/Bund/Cargo.toml \\");
+            bund2_api::sayln!(
+                "    cargo build --release --manifest-path reference/Bund/Cargo.toml \\"
+            );
             bund2_api::sayln!("                --target-dir target/oracle\n");
         }
     }
@@ -418,12 +424,14 @@ fn report(
     bund2_api::sayln!("  {:<34}{:>5}", "registered names", rows.len());
     bund2_api::sayln!(
         "  {:<34}{:>5}",
-        "with a declared depth guard", with_declared
+        "with a declared depth guard",
+        with_declared
     );
     bund2_api::sayln!("  {:<34}{:>5}", "probed successfully", with_probe);
     bund2_api::sayln!(
         "  {:<34}{:>5}",
-        "not probed (unsafe to run)", skipped_unsafe
+        "not probed (unsafe to run)",
+        skipped_unsafe
     );
     bund2_api::sayln!(
         "  {:<34}{:>5}",
@@ -479,7 +487,8 @@ fn report(
             let declared = r.declared_stack.unwrap_or(0);
             bund2_api::sayln!(
                 "  {:<26} declared {declared}  probed {c}->{p} ({t})   {}",
-                r.word, r.site
+                r.word,
+                r.site
             );
         }
         if disagree.len() > 40 {
@@ -507,7 +516,9 @@ fn report(
     for r in rows {
         let (c, p, t) = match r.probed {
             // A floor, not an arity, so it is written `2+` rather than `2`.
-            Some((c, p, t)) if r.depth_insensitive => (format!("{c}+"), p.to_string(), t.to_string()),
+            Some((c, p, t)) if r.depth_insensitive => {
+                (format!("{c}+"), p.to_string(), t.to_string())
+            }
             Some((c, p, t)) => (c.to_string(), p.to_string(), t.to_string()),
             None => (String::new(), String::new(), String::new()),
         };

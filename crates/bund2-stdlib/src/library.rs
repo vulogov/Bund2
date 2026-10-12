@@ -131,7 +131,12 @@ pub fn register(r: &mut Registry) {
 
     macro_rules! m1 {
         ($name:literal, $f:expr, $prefix:literal) => {
-            r.register_native($name, |vm| math1(vm, $f, $prefix), eff(1, 1), WordKind::Sync);
+            r.register_native(
+                $name,
+                |vm| math1(vm, $f, $prefix),
+                eff(1, 1),
+                WordKind::Sync,
+            );
             crate::wb::bench!(r, $name, |vm| math1(vm, $f, $prefix));
         };
     }
@@ -150,16 +155,17 @@ pub fn register(r: &mut Registry) {
 
     macro_rules! m2 {
         ($name:literal, $f:expr, $prefix:literal) => {
-            r.register_native($name, |vm| math2(vm, $f, $prefix), eff(2, 1), WordKind::Sync);
+            r.register_native(
+                $name,
+                |vm| math2(vm, $f, $prefix),
+                eff(2, 1),
+                WordKind::Sync,
+            );
             crate::wb::bench!(r, $name, |vm| math2(vm, $f, $prefix), 2, 0);
         };
     }
     m2!("math.nroot", mathlab::math::nrt, "MATH.NROOT");
-    m2!(
-        "math.perimeter",
-        mathlab::math::perimeter,
-        "MATH.PERIMETER"
-    );
+    m2!("math.perimeter", mathlab::math::perimeter, "MATH.PERIMETER");
     // Reversed against the other two: `pow(xvalue, fvalue)` with `fvalue` the
     // first pull (`math.rs:113-117`).
     m2!("math.power", |a, b| mathlab::math::pow(b, a), "MATH.POWER");

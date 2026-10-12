@@ -163,7 +163,11 @@ fn both_floors_hold_for_every_word_they_name() {
     .iter()
     .enumerate()
     {
-        let exe = build(&format!("\"x\" {word}\n"), &format!("floor-eval-{i}"), &["--noeval"]);
+        let exe = build(
+            &format!("\"x\" {word}\n"),
+            &format!("floor-eval-{i}"),
+            &["--noeval"],
+        );
         for env in clearing {
             let (_, out) = run(&exe, &[], &[env]);
             assert!(
@@ -176,8 +180,15 @@ fn both_floors_hold_for_every_word_they_name() {
         let _ = std::fs::remove_file(&exe);
     }
 
-    for (i, word) in ["use", "use.", "bund.eval-file", "bund.eval-file."].iter().enumerate() {
-        let exe = build(&format!("\"file:///x\" {word}\n"), &format!("floor-fetch-{i}"), &["--noio"]);
+    for (i, word) in ["use", "use.", "bund.eval-file", "bund.eval-file."]
+        .iter()
+        .enumerate()
+    {
+        let exe = build(
+            &format!("\"file:///x\" {word}\n"),
+            &format!("floor-fetch-{i}"),
+            &["--noio"],
+        );
         for env in clearing {
             let (_, out) = run(&exe, &[], &[env]);
             assert!(
@@ -215,7 +226,10 @@ fn both_floors_hold_for_every_word_they_name() {
     }
     let open = build("fs.cwd println\n", "floor-io-open", &[]);
     let (_, plain) = run(&open, &[], &[]);
-    assert!(!plain.contains("disabled"), "unrestricted, it answers: {plain}");
+    assert!(
+        !plain.contains("disabled"),
+        "unrestricted, it answers: {plain}"
+    );
     let (_, added) = run(&open, &[], &[("BUND2_NOIO", "1")]);
     assert!(
         added.contains("disabled with --noio"),
@@ -252,13 +266,23 @@ fn a_build_refuses_arguments_it_does_not_understand() {
             .output()
             .expect("bund2 build runs");
         let err = String::from_utf8_lossy(&r.stderr);
-        assert_eq!(r.status.code(), Some(2), "{extra:?} is a usage error: {err}");
-        assert!(err.contains(needle), "{extra:?}: looked for {needle:?} in {err}");
+        assert_eq!(
+            r.status.code(),
+            Some(2),
+            "{extra:?} is a usage error: {err}"
+        );
+        assert!(
+            err.contains(needle),
+            "{extra:?}: looked for {needle:?} in {err}"
+        );
         assert!(!out.exists(), "{extra:?}: and nothing is written");
     }
 
     // The one mode there is may be named, in either spelling.
-    for (i, extra) in [vec!["--emit=bundle"], vec!["--emit", "bundle"]].iter().enumerate() {
+    for (i, extra) in [vec!["--emit=bundle"], vec!["--emit", "bundle"]]
+        .iter()
+        .enumerate()
+    {
         let exe = build("\"named\" println\n", &format!("emit-{i}"), extra);
         let (code, out) = run(&exe, &[], &[]);
         assert_eq!(code, Some(0), "output was: {out}");
@@ -326,9 +350,18 @@ fn an_unknown_restriction_is_not_inspected_as_none() {
         .output()
         .expect("inspect runs");
     let seen = String::from_utf8_lossy(&seen.stdout);
-    let line = seen.lines().find(|l| l.contains("restrictions")).unwrap_or_default();
-    assert!(line.contains("--noeval"), "the known one is still named: {seen}");
-    assert!(line.contains("unknown (flag bits 0x04"), "and the unknown one: {seen}");
+    let line = seen
+        .lines()
+        .find(|l| l.contains("restrictions"))
+        .unwrap_or_default();
+    assert!(
+        line.contains("--noeval"),
+        "the known one is still named: {seen}"
+    );
+    assert!(
+        line.contains("unknown (flag bits 0x04"),
+        "and the unknown one: {seen}"
+    );
     let _ = std::fs::remove_file(&exe);
 }
 
@@ -360,7 +393,10 @@ fn a_shortened_source_path_is_cut_on_a_character() {
             .output()
             .expect("inspect runs");
         let seen = String::from_utf8_lossy(&seen.stdout);
-        assert!(!seen.contains('\u{FFFD}'), "{name}: no fragment of a character: {seen}");
+        assert!(
+            !seen.contains('\u{FFFD}'),
+            "{name}: no fragment of a character: {seen}"
+        );
         assert!(seen.lines().any(|l| l.ends_with(name)), "{name}: {seen}");
         let _ = std::fs::remove_file(&out);
     }
@@ -384,10 +420,7 @@ fn a_syntax_error_fails_the_build_and_writes_nothing() {
         .expect("bund2 build runs");
     assert!(!r.status.success(), "the build must fail");
     let err = String::from_utf8_lossy(&r.stderr);
-    assert!(
-        err.contains("nothing was written"),
-        "and say so: {err}"
-    );
+    assert!(err.contains("nothing was written"), "and say so: {err}");
     assert!(!out.exists(), "no artefact is left behind");
 }
 
@@ -454,7 +487,8 @@ fn payload_at(image: &[u8], marker: &str) -> usize {
         .position(|w| w == m)
         .expect("the program is in the artefact");
     assert_eq!(
-        image[at - STATE_BEFORE_PAYLOAD], 1,
+        image[at - STATE_BEFORE_PAYLOAD],
+        1,
         "the state byte must read FILLED at the offset this test assumes; \
          if the container's layout changed, these constants must follow"
     );
@@ -540,7 +574,11 @@ fn a_damaged_artefact_is_refused_with_an_explanation() {
 #[test]
 fn a_program_nested_to_the_parsers_limit_bundles_and_runs() {
     let n = 1024;
-    let src = format!("{}1 {}\ndrop\n\"deep\" println\n", "{ ".repeat(n), "} ".repeat(n));
+    let src = format!(
+        "{}1 {}\ndrop\n\"deep\" println\n",
+        "{ ".repeat(n),
+        "} ".repeat(n)
+    );
     let exe = build(&src, "deep", &[]);
     let (code, out) = run(&exe, &[], &[]);
     assert_eq!(code, Some(0), "output was: {out}");
@@ -617,10 +655,7 @@ fn a_jit_bundle_enters_compiled_code() {
     // One body, entered past the threshold the environment sets. Written out
     // rather than looped: a loop word's operand order is one more thing that
     // could fail here, and what this test is about is the share.
-    let src = format!(
-        ":w {{ 1 2 + drop }} register\n{}\n",
-        "w ".repeat(40)
-    );
+    let src = format!(":w {{ 1 2 + drop }} register\n{}\n", "w ".repeat(40));
     let src = src.as_str();
     let exe = build(src, "jit", &[]);
     let (code, out) = run(
@@ -753,7 +788,10 @@ fn a_dangling_link_at_output_is_followed() {
         .expect("it runs");
     assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
     assert!(
-        std::fs::symlink_metadata(&link).expect("the link").file_type().is_symlink(),
+        std::fs::symlink_metadata(&link)
+            .expect("the link")
+            .file_type()
+            .is_symlink(),
         "the link is still a link"
     );
     let (code, out) = run(&target, &[], &[]);
@@ -864,7 +902,13 @@ fn a_bundle_cannot_build_another_bundle() {
     let src = scratch("notabuilder.bund");
     let (code, printed) = run(
         &exe,
-        &["build", "--file", src.to_str().unwrap_or(""), "--output", out.to_str().unwrap_or("")],
+        &[
+            "build",
+            "--file",
+            src.to_str().unwrap_or(""),
+            "--output",
+            out.to_str().unwrap_or(""),
+        ],
         &[],
     );
     assert_eq!(code, Some(0), "it runs its own program: {printed}");
@@ -1037,7 +1081,10 @@ fn an_artefact_describes_itself() {
     assert!(r.status.success());
     let out = String::from_utf8_lossy(&r.stdout);
 
-    assert!(out.contains("--noeval"), "the restriction is visible: {out}");
+    assert!(
+        out.contains("--noeval"),
+        "the restriction is visible: {out}"
+    );
     assert!(
         out.contains("of 1048576 bytes"),
         "the capacity is visible, so a size refusal is predictable: {out}"
@@ -1213,7 +1260,9 @@ fn a_bundles_debugger_words_do_nothing() {
         .spawn()
         .expect("the artefact runs");
     let mut stdin = child.stdin.take().expect("stdin");
-    stdin.write_all(b"\"typed\" println\n").expect("a line to run");
+    stdin
+        .write_all(b"\"typed\" println\n")
+        .expect("a line to run");
     stdin.flush().expect("flush");
     // Held, not dropped: the program has to end with its input still open.
     let r = child.wait_with_output_keeping(stdin);
@@ -1268,8 +1317,20 @@ impl KeepInput for std::process::Child {
         drop(stdin);
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
-        self.stdout.take().expect("stdout").read_to_end(&mut stdout).expect("stdout");
-        self.stderr.take().expect("stderr").read_to_end(&mut stderr).expect("stderr");
-        std::process::Output { status, stdout, stderr }
+        self.stdout
+            .take()
+            .expect("stdout")
+            .read_to_end(&mut stdout)
+            .expect("stdout");
+        self.stderr
+            .take()
+            .expect("stderr")
+            .read_to_end(&mut stderr)
+            .expect("stderr");
+        std::process::Output {
+            status,
+            stdout,
+            stderr,
+        }
     }
 }

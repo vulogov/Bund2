@@ -192,7 +192,11 @@ fn startup(c: &mut Criterion) {
 }
 
 /// One `Interp` per iteration, built in setup so only `eval` is timed.
-fn timed_eval(g: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>, name: &str, src: &str) {
+fn timed_eval(
+    g: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+    name: &str,
+    src: &str,
+) {
     let stream = compiled(src);
     g.bench_function(name, |b| {
         b.iter_batched(
@@ -472,7 +476,9 @@ fn compile(c: &mut Criterion) {
     // `t - 2` must exist. A threshold of 1 compiles on the first entry and
     // leaves no "one before it" to compare against.
     if t < 3 {
-        bund2_api::errln!("bench: threshold {t} is too low to isolate the crossing entry; skipping `compile`");
+        bund2_api::errln!(
+            "bench: threshold {t} is too low to isolate the crossing entry; skipping `compile`"
+        );
         return;
     }
 
@@ -574,7 +580,9 @@ fn size_crossover(c: &mut Criterion) {
         let warmed = |entries: u32| {
             let mut i = interp();
             if i.eval(&setup).is_err() {
-                bund2_api::errln!("bench: size_crossover setup failed at v{values}; measuring nothing");
+                bund2_api::errln!(
+                    "bench: size_crossover setup failed at v{values}; measuring nothing"
+                );
             }
             for _ in 0..entries {
                 let _ = i.eval(&call);
@@ -1170,8 +1178,7 @@ fn crossing(c: &mut Criterion) {
         declare_share();
         let mut r = bund2_runtime::Runtime::new();
         if !cross {
-            let table =
-                bund2_stdlib::fragments::published(&r.interp.registry).unwrap_or_default();
+            let table = bund2_stdlib::fragments::published(&r.interp.registry).unwrap_or_default();
             let caps = bund2_jit::cache::Caps {
                 threshold: t,
                 ..bund2_jit::cache::Caps::default()
@@ -1363,7 +1370,7 @@ fn compile_size(c: &mut Criterion) {
                     let batch = (iters - done).min(depth.max(1));
 
                     declare_share();
-                let mut vm = bund2_runtime::Runtime::new().interp;
+                    let mut vm = bund2_runtime::Runtime::new().interp;
                     let table =
                         bund2_stdlib::fragments::published(&vm.registry).unwrap_or_default();
                     let Ok(mut comp) = Compiler::new(table) else {
@@ -1514,8 +1521,7 @@ fn guard_cost(c: &mut Criterion) {
             let build = || {
                 declare_share();
                 let mut vm = bund2_runtime::Runtime::new().interp;
-                let table =
-                    bund2_stdlib::fragments::published(&vm.registry).unwrap_or_default();
+                let table = bund2_stdlib::fragments::published(&vm.registry).unwrap_or_default();
                 let comp = if guarded {
                     Compiler::new(table)
                 } else {
@@ -1599,8 +1605,7 @@ fn floor_cost(c: &mut Criterion) {
             let build = || {
                 declare_share();
                 let mut vm = bund2_runtime::Runtime::new().interp;
-                let table =
-                    bund2_stdlib::fragments::published(&vm.registry).unwrap_or_default();
+                let table = bund2_stdlib::fragments::published(&vm.registry).unwrap_or_default();
                 let comp = if checked {
                     Compiler::new(table)
                 } else {
@@ -1684,8 +1689,7 @@ fn crossing_isolated(c: &mut Criterion) {
         declare_share();
         let mut r = bund2_runtime::Runtime::new();
         if !cross {
-            let table =
-                bund2_stdlib::fragments::published(&r.interp.registry).unwrap_or_default();
+            let table = bund2_stdlib::fragments::published(&r.interp.registry).unwrap_or_default();
             let caps = bund2_jit::cache::Caps {
                 threshold: bund2_runtime_threshold(),
                 ..bund2_jit::cache::Caps::default()
@@ -1766,8 +1770,7 @@ fn request_cost(c: &mut Criterion) {
             let build = || {
                 declare_share();
                 let mut vm = bund2_runtime::Runtime::new().interp;
-                let table =
-                    bund2_stdlib::fragments::published(&vm.registry).unwrap_or_default();
+                let table = bund2_stdlib::fragments::published(&vm.registry).unwrap_or_default();
                 let comp = if checked {
                     Compiler::new(table)
                 } else {

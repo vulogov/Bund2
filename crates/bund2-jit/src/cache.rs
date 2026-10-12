@@ -607,7 +607,10 @@ mod tests {
         // nothing: this is the false hit §S3 calls the worst failure here.
         assert_eq!(t.compiled_count(), 1, "the entry outlives the body");
         let entry = t.cache.get(&key).expect("still filed");
-        assert!(entry.weak.upgrade().is_none(), "its entry no longer upgrades");
+        assert!(
+            entry.weak.upgrade().is_none(),
+            "its entry no longer upgrades"
+        );
         assert!(t.live_at(key).is_none(), "and answers for nothing");
         let ghost = body(1);
         if ghost.payload_key() == Some(key) {
@@ -683,7 +686,10 @@ mod tests {
         }
         assert!(u.demote(&held[0]));
         assert_eq!(u.compiled_count(), 3);
-        assert!(!u.insert(&fifth, code(&mut c)), "a demoted body's function is still emitted");
+        assert!(
+            !u.insert(&fifth, code(&mut c)),
+            "a demoted body's function is still emitted"
+        );
     }
 
     /// **D140: the demoted set is bounded by the counter's cap.** Nine live
@@ -715,7 +721,10 @@ mod tests {
         assert_eq!(u.demoted_count(), 8);
         let ninth = body(20);
         assert!(u.demote(&ninth));
-        assert!(kept.iter().all(|b| u.is_demoted(b)), "no live entry was dropped");
+        assert!(
+            kept.iter().all(|b| u.is_demoted(b)),
+            "no live entry was dropped"
+        );
         assert!(u.is_demoted(&ninth));
     }
 
@@ -774,7 +783,11 @@ mod tests {
         });
         let b = body(1);
         for _ in 0..100 {
-            assert_eq!(t.observe(&b), Decision::Interpret, "never reaches the cache");
+            assert_eq!(
+                t.observe(&b),
+                Decision::Interpret,
+                "never reaches the cache"
+            );
         }
         assert_eq!(t.counted(), 1, "one key, not one per entry");
         assert_eq!(t.count_of(&b), Some(100), "counted once per entry");

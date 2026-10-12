@@ -259,7 +259,9 @@ impl Fragment {
                 }
                 Op::DupTop => {
                     let Some(top) = stack.last().copied() else {
-                        return Err(format!("op {i} (DupTop) has nothing the guard admits to copy"));
+                        return Err(format!(
+                            "op {i} (DupTop) has nothing the guard admits to copy"
+                        ));
                     };
                     stack.push(top);
                 }
@@ -328,7 +330,12 @@ mod tests {
             "register 1 is never written"
         );
         assert!(
-            Fragment::new(Guard::Depth(1), vec![Op::DupTop, Op::DropTop, Op::DropTop], 0).is_ok(),
+            Fragment::new(
+                Guard::Depth(1),
+                vec![Op::DupTop, Op::DropTop, Op::DropTop],
+                0
+            )
+            .is_ok(),
             "dup then two drops consumes exactly what the guard and the dup provide"
         );
         assert!(

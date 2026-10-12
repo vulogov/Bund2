@@ -99,7 +99,10 @@ fn fragment(c: &mut Criterion) {
     // So: push the literal the `tier0` program pushes, then enter the fragment
     // through `frag::run` — guard, peeks and all.
     let f_add = bund2_stdlib::fragments::int_add();
-    assert!(f_add.is_ok(), "the measured fragment must be well-formed: {f_add:?}");
+    assert!(
+        f_add.is_ok(),
+        "the measured fragment must be well-formed: {f_add:?}"
+    );
     let Ok(f_add) = f_add else { return };
     g.bench_function("int_add/inlined", |b| {
         b.iter_batched(
@@ -197,7 +200,9 @@ fn fragment(c: &mut Criterion) {
         bund2_stdlib::fragments::drop_top(),
     );
     assert!(f_dup.is_ok() && f_drop.is_ok(), "{f_dup:?} {f_drop:?}");
-    let (Ok(f_dup), Ok(f_drop)) = (f_dup, f_drop) else { return };
+    let (Ok(f_dup), Ok(f_drop)) = (f_dup, f_drop) else {
+        return;
+    };
     g.bench_function("dup_drop/inlined", |b| {
         b.iter_batched(
             || {

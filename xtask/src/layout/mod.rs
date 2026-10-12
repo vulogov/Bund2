@@ -264,7 +264,9 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     bund2_api::sayln!("## size_of, in bytes\n");
     bund2_api::sayln!(
         "  {:<34}{:>5}{:>7}   note",
-        "representation", "size", "align"
+        "representation",
+        "size",
+        "align"
     );
     row(
         "reference Value (replica)",

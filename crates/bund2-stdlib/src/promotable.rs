@@ -276,7 +276,11 @@ pub fn crossable(r: &bund2_api::Registry) -> BTreeSet<bund2_api::RegistrationId>
         let Some((s, _)) = r.interner.lookup_call(name) else {
             continue;
         };
-        let Some(id) = r.slot(s).and_then(|sl| sl.native.as_ref()).and_then(|n| n.id) else {
+        let Some(id) = r
+            .slot(s)
+            .and_then(|sl| sl.native.as_ref())
+            .and_then(|n| n.id)
+        else {
             continue;
         };
         out.insert(id);
@@ -353,7 +357,10 @@ mod tests {
         crate::register_all(&mut r);
         let ids = crossable(&r);
 
-        let (s, _) = r.interner.lookup_call("alias").expect("`alias` is registered");
+        let (s, _) = r
+            .interner
+            .lookup_call("alias")
+            .expect("`alias` is registered");
         let id = r
             .slot(s)
             .and_then(|sl| sl.native.as_ref())

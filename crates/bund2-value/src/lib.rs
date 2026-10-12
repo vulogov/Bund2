@@ -849,7 +849,9 @@ impl BundValue {
         }
         match self {
             BundValue::Int(i, _) => Some(serde_json::Value::from(*i)),
-            BundValue::Float(f, _) => serde_json::Number::from_f64(*f).map(serde_json::Value::Number),
+            BundValue::Float(f, _) => {
+                serde_json::Number::from_f64(*f).map(serde_json::Value::Number)
+            }
             BundValue::Bool(b, _) => Some(serde_json::Value::Bool(*b)),
             _ => self.as_str().map(serde_json::Value::String),
         }
@@ -1412,7 +1414,9 @@ impl BundValue {
                     match self.dt() {
                         CALL => out.push_str(&truncate(s, width)),
                         PTR => out.push_str(&format!("`{}", truncate(s, width.saturating_sub(1)))),
-                        CONTEXT => out.push_str(&format!("@{}", truncate(s, width.saturating_sub(1)))),
+                        CONTEXT => {
+                            out.push_str(&format!("@{}", truncate(s, width.saturating_sub(1))))
+                        }
                         _ => out.push_str(&format!("\"{}\"", truncate(s, width.saturating_sub(2)))),
                     }
                 }
@@ -1762,9 +1766,7 @@ impl PartialEq for BundValue {
             // invisible here.
             // Destructured in the guard rather than after it, so there is no
             // second match that could fail.
-            (Heap(h), other) | (other, Heap(h))
-                if matches!(&*h.payload, Payload::Scalar(inner) if inner == other) =>
-            {
+            (Heap(h), other) | (other, Heap(h)) if matches!(&*h.payload, Payload::Scalar(inner) if inner == other) => {
                 true
             }
             (Heap(h), _) | (_, Heap(h)) if matches!(*h.payload, Payload::Scalar(_)) => false,
@@ -1848,7 +1850,10 @@ mod tests {
         assert!(c(1.0, 2.0) != c(1.0, 3.0));
         assert!(c(1.0, 2.0) != c(2.0, 2.0));
         assert!(c(0.0, -0.0) == c(-0.0, 0.0));
-        assert!(c(f64::NAN, 1.0) == c(f64::NAN, 1.0), "a key must find itself");
+        assert!(
+            c(f64::NAN, 1.0) == c(f64::NAN, 1.0),
+            "a key must find itself"
+        );
         assert!(c(1.0, 2.0) != BundValue::pair(BundValue::float(1.0), BundValue::float(2.0)));
         let p = || BundValue::pair(BundValue::float(1.0), BundValue::float(2.0));
         assert!(p() != p());
@@ -1887,7 +1892,11 @@ mod tests {
         }
         let text = v.render(true);
         assert!(text.starts_with("Value { id: \"<id>\""), "{}", &text[..40]);
-        assert_eq!(text.matches("List([").count(), 30_001, "every level rendered");
+        assert_eq!(
+            text.matches("List([").count(),
+            30_001,
+            "every level rendered"
+        );
     }
 
     /// F117's other half: the worklist emits the same bytes the recursion did.
@@ -2671,7 +2680,10 @@ mod render_tests {
         let s = big.summary(80);
         assert!(s.starts_with("list/900"), "{s}");
         assert!(s.contains('…'), "elided: {s}");
-        assert_eq!(BundValue::lambda(vec![BundValue::int(1)]).summary(80), "lambda/1");
+        assert_eq!(
+            BundValue::lambda(vec![BundValue::int(1)]).summary(80),
+            "lambda/1"
+        );
     }
 
     /// **The width is a hard bound.** A row that can overflow a terminal is
@@ -2685,7 +2697,11 @@ mod render_tests {
         ]);
         for w in [8usize, 20, 40, 80] {
             let s = nested.summary(w);
-            assert!(s.chars().count() <= w, "width {w}: {} chars", s.chars().count());
+            assert!(
+                s.chars().count() <= w,
+                "width {w}: {} chars",
+                s.chars().count()
+            );
         }
         assert!(BundValue::str("y".repeat(300)).summary(30).chars().count() <= 30);
     }
@@ -2875,7 +2891,10 @@ mod mutation_tests {
         let a = BundValue::list(vec![]).promote();
         let (before, _) = a.identity();
         assert_ne!(a.attr_added(BundValue::int(1)).identity().0, before);
-        assert_eq!(a.with_tag(Rc::from("k"), Rc::from("v")).identity().0, before);
+        assert_eq!(
+            a.with_tag(Rc::from("k"), Rc::from("v")).identity().0,
+            before
+        );
     }
 
     /// D13's condition: the split must not let two halves mint separately.
@@ -3032,7 +3051,10 @@ mod payload_weak_tests {
         );
         let a = body.payload_weak().expect("a weak");
         let b = copy.payload_weak().expect("a weak");
-        assert!(std::rc::Weak::ptr_eq(&a, &b), "and therefore the allocation");
+        assert!(
+            std::rc::Weak::ptr_eq(&a, &b),
+            "and therefore the allocation"
+        );
     }
 
     /// An unboxed scalar has no payload, and answers the same way for both.

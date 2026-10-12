@@ -65,7 +65,10 @@ fn parse(line: &str) -> Result<Command, String> {
     // **The forms that take an argument, before the bare words.** `break w if
     // <lambda>` is split on the first ` if ` so a condition may contain
     // anything, including the word `if`.
-    if let Some(rest) = line.strip_prefix("break ").or_else(|| line.strip_prefix("b ")) {
+    if let Some(rest) = line
+        .strip_prefix("break ")
+        .or_else(|| line.strip_prefix("b "))
+    {
         let rest = rest.trim();
         if let Some((word, cond)) = rest.split_once(" if ") {
             let (word, cond) = (word.trim(), cond.trim());
@@ -79,14 +82,20 @@ fn parse(line: &str) -> Result<Command, String> {
         }
         return Ok(Command::Break(rest.to_string()));
     }
-    if let Some(rest) = line.strip_prefix("delete ").or_else(|| line.strip_prefix("d ")) {
+    if let Some(rest) = line
+        .strip_prefix("delete ")
+        .or_else(|| line.strip_prefix("d "))
+    {
         let rest = rest.trim().trim_start_matches('@');
         if rest.is_empty() {
             return Err("bund2: `delete` needs a word or @stack".to_string());
         }
         return Ok(Command::Delete(rest.to_string()));
     }
-    if let Some(rest) = line.strip_prefix("watch ").or_else(|| line.strip_prefix("w ")) {
+    if let Some(rest) = line
+        .strip_prefix("watch ")
+        .or_else(|| line.strip_prefix("w "))
+    {
         let rest = rest.trim();
         // **`workbench` is a different hook, not a stack called
         // "workbench"** — §D4's correction to the first draft. Spelled without
@@ -96,8 +105,9 @@ fn parse(line: &str) -> Result<Command, String> {
             return Ok(Command::WatchWorkbench);
         }
         if rest == "@workbench" {
-            return Err("bund2: the workbench is not a named stack — say `watch workbench`"
-                .to_string());
+            return Err(
+                "bund2: the workbench is not a named stack — say `watch workbench`".to_string(),
+            );
         }
         let name = rest.trim_start_matches('@');
         if name.is_empty() {
@@ -299,11 +309,7 @@ impl Console for OverInput {
         let _ = out.flush();
     }
 
-    fn evaluate_condition(
-        &mut self,
-        source: &str,
-        operands: &[BundValue],
-    ) -> Result<bool, String> {
+    fn evaluate_condition(&mut self, source: &str, operands: &[BundValue]) -> Result<bool, String> {
         evaluate_in_child(source, operands)
     }
 }
@@ -343,11 +349,7 @@ impl Console for Stdio {
         let _ = out.flush();
     }
 
-    fn evaluate_condition(
-        &mut self,
-        source: &str,
-        operands: &[BundValue],
-    ) -> Result<bool, String> {
+    fn evaluate_condition(&mut self, source: &str, operands: &[BundValue]) -> Result<bool, String> {
         evaluate_in_child(source, operands)
     }
 }
@@ -379,8 +381,14 @@ mod tests {
         }
         assert_eq!(parse(""), Err(String::new()), "a bare return asks again");
         let e = parse("help").expect_err("help is a message");
-        assert!(e.contains("s(tep)"), "and it says what the short forms are: {e}");
-        assert!(e.contains("run as Bund"), "and what every other line is: {e}");
+        assert!(
+            e.contains("s(tep)"),
+            "and it says what the short forms are: {e}"
+        );
+        assert!(
+            e.contains("run as Bund"),
+            "and what every other line is: {e}"
+        );
     }
 
     /// **A typo must not advance the program** — and since §W2 a line that is

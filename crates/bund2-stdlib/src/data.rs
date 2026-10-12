@@ -92,9 +92,7 @@ fn is_float(s: &str) -> bool {
         return false;
     }
     match mantissa.split_once('.') {
-        Some((int_part, frac)) => {
-            (int_part.is_empty() || digits(int_part)) && digits(frac)
-        }
+        Some((int_part, frac)) => (int_part.is_empty() || digits(int_part)) && digits(frac),
         None => exponent.is_some() && digits(mantissa),
     }
 }
@@ -135,7 +133,11 @@ fn cell(s: &str, kind: Kind, column: &str) -> Result<Option<BundValue>, Error> {
     if s.is_empty() {
         return Ok(None);
     }
-    let bad = |dtype: &str| finishing(format!("could not parse `{s}` as dtype `{dtype}` at column '{column}'"));
+    let bad = |dtype: &str| {
+        finishing(format!(
+            "could not parse `{s}` as dtype `{dtype}` at column '{column}'"
+        ))
+    };
     Ok(Some(match kind {
         Kind::Str => BundValue::str(s),
         Kind::Int => BundValue::int(s.parse::<i64>().map_err(|_| bad("i64"))?),
@@ -159,7 +161,11 @@ fn read_frame(path: &str, has_header: bool) -> Result<Frame, Error> {
         .from_path(path)
         .map_err(creating)?;
     let header: Vec<String> = if has_header {
-        rdr.headers().map_err(creating)?.iter().map(str::to_string).collect()
+        rdr.headers()
+            .map_err(creating)?
+            .iter()
+            .map(str::to_string)
+            .collect()
     } else {
         Vec::new()
     };
@@ -220,12 +226,10 @@ fn run_csv(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
         None => true,
         Some(v) => match *v.unboxed() {
             BundValue::Bool(b, _) => b,
-            _ => {
-                return Err(Error(
-                    "CONTEXT.RUN: casting CSV is_header returns error: This Dynamic type is not bool"
-                        .into(),
-                ))
-            }
+            _ => return Err(Error(
+                "CONTEXT.RUN: casting CSV is_header returns error: This Dynamic type is not bool"
+                    .into(),
+            )),
         },
     };
     if !Path::new(&name).is_file() {
@@ -236,7 +240,9 @@ fn run_csv(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
         .unwrap_or_else(|| BundValue::lambda(Vec::new()));
     let run = |vm: &mut dyn Vm| -> Result<(), Error> {
         if lambda.dt() != LAMBDA {
-            return Err(Error("CSV processing lambda returns: This is not a lambda".into()));
+            return Err(Error(
+                "CSV processing lambda returns: This is not a lambda".into(),
+            ));
         }
         vm.eval_lambda(&lambda)
             .map_err(|e| Error(format!("CSV processing lambda returns: {}", e.0)))
@@ -245,7 +251,9 @@ fn run_csv(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
     match column {
         Some(col_v) => {
             let col = col_v.as_str().ok_or_else(|| {
-                Error("CONTEXT.RUN error casting column name: This Dynamic type is not string".into())
+                Error(
+                    "CONTEXT.RUN error casting column name: This Dynamic type is not string".into(),
+                )
             })?;
             let Some(ix) = frame.names.iter().position(|n| *n == col) else {
                 return Err(Error(format!(
@@ -301,8 +309,8 @@ fn prql_to_sql(query: &str) -> Result<String, Error> {
         display: prqlc::DisplayOptions::Plain,
         target: prqlc::Target::Sql(Some(prqlc::sql::Dialect::SQLite)),
     };
-    let pl = prqlc::prql_to_pl(query)
-        .map_err(|e| Error(format!("PRQL.COMPILE(PL) returns: {e}")))?;
+    let pl =
+        prqlc::prql_to_pl(query).map_err(|e| Error(format!("PRQL.COMPILE(PL) returns: {e}")))?;
     let rq = prqlc::pl_to_rq(pl).map_err(|e| Error(format!("PRQL.COMPILE(RQ) returns: {e}")))?;
     prqlc::rq_to_sql(rq, &opts).map_err(|e| Error(format!("PRQL.COMPILE(SQL) returns: {e}")))
 }
@@ -320,9 +328,10 @@ fn sql_cell(v: &graphitesql::Value) -> Result<BundValue, Error> {
         V::Null => BundValue::nodata(),
         V::Integer(i) => BundValue::int(*i),
         V::Real(f) => BundValue::float(*f),
-        V::Text(t) => BundValue::str(std::str::from_utf8(t.as_bytes()).map_err(|e| {
-            Error(format!("CONTEXT.RUN error converting string data: {e}"))
-        })?),
+        V::Text(t) => BundValue::str(
+            std::str::from_utf8(t.as_bytes())
+                .map_err(|e| Error(format!("CONTEXT.RUN error converting string data: {e}")))?,
+        ),
         V::Blob(b) => {
             // **A BLOB is third-party input — D58.** `from_binary` cannot
             // bound its own recursion: bincode builds the nested `WireValue`
@@ -409,14 +418,16 @@ fn run_sqlite(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
         None => match c.get("prql") {
             Some(p) => {
                 let prql = p.as_str().ok_or_else(|| {
-                    Error("CONTEXT.RUN: PRQL casting returns: This Dynamic type is not string".into())
+                    Error(
+                        "CONTEXT.RUN: PRQL casting returns: This Dynamic type is not string".into(),
+                    )
                 })?;
                 BundValue::str(prql_to_sql(&prql)?)
             }
             None => {
                 return Err(Error(
                     "CONTEXT.RUN: can not get ether SQL or PRQL query: Key not found: prql".into(),
-                ))
+                ));
             }
         },
     };
@@ -439,9 +450,12 @@ fn run_sqlite(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
             sql_err(&e)
         ))
     })?;
-    let result = conn
-        .query(&sql)
-        .map_err(|e| Error(format!("CONTEXT.RUN error compile SQL statement: {}", sql_err(&e))))?;
+    let result = conn.query(&sql).map_err(|e| {
+        Error(format!(
+            "CONTEXT.RUN error compile SQL statement: {}",
+            sql_err(&e)
+        ))
+    })?;
     for row in result.rows.iter().skip(skip_first as usize) {
         let mut out = BundValue::map(Default::default());
         for (col, v) in result.columns.iter().zip(row) {
@@ -485,7 +499,12 @@ pub fn register(r: &mut Registry, opts: &crate::host::HostOptions) {
         for name in ["csv", "csv."] {
             r.register_native(name, csv_disabled, StackEffect::opaque(0), WordKind::Sync);
         }
-        r.register_native("sqlite", sqlite_disabled, StackEffect::opaque(0), WordKind::Sync);
+        r.register_native(
+            "sqlite",
+            sqlite_disabled,
+            StackEffect::opaque(0),
+            WordKind::Sync,
+        );
         r.register_conditional("csv", |vm, _c| csv_disabled(vm));
         r.register_conditional("sqlite", |vm, _c| sqlite_disabled(vm));
         return;
@@ -545,6 +564,10 @@ mod tests {
         let Err(e) = sql_cell(&small) else {
             panic!("eight zero bytes are not a serialised value");
         };
-        assert!(!e.0.contains("more than the"), "the cap did not fire: {}", e.0);
+        assert!(
+            !e.0.contains("more than the"),
+            "the cap did not fire: {}",
+            e.0
+        );
     }
 }

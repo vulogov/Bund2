@@ -91,7 +91,6 @@ fn missing_word(text: &str) -> Option<String> {
     }
 }
 
-
 /// The level the `loop` axis reached before Tier 0's floor refused to nest
 /// further — RFC-0005 criterion 11.
 ///
@@ -116,7 +115,10 @@ fn loop_level(n: usize, text: &str) -> Option<usize> {
 /// The line `--stats` prints about §S8's floors, without its `bund2: ` prefix.
 /// `None` when the run printed none — it aborted, or timed out.
 fn floors_line(text: &str) -> Option<&str> {
-    text.lines().find_map(|l| l.strip_prefix("bund2: ").filter(|r| r.starts_with("floors:")))
+    text.lines().find_map(|l| {
+        l.strip_prefix("bund2: ")
+            .filter(|r| r.starts_with("floors:"))
+    })
 }
 
 /// Run one program under a wall clock, and classify how it ended.
@@ -155,7 +157,9 @@ fn run(
     loop {
         match child.try_wait().map_err(|e| format!("waiting: {e}"))? {
             Some(status) => {
-                let out = child.wait_with_output().map_err(|e| format!("output: {e}"))?;
+                let out = child
+                    .wait_with_output()
+                    .map_err(|e| format!("output: {e}"))?;
                 let text = format!(
                     "{}{}",
                     String::from_utf8_lossy(&out.stdout),
@@ -182,7 +186,10 @@ fn run(
                 // make the axis measure nothing — it would pass today and
                 // report nothing about the day the feature lands.
                 if let Some(w) = missing_word(&text) {
-                    return Ok((Outcome::Unsupported(format!("`{w}` is not implemented")), text));
+                    return Ok((
+                        Outcome::Unsupported(format!("`{w}` is not implemented")),
+                        text,
+                    ));
                 }
                 // An orderly exit. A Bund failure is reported and exits 0
                 // (D36), so the diagnostic in the output is what distinguishes
@@ -373,7 +380,10 @@ pub fn run_cmd(args: &[String]) -> Result<(), String> {
     bund2_api::sayln!("  only aborting and hanging fail.\n");
     // Which binary this is about — the line `conform` prints too. A depth
     // result with no provenance is F80's failure in a new place.
-    bund2_api::sayln!("  measured: {}\n", crate::buildcli::provenance(release, &features));
+    bund2_api::sayln!(
+        "  measured: {}\n",
+        crate::buildcli::provenance(release, &features)
+    );
 
     let mut failed: Vec<String> = Vec::new();
     for (axis, n, src, what) in &cases {
@@ -392,7 +402,10 @@ pub fn run_cmd(args: &[String]) -> Result<(), String> {
             },
             _ => String::new(),
         };
-        bund2_api::sayln!("  {mark}  {axis:<8} depth {n:<7} {}{level}", outcome.label());
+        bund2_api::sayln!(
+            "  {mark}  {axis:<8} depth {n:<7} {}{level}",
+            outcome.label()
+        );
         bund2_api::sayln!("        {what}");
         // **Both floors, and where compiled bodies began declining** —
         // criterion 11. Printed for every axis that ran: the floors are the
@@ -431,7 +444,9 @@ pub fn run_cmd(args: &[String]) -> Result<(), String> {
     }
     for a in &require {
         if !["call", "nesting", "class", "compiled", "loop"].contains(&a.as_str()) {
-            return Err(format!("unknown axis `{a}` — expected call, nesting, class, compiled or loop"));
+            return Err(format!(
+                "unknown axis `{a}` — expected call, nesting, class, compiled or loop"
+            ));
         }
     }
     Ok(())
@@ -448,7 +463,11 @@ mod tests {
     fn the_compiled_program_is_the_call_program_with_a_site() {
         let (call, compiled) = (call_program(3), compiled_program(3));
         assert!(compiled.contains("1 2 + drop"), "the site F136 asks for");
-        assert_eq!(compiled.replace("1 2 + drop ", ""), call, "and otherwise the same recursion");
+        assert_eq!(
+            compiled.replace("1 2 + drop ", ""),
+            call,
+            "and otherwise the same recursion"
+        );
     }
 
     #[test]
@@ -476,7 +495,11 @@ mod tests {
         let p = class_program(3);
         assert!(p.contains(":C0 class"), "{p}");
         assert!(p.contains("\".super\" [ :C1 ]"), "C2 names C1: {p}");
-        assert_eq!(p.matches(".class_name").count(), 3, "every class names itself");
+        assert_eq!(
+            p.matches(".class_name").count(),
+            3,
+            "every class names itself"
+        );
     }
 
     /// Completing and failing cleanly are both passes; aborting and hanging

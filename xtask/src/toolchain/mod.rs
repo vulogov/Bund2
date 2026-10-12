@@ -82,7 +82,9 @@ pub fn check(repo: &Path) -> Result<(), String> {
         return Ok(());
     }
 
-    let overridden = std::env::var("RUSTUP_TOOLCHAIN").ok().filter(|v| !v.is_empty());
+    let overridden = std::env::var("RUSTUP_TOOLCHAIN")
+        .ok()
+        .filter(|v| !v.is_empty());
     let mut msg = format!(
         "toolchain mismatch: rust-toolchain.toml pins {want}, but rustc is {have}.\n\n\
          Every number this tool prints — conformance, coverage, the benchmark\n\
