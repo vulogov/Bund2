@@ -252,6 +252,13 @@ benefit of letting structurally identical lambdas share compiled code — it mus
 define the hash to exclude `id` and `stamp`, and this entry's original reasoning
 becomes live again. That is not decided here.
 
+*Note, 2026-10-12 — RFC-0005's twenty-fourth review, S11.* The status line
+above still says "content-hash compiled cache". The amendment of 2026-08-29
+is what stands: the cache is keyed on identity (D5, and D35's payload
+pointer), so eval'd code is never promoted, and the conclusion — no
+eval-specific tier rule — is unchanged. Content-hash keying is the deferred
+upgrade D35 names, and nothing built uses it.
+
 ## D4 — integer width
 Is full `i64` required, or are 51-bit integers acceptable? The latter allows
 NaN-boxing and a smaller value.
@@ -3631,6 +3638,80 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
 - Depends on: D48 and D55 (the palette runs the four new fixed-effect
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
+
+## D149 — may a count decide RFC-0005 criterion 11's cost clause?
+
+**Raised 2026-10-12**, writing the checks the twenty-fourth review found
+missing. Criterion 11 as D147 left it ends: "The Tier 1 floor check costs
+under 2 ns an entry, measured by `floor_cost`." The bench cannot say.
+
+Three rounds of `floor_cost` on this date, with rows of 16 and 64 sites
+added as the review asked and no entry declined in any row. Checked arm
+minus unchecked, nanoseconds an entry:
+
+| body | round 1 | round 2 | round 3 |
+|---|---|---|---|
+| 1 site | −1.4 | −16.5 | −13.9 |
+| 4 sites | −16.8 | −30.6 | −33.6 |
+| 16 sites | +1.9 | +4.3 | +10.6 |
+| 64 sites | +3.5 | +21.5 | −16.5 |
+
+The spread is ten times the bound at every length. The reading of
+2026-10-11, under 0.5 ns on the one-site row, is not reproduced.
+
+By count, with `floor_count` (`crates/bund2-bench/examples/floor_count.rs`)
+and D117's method, over 10,000,000 entries:
+
+| body | checked | unchecked | the check, an entry |
+|---|---|---|---|
+| 1 site | 25,561.5 M | 25,508.9 M | +5.3 |
+| 4 sites | 39,519.2 M | 39,492.8 M | +2.6 |
+| 16 sites | 95,958.1 M | 95,831.1 M | +12.7 |
+| 64 sites | 322,051.4 M | 322,040.1 M | +1.1 |
+
+Between 1 and 13 instructions an entry. The shortest body retires 2,556
+instructions an entry and the clock reads it at 54 ns, so 2 ns is about
+ninety instructions at this machine's rate. The rows disagree among
+themselves by a factor of ten, so this is a bound and not a measurement.
+
+D148 ruled that a count decides criterion 7. It did not rule on this
+clause, and a bound in nanoseconds cannot be checked in instructions
+without choosing a conversion, which is a choice about what the clause
+means.
+
+**Options.**
+
+- *A. The count decides, with the bound restated in instructions.* The
+  clause becomes: the check adds fewer than 20 instructions an entry, read
+  by `floor_count` over 10,000,000 entries at each of four body lengths. 20
+  is above every reading taken and a quarter of what 2 ns would be here.
+  `floor_cost` stays as a reading that cannot fail it.
+- *B. The clock decides, as written.* The clause is then unresolved: no
+  round supports it and none refutes it.
+- *C. Drop the clause.* The check is one load, one compare and one branch
+  in the trampoline, which the lowering's source shows; a bound nobody can
+  measure by the clock is replaced by nothing, and the count is recorded as
+  a reading.
+
+**Recommendation: A.** It is D148's answer applied to the same difficulty,
+and the count is the only instrument that has given the same sign twice. C
+is honest too, and cheaper; it gives up the one check that would notice a
+floor check that had grown a call.
+
+**Risks.** A: the figure 20 is chosen, not derived; and the method is
+macOS's, as D148's is. B: the clause stays held by a reading for as long as
+the instrument is a clock. C: nothing gates the check's cost.
+
+- Blocks: RFC-0005 criterion 11's cost clause
+- Depends on: D117, D147, D148
+- Status: **RESOLVED — option A, by the repository owner, 2026-10-12.** The
+  count decides. The clause reads: the Tier 1 floor check adds fewer than
+  20 instructions an entry, read by `floor_count` over 10,000,000 entries
+  at each of four body lengths, checked minus unchecked, by D117's method.
+  The readings in the table above hold it at every length. `floor_cost`
+  stays as a reading. RFC-0005 carries the re-wording in a note under
+  criterion 11. Not ruled, and not done: a CI step for it, and a Linux
+  reading.
 
 ## D148 — what decides RFC-0005's criterion 7: the clock it names, or D117's count?
 

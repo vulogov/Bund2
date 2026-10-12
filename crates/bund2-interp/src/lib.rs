@@ -1064,10 +1064,11 @@ impl Interp {
         }
 
         // **The seam.** Offered only for a body with a key and no exit action:
-        // a keyless body is `scoped_call`'s per-call LIST, which §S3 says never
-        // reaches the tier, and an exit action must run when the frame leaves
-        // (F57) — a tier that ran the body would bypass it and leave the stack
-        // unrestored. Both conditions are cheap and neither is a special case:
+        // a keyless body is an unboxed scalar, which has no items to run, and
+        // an exit action must run when the frame leaves (F57) — a tier that
+        // ran the body would bypass it and leave the stack unrestored. That
+        // second condition is what keeps `scoped_call`'s per-call LIST, which
+        // §S3 says never reaches the tier, out of it: the LIST has a key. Both conditions are cheap and neither is a special case:
         // they are the same rule the cache keys on.
         //
         // The tier is **cloned for the call and left in place** — D145. It
@@ -1769,8 +1770,8 @@ impl Vm for Interp {
         // failure just as the loop runs it on success. F57. The body is
         // assembled per call, so it is wrapped as a LIST value: there is no
         // key worth keeping (D42).
-        // Carries an exit action and a keyless LIST body, so the tier declines
-        // it by construction — see `push_frame`.
+        // Carries an exit action, so the tier is never offered it — see
+        // `push_frame`. The LIST does have a key, a new one on every call.
         // A `( … )` context is nobody's word, so the frame carries no symbol.
         self.push_frame(BundValue::list(body), Some(ExitAction::ToStack(prev)), None)?;
         self.run_to(floor)?;
@@ -3313,11 +3314,30 @@ mod tests {
         assert_eq!(i.frames.len(), 0, "no frames above the floor");
     }
 
-    /// **`scoped_call`'s body is never offered.** It is a per-call LIST with no
-    /// `payload_key` (RFC-0005 §S3) *and* carries `ExitAction::ToStack`, which
-    /// must run when the frame leaves (F57) — a tier running it would leave the
-    /// stack unrestored. Both exclusions are the same rule, and this is the only
-    /// way to see it.
+    /// **RFC-0005's assumption 49: an `Interp` stays on the thread that built
+    /// it.** Both stack floors are fixed at `Interp::new` from that thread's
+    /// declared region, so one moved to another thread would compare a stack
+    /// pointer with addresses on a different stack. Nothing checks that at
+    /// run time, because safe Rust cannot do it: `Interp` holds `Rc`s and is
+    /// not `Send`.
+    ///
+    /// This fails to **compile** if `Interp` becomes `Send`: both impls of
+    /// the helper trait would then apply and the call below is ambiguous.
+    #[test]
+    fn an_interp_cannot_be_sent_to_another_thread() {
+        trait AmbiguousIfSend<A> {
+            fn check() {}
+        }
+        impl<T: ?Sized> AmbiguousIfSend<()> for T {}
+        impl<T: ?Sized + Send> AmbiguousIfSend<u8> for T {}
+        <Interp as AmbiguousIfSend<_>>::check();
+    }
+
+    /// **`scoped_call`'s body is never offered.** It carries
+    /// `ExitAction::ToStack`, which must run when the frame leaves (F57) — a
+    /// tier running it would leave the stack unrestored. The per-call LIST
+    /// does have a `payload_key`, a new one each call, so the exit action is
+    /// the whole of the exclusion (RFC-0005 §S3's note of 2026-10-12).
     #[test]
     fn a_scoped_call_body_is_never_offered_to_the_tier() {
         let (mut i, offered) = with_tier(Some(Ok(())));
@@ -3325,7 +3345,7 @@ mod tests {
             .expect("it ran at Tier 0");
         assert!(
             offered.borrow().is_empty(),
-            "a keyless body carrying an exit action must never reach the tier"
+            "a body carrying an exit action must never reach the tier"
         );
         assert_eq!(
             i.stacks.current_name(),

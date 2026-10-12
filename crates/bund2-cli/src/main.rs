@@ -1056,6 +1056,113 @@ fn make_executable(_path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// **`--stats`: what the tier did and where §S8's floors are.**
+///
+/// **On stderr, deliberately.** Every golden captures stdout, so a stats
+/// line there would move `conform` by the whole corpus at once. RFC-0005
+/// criterion 2 wants the figure reported, not the programs changed.
+///
+/// `None` and `Some(0)` say different things: no tier at all — a build
+/// without the feature — against a tier that compiled nothing, which over a
+/// corpus is the failure criterion 2 asks this flag to catch.
+///
+/// **Printed for a program that did not parse, too**, since 2026-10-12. The
+/// floors belong to the process and not to the program, and RFC-0005's
+/// criterion 11 has every run report them: `cargo xtask depth`'s `nesting`
+/// axis ends at the parser's refusal and printed nothing.
+fn print_stats(rt: &bund2_runtime::Runtime) {
+    // **How many of those bodies actually ran, when the tier can say.**
+    // Every figure below counts a decision the *compiler* made. None of
+    // them counts an execution, so a tier that compiles a corpus and then
+    // declines every entry — §S8's Tier 1 floor on a thread with no share
+    // is the way that happens — prints exactly what a working tier prints.
+    // Four fixtures were found in that state before this figure existed.
+    let entered = match rt.compiled_entries() {
+        Some(n) => format!(" ({n} entered)"),
+        None => String::new(),
+    };
+    match (
+        rt.compiled_bodies(),
+        rt.inlined_sites(),
+        rt.promoted_values(),
+        rt.compiled_values(),
+    ) {
+        // **All three figures, because each without the others says
+        // little.** A body that compiled but inlined nothing still applies
+        // every value through `Vm::apply`; a body that inlined but promoted
+        // nothing still pushes and pops every literal. A timing of either
+        // answers a different question from the one criterion 10 asks.
+        // **The threshold is part of the figure, not context for it.** The
+        // same count at 64 and at 1 says two different things — at 64 most
+        // corpus programs compile nothing — and a threshold that arrived
+        // from `BUND2_JIT_THRESHOLD`, or was dropped because that variable
+        // was malformed, is invisible otherwise (F125).
+        // **The fourth figure is the denominator, and it reports a cost**
+        // (F136). The three above say what a body gained; none says what the
+        // rest of it paid. A value that is neither a site nor a promoted
+        // literal takes the generic path, which is **5.13 ns dearer than
+        // Tier 0** (criterion 10), so `values − sites − promoted` is what
+        // compiling that body cost. F133's rule can ask whether a body gains
+        // anything; asking whether it gains *enough* needs this.
+        (Some(bodies), Some(sites), Some(promoted), Some(values)) => {
+            let at = match rt.jit_threshold() {
+                Some(n) => format!(" at threshold {n}"),
+                None => String::new(),
+            };
+            let generic = values.saturating_sub(sites + promoted);
+            // **The fifth figure, when the tier can answer it** (D68).
+            // Without it a corpus sweep sees how many values were generic
+            // but not whether promotion crossed any of those calls, which
+            // is the difference between "crossing does not pay" and
+            // "crossing never happened".
+            let crossed = match rt.crossed_calls() {
+                Some(n) => format!(", {n} crossed"),
+                None => String::new(),
+            };
+            bund2_api::errln!(
+                "bund2: tier compiled {bodies} bodies{entered}, inlined {sites} sites, \
+                 promoted {promoted} values, {generic} generic of {values}{crossed}{at}"
+            );
+        }
+        (Some(bodies), Some(sites), Some(promoted), None) => {
+            let at = match rt.jit_threshold() {
+                Some(n) => format!(" at threshold {n}"),
+                None => String::new(),
+            };
+            bund2_api::errln!(
+                "bund2: tier compiled {bodies} bodies{entered}, inlined {sites} sites, \
+                 promoted {promoted} values{at}"
+            );
+        }
+        (Some(bodies), Some(sites), None, _) => {
+            bund2_api::errln!("bund2: tier compiled {bodies} bodies{entered}, inlined {sites} sites");
+        }
+        (Some(bodies), None, _, _) => bund2_api::errln!("bund2: tier compiled {bodies} bodies{entered}"),
+        _ => bund2_api::errln!("bund2: no tier (built without `jit`)"),
+    }
+    // **§S8's floors, and what the upper one has done** — RFC-0005
+    // criterion 11 as D147 leaves it. A line of its own, because the
+    // addresses differ from run to run and the line above is compared
+    // between runs by tests and by `conform`'s sweep.
+    let (tier0, tier1) = rt.interp.floors();
+    let gap = match tier1.checked_sub(tier0) {
+        Some(n) => format!("{n} bytes above"),
+        None => format!("{} bytes below", tier0.saturating_sub(tier1)),
+    };
+    let declined = match rt.floor_declines() {
+        Some((0, _)) => "; no entry declined at the tier 1 floor".to_string(),
+        Some((n, Some(depth))) => format!(
+            "; {n} entries declined at the tier 1 floor, the first with {depth} \
+             compiled bodies running"
+        ),
+        Some((n, None)) => format!("; {n} entries declined at the tier 1 floor"),
+        None => String::new(),
+    };
+    bund2_api::errln!(
+        "bund2: floors: tier 0 at {tier0:#x}, tier 1 at {tier1:#x} ({gap}){declined}"
+    );
+}
+
 /// Returns the code a word asked to exit with (D52), if one did. **A failure
 /// is not an error exit**:
 /// the reference prints its report and exits 0
@@ -1127,6 +1234,9 @@ fn run(src: &str, args: &Args) -> Option<i32> {
                 bund2_api::diag::Diagnostic::error(e.what.clone())
                     .at(locate(src, file, e.span)),
             );
+            if args.stats {
+                print_stats(&rt);
+            }
             return None;
         }
     };
@@ -1140,104 +1250,8 @@ fn run(src: &str, args: &Args) -> Option<i32> {
     }
     let code = vm.exit_requested();
 
-    // **On stderr, deliberately.** Every golden captures stdout, so a stats
-    // line there would move `conform` by the whole corpus at once. RFC-0005
-    // criterion 2 wants the figure reported, not the programs changed.
-    //
-    // `None` and `Some(0)` say different things: no tier at all — a build
-    // without the feature — against a tier that compiled nothing, which over a
-    // corpus is the failure criterion 2 asks this flag to catch.
     if args.stats {
-        // **How many of those bodies actually ran, when the tier can say.**
-        // Every figure below counts a decision the *compiler* made. None of
-        // them counts an execution, so a tier that compiles a corpus and then
-        // declines every entry — §S8's Tier 1 floor on a thread with no share
-        // is the way that happens — prints exactly what a working tier prints.
-        // Four fixtures were found in that state before this figure existed.
-        let entered = match rt.compiled_entries() {
-            Some(n) => format!(" ({n} entered)"),
-            None => String::new(),
-        };
-        match (
-            rt.compiled_bodies(),
-            rt.inlined_sites(),
-            rt.promoted_values(),
-            rt.compiled_values(),
-        ) {
-            // **All three figures, because each without the others says
-            // little.** A body that compiled but inlined nothing still applies
-            // every value through `Vm::apply`; a body that inlined but promoted
-            // nothing still pushes and pops every literal. A timing of either
-            // answers a different question from the one criterion 10 asks.
-            // **The threshold is part of the figure, not context for it.** The
-            // same count at 64 and at 1 says two different things — at 64 most
-            // corpus programs compile nothing — and a threshold that arrived
-            // from `BUND2_JIT_THRESHOLD`, or was dropped because that variable
-            // was malformed, is invisible otherwise (F125).
-            // **The fourth figure is the denominator, and it reports a cost**
-            // (F136). The three above say what a body gained; none says what the
-            // rest of it paid. A value that is neither a site nor a promoted
-            // literal takes the generic path, which is **5.13 ns dearer than
-            // Tier 0** (criterion 10), so `values − sites − promoted` is what
-            // compiling that body cost. F133's rule can ask whether a body gains
-            // anything; asking whether it gains *enough* needs this.
-            (Some(bodies), Some(sites), Some(promoted), Some(values)) => {
-                let at = match rt.jit_threshold() {
-                    Some(n) => format!(" at threshold {n}"),
-                    None => String::new(),
-                };
-                let generic = values.saturating_sub(sites + promoted);
-                // **The fifth figure, when the tier can answer it** (D68).
-                // Without it a corpus sweep sees how many values were generic
-                // but not whether promotion crossed any of those calls, which
-                // is the difference between "crossing does not pay" and
-                // "crossing never happened".
-                let crossed = match rt.crossed_calls() {
-                    Some(n) => format!(", {n} crossed"),
-                    None => String::new(),
-                };
-                bund2_api::errln!(
-                    "bund2: tier compiled {bodies} bodies{entered}, inlined {sites} sites, \
-                     promoted {promoted} values, {generic} generic of {values}{crossed}{at}"
-                );
-            }
-            (Some(bodies), Some(sites), Some(promoted), None) => {
-                let at = match rt.jit_threshold() {
-                    Some(n) => format!(" at threshold {n}"),
-                    None => String::new(),
-                };
-                bund2_api::errln!(
-                    "bund2: tier compiled {bodies} bodies{entered}, inlined {sites} sites, \
-                     promoted {promoted} values{at}"
-                );
-            }
-            (Some(bodies), Some(sites), None, _) => {
-                bund2_api::errln!("bund2: tier compiled {bodies} bodies{entered}, inlined {sites} sites");
-            }
-            (Some(bodies), None, _, _) => bund2_api::errln!("bund2: tier compiled {bodies} bodies{entered}"),
-            _ => bund2_api::errln!("bund2: no tier (built without `jit`)"),
-        }
-        // **§S8's floors, and what the upper one has done** — RFC-0005
-        // criterion 11 as D147 leaves it. A line of its own, because the
-        // addresses differ from run to run and the line above is compared
-        // between runs by tests and by `conform`'s sweep.
-        let (tier0, tier1) = rt.interp.floors();
-        let gap = match tier1.checked_sub(tier0) {
-            Some(n) => format!("{n} bytes above"),
-            None => format!("{} bytes below", tier0.saturating_sub(tier1)),
-        };
-        let declined = match rt.floor_declines() {
-            Some((0, _)) => "; no entry declined at the tier 1 floor".to_string(),
-            Some((n, Some(depth))) => format!(
-                "; {n} entries declined at the tier 1 floor, the first with {depth} \
-                 compiled bodies running"
-            ),
-            Some((n, None)) => format!("; {n} entries declined at the tier 1 floor"),
-            None => String::new(),
-        };
-        bund2_api::errln!(
-            "bund2: floors: tier 0 at {tier0:#x}, tier 1 at {tier1:#x} ({gap}){declined}"
-        );
+        print_stats(&rt);
     }
     code
 }

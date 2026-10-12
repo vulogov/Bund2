@@ -87,26 +87,34 @@
   note is right and this list is the defect.
 
   - **The check holds as written** — 1, 3, 4, 5, 8, 9, 10, 12, 13, 14, 15,
-    16, 19, 20, 23, 24, 25, 26, 28, 29. Of these, 1 is read by hand from a
+    16, 18, 19, 20, 21, 23, 24, 25, 26, 28, 29, 30. Of these, 1 is read by hand from a
     bench with no gate; 15 is asserted by a CI step that has not yet run on a
     runner, and the same command passes on macOS and in a Linux arm64
     container; 23 holds on its second test; 5, 12 and 14 had an assertion added
     on 2026-10-11 that their tests lacked (an expected value for 5; that the
-    compiled entry ran and did not decline for 12 and 14).
+    compiled entry ran and did not decline for 12 and 14); 21 and 30 joined
+    this list on 2026-10-12, when the clause of 21 that nothing asserted
+    became a refusal by the compiler with two tests, and 30's mirror rows
+    gained output, the request cell and a process holding its pipe open;
+    18 joined it the same day, when the owner captured its probe's golden
+    and `conform` passed it in all three configurations.
   - **The check holds for the criterion as re-worded, and the re-wording is
     in a dated note under it** — 2 (as D141 scopes it), 6 (as D140 changes it),
     17 (its check's failure path was a defect until F202), 22 (bullet 6 shows
     that the tier declines, not a compiled snapshot), 27 (met by its second
     test; its own program is refused one gate earlier than its text says);
     and, since 2026-10-12, 7 (as D148 rules: D117's count over nine named
-    programs decides it, and the clock table is a reading).
-  - **Held by less than its text** — 11 (one axis prints no floors line, the cost rests on one bench row,
-    and the decline count is asserted by no test), 18 (two parts unbuilt, and
-    `Value::push`'s replace arm untested), 21 (nothing asserts that no inlined
-    region spans a call site), 30 (the mirror rows compare neither output nor
-    the request cell).
+    programs decides it, and the clock table is a reading) and 11 (as D149
+    rules: its cost clause is fewer than 20 instructions an entry, read by
+    `floor_count`; every axis reports its floors and the decline count is
+    asserted).
+  - **Held by less than its text** — none.
 
-  That is 20, 6 and 4: thirty. (It read 20, 5 and 5 until D148 was ruled.) It is a statement about checks, on macOS arm64.
+  That is 23, 7 and 0: thirty. (It read 20, 5 and 5 until D148 was ruled,
+  20, 6 and 4 until the checks of 2026-10-12 were written, 22, 6 and 2
+  until criterion 18's golden was captured, and 23, 6 and 1 until D149 was
+  ruled.) It is a
+  statement about checks, on macOS arm64.
   Nothing the twenty-fourth review ran found the tier giving a different
   answer from Tier 0.
 
@@ -885,7 +893,8 @@
   re-worded to what a run reports). Also consumed and cited only under
   their criteria: **D61**, **D67**, **D69**, **D70**, **D80**, **D91**,
   **D117**, **D141**, **D142** and **D143**. **D148** (criterion 7 is decided by D117's count) was
-  ruled on 2026-10-12.
+  ruled on 2026-10-12. **D149** (criterion 11's cost clause is decided by a count, under 20
+  instructions an entry) was ruled the same day.
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
   `80377728f45b`; `bundcore` `3b0b8ba219a6`; `rust_dynamic` `ceb27c96fa10`;
   `rust_multistack` `9a97675ee5d8`; `rust_multistackvm` `4605832678d4`
@@ -1293,6 +1302,17 @@ Two consequences this RFC owns:
   was therefore load-bearing for heap; with a `Weak` it pins nothing, and the
   cap bounds code memory alone (§S7).
 
+*(2026-10-12, the twenty-fourth review's preservation list: **`Vm::scoped_call`'s body, above, has a
+key, and the key is not why it stays at Tier 0.** `Interp::scoped_call` wraps
+the items with `BundValue::list`, which is a heap value, so `payload_key`
+answers for it. The key is new on every call, so it could never get hot; and
+`push_frame` does not offer it at all, because the frame carries an exit
+action, the stack to return to, which a tier running the body would bypass
+(F57). `a_scoped_call_body_is_never_offered_to_the_tier`
+(`crates/bund2-interp/src/lib.rs`) holds that. `Interp::entry_log` does record
+the LIST's key, and that log is a test's instrument: `--stats` counts compiled
+entries from the tier, where this body is never seen.)*
+
 **An eval'd token stream is never a compilation unit.** It is parsed and each
 token applied straight into the VM, retaining nothing (D3), so there is no body
 and no `Rc` for the cache to key — under pointer keying as under identity
@@ -1484,6 +1504,11 @@ Therefore:
   dispatch of a lambda, may leave a body for the loop to run afterwards. So
   every call is followed by what §S5, *A call may leave a body to run*,
   describes.
+
+*(2026-10-12, the twenty-fourth review's S5: the bullets from here to the note
+of 2026-10-10 are the design as first written and not what is built; that note
+says what is.)*
+
 - **Redefining a word writes a new pointer into its slot.** The old code is
   orphaned; its pages are never reclaimed.
 - **Unregistering rewrites the call slot to whatever the name now resolves
@@ -1884,6 +1909,14 @@ becomes `Error::exited`, an `Err` is passed through unchanged rather than
 replaced, and a run with neither reports success — and `Error::exited` is the
 single constructor `Interp::exit_gate` also uses, so the two tiers cannot
 spell the refusal differently (D63).
+
+*(2026-10-12, the twenty-fourth review's S5 and S10: three of the four exist,
+and the fourth never will. The drain helper is `jit_drain` and the residual
+path is `jit_residual`, both in `crates/bund2-jit/src/lower.rs` and both built
+under D67; each returns through `status_of`. There is no resolving trampoline
+(the note of 2026-10-10 in §S4). Four helpers do make a failing status without
+`status_of` — `jit_pop_int`, `jit_dup_top`, `jit_drop_top` and
+`jit_stack_moved` — which assumption 43 states.)*
 
 **The Rust side of the boundary gets what Tier 0 gives it** (the thirteenth
 review's B1). In tail position, the error status `status_of` makes travels to
@@ -2732,6 +2765,11 @@ time, never as a static", as above. It returns a `Result`, because each arm
 validates and a malformed one is a Bund2 defect rather than a fact about the
 program, and shipped code may not `expect` (D37).
 
+*(2026-10-12, the twenty-fourth review's S10: that error was then discarded by
+its one caller, so a malformed fragment switched all inlining off and said
+nothing. F200, fixed 2026-10-11: the runtime keeps it and reports it once as a
+warning carrying an internal error.)*
+
 **The arm for `dup` is keyed by `dup_one`.** `dup` is an *alias*
 (`crates/bund2-stdlib/src/stack.rs`, `register`), so it holds no `Native` and
 therefore no registration id; keying by the name a program writes would have
@@ -2816,6 +2854,11 @@ address is stable for the interpreter's life, and reached by a tier through
 `Vm::cells`. D43's generation cells already existed; the **stack-floor cell is
 still unbuilt**.
 
+*(2026-10-12, the twenty-fourth review's S10: `Vm::cells` is a required method
+by D61. A defaulted one would have let a `Vm` answer nothing and the lowering
+emit no guard. The floor cell is built (D62) and read by every compiled entry
+(F142).)*
+
 **Each mirror is written where its truth is written, not beside it**, because a
 mirror that can drift is worse than no mirror — it would let a guard admit a
 body whose meaning had changed:
@@ -2839,6 +2882,11 @@ body whose meaning had changed:
   *equals* the named set, so a half-write in either direction fails the scan
   rather than shipping. `take_pending` clears the mirror **before** it pushes
   the frame, since the body it runs may file a request of its own.
+
+  *(2026-10-12, the twenty-fourth review's S10, on the epoch above: F198. Until 2026-10-11 the
+  counter was copied to the cell by hand at five sites and `Stacks` shared
+  `Interp`'s module, so nothing made the two agree; assumption 40 has the
+  repair. D75 means no shipped body reads the epoch.)*
 
 **What this did not yet do, when written.** *(All three now exist and compiled
 code loads all four cells; criterion 23's entry lists them.)* No compiled code reads any of it: there is no
@@ -3369,6 +3417,10 @@ What that costs is latency: a body would run ~2,000 interpreted entries before
 compiling, where today it runs 64. Whether that trade is right is §S7's to
 decide and it is **not decided here**; what this section now records is that the
 choice is a real one with a measured target, not a matter of taste.
+
+*(2026-10-12, the twenty-fourth review's S5: 1024 since D74, as this section's
+opening note says; "64" here and in the paragraphs above is the threshold the
+section was measured against.)*
 
 **Where the leverage actually is.** Every break-even above is a ratio with the
 compile cost on top, and that cost is now known to be ~20.4 µs **per value**
@@ -4042,6 +4094,11 @@ does not opt in keeps its whole region for Tier 0, and three tests pin the
 three cases: a declared share, a declared region without one, and an undeclared
 thread.
 
+*(2026-10-12, the twenty-fourth review's S10: built here means the region, the
+share and the cell. No emitted code read the cell until 2026-09-28; F142
+records that, and the check at every compiled entry is its fix. Between those
+dates this section described a floor nothing enforced.)*
+
 **Tier 0's part is still 8 MiB, not `8 MiB + m`.** The margin is a measurement
 criterion 11 takes once the tier exists, and guessing it here is what this
 section forbids. The gap is recorded in D62 rather than filled.
@@ -4194,6 +4251,10 @@ is stated here, with the place that enforces or decides it.
     place or lower is never `"main"`. That holds for every fixed-effect native
     that takes a name today, all of which consume at most two operands.
     Nothing enforces it for the next one (criterion 28).
+    *(2026-10-12, the twenty-fourth review's unstated assumption 10: no scan
+    asserts it. The palette would not notice a native that took a name third
+    from the top; a reader of that native's registration would. It stays an
+    assumption with no check.)*
 24. **Criterion 11's margin covers only `bund2-stdlib`'s re-entering paths.**
     The scan reads that crate alone (§S8). An embedder's native, or an
     embedder's method native reached through `run_init` or `dispatch_method`
@@ -4229,6 +4290,11 @@ is stated here, with the place that enforces or decides it.
     other stated reason still held. That is why `status_of` substitutes the
     refusal for `Ok` and leaves an `Err` alone (§S5, *A call may end the
     program*).
+    *(2026-10-12, the twenty-fourth review's S6: since F189 the chain starts
+    one step earlier, `started.and_then(|()| self.run_to(floor)).and_then(|()|
+    self.exit_gate()).map_err(…)`, where `started` is what `push_frame`
+    answered, so a failure of a body the tier ran is under the same `map_err`.
+    The argument above is unchanged and now covers that failure as well.)*
 27. **Every `bund2-stdlib` source file's inline test module comes last.** The
     re-entry scan cuts each file at its first `#[cfg(test)]` module, so
     shipped code after it would go unscanned (§S8). This holds in every file
@@ -4304,6 +4370,10 @@ is stated here, with the place that enforces or decides it.
     the case nothing detects is an opaque native filing twice. §S5's "a
     request is never lost" is a rule about compiled call sites, not a property
     of Tier 0.
+    *(2026-10-12, the twenty-fourth review's S6: the assignment and the audit
+    are in `Interp::request_tail_for`, to which `request_tail` delegates since
+    RFC-0008 §D2; read both names here as that one. The same holds in §S5's
+    account of the tail request.)*
 30. **A native may recurse in Rust between two floor checks, and the reserve
     does not carry an unbounded one.** Assumption 4 scopes its claim to a leaf
     native. `execute_reached` was not one: its LIST and MAP arms recursed into
@@ -4493,6 +4563,82 @@ is stated here, with the place that enforces or decides it.
     *(2026-10-11, the twenty-fourth review's B7: it asserted two of the three
     exact cases. A `to_stack` to the stack already current, the first the
     paragraph lists, was not asserted; it is now, in the same test.)*
+
+*Assumptions 41 to 49 were added on 2026-10-12. The twenty-fourth review listed
+twelve it found unstated; its first two were answered on 2026-10-11 (F202, and
+the D146 amendment's qualified sentence), its tenth is a note under assumption
+23, and these are the rest.*
+
+41. **A count and a clock answer the same criterion.** Criteria 7 and 11
+    are worded as times and decided, or proposed to be decided, by instructions
+    retired. For criterion 7 that is the owner's ruling (D148), with the clock
+    table kept as a reading. For criterion 11's cost clause it is the same, by D149,
+    with the bound restated in instructions. A count does not see cache or
+    branch behaviour, so a change that costs time and no instructions passes
+    it.
+42. **The compiled entry a differential counts is the entry whose result it
+    compares.** At threshold 1 a body's first entry compiles it and runs it
+    interpreted, so a count taken over a whole run can be satisfied by a call
+    the comparison did not look at. The helpers `assert_switch_matches_tier0`
+    and `assert_promoted_matches_tier0` (`crates/bund2-runtime/src/tier.rs`)
+    require the count to rise across the compared call since 2026-10-12, and
+    the tests of criteria 5, 12 and 14 assert that a compiled entry ran and did
+    not decline since 2026-10-11. A differential outside those is held by a
+    run-wide count, and its criterion's note says so.
+43. **Four helpers make a failing status without `status_of`.**
+    `jit_pop_int`, `jit_dup_top`, `jit_drop_top` and `jit_stack_moved`
+    (`crates/bund2-jit/src/lower.rs`) park an `Error::internal` in the context
+    and return, and none clears a tail request. That is sound while no native
+    runs between an inlined site's guard and its ops, which is so by
+    construction: a fragment's ops are these helpers and nothing else, and
+    `region_is_one_value` refuses a region with any other call in it.
+    `jit_stack_moved` is reached only around a crossed call (D75). §S5's "gives
+    the helpers no other way to make a status" is therefore true of the helpers
+    that run a native, and not of these.
+44. **"Tail position" in criteria 26, 29 and 30 means the last value of a
+    body.** The shipped tier compiles every body with `LastCall::Ordinary`, so
+    a body's last call returns to the compiled body, which then returns. The
+    tests in `crates/bund2-runtime` put the call last in the body and compare
+    with Tier 0; the tests in `crates/bund2-jit/src/lower.rs` that lower a
+    `return_call` do so through `LastCall::Tail` on natives a test registers.
+    No shipped body tail-calls, and nothing here claims one does.
+45. **`--stats` prints exactly two lines, and three readers find them by
+    their text.** `conform` removes a line starting `bund2: tier compiled ` and
+    one starting `bund2: floors: ` from what it compares
+    (`xtask/src/conform/mod.rs`,
+    `both_stats_lines_are_taken_out_of_what_is_compared`), and the process
+    tests in `crates/bund2-cli/tests` filter the same two. A third line would
+    enter every `jit` comparison as a difference: D147 records all four `jit`
+    configurations reading 0/145 when the second line was added and not yet
+    removed. So a third line is a change to `conform` first.
+46. **The Tier 1 floor is checked once for each compiled entry, in the
+    entry trampoline.** It is not checked per emitted function or per call.
+    That bounds compiled nesting because one compiled body never calls another
+    directly: a call from compiled code goes through `jit_apply` to
+    `Vm::apply`, and a body entered beneath it comes back through `push_frame`
+    and the trampoline (D145). A lowering that called a compiled body's code
+    directly would nest with no check, and nothing but this sentence forbids
+    it.
+47. **One predicate decides whether an arm runs.** `Fragment::admits_with`
+    (`crates/bund2-ir/src/fragment.rs`) is asked by `bund2_interp::frag::run`,
+    by `jit_admits` for an inlined site, and by `Compiled::run` for a fragment
+    lowered alone. The tiers agree about admission because they ask the same
+    function. No test asserts that a fourth, separate statement of the
+    predicate does not exist; criterion 16's differential over the arm's
+    boundaries is what would show one that disagreed.
+48. **How `Declined` spreads its keys is a property of the allocator.**
+    `Interp`'s memory of refused bodies picks a slot from the payload's
+    address, shifted and masked (`crates/bund2-interp/src/declined.rs`,
+    `slot`). Its comment gives the spread measured on macOS arm64. Under
+    another allocator more bodies may share a slot, and a refusal displaced
+    from its slot is asked of the tier again: speed, never meaning. D146 lists
+    Linux as not measured, and it is still not.
+49. **An `Interp` runs on the thread that built it.** Both floors are fixed
+    at `Interp::new` from that thread's declared region. This one is
+    structural: `Interp` holds `Rc`s and is not `Send`, and
+    `an_interp_cannot_be_sent_to_another_thread`
+    (`crates/bund2-interp/src/lib.rs`) stops compiling if that changes. The
+    Preservation table has the row.
 
 # S9. Tier pinning
 
@@ -4684,6 +4830,11 @@ without going through `status_of`.)*
 | **a refusal `Interp` remembers (D146) after a callee's binding changes** *(added 2026-10-11)* | speed only: a body not offered is interpreted. A body refused because it had no inlinable site is not planned again while the tier stands, even if a later rebinding would give it one. No test, since no meaning is at stake |
 | **what the tier itself writes** — the two `--stats` lines, F197's removal warning, F200's startup warning, F202's compile-failure warning *(added 2026-10-11)* | each goes to stderr or through `Vm::report`, never to the program's output. `conform` appends stderr to what it compares and removes the two `--stats` lines by their text, so a third such line would read as 145 failures until it too is removed (D147 records that happening once); `both_stats_lines_are_taken_out_of_what_is_compared` in `xtask/src/conform/mod.rs` |
 | **a debugger armed beside a tier** — D113.6 *(added 2026-10-11)* | the first debugger word that arms or moves switches the tier off for the life of the `Interp`. A compiled body that arms a breakpoint finishes compiled, with no stop inside it; that is stated and not guarded |
+| **an `Interp` used on a thread other than the one that built it**, whose two floors were fixed at `Interp::new` from that thread's declared region *(added 2026-10-12)* | it cannot be done in safe Rust: `Interp` holds `Rc`s, so it is not `Send`. `an_interp_cannot_be_sent_to_another_thread` (`crates/bund2-interp/src/lib.rs`) fails to compile if that stops being so. An embedder that moves one with `unsafe` gets floors that describe another stack; nothing detects it |
+| **a helper that makes a failing status without `status_of`** — `jit_pop_int`, `jit_dup_top`, `jit_drop_top`, `jit_stack_moved` *(added 2026-10-12)* | each parks an `Error::internal` and returns the failing status, and none clears a tail request. The first three fail only when a guard admitted what its ops could not run, which `Fragment::new` rules out; the fourth only around a crossed call, which no shipped body makes (D75). No native has run between the guard and the op, so no request can have been filed there. Stated as assumption 43, and not guarded |
+| **a moved epoch under a crossed call** *(added 2026-10-12)* | `Error::internal` by decision (D73), where Tier 0 would give a result. Unreachable while D75 stands: the shipped runtime installs no crossable table. Criterion 21's fixture reaches it and asserts the internal error |
+| **the per-call LIST `scoped_call` builds** *(added 2026-10-12)* | never offered to the tier, because its frame carries an exit action. `a_scoped_call_body_is_never_offered_to_the_tier`. It has a key and `entry_log` records it; `--stats` does not count it |
+| **what D145 lists as not covered beneath a nested compiled body** — a tail request filed there and failing; a reporter that wants the stack; a debugger word arming *(added 2026-10-12)* | the same rules as beneath one compiled body — `status_of` clears the request, D71 keeps such a body out of the tier when the reporter wants warnings' stacks, D113.6 switches the tier off — and **no test runs any of the three nested**. A gap, stated |
 
 ## Alternatives considered
 
@@ -5093,6 +5244,12 @@ criterion.)*
    third redefinition demotes the body permanently. With the counter cap set to
    8, evaluating nine distinct bodies leaves the map at 8.
 
+   *(2026-10-12, the twenty-fourth review's S10: F191 is the defect this
+   criterion's first row let through: the cap was tested against the cache's
+   length and not against functions emitted. D140 changes the row and
+   `the_function_cap_survives_a_sweep` (`crates/bund2-jit/src/cache.rs`) holds
+   it.)*
+
    *(2026-10-11, the twenty-fourth review's S3: the recompile cap is withdrawn
    (D140) and its test removed, as the note below this criterion says. The
    statement above still lists it. As it reads: the function cap, which counts
@@ -5292,6 +5449,11 @@ criterion.)*
    `GUARD [CONTAMINATED] peak=23.2% (claude)` — its numbers unremarkable, which
    is the rule working in the direction that costs something.
 
+   *(2026-10-12, the twenty-fourth review's S10: the guard had a defect of its
+   own, F145: it chose what to ignore by matching command strings, and so
+   excluded every compile on the machine. Readings taken through it before
+   2026-10-01 carry that.)*
+
    | group | run 1 | run 2 | run 3 |
    |---|---|---|---|
    | `startup` (2 rows) | −2.21%, −2.42% | −2.28%, −1.33% | −3.61%, −1.95% |
@@ -5388,6 +5550,8 @@ criterion.)*
    feature-gated to build a `Runtime`, and why the bench prints
    `bench: tier installed (threshold …)` or a warning naming this defect. The
    run behind the table above printed `tier installed (threshold Some(64))`.
+
+   *(2026-10-12, the twenty-fourth review's S10: F129.)*
 
    **`startup` still builds its own `Interp` deliberately.** It times
    `register_all`, the fixed cost this criterion forbids the tier to move;
@@ -5834,6 +5998,11 @@ criterion.)*
    body leaves with Tier 0. So the criterion as D143 words it is held as
    written. What stays unmeasured is what it no longer claims: whether
    promoting a short run pays.
+
+   *(2026-10-12, the twenty-fourth review's S10: F126 is the defect on this
+   path. A promoted literal was lowered as the constant seen while planning, in
+   a word that fetches every other value from the body it is handed;
+   `Word::literals` and the comparison in `Compiler::run` are its fix.)*
 
 10. **The dispatch share is measured, not estimated.** §S1 withdraws an Amdahl
     bound rather than correcting it, because no benchmark here separates
@@ -6446,6 +6615,85 @@ criterion.)*
     declined" form only; the form with a count is printed by `depth` and
     asserted by no test.)*
 
+    *(2026-10-12 — **three of S7's four findings are closed, and the fourth
+    is D149, OPEN: the clock does not resolve the cost.***
+
+    *Every axis reports both floors.* `--stats` is printed for a program that
+    does not parse as well (`print_stats`, `crates/bund2-cli/src/main.rs`),
+    so the `nesting` axis has its floors line.
+    `stats_names_both_floors_for_a_program_that_does_not_parse`
+    (`crates/bund2-cli/tests/exit_tier.rs`) holds it.
+
+    *The decline count is asserted.*
+    `stats_counts_what_the_tier_one_floor_declined` (same file) runs a
+    compiled recursion 20,000 deep at `--jit-threshold 1` and reads the line
+    in the form with a count. The three figures must add up: the entries
+    `--stats` reports as entered and the entries the floor declined are
+    20,000 between them, the one entry short of the whole being the one that
+    compiled the body; and the first decline came with as many compiled
+    bodies running as were ever entered.
+
+    *The four-site row was not a decline.* `floor_cost` has rows of 16 and 64
+    sites beside the two it had, and prints after each row how many entries
+    the floor declined: none, in any row of any round. So the review's
+    suspicion is answered, and what the row reads is not that.
+
+    *But no row reads the cost.* Three rounds on this date, checked arm minus
+    unchecked, nanoseconds an entry:
+
+    | body | round 1 | round 2 | round 3 |
+    |---|---|---|---|
+    | 1 site | −1.4 | −16.5 | −13.9 |
+    | 4 sites | −16.8 | −30.6 | −33.6 |
+    | 16 sites | +1.9 | +4.3 | +10.6 |
+    | 64 sites | +3.5 | +21.5 | −16.5 |
+
+    *One compare and branch cannot make an entry 34 ns faster, or 21 ns
+    slower in one round and 17 ns faster in the next. The spread is an order
+    of magnitude above the bound, at every body length, and starting at 16
+    sites did not cure it as it did for criterion 17, where the cost is paid
+    once a site and adds up. The readings of 2026-10-11, +0.21, +0.08 and
+    +0.49 ns on the one-site row, were three rounds of the same bench and are
+    not reproduced: "under 0.5 ns" was a fortunate reading and is withdrawn.*
+
+    *By count, which does resolve it.* `floor_count`
+    (`crates/bund2-bench/examples/floor_count.rs`) enters one compiled body a
+    given number of times with either compiler; D117's method, the median of
+    five readings of `instructions retired`, taken at 1,000,000 and at
+    11,000,000 entries so that the difference is 10,000,000 entries and the
+    process's start cancels. Instructions, and the check's share an entry:
+
+    | body | checked | unchecked | the check, an entry |
+    |---|---|---|---|
+    | 1 site | 25,561.5 M | 25,508.9 M | +5.3 |
+    | 4 sites | 39,519.2 M | 39,492.8 M | +2.6 |
+    | 16 sites | 95,958.1 M | 95,831.1 M | +12.7 |
+    | 64 sites | 322,051.4 M | 322,040.1 M | +1.1 |
+
+    *Every run entered every body and declined none. The check reads between
+    1 and 13 instructions an entry, against 2,556 for the shortest body, where
+    the clock reads 54 ns: so 13 instructions is about 0.3 ns at this
+    machine's rate, and 2 ns would be some ninety. The four rows do not agree
+    to better than a factor of ten among themselves, so this bounds the cost
+    and does not measure it. **Whether a count may decide this clause is not
+    something D148 ruled**; that ruling was for criterion 7. It is D149, and
+    until it is ruled the clause "costs under 2 ns an entry, measured by
+    `floor_cost`" is held by a reading: no instrument named in the criterion
+    resolves it, and the one that does is not named.)*
+
+    *(2026-10-12, later — **D149 is ruled, option A: the count decides, and
+    the clause is re-worded.** It now reads: **the Tier 1 floor check adds
+    fewer than 20 instructions an entry, read by `floor_count`
+    (`crates/bund2-bench/examples/floor_count.rs`) over 10,000,000 entries at
+    each of four body lengths — 1, 4, 16 and 64 sites — as checked minus
+    unchecked, each the median of five runs under `/usr/bin/time -l`
+    (D117).** The readings above are +5.3, +2.6, +12.7 and +1.1, so it holds
+    at every length. `floor_cost` stays in the bench as a reading and cannot
+    fail the criterion. Two things the ruling does not change: 20 is a
+    chosen figure, above every reading and about a quarter of what 2 ns is
+    at this machine's rate; and the method is macOS's, with no Linux
+    reading. No CI step runs it; it is a command run by hand.)*
+
     **What it no longer asks, and nothing shows**: a case with the share
     already held, `c` and `δ` from it, `c_p` and `δ_p` for each re-entering
     path, and a margin `m`. §S8 defers to this criterion for each; those
@@ -6992,10 +7240,38 @@ criterion.)*
     is no probe golden — no file under `tests/probes` uses `:`, and a golden
     is the owner's to capture.)*
 
+    *(2026-10-12 — **"through `!`" and the replace arm are tested, and the
+    probe is written; its golden is not captured.**
+    `the_collecting_mode_through_bang_and_onto_a_scalar_match_tier_zero`
+    (`crates/bund2-runtime/src/tier.rs`) has four rows. Two set the mode with
+    `":" !`, which runs the command by a computed name, and collect a literal
+    and a call into `[ 0 ]`. Two collect a literal and a call onto `5`, where
+    `Value::push` replaces the receiver
+    (`reference/rust_dynamic/src/push.rs:162-168`) and three calls leave one
+    value, `7`, and not a list. Each row states the stack it expects, is
+    compared with Tier 0, asserts that `;` cleared the mode, and requires that
+    the last call entered a compiled body. The probe is
+    `tests/probes/autoadd-in-a-compiled-body.bund`: five words, for a literal,
+    a call, a CONTEXT, the mode set through `!`, and a scalar beneath. Run by
+    hand on this date with the capture's epilogue, its stack display is
+    byte-identical, `id` and `stamp` blanked, under the oracle, under Bund2 at
+    a threshold nothing reaches, and at `--jit-threshold 1`, where `--stats`
+    reports 5 bodies compiled and 10 entered. **What is still missing is the
+    golden**, which `cargo xtask golden` writes and is the owner's to run;
+    until then `conform` excludes the probe and says so.)*
+
+    *(2026-10-12, later: **the golden is captured**, by the owner, at
+    `tests/golden/probes/autoadd-in-a-compiled-body.golden`. `conform` reads
+    134/146, CEILING 134/146, with no feature, with `jit`, and with `jit` at
+    threshold 1, where it now compiles 17 bodies in 11 of 146 programs and
+    counts 63 compiled entries: the probe's five bodies and ten entries
+    over the 12 and 53 of before. This criterion holds as written.)*
+
     **Conformance is unmoved in all three configurations**: 107/116, ceiling
     107/116, default and `--features jit` and `jit` at threshold 1.
 
-    *(2026-10-11: 133/145, CEILING 133/145, in all three today.)*
+    *(2026-10-11: 133/145, CEILING 133/145, in all three today. 134/146 on
+    2026-10-12, with this criterion's probe.)*
 
     `b0cbd3f` concluded that the unread `autoadd` cell after calls was benign.
     That conclusion is void — it rested on nothing being able to set the mode.
@@ -7166,6 +7442,13 @@ criterion.)*
     were found by probing what the test actually reached rather than by reading
     it.
 
+    *(2026-10-12, the twenty-fourth review's S10: this is F128. The defect this
+    criterion exists to catch was then found outside it: F140, a promoted value
+    synced to the wrong stack across `stacks_left`, found while reading
+    criterion 17. And F192 found the differential here among those whose tiered
+    arm ran no compiled code; since 2026-10-12 it requires a compiled entry on
+    the call it compares.)*
+
     **The comparison is every stack, the workbench and the diagnostics** — not
     just the current stack, which is the whole point: a body that switches away
     can leave values behind on the stack it left, and a comparison reading only
@@ -7180,6 +7463,33 @@ criterion.)*
     reference, and the golden capture normalises the same two fields. A
     CLI-level `diff` of the `to_stack` program was briefly mistaken for a tier
     defect for the same reason before the normalisation was applied.
+
+    *(2026-10-12, the twenty-fourth review's S9 — **"no inlined or folded
+    region spans a call site" is asserted, and by the compiler before a
+    test.** The side-table test asserted site to index and in range, which is
+    not this clause. `region_is_one_value` (`crates/bund2-jit/src/lower.rs`)
+    reads it off the emitted function, beside criterion 17's `guards_hold`: it
+    walks each region from its first block to its join and refuses an
+    indirect call, which is a value of the body applied through its slot; a
+    direct call to anything but the four stack helpers, which is how the
+    residual and the drain are reached; a return; and a region that never
+    reaches its join. A body with such a region does not compile, and since
+    F202 that is reported. `a_region_that_spans_a_call_site_is_refused` builds
+    the arm by hand, passes the shape the lowering emits with a slot call
+    directly after its join, and gets each of five wrong shapes refused for
+    its own reason. `inlined_sites_and_calls_interleave_one_value_each`
+    compiles `1 2 + nl 3 + nl drop` and asserts that the plan has one entry a
+    value, that the sites are at 2, 5 and 7 and the calls at 3 and 6, and that
+    the side table is exactly those three indices in order. **"Or folded" has
+    nothing to check** in this lowering, which folds nothing: a region is
+    one fragment's operations and no pass here joins two. What Cranelift's
+    optimiser does to the function afterwards is not read by this check.*
+
+    *The same finding's second half: the six programs and criterion 22's
+    differentials required `compiled_entries() > 0` after the loop, which a
+    body that ran compiled once and was interpreted on the compared call
+    would satisfy. Both helpers now require that the **last** call, the one
+    whose stacks are compared, entered a compiled body.)*
 
 22. **What a promoted value must not change, doesn't.** Six parts, each
     asserted against Tier 0's result:
@@ -7406,6 +7716,11 @@ criterion.)*
     `Interp`'s cells. After the first `Interp` is dropped, the second must still
     give Tier 0's result. This fails for any cache, module or cell shared
     across `Interp`s (§S6, *Addressing*). Needs a tier.
+
+    *(2026-10-12, the twenty-fourth review's S10: F192 named this criterion's
+    test among the differentials that ran no compiled code; it uses the
+    inlining fixture and asserts four compiled entries in each interpreter
+    since that fix.)*
 
     *(2026-10-11, the twenty-fourth review's S10: two entries bear on this
     criterion and neither was cited. **D91** reconsidered a shared compile
@@ -7673,6 +7988,11 @@ criterion.)*
     criterion's own wording and what `Word::crossings` now makes assertable.
     The result matches Tier 0's besides.
 
+    *(2026-10-12, the twenty-fourth review's S6: the function is
+    `Compiler::crossings`, which takes the word's handle, in
+    `crates/bund2-jit/src/lower.rs`; `Word` has no such method. The status
+    block's two mentions are the same function.)*
+
     *(2026-10-11, the twenty-third review's S10: `embedders` declares `eff(1, 1)`, and D68's gate
     refuses anything that produces before the table is asked, so the test
     would pass with a table that admitted every registration.
@@ -7759,6 +8079,11 @@ criterion.)*
     else, "declares (1, 0) and moved `main` from 4 to 0". Since D55 the list
     certifies both a native's pair and that D55's audit saw it read nothing
     beyond its operands (criterion 14). Runs today: `cargo test -p bund2-stdlib promotable`.
+
+    *(2026-10-12, the twenty-fourth review's S5: `tests/golden/PROMOTABLE.txt`
+    reads **351 promotable of 360 reached, of 418 fixed-effect natives** today,
+    nine reached natives being observers. The figures here and in the status
+    block are those of the dates beside them.)*
 
     **Three limits.** The first two were stated for the eleventh review's S4;
     the third is F123, found 2026-09-13 and fixed 2026-09-14. First, natives
@@ -7908,6 +8233,28 @@ criterion.)*
     request cell is clear afterwards, and the `input*` one feeds its line in
     process where the bullet above specifies a process holding the pipe open.
     Those three parts of this paragraph are checked by nothing.)*
+
+    *(2026-10-12 — **all three are checked.** The request cell:
+    `a_hot_body_under_a_native_reaches_exit_as_tier_zero_does`
+    (`crates/bund2-runtime/src/tier.rs`) asserts after each of its eight rows
+    that `Cells::request` is clear in the tier's run and in Tier 0's. Output:
+    `a_hot_body_under_a_native_prints_and_exits_as_without_the_tier`
+    (`crates/bund2-cli/tests/exit_tier.rs`) runs the seven programs that take
+    no input as programs, from one binary at `--jit-threshold 1` and at a
+    threshold nothing reaches, and compares stdout and the exit code: four
+    `in`s, no `unreached`, neither branch of a `?try`, and 7. Each row states
+    the number of compiled entries `--stats` must report, the exiting entry
+    included, so a run that reached the exit interpreted reads one fewer and
+    fails. The pipe: `a_hot_input_loop_body_exits_with_the_pipe_held_open`
+    (same file) writes four lines, holds stdin open, and requires the process
+    to end with code 7 before anything else is written, at both thresholds,
+    with the same output and 3 compiled entries. **Its program is not the
+    bullet's.** `input*` runs its body once a line inside one call, so nothing
+    outside the body can re-alias `go` between a warm entry and the exiting
+    one; the body does it itself on a line reading `x`, in a lambda of its
+    own, which is a different body and stays cold. So the fourth line is the
+    "one line", and the exit is reached on a compiled entry whose own callee
+    rebound the name it then calls.)*
 
     The audit's
     half runs today: a fixed-effect native that requests an exit is a breach,
@@ -8181,6 +8528,14 @@ from a safepoint, and a session started with `--debugger` installs no tier
 tier, the stop is still inside a Tier 0 native call, and the cell reads as it
 did before the stop by the time that native returns.
 
+*(2026-10-12, the twenty-fourth review's S5: stale since D113.6, as the status
+block already says and this amendment did not. A script arming a debugger
+mid-run has a tier already installed, and the first debugger word that arms or
+moves switches that tier off for the life of the `Interp`; it is not removed. A
+compiled body that arms a breakpoint finishes compiled, with no stop inside it.
+The Preservation table's row for a debugger beside a tier is the current
+account.)*
+
 §S8's path set gains one entry for the same change: `lib.rs: eval_line` in
 `bund2-stdlib`, the loop that applies a typed line value by value.
 
@@ -8323,6 +8678,8 @@ decision.
 **B7 — §S9.** Noted in place: D6 and D7 are resolved the other way, no pin
 exists, nothing waits for one, and no criterion covers it. Left standing;
 withdrawing it is the owner's.
+
+*(2026-10-12, the twenty-fourth review's S5: D144 withdrew §S9 the same day.)*
 
 **B8 — five criteria held by less than their text.** Notes under 5, 9, 10,
 11 and 17. One was closed with a test (criterion 5's alias row). One of the
@@ -8601,22 +8958,138 @@ which none is known to do.
 - Criterion 7, which waits on D148. *(2026-10-12: ruled and re-worded; see
   B4 above.)*
 - The parts of criteria 11, 18, 21 and 30 that the status block lists as
-  unchecked. Each is a test nobody has written.
+  unchecked. Each is a test nobody has written. *(2026-10-12: written; see
+  the amendment below. Criterion 11's cost clause and criterion 18's golden
+  remain.)*
 - S5 and S6 in full: the status block's older paragraphs, which the block
   itself marks as superseded, still say `Word::crossings` and "three cells",
   and were left as the record. The threshold written as 64 in §S7's prose,
   and RFC-0008's account of a debugger beside a tier in the amendment of
-  2026-10-07, are not annotated.
+  2026-10-07, are not annotated. *(2026-10-12: the second and third are;
+  see the last amendment.)*
 - S10 in full: the defects the review lists as uncited where they apply —
   F126, F128, F129, F138, F140, F142, F145, F191, F192, F195, F198, F200 —
   are cited under their own criteria or not at all, as before.
+  *(2026-10-12: cited where they apply; see the last amendment.)*
 - S11's other register wording: D3's status line, and the test names and
-  status spellings of F189 to F201.
+  status spellings of F189 to F201. *(2026-10-12: dated notes in both
+  registers.)*
 - S12's `GUARD [CONTAMINATED] … (claude)` lines. They are bench output
   quoted as recorded, naming a process; whether a design document should
   carry them is the owner's.
 - The review's unstated assumptions 3 to 12, beyond what the notes above
   answer, and two preservation gaps: an `Interp` run on a thread other
   than the one that built it, and the helpers that park an error without
-  `status_of`.
+  `status_of`. *(2026-10-12: assumptions 41 to 49 and five rows; see the
+  last amendment.)*
 - No benchmark was run for this amendment, and nothing was re-measured.
+
+## Amendment, 2026-10-12 — the checks criteria 11, 18, 21 and 30 lacked
+
+The amendment above lists, among what was not done, the parts of four
+criteria that the status block gave as unchecked. This is those. Each
+criterion carries a note of this date with the detail; this is the list.
+
+**Criterion 11.** `--stats` reports for a program that does not parse, so
+every axis of `cargo xtask depth` prints its floors. Two tests in
+`crates/bund2-cli/tests/exit_tier.rs`:
+`stats_names_both_floors_for_a_program_that_does_not_parse` and
+`stats_counts_what_the_tier_one_floor_declined`. `floor_cost` has rows of 16
+and 64 sites and prints its declines, which were none. **Its cost clause is
+not closed.** Three rounds read the check between 34 ns faster and 21 ns
+slower an entry, so the clock does not resolve 2 ns and the figure of
+2026-10-11 is withdrawn. `floor_count`, a new example in
+`crates/bund2-bench`, reads it by count at 1 to 13 instructions an entry.
+Whether that may decide the clause is **D149**, OPEN. *(Ruled later the
+same day, option A: it may, at under 20 instructions an entry. The clause
+is re-worded under the criterion and holds.)*
+
+**Criterion 18.** `the_collecting_mode_through_bang_and_onto_a_scalar_match_tier_zero`
+(`crates/bund2-runtime/src/tier.rs`): the mode set through `":" !`, and a
+literal and a call collected onto a scalar, where `Value::push` replaces.
+The probe `tests/probes/autoadd-in-a-compiled-body.bund` is written and
+agrees under the oracle, Tier 0 and the tier when run by hand. **Its golden
+is not captured**; that is the owner's. *(Captured later the same day; see the
+next amendment.)*
+
+**Criterion 21.** `region_is_one_value` (`crates/bund2-jit/src/lower.rs`)
+refuses to compile a body with an inlined region that spans a call site.
+`a_region_that_spans_a_call_site_is_refused` and
+`inlined_sites_and_calls_interleave_one_value_each` hold it. The
+differentials of criteria 21 and 22 require a compiled entry on the call
+they compare.
+
+**Criterion 30.** The eight mirror rows assert that the request cell is
+clear. `a_hot_body_under_a_native_prints_and_exits_as_without_the_tier` and
+`a_hot_input_loop_body_exits_with_the_pipe_held_open`
+(`crates/bund2-cli/tests/exit_tier.rs`) compare output and exit code as
+programs, the second with its input held open.
+
+**What changed that a program can observe.** `--stats`, on stderr, now
+prints its two lines after a parse failure. A body with an inlined region
+that spanned a call site would be refused, demoted and reported (F202);
+none is known, and conformance at threshold 1 compiles the same bodies as
+before.
+
+**Not done, and not claimed.** Criterion 11's cost clause, which waits on
+D149. Criterion 18's golden. *(Both closed later the same day; see the next
+amendment.)* The counts were taken on macOS arm64 with
+`/usr/bin/time -l`; there is no Linux reading. The should-fix items the
+amendment above lists as not done are as they were.
+
+## Amendment, 2026-10-12 — what the twenty-fourth review's answer left
+
+The amendment of 2026-10-11 ends with a list of what it did not do. This is
+that list, less two items.
+
+**S5 and S6.** Notes of this date at: §S4's three bullets on per-name slots;
+§S5's count of helpers built; §S3's reason a `context` body stays at Tier 0,
+which was wrong; assumption 26's quoted chain; assumption 29's
+`request_tail`; criterion 28's `PROMOTABLE.txt` figures; criterion 27's
+`Word::crossings`; the amendment of 2026-10-07's account of a debugger
+beside a tier; the B7 line of the amendment of 2026-10-10; and §S7's "64".
+The status block's superseded paragraphs are not annotated one by one: the
+block marks them superseded, and the notes at criteria 27 and 28 name what
+they get wrong.
+
+**S10.** The twelve defects are cited where they apply: F126 under criterion
+9, F128, F140 and F192 under criterion 21, F129 and F145 under criterion 7,
+F142 in §S8, F191 under criterion 6, F192 under criterion 23, F198 and F200
+in §S6. F138 and F195 were already cited at their passages. D61 is cited in
+§S6 and D67 in §S5.
+
+**S11.** Dated notes in the registers: D3's resolution is identity keying
+and not a content hash, as its own amendment says; F189 to F194 and F201
+each say FIXED in the spelling F195 to F202 use, and name their tests.
+F193 has none, and its note says what checks it.
+
+**The Preservation table.** Five rows: an `Interp` on another thread, the
+helpers that make a status without `status_of`, a moved epoch under a
+crossed call, `scoped_call`'s per-call LIST, and D145's three uncovered
+cases beneath a nested compiled body. The last is a stated gap; no test
+was written for it.
+
+**The unstated assumptions.** Nine are stated, 41 to 49, and one is a note
+under assumption 23. Two of them have no check at all and say so: 23's, and
+46's rule that a compiled body never calls another directly.
+
+**What changed in code.** One test,
+`an_interp_cannot_be_sent_to_another_thread`
+(`crates/bund2-interp/src/lib.rs`). Four comments in the same file that
+called `scoped_call`'s body keyless are corrected. Nothing a program can
+observe is different.
+
+**Not done.** S12's `GUARD [CONTAMINATED] … (claude)` lines stand as
+recorded; removing bench output from a design document is the owner's
+choice. Nothing was measured for this amendment.
+
+**Later the same day: criterion 18's golden is captured**, by the owner.
+`conform` reads 134/146, CEILING 134/146, in all three configurations, 17
+bodies in 11 programs at threshold 1. The status block moves 18 to "holds
+as written".
+
+**And D149 is ruled, option A.** Criterion 11's cost clause is re-worded to
+a count, fewer than 20 instructions an entry by `floor_count`, and holds on
+the readings already taken. So 23 criteria hold as written, 7 as re-worded,
+and none is held by less than its text. That is a statement about checks on
+macOS arm64; the status of this RFC is the owner's.

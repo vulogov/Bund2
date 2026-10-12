@@ -1565,16 +1565,35 @@ fn guard_cost(_: &mut Criterion) {}
 /// supplying the difference an unconditional check otherwise denies.
 ///
 /// **One check an entry, so it cannot be amortised** the way a per-site cost
-/// can. The bodies are short on purpose — the entry is most of what is timed
-/// — and each row's two arms differ in that one compare and branch.
+/// can. Each row's two arms differ in that one compare and branch, and the
+/// figure is the difference itself, whatever the body's length.
+///
+/// **Four body lengths, since 2026-10-12** — the twenty-fourth review's S7.
+/// The first two rows are short on purpose, so that the entry is most of what
+/// is timed, and the four-site one read the checked arm *faster*, which is
+/// no cost of anything. `guard_cost` met the same thing at small sizes and
+/// answered it by starting at 16 sites, where a fixed difference in layout
+/// is a smaller part of the row. The 16- and 64-site rows are that answer
+/// here: the difference they read is still one check, on a longer body.
+///
+/// **Each arm says whether any entry declined.** `Compiler::run` answers
+/// `Ok(false)` for an entry the floor turned away, which runs nothing and so
+/// times as a body that costs nothing: a negative cost. After a row is timed
+/// it prints how many entries the floor declined, and a row that declined any
+/// has measured the decline and not the check.
 #[cfg(feature = "unguarded")]
 fn floor_cost(c: &mut Criterion) {
     use bund2_jit::lower::{Compiler, LastCall};
 
     let mut g = c.benchmark_group("floor_cost");
 
-    for (shape, src) in [("one_site", "1 drop"), ("four_sites", "1 drop 1 drop 1 drop 1 drop")] {
-        let body = compiled(src);
+    for (shape, pairs) in [
+        ("one_site", 1usize),
+        ("four_sites", 4),
+        ("sixteen_sites", 16),
+        ("sixty_four_sites", 64),
+    ] {
+        let body = compiled(&"1 drop ".repeat(pairs));
 
         for (name, checked) in [("checked", true), ("unchecked", false)] {
             let build = || {
@@ -1607,12 +1626,21 @@ fn floor_cost(c: &mut Criterion) {
                 None => bund2_api::errln!("bench: floor_cost {name}/{shape} did not compile"),
             }
 
+            // Built once for the row, so that the count below is the row's.
+            let Some((mut vm, comp, word)) = build() else {
+                continue;
+            };
+            let mut entries = 0u64;
             g.bench_function(format!("{name}/{shape}"), |b| {
-                let Some((mut vm, comp, word)) = build() else {
-                    return;
-                };
-                b.iter(|| black_box(comp.run(word, &mut vm, black_box(&body))).is_ok());
+                b.iter(|| {
+                    entries = entries.saturating_add(1);
+                    black_box(comp.run(word, &mut vm, black_box(&body))).is_ok()
+                });
             });
+            bund2_api::errln!(
+                "bench: floor_cost {name}/{shape} entries {entries} declined at the floor {}",
+                comp.floor_declines()
+            );
         }
     }
 

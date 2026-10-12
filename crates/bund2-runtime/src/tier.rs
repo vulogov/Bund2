@@ -915,13 +915,20 @@ mod tests {
         // entered the compiled form of a body that fails: Tier 0 against
         // Tier 0. The failures are kept, in order, and compared below.
         let mut tier_outcomes = Vec::with_capacity(calls);
+        let mut before_last = 0;
         for _ in 0..calls {
+            before_last = tiered.compiled_entries().unwrap_or(0);
             tier_outcomes.push(tiered.eval_str("w").map_err(|e| norm_msg(&e.0)));
         }
         let tier_outcome = Ok(());
+        // **On the last call, which is the one whose stacks are compared** —
+        // the twenty-fourth review's S9. A count above zero somewhere in the
+        // run would also be satisfied by a body that ran compiled once and
+        // was interpreted for the call the comparison reads.
         assert!(
-            tiered.compiled_entries().unwrap_or(0) > 0,
-            "{label}: no entry ran compiled, so this compares Tier 0 with itself"
+            tiered.compiled_entries().unwrap_or(0) > before_last,
+            "{label}: the last call entered no compiled body, so what is compared \
+             below is Tier 0 with itself"
         );
 
         assert!(
@@ -1446,6 +1453,83 @@ mod tests {
         }
     }
 
+    /// **Criterion 18's two unbuilt parts** — the twenty-fourth review.
+    ///
+    /// *Through `!`.* The criterion has the body turn the mode on "mid-body
+    /// through `!`": `":" !` runs the command by a computed name, which no
+    /// reading of the body can see coming. Every earlier row writes `:`.
+    ///
+    /// *The replace arm.* Every earlier row collects into `[ 0 ]`, a
+    /// container, where `Value::push` appends. On anything else its default
+    /// arm replaces the receiver with the operand
+    /// (`reference/rust_dynamic/src/push.rs:162-168`), so `5` under three
+    /// calls of a body that collects `7` is `7`, one value, and not a list.
+    ///
+    /// Each row states what it leaves. All four were run under the oracle on
+    /// 2026-10-12 and give the same stack display there, under Bund2 with no
+    /// tier and at `--jit-threshold 1`.
+    #[test]
+    fn the_collecting_mode_through_bang_and_onto_a_scalar_match_tier_zero() {
+        // (label, the word, what is beneath, the rendered stack afterwards)
+        const ROWS: [(&str, &str, &str, &[&str]); 4] = [
+            (
+                "a literal, the mode set through `!`",
+                ":w { 1 2 + drop \":\" ! 7 ; } register\n",
+                "[ 0 ]",
+                &["[ 0 ::  7 ::  7 ::  7 :: ]"],
+            ),
+            (
+                "a call, the mode set through `!`",
+                ":w { 1 2 + drop \":\" ! nl ; } register\n",
+                "[ 0 ]",
+                &["[ 0 ::  F(nl) ::  F(nl) ::  F(nl) :: ]"],
+            ),
+            (
+                "a literal onto a scalar",
+                ":w { 1 2 + drop : 7 ; } register\n",
+                "5",
+                &["7"],
+            ),
+            (
+                "a call onto a scalar",
+                ":w { 1 2 + drop : nl ; } register\n",
+                "5",
+                &["F(nl)"],
+            ),
+        ];
+        for (label, setup, beneath, expected) in ROWS {
+            let run = |r: &mut crate::Runtime| {
+                r.eval_str(setup).expect("setup runs");
+                r.eval_str(beneath).expect("the value beneath");
+                let mut before_last = 0;
+                let outcomes: Vec<_> = (0..3)
+                    .map(|_| {
+                        before_last = r.compiled_entries().unwrap_or(0);
+                        r.eval_str("w").map_err(|e| norm_msg(&e.0))
+                    })
+                    .collect();
+                let stack: Vec<_> = r.interp.snapshot().iter().map(norm).collect();
+                let shown: Vec<String> =
+                    r.interp.snapshot().iter().map(|v| v.display()).collect();
+                (outcomes, stack, shown, r.interp.autoadd(), before_last)
+            };
+            let mut tiered = inlining_runtime_with(1);
+            let got = run(&mut tiered);
+            assert!(
+                tiered.compiled_entries().unwrap_or(0) > got.4,
+                "{label}: the last call entered no compiled body, so this compares \
+                 Tier 0 with itself"
+            );
+            let mut tier0 = crate::Runtime::for_debugging(&Default::default(), None);
+            let want = run(&mut tier0);
+            assert_eq!(got.0, want.0, "{label}: each call's outcome");
+            assert_eq!(got.1, want.1, "{label}: the stack");
+            assert_eq!(got.3, want.3, "{label}: the mode afterwards");
+            assert!(!got.3, "{label}: `;` cleared the mode");
+            assert_eq!(got.2, expected, "{label}: what the stack holds");
+        }
+    }
+
     /// **Criterion 26, as programs spell it** — the twenty-third review's S10.
     ///
     /// The nine tests in `crates/bund2-jit/src/lower.rs` reach the drain
@@ -1725,6 +1809,17 @@ mod tests {
             assert_eq!(a.current, b.current, "{label}: current stack");
             assert_eq!(a.stacks, b.stacks, "{label}: stacks");
             assert_eq!(a.workbench, b.workbench, "{label}: workbench");
+            // "Afterwards the request cell must be clear" — the criterion's
+            // own sentence, and the twenty-fourth review's S9. Several of
+            // these rows file a body through `!` before the exit is reached.
+            assert!(
+                !tiered.interp.cells().request(),
+                "{label}: the exit left a request filed in the tier's run"
+            );
+            assert!(
+                !plain.interp.cells().request(),
+                "{label}: the exit left a request filed in Tier 0's run"
+            );
         }
     }
 
@@ -2570,13 +2665,20 @@ mod tests {
         // entered the compiled form of a body that fails: Tier 0 against
         // Tier 0. The failures are kept, in order, and compared below.
         let mut tier_outcomes = Vec::with_capacity(calls);
+        let mut before_last = 0;
         for _ in 0..calls {
+            before_last = tiered.compiled_entries().unwrap_or(0);
             tier_outcomes.push(tiered.eval_str("w").map_err(|e| norm_msg(&e.0)));
         }
         let tier_outcome = Ok(());
+        // **On the last call, which is the one whose stacks are compared** —
+        // the twenty-fourth review's S9. A count above zero somewhere in the
+        // run would also be satisfied by a body that ran compiled once and
+        // was interpreted for the call the comparison reads.
         assert!(
-            tiered.compiled_entries().unwrap_or(0) > 0,
-            "{label}: no entry ran compiled, so this compares Tier 0 with itself"
+            tiered.compiled_entries().unwrap_or(0) > before_last,
+            "{label}: the last call entered no compiled body, so what is compared \
+             below is Tier 0 with itself"
         );
 
         assert!(

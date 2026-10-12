@@ -1303,6 +1303,8 @@ struct GuardedRegion {
     mode: Option<Block>,
     /// The arm's first block.
     region: Block,
+    /// Where the arm ends: the block the next value of the body begins in.
+    join: Block,
 }
 
 /// The one block that branches to `to`, or why there is not exactly one.
@@ -1425,6 +1427,86 @@ fn guards_hold(
         ));
     }
     Ok(())
+}
+
+/// **RFC-0005 criterion 21, read off the emitted function**: does `site`'s
+/// region hold one value of the body and nothing else?
+///
+/// "No inlined or folded region spans a call site." A call site in a compiled
+/// body is a `call_indirect` through the body's slot table, or the
+/// `return_call_indirect` that ends a body whose last call is a tail call. An
+/// inlined arm makes neither: it calls the four stack helpers directly and
+/// jumps to its join. So the walk goes from the region's first block to
+/// `site.join`, turning aside at `fail`, and refuses:
+///
+/// 1. an indirect call, which is a value of the body being applied;
+/// 2. a direct call to anything but `helpers`, which is how the residual and
+///    the drain are reached and either would run more of the body;
+/// 3. a return, which would end the body inside the arm;
+/// 4. a region that never reaches its join.
+///
+/// With assumption 38's side table, which gives each site one index of the
+/// source body, this is what makes a region one value wide: the value after
+/// it starts at the join, outside. There is no folding in this lowering, so
+/// "or folded" has nothing to check.
+///
+/// Bounded by the function's block count: a block is visited once.
+fn region_is_one_value(
+    func: &ir::Function,
+    cfg: &ControlFlowGraph,
+    site: &GuardedRegion,
+    fail: Block,
+    helpers: &[ir::FuncRef],
+) -> Result<(), String> {
+    let mut seen: Vec<Block> = Vec::new();
+    let mut todo: Vec<Block> = vec![site.region];
+    let mut rejoins = false;
+    let limit = func.layout.blocks().count();
+    while let Some(block) = todo.pop() {
+        if block == site.join {
+            rejoins = true;
+            continue;
+        }
+        if block == fail || seen.contains(&block) {
+            continue;
+        }
+        if seen.len() >= limit {
+            return Err("its blocks outnumber the function's".to_string());
+        }
+        seen.push(block);
+        for inst in func.layout.block_insts(block) {
+            let data = &func.dfg.insts[inst];
+            match data.opcode() {
+                ir::Opcode::CallIndirect | ir::Opcode::ReturnCallIndirect => {
+                    return Err(format!(
+                        "{block} applies a value of the body through its slot, so the \
+                         region spans a call site"
+                    ));
+                }
+                ir::Opcode::Return | ir::Opcode::ReturnCall => {
+                    return Err(format!("{block} ends the body inside the region"));
+                }
+                ir::Opcode::Call => {
+                    let known = matches!(
+                        data,
+                        ir::InstructionData::Call { func_ref, .. } if helpers.contains(func_ref)
+                    );
+                    if !known {
+                        return Err(format!(
+                            "{block} calls something that is not one of the four stack helpers"
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
+        todo.extend(cfg.succ_iter(block));
+    }
+    if rejoins {
+        Ok(())
+    } else {
+        Err(format!("it never reaches its join at {}", site.join))
+    }
 }
 
 /// Which Rust adapter a body's thunks call.
@@ -2707,6 +2789,9 @@ fn emit_into<M: cranelift_module::Module>(
     let syncs: usize;
     // Filled by the body emitter, read by the dominance check after it.
     let side_table: Vec<GuardedRegion>;
+    // The body's `fail` block and its four stack helpers, for criterion 21's
+    // check, which runs after the builder's borrow ends as the one above does.
+    let region_bounds: (Block, [ir::FuncRef; 4]);
     // Assumption 38's map, escaping the builder's block the way `side_table`
     // does: site index, and the source-body index its residual resumes at.
     let resume_table: Vec<(usize, usize)>;
@@ -3222,6 +3307,7 @@ fn emit_into<M: cranelift_module::Module>(
                     generation: guard_block,
                     mode: None,
                     region,
+                    join,
                 });
             } else {
 
@@ -3256,6 +3342,7 @@ fn emit_into<M: cranelift_module::Module>(
                 generation: guard_block,
                 mode: Some(mode),
                 region,
+                join,
             });
             }
 
@@ -3319,6 +3406,7 @@ fn emit_into<M: cranelift_module::Module>(
         f.seal_all_blocks();
         f.finalize(frontend);
         side_table = regions;
+        region_bounds = (fail, [pop, push, dup, drop_]);
         resume_table = resumes;
         syncs = syncs_here;
     }
@@ -3350,6 +3438,23 @@ fn emit_into<M: cranelift_module::Module>(
                     "an inlined region at {} is not behind its meaning guards: {why}. \
                      RFC-0005 criterion 17 requires a load and compare of the name's \
                      generation cell and of the autoadd cell on every path into it",
+                    site.region
+                )
+            })?;
+        }
+    }
+
+    // **Criterion 21's clause, as a refusal too**: no inlined region spans a
+    // call site. Asked of every build, the timed one included, since it says
+    // nothing about guards. [`region_is_one_value`] has what is asked.
+    if !side_table.is_empty() {
+        let cfg = ControlFlowGraph::with_function(&cg.func);
+        let (fail, helpers) = &region_bounds;
+        for site in &side_table {
+            region_is_one_value(&cg.func, &cfg, site, *fail, helpers).map_err(|why| {
+                format!(
+                    "an inlined region at {} is not one value of the body: {why}. \
+                     RFC-0005 criterion 21 requires that no inlined region span a call site",
                     site.region
                 )
             })?;
@@ -5774,6 +5879,174 @@ mod tests {
         }
     }
 
+    /// An inlined arm as the lowering emits it — a helper call, a status
+    /// branch to `fail`, a jump to the join — built by hand so that it can be
+    /// got wrong one way at a time, and [`region_is_one_value`]'s verdict.
+    fn region_shape(wrong: &str) -> Result<(), String> {
+        let config = JITModule::new(
+            JITBuilder::new(default_libcall_names()).expect("a builder"),
+        )
+        .target_config();
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(types::I64));
+        sig.returns.push(AbiParam::new(types::I32));
+        let mut func =
+            ir::Function::with_name_signature(ir::UserFuncName::default(), sig.clone());
+        let mut ctx = FunctionBuilderContext::new();
+        let mut f = FunctionBuilder::new(&mut func, &mut ctx);
+        let sig_ref = f.import_signature(sig.clone());
+        let import = |f: &mut FunctionBuilder<'_>, n: u32| {
+            let name = f.func.declare_imported_user_function(ir::UserExternalName::new(0, n));
+            f.import_function(ir::ExtFuncData {
+                name: ir::ExternalName::user(name),
+                signature: sig_ref,
+                colocated: false,
+                patchable: false,
+            })
+        };
+        let helper = import(&mut f, 0);
+        let other = import(&mut f, 1);
+
+        let entry = f.create_block();
+        let region = f.create_block();
+        let rest = f.create_block();
+        let join = f.create_block();
+        let fail = f.create_block();
+
+        f.append_block_params_for_function_params(entry);
+        f.switch_to_block(entry);
+        let ctx_val = f.block_params(entry)[0];
+        f.ins().jump(region, &[]);
+
+        f.switch_to_block(region);
+        let callee = if wrong == "a call to something else" { other } else { helper };
+        let call = f.ins().call(callee, &[ctx_val]);
+        let status = f.inst_results(call)[0];
+        f.ins().brif(status, fail, &[], rest, &[]);
+
+        f.switch_to_block(rest);
+        match wrong {
+            "a slot call" => {
+                let through = f.ins().call_indirect(sig_ref, ctx_val, &[ctx_val]);
+                let _ = f.inst_results(through)[0];
+                f.ins().jump(join, &[]);
+            }
+            "a tail call" => {
+                f.ins().return_call_indirect(sig_ref, ctx_val, &[ctx_val]);
+            }
+            "a return" => {
+                f.ins().return_(&[status]);
+            }
+            "no join" => {
+                f.ins().jump(fail, &[]);
+            }
+            _ => {
+                f.ins().jump(join, &[]);
+            }
+        }
+
+        // What follows the region may call through a slot: that is the next
+        // value of the body, and it is outside.
+        f.switch_to_block(join);
+        let next = f.ins().call_indirect(sig_ref, ctx_val, &[ctx_val]);
+        let next_status = f.inst_results(next)[0];
+        f.ins().return_(&[next_status]);
+        f.switch_to_block(fail);
+        let bad = f.ins().iconst(types::I32, 1);
+        f.ins().return_(&[bad]);
+        f.seal_all_blocks();
+        f.finalize(config);
+
+        let cfg = ControlFlowGraph::with_function(&func);
+        let site = GuardedRegion {
+            generation: entry,
+            mode: None,
+            region,
+            join,
+        };
+        region_is_one_value(&func, &cfg, &site, fail, &[helper])
+    }
+
+    /// **Criterion 21: "no inlined or folded region spans a call site"**,
+    /// which nothing asserted until the twenty-fourth review said so. The
+    /// shape the lowering emits passes, with a slot call directly after its
+    /// join; five wrong shapes are refused, each for its own reason.
+    #[test]
+    fn a_region_that_spans_a_call_site_is_refused() {
+        region_shape("").expect("the shape the lowering emits holds");
+        for (wrong, why) in [
+            ("a slot call", "spans a call site"),
+            ("a tail call", "spans a call site"),
+            ("a return", "ends the body inside the region"),
+            ("a call to something else", "not one of the four stack helpers"),
+            ("no join", "never reaches its join"),
+        ] {
+            let refused = region_shape(wrong).expect_err(wrong);
+            assert!(refused.contains(why), "{wrong}: {refused}");
+        }
+    }
+
+    /// **The same clause on a real body, through the side table.** Sites and
+    /// calls interleaved: `1 2 + nl 3 + nl drop`. The body compiles, so the
+    /// check above passed on each of its three regions; and assumption 38's
+    /// table gives each site its own index, in order, each the position of
+    /// the inlined name and none the position of a call or a literal. One
+    /// index a site, and the plan holds one entry a value, so a region is one
+    /// value wide and the calls at 3 and 6 lie between regions.
+    #[test]
+    fn inlined_sites_and_calls_interleave_one_value_each() {
+        let body = vec![
+            BundValue::int(1),
+            BundValue::int(2),
+            BundValue::call("+"),
+            BundValue::call("nl"),
+            BundValue::int(3),
+            BundValue::call("+"),
+            BundValue::call("nl"),
+            BundValue::call("drop"),
+        ];
+        let (mut vm, table) = with_fragments();
+        let mut c = Compiler::new(table).expect("a compiler");
+
+        let (plan, sites) = c.plan_body(&body, &mut vm);
+        assert_eq!(plan.len(), body.len(), "one plan entry for each value");
+        let inlined: Vec<usize> = plan
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| matches!(p, Plan::Inline { .. }))
+            .map(|(i, _)| i)
+            .collect();
+        let called: Vec<usize> = plan
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| matches!(p, Plan::Call { .. }))
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(inlined, [2, 5, 7], "`+`, `+` and `drop`");
+        assert_eq!(called, [3, 6], "the two `nl`s are calls");
+        assert_eq!(sites.len(), 3);
+
+        let cells = vm.cells().base();
+        let word = c
+            .compile_word(&body, LastCall::Ordinary, cells, &mut vm)
+            .expect("lowers, so every region passed `region_is_one_value`");
+        let side = c.resume_table(word).expect("the word exists");
+        assert_eq!(
+            side,
+            [(0, 2), (1, 5), (2, 7)],
+            "each site resumes at its own position, and no two share one"
+        );
+        for &(_, at) in side {
+            assert!(!called.contains(&at), "a region resumes at a call site: {at}");
+        }
+
+        assert_eq!(c.run(word, &mut vm, &body), Ok(true), "and it runs compiled");
+        let mut tier0 = with_stdlib();
+        tier0.eval(&body).expect("Tier 0 runs the same body");
+        let (a, b) = (tier0.snapshot(), vm.snapshot());
+        assert_eq!(a.len(), b.len(), "depth: {a:?} vs {b:?}");
+    }
+
     /// **Criterion 17's check refuses what it exists to refuse.** A compiler
     /// with the meaning guards switched off emits the inlined arm behind a
     /// bare jump. Until 2026-10-11 the check passed that: it asked whether
@@ -5867,6 +6140,8 @@ mod tests {
             generation,
             mode: Some(mode),
             region,
+            // Not read by `guards_hold`.
+            join: generic,
         };
         guards_hold(&func, &cfg, &domtree, &site, off)
     }

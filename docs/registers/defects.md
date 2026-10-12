@@ -4132,6 +4132,14 @@ for it, or 12 once any body has been declined. D146 has the table, what was
 built, and how it differs from what this entry proposed: the tier says so
 through `Vm::tier_never` and `Tier::enter`'s contract is as it was.
 
+*Note, 2026-10-12 — RFC-0005's twenty-fourth review, S11.* **Status:** FIXED
+2026-10-11, under D146, as the note above says; the disposition line is as
+first written. Its test in `crates/bund2-runtime/src/tier.rs` is
+`a_demoted_body_is_offered_twice_and_a_compiled_one_every_time`.
+
+The interpreter's half is held in `crates/bund2-interp/src/lib.rs`, by
+`a_body_declined_for_good_is_offered_once`.
+
 ## F200 — a malformed fragment disabled all inlining and said nothing
 
 **A Bund2 defect, latent; found 2026-10-10** by RFC-0005's twenty-third
@@ -4354,6 +4362,12 @@ a compiled body is offered to the tier and runs compiled if it has code.
 The program above reports 1,997,952 compiled entries and reads 1.42× to
 1.43×.
 
+*Note, 2026-10-12 — RFC-0005's twenty-fourth review, S11.* **Status:** FIXED
+2026-10-10, by D145, as the note above says; the disposition line is as
+first written. Tests: `a_word_beneath_a_compiled_body_runs_compiled` and
+`a_body_that_gets_hot_beneath_a_compiled_one_is_compiled_afterwards`
+(`crates/bund2-runtime/src/tier.rs`).
+
 ## F193 — `conform` printed no compiled total and failed no `jit` run
 
 **A Bund2 defect, found 2026-10-10** by RFC-0005's twenty-third review, B5.
@@ -4368,6 +4382,14 @@ ratios, of which the shipped-threshold `jit` run compiles nothing at all
 **Disposition: FIX, as scoped by D141.** Measured after the fix, at
 `--jit-threshold 1`: 12 bodies in 10 of 145 programs, 53 compiled entries,
 133/145, CEILING 133/145.
+
+*Note, 2026-10-12 — RFC-0005's twenty-fourth review, S11.* **Status:** FIXED
+2026-10-10. No test holds it: the total is a line `conform` prints, and the
+failure of a `jit` run that compiles nothing is `conform`'s own exit at
+`--jit-threshold 1`, as D141 scopes it. The one test near it,
+`both_stats_lines_are_taken_out_of_what_is_compared`
+(`xtask/src/conform/mod.rs`), is about what is compared and not about the
+total.
 
 ## F192 — differentials listed as met compared Tier 0 with itself
 
@@ -4413,6 +4435,11 @@ its body at Tier 0, because its reporter wants the stack at every severity
 and D71 has the tier decline such a body. That is the rule working; the
 criterion's wording is what is wrong, and RFC-0005 is corrected there.
 
+*Note, 2026-10-12 — RFC-0005's twenty-fourth review, S11.* **Status:** FIXED
+2026-10-10. On 2026-10-12 the two helpers were tightened again: each
+requires the compiled-entry count to rise across the call it compares, and
+not only somewhere in the run.
+
 ## F191 — the function cap bounded bodies held, not functions emitted
 
 **A Bund2 defect, found 2026-10-10** by RFC-0005's twenty-third review, B2,
@@ -4431,6 +4458,10 @@ body with no inlinable site and was swept only when the counter filled.
 
 **Disposition: FIX, by D140.**
 
+*Note, 2026-10-12 — RFC-0005's twenty-fourth review, S11.* **Status:** FIXED
+2026-10-10. Tests: `the_function_cap_leaves_the_body_past_it_interpreted`
+and `the_function_cap_survives_a_sweep` (`crates/bund2-jit/src/cache.rs`).
+
 ## F190 — a backtrace taken beneath a compiled body lost that body's line
 
 **A Bund2 defect, found 2026-10-10** by RFC-0005's twenty-third review, B1,
@@ -4448,6 +4479,10 @@ construction". This was a counter-example no golden could see, because the
 word is Bund2's own and no golden runs it.
 
 **Disposition: FIX, by D139.**
+
+*Note, 2026-10-12 — RFC-0005's twenty-fourth review, S11.* **Status:** FIXED
+2026-10-10. Test: `a_backtrace_from_under_a_compiled_body_names_it`
+(`crates/bund2-runtime/src/tier.rs`).
 
 ## F189 — a hot body failing under a native lost the native's wrapper
 
@@ -4478,6 +4513,9 @@ Tests: `a_hot_body_under_a_native_reaches_exit_as_tier_zero_does` (eight
 programs, RFC-0005 criterion 30's mirror cases) and
 `a_hot_body_failing_under_a_native_keeps_the_natives_wrapper`, both in
 `crates/bund2-runtime/src/tier.rs`.
+
+*Note, 2026-10-12 — RFC-0005's twenty-fourth review, S11.* **Status:** FIXED
+2026-10-10; the tests are named above.
 
 ## F188 — what the reference's fetch reads depends on the libcurl the system has
 

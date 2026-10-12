@@ -73,5 +73,10 @@ harness = false
 name = "fragment"
 harness = false
 
+# RFC-0005 criterion 11's floor check, by instructions retired. See the file.
+[[example]]
+name = "floor_count"
+required-features = ["unguarded"]
+
 [lints]
 workspace = true

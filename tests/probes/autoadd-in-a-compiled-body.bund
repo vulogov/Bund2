@@ -1,0 +1,25 @@
+//
+// PROBE: the collecting mode, set inside a body the tier compiles (RFC-0005
+// criterion 18). Each word opens with `1 2 + drop`, which gives its body a
+// site, so that at `--jit-threshold 1` it is compiled on its first call and
+// entered compiled on the next two. What follows `:` must be collected as
+// the reference collects it:
+//   a literal or a CALL is appended into the value beneath
+//     (reference/rust_multistackvm/src/multistackvm_apply.rs:19-27,
+//      reference/rust_multistackvm/src/multistackvm_apply.rs:89-97);
+//   a CONTEXT is pushed as a value of its own
+//     (reference/rust_multistackvm/src/multistackvm_apply.rs:72-73);
+//   and onto a value that is not a container, "appended" is replaced
+//     (reference/rust_dynamic/src/push.rs:162-168).
+// `bang` sets the mode by a computed name, through `!`.
+//
+:lit { 1 2 + drop : 7 ; } register
+[ 0 ] lit lit lit
+:called { 1 2 + drop : 7 nl ; } register
+[ 0 ] called called called
+:ctx { 1 2 + drop : 7 @side ; } register
+[ 0 ] ctx ctx ctx
+:bang { 1 2 + drop ":" ! 7 nl ; } register
+[ 0 ] bang bang bang
+:scalar { 1 2 + drop : 7 ; } register
+5 scalar scalar scalar
