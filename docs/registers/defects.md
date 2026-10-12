@@ -4077,8 +4077,8 @@ The comment above the `Tail` signature in the same file says there is "no
 per-target predicate to ask" about tail calls. That is true of the
 convention and false of the settings: this is one.
 
-**Status:** FIXED 2026-10-12, read on macOS arm64 and awaiting its Linux
-run. Modules of bodies are built with `BODY_FLAGS`, which sets
+**Status:** FIXED 2026-10-12. The eight tests pass on Linux x86-64
+(`linux-reading`, run 38318272664). Modules of bodies are built with `BODY_FLAGS`, which sets
 `preserve_frame_pointers`, on every target; the relocation probe builds its
 object with the same. On aarch64 the instruction count of `floor_count` at
 64 sites is unchanged within what the count resolves there.

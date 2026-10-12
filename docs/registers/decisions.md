@@ -3713,6 +3713,13 @@ the instrument is a clock. C: nothing gates the check's cost.
   criterion 11. Not ruled, and not done: a CI step for it, and a Linux
   reading.
 
+*2026-10-12, later: a Linux reading.* On Linux x86-64 the floor check adds
+3.04, 3.04, 3.05 and 3.06 instructions an entry at 1, 4, 16 and 64 sites,
+by callgrind's count over one million entries (`linux-reading`, run
+38318272664). The macOS readings above were taken with `/usr/bin/time -l`,
+whose run-to-run spread, re-read on this date, is larger than they are.
+RFC-0005's amendment of this date has both.
+
 ## D148 — what decides RFC-0005's criterion 7: the clock it names, or D117's count?
 
 **Raised 2026-10-11** by RFC-0005's twenty-fourth review (B4). The criterion
@@ -4057,6 +4064,9 @@ looked for. Single runs ranged 2.327 to 2.405 ms and 3.080 to 3.254 ms with
 the tier, 2.349 to 2.485 ms and 3.090 to 3.222 ms without. So the clock is
 consistent with the count's +0.6% and +0.8% and does not confirm them; the
 count is the reading, as D117 rules.
+
+*2026-10-12: the spread on Linux.* Measured under glibc on x86-64: ten
+thousand bodies made in a row fill all 1,024 slots at 32, 64 and 128 bytes.
 
 ## D145 — a body entered beneath a compiled body may run compiled
 

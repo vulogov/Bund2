@@ -4659,6 +4659,12 @@ the D146 amendment's qualified sentence), its tenth is a note under assumption
     another allocator more bodies may share a slot, and a refusal displaced
     from its slot is asked of the tier again: speed, never meaning. D146 lists
     Linux as not measured, and it is still not.
+    *(2026-10-12: measured on Linux x86-64 under glibc's allocator. Ten
+    thousand bodies made in a row fill all 1,024 slots at a spacing of 32
+    bytes, at 64 and at 128, where macOS arm64 fills 419, 819 and 1,024.
+    `ten_thousand_bodies_in_a_row_spread_over_the_slots`
+    (`crates/bund2-interp/src/declined.rs`) prints the three figures on
+    whatever host runs it.)*
 49. **An `Interp` runs on the thread that built it.** Both floors are fixed
     at `Interp::new` from that thread's declared region. This one is
     structural: `Interp` holds `Rc`s and is not `Send`, and
@@ -9219,3 +9225,66 @@ offering bodies. The test of D145's third nested case, which had left the
 number of bodies unasserted because of this, now asserts two.
 
 **Not done.** No Linux reading of any of this.
+
+## Amendment, 2026-10-12 — a Linux reading; F204
+
+Every check in this document had been taken on macOS arm64. `ci` runs on
+`main` and on pull requests, so this branch had no Linux run. A workflow
+for the branch, `linux-reading`, now takes one on a hosted runner: Linux
+6.17 on x86-64, rustc 1.95.0. Two runs, 38304261478 at `67e8ced` and
+38318272664 at `d90beab`. What follows is the second unless it says
+otherwise.
+
+**What passes there.** `cargo fmt --check`; clippy under both feature sets
+with warnings denied; the suite, 694 passed and none failed; the suite with
+`jit,relocation-test`, 846 passed and none failed; `cite`; `lint`; `depth`
+with the tier, all five axes, the loop axis reporting Tier 0's floor at
+level 7,858 where macOS reports 7,557. Three things had to change first:
+the workspace was formatted, `cite` stopped depending on a build by-product
+(F21's note), and the palette audit stopped calling the promotable list
+stale on a host with no IPv6 address or no locale.
+
+**F204, found by the first run.** Eight of the tier's tests panicked inside
+Cranelift's x86-64 emitter, which lowers a tail call only with frame
+pointers kept. Modules of bodies are now built so, on every target, and the
+second run passes all eight. No shipped body lowers a tail call (assumption
+44), so the binary never reached it.
+
+**Criterion 11's cost clause, as D149 words it.** The floor check adds
+3.04, 3.04, 3.05 and 3.06 instructions an entry at 1, 4, 16 and 64 sites,
+checked less unchecked over one million entries. The first run, before
+F204's change and over ten million entries, read 3.00, 3.00, 3.01 and 3.03.
+The bound is 20. The instrument is callgrind's count of instructions
+executed in user space, because a hosted runner exposes no hardware
+counter; it counts and does not sample, so the difference is exact.
+
+That is not the instrument D149's macOS readings used, and the comparison
+does not flatter them. `/usr/bin/time -l` on macOS, repeated three times at
+64 sites on this date, put the checked arm anywhere from 68 instructions an
+entry below the unchecked arm to 21 above it. Run-to-run spread there is
+larger than the readings D149 records (+1.1 to +12.7) and larger than the
+bound. The macOS figures say the cost is not large. The Linux figure is the
+one that says what it is.
+
+**Assumption 48.** Measured; its note has the figures.
+
+**Conformance on Linux is 128/146, CEILING 135/146**, identically at Tier 0,
+with the tier at its default threshold, and at threshold 1, where 17 bodies
+are compiled in 11 of 146 programs with 63 compiled entries, as on macOS.
+So the tier moves nothing there either, which is this document's claim.
+Six goldens differ and one approved deviation has drifted, and every one
+is the host showing through a golden captured on macOS:
+
+| golden | what differs |
+|---|---|
+| `application_logic_demos`, probe `math-float-family` | the last digit of one sine in a table of ten, and of two results that print as 0.5235… and 1.0471…: the platform's maths library |
+| `fmt_conditional_demo`, `fmt_conditional_with_display_demo` | the message chosen by locale; the runner has none, so the default message is printed and not the `en-US` one |
+| `pull_demo` | where a line of displayed text wraps |
+| probe `sysinfo-words` | three memory figures the capturing host reports as zero and this one does not, which the probe's own comment calls not portable |
+| probe `execute-arm-not-executable` (approved, F66) | the report prints the program's absolute path, and the recorded hash is of the path on the capturing machine |
+
+None is a difference between the tiers and none is filed as a defect here.
+What `conform` should do about a golden that records its host is a decision
+this document does not take.
+
+**Not done.** No aarch64 Linux reading, and no x86-64 macOS one.
