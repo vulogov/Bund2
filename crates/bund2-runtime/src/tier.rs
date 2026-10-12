@@ -52,6 +52,9 @@ pub struct JitTier {
     /// **How many compiled bodies were running when §S8's floor first turned
     /// an entry away** — D147. `None` until it has.
     first_floor_decline: std::cell::Cell<Option<usize>>,
+    /// **How many bodies failed to compile** — F202. Each is demoted, and the
+    /// first is reported.
+    compile_failures: std::cell::Cell<usize>,
     /// **Bodies that earned compilation while one was running**, compiled when
     /// the outermost has returned. Bounded by [`PENDING`]; a body turned away
     /// at the bound asks again on its next entry.
@@ -101,6 +104,7 @@ impl JitTier {
             compiler: std::cell::RefCell::new(None),
             running: std::cell::Cell::new(0),
             first_floor_decline: std::cell::Cell::new(None),
+            compile_failures: std::cell::Cell::new(0),
             pending: std::cell::RefCell::new(Vec::new()),
             table,
             crossable: std::collections::BTreeSet::new(),
@@ -390,10 +394,14 @@ impl JitTier {
                 // say what may be inlined; D47/D48's say what may be
                 // crossed. Neither is reachable from a `&mut dyn Vm`,
                 // so both are cloned down from the tier (D68).
-                *slot = Some(
-                    Compiler::with_crossable(self.table.clone(), self.crossable.clone())
-                        .ok()?,
-                );
+                match Compiler::with_crossable(self.table.clone(), self.crossable.clone()) {
+                    Ok(compiler) => *slot = Some(compiler),
+                    Err(e) => {
+                        drop(slot);
+                        self.compile_failed(body, &e, vm);
+                        return None;
+                    }
+                }
             }
             let compiler = slot.as_mut()?;
             // **§S6's addressing.** The emitted body loads the request
@@ -403,9 +411,8 @@ impl JitTier {
             let cells = vm.cells().map(bund2_api::Cells::base)?;
             // A failure to compile is not the program's fault and not
             // its problem: the body is interpreted, as it would have
-            // been with no tier at all. It is dropped rather than
-            // reported because there is no diagnostic a *user* could
-            // act on, and the body still runs correctly.
+            // been with no tier at all. What follows one is
+            // `compile_failed`, at the foot of this function.
             // **The body itself, not just its length** — §S6's join
             // decides per value whether to inline, which needs the
             // values. `items` answered `Some` above, and the body is
@@ -437,12 +444,46 @@ impl JitTier {
             if !self.tiering.try_borrow().is_ok_and(|t| t.has_room()) {
                 return None;
             }
-            if let Ok(code) = compiler.compile_word(&values, LastCall::Ordinary, cells, vm)
-            {
-                self.tiering.try_borrow_mut().ok()?.insert(body, code);
+            match compiler.compile_word(&values, LastCall::Ordinary, cells, vm) {
+                Ok(code) => {
+                    self.tiering.try_borrow_mut().ok()?.insert(body, code);
+                }
+                Err(e) => {
+                    drop(slot);
+                    self.compile_failed(body, &e, vm);
+                    return None;
+                }
             }
         }
         Some(())
+    }
+
+    /// **What follows a body that could not be compiled** — F202.
+    ///
+    /// The body is demoted, so it is interpreted from here on and never
+    /// lowered again: left alone its counter stays past the threshold, and
+    /// every later entry would pay a whole lowering to fail the same way. The
+    /// next entry answers [`Decision::Demoted`], which is where `Interp` is
+    /// told not to offer it again (D146).
+    ///
+    /// The first failure is reported, as a `Warning` because the program runs
+    /// and runs correctly (D36), and as an internal error because nothing a
+    /// program does should make the lowering fail: it is Bund2's defect (D37),
+    /// F200's shape. Later ones are counted and not reported, so a lowering
+    /// that fails for every body costs a run one line and not one per body.
+    fn compile_failed(&self, body: &BundValue, why: &str, vm: &mut dyn Vm) {
+        if let Ok(mut tiering) = self.tiering.try_borrow_mut() {
+            tiering.demote(body);
+        }
+        let earlier = self.compile_failures.get();
+        self.compile_failures.set(earlier.saturating_add(1));
+        if earlier == 0 {
+            let e = Error::internal(format!(
+                "the tier could not compile a body ({why}); it is interpreted instead, as is \
+                 every body that fails this way, and no later failure is reported"
+            ));
+            vm.report(bund2_api::diag::Diagnostic::warning(e.0));
+        }
     }
 }
 
@@ -2984,6 +3025,53 @@ mod tests {
             second.tiering().expect("nothing holds it").compiled(&body).is_none(),
             "and its cache misses the very body the first tier compiled"
         );
+    }
+
+    /// **What follows a compilation that fails** — F202, the twenty-fourth
+    /// review's B5.
+    ///
+    /// The failure was dropped: the body stayed past the threshold, so every
+    /// later entry lowered it again to fail the same way, and nothing said so.
+    /// This pins what follows one: the body is demoted, the next entry tells
+    /// `Interp` not to offer it again, and the run is told once, as a warning
+    /// that names the defect as Bund2's. The failure itself cannot be produced
+    /// from here — nothing a program does makes the lowering fail — so the
+    /// test starts where the failure arm does, as F200's does.
+    #[test]
+    fn a_body_that_fails_to_compile_is_demoted_and_reported_once() {
+        let tier = JitTier::new(Caps {
+            threshold: 1,
+            ..Caps::default()
+        });
+        let mut host = crate::Runtime::new();
+        host.take_tier();
+        let seen = SharedReporter::default();
+        host.interp.reporter = Box::new(seen.clone());
+
+        let body = BundValue::lambda(vec![BundValue::int(1)]);
+        let other = BundValue::lambda(vec![BundValue::int(2)]);
+        tier.compile_failed(&body, "the guards do not hold", &mut host.interp);
+        tier.compile_failed(&other, "the guards do not hold", &mut host.interp);
+
+        let tiering = tier.tiering().expect("nothing holds it");
+        assert!(tiering.is_demoted(&body) && tiering.is_demoted(&other));
+        drop(tiering);
+        assert!(
+            tier.enter(&body, &mut host.interp).is_none(),
+            "a demoted body is interpreted"
+        );
+        assert_eq!(tier.compiled_words(), 0, "and was not lowered again");
+
+        let seen = seen.0.borrow();
+        assert_eq!(seen.len(), 1, "the first failure is reported, the second counted");
+        assert_eq!(seen[0].severity, bund2_api::diag::Severity::Warning);
+        assert!(
+            seen[0].reason.starts_with("internal error: the tier could not compile a body")
+                && seen[0].reason.contains("the guards do not hold"),
+            "{}",
+            seen[0].reason
+        );
+        assert_eq!(tier.compile_failures.get(), 2);
     }
 
     /// **A registry assigned under a tier takes the tier with it** — §S6, the

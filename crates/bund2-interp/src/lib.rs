@@ -819,9 +819,10 @@ impl Interp {
     ///   `endcontext` closes it.
     /// - **anything else** — push (`:99`).
     ///
-    /// `autoadd` is not implemented, so the branches at `:19` and `:89` are
-    /// absent. When list construction lands it belongs here, not at the call
-    /// sites.
+    /// `autoadd`'s collecting is not implemented, so the reference's branches
+    /// at `:19` (the CALL arm) and `:89` (the literal arm) are absent, and so
+    /// is the CONTEXT arm's at `:72-73`. When list construction lands it
+    /// belongs here, not at the call sites.
     /// Apply one value **synchronously**: whatever it asks for has run by the
     /// time this returns.
     ///
@@ -2958,6 +2959,15 @@ mod tests {
 
         Vm::to_stack(&mut i, "s");
         let two = i.cells().epoch.get();
+        assert!(two > one, "a switch to another stack moves it");
+        // The third exact case, which this test did not assert until
+        // RFC-0005's twenty-fourth review (B7).
+        Vm::to_stack(&mut i, "s");
+        assert_eq!(
+            i.cells().epoch.get(),
+            two,
+            "`to_stack` to the stack already current is not a switch"
+        );
         i.rotate_stacks_left();
         assert!(i.cells().epoch.get() > two, "a ring of two rotates");
 

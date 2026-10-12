@@ -21,6 +21,14 @@
 //!   superclass (`reference/rust_multistackvm/src/stdlib/bund_object.rs:50`),
 //!   which RFC-0009 §S3 turns into frames.
 //!
+//! Two more were added for RFC-0005 §S8, whose floors they are about:
+//!
+//! - **loop** — a word that calls itself through `times`, which spends Rust
+//!   stack a level in either build (F85).
+//! - **compiled** — a word the tier compiles, calling itself. `call`'s word
+//!   has no site the tier inlines and is never compiled, so until this axis
+//!   nothing here ran a compiled recursion (D147).
+//!
 //! # This tool is expected to fail today
 //!
 //! Nothing here is implemented yet. A criterion that cannot fail before the
@@ -211,6 +219,22 @@ fn call_program(n: usize) -> String {
     )
 }
 
+/// A word that calls itself `n` times **and that the tier compiles** —
+/// RFC-0005 criterion 11's own subject, "a promoted recursion".
+///
+/// [`call_program`]'s word is never compiled: nothing in it is a site the
+/// tier can inline, so F136 refuses it, and that axis runs interpreted with
+/// the tier on or off (D147's note, 2026-10-11). `1 2 + drop` is a site. With
+/// the tier each level then runs compiled beneath the last, on the machine
+/// stack, until §S8's Tier 1 floor declines an entry and the rest goes on at
+/// Tier 0, on the heap. Without the tier it is `call` with four more values.
+fn compiled_program(n: usize) -> String {
+    format!(
+        ":Down {{ 1 2 + drop 1 swap - dup 0 != {{ Down }} ?true }} register\n{n} Down\n",
+        n = n
+    )
+}
+
 /// A word that calls itself **through `times`**, `n` levels deep — F85's
 /// shape.
 ///
@@ -329,6 +353,12 @@ pub fn run_cmd(args: &[String]) -> Result<(), String> {
             "a class chain — RFC-0009 §S3",
         ),
         (
+            "compiled",
+            depth,
+            compiled_program(depth),
+            "a word the tier compiles, calling itself — RFC-0005 criterion 11",
+        ),
+        (
             "loop",
             depth,
             loop_program(depth),
@@ -400,8 +430,8 @@ pub fn run_cmd(args: &[String]) -> Result<(), String> {
         ));
     }
     for a in &require {
-        if !["call", "nesting", "class", "loop"].contains(&a.as_str()) {
-            return Err(format!("unknown axis `{a}` — expected call, nesting, class or loop"));
+        if !["call", "nesting", "class", "compiled", "loop"].contains(&a.as_str()) {
+            return Err(format!("unknown axis `{a}` — expected call, nesting, class, compiled or loop"));
         }
     }
     Ok(())
@@ -414,6 +444,13 @@ mod tests {
     /// The counter must **descend**. With arithmetic's reversed operands
     /// `n 1 -` is `1 - n`, which oscillates and overflows at any depth — a
     /// failure that would have been read as "the call axis aborts at 100".
+    #[test]
+    fn the_compiled_program_is_the_call_program_with_a_site() {
+        let (call, compiled) = (call_program(3), compiled_program(3));
+        assert!(compiled.contains("1 2 + drop"), "the site F136 asks for");
+        assert_eq!(compiled.replace("1 2 + drop ", ""), call, "and otherwise the same recursion");
+    }
+
     #[test]
     fn the_call_program_descends_rather_than_oscillating() {
         let p = call_program(3);

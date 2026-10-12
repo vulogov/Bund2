@@ -2821,6 +2821,13 @@ RFC-0005 criterion 18 is **met** as of the same day, both halves: entry
 declines under the mode, and the read after every call sends the rest of the
 body to §S5's residual.
 
+*Note, 2026-10-11 — a citation in this entry names the wrong arm.* The
+replace arm of `Value::push` is its default arm,
+`reference/rust_dynamic/src/push.rs:162-168`: `let mut res = value.clone();`
+then `q`, a fresh id and a fresh stamp. `:143-149` is inside the BIN arm.
+What the entry says of the arm is right. Found by RFC-0005's twenty-fourth
+review.
+
 ## F85 — recursion through a loop word aborts Tier 0 on the machine stack
 
 **A Bund2 defect under D37, and one the reference shares.**
@@ -4032,6 +4039,50 @@ and D37 gains a stated exception for bytes read from a file Bund2 did not
 write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
+
+## F202 — a body that failed to compile was lowered again on every entry, and nothing said so
+
+**A Bund2 defect of speed and of reporting, not of meaning; latent; found
+2026-10-11** by RFC-0005's twenty-fourth review (B5), by reading.
+
+`JitTier::compile` (`crates/bund2-runtime/src/tier.rs`) filed the code when
+`Compiler::compile_word` answered `Ok` and did nothing when it answered
+`Err`, under a comment that a failure "is dropped rather than reported
+because there is no diagnostic a *user* could act on". Two things followed.
+The body was neither cached nor demoted, so its counter stayed past the
+threshold, `Tiering::observe` answered `Decision::Compile` at the next
+entry, and the whole lowering ran again to fail the same way: one Cranelift
+compilation per entry for the life of the body, with `--stats` reading 0
+bodies. And nothing was reported, though a lowering that fails is not a
+condition of the program: since 2026-10-11 one of the ways it can fail is
+`guards_hold` refusing a region whose meaning guards are missing, which is
+the lowering breaking its own invariant, D37's case. A compiler that could
+not be built at all was dropped the same way.
+
+Latent: no body is known to fail. `guards_hold` refuses nothing the lowering
+produces, and the review did not make one fail at run time; neither did
+this fix.
+
+**Status:** FIXED 2026-10-11. A body that fails to compile, or that finds
+no compiler can be built, is demoted, so it is interpreted from then on,
+the next entry tells `Interp` not to offer it again (D146), and it is never
+lowered a second time. The first failure in a tier's life is reported
+through `Vm::report` as a `Warning` carrying an `Error::internal` that
+quotes the lowering's reason; later ones are counted and not reported, so a
+lowering that fails for every body costs a run one line. The program runs,
+and runs correctly, which is why it is a warning (D36) and F200's shape
+rather than an error that stops it.
+`a_body_that_fails_to_compile_is_demoted_and_reported_once` pins what
+follows a failure; the failure itself cannot be produced from outside the
+lowering.
+
+**What this chose, which the owner may reverse.** The review put it as "an
+`else` arm and a decision about whether a compile failure is
+`Error::internal` or a demotion". It is both here: demoted, and reported as
+an internal error at warning severity. Stopping the program on it was not
+done, because Tier 0 runs the body correctly and F200 already settled that
+a tier defect which leaves programs correct is a warning. One line per run
+rather than one per body is a choice too.
 
 ## F201 — a body the tier refuses still costs about 120 instructions each time it is entered
 

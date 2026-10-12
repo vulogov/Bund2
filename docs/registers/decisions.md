@@ -3531,6 +3531,15 @@ limit this register now names rather than a defect.
   bound here), F118, D27 and D31 (which do not govern this path)
 - Status: **RESOLVED**
 
+*Note, 2026-10-11 — item 1's premise no longer holds.* F196, fixed that
+day: `WireValue`'s `Deserialize` is written by hand and counts each level,
+so there is now a point at which a depth check refuses, and the decode
+refuses past `MAX_WIRE_DEPTH` (`crates/bund2-value/src/wire.rs`). The
+payload that aborted is refused. The size refusal in item 2 stands and is
+now the second of two bounds. Whether the exception to D37 is withdrawn
+with its premise is the owner's, and nothing here withdraws it; RFC-0005's
+twenty-fourth review (B2) found this entry without a note.
+
 ## D57 — `convert.to_dict` is corrected, and a matrix is a tagged list
 
 Two questions arrived together with the MATRIX family, the last six core words
@@ -3623,6 +3632,103 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D148 — what decides RFC-0005's criterion 7: the clock it names, or D117's count?
+
+**Raised 2026-10-11** by RFC-0005's twenty-fourth review (B4). The criterion
+cannot be checked as it is written, and making it checkable is a choice
+about what it means.
+
+Its text defines the check as two `cargo bench` commands over five groups,
+`startup`, `value`, `dispatch`, `arith` and `corpus`, each row's point
+estimate inside 5% with D70's significance filter. Its newest note runs
+exactly that, finds every verdict row inside the band, and then says the
+table "is a reading and not the verdict", because the same build measured
+against itself moved by up to 3.7%. The verdict it gives instead is D117's
+instruction count. But the criterion's text never names D117 and writes no
+command for it, and D117 says of itself that `value`, `arith`'s cold rows
+and `corpus` "have no reading by this method". So the named check is
+overruled by an unnamed one that covers fewer groups than the criterion
+lists. Two shapes are also recorded against the criterion and belong to no
+group in its table: a body the tier refuses (the `refused` bench group and
+two counted programs, D146), and a compiled recursion, which D145's table
+reads at 0.953× against no tier.
+
+**Options.**
+
+- *A. The count decides, and the criterion is re-worded to say so.* The
+  check becomes D117's method over a named list of programs: the empty
+  program for `startup`, the four `dispatch` shapes, a call to a user's
+  word, the two refused programs, and a compiled recursion added for D145.
+  5% is kept. `value` is discharged structurally, by `bund2-value` having
+  no `jit` feature, which a `cargo tree` can assert. `arith`'s warm rows are
+  criterion 10's and its cold rows stay evidence (D69). `corpus` by count is
+  the process starting, as the note already says. The two `cargo bench`
+  commands stay as a reading that can raise a question and cannot fail the
+  criterion.
+- *B. The clock decides, as written.* D117 is supplementary. The criterion
+  is then met by its own table today, and remains a check that an unchanged
+  build fails some days, which is what D117 was raised to stop.
+- *C. Both must hold.* A row fails if it is beyond 5% by count, or beyond
+  5% and significant by the clock on two runs that an unchanged build does
+  not also show. Catches a change that adds few instructions and is slow,
+  which D117 says a count cannot see; costs a control run on every reading.
+
+**Recommendation: A.** It is what the criterion's own notes have done since
+2026-10-08, and it is the only one of the three whose result does not
+depend on what else the machine was doing. Its known hole, a slow change
+that adds few instructions, is real and is what the clock table is kept
+for as a reading. C is the stricter criterion and the right one if the
+owner wants the clock to be able to fail a build; the control run it needs
+is already how the newest table was taken.
+
+**Risks.** A: the list of programs becomes the criterion, so a shape
+nobody lists is not checked, which is how F201 went unseen; the remedy is
+that a new shape is added when it is found, as the refused rows were. And
+D117's method is `/usr/bin/time -l`, macOS's; a Linux reading needs
+`perf stat` and has not been taken. B: none new. C: more runs.
+
+- Blocks: RFC-0005 criterion 7
+- Depends on: D69, D70, D117, D145, D146, F134, F201
+- Status: **RESOLVED — option A**, by the repository owner, 2026-10-12:
+  "A".
+
+*Note, 2026-10-12 — the criterion re-worded, and the one row nobody had
+counted is counted.* RFC-0005's criterion 7 carries the re-wording in a note
+of this date: D117's method, the median of five readings of `instructions
+retired` from `/usr/bin/time -l bund2 script --file <program>`, over the
+nine programs below, each inside 5%; `value` by `bund2-value` having no
+`jit` feature and no path to Cranelift; the two `cargo bench` commands kept
+as a reading that cannot fail it. Release builds of `bund2-cli` with no
+feature and with `jit`, macOS arm64, the tree of this date:
+
+| program | no tier | `jit` | change |
+|---|---|---|---|
+| the empty program (`startup`) | 37.18 M | 37.76 M | +1.6% |
+| `300000 { 1 drop } times` | 525.5 M | 410.9 M | −21.8% |
+| `300000 { 1 2 3 4 5 6 7 8 drop drop drop drop drop drop drop drop } times` | 3,022.7 M | 1,412.8 M | −53.3% |
+| `300000 { 1 dup drop } times` | 884.4 M | 815.2 M | −7.8% |
+| `300000 { 1 2 + drop } times` | 1,005.6 M | 422.6 M | −58.0% |
+| `:f { 1 drop } register` then `300000 { f } times` | 772.9 M | 674.9 M | −12.7% |
+| `300000 { 1 2 swap clear } times` (refused) | 1,087.6 M | 1,093.3 M | +0.5% |
+| `:g { 1 2 swap clear } register` then `300000 { g } times` (refused) | 1,333.7 M | 1,344.3 M | +0.8% |
+| `:down { 1 2 + drop dup 0 < { 1 swap - down } if } register` then `200000 down println` (a compiled recursion) | 2,548.8 M | 2,649.4 M | **+3.9%** |
+
+Every row is inside the band. `--stats` on the last: 1 body compiled, 5,705
+compiled levels entered one beneath another, 193,272 entries declined at
+the Tier 1 floor. That row is the nearest to the band of any that improves
+nothing, and it is the shape D145's clock table read at 0.953×; the count
+puts it at +3.9%, so the clock and the count agree about its size. The
+uncompiled recursion beside it in D145's program (`countdown`, whose body
+compiles nothing) reads +0.5%.
+
+`cargo tree -p bund2-value --all-features --edges normal,build` names no
+Cranelift crate and not the tier's crate, and the manifest of `bund2-value`
+has no features table. Run by hand; no CI step asserts it.
+
+What option A's risks said and still holds: the list is the criterion, so a
+shape outside it is unchecked; and the method is macOS's, so the criterion
+has no Linux reading.
+
 ## D147 — is RFC-0005's criterion 11 built out, or re-worded to what is shown?
 
 **Raised 2026-10-11**, answering the twenty-third review's B8 on that
@@ -3714,6 +3820,28 @@ now requires a count and a first depth from the tier;
 the mode is not counted; `stats_names_both_floors`
 (`crates/bund2-cli/tests/exit_tier.rs`) requires the line, on stderr, with
 the same distance in two runs.
+
+*Note, 2026-10-11, later — the two things the note above left open.*
+
+**The 262,144 bytes are `STACK_RESERVE`, and the distance is as designed.**
+Tier 0's floor is the region's end plus one reserve, and the region is
+`TIER0_PART`, the share and one reserve, so it sits at `top − TIER0_PART −
+share`. Tier 1's is `top − share` plus one reserve
+(`crates/bund2-interp/src/lib.rs`, `tier0_floor` and `tier1_floor`;
+`crates/bund2-runtime/src/lib.rs`, `EVAL_STACK`). The difference is
+`TIER0_PART` and one reserve, 8 MiB and 256 KiB, with or without the
+feature. Nothing is wrong and nothing changed.
+
+**`depth` has an axis that runs a compiled recursion.** The `call` axis's
+word is refused under F136 — `swap`, `-`, `dup`, `!=` and `?true` have no
+published fragment — so it was never the "promoted recursion" criterion 11
+is named for. A fifth axis, `compiled`, is that word with `1 2 + drop` in
+front (`xtask/src/depth/mod.rs`, `compiled_program`). At 100,000 levels,
+release, macOS arm64, it **completes in both builds**; with `jit` one body
+is compiled, 5,705 levels run compiled one beneath another, and the
+Tier 1 floor declines the other 93,271 entries, which go on at Tier 0. So
+the floor ends a compiled recursion at process level and not only in
+`a_compiled_recursion_stops_at_the_floor_and_goes_on_at_tier_zero`.
 
 ## D146 — may the tier tell the interpreter never to offer a body again?
 
@@ -3961,6 +4089,12 @@ arming beneath one. And `a_self_recursive_word_does_not_spend_a_rust_frame_per_l
 which RFC-0005 cites for the guard this removes, never compiled anything:
 its fixture has an empty fragment table. It was not evidence for the guard
 and is not evidence against this.
+
+*Note, 2026-10-11 — the sentence this supersedes is in §S6, not §S2.*
+RFC-0005's "at most one compiled body runs at a time" is in §S6's account
+of what was built; §S2 never said it. Found by that RFC's twenty-fourth
+review (S11). The same review found §S7 and §S8 of the RFC still describing
+the tier as it was before this entry, and notes of this date stand there.
 
 ## D144 — is RFC-0005 §S9, tier pinning, withdrawn?
 
@@ -9879,6 +10013,24 @@ just above it. The crossing is machine-dependent and reproducible here. It
 strengthens the RFC's own prediction that arithmetic inlining alone will not
 clear the rule, and it is the concrete shape the stop rule may take: the
 operand-free arm has room at 3.50×/3.57×, arithmetic may not.
+
+*Note, 2026-10-11 — the shares this entry quotes are not shown to be
+measurements of a word.* RFC-0005 §S1's note of 2026-10-10 (the
+twenty-third review's B9) concedes it and this entry had no note; the
+twenty-fourth review (S1) found that. Every arm of
+`crates/bund2-bench/benches/fragment.rs` carries a fixed cost that is not
+the word: the bench's own comment on `R` puts the signal at 84% of the span
+at length 1, and the same cost was traced in `interpret.rs` to the drop of
+an `Interp`'s registry inside the timed region. So **83.8%**, **88.6%** and
+"11–17% left for the addition and the pop" are shares of a span that
+includes that cost, and no arm with it removed has been run. What stands
+without one: every *difference* between arms, so the 22.44 ns of
+`dispatch_isolated`; and prerequisite 1's 9.53 ns, which is
+`value/push_pull/balanced` on one long-lived `Interp` and carries no such
+cost. The gate's direction is unchanged and its size is not known. The
+authorisation is the owner's and nothing here reopens it; criterion 10,
+which this entry names as the experiment that can fail, has since been met
+at 1.42× (D142, D145).
 
 ## D56 — a caller that runs a native can discard the tail request it filed
 

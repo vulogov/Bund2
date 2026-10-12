@@ -822,9 +822,9 @@ extern "C" fn jit_call_native(c: *mut Ctx<'_>, native: usize) -> i32 {
 ///   to *every* value applied: a literal and a `CALL` are both appended into the
 ///   value beneath, and a `CONTEXT` is pushed rather than switching stacks. §S4
 ///   requires a compiled body to guard on it at entry and re-read it after every
-///   call; that guard needs §S6's `autoadd` cell, which does not exist, and
-///   `autoadd` is not readable through the `Vm` trait at all. Going through
-///   `apply` honours the mode by construction instead.
+///   call. Going through `apply` honours the mode by construction, which is
+///   why this helper needs no guard of its own; the entry guard and the read
+///   after a call are emitted by the lowering, from §S6's `autoadd` cell.
 /// - **A `CONTEXT` switches stacks and pushes onto the nesting stack**
 ///   (`apply_step`'s CONTEXT arm), and **`bund.exit` gates every step** (F112).
 /// - **A `CALL` to a lambda files a tail request** that `apply` then drains, so
@@ -4328,7 +4328,13 @@ mod tests {
              two literals are not `CALL`s and never are"
         );
 
-        c.run(word, &mut vm, &body).expect("the compiled word ran");
+        // `Ok(false)` is a decline, which runs nothing: asserted, so this is
+        // compiled code's result and not an empty stack compared with itself.
+        assert_eq!(
+            c.run(word, &mut vm, &body),
+            Ok(true),
+            "the compiled entry ran rather than declined"
+        );
 
         let mut tier0 = with_stdlib();
         tier0.eval(&body).expect("Tier 0 runs the same body");
@@ -5696,7 +5702,13 @@ mod tests {
             "three int literals; the two `+`s are calls, not literals"
         );
 
-        c.run(word, &mut vm, &body).expect("the compiled word ran");
+        // `Ok(false)` is a decline, which runs nothing: asserted, so this is
+        // compiled code's result and not an empty stack compared with itself.
+        assert_eq!(
+            c.run(word, &mut vm, &body),
+            Ok(true),
+            "the compiled entry ran rather than declined"
+        );
 
         let mut tier0 = with_stdlib();
         tier0.eval(&body).expect("Tier 0 runs the same body");
@@ -6460,7 +6472,16 @@ mod tests {
             "{by_tier0:?} vs {by_compiled:?}"
         );
 
+        // The entry ran, and the rebinding took: `1 2 drop` leaves `1`. A
+        // `register_lambda` that silently did nothing would leave `3` in both
+        // arms and agree.
+        assert_eq!(by_compiled, Ok(true), "the compiled entry ran");
         let (a, b) = (tier0.snapshot(), compiled.snapshot());
+        assert_eq!(
+            a.iter().map(BundValue::as_int).collect::<Vec<_>>(),
+            vec![Some(1)],
+            "the rebound `+` dropped: {a:?}"
+        );
         assert_eq!(a.len(), b.len(), "depth after the residual");
         for (x, y) in a.iter().zip(b.iter()) {
             assert_eq!(
@@ -6741,7 +6762,13 @@ mod tests {
         assert_eq!(verdict(2), Some(true), "`nl` is crossed: {crossings:?}");
         assert_eq!(verdict(4), Some(false), "`quiet` is synced before: {crossings:?}");
 
-        c.run(word, &mut vm, &body).expect("the compiled word ran");
+        // `Ok(false)` is a decline, which runs nothing: asserted, so this is
+        // compiled code's result and not an empty stack compared with itself.
+        assert_eq!(
+            c.run(word, &mut vm, &body),
+            Ok(true),
+            "the compiled entry ran rather than declined"
+        );
         let compiled_saw = SEEN.with(std::cell::Cell::get);
 
         let mut tier0 = registered();
@@ -6835,7 +6862,13 @@ mod tests {
         );
 
         // And the result matches Tier 0's, which is the criterion's first half.
-        c.run(word, &mut vm, &body).expect("the compiled word ran");
+        // `Ok(false)` is a decline, which runs nothing: asserted, so this is
+        // compiled code's result and not an empty stack compared with itself.
+        assert_eq!(
+            c.run(word, &mut vm, &body),
+            Ok(true),
+            "the compiled entry ran rather than declined"
+        );
         let got = vm.snapshot();
 
         let mut tier0 = with_stdlib();
@@ -7061,7 +7094,13 @@ mod tests {
             "`1`, `2` and `3` are literals"
         );
 
-        c.run(word, &mut vm, &body).expect("the compiled word ran");
+        // `Ok(false)` is a decline, which runs nothing: asserted, so this is
+        // compiled code's result and not an empty stack compared with itself.
+        assert_eq!(
+            c.run(word, &mut vm, &body),
+            Ok(true),
+            "the compiled entry ran rather than declined"
+        );
         let got = vm.snapshot();
 
         let mut tier0 = with_stdlib();
@@ -7137,7 +7176,13 @@ mod tests {
         assert_eq!(c.inlined_sites(word), Some(1), "`+` is a site");
         assert_eq!(c.promoted_values(word), Some(2), "both literals promoted");
 
-        c.run(word, &mut vm, &body).expect("the compiled word ran");
+        // `Ok(false)` is a decline, which runs nothing: asserted, so this is
+        // compiled code's result and not an empty stack compared with itself.
+        assert_eq!(
+            c.run(word, &mut vm, &body),
+            Ok(true),
+            "the compiled entry ran rather than declined"
+        );
 
         let stack = vm.snapshot();
         assert_eq!(stack.len(), 2, "the sum and what `obs` left: {stack:?}");

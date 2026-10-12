@@ -19,11 +19,11 @@
 //!
 //! # What this is not
 //!
-//! There is no `Interp` integration. Nothing here is consulted when a word
-//! runs; `Tiering` is driven by its caller, and today that caller is its tests.
-//! **Criterion 23 is not met by this**: it requires one cache, one `JITModule`
-//! and one set of cells *per `Interp`*, and `lower`'s entry points each build a
-//! module of their own. That is recorded in §S6 rather than implied away here.
+//! This module knows nothing of `Interp`. `Tiering` is driven by its caller,
+//! which is `bund2-runtime`'s `JitTier`: one `Tiering` and one `Compiler` for
+//! each tier, and one tier for each `Interp`, which is how criterion 23's one
+//! cache and one `JITModule` per `Interp` come about. *(This said until
+//! RFC-0005's twenty-fourth review that the only caller was the tests.)*
 
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
@@ -203,7 +203,9 @@ pub struct Tiering {
     /// **Functions emitted for this tier, ever** — D140. Counted where code is
     /// filed and never lowered, because the module never gives the code back.
     emitted: usize,
-    /// Bodies demoted permanently. Holds a `Weak` for the same reason the other
+    /// Bodies demoted, for as long as this set keeps them: it is bounded by
+    /// [`Caps::counter`] and evicts at the bound (D140), and `Interp` goes on
+    /// remembering what the tier told it (D146). Holds a `Weak` for the same reason the other
     /// two maps do: a demoted body's address must not be reused under another
     /// body that would inherit the demotion.
     demoted: AddrMap<()>,
