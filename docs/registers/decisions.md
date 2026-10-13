@@ -3719,6 +3719,25 @@ gate on meaning.
   oracle answers differently on Linux, so the list of three is an
   expectation until it has run.
 
+*2026-10-13: the Linux reading.* `linux-reading`, run 38350008063, at
+`02f23b7`. The oracle built on Linux x86-64 reproduces 139 of the 146
+goldens and answers seven differently. Three are the three above. The
+other four are goldens of an error report, which holds the path of the
+machine that built the oracle (F66); each is an approved deviation already,
+so `conform` does not read them. With the three variants written in that
+job's checkout, `conform` reads 134/146, CEILING 134/146, at Tier 0 and
+with the tier at threshold 1: what macOS arm64 reads. Without them, in the
+same run, it reads 131/146 with the same ceiling, the three failing. So
+the pins recover the four they were for, and the oracle on Linux gives
+what Bund2 gives there for the other three. The variants are in that run's
+artefact and not in the tree.
+
+*2026-10-13, later.* The owner placed the three variants and their list in
+`tests/golden/`. On macOS arm64 `conform` reads 134/146, CEILING 134/146,
+as before, and reports none read of three recorded. `linux-reading`'s
+`capture` job no longer writes: it holds the recorded variants to the
+oracle and fails if the capture changed a file.
+
 ## D149 — may a count decide RFC-0005 criterion 11's cost clause?
 
 **Raised 2026-10-12**, writing the checks the twenty-fourth review found

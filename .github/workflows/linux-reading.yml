@@ -110,11 +110,12 @@ jobs:
           done
 
   # D150: a golden the oracle does not reproduce on this host has a variant
-  # here, and a variant is the oracle's capture, so it is taken where the
-  # oracle runs. The first step reads which goldens the oracle answers
-  # differently on Linux; the second writes variants for the three D150
-  # names. Both run in this checkout, which is thrown away: the files leave
-  # as an artefact, and putting them in `tests/golden/` is the owner's.
+  # here, and a variant is the oracle's capture, so it is checked where the
+  # oracle runs. The capture reads which goldens the oracle answers
+  # differently on Linux and holds the recorded variants to what it answers
+  # now; it is given no name to write, so a variant that has moved is listed
+  # and left, which fails the step, and the tree is shown to be as it was
+  # checked out.
   capture:
     runs-on: ubuntu-latest
     timeout-minutes: 180
@@ -129,7 +130,6 @@ jobs:
           sudo apt-get install -y libcurl4-openssl-dev libssl-dev pkg-config cmake clang \
             libfontconfig1-dev libfreetype6-dev zlib1g-dev
           uname -a
-          ldd --version | head -1
           which tput && TERM=xterm COLUMNS=80 LINES=24 tput cols
       - name: build the oracle, out of tree
         run: |
@@ -137,27 +137,24 @@ jobs:
           git -C reference/Bund status --short
       - name: what the oracle answers differently here
         if: ${{ !cancelled() }}
-        run: cargo xtask golden
-      - name: the variants
+        run: |
+          cargo xtask golden | tee capture.txt
+          cat tests/golden/HOSTS.txt
+          # A recorded variant the oracle no longer gives is listed among the
+          # goldens that would change, by its shared name.
+          grep -v '^#' tests/golden/HOSTS.txt | awk -F'\t' '$1 == "linux-x86_64" { print $2 }' > recorded.txt
+          test -s recorded.txt
+          sed -n '/^## existing golden would change/,$p' capture.txt > changed.txt
+          ! grep -F -x -f <(sed 's/^/  /' recorded.txt) changed.txt
+      - name: goldens unmodified
         if: ${{ !cancelled() }}
         run: |
-          cargo xtask golden --reason D150 \
-            --variant examples/code_snippets/application_logic_demos.golden \
-            --variant probes/math-float-family.golden \
-            --variant probes/sysinfo-words.golden
           git status --short tests/golden/
-          git diff --stat -- tests/golden/
-          cat tests/golden/HOSTS.txt
-      - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
-        with:
-          name: golden-variants-linux-x86_64
-          path: |
-            tests/golden/HOSTS.txt
-            tests/golden/hosts/
-      - name: conform against them, Tier 0
+          git diff --exit-code -- tests/golden/
+          test -z "$(git status --porcelain tests/golden/)"
+      - name: conform, Tier 0, beside the oracle
         if: ${{ !cancelled() }}
         run: cargo xtask conform -v
-      - name: conform against them, the tier at threshold 1
+      - name: conform, the tier at threshold 1, beside the oracle
         if: ${{ !cancelled() }}
         run: cargo xtask conform --features jit --jit-threshold 1

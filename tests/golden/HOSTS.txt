@@ -1,0 +1,12 @@
+# Goldens that belong to one host. Written by `cargo xtask golden --variant`.
+#
+# A golden the oracle does not reproduce on another host has a variant
+# there: the oracle's own capture on that host, kept under
+# tests/golden/hosts/<host>/ and read on that host in place of the shared
+# golden. Every golden not listed is shared by every host. D150.
+#
+# <host>\t<golden>\t<reason>
+
+linux-x86_64	examples/code_snippets/application_logic_demos.golden	D150
+linux-x86_64	probes/math-float-family.golden	D150
+linux-x86_64	probes/sysinfo-words.golden	D150
