@@ -2539,6 +2539,36 @@ fn emit_body(
 /// from the emitted code.
 const BODY_FLAGS: &[(&str, &str)] = &[("preserve_frame_pointers", "true")];
 
+/// **The host's code generator, as a module of bodies is given it**: the
+/// instruction-set features `cranelift_native` reads from this machine, and
+/// `settings` over the defaults. A shipped module passes [`BODY_FLAGS`].
+///
+/// Built here and handed over, and not by `JITBuilder::with_flags` (F205):
+/// that constructor asks `cranelift_native` for the host's backend and panics
+/// when there is none, where this is an error the tier declines the body on.
+/// The two settings after `settings` are the ones it sets itself.
+///
+/// A function of its own so that a test which says "the shipped settings"
+/// builds with this and not with a target it named by hand: on macOS the
+/// host's features include return-address signing, which a triple looked up
+/// by name does not have.
+fn host_isa(settings: &[(&str, &str)]) -> Result<cranelift_codegen::isa::OwnedTargetIsa, String> {
+    use cranelift_codegen::settings::Configurable;
+    let mut flags = cranelift_codegen::settings::builder();
+    for (name, value) in settings
+        .iter()
+        .chain(&[("use_colocated_libcalls", "false"), ("is_pic", "false")])
+    {
+        flags
+            .set(name, value)
+            .map_err(|e| format!("JIT setting `{name}`: {e}"))?;
+    }
+    cranelift_native::builder()
+        .map_err(|e| format!("this host has no Cranelift backend: {e}"))?
+        .finish(cranelift_codegen::settings::Flags::new(flags))
+        .map_err(|e| format!("JIT target: {e}"))
+}
+
 /// A fresh module with `adapter`'s symbol bound.
 ///
 /// The symbol must be bound on the *builder*, before the module exists, which
@@ -2547,26 +2577,7 @@ const BODY_FLAGS: &[(&str, &str)] = &[("preserve_frame_pointers", "true")];
 fn new_module(adapter: Adapter) -> Result<JITModule, String> {
     let (name, ptr) = adapter.symbol();
     let (drain_name, drain_ptr) = Adapter::drain_symbol();
-    // **Built here and handed over, and not by `JITBuilder::with_flags`**
-    // (F205): that constructor asks `cranelift_native` for the host's backend
-    // and panics when there is none, where this is an error the tier
-    // declines the body on. The two settings after `BODY_FLAGS` are the ones
-    // it sets itself.
-    use cranelift_codegen::settings::Configurable;
-    let mut flags = cranelift_codegen::settings::builder();
-    for (name, value) in BODY_FLAGS
-        .iter()
-        .chain(&[("use_colocated_libcalls", "false"), ("is_pic", "false")])
-    {
-        flags
-            .set(name, value)
-            .map_err(|e| format!("JIT setting `{name}`: {e}"))?;
-    }
-    let isa = cranelift_native::builder()
-        .map_err(|e| format!("this host has no Cranelift backend: {e}"))?
-        .finish(cranelift_codegen::settings::Flags::new(flags))
-        .map_err(|e| format!("JIT target: {e}"))?;
-    let mut builder = JITBuilder::with_isa(isa, default_libcall_names());
+    let mut builder = JITBuilder::with_isa(host_isa(BODY_FLAGS)?, default_libcall_names());
     builder.symbol(name, ptr);
     // §S5's drain helper, which the body reaches through its own slot when the
     // request cell is set.
@@ -3728,12 +3739,33 @@ mod relocations {
     }
 
     fn probe() -> Result<Probe, String> {
-        probe_built_with(BODY_FLAGS)
+        probe_built_for(named_isa(BODY_FLAGS)?, &published_sites()?)
     }
 
-    fn probe_built_with(settings: &[(&str, &str)]) -> Result<Probe, String> {
-        let isa = cranelift_codegen::isa::lookup_by_name(
-            &std::env::var("BUND2_RELOC_TRIPLE").unwrap_or_else(|_| {
+    /// The published arms, from a real registry: `+` is the one inlined.
+    ///
+    /// Built by the caller and lent to the probe, because a body holds a
+    /// fragment's address as an immediate: two probes that are to be
+    /// compared instruction for instruction must be lent the same ones. An
+    /// address is loaded by as many wide moves as it has non-zero sixteen-bit
+    /// parts, so two different addresses can make code of two lengths.
+    fn published_sites() -> Result<Vec<Fragment>, String> {
+        let mut registry = bund2_api::Registry::new();
+        bund2_stdlib::register_all(&mut registry);
+        Ok(bund2_stdlib::fragments::published(&registry)?
+            .into_iter()
+            .map(|(_, fragment)| fragment)
+            .collect())
+    }
+
+    /// A target named by its triple, with `settings` and no instruction-set
+    /// feature beyond the triple's defaults. What the relocation tests read:
+    /// they ask which symbols an object names, which no feature changes.
+    fn named_isa(
+        settings: &[(&str, &str)],
+    ) -> Result<cranelift_codegen::isa::OwnedTargetIsa, String> {
+        cranelift_codegen::isa::lookup_by_name(&std::env::var("BUND2_RELOC_TRIPLE").unwrap_or_else(
+            |_| {
                 // The host, named explicitly: this test reads an object file
                 // rather than running it, so any supported triple would do,
                 // and naming the host keeps the shape closest to what ships.
@@ -3742,8 +3774,8 @@ mod relocations {
                 } else {
                     "x86_64-unknown-linux-gnu".to_string()
                 }
-            }),
-        )
+            },
+        ))
         .map_err(|e| format!("no isa: {e}"))?
         .finish(cranelift_codegen::settings::Flags::new({
             // The settings a shipped module of bodies is built with (F204):
@@ -3757,8 +3789,13 @@ mod relocations {
             }
             flags
         }))
-        .map_err(|e| format!("isa flags: {e}"))?;
+        .map_err(|e| format!("isa flags: {e}"))
+    }
 
+    fn probe_built_for(
+        isa: cranelift_codegen::isa::OwnedTargetIsa,
+        sites: &[Fragment],
+    ) -> Result<Probe, String> {
         let builder = ObjectBuilder::new(isa, "bund2_reloc_probe", default_libcall_names())
             .map_err(|e| format!("object builder: {e}"))?;
         // **Not `per_function_section`.** It was tried: on Mach-O every
@@ -3804,14 +3841,7 @@ mod relocations {
             cells,
         )?);
 
-        // The published arms, from a real registry: `+` is the one inlined.
         // The generation cells are fabricated for the reason `cells` is.
-        let mut registry = bund2_api::Registry::new();
-        bund2_stdlib::register_all(&mut registry);
-        let sites: Vec<Fragment> = bund2_stdlib::fragments::published(&registry)?
-            .into_iter()
-            .map(|(_, fragment)| fragment)
-            .collect();
         let add = sites
             .iter()
             .position(|f| f.needs() == 2)
@@ -3838,7 +3868,7 @@ mod relocations {
             &mut e,
             2,
             &plan2,
-            &sites,
+            sites,
             LastCall::Ordinary,
             Adapter::Apply,
             cells,
@@ -3929,14 +3959,22 @@ mod relocations {
     /// measured, all of them on aarch64, so whether those figures are of the
     /// code that ships is this question. The four probe bodies between them
     /// take every path an ordinary body can and a tail call besides; they are
-    /// emitted with the shipped settings and with none, and the two objects'
-    /// text is compared whole.
+    /// emitted for the target a shipped module is built for, `host_isa` with
+    /// `BODY_FLAGS`, and for the same target without them, and the two
+    /// objects' text is compared whole. The host's instruction-set features
+    /// are therefore in both: on macOS that includes return-address signing,
+    /// which puts an instruction of its own in every prologue and epilogue
+    /// (the twenty-sixth review's B2: the comparison was once under a triple
+    /// named by hand, which has none of them).
     ///
-    /// **Whole, less the constants.** A body holds addresses as immediates,
-    /// a fragment's among them, and two emissions in one process are handed
-    /// different ones. They arrive by `movz` and `movk`, so the sixteen bits
-    /// each of those carries are left out of the comparison and every other
-    /// bit of every instruction is in it. A frame record is `stp`, `mov` and
+    /// **Whole, less the constants.** A body holds addresses as immediates.
+    /// The fragments' are the same in both, since both probes are lent one
+    /// set of them; any other that differed arrives by `movz` and `movk`, so
+    /// the sixteen bits each of those carries are left out of the comparison
+    /// and every other bit of every instruction is in it. (Until 2026-10-13
+    /// each probe built its own fragments, and the test failed in two runs
+    /// of eight on the text's length: an address with a zero part takes one
+    /// instruction fewer.) A frame record is `stp`, `mov` and
     /// `ldp` on the frame pointer, which is none of what is left out.
     ///
     /// aarch64 only: with no settings the x86-64 backend panics on the fourth
@@ -3956,8 +3994,13 @@ mod relocations {
                 _ => w,
             }
         }
-        let shipped = probe_built_with(BODY_FLAGS).expect("the shipped settings");
-        let default = probe_built_with(&[]).expect("no settings");
+        let sites = published_sites().expect("the published arms");
+        let shipped = host_isa(BODY_FLAGS)
+            .and_then(|isa| probe_built_for(isa, &sites))
+            .expect("the shipped settings");
+        let default = host_isa(&[])
+            .and_then(|isa| probe_built_for(isa, &sites))
+            .expect("no settings");
         assert!(shipped.text.len() > 1000, "{} bytes", shipped.text.len());
         assert_eq!(shipped.text.len(), default.text.len(), "the text's length");
         let differing: Vec<String> = shipped
@@ -3981,6 +4024,18 @@ mod relocations {
             "{frame_records} frame records in {} functions",
             shipped.defined.len()
         );
+        // And it is of the host's code: on macOS some prologues sign the
+        // return address, with `pacibsp`, where a target named by its triple
+        // emits none. Measured 2026-10-13 on an M-series host: 4 of the 16
+        // functions' prologues. Which four was not looked into.
+        if cfg!(target_os = "macos") {
+            let signed = shipped
+                .text
+                .chunks(4)
+                .filter(|w| *w == [0x7f, 0x23, 0x03, 0xd5])
+                .count();
+            assert!(signed > 0, "no prologue signs its return address");
+        }
     }
 
     /// **RFC-0005's assumption 46: one compiled body never calls another

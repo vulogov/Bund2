@@ -116,6 +116,17 @@
   ruled.) It is a
   statement about checks, on macOS arm64.
 
+  *(2026-10-13, the twenty-sixth review's B1 and B2. **Still 23, 7 and
+  0.** Two things the notes below did not know. `ci` is a gate on this
+  branch and has run: seven times by the end of this date, failing once,
+  at `9f997dd`, the commit that carried the twenty-fifth review's answers,
+  and passing `check` and `conformance` in the six after. It, and not
+  `linux-reading`, has the Linux reading of the tree as it stands. And the
+  test that shows F204's flag changes no instruction on aarch64 compared
+  code for a target named by its triple, which is not the one a module is
+  built for; it now compares code for that one. The amendment of this
+  date has each.)*
+
   *(2026-10-13, later: D151 is ruled, option A, and criterion 11's clause
   names the instrument that holds it. **It is 23, 7 and 0 again**, with 11
   in the second list as re-worded by D149 and D151. The note below stands
@@ -928,6 +939,16 @@
   ruled on 2026-10-12 and built the next day. **D151** (which instrument
   D149's count is read by) was raised on 2026-10-13 and is **OPEN**.
   *(Later the same day: ruled, option A. callgrind on Linux x86-64.)*
+  *(2026-10-13, the twenty-sixth review's S3: **D152** and **D153** were
+  ruled on this date and are not about the tier. They are named here
+  because of what two checks run over. D152 took `sys_metrics` and
+  `cfonts` out of `bund2-stdlib` and added `crates/bund2-host`, the one
+  place the standard library reaches `unsafe`: criterion 15's `cargo tree`
+  step is over that dependency set and has passed since, and `conform`
+  reads 134/146 on both hosts after it (`ci`, runs 38441982457 and
+  38453310646). D117's count is of a binary whose registry changed with
+  it; criterion 7's note of this date says so. D153 keeps `bincode` and
+  changes no code.)*
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
   `80377728f45b`; `bundcore` `3b0b8ba219a6`; `rust_dynamic` `ceb27c96fa10`;
   `rust_multistack` `9a97675ee5d8`; `rust_multistackvm` `4605832678d4`
@@ -4802,6 +4823,16 @@ emits a tail call only with it; on aarch64 it changes no instruction,
 which `the_shipped_settings_change_no_instruction_of_a_body_on_aarch64` in
 `crates/bund2-jit/src/lower.rs` reads from the emitted code.)*
 
+*(2026-10-13, the twenty-sixth review's B2: as first written that test
+built its two objects for `aarch64-apple-darwin` looked up by name, with no
+instruction-set feature. A shipped module is built for what
+`cranelift_native` reads from the host, which on macOS includes
+return-address signing. The test now builds both objects with `host_isa`,
+the function a shipped module is built with, so the sentence above is of
+the shipped target. It is in the `relocations` module and so runs only
+with `--features jit,relocation-test`; it is compiled on aarch64 alone,
+and both workflows run on x86-64, so no workflow runs it.)*
+
 # S11. Errors stay a return-value protocol
 
 `try_call` / `try_call_indirect` exist but the unwinder story is incomplete
@@ -4913,7 +4944,7 @@ without going through `status_of`.)*
 | **a moved epoch under a crossed call** *(added 2026-10-12)* | `Error::internal` by decision (D73), where Tier 0 would give a result. Unreachable while D75 stands: the shipped runtime installs no crossable table. Criterion 21's fixture reaches it and asserts the internal error |
 | **the per-call LIST `scoped_call` builds** *(added 2026-10-12)* | never offered to the tier, because its frame carries an exit action. `a_scoped_call_body_is_never_offered_to_the_tier`. It has a key and `entry_log` records it; `--stats` does not count it |
 | **what D145 lists as not covered beneath a nested compiled body** — a tail request filed there and failing; a reporter that wants the stack; a debugger word arming *(added 2026-10-12)* | the same rules as beneath one compiled body — `status_of` clears the request, D71 keeps such a body out of the tier when the reporter wants warnings' stacks, D113.6 switches the tier off — and **no test runs any of the three nested**. A gap, stated. *(Later the same day: each has a test. `a_failed_natives_request_beneath_a_nested_compiled_body_is_discarded` and `a_warning_beneath_a_nested_compiled_body_carries_tier_zeros_snapshot` in `crates/bund2-runtime/src/tier.rs`, and `a_breakpoint_armed_beneath_two_compiled_bodies_fires_and_turns_the_tier_off` in `crates/bund2-cli/tests/debugger_words.rs`. The first found that this row names the wrong guard for a shipped body: the native is run by `Interp::invoke`, which discards the request, and `status_of`'s clear is a second one behind it.)* |
-| **the frame pointer kept in every emitted function, on every target** — F204 *(added 2026-10-13)* | on x86-64 it is what lets a tail-position lowering be emitted at all; without it Cranelift panicked. On aarch64 it changes no instruction of a body, a trampoline or a thunk: `the_shipped_settings_change_no_instruction_of_a_body_on_aarch64` emits the four probe bodies with the setting and without and compares every instruction, less the address constants. On x86-64 the code does differ and no cost figure in this document is of it |
+| **the frame pointer kept in every emitted function, on every target** — F204 *(added 2026-10-13)* | on x86-64 it is what lets a tail-position lowering be emitted at all; without it Cranelift panicked. On aarch64 it changes no instruction of a body, a trampoline or a thunk: `the_shipped_settings_change_no_instruction_of_a_body_on_aarch64` emits the four probe bodies with the setting and without and compares every instruction, less the address constants. On x86-64 the code does differ and no cost figure in this document is of it. *(2026-10-13, the twenty-sixth review's S7: the comparison was under a triple named by hand until this date and is now under the host's target, the one a module is built for; "a trampoline or a thunk" is so because the probe object's text holds all three)* |
 | **a host Cranelift has no backend for** — F205 *(added 2026-10-13)* | building the tier's compiler returns an error, where until F205 the dependency panicked. The body is demoted and interpreted and the first failure is reported once, as for a body the lowering fails to compile (F202). No test reaches it: no host here produces the refusal |
 | **a golden with a variant for a host** — D150 *(added 2026-10-13)* | not a tier matter, and what criterion 2 is read against: on a host with a recorded variant `conform` compares with the oracle's capture on that host, and with the shared golden elsewhere. Three goldens have one, for Linux x86-64. "Moves nothing" is therefore a statement per host, between configurations on that host |
 | **what `conform` and the capture tell the child** — D150 *(added 2026-10-13)* | the locale, the display width and the program's path relative to where it runs. A word that reads one sees the pinned value under `conform` and the host's under a user's shell; the oracle is captured under the same pins. Both tiers are run under them, so no difference between tiers hides there |
@@ -5099,6 +5130,14 @@ criterion.)*
    before criterion 18's golden was captured, and `conform` passes
    anything at or above it, so a tree that lost that golden would pass.
    Raising the mark is `conform --accept`, the owner's.)*
+
+   *(2026-10-13, the twenty-sixth review's B1: **both are out of date, and
+   `ci` does hold this.** The workflow ran on the push of `9f997dd`, the
+   commit this note arrived in, and on every push since: seven runs on this
+   branch by the end of this date. Its `conformance` job passed all three
+   configurations in all seven, 134/146 in each. The run at `9f997dd`
+   failed as a whole, in its `check` job, for a reason under criterion 7's
+   note of this date. The mark was raised to 134/146 the same day.)*
 
    *(2026-10-13, later: the owner raised it. The mark reads 134/146, so a
    tree that loses a golden fails `conform`.)*
@@ -6001,6 +6040,38 @@ criterion.)*
    host, and were not re-taken. On x86-64 the setting does change the code,
    and this criterion has no reading there.)*
 
+   *(2026-10-13, the twenty-sixth review's B1, B2 and S4. Three corrections
+   to the note above.*
+
+   *The comparison was not of the shipped target. The two objects were
+   built for `aarch64-apple-darwin` by name. A module of bodies is built
+   for the host as `cranelift_native` reads it, and on macOS that enables
+   return-address signing, so the code the figures were taken of has an
+   instruction in some prologues that the code compared did not. The test
+   now builds both objects with `host_isa`, which is what `new_module`
+   calls, and asserts that a signing instruction is in the text on macOS.
+   They are the same under that target too.*
+
+   *The test as first committed could not be built on x86-64. Its field of
+   the object's text was unread there and `ci` denies warnings, so at
+   `9f997dd` the `check` job and `linux-reading`'s `reading` job failed to
+   compile `bund2-jit`'s tests (runs 38432025619 and 38432025727).
+   `126e518` fixed it. For those two commits "B3 is answered by a test" was
+   of a test no CI host could compile. It was also unsound in a second way,
+   found on this date: each object built its own fragments, a body holds a
+   fragment's address as an immediate, and an address with a zero
+   sixteen-bit part takes one instruction fewer, so the two texts could
+   differ in length. It failed in two runs of eight here. Both objects are
+   now lent one set of fragments, and it passed forty runs of forty.*
+
+   *"The figures are of the code that ships" says more than the test
+   shows. The test is of emitted code. D117's count is of the whole
+   process, and between the table of 2026-10-12 and this tree the Rust
+   around the emitted code changed: F203, F205, D150's pins, and D152's
+   replacement of two crates the registry is built from. So: the emitted
+   code is the same on this host; the count was not re-taken, and what it
+   would read on this tree is not known.)*
+
 8. **`cite` and `lint` clean**, with `cargo xtask cite` resolving every
    `path:line` in this document. **Note what this now checks and did not
    before:** citations into `crates/` were invisible to the extractor until
@@ -6856,6 +6927,21 @@ criterion.)*
     where every other cost figure here is of aarch64 code; and callgrind's
     count is taken to be instructions retired, which is not shown.)*
 
+    *(2026-10-13, the twenty-sixth review's S1 and S5. **The four exact
+    counts above are run 38350008063's, not 38355924002's.** Re-read from
+    both logs: 38350008063, at `02f23b7`, reads 3,037,791, 3,036,921,
+    3,048,897 and 3,062,711; 38355924002, at `9fb23de`, reads 3,037,778,
+    3,035,710, 3,049,101 and 3,061,494. Each is 3.04, 3.04, 3.05 and 3.06
+    an entry, so the clause holds under either. And the job builds
+    `floor_count` with `--features unguarded`, which the clause does not
+    name: `Compiler::without_floor_check`, the unchecked arm, exists only
+    under it. The checked arm is `Compiler::new` in the same build. Read
+    from `crates/bund2-jit/src/lower.rs`, the feature adds constructors and
+    switches that `Compiler::new` leaves at their shipped values, and one
+    `cfg!` whose condition is the shipped one while the meaning guards are
+    on. That the checked arm's code is the shipped code is therefore read
+    from the source and not compared.)*
+
     **What it no longer asks, and nothing shows**: a case with the share
     already held, `c` and `δ` from it, `c_p` and `δ_p` for each re-entering
     path, and a margin `m`. §S8 defers to this criterion for each; those
@@ -7049,6 +7135,11 @@ criterion.)*
     until this date it ran no `jit`-gated test, so every criterion here that
     a test holds was held by a command run by hand. `ci.yml` runs on a pull
     request and on `main`, and has not yet run with these steps.)*
+    *(2026-10-13, the twenty-sixth review's B1: both notes above are out
+    of date. `ci.yml` also runs on a push to this branch since this date,
+    and the `cargo tree` step is in its `check` job, which has passed on a
+    GitHub runner six times, from `126e518` on. It did not run at
+    `9f997dd`, where the job stopped at an earlier step.)*
 
 16. **Every BundIR fragment agrees with the word it specialises.** A
     differential test per fragment runs the arm and the word on **the same
@@ -9428,6 +9519,10 @@ branch, in the three configurations; it has not run as edited, and has run
 once at all, on `main`, and failed. And F205: a module of bodies is no
 longer built by a constructor that panics where the host has no backend.
 
+*(2026-10-13, the twenty-sixth review's B1: "it has not run as edited" was
+overtaken by the push that carried it. `ci` ran at `9f997dd` and has run
+on every push since; the amendment below has the record.)*
+
 **Not done.** No aarch64 Linux reading, and no x86-64 macOS one.
 
 ## Amendment, 2026-10-13 — the twenty-fifth review
@@ -9493,3 +9588,68 @@ comparison shows `with_isa` builds the module `with_flags` built beyond
 the suite passing (6), and the runner's `ulimit -s` is printed by the
 workflow and not recorded here (7). No aarch64 Linux reading, and no
 x86-64 macOS one.
+
+## Amendment, 2026-10-13 — the twenty-sixth review
+
+`docs/rfc/reviews/RFC-0005-review-2026-10-13-2.md`: two blocking, seven
+should-fix. Every citation into `reference/` resolved and said what this
+document says.
+
+**B1, the commit that carried the last answers failed the gate it
+declared.** Right. `ci` ran for the first time on this branch at `9f997dd`
+(run 38432025619). Its `conformance` job passed the three configurations.
+Its `check` job failed at the tier's own tests, and `linux-reading`'s
+`reading` job (run 38432025727) at clippy, on one error: a field of the
+relocation probe that the new aarch64 test reads is unread on x86-64, and
+both deny warnings. So the test written to answer the twenty-fifth
+review's B3 is what broke the build on the one other host, and for
+forty-six minutes the tier's tests did not compile there. `126e518` fixed
+it. By the end of this date `ci` has run seven times on this branch:
+failed at `9f997dd`, and passed `check` and `conformance` at `126e518`,
+`0c07c40`, `a5d507a`, `3201c95`, `65bc7b2` and `8577090`. Its `deny` job
+failed without failing the run until `65bc7b2`, where D152's
+reconciliation made it pass and a gate. Criterion 2, criterion 15, the
+status block and the amendment above each carry a dated note; each said
+`ci` had not run.
+
+**B2, the test compared code for a target that is not the shipped one.**
+Right, and changed in the code and not in the wording. `new_module` built
+its target inline; that is now a function, `host_isa`, and the test builds
+both of its objects with it, the shipped one with `BODY_FLAGS` and the
+other with none. The comparison is therefore under the instruction-set
+features `cranelift_native` reads from the host, return-address signing on
+macOS among them, and the test asserts on macOS that a signing instruction
+is in the text it compares. Four of the sixteen functions' prologues carry
+one on the host this was run on; which four was not looked into. The two
+texts are the same, less the constants of wide moves. `cranelift-codegen`'s
+aarch64 ABI code was not read: the claim is of what was emitted for four
+probe bodies on one machine. §S10's note of this date says that the test
+needs `--features jit,relocation-test`, that it is aarch64-only, and that
+no workflow runs it; it has run on one machine, by hand.
+
+Found while making that change: the test was unsound as committed. It
+failed in two runs of eight, on the two texts' lengths. Each object built
+its own fragments, a body holds a fragment's address as an immediate, and
+an address is loaded by as many wide moves as it has non-zero sixteen-bit
+parts. Both objects are now lent one set of fragments. Forty runs of
+forty passed. The relocation tests still build for a target named by its
+triple, which is what they did before; they ask which symbols an object
+names.
+
+**Should-fix.** S1, the four counts under the wrong run number: re-read
+from both logs, with each run's four figures now under criterion 11. S2 is
+B1's notes. S3, D152 and D153: a note under the consumed list. S4,
+criterion 7's conclusion: narrowed to the emitted code in a note there. S5,
+`--features unguarded`: said under criterion 11, with what was read of the
+feature and that the checked arm was not compared with a shipped build.
+S7, the F204 row: says which target the comparison is under.
+
+**Not done.** S6: RFC-0009 is still not cited. Of the eight assumptions
+the review lists: 1, 2 and 3 are answered by the notes above, 4 is said
+where the test is named, and 8 was already stated. 5, how a
+`linux-reading` run is asked for: by a push to this branch that changes
+`.github/workflows/linux-reading.yml`, which is that workflow's only
+trigger. 6, the 16- and 64-site rows of the count
+before F204, were not re-read. 7, which host a shared golden was captured
+on, is still recorded nowhere in `tests/golden/`. D117's count was not
+re-taken on this tree. No aarch64 Linux reading, and no x86-64 macOS one.
