@@ -801,7 +801,8 @@ fn debug_display_distributed_info(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
-/// `io.banner` — draw a value as large text in cfonts' tiny font
+/// `io.banner` — draw a value as large text, in the font the reference's
+/// `cfonts` calls tiny and `crate::banner` draws (D152)
 /// (`reference/Bund/src/stdlib/functions/io/banner.rs:11-60`).
 ///
 /// The value is converted to STRING first (`:32`), so any value draws as it
@@ -818,12 +819,7 @@ fn io_banner(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
             "{prefix} returns: NO CASTING #1: This Dynamic type is not string"
         ))
     })?;
-    let out = cfonts::render(cfonts::Options {
-        text,
-        font: cfonts::Fonts::FontTiny,
-        ..cfonts::Options::default()
-    })
-    .text;
+    let out = crate::banner::render(&text, crate::banner::display_width());
     vm.push(BundValue::str(out));
     Ok(())
 }

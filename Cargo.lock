@@ -453,6 +453,7 @@ dependencies = [
  "sys_metrics",
  "ta",
  "termimad",
+ "terminal_size",
  "textwrap",
  "ulid",
  "unicode-segmentation",

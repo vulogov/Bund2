@@ -3699,6 +3699,23 @@ pressure.
 
   **`cfonts`: not started.**
 
+  *2026-10-13, later: `cfonts` is replaced, and not yet removed.* The
+  owner ruled that the glyphs be derived from the oracle's output, and
+  they were: `io.banner` was run through the oracle on each printable
+  ASCII character alone and on text chosen to show the spacing, the line
+  break, the wrap and what a character with no glyph does, and at
+  terminals of 40 and 200 columns. `cfonts`' source was not opened. The
+  font is `crates/bund2-stdlib/src/banner.rs`: 57 glyphs of two rows, lower
+  case drawn as upper, `|` ending a line, and a row wrapped at the
+  terminal's width or 80. The width is asked through `terminal_size`, the
+  crate the reference's renderer asks, which the oracle's behaviour at a
+  terminal on each of its three streams agrees with. Compared with `cfonts`
+  itself on macOS arm64 over every ASCII character and 3,000 mixed
+  strings, the two give the same text for all of them. `cfonts` is out of
+  the binary's dependencies and stays as a dev-dependency for that one
+  test, `tests/banner_differential.rs`, as `sys_metrics` does for its own.
+  Not observed: a terminal narrower than one glyph.
+
 
 ## D151 — which instrument reads D149's count
 

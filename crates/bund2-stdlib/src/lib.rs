@@ -73,6 +73,9 @@ mod http;
 // Ids, random integers and strings, and `generator`.
 pub mod random;
 // `input`, `input*`, `password`, `bund.prompt`, `io.banner`, the host table.
+/// `io.banner`'s font, drawn here and not by the GPL crate the reference
+/// uses (D152).
+mod banner;
 pub mod terminal;
 // `csv`, the data-file conditional.
 pub mod data;
