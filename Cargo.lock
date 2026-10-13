@@ -334,6 +334,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bund2-host"
+version = "0.0.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "bund2-interp"
 version = "0.0.0"
 dependencies = [
@@ -389,6 +396,7 @@ dependencies = [
  "argmap",
  "base64ct",
  "bund2-api",
+ "bund2-host",
  "bund2-interp",
  "bund2-ir",
  "bund2-syntax",

@@ -1,0 +1,18 @@
+[package]
+name = "bund2-host"
+description = "What the machine says about itself: uname, memory, virtualization. See D152."
+version.workspace      = true
+edition.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+rust-version.workspace = true
+
+[dependencies]
+# The one dependency, and the reason this is a crate of its own: `uname` and
+# macOS's memory counters are C calls, and `bund2-stdlib` forbids `unsafe`.
+# Pinned at the version already in the build.
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.189"
+
+[lints]
+workspace = true

@@ -9,6 +9,7 @@ resolver = "3"
 exclude = ["reference"]
 
 members = [
+  "crates/bund2-host",
   "crates/bund2-value",
   "crates/bund2-api",
   "crates/bund2-syntax",
@@ -36,6 +37,7 @@ rust-version = "1.95.0"
 
 [workspace.dependencies]
 # Internal
+bund2-host     = { path = "crates/bund2-host", version = "0.0.0" }
 bund2-value    = { path = "crates/bund2-value", version = "0.0.0" }
 bund2-api      = { path = "crates/bund2-api", version = "0.0.0" }
 bund2-syntax   = { path = "crates/bund2-syntax", version = "0.0.0" }

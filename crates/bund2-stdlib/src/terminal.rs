@@ -834,15 +834,18 @@ fn io_banner(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
 /// **D53: the six version rows name Bund2's crates.** The reference lists its
 /// own internal crates there (`:39-56`). Bund2's crates share one workspace
 /// version, which is this crate's. The host rows are the reference's, read
-/// through the same `sys_metrics`. A value that cannot be read shows as
+/// through `bund2-host` where it reads them through `sys_metrics` (D152). A value that cannot be read shows as
 /// `Unknown` (`:23-34`). Bund2 has no distributed mode, so that row is always
 /// `false`.
 fn hostinfo_table(color: bool) -> String {
     use comfy_table::modifiers::UTF8_ROUND_CORNERS;
     use comfy_table::presets::UTF8_FULL;
     use comfy_table::{Cell, Color, ContentArrangement, Table};
-    let or_unknown =
-        |r: Result<String, _>| r.unwrap_or_else(|_: std::io::Error| "Unknown".to_string());
+    let host = bund2_host::uname();
+    let or_unknown = |pick: fn(&bund2_host::Uname) -> &String| {
+        host.as_ref()
+            .map_or_else(|_| "Unknown".to_string(), |u| pick(u).clone())
+    };
     let version = env!("CARGO_PKG_VERSION").to_string();
     let rows: Vec<(&str, String, Color)> = vec![
         ("bund2-value version", version.clone(), Color::Green),
@@ -852,16 +855,8 @@ fn hostinfo_table(color: bool) -> String {
         ("bund2-interp version", version.clone(), Color::Green),
         ("bund2-stdlib version", version, Color::Green),
         ("Distributed mode", "false".to_string(), Color::Blue),
-        (
-            "Hostname",
-            or_unknown(sys_metrics::host::get_hostname()),
-            Color::Blue,
-        ),
-        (
-            "OS version",
-            or_unknown(sys_metrics::host::get_os_version()),
-            Color::Blue,
-        ),
+        ("Hostname", or_unknown(|u| &u.hostname), Color::Blue),
+        ("OS version", or_unknown(|u| &u.os_version), Color::Blue),
         (
             "Virtualization",
             crate::sysinfo::virtualization(),
@@ -869,7 +864,7 @@ fn hostinfo_table(color: bool) -> String {
         ),
         (
             "Kernel version",
-            or_unknown(sys_metrics::host::get_kernel_version()),
+            or_unknown(|u| &u.kernel_version),
             Color::Blue,
         ),
     ];

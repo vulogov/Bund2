@@ -4061,6 +4061,37 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F206 — on Linux the oracle cannot name a container, and stops looking for a hypervisor at the first file it cannot read
+
+**A defect of a reference dependency; found 2026-10-13** by reading
+`sys_metrics` 0.2.7 to replace it (D152). Not observed: no host this tree
+has run on is a container under systemd.
+
+`sysinfo.virtualization` prints what `sys_metrics::virt::get_virt_info`
+answers (`reference/Bund/src/stdlib/functions/sysinfo/virt.rs:9-11`). On
+Linux that tries four probes in order. Two of them do less than they
+appear to.
+
+- **The systemd container probe never matches the file systemd writes.**
+  It reads the first line of `/run/systemd/container` with `read_line`,
+  which keeps the newline, and compares it with `docker`, `podman`, `lxc`
+  and four more. `docker` followed by a newline is none of them. Only a
+  file with no newline at its end names a container.
+- **The DMI probe gives up at the first file it cannot read.** It tries
+  four files under `/sys/class/dmi/id` and returns the error of the first
+  that fails to open or holds fewer than three bytes, instead of going on
+  to the next.
+
+Either way the answer is `Unknown`, and `sysinfo.virtualization?` is
+`false`, on a host where a correct probe would say otherwise.
+
+**Disposition: REPRODUCED.** `container` and `hypervisor` in
+`crates/bund2-host/src/lib.rs` do what the oracle does, with a test of
+each oddity. A program that asks whether it is virtualized gets the
+oracle's answer, which is the contract; correcting it is a deviation
+nobody has asked for.
+
+
 ## F205 — on a host Cranelift has no backend for, building a module of bodies would panic
 
 **A Bund2 defect against D37; found 2026-10-12** by reading

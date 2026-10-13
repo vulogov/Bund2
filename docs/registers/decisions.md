@@ -3639,6 +3639,67 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D152 — two crates linked into `bund2` are under licences its own does not allow
+
+**Raised 2026-10-13**, by the first run of `cargo-deny` on this branch (`ci`,
+run 38432025619). Every Bund2 crate declares Apache-2.0. Two direct
+dependencies of `bund2-stdlib`, linked into the `bund2` binary, do not fit
+under it:
+
+| crate | licence | what uses it |
+|---|---|---|
+| `cfonts` 1.3.0 | GPL-3.0-or-later | `io.banner`, one call, the tiny font |
+| `sys_metrics` 0.2.7 | AGPL-3.0 | the `sysinfo.*` words and three rows of `debug.display_hostinfo` |
+
+The reference names both in its manifest (`reference/Bund/Cargo.toml:29`,
+`reference/Bund/Cargo.toml:38`) beside an Apache-2.0 `LICENSE`, so this was
+inherited and not introduced. A binary that links code under either
+licence is, as those licences are ordinarily read, to be distributed under
+it; that is not legal advice and nobody qualified has read it here.
+
+**Options.**
+
+- *A. Replace both.* The banner's font drawn by Bund2, and the host's
+  facts read by Bund2.
+- *B. Make both optional, off by default.* The default binary is clean and
+  lacks those words.
+- *C. Relicense Bund2.*
+- *D. Accept and record.*
+
+**Recommendation: A.** The use is small, one font and six readings, and it
+is the only option that keeps both the licence and the words.
+
+**Risks.** A: the banner's glyphs have to match the oracle's and must not
+be copied out of the GPL source, or the replacement is a derivative; the
+host figures are pinned by goldens on two hosts. B: a deviation in the
+default build. C: changes what anyone may do with Bund2. D: nothing breaks
+and nothing is owed while the binary is not distributed; once it is, the
+label is wrong, a downstream scanner refuses it, and the fix is made under
+pressure.
+
+- Blocks: `cargo-deny` as a gate; any binary release
+- Depends on: D50, D53, D150
+- Status: **RESOLVED — option A, by the repository owner, 2026-10-13.**
+  Both are to be replaced.
+
+  **`sys_metrics`: replaced, 2026-10-13, and not yet removed.** The facts
+  are read by a new crate, `crates/bund2-host`:
+  `uname`'s four strings, six memory figures in MiB, and the
+  virtualization. It is the one place the standard library reaches
+  `unsafe`, which `bund2-stdlib` forbids, and each block is one C call.
+  How it was written, since that is what the licence turns on:
+  `sys_metrics`' source was read for which call, which file and which
+  formula it uses, which are facts about what the oracle prints, and the
+  code is Bund2's. The arithmetic is kept where it shows: each
+  `/proc/meminfo` line is divided to MiB before any sum, and F206's two
+  oddities are reproduced. On macOS arm64 the two agree exactly, strings
+  and figures, read a moment apart. `sys_metrics` is out of the binary's
+  dependencies and stays as a dev-dependency of `bund2-stdlib` for one
+  test, `tests/host_differential.rs`, until that has passed on Linux.
+
+  **`cfonts`: not started.**
+
+
 ## D151 — which instrument reads D149's count
 
 **Raised 2026-10-13** by RFC-0005's twenty-fifth review (B1).

@@ -41,10 +41,14 @@ fn version(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
-/// The host's virtualization, as `sys_metrics` names it
-/// (`reference/Bund/src/stdlib/functions/sysinfo/virt.rs:9-11`).
+/// The host's virtualization, by the name the reference's `sys_metrics`
+/// gives it (`reference/Bund/src/stdlib/functions/sysinfo/virt.rs:9-11`).
+///
+/// **Read through `bund2-host`, as every host fact here is** (D152):
+/// `sys_metrics` is AGPL-3.0 and is not linked. The names, the counters and
+/// the arithmetic are the same.
 pub(crate) fn virtualization() -> String {
-    format!("{:?}", sys_metrics::virt::get_virt_info())
+    format!("{:?}", bund2_host::virtualization())
 }
 
 /// `sysinfo.virtualization` — push the virtualization's name (`virt.rs:13-16`).
@@ -57,8 +61,8 @@ fn virtualization_word(vm: &mut dyn Vm) -> Result<(), Error> {
 /// (`virt.rs:17-27`).
 fn is_virtualized(vm: &mut dyn Vm) -> Result<(), Error> {
     let known = !matches!(
-        sys_metrics::virt::get_virt_info(),
-        sys_metrics::virt::Virtualization::Unknown
+        bund2_host::virtualization(),
+        bund2_host::Virtualization::Unknown
     );
     vm.push(BundValue::boolean(known));
     Ok(())
@@ -94,7 +98,7 @@ enum MemOp {
 
 /// The twelve memory words (`mem.rs`, `bund_mem_base`).
 ///
-/// **`sys_metrics` reports MiB, so the reference's `(res*1024)*1024` is the
+/// **The figures are in MiB, so the reference's `(res*1024)*1024` is the
 /// correct conversion to bytes** -- checked, because it reads like a defect
 /// and is not: `sysinfo.mem.total` answered exactly `sysctl -n hw.memsize` on
 /// the measuring machine. F154 says so too, so neither place can be "fixed"
@@ -103,8 +107,7 @@ enum MemOp {
 /// Neither form takes an operand; the side decides only where the answer
 /// goes.
 fn mem(vm: &mut dyn Vm, side: Side, op: MemOp, prefix: &str) -> Result<(), Error> {
-    let m =
-        sys_metrics::memory::get_memory().map_err(|e| Error(format!("{prefix} returns: {e}")))?;
+    let m = bund2_host::memory().map_err(|e| Error(format!("{prefix} returns: {e}")))?;
     let mib = match op {
         MemOp::Total => m.total,
         MemOp::Free => m.free,
@@ -141,7 +144,9 @@ pub fn register(r: &mut Registry) {
         "sysinfo.hostname",
         |vm| {
             host_string(vm, "sysinfo.hostname", || {
-                sys_metrics::host::get_hostname().map_err(|e| format!("{e}"))
+                bund2_host::uname()
+                    .map(|u| u.hostname)
+                    .map_err(|e| format!("{e}"))
             })
         },
         eff(0, 1),
@@ -151,7 +156,9 @@ pub fn register(r: &mut Registry) {
         "sysinfo.kernel_version",
         |vm| {
             host_string(vm, "sysinfo.kernel_version", || {
-                sys_metrics::host::get_kernel_version().map_err(|e| format!("{e}"))
+                bund2_host::uname()
+                    .map(|u| u.kernel_version)
+                    .map_err(|e| format!("{e}"))
             })
         },
         eff(0, 1),
@@ -161,7 +168,9 @@ pub fn register(r: &mut Registry) {
         "sysinfo.os_version",
         |vm| {
             host_string(vm, "sysinfo.os_version", || {
-                sys_metrics::host::get_os_version().map_err(|e| format!("{e}"))
+                bund2_host::uname()
+                    .map(|u| u.os_version)
+                    .map_err(|e| format!("{e}"))
             })
         },
         eff(0, 1),
@@ -171,8 +180,8 @@ pub fn register(r: &mut Registry) {
         "sysinfo.system",
         |vm| {
             host_string(vm, "sysinfo.system", || {
-                sys_metrics::host::get_host_info()
-                    .map(|h| h.system)
+                bund2_host::uname()
+                    .map(|u| u.system)
                     .map_err(|e| format!("{e}"))
             })
         },
@@ -274,7 +283,7 @@ mod tests {
         );
     }
 
-    /// `sys_metrics` reports MiB and the reference multiplies by 1024 twice,
+    /// The figure is in MiB and the reference multiplies by 1024 twice,
     /// so the answer is bytes. A total that came back in MiB would be about a
     /// million times smaller, which is what this bound catches.
     #[test]
