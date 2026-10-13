@@ -706,7 +706,7 @@ stable until a generation bumps.
 | `execute.`'s error prefix `EXECUTE.` distinct from `EXECUTE` | preserved exactly; S4b's "proceeds exactly as `execute`" governs stack selection, not message text |
 | `:atom`'s character class narrower than `name`'s | **deliberately changed** — F63, widened to any non-whitespace run |
 | `+//` lexing as one name | preserved, and stated (F61) |
-| The debugger's third eval loop, which prints and steps | preserved via S6's observer |
+| The debugger's third eval loop, which prints and steps | preserved via S6's observer *(2026-10-13, RFC-0008's third review, B5: not how it was built. D84 made the debugger a safepoint in the frame loop, where the program's thread stops, and RFC-0008 §D1 is the statement of record. An observer cannot stop a program; S6's serves a trace. The reference's printing loop itself is the `debug` word, preserved as RFC-0008 has it, and what the `--debugger` flag runs is the console, an approved deviation, D155)* |
 | `execute_class` / `execute_object` re-entering evaluation | preserved; both are re-entrant natives under S4a |
 | `make_bund_object` recursing over the superclass chain | preserved; a third depth axis, flattening deferred to RFC-0009 |
 | `apply`'s resolution order, `autoadd` semantics, non-nestability | preserved exactly |

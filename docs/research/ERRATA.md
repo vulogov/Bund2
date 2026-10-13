@@ -149,6 +149,14 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   profile taken under the debugger reads zero by construction. A profiler needs
   its own counters on the frame loop.
 
+- `03-metaprogramming-oop-debugger.md` §3.3(g) -> superseded by D113's ruling
+  of 2026-10-07, recorded here on 2026-10-13: "`"…" debug` becomes a thin
+  wrapper: eval the string with the debugger attached" was not done. `debug`
+  stays the reference's word, a loop over a string's top-level terms, and a
+  new word, `debug.run`, is the wrapper that stops at each term and steps
+  into what it calls. And §3.3(a)'s `Interp::step()` does not exist: the
+  debugger is a safepoint in the frame loop (D84, RFC-0008 §D1).
+
 - `01-extensibility-async.md` §2.3 -> superseded by RFC-0007 §C3 (2026-10-01):
   "`Value::wrap()` produces an `ENVELOPE`… the message-passing boundary between
   VMs is a mechanism the language already has a word for" does not hold. The

@@ -3639,6 +3639,172 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D159 — `debug.dump` refuses a value nested past the wire format's bound
+
+**Raised 2026-10-13** by RFC-0008's third review
+(`docs/rfc/reviews/RFC-0008-review-2026-10-13.md`, S3). RFC-0008's
+criterion 3 calls this refusal "RFC-0007 criterion 4's deferred question,
+now with a second word behind it". D114 resolved that question on
+2026-10-08, for `send`, and does not name `debug.dump`.
+
+The reference's `debug.dump` hands any value that is not an INT, FLOAT,
+BOOL or STRING to `to_binary` and hexdumps the result
+(`reference/Bund/src/stdlib/functions/debug_fun/debug_dump.rs:51-60`).
+Bund2's does the same through the codec F118 bounded at 256 levels.
+Measured 2026-10-13, release binaries, `list N { drop list push } times
+debug.dump drop "done" println`:
+
+| N | oracle | Bund2 |
+|---|---|---|
+| 255 | dumps, prints `done` | dumps, prints `done` |
+| 256 | dumps, prints `done` | `DUMP: error converting to binary: the value nests 257 deep, and 256 is the most the wire format can carry` |
+| 257 | dumps, prints `done` | the same refusal, one level deeper |
+
+The prefix is the reference's own for an encode that failed (`:57`); the
+reason after it is Bund2's. No golden moves: no corpus program dumps such
+a value.
+
+- Blocks: nothing. RFC-0008's criterion 3 carries a note until it is ruled.
+- Options:
+  - **A.** The refusal stays, as an approved deviation of D114's kind, and
+    D114's reasoning is extended to this word by name.
+  - **B.** `debug.dump` encodes without the bound. The encoder descends
+    once a level, so a value deep enough would abort the process, which
+    D37 forbids; it would need an encoder that does not recurse.
+- Recommendation: A. The word exists to show bytes, and a value 257 lists
+  deep is not one a session inspects by hexdump. Risk of A: a program that
+  dumps such a value stops where the oracle's goes on.
+- Status: **RESOLVED** by the repository owner, 2026-10-13: "D159: A" —
+  the refusal stays, as an approved deviation of D114's kind.
+
+## D158 — what `debug.display_distributed_info` says when the VM is not distributed
+
+**Raised 2026-10-13** by RFC-0008's third review (S2). Without
+`--distributed` the reference's word emits one line through `log::error!`
+and returns
+(`reference/Bund/src/stdlib/functions/debug_fun/debug_display_distributed_info.rs:21-25`).
+At the default filter that line goes to stderr with a wall-clock timestamp
+and a Rust module path, which is the situation D90 decided for the five
+`log.*` words. Bund2 has no distributed layer, so this is the word's only
+path, and it was built as D90 would have it: the same words through
+`Vm::report` at `Warning` (`crates/bund2-stdlib/src/terminal.rs`,
+`debug_display_distributed_info`). D90's title and scope are the `log.*`
+words and it does not name this one. RFC-0008's Preservation table calls
+the word "Preserved, including its absence behaviour".
+
+- Blocks: nothing
+- Options:
+  - **A.** Approve it as built: D90's shape, extended to this word by
+    name. The line differs from the oracle's in form and no golden can
+    hold either, for the reason `log.error` has none.
+  - **B.** Emit the reference's line form, with a timestamp and the
+    reference's module path. D90 rejected this for `log.error`: the path
+    would be a false statement about where Bund2's code is.
+  - **C.** Say nothing. Quieter than the reference, and a second
+    deviation.
+- Recommendation: A.
+- Status: **RESOLVED** by the repository owner, 2026-10-13: "D158: A" —
+  approved as built; D90's shape is extended to this word by name.
+
+## D157 — the reference's `--profile` flag
+
+**Raised 2026-10-13** by RFC-0008's third review (B2). RFC-0008 has asked
+"whether `--profile` is in scope at all" as an open question since its
+first revision, and puts the flag "in the contract". The reference
+switches on `time_graph`'s collection before the command runs and prints
+the collected table to standard output after it
+(`reference/Bund/src/cmd/mod.rs:72-75`, `:106-110`). The table's rows are
+the reference's own Rust functions, the ones it marks
+`#[time_graph::instrument]`
+(`reference/Bund/src/stdlib/helpers/run_snippet.rs:13`). Bund2's CLI does
+not parse the flag (`crates/bund2-cli/src/main.rs`, the flag match), and
+nothing in Bund2 is instrumented.
+
+- Blocks: nothing
+- Options:
+  - **A.** Out of scope, and named so: a reference flag Bund2 does not
+    have, with a Preservation row. What a user sees is whatever an unknown
+    flag gets.
+  - **B.** Accept the flag and print nothing, with a notice that Bund2 has
+    no profiler. A script that passes it keeps running.
+  - **C.** Build a profiler of Bund words on the frame loop. RFC-0008 §D7
+    records that this needs its own counters; it is a design of its own.
+- Recommendation: A. The reference's table names its own Rust functions,
+  so no Bund2 output could match it, and B answers a flag with nothing
+  behind it. Risk of A: a command line carried over from the reference
+  with `--profile` in it fails.
+- Status: **RESOLVED** by the repository owner, 2026-10-13: "D157: A" —
+  out of scope. `--profile` is a reference flag Bund2 does not have.
+
+## D156 — the reference's `--debug-shell` flag
+
+**Raised 2026-10-13** by RFC-0008's third review (B2 and B3). The
+reference, given `--debug-shell`, enters `debug.shell`'s loop on the VM
+after a program's error has been printed: after a plain run that failed,
+and after a `--debugger` run that failed
+(`reference/Bund/src/stdlib/helpers/run_snippet.rs:31-33`, `:51-53`,
+`:78-80`, `:89-91`). RFC-0008 names the flag once, in its table of the
+reference's flags, and nowhere after. Bund2's CLI does not parse it. The
+`debug.shell` word exists (`crates/bund2-stdlib/src/terminal.rs`,
+`debug_shell`).
+
+- Blocks: nothing
+- Options:
+  - **A.** Build it: after an error report, with the flag given, run the
+    `debug.shell` loop on the VM the program left. Under a capture standard
+    input is closed and the loop ends at once, so no golden moves.
+  - **B.** Out of scope, named, with a Preservation row.
+- Recommendation: A. The loop is built and the flag is how a session
+  looks at the stacks an error left, which the error report shows only in
+  summary. Not established: what a bundle should do with it (D115 makes a
+  bundle's debugger words do nothing), and whether it applies after a
+  `--debugger` session that ended in an error, as in the reference.
+- Status: **RESOLVED** by the repository owner, 2026-10-13: "D156: A" —
+  build it. Not built as this is written.
+
+## D155 — `--debugger` is not the reference's `--debugger`
+
+**Raised 2026-10-13** by RFC-0008's third review (B2). An unplanned
+deviation in a reference flag, found after it was built.
+
+In the reference `--debugger` hands the program's whole text to
+`bund_debugger`, which is the `debug` word's loop: for each top-level term
+it prints a three-row table, applies the term, and reads lines, where an
+empty line moves to the next term and any other is evaluated as Bund
+(`reference/Bund/src/stdlib/helpers/run_snippet.rs:23-25`, `:70-72`;
+`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:52-111`).
+In Bund2 `--debugger` is RFC-0008 §D1's console: it stops before every
+value, at every depth, takes `s`, `n`, `f`, `c`, breakpoints and watches,
+and since D113 evaluates any other line as Bund. D84 decided the mechanism
+and D94 authorised the build. Neither says that the flag's behaviour
+changes for someone who used the reference's, and RFC-0008's Preservation
+table has no row for the flag.
+
+What differs for that user, read from the two sources and not measured
+side by side: the stop is before a value and not after it; there is no
+table per term; the stops go into bodies; a line that is one of the
+console's short forms is a command and not Bund. What is the same: a typed
+line that is not a command runs in the program's VM. The reference's loop
+is still reachable, as the `debug` word over a string.
+
+- Blocks: nothing. RFC-0008's Preservation table carries a note until it
+  is ruled.
+- Options:
+  - **A.** Approve the deviation: `--debugger` is the stepping console,
+    and the Preservation table says so in a row.
+  - **B.** Give `--debugger` the reference's behaviour, the `debug` word's
+    loop over the program's text, and move the console to a flag of
+    Bund2's own. The console's tests, D113's words and RFC-0006's notes on
+    the flag are all written against the present spelling.
+  - **C.** As B, with the console as the default and the reference's loop
+    behind a flag of Bund2's own. That is A with one more flag.
+- Recommendation: A. The reference's loop cannot stop inside a body, which
+  is the limit RFC-0008 exists to remove, and it stays available as the
+  word. Risk of A: someone used to an empty line advancing one term finds
+  a console with other keys.
+- Status: **RESOLVED** by the repository owner, 2026-10-13: "D155: A" —
+  the deviation is approved. `--debugger` is the stepping console.
+
 ## D154 — RFC-0005 is Accepted
 
 **Raised 2026-10-13** by RFC-0005's twenty-sixth review

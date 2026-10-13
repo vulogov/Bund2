@@ -13,6 +13,18 @@
   see §D8. The `--debugger` console still keeps none.)* So a debugged session steps, breaks, watches and inspects, and does not
   trace or remember. That is the whole gap.
 
+  *(2026-10-13, the third review's B3: **it is not the whole gap, and was
+  not when this was written.** Also specified and not built, under no
+  criterion: a breakpoint by source location (§D3), `watch depth > 100`
+  (§D4), and `words` and `classes` as views (§D5); "What this does not do",
+  in the amendment of 2026-10-07, names the first and the last. Of the
+  reference's four flags, three are not parsed by `bund2-cli` at all:
+  `--debug-shell` (D156: to be built), `--profile` (D157: out of scope) and `-d`, which
+  D90 narrowed to `BUND_LOG_LEVEL`. And the tally above, "eleven met,
+  criterion 4 met on each capture, and one withdrawn", matches no reading
+  of the list: no criterion is withdrawn, criterion 12's span half is, and
+  criterion 13 is met by a golden.)*
+
   **Two things the criteria record as owed rather than met.** Criterion 6 says
   "every suite program" and four were used — the sweep belongs in `xtask
   conform`. And §D2's span half is withdrawn from criterion 12: a frame carries
@@ -47,6 +59,13 @@
   the reasoning trail and is **followed**, including its own fallback in (f);
   where this RFC departs, `docs/research/ERRATA.md` records it. It departs
   nowhere today.
+  *(2026-10-13, the third review's S4: it departs in one place by the
+  owner's ruling. §3.3(g) makes `"…" debug` the wrapper that steps into
+  things; D113's ruling of 2026-10-07 keeps `debug` as the reference's word
+  and makes `debug.run` the wrapper. ERRATA has the entry since this date.
+  Two of the research's terms also do not exist in Bund2 and are used
+  below as if they did: (a)'s `Interp::step()`, which was built as a
+  safepoint, and (h)'s "IR-op granularity", which is a value.)*
 
 ## Summary
 
@@ -104,6 +123,28 @@ The preservation contract. Every word below is cited at its registration, and
 | `debug.display_distributed_info` | The bus/zenoh layer's state (`debug_display_distributed_info.rs:132,134`) | no |
 | `log.info` `log.warning` `log.error` `log.debug` `log.trace` | Pull a STRING and emit it through the `log` crate at that level (`debug_trace.rs:17-33,61-65`) | no |
 
+*(2026-10-13, the third review's citations. The third column is of
+2026-09-30; all thirteen are registered now. And four rows cite a line
+that is not where the behaviour is.*
+
+- *`debug`: the parse is `debug_debug.rs:52-53` and the loop `:55-111`.
+  The word pulls at `:127` and `cast_string`s what it pulled at `:133`, so
+  it takes any value that casts, not a STRING only. In the loop a `NONE`
+  term is skipped (`:57-59`), `EXIT` ends it (`:60-62`), and an `ERROR`
+  term bails (`:63-72`). Bund2's word has the first two and no third:
+  its value model has no such tag.*
+- *`debug.shell`: `:67` is the registration; the loop is
+  `debug_shell.rs:24-48`. Every line is evaluated, an empty one included
+  (`:27-29`), where `debug` moves on at an empty line
+  (`debug_debug.rs:85-87`). Bund2's two words do the same
+  (`crates/bund2-stdlib/src/terminal.rs`, `debug_shell` and `debug_word`).*
+- *`debug.display_memstat`: `:70` registers the form without colour and
+  `:72` the one with. When the usage cannot be read each prints
+  `Couldn't get the current memory usage.` (`:28`, `:47`), which Bund2
+  reproduces.*
+- *The four flags, below: the lines cited declare them. What they do is in
+  another file; see the note under that table.)*
+
 **The reference also has four CLI flags, and the first draft's contract omitted
 all four** (`reference/Bund/src/cmd/mod.rs:121-137`,
 `reference/Bund/src/cmd/setloglevel.rs:6-33`):
@@ -114,6 +155,20 @@ all four** (`reference/Bund/src/cmd/mod.rs:121-137`,
 | `--debug-shell` | Drop to the debug shell **if an error occurs** |
 | `-d` / `--debug` | A **count**, not a boolean: 0 takes the environment, 1 `bund=info`, 2 `bund=debug`, 3+ `bund=trace` |
 | `--profile` | Run the internal profiler |
+
+*(2026-10-13, the third review's B2: what each flag does, which the table
+above takes from its help text. `--debugger` hands the program's whole text
+to `bund_debugger`, the `debug` word's loop
+(`reference/Bund/src/stdlib/helpers/run_snippet.rs:23-25`, `:70-72`).
+`--debug-shell` enters `debug.shell`'s loop after an error is printed, on
+both the plain path and the `--debugger` path (`:31-33`, `:51-53`,
+`:78-80`, `:89-91`). `--profile` switches on `time_graph` before the
+command and prints its table to standard output after
+(`reference/Bund/src/cmd/mod.rs:72-75`, `:106-110`). F52, cited above for
+`--debugger`, is a register entry and not source. Bund2's `--debugger` is
+therefore not the reference's, which is D155; the other two are D156 and
+D157. All three were ruled the same day: the deviation is approved,
+`--debug-shell` is to be built, and `--profile` is out of scope.)*
 
 **So this RFC may not spell its flag `--debug`.** The first draft proposed
 `bund2 run --debug`, following the research; that name is taken by the log-level
@@ -145,6 +200,13 @@ reproducible. `to_binary()` covers everything else (`debug_dump.rs:20-72`).
 stamp, which F14 normalises in a golden's error text and cannot normalise inside
 a hexdump.
 
+*(2026-10-13, the third review's S8 and citations. "Little-endian" is the
+host's order: `bytes_of` is a view of memory. The oracle and Bund2 agree on
+every host a golden has been captured on because both are little-endian
+there, and `debug-dump.golden` is host-specific in that sense with no
+variant. And the match is `debug_dump.rs:18-61`, its last arm `:51-60`;
+`:64-72` is another function.)*
+
 The first draft got three of these wrong — it described the word from the
 research rather than the code, gave BOOL eight bytes, missed the STRING arm, and
 said "pull". It also omitted the **seven** `DUMP: error CASTING to …` texts,
@@ -153,8 +215,20 @@ crate**, which lives outside `reference/` and therefore cannot be cited under
 the grounding rule — so the format is reproduced by matching the oracle's bytes,
 not by citing a spec.
 
+*(2026-10-13, the third review: of the seven error texts, at
+`debug_dump.rs:16,22,29,36,43,47,57`, four read `error CASTING to`. The
+other three are `NO DATA #1`, `error converting to STRING` and `error
+converting to binary`. Criterion 3 has the set right.)*
+
 `debug` and `debug.shell` **read the terminal**. They belong with `password`
 and `bund.prompt` in `ACTS_ON_HOST`, and no hermetic golden can run them.
+
+*(2026-10-13, the third review's S7: wrong twice. `ACTS_ON_HOST`
+(`crates/bund2-stdlib/src/lib.rs`) is the promotion audit's list of
+fixed-effect natives to skip, and holds neither word; both are opaque and
+are skipped before the list is read. And a golden does run them:
+`debug-repl-words.golden`, under a capture whose standard input is closed,
+which criterion 13's correction of 2026-10-08 already says.)*
 
 ## Design
 
@@ -164,6 +238,11 @@ and `bund.prompt` in `ACTS_ON_HOST`, and no hermetic golden can run them.
 debugger drives it; `step`, `next` and `finish` are three comparisons of frame
 depth before and after, which is gdb's model (research §3.3(a)).
 
+*(2026-10-13, the third review's S9: no `step` method exists on `Interp`.
+What was built is the safepoint the rest of this section describes, in the
+two loops, where the debuggee blocks on the console's next command. The
+sentence above is the research's design and not Bund2's.)*
+
 **Step-into does not come from bodies being frames, and the first draft claimed
 it did.** It said "step-into works for words, lambdas and `bund.eval`'d code
 alike, because all three are bodies in frames". They are, and that is not
@@ -171,7 +250,9 @@ sufficient: `Interp::eval_lambda` records `floor = frames.len()`, pushes, then
 calls **`run_to(floor)`** — a nested loop *inside the native's own Rust frame*
 (`crates/bund2-interp/src/lib.rs`, `eval_lambda`), whose comment says "every
 native that runs a body synchronously comes through here". There are **27 such
-call sites across nine files**, and several hold Rust state across the body:
+call sites across nine files** *(D84's figure of 2026-09-30; on 2026-10-13
+`eval_lambda(` is on 46 lines of 13 files under `crates/`, comments and
+tests included)*, and several hold Rust state across the body:
 `map_base` keeps a `Vec<BundValue>` and a loop position.
 
 **D84 answers it without suspension.** Stepping needs a program to *stop*, not
@@ -309,6 +390,14 @@ debugger that changes what it observes is worse than a slow one — and F139
 measured that no corpus program compiles a body at the default threshold
 anyway.
 
+*(2026-10-13, the third review's S10 and citations. F139 measured at the
+threshold then shipped, 64; D74 has since made the default 1024, so the
+claim holds with more room than the entry it cites shows. And the tier is
+not installed "in one place": the constructors go through `build`, and
+`install_tier` (`crates/bund2-runtime/src/lib.rs`) is a second, public
+installer under `jit`. Criterion 10's `None` is true of the session the CLI
+builds, not of the type.)*
+
 **What would reopen it:** a program slow enough at Tier 0 to be undebuggable.
 Then per-word pinning, with its own decision, using the decline machinery
 RFC-0005 already has — §S8's floor and criterion 18's `autoadd` entry check are
@@ -365,6 +454,17 @@ and only if a line was entered, so a session that meets end-of-input at once
 leaves nothing behind. Measured beside the oracle: it writes into the working
 directory, Bund2 does not.
 
+*(2026-10-13, the third review. `debug_debug.rs:48` is where the history is
+loaded; it is written at `:119`, and `debug.shell`'s at
+`debug_shell.rs:51`, loaded at `:20`. `config_home` reads an absolute
+`XDG_CONFIG_HOME`, else `%APPDATA%` on Windows, else
+`~/Library/Application Support` on macOS, else `~/.config`; the list above
+leaves out the macOS branch, which is the one this host takes. And the
+reference saves the history after every session, a line entered or not;
+Bund2 saves only when one was. That is a second difference from the
+reference, beside where the file is, and belongs to the same row of the
+Preservation table.)*
+
 **Not covered:** the `--debugger` console (`crates/bund2-cli/src/debugger.rs`)
 still reads plain lines and keeps none. It has no line editor to keep them
 for; that arrives with the input seam D101 defers.
@@ -382,14 +482,37 @@ features planned here (§3.3(j)). The one obligation this RFC takes from that:
 | `debug.display_stack`, `debug.display_workbench` | **Preserved**, and already built. |
 | `debug.display_hostinfo` | **Approved deviation — D53**, not preserved. It reports *Bund2's* crates where the reference reports its own six, and Bund2 has none of them. The first draft said "Preserved", contradicting a decision already taken. |
 | `log.*`, five words | **Preserved exactly** — one STRING, five levels, the two error texts. Where the output goes is the logger's. |
-| `debug.dump`, scalar path | **Preserved** — eight little-endian bytes via `bytes_of`. |
+| `debug.dump`, scalar path | **Preserved** — eight little-endian bytes via `bytes_of`. *(2026-10-13: the host's order; see the note under "Current behaviour")* |
 | `debug.dump`, `to_binary` path | **Preserved in behaviour, uncheckable by a golden**: the encoding carries the id and stamp, which cannot be normalised inside a hexdump. |
 | `debug.display_memstat` | **Preserved in shape.** Reports the environment, so no golden pins its content. |
-| `debug.display_distributed_info` | **Preserved, including its absence behaviour, which already exists.** Without `--distributed` the reference logs `BUND must be in distributed mode. You shall pass --distributed to CLI` and **prints nothing** (`debug_display_distributed_info.rs:23`). Bund2 has no distributed layer at all, so that is its only path. Neither option in the first draft's open question was this. |
-| `debug`, `debug.shell` | **Preserved, and extended.** `"…" debug` keeps working as a thin wrapper: evaluate the string with the debugger attached, breakpoint on entry (§3.3(g)). It then steps *into* things, which the reference cannot. Both act on the host. |
+| `debug.display_distributed_info` | **Preserved, including its absence behaviour, which already exists.** Without `--distributed` the reference logs `BUND must be in distributed mode. You shall pass --distributed to CLI` and **prints nothing** (`debug_display_distributed_info.rs:23`). Bund2 has no distributed layer at all, so that is its only path. Neither option in the first draft's open question was this. *(2026-10-13, the third review's S2: **not preserved as this row says.** The reference's line goes to stderr at the default level, with a timestamp and a module path; Bund2 reports the same words at `Warning`, D90's shape, which D90 does not name for this word. That is D158, ruled the same day: approved as built, D90's shape extended to this word by name. "Prints nothing" is true of standard output only)* |
+| `debug`, `debug.shell` | **Preserved, and extended.** `"…" debug` keeps working as a thin wrapper: evaluate the string with the debugger attached, breakpoint on entry (§3.3(g)). It then steps *into* things, which the reference cannot. Both act on the host. *(2026-10-13, the third review's B4: **withdrawn for `debug`** by the owner's ruling of 2026-10-07, recorded under D113 and in the amendment below: `debug` stays the reference's word, and `debug.run` is the wrapper that steps)* |
 | `debug`'s history file location | **Deliberately changed** — §D8, F10. |
 | The program being debugged | **Unchanged, which is the point.** §D6 disables the tier, so a session observes Tier 0; it does not change what Tier 0 does. |
-| `Frame`'s size | **Changed**, and the cost is unmeasured — §D2. |
+| `Frame`'s size | **Changed**, and the cost is unmeasured — §D2. *(2026-10-13, the third review's B4: measured on 2026-10-03 under criterion 12, which found no cost its instrument could detect. The eight bytes are paid by every run, not by debugged ones)* |
+
+*(2026-10-13, the third review's B2 and its list of what this table does not
+enumerate. Rows added on this date.)*
+
+| behaviour | disposition |
+|---|---|
+| `--debugger` | **Approved deviation — D155.** The reference's flag runs the `debug` word's loop over the program's text; Bund2's runs §D1's console. |
+| `--debug-shell` | **To be built — D156.** Not parsed yet. |
+| `--profile` | **Out of scope — D157.** A reference flag Bund2 does not have; the CLI refuses it as an unknown argument. |
+| `-d` / `--debug` | **Narrowed — D90.** Bund2's CLI has no such count; `BUND_LOG_LEVEL` alone raises the level. |
+| `debug`'s own error texts | **Preserved**: `Stack is too shallow for inline DEBUG`, `Stack is too shallow for debug()`, `Casting debug snippet returns: …`, `Attempt to evaluate value … returned error: …` (`debug_debug.rs:125`, `:130`, `:138`, `:78`). **Absent**: the two `Detected an Error posted on the stack` texts (`:66`, `:69`), whose `ERROR` value Bund2 cannot represent. |
+| `debug` when no line editor can be made | **Not examined.** The reference consumes the snippet and returns `Ok` (`debug_debug.rs:40-46`). |
+| an empty line at `debug` and at `debug.shell` | **Preserved**: it moves `debug` to the next term and is evaluated by `debug.shell`. |
+| Ctrl-C at a word's prompt | **Preserved**: at `debug` it moves to the next term (`debug_debug.rs:96-99`), at `debug.shell` it ends the word (`debug_shell.rs:36-39`). Read from `debug_word` and `debug_shell`, where end-of-input and an interrupt are one arm; not run at a terminal for this row. |
+| when the history is saved | **Changed with its location** — §D8: only when a line was entered, where the reference saves after every session. |
+| `debug.display_memstat` when the usage cannot be read | **Preserved**: `Couldn't get the current memory usage.` |
+| `debug.dump` of a value nested past 256 levels | **Approved deviation — D159**, of D114's kind. The oracle dumps it; Bund2 refuses. |
+| a conditional breakpoint's effect on the program | **None**, which criterion 8 checks: the condition runs in a child VM the host supplies, and what it pushes, rebinds or exits with does not reach the program. |
+| `s` at a native that runs a body, such as `map` | The body's values are stops. The native's own Rust state is never shown. |
+| `--noeval` and `debug` | **Not gated — D122.** The word's operand is evaluated under `--noeval`, as in the reference. |
+| a body queued for compiling when a word arms the debugger and the tier is switched off (D113.6) | **Not compiled — F203**, found and fixed 2026-10-12. Before it, a queued body was compiled once the outer body returned, for code no entry could reach. |
+| a user word named `b`, `d` or `w`, typed at the console with an argument | **Taken as the short form.** The console reads `b `, `d ` and `w ` before Bund (`crates/bund2-cli/src/debugger.rs`, `parse`). |
+
 
 ## Alternatives considered
 
@@ -445,6 +568,8 @@ capture and still unpinnable, which is `debug`'s case.
    Bund2's equivalent code is `bund2_stdlib::console`, so emitting the
    reference's path verbatim would be printing a false statement about where the
    code is.
+   *(2026-10-13, the third review: the code is
+   `crates/bund2-stdlib/src/logging.rs`.)*
 
    So the criterion is restated: **what is checkable is which of the five emit at
    the default level and which are silent, not what the line says.**
@@ -492,6 +617,20 @@ capture and still unpinnable, which is `debug`'s case.
    to binary`, which Bund2 can reach above `MAX_WIRE_DEPTH` where the oracle's
    encoder has no bound at all — RFC-0007 criterion 4's deferred question, now
    with a second word behind it.
+   *(2026-10-13, the third review's S1 and S3. **"Behind the tag check" is
+   not what makes the arms vacuous.** `debug_dump.rs:18` dispatches on the
+   value's `dt`; `cast_int` matches on its `data`
+   (`reference/rust_dynamic/src/cast.rs:17-24`), and the two are separate
+   fields (`reference/rust_dynamic/src/value.rs:19,21`). An arm is vacuous
+   only if nothing in the reference makes a value whose `dt` says INTEGER
+   and whose payload is not one. That is a property of the whole of
+   `rust_dynamic` and of every word, and it was not established here:
+   `[UNGROUNDED]`. Bund2's arm, an internal error naming the mismatch, is
+   right either way. **And the question is not deferred.** D114 decided
+   it on 2026-10-08 for `send`; `debug.dump` is not named there. Measured
+   on this date: the oracle dumps a list nested 257 deep and Bund2 refuses
+   it. That is D159, ruled the same day: the refusal stays, an approved
+   deviation.)*
 4. **Conformance does not regress**, measured *after* the new probes are
    captured. **Not "stays at 107/116"**: criteria 1–3 add probes, so the
    denominator grows, and the first draft's criterion 3 contradicted its own
@@ -542,6 +681,23 @@ capture and still unpinnable, which is `debug`'s case.
    reports a zenoh session, which D87 left deferred. That is the criterion
    working as restated; the first draft's "moves by exactly ten, or the
    difference is explained" would have passed by explaining.
+
+   *(2026-10-13, the third review's B1: **the table and the paragraph above
+   are of 2026-10-03 and are false today**, and contradict criterion 13 as
+   corrected on 2026-10-08. All four words they call not implemented are
+   registered: IMPLEMENTED reads 500/505 and COVERAGE 489/505 on this
+   date. As they stand:*
+
+   | word | state on 2026-10-13 |
+   |---|---|
+   | `debug` | implemented and probed — `debug-repl-words.golden` |
+   | `debug.shell` | implemented and probed — the same golden |
+   | `debug.display_memstat` | implemented; no golden can hold it: it reports this process's memory |
+   | `debug.display_distributed_info` | implemented; no golden can hold it: its one line goes through the reporter where the oracle's carries a wall clock (D158) |
+
+   *D94's table says of this criterion that "the other five are named word
+   by word"; four of the five names it points at are the stale ones above.
+   The register is append-only, so the correction is here.)*
 6. **`step`, `next` and `finish` agree with an uninterrupted run**, over every
    suite program: stepped to completion leaves the same final state as run
    normally. **Only over the reach D6 permits** — top-level values and bodies
@@ -563,6 +719,11 @@ capture and still unpinnable, which is `debug`'s case.
    every program that leaves standard input alone, and a program that reads it
    cannot be debugged at all — which is a statement about the console's
    transport (§D1), not about `step`.
+
+   *(2026-10-13, the third review: "134 of its 136" is of 2026-10-06; the
+   suite is 146 programs now and the test derives its own set. "Cannot be
+   debugged at all" has not been so since `debug.feed`, which is how a
+   debugged program is typed into.)*
 
    The excluded set is derived from each program's source, so it cannot go
    stale, and then compared against those two names, so a third is noticed.
@@ -751,6 +912,14 @@ capture and still unpinnable, which is `debug`'s case.
     costs 1.6% to 3.5% more instructions; with a tier, −0.4% to +1.9%.** Every
     row is inside the 5% band. D117 carries the table and what a count does
     not say — chiefly that it is not time.
+
+    *(2026-10-13, the third review's S6: **that reading is of the tree of
+    2026-10-08 and of no later one.** `crates/bund2-interp/src/lib.rs` has
+    eight commits since, all RFC-0005's. Whether any touched the per-step
+    path was not established and the count was not re-taken. Also not said
+    above: the 5% band is borrowed from RFC-0005's criterion 7, which D70
+    reads together with a significance filter; the three-window protocol
+    here has none.)*
 
 12. **§D2's growth is measured against a baseline taken first.**
     `Frame` gains a symbol and a span, on a structure pushed per call, so
@@ -1047,6 +1216,10 @@ Thirteen words, all Bund2-only. None is in the reference's registry, so none
 moves `COVERAGE` or `IMPLEMENTED`, and none can be held by a golden against
 the oracle.
 
+*(2026-10-13, the third review: fourteen with `debug.run`, which the
+amendment adds further down. `bund2 words` lists twenty-two `debug` words,
+the reference's eight and these fourteen.)*
+
 | word | operands | what it does | part |
 |---|---|---|---|
 | `debug.backtrace` | — | renders the frame stack | A |
@@ -1145,6 +1318,13 @@ rearrange it under the native. Memory-safe by the language; whether every
 invariant the frame loop keeps holds there has not been read call by call.
 Criterion W3 is the check, and Q41 records the gap.
 
+*(2026-10-13, the third review's S5: the sentence above says four sites and
+names five. There are seven calls of `safepoint_for` in
+`crates/bund2-interp/src/lib.rs` today: the stepping stop in the loops, the
+frame push for a breakpoint, the two watch hooks, and three added after
+this was written, which are a native's stop, an alias's stop and a term of
+`debug.run`'s string. See the note under W3.)*
+
 ### §W3 — Words reach the debugger through the VM
 
 `Vm` gains one method, defaulted to "nothing is attached", in the shape
@@ -1239,8 +1419,8 @@ construction: its stepped and plain runs are different programs.
 | behaviour | disposition |
 |---|---|
 | Every reference word | **Unchanged.** No reference word is added, removed or altered. |
-| `debug`, `debug.shell` | **Unchanged in Part A.** In Part B `debug` may gain the stepping its row promised; that is D113.5's to say. |
-| The console's commands | **Preserved as short forms**, less `stack`/`st` if D113.4 rules so. |
+| `debug`, `debug.shell` | **Unchanged in Part A.** In Part B `debug` may gain the stepping its row promised; that is D113.5's to say. *(2026-10-13: ruled the same day. `debug` gains nothing; `debug.run` is the stepping word)* |
+| The console's commands | **Preserved as short forms**, less `stack`/`st` if D113.4 rules so. *(2026-10-13: ruled the same day. `st` is the view and `stack` is the Bund word)* |
 | A line the console does not know | **Changed**: evaluated, where it was refused. |
 | A debugged program's input | **Changed only when fed.** |
 | `conform`, `COVERAGE`, `IMPLEMENTED` | **Move by zero.** The words are outside the reference's list. |
@@ -1257,8 +1437,20 @@ construction: its stepped and plain runs are different programs.
   level, loop head, breakpoint, and both watch hooks — and the program then
   runs to the end it would have reached had the line been part of it, or the
   site is refused by name. Closes Q41.
+  *(2026-10-13, the third review's S5: met over four kinds of stop, and
+  three more were added afterwards. `a_line_may_be_typed_at_every_kind_of_stop`
+  types a line at the top level, a loop head, a breakpoint on a word with a
+  body, and both watch hooks.
+  `a_line_may_be_typed_at_a_native_an_alias_and_a_term_stop`, added on this
+  date, does the same at a breakpoint on a native, where the operands are
+  on the stack and the native has not been called, at a breakpoint on an
+  alias, and at a term of `debug.run`'s string. Each program runs to the
+  end it would have reached. That is one program per kind of stop, and not
+  a reading of the frame loop's invariants call by call.)*
 - **W4. A session that only steps is byte-identical to before**: criterion
   6's sweep passes unchanged, with no exclusion.
+  *(2026-10-13: no new exclusion. The sweep has the two criterion 6
+  names.)*
 - **W5. `debug.feed` reaches `input`, `input*`, `password` and `debug.shell`**
   through a scripted run, in order, and an empty queue under `--debugger` is
   the end of input. Whether a breakpoint on `input` stops before the read is
@@ -1483,3 +1675,72 @@ turns the echo off, so keys typed on sight of the prompt are echoed by the
 terminal before the word has read anything. A person is slower than that. The
 test waits for the terminal's mode and not for the prompt's text. The word
 is unchanged.
+
+## Amendment, 2026-10-13 — the third review
+
+`docs/rfc/reviews/RFC-0008-review-2026-10-13.md`: five blocking, ten
+significant, fourteen citations wrong or imprecise. Not ready to accept.
+Three of the five blocking findings were the acceptance review's of
+2026-10-08, restated because they had not been taken.
+
+**B1, criterion 5's table.** Right. A dated table under the criterion gives
+the four words as they stand.
+
+**B2, the four flags have no Preservation row, and `--debugger` is an
+unfiled deviation.** Right, and the larger half is not this document's to
+settle. The reference's `--debugger` is the `debug` word's loop over the
+program; Bund2's is the console. That was built without a ruling that the
+flag's behaviour changes. It is **D155**, with `--debug-shell` as
+**D156** and `--profile` as **D157**. The table has a row for each, saying
+so, and one for `-d`. A note under the flag table cites
+`run_snippet.rs`, which this document had never opened.
+
+**B3, "the whole gap".** Right. A note at the status line lists what else
+is specified and unbuilt.
+
+**B4, withdrawn rows unmarked.** Right. The `debug` row, the `Frame` row
+and the two rows of the amendment's table that waited on rulings each
+carry a mark where they stand.
+
+**B5, RFC-0003's row says the debugger is preserved through the
+observer.** Right. RFC-0003's Preservation row now carries a dated note:
+the debugger is §D1's safepoint, by D84, and the observer serves the trace.
+This document is the statement of record for the debugger.
+
+**Significant.** S1, "vacuous" rests on an invariant of `rust_dynamic` that
+was not established: marked `[UNGROUNDED]` under criterion 3. S2,
+`debug.display_distributed_info` was built in D90's shape with no decision
+naming it: **D158**. S3, `debug.dump`'s refusal past 256 levels was
+called deferred: measured against the oracle on this date, and it is
+**D159**. S4, the departure from research §3.3(g): ERRATA has the
+entry. S5, criterion W3 over seven stops: a test added for the three later
+ones. S6, criterion 11's count: said to be of the tree of 2026-10-08, and
+not re-taken. S7, S8, S9 and S10: a note at each passage. The citations:
+a note under the contract table, the flag table, §D6 and §D8.
+
+**The five decisions were ruled on the same day, each option A**: D155,
+the `--debugger` console is an approved deviation; D156, `--debug-shell`
+is to be built, and is not yet; D157, `--profile` is out of scope; D158,
+`debug.display_distributed_info` stands as built; D159, `debug.dump`'s
+refusal stands.
+
+**Twelve behaviours the table did not enumerate.** Eleven have a row. Two
+of them were checked against Bund2's code for this amendment and match the
+reference: an empty line, and Ctrl-C, at each of the two words. One is a
+second difference that was unrecorded: the history is saved only when a
+line was entered.
+
+**Not done.**
+- Criterion 11's count was not re-taken on this tree.
+- §D9's "keep the frame state serialisable" still has no criterion and no
+  definition of what serialising must keep.
+- What `debug` does when no line editor can be made was not examined.
+- The Ctrl-C rows are read from the code and were not run at a terminal.
+- Of the ten assumptions the review lists: 1, 2, 3, 4, 5 and 7 are answered
+  by the notes above. 6, that nothing but standard input implements the
+  console seam, 8, what `BUND_LOG_LEVEL=bund=info,other=trace` reads as,
+  9, that the sweep's list of words that read input stays complete, and
+  10, the order between a fed line and the console's next command, are
+  not.
+- The criterion table's remaining remarks on W5's two answers to §W4 and
+  on the significance filter are noted and nothing was changed for them.

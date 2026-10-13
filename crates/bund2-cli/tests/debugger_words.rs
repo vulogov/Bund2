@@ -144,6 +144,35 @@ fn a_line_may_be_typed_at_every_kind_of_stop() {
     assert_eq!(code, Some(0));
 }
 
+/// **W3 over the three stops that came after it was met** (RFC-0008's third
+/// review, S5): a breakpoint on a native, which stops with the operands on
+/// the stack and the native not yet called; a breakpoint on an alias; and a
+/// term of `debug.run`'s string. A line is typed at each and the program runs
+/// to the end it would have reached.
+#[test]
+fn a_line_may_be_typed_at_a_native_an_alias_and_a_term_stop() {
+    // A native: the stop is before `+` runs, with `1 2` beneath the line.
+    let src = "1 2 + println\n\"end\" println\n";
+    let (out, err, code) = session(src, Some("break +\nc\n\"nat\" println\nc\n"));
+    assert!(err.contains("breakpoint: +"), "{err}");
+    assert_eq!(out, "nat\n3\nend\n");
+    assert_eq!(code, Some(0));
+
+    // An alias of a lambda, stopped under the alias's name.
+    let src = ":w { 1 drop } register \"w\" \"v\" alias\nv\n\"end\" println\n";
+    let (out, err, code) = session(src, Some("break v\nc\n\"al\" println\nc\n"));
+    assert!(err.contains("breakpoint: v"), "{err}");
+    assert_eq!(out, "al\nend\n");
+    assert_eq!(code, Some(0));
+
+    // A term of `debug.run`'s string, with no `--debugger`.
+    let src = "\"1 2 + println\" debug.run\n\"end\" println\n";
+    let (out, err, code) = scripted(src, "\"term\" println\nc\n", &[]);
+    assert!(err.contains("debug.run's string at 0"), "{err}");
+    assert_eq!(out, "term\n3\nend\n");
+    assert_eq!(code, Some(0));
+}
+
 /// A line pushed at a watch stop lands *under* the value whose push was the
 /// stop, because that push has not happened yet. Stated as a test so the
 /// order is a fact and not a surprise.
