@@ -1,8 +1,12 @@
 name: ci
 
+# `development/stage2` since D150: until then `conform` could not pass off
+# the machine the goldens were captured on, so a branch run had nothing to
+# gate. `linux-reading` is the reading that needs the oracle or a counter,
+# and stays on request.
 on:
   push:
-    branches: [main]
+    branches: [main, development/stage2]
   pull_request:
 
 env:
@@ -66,7 +70,16 @@ jobs:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - name: conformance against the oracle
-        run: cargo xtask conform
+        run: cargo xtask conform -v
+      # The tier changes speed and not meaning, so these two read what the
+      # one above reads or something is wrong. At the default threshold the
+      # corpus compiles nothing; threshold 1 compiles every body it can.
+      - name: conformance, the tier at its default threshold
+        if: ${{ !cancelled() }}
+        run: cargo xtask conform --features jit
+      - name: conformance, the tier at threshold 1
+        if: ${{ !cancelled() }}
+        run: cargo xtask conform --features jit --jit-threshold 1
       - name: goldens unmodified
         run: git diff --exit-code -- tests/golden/
 

@@ -1,8 +1,10 @@
 name: linux-reading
 
-# What the tree reads on Linux x86-64. `ci` runs on `main` and on pull
-# requests, so a branch that is neither has no Linux run at all, and RFC-0005
-# had every one of its checks taken on macOS arm64 alone.
+# What the tree reads on Linux x86-64. `ci` ran on `main` and on pull
+# requests, so a branch that is neither had no Linux run at all, and RFC-0005
+# had every one of its checks taken on macOS arm64 alone. Since D150 `ci`
+# runs on this branch too and is the gate; this is what `ci` does not read:
+# the goldens against the oracle built here, `depth`, and the counts.
 #
 # Not a gate. Every step runs whatever the one before it answered, so one
 # run gives the whole reading; the job is red if any step was. It wakes on a

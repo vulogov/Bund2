@@ -4061,6 +4061,31 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F205 — on a host Cranelift has no backend for, building a module of bodies would panic
+
+**A Bund2 defect against D37; found 2026-10-12** by reading
+`cranelift-jit` 0.135.0 while fixing F204, and filed 2026-10-13. Not
+observed: no host this tree has run on lacks a backend.
+
+`new_module` (`crates/bund2-jit/src/lower.rs`) built its module with
+`JITBuilder::with_flags`. That constructor returns a `Result` and does not
+keep to it: in its `src/backend.rs` it asks `cranelift_native::builder()`
+for the host's backend and, refused, calls `panic!` with "host machine is
+not supported". `cranelift_native::builder` itself returns the refusal as
+an `Err`, for an architecture it does not know and for one whose support
+was compiled out. So `bund2` built with the tier, on such a host, would
+have aborted at the first body that earned compilation, where every other
+failure to compile declines the body and leaves it to Tier 0 (F202).
+
+**Status:** FIXED 2026-10-13. `new_module` asks `cranelift_native::builder`
+itself, makes the refusal its own error, and hands the finished target to
+`JITBuilder::with_isa`, with the two settings `with_flags` adds
+(`use_colocated_libcalls` and `is_pic`, both off) set beside `BODY_FLAGS`.
+`cranelift-native` was a dependency of `cranelift-jit` already and is now
+named, at the same pinned version. No test reaches the refusal, because no
+host here produces it; the tier's tests and `conform` at threshold 1 show
+the module is built as it was.
+
 ## F204 — a tail-position lowering panicked inside Cranelift on x86-64
 
 **A Bund2 defect against D37, on x86-64 only; found 2026-10-12** by the
@@ -4094,6 +4119,16 @@ convention and false of the settings: this is one.
 `preserve_frame_pointers`, on every target; the relocation probe builds its
 object with the same. On aarch64 the instruction count of `floor_count` at
 64 sites is unchanged within what the count resolves there.
+
+*Dated note, 2026-10-13 — what the setting changes on aarch64, read from
+the code.* The count above resolves about ninety instructions an entry on
+that host, so it showed little, and RFC-0005's twenty-fifth review (B3)
+said so. `the_shipped_settings_change_no_instruction_of_a_body_on_aarch64`
+(`crates/bund2-jit/src/lower.rs`) emits the four probe bodies with
+`BODY_FLAGS` and with no settings and compares every instruction: none
+differs. On aarch64 the fix is therefore a change to no emitted code, and
+RFC-0005's cost figures, all taken there before it, stand. On x86-64 it
+changes the code, and nothing has measured by how much.
 
 ## F203 — a body queued beneath a compiled body was compiled after the tier was turned off
 

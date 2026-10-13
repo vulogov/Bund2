@@ -33,6 +33,9 @@ cranelift-codegen  = { workspace = true, optional = true }
 cranelift-frontend = { workspace = true, optional = true }
 cranelift-module   = { workspace = true, optional = true }
 cranelift-jit      = { workspace = true, optional = true }
+# F205: the host's backend is asked for here, where the answer is a
+# `Result`. `cranelift-jit` asks the same crate and panics on a refusal.
+cranelift-native   = { workspace = true, optional = true }
 cranelift-object   = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -58,7 +61,7 @@ default = []
 # was called `aot` until D134. There is no ahead-of-time build: D83 withdrew
 # `--emit=native`, and `cranelift-object` is here to be read by that test.
 relocation-test = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-module", "dep:cranelift-object"]
-jit = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-module", "dep:cranelift-jit"]
+jit = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-module", "dep:cranelift-jit", "dep:cranelift-native"]
 # **Measurement only, and unsound when used.** RFC-0005 criterion 17 bounds the
 # cost of §S6's meaning guards — the generation compare and the `autoadd` load
 # before every inlined region — at under 2 ns a site. The guards are

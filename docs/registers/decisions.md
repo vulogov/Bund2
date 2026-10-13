@@ -3639,6 +3639,78 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D151 — which instrument reads D149's count
+
+**Raised 2026-10-13** by RFC-0005's twenty-fifth review (B1).
+
+D149 re-worded criterion 11's cost clause: fewer than 20 instructions an
+entry, "read by `floor_count` over 10,000,000 entries at each of four body
+lengths, checked minus unchecked, by D117's method". D117's method is the
+median of five runs under `/usr/bin/time -l` on macOS, and it says Linux
+"reads the same counter with `perf stat`".
+
+Two things have been read since, both on 2026-10-12.
+
+- `/usr/bin/time -l` on macOS arm64, three repetitions at 64 sites, not
+  recorded as medians of five: the check came out between 68 instructions
+  an entry below nothing and 21 above. **One reading is over the bound.** The
+  spread is larger than the bound, so the instrument the clause names
+  neither holds it nor refutes it.
+- callgrind on Linux x86-64, over 1,000,000 entries: 3.04, 3.04, 3.05 and
+  3.06 instructions an entry at 1, 4, 16 and 64 sites, and 3.00 to 3.03 in
+  the run before F204 over 10,000,000. It counts instructions executed in
+  user space and does not sample, so the difference is exact. A hosted
+  runner exposes no hardware counter, so `perf stat` was not available.
+
+So the clause is held by a tool, a host and an entry count it does not
+name. D149 did not rule on that; it ruled that a count decides.
+
+**Options.**
+
+- *A. The clause names callgrind.* Fewer than 20 instructions an entry,
+  read by `floor_count` under callgrind (`Ir`, checked minus unchecked)
+  over 1,000,000 entries at each of four body lengths, on Linux x86-64,
+  which `linux-reading`'s `floor-count` job does. `/usr/bin/time -l`
+  stays as a reading.
+- *B. Both, each on its host.* callgrind on Linux decides there; on macOS
+  the clause is the median of five runs under `/usr/bin/time -l`, taken
+  again as the clause says, and holds only if that median is under 20 at
+  every length.
+- *C. The bound is tightened to what the exact count shows.* As A, with
+  the bound at 8 instructions an entry: above 3.06 with room for a second
+  compare, and below what a call would add.
+- *D. The clause stays as D149 words it.* Criterion 11 is then held by
+  less than its text.
+
+**Recommendation: A.** The clause exists to notice a floor check that has
+grown, and an exact count notices one instruction where the macOS reading
+cannot notice sixty. C is A with a figure nobody has had reason to choose
+yet. B keeps a check that has already shown it cannot decide.
+
+**Risks.** A: the count is of x86-64 code, and the figures of every other
+cost criterion are of aarch64 code; callgrind's `Ir` and a hardware
+counter's instructions retired are taken to be one quantity, which holds
+for user-space code with no sampling and is not shown here; and the job
+runs on request, so nothing gates it. B: five runs of each arm at four
+lengths on a host whose spread is ninety instructions may never give a
+median under 20. C: a bound chosen from one run. D: the status block
+stays at 23, 6 and 1.
+
+- Blocks: RFC-0005 criterion 11's cost clause; RFC-0005's acceptance
+- Depends on: D117, D149
+- Default: none. The clause is not re-worded until this is ruled.
+- Status: **RESOLVED — option A, by the repository owner, 2026-10-13.**
+  The clause names callgrind. It reads: the Tier 1 floor check adds fewer
+  than 20 instructions an entry, read by `floor_count` under callgrind
+  (`Ir`, checked minus unchecked) over 1,000,000 entries at each of four
+  body lengths, 1, 4, 16 and 64 sites, on Linux x86-64. The readings of
+  2026-10-12 and 2026-10-13, 3.04 to 3.06, hold it at every length.
+  `/usr/bin/time -l` on macOS stays as a reading and cannot fail the
+  clause, as `floor_cost` cannot. RFC-0005 carries the re-wording in a note
+  under criterion 11. Not ruled, and not done: the bound stays 20, option
+  C's 8 was not taken; the job that reads the count runs on request and
+  gates nothing; and the check has no exact count on aarch64.
+
 ## D150 — what `conform` holds a host to, where a golden records the host it was captured on
 
 **Raised 2026-10-12**, from the first Linux reading of the tree
@@ -3750,6 +3822,16 @@ goldens of the note above. The capture wrote nothing and left
 tier, no test failing. It is the first Linux run of this branch in which
 `conform` passes.
 
+*2026-10-13: a gate, by the owner's ruling of this date.* `ci` runs on a
+push to `development/stage2` as it does on `main`, and its `conformance`
+job runs `conform` at Tier 0, with the tier at its default threshold and
+with it at threshold 1. `linux-reading` stays on request. And one host
+writes a shared golden: `cargo xtask golden` on any host but macOS arm64,
+where every shared golden was captured, lists a capture that differs and
+writes it only as a variant, whatever it is passed (`SHARED`,
+`xtask/src/golden/hosts.rs`). Before this `--accept-all` on Linux would
+have replaced seven shared goldens; read from the code, and not done.
+
 ## D149 — may a count decide RFC-0005 criterion 11's cost clause?
 
 **Raised 2026-10-12**, writing the checks the twenty-fourth review found
@@ -3830,6 +3912,13 @@ by callgrind's count over one million entries (`linux-reading`, run
 38318272664). The macOS readings above were taken with `/usr/bin/time -l`,
 whose run-to-run spread, re-read on this date, is larger than they are.
 RFC-0005's amendment of this date has both.
+
+*2026-10-13, the twenty-fifth review's B1.* The note above leaves out what
+decides: of the three macOS repetitions at 64 sites, one put the check at
+21 instructions an entry, over this entry's bound of 20, and one at 68
+below nothing. And the Linux reading is not by the method this entry
+names: callgrind and not D117's, over one million entries and not ten.
+Which instrument the clause means is D151.
 
 ## D148 — what decides RFC-0005's criterion 7: the clock it names, or D117's count?
 
@@ -5933,6 +6022,11 @@ one looping row had a run 2% high.
   kind, this method cannot show.
 - **It is one host.** Apple M5 Pro, Darwin 27.0.0, arm64. `/usr/bin/time -l`
   is macOS's; Linux reads the same counter with `perf stat`.
+  *(2026-10-13: that is not how Linux was read. The one Linux count taken,
+  for RFC-0005 criterion 11 on 2026-10-12, is callgrind's, because a
+  hosted runner exposes no hardware counter for `perf stat`. It counts
+  instructions executed in user space, exactly; that it is the quantity
+  this entry means is assumed and not shown. D151.)*
 - **It is the CLI end to end, not `bund2-bench`'s in-process groups.** The
   programs below are the `dispatch` group's four shapes run 300,000 times
   inside `times`, plus a call to a user's word. `value`, `arith`'s cold rows

@@ -2532,8 +2532,11 @@ fn emit_body(
 /// showed it.
 ///
 /// Set on every target and not on x86-64 alone, so that one configuration is
-/// what every host measures. On aarch64 each function this module emits
-/// makes a call and so keeps its frame record already.
+/// what every host measures. On aarch64 it changes no instruction: each
+/// function this module emits makes a call and so keeps its frame record
+/// already, which
+/// `the_shipped_settings_change_no_instruction_of_a_body_on_aarch64` reads
+/// from the emitted code.
 const BODY_FLAGS: &[(&str, &str)] = &[("preserve_frame_pointers", "true")];
 
 /// A fresh module with `adapter`'s symbol bound.
@@ -2544,8 +2547,26 @@ const BODY_FLAGS: &[(&str, &str)] = &[("preserve_frame_pointers", "true")];
 fn new_module(adapter: Adapter) -> Result<JITModule, String> {
     let (name, ptr) = adapter.symbol();
     let (drain_name, drain_ptr) = Adapter::drain_symbol();
-    let mut builder = JITBuilder::with_flags(BODY_FLAGS, default_libcall_names())
-        .map_err(|e| format!("JIT builder: {e}"))?;
+    // **Built here and handed over, and not by `JITBuilder::with_flags`**
+    // (F205): that constructor asks `cranelift_native` for the host's backend
+    // and panics when there is none, where this is an error the tier
+    // declines the body on. The two settings after `BODY_FLAGS` are the ones
+    // it sets itself.
+    use cranelift_codegen::settings::Configurable;
+    let mut flags = cranelift_codegen::settings::builder();
+    for (name, value) in BODY_FLAGS
+        .iter()
+        .chain(&[("use_colocated_libcalls", "false"), ("is_pic", "false")])
+    {
+        flags
+            .set(name, value)
+            .map_err(|e| format!("JIT setting `{name}`: {e}"))?;
+    }
+    let isa = cranelift_native::builder()
+        .map_err(|e| format!("this host has no Cranelift backend: {e}"))?
+        .finish(cranelift_codegen::settings::Flags::new(flags))
+        .map_err(|e| format!("JIT target: {e}"))?;
+    let mut builder = JITBuilder::with_isa(isa, default_libcall_names());
     builder.symbol(name, ptr);
     // §S5's drain helper, which the body reaches through its own slot when the
     // request cell is set.
@@ -3699,9 +3720,16 @@ mod relocations {
         /// all four bodies. A slot is the one way a body reaches a callee
         /// with no relocation, so this is what the relocations cannot show.
         slot_callees: Vec<String>,
+        /// The machine code of all four bodies and what they were emitted
+        /// with: every byte of the object's text section.
+        text: Vec<u8>,
     }
 
     fn probe() -> Result<Probe, String> {
+        probe_built_with(BODY_FLAGS)
+    }
+
+    fn probe_built_with(settings: &[(&str, &str)]) -> Result<Probe, String> {
         let isa = cranelift_codegen::isa::lookup_by_name(
             &std::env::var("BUND2_RELOC_TRIPLE").unwrap_or_else(|_| {
                 // The host, named explicitly: this test reads an object file
@@ -3720,7 +3748,7 @@ mod relocations {
             // the fourth probe body ends in a tail call.
             use cranelift_codegen::settings::Configurable;
             let mut flags = cranelift_codegen::settings::builder();
-            for (name, value) in BODY_FLAGS {
+            for (name, value) in settings {
                 flags
                     .set(name, value)
                     .map_err(|e| format!("flag {name}: {e}"))?;
@@ -3880,11 +3908,77 @@ mod relocations {
                 out.push((containing(base + offset), target));
             }
         }
+        let text = file
+            .sections()
+            .filter(|s| s.kind() == object::SectionKind::Text)
+            .filter_map(|s| s.data().ok())
+            .flat_map(|d| d.iter().copied())
+            .collect();
         Ok(Probe {
             relocs: out,
             defined: defined.into_iter().map(|(_, n)| n).collect(),
             slot_callees,
+            text,
         })
+    }
+
+    /// **F204's setting changes no instruction of a body on aarch64.** The
+    /// flag was set on every target after RFC-0005's cost criteria were
+    /// measured, all of them on aarch64, so whether those figures are of the
+    /// code that ships is this question. The four probe bodies between them
+    /// take every path an ordinary body can and a tail call besides; they are
+    /// emitted with the shipped settings and with none, and the two objects'
+    /// text is compared whole.
+    ///
+    /// **Whole, less the constants.** A body holds addresses as immediates,
+    /// a fragment's among them, and two emissions in one process are handed
+    /// different ones. They arrive by `movz` and `movk`, so the sixteen bits
+    /// each of those carries are left out of the comparison and every other
+    /// bit of every instruction is in it. A frame record is `stp`, `mov` and
+    /// `ldp` on the frame pointer, which is none of what is left out.
+    ///
+    /// aarch64 only: with no settings the x86-64 backend panics on the fourth
+    /// body, which is F204, and with them its code does differ.
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn the_shipped_settings_change_no_instruction_of_a_body_on_aarch64() {
+        /// The instruction with a wide move's immediate cleared.
+        fn less_its_constant(word: &[u8]) -> u32 {
+            let w = word
+                .try_into()
+                .map(u32::from_le_bytes)
+                .expect("a whole instruction");
+            // `movz` and `movk` on a 64-bit register, immediate in bits 5-20.
+            match w & 0xff80_0000 {
+                0xd280_0000 | 0xf280_0000 => w & !0x001f_ffe0,
+                _ => w,
+            }
+        }
+        let shipped = probe_built_with(BODY_FLAGS).expect("the shipped settings");
+        let default = probe_built_with(&[]).expect("no settings");
+        assert!(shipped.text.len() > 1000, "{} bytes", shipped.text.len());
+        assert_eq!(shipped.text.len(), default.text.len(), "the text's length");
+        let differing: Vec<String> = shipped
+            .text
+            .chunks(4)
+            .zip(default.text.chunks(4))
+            .enumerate()
+            .filter(|(_, (a, b))| less_its_constant(a) != less_its_constant(b))
+            .map(|(i, (a, b))| format!("{:#x}: {a:02x?} / {b:02x?}", i * 4))
+            .collect();
+        assert!(differing.is_empty(), "instructions differ: {differing:#?}");
+        // And the comparison is of something: a frame record is in there to
+        // have been left out. `stp x29, x30, [sp, #-16]!`.
+        let frame_records = shipped
+            .text
+            .chunks(4)
+            .filter(|w| *w == [0xfd, 0x7b, 0xbf, 0xa9])
+            .count();
+        assert!(
+            frame_records >= shipped.defined.len(),
+            "{frame_records} frame records in {} functions",
+            shipped.defined.len()
+        );
     }
 
     /// **RFC-0005's assumption 46: one compiled body never calls another

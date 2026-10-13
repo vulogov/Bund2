@@ -115,6 +115,28 @@
   until criterion 18's golden was captured, and 23, 6 and 1 until D149 was
   ruled.) It is a
   statement about checks, on macOS arm64.
+
+  *(2026-10-13, later: D151 is ruled, option A, and criterion 11's clause
+  names the instrument that holds it. **It is 23, 7 and 0 again**, with 11
+  in the second list as re-worded by D149 and D151. The note below stands
+  as written for the hours between.)*
+
+  *(2026-10-13, the twenty-fifth review's B1 and B2. **It is 23, 6 and 1
+  until D151 is ruled:** criterion 11's cost clause names
+  `/usr/bin/time -l` on macOS, which read +21 once against a bound of 20,
+  and is held by a count that clause does not name, callgrind's on Linux.
+  That is "held by less than its text", and 11 is there until the owner
+  rules which instrument the clause means. And the checks are no longer on
+  macOS arm64 alone: the suite, `cite`, `lint`, `depth`, `conform` in its
+  three configurations, `floor_count` and assumption 48's test have a
+  reading on Linux x86-64 (`linux-reading`, run 38355924002), where
+  `conform` compares against the oracle's capture on that host for three
+  goldens (D150). Two defects of the tier were found there or beside it and
+  fixed: F204, a panic inside Cranelift on x86-64 for a tail-position
+  lowering, and F205, a panic where a host has no backend. The cost
+  figures of criteria 7, 10 and 17 were taken on aarch64 before F204 set a
+  code generator flag; a test now shows the flag changes no instruction
+  there. The amendment of this date has each.)*
   Nothing the twenty-fourth review ran found the tier giving a different
   answer from Tier 0.
 
@@ -901,7 +923,11 @@
   their criteria: **D61**, **D67**, **D69**, **D70**, **D80**, **D91**,
   **D117**, **D141**, **D142** and **D143**. **D148** (criterion 7 is decided by D117's count) was
   ruled on 2026-10-12. **D149** (criterion 11's cost clause is decided by a count, under 20
-  instructions an entry) was ruled the same day.
+  instructions an entry) was ruled the same day. **D150** (a golden may
+  have a variant for a host, so criterion 2's number is read per host) was
+  ruled on 2026-10-12 and built the next day. **D151** (which instrument
+  D149's count is read by) was raised on 2026-10-13 and is **OPEN**.
+  *(Later the same day: ruled, option A. callgrind on Linux x86-64.)*
 - Reference SHA: `reference/Bund` at `21b40b0213a7`; `bund_language_parser`
   `80377728f45b`; `bundcore` `3b0b8ba219a6`; `rust_dynamic` `ceb27c96fa10`;
   `rust_multistack` `9a97675ee5d8`; `rust_multistackvm` `4605832678d4`
@@ -1447,7 +1473,11 @@ default arm **replaces** the receiver with the operand, carrying over only `q`
 `self.clone()` and discard the operand
 (`reference/rust_dynamic/src/push.rs:127`,
 `reference/rust_dynamic/src/push.rs:158`). So under `autoadd` over a scalar the
-value beneath is replaced by the CALL or literal, not extended. Every statement
+value beneath is replaced by the CALL or literal, not extended. *(2026-10-13,
+the twenty-fifth review's S1: the second of those two citations is one line
+out. `return self.clone();` is at
+`reference/rust_dynamic/src/push.rs:159`; line 158 is the `} else {` above
+it.)* Every statement
 of this in the document — here, the list below it, and criterion 18 — is
 unconditional, and every criterion 18 test collects into `[ 0 ]`, a list. The
 replace arm is untested in both tiers. F84 cites it as `:143-149`, which is the
@@ -4756,6 +4786,22 @@ no AOT counterpart to criterion 2. There is nothing here for it to inherit.)*
 *(2026-10-11: no compiled *Bund* code. A bundle carries the runtime, and D80
 lets it carry the tier, opt-in and never by default.)*
 
+*(2026-10-13, the twenty-fifth review's B2: this section never said what a
+`jit` build does on a host Cranelift has no backend for. Until F205 it
+aborted, inside `cranelift-jit`, at the first body that earned compilation:
+`JITBuilder::with_flags` panics where `cranelift_native::builder` refuses.
+Since F205 `new_module` asks for the backend itself and returns the refusal
+as an error, so building the tier's compiler fails, the body is demoted and
+interpreted, and the first such failure in a run is reported once as a
+warning: F202's path. Every body is then interpreted, which is the
+interpreter being the portability story with the feature on as well as
+off. No host this tree has run on produces the refusal and no test reaches
+it. And one setting is not the default on any target: a module of bodies
+is built with `preserve_frame_pointers` (F204), because the x86-64 backend
+emits a tail call only with it; on aarch64 it changes no instruction,
+which `the_shipped_settings_change_no_instruction_of_a_body_on_aarch64` in
+`crates/bund2-jit/src/lower.rs` reads from the emitted code.)*
+
 # S11. Errors stay a return-value protocol
 
 `try_call` / `try_call_indirect` exist but the unwinder story is incomplete
@@ -4857,7 +4903,7 @@ without going through `status_of`.)*
 | **the error value a Rust caller receives after an exit, when the helper that saw it returned `Err`** — `?try` keeps its text in the `error` CONDITIONAL's `context` slot, on a final stack that is meaning | `status_of` parks the helper's own `Err` unchanged, and substitutes `exit_gate`'s refusal only for `Ok`. So the wrappers of the natives inside a compiled body (`MAP:`, `TIMES:`, `Attempt to evaluate value …`) survive as they do at Tier 0; criterion 30's `?try` cases compare the `context` slot |
 | **a compiled body entered from Rust whose last action records an exit** — a native such as `map`, `?try` or `input*` ran it, and acts on the `Result` it gets back | the entry returns the error status `status_of` made, and since F112 Tier 0 returns the same refusal where a synchronous run returns to Rust; a handed-back body is drained by the entry and then gated the same way, so the tier agrees with itself; the state left after the exit is meaning (D52's dated note); criterion 30's mirror cases |
 | **a program ended by `bund.exit` (D52) while a compiled body runs** — the native returns `Ok`, and Tier 0 stops only at its next step, which compiled code does not take | every helper that returns to compiled code — the adapter, the resolving trampoline, the drain helper and the residual path's `apply` — makes its status through one function that turns a recorded exit into the error status, the entry trampoline refuses to start a body, and compiled code's error path syncs and returns (§S5, *A call may end the program*); the effect audit records a fixed-effect native that requests an exit; criterion 30 *(2026-10-11, the twenty-fourth review's B2: **the entry does not consult the exit**, and there is no resolving trampoline. Neither `Compiler::run` nor `JitTier::enter` asks; Tier 0's gates upstream of the offer do, as the amendment of 2026-10-10 says of §S5. The rest of the row stands: `status_of` is the one status-maker.)* |
-| **a compiled body entered beneath a compiled body** — D145, stage 1 *(added 2026-10-11)* | each nested entry is checked against the Tier 1 floor and declines beneath it, and a body that becomes hot while one is running is queued and compiled when the outermost has returned; `a_body_that_gets_hot_beneath_a_compiled_one_is_compiled_afterwards` in `crates/bund2-runtime/src/tier.rs`, and criterion 11's `compiled` axis. **Not covered**, by D145's own list: a tail request filed beneath a nested compiled body and failing; a reporter that wants the stack, beneath one; a debugger word arming beneath one |
+| **a compiled body entered beneath a compiled body** — D145, stage 1 *(added 2026-10-11)* | each nested entry is checked against the Tier 1 floor and declines beneath it, and a body that becomes hot while one is running is queued and compiled when the outermost has returned; `a_body_that_gets_hot_beneath_a_compiled_one_is_compiled_afterwards` in `crates/bund2-runtime/src/tier.rs` *(2026-10-13, the twenty-fifth review's S5: since F203 the queue is dropped, not compiled, when the tier was switched off while it filled)*, and criterion 11's `compiled` axis. **Not covered**, by D145's own list: a tail request filed beneath a nested compiled body and failing; a reporter that wants the stack, beneath one; a debugger word arming beneath one |
 | **a body the lowering fails to compile** *(added 2026-10-11, F202)* | it is demoted, so it is interpreted and not lowered again, and the first failure in a run is reported as a warning that names the defect as Bund2's; `a_body_that_fails_to_compile_is_demoted_and_reported_once`, same file. Until F202 it was dropped silently and lowered again on every entry |
 | **a refusal `Interp` remembers (D146) after a callee's binding changes** *(added 2026-10-11)* | speed only: a body not offered is interpreted. A body refused because it had no inlinable site is not planned again while the tier stands, even if a later rebinding would give it one. No test, since no meaning is at stake |
 | **what the tier itself writes** — the two `--stats` lines, F197's removal warning, F200's startup warning, F202's compile-failure warning *(added 2026-10-11)* | each goes to stderr or through `Vm::report`, never to the program's output. `conform` appends stderr to what it compares and removes the two `--stats` lines by their text, so a third such line would read as 145 failures until it too is removed (D147 records that happening once); `both_stats_lines_are_taken_out_of_what_is_compared` in `xtask/src/conform/mod.rs` |
@@ -4867,6 +4913,10 @@ without going through `status_of`.)*
 | **a moved epoch under a crossed call** *(added 2026-10-12)* | `Error::internal` by decision (D73), where Tier 0 would give a result. Unreachable while D75 stands: the shipped runtime installs no crossable table. Criterion 21's fixture reaches it and asserts the internal error |
 | **the per-call LIST `scoped_call` builds** *(added 2026-10-12)* | never offered to the tier, because its frame carries an exit action. `a_scoped_call_body_is_never_offered_to_the_tier`. It has a key and `entry_log` records it; `--stats` does not count it |
 | **what D145 lists as not covered beneath a nested compiled body** — a tail request filed there and failing; a reporter that wants the stack; a debugger word arming *(added 2026-10-12)* | the same rules as beneath one compiled body — `status_of` clears the request, D71 keeps such a body out of the tier when the reporter wants warnings' stacks, D113.6 switches the tier off — and **no test runs any of the three nested**. A gap, stated. *(Later the same day: each has a test. `a_failed_natives_request_beneath_a_nested_compiled_body_is_discarded` and `a_warning_beneath_a_nested_compiled_body_carries_tier_zeros_snapshot` in `crates/bund2-runtime/src/tier.rs`, and `a_breakpoint_armed_beneath_two_compiled_bodies_fires_and_turns_the_tier_off` in `crates/bund2-cli/tests/debugger_words.rs`. The first found that this row names the wrong guard for a shipped body: the native is run by `Interp::invoke`, which discards the request, and `status_of`'s clear is a second one behind it.)* |
+| **the frame pointer kept in every emitted function, on every target** — F204 *(added 2026-10-13)* | on x86-64 it is what lets a tail-position lowering be emitted at all; without it Cranelift panicked. On aarch64 it changes no instruction of a body, a trampoline or a thunk: `the_shipped_settings_change_no_instruction_of_a_body_on_aarch64` emits the four probe bodies with the setting and without and compares every instruction, less the address constants. On x86-64 the code does differ and no cost figure in this document is of it |
+| **a host Cranelift has no backend for** — F205 *(added 2026-10-13)* | building the tier's compiler returns an error, where until F205 the dependency panicked. The body is demoted and interpreted and the first failure is reported once, as for a body the lowering fails to compile (F202). No test reaches it: no host here produces the refusal |
+| **a golden with a variant for a host** — D150 *(added 2026-10-13)* | not a tier matter, and what criterion 2 is read against: on a host with a recorded variant `conform` compares with the oracle's capture on that host, and with the shared golden elsewhere. Three goldens have one, for Linux x86-64. "Moves nothing" is therefore a statement per host, between configurations on that host |
+| **what `conform` and the capture tell the child** — D150 *(added 2026-10-13)* | the locale, the display width and the program's path relative to where it runs. A word that reads one sees the pinned value under `conform` and the host's under a user's shell; the oracle is captured under the same pins. Both tiers are run under them, so no difference between tiers hides there |
 
 ## Alternatives considered
 
@@ -5031,6 +5081,27 @@ criterion.)*
    (`xtask/src/buildcli/mod.rs`) — `depth` last, on 2026-09-10, after the fifth
    review found it still carrying a private one — and `conform` prints the line
    `measured: bund2-cli, dev profile, features: jit` above its result.
+
+   *(2026-10-13, the twenty-fifth review's B2: **the number is read per
+   host.** Since D150 a golden may have a variant for a host, the oracle's
+   capture on it, and `conform` compares with the variant there and with
+   the shared golden elsewhere, printing how many it read from variants.
+   Three goldens have one for Linux x86-64 and none has one for macOS
+   arm64. The denominator is the same on every host. "Exactly zero" is
+   between the three configurations on one host, which is what it always
+   meant; it is 134/146 in all three on macOS arm64 and on Linux x86-64
+   (`linux-reading`, run 38355924002), with 17 bodies compiled in 11
+   programs at threshold 1 on each. Two things it is not held by.
+   **`ci`**: its `conformance` job is given the three configurations and
+   this branch by an edit of this date, and the workflow has run once, on
+   `main` on 2026-09-11, and failed; it has not run as edited. **The
+   recorded mark**: `tests/golden/CONFORMANCE.txt` reads 133/145, written
+   before criterion 18's golden was captured, and `conform` passes
+   anything at or above it, so a tree that lost that golden would pass.
+   Raising the mark is `conform --accept`, the owner's.)*
+
+   *(2026-10-13, later: the owner raised it. The mark reads 134/146, so a
+   tree that loses a golden fails `conform`.)*
 
 3. **A cache entry cannot answer for a different body.** D35 requires this as
    a test, not a comment, and names the failure: an entry whose body was freed
@@ -5920,6 +5991,16 @@ criterion.)*
    and the method is macOS's, so there is no Linux reading. The `cargo tree`
    command was run by hand and no CI step asserts it.)*
 
+   *(2026-10-13, the twenty-fifth review's B3: the count table that decides
+   this was taken on 2026-10-12 before F204 set `preserve_frame_pointers`
+   for every module of bodies. It was taken on aarch64, where that setting
+   changes no instruction the tier emits:
+   `the_shipped_settings_change_no_instruction_of_a_body_on_aarch64`
+   (`crates/bund2-jit/src/lower.rs`) compares the four probe bodies emitted
+   with it and without. So the figures are of the code that ships on that
+   host, and were not re-taken. On x86-64 the setting does change the code,
+   and this criterion has no reading there.)*
+
 8. **`cite` and `lint` clean**, with `cargo xtask cite` resolving every
    `path:line` in this document. **Note what this now checks and did not
    before:** citations into `crates/` were invisible to the extractor until
@@ -6515,6 +6596,10 @@ criterion.)*
     size of the gate's margin is not known; and the 2× rule on inlining
     alone was never measured.
 
+    *(2026-10-13, the twenty-fifth review's B3: measured on aarch64 before
+    F204's code generator setting, which changes no instruction there; the
+    note of this date under criterion 7 has the test. No x86-64 reading.)*
+
 11. **A promoted recursion does not overflow the machine stack.** §S8's
     correctness problem, and the criterion is one that already exists:
 
@@ -6738,6 +6823,38 @@ criterion.)*
     chosen figure, above every reading and about a quarter of what 2 ns is
     at this machine's rate; and the method is macOS's, with no Linux
     reading. No CI step runs it; it is a command run by hand.)*
+
+    *(2026-10-13, the twenty-fifth review's B1: **the instrument this
+    clause names does not decide it, and the one that does is not named.**
+    Re-read on 2026-10-12, `/usr/bin/time -l` on macOS at 64 sites put the
+    check anywhere from 68 instructions an entry below nothing to 21 above
+    it, over three repetitions; the note that recorded them does not say
+    whether each was the median of five this clause asks for. One of the
+    three is over the bound. What holds the clause is callgrind's
+    count on Linux x86-64, 3.04 to 3.06 instructions an entry over one
+    million entries, which is exact and is not the host, the tool or the
+    entry count written here; nor is it D117's Linux method, `perf stat`,
+    which a hosted runner has no counter for. Whether a count by another
+    tool on another host is this clause's check is D151, and until it is
+    ruled the clause is held by less than its text. The last sentence of
+    the note above is out of date: `linux-reading`'s `floor-count` job runs
+    it, on request.)*
+
+    *(2026-10-13, later — **D151 is ruled, option A: the clause names
+    callgrind.** It now reads: **the Tier 1 floor check adds fewer than 20
+    instructions an entry, read by `floor_count`
+    (`crates/bund2-bench/examples/floor_count.rs`) under callgrind, as its
+    instruction count for the checked arm minus the unchecked, over 1,000,000 entries at each
+    of four body lengths — 1, 4, 16 and 64 sites — on Linux x86-64.**
+    `linux-reading`'s `floor-count` job is that reading: 3.04, 3.04, 3.05
+    and 3.06 in run 38318272664, and 3,037,791, 3,036,921, 3,048,897 and
+    3,062,711 instructions over the million entries in run 38355924002,
+    which is the same to two places. It holds at every length.
+    `/usr/bin/time -l` on macOS and `floor_cost` are readings and cannot
+    fail it. What the ruling does not change: 20 is still a chosen figure;
+    the job runs on request and gates nothing; the count is of x86-64 code
+    where every other cost figure here is of aarch64 code; and callgrind's
+    count is taken to be instructions retired, which is not shown.)*
 
     **What it no longer asks, and nothing shows**: a case with the share
     already held, `c` and `δ` from it, `c_p` and `δ_p` for each re-entering
@@ -7210,6 +7327,10 @@ criterion.)*
     that removing both loads changes the time by less than this instrument
     resolves, which is under the 2 ns allowed and is not a measurement of
     0.8.
+
+    *(2026-10-13, the twenty-fifth review's B3: measured on aarch64 before
+    F204's code generator setting, which changes no instruction there; the
+    note of this date under criterion 7 has the test. No x86-64 reading.)*
 
 18. **Compiled code honours `autoadd`** — at entry, after every call, and for
     every kind of value the mode affects. Bind `:` and `;`, compile a body that
@@ -9198,7 +9319,10 @@ The scan is one test in `crates/bund2-stdlib/src/lib.rs`. It asserts the
 list, so a fifteenth native fails it until its registration is read. And it
 runs thirteen of the fourteen, all but `save.model`, which writes a file,
 with the name of a second stack in each unvaried operand and every palette
-kind in the varied ones: 3,285 runs, 462 of them `Ok`. After each, the
+kind in the varied ones: 3,285 runs, 462 of them `Ok` *(2026-10-13, the
+twenty-fifth review's S4: those two figures are a reading taken while the
+test was written; it asserts that both are above zero and prints
+neither)*. After each, the
 current stack is `main`, the stacks are the two it started with, and the
 second holds what it held. Three natives that do take a name, `to_stack`,
 `ensure_stack` and `clear_in`, are run first and each trips one of the three
@@ -9294,4 +9418,78 @@ golden and leaves F66's approved deviation to be recorded again; the other
 three get a variant captured from the oracle on Linux. Neither half has a
 Linux reading yet.
 
+*2026-10-13.* Both have one. `linux-reading`, run 38355924002, at
+`9fb23de`: `conform` reads 134/146, CEILING 134/146, on Linux x86-64 at
+Tier 0, with the tier at its default threshold and at threshold 1, which is
+what macOS arm64 reads; 17 bodies compile in 11 of the 146 programs at
+threshold 1 on both. D150 has the reading. Criterion 2 is therefore held
+on two hosts. `ci` is edited to run its `conformance` job on a push to this
+branch, in the three configurations; it has not run as edited, and has run
+once at all, on `main`, and failed. And F205: a module of bodies is no
+longer built by a constructor that panics where the host has no backend.
+
 **Not done.** No aarch64 Linux reading, and no x86-64 macOS one.
+
+## Amendment, 2026-10-13 — the twenty-fifth review
+
+`docs/rfc/reviews/RFC-0005-review-2026-10-13.md`: three blocking, eight
+should-fix. Every citation into `reference/` resolved and one line number
+was out by one.
+
+**B1, criterion 11's cost clause.** Right. It was D151, and the owner ruled
+option A later the same day: the clause names callgrind on Linux x86-64
+over one million entries, in a note under the criterion, and the status
+block is 23, 7 and 0 again. As this paragraph was first written: it is
+D151, open. The clause as D149 words it names `/usr/bin/time -l` on macOS
+over ten million entries. That instrument read +21 once at 64 sites, and
+what holds the clause is callgrind on Linux over one million. The status
+block is 23, 6 and 1 until it is ruled, with a note under the criterion.
+D117 and D149 each carry a note that Linux was read with callgrind and not
+`perf stat`, and D149's that one macOS reading crossed the bound.
+
+**B2, the newest changes were only in the last amendment.** The status
+block, the list of decisions consumed, criterion 2 and §S10 each have a
+note, and the preservation table has four rows: F204's setting, F205's
+host, D150's variants, and what `conform` tells the child. The sentence
+that said `ci` holds criterion 2 on every push described a workflow that
+had not run, and is replaced.
+
+**B3, criteria 7, 10 and 17 were measured before F204.** Answered by a
+test and not by measuring again. Every figure under those criteria was
+taken on aarch64, and
+`the_shipped_settings_change_no_instruction_of_a_body_on_aarch64` emits the
+relocation probe's four bodies with F204's setting and with none and
+compares every instruction of the object's text. They are the same, less
+the sixteen-bit constants of wide moves, which carry addresses that differ
+between two emissions in one process. So the code measured is the code
+that ships on that host. The comment at `BODY_FLAGS` asserted this of
+Cranelift's aarch64 prologue with nothing behind it; it now names the
+test. On x86-64 the setting changes the code and no cost criterion has a
+reading there.
+
+**Should-fix.** S1, the line number, has a note at the citation. S2, the
+recorded conformance mark lags at 133/145: said under criterion 2, and
+raising it is the owner's. *(Later the same day: raised, to 134/146.)* S3 is B1's register notes. S4, assumption 23's
+two figures are a reading: said at the passage. S5, the D145 row after
+F203: said in the row. S8, the two sentences about Linux readings: the
+note beneath them is the correction.
+
+S6, a test that failed twice during the review:
+`stepping_agrees_with_an_uninterrupted_run_over_the_whole_suite`
+(`crates/bund2-cli/tests/debugger_step.rs`), RFC-0008's. The same day one
+test failed once in a run of the suite with the tier, and one golden once
+in `conform` at the default threshold, neither named by the script that ran
+them; both passed in three and four runs after, and under load. Each
+failure was while another process was rebuilding the binary the test
+runs. That is not shown to be the cause. "None failed", wherever this
+document says it of a suite run, is of a run with the tree to itself.
+
+**Not done.** S7: RFC-0009 is still not cited, and §S8's set still does not
+say whose `run_init`, `dispatch_method`, `bool_object` and `empty_of` are.
+The eight assumptions the review lists are answered where a note above
+answers them (1, 2, 3, 5 in part, 8 as far as saying it is not recorded) and not otherwise: nothing in
+`tests/golden/` records which host a shared golden was captured on (5), no
+comparison shows `with_isa` builds the module `with_flags` built beyond
+the suite passing (6), and the runner's `ulimit -s` is printed by the
+workflow and not recorded here (7). No aarch64 Linux reading, and no
+x86-64 macOS one.

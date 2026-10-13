@@ -613,6 +613,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut variants = hosts::load(&repo)?;
     let mut variants_written: Vec<String> = Vec::new();
     let mut variants_same: Vec<String> = Vec::new();
+    // Shared goldens this host would have written, and may not: see
+    // `hosts::SHARED`.
+    let mut not_this_hosts: Vec<String> = Vec::new();
 
     let (jobs, probe_count) = capture_jobs(&repo)?;
     if let Some(unknown) = variant
@@ -704,6 +707,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             first.status, first.output
         );
 
+        let may_write = as_variant || host == hosts::SHARED;
         let dest = if as_variant {
             golden_dir.join(hosts::variant_name(&host, name))
         } else {
@@ -725,6 +729,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
                         .map_err(|e| format!("writing {}: {e}", dest.display()))?;
                     written += 1;
                     variants_written.push(name.clone());
+                } else if !may_write {
+                    not_this_hosts.push(name.clone());
                 } else if accept_all || accept.as_deref() == Some(name.as_str()) {
                     std::fs::write(&dest, &body)
                         .map_err(|e| format!("writing {}: {e}", dest.display()))?;
@@ -734,6 +740,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     needs_accept.push(name.clone());
                 }
             }
+            Err(_) if !may_write => not_this_hosts.push(name.clone()),
             Err(_) => {
                 std::fs::write(&dest, &body)
                     .map_err(|e| format!("writing {}: {e}", dest.display()))?;
@@ -777,6 +784,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
         "changed, needs --accept",
         needs_accept.len()
     );
+    if host != hosts::SHARED {
+        bund2_api::sayln!(
+            "  {:<34}{:>5}",
+            "differs, not this host's to write",
+            not_this_hosts.len()
+        );
+    }
     bund2_api::sayln!();
 
     if !variants_written.is_empty() {
@@ -847,6 +861,23 @@ pub fn run(args: &[String]) -> Result<(), String> {
         bund2_api::sayln!("  command's call. Remove them deliberately, or widen the scope.\n");
         for o in &orphans {
             bund2_api::sayln!("  tests/golden/{o}");
+        }
+        bund2_api::sayln!();
+    }
+
+    if !not_this_hosts.is_empty() {
+        bund2_api::sayln!("## not this host's to write: {}\n", not_this_hosts.len());
+        bund2_api::sayln!("  The oracle answers these differently on {host} than the shared");
+        bund2_api::sayln!("  golden records, or there is no shared golden. A shared golden is");
+        bund2_api::sayln!(
+            "  {}'s capture and is written there, whatever is passed here.",
+            hosts::SHARED
+        );
+        bund2_api::sayln!("  If the oracle is right on both hosts and they differ, keep this");
+        bund2_api::sayln!("  host's capture beside the shared one (D150):\n");
+        bund2_api::sayln!("    cargo xtask golden --variant <name> --reason <decision>\n");
+        for n in &not_this_hosts {
+            bund2_api::sayln!("  {n}");
         }
         bund2_api::sayln!();
     }

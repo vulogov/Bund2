@@ -23,6 +23,15 @@ use std::path::{Path, PathBuf};
 /// Where the variants live, under `tests/golden/`.
 const DIR: &str = "hosts";
 
+/// The host every shared golden was captured on.
+///
+/// A shared golden is that host's capture, so only that host writes one:
+/// another host's capture of the same program is a variant or nothing. The
+/// alternative was found by reading the code and not by doing it:
+/// `--accept-all` on Linux would have replaced seven shared goldens with
+/// Linux's answers, four of them differing by a build path alone.
+pub(crate) const SHARED: &str = "macos-aarch64";
+
 /// The host this process runs on, as a variant names it.
 pub(crate) fn host() -> String {
     format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
@@ -138,6 +147,18 @@ mod tests {
         assert_eq!(split_variant(&v), Some(("linux-x86_64", "probes/x.golden")));
         assert_eq!(split_variant("probes/x.golden"), None);
         assert_eq!(split_variant("hostsfile/a/b.golden"), None);
+    }
+
+    /// `host()` is built from the same two names, so this is the spelling a
+    /// run on the capturing machine compares against.
+    #[test]
+    fn the_capturing_host_is_spelled_as_a_host_is() {
+        assert_eq!(SHARED.split('-').count(), 2);
+        if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            assert_eq!(host(), SHARED);
+        } else {
+            assert_ne!(host(), SHARED);
+        }
     }
 
     #[test]
