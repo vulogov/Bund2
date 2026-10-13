@@ -3639,6 +3639,44 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D154 — RFC-0005 is Accepted
+
+**Raised 2026-10-13** by RFC-0005's twenty-sixth review
+(`docs/rfc/reviews/RFC-0005-review-2026-10-13-2.md`), whose verdict was
+"not yet, and by less than at any earlier review", with two blocking
+findings and seven should-fix. The answers to it are `b81908f`.
+
+- Blocks: nothing
+- Depends on: D59 (Proposed), D148, D149, D150, D151
+- Status: **RESOLVED** by the repository owner, 2026-10-13: "accept
+  RFC-0005". Said after `ci` passed every job on `b81908f` (run
+  38473594655).
+
+*What was accepted.* Tier 1 as built: the Cranelift backend behind the
+`jit` feature, with the thirty criteria as their notes word them, which
+the RFC's status block counts as 23 held as first written, 7 held as
+re-worded by a ruling, and 0 not held. At acceptance: `conform` 134/146,
+CEILING 134/146 (12 approved deviations), at Tier 0, with the tier at its
+default threshold and at threshold 1, on macOS arm64 and on Linux x86-64;
+17 bodies compiled in 11 of the 146 programs at threshold 1; IMPLEMENTED
+500/505, COVERAGE 489/505; the suite at 866 passed and none failed with
+the tier, on macOS arm64.
+
+*What the acceptance does not claim.* No review has read the answers to
+the twenty-sixth: its two blocking findings were answered by the session
+that wrote this entry, one of them by changing a test, and the last review
+on record says "not yet". Earlier entries in this register read the bar
+for Accepted as a review pass that finds nothing; this is not one. Of that
+review's should-fix items, S6 is not done: RFC-0009 is cited nowhere in
+RFC-0005. Every cost figure of criteria 7, 10 and 17 is of aarch64 code on
+macOS; criterion 11's count is of x86-64 code on Linux, in a job that runs
+on request and gates nothing. D117's count was not re-taken after F203,
+F205, D150 and D152 changed the Rust around the emitted code. The test
+that shows F204's setting changes no emitted instruction on aarch64 runs
+in no workflow and has run on one machine. There is no reading on aarch64
+Linux or on x86-64 macOS. D145's stage 2 is not built.
+
+
 ## D153 — `bincode` is unmaintained and `bund2-value` depends on it directly
 
 **Raised 2026-10-13**, by D152's reconciliation of `deny.toml`, which left

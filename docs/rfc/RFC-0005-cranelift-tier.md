@@ -1,6 +1,16 @@
 # RFC-0005: Tier 1 — the Cranelift backend
 
-- Status: **Proposed** (2026-09-12, on the owner's authorisation — D59), after
+- Status: **Accepted** (2026-10-13, by the repository owner — **D154**:
+  "accept RFC-0005"), after twenty-six adversarial reviews, the last of
+  which (`docs/rfc/reviews/RFC-0005-review-2026-10-13-2.md`) said "not yet"
+  on two blocking findings that `b81908f` answers and no review has read
+  since. At acceptance: `conform` 134/146, CEILING 134/146, in three
+  configurations on macOS arm64 and on Linux x86-64; IMPLEMENTED 500/505,
+  COVERAGE 489/505; `ci` green on the accepted tree (run 38473594655).
+  **What acceptance does not rest on** is in D154. What follows is the
+  status as it read until then.
+
+  **Proposed** (2026-09-12, on the owner's authorisation — D59), after
   twenty-one adversarial reviews. Drafted 2026-09-08, revised 2026-09-09,
   2026-09-10, 2026-09-11 and 2026-09-12.
   **The gate is answered on both halves and §S2–§S11 are authorised to be
@@ -9653,3 +9663,10 @@ trigger. 6, the 16- and 64-site rows of the count
 before F204, were not re-read. 7, which host a shared golden was captured
 on, is still recorded nowhere in `tests/golden/`. D117's count was not
 re-taken on this tree. No aarch64 Linux reading, and no x86-64 macOS one.
+
+## Amendment, 2026-10-13 — accepted
+
+The owner accepted this RFC on 2026-10-13 (D154), after `ci` passed on the
+tree that holds the answers to the twenty-sixth review. Those answers have
+not been reviewed. D154 lists what the acceptance does not claim; the "Not
+done" paragraph above stands as written.
