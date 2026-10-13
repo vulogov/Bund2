@@ -9287,4 +9287,11 @@ None is a difference between the tiers and none is filed as a defect here.
 What `conform` should do about a golden that records its host is a decision
 this document does not take.
 
+*2026-10-12, later.* It is D150, resolved the same day. Four of the seven
+are closed by telling the child its locale, its display width and its
+program's path relative to where it runs, which on macOS arm64 moves no
+golden and leaves F66's approved deviation to be recorded again; the other
+three get a variant captured from the oracle on Linux. Neither half has a
+Linux reading yet.
+
 **Not done.** No aarch64 Linux reading, and no x86-64 macOS one.

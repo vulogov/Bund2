@@ -164,6 +164,25 @@ fn write_baseline(repo: &Path, passed: usize, total: usize) -> Result<(), String
     std::fs::write(repo.join(BASELINE), body).map_err(|e| format!("writing {BASELINE}: {e}"))
 }
 
+/// `target` as a path from `from`, both absolute: up out of what they do not
+/// share, then down. `target` itself when either is not absolute, which is
+/// the path as it was.
+fn relative_to(from: &Path, target: &Path) -> PathBuf {
+    if !from.is_absolute() || !target.is_absolute() {
+        return target.to_path_buf();
+    }
+    let (f, t): (Vec<_>, Vec<_>) = (from.components().collect(), target.components().collect());
+    let shared = f.iter().zip(&t).take_while(|(a, b)| a == b).count();
+    let mut out = PathBuf::new();
+    for _ in shared..f.len() {
+        out.push("..");
+    }
+    for part in &t[shared..] {
+        out.push(part);
+    }
+    out
+}
+
 /// How many differing lines `-v` shows for one golden. A program whose
 /// every line differs would otherwise bury the rest of the report.
 const DIFF_LINES: usize = 12;
@@ -312,10 +331,23 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut drifted: Vec<(String, String)> = Vec::new();
     let mut newly_recorded: Option<(String, String)> = None;
 
+    // **D150.** A golden this host has a recorded variant of is read from
+    // the variant; every other is the shared one, so the denominator is the
+    // same on every host and only what a case is held to differs.
+    let host = golden::hosts::host();
+    let variants = golden::hosts::load(&repo)?;
+    let mut read_here: Vec<(String, String)> = Vec::new();
+
     let mut cases: Vec<(String, String, PathBuf, i32, String)> = Vec::new();
     let mut uncaptured = 0usize;
     for (program, name, cwd) in &jobs {
-        let gpath = golden_dir.join(name);
+        let gpath = match variants.get(&(host.clone(), name.clone())) {
+            Some(why) => {
+                read_here.push((name.clone(), why.clone()));
+                golden_dir.join(golden::hosts::variant_name(&host, name))
+            }
+            None => golden_dir.join(name),
+        };
         match std::fs::read_to_string(&gpath) {
             Ok(body) => match golden::parse_golden(&body) {
                 Some((status, output)) => {
@@ -361,7 +393,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 Err(e) => Err(e),
             }
         } else {
-            golden::run_once(&bund2, &case_file, cwd, &threshold_args)
+            // **Named relative to where it runs.** A report prints the
+            // program's path as it was given, and sizes its table to it, so
+            // an absolute path put the checkout's location into the output:
+            // an approved deviation whose report has a `Location` row was
+            // recorded on one machine and read as drifted on every other.
+            golden::run_once(&bund2, &relative_to(cwd, &case_file), cwd, &threshold_args)
         };
 
         match executed {
@@ -584,6 +621,22 @@ pub fn run(args: &[String]) -> Result<(), String> {
             bund2_api::sayln!("      {g:<44} {why}");
         }
         bund2_api::sayln!();
+    }
+
+    // Said on every host, so that two reports that agree are known to be
+    // about the same goldens or known not to be.
+    if !variants.is_empty() {
+        bund2_api::sayln!(
+            "  {} golden(s) read from this host's variants ({host}), of {} recorded\n  for any host: D150. The oracle does not reproduce these across hosts,\n  so each host is held to the oracle's capture on it.\n",
+            read_here.len(),
+            variants.len()
+        );
+        for (g, why) in &read_here {
+            bund2_api::sayln!("      {g:<44} {why}");
+        }
+        if !read_here.is_empty() {
+            bund2_api::sayln!();
+        }
     }
 
     if !drifted.is_empty() {
@@ -909,6 +962,24 @@ fn parse_reach(repo: &Path, verbose: bool) -> Result<(), String> {
 }
 #[cfg(test)]
 mod tier_total_tests {
+
+    #[test]
+    fn relative_to_goes_up_and_then_down() {
+        use std::path::Path;
+        let rel = |a: &str, b: &str| super::relative_to(Path::new(a), Path::new(b));
+        assert_eq!(
+            rel("/r/tests/probes", "/r/target/conform/case.bund"),
+            Path::new("../../target/conform/case.bund")
+        );
+        assert_eq!(
+            rel("/r", "/r/target/case.bund"),
+            Path::new("target/case.bund")
+        );
+        assert_eq!(
+            rel("r/tests", "/r/target/case.bund"),
+            Path::new("/r/target/case.bund")
+        );
+    }
 
     /// `-v` names the lines, by position, and a line one side lacks.
     #[test]

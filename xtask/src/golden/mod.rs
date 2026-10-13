@@ -27,6 +27,8 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+pub(crate) mod hosts;
+
 /// Appended to a copy of each program so the oracle reveals its final state.
 ///
 /// The oracle prints the stack only when a program fails, so a clean run
@@ -104,7 +106,7 @@ pub(crate) fn capture_jobs(repo: &Path) -> Result<(Vec<CaptureJob>, usize), Stri
 }
 
 /// Every `.golden` under `dir`, as a path relative to `root`.
-fn collect_goldens(root: &Path, dir: &Path, out: &mut Vec<String>) {
+pub(crate) fn collect_goldens(root: &Path, dir: &Path, out: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -348,6 +350,34 @@ pub(crate) struct Run {
 
 const RUN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// What a run is told about its host, where being told is enough.
+///
+/// A golden is a transcript, and two things in one came from the machine it
+/// was captured on and can be handed to the child instead:
+///
+/// - **The locale.** `fmt` picks a message by it. Off macOS it is read from
+///   these variables, and a CI runner sets none of them to a language, so
+///   the default message was printed where the golden holds the `en-US` one.
+///   macOS asks the system and ignores them.
+/// - **The display width.** `display` wraps at the terminal's width. With no
+///   terminal to ask, the width comes from `tput`, which answers from
+///   `COLUMNS` and `LINES` given a `TERM` it knows; with no `TERM` it fails
+///   and the text wraps at 50 columns. Where there is a terminal its real
+///   width is used and these are not read.
+///
+/// So this narrows the gap and does not close it: a Mac set to another
+/// language, or a terminal narrower than a golden's longest displayed line,
+/// still shows through. Eighty columns is what the goldens are known to
+/// pass at.
+const PINNED_HOST: [(&str, &str); 6] = [
+    ("LANGUAGE", "en_US"),
+    ("LC_ALL", "en_US.UTF-8"),
+    ("LANG", "en_US.UTF-8"),
+    ("TERM", "xterm"),
+    ("COLUMNS", "80"),
+    ("LINES", "24"),
+];
+
 /// `extra` is appended after `--file <path>`.
 ///
 /// **Empty for every oracle run.** This function drives both the oracle, during
@@ -366,6 +396,7 @@ pub(crate) fn run_once(
         .arg("--file")
         .arg(program_file)
         .args(extra)
+        .envs(PINNED_HOST)
         .current_dir(cwd)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
@@ -397,6 +428,7 @@ pub(crate) fn run_artifact_once(
     env: &[(String, String)],
 ) -> Result<Run, String> {
     let mut cmd = std::process::Command::new(exe);
+    cmd.envs(PINNED_HOST);
     for (k, v) in env {
         cmd.env(k, v);
     }
@@ -496,17 +528,34 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut accept: Option<String> = None;
     let mut reason: Option<String> = None;
     let mut accept_all = false;
+    // `--variant <name> --reason <ref>`, once a golden: this host's capture
+    // of it is kept beside the shared one instead of in its place (D150).
+    let mut variant: BTreeSet<String> = BTreeSet::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--accept" => accept = it.next().cloned(),
             "--reason" => reason = it.next().cloned(),
             "--accept-all" => accept_all = true,
+            "--variant" => {
+                variant.insert(
+                    it.next()
+                        .cloned()
+                        .ok_or("--variant needs a golden's name")?,
+                );
+            }
             other => return Err(format!("unknown argument `{other}`")),
         }
     }
     if accept.is_some() && reason.is_none() {
         return Err("--accept needs --reason: a regenerated golden records why it changed".into());
+    }
+    if !variant.is_empty() && reason.is_none() {
+        return Err(
+            "--variant needs --reason: a golden one host reads differently records \
+             what approved that"
+                .into(),
+        );
     }
     // Wholesale regeneration is for when the *capture* changed, not when a
     // program's behaviour did — a new epilogue, or a new reference SHA. It
@@ -560,7 +609,20 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut needs_accept: Vec<String> = Vec::new();
     let mut regenerated: Vec<String> = Vec::new();
 
+    let host = hosts::host();
+    let mut variants = hosts::load(&repo)?;
+    let mut variants_written: Vec<String> = Vec::new();
+    let mut variants_same: Vec<String> = Vec::new();
+
     let (jobs, probe_count) = capture_jobs(&repo)?;
+    if let Some(unknown) = variant
+        .iter()
+        .find(|v| !jobs.iter().any(|(_, n, _)| n == *v))
+    {
+        return Err(format!(
+            "--variant {unknown}: no captured program has a golden of that name"
+        ));
+    }
 
     for (program, name, cwd) in &jobs {
         let src_path = repo.join(program);
@@ -607,16 +669,46 @@ pub fn run(args: &[String]) -> Result<(), String> {
             continue;
         }
 
+        // **Which file this host's capture is held against** (D150): its
+        // variant where one is recorded or asked for, and the shared golden
+        // otherwise. A variant says in its header whose it is.
+        let recorded = variants.contains_key(&(host.clone(), name.clone()));
+        let asked = variant.contains(name);
+        if asked && !recorded {
+            // A variant that says what the shared golden says is a second
+            // copy to keep in step, and nothing else.
+            let shared = std::fs::read_to_string(golden_dir.join(name))
+                .ok()
+                .and_then(|b| parse_golden(&b));
+            if shared
+                .is_none_or(|(status, output)| status == first.status && output == first.output)
+            {
+                variants_same.push(name.clone());
+                unchanged += 1;
+                continue;
+            }
+        }
+        let as_variant = recorded || asked;
+        let whose = if as_variant {
+            format!("# on {host}: read there in place of the shared golden (D150)\n")
+        } else {
+            String::new()
+        };
         let body = format!(
             "# golden for {program}\n\
              # captured by `cargo xtask golden` from reference/Bund via target/oracle\n\
+             {whose}\
              # normalised: id and stamp (F14), dict member order (F15), ANSI stripped\n\
              # verified: two oracle runs produced identical output\n\
              ## exit\n{}\n## output\n{}\n",
             first.status, first.output
         );
 
-        let dest = golden_dir.join(name);
+        let dest = if as_variant {
+            golden_dir.join(hosts::variant_name(&host, name))
+        } else {
+            golden_dir.join(name)
+        };
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("creating {}: {e}", parent.display()))?;
@@ -628,7 +720,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
             Ok(_) => {
                 // An existing golden would change. That is a conformance
                 // event, not a capture detail.
-                if accept_all || accept.as_deref() == Some(name.as_str()) {
+                if asked {
+                    std::fs::write(&dest, &body)
+                        .map_err(|e| format!("writing {}: {e}", dest.display()))?;
+                    written += 1;
+                    variants_written.push(name.clone());
+                } else if accept_all || accept.as_deref() == Some(name.as_str()) {
                     std::fs::write(&dest, &body)
                         .map_err(|e| format!("writing {}: {e}", dest.display()))?;
                     written += 1;
@@ -641,8 +738,20 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 std::fs::write(&dest, &body)
                     .map_err(|e| format!("writing {}: {e}", dest.display()))?;
                 written += 1;
+                if as_variant {
+                    variants_written.push(name.clone());
+                }
             }
         }
+    }
+
+    // The list is written with the files, so the two never disagree between
+    // one run and the next.
+    if let (false, Some(why)) = (variants_written.is_empty(), reason.as_ref()) {
+        for name in &variants_written {
+            variants.insert((host.clone(), name.clone()), why.clone());
+        }
+        hosts::save(&repo, &variants)?;
     }
 
     // Goldens with no live source. A scope decision that narrows the suite
@@ -651,7 +760,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let expected: BTreeSet<String> = jobs.iter().map(|(_, n, _)| n.clone()).collect();
     let mut orphans: Vec<String> = Vec::new();
     collect_goldens(&golden_dir, &golden_dir, &mut orphans);
-    orphans.retain(|g| !expected.contains(g));
+    // A variant is its shared golden's, whichever host it was captured on.
+    orphans.retain(|g| !expected.contains(hosts::split_variant(g).map_or(g.as_str(), |(_, n)| n)));
     orphans.sort();
 
     bund2_api::sayln!(
@@ -668,6 +778,26 @@ pub fn run(args: &[String]) -> Result<(), String> {
         needs_accept.len()
     );
     bund2_api::sayln!();
+
+    if !variants_written.is_empty() {
+        bund2_api::sayln!("## variants written for {host}\n");
+        bund2_api::sayln!("  The oracle's capture on this host, kept under");
+        bund2_api::sayln!("  tests/golden/hosts/{host}/ and recorded in tests/golden/HOSTS.txt.");
+        bund2_api::sayln!("  The shared goldens were not touched.\n");
+        for n in &variants_written {
+            bund2_api::sayln!("  {n}");
+        }
+        bund2_api::sayln!();
+    }
+    if !variants_same.is_empty() {
+        bund2_api::sayln!("## no variant needed\n");
+        bund2_api::sayln!("  Named with --variant, and this host's capture is the shared");
+        bund2_api::sayln!("  golden's. Nothing was written.\n");
+        for n in &variants_same {
+            bund2_api::sayln!("  {n}");
+        }
+        bund2_api::sayln!();
+    }
 
     if !refused.is_empty() {
         bund2_api::sayln!("## refused\n");
@@ -728,6 +858,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
         bund2_api::sayln!(
             "    cargo xtask golden --accept <name> --reason <F-number or decision>\n"
         );
+        bund2_api::sayln!("  If instead the oracle is right on both hosts and they differ,");
+        bund2_api::sayln!("  keep this host's capture beside the shared one (D150):\n");
+        bund2_api::sayln!("    cargo xtask golden --variant <name> --reason <decision>\n");
         for n in &needs_accept {
             bund2_api::sayln!("  {n}");
         }

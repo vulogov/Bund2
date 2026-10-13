@@ -2216,6 +2216,18 @@ Two separate problems, and only one is about paths:
   `TextReporter` printed a workbench box after the stack box where the
   reference prints only the stack (`:126-131`).
 
+*Dated note, 2026-10-12 — the recorded output held a path of its own.* D36's
+`Location` row prints the program's path as `bund2` was given it, and
+`conform` gave it an absolute one, so the hash recorded for
+`probes/execute-arm-not-executable.golden` was of a report naming the
+checkout it was recorded in: approved on that machine and drifted on every
+other, which the Linux reading of this date showed. `conform` now names the
+program relative to where it runs (`relative_to`,
+`xtask/src/conform/mod.rs`) and the row reads
+`target/conform/case.bund:14:4` on any host. The recorded hash is of the
+old report, so the deviation reads as drifted until it is recorded again
+with `cargo xtask conform --accept-deviation`, which is the owner's. D150.
+
 ## F68 — `convert.to_bool` panics the process on an unrecognised string
 
 `stdlib_convert_base` pulls a value and calls `value.conv(BOOL)`

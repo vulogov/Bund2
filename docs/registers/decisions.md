@@ -3639,6 +3639,86 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D150 — what `conform` holds a host to, where a golden records the host it was captured on
+
+**Raised 2026-10-12**, from the first Linux reading of the tree
+(`linux-reading`, run 38318272664). `conform` read 128/146 on Linux x86-64
+against 134/146 on macOS arm64, the same in all three configurations, so
+none of it is a difference between the tiers. Seven goldens account for it,
+six failing and one approved deviation read as drifted. Each holds something
+the capturing machine put there.
+
+Four are closed without a decision, by telling the child what the host
+would otherwise decide: the locale and the display width through its
+environment (`PINNED_HOST`, `xtask/src/golden/mod.rs`), and the program's
+path relative to where it runs (`relative_to`, `xtask/src/conform/mod.rs`).
+Measured on macOS arm64: the pins move no golden, and the one approved
+deviation whose report prints a `Location` row, F66's
+`probes/execute-arm-not-executable.golden`, prints a relative path and has
+to be recorded again. Not yet measured on Linux.
+
+Three cannot be reached that way:
+
+- `examples/code_snippets/application_logic_demos.golden` and
+  `probes/math-float-family.golden` differ in the last digit of a
+  transcendental function, which is the platform's maths library.
+- `probes/sysinfo-words.golden` holds three booleans about memory that are
+  false on the capturing machine and true on Linux.
+
+That the oracle itself gives on Linux what Bund2 gives there is the
+expectation and is **not measured**: every golden was captured on macOS
+arm64, and no oracle capture exists for any other host.
+
+**Options.**
+
+- *A. A golden may have a variant for a named host.* The oracle's capture
+  on that host, read there in place of the shared golden.
+- *B. A class of approved deviation for a host.* As D50 does for
+  `sysinfo.version`: the three are approved to differ off the capturing
+  host, counted apart, and the ceiling is three lower there.
+- *C. Make the three host-independent.* A maths library of Bund2's own in
+  place of the platform's, and the probe without its three lines.
+- *D. Leave it.* The three are recorded as known differences and `conform`
+  is not a gate on Linux.
+
+**Recommendation: A for the two maths goldens, and the probe rewritten for
+the third.** A keeps Bund2 held to the oracle to the last digit on each
+host, where B stops checking the two programs most likely to show a
+floating-point regression. C changes Bund2's arithmetic to suit the
+harness, and could move a macOS golden by a digit.
+
+**Risks.** A: new machinery in `golden` and `conform`; a capture needs the
+oracle built on each host that has a variant; every variant is a second
+file to keep in step when its program changes. B: nothing checks the three
+on Linux. C: a language-level change made for a test's sake. D: no Linux
+gate on meaning.
+
+- Blocks: a `conform` gate on any host but the capturing one
+- Depends on: D21 (probes are captured from the oracle), D50, F66
+- Status: **RESOLVED — option A, by the repository owner, 2026-10-12.** The
+  owner's answer was "A", to a recommendation that split the three. It is
+  taken as written and not as the recommendation: all three goldens get a
+  variant, and the probe is not rewritten, which was not ruled.
+
+  Built: a variant is `tests/golden/hosts/<host>/<name>`, with `<host>` the
+  operating system and architecture as Rust names them
+  (`linux-x86_64`). `cargo xtask golden --variant <name> --reason <ref>`
+  writes one from the oracle on the host it runs on, leaves the shared
+  golden alone, refuses one that says what the shared golden says, and
+  records it in a list beside the goldens, `HOSTS.txt`, which does not
+  exist until the first variant does. `conform` reads a recorded
+  variant on its host and the shared golden everywhere else, says how many
+  it read, and refuses to run if the list and the files disagree
+  (`xtask/src/golden/hosts.rs`). The denominator is the same on every
+  host.
+
+  Not done: no variant exists. A capture needs the oracle on Linux, which
+  `linux-reading`'s `capture` job builds; it writes the three in its own
+  checkout and uploads them, and placing them in `tests/golden/` is the
+  owner's. That job is also the first measurement of which goldens the
+  oracle answers differently on Linux, so the list of three is an
+  expectation until it has run.
+
 ## D149 — may a count decide RFC-0005 criterion 11's cost clause?
 
 **Raised 2026-10-12**, writing the checks the twenty-fourth review found

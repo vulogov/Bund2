@@ -108,3 +108,56 @@ jobs:
                 | grep -E "floor_count|Collected"
             done
           done
+
+  # D150: a golden the oracle does not reproduce on this host has a variant
+  # here, and a variant is the oracle's capture, so it is taken where the
+  # oracle runs. The first step reads which goldens the oracle answers
+  # differently on Linux; the second writes variants for the three D150
+  # names. Both run in this checkout, which is thrown away: the files leave
+  # as an artefact, and putting them in `tests/golden/` is the owner's.
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: what the oracle will link
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev libssl-dev pkg-config cmake clang \
+            libfontconfig1-dev libfreetype6-dev zlib1g-dev
+          uname -a
+          ldd --version | head -1
+          which tput && TERM=xterm COLUMNS=80 LINES=24 tput cols
+      - name: build the oracle, out of tree
+        run: |
+          cargo build --release --manifest-path reference/Bund/Cargo.toml --target-dir target/oracle
+          git -C reference/Bund status --short
+      - name: what the oracle answers differently here
+        if: ${{ !cancelled() }}
+        run: cargo xtask golden
+      - name: the variants
+        if: ${{ !cancelled() }}
+        run: |
+          cargo xtask golden --reason D150 \
+            --variant examples/code_snippets/application_logic_demos.golden \
+            --variant probes/math-float-family.golden \
+            --variant probes/sysinfo-words.golden
+          git status --short tests/golden/
+          git diff --stat -- tests/golden/
+          cat tests/golden/HOSTS.txt
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: golden-variants-linux-x86_64
+          path: |
+            tests/golden/HOSTS.txt
+            tests/golden/hosts/
+      - name: conform against them, Tier 0
+        if: ${{ !cancelled() }}
+        run: cargo xtask conform -v
+      - name: conform against them, the tier at threshold 1
+        if: ${{ !cancelled() }}
+        run: cargo xtask conform --features jit --jit-threshold 1

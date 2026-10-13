@@ -42,6 +42,9 @@ Oracle
                 Needs the oracle built out-of-tree. An existing golden that
                 would change is left alone unless named:
                   --accept <name> --reason <F-number or decision>
+                A golden the oracle does not reproduce on this host is kept
+                as this host's variant, beside the shared one (D150):
+                  --variant <name> --reason <decision>
   unblock       NEEDS REDESIGN (Q15). Ranks unimplemented words by the hermetic
                 examples each alone gates — which can only ever see the 140
                 in-scope words the goldens touch. As specified it would report
