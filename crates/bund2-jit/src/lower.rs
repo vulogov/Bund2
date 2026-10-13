@@ -3721,7 +3721,9 @@ mod relocations {
         /// with no relocation, so this is what the relocations cannot show.
         slot_callees: Vec<String>,
         /// The machine code of all four bodies and what they were emitted
-        /// with: every byte of the object's text section.
+        /// with: every byte of the object's text section. Read by one test,
+        /// which is aarch64's alone.
+        #[cfg_attr(not(target_arch = "aarch64"), allow(dead_code))]
         text: Vec<u8>,
     }
 
