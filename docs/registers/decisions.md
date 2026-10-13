@@ -3738,6 +3738,18 @@ as before, and reports none read of three recorded. `linux-reading`'s
 `capture` job no longer writes: it holds the recorded variants to the
 oracle and fails if the capture changed a file.
 
+*2026-10-13, later still: the reading with the variants in the tree.*
+`linux-reading`, run 38355924002, at `9fb23de`, every step of its three
+jobs passing. `conform` on Linux x86-64 reads 134/146, CEILING 134/146,
+with twelve approved deviations, at Tier 0, with the tier at its default
+threshold and with it at threshold 1, and reads three goldens from the
+host's variants in each. The oracle built there reproduces 142 of 146, the
+three variants among them; the four it would change are the error-report
+goldens of the note above. The capture wrote nothing and left
+`tests/golden/` as checked out. The suite passes with and without the
+tier, no test failing. It is the first Linux run of this branch in which
+`conform` passes.
+
 ## D149 — may a count decide RFC-0005 criterion 11's cost clause?
 
 **Raised 2026-10-12**, writing the checks the twenty-fourth review found
