@@ -5,15 +5,60 @@
 # than something that arrives transitively.
 
 [licenses]
-allow = ["Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib"]
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    # Cranelift and its family, linked only with the `jit` feature.
+    "Apache-2.0 WITH LLVM-exception",
+    # `clipboard-win` and `error-code`, Windows only.
+    "BSL-1.0",
+    # `notify`, reached through `prqlc`.
+    "CC0-1.0",
+    # `graphitesql`: SQLite's blessing, a public-domain dedication.
+    "blessing",
+    # `priority-queue`, reached through `fast_paths`, is offered under
+    # LGPL-3.0-or-later OR MPL-2.0; this is the branch taken.
+    "MPL-2.0",
+]
+
+# `algos` declares no licence in its manifest; its LICENSE file is BSD-3-Clause.
+[[licenses.clarify]]
+crate = "algos"
+expression = "BSD-3-Clause"
+license-files = []
+
+[licenses.private]
+# No crate of this workspace is published; each says `publish = false`.
+ignore = true
 
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# A path dependency inside the workspace carries no version by design, and
+# neither does the one git dependency, `algos`, which is pinned by revision.
+# The allowance covers unpublished crates only, which is all of them.
+allow-wildcard-paths = true
 
 [advisories]
 yanked = "deny"
+# Each entry is a crate the oracle's own crate choices bring in (D38), and
+# each is ignored with its reason rather than by a blanket setting, so a new
+# advisory still fails the job.
+ignore = [
+    { id = "RUSTSEC-2026-0344", reason = "ruzstd 0.8.3, a decompression bomb: in the lock through object 0.37.3 (backtrace, color-eyre, prqlc) and not in the bund2-cli build, where object's compression feature is off. Checked on macOS; nothing in Bund2 decodes zstd." },
+    { id = "RUSTSEC-2025-0141", reason = "bincode is unmaintained: 2.0.1 is bund2-value's own dependency and 1.3.3 comes through hyphenation. Replacing a direct dependency is a decision of its own." },
+    { id = "RUSTSEC-2024-0375", reason = "atty is unmaintained: reached through clap 3, which srch brings; srch is the reference's crate for string.expressionmatch." },
+    { id = "RUSTSEC-2024-0384", reason = "instant is unmaintained: reached through notify, which prqlc brings." },
+    { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml is unmaintained: reached through prqlc." },
+]
 
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+# Pinned by revision in `bund2-stdlib`, the revision the oracle links (D38).
+allow-git = ["https://github.com/Brad-Edwards/algos.git"]

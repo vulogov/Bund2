@@ -6,6 +6,7 @@ edition.workspace      = true
 license.workspace      = true
 repository.workspace   = true
 rust-version.workspace = true
+publish                = false
 
 [dependencies]
 # The wire format must be byte-identical to the reference's (D20), and the

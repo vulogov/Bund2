@@ -3716,6 +3716,37 @@ pressure.
   test, `tests/banner_differential.rs`, as `sys_metrics` does for its own.
   Not observed: a terminal narrower than one glyph.
 
+  *2026-10-13, later still: both crates are out of the tree.* Each
+  comparison passed on Linux x86-64 as it had on macOS arm64: the host's
+  facts in `ci` run 38441982457, the banner in run 38453310646. Neither
+  `sys_metrics` nor `cfonts` is a dependency of any crate now, and the two
+  comparison tests went with them, since there is nothing left to compare
+  with. What holds the replacements from here is their own unit tests and
+  the goldens.
+
+  *The same day: `deny.toml` is reconciled with the tree, and `cargo-deny`
+  is a gate again.* The owner ruled on each finding as proposed. Five
+  licences join the allow-list, each with the crates that need it named
+  beside it: `Apache-2.0 WITH LLVM-exception` (Cranelift's family, under
+  `jit`), `BSL-1.0` (`clipboard-win`, `error-code`; Windows), `CC0-1.0`
+  (`notify`), `blessing` (`graphitesql`) and `MPL-2.0`, the branch taken
+  of `priority-queue`'s `LGPL-3.0-or-later OR MPL-2.0`. `algos`, whose
+  manifest declares no licence, is stated as BSD-3-Clause, which is what
+  its licence file says, and its git source is allowed by URL. Every crate
+  of the workspace says `publish = false`, which is true of each and is
+  what lets the path and git dependencies carry no version. Five
+  advisories are ignored by id, each with its reason in the file: `ruzstd`
+  0.8.3's decompression bomb (RUSTSEC-2026-0344), in the lock through
+  `object` 0.37.3 and measured absent from the `bund2-cli` build on macOS
+  with and without every feature, not measured on Linux; and four
+  unmaintained crates, `bincode` (RUSTSEC-2025-0141, a direct dependency
+  of `bund2-value` at 2.0.1 and `hyphenation`'s at 1.3.3), `atty`
+  (RUSTSEC-2024-0375, `clap` 3 through `srch`), `instant`
+  (RUSTSEC-2024-0384, `notify`) and `unsafe-libyaml` (RUSTSEC-2024-0449,
+  `prqlc`). `mach`'s advisory left with `sys_metrics`. `cargo-deny` 0.20.2
+  passes all four checks on this tree with every feature on. Left for a
+  decision of its own: whether `bincode` is replaced.
+
 
 ## D151 — which instrument reads D149's count
 

@@ -6,6 +6,7 @@ edition.workspace      = true
 license.workspace      = true
 repository.workspace   = true
 rust-version.workspace = true
+publish                = false
 
 [dependencies]
 # The one dependency, and the reason this is a crate of its own: `uname` and
