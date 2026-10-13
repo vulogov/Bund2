@@ -3639,6 +3639,38 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D153 — `bincode` is unmaintained and `bund2-value` depends on it directly
+
+**Raised 2026-10-13**, by D152's reconciliation of `deny.toml`, which left
+it "for a decision of its own". RUSTSEC-2025-0141 says `bincode` is
+unmaintained; it reports no vulnerability. Two copies are in the lock.
+2.0.1 is `bund2-value`'s own dependency, used in one file,
+`crates/bund2-value/src/wire.rs`, to write and read whole values: D20
+requires that format byte-identical to the reference's, the reference
+writes it with `bincode2` (`reference/rust_dynamic/Cargo.toml:13`), and
+`bincode` 2.x's `legacy()` configuration is the same layout. 1.3.3 comes
+through `hyphenation`, a direct dependency of `bund2-stdlib`, and stays
+whatever is done about the first.
+
+- Blocks: nothing
+- Options:
+  - **A.** Keep it; the advisory stays ignored by id in `deny.toml`. No
+    code changes and no risk to the format. A later advisory against
+    `bincode` has a different id and fails the `deny` job.
+  - **B.** Write the legacy layout by hand in `wire.rs`. Removes the direct
+    dependency and would let a decode refuse a value by depth, which F118
+    records cannot be done while `bincode` builds the nested value before
+    any Bund2 code runs. Risks a byte-level divergence from the reference.
+    Does not clear the advisory, because of `hyphenation`.
+  - **C.** Another serialization crate. A different byte format, against
+    D20. No maintained crate was surveyed.
+- Recommendation: A. B's benefit is F118's remaining gap, a blob too deep
+  to decode, and not the advisory; it is work to take up on those grounds.
+- Status: **RESOLVED 2026-10-13 — A, "over B now".** The owner's words.
+  `bincode` stays and the advisory stays ignored. B is not ruled out for
+  later and is not scheduled.
+
+
 ## D152 — two crates linked into `bund2` are under licences its own does not allow
 
 **Raised 2026-10-13**, by the first run of `cargo-deny` on this branch (`ci`,
