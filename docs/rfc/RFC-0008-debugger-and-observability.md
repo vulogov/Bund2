@@ -950,6 +950,11 @@ capture and still unpinnable, which is `debug`'s case.
     therefore stands on the reading of 2026-10-08 and has none on this
     tree.)*
 
+    *(2026-10-14: the 188 is traced, in D117's "The trace": 86 to D139's
+    frame for a compiled body, 44 to D145's and D147's bookkeeping around
+    a run, 19 to saving the tier's entry state and choosing to offer, 38
+    not separated. None of it is D113's.)*
+
 12. **§D2's growth is measured against a baseline taken first.**
     `Frame` gains a symbol and a span, on a structure pushed per call, so
     `dispatch` **before** the field is added and then after, inside the same 5%

@@ -6497,6 +6497,46 @@ every row, so RFC-0005's criterion 7 as D148 words it is not what this
 contradicts. It is recorded here because a reading by this entry's method
 found it.
 
+### The trace, 2026-10-14
+
+*(Added 2026-10-14, at the owner's request: "trace the entry cost".)*
+"Which of them, was not traced" no longer holds. Two methods, on `1 drop`
+×300,000 with `jit`, median of five, the empty program subtracted.
+
+**Bisection.** Release builds with `jit` at each commit on the path:
+
+| commit | instructions | change | per entry |
+|---|---|---|---|
+| `dff32be`, the baseline | 317.1 M | | |
+| `dde6ed4`, last before RFC-0005's twenty-third review | 316.8 M | −0.3 M | −1 |
+| `f1a31ca`, D139 to D141 | 348.4 M | +31.7 M | **+105** |
+| `9b6957e`, D145 | 367.3 M | +18.9 M | **+63** |
+| `31b2957`, D146 | 370.0 M | +2.7 M | +9 |
+| `bdd005a`, D147 and D148 | 372.9 M | +2.9 M | +10 |
+| `b1a43ee`, today | 373.1 M | +0.2 M | +1 |
+
+**Ablation.** Today's tree with one piece taken out at a time, cumulatively
+— builds for measuring only, never committed:
+
+| removed | instructions | per entry |
+|---|---|---|
+| nothing | 373.1 M | |
+| `JitTier::enter`'s call to `Vm::tier_frame` — D139's frame for the running body: a call through `dyn Vm`, a `Frame` pushed with the body cloned, and truncated and dropped when `enter` returns | 347.3 M | **86** |
+| the bookkeeping in `JitTier::enter` around `Compiler::run`: the `running` count, the first-floor-decline mark (D147), and the check for deferred compiles when the outermost entry returns (D145) | 334.0 M | **44** |
+| `Interp::push_frame`'s save and restore of `tier_entry` and `tier_shadow` around `Tier::enter` (D139, nested by D145) | 330.1 M | **13** |
+| the `declined` set and `Interp::tier_to_offer`'s registry check, back to cloning the tier | 328.4 M | **6** |
+
+What is left, 11.3 M or about 38 per entry, was not separated further. It
+is on the path D145 changed: the tier became `Rc<dyn Tier>` with `enter`
+taking `&self`, so each entry clones and drops the `Rc` and takes its
+state through `RefCell` and `Cell` instead of `&mut`.
+
+So the largest part, 86 of 188, is D139's frame: a backtrace taken under
+a compiled body names it, as with no tier. Nothing here was changed. A
+frame materialised only when something reads the frame list would remove
+most of the 86, and would be a change to how D139 is built; it is not
+proposed by this note.
+
 ## D116 — `bund2 build` refuses a program that does not parse
 
 **Raised 2026-10-08** by the acceptance review of RFC-0006 (B3). The
