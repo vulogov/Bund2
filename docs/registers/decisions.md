@@ -3639,6 +3639,66 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D166 — a JSON value inside a container, at write time
+
+**Raised 2026-10-14** by RFC-0007's fifth review
+(`docs/rfc/reviews/RFC-0007-review-2026-10-14-3.md`, B1), as F208. The
+reference wraps a JSON value as its text only when it is the whole value
+(`reference/rust_dynamic/src/bincode.rs:9`, `:54`); one inside a container
+is written as JSON, and its decoder cannot read that back. Bund2's codec
+did the same. Measured 2026-10-14, release binaries:
+
+| program | oracle | Bund2 before |
+|---|---|---|
+| `"jm" dict "k" '{"k": 1}' json set send "jm" recv` | `send` pushes `true`; `recv` fails `RECV returns error Error converting from binary: Bincode does not support the serde::Deserializer::deserialize_any method (…)`, and logs the same at `ERROR` (`reference/Bund/src/stdlib/functions/bus/mod.rs:139-143`) | `true`; `RECV returns error Error converting from binary: Serde(AnyNotSupported)` |
+| `dict "k" '{"k": 1}' json set encode.base64 decode.base64` | encodes; `DECODE.BASE64 unwrapping object returned: Bincode does not support …` | — |
+
+On the bus the message is dequeued before the decode fails
+(`mod.rs:132-143`), so it is lost on both sides, and the sender was told
+`true`. The codec (`crates/bund2-value/src/wire.rs`, `to_binary`) is also
+the encoder of `encode.base64` and `encode.base64.`, `save.model`, the
+world file's `save`, and `debug.dump`.
+
+- Blocks: RFC-0007's acceptance
+- Depends on: F118, D114, D20, D37, F208
+- Options:
+  - **A.** Keep it: a row recording the reference's prefix and the
+    decoder's reason. The receiver pays for the sender's value.
+  - **B.** Refuse in the codec, in F118's depth walk: every writer refuses
+    a JSON value below the top level, under its own prefix.
+  - **C.** Refuse at `send` only.
+  - **D.** Wrap a JSON value at every depth: new bytes the reference cannot
+    read, against D20.
+- Recommendation: B — D114's argument for depth, applied to the other
+  value the codec writes and cannot read back. Risk: a program that wrote
+  such a value and never read it now fails at the write.
+- Status: **RESOLVED** by the repository owner, 2026-10-14: "D166: B".
+
+### Built, the same day
+
+`depth_of` answers whether a JSON value sits below the top level as well as
+the depth, in the one walk; `to_binary` refuses after the depth check with
+"the value holds a JSON value inside a container, which the wire format
+writes and cannot read back; a JSON value crosses only on its own". A
+top-level JSON is written as its text, so nothing under it is examined.
+Measured after:
+
+| word | oracle | Bund2 |
+|---|---|---|
+| `send`, `send.quick` | accepts | `SEND returns error Error enveloping data: the value holds …` |
+| `encode.base64` | accepts; the decode fails | `ENCODE.BASE64 wrapping object returned: the value holds …` |
+| `debug.dump` | dumps the bytes | `DUMP: error converting to binary: the value holds …` |
+
+`save.model` and `save` refuse by the same codec; not run separately.
+`debug.dump` is the one writer whose bytes nothing reads back: it displays
+them. The ruling named it, so it refuses; exempting it would be a further
+decision.
+
+**No golden moves**: conform 134/146, CEILING 134/146, before and after.
+Held by `a_json_value_inside_a_container_is_refused_not_written`
+(`bund2-value`) and `a_json_value_inside_a_container_is_refused_at_send`
+(`bund2-stdlib`), both checked to fail with the refusal disabled.
+
 ## D165 — what host options a VM spawned by the host runs under
 
 **Raised 2026-10-14** by RFC-0007's review of that date

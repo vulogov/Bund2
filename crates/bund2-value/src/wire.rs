@@ -574,23 +574,29 @@ fn take_wire_children(w: &mut WireValue, work: &mut Vec<WireValue>) {
     }
 }
 
-/// How deeply a value nests, counted on the heap — F118.
+/// How deeply a value nests, counted on the heap — F118 — and whether a JSON
+/// value sits anywhere below the top level — D166.
 ///
 /// Stops as soon as the bound is exceeded: the answer only has to be large
-/// enough to refuse, and a value can be arbitrarily deep.
-fn depth_of(v: &BundValue) -> usize {
+/// enough to refuse, and a value can be arbitrarily deep. The second answer
+/// is then incomplete, and does not matter: the depth is refused first.
+fn depth_of(v: &BundValue) -> (usize, bool) {
     let mut deepest = 0;
+    let mut nested_json = false;
     let mut work: Vec<(BundValue, usize)> = vec![(v.clone(), 1)];
     while let Some((cur, d)) = work.pop() {
         deepest = deepest.max(d);
         if deepest > MAX_WIRE_DEPTH {
-            return deepest;
+            return (deepest, nested_json);
+        }
+        if d > 1 && cur.dt() == JSON {
+            nested_json = true;
         }
         for child in children_of(&cur) {
             work.push((child, d + 1));
         }
     }
-    deepest
+    (deepest, nested_json)
 }
 
 /// A value's members, whatever container holds them.
@@ -720,18 +726,31 @@ fn node_of(v: &BundValue, queue: &mut Vec<BundValue>) -> Node {
 /// `serde_json::Value` back, so the reference first converts the value to its
 /// text and wraps that as a `JSON_WRAPPED` string, with a fresh id and stamp
 /// (`reference/rust_dynamic/src/create_special.rs:241-252`). Only the top
-/// level is wrapped; a JSON value nested in a list is written as JSON, which
-/// then cannot be read back, in the reference and here alike.
+/// level is wrapped; the reference writes a JSON value nested in a container
+/// as JSON, which then cannot be read back — by its decoder or this one. Bund2
+/// refuses such a value here, before it is written (D166).
 pub fn to_binary(v: &BundValue) -> Result<Vec<u8>, String> {
     // F118: refuse a value too deep for the codec to read back, before it is
     // written. The check is its own walk, on the heap, so measuring the depth
     // cannot itself overflow.
-    let depth = depth_of(v);
+    let (depth, nested_json) = depth_of(v);
     if depth > MAX_WIRE_DEPTH {
         return Err(format!(
             "the value nests {depth} deep, and {MAX_WIRE_DEPTH} is the most the wire format \
              can carry"
         ));
+    }
+    // D166: the same walk finds a JSON value inside a container. Written, it
+    // would fail with whoever reads it — a `recv` in another VM, or a world
+    // file's next load — and the writer would have been told it succeeded. A
+    // JSON value on its own is wrapped below as its text, so nothing under a
+    // top-level JSON is written as JSON and nothing there is refused.
+    if nested_json && v.dt() != JSON {
+        return Err(
+            "the value holds a JSON value inside a container, which the wire format writes \
+             and cannot read back; a JSON value crosses only on its own"
+                .to_string(),
+        );
     }
     let w = if v.dt() == JSON {
         WireValue {
@@ -859,6 +878,25 @@ mod conversion_tests {
         }
         assert_eq!(levels, MAX_WIRE_DEPTH - 1, "every level came back");
         assert_eq!(cur.as_int(), Some(7));
+    }
+
+    /// **D166: a JSON value inside a container is refused, not written.** The
+    /// reference writes it and neither decoder reads it back; a JSON value on
+    /// its own still crosses.
+    #[test]
+    fn a_json_value_inside_a_container_is_refused_not_written() {
+        let j = || BundValue::json(serde_json::json!({"k": 1}));
+        let e = to_binary(&BundValue::list(vec![BundValue::int(1), j()]))
+            .expect_err("a JSON in a list");
+        assert!(e.contains("JSON value inside a container"), "{e}");
+        let mut deep = BundValue::list(vec![j()]);
+        for _ in 0..3 {
+            deep = BundValue::list(vec![deep]);
+        }
+        assert!(to_binary(&deep).is_err(), "a JSON four levels down");
+
+        let alone = to_binary(&j()).expect("a JSON on its own");
+        assert_eq!(from_binary(&alone).expect("decodes").dt(), JSON);
     }
 
     /// **A payload nested past the bound is refused where it is read — F196.**

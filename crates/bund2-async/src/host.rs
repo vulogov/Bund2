@@ -356,8 +356,12 @@ impl Host {
                 if let Ok(mut g) = thread_state.lock() {
                     g.answer = Some(out);
                 }
-                // Explicit, so the order — answer stored, then marked done and
-                // woken — is in the code rather than in the scope's end.
+                // Explicit, so the order — answer stored, word table freed,
+                // then the slot given back and the waiter woken — is in the
+                // code rather than in the scope's end. The `Runtime` goes
+                // first: `live()` counts what exists, and a woken waiter may
+                // spawn into the slot at once.
+                drop(rt);
                 drop(finish);
             })
             .map_err(|e| {

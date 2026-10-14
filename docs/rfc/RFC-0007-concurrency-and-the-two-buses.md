@@ -45,12 +45,25 @@
   what the sentence says (criteria 3, 10 and 12). Two questions the review
   raised are decisions, **D164 and D165, open**. Answered in the amendment at
   the end and in notes at each passage.)*
+
+  *(Later 2026-10-14, the fourth and fifth reviews
+  (`docs/rfc/reviews/RFC-0007-review-2026-10-14-2.md`, `-3.md`): **"open"
+  above, in the Depends and Supersedes notes and in the third review's
+  amendment is of the morning. D164 was ruled C and D165 B the same day.**
+  "After one adversarial review" is of 2026-10-04; there have been five.
+  The fifth found a third arm of `recv` the document never described: a
+  decode that fails, reachable by a JSON value inside a container, which
+  lost the message on both implementations. **D166, ruled B**: Bund2
+  refuses the value at the write. Answered in the second amendment at the
+  end.)*
 - Depends on: RFC-0002 (the word kinds this defines), RFC-0003 (the flat frame
   loop)
 - Decisions consumed: D10, D20, D28, D40, D44, D84, D85, D86, D87, D88, D91,
   D92, D93
   *(2026-10-14: the body also uses D38, D60, D74, D89 and D114, which this
   list omitted; D164 and D165 are open.)*
+  *(Later the same day: both RESOLVED. The body also uses D11 (§C3), D37
+  (three Preservation rows), D90, D113 (the debugger row) and D166.)*
 - Touched but not consumed: D16, D27, D31
 - Reference SHA: `reference/Bund` at `21b40b0`, per `reference/PINNED.txt`
 - Supersedes: `docs/research/01-extensibility-async.md` §2 in two places, now
@@ -62,6 +75,7 @@
   §2.4's `NativeKind` and §2.7's word kinds, departed from by §C5 and open
   as D164; the roadmap's "tier pinning", moot; and D91's ruling on the
   shared compile service.)*
+  *(Later the same day: D164 is ruled C.)*
 
 ## Summary
 
@@ -174,6 +188,14 @@ that propagates whichever comes back. The draft's single measurement —
 `"empty" recv` on a channel nothing had created — hit the *absent* arm and was
 generalised to the empty one.
 
+*(Later 2026-10-14, the fifth review's B1: **three arms, not two.** After the
+dequeue the bytes are decoded, and a decode that fails bails with `Error
+converting from binary: {err}` after logging the same text at `ERROR`
+(`bus/mod.rs:132-143`); the message has already left the channel. A program
+reaches it by sending a JSON value inside a container, which `send` accepts
+and no decoder reads (F208). Bund2 now refuses that value at `send` (D166),
+so in Bund2 the arm exists and no program reaches it.)*
+
 **And two channels exist before any program runs.** `"in"` and `"out"` are
 inserted at initialisation (`bus/mod.rs:46-47`), so `"in" recv` yields `NODATA`
 where any other unused name errors. The first draft never mentioned them.
@@ -254,6 +276,14 @@ the same (`crates/bund2-value/src/wire.rs`, `to_binary` and `from_binary`).
 So for a JSON value neither the id nor the stamp crosses, in the oracle or
 in Bund2: preserved, and the identity row below now says so.)*
 
+*(Later 2026-10-14, the fifth review's B1: **the note was half of what
+those lines say.** Only a top-level JSON is wrapped
+(`reference/rust_dynamic/src/bincode.rs:9`, `:54`); the fresh id and stamp
+are `json_wrap`'s, `create_special.rs:241-251`, one call below `:22`. A
+JSON value inside a container is written as JSON and cannot be read back,
+on either side: for it nothing crosses, which is not an exception to
+identity but to delivery. D166 refuses it at the write.)*
+
 **The channel is unbounded**, so a producer outrunning a consumer grows memory
 without limit. The reference's choice, preserved; bounding it would be a
 deviation needing a decision.
@@ -280,6 +310,9 @@ there is **one layer**: the bus's payload is bytes no program sees, and no
 Bund program can put an ENVELOPE on the stack. The "(D11)" pointer carries
 the same mistake (ERRATA, §2.3's entry). The alternative this section
 declines below is moot rather than declined.)*
+*(Later the same day, the fourth review's M2: `wrap` is
+`value_class.rs:83-106` and `unwrap` `:108-125`; the range above starts
+inside `wrap`.)*
 
 **So there are two layers, not a contradiction**, and this RFC keeps them
 apart: the bus's payload is raw bincode bytes, invisible to the program;
@@ -296,6 +329,10 @@ specified here** beyond what D86 fixes, for a reason worth recording: zenoh is
 a large dependency, D40's precedent is that a transport's dependencies reach
 the toolchain-free artefact and have to be feature-gated, and the roadmap flags
 the distributed layer as something "no document has accounted for".
+*(Later 2026-10-14, the fifth review's M6: D40 is `string.grok`'s C
+dependency, made optional because a default-on native dependency reaches the
+bundle target. "A transport's dependencies" is this RFC's analogy, not
+D40's words.)*
 
 **What is fixed**: the local transport is not zenoh, the payload is the wire
 format either way, and neither transport is layered on the other. **What is
@@ -452,6 +489,16 @@ crate holds the host and the façade, about 1,070 lines today; the quoted
 description is still its `Cargo.toml`'s. Its own module docs said until
 this date that the façade "is not here"; corrected with this review.)*
 
+*(Later the same day, the fourth review's M4: 1,181 lines, `host.rs` 1,160
+and `lib.rs` 21. **And nothing shipped links the crate** (the fifth
+review's S4). `bund2-cli` does not depend on it; the façade crate `bund2`
+declares it behind an `async` feature, off by default, and its `lib.rs`
+has no items at all — it re-exports neither the host nor anything else.
+So an embedder reaches §C8 only by depending on `bund2-async` directly,
+and every test of criteria 10 to 14 is in the crate. What the façade
+should expose is RFC-0000's question, about every crate it names, and is
+not answered here.)*
+
 #### `PIPES` stays process-global, which is what makes it a bus
 
 The reference's map is a process-global `Mutex<BTreeMap<…>>`, and under tens of
@@ -481,6 +528,11 @@ map lock is held across the dequeue: `recv` never blocks, whatever the
 number of consumers, and consumers are ordered by the lock, which promises
 no order. That is the non-blocking invariant and the fairness statement in
 one.)*
+
+*(Later 2026-10-14, the fifth review's S5: **"the mechanism above" is the
+second bullet's.** The first is right: `ensure_bus` releases the lock
+between `bus.data` and `recv` (`bus/mod.rs:58-70`), and criterion 12's test
+forces exactly that interleaving with a barrier.)*
 
 #### The JIT conflict, which this RFC records rather than resolves
 
@@ -528,6 +580,8 @@ the body itself is about 3%. The review read the harness's `#[ignore]` as
 the figure being unrecorded; it is in D91. The N× this section argues from
 F139 is also measured directly: `n_vms_each_compile_the_same_hot_word_which_is_d91s_cost`
 pins 1, 2, 4 and 8 bodies for 1, 2, 4 and 8 VMs.)*
+*(Later the same day, the fourth review's M5: in a build with a tier. Without
+one the test `continue`s, because there is nothing to count; it says so.)*
 
 #### What tens of VMs costs in address space
 
@@ -585,6 +639,37 @@ note); "`WordKind::Sync` — 258 declarations, now with a stated meaning" is
 | `bund.exit` in a host VM | **Ends that VM, not the process**: `request_exit` is per `Interp`, and `Host` returns the closure's answer. Read from the code, not run. |
 | a `Vm<T>` dropped before it finishes | **Detaches the thread**, which runs to its end and returns its host slot through the same `Drop` guard (`crates/bund2-async/src/host.rs`, `Vm`'s `Drop`). |
 
+*(Later 2026-10-14, the fourth and fifth reviews. Three rows above are
+corrected here. **"`WordKind::Sync` — now with a stated meaning" and
+"`WordKind::Blocking` — defined here for the first time"** are withdrawn by
+D164's C: no variant has a meaning, as the `Async` row says. **`bund.exit`
+in a host VM does not end the VM; it switches its `Runtime` off.** Run by
+the fifth review: `eval_str` of a program that calls `bund.exit` answers
+`Ok`, the rest of the program does not run, and every later `eval_str` on
+that `Runtime` also answers `Ok` having evaluated nothing, because the
+frame loop refuses every step once an exit is requested
+(`crates/bund2-interp/src/lib.rs`, `exit_gate`) and the top level returns
+cleanly on that refusal. The code is on `Vm::exit_requested`, which the
+closure can read through `rt.interp` and the host neither reads nor
+surfaces. That is the CLI's own contract inside a thread; the "Read from
+the code, not run" label was honest and the reading was wrong. **A dropped
+`Vm<T>`'s slot comes back through `Finish<T>`'s `Drop`**, not `Vm`'s,
+which has none. Rows added on this date:)*
+
+| behaviour | disposition |
+|---|---|
+| a failed decode at `recv` | **Deliberately changed — D166, recording F208.** The oracle reaches it with a JSON value inside a container: `RECV returns error Error converting from binary: ` and bincode's reason, an `ERROR` log line on stderr, and the message lost. Bund2 refuses that value at `send`, so its arm exists and no program reaches it. If it were reached, its reason would be bincode 2's (`crates/bund2-value/src/wire.rs`, `from_binary`) and it would print nothing beside the diagnostic (D36). |
+| a JSON value inside a container, at a write | **Deliberately changed — D166.** `send`, `send.quick` and their workbench forms, `encode.base64`, `save.model`, `save` and `debug.dump` refuse it under their own prefixes; the oracle writes it, and its decoders cannot read it. A JSON value on its own still crosses. `debug.dump` only displays its bytes and refuses all the same, because the ruling named it. |
+| where a host VM's diagnostics go | **Nowhere, unless the embedder says.** `Runtime` keeps `Interp`'s `SilentReporter`; only the CLI installs a `TextReporter`. An Error reaches the closure as `eval_str`'s `Err` and is reported nowhere else; a Warning or Notice is discarded. An embedder installs its own on `rt.interp.reporter` inside the closure. Run by the fifth review for an Error; the Warning half is read from the code. |
+| `bund.exit` in a host VM | The note above: the `Runtime` is switched off, `eval_str` answers `Ok`, the code is on `exit_requested()`. |
+| the order a finished VM gives things back | **The word table first, then the slot.** Until this date the slot was returned and the waiter woken while the `Runtime` was still alive, so `live()` could read one less than the VMs that existed and a woken waiter could spawn one more. `Host::spawn`'s thread now drops the `Runtime` before `Finish`. |
+| a `Host` dropped with live VMs | **Nothing stops them.** `Host` has no `Drop`; each thread runs its closure to the end and returns its slot to a counter the dropped host no longer reads. Its `Vm<T>` handles still join. |
+| every VM's default stack | **Is `main`, in every VM**, and channel and stack names are one namespace, so `bus.data.current` on N VMs' default stacks is one channel, `main`. `bus.rs`'s tests switch stack before measuring it for that reason. |
+| a received value's `stack` tag | **The receiving push's**: `bus-words.golden` reads `main` for every value after crossing. |
+| `--nocolor` in a spawned VM | **The host's**, with `noio` and `noeval` (D165; `HostOptions` has all three). |
+| how an embedder reaches the host | **By depending on `bund2-async`.** No binary links it, and the `bund2` façade's `async` feature links it and re-exports nothing (§C8's note). |
+| two `Host`s in one process | **Share `PIPES`**, and so every channel, `main` and the pre-created `in` and `out` among them: the map is process-global, not the host's. |
+
 ## Alternatives considered
 
 - **`Arc` everywhere**, so values cross threads directly. Rejected by the
@@ -632,6 +717,11 @@ words are in scope and may carry goldens.
    `send.quick.`'s stack guard, checked before their workbench guard, and
    `send.quick.`'s workbench guard were not among them. Added the same
    day; the test now reaches all nine.)*
+   *(Later 2026-10-14, the fifth review: **`bus_pull` has three arms**, and
+   the criterion names two; the third is §C2's decode failure, which D166
+   makes unreachable in Bund2 and `a_json_value_inside_a_container_is_refused_at_send`
+   holds. And the probe reads `"in"` only; `"out"` is held by
+   `in_and_out_are_the_only_channels_a_program_starts_with`.)*
 2. **A `send`/`recv` round trip is goldenable** — `"chan" 42 send "chan" recv`
    captured from the oracle and matched.
 
@@ -648,6 +738,9 @@ words are in scope and may carry goldens.
    use of the bus rather than ours, and it diffs byte-identical. `HERMETIC.txt`
    goes 57 → 58, exactly one program.
    *(2026-10-14: of 2026-10-01. `HERMETIC.txt` lists 96 programs today.)*
+   *(Later the same day, the fourth review's B2: **that note was wrong.**
+   96 is the file's line count; it lists 58 programs and has not changed
+   since 2026-10-01, so the sentence it annotated was true.)*
 3. **Identity across the bus is decided and then asserted.** The oracle
    preserves id and stamp; Bund2's decoder mints a fresh identity (F109). The
    criterion is that whichever D86's amendment settles, a test asserts it —
@@ -935,6 +1028,8 @@ reference has no concurrency vocabulary at all.
   message vocabulary. The alternative — a `spawn` word — is a language decision.
 - **What `Async` means**, if anything, now that D84 removed the mechanism it
   would have used. §C5 declines to invent it.
+  *(2026-10-14: D164, ruled C — no kind has a meaning until a reader
+  exists.)*
 - **Zenoh's scope**: the globals semantics, `--distributed` for a Bund2 node,
   and whether the dependency is default. §C4, with D40 as precedent.
 - **Whether the hermetic funnel's `bus` exclusion narrows too — now D89.**
@@ -949,6 +1044,7 @@ reference has no concurrency vocabulary at all.
   calls them effectful because "zenoh is reached through `helpers/zenoh`"
   (`docs/registers/open-questions.md:624-626`)
   *(2026-10-14: now `:626-628`.)* — the wrong mechanism, since they
+  *(Later the same day: `:627-629`.)*
   use crossbeam. Probably still the right classification, because a
   process-global `PIPES` map is a side effect, but not for that reason. **This
   is the third place today that a reader attributed these words to zenoh from a
@@ -1034,6 +1130,13 @@ value. 9, a received value's `stack` tag is the receiving push's, as in
 `bus-words.golden`, where every value reads `main` after crossing: stated
 here.
 
+*(Later the same day, the fourth review's B2: **assumption 7's figure is
+wrong.** 1,024 × (8 + 8 + 0.25) MiB is 16.25 GiB under `jit`, and 8.25 GiB
+without; §C8's arithmetic for sixty-four VMs is right, and this paragraph
+disagreed with it by a factor of two. "D165, open" and "D164, open" in
+this amendment are of the morning; the paragraph below records both
+rulings.)*
+
 **Minor.** M1, the open-questions line: noted. M2, criterion 4's heading:
 noted. M3, the direct N× measurement: cited at §C8's D91 note. M4, `WordKind`
 is cited by file and type, as Q30 asks for `crates/`; M5, the research's
@@ -1050,4 +1153,67 @@ acceptance waits on the document; it waits on them too.
 word kinds, and `WordKind`'s doc says they have no meaning until a reader
 exists. D165: B — `Host::with_options`, built and tested. No decision this
 RFC rests on is open.
+
+## Amendment, later 2026-10-14 — the fourth and fifth reviews
+
+Answers `docs/rfc/reviews/RFC-0007-review-2026-10-14-2.md` and `-3.md`. The
+fourth was written against `25a33da` and not answered before the fifth,
+which found its findings unchanged and added one blocker.
+
+**Blocking.**
+- **The fifth's B1, `recv`'s third arm.** A decode that fails, reached by a
+  JSON value inside a container, which both implementations' `send`
+  accepted and neither's `recv` could read; the message was lost. F208
+  records the reference's half. **D166, ruled B**: Bund2's codec refuses
+  the value at every write, in the walk F118 added for depth. Built and
+  measured: `send`, `encode.base64` and `debug.dump` refuse; no golden
+  moves (134/146, CEILING 134/146). Two tests, both checked to fail with
+  the refusal disabled. Notes at the Current-behaviour paragraph on
+  `bus_pull`, at §C2's JSON note and at criterion 1; rows in the
+  Preservation table.
+- **The fourth's B1 and the fifth's B2, "open".** Notes at the status
+  line, the Depends and Supersedes notes, the open question on `Async`, the
+  Preservation table's `WordKind` rows and the first amendment.
+- **The fourth's B2 and the fifth's B3, two figures.** `HERMETIC.txt` lists
+  58 programs; 1,024 VMs are 16.25 GiB under `jit`. Notes where each
+  stands.
+
+**Significant.**
+- **`bund.exit` in a host VM** (fifth, S1): the row is corrected; the
+  `Runtime` is switched off and answers `Ok`, and the code is on
+  `exit_requested()`. Not changed: it is the CLI's contract.
+- **A host VM's diagnostics** (fourth S2, fifth S2): a row. They go to
+  `SilentReporter`; an embedder installs its own. Not changed.
+- **The slot before the word table** (fourth S1, fifth S3): fixed.
+  `Host::spawn`'s thread drops the `Runtime`, then `Finish`. No test
+  observes the order; `live()`'s doc now describes what the code does.
+  The `Drop` the row cited is `Finish<T>`'s.
+- **Nothing links the host** (fifth, S4): stated at §C8. What the façade
+  exposes is RFC-0000's question.
+- **"The mechanism above"** (fifth, S5): the second bullet's; noted.
+
+**Rows.** Eleven added, covering every row both reviews listed.
+
+**Assumptions.** The fourth's 1, 2, 5 and the fifth's 1 to 6 and 8 are
+rows now. The fourth's 3: `HostOptions` and the threshold are all an
+embedder sets; the reporter is set inside the closure, and the stack size
+and region are the host's. The fourth's 4: polling a `Vm<T>` again after
+it resolved answers "a VM thread ended by panicking", which is wrong for
+that case; an executor that does it breaks the `Future` contract, and the
+text is not changed here. The fifth's 7: criterion 13's two VMs wait for
+each other by 10,000 `recv` polls, an iteration bound rather than a time
+bound; it has not failed, and is stated rather than changed. The fifth's
+9: no test asserts `size_of::<Slot>()`; §C1's figure is D85's.
+
+**Minor.** Each is a note where it stands: `value_class.rs:83-125`;
+`json_wrap` at `create_special.rs:241-251`; 1,181 lines; the N× test
+counts only with a tier; the Depends note's missing decisions; D40 as an
+analogy; `:627-629`; the probe reads `"in"` only. The cast row's "a
+failed cast has already consumed the object and the name" is of the four
+`send` forms, which are what `:57-72` covers.
+
+**Not done.** `docs/arity.md` still lists the eight words as not probed;
+`cargo xtask arity` was not re-run. Whether `debug.dump` should be exempt
+from D166 — nothing reads its bytes back — would be a further decision.
+No decision this RFC rests on is open.
 

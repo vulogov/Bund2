@@ -4061,6 +4061,21 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F208 — the reference writes a JSON value inside a container, which its decoder cannot read
+
+**A reference defect; found 2026-10-14** by RFC-0007's fifth review (B1).
+`Value::to_binary` wraps a JSON value as text only at the top level
+(`reference/rust_dynamic/src/bincode.rs:9-29`); anything else goes to
+`bincode2::serialize` whole (`:30-35`), and a `serde_json::Value` among its
+members serialises. `from_binary` cannot deserialise it back
+(`:51-77`): bincode does not support `deserialize_any`. So every writer
+accepts the value and every reader of the bytes fails — `recv`, which has
+already dequeued it (`reference/Bund/src/stdlib/functions/bus/mod.rs:132-143`),
+and `decode.base64`. Measurements are in D166.
+
+- Disposition: **FIX — D166.** Bund2 refuses the value at the write, under
+  each word's own prefix.
+
 ## F207 — `debug.dump` called a program's forged value a defect in Bund2
 
 **A Bund2 defect; found 2026-10-13** while grounding a claim RFC-0008's

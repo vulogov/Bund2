@@ -373,6 +373,27 @@ mod tests {
         );
     }
 
+    /// **D166: a JSON value inside a container is refused at `send`.** The
+    /// reference sends it and its `recv` then fails decoding, having already
+    /// taken it off the channel, so the message is lost on both sides. Here
+    /// the sender is told, and the channel holds nothing.
+    #[test]
+    fn a_json_value_inside_a_container_is_refused_at_send() {
+        failed_with(
+            r#""t_json" dict "k" '{"k": 1}' json set send"#,
+            "SEND returns error Error enveloping data: the value holds a JSON value inside a \
+             container, which the wire format writes and cannot read back; a JSON value \
+             crosses only on its own",
+        );
+        let e = run(r#""t_jsonq" dict "k" '{"k": 1}' json set send.quick"#)
+            .expect_err("quick refuses too");
+        assert!(e.contains("JSON value inside a container"), "{e}");
+        // On its own, a JSON value still crosses.
+        let out = run(r#""t_json1" '{"k": 1}' json send drop "t_json1" recv"#).expect("runs");
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].dt(), bund2_value::JSON);
+    }
+
     /// **`send` answers a bool, `send.quick` answers nothing.** That is the
     /// whole difference between them.
     #[test]
@@ -384,9 +405,11 @@ mod tests {
         assert!(out.is_empty(), "quick leaves nothing: {out:?}");
     }
 
-    /// **The two arms of `bus_pull`.** An existing-but-empty channel answers
-    /// `NODATA`; an absent one is an error. RFC-0007's first draft reported
-    /// the first behaviour having measured the second.
+    /// **Two of `bus_pull`'s three arms.** An existing-but-empty channel
+    /// answers `NODATA`; an absent one is an error. RFC-0007's first draft
+    /// reported the first behaviour having measured the second. The third, a
+    /// decode that fails, no program reaches here: D166 refuses the one value
+    /// that reached it, at `send`.
     #[test]
     fn an_empty_channel_is_nodata_and_an_absent_one_is_an_error() {
         // `in` exists before any program runs, so it is empty rather than
