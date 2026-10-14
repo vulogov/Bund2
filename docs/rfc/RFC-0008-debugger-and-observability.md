@@ -475,6 +475,11 @@ DAP and time travel are consequences of the flat frame stack rather than
 features planned here (§3.3(j)). The one obligation this RFC takes from that:
 **keep the frame state serialisable**, so neither is foreclosed.
 
+*(2026-10-14: withdrawn by D160. No criterion checked it and nothing said
+what serialising must keep. DAP and time travel remain not promised; the
+RFC that plans either decides what it needs from the frame stack as it
+then is.)*
+
 ## Preservation analysis
 
 | behaviour | disposition |
@@ -631,6 +636,18 @@ capture and still unpinnable, which is `debug`'s case.
    on this date: the oracle dumps a list nested 257 deep and Bund2 refuses
    it. That is D159, ruled the same day: the refusal stays, an approved
    deviation.)*
+   *(2026-10-13, later: **the arms are not vacuous, and "five of them are
+   vacuous" above is wrong.** Grounding the claim found the opposite. A
+   program can hold a value whose tag disagrees with its payload: it
+   decodes one from bytes with `decode.base64`. Dumped on the oracle, such
+   a value produces `DUMP: error CASTING to INT`, `… to FLOAT` and `… to
+   BOOL`, and `DUMP: error converting to STRING`. Bund2 answered the same
+   programs with an internal error that called the value its own defect.
+   That is F207, fixed the same day: `debug.dump` now writes the
+   reference's text for each. Six of the seven texts are reached; `error
+   CASTING to STRING` is not, because the conversion before it refuses
+   first. No golden holds these: the forged bytes carry an id and a
+   stamp.)*
 4. **Conformance does not regress**, measured *after* the new probes are
    captured. **Not "stays at 107/116"**: criteria 1–3 add probes, so the
    denominator grows, and the first draft's criterion 3 contradicted its own
@@ -920,6 +937,18 @@ capture and still unpinnable, which is `debug`'s case.
     above: the 5% band is borrowed from RFC-0005's criterion 7, which D70
     reads together with a significance filter; the three-window protocol
     here has none.)*
+
+    *(2026-10-13, later: **re-taken, by D117's method, on the tree of this
+    date.** `dff32be` against today's tree: **Tier 0 costs 1.9% to 3.3%
+    more instructions**, every row inside the band, which is what the
+    reading of 2026-10-08 found. So what D113 put on the interpreter's path
+    is unchanged by the eight commits since. **With a tier the comparison
+    no longer isolates D113**: those rows read +4.3% to +17.8%, a cost of
+    about 188 instructions for each entry into a compiled body that was
+    not there on 2026-10-08 and belongs to RFC-0005's later work. D117's
+    third reading has the table. This criterion's claim about the tier
+    therefore stands on the reading of 2026-10-08 and has none on this
+    tree.)*
 
 12. **§D2's growth is measured against a baseline taken first.**
     `Frame` gains a symbol and a span, on a structure pushed per call, so
@@ -1708,7 +1737,9 @@ the debugger is §D1's safepoint, by D84, and the observer serves the trace.
 This document is the statement of record for the debugger.
 
 **Significant.** S1, "vacuous" rests on an invariant of `rust_dynamic` that
-was not established: marked `[UNGROUNDED]` under criterion 3. S2,
+was not established: marked `[UNGROUNDED]` under criterion 3. *(Later the
+same day: established, and it does not hold. The arms are reachable and
+Bund2 mis-reported them; F207, fixed.)* S2,
 `debug.display_distributed_info` was built in D90's shape with no decision
 naming it: **D158**. S3, `debug.dump`'s refusal past 256 levels was
 called deferred: measured against the oracle on this date, and it is
@@ -1731,9 +1762,12 @@ second difference that was unrecorded: the history is saved only when a
 line was entered.
 
 **Not done.**
-- Criterion 11's count was not re-taken on this tree.
+- Criterion 11's count was not re-taken on this tree. *(Later the same day:
+  re-taken. Tier 0 holds; the tier's rows no longer measure D113. See the
+  note under the criterion.)*
 - §D9's "keep the frame state serialisable" still has no criterion and no
-  definition of what serialising must keep.
+  definition of what serialising must keep. *(2026-10-14: withdrawn
+  by D160.)*
 - What `debug` does when no line editor can be made was not examined.
 - The Ctrl-C rows are read from the code and were not run at a terminal.
 - Of the ten assumptions the review lists: 1, 2, 3, 4, 5 and 7 are answered

@@ -4061,6 +4061,58 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F207 — `debug.dump` called a program's forged value a defect in Bund2
+
+**A Bund2 defect; found 2026-10-13** while grounding a claim RFC-0008's
+third review marked as resting on nothing (S1): that the reference's
+`DUMP: error CASTING to …` arms are unreachable.
+
+They are reachable, by a program. A value's tag and its payload are
+separate fields of the reference's `Value`
+(`reference/rust_dynamic/src/value.rs:19,21`). Every constructor sets them
+together, but a value also comes back from bytes: `decode.base64` hands a
+string's decoded bytes to `Value::from_binary`
+(`reference/Bund/src/stdlib/functions/encoding/base64.rs:77-83`), which
+deserialises whatever tag and payload the bytes hold
+(`reference/rust_dynamic/src/bincode.rs:51-77`). A BLOB cell read by
+`sqlite` goes the same way (F109). `debug.dump` then switches on the tag
+and casts by the payload
+(`reference/Bund/src/stdlib/functions/debug_fun/debug_dump.rs:18-47`), and
+a cast that fails has its own text (`reference/rust_dynamic/src/cast.rs:9-40`).
+
+Measured on the oracle, 2026-10-13: a value encoded with `encode.base64`,
+its tag rewritten in the bytes, decoded and dumped.
+
+| the bytes say | over a payload of | the oracle's error |
+|---|---|---|
+| INTEGER | a string | `DUMP: error CASTING to INT: This Dynamic type is not integer` |
+| FLOAT | a string | `DUMP: error CASTING to FLOAT: This Dynamic type is not float: 3` |
+| BOOL | a string | `DUMP: error CASTING to BOOL: This Dynamic type is not bool` |
+| STRING | an integer | `DUMP: error converting to STRING: Source value is not INTEGER but 4 and not suitable for conversion` |
+| STRING | a float, a bool | the same, naming `FLOAT`, `BOOL` |
+| STRING | a list | `DUMP: error converting to STRING: Can not convert Value from 4` |
+
+Bund2 decodes the same bytes to the same mismatched value, and its
+`debug.dump` answered each with `internal error: a value tagged INTEGER
+whose payload is not an integer. This is a defect in Bund2, not in the
+program being run`. That statement was false: the program made the value.
+The arm had been written as D37's third way out on the belief, recorded
+in RFC-0008's criterion 3 and in the code, that "each casting arm sits
+behind the tag check that guarantees its cast".
+
+**Status:** FIXED 2026-10-13. `dump_bytes`
+(`crates/bund2-stdlib/src/console.rs`) writes the reference's text for
+each case, as D37's second way out; `a_forged_tag_gets_the_references_casting_texts`
+holds the seven rows above, built by rewriting the tag in Bund2's own wire
+bytes. The texts agree with the oracle's on the same programs. Of the
+reference's seven `DUMP:` texts one is still reached by no value found:
+`error CASTING to STRING`, because the conversion before it refuses first.
+
+**Not looked at, and wider than this word.** Every other word that
+switches on a value's tag and then reads its payload meets the same forged
+value. What each does with it, in the reference and in Bund2, was not
+examined. No golden holds a forged value.
+
 ## F206 — on Linux the oracle cannot name a container, and stops looking for a hypervisor at the first file it cannot read
 
 **A defect of a reference dependency; found 2026-10-13** by reading

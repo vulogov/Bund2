@@ -225,42 +225,71 @@ fn dump_bytes(v: &BundValue) -> Result<Vec<u8>, Error> {
     // **The tag decides, not the payload.** A PTR and a CALL both carry a
     // string and neither is a STRING, so `dt` is what the reference switches
     // on and what this switches on.
+    //
+    // **And the payload can disagree with it** (F207). A value comes back
+    // from bytes through `decode.base64` and through a BLOB cell, with
+    // whatever tag the bytes say, so a program can hold a value tagged
+    // INTEGER over a string. The reference casts by payload after switching
+    // by tag, and each cast that fails has a text of its own
+    // (`reference/Bund/src/stdlib/functions/debug_fun/debug_dump.rs:19-47`,
+    // `reference/rust_dynamic/src/cast.rs:9-40`). They were measured on the
+    // oracle with such values, and are a program's errors and not Bund2's.
     let bytes: Vec<u8> = match v.dt() {
-        bund2_value::INTEGER => v
-            .as_int()
-            .ok_or_else(|| {
-                Error::internal("a value tagged INTEGER whose payload is not an integer")
-            })?
-            .to_ne_bytes()
-            .to_vec(),
+        bund2_value::INTEGER => match v.unboxed() {
+            BundValue::Int(i, _) => i.to_ne_bytes().to_vec(),
+            _ => {
+                return Err(Error(
+                    "DUMP: error CASTING to INT: This Dynamic type is not integer".into(),
+                ));
+            }
+        },
         bund2_value::FLOAT => match v.unboxed() {
             BundValue::Float(f, _) => f.to_ne_bytes().to_vec(),
+            // `cast_float`'s text alone carries the tag.
             _ => {
-                return Err(Error::internal(
-                    "a value tagged FLOAT whose payload is not a float",
-                ));
+                return Err(Error(format!(
+                    "DUMP: error CASTING to FLOAT: This Dynamic type is not float: {}",
+                    v.dt()
+                )));
             }
         },
         bund2_value::BOOL => vec![u8::from(match v.unboxed() {
             BundValue::Bool(b, _) => *b,
             _ => {
-                return Err(Error::internal(
-                    "a value tagged BOOL whose payload is not a bool",
+                return Err(Error(
+                    "DUMP: error CASTING to BOOL: This Dynamic type is not bool".into(),
                 ));
             }
         })],
-        bund2_value::STRING => v
-            .as_str()
-            .ok_or_else(|| Error::internal("a value tagged STRING whose payload is not a string"))?
-            .into_bytes(),
-        // **The reference's five casting failures are unreachable in both
-        // implementations**, because each arm has already read the tag that
-        // guarantees the cast. Writing their text would mean inventing the
-        // `{err}` half of a message no run can produce, so the four arms above
-        // name the broken invariant instead — D37's third way out, for a case
-        // that is a Bund2 defect if it ever happens rather than a program
-        // error. Criterion 3 asked for all seven texts to match; five of them
-        // are vacuous and this is where that was found.
+        // The reference converts to STRING before it casts, and it is the
+        // conversion that refuses a payload that is not a string: by the
+        // payload's kind for a scalar or JSON, and by the tag for the rest
+        // (`reference/rust_dynamic/src/conv.rs:694-743`, and `:109`, `:149`,
+        // `:232`, `:669` for the four texts). So `error CASTING to STRING`
+        // is the one text of the seven no value reaches.
+        bund2_value::STRING => match v.as_str() {
+            Some(s) => s.into_bytes(),
+            None => {
+                let kind = match v.unboxed() {
+                    BundValue::Int(..) => Some("INTEGER"),
+                    BundValue::Float(..) => Some("FLOAT"),
+                    BundValue::Bool(..) => Some("BOOL"),
+                    other if other.as_json().is_some() => Some("JSON"),
+                    _ => None,
+                };
+                return Err(Error(match kind {
+                    Some(kind) => format!(
+                        "DUMP: error converting to STRING: Source value is not {kind} but {} \
+                         and not suitable for conversion",
+                        v.dt()
+                    ),
+                    None => format!(
+                        "DUMP: error converting to STRING: Can not convert Value from {}",
+                        v.dt()
+                    ),
+                }));
+            }
+        },
         _ => bund2_value::wire::to_binary(v)
             .map_err(|e| Error(format!("DUMP: error converting to binary: {e}")))?,
     };
@@ -321,6 +350,63 @@ mod dump_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A value as it comes back from bytes that say `dt` over `v`'s payload:
+    /// the wire form opens with the id's length and the id, then the stamp,
+    /// then the tag, which is rewritten.
+    fn forged(v: &BundValue, dt: u16) -> BundValue {
+        let mut bytes = bund2_value::wire::to_binary(v).expect("encodes");
+        let id_len = usize::try_from(u64::from_le_bytes(bytes[..8].try_into().expect("a length")))
+            .expect("fits");
+        let at = 8 + id_len + 8;
+        bytes[at..at + 2].copy_from_slice(&dt.to_le_bytes());
+        bund2_value::wire::from_binary(&bytes).expect("decodes")
+    }
+
+    /// **F207: a tag that disagrees with its payload is a program's error,
+    /// with the reference's text.** Each text below was read off the oracle,
+    /// given the same value through `decode.base64`.
+    #[test]
+    fn a_forged_tag_gets_the_references_casting_texts() {
+        let text = |v: &BundValue, dt: u16| dump_bytes(&forged(v, dt)).expect_err("refused").0;
+        let s = BundValue::str("hello");
+        assert_eq!(
+            text(&s, bund2_value::INTEGER),
+            "DUMP: error CASTING to INT: This Dynamic type is not integer"
+        );
+        assert_eq!(
+            text(&s, bund2_value::FLOAT),
+            "DUMP: error CASTING to FLOAT: This Dynamic type is not float: 3"
+        );
+        assert_eq!(
+            text(&s, bund2_value::BOOL),
+            "DUMP: error CASTING to BOOL: This Dynamic type is not bool"
+        );
+        for (v, kind) in [
+            (BundValue::int(42), "INTEGER"),
+            (BundValue::float(3.5), "FLOAT"),
+            (BundValue::boolean(true), "BOOL"),
+        ] {
+            assert_eq!(
+                text(&v, bund2_value::STRING),
+                format!(
+                    "DUMP: error converting to STRING: Source value is not {kind} but 4 \
+                     and not suitable for conversion"
+                )
+            );
+        }
+        let list = BundValue::list(vec![BundValue::int(1)]);
+        assert_eq!(
+            text(&list, bund2_value::STRING),
+            "DUMP: error converting to STRING: Can not convert Value from 4"
+        );
+        // None of them is Bund2's own defect.
+        assert!(
+            !dump_bytes(&forged(&s, bund2_value::INTEGER))
+                .expect_err("refused")
+                .is_internal()
+        );
+    }
 
     /// The two lines every golden ends with, twice over, when a program
     /// leaves nothing behind.

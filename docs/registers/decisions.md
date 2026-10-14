@@ -3639,6 +3639,33 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D160 — RFC-0008 §D9's "keep the frame state serialisable"
+
+**Raised 2026-10-13** by RFC-0008's third review, which found that §D9
+takes one obligation — "keep the frame state serialisable", so that DAP
+and time travel are not foreclosed — and that no criterion checks it and
+nothing says what serialising must keep. An obligation with no test is
+met by every tree, including one that has broken it.
+
+- Blocks: RFC-0008's acceptance
+- Options:
+  - **A.** Withdraw the obligation. §D9 keeps "not promised" and names
+    DAP and time travel as features no RFC plans; whatever serialising
+    they need is decided by the RFC that plans them, against the frame
+    stack as it then is.
+  - **B.** Write a criterion: define what a frame's state is (body,
+    position, the stacks it sees, the workbench, a pending tail request),
+    and test that a round trip through some encoding reproduces it.
+  - **C.** Leave the sentence, marked as an obligation no criterion
+    checks.
+- Recommendation: A. B fixes a format for a consumer that does not exist,
+  and would bind RFC-0005's compiled frames too, which hold state in
+  registers between syncs. C keeps a promise nobody can see broken.
+  Risk of A: a change that makes frames harder to serialise is made
+  without anyone weighing it.
+- Status: **RESOLVED** by the repository owner, 2026-10-14: "A" — the
+  obligation is withdrawn.
+
 ## D159 — `debug.dump` refuses a value nested past the wire format's bound
 
 **Raised 2026-10-13** by RFC-0008's third review
@@ -6433,6 +6460,42 @@ tree, 2026-10-08, same method:
 | a user's word | 736.0 M | 602.3 M | −18% |
 
 `startup` is inside the band and nothing in `dispatch`'s shape regresses.
+
+### The third reading: D113's baseline against the tree of 2026-10-13
+
+Taken for RFC-0008's criterion 11, whose third review (S6) said the first
+reading was of a tree eight commits old on the path it measures. Same
+method, same host, same five programs; `dff32be` against the tree at
+`a3db7d8` with F207's change. Median of five, the empty program
+subtracted.
+
+| program, ×300,000 | Tier 0 before | Tier 0 now | change | `jit` before | `jit` now | change |
+|---|---|---|---|---|---|---|
+| `1 drop` | 476.3 M | 488.7 M | **+2.60%** | 317.1 M | 373.6 M | **+17.8%** |
+| eight literals, eight `drop` | 2,930.1 M | 2,985.6 M | **+1.89%** | 1,318.5 M | 1,374.7 M | **+4.26%** |
+| `1 dup drop` | 828.3 M | 847.8 M | **+2.35%** | 711.0 M | 777.7 M | **+9.39%** |
+| `1 2 + drop` | 950.1 M | 968.7 M | **+1.96%** | 328.8 M | 385.1 M | **+17.1%** |
+| `f`, where `:f { 1 drop } register` | 712.5 M | 736.2 M | **+3.32%** | 590.6 M | 637.4 M | **+7.93%** |
+
+The empty program: 37.3 M before, 37.0 M now; 38.0 M and 37.5 M with `jit`.
+The baseline's own figures are within 0.4% of the first reading's.
+
+**Tier 0 is where it was**: every row inside the band, between +1.9% and
++3.3%, as on 2026-10-08. What D113 put on the interpreter's path has not
+grown.
+
+**With a tier the rows are no longer a reading of D113.** They were flat
+on 2026-10-08 and four of five are outside the band now. The difference
+is close to the same on every row, 47 M to 67 M, whatever the body's
+length, and it scales with the turns: `1 drop` run 600,000 times differs
+by 112.6 M, and run 2,000 times, where little runs compiled, by 0.1 M. So
+it is about 188 instructions for each entry into a compiled body, added
+between 2026-10-08 and this tree. Everything on that path since is
+RFC-0005's: D139 to D149 and F195 to F203. Which of them, was not traced.
+A build with `jit` still retires fewer instructions than one without on
+every row, so RFC-0005's criterion 7 as D148 words it is not what this
+contradicts. It is recorded here because a reading by this entry's method
+found it.
 
 ## D116 — `bund2 build` refuses a program that does not parse
 
