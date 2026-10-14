@@ -1,6 +1,13 @@
 # RFC-0008: The debugger and observability
 
-- Status: **Proposed** (2026-10-04, on the owner's authorisation — **D94**),
+- Status: **Accepted** (2026-10-14, by the repository owner — **D163**:
+  "accept RFC-0008"), after four adversarial reviews, the last of which
+  (`docs/rfc/reviews/RFC-0008-review-2026-10-14.md`) found nothing blocking;
+  its answers, D162's code among them, no review has read. D163 lists what
+  the acceptance does not claim. At acceptance: `conform` 134/146, CEILING
+  134/146; IMPLEMENTED 500/505, COVERAGE 489/505.
+
+  Before that: **Proposed** (2026-10-04, on the owner's authorisation — **D94**),
   after one adversarial review of the document and the implementation of §D1
   through §D6. **All thirteen criteria are discharged**: eleven met, criterion 4
   met on each capture, and one withdrawn for naming no check.
@@ -24,6 +31,9 @@
   criterion 4 met on each capture, and one withdrawn", matches no reading
   of the list: no criterion is withdrawn, criterion 12's span half is, and
   criterion 13 is met by a golden.)*
+
+  *(2026-10-14, the fourth review: since `--debug-shell` was built,
+  **two** of the four flags are not parsed: `--profile` and `-d`.)*
 
   **Two things the criteria record as owed rather than met.** Criterion 6 says
   "every suite program" and four were used — the sweep belongs in `xtask
@@ -53,6 +63,9 @@
 - Depends on: RFC-0003 (the flat frame loop), RFC-0005 (the tier, whose decline
   machinery §D6 uses)
 - Decisions consumed: D36, D44, D45, D52, D53, D84, D90, D94
+  *(2026-10-14, the fourth review: that list is of 2026-10-04. The
+  document now also rests on D112, D113, D115, D117, D120, D121, D122 and
+  D155 to D160, each cited where it is used; D161 and D162 are open.)*
 - Touched but not consumed: D16, D74
 - Reference SHA: `reference/Bund` at `21b40b0`, per `reference/PINNED.txt`
 - Supersedes: nothing. `docs/research/03-metaprogramming-oop-debugger.md` §3 is
@@ -465,6 +478,17 @@ Bund2 saves only when one was. That is a second difference from the
 reference, beside where the file is, and belongs to the same row of the
 Preservation table.)*
 
+*(2026-10-14, the fourth review's S1: **"written when the session ends"
+above is wrong.** Bund2 writes the file after every line the session
+remembers (`crates/bund2-stdlib/src/terminal.rs`, `Terminal::remember`),
+because the editor is the terminal's and outlives the word, so there is no
+end of the word to write at. The reference writes once, when the word
+returns (`debug_debug.rs:119`, `debug_shell.rs:51`). So a session killed
+after three lines keeps them here and loses them there. That is a third
+difference on this row, and with the second it is **D161, open**.)*
+*(Later the same day: D161 ruled A. Written after each remembered line,
+never for a session that remembered none, as built.)*
+
 **Not covered:** the `--debugger` console (`crates/bund2-cli/src/debugger.rs`)
 still reads plain lines and keeps none. It has no line editor to keep them
 for; that arrives with the input seam D101 defers.
@@ -484,7 +508,7 @@ then is.)*
 
 | behaviour | disposition |
 |---|---|
-| `debug.display_stack`, `debug.display_workbench` | **Preserved**, and already built. |
+| `debug.display_stack`, `debug.display_workbench` | **Preserved**, and already built. *(2026-10-14, the fourth review: not for a value whose tag disagrees with its payload, which nobody has run at either word. F207 leaves the other words that meet such a value "not examined", and this row does not cover that case)* |
 | `debug.display_hostinfo` | **Approved deviation — D53**, not preserved. It reports *Bund2's* crates where the reference reports its own six, and Bund2 has none of them. The first draft said "Preserved", contradicting a decision already taken. |
 | `log.*`, five words | **Preserved exactly** — one STRING, five levels, the two error texts. Where the output goes is the logger's. |
 | `debug.dump`, scalar path | **Preserved** — eight little-endian bytes via `bytes_of`. *(2026-10-13: the host's order; see the note under "Current behaviour")* |
@@ -502,14 +526,14 @@ enumerate. Rows added on this date.)*
 | behaviour | disposition |
 |---|---|
 | `--debugger` | **Approved deviation — D155.** The reference's flag runs the `debug` word's loop over the program's text; Bund2's runs §D1's console. |
-| `--debug-shell` | **Preserved for a plain run — D156**, built 2026-10-13: after a reported failure the session has `debug.shell` on the VM the program left. **Not after a `--debugger` failure**, where the shell reads nothing: a debugged program has no input (D112). A bundle has no such flag. |
+| `--debug-shell` | **Preserved for a plain run — D156**, built 2026-10-13: after a reported failure the session has `debug.shell` on the VM the program left. **Not after a `--debugger` failure**, where the shell reads nothing: a debugged program has no input (D112). A bundle has no such flag. *(2026-10-14, the fourth review. S3: checked by `debug_shell_after_a_failure_is_on_the_vm_the_program_left` in `crates/bund2-cli/tests/debugger_words.rs`. S2: the second half is not a disposition. It fell out, D156 did not rule on it, and the reference runs its shell after a `--debugger` failure too (`run_snippet.rs:31-33`, `:78-80`): **D162, open**. Later the same day: **approved deviation — D162 (A′)**. Under `--debugger` no shell runs and one `Notice` says so, which the same test checks. Under `--noio` and under `--noeval`, measured 2026-10-14 against the oracle with one line on standard input: both run the shell and evaluate the line)* |
 | `--profile` | **Out of scope — D157.** A reference flag Bund2 does not have; the CLI refuses it as an unknown argument. |
 | `-d` / `--debug` | **Narrowed — D90.** Bund2's CLI has no such count; `BUND_LOG_LEVEL` alone raises the level. |
 | `debug`'s own error texts | **Preserved**: `Stack is too shallow for inline DEBUG`, `Stack is too shallow for debug()`, `Casting debug snippet returns: …`, `Attempt to evaluate value … returned error: …` (`debug_debug.rs:125`, `:130`, `:138`, `:78`). **Absent**: the two `Detected an Error posted on the stack` texts (`:66`, `:69`), whose `ERROR` value Bund2 cannot represent. |
 | `debug` when no line editor can be made | **Not examined.** The reference consumes the snippet and returns `Ok` (`debug_debug.rs:40-46`). |
 | an empty line at `debug` and at `debug.shell` | **Preserved**: it moves `debug` to the next term and is evaluated by `debug.shell`. |
-| Ctrl-C at a word's prompt | **Preserved**: at `debug` it moves to the next term (`debug_debug.rs:96-99`), at `debug.shell` it ends the word (`debug_shell.rs:36-39`). Read from `debug_word` and `debug_shell`, where end-of-input and an interrupt are one arm; not run at a terminal for this row. |
-| when the history is saved | **Changed with its location** — §D8: only when a line was entered, where the reference saves after every session. |
+| Ctrl-C at a word's prompt | **Preserved**: at `debug` it moves to the next term (`debug_debug.rs:96-99`), at `debug.shell` it ends the word (`debug_shell.rs:36-39`). Read from `debug_word` and `debug_shell`, where end-of-input and an interrupt are one arm; not run at a terminal for this row. *(2026-10-14, the fourth review: the one arm is `Terminal::line` in `crates/bund2-stdlib/src/terminal.rs`, which answers both as the end; the two words see only the end, and what each does with it is as this row says)* |
+| when the history is saved | **Changed with its location** — §D8: only when a line was entered, where the reference saves after every session. *(2026-10-14, the fourth review's S1: and after each line rather than when the word returns. Both halves are **D161, open**; this row carries no disposition until it is ruled. Later the same day: **approved deviation — D161**, as built)* |
 | `debug.display_memstat` when the usage cannot be read | **Preserved**: `Couldn't get the current memory usage.` |
 | `debug.dump` of a value nested past 256 levels | **Approved deviation — D159**, of D114's kind. The oracle dumps it; Bund2 refuses. |
 | a conditional breakpoint's effect on the program | **None**, which criterion 8 checks: the condition runs in a child VM the host supplies, and what it pushes, rebinds or exits with does not reach the program. |
@@ -648,6 +672,16 @@ capture and still unpinnable, which is `debug`'s case.
    CASTING to STRING` is not, because the conversion before it refuses
    first. No golden holds these: the forged bytes carry an id and a
    stamp.)*
+   *(2026-10-14, the fourth review's S3 and its citations. The
+   `[UNGROUNDED]` above is answered by the note just before this one, and
+   the answer reverses the claim. The fix is checked by
+   `a_forged_tag_gets_the_references_casting_texts` in
+   `crates/bund2-stdlib/src/console.rs`. "The conversion refuses first":
+   `conv` dispatches on the payload
+   (`reference/rust_dynamic/src/conv.rs:694-743`), so a STRING-tagged value
+   is converted by its payload's arm, and each arm either refuses or
+   yields a value with a string payload, which the `cast_string` after it
+   then accepts.)*
 4. **Conformance does not regress**, measured *after* the new probes are
    captured. **Not "stays at 107/116"**: criteria 1–3 add probes, so the
    denominator grows, and the first draft's criterion 3 contradicted its own
@@ -1198,6 +1232,12 @@ corrected to follow the research, (h) is corrected to contradict it, and the
 flag follows the reference. **`docs/research/ERRATA.md` gains one entry**, for
 (h): the tier counters do not give a profiler for free in Bund2, because they
 are totals, they exist only under `jit`, and §D6 removes the tier.
+
+*(2026-10-14, the fourth review's S4: **out of date where it stands.**
+Since the owner's ruling of 2026-10-07 (D113), `debug` stays the
+reference's word, which departs from §3.3(g); that is a departure by
+decision, and ERRATA has two entries for this RFC, (h) and (g). The note
+under the status says so; this paragraph did not.)*
 
 ## Amendment, 2026-10-07 — debugger words (D113)
 
@@ -1783,3 +1823,58 @@ line was entered.
   not.
 - The criterion table's remaining remarks on W5's two answers to §W4 and
   on the significance filter are noted and nothing was changed for them.
+
+## Amendment, 2026-10-14 — the fourth review
+
+Answers `docs/rfc/reviews/RFC-0008-review-2026-10-14.md`, which found
+nothing blocking and four significant items.
+
+**S1, the history's timing.** §D8 said the file is written when the
+session ends; Bund2 writes it after every remembered line. A note at §D8
+and at the row. With the empty-session difference the third review
+found, it is **D161**, open.
+
+**S2, `--debug-shell` after a `--debugger` failure.** The row presented
+as a disposition what fell out of the build. **D162**, open, with the
+reference's lines cited.
+
+**S3, unnamed tests.** The `--debug-shell` row names
+`debug_shell_after_a_failure_is_on_the_vm_the_program_left`; criterion 3's
+F207 note names `a_forged_tag_gets_the_references_casting_texts`.
+
+**S4, the research paragraph.** Marked where it stands.
+
+**The citations table.** The status sentence on unparsed flags, the
+Ctrl-C row's attribution, the "Decisions consumed" header and the
+"conversion refuses first" citation each have a note. The 19 in
+criterion 11's note folds D117's 13 and 6, as the review says.
+
+**What the table did not enumerate.**
+1. `--debug-shell` under `--noio` and `--noeval`: measured beside the
+   oracle, the same in both (the row's note).
+2. Which values `debug` accepts: the reference casts with `cast_string`,
+   which takes any value whose payload is a string, CALL and PTR included
+   (`conv.rs:698-701` is where `conv` makes that distinction); Bund2 reads
+   with `as_str`. Whether the two agree for a CALL or a PTR **was not
+   examined**.
+3. A forged value at the words that render: a note at the
+   `debug.display_stack` row points to F207's "not examined".
+
+**Assumptions.** The hexdump format is matched because both trees build
+the same crate: `hexdump 0.1.3` in Bund2's `Cargo.lock` and in
+`reference/Bund/Cargo.lock:3650`. A change of either pin would need
+`debug-dump.golden` re-checked. The assumption that D155 covers every
+flag combined with `--debugger` is D162's question; the one about the
+history's timing is D161's; the one about `as_str` is item 2 above. The
+four carried from the third review (6, 8, 9 and 10) stay unanswered.
+
+**Status.** Proposed. The review reads the document as ready to accept
+once D161 and D162 are ruled, and acceptable now with both named as owed.
+
+**Rulings, later the same day.** D161: A, the history's timing stands as
+built. D162: A′, no shell after a `--debugger` failure, and one `Notice`
+on stderr says so; built and tested. Both rows carry the ruling. No
+decision this RFC rests on is open.
+
+**Accepted** by the repository owner on 2026-10-14, after the rulings:
+D163.

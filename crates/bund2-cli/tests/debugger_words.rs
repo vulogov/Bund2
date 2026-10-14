@@ -216,6 +216,28 @@ fn debug_shell_after_a_failure_is_on_the_vm_the_program_left() {
     // A source that does not parse is a failure too.
     let (out, _, _) = scripted("{ 1\n", "\"typed\" println\n", &["--debug-shell"]);
     assert!(out.ends_with("typed\n"), "{out}");
+
+    // D162: under `--debugger` no shell follows, and the session is told.
+    let (out, err, code) = scripted(
+        src,
+        "c\n\"typed\" println\n",
+        &["--debugger", "--debug-shell"],
+    );
+    assert!(
+        out.contains("nosuchword"),
+        "the failure is reported:\n{out}"
+    );
+    assert!(!out.contains("typed"), "no shell read the line:\n{out}");
+    assert!(
+        err.contains("--debug-shell: no shell follows a --debugger session"),
+        "and the session says so:\n{err}"
+    );
+    assert_eq!(code, Some(0));
+    let (_, err, _) = scripted(src, "c\n", &["--debugger"]);
+    assert!(
+        !err.contains("--debug-shell"),
+        "not without the flag:\n{err}"
+    );
 }
 
 /// A line pushed at a watch stop lands *under* the value whose push was the

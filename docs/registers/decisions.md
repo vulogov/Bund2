@@ -3639,6 +3639,125 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D163 — RFC-0008 is Accepted
+
+**Raised 2026-10-14** by RFC-0008's fourth review
+(`docs/rfc/reviews/RFC-0008-review-2026-10-14.md`), whose verdict was no
+blocking findings, four significant ones, and "ready to accept once S1 has
+its row and S2 its sentence". S1 became D161 and S2 D162, both ruled the
+same day; S3, S4 and the citations table were answered by dated notes.
+
+- Blocks: nothing
+- Depends on: D94 (Proposed), D113, D155 to D162
+- Status: **RESOLVED** by the repository owner, 2026-10-14: "accept
+  RFC-0008". Said before CI had run on the commit that carries this entry
+  and D162's code.
+
+*What was accepted.* The debugger and observability as built: §D1's
+safepoint and the `--debugger` console (an approved deviation, D155), the
+breakpoint, watch and inspection commands, D113's debugger words, the
+five `log.*` words, the `debug.*` words with D158's and D159's
+deviations, `--debug-shell` for a plain run (D156) and its notice under
+`--debugger` (D162), and the history kept as D161 approves. At
+acceptance, on macOS arm64: `conform` 134/146, CEILING 134/146 (12
+approved deviations), at Tier 0, with the tier at its default threshold
+and at threshold 1; IMPLEMENTED 500/505, COVERAGE 489/505; the suite at
+716 passed and none failed, and 869 passed and none failed with the tier.
+
+*What the acceptance does not claim.* No review has read the answers to
+the fourth, which include D162's code. Still specified and not built,
+under no criterion: §D7's execution trace, a breakpoint by source
+location (§D3), `watch depth > 100` (§D4), `words` and `classes` as views
+(§D5), and history at the `--debugger` console. `--profile` is out of
+scope (D157). Criterion 6's sweep is not in `xtask conform`; §D2's span
+half is withdrawn from criterion 12. Criterion 11's tier rows stand on
+the reading of 2026-10-08, and the 188 instructions per compiled entry
+since are RFC-0005's (D117's trace). The status line's tally, "eleven met,
+criterion 4 met on each capture, and one withdrawn", matches no reading
+of the list, as its note says. Not examined: what `debug` does when no
+line editor can be made; whether `debug` accepts the reference's CALL and
+PTR operands; a forged value at the words that render one (F207); the
+Ctrl-C rows at a real terminal; and four assumptions the third review
+listed (6, 8, 9, 10).
+
+## D162 — `--debug-shell` after a `--debugger` failure
+
+**Raised 2026-10-14** by RFC-0008's fourth review
+(`docs/rfc/reviews/RFC-0008-review-2026-10-14.md`, S2). The reference
+runs its shell after a failed run whichever loop ran it
+(`reference/Bund/src/stdlib/helpers/run_snippet.rs:31-33`, `:78-80`).
+Bund2 evaluates `debug.shell` after the failure, and under `--debugger`
+the program has no input (D112), so the shell's first read is the end and
+it returns at once (`crates/bund2-cli/src/main.rs`,
+`shell_after_a_failure`, whose doc says this fell out and was not chosen).
+Measured 2026-10-14, release build, `1 2 nosuchword` with `c` and a line
+of Bund on standard input: the console continues, the failure is
+reported, the stack is shown, the line after `c` is not evaluated, exit
+status 0. D156's ruling ("A, build it") predates this and did not rule on
+it; RFC-0008's row names it as a disposition with D156 as authority.
+
+- Blocks: nothing. RFC-0008's acceptance, per the fourth review, if it
+  must stand on a ruling rather than a named debt.
+- Options:
+  - **A.** Inside D155's approval: a `--debugger` session is not the
+    reference's, its program has no input, and a shell that reads none is
+    what follows. Record it as approved; the row cites D155 and D162.
+  - **B.** Give the shell the session's input after a `--debugger`
+    failure: the console has stopped reading, so `debug.shell` reads
+    standard input as it does after a plain run. Needs the input seam to
+    hand the session's reader back, and a test.
+  - **C.** Refuse the combination when the flags are parsed, with a line
+    that says why.
+- Recommendation: A. Under `--debugger` the user is already at a console
+  on that VM when the failure is reported, which is what the reference's
+  shell is for; B builds a second console after the first. Risk of A: a
+  user who passes both flags sees no shell and is not told why. That is
+  one line in the report, and can be added under A without a ruling of its
+  own if the owner says so.
+- *(2026-10-14: a fourth option was put to the owner after the entry was
+  written, on the same day.)* **A′.** A, and the session is told: under
+  `--debugger`, `--debug-shell` reports one `Notice`, `--debug-shell: no
+  shell follows a --debugger session; its console was on this VM when the
+  failure was reported`, and evaluates no shell. Recommended over A.
+- Status: **RESOLVED** by the repository owner, 2026-10-14: "D162: A'".
+  Built the same day: `shell_after_a_failure` in
+  `crates/bund2-cli/src/main.rs`, checked by
+  `debug_shell_after_a_failure_is_on_the_vm_the_program_left` in
+  `crates/bund2-cli/tests/debugger_words.rs`, which asserts the line is
+  not read, the notice is on stderr, and it is absent without the flag.
+
+## D161 — the `debug` and `debug.shell` history is written after each line
+
+**Raised 2026-10-14** by RFC-0008's fourth review (S1). The reference
+writes each word's history once, when the word returns
+(`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:119`,
+`debug_shell.rs:51`), and writes it whether or not a line was entered.
+Bund2 writes it after every line the session remembers, and writes
+nothing for a session that entered none (`crates/bund2-stdlib/src/terminal.rs`,
+`Terminal::remember` and `Session::save`). The editor is the terminal's
+and outlives a word, and the code's own comment gives that as the reason.
+So a session killed after three lines keeps them in Bund2 and loses them
+in the reference. RFC-0008 §D8 said "written when the session ends";
+the location is F10's deliberate change, and the third review's note
+recorded the empty-session half without a decision. This entry is both
+halves of *when*.
+
+- Blocks: nothing. RFC-0008's acceptance, per the fourth review.
+- Options:
+  - **A.** Approve as built: written after each remembered line, never
+    for a session that remembered none.
+  - **B.** Write when the word returns, as the reference does, still only
+    if a line was entered. A killed session loses its lines.
+  - **C.** B, and write an empty file for a session with no line, as the
+    reference does.
+- Recommendation: A. The file is the debugger's state and not the
+  program's output (F10), so no golden can see the timing, and a history
+  that survives a crash is what a debugger's user wants. Risk of A: one
+  file write per line typed, which at a prompt is not measurable.
+- Status: **RESOLVED** by the repository owner, 2026-10-14: "D161: A" —
+  the history is written after each remembered line and never for a
+  session that remembered none, as built. Nothing changes.
+
 ## D160 — RFC-0008 §D9's "keep the frame state serialisable"
 
 **Raised 2026-10-13** by RFC-0008's third review, which found that §D9
@@ -3804,6 +3923,9 @@ nothing and returns**, because a debugged program is given no input
 (D112), where the reference does run its shell after a `--debugger`
 failure. No golden moves: under a capture standard input is closed and no
 golden passes the flag.
+
+*(2026-10-14: the `--debugger` half is ruled by D162, A′: no shell runs
+there, and one `Notice` says so. The bundle half stands as written.)*
 
 ## D155 — `--debugger` is not the reference's `--debugger`
 

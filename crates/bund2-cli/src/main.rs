@@ -1189,15 +1189,24 @@ fn print_stats(rt: &bund2_runtime::Runtime) {
 /// registry binds: under `--noio` and `--noeval` it is what those make of
 /// the word, and the flag is no way round either.
 ///
-/// **Under `--debugger` it reads nothing.** A debugged program is given no
-/// input (D112), since standard input is the session's, so the shell's first
-/// read is the end and it returns. The reference does run its shell after a
-/// `--debugger` failure; what Bund2 should do there D156 left open, and this
-/// is the behaviour that falls out, not one that was chosen.
+/// **Under `--debugger` there is no shell, and the session is told so** —
+/// D162. A debugged program is given no input (D112), since standard input
+/// is the session's, so a shell there would read the end at once and return.
+/// The reference does run its shell after a `--debugger` failure; Bund2's
+/// console was already on this VM when the failure was reported, which is
+/// what the shell is for. One `Notice` says no shell follows, so a user who
+/// passed both flags does not take the second for ignored.
 ///
 /// A failure of the shell itself is reported and is not a second shell.
 fn shell_after_a_failure(vm: &mut bund2_interp::Interp, args: &Args) {
     if !args.debug_shell {
+        return;
+    }
+    if args.debugger {
+        vm.report(bund2_api::diag::Diagnostic::notice(
+            "--debug-shell: no shell follows a --debugger session; \
+             its console was on this VM when the failure was reported",
+        ));
         return;
     }
     let shell = match bund2_syntax::parse("debug.shell") {
