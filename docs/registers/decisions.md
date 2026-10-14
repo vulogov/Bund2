@@ -3762,6 +3762,22 @@ reference's flags, and nowhere after. Bund2's CLI does not parse it. The
 - Status: **RESOLVED** by the repository owner, 2026-10-13: "D156: A" —
   build it. Not built as this is written.
 
+*2026-10-13, later: built.* `bund2 script --debug-shell`
+(`crates/bund2-cli/src/main.rs`, `shell_after_a_failure`): after a failure
+has been reported, whether the source did not parse or a word failed, the
+`debug.shell` word is evaluated on the VM the program left. By the word's
+name, so `--noio` and `--noeval` make of it what they make of the word.
+`debug_shell_after_a_failure_is_on_the_vm_the_program_left`
+(`crates/bund2-cli/tests/debugger_words.rs`) types `println` at it and
+reads the `3` the program had pushed before it failed. The two things the
+entry left unestablished, as they fell out and not as rulings: **a bundle
+has no such flag**, since a bundle owns its whole command line and no
+environment switch was added; and **under `--debugger` the shell reads
+nothing and returns**, because a debugged program is given no input
+(D112), where the reference does run its shell after a `--debugger`
+failure. No golden moves: under a capture standard input is closed and no
+golden passes the flag.
+
 ## D155 — `--debugger` is not the reference's `--debugger`
 
 **Raised 2026-10-13** by RFC-0008's third review (B2). An unplanned

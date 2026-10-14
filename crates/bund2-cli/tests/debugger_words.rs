@@ -173,6 +173,51 @@ fn a_line_may_be_typed_at_a_native_an_alias_and_a_term_stop() {
     assert_eq!(code, Some(0));
 }
 
+/// **D156: `--debug-shell` gives a failed program `debug.shell` on the VM it
+/// left.** The line typed prints what the program had pushed before it
+/// failed. Without the flag nothing is read; with it and nobody there, the
+/// shell meets the end at once, which is what a capture gives it.
+#[test]
+fn debug_shell_after_a_failure_is_on_the_vm_the_program_left() {
+    // The failure's report is on standard output, as the reference prints
+    // its own, so what the shell printed is what follows it.
+    let src = "1 2 +\nnosuchword\n\"after\" println\n";
+    let (out, _, code) = scripted(src, "println\n", &["--debug-shell"]);
+    assert!(
+        out.contains("nosuchword"),
+        "the failure is reported:\n{out}"
+    );
+    assert!(out.ends_with("\n3\n"), "the shell ran on its stack:\n{out}");
+    assert!(
+        !out.contains("after"),
+        "and the program did not go on:\n{out}"
+    );
+    assert_eq!(code, Some(0));
+
+    let (plain, _, code) = scripted(src, "println\n", &[]);
+    assert!(plain.contains("nosuchword"), "{plain}");
+    assert!(!plain.ends_with("\n3\n"), "no flag, no shell:\n{plain}");
+    assert_eq!(code, Some(0));
+
+    // Nobody there: the shell meets the end at once and adds nothing.
+    let (out, _, code) = scripted(src, "", &["--debug-shell"]);
+    assert!(!out.ends_with("\n3\n"), "{out}");
+    assert_eq!(out.lines().count(), plain.lines().count(), "{out}");
+    assert_eq!(code, Some(0));
+
+    // A program that does not fail is given no shell.
+    let (out, _, _) = scripted(
+        "\"ok\" println\n",
+        "\"typed\" println\n",
+        &["--debug-shell"],
+    );
+    assert_eq!(out, "ok\n");
+
+    // A source that does not parse is a failure too.
+    let (out, _, _) = scripted("{ 1\n", "\"typed\" println\n", &["--debug-shell"]);
+    assert!(out.ends_with("typed\n"), "{out}");
+}
+
 /// A line pushed at a watch stop lands *under* the value whose push was the
 /// stop, because that push has not happened yet. Stated as a test so the
 /// order is a fact and not a surprise.

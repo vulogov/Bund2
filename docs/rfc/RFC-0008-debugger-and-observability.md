@@ -19,7 +19,7 @@
   (§D4), and `words` and `classes` as views (§D5); "What this does not do",
   in the amendment of 2026-10-07, names the first and the last. Of the
   reference's four flags, three are not parsed by `bund2-cli` at all:
-  `--debug-shell` (D156: to be built), `--profile` (D157: out of scope) and `-d`, which
+  `--debug-shell` (D156: built later the same day), `--profile` (D157: out of scope) and `-d`, which
   D90 narrowed to `BUND_LOG_LEVEL`. And the tally above, "eleven met,
   criterion 4 met on each capture, and one withdrawn", matches no reading
   of the list: no criterion is withdrawn, criterion 12's span half is, and
@@ -168,7 +168,7 @@ command and prints its table to standard output after
 `--debugger`, is a register entry and not source. Bund2's `--debugger` is
 therefore not the reference's, which is D155; the other two are D156 and
 D157. All three were ruled the same day: the deviation is approved,
-`--debug-shell` is to be built, and `--profile` is out of scope.)*
+`--debug-shell` is built, and `--profile` is out of scope.)*
 
 **So this RFC may not spell its flag `--debug`.** The first draft proposed
 `bund2 run --debug`, following the research; that name is taken by the log-level
@@ -497,7 +497,7 @@ enumerate. Rows added on this date.)*
 | behaviour | disposition |
 |---|---|
 | `--debugger` | **Approved deviation — D155.** The reference's flag runs the `debug` word's loop over the program's text; Bund2's runs §D1's console. |
-| `--debug-shell` | **To be built — D156.** Not parsed yet. |
+| `--debug-shell` | **Preserved for a plain run — D156**, built 2026-10-13: after a reported failure the session has `debug.shell` on the VM the program left. **Not after a `--debugger` failure**, where the shell reads nothing: a debugged program has no input (D112). A bundle has no such flag. |
 | `--profile` | **Out of scope — D157.** A reference flag Bund2 does not have; the CLI refuses it as an unknown argument. |
 | `-d` / `--debug` | **Narrowed — D90.** Bund2's CLI has no such count; `BUND_LOG_LEVEL` alone raises the level. |
 | `debug`'s own error texts | **Preserved**: `Stack is too shallow for inline DEBUG`, `Stack is too shallow for debug()`, `Casting debug snippet returns: …`, `Attempt to evaluate value … returned error: …` (`debug_debug.rs:125`, `:130`, `:138`, `:78`). **Absent**: the two `Detected an Error posted on the stack` texts (`:66`, `:69`), whose `ERROR` value Bund2 cannot represent. |
@@ -1720,7 +1720,7 @@ a note under the contract table, the flag table, §D6 and §D8.
 
 **The five decisions were ruled on the same day, each option A**: D155,
 the `--debugger` console is an approved deviation; D156, `--debug-shell`
-is to be built, and is not yet; D157, `--profile` is out of scope; D158,
+is built, for a plain run, with a test; D157, `--profile` is out of scope; D158,
 `debug.display_distributed_info` stands as built; D159, `debug.dump`'s
 refusal stands.
 

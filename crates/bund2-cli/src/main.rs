@@ -241,6 +241,11 @@ struct Args {
     /// session with a tier would step over exactly the bodies a program spends
     /// its time in.
     debugger: bool,
+    /// `--debug-shell`: after a failure has been reported, run `debug.shell`
+    /// on the VM the program left — D156. The reference does it on each of
+    /// its paths
+    /// (`reference/Bund/src/stdlib/helpers/run_snippet.rs:31-33,51-53,78-80,89-91`).
+    debug_shell: bool,
     /// The program came out of this executable (RFC-0006) rather than from
     /// `--file`. **A bundle's debugger words do nothing** — D115.
     carried: bool,
@@ -275,6 +280,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut stats = false;
     let mut jit_threshold: Option<u32> = None;
     let mut debugger = false;
+    let mut debug_shell = false;
     let mut host = bund2_stdlib::host::HostOptions::default();
     let mut script_args = Vec::new();
     while let Some(a) = it.next() {
@@ -286,6 +292,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--raw-values" | "--debug-values" => raw_values = true,
             "--stats" => stats = true,
             "--debugger" => debugger = true,
+            "--debug-shell" => debug_shell = true,
             // Refused rather than ignored when it is not a number: this is a
             // command line, which can report. `BUND2_JIT_THRESHOLD` cannot —
             // the runtime reads it in a constructor — so that one is ignored
@@ -318,6 +325,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
         raw_values,
         stats,
         debugger,
+        debug_shell,
         carried: false,
         jit_threshold,
     })
@@ -532,6 +540,10 @@ fn run_carried(carried: &bundle::Carried, argv: Vec<String>) -> ExitCode {
         // worse failure than not being able to debug it, and the debuggable
         // form of the same program is `bund2 script --file`.
         debugger: false,
+        // Nor into the shell after a failure, for the same reason: D156 left
+        // a bundle's answer open, and a shipped program that waits at a
+        // prompt because it failed is the hazard the paragraph above names.
+        debug_shell: false,
         // **Nor by a word in the program — D115.** `debug.step` and the other
         // arming and moving words attach a console in a `script` run (D113.5).
         // In a bundle they do nothing: the program left in a stray
@@ -1170,6 +1182,42 @@ fn print_stats(rt: &bund2_runtime::Runtime) {
     );
 }
 
+/// `--debug-shell` — D156: a failure has been reported, and the session is
+/// given `debug.shell` on the VM as the program left it, stacks and words.
+///
+/// **By the word's name and not by a call**, so the shell is whatever the
+/// registry binds: under `--noio` and `--noeval` it is what those make of
+/// the word, and the flag is no way round either.
+///
+/// **Under `--debugger` it reads nothing.** A debugged program is given no
+/// input (D112), since standard input is the session's, so the shell's first
+/// read is the end and it returns. The reference does run its shell after a
+/// `--debugger` failure; what Bund2 should do there D156 left open, and this
+/// is the behaviour that falls out, not one that was chosen.
+///
+/// A failure of the shell itself is reported and is not a second shell.
+fn shell_after_a_failure(vm: &mut bund2_interp::Interp, args: &Args) {
+    if !args.debug_shell {
+        return;
+    }
+    let shell = match bund2_syntax::parse("debug.shell") {
+        Ok(terms) => bund2_syntax::lower_with_spans(&terms, 0),
+        Err(e) => {
+            vm.report(bund2_api::diag::Diagnostic::warning(format!(
+                "--debug-shell: {}",
+                e.what
+            )));
+            return;
+        }
+    };
+    if let Err((_, e)) = vm.eval_indexed(&shell.values) {
+        vm.report(bund2_api::diag::Diagnostic::warning(format!(
+            "--debug-shell: {}",
+            e.0
+        )));
+    }
+}
+
 /// Returns the code a word asked to exit with (D52), if one did. **A failure
 /// is not an error exit**:
 /// the reference prints its report and exits 0
@@ -1240,6 +1288,7 @@ fn run(src: &str, args: &Args) -> Option<i32> {
             vm.report(
                 bund2_api::diag::Diagnostic::error(e.what.clone()).at(locate(src, file, e.span)),
             );
+            shell_after_a_failure(vm, args);
             if args.stats {
                 print_stats(&rt);
             }
@@ -1253,6 +1302,7 @@ fn run(src: &str, args: &Args) -> Option<i32> {
             d = d.at(locate(src, file, span));
         }
         vm.report(d);
+        shell_after_a_failure(vm, args);
     }
     let code = vm.exit_requested();
 
