@@ -258,6 +258,13 @@ subsystems whose dependencies produced the 381 MB binary — `ai`, `image`,
 `bus`, `forecast`, `statistics`, `internaldb` (D26), `console` (D15) — are
 feature-gated and off. Nothing is deleted; a gated word can be enabled.
 
+*(2026-10-14, RFC-0007's review, S5: **`bus` is not gated, and has not
+been since 2026-10-01.** D87 narrowed D28's deferral of the reference's
+`bus` directory to its zenoh half, `globals.rs`; the eight local-bus words
+register in every build, and `crossbeam-channel` is an unconditional
+dependency of `bund2-stdlib`. Zenoh is unbuilt rather than gated. The rest
+of the list is as D28 left it.)*
+
 This is why the boundary between `bund2-stdlib` and the rest matters: a
 feature that is off should remove its dependency from the build graph
 entirely, which only works if no core crate reaches into it.
@@ -312,7 +319,7 @@ so conformance can read 100% with three quarters of the language untested.
 Three files are the shared state between sessions, and this RFC does not
 duplicate them:
 
-- `docs/registers/decisions.md` — 163 entries, **none OPEN**. Append-only; a status may
+- `docs/registers/decisions.md` — 165 entries, **none OPEN**. Append-only; a status may
   change, an entry may not be deleted or renumbered.
 - `docs/registers/defects.md` — 207 entries. The roadmap's §5 listed eleven;
   the rest were found by running the oracle rather than reading it. F14, F15 and

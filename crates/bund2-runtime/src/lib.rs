@@ -24,6 +24,10 @@ use bund2_interp::Interp;
 #[cfg(feature = "jit")]
 mod tier;
 
+/// Re-exported so an embedder that builds VMs through `bund2-async`'s host
+/// can say which restrictions they run under (D165) without depending on
+/// `bund2-stdlib` itself.
+pub use bund2_stdlib::host::HostOptions;
 #[cfg(feature = "jit")]
 pub use tier::JitTier;
 

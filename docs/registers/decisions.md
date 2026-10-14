@@ -3639,6 +3639,96 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D165 — what host options a VM spawned by the host runs under
+
+**Raised 2026-10-14** by RFC-0007's review of that date
+(`docs/rfc/reviews/RFC-0007-review-2026-10-14.md`, Preservation 6 and
+assumption 2). `Host::spawn` builds each VM with
+`Runtime::with_threshold`, which takes `HostOptions::default()`
+(`crates/bund2-async/src/host.rs`, `Host::spawn`;
+`crates/bund2-runtime/src/lib.rs`, `Runtime::with_threshold`). So every
+spawned VM runs with `--noio` and `--noeval` off and the default reporter,
+and an embedder has no way to say otherwise: the closure receives a
+`Runtime` already built. The reference has one VM per process and nothing
+to compare against; this is §C8's design, and nobody chose it.
+
+It matters because code crosses the bus: a LAMBDA sent by one VM runs on
+receipt in another, and `--noeval` is the flag about running code a
+program did not contain. An embedder that restricts its first VM cannot
+restrict the ones it spawns.
+
+- Blocks: nothing. RFC-0007's acceptance, if the owner wants it ruled
+  first.
+- Options:
+  - **A.** Record it as it is: a spawned VM is unrestricted, and an
+    embedder that needs restrictions builds its own threads with
+    `declare_region` and `Runtime::with_options`.
+  - **B.** `Host` takes `HostOptions`, once for the host, and builds every
+    VM with them: `Host::with_options(HostOptions)` beside
+    `with_jit_threshold`, the default unchanged. About twenty lines and a
+    test that a spawned VM under `noeval` refuses what the flag refuses.
+  - **C.** B, per spawn rather than per host.
+- Recommendation: B. The host exists so an embedder does not repeat what
+  `declare_region` does, and options are the same kind of thing: one
+  place to set them, which every VM takes. C adds a parameter to every
+  spawn for a need nobody has named. Risk of B: a host-wide setting where
+  an embedder wants one restricted VM among unrestricted ones; C can be
+  added then without breaking B.
+- Status: **RESOLVED** by the repository owner, 2026-10-14: "D165: B".
+  Built the same day: `Host::with_options` in `crates/bund2-async/src/host.rs`,
+  with `HostOptions` re-exported by `bund2-runtime` so the host's one
+  dependency stays its one; checked by
+  `a_spawned_vm_runs_under_the_hosts_options`, which runs `bund.eval` in a
+  VM from a plain host and from one built with `noeval`.
+
+## D164 — what `WordKind`'s three variants mean
+
+**Raised 2026-10-14** by RFC-0007's review of that date (B2), first raised
+by its review of 2026-10-01 (S6, S7) and not answered. RFC-0007 §C5
+defines `Sync` as "returns without yielding the thread. Every word
+today", and `Blocking` as "may park the thread for an unbounded time". In
+the registry, `input`, `input*` and `password` park the thread until a
+person types, and `sleep.seconds` for its operand
+(`crates/bund2-stdlib/src/terminal.rs`, `crates/bund2-stdlib/src/host.rs`,
+the registrations), and all are registered `WordKind::Sync`, as are all
+367 `WordKind::Sync` registrations in `bund2-stdlib`. Nothing outside
+`bund2-api` writes `Blocking` or `Async`, and nothing reads `kind` but a
+`Debug` impl (`crates/bund2-api/src/lib.rs`, `WordKind`). The research
+defines the three differently again: `Sync` "runs to completion, must not
+block", `Blocking` "must be dispatched to `spawn_blocking`", `Async`
+carrying a future (`docs/research/01-extensibility-async.md:302-307`),
+and D84 removed the suspension the last two were for.
+
+So §C5's definitions are false of the registry the day they are written,
+and they differ from the research's with no ERRATA entry.
+
+- Blocks: RFC-0007's acceptance (the review's B2).
+- Options:
+  - **A.** Define `Sync` as "does not suspend the VM; it may block its
+    own thread, which under D84 blocks only its own VM", and `Blocking`
+    as "may wait on something outside the process for an unbounded time".
+    Re-mark `input`, `input*`, `password`, `sleep.seconds` and their kin
+    `Blocking`. Needs a sweep of the registry for what else waits, and
+    no reader exists to check it.
+  - **B.** As A, but leave the registry as it is and say that the marks
+    are not maintained until a reader exists.
+  - **C.** Define none of them. §C5 says what it already says of
+    `Async` of all three: no code reads `kind`, so a definition has no
+    consumer and cannot be checked, and the RFC that gives `kind` a reader
+    defines what it reads. §C5 records that every registration says
+    `Sync`, that at least four of them block their thread, and the research's
+    definitions, with an ERRATA entry for the departure.
+- Recommendation: C. It is what §C5 already argues for `Async`, applied
+  to the other two, and criterion 7 was withdrawn on the same ground: a
+  claim about `kind` no code reads cannot fail. A's sweep would produce
+  marks nothing checks, which is how §C5's own sentence became false.
+  Risk of C: an embedder registering a word reads three variants with no
+  documented meaning. The doc on `WordKind` can say exactly that.
+- Status: **RESOLVED** by the repository owner, 2026-10-14: "D164: C".
+  §C5 defines none of the three; the doc on `WordKind` in
+  `crates/bund2-api/src/lib.rs` says the variants have no defined meaning
+  until a reader exists. The registry is unchanged.
+
 ## D163 — RFC-0008 is Accepted
 
 **Raised 2026-10-14** by RFC-0008's fourth review
@@ -8281,6 +8371,13 @@ Five levels onto two rungs is lossy, and the sub-options are: collapse
 (`error`/`warning` → `Warning`, the rest → `Notice`), losing which word was
 called; or keep the level in the reason, `Notice: log.trace: …`, which preserves
 it.
+
+*(2026-10-14, RFC-0007's review, S7: the section above, "Measured again,
+2026-10-03", is about the five `log.*` words and is D90's subject, not this
+entry's. It appears to have been written into the wrong entry; it is left
+in place, since this register is append-only, and D90 is where the
+decision it informs is recorded. The façade's own reasoning resumes
+below.)*
 
 ### The options, and what each cost
 

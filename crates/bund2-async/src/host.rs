@@ -2,9 +2,9 @@
 //!
 //! §C8 names what this is for: the two things the research rated "do it" —
 //! "many independent VMs concurrently", and an `async` façade over one. This
-//! module is the first half. **The façade is not here**, and §C8's criterion 13
-//! says why it is separable: it needs either an executor dependency, which is a
-//! question for D28 rather than for this file, or a hand-rolled waker.
+//! module is both: the host, and **the façade, which is [`Vm`]'s `Future`
+//! impl** — a hand-rolled waker rather than an executor dependency, as D92
+//! decided for criterion 13.
 //!
 //! **A thread per VM, because `Interp` is not `Send`.** It holds
 //! `Box<dyn Reporter>` and, through every value, `Rc<HeapValue>` — the claim
@@ -62,6 +62,10 @@ pub struct Host {
     live: Arc<AtomicUsize>,
     spawned: usize,
     threshold: Option<u32>,
+    /// **The restrictions every VM this host builds runs under** — D165.
+    /// The defaults restrict nothing, as before; an embedder that runs its
+    /// own VM under `--noeval` says so here, once, for every VM it spawns.
+    options: bund2_runtime::HostOptions,
 }
 
 /// What a VM thread and its handle share: the answer, and who to wake.
@@ -215,6 +219,7 @@ impl Default for Host {
             live: Arc::new(AtomicUsize::new(0)),
             spawned: 0,
             threshold: None,
+            options: bund2_runtime::HostOptions::default(),
         }
     }
 }
@@ -249,6 +254,7 @@ impl Host {
             live: Arc::new(AtomicUsize::new(0)),
             spawned: 0,
             threshold: None,
+            options: bund2_runtime::HostOptions::default(),
         })
     }
 
@@ -261,6 +267,18 @@ impl Host {
     /// comparing them is what criterion 10 does.
     pub fn with_jit_threshold(mut self, threshold: Option<u32>) -> Self {
         self.threshold = threshold;
+        self
+    }
+
+    /// **The host options every VM this host spawns is built with** — D165.
+    ///
+    /// Code crosses the bus: a LAMBDA one VM sends runs wherever it is
+    /// received, so a restriction the embedder put on one VM means nothing
+    /// unless the VMs it spawns carry it too. Host-wide rather than per
+    /// spawn, as the threshold is; D165 leaves a per-spawn form for when one
+    /// is needed.
+    pub fn with_options(mut self, options: bund2_runtime::HostOptions) -> Self {
+        self.options = options;
         self
     }
 
@@ -307,6 +325,7 @@ impl Host {
             ));
         }
         let threshold = self.threshold;
+        let options = self.options;
         let state = Arc::new(Mutex::new(Shared {
             answer: None,
             waker: None,
@@ -332,7 +351,7 @@ impl Host {
                 // and a share declared after a floor was taken would not move
                 // it.
                 bund2_runtime::declare_region();
-                let mut rt = Runtime::with_threshold(threshold);
+                let mut rt = Runtime::with_options_and_threshold(&options, threshold);
                 let out = f(&mut rt);
                 if let Ok(mut g) = thread_state.lock() {
                     g.answer = Some(out);
@@ -736,13 +755,41 @@ mod tests {
     /// success.
     ///
     /// **Without the `jit` feature there is no tier and `compiled_entries`
-    /// answers `None` on every thread** — the shape §D6 relies on too. The
-    /// test then asserts the floor is usable at all, by running a body deep
-    /// enough to prove the region was declared: an undeclared region makes
-    /// `stack_marker` and the floor disagree and the depth guard fires early.
+    /// answers `None` on every thread** — the shape §D6 relies on too. So the
+    /// region is checked a second way, in every build: a thread nobody
+    /// declared assumes `ASSUMED_BUDGET` below its construction point, a
+    /// declared one has the whole region, and the difference is a depth. The
+    /// test first finds a depth of native recursion that an undeclared thread
+    /// of the same size refuses, then requires every VM to complete it.
+    /// (RFC-0007's review of 2026-10-14, B4: until then this comment promised
+    /// the check and the test did not make it.)
     #[test]
     fn every_vm_thread_declares_its_own_region_and_share() {
         const BODY: &str = ":w { 1 2 + noop drop } register\n";
+        // A word that calls itself through `times`, which spends Rust stack
+        // at every level: `xtask depth`'s `loop` axis, F85's shape.
+        const DOWN: &str = ":Down { 1 swap - dup 0 != { 1 { drop Down } times } ?true } register\n";
+        let refused = std::thread::Builder::new()
+            .stack_size(bund2_runtime::EVAL_STACK)
+            .spawn(|| {
+                // No `declare_region`: the floor is the assumed budget.
+                let mut depth = 16usize;
+                while depth <= 1 << 16 {
+                    let mut rt = Runtime::with_threshold(None);
+                    if eval(&mut rt, DOWN).is_err() {
+                        return None;
+                    }
+                    if eval(&mut rt, &format!("{depth} Down")).is_err() {
+                        return Some(depth);
+                    }
+                    depth *= 2;
+                }
+                None
+            })
+            .expect("the probe thread starts")
+            .join()
+            .expect("the probe thread joins")
+            .expect("an undeclared thread refuses some depth below 65536");
         // **Threshold 1, so the tier actually acts.** At D74's shipped 1024 a
         // four-iteration body compiles nothing and `compiled_entries` reads
         // `Some(0)` on every thread — which is what this test first did, and
@@ -753,17 +800,18 @@ mod tests {
             .with_jit_threshold(Some(1));
         let vms: Vec<_> = (0..4)
             .map(|_| {
-                host.spawn(|rt| {
+                host.spawn(move |rt| {
                     if eval(rt, BODY).is_err() {
                         return Err("the setup body did not register".to_string());
                     }
                     for _ in 0..4 {
                         eval(rt, "w")?;
                     }
-                    // Deep recursion must be refused as a Bund error rather
-                    // than aborting the thread, which is what a declared
-                    // region buys and what D37 requires.
-                    Ok((rt.compiled_entries(), rt.jit_threshold()))
+                    // The depth the undeclared thread refused, which only a
+                    // declared region has room for.
+                    eval(rt, DOWN)?;
+                    let deep = eval(rt, &format!("{refused} Down"));
+                    Ok((rt.compiled_entries(), rt.jit_threshold(), deep))
                 })
                 .expect("spawns")
             })
@@ -774,7 +822,12 @@ mod tests {
             .map(|v| v.join().expect("joins").expect("ran"))
             .collect();
         assert_eq!(answers.len(), 4);
-        for (i, (entries, threshold)) in answers.iter().enumerate() {
+        for (i, (entries, threshold, deep)) in answers.iter().enumerate() {
+            assert!(
+                deep.is_ok(),
+                "VM {i} refused a depth of {refused}, which an undeclared thread \
+                 refuses, so its region was not declared: {deep:?}"
+            );
             match threshold {
                 // A build with a tier: every thread must have *entered*
                 // compiled code, not merely compiled it — and every one, which
@@ -790,6 +843,39 @@ mod tests {
                 ),
             }
         }
+    }
+
+    /// **D165: a spawned VM runs under the host's options.** A host built
+    /// with `noeval` gives every VM the stub `bund.eval` the flag gives the
+    /// CLI; a host built without gives the real word.
+    #[test]
+    fn a_spawned_vm_runs_under_the_hosts_options() {
+        let mut plain = Host::with_limit(1).expect("one");
+        let ran = plain
+            .spawn(|rt| eval(rt, r#""1 2 +" bund.eval"#))
+            .expect("spawns")
+            .join()
+            .expect("joins");
+        assert!(ran.is_ok(), "no restriction by default: {ran:?}");
+
+        let mut restricted =
+            Host::with_limit(1)
+                .expect("one")
+                .with_options(bund2_runtime::HostOptions {
+                    noeval: true,
+                    ..bund2_runtime::HostOptions::default()
+                });
+        let refused = restricted
+            .spawn(|rt| eval(rt, r#""1 2 +" bund.eval"#))
+            .expect("spawns")
+            .join()
+            .expect("joins");
+        assert!(
+            refused
+                .as_ref()
+                .is_err_and(|e| e.contains("bund EVAL functions disabled with --noeval")),
+            "the host's noeval reached the VM: {refused:?}"
+        );
     }
 
     /// **§C8 criterion 11: a value sent on one VM is received on another.**
@@ -838,6 +924,12 @@ mod tests {
     /// not have, which is new behaviour and a deviation. The corpus's own
     /// `internal_bus_demo.bund` is a `bus.data`-guarded drain loop that is
     /// correct only because it has one VM.
+    ///
+    /// **The interleaving is forced, not hoped for** — RFC-0007's review of
+    /// 2026-10-14, B4. Without it the asserted outcome is also that of two
+    /// racers running one after the other. A barrier holds both between
+    /// `bus.data` and `recv`, so both have asked before either takes, and
+    /// both answers are asserted `true`.
     #[test]
     fn bus_data_is_advisory_once_there_is_more_than_one_vm() {
         let mut host = Host::with_limit(3).expect("three");
@@ -847,26 +939,40 @@ mod tests {
             .expect("joins")
             .expect("primes");
 
+        let both_asked = std::sync::Arc::new(std::sync::Barrier::new(2));
         let racers: Vec<_> = (0..2)
             .map(|_| {
-                host.spawn(|rt| {
-                    eval(rt, r#""x_race" bus.data "x_race" recv"#)?;
+                let both_asked = std::sync::Arc::clone(&both_asked);
+                host.spawn(move |rt| {
+                    eval(rt, r#""x_race" bus.data"#)?;
+                    both_asked.wait();
+                    eval(rt, r#""x_race" recv"#)?;
                     use bund2_api::Vm as _;
                     let s = rt.interp.snapshot();
-                    Ok::<_, String>(
+                    Ok::<_, String>((
+                        s.first().and_then(|v| match v.unboxed() {
+                            bund2_value::BundValue::Bool(b, _) => Some(*b),
+                            _ => None,
+                        }),
                         s.last()
                             .map(|v| v.dt() == bund2_value::NODATA)
                             .unwrap_or(false),
-                    )
+                    ))
                 })
                 .expect("racer spawns")
             })
             .collect();
 
-        let nodata: Vec<bool> = racers
+        let answers: Vec<(Option<bool>, bool)> = racers
             .into_iter()
             .map(|v| v.join().expect("joins").expect("no error, whichever lost"))
             .collect();
+        // Both asked before either took, so both were told there was data.
+        assert!(
+            answers.iter().all(|(asked, _)| *asked == Some(true)),
+            "both racers saw `true` before either received: {answers:?}"
+        );
+        let nodata: Vec<bool> = answers.iter().map(|(_, n)| *n).collect();
 
         // Exactly one value existed, so exactly one racer got it. Neither
         // errored: that is what makes the race tolerable rather than a bug.

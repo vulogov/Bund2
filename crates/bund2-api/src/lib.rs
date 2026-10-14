@@ -1109,7 +1109,14 @@ const STACK_EXHAUSTED: &str = "machine stack exhausted: ";
 /// and what criterion 30 compares between the tiers.
 const EXITED: &str = "the program asked to exit with code ";
 
-/// How a native word may block.
+/// How a native word may block — **a label with no defined meaning yet**
+/// (D164).
+///
+/// Nothing reads it: every word runs the same way whichever variant it
+/// declares, and every registration in the standard library says `Sync`,
+/// including words that wait on a person or a clock. The RFC that gives
+/// `kind` a reader defines what each variant means; until then an embedder
+/// may pick any, and none changes what happens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WordKind {
     Sync,

@@ -172,3 +172,30 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   23 asserts. Tolerable while D85 bounds the count at tens and F139 shows no
   corpus program compiles a body at the shipped threshold. The trigger for
   revisiting, and the collision with criterion 23 it would cause, are in §C8.
+
+- `01-extensibility-async.md` §2.1(c), §2.4 and §2.7 -> superseded by D84
+  (2026-09-30), recorded here on 2026-10-14 at RFC-0007's review of that
+  date (B2): "(c) A Bund word performs I/O and yields mid-execution …
+  achievable at Tier 0" (`:230`), §2.4's await that "returns control to the
+  async driver with the pending future stored in the frame" (`:298-299`),
+  and §2.7's "Await inside a Tier-0 word: yes" (`:389`) do not hold. D84
+  made a task a VM with its own thread and removed suspension inside a
+  word; nothing in Bund2 awaits inside one.
+
+- `01-extensibility-async.md` §2.4's `NativeKind` (`:302-307`) and §2.7's
+  "`Sync` / `Blocking` / `Async` native word kinds: required for any async"
+  (`:388`) -> departed from by RFC-0007 §C5, recorded here on 2026-10-14
+  (B2). Bund2's `WordKind` has the three variants and no reader; `Blocking`
+  is not dispatched to `spawn_blocking` (there is no executor, D92) and
+  `Async` carries no future. What the variants mean is D164's question.
+
+- `05-rfc-roadmap.md:96` -> RFC-7's "tier pinning" is moot, recorded here
+  on 2026-10-14 (RFC-0007's review, S5). It was the research's coloring
+  rule, pinning a word that awaits to Tier 0 (`01-extensibility-async.md:390`);
+  with no await inside a word (D84) there is nothing to pin, and RFC-0007
+  specifies none.
+
+- `01-extensibility-async.md` §2.6 and §2.7, the entry above on the shared
+  compile service -> D91 resolved it on 2026-10-03, recorded here on
+  2026-10-14: option 1, keep per-`Interp` modules. The entry's "in conflict"
+  stands as a description; the conflict is now decided rather than open.

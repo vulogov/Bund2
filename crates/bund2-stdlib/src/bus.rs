@@ -15,10 +15,9 @@
 //! (D84, D86). The payload is the wire format, which `bund2_value::wire`
 //! already implements against the reference's own `to_binary`/`from_binary`.
 //!
-//! **Whether a received value keeps the identity it was sent with is still
-//! open** — D86 records it as a decision rather than an implementation detail,
-//! and this module does not take it: `from_binary` decides, and F109 is where
-//! the current answer is written down.
+//! **A received value keeps the stamp it was sent with and not its
+//! identity** — D88, which made F109 the rule for every decoder: `from_binary`
+//! decides, and this module takes its answer.
 
 use std::collections::BTreeMap;
 use std::sync::{Mutex, OnceLock};
@@ -457,7 +456,9 @@ mod tests {
     }
 
     /// Every depth guard, with the reference's exact words — including that
-    /// `send.quick`'s prefix is `SEND`, not `SEND.QUICK`.
+    /// `send.quick`'s prefix is `SEND`, not `SEND.QUICK`. Nine guard sites in
+    /// the reference (`crossbus.rs:26,44,49,52,83,88,91,122,127`) write six
+    /// texts; each site is reached here.
     #[test]
     fn the_depth_guards_name_the_word_the_reference_names() {
         for (src, want) in [
@@ -466,6 +467,15 @@ mod tests {
             ("recv", "Stack is too shallow for inline RECV"),
             ("recv.", "Workbench is too shallow for inline RECV."),
             (r#""c" send."#, "Workbench is too shallow for inline SEND."),
+            (
+                r#""c" send.quick."#,
+                "Workbench is too shallow for inline SEND.",
+            ),
+            // The workbench forms check the stack first: an empty stack is
+            // that guard, whatever the workbench holds (`crossbus.rs:49-54`,
+            // `:88-93`). RFC-0007's review of 2026-10-14, S4.
+            ("send.", "Stack is too shallow for inline SEND."),
+            ("send.quick.", "Stack is too shallow for inline SEND."),
             ("bus.data", "Stack is too shallow for BUS.DATA"),
         ] {
             failed_with(src, want);
@@ -473,7 +483,9 @@ mod tests {
     }
 
     /// **`BUS.DATA:` prefixes a name-casting failure whatever word was
-    /// called.** The reference writes that string in all six arms.
+    /// called.** The reference writes that string at each of its four cast
+    /// sites (`crossbus.rs:35,71,110,142`), which serve seven of the eight
+    /// words; `bus.data.current` casts nothing.
     #[test]
     fn a_name_that_will_not_cast_is_always_a_bus_data_error() {
         const WANT: &str = "BUS.DATA: Error name casting: This Dynamic type is not string";
@@ -514,22 +526,34 @@ mod tests {
     }
 
     /// **The stamp crosses, the identity does not** — F109's shape, now
-    /// reachable through the bus. No word exposes a value's id, and
-    /// `debug.display_stack` is normalised for it (F14), so no program can
-    /// tell; the open half of D86 is which of those two the bus should
-    /// guarantee.
+    /// reachable through the bus, and D88's rule. No word exposes a value's
+    /// id, and `debug.display_stack` is normalised for it (F14), so no program
+    /// can tell.
+    ///
+    /// **The sender's stamp, compared, not merely a stamp** — RFC-0007's
+    /// review of 2026-10-14, B4. The stamp is read before the send, and the
+    /// receive waits long enough that a decoder minting a fresh stamp would
+    /// give a later one.
     #[test]
     fn a_received_value_keeps_its_stamp() {
         let mut i = Interp::new();
         crate::register_all(&mut i.registry);
-        let ir = bund2_syntax::compile(r#""t_stamp" 42 send.quick"#).expect("compiles");
+        let (sent, promoted) = BundValue::int(42).timestamp();
+        i.push(BundValue::str("t_stamp"));
+        i.push(promoted.expect("a scalar promotes to hold its stamp"));
+        let ir = bund2_syntax::compile("send.quick").expect("compiles");
         i.eval(&ir).expect("sends");
+        std::thread::sleep(std::time::Duration::from_millis(20));
         let ir = bund2_syntax::compile(r#""t_stamp" recv"#).expect("compiles");
         i.eval(&ir).expect("receives");
         let got = i.snapshot();
         assert_eq!(got.len(), 1);
-        // A stamp exists and is not the moment of the `recv`: it was taken
-        // when the value was first observed, before the send (D2).
-        assert!(got[0].timestamp().0 > 0.0, "{:?}", got[0]);
+        assert_eq!(got[0].as_int(), Some(42));
+        assert_eq!(
+            got[0].timestamp().0,
+            sent,
+            "the received value carries the sender's stamp: {:?}",
+            got[0]
+        );
     }
 }
