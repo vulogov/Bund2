@@ -280,7 +280,99 @@ impl Metric {
 /// runs for every value the interpreter touches. `Rc<str>` orders by content,
 /// so a `BTreeMap` keyed on it iterates in the same order a `String`-keyed one
 /// did, which the 39 goldens carrying `tags: {"stack": …}` depend on.
-pub type Tags = BTreeMap<Rc<str>, Rc<str>>;
+///
+/// **One tag inline, without an allocation — D170.** Nearly every tagged value
+/// carries exactly one, `"stack"`, and as a `BTreeMap` that one entry cost a
+/// node allocation on insert and a free on drop. A lambda literal pushed for
+/// `if` is tagged on a copy of its header and dropped a moment later, so a
+/// recursive `fib` paid both on every call: a sixth of its time. Two or more
+/// tags are kept sorted by key, so iteration is in the order the map gave.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct Tags(TagSlots);
+
+#[derive(Clone, Default, PartialEq, Eq)]
+enum TagSlots {
+    #[default]
+    Empty,
+    One((Rc<str>, Rc<str>)),
+    /// Two or more, sorted by key, no key twice.
+    Many(Vec<(Rc<str>, Rc<str>)>),
+}
+
+impl Tags {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn as_slice(&self) -> &[(Rc<str>, Rc<str>)] {
+        match &self.0 {
+            TagSlots::Empty => &[],
+            TagSlots::One(pair) => std::slice::from_ref(pair),
+            TagSlots::Many(pairs) => pairs,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.as_slice().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.as_slice().is_empty()
+    }
+
+    /// The value under `key`.
+    pub fn get(&self, key: &str) -> Option<&Rc<str>> {
+        self.as_slice()
+            .iter()
+            .find(|(k, _)| &**k == key)
+            .map(|(_, v)| v)
+    }
+
+    /// Set `key` to `value`, replacing what was there, as the map's `insert`
+    /// did.
+    pub fn insert(&mut self, key: Rc<str>, value: Rc<str>) {
+        match &mut self.0 {
+            TagSlots::Empty => self.0 = TagSlots::One((key, value)),
+            TagSlots::One((k, v)) if *k == key => *v = value,
+            TagSlots::One(pair) => {
+                let first = pair.clone();
+                let mut pairs = vec![first, (key, value)];
+                pairs.sort_by(|a, b| a.0.cmp(&b.0));
+                self.0 = TagSlots::Many(pairs);
+            }
+            TagSlots::Many(pairs) => match pairs.binary_search_by(|(k, _)| k.cmp(&key)) {
+                Ok(at) => {
+                    if let Some(slot) = pairs.get_mut(at) {
+                        slot.1 = value;
+                    }
+                }
+                Err(at) => pairs.insert(at, (key, value)),
+            },
+        }
+    }
+
+    /// Every tag, in key order.
+    pub fn iter(&self) -> impl Iterator<Item = (&Rc<str>, &Rc<str>)> {
+        self.as_slice().iter().map(|(k, v)| (k, v))
+    }
+}
+
+impl FromIterator<(Rc<str>, Rc<str>)> for Tags {
+    fn from_iter<I: IntoIterator<Item = (Rc<str>, Rc<str>)>>(iter: I) -> Self {
+        let mut t = Tags::new();
+        for (k, v) in iter {
+            t.insert(k, v);
+        }
+        t
+    }
+}
+
+/// As the map printed itself, so a header's `Debug` reads as it did.
+impl std::fmt::Debug for Tags {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_map().entries(self.iter()).finish()
+    }
+}
 
 /// The header a heap value carries.
 #[derive(Debug)]
@@ -2572,6 +2664,37 @@ mod render_tests {
             attr: h.attr.clone(),
             payload: Rc::clone(&h.payload),
         }))
+    }
+
+    /// **D170: `Tags` answers as the `BTreeMap` it replaced.** Keys iterate
+    /// in order whatever order they arrived in, a repeated key replaces, and
+    /// `Debug` prints the map's shape, which is what the tag-bearing goldens
+    /// hold.
+    #[test]
+    fn tags_keep_the_maps_order_and_replacement() {
+        let mut t = Tags::new();
+        assert!(t.is_empty());
+        t.insert(Rc::from("stack"), Rc::from("main"));
+        assert_eq!(t.get("stack").map(|s| &**s), Some("main"));
+        assert_eq!(t.len(), 1);
+        t.insert(Rc::from("stack"), Rc::from("side"));
+        assert_eq!(t.len(), 1, "a repeated key replaces");
+        t.insert(Rc::from("zeta"), Rc::from("z"));
+        t.insert(Rc::from("alpha"), Rc::from("a"));
+        t.insert(Rc::from("zeta"), Rc::from("zz"));
+        let keys: Vec<&str> = t.iter().map(|(k, _)| &**k).collect();
+        assert_eq!(
+            keys,
+            ["alpha", "stack", "zeta"],
+            "key order, whatever the insert order"
+        );
+        assert_eq!(t.get("zeta").map(|s| &**s), Some("zz"));
+        assert_eq!(t.get("missing"), None);
+        let as_map: BTreeMap<Rc<str>, Rc<str>> =
+            t.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        assert_eq!(format!("{t:?}"), format!("{as_map:?}"));
+        let again: Tags = t.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        assert_eq!(again, t);
     }
 
     #[test]

@@ -172,7 +172,7 @@ fn parse(text: &str) -> Result<BundValue, String> {
     // reconstruction that dropped it would differ from every captured stack
     // value, which is exactly what the first run of this harness reported.
     p.eat(", tags: {")?;
-    let mut tags = std::collections::BTreeMap::new();
+    let mut tags = bund2_value::Tags::new();
     if p.eat("}").is_err() {
         loop {
             let k = p.string()?;

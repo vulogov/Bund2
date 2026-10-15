@@ -3649,6 +3649,80 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D170 — the push of a shared lambda literal, and the tag it is copied for
+
+**Raised 2026-10-15** while profiling `bund_examples/fibonacci` after the
+current-stack and CALL-memo changes. Every push writes a `"stack"` tag
+(`reference/rust_multistack/src/ts_push.rs:25`, read in an earlier session;
+RFC-0001 and D13), and a `{ … }` literal inside a registered body is shared
+with that body, so tagging it splits a copy of its header, which `if` pulls
+and drops at once. Measured on fib(35), macOS `sample`: `with_tag` 7.7% and
+the drop of the copy 7.6% of the VM thread, about a sixth of the program. The
+body's items are not copied; the header's tag map was, with one allocation
+on insert and one free on drop.
+
+- Blocks: nothing
+- Depends on: D13, D41, RFC-0001
+- Options:
+  - **A.** Leave it; record why.
+  - **B.** Cheaper tag storage: `Tags` holds one tag inline and keeps two or
+    more sorted by key, so a one-tag header allocates nothing. The copy
+    still happens. Nothing a program can see changes.
+  - **C.** Run `{ … } if` without the push, when the next call is bound at
+    that moment to the built-in `if`. A second `if` in the evaluator, with
+    the binding checked each run, switched off under the debugger and stack
+    watches, and the word's error path reproduced.
+  - **D.** Tag the literal once in place so later pushes find the tag. The
+    stored body of a word then carries a tag that depends on where it first
+    ran, visible wherever a lambda is displayed, saved, sent or compared.
+  - **E.** Tag at first read instead of at push. Every read path must know.
+- Recommendation: B now; C as a JIT fragment for `if` with a literal body,
+  where guards, invalidation and the differential test already exist;
+  reject D and E, because a lambda is a value a program builds, keeps and
+  compares, and either leaks into that. The owner's view, before the
+  options were put: caching lambdas is risky under metaprogramming. D is
+  that; the CALL memo is not, since it caches a name's symbol, which cannot
+  change, and never a value or a binding.
+- Status: **RESOLVED** by the repository owner, 2026-10-15: "B now".
+
+### Built, the same day
+
+`Tags` is a type of its own (`crates/bund2-value/src/lib.rs`, `Tags`), with
+the map's `new`, `insert`, `get`, `iter`, `len`, `is_empty`, `FromIterator`
+and a `Debug` that prints the map's shape. `tags_keep_the_maps_order_and_replacement`
+holds the order and the replacement. fib(30): 0.53 s to 0.50 s, less than
+the estimate; the header copy's remaining cost is the `Rc` allocation and
+`attr`, not the tags.
+
+**Note, 2026-10-15 — C, recorded for a later build at the owner's request.**
+C belongs in the tier, not the evaluator, and it is three pieces, each
+RFC-0005 §S6's process: measured in `crates/bund2-bench/benches/fragment.rs`
+before it is written, published from `crates/bund2-stdlib/src/fragments.rs`
+keyed by registration id so a re-`register` of `if` stops the match, and
+held by criterion 16's differential test against the word itself.
+
+1. **A branch in the fragment IR.** `bund2_ir::Op` has `PopInt`, `PushInt`,
+   `DupTop`, `DropTop`, `AddInt` and `SubInt`, and `Guard` has `TopAreInt`
+   and `Depth`; nothing branches. C needs an op that pops a BOOL and runs
+   one of two bodies, which is a change to RFC-0005's IR and so a decision
+   when it is raised, not this one.
+2. **The site.** When the tier lowers a body and finds a LAMBDA literal
+   followed by a CALL whose slot is, at compile time, the built-in `if` or
+   `if.false`, it emits the branch over the literal's body instead of a
+   push, a slot call and a pull. The literal is never pushed, so no tag is
+   written and no header copied: the whole cost this entry measured. The
+   guard is the one every fragment has — the registration id — plus the
+   literal's identity, since a body is a value a program can rebuild.
+3. **What it must refuse.** A body that is not a literal (a lambda from a
+   register, or computed); `if` under the debugger or a stack watch, which
+   see every push and would see one fewer; and the word's refusals, which
+   stay the word's: the site branches to the slot call when the guard
+   fails, as every site does.
+
+Not C in Tier 0: a second `if` in `apply_step` would re-implement the
+binding check, the debugger switch and the error path by hand, which is
+what the tier's guards, invalidation and differential test already are.
+
 ## D169 — RFC-0007 is Accepted
 
 **Raised 2026-10-15** by the repository owner, after RFC-0007's eighth
