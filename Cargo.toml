@@ -27,7 +27,7 @@ members = [
 
 [workspace.package]
 edition      = "2024"
-version      = "0.50.0"
+version      = "0.51.0"
 license      = "Apache-2.0"
 repository   = "https://github.com/vulogov/Bund2"
 # Raised with the toolchain pin, F80. Cranelift 0.135.0 declares 1.95.0, and a
@@ -37,18 +37,18 @@ rust-version = "1.95.0"
 
 [workspace.dependencies]
 # Internal
-bund2-host     = { path = "crates/bund2-host", version = "0.50.0" }
-bund2-value    = { path = "crates/bund2-value", version = "0.50.0" }
-bund2-api      = { path = "crates/bund2-api", version = "0.50.0" }
-bund2-syntax   = { path = "crates/bund2-syntax", version = "0.50.0" }
-bund2-ir       = { path = "crates/bund2-ir", version = "0.50.0" }
-bund2-interp   = { path = "crates/bund2-interp", version = "0.50.0" }
-bund2-stdlib   = { path = "crates/bund2-stdlib", version = "0.50.0" }
-bund2-jit      = { path = "crates/bund2-jit", version = "0.50.0" }
-bund2-runtime  = { path = "crates/bund2-runtime", version = "0.50.0" }
-bund2-async    = { path = "crates/bund2-async", version = "0.50.0" }
-bund2          = { path = "crates/bund2", version = "0.50.0" }
-bund2-cli      = { path = "crates/bund2-cli", version = "0.50.0" }
+bund2-host     = { path = "crates/bund2-host", version = "0.51.0" }
+bund2-value    = { path = "crates/bund2-value", version = "0.51.0" }
+bund2-api      = { path = "crates/bund2-api", version = "0.51.0" }
+bund2-syntax   = { path = "crates/bund2-syntax", version = "0.51.0" }
+bund2-ir       = { path = "crates/bund2-ir", version = "0.51.0" }
+bund2-interp   = { path = "crates/bund2-interp", version = "0.51.0" }
+bund2-stdlib   = { path = "crates/bund2-stdlib", version = "0.51.0" }
+bund2-jit      = { path = "crates/bund2-jit", version = "0.51.0" }
+bund2-runtime  = { path = "crates/bund2-runtime", version = "0.51.0" }
+bund2-async    = { path = "crates/bund2-async", version = "0.51.0" }
+bund2          = { path = "crates/bund2", version = "0.51.0" }
+bund2-cli      = { path = "crates/bund2-cli", version = "0.51.0" }
 
 # Cranelift. Exact pins: cranelift-jit describes itself as experimental and
 # the workspace moves on a roughly monthly cadence. Upgrades are deliberate.
