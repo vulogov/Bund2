@@ -29,6 +29,15 @@ bund2-runtime.workspace = true
 # The OOM guard's thread and readings (D171). The flag it trips is
 # `bund2_api::memguard`, which the interpreter reads.
 bund2-host.workspace = true
+# **The terminal's voice — D173.** Pinned at the versions already in the
+# lock through other crates, where there were any. `console` styles the
+# levels and decides whether a stream is a terminal; `indicatif` draws
+# `build`'s progress on one; `ariadne` draws a fatal report as a traceback
+# there; `human-panic` explains a panic that escapes D49's catch.
+console     = "=0.15.11"
+indicatif   = "=0.18.6"
+ariadne     = "=0.5.1"
+human-panic = "=2.0.8"
 
 [features]
 default = []

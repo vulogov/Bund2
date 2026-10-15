@@ -229,6 +229,12 @@ pub struct Interp {
     /// writes to nobody's terminal; the CLI swaps in a text reporter and a TUI
     /// would swap in its own.
     pub reporter: Box<dyn bund2_api::diag::Reporter>,
+    /// The frames that were running when the innermost failure was raised,
+    /// with that failure's text — the Bund traceback (D173). Taken at
+    /// `run_to`'s error arm before the frames unwind, only when the reporter
+    /// wants it, and handed to the fatal report whose reason carries the
+    /// text; a trace a `?try` swallowed is discarded by that test.
+    failure_trace: Option<(String, Vec<String>)>,
     /// Where a word's line comes from — D112. [`bund2_api::input::NoInput`]
     /// by default, so an `Interp` nobody has given an input never waits on
     /// one; the CLI swaps in the terminal, a debugged session keeps the
@@ -416,6 +422,7 @@ impl Interp {
             autoadd: false,
             contexts: Vec::new(),
             reporter: Box::new(bund2_api::diag::SilentReporter),
+            failure_trace: None,
             input: Box::new(bund2_api::input::NoInput),
             fed: VecDeque::new(),
             evaluator: None,
@@ -986,6 +993,9 @@ impl Interp {
         stream: &[BundValue],
         observe: &mut dyn FnMut(&BundValue),
     ) -> Result<(), (usize, Error)> {
+        // A trace left by a failure an earlier stream caught is not this
+        // stream's (D173).
+        self.failure_trace = None;
         for (i, v) in stream.iter().enumerate() {
             match v.dt() {
                 bund2_value::NONE => continue,
@@ -1523,6 +1533,7 @@ impl Interp {
                 // running every exit action — or frames would leak above it.
                 Ok(()) => {}
                 Err(e) => {
+                    self.note_failure(&e);
                     self.unwind_to(floor);
                     return Err(e);
                 }
@@ -1536,6 +1547,41 @@ impl Interp {
             ExitAction::ToStack(name) => self.to_stack(&name),
         }
     }
+
+    /// Keep the frames a failure was raised under, before they unwind —
+    /// D173. The innermost failure wins: an outer `run_to` sees the trace
+    /// already taken and leaves it. Nothing is rendered unless the reporter
+    /// asked, so a program catching errors in a loop pays one branch.
+    ///
+    /// Bounded: the innermost [`Self::TRACE_INNER`] and outermost
+    /// [`Self::TRACE_OUTER`] frames, with one line counting the rest, so a
+    /// runaway recursion reports in a screen and not in a hundred thousand
+    /// lines.
+    fn note_failure(&mut self, e: &Error) {
+        if self.failure_trace.is_some() || !self.reporter.wants_frames() {
+            return;
+        }
+        let n = self.frames.len();
+        let mut lines = Vec::new();
+        for (i, f) in self.frames.iter().enumerate().rev() {
+            let depth = n - 1 - i;
+            if depth >= Self::TRACE_INNER && i >= Self::TRACE_OUTER {
+                if depth == Self::TRACE_INNER {
+                    lines.push(format!(
+                        "…   {} more frames",
+                        n - Self::TRACE_INNER - Self::TRACE_OUTER
+                    ));
+                }
+                continue;
+            }
+            let who = f.who.map(|s| self.registry.interner.name(s));
+            lines.push(debug::frame_line(&f.body, f.ip, depth, who));
+        }
+        self.failure_trace = Some((e.0.clone(), lines));
+    }
+
+    const TRACE_INNER: usize = 24;
+    const TRACE_OUTER: usize = 8;
 
     /// Drive any frame the top level's last word requested.
     fn drain_frames(&mut self) -> Result<(), Error> {
@@ -1999,6 +2045,16 @@ impl Vm for Interp {
         {
             self.audit_breach(who, "reported at `Error` severity while it ran");
         }
+        // **The traceback, when one was taken for this failure — D173.** The
+        // text test is what keeps a trace a `?try` swallowed from being pinned
+        // on a later, unrelated error: the reported reason carries the
+        // innermost failure's text, wrapped or not, or the trace is not its.
+        let d = match self.failure_trace.take() {
+            Some((inner, frames)) if d.severity.is_fatal() && d.reason.contains(&inner) => {
+                d.with_frames(frames)
+            }
+            _ => d,
+        };
         // Collect the stacks only if something will show them, for a
         // diagnostic of this severity (D45).
         let d = if self.reporter.wants_stack(d.severity) {

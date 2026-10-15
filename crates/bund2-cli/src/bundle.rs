@@ -448,6 +448,9 @@ pub fn write_into(
     pinned: &str,
 ) -> Result<(), String> {
     let start = locate(image)?;
+    crate::ui::trace!(
+        "payload region at offset {start:#x}, {CAPACITY} bytes of capacity, format {FORMAT}"
+    );
     if source.len() > CAPACITY {
         return Err(format!(
             "the program is {} bytes and a bundle carries at most {CAPACITY}. \

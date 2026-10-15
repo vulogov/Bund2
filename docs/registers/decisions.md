@@ -3649,6 +3649,107 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D173 — the command line's voice: levels, colour, a traceback on a terminal, and a panic explained
+
+**Raised 2026-10-15** by the repository owner: "UX polishing for bund2 cli"
+— `indicatif` for progress, `console` for colour, `--verbose` with five
+severities, those severities and a progress bar for `bund2 build`, `ariadne`
+for the Bund traceback, `human-panic` for panic handling, and a re-check
+that every error is either a run-time report or a handled panic. One of
+those touches D36: the fatal report's two-row table is what every golden
+captures, and a traceback drawn in its place would move `conform` by every
+failing program in the corpus. So where the traceback draws is the
+decision here.
+
+- Blocks: nothing
+- Depends on: D36, D37, D45, D49, D90, RFC-0006 §B3
+- Options for the traceback:
+  - **A.** Draw it on a terminal and the table on a pipe. The reference
+    has two drawings of its own, a plain one and a coloured one, keyed on
+    `--nocolor` (`reference/Bund/src/stdlib/helpers/print_error.rs:105,133`)
+    and not on a terminal; the goldens are the plain drawing's bytes. Bund2
+    keys the traceback on the terminal instead, so a capture, a pipe and
+    `conform` see the bytes they always saw and a person sees the
+    traceback. `--report box|trace` forces either, and a bundle reads
+    `BUND2_REPORT`.
+  - **B.** Draw it only under `--verbose`. Nothing moves, and nobody sees
+    it without asking.
+  - **C.** Draw it everywhere. `conform` loses every failing golden, and
+    D36's frame is gone.
+  - **D.** Draw both. Two reports of one failure.
+- Status: **RESOLVED** by the repository owner, 2026-10-15, as the request
+  above; A is the builder's reading of it, stated here so the owner can
+  rule otherwise. A terminal is detected on standard output, the stream the
+  report goes to, through `console`.
+
+### Built, the same day
+
+- **Levels — `crates/bund2-cli/src/ui.rs`.** `-v`, `-vv`, `-vvv`,
+  `--verbose`, `--verbose=<level>` and `-q`, taken from anywhere before
+  `--` for every command; a bundle reads `BUND2_VERBOSE`, since its command
+  line is its program's (§B3). Error, warning, info, debug and trace; the
+  default shows errors and warnings. One threshold governs two things, as
+  the reference's `--debug` count did (`crates/bund2-stdlib/src/logging.rs`,
+  `set_threshold`): what the command line says of its own work, and what a
+  program's `log.*` words may say — so `-v` is also what makes `log.info`
+  speak. `-q` drops `Warning` lines (`TextReporter::quiet`) and nothing else:
+  an error has stopped the program and a notice was asked for. An error
+  line keeps its text, `bund2: …`, which the tests pin; the other levels
+  carry their name, `bund2: info: …`.
+- **Colour — `console`.** Off on a pipe by the crate's own detection, and off
+  on a terminal under `--nocolor`, `NO_COLOR` or `BUND2_NOCOLOR`. The
+  severity labels and the `bund2:` prefix are styled; the table is not,
+  since its bytes are the goldens'.
+- **`bund2 build` — six steps on an `indicatif` bar**, hidden on a pipe and
+  under `-q`, cleared before any report so the report is the last line.
+  Info says what each step did, debug names the runtime copied, the trailer
+  and the staging path, trace the payload region's offset and the final
+  destination. A failed build still ends in `bund2: nothing was written`.
+- **The traceback — `crates/bund2-cli/src/trace.rs`.** `TraceReporter`
+  wraps `TextReporter` on the one seam: warnings and notices stay one line;
+  a fatal report with a location is drawn by `ariadne` — the reason, the
+  file and position, the failing term underlined, the stack the program was
+  on, and the frames that were running, innermost first — then the stack
+  box the table draws. The term's byte span travels in
+  `diag::Location::span`, set by the CLI's `locate`; the frames travel in
+  `Diagnostic::frames`, rendered by the evaluator at the failure before
+  they unwind (`Interp::note_failure`), only when the reporter says
+  `wants_frames`, so a program catching errors in a loop pays one branch
+  on a pipe. A trace a `?try` swallowed is dropped by matching the innermost
+  failure's text against the reported reason. Bounded at 24 inner and 8
+  outer frames with one counting line. Without a location — a failure in
+  `--debug-shell`'s own line, say — the table draws.
+- **`human-panic`**, installed first in `main`, so D49's quiet hook wraps it:
+  a panic a native's dependency raises is still caught and reported as an
+  internal error, and one that escapes — none is known — ends the process
+  with a report file and three lines saying where it is, instead of a Rust
+  backtrace. Inert in a debug build and under `RUST_BACKTRACE`, by the
+  crate's own rule, so tests and a developer keep the plain backtrace.
+- **The re-check.** Every `let _ =` and `.ok()` in shipped code was read.
+  In the CLI: `place`'s scratch-directory removal (best effort, said in its
+  comment), the debugger's writes to a terminal that may have gone (D37's
+  rule for standard error), and `infer`'s swallowed program failure —
+  **the one change**: it now says `bund2: warning: <file> failed while
+  running, so some words may be missing: …`, since a program that failed
+  before its `register` calls showed fewer words with no sign why. In the
+  library: the line editor's history load and save (a missing history is
+  not an error), `stdout` flushes, a CSV index rebuild that is a cache,
+  `oop`'s two discards the reference makes (`crates/bund2-stdlib/src/oop.rs`,
+  `object_execute_base`, whose doc says why), and
+  **`fs.ls` on an unreadable directory, which answers an empty list with no
+  diagnostic — as the reference does**
+  (`reference/Bund/src/stdlib/functions/filesystem/ls.rs:61`, `let _ =
+  scan.walk`). That last one is faithful and is left; reporting it would
+  be a deviation for a ruling. Panics: every native runs under
+  `catch_panic` in both tiers (D49); a panic anywhere else unwinds the
+  evaluation thread, whose join answers exit 1, under `human-panic`'s
+  hook. One edge stands: that hook `expect`s its own write to standard
+  error, so a panic with standard error closed aborts rather than exits —
+  the crate's code, not this workspace's, and not reachable by a program.
+- **Measured.** Default output on a pipe is byte-for-byte what it was
+  (`a_pipe_still_sees_the_reference_s_table`); the seven process-level
+  tests are `crates/bund2-cli/tests/cli_ux.rs`.
+
 ## D172 — `json.from_value` refuses a value nested deeper than the parser's limit
 
 **Raised 2026-10-15** by F209: `json.from_value` recurses a level at a time

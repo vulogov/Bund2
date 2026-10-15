@@ -116,8 +116,23 @@ fn level_named(text: &str) -> Option<Level> {
 /// its last `=`, which covers the `bund=info` shape the reference itself
 /// produces without reimplementing `env_logger`'s filter grammar. Anything
 /// unrecognised falls back to the default rather than guessing.
+static LEVEL: std::sync::OnceLock<Level> = std::sync::OnceLock::new();
+
+/// **Set the threshold by name before any program runs — D173.** The
+/// reference's `--debug` count raises `bund=info`, `bund=debug` or
+/// `bund=trace`; `bund2 -v`, `-vv` and `-vvv` do the same through this. An
+/// unknown name, or a call after the threshold was read, is refused and
+/// changes nothing.
+pub fn set_threshold(name: &str) -> Result<(), String> {
+    let level = level_named(name).ok_or_else(|| {
+        format!("`{name}` is not a log level (off, error, warning, info, debug, trace)")
+    })?;
+    LEVEL
+        .set(level)
+        .map_err(|_| "the log level was already read and cannot change".to_string())
+}
+
 fn threshold() -> Level {
-    static LEVEL: std::sync::OnceLock<Level> = std::sync::OnceLock::new();
     *LEVEL.get_or_init(|| {
         let Ok(raw) = std::env::var("BUND_LOG_LEVEL") else {
             return Level::Error;

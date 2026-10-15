@@ -20,6 +20,9 @@ use std::process::ExitCode;
 
 mod bundle;
 mod debugger;
+mod trace;
+#[macro_use]
+mod ui;
 
 /// Which oracle this binary was conformed against — RFC-0006 §B1.
 ///
@@ -93,6 +96,19 @@ use bund2_interp::Interp;
 /// an ordinary run-time error. It starts before the program and is stopped
 /// when the program's thread returns. `BUND2_OOM_GUARD_GB=0` disables it.
 fn main() -> ExitCode {
+    // **A panic that escapes is explained, not dumped — D173.** Bund2 does
+    // not panic (D37), and a native's dependency that does is caught and
+    // reported (D49). Anything that still reaches the top gets `human-panic`'s
+    // hook: a report file with the message and the backtrace, and a few lines
+    // saying where it is and what to do with it, instead of a Rust backtrace
+    // the reader cannot act on. Installed first, so the quiet hook D49 wraps
+    // around it finds it, and inert in a debug build or under `RUST_BACKTRACE`,
+    // where the plain backtrace is wanted.
+    human_panic::setup_panic!(
+        human_panic::Metadata::new("bund2", env!("CARGO_PKG_VERSION"))
+            .homepage(env!("CARGO_PKG_REPOSITORY"))
+            .support("report it with the program that produced it, at the repository's issues")
+    );
     let _oom_guard =
         bund2_host::memwatch::Guard::start(bund2_host::memwatch::Policy::from_env(), |t| {
             bund2_api::memguard::trip(bund2_api::memguard::Trip {
@@ -143,6 +159,28 @@ fn run_cli() -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
+
+    // **How loud — D173.** The flags are taken from wherever they stand
+    // before `--`, for every command alike; a bundle never reaches here, and
+    // reads `BUND2_VERBOSE` in `run_carried`. A level given on the command
+    // line also sets the threshold the program's `log.*` words emit at, as the
+    // reference's `--debug` count did.
+    let args = match ui::take_verbosity(args) {
+        Ok((args, level)) => {
+            if let Some(level) = level {
+                ui::set_level(level);
+                if let Err(e) = bund2_stdlib::logging::set_threshold(level.name()) {
+                    ui::warning!("{e}");
+                }
+            }
+            args
+        }
+        Err(e) => {
+            ui::error!("{e}");
+            return ExitCode::from(2);
+        }
+    };
+    ui::configure_colors(false);
 
     // `bund2 build --file <src> --output <path>` — RFC-0006.
     if args.first().map(String::as_str) == Some("build") {
@@ -281,6 +319,10 @@ struct Args {
     /// no tier to configure, and a uniform `conform` command line must not fail
     /// on the run that has none.
     jit_threshold: Option<u32>,
+    /// `--report auto|box|trace`: the reference's table or `ariadne`'s
+    /// traceback for a fatal report — D173. `auto` draws the traceback on a
+    /// terminal and the table on a pipe.
+    report: trace::Mode,
 }
 
 /// `script --file <path> [-- <args>…]`, the shape `conform` and the oracle
@@ -294,11 +336,18 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut jit_threshold: Option<u32> = None;
     let mut debugger = false;
     let mut debug_shell = false;
+    let mut report = trace::Mode::from_env();
     let mut host = bund2_stdlib::host::HostOptions::default();
     let mut script_args = Vec::new();
     while let Some(a) = it.next() {
         match a.as_str() {
             "script" => {}
+            "--report" => {
+                let v = it
+                    .next()
+                    .ok_or("--report needs a rendering: auto, box or trace")?;
+                report = trace::Mode::parse(v)?;
+            }
             "--file" => file = it.next().cloned(),
             "--dump-stack" => dump_stack = true,
             "--no-dump-stack" => dump_stack = false,
@@ -341,6 +390,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
         debug_shell,
         carried: false,
         jit_threshold,
+        report,
     })
 }
 
@@ -362,8 +412,15 @@ fn run_infer(src: &str, file: &str) -> ExitCode {
         return ExitCode::from(2);
     };
     // The program's own `register` calls are what put words in the table, so
-    // it has to run. Its failures are not this command's business.
-    let _ = vm.eval(&stream);
+    // it has to run. Its failure is not this command's to report as the
+    // program's, but it is said (D173): a program that failed before its
+    // `register` calls would otherwise show fewer words with no sign why.
+    if let Err(e) = vm.eval(&stream) {
+        ui::warning!(
+            "{file} failed while running, so some words may be missing: {}",
+            e.0
+        );
+    }
 
     let mut names: Vec<String> = vm.registry.lambda_names();
     names.sort();
@@ -455,6 +512,7 @@ fn run_check(src: &str, file: &str) -> ExitCode {
                 line: 0,
                 column: 0,
                 excerpt: None,
+                span: None,
             });
         bund2_api::errln!(
             "Warning: {}:{}:{}: `{}` needs {} value(s); {} can be proven here",
@@ -506,6 +564,7 @@ fn locate(src: &str, file: &str, span: bund2_syntax::Span) -> bund2_api::diag::L
         line,
         column,
         excerpt,
+        span: Some((span.start, span.end)),
     }
 }
 
@@ -533,6 +592,14 @@ fn run_carried(carried: &bundle::Carried, argv: Vec<String>) -> ExitCode {
         nocolor: env_set("BUND2_NOCOLOR"),
     };
 
+    // **`BUND2_VERBOSE` and `BUND2_REPORT`, since the flags are the
+    // program's — D173**, as the other `BUND2_*` switches are (§B3).
+    if let Some(level) = ui::level_from_env() {
+        ui::set_level(level);
+        if let Err(e) = bund2_stdlib::logging::set_threshold(level.name()) {
+            ui::warning!("{e}");
+        }
+    }
     let args = Args {
         // The path `bund2 build` was given, so a diagnostic from a bundle
         // names the file a `script` run of the same program would name.
@@ -563,6 +630,7 @@ fn run_carried(carried: &bundle::Carried, argv: Vec<String>) -> ExitCode {
         // `debug.break` would otherwise wait at a prompt wherever it was
         // deployed, for as long as its input stayed open.
         carried: true,
+        report: trace::Mode::from_env(),
     };
     bund2_stdlib::host::set_args(args.script_args.clone());
     match run(&carried.source, &args) {
@@ -716,34 +784,62 @@ fn build(args: &[String]) -> ExitCode {
             flags,
         }) => (src_path, out_path, flags),
         Err(why) => {
-            bund2_api::errln!("bund2: build: {why}");
-            bund2_api::errln!("bund2: {BUILD_USAGE}");
-            bund2_api::errln!("bund2: nothing was written");
+            ui::error!("build: {why}");
+            ui::error!("{BUILD_USAGE}");
+            ui::error!("nothing was written");
             return ExitCode::from(2);
         }
     };
+    // **Six steps, drawn on a terminal and silent on a pipe — D173.** Every
+    // failure clears the bar before it is reported, so the report is the
+    // last thing on the line, and every step says what it did at `info`.
+    let bar = ui::progress(6, "build");
+    let fail = |bar: &indicatif::ProgressBar, code: ExitCode, why: std::fmt::Arguments<'_>| {
+        bar.finish_and_clear();
+        ui::error!("{why}");
+        code
+    };
+
+    bar.set_message(format!("reading {src_path}"));
     let src = match std::fs::read_to_string(&src_path) {
         Ok(s) => s,
         Err(e) => {
-            bund2_api::errln!("bund2: reading {src_path}: {e}");
-            return ExitCode::FAILURE;
+            return fail(
+                &bar,
+                ExitCode::FAILURE,
+                format_args!("reading {src_path}: {e}"),
+            );
         }
     };
-    // The parse, discarded on success and reported on failure.
-    if let Err(e) = bund2_syntax::parse(&src) {
-        let loc = locate(&src, &src_path, e.span);
-        bund2_api::errln!("bund2: {src_path}:{}:{}: {}", loc.line, loc.column, e.what);
-        bund2_api::errln!("bund2: nothing was written");
-        return ExitCode::FAILURE;
-    }
+    ui::info!("read {src_path}: {} bytes", src.len());
+    bar.inc(1);
 
+    // The parse, discarded on success and reported on failure.
+    bar.set_message("parsing the program");
+    match bund2_syntax::parse(&src) {
+        Ok(terms) => ui::info!("parsed {src_path}: {} top-level terms", terms.len()),
+        Err(e) => {
+            let loc = locate(&src, &src_path, e.span);
+            bar.finish_and_clear();
+            ui::error!("{src_path}:{}:{}: {}", loc.line, loc.column, e.what);
+            ui::error!("nothing was written");
+            return ExitCode::FAILURE;
+        }
+    }
+    bar.inc(1);
+
+    bar.set_message("locating this executable");
     let exe = match std::env::current_exe() {
         Ok(p) => p,
         Err(e) => {
-            bund2_api::errln!("bund2: cannot locate this executable to copy: {e}");
-            return ExitCode::FAILURE;
+            return fail(
+                &bar,
+                ExitCode::FAILURE,
+                format_args!("cannot locate this executable to copy: {e}"),
+            );
         }
     };
+    ui::debug!("the runtime to copy is {}", exe.display());
     // **Refuse to overwrite the binary doing the building.**
     //
     // `bund2 build --output $(which bund2)` succeeded, reported success, and
@@ -762,12 +858,15 @@ fn build(args: &[String]) -> ExitCode {
             .map(|e| e == existing)
             .unwrap_or(false)
     {
-        bund2_api::errln!(
-            "bund2: --output is this binary ({out_path}). Building over the \
+        return fail(
+            &bar,
+            ExitCode::FAILURE,
+            format_args!(
+                "--output is this binary ({out_path}). Building over the \
                  executable doing the building would replace the interpreter with \
-             the artefact. Nothing was written."
+                 the artefact. Nothing was written."
+            ),
         );
-        return ExitCode::FAILURE;
     }
     // **Nor over the program it was given.** `--file p.bund --output p.bund`
     // exited 0 and left `p.bund` an executable: the source was read, then
@@ -777,45 +876,82 @@ fn build(args: &[String]) -> ExitCode {
     if let Ok(source) = std::fs::canonicalize(&src_path)
         && destination(&out_path) == source
     {
-        bund2_api::errln!(
-            "bund2: --output is the program being built ({out_path}). The artefact \
-             would replace its own source. Nothing was written."
+        return fail(
+            &bar,
+            ExitCode::FAILURE,
+            format_args!(
+                "--output is the program being built ({out_path}). The artefact \
+                 would replace its own source. Nothing was written."
+            ),
         );
-        return ExitCode::FAILURE;
     }
+    ui::trace!(
+        "the artefact will be placed at {}",
+        destination(&out_path).display()
+    );
+    bar.inc(1);
+
+    bar.set_message("reading the runtime image");
     let mut image = match std::fs::read(&exe) {
         Ok(b) => b,
         Err(e) => {
-            bund2_api::errln!("bund2: reading {}: {e}", exe.display());
-            return ExitCode::FAILURE;
+            return fail(
+                &bar,
+                ExitCode::FAILURE,
+                format_args!("reading {}: {e}", exe.display()),
+            );
         }
     };
-    if let Err(e) = bundle::write_into(
-        &mut image,
-        &src,
-        &src_path,
-        flags,
+    ui::info!("read the runtime: {} bytes", image.len());
+    bar.inc(1);
+
+    bar.set_message("writing the program into the image");
+    let (version, features, pinned) = (
         env!("CARGO_PKG_VERSION"),
-        &features_built_in(),
-        &pinned_summary(),
+        features_built_in(),
+        pinned_summary(),
+    );
+    ui::debug!(
+        "trailer: version {version}, features {}, flags {flags:#04x}, pinned {}",
+        if features.is_empty() {
+            "default"
+        } else {
+            features.as_str()
+        },
+        if pinned.is_empty() {
+            "(none)"
+        } else {
+            pinned.as_str()
+        }
+    );
+    if let Err(e) = bundle::write_into(
+        &mut image, &src, &src_path, flags, version, &features, &pinned,
     ) {
-        bund2_api::errln!("bund2: {e}");
-        return ExitCode::FAILURE;
+        return fail(&bar, ExitCode::FAILURE, format_args!("{e}"));
     }
+    ui::info!(
+        "wrote the program into the image: {} of {} bytes used",
+        src.len(),
+        bundle::CAPACITY
+    );
+    bar.inc(1);
+
+    bar.set_message(format!("placing {out_path}"));
     if let Err(e) = place(&out_path, &image) {
-        bund2_api::errln!("bund2: {e}");
-        return ExitCode::FAILURE;
+        return fail(&bar, ExitCode::FAILURE, format_args!("{e}"));
     }
-    bund2_api::errln!(
-        "bund2: wrote {out_path} — {} of {} bytes used",
+    bar.inc(1);
+    bar.finish_and_clear();
+    ui::error!(
+        "wrote {out_path} — {} of {} bytes used",
         src.len(),
         bundle::CAPACITY
     );
     // **Said, not left to be discovered.** The recorded path is what a bundle's
     // diagnostics name (§B3), and it is kept whole only while it fits.
     if src_path.len() > bundle::SOURCE_NAME_BYTES {
-        bund2_api::errln!(
-            "bund2: the source path is {} bytes and a bundle records the last {}. \
+        ui::warning!(
+            "the source path is {} bytes and a bundle records the last {}. \
              Diagnostics from this artefact name the shortened path.",
             src_path.len(),
             bundle::SOURCE_NAME_BYTES
@@ -875,6 +1011,10 @@ fn place(out_path: &str, image: &[u8]) -> Result<(), String> {
     })?;
     let staged = scratch.join(name);
     let staged_text = staged.to_string_lossy().into_owned();
+    ui::debug!(
+        "staging the artefact at {staged_text}, then renaming it to {}",
+        dest.display()
+    );
     let done = std::fs::write(&staged, image)
         .map_err(|e| format!("writing {out_path}: {e}"))
         .and_then(|()| {
@@ -945,6 +1085,7 @@ fn destination(out_path: &str) -> std::path::PathBuf {
 /// none by default, so the bytes just written are the bytes that run.
 #[cfg(target_os = "macos")]
 fn reseal(path: &str, shown: &str) -> Result<(), String> {
+    ui::debug!("signing {shown} ad hoc: /usr/bin/codesign -f -s - {path}");
     let out = std::process::Command::new("/usr/bin/codesign")
         .args(["-f", "-s", "-", path])
         .output()
@@ -975,14 +1116,14 @@ fn inspect(path: &str) -> ExitCode {
     let image = match std::fs::read(path) {
         Ok(b) => b,
         Err(e) => {
-            bund2_api::errln!("bund2: reading {path}: {e}");
+            ui::error!("reading {path}: {e}");
             return ExitCode::FAILURE;
         }
     };
     let seen = match bundle::inspect(&image) {
         Ok(s) => s,
         Err(e) => {
-            bund2_api::errln!("bund2: {path} is not a bund2 artefact: {e}");
+            ui::error!("{path} is not a bund2 artefact: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -1263,9 +1404,28 @@ fn run(src: &str, args: &Args) -> Option<i32> {
     };
     let startup_defect = rt.take_startup_defect();
     let vm = &mut rt.interp;
+    ui::configure_colors(args.host.nocolor);
     let mut reporter = bund2_stdlib::report::TextReporter::new(args.dump_stack);
     reporter.raw_values = args.raw_values;
-    vm.reporter = Box::new(reporter);
+    reporter.quiet = ui::level() < ui::Level::Warning;
+    // **D173: the table, or the traceback in front of it.** One reporter on
+    // the seam either way; what differs is the drawing.
+    let traces = args.report.traces();
+    ui::debug!(
+        "reporting {} ({})",
+        if traces {
+            "tracebacks"
+        } else {
+            "the reference's table"
+        },
+        match args.report {
+            trace::Mode::Auto => "auto: standard output is a terminal, or is not",
+            trace::Mode::Box => "--report box",
+            trace::Mode::Trace => "--report trace",
+        }
+    );
+    vm.reporter = Box::new(trace::TraceReporter::new(reporter, src, file, traces));
+    ui::info!("running {file}, {} bytes", src.len());
     // Found while the runtime was assembled, before this reporter existed.
     if let Some(e) = startup_defect {
         bund2_api::Vm::report(vm, bund2_api::diag::Diagnostic::warning(e.0));
@@ -1318,7 +1478,13 @@ fn run(src: &str, args: &Args) -> Option<i32> {
         }
     };
     let lowered = bund2_syntax::lower_with_spans(&terms, src.len());
+    ui::debug!(
+        "parsed {} top-level terms, lowered to {} values",
+        terms.len(),
+        lowered.values.len()
+    );
     if let Err((i, e)) = vm.eval_indexed(&lowered.values) {
+        ui::trace!("value {i} of the top-level stream failed: {}", e.0);
         let mut d = bund2_api::diag::Diagnostic::error(e.0);
         if let Some(span) = lowered.span_of(i) {
             d = d.at(locate(src, file, span));

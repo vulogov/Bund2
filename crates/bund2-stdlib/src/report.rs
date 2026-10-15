@@ -48,6 +48,10 @@ pub struct TextReporter {
     /// The widest a report may be. Bounds both the table and each value inside
     /// it, so nothing wraps into unreadability.
     pub width: usize,
+    /// Drop `Warning` lines. For `bund2 -q` (D173): a caller that asked for
+    /// quiet gets errors, which have stopped the program, and notices, which
+    /// the program asked to have said, and nothing else.
+    pub quiet: bool,
     /// Where the fatal report goes. Stdout, as the reference's does, because
     /// the goldens capture it there.
     fatal_to_stdout: bool,
@@ -59,6 +63,7 @@ impl Default for TextReporter {
             dump_stack: true,
             raw_values: false,
             width: terminal_width(),
+            quiet: false,
             fatal_to_stdout: true,
         }
     }
@@ -332,7 +337,10 @@ fn end_if_full(current: &mut String, room: usize, lines: &mut Vec<String>) {
 ///
 /// `debug.display_stack` keeps the raw rendering and the unbounded box, because
 /// the goldens capture it byte for byte. Only the *report* summarises.
-fn stack_box(rows: &[String]) -> String {
+///
+/// Public since D173, so a reporter that renders the report its own way can
+/// still show the stack as this one does.
+pub fn stack_box(rows: &[String]) -> String {
     crate::console::draw_box_rows(rows)
 }
 
@@ -357,6 +365,9 @@ impl Reporter for TextReporter {
 
     fn report(&mut self, d: &Diagnostic) {
         if !d.severity.is_fatal() {
+            if self.quiet && d.severity == Severity::Warning {
+                return;
+            }
             // Mindful: one line, on stderr, no table and no stack. A warning
             // that interrupts the program's own output is worse than one that
             // is easy to miss.
@@ -416,6 +427,7 @@ mod tests {
             line: 3,
             column: 5,
             excerpt: Some("  1 +".into()),
+            span: None,
         });
         let text = r.render_fatal(&d);
         assert!(text.contains("Stack is too shallow"), "{text}");
@@ -492,6 +504,7 @@ mod tests {
                         line: 3,
                         column: 5,
                         excerpt: Some(drawn(&mut seed, 2 + round * 2)),
+                        span: None,
                     });
                 }
                 let r = TextReporter {
@@ -518,6 +531,7 @@ mod tests {
             line: 1,
             column: 1,
             excerpt: Some(format!("\"{word}\" use")),
+            span: None,
         });
         let text = TextReporter {
             width: 100,

@@ -63,6 +63,10 @@ pub struct Location {
     /// The source line itself, so a reporter can show it without re-reading
     /// the file — and so a TUI can highlight within it.
     pub excerpt: Option<String>,
+    /// The byte range of the term in the source, when the parser gave one.
+    /// `line` and `column` say where a reader looks; this says what a
+    /// renderer underlines (D173), and a TUI can select it.
+    pub span: Option<(usize, usize)>,
 }
 
 impl std::fmt::Display for Location {
@@ -91,6 +95,12 @@ pub struct Diagnostic {
     /// The stack the program was on. A multi-stack language can fail on a
     /// stack the reader did not expect to be current.
     pub stack_name: Option<String>,
+    /// The bodies that were running when a fatal error was raised, innermost
+    /// first, one line each — the Bund traceback (D173). **Present only when
+    /// the reporter asked** ([`Reporter::wants_frames`]), since the evaluator
+    /// renders it at the failure, before the frames unwind, and a program
+    /// that catches errors in a loop would pay for every one.
+    pub frames: Option<Vec<String>>,
 }
 
 impl Diagnostic {
@@ -102,6 +112,7 @@ impl Diagnostic {
             stack: None,
             workbench: None,
             stack_name: None,
+            frames: None,
         }
     }
 
@@ -136,6 +147,11 @@ impl Diagnostic {
 
     pub fn with_workbench(mut self, rows: Vec<String>) -> Self {
         self.workbench = Some(rows);
+        self
+    }
+
+    pub fn with_frames(mut self, frames: Vec<String>) -> Self {
+        self.frames = Some(frames);
         self
     }
 }
@@ -185,6 +201,13 @@ pub trait Reporter {
     /// a row can never overflow the terminal.
     fn value_width(&self) -> usize {
         100
+    }
+
+    /// Whether a fatal diagnostic should carry the frames that were running
+    /// — [`Diagnostic::frames`]. Off by default: the evaluator renders them
+    /// at the failure, and nothing should pay for a traceback nobody shows.
+    fn wants_frames(&self) -> bool {
+        false
     }
 }
 
@@ -239,6 +262,7 @@ mod tests {
             line: 3,
             column: 5,
             excerpt: None,
+            span: None,
         });
         assert_eq!(d.reason, "Stack is too shallow");
         assert_eq!(d.location.unwrap().to_string(), "p.bund:3:5");
