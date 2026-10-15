@@ -30,6 +30,8 @@
 
 use std::io;
 
+pub mod memwatch;
+
 /// The four `uname` strings the words read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Uname {
@@ -203,7 +205,7 @@ pub fn memory() -> io::Result<Memory> {
 unsafe extern "C" {
     /// `libc` declares the call that makes the host port and not the one
     /// that gives it back.
-    fn mach_port_deallocate(
+    pub(crate) fn mach_port_deallocate(
         task: libc::mach_port_t,
         name: libc::mach_port_t,
     ) -> libc::kern_return_t;

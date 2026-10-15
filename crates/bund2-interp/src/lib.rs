@@ -1075,14 +1075,24 @@ impl Interp {
     /// the one place its key is observed (D42, RFC-0005 criterion 20), and
     /// therefore **the one place Tier 1 is offered it** (RFC-0005's seam).
     ///
-    /// Returns `Err` only when a tier ran the body and it failed; an
-    /// interpreted body's failure comes later, from `run_to`.
+    /// Returns `Err` when a tier ran the body and it failed, or when the OOM
+    /// guard has tripped; an interpreted body's failure comes later, from
+    /// `run_to`.
     fn push_frame(
         &mut self,
         body: BundValue,
         exit: Option<ExitAction>,
         who: Option<Symbol>,
     ) -> Result<(), Error> {
+        // **D171's OOM guard.** Every body starts here, so a program that
+        // grows by calling — a word that calls itself forever, a loop pushing
+        // a value per round — reaches this within one call of the trip. The
+        // body is refused before it has a frame, and the error leaves the way
+        // any failing call does: reported with its backtrace and stack, and
+        // catchable by `?try`. One relaxed load when nothing is pending.
+        if let Some(trip) = bund2_api::memguard::take() {
+            return Err(trip.error());
+        }
         if let Some(who) = self.audit_inside {
             self.audit_breach(who, "declares a fixed effect and started a body");
         }
@@ -1804,7 +1814,8 @@ impl Vm for Interp {
         // body it is running belongs to no word.
         //
         // **F189: its failure is wrapped like any other.** `push_frame`
-        // answers `Err` only when a tier ran the body and it failed, and that
+        // answers `Err` when a tier ran the body and it failed (or, since
+        // D171, when the OOM guard tripped), and that
         // error used to leave through `?`, past the `map_err` below — so a
         // hot body failing under `map` or `?try` lost the wrapper an
         // interpreted one carries, and `?try`'s `context` slot differed by

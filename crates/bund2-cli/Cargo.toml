@@ -26,6 +26,9 @@ bund2.workspace = true
 # `--features jit` enabled a feature on code that never ran and every
 # measurement compared Tier 0 with itself.
 bund2-runtime.workspace = true
+# The OOM guard's thread and readings (D171). The flag it trips is
+# `bund2_api::memguard`, which the interpreter reads.
+bund2-host.workspace = true
 
 [features]
 default = []

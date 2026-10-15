@@ -3649,6 +3649,82 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D171 — an OOM guard: a program driving the host out of memory fails with a run-time error
+
+**Raised 2026-10-15** after a Bund2 program took the host down. During a
+stability pass, `:f { f } register f` was run on macOS without a limit: a
+word calling itself has no depth limit, since RFC-0003's frame loop puts
+frames on the heap, so the process grew to 18.4 GB in about two minutes,
+eight fuzz runs beside it held 0.8 to 2.2 GB each, and the machine ended in a
+kernel watchdog panic with "LOW swap space"
+(`/Library/Logs/DiagnosticReports/panic-full-2026-10-15-133152.0002.panic`,
+read that day). macOS does not kill such a process cleanly; it compresses,
+swaps and starves its own daemons. A search of `reference/` for a memory
+guard (`memory_pressure`, `memorystatus`, `oom`, `out of memory`, `rlimit`)
+found none, so the reference behaves the same way and no golden can see the
+difference: this changes what happens past the point where the reference
+stops answering.
+
+- Blocks: nothing
+- Depends on: D37, D36, RFC-0003, RFC-0005 §S8
+- Options:
+  - **A.** No guard; document that unbounded programs need an external limit.
+  - **B.** The guard in the owner's `plakat` (`src/memwatch.rs` there): a
+    thread reads the kernel's memory-pressure level, attributes the pressure
+    to the process, and exits with 137.
+  - **C.** B's detection, with the trip turned into an ordinary run-time
+    error at the program's next call instead of an exit.
+- Status: **RESOLVED** by the repository owner, 2026-10-15: "review OOM guard
+  implementation in ../plakat and implement the same in bund2", then "OOM
+  guard in bund2 must cause same app failures (with stack trace and
+  everything) as any other run-time errors" — C. An exit would also have been
+  a `process::exit`, which D37 forbids.
+
+### Built, the same day
+
+- **Detection, `bund2_host::memwatch`.** `plakat`'s design: the kernel's
+  level (`kern.memorystatus_vm_pressure_level`) on macOS, never a free-RAM
+  figure there; available memory against a floor elsewhere, read from the
+  cgroup v2 limit when the process runs under one; attribution by a quarter
+  of the memory resident or a 4 GB fall since arming; an acute trip when
+  available memory and free swap are both under the floor, a sustained one
+  after about 1.5 s of critical pressure. `BUND2_OOM_GUARD_GB` sets the floor
+  (default 1.5, `0` disables) and `BUND2_OOM_GUARD_SUSTAINED` the window in
+  samples. The decision is a pure `Watch::step` over samples, tested apart
+  from the host.
+- **Three departures from `plakat`, each measured.** In a 512 MB container a
+  release build's runaway recursion grew 6, 153, 301 and 450 MB at 50 ms
+  steps, about 3 GB a second, and with `plakat`'s 100 ms sample the kernel
+  killed four runs of five before the guard looked. So: the sample is 25 ms;
+  the fall since the last sample is counted twice against what is left, so a
+  fast fall trips before the next look would be too late; and the floor is
+  capped at a tenth of the memory, without which a container smaller than
+  1.5 GB read as always below it and the guard stopped programs at a quarter
+  of their limit. The guard is armed on every host, not only where `plakat`
+  arms it (Metal), since the failure it prevents is the CPU's here.
+- **The trip, `bund2_api::memguard`.** A process-wide flag the thread sets
+  and `Interp::push_frame` takes — the one place a body starts running — and
+  turns into `Trip::error`, a plain `Error`: not `Error::internal`, reported
+  with its location, source and stack like any other, and catchable by
+  `?try`. One relaxed load per call when nothing is pending. The CLI starts
+  the guard in `main` before the evaluation thread, so scripts, bundles and
+  the debugger all have it.
+- **Measured.** In a 512 MB container with no swap, release build: runaway
+  recursion and runaway stack growth stopped by the guard five times of five
+  each, at about 0.4 GB resident, with the report every run-time error has;
+  with the guard disabled both were killed by the kernel (137, "Killed").
+  Programs that grew to about 65% and 76% of the limit and then finished ran
+  to the end five times of five each. fib(30), best of seven on the
+  development Mac: 0.484 s before, 0.491 s after; an empty program 3.66 ms
+  before, 3.71 ms after.
+- **What it does not cover.** A native that allocates everything in one call
+  is not interrupted: the check is at the next call, and the thread only
+  samples. `seq` given a config whose `N` is huge collects that many values
+  at once (`crates/bund2-stdlib/src/seq.rs`, `seq`), which is the known case.
+  The macOS path was not run against real pressure, since that is the
+  failure being prevented; its readings are tested on the host
+  (`this_host_answers_every_reading`) and its decisions with samples.
+
 ## D170 — the push of a shared lambda literal, and the tag it is copied for
 
 **Raised 2026-10-15** while profiling `bund_examples/fibonacci` after the

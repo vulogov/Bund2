@@ -1,6 +1,6 @@
 [package]
 name = "bund2-host"
-description = "What the machine says about itself: uname, memory, virtualization. See D152."
+description = "What the machine says about itself: uname, memory, virtualization (D152), and the OOM guard (D171)."
 version.workspace      = true
 edition.workspace      = true
 license.workspace      = true

@@ -86,7 +86,21 @@ use bund2_interp::Interp;
 /// two numbers every `Interp` on the thread takes a floor, and recursion that
 /// reaches it is reported as a Bund-level error instead of aborting the
 /// process. Output, input and the exit code all pass straight through.
+///
+/// **The OOM guard runs beside it — D171.** A thread samples the host and,
+/// when this process is driving it to critical memory pressure, trips the
+/// flag the interpreter reads at its next call, where the program fails with
+/// an ordinary run-time error. It starts before the program and is stopped
+/// when the program's thread returns. `BUND2_OOM_GUARD_GB=0` disables it.
 fn main() -> ExitCode {
+    let _oom_guard =
+        bund2_host::memwatch::Guard::start(bund2_host::memwatch::Policy::from_env(), |t| {
+            bund2_api::memguard::trip(bund2_api::memguard::Trip {
+                resident: t.resident,
+                available: t.available,
+                swap_free: t.swap_free,
+            })
+        });
     let spawned = std::thread::Builder::new()
         .name("bund2".into())
         .stack_size(bund2_runtime::EVAL_STACK)

@@ -325,6 +325,7 @@ version = "0.51.0"
 dependencies = [
  "bund2",
  "bund2-api",
+ "bund2-host",
  "bund2-interp",
  "bund2-runtime",
  "bund2-stdlib",

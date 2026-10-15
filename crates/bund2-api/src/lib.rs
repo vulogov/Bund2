@@ -30,6 +30,7 @@
 
 pub mod diag;
 pub mod input;
+pub mod memguard;
 pub mod out;
 
 use std::collections::HashMap;
