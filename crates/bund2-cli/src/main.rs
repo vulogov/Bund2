@@ -40,9 +40,8 @@ fn features_built_in() -> String {
     }
     // `relocation-test` is not recorded: it compiles a test and nothing a
     // bundle carries. As `aot` it was, and a bundle said so of itself (D134).
-    if cfg!(feature = "async") {
-        on.push("async");
-    }
+    // Nor is `async`: this crate has no such feature, since nothing here
+    // runs the host (D168).
     // **Asked of the crate that owns the feature.** `grok` is `bund2-stdlib`'s
     // and this crate does not declare it, so a `cfg!` here would always be
     // false and a runtime carrying `string.grok` would record itself as a

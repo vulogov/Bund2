@@ -33,7 +33,8 @@ default = []
 # re-exports nothing, so a feature routed through it reached no code (F124).
 relocation-test = ["bund2/relocation-test", "bund2-runtime/relocation-test"]
 jit   = ["bund2/jit", "bund2-runtime/jit"]
-async = ["bund2/async"]
+# No `async`: the façade's feature links `bund2-async` and the CLI names
+# none of it, so a feature here changed only a bundle's record (D168).
 
 # `tests/terminal.rs` drives the binary at a pseudo-terminal: the prompt, its
 # editing and its history exist only where standard input is a terminal, and a

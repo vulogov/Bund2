@@ -195,6 +195,11 @@ converting from binary: {err}` after logging the same text at `ERROR`
 reaches it by sending a JSON value inside a container, which `send` accepts
 and no decoder reads (F208). Bund2 now refuses that value at `send` (D166),
 so in Bund2 the arm exists and no program reaches it.)*
+*(Later the same day, the sixth review's M2: three **reachable** arms. A
+fourth, `bus::internal::pipe {name} can not recv` (`bus/mod.rs:146`;
+`crates/bund2-stdlib/src/bus.rs`, `pull`), fires only on a disconnected
+channel, and none disconnects: the map holds every channel's sender and no
+channel is removed. Dead on both sides.)*
 
 **And two channels exist before any program runs.** `"in"` and `"out"` are
 inserted at initialisation (`bus/mod.rs:46-47`), so `"in" recv` yields `NODATA`
@@ -313,6 +318,21 @@ declines below is moot rather than declined.)*
 *(Later the same day, the fourth review's M2: `wrap` is
 `value_class.rs:83-106` and `unwrap` `:108-125`; the range above starts
 inside `wrap`.)*
+
+*(Later 2026-10-14, the seventh review's S2: **the correction above
+corrected the wrong half of the research's sentence.** The method the
+research named exists and does what it said: `Value::wrap` serialises with
+`to_binary` and returns `Value::make_envelope`, and `Value::unwrap` requires
+an ENVELOPE and decodes it with a fresh id
+(`reference/rust_dynamic/src/bincode.rs:79-103`). What does not hold is the
+clause after it, that the language "already has a word for" it: no Bund word
+calls either method, and the words named `wrap` and `unwrap` are the OOP
+`.data` words above. And "no Bund program can put an ENVELOPE on the stack"
+is true of Bund2's vocabulary, not of the language: the reference's `image`
+words push ENVELOPE values (`reference/Bund/src/stdlib/functions/image/image_class.rs:36,48,100`),
+and they are deferred under D28. The conclusion stands — the bus uses
+neither method (`bus/mod.rs:88`), and the alternative is moot. ERRATA has
+the correction.)*
 
 **So there are two layers, not a contradiction**, and this RFC keeps them
 apart: the bus's payload is raw bincode bytes, invisible to the program;
@@ -477,6 +497,7 @@ the ninth review's S3, checked for the bundle by RFC-0006's criterion 6,
 "The front end declares its Tier 1 share"
 (`docs/rfc/RFC-0006-ahead-of-time-output.md:2203-2206`). Criterion 10
 below has the same slip.)*
+*(Later the same day, the sixth review's M1: `:2204-2207`.)*
 
 **`bund2-async` is where this goes.** The crate exists as a twelve-line stub
 whose doc reads "Executor integration and async native words. Feature-gated.
@@ -498,6 +519,16 @@ So an embedder reaches §C8 only by depending on `bund2-async` directly,
 and every test of criteria 10 to 14 is in the crate. What the façade
 should expose is RFC-0000's question, about every crate it names, and is
 not answered here.)*
+*(Later 2026-10-14, the seventh review's S1: **"nothing shipped links the
+crate" is false for one build.** `bund2-cli` declares `async =
+["bund2/async"]`, so `bund2` built with `--features async` links
+`bund2-async` through the façade and reaches none of its code, and its
+bundle records `async` among its features (`bund2-cli`'s
+`features_built_in`). That is F124's shape, which the manifest's comment
+two lines above names. **D168**.)*
+*(Later 2026-10-14: D168 ruled B. The CLI no longer declares `async`, so
+no shipped build links the crate; the façade's feature is the embedding
+question above.)*
 
 #### `PIPES` stays process-global, which is what makes it a bus
 
@@ -669,6 +700,41 @@ which has none. Rows added on this date:)*
 | `--nocolor` in a spawned VM | **The host's**, with `noio` and `noeval` (D165; `HostOptions` has all three). |
 | how an embedder reaches the host | **By depending on `bund2-async`.** No binary links it, and the `bund2` façade's `async` feature links it and re-exports nothing (§C8's note). |
 | two `Host`s in one process | **Share `PIPES`**, and so every channel, `main` and the pre-created `in` and `out` among them: the map is process-global, not the host's. |
+
+*(Later 2026-10-14, the sixth review. **The write row above is corrected**:
+`encode.base64.` refuses too, and "under their own prefixes" was one layer
+short for `save`, whose inner texts — `Error converting data to blob:` for a
+stack value, `Error compiling lambda body:` for a lambda — Bund2 dropped
+until this date; restored, and held by
+`a_refused_value_is_refused_in_the_references_words`. `save.model` and `save`
+were run by the review and refuse. Rows added on this date:)*
+
+| behaviour | disposition |
+|---|---|
+| `dup` of a JSON value inside a container | **Deliberately changed — F13's FIX.** The oracle's `dup` is the codec's round trip (`reference/rust_dynamic/src/dup.rs:6-19`) and refuses it: `Error duplicating data in current stack: dup() returns: …`, measured. Bund2's is a structural clone and copies it. So a reference program could never have copied such a value, which narrows D166's risk. The `many` family is the same call and is not measured. |
+| a refused `save` | **D167, open.** Aliases and lambdas are replaced before the stacks are refused, each family its own transaction; the oracle, whose codec does not refuse, writes everything. *(Later the same day: **D167, ruled C** — `save` is one transaction, so a refused `save` leaves the world as it was. Held by `a_refused_save_leaves_the_world_as_it_was`. A failure state now differs from the reference's, which leaves partial rows on any failure.)* |
+| bytes the oracle wrote, read by Bund2 | **Refused at the read, as in the oracle.** A world file or a base64 string holding a JSON value inside a container, written by the reference, fails Bund2's `load`, `load.model` and `decode.base64` with bincode 2's reason under each word's prefix, as the oracle's own readers fail. Read from the codec, not run; the `recv` row is the bus's case of this, and was run. |
+
+*(Later 2026-10-14, the seventh review, which ran the last row: **it is
+wrong for two of its three words.** A base64 string the oracle wrote fails
+Bund2's `decode.base64` as the row says: `DECODE.BASE64 unwrapping object
+returned: Serde(AnyNotSupported)`, where the oracle's own reads the
+same bytes and fails with bincode's text. **A world file the oracle wrote
+does not reach Bund2's codec at all**: the reference's world file is SQLite
+and Bund2's is redb (D27), so `load` answers `Open world operation returns:
+I/O error: Not a redb database: magic number mismatch` — measured again
+here on a world holding only `7` — and `load.model` opens the file the same
+way. Bund2 reads no world file the reference wrote, whatever it holds. And
+the `recv` row is not "the bus's case of this": the bus is in-process, so
+no bytes the oracle wrote reach a Bund2 `recv`; that row measured Bund2's
+own decoder on bytes it never writes now. The row's "Read from the codec,
+not run" was the label; the codec was the wrong place to read. Two rows
+for the depth refusal and the world file:)*
+
+| behaviour | disposition |
+|---|---|
+| a value nested past 256 levels, at every write | **Deliberately changed — F118's FIX, and D114 at the bus.** The bound is in the codec, so every word that encodes refuses: the four `send` forms, `encode.base64` and `encode.base64.`, `save.model`, `save`, `save.lambdas`, `save.stacks` and `debug.dump`. Measured by the seventh review: a lambda holding a list literal 300 deep, and the same list on a stack, which the oracle saves. The row above, "at `send`", is the bus's case of this one. `save`'s and `save.lambdas`'s text is held by `a_refused_value_is_refused_in_the_references_words`. |
+| a world file the reference wrote | **Not readable by Bund2 — D27.** Refused at the open, for every value, by redb's magic number. |
 
 ## Alternatives considered
 
@@ -1100,7 +1166,7 @@ not answered, which the review calls the finding in itself.
 - **S5, the documents this one feeds.** RFC-0000's feature policy has a
   note: `bus` is not gated. **RFC-0001's hand-off** — "RFC-0007 inherits the
   question rather than an answer. Making `BundValue` shareable…"
-  (`docs/rfc/RFC-0001-value.md:825-826`) — is answered by this RFC: values
+  (`docs/rfc/RFC-0001-value.md:825-826`; *now `:832-833`*) — is answered by this RFC: values
   are not made shareable; bytes cross (§C2, D86). **RFC-0002's forward
   constraint** — "per-stack dispatch, when RFC-0007 needs it, is the single
   order with the stack as a parameter" (`docs/rfc/RFC-0002-symbols-and-words.md:68-71`)
@@ -1211,9 +1277,87 @@ counts only with a tier; the Depends note's missing decisions; D40 as an
 analogy; `:627-629`; the probe reads `"in"` only. The cast row's "a
 failed cast has already consumed the object and the name" is of the four
 `send` forms, which are what `:57-72` covers.
+*(Later the same day, the seventh review's M3: `:57-72` covers `send` and
+`send.`; the quick forms are `:96-111`.)*
 
 **Not done.** `docs/arity.md` still lists the eight words as not probed;
 `cargo xtask arity` was not re-run. Whether `debug.dump` should be exempt
 from D166 — nothing reads its bytes back — would be a further decision.
 No decision this RFC rests on is open.
+
+## Amendment, later 2026-10-14 — the sixth review
+
+Answers `docs/rfc/reviews/RFC-0007-review-2026-10-14-4.md`, which ran D166
+against the two writers D166 had not run, and found the one blocker there.
+
+**Blocking.** **B1, a refused `save`.** `save` is three transactions *(four: the seventh review's M2)*, and a
+refusal in the second or third leaves the first ones written. That shape
+predates D166 — D114's depth refusal takes the same path — and the
+reference's `save` has it too, with no transaction at all, but only Bund2's
+codec refuses this value. Whether a refused `save` may leave a partly
+written world is **D167, open**, recommending one transaction for the
+whole `save`. A row records it meanwhile.
+
+**Significant.**
+- **S1, the reference's `dup`.** It is the codec's round trip and refuses
+  the value; Bund2's copies it. An addendum to F13, whose FIX is the
+  reason, a note on F208 and D166, and a row.
+- **S2, `save`'s text.** The reference's inner texts are restored at both
+  sites, with a test.
+- **S3, RFC-0001.** A dated note at its codec paragraph names both
+  refusals.
+
+**Rows.** Three added — `dup`, a refused `save`, and bytes the oracle wrote —
+and the write row corrected for `encode.base64.` and `save`'s text.
+
+**Minor.** M1 and M2 are notes where they stand: `RFC-0006:2204-2207`; a
+fourth `bus_pull` arm, dead on both sides because no channel disconnects.
+M3 is the write row's note. M4: `save.model` and `save` were run by the
+review and refuse, `save` as B1 describes. M5: the fourth review's
+assumption 6 is moot, its own oracle run having been completed by the
+fifth; its assumption 7, that criterion 11's two VMs never coexist, is what
+criterion 11 says, the overlap being criteria 12's and 13's.
+
+**Not done.** As before: `docs/arity.md`, and `debug.dump`'s exemption.
+**D167 is open**, and acceptance waits on it.
+*(The ruling below closes it.)*
+
+**Ruling, later the same day.** D167: C — `save` writes its four steps in
+one transaction, built and tested; the row says so. No decision this RFC
+rests on is open.
+
+## Amendment, later 2026-10-14 — the seventh review
+
+Answers `docs/rfc/reviews/RFC-0007-review-2026-10-14-5.md`.
+
+**Blocking.** **B1, the row on bytes the oracle wrote.** Run, it holds for
+`decode.base64` and fails for the world file: Bund2 cannot open a world the
+reference wrote (D27), so neither `load` nor `load.model` reaches the
+codec. A note under the row says what was run, and a row records D27's
+consequence.
+
+**Significant.**
+- **S1, the CLI's `async` feature.** It links `bund2-async` through the
+  façade and reaches no code. Noted at §C8; whether it stays is **D168**.
+- **S2, `Value::wrap`.** The method exists and does what the research said;
+  the word does not. A note at §C3 and an ERRATA entry correcting the
+  2026-10-01 one.
+- **S3, the lambda text.** The test now runs a lambda holding a list
+  literal 300 deep through `save.lambdas` and `save`, and asserts
+  `Error compiling lambda body:` under each prefix.
+- **S4, the depth refusal's writers.** A row naming every writer, parallel
+  to D166's.
+
+**Minor.** M1: RFC-0001's hand-off is now `:832-833`, moved by the note
+this RFC's sixth amendment added there. M2: `save` was four transactions
+before D167, not three; D167 says four steps. M3: a note where it stands.
+M4: D86 has a dated note — the crossbeam half is built. M5: the row's
+note. M6: `wire.rs` cites `create_special.rs:241-252` and this document
+`:241-251`; `json_wrap` closes at `:252`, and either range holds it. M7:
+the sixth amendment's "D167 is open" has a pointer to the ruling below it.
+
+**Open: D168.** Acceptance waits on it.
+*(Later 2026-10-14: D168 resolved B and built — the CLI's `async`
+feature and its `features_built_in` arm are gone. No decision this RFC
+raised is open.)*
 

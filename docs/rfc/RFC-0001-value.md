@@ -296,6 +296,13 @@ which mints a fresh id with `nanoid!()`
 (`reference/rust_dynamic/src/create_special.rs:205,207`). This is D20, and its
 scope correction.
 
+*(2026-10-14, RFC-0007's sixth review, S3: **the codec also refuses two
+classes of value the reference writes**, and this paragraph did not say so.
+A value nested past `MAX_WIRE_DEPTH`, 256 levels (F118, and D114 at the
+bus), and a JSON value inside a container, which the reference writes and
+cannot read back (F208, D166). Both are refused at the write, by every word
+that encodes; neither is a value this paragraph's round trip restores.)*
+
 Because `dup` is built on this pair, `dup` of a JSON value is a round trip
 through text.
 

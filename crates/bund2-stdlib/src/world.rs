@@ -20,7 +20,9 @@
 //! added unless the name already ends with it (`mod.rs:20-30`).
 
 use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition, TableError};
+use redb::{
+    Database, ReadableDatabase, ReadableTable, TableDefinition, TableError, WriteTransaction,
+};
 
 use crate::host::HostOptions;
 
@@ -348,6 +350,11 @@ fn write_err(what: &str, e: impl std::fmt::Display) -> Error {
 /// opened and cleared, which leaves the same state.
 fn replace_aliases(db: &Database, vm: &dyn Vm) -> Result<(), Error> {
     let tx = db.begin_write().map_err(|e| write_err("Saving alias", e))?;
+    write_aliases(&tx, vm)?;
+    tx.commit().map_err(|e| write_err("Saving alias", e))
+}
+
+fn write_aliases(tx: &WriteTransaction, vm: &dyn Vm) -> Result<(), Error> {
     {
         let mut t = tx
             .open_table(ALIASES)
@@ -359,13 +366,18 @@ fn replace_aliases(db: &Database, vm: &dyn Vm) -> Result<(), Error> {
                 .map_err(|e| write_err("Saving alias", e))?;
         }
     }
-    tx.commit().map_err(|e| write_err("Saving alias", e))
+    Ok(())
 }
 
 fn replace_lambdas(db: &Database, vm: &dyn Vm) -> Result<(), Error> {
     let tx = db
         .begin_write()
         .map_err(|e| write_err("Saving lambda", e))?;
+    write_lambdas(&tx, vm)?;
+    tx.commit().map_err(|e| write_err("Saving lambda", e))
+}
+
+fn write_lambdas(tx: &WriteTransaction, vm: &dyn Vm) -> Result<(), Error> {
     {
         let mut t = tx
             .open_table(LAMBDAS)
@@ -379,12 +391,15 @@ fn replace_lambdas(db: &Database, vm: &dyn Vm) -> Result<(), Error> {
             // The same wire bytes the reference stores (D20): a world file
             // moved between the two engines needs a new container, not new
             // bytes.
-            let blob = bund2_value::wire::to_binary(&body).map_err(Error)?;
+            // The reference's text for a body that will not encode
+            // (`reference/Bund/src/stdlib/helpers/world/lambdas.rs:92`).
+            let blob = bund2_value::wire::to_binary(&body)
+                .map_err(|e| Error(format!("Error compiling lambda body: {e}")))?;
             t.insert(name.as_str(), blob.as_slice())
                 .map_err(|e| write_err("Saving lambda", e))?;
         }
     }
-    tx.commit().map_err(|e| write_err("Saving lambda", e))
+    Ok(())
 }
 
 /// **Two tables, as the reference has two.** `STACKS` names them and
@@ -393,6 +408,11 @@ fn replace_lambdas(db: &Database, vm: &dyn Vm) -> Result<(), Error> {
 /// express.
 fn replace_stacks(db: &Database, vm: &dyn Vm) -> Result<(), Error> {
     let tx = db.begin_write().map_err(|e| write_err("Saving stack", e))?;
+    write_stacks(&tx, vm)?;
+    tx.commit().map_err(|e| write_err("Saving stack", e))
+}
+
+fn write_stacks(tx: &WriteTransaction, vm: &dyn Vm) -> Result<(), Error> {
     {
         let mut names = tx
             .open_table(STACKS)
@@ -410,13 +430,16 @@ fn replace_stacks(db: &Database, vm: &dyn Vm) -> Result<(), Error> {
                 .insert(name.as_str(), ())
                 .map_err(|e| write_err("Saving stack", e))?;
             for (pos, v) in vm.snapshot_of(&name).iter().enumerate() {
-                let blob = bund2_value::wire::to_binary(v).map_err(Error)?;
+                // The reference's text for a value that will not encode
+                // (`reference/Bund/src/stdlib/helpers/world/stacks.rs:110`).
+                let blob = bund2_value::wire::to_binary(v)
+                    .map_err(|e| Error(format!("Error converting data to blob: {e}")))?;
                 data.insert((name.as_str(), pos as u64), blob.as_slice())
                     .map_err(|e| write_err("Saving stack data", e))?;
             }
         }
     }
-    tx.commit().map_err(|e| write_err("Saving stack", e))
+    Ok(())
 }
 
 /// **`save` primes the bootstrap table by emptying it — F148.**
@@ -428,18 +451,12 @@ fn replace_stacks(db: &Database, vm: &dyn Vm) -> Result<(), Error> {
 /// `save` then `save.script` — and the next `save` undoes it. Measured, and
 /// preserved rather than repaired: F148 explains why repairing it would be a
 /// deviation.
-fn prime_bootstrap(db: &Database) -> Result<(), Error> {
-    let tx = db
-        .begin_write()
-        .map_err(|e| write_err("Priming bootstrap", e))?;
-    {
-        let mut t = tx
-            .open_table(BOOTSTRAP)
-            .map_err(|e| write_err("Creating bootstrap table", e))?;
-        t.retain(|_, _| false)
-            .map_err(|e| write_err("Dropping bootstrap table", e))?;
-    }
-    tx.commit().map_err(|e| write_err("Priming bootstrap", e))
+fn prime_bootstrap(tx: &WriteTransaction) -> Result<(), Error> {
+    let mut t = tx
+        .open_table(BOOTSTRAP)
+        .map_err(|e| write_err("Creating bootstrap table", e))?;
+    t.retain(|_, _| false)
+        .map_err(|e| write_err("Dropping bootstrap table", e))
 }
 
 /// What the reference's SQLite says of a table no saver has made, as its
@@ -612,11 +629,22 @@ fn save_world(vm: &mut dyn Vm, family: Family) -> Result<(), Error> {
         Family::All => {
             // **`Aliases SAVE returns:` for all three** — the reference's own
             // paste, preserved.
+            //
+            // **One transaction for all four steps — D167.** The reference
+            // runs them in sequence with no transaction, so a failure leaves
+            // what came before it written; here a failure at any step — a
+            // value the codec refuses (D114, D166), or the store — drops the
+            // transaction uncommitted, and the file is as it was.
             let wrong = |e: Error| Error(format!("Aliases SAVE returns: {}", e.0));
-            replace_aliases(&db, vm).map_err(wrong)?;
-            replace_lambdas(&db, vm).map_err(wrong)?;
-            replace_stacks(&db, vm).map_err(wrong)?;
-            prime_bootstrap(&db).map_err(|e| Error(format!("Priming bootstrap returns: {}", e.0)))
+            let tx = db
+                .begin_write()
+                .map_err(|e| wrong(write_err("Saving alias", e)))?;
+            write_aliases(&tx, vm).map_err(wrong)?;
+            write_lambdas(&tx, vm).map_err(wrong)?;
+            write_stacks(&tx, vm).map_err(wrong)?;
+            prime_bootstrap(&tx)
+                .map_err(|e| Error(format!("Priming bootstrap returns: {}", e.0)))?;
+            tx.commit().map_err(|e| wrong(write_err("Saving world", e)))
         }
     }
 }
@@ -931,6 +959,89 @@ mod tests {
             assert!(e.ends_with(want), "{src}: {e}");
             assert_eq!(i.depth(), left, "{src}");
         }
+    }
+
+    /// **A value the codec refuses (D166) is refused in the reference's
+    /// words at each world writer** — the word's prefix and the helper's
+    /// inner text (`reference/Bund/src/stdlib/helpers/world/stacks.rs:110`,
+    /// `reference/Bund/src/stdlib/functions/bund/bund_save.rs:26-30`).
+    #[test]
+    fn a_refused_value_is_refused_in_the_references_words() {
+        let world = format!("bund2-world-refused-{}", std::process::id());
+        let file = format!("{world}.world");
+        let reason = "the value holds a JSON value inside a container, which the wire format \
+                      writes and cannot read back; a JSON value crosses only on its own";
+        let held = r#"dict "k" '{"k": 1}' json set"#;
+        let deep = format!("{}1{}", "[ ".repeat(300), " ]".repeat(300));
+        let too_deep = "the value nests 257 deep, and 256 is the most the wire format can carry";
+        for (src, want) in [
+            (
+                format!("{held} \"{world}\" save.stacks"),
+                format!("Stacks SAVE returns: Error converting data to blob: {reason}"),
+            ),
+            (
+                format!("{held} \"{world}\" save"),
+                format!("Aliases SAVE returns: Error converting data to blob: {reason}"),
+            ),
+            (
+                format!("\"m\" {held} \"{world}\" save.model"),
+                format!("SAVE.MODEL returns: Error compiling mode: {reason}"),
+            ),
+            // A JSON value cannot be written into a lambda body, but a list
+            // literal past the wire bound can (D114, F118), and the lambda
+            // site's text is the reference's too
+            // (`reference/Bund/src/stdlib/helpers/world/lambdas.rs:92`).
+            (
+                format!(":deep {{ {deep} }} register \"{world}\" save.lambdas"),
+                format!("Lambdas SAVE returns: Error compiling lambda body: {too_deep}"),
+            ),
+            (
+                format!(":deep {{ {deep} }} register \"{world}\" save"),
+                format!("Aliases SAVE returns: Error compiling lambda body: {too_deep}"),
+            ),
+        ] {
+            let _ = std::fs::remove_file(&file);
+            let mut i = Interp::new();
+            crate::register_all(&mut i.registry);
+            let stream = bund2_syntax::compile(&src).expect("compiles");
+            let e = i.eval(&stream).expect_err("refused").0;
+            assert!(e.ends_with(&want), "{src}: {e}");
+        }
+        let _ = std::fs::remove_file(&file);
+    }
+
+    /// **D167: a refused `save` writes nothing.** A world saved once, then a
+    /// second `save` whose stack holds a value the codec refuses (D166): the
+    /// refusal comes at the stacks, after the aliases and lambdas, and until
+    /// D167 those two had already been committed. Now the file still holds
+    /// the first save — its lambda, not the second's, and its stack.
+    #[test]
+    fn a_refused_save_leaves_the_world_as_it_was() {
+        let world = format!("bund2-world-atomic-{}", std::process::id());
+        let file = format!("{world}.world");
+        let _ = std::fs::remove_file(&file);
+        let run = |src: String| {
+            let mut i = Interp::new();
+            crate::register_all(&mut i.registry);
+            let stream = bund2_syntax::compile(&src).expect("compiles");
+            let r = i.eval(&stream).map_err(|e| e.0);
+            (r, i)
+        };
+        let (r, _) = run(format!(":old {{ 1 }} register 7 \"{world}\" save"));
+        r.expect("the first save");
+        let (r, _) = run(format!(
+            ":new {{ 2 }} register dict \"k\" '{{\"k\": 1}}' json set \"{world}\" save"
+        ));
+        let e = r.expect_err("the second save is refused");
+        assert!(e.contains("JSON value inside a container"), "{e}");
+
+        let (r, i) = run(format!("\"{world}\" load"));
+        let _ = std::fs::remove_file(&file);
+        r.expect("loads");
+        assert!(i.get_lambda("old").is_some(), "the first save's lambda");
+        assert!(i.get_lambda("new").is_none(), "nothing of the refused save");
+        let got: Vec<String> = i.snapshot().iter().map(|v| v.display()).collect();
+        assert_eq!(got, vec!["7".to_string()], "the first save's stack");
     }
 
     /// Save two models, load under a name that matches neither: both come

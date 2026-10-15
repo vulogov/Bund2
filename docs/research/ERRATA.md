@@ -199,3 +199,13 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   compile service -> D91 resolved it on 2026-10-03, recorded here on
   2026-10-14: option 1, keep per-`Interp` modules. The entry's "in conflict"
   stands as a description; the conflict is now decided rather than open.
+
+- `01-extensibility-async.md` §2.3, the 2026-10-01 entry above on
+  `Value::wrap()` -> corrected, 2026-10-14 (RFC-0007's seventh review, S2).
+  That entry said the research's sentence "does not hold" and corrected the
+  wrong half of it. `Value::wrap()` exists and produces an `ENVELOPE` holding
+  the bincode serialisation, and `unwrap()` reconstructs it
+  (`reference/rust_dynamic/src/bincode.rs:79-103`), as the research says.
+  What does not hold is "a mechanism the language already has a word for":
+  no Bund word calls either method; the words `wrap` and `unwrap` are OOP
+  `.data` words. The reference bus uses neither (`bus/mod.rs:88`).

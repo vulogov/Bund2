@@ -371,6 +371,16 @@ Two consequences beyond speed:
   value exactly. No golden covers this — `reference/Bund/examples/json_answer.bund`
   is the only corpus program using JSON words, and it never dups.
 
+  *(2026-10-14, RFC-0007's sixth review, S1: **a second consequence of the
+  same FIX.** The round trip this FIX removed also fails, for a JSON value
+  inside a container (F208): the oracle's `dup` of
+  `dict "k" '{"k": 1}' json set` answers `Error duplicating data in current
+  stack: dup() returns: Bincode does not support …`, measured; Bund2's `dup`
+  copies it, because a structural clone has no decoder to fail. The FIX
+  could not keep the round trip's failure without keeping the round trip.
+  The `many` family (`ts_stack_op.rs:70-90`) is the same call, and is not
+  measured here.)*
+
 ## F14 — error text embeds a value's `id` and `stamp`, so it cannot reproduce
 `reference/Bund/src/stdlib/helpers/eval.rs:33` formats the failing value with
 `{:?}`: `bail!("Attempt to evaluate value {:?} returned error: {}", &word, err)`.
@@ -4075,6 +4085,15 @@ and `decode.base64`. Measurements are in D166.
 
 - Disposition: **FIX — D166.** Bund2 refuses the value at the write, under
   each word's own prefix.
+
+*(Later 2026-10-14, RFC-0007's sixth review, S1: **not every writer
+accepts it.** `Value::dup` is a `to_binary`/`from_binary` round trip
+(`reference/rust_dynamic/src/dup.rs:6-19`), so the `dup` word refuses the
+value through `dup_in_current_stack`
+(`reference/rust_multistack/src/ts_stack_op.rs:30-49`), measured on the
+oracle: `Error duplicating data in current stack: dup() returns: Bincode does
+not support the serde::Deserializer::deserialize_any method (…)`. Bund2's
+`dup` copies it; F13 records why.)*
 
 ## F207 — `debug.dump` called a program's forged value a defect in Bund2
 

@@ -3639,6 +3639,106 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D168 — the CLI's `async` feature, which reaches no code
+
+**Raised 2026-10-14** by RFC-0007's seventh review
+(`docs/rfc/reviews/RFC-0007-review-2026-10-14-5.md`, S1). `bund2-cli`
+declares `async = ["bund2/async"]` (`crates/bund2-cli/Cargo.toml`). The
+`bund2` façade turns that into a dependency on `bund2-async` and re-exports
+nothing (`crates/bund2/src/lib.rs` has no items), and the CLI names no item
+of either. So `bund2` built with `--features async` links the host crate,
+runs none of it, and records `async` among its features in every bundle it
+writes (`bund2-cli`'s `features_built_in`). That is F124's shape, for
+`jit`, which the manifest's own comment two lines above names. CI checks
+the workspace with the feature (`.github/workflows/ci.yml`, "feature
+matrix"), which compiles and so says nothing about it.
+
+- Blocks: RFC-0007's acceptance
+- Depends on: F124, D92, D165, RFC-0000's crate table
+- Options:
+  - **A.** Record it: a row saying the feature links the crate and reaches
+    no code. Nothing changes.
+  - **B.** Remove the CLI's `async` feature and its `features_built_in`
+    arm. The façade's own `async` feature stays, as the embedding question
+    RFC-0000 holds; CI's workspace check with `--features async` keeps
+    compiling the host crate.
+  - **C.** Make it reach code: give the CLI something that uses the host.
+    No command needs a second VM, so this is a feature to invent.
+- Recommendation: B. A feature that changes a bundle's record and nothing
+  else is the one F124 fixed for `jit`; with no command that spawns a VM
+  there is nothing for it to route to. Risk: a build script passing
+  `--features async` to `bund2-cli` fails; nothing in the tree does.
+- Status: **RESOLVED** by the repository owner, 2026-10-14: "B". *(As
+  raised: OPEN.)*
+
+### Built, the same day
+
+`bund2-cli`'s manifest declares no `async` feature, and `features_built_in`
+has no arm for one (`crates/bund2-cli/Cargo.toml`,
+`crates/bund2-cli/src/main.rs`, `features_built_in`). The façade's `async`
+feature stands, and CI's `cargo check --workspace --features async` still
+compiles `bund2-async` through it. `cargo build -p bund2-cli --features
+async` now fails with cargo's unknown-feature error, which is the risk the
+recommendation named.
+
+## D167 — whether a refused `save` may leave a partly written world
+
+**Raised 2026-10-14** by RFC-0007's sixth review
+(`docs/rfc/reviews/RFC-0007-review-2026-10-14-4.md`, B1). `save` is not one
+write. `save_world` runs `replace_aliases`, `replace_lambdas` and
+`replace_stacks` in sequence, each its own redb transaction committed before
+the next begins (`crates/bund2-stdlib/src/world.rs`, `save_world`), and the
+codec runs inside the second and third. So a refusal there — D166's, or
+D114's for depth, which has taken the same path since it was built — leaves
+the aliases and lambdas replaced and the stacks as they were. Measured by
+the review on a release build: `save` reports `Aliases SAVE returns: …`, a
+fresh VM then loads the new lambdas from the file, and `load.stacks` finds
+no table.
+
+The reference's `bund_save` has the same sequential shape, with no
+transaction at all — one `conn.execute` per row
+(`reference/Bund/src/stdlib/functions/bund/bund_save.rs:10-39`,
+`reference/Bund/src/stdlib/helpers/world/stacks.rs:95-113`) — so any failure
+there leaves partial rows. Its codec does not refuse this value, so the
+oracle writes everything and the partial state is reachable only in Bund2.
+
+- Blocks: RFC-0007's acceptance
+- Depends on: D166, D114, F118, F148
+- Options:
+  - **A.** Record it: a refused `save` has already replaced the aliases and
+    lambdas. A row, no code.
+  - **B.** Check before writing: run the codec's walk over every lambda
+    body and stack value before the first transaction, so a codec refusal
+    writes nothing. Any other failure — the disk, redb — still leaves the
+    families before it written, as in the reference.
+  - **C.** One transaction: `save` writes aliases, lambdas, stacks and the
+    bootstrap priming in a single redb write transaction, so any failure
+    leaves the file as it was.
+- Recommendation: C. It removes the case rather than one cause of it: D166's
+  refusal, D114's, and a failure from the store all leave the world
+  unchanged, and the code is a restructuring of the same four steps rather
+  than a second walk. B covers the codec only, and walks every value twice.
+  Risk of C: a failure state differs from the reference's, which leaves
+  partial rows on any failure; no golden can observe it, since a failed
+  `save` ends the program. The single-family savers are one transaction
+  each already.
+- Status: **RESOLVED** by the repository owner, 2026-10-14: "C". *(As
+  raised: OPEN.)*
+
+### Built, the same day
+
+`save_world`'s `All` arm opens one write transaction and runs
+`write_aliases`, `write_lambdas`, `write_stacks` and `prime_bootstrap` in it,
+committing once; a failure at any step returns before the commit, and the
+dropped transaction is rolled back (`crates/bund2-stdlib/src/world.rs`,
+`save_world`). The single-family savers keep one transaction each, through
+`replace_aliases`, `replace_lambdas` and `replace_stacks`. The texts are the
+reference's; a failed commit, which the reference has no counterpart for,
+reads `Aliases SAVE returns: Saving world returns: …`.
+`a_refused_save_leaves_the_world_as_it_was` saves a world, refuses a second
+`save` at its stacks, and loads the first save's lambda and stack back; it
+fails against the three-transaction `save`.
+
 ## D166 — a JSON value inside a container, at write time
 
 **Raised 2026-10-14** by RFC-0007's fifth review
@@ -3698,6 +3798,19 @@ decision.
 Held by `a_json_value_inside_a_container_is_refused_not_written`
 (`bund2-value`) and `a_json_value_inside_a_container_is_refused_at_send`
 (`bund2-stdlib`), both checked to fail with the refusal disabled.
+
+*(Later 2026-10-14, RFC-0007's sixth review: **"the write" is not one write
+for `save`.** A refusal inside it leaves the aliases and lambdas replaced;
+that is D167, open. And **"a program that wrote such a value and never read
+it" narrows**: the reference's `dup` is the same codec's round trip
+(`reference/rust_dynamic/src/dup.rs:6-19`) and refuses this value —
+measured, `Error duplicating data in current stack: dup() returns: Bincode
+does not support …` — so a reference program could never have copied it.
+Bund2's `dup` copies it (F13's addendum). `save` and `save.stacks` now refuse
+with the reference's inner text, `Error converting data to blob:`, and a
+lambda body with `Error compiling lambda body:`; until this date both were
+the codec's bare reason. Held by
+`a_refused_value_is_refused_in_the_references_words`.)*
 
 ## D165 — what host options a VM spawned by the host runs under
 
@@ -9104,6 +9217,9 @@ coexist." **Recorded now; implementation deferred**, at the owner's direction.
 - Depends on: D7/D85 (tens of VMs), D84 (`Interp` is not `Send`), D20
   (serialisation materialises), RFC-0001's wire codec
 - Status: **RESOLVED — decided, not built**, 2026-09-30.
+  *(2026-10-14, RFC-0007's seventh review, M4: the crossbeam half is built
+  — the eight bus words over a process-global map, RFC-0007 §C2 and §C8.
+  Zenoh's half stays deferred, D87.)*
 
 ### The decision
 
