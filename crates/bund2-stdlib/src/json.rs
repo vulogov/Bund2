@@ -222,12 +222,44 @@ fn value_to_json(v: &BundValue) -> Result<serde_json::Value, Error> {
     }
 }
 
+/// How many container levels `v` holds: a scalar is 0, `list` is 1, a list
+/// holding a list is 2. Walked from a worklist, not by recursion, because
+/// the point of asking is that the value may be too deep to recurse over.
+/// Only LIST and DICT are descended, which are the containers
+/// `value_to_json` descends; anything else is a leaf to it.
+fn nesting(v: &BundValue) -> usize {
+    let mut deepest = 0;
+    let mut work: Vec<(&BundValue, usize)> = vec![(v, 0)];
+    while let Some((cur, level)) = work.pop() {
+        let children: Vec<&BundValue> = match cur.dt() {
+            LIST => cur
+                .as_list()
+                .map(|l| l.iter().collect())
+                .unwrap_or_default(),
+            MAP => cur
+                .as_map()
+                .map(|m| m.values().collect())
+                .unwrap_or_default(),
+            _ => continue,
+        };
+        deepest = deepest.max(level + 1);
+        work.extend(children.into_iter().map(|c| (c, level + 1)));
+    }
+    deepest
+}
+
 /// `json.from_value` — the inverse of `json.to_value`.
 ///
 /// **A JSON on the stack is refused rather than passed through.** The
 /// reference checks `is_type(JSON)` first and bails with `Stack already having
 /// a JSON value`, so wrapping twice is an error and not a no-op
 /// (`reference/rust_multistackvm/src/stdlib/json/conversion.rs`).
+///
+/// **A value nested past `MAX_NESTING` is refused — D172, F209.** The
+/// conversion recurses a level at a time, as the reference's does, and
+/// `serde_json` recurses again to drop or print the result; a value built
+/// 100,000 deep at run time overflowed the machine stack. The parser's own
+/// limit is the bound, measured before any recursion starts.
 fn json_from_value(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 1 {
         return Err(Error(
@@ -237,6 +269,13 @@ fn json_from_value(vm: &mut dyn Vm) -> Result<(), Error> {
     let v = crate::pull::operand(vm, "JSON.FROM_VALUE", 1)?;
     if v.dt() == JSON {
         return Err(Error("Stack already having a JSON value".into()));
+    }
+    let limit = bund2_syntax::MAX_NESTING;
+    if nesting(&v) > limit {
+        return Err(Error(format!(
+            "Error casting JSON value: nesting deeper than {limit} levels, \
+             which Bund2 will not convert to JSON"
+        )));
     }
     let j = value_to_json(&v).map_err(|e| Error(format!("Error casting JSON value: {}", e.0)))?;
     vm.push(BundValue::json(j));
@@ -278,6 +317,34 @@ mod tests {
             Ok(_) => panic!("{src} was expected to fail"),
             Err(e) => e,
         }
+    }
+
+    /// **D172 (F209).** The parser's limit is the conversion's limit: one
+    /// level past it is refused with one message, however deep the value;
+    /// at the limit it converts. The deep value is built at run time, since
+    /// the parser refuses a literal that deep.
+    #[test]
+    fn a_value_nested_past_the_parser_limit_is_refused_not_overflowed() {
+        let deep = |n: usize| format!("list {n} {{ drop list push }} times json.from_value");
+        let limit = bund2_syntax::MAX_NESTING;
+        let i = run_src(&deep(limit - 1)).expect("at the limit it converts");
+        assert_eq!(i.peek().map(|v| v.dt()), Some(bund2_value::JSON));
+        for n in [limit, 100_000] {
+            let e = err_of(&deep(n));
+            assert!(
+                e.contains("nesting deeper than") && e.contains("will not convert to JSON"),
+                "{n}: {e}"
+            );
+            assert!(
+                !e.contains("Error casting LIST"),
+                "one message, not one wrapper per level: {e}"
+            );
+        }
+        // A DICT nests the same way.
+        let e = err_of(&format!(
+            "dict {limit} {{ drop dict swap \"k\" swap set }} times json.from_value"
+        ));
+        assert!(e.contains("nesting deeper than"), "{e}");
     }
 
     #[test]

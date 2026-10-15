@@ -3649,6 +3649,54 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D172 — `json.from_value` refuses a value nested deeper than the parser's limit
+
+**Raised 2026-10-15** by F209: `json.from_value` recurses a level at a time
+(`crates/bund2-stdlib/src/json.rs`, `value_to_json`), as the reference's
+`cast_value_to_json` does
+(`reference/rust_dynamic/src/cast_value_to_json.rs:42,68`), and `serde_json`
+recurses again to drop, print or serialise the result. A value nested
+100,000 deep, which only a program can build (the parser stops at
+`bund2_syntax::MAX_NESTING`, 1024), overflowed the evaluation thread's
+stack and aborted the process, which D37 forbids. The reference aborts the
+same way. Whatever bound is chosen refuses some value the reference
+converts on a machine with enough stack, so it is a deviation and a
+decision.
+
+- Blocks: nothing
+- Depends on: D37, F116, F209
+- Options:
+  - **A.** Refuse past `MAX_NESTING`, measured without recursion before the
+    conversion starts. Deterministic; the same number the parser already
+    applies to a literal; and `serde_json`'s own parser stops at 128, so
+    JSON deeper than that cannot be read back with `json` in any case.
+  - **B.** Refuse when the machine stack runs low, as F85's floor does for
+    evaluation. Refuses only where the process would abort, but the limit
+    then varies by machine and tier, and the drop or print of a value that
+    just fitted still overflows later.
+  - **C.** Convert without recursion. Not sufficient: `serde_json` drops and
+    serialises by recursion, which cannot be replaced from outside.
+  - **D.** Leave it, documented. The process can still abort.
+- Status: **RESOLVED** by the repository owner, 2026-10-15: "F209 A".
+
+### Built, the same day
+
+`nesting` in `crates/bund2-stdlib/src/json.rs` counts LIST and DICT levels
+from a worklist, and `json_from_value` refuses past `MAX_NESTING` with
+`Error casting JSON value: nesting deeper than 1024 levels, which Bund2 will
+not convert to JSON` — one message, where a failure deep inside the old walk
+wrapped `Error casting LIST: ` once per level. At the limit it converts.
+`a_value_nested_past_the_parser_limit_is_refused_not_overflowed` holds the
+boundary and a 100,000-deep value. No golden can see the difference, since
+no golden can hold a value that deep.
+
+**What it does not cover.** `push` on a JSON array takes a JSON operand
+whole (`crates/bund2-value/src/lib.rs`, `as_json_operand`), so `j j push`
+repeated builds a JSON value one level deeper each time, past this bound,
+and `serde_json` drops it by recursion. That path was not in F209 and is
+not changed by this ruling; it is recorded here so it is not mistaken for
+covered.
+
 ## D171 — an OOM guard: a program driving the host out of memory fails with a run-time error
 
 **Raised 2026-10-15** after a Bund2 program took the host down. During a

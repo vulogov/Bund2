@@ -4102,6 +4102,20 @@ which is what D171 exists to prevent. Neither was run uncapped.
   the crate); or a fixed cap per word, which is a language decision. Not
   decided here.
 
+*(Later 2026-10-15: **FIXED**, by the repository owner's ruling "F210 A plus
+B". `seq` builds its list in chunks of 4096 and asks D171's guard between
+them (`crates/bund2-stdlib/src/seq.rs`, `build`), so a trip ends the word
+with the guard's error and nothing is pushed; the vector is no longer
+pre-sized from the operand. `string.random.lorem` weighs the count before
+`lipsum` runs, at 16 bytes a word — 6.8 measured over 100,000 words, doubled
+for a growing `String`'s copy — against the memory the host reports
+available (`bund2_host::memwatch::available`), and refuses with the figures
+under F106's prefix: `Error casting in STRING.RANDOM.LOREM: 500000000 words
+of text would need about 8.0 GB, and this host has 4.0 GB available`. A
+host that gives no reading refuses nothing. Neither adds a fixed limit, so
+no decision was needed; a refusal is only where the alternative was the
+host swapping or the kernel killing the process.)*
+
 ## F209 — `json.from_value` overflows the machine stack on a deeply nested value
 
 **A defect shared with the reference; found 2026-10-15** by the stability
@@ -4131,6 +4145,11 @@ its message grows with the depth.
   reference converts; or refuse when the machine stack runs low, as F85's
   floor does for evaluation — refuses only where the process would abort,
   but does not protect the later drop or print. Not decided here.
+
+*(Later 2026-10-15: **FIXED by D172**, the fixed limit. `json.from_value`
+measures the nesting without recursion and refuses past
+`bund2_syntax::MAX_NESTING` with one message. The `push`-built JSON path
+D172 names stays open, under D172's note.)*
 
 ## F208 — the reference writes a JSON value inside a container, which its decoder cannot read
 

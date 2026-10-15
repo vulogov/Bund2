@@ -354,10 +354,13 @@ fn total() -> Option<u64> {
     (rc == 0).then_some(total)
 }
 
-/// Free plus reclaimable pages — inactive, speculative, purgeable and
-/// file-backed — which is what Activity Monitor calls available.
+/// Memory a new allocation can have without swapping, in bytes: free plus
+/// reclaimable pages — inactive, speculative, purgeable and file-backed —
+/// which is what Activity Monitor calls available. `None` when the host
+/// does not say. Public for F210: a word about to allocate a result it can
+/// size in advance asks this first.
 #[cfg(target_os = "macos")]
-fn available() -> Option<u64> {
+pub fn available() -> Option<u64> {
     // SAFETY: `sysconf` takes a name and returns a number.
     let page = u64::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).ok()?;
     let mut stats = std::mem::MaybeUninit::<libc::vm_statistics64>::zeroed();
@@ -448,9 +451,10 @@ fn total() -> Option<u64> {
 }
 
 /// `MemAvailable`, or the room left under the cgroup's limit when that is
-/// smaller: inside a container the limit is what kills.
+/// smaller: inside a container the limit is what kills. See the macOS
+/// reading for the contract.
 #[cfg(target_os = "linux")]
-fn available() -> Option<u64> {
+pub fn available() -> Option<u64> {
     let ram = meminfo_field(
         &std::fs::read_to_string("/proc/meminfo").ok()?,
         "MemAvailable",
@@ -513,7 +517,7 @@ fn total() -> Option<u64> {
     None
 }
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn available() -> Option<u64> {
+pub fn available() -> Option<u64> {
     None
 }
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]

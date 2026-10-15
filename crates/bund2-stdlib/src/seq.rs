@@ -66,18 +66,45 @@ fn seq(vm: &mut dyn Vm) -> Result<(), Error> {
     let step = conf_f64(&conf, "Step", 1.0);
     let n = conf_i64(&conf, "N", 128).max(0) as usize;
 
-    let items: Vec<BundValue> = match kind.as_str() {
-        "seq.ascending" => (0..n)
-            .map(|i| BundValue::float(x + step * i as f64))
-            .collect(),
-        "seq.descending" => (0..n)
-            .map(|i| BundValue::float(x - step * i as f64))
-            .collect(),
-        "single" => (0..n).map(|_| BundValue::float(x)).collect(),
+    let guard = || bund2_api::memguard::take().map(|t| t.error());
+    let items = match kind.as_str() {
+        "seq.ascending" => build(n, |i| x + step * i as f64, guard)?,
+        "seq.descending" => build(n, |i| x - step * i as f64, guard)?,
+        "single" => build(n, |_| x, guard)?,
         other => return Err(Error(format!("Unknown SEQ type: {other}"))),
     };
     vm.push(BundValue::list(items));
     Ok(())
+}
+
+/// Values between looks at the OOM guard. 4096 floats is about 64 KB, so
+/// at the fastest growth measured for D171 the guard's 25 ms sample falls
+/// every thousand chunks or so, and a check is one relaxed load.
+const CHUNK: usize = 4096;
+
+/// `n` floats, `f(i)` each, in a LIST — **built in chunks, with the OOM
+/// guard asked between them (F210).** D171's guard stops a program at its
+/// next call, and this is one call: `config :N 9223372036854775807 set seq`
+/// would have collected everything before the guard could speak. The
+/// vector is not pre-sized, since the size is the operand's claim and not
+/// yet the host's. `check` is the guard's flag, and returns the error that
+/// ends the word; pure, so a test can trip it on a chunk of its choosing.
+fn build(
+    n: usize,
+    f: impl Fn(usize) -> f64,
+    mut check: impl FnMut() -> Option<Error>,
+) -> Result<Vec<BundValue>, Error> {
+    let mut items = Vec::new();
+    for i in 0..n {
+        if i % CHUNK == 0
+            && i > 0
+            && let Some(e) = check()
+        {
+            return Err(e);
+        }
+        items.push(BundValue::float(f(i)));
+    }
+    Ok(items)
 }
 
 /// `times` — run a lambda `n` times, **pushing the counter each round**
@@ -344,6 +371,51 @@ pub fn register(r: &mut Registry) {
 mod tests {
     use super::*;
     use bund2_interp::Interp;
+
+    /// **F210.** The guard is asked once a chunk, so a trip during `seq`
+    /// ends the word with the guard's error and nothing is pushed; without
+    /// a trip the list is whole, with the values the one-shot build gave.
+    #[test]
+    fn seq_builds_in_chunks_and_a_trip_between_chunks_ends_it() {
+        let mut asked = 0;
+        let whole = super::build(
+            3 * super::CHUNK + 5,
+            |i| i as f64,
+            || {
+                asked += 1;
+                None
+            },
+        )
+        .expect("no trip");
+        assert_eq!(whole.len(), 3 * super::CHUNK + 5);
+        assert_eq!(asked, 3, "once per chunk boundary, none before the first");
+        assert!(
+            matches!(whole[super::CHUNK].unboxed(), BundValue::Float(f, _) if *f == super::CHUNK as f64),
+            "{:?}",
+            whole[super::CHUNK]
+        );
+
+        let mut asked = 0;
+        let e = super::build(
+            10 * super::CHUNK,
+            |_| 0.0,
+            || {
+                asked += 1;
+                (asked == 2).then(|| bund2_api::Error("OOM GUARD: tripped".into()))
+            },
+        )
+        .expect_err("the second look trips");
+        assert!(e.0.contains("OOM GUARD"), "{}", e.0);
+        assert_eq!(asked, 2, "building stops at the trip");
+
+        let small = super::build(
+            super::CHUNK,
+            |_| 1.0,
+            || panic!("a build within one chunk never asks"),
+        )
+        .expect("fits in one chunk");
+        assert_eq!(small.len(), super::CHUNK);
+    }
 
     fn run_src(src: &str) -> Result<Interp, String> {
         let mut i = Interp::new();

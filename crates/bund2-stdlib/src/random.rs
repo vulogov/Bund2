@@ -144,9 +144,43 @@ fn lorem(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
             "Error casting in {prefix}: a word count cannot be negative, got {n}"
         )));
     };
+    if let Some(why) = lorem_too_big(n, bund2_host::memwatch::available()) {
+        return Err(Error(format!("Error casting in {prefix}: {why}")));
+    }
     let s = lipsum::lipsum_words_with_rng(rand::thread_rng(), n);
     side.push(vm, BundValue::str(s));
     Ok(())
+}
+
+/// Bytes a lorem word costs while the text is built: 6.8 bytes of text
+/// measured over 100,000 words, doubled for the copy a growing `String`
+/// makes when it reallocates, rounded up.
+const LOREM_BYTES_PER_WORD: u64 = 16;
+
+/// **Why `n` words cannot be made on this host, if they cannot — F210.**
+///
+/// `lipsum` builds the whole text inside one call, where D171's guard never
+/// gets a turn, so the count is weighed before the call against the memory
+/// the host says is available. `None` when it fits, or when the host does
+/// not say: a reading the host cannot give is no reason to refuse. The
+/// figure is an estimate, and a refusal is only where the alternative was
+/// the host swapping or the kernel killing the process.
+fn lorem_too_big(n: usize, available: Option<u64>) -> Option<String> {
+    let need = u64::try_from(n)
+        .ok()
+        .and_then(|n| n.checked_mul(LOREM_BYTES_PER_WORD));
+    let gb = |b: u64| b as f64 / 1e9;
+    match (need, available) {
+        (None, _) => Some(format!(
+            "{n} words of text would not fit in memory on any host"
+        )),
+        (Some(need), Some(avail)) if need > avail => Some(format!(
+            "{n} words of text would need about {:.1} GB, and this host has {:.1} GB available",
+            gb(need),
+            gb(avail)
+        )),
+        _ => None,
+    }
 }
 
 /// A named generator (`reference/Bund/src/stdlib/functions/generators/mod.rs:21-49`).
@@ -521,6 +555,34 @@ mod tests {
             Ok(i) => i.peek().map(|v| v.display()).unwrap_or_default(),
             Err(e) => panic!("{src} failed: {e}"),
         }
+    }
+
+    /// **F210.** A count the host cannot hold is refused before `lipsum`
+    /// runs, with the figures; one it can hold, or one on a host that gives
+    /// no reading, is not.
+    #[test]
+    fn a_lorem_count_beyond_available_memory_is_refused_with_the_figures() {
+        let gb = 1_000_000_000u64;
+        assert_eq!(super::lorem_too_big(1000, Some(4 * gb)), None);
+        assert_eq!(super::lorem_too_big(1_000_000_000, None), None);
+        let why = super::lorem_too_big(500_000_000, Some(4 * gb)).expect("refused");
+        assert!(
+            why.contains("500000000 words") && why.contains("8.0 GB"),
+            "{why}"
+        );
+        assert!(why.contains("4.0 GB available"), "{why}");
+        let why = super::lorem_too_big(usize::MAX, Some(4 * gb)).expect("refused");
+        assert!(why.contains("on any host"), "{why}");
+        // Through the word: refused as an error in F106's family.
+        let e = match run("9223372036854775807 string.random.lorem") {
+            Ok(_) => panic!("refused"),
+            Err(e) => e,
+        };
+        assert!(
+            e.contains("Error casting in STRING.RANDOM.LOREM:") && e.contains("words of text"),
+            "{e}"
+        );
+        assert_eq!(top_text("3 string.random.lorem").split(' ').count(), 3);
     }
 
     #[test]
