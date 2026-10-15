@@ -567,6 +567,16 @@ word `compile` appends a newline and stops at the first `EXIT`
 (`reference/rust_dynamic/src/value.rs:15-36`), so no two parses give equal
 bytes. What holds is that it is the same *format*. The resolution stands.
 
+**Note, 2026-10-14 (RFC-0007's eighth review, M5).** "`wrap`/`unwrap`, which
+produce an `ENVELOPE` value that stays on the stack" is wrong in its words.
+`Value::wrap` and `Value::unwrap` are rust_dynamic methods
+(`reference/rust_dynamic/src/bincode.rs:79-103`), and no Bund word calls
+them. The reference's ENVELOPE values come from the `image` words
+(`reference/Bund/src/stdlib/functions/image/image_class.rs:36,48,100`),
+which D28 defers. ERRATA's two §2.3 entries and RFC-0007's §C3 note already
+said this entry carries the error. The resolution stands: neither path
+writes a file.
+
 ## D12 — the `*` fold-family
 Restrict the whole-stack variadic words in JIT-able positions, or accept them
 as a permanent optimization barrier?
@@ -3639,6 +3649,44 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D169 — RFC-0007 is Accepted
+
+**Raised 2026-10-15** by the repository owner, after RFC-0007's eighth
+review (`docs/rfc/reviews/RFC-0007-review-2026-10-14-6.md`). That review
+found every citation correct, the code holding, and D167 and D168 built as
+ruled. Its findings were about what the document left out, and each was
+answered by a dated note, a row, or a comment in `bus.rs`. No decision the
+RFC raised is open.
+
+- Blocks: nothing
+- Depends on: D84 to D93, D114, D164 to D168
+- Status: **RESOLVED** by the repository owner, 2026-10-15: "accept
+  RFC-0007". Said before the eighth review's answers were committed.
+
+*What was accepted.* The bus words as built: the eight words, preserved
+against the oracle with the deviations the register approves (D114's depth
+refusal, D166's refusal of a JSON value inside a container at every write,
+D167's single-transaction `save`). And §C8 as built in `bund2-async`: a host
+of VM threads with a bounded count, the `async fn` façade over one VM, and
+host options that reach every VM it spawns (D165). At acceptance, on macOS
+arm64: `conform` 134/146, CEILING 134/146 (12 approved deviations), at Tier
+0, with the tier at its default threshold and at threshold 1; IMPLEMENTED
+500/505, COVERAGE 489/505; the suite at 721 passed and none failed, and 874
+passed and none failed with the tier.
+
+*What the acceptance does not claim.* Criteria 9 to 14 are design. The
+reference has one VM, so the oracle cannot settle them, and they are not
+preservation claims. Zenoh (§C4) stays deferred under D28 and D87; the
+`--distributed` flag is unbuilt, and how a channel address selects a
+transport is still an open question. No binary links `bund2-async`, and
+what the `bund2` façade should expose is RFC-0000's question. So is
+whether a host should give each VM its own output stream; today every VM
+prints to the process's standard output. Not measured: the `many` family
+on a JSON value inside a container. Not re-checked by the eighth review:
+criterion 10 with `declare_region()` removed, criterion 12's twenty runs,
+and D91's RSS figures. Whether `debug.dump` should be exempt from D166 is
+recorded and not raised. No review has read the eighth review's answers.
+
 ## D168 — the CLI's `async` feature, which reaches no code
 
 **Raised 2026-10-14** by RFC-0007's seventh review
@@ -3738,6 +3786,14 @@ reads `Aliases SAVE returns: Saving world returns: …`.
 `a_refused_save_leaves_the_world_as_it_was` saves a world, refuses a second
 `save` at its stacks, and loads the first save's lambda and stack back; it
 fails against the three-transaction `save`.
+
+**Note, 2026-10-14 (RFC-0007's eighth review, S2).** "As it was" is the
+world's tables, not the file. `open_world` calls `Database::create` before
+the transaction begins, so a refused `save` under a name no world had leaves
+a redb file with no table: measured, 20,480 bytes. No word can tell, since
+`load` creates the file too, as the reference's does, and then answers as
+for a name never saved. The test saves under one name twice, so it holds
+the claim for an existing world.
 
 ## D166 — a JSON value inside a container, at write time
 

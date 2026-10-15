@@ -77,12 +77,14 @@ fn push(name: String, v: &BundValue) -> Result<bool, String> {
     })
 }
 
-/// The reference's `bus_pull` — **two arms, and the difference is the one
-/// RFC-0007's first draft got wrong**.
+/// The reference's `bus_pull` — **three reachable arms, and the difference
+/// between the first two is the one RFC-0007's first draft got wrong**.
 ///
 /// An **absent** channel is an error. An **existing but empty** one answers
 /// `NODATA`. The draft measured a name nothing had created, hit the first arm,
-/// and reported it as the second.
+/// and reported it as the second. The third is a failed decode. A fourth,
+/// `can not recv`, fires only on a disconnected channel, and none
+/// disconnects: the map holds every sender and removes no channel.
 fn pull(name: String) -> Result<BundValue, String> {
     with_pipes("a recv", |m| {
         let Some((_, r)) = m.get(&name) else {
@@ -118,8 +120,8 @@ fn ensure(name: String) -> Result<bool, String> {
 ///
 /// **`BUS.DATA:` is the prefix even inside `send` and `recv`**, which report a
 /// name that will not cast as `BUS.DATA: Error name casting: …` whatever word
-/// was called. The quirk is in every one of the reference's six `cast_string`
-/// arms, so it is preserved rather than tidied.
+/// was called. The quirk is in every one of the reference's four `cast_string`
+/// sites, which serve seven words, so it is preserved rather than tidied.
 fn name_of(v: &BundValue) -> Result<String, Error> {
     v.as_str().ok_or_else(|| {
         Error("BUS.DATA: Error name casting: This Dynamic type is not string".into())

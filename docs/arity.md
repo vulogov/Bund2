@@ -99,8 +99,8 @@ grounds. Those are listed with a reason rather than guessed at.
 | `bund.eval.` |  | 1 |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:125 | no sentinel type accepted |
 | `bund.exit` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_exit.rs:41 | not probed: effectful, out of scope, or terminates |
 | `bund.prompt` |  |  |  |  |  | reference/Bund/src/stdlib/functions/io/input.rs:145 | not probed: effectful, out of scope, or terminates |
-| `bus.data` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:225 | not probed: effectful, out of scope, or terminates |
-| `bus.data.current` | 2 |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:224 | not probed: effectful, out of scope, or terminates |
+| `bus.data` | 2 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/bus/crossbus.rs:225 |  |
+| `bus.data.current` | 2 |  | 0 | 1 | int | reference/Bund/src/stdlib/functions/bus/crossbus.rs:224 |  |
 | `call,` | 1 |  | 1 | 1 | string | reference/Bund/src/stdlib/functions/values/make_call_value.rs:61 |  |
 | `car` | 1 |  | 1 | 1 | int | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:195 |  |
 | `car.` |  | 1 |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_carcdr.rs:196 | no sentinel type accepted |
@@ -400,8 +400,8 @@ grounds. Those are listed with a reason rather than guessed at.
 | `push` | 2 |  | 2 | 1 | int | reference/Bund/src/stdlib/functions/values/push.rs:74 |  |
 | `push.` | 1 | 1 |  |  |  | reference/Bund/src/stdlib/functions/values/push.rs:75 | no sentinel type accepted |
 | `raise` |  |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:44 | type-constrained: list rejected |
-| `recv` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:222 | not probed: effectful, out of scope, or terminates |
-| `recv.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:223 | not probed: effectful, out of scope, or terminates |
+| `recv` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:222 | type-constrained: list rejected |
+| `recv.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:223 | no sentinel type accepted |
 | `register` | 2 |  |  |  |  | reference/rust_multistackvm/src/stdlib/lambdas/registry.rs:88 | type-constrained: list rejected |
 | `resolve` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/lambdas/resolve.rs:70 | type-constrained: list rejected |
 | `resolve.class` | 1 |  |  |  |  | reference/rust_multistackvm/src/stdlib/lambdas/resolve.rs:71 | type-constrained: list rejected |
@@ -422,10 +422,10 @@ grounds. Those are listed with a reason rather than guessed at.
 | `save.model` | 3 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_models.rs:144 | not probed: effectful, out of scope, or terminates |
 | `save.script` | 3 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_world_bootstrap.rs:149 | not probed: effectful, out of scope, or terminates |
 | `save.stacks` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_save.rs:150 | not probed: effectful, out of scope, or terminates |
-| `send` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:218 | not probed: effectful, out of scope, or terminates |
-| `send.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:220 | not probed: effectful, out of scope, or terminates |
-| `send.quick` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:219 | not probed: effectful, out of scope, or terminates |
-| `send.quick.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:221 | not probed: effectful, out of scope, or terminates |
+| `send` |  |  | 2 | 1 | string | reference/Bund/src/stdlib/functions/bus/crossbus.rs:218 |  |
+| `send.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:220 | no sentinel type accepted |
+| `send.quick` |  |  | 2 | 0 | string | reference/Bund/src/stdlib/functions/bus/crossbus.rs:219 |  |
+| `send.quick.` |  |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:221 | no sentinel type accepted |
 | `seq` | 1 |  |  |  |  | reference/Bund/src/stdlib/functions/math/seq.rs:155 | timed out at depth 1 (int) |
 | `seq.asc` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/seq.rs:156 | type-constrained: list rejected |
 | `seq.desc` |  |  |  |  |  | reference/Bund/src/stdlib/functions/math/seq.rs:157 | type-constrained: list rejected |

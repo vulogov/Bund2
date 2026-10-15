@@ -1,7 +1,14 @@
 # RFC-0007: Concurrency, and the two buses
 
-- Status: **Proposed** (2026-10-04, on the owner's authorisation — **D93**),
-  after one adversarial review of the document and the implementation of
+- Status: **Accepted** (2026-10-15, by the repository owner — **D169**:
+  "accept RFC-0007"), after eight adversarial reviews, the last of which
+  (`docs/rfc/reviews/RFC-0007-review-2026-10-14-6.md`) found nothing
+  blocking. No review has read its answers. D169 lists what the acceptance
+  does not claim. At acceptance: `conform` 134/146, CEILING 134/146;
+  IMPLEMENTED 500/505, COVERAGE 489/505.
+
+  *Before acceptance:* **Proposed** (2026-10-04, on the owner's
+  authorisation — **D93**), after one adversarial review of the document and the implementation of
   everything in it. **All fourteen criteria are discharged**: 1, 2, 3, 5, 6 and
   8 met against the oracle; 9, 10, 11, 12, 13 and 14 met as design; 4 met as
   an approved deviation (**D114**, 2026-10-08 — until then it read "deferred"
@@ -64,7 +71,13 @@
   list omitted; D164 and D165 are open.)*
   *(Later the same day: both RESOLVED. The body also uses D11 (§C3), D37
   (three Preservation rows), D90, D113 (the debugger row) and D166.)*
-- Touched but not consumed: D16, D27, D31
+  *(Later the same day, the eighth review's S3: the body also uses D167 (the
+  refused-`save` row and the sixth amendment) and D168 (§C8's note and the
+  seventh amendment), both RESOLVED. And **D27 is consumed**: the row "a
+  world file the reference wrote" rests on it alone. It moves here from the
+  line below.)*
+- Touched but not consumed: D16, D27, D31 *(D27: consumed, per the note
+  above.)*
 - Reference SHA: `reference/Bund` at `21b40b0`, per `reference/PINNED.txt`
 - Supersedes: `docs/research/01-extensibility-async.md` §2 in two places, now
   recorded in `docs/research/ERRATA.md`. **The first draft claimed it "departs
@@ -519,6 +532,9 @@ So an embedder reaches §C8 only by depending on `bund2-async` directly,
 and every test of criteria 10 to 14 is in the crate. What the façade
 should expose is RFC-0000's question, about every crate it names, and is
 not answered here.)*
+*(Later 2026-10-14, the eighth review's S1: nor does the host give an
+embedder a per-VM output stream. Every VM prints to the process's
+standard output; the Preservation table has the row.)*
 *(Later 2026-10-14, the seventh review's S1: **"nothing shipped links the
 crate" is false for one build.** `bund2-cli` declares `async =
 ["bund2/async"]`, so `bund2` built with `--features async` links
@@ -658,12 +674,12 @@ note); "`WordKind::Sync` — 258 declarations, now with a stated meaning" is
 | a name that will not cast | **Preserved**: `BUS.DATA: Error name casting: …` whichever of seven words was called (`crossbus.rs:35,71,110,142`); `bus.data.current` casts nothing. A failed cast has already consumed the object and the name (`:57-72`). |
 | an absent channel at `recv` | **Preserved**: `RECV returns error bus::internal::pipe no pipe: <name>` (`mod.rs:126`, `crossbus.rs:146`). |
 | a failed encode at `send` | **Preserved** in its prefix, `Error enveloping data:` (`mod.rs:114`); the reason after it is Bund2's codec's, and the one reachable case is D114's. |
-| `Can not determine current stack name` (`crossbus.rs:19`) | **Removed by construction**: Bund2's current stack always has a name, `main` for an empty stack-of-stacks, so there is no arm (D37's first way out). |
+| `Can not determine current stack name` (`crossbus.rs:19`) | **Removed by construction**: Bund2's current stack always has a name, `main` for an empty stack-of-stacks, so there is no arm (D37's first way out). *(2026-10-14, the eighth review's M3: **the reference's arm is dead too.** `current_stack_name` is `self.ensure().stacks.back().cloned()` (`reference/rust_multistack/src/ts_current.rs:6-8`), and `ensure` adds a stack when there is none (`ts_ensure.rs:4-9`), so `back()` is never `None`. No program reached it on either side.)* |
 | a poisoned channel map | **Changed**: the reference unwraps the lock (`mod.rs:45,53,59,73,90,123`) and would abort; Bund2 reports `the bus's channel map is poisoned, so … cannot proceed` (`crates/bund2-stdlib/src/bus.rs`, `with_pipes`). D37 requires it; no program can cause it. |
 | channels are never removed | **Preserved**: neither has a removal path, so a process that computes names grows the map without bound, a second unbounded quantity beside the channel's own. |
 | channel and stack names | **Preserved**: one flat namespace, so `bus.data.current` on a stack named `in` is the pre-created channel `in`. |
 | a LAMBDA sent on the bus | **Preserved with one VM**: it crosses as bytes and runs if the receiver runs it. Under several VMs the receiver runs with whatever host options its VM was built with. *(Later the same day: **D165, ruled B** — a host takes `HostOptions` with `Host::with_options` and builds every VM with them, so an embedder's `--noeval` reaches the VMs it spawns. Tested by `a_spawned_vm_runs_under_the_hosts_options`)* |
-| process-global state other than the bus | **Shared between VMs, by design and not by decision.** `GENERATORS`, the named generators, is process-wide as the reference's is (`crates/bund2-stdlib/src/random.rs`), so two VMs that use one name share one generator: a second medium between VMs beside the bus. `MT` and `CHACHA` are shared too, but each is seeded once at random and no word seeds it, so no program can tell. `ARGS` is set once by the runner. |
+| process-global state other than the bus | **Shared between VMs, by design and not by decision.** `GENERATORS`, the named generators, is process-wide as the reference's is (`crates/bund2-stdlib/src/random.rs`), so two VMs that use one name share one generator: a second medium between VMs beside the bus. `MT` and `CHACHA` are shared too, but each is seeded once at random and no word seeds it, so no program can tell. `ARGS` is set once by the runner. *(2026-10-14, the eighth review's M4: three more, none visible to a program. The identity minter `NEXT` (`bund2-value`, an `AtomicU64`) is process-wide, which is why two VMs never mint one id and what "mints a fresh identity" at `recv` rests on. The log threshold `LEVEL` (`bund2-stdlib`'s `logging.rs`, a `OnceLock`) is read once from `BUND_LOG_LEVEL`, so VMs in one host cannot differ in it. `QUIET_HOOK` (`bund2-api`, a `Once`) installs the panic hook once per process. Program output is a medium too; it has its own row below.)* |
 | the symbol interner | **Per thread** (`bund2-value`, `thread_local!`): a symbol's index differs between VMs and a received value re-interns on decode. Not visible to a program; it is why the interner needs no lock. |
 | `WordKind::Async` | **Registrable and meaningless**: nothing reads `kind`, so such a word runs as any other. D164, ruled C: so are `Sync` and `Blocking`. |
 | a VM the host spawned, and the debugger | A host VM has no console, so a word that needs one is refused in words, as under any embedder with no console (RFC-0008, D113's refusal). Not run for this row. |
@@ -735,6 +751,24 @@ for the depth refusal and the world file:)*
 |---|---|
 | a value nested past 256 levels, at every write | **Deliberately changed — F118's FIX, and D114 at the bus.** The bound is in the codec, so every word that encodes refuses: the four `send` forms, `encode.base64` and `encode.base64.`, `save.model`, `save`, `save.lambdas`, `save.stacks` and `debug.dump`. Measured by the seventh review: a lambda holding a list literal 300 deep, and the same list on a stack, which the oracle saves. The row above, "at `send`", is the bus's case of this one. `save`'s and `save.lambdas`'s text is held by `a_refused_value_is_refused_in_the_references_words`. |
 | a world file the reference wrote | **Not readable by Bund2 — D27.** Refused at the open, for every value, by redb's magic number. |
+
+*(Later 2026-10-14, the eighth review. **The refused-`save` row is true of
+the tables and not of the file.** For a name no world had, `open_world`
+creates the file (`crates/bund2-stdlib/src/world.rs`, `open_world`, which
+calls `Database::create`) before `save_world` begins its transaction, so a
+refused `save` leaves a redb file holding no table. Measured: 20,480 bytes
+after `dict "k" '{"k": 1}' json set "fresh9" save`. No word can tell:
+`"fresh9" load` then answers as a `load` of a name never saved, because
+`load` creates the file too, as the reference's `Connection::open` does. The
+row's "as it was" is the world's tables. D167's atomicity is redb's: a
+write transaction commits all its tables or none, which is D27's reason for
+choosing it ("ACID"). And the seventh review's "`many` family" assumption is
+left as the `dup` row leaves it, not measured. Rows added on this date:)*
+
+| behaviour | disposition |
+|---|---|
+| where a host VM's program output goes | **To the process's one standard output, under its lock.** Every printing word writes through `bund2_api::outln!` and its siblings, which lock `std::io::stdout()` and write the text and newline under it (`crates/bund2-api/src/out.rs`, `stdout`). So N VMs' lines interleave whole, in whatever order their threads reach the lock: a third medium between VMs beside the bus and the generators, and the only one a reader of the process sees. No embedder can route one VM's output elsewhere; the reporter seam (D36) is per `Interp` and output has none. The reference has one VM per process and cannot show this, so it is design and not preservation. Read from the code; no test has two VMs print. Whether a host should give each VM its own stream is RFC-0000's embedding question. |
+| a refused `save` under a name no world had | **Leaves an empty redb file**, created at the open; `load` of it answers as `load` of a name never saved. The note above. |
 
 ## Alternatives considered
 
@@ -1361,3 +1395,38 @@ the sixth amendment's "D167 is open" has a pointer to the ruling below it.
 feature and its `features_built_in` arm are gone. No decision this RFC
 raised is open.)*
 
+### Amendment, 2026-10-14 — the eighth review
+
+`docs/rfc/reviews/RFC-0007-review-2026-10-14-6.md`. It found every citation
+correct, and D167 and D168 built as ruled. Its findings are about what the
+document leaves out. None changes code that a test holds.
+
+**Significant.**
+- **S1, a host VM's output.** A row: the process's one standard output,
+  under its lock, interleaved by line, with no per-VM seam. A sentence in
+  §C8's note on `bund2-async`.
+- **S2, the seventh review's lists.** The fresh-name file was measured again
+  here (20,480 bytes) and has a note and a row. The refused-`save` row's "as
+  it was" is now said to mean the tables. Redb's atomicity, which D167 rests
+  on, is stated. The `many` family is still not measured. The seventh
+  review's other lists were answered elsewhere: rows 1, 3 and 4 by D27, the
+  depth row and §C3's note, and row 5 by D168, which made it moot.
+- **S3, the Depends line.** D167 and D168 are added; D27 moves to consumed.
+
+**Minor.**
+- **M1.** `bus.rs`'s doc on `pull` now says three reachable arms and a dead
+  fourth. `name_of`'s says four `cast_string` sites serving seven words.
+- **M2.** `cargo xtask arity` was re-run and `docs/arity.md` regenerated.
+  The probe now reaches four of the eight words, and each probed effect
+  matches the registered one (`crates/bund2-stdlib/src/bus.rs`,
+  `register`): `send` 2→1, `send.quick` 2→0, `bus.data` 1→1 and
+  `bus.data.current` 0→1. `recv` is listed "type-constrained", and the three
+  workbench forms "no sentinel type accepted".
+- **M3.** A note on the current-stack-name row: the reference's arm is
+  dead too.
+- **M4.** The three statics are in a note on the process-global row.
+- **M5.** D11 has a dated note on its ENVELOPE sentence.
+- **M6.** The `get_mut(..).unwrap()` calls at
+  `reference/Bund/src/stdlib/functions/bus/mod.rs:63,78,102,128` each
+  follow a `contains_key` or an insert under the same lock, so none can
+  fire. The poisoned-map row counts the six lock sites, which can.
