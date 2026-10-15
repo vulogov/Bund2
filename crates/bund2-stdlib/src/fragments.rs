@@ -20,6 +20,14 @@
 //! measurement before more are written. An operation in `bund2_ir::Op` with no
 //! fragment using it is a lowering nobody has tested.
 //!
+//! *(2026-10-15: three more — `Int - Int`, `Int < Int` and `swap` — each
+//! measured in the same bench before it was published, and each with the
+//! differential test below. They were chosen from one program's profile: a
+//! recursive `fib` whose bodies are `dup 1 < { … } if` and
+//! `dup 1 swap - fib swap 2 swap - fib +`, where `+` was the only site the
+//! tier could inline. `swap`'s arm is published under `swap_one`, the native,
+//! for the reason `dup`'s is under `dup_one`.)*
+//!
 //! **What makes `Int + Int` free of `q` is the guard, not the arithmetic.**
 //! `Guard::TopAreInt` admits only *unboxed* scalars, whose `q` is the 100.0
 //! every constructor writes, and the word's result is a fresh value at 100.0
@@ -50,6 +58,53 @@ pub fn int_add() -> Result<Fragment, String> {
     )
 }
 
+/// `Int - Int → Int`, the arm behind `-`.
+///
+/// **The top is the left operand.** `3 5 -` is `5 - 3`: `run` in
+/// `crate::math` pulls `x` first and `numeric_op` answers `x - y`. After two
+/// pops slot 0 holds the value popped *last* — the one beneath — and slot 1
+/// the top, so the subtraction reads `a: 1, b: 0`. `Op::PopInt`'s own
+/// documentation warns that the `int_add` shape copied by analogy computes the
+/// reverse, and the differential test below is what catches it: unlike `+`,
+/// `-` does not commute.
+pub fn int_sub() -> Result<Fragment, String> {
+    Fragment::new(
+        Guard::TopAreInt(2),
+        vec![
+            Op::PopInt,
+            Op::PopInt,
+            Op::SubInt { dst: 0, a: 1, b: 0 },
+            Op::PushInt(0),
+        ],
+        2,
+    )
+}
+
+/// `Int < Int → Bool`, the arm behind `<`.
+///
+/// The same orientation as `-`: `1 2 <` asks whether 2 is less than 1 (`run`
+/// in `crate::logic` pulls `v1` first and `numeric_ord` orders `v1` against
+/// `v2`), so the comparison reads `a: 1, b: 0`. The result is a fresh boolean,
+/// which is what the word pushes; a boolean is never promoted.
+pub fn int_lt() -> Result<Fragment, String> {
+    Fragment::new(
+        Guard::TopAreInt(2),
+        vec![
+            Op::PopInt,
+            Op::PopInt,
+            Op::LtInt { dst: 0, a: 1, b: 0 },
+            Op::PushBool(0),
+        ],
+        2,
+    )
+}
+
+/// `swap` — exchange the top two, whatever they are. Depth is the only guard,
+/// because `swap_one` inspects neither value.
+pub fn swap() -> Result<Fragment, String> {
+    Fragment::new(Guard::Depth(2), vec![Op::SwapTop], 0)
+}
+
 /// `dup` — copy the top, whatever it is. No guard beyond depth, because the
 /// word does not inspect the value either.
 pub fn dup() -> Result<Fragment, String> {
@@ -63,12 +118,20 @@ pub fn drop_top() -> Result<Fragment, String> {
 
 /// The words whose arms this crate publishes, and the fragment for each.
 ///
-/// **`dup_one`, not `dup`.** `dup` is an alias
-/// (`crates/bund2-stdlib/src/stack.rs`, `register`), and an alias holds no
-/// `Native` and therefore no registration id, so keying the arm by `dup` would
-/// put an entry in the table that can never match a callee. The native is
-/// `dup_one`. `+` and `drop` are registered under their own names.
-const PUBLISHED: [(&str, Build); 3] = [("+", int_add), ("dup_one", dup), ("drop", drop_top)];
+/// **`dup_one`, not `dup`; `swap_one`, not `swap`.** `dup` and `swap` are
+/// aliases (`crates/bund2-stdlib/src/stack.rs`, `register`), and an alias
+/// holds no `Native` and therefore no registration id, so keying an arm by the
+/// alias would put an entry in the table that can never match a callee. The
+/// natives are `dup_one` and `swap_one`. `+`, `-`, `<` and `drop` are
+/// registered under their own names.
+const PUBLISHED: [(&str, Build); 6] = [
+    ("+", int_add),
+    ("-", int_sub),
+    ("<", int_lt),
+    ("dup_one", dup),
+    ("swap_one", swap),
+    ("drop", drop_top),
+];
 
 /// How an arm is built — each constructor validates, so each can refuse.
 type Build = fn() -> Result<Fragment, String>;
@@ -104,7 +167,7 @@ type Build = fn() -> Result<Fragment, String>;
 ///
 /// A word this crate did not register — under `--noio` or `--noeval`, say, or
 /// in a registry built by hand — is simply absent from the table. None of the
-/// three is ever stubbed, so in a default registry all three are present.
+/// six is ever stubbed, so in a default registry all six are present.
 pub fn published(
     r: &bund2_api::Registry,
 ) -> Result<Vec<(bund2_api::RegistrationId, Fragment)>, String> {
@@ -298,6 +361,185 @@ mod tests {
         }
     }
 
+    /// Compare one value from the word's stack against one from the arm's on
+    /// everything criterion 16 names but identity.
+    fn assert_same(w: &BundValue, f: &BundValue, label: &str) {
+        assert_eq!(w.dt(), f.dt(), "{label}: different dt");
+        assert_eq!(w.as_int(), f.as_int(), "{label}: different value");
+        assert!(
+            (w.q() - f.q()).abs() < f64::EPSILON,
+            "{label}: q diverged, {} against {}",
+            w.q(),
+            f.q()
+        );
+        assert_eq!(
+            w.tags().get("stack").map(|s| &**s),
+            f.tags().get("stack").map(|s| &**s),
+            "{label}: stack tag diverged — D41"
+        );
+        assert_eq!(
+            norm(&w.render(false)),
+            norm(&f.render(false)),
+            "{label}: render"
+        );
+    }
+
+    /// **Criterion 16 for `Int - Int`**, over the boundary set, **in both
+    /// orders by construction** — the set is squared, so every pair appears
+    /// reversed too, and subtraction does not forgive a reversed register file
+    /// the way addition does.
+    #[test]
+    fn the_int_sub_arm_agrees_with_the_word() {
+        for &a in &INT_BOUNDARY {
+            for &b in &INT_BOUNDARY {
+                let ops = [BundValue::int(a), BundValue::int(b)];
+                let word = via_word("-", &ops);
+                let frag = via_fragment(&int_sub().expect("well-formed"), &ops)
+                    .unwrap_or_else(|| panic!("guard declined {a} {b} -"));
+                assert_eq!(word.len(), frag.len(), "{a} {b} -: different stack depth");
+                for (w, f) in word.iter().zip(frag.iter()) {
+                    assert_same(w, f, &format!("{a} {b} -"));
+                }
+            }
+        }
+    }
+
+    /// **The orientation and the wrap, asserted by value.** `3 5 -` is `2`
+    /// and not `-2`; `i64::MIN 1 -` is `1 - i64::MIN`, which wraps to
+    /// `i64::MIN + 1`... read the other way: the top is the left operand, so
+    /// `1 i64::MIN -` is `i64::MIN - 1` and wraps to `i64::MAX`.
+    #[test]
+    fn the_int_sub_arm_takes_the_top_as_its_left_operand_and_wraps() {
+        let arm = int_sub().expect("well-formed");
+        let out = via_fragment(&arm, &[BundValue::int(3), BundValue::int(5)]).expect("admitted");
+        assert_eq!(
+            out.last().and_then(|v| v.as_int()),
+            Some(2),
+            "`3 5 -` is 5 - 3"
+        );
+        let out =
+            via_fragment(&arm, &[BundValue::int(1), BundValue::int(i64::MIN)]).expect("admitted");
+        assert_eq!(
+            out.last().and_then(|v| v.as_int()),
+            Some(i64::MAX),
+            "`1 i64::MIN -` is i64::MIN - 1, wrapped"
+        );
+    }
+
+    /// **Criterion 16 for `Int < Int`**, over the same squared set, which
+    /// covers `a < b`, `a > b` and `a == b` at every boundary.
+    #[test]
+    fn the_int_lt_arm_agrees_with_the_word() {
+        for &a in &INT_BOUNDARY {
+            for &b in &INT_BOUNDARY {
+                let ops = [BundValue::int(a), BundValue::int(b)];
+                let word = via_word("<", &ops);
+                let frag = via_fragment(&int_lt().expect("well-formed"), &ops)
+                    .unwrap_or_else(|| panic!("guard declined {a} {b} <"));
+                assert_eq!(word.len(), frag.len(), "{a} {b} <: different stack depth");
+                for (w, f) in word.iter().zip(frag.iter()) {
+                    assert_same(w, f, &format!("{a} {b} <"));
+                }
+            }
+        }
+    }
+
+    /// **The orientation, asserted by value**: `1 2 <` asks whether 2 is less
+    /// than 1, and the oracle answers `false`.
+    #[test]
+    fn the_int_lt_arm_compares_the_top_against_the_value_beneath() {
+        let arm = int_lt().expect("well-formed");
+        let out = via_fragment(&arm, &[BundValue::int(1), BundValue::int(2)]).expect("admitted");
+        assert!(
+            matches!(out.last(), Some(BundValue::Bool(false, _))),
+            "`1 2 <`"
+        );
+        let out = via_fragment(&arm, &[BundValue::int(2), BundValue::int(1)]).expect("admitted");
+        assert!(
+            matches!(out.last(), Some(BundValue::Bool(true, _))),
+            "`2 1 <`"
+        );
+        let out = via_fragment(&arm, &[BundValue::int(2), BundValue::int(2)]).expect("admitted");
+        assert!(
+            matches!(out.last(), Some(BundValue::Bool(false, _))),
+            "`2 2 <`"
+        );
+    }
+
+    /// The `-` and `<` arms must **decline** everything outside `TopAreInt(2)`.
+    #[test]
+    fn the_int_sub_and_lt_arms_decline_what_they_do_not_claim() {
+        let outside = [
+            vec![BundValue::int(1), BundValue::float(2.0)],
+            vec![BundValue::float(1.0), BundValue::int(2)],
+            vec![BundValue::str("a"), BundValue::int(2)],
+            vec![BundValue::int(1).promote(), BundValue::int(2)],
+            vec![BundValue::int(1)],
+            vec![],
+        ];
+        for ops in outside {
+            for (name, arm) in [("-", int_sub()), ("<", int_lt())] {
+                assert!(
+                    via_fragment(&arm.expect("well-formed"), &ops).is_none(),
+                    "{name}'s arm claimed {ops:?}, which is outside TopAreInt(2)"
+                );
+            }
+        }
+    }
+
+    /// **Criterion 16 for `swap`**, over every ordered pair of the four
+    /// shapes, and the moved-not-copied property: `swap` copies nothing, so a
+    /// heap value keeps the payload it had, under the arm as under the word.
+    /// The render comparison cannot see that, and `identity()` mints an id
+    /// for an unboxed scalar on every call, so the property is asserted on
+    /// the **payload key** (D35) of the two heap shapes.
+    #[test]
+    fn the_swap_arm_agrees_with_its_word_and_moves_rather_than_copies() {
+        let arm = swap().expect("well-formed");
+        for a in shapes() {
+            for b in shapes() {
+                let ops = [a.clone(), b.clone()];
+                let by_word = via_word("swap", &ops);
+                let by_frag =
+                    via_fragment(&arm, &ops).unwrap_or_else(|| panic!("swap declined {a:?} {b:?}"));
+                assert_eq!(by_word.len(), 2, "{a:?} {b:?} swap: depth");
+                assert_eq!(by_frag.len(), 2, "{a:?} {b:?} swap: depth");
+                for (w, g) in by_word.iter().zip(by_frag.iter()) {
+                    assert_eq!(w.dt(), g.dt(), "{a:?} {b:?} swap: dt");
+                    assert_eq!(
+                        norm(&w.render(false)),
+                        norm(&g.render(false)),
+                        "{a:?} {b:?} swap"
+                    );
+                }
+                for (label, stack) in [("word", &by_word), ("arm", &by_frag)] {
+                    assert_eq!(
+                        stack[0].payload_key(),
+                        b.payload_key(),
+                        "{label}: the former top keeps its payload"
+                    );
+                    assert_eq!(
+                        stack[1].payload_key(),
+                        a.payload_key(),
+                        "{label}: the former second keeps its payload"
+                    );
+                }
+            }
+        }
+        assert!(
+            shapes()
+                .iter()
+                .filter(|v| v.payload_key().is_some())
+                .count()
+                >= 2,
+            "the property above must be asked of at least two heap shapes"
+        );
+        assert!(
+            via_fragment(&arm, &[BundValue::int(1)]).is_none(),
+            "one value is outside Depth(2)"
+        );
+    }
+
     /// One value of each payload shape `dup` and `drop` will see.
     fn shapes() -> [BundValue; 4] {
         [
@@ -387,18 +629,18 @@ mod tests {
             .and_then(|n| n.id)
     }
 
-    /// **RFC-0005 §S6, D43.** The table names three registrations, each the one
+    /// **RFC-0005 §S6, D43.** The table names six registrations, each the one
     /// `register_all` minted for that word, and no two share an id.
     #[test]
     fn the_published_table_keys_each_arm_by_its_registration() {
         let r = stdlib_registry();
         let table = published(&r).expect("the published fragments are well-formed");
-        assert_eq!(table.len(), 3, "§S5: the fragment table holds three ids");
+        assert_eq!(table.len(), 6, "§S5: the fragment table holds six ids");
 
         let ids: std::collections::BTreeSet<_> = table.iter().map(|(id, _)| *id).collect();
-        assert_eq!(ids.len(), 3, "two arms must not share a registration id");
+        assert_eq!(ids.len(), 6, "two arms must not share a registration id");
 
-        for name in ["+", "dup_one", "drop"] {
+        for name in ["+", "-", "<", "dup_one", "swap_one", "drop"] {
             let id = id_of(&r, name).unwrap_or_else(|| panic!("{name} is registered as a native"));
             assert!(ids.contains(&id), "{name}'s registration is in the table");
         }
@@ -423,6 +665,37 @@ mod tests {
         let found = table.iter().find(|(_, f)| *f == dup_arm);
         let (id, _) = found.expect("the dup arm is published");
         assert_eq!(*id, native, "keyed by `dup_one`'s registration");
+    }
+
+    /// The same trap for `swap`, with a twist F20 records: `swap`'s slot
+    /// holds a native of its own (`swap_n`, the depth-taking form) **and** an
+    /// alias to `swap_one`, and the alias wins because the chain consults it
+    /// first. So `swap` has a registration id, and it is the wrong one — the
+    /// arm must be keyed by `swap_one`'s, which is the word a program's `swap`
+    /// reaches.
+    #[test]
+    fn the_swap_arm_is_keyed_by_the_native_the_alias_reaches() {
+        let r = stdlib_registry();
+        let shadowed = id_of(&r, "swap").expect("`swap`'s slot holds `swap_n` (F20)");
+        let native = id_of(&r, "swap_one").expect("`swap_one` is the native");
+        assert_ne!(shadowed, native, "two registrations, two ids");
+        let (s, _) = r.interner.lookup_call("swap").expect("interned");
+        let (t, _) = r.interner.lookup_call("swap_one").expect("interned");
+        assert_eq!(
+            r.resolve_target(s),
+            t,
+            "`swap` resolves through its alias to `swap_one`"
+        );
+
+        let table = published(&r).expect("well-formed");
+        let swap_arm = swap().expect("well-formed");
+        let found = table.iter().find(|(_, f)| *f == swap_arm);
+        let (id, _) = found.expect("the swap arm is published");
+        assert_eq!(*id, native, "keyed by `swap_one`'s registration");
+        assert!(
+            !table.iter().any(|(id, _)| *id == shadowed),
+            "the shadowed `swap_n` registration is not in the table"
+        );
     }
 
     /// **Why the key is the registration and not the name.** `register` is a

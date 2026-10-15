@@ -105,33 +105,17 @@ impl Stack {
     /// That is not what "capacity" usually means, and it is preserved as
     /// written.
     pub(super) fn push(&mut self, v: BundValue) {
-        let (sym, name) = (self.sym, Rc::clone(&self.name));
-        self.push_as(v, sym, &name);
-    }
-
-    /// Push, tagging with a name that is **not** this stack's own.
-    ///
-    /// One caller, and it is the reason this exists: the workbench "does not
-    /// carry a specific name", so a value pushed there keeps the tag of the
-    /// stack it came from — a fossil rather than a location. Tagging it with
-    /// the workbench's own name would erase that.
-    pub(super) fn push_as(
-        &mut self,
-        v: BundValue,
-        sym: bund2_value::StackSym,
-        stack_name: &Rc<str>,
-    ) {
         if let Some(cap) = self.cap
             && self.items.len() >= cap
         {
             self.items.pop_back();
         }
-        // **D41.** A scalar takes the symbol inline — no allocation, no
-        // boxing. A heap value already has a header, so its tag goes in the
-        // map as it always did.
+        // The same tagging `push_as` does, spelled out rather than delegated:
+        // delegating meant cloning `self.name` on every push to lend it beside
+        // `&mut self`, and a scalar — most pushes — never reads it. **D41.**
         let tagged = match v {
-            BundValue::Heap(_) => v.with_tag(Rc::clone(&self.tag_key), Rc::clone(stack_name)),
-            scalar => scalar.with_stack_sym(sym),
+            BundValue::Heap(_) => v.with_tag(Rc::clone(&self.tag_key), Rc::clone(&self.name)),
+            scalar => scalar.with_stack_sym(self.sym),
         };
         self.items.push_back(tagged);
     }

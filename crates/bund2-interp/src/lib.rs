@@ -701,7 +701,12 @@ impl Interp {
     /// times to dispatch `dup`, and none of it carries information a caller
     /// could not have resolved once.
     pub fn dispatch(&mut self, s: Symbol, sigil: bool) -> Result<(), Error> {
-        match self.registry.resolve(s, sigil) {
+        // The verdict and the slot it was read from, in one walk of the alias
+        // chain: the `Lambda` and `Native` arms need the target, and asking
+        // `resolve_target` separately walked `dup` to `dup_one` a second time
+        // on every call.
+        let (resolved, target) = self.registry.resolve_to(s, sigil);
+        match resolved {
             Resolved::Command => {
                 // `resolve` said the slot holds a command; if the binding has
                 // gone in between, that is a broken invariant and not the
@@ -744,7 +749,6 @@ impl Interp {
                 // is Rust call depth. Bund2 does not: the body is cloned out,
                 // so the registry is not borrowed, and handed to the loop as a
                 // tail request below (RFC-0003 §S4's frame loop).
-                let target = self.registry.resolve_target(s);
                 self.alias_breakpoint(s, target)?;
                 let body = self
                     .registry
@@ -766,7 +770,6 @@ impl Interp {
                 Ok(())
             }
             Resolved::Native => {
-                let target = self.registry.resolve_target(s);
                 self.alias_breakpoint(s, target)?;
                 let n = self
                     .registry

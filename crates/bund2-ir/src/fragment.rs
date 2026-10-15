@@ -85,9 +85,38 @@ pub enum Op {
     /// `dst = a + b`, wrapping — the reference's `i64` arithmetic (D4).
     AddInt { dst: u8, a: u8, b: u8 },
     /// `dst = a - b`, wrapping. See [`Op::PopInt`] for which register holds
-    /// which operand — the order is the whole difficulty. No fragment uses this
-    /// yet, which by this enum's own rule makes it a lowering nobody has tested.
+    /// which operand — the order is the whole difficulty. *(Until 2026-10-15
+    /// no fragment used this, which by this enum's own rule made it a lowering
+    /// nobody had tested; `int_sub` in `crates/bund2-stdlib/src/fragments.rs`
+    /// is that fragment, and its differential test is the one that would catch
+    /// the reversed file.)*
     SubInt { dst: u8, a: u8, b: u8 },
+    /// Exchange the top two values the way `swap_one` does: pull the top, pull
+    /// the one beneath, push the top back, push the other on top of it
+    /// (`swap_one` in `crates/bund2-stdlib/src/stack.rs`). The values keep
+    /// their identities — nothing is copied — and each push applies D41's stack
+    /// symbol as the word's pushes do.
+    ///
+    /// Addresses the stack directly, as `DupTop` does, so a fragment using it
+    /// cannot take its operands from registers.
+    SwapTop,
+    /// `dst = (a < b) as i64` — `1` when `a` is less than `b`, else `0`.
+    ///
+    /// The word `<` compares its **top** operand against the one beneath:
+    /// `1 2 <` asks whether 2 is less than 1 (`run` in
+    /// `crates/bund2-stdlib/src/logic.rs` pulls `v1` first and `compare` orders
+    /// `v1` against `v2`). With [`Op::PopInt`]'s numbering the top lands in
+    /// slot 1 and the value beneath in slot 0, so `<`'s fragment is
+    /// `LtInt { dst: 0, a: 1, b: 0 }` — the same shape `SubInt` takes, for the
+    /// same reason.
+    LtInt { dst: u8, a: u8, b: u8 },
+    /// Push a register as a fresh boolean: `false` for `0`, `true` otherwise.
+    ///
+    /// The value is what `BundValue::boolean` builds, which is what `<`
+    /// pushes. A boolean is never promoted: §S5's model holds int literals
+    /// only, so a lowering pushes this through its helper whatever the site's
+    /// result would otherwise be kept as.
+    PushBool(u8),
 }
 
 /// A word's specialised arm.
@@ -193,13 +222,16 @@ impl Fragment {
     /// that abstract stack as it is consumed and extended:
     ///
     /// - `PopInt` needs an `Int` there; `DropTop` needs *something*; `DupTop`
-    ///   needs something and copies its kind. Every consuming op counts, so
+    ///   needs something and copies its kind; `SwapTop` needs two somethings
+    ///   and exchanges their kinds. Every consuming op counts, so
     ///   `drop drop` under `Depth(1)` is refused rather than dropping twice
     ///   and silently doing nothing the second time.
     /// - A register must be **written before it is read**: `PushInt`,
-    ///   `AddInt` and `SubInt` may only read registers an earlier `PopInt` or
-    ///   arithmetic op wrote. The file starts zeroed, so an unwritten read
-    ///   would push `0` and report success.
+    ///   `PushBool`, `AddInt`, `SubInt` and `LtInt` may only read registers an
+    ///   earlier `PopInt` or arithmetic op wrote. The file starts zeroed, so an
+    ///   unwritten read would push `0` and report success.
+    /// - `PushBool` leaves a value of no known kind on the abstract stack: a
+    ///   later `PopInt` may not read it, because it is not an `Int`.
     /// - Every register named is inside the declared file, the file is at most
     ///   [`Fragment::MAX_REGISTERS`], and no more values are popped into it
     ///   than it holds.
@@ -265,6 +297,15 @@ impl Fragment {
                     };
                     stack.push(top);
                 }
+                Op::SwapTop => {
+                    let len = stack.len();
+                    if len < 2 {
+                        return Err(format!(
+                            "op {i} (SwapTop) needs two values and the guard admits {len}"
+                        ));
+                    }
+                    stack.swap(len - 1, len - 2);
+                }
                 Op::PushInt(r) => {
                     if !inside(*r) {
                         return Err(format!(
@@ -278,7 +319,20 @@ impl Fragment {
                     }
                     stack.push(Kind::Int);
                 }
-                Op::AddInt { dst, a, b } | Op::SubInt { dst, a, b } => {
+                Op::PushBool(r) => {
+                    if !inside(*r) {
+                        return Err(format!(
+                            "op {i} (PushBool) names register {r}, outside a file of {regs}"
+                        ));
+                    }
+                    if !written[*r as usize] {
+                        return Err(format!(
+                            "op {i} (PushBool) reads register {r} before anything writes it"
+                        ));
+                    }
+                    stack.push(Kind::Any);
+                }
+                Op::AddInt { dst, a, b } | Op::SubInt { dst, a, b } | Op::LtInt { dst, a, b } => {
                     if let Some(bad) = [*dst, *a, *b].into_iter().find(|r| !inside(*r)) {
                         return Err(format!(
                             "op {i} ({op:?}) names register {bad}, outside a file of {regs}"
@@ -341,6 +395,63 @@ mod tests {
         assert!(
             Fragment::new(Guard::Depth(2), vec![Op::PopInt], 1).is_err(),
             "a Depth guard promises no integer"
+        );
+    }
+
+    /// The three ops added for `swap`, `<` and `-`'s arms, under the same
+    /// walk: `SwapTop` consumes two, `PushBool` reads a written register and
+    /// leaves something no `PopInt` may read, `LtInt` reads two written ones.
+    #[test]
+    fn swap_lt_and_push_bool_are_walked_like_the_rest() {
+        assert!(
+            Fragment::new(Guard::Depth(1), vec![Op::SwapTop], 0).is_err(),
+            "swap under a one-deep guard"
+        );
+        assert!(
+            Fragment::new(Guard::Depth(2), vec![Op::SwapTop], 0).is_ok(),
+            "swap under a two-deep guard"
+        );
+        assert!(
+            Fragment::new(Guard::TopAreInt(2), vec![Op::PopInt, Op::PushBool(1)], 2).is_err(),
+            "register 1 is never written"
+        );
+        assert!(
+            Fragment::new(
+                Guard::TopAreInt(2),
+                vec![
+                    Op::PopInt,
+                    Op::PopInt,
+                    Op::LtInt { dst: 0, a: 1, b: 0 },
+                    Op::PushBool(0),
+                    Op::PopInt,
+                ],
+                2
+            )
+            .is_err(),
+            "a pushed boolean is not an integer a PopInt may read"
+        );
+        assert!(
+            Fragment::new(
+                Guard::TopAreInt(2),
+                vec![
+                    Op::PopInt,
+                    Op::PopInt,
+                    Op::LtInt { dst: 0, a: 1, b: 0 },
+                    Op::PushBool(0),
+                ],
+                2
+            )
+            .is_ok(),
+            "the `<` arm"
+        );
+        assert!(
+            Fragment::new(
+                Guard::TopAreInt(2),
+                vec![Op::PopInt, Op::LtInt { dst: 0, a: 0, b: 1 }],
+                2
+            )
+            .is_err(),
+            "register 1 is read before anything writes it"
         );
     }
 

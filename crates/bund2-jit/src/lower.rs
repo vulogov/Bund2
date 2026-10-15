@@ -237,6 +237,10 @@ struct FragmentSite {
     push: FuncRef,
     dup: FuncRef,
     drop_: FuncRef,
+    /// `Op::SwapTop`'s helper — stack traffic, like `dup` and `drop_`.
+    swap: FuncRef,
+    /// `Op::PushBool`'s helper. Same shape as `push`; a different value.
+    push_bool: FuncRef,
 }
 
 /// **Emit one fragment's ops into the function being built**, and say whether
@@ -339,11 +343,11 @@ fn emit_fragment_ops(
                     emitted_any_call = true;
                 }
             }
-            Op::DupTop | Op::DropTop => {
-                let callee = if matches!(op, Op::DupTop) {
-                    site.dup
-                } else {
-                    site.drop_
+            Op::DupTop | Op::DropTop | Op::SwapTop => {
+                let callee = match op {
+                    Op::DupTop => site.dup,
+                    Op::SwapTop => site.swap,
+                    _ => site.drop_,
                 };
                 let call = f.ins().call(callee, &[ctx_val]);
                 let status = f.inst_results(call)[0];
@@ -352,7 +356,25 @@ fn emit_fragment_ops(
                 f.switch_to_block(next);
                 emitted_any_call = true;
             }
-            Op::AddInt { dst, a, b } | Op::SubInt { dst, a, b } => {
+            Op::PushBool(r) => {
+                let Some(&src) = file.get(usize::from(*r)) else {
+                    return Err(format!(
+                        "fragment op PushBool names register {r}, outside a file of {live}"
+                    ));
+                };
+                // **Never kept, whatever `keep_result` says.** The promotion
+                // model holds int literals and syncs them through `push`,
+                // which would make an int of a boolean. A boolean reaches the
+                // stack here, through its own helper, at every site.
+                let v = f.use_var(src);
+                let call = f.ins().call(site.push_bool, &[ctx_val, v]);
+                let status = f.inst_results(call)[0];
+                let next = f.create_block();
+                f.ins().brif(status, fail, &[], next, &[]);
+                f.switch_to_block(next);
+                emitted_any_call = true;
+            }
+            Op::AddInt { dst, a, b } | Op::SubInt { dst, a, b } | Op::LtInt { dst, a, b } => {
                 let (Some(&va), Some(&vb)) = (file.get(usize::from(*a)), file.get(usize::from(*b)))
                 else {
                     return Err(format!(
@@ -363,11 +385,16 @@ fn emit_fragment_ops(
                 let y = f.use_var(vb);
                 // Wrapping, as D4's `i64` arithmetic and the word are: a
                 // trapping or checked add is where a lowering would part
-                // company with `frag::run` at `i64::MAX`.
-                let r = if matches!(op, Op::AddInt { .. }) {
-                    f.ins().iadd(x, y)
-                } else {
-                    f.ins().isub(x, y)
+                // company with `frag::run` at `i64::MAX`. The comparison is
+                // signed, as `i64::cmp` is, and widened to the register's
+                // width so `PushBool` reads `0` or `1`.
+                let r = match op {
+                    Op::AddInt { .. } => f.ins().iadd(x, y),
+                    Op::SubInt { .. } => f.ins().isub(x, y),
+                    _ => {
+                        let c = f.ins().icmp(IntCC::SignedLessThan, x, y);
+                        f.ins().uextend(types::I64, c)
+                    }
                 };
                 let Some(&slot_dst) = file.get(usize::from(*dst)) else {
                     return Err(format!(
@@ -492,9 +519,11 @@ fn emit_sync_top_n(
 ///   the operands held back in registers the guard would be interrogating a
 ///   stack that is missing them, and a `Depth` guard is a claim about the stack
 ///   itself that promotion cannot discharge;
-/// - every op is register-only. `Op::DupTop` and `Op::DropTop` address the
-///   stack directly through their helpers, so a fragment using either must see
-///   its operands there.
+/// - every op is register-only. `Op::DupTop`, `Op::DropTop` and `Op::SwapTop`
+///   address the stack directly through their helpers, so a fragment using any
+///   of them must see its operands there. `Op::PushBool` pushes through its
+///   helper too, because the model holds no boolean — so `<`'s arm, whose
+///   `LtInt` alone would qualify, takes its operands from the stack.
 fn takes_registers(fragment: &Fragment) -> bool {
     matches!(fragment.guard(), Guard::TopAreInt(_))
         && fragment.ops().iter().all(|o| {
@@ -769,6 +798,39 @@ extern "C" fn jit_drop_top(c: *mut Ctx<'_>) -> i32 {
     OK
 }
 
+/// `Op::SwapTop` — the word's own sequence: pull the top, pull the one
+/// beneath, push the top back, push the other over it (`swap_one`,
+/// `crates/bund2-stdlib/src/stack.rs`). Nothing is copied, and both pushes
+/// apply D41's stack symbol as the word's do.
+extern "C" fn jit_swap_top(c: *mut Ctx<'_>) -> i32 {
+    // SAFETY: `Compiled::run`'s contract.
+    let Some(c) = (unsafe { ctx(c) }) else {
+        return FAIL;
+    };
+    let (Some(top), Some(below)) = (c.vm.pull(), c.vm.pull()) else {
+        c.err = Some(Error::internal(
+            "lowered fragment op SwapTop found fewer than two values after its guard admitted",
+        ));
+        return FAIL;
+    };
+    c.vm.push(top);
+    c.vm.push(below);
+    OK
+}
+
+/// `Op::PushBool` — push a register as a fresh boolean, `false` for `0`.
+///
+/// `BundValue::boolean` is what `frag::run` pushes and what `<` pushes, so the
+/// three agree on the value, its `dt` and its tag by construction.
+extern "C" fn jit_push_bool(c: *mut Ctx<'_>, v: i64) -> i32 {
+    // SAFETY: `Compiled::run`'s contract.
+    let Some(c) = (unsafe { ctx(c) }) else {
+        return FAIL;
+    };
+    c.vm.push(BundValue::boolean(v != 0));
+    OK
+}
+
 /// **§S8's second piece: the per-native adapter.**
 ///
 /// §S8: "A per-native adapter in Rust: `extern "C" fn(ctx: *mut Ctx, native:
@@ -1010,6 +1072,8 @@ pub fn compile(fragment: &Fragment) -> Result<Compiled, String> {
     builder.symbol("jit_push_int", jit_push_int as *const u8);
     builder.symbol("jit_dup_top", jit_dup_top as *const u8);
     builder.symbol("jit_drop_top", jit_drop_top as *const u8);
+    builder.symbol("jit_swap_top", jit_swap_top as *const u8);
+    builder.symbol("jit_push_bool", jit_push_bool as *const u8);
     let mut module = JITModule::new(builder);
 
     // Captured before the function builder borrows the context: `finalize`
@@ -1019,7 +1083,7 @@ pub fn compile(fragment: &Fragment) -> Result<Compiled, String> {
     let ptr = frontend.pointer_type();
     let conv = module.isa().default_call_conv();
 
-    // The four helper signatures, declared as imports.
+    // The helper signatures, declared as imports.
     let mut sig_pop = Signature::new(conv);
     sig_pop.params.push(AbiParam::new(ptr));
     sig_pop.params.push(AbiParam::new(ptr));
@@ -1046,6 +1110,14 @@ pub fn compile(fragment: &Fragment) -> Result<Compiled, String> {
     let drop_id = module
         .declare_function("jit_drop_top", Linkage::Import, &sig_bare)
         .map_err(|e| format!("declare jit_drop_top: {e}"))?;
+    let swap_id = module
+        .declare_function("jit_swap_top", Linkage::Import, &sig_bare)
+        .map_err(|e| format!("declare jit_swap_top: {e}"))?;
+    // The same shape as `jit_push_int`: the register travels as an `i64` and
+    // the helper is what makes a boolean of it.
+    let push_bool_id = module
+        .declare_function("jit_push_bool", Linkage::Import, &sig_push)
+        .map_err(|e| format!("declare jit_push_bool: {e}"))?;
 
     // **§S8's first piece: one JIT signature, `fn(ctx) -> i32` under
     // `CallConv::Tail`.** A `Tail` arm is what makes `return_call_indirect`
@@ -1097,6 +1169,8 @@ pub fn compile(fragment: &Fragment) -> Result<Compiled, String> {
         let push = module.declare_func_in_func(push_id, f.func);
         let dup = module.declare_func_in_func(dup_id, f.func);
         let drop_ = module.declare_func_in_func(drop_id, f.func);
+        let swap = module.declare_func_in_func(swap_id, f.func);
+        let push_bool = module.declare_func_in_func(push_bool_id, f.func);
 
         let entry = f.create_block();
         let fail = f.create_block();
@@ -1125,6 +1199,8 @@ pub fn compile(fragment: &Fragment) -> Result<Compiled, String> {
                 push,
                 dup,
                 drop_,
+                swap,
+                push_bool,
             },
             // **A standalone arm promotes nothing.** It is entered from Rust
             // with the operands already on the stack (`Compiled::run` asks
@@ -1438,7 +1514,7 @@ fn guards_hold(
 /// "No inlined or folded region spans a call site." A call site in a compiled
 /// body is a `call_indirect` through the body's slot table, or the
 /// `return_call_indirect` that ends a body whose last call is a tail call. An
-/// inlined arm makes neither: it calls the four stack helpers directly and
+/// inlined arm makes neither: it calls the stack helpers directly and
 /// jumps to its join. So the walk goes from the region's first block to
 /// `site.join`, turning aside at `fail`, and refuses:
 ///
@@ -1496,7 +1572,7 @@ fn region_is_one_value(
                     );
                     if !known {
                         return Err(format!(
-                            "{block} calls something that is not one of the four stack helpers"
+                            "{block} calls something that is not one of the stack helpers"
                         ));
                     }
                 }
@@ -2582,8 +2658,8 @@ fn new_module(adapter: Adapter) -> Result<JITModule, String> {
     // §S5's drain helper, which the body reaches through its own slot when the
     // request cell is set.
     builder.symbol(drain_name, drain_ptr);
-    // **§S6's type guard and the four fragment helpers.** A body that inlines
-    // an arm reaches all five: `jit_admits` to ask whether the guard admits,
+    // **§S6's type guard and the six fragment helpers.** A body that inlines
+    // an arm reaches all seven: `jit_admits` to ask whether the guard admits,
     // and the stack helpers the arm's ops call. Bound unconditionally — a
     // symbol nothing imports costs nothing, and binding them per-body would
     // mean deciding at module construction what a later body may inline.
@@ -2593,6 +2669,8 @@ fn new_module(adapter: Adapter) -> Result<JITModule, String> {
     builder.symbol("jit_push_int", jit_push_int as *const u8);
     builder.symbol("jit_dup_top", jit_dup_top as *const u8);
     builder.symbol("jit_drop_top", jit_drop_top as *const u8);
+    builder.symbol("jit_swap_top", jit_swap_top as *const u8);
+    builder.symbol("jit_push_bool", jit_push_bool as *const u8);
     // §S5's residual path. Bound unconditionally for the same reason the five
     // above are: a symbol nothing imports costs nothing.
     builder.symbol("jit_residual", jit_residual as *const u8);
@@ -2720,7 +2798,7 @@ fn emit_into<M: cranelift_module::Module>(
         .declare_function(admits_adapter_name, Linkage::Import, &sig_adapter)
         .map_err(|e| format!("declare {admits_adapter_name}: {e}"))?;
 
-    // The four stack helpers an inlined arm's ops call. Declared whether or not
+    // The six stack helpers an inlined arm's ops call. Declared whether or not
     // this body inlines: an import nothing references costs nothing, and
     // deciding here would mean knowing at module level what a later body wants.
     let mut sig_pop = Signature::new(conv);
@@ -2760,6 +2838,14 @@ fn emit_into<M: cranelift_module::Module>(
     let drop_id = module
         .declare_function("jit_drop_top", Linkage::Import, &sig_bare)
         .map_err(|e| format!("declare jit_drop_top: {e}"))?;
+    let swap_id = module
+        .declare_function("jit_swap_top", Linkage::Import, &sig_bare)
+        .map_err(|e| format!("declare jit_swap_top: {e}"))?;
+    // The same shape as `jit_push_int`: the register travels as an `i64` and
+    // the helper is what makes a boolean of it.
+    let push_bool_id = module
+        .declare_function("jit_push_bool", Linkage::Import, &sig_push)
+        .map_err(|e| format!("declare jit_push_bool: {e}"))?;
 
     // Thunks and the body are `Tail`, so `return_call_indirect` is legal from
     // any tail position: "body to body, and body to a native's thunk".
@@ -2841,9 +2927,9 @@ fn emit_into<M: cranelift_module::Module>(
     let syncs: usize;
     // Filled by the body emitter, read by the dominance check after it.
     let side_table: Vec<GuardedRegion>;
-    // The body's `fail` block and its four stack helpers, for criterion 21's
+    // The body's `fail` block and its six stack helpers, for criterion 21's
     // check, which runs after the builder's borrow ends as the one above does.
-    let region_bounds: (Block, [ir::FuncRef; 4]);
+    let region_bounds: (Block, [ir::FuncRef; 6]);
     // Assumption 38's map, escaping the builder's block the way `side_table`
     // does: site index, and the source-body index its residual resumes at.
     let resume_table: Vec<(usize, usize)>;
@@ -2919,18 +3005,20 @@ fn emit_into<M: cranelift_module::Module>(
         let epoch_off = i32::try_from(bund2_api::Cells::epoch_offset())
             .map_err(|_| "the epoch cell's offset does not fit".to_string())?;
 
-        // What an inlined arm's ops need: the four helpers, and one slot for a
+        // What an inlined arm's ops need: the six helpers, and one slot for a
         // popped int. Created whether or not this body inlines — an unused
         // import references nothing and an unused slot is eight bytes.
         let pop = module.declare_func_in_func(pop_id, f.func);
         let push = module.declare_func_in_func(push_id, f.func);
         let dup = module.declare_func_in_func(dup_id, f.func);
         let drop_ = module.declare_func_in_func(drop_id, f.func);
+        let swap = module.declare_func_in_func(swap_id, f.func);
+        let push_bool = module.declare_func_in_func(push_bool_id, f.func);
         // D73's dynamic half — called when a crossed call moved the stack.
         let stack_moved = module.declare_func_in_func(stack_moved_id, f.func);
         // §S5's residual path, reached when an inlined site's meaning guard
         // refuses. Imported whether or not this body inlines, for the same
-        // reason the four above are.
+        // reason the six above are.
         let residual = module.declare_func_in_func(residual_id, f.func);
         let pop_slot = f.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
             cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
@@ -2960,6 +3048,8 @@ fn emit_into<M: cranelift_module::Module>(
             push,
             dup,
             drop_,
+            swap,
+            push_bool,
         };
 
         // **§S5's promotion, at compile time.** The values an int literal would
@@ -3395,7 +3485,7 @@ fn emit_into<M: cranelift_module::Module>(
             }
 
             // The arm itself. **No request check follows it**: a fragment calls
-            // only the four stack helpers, none of which files a tail request,
+            // only the six stack helpers, none of which files a tail request,
             // so §S5's after-every-call load belongs to the generic path alone.
             f.switch_to_block(region);
             // **The region keeps its result in a register.** §S5's residual
@@ -3454,7 +3544,7 @@ fn emit_into<M: cranelift_module::Module>(
         f.seal_all_blocks();
         f.finalize(frontend);
         side_table = regions;
-        region_bounds = (fail, [pop, push, dup, drop_]);
+        region_bounds = (fail, [pop, push, dup, drop_, swap, push_bool]);
         resume_table = resumes;
         syncs = syncs_here;
     }
@@ -4298,6 +4388,120 @@ mod tests {
 
     fn dup_arm() -> Fragment {
         Fragment::new(Guard::Depth(1), vec![Op::DupTop], 0).expect("well-formed")
+    }
+
+    fn sub_arm() -> Fragment {
+        bund2_stdlib::fragments::int_sub().expect("well-formed")
+    }
+
+    fn lt_arm() -> Fragment {
+        bund2_stdlib::fragments::int_lt().expect("well-formed")
+    }
+
+    fn swap_arm() -> Fragment {
+        bund2_stdlib::fragments::swap().expect("well-formed")
+    }
+
+    /// **Criterion 16's third leg for `Int - Int`.** The squared boundary set
+    /// holds every pair in both orders, and subtraction is where a reversed
+    /// register file shows — `3 5 -` must be `2` on both paths, and the pin
+    /// below says which `2`.
+    #[test]
+    fn the_lowered_int_sub_agrees_with_frag_run_at_every_boundary() {
+        let f = sub_arm();
+        for a in EDGES {
+            for b in EDGES {
+                assert_agree(
+                    &f,
+                    &[BundValue::int(a), BundValue::int(b)],
+                    &format!("{a} {b} -"),
+                );
+            }
+        }
+        let compiled = compile(&f).expect("lowers");
+        let mut vm = interp_with(&[BundValue::int(3), BundValue::int(5)]);
+        assert_eq!(compiled.run(&mut vm), Ok(true));
+        assert_eq!(
+            vm.snapshot().first().and_then(BundValue::as_int),
+            Some(2),
+            "the lowered `3 5 -` is 5 - 3"
+        );
+        let mut vm = interp_with(&[BundValue::int(1), BundValue::int(i64::MIN)]);
+        assert_eq!(compiled.run(&mut vm), Ok(true));
+        assert_eq!(
+            vm.snapshot().first().and_then(BundValue::as_int),
+            Some(i64::MAX),
+            "the lowered sub must wrap, not trap"
+        );
+    }
+
+    /// **The third leg for `Int < Int`**, over the same squared set, with the
+    /// orientation pinned by value: `1 2 <` asks whether 2 is less than 1.
+    #[test]
+    fn the_lowered_int_lt_agrees_with_frag_run_at_every_boundary() {
+        let f = lt_arm();
+        for a in EDGES {
+            for b in EDGES {
+                assert_agree(
+                    &f,
+                    &[BundValue::int(a), BundValue::int(b)],
+                    &format!("{a} {b} <"),
+                );
+            }
+        }
+        let compiled = compile(&f).expect("lowers");
+        for (a, b, want) in [
+            (1, 2, false),
+            (2, 1, true),
+            (2, 2, false),
+            (i64::MIN, i64::MAX, false),
+            (i64::MAX, i64::MIN, true),
+        ] {
+            let mut vm = interp_with(&[BundValue::int(a), BundValue::int(b)]);
+            assert_eq!(compiled.run(&mut vm), Ok(true));
+            let stack = vm.snapshot();
+            assert_eq!(stack.len(), 1, "{a} {b} <: one value left");
+            assert!(
+                matches!(stack.first(), Some(BundValue::Bool(v, _)) if *v == want),
+                "{a} {b} < must leave {want}, left {:?}",
+                stack.first()
+            );
+        }
+    }
+
+    /// **The third leg for `swap`**, over every ordered pair of four shapes,
+    /// and the moved-not-copied property on the payload key, which the render
+    /// comparison cannot see.
+    #[test]
+    fn the_lowered_swap_agrees_with_frag_run_and_moves_rather_than_copies() {
+        let shapes = [
+            BundValue::int(7),
+            BundValue::float(2.5),
+            BundValue::str("s"),
+            BundValue::list(vec![BundValue::int(1), BundValue::int(2)]),
+        ];
+        let f = swap_arm();
+        let compiled = compile(&f).expect("lowers");
+        for a in &shapes {
+            for b in &shapes {
+                assert_agree(&f, &[a.clone(), b.clone()], "swap");
+                let mut vm = interp_with(&[a.clone(), b.clone()]);
+                assert_eq!(compiled.run(&mut vm), Ok(true));
+                let stack = vm.snapshot();
+                assert_eq!(stack.len(), 2);
+                assert_eq!(
+                    stack[0].payload_key(),
+                    b.payload_key(),
+                    "the former top keeps its payload"
+                );
+                assert_eq!(
+                    stack[1].payload_key(),
+                    a.payload_key(),
+                    "the former second keeps its payload"
+                );
+            }
+        }
+        assert_agree(&f, &[BundValue::int(1)], "swap on one value declines");
     }
 
     fn drop_arm() -> Fragment {
@@ -6353,10 +6557,7 @@ mod tests {
             ("a slot call", "spans a call site"),
             ("a tail call", "spans a call site"),
             ("a return", "ends the body inside the region"),
-            (
-                "a call to something else",
-                "not one of the four stack helpers",
-            ),
+            ("a call to something else", "not one of the stack helpers"),
             ("no join", "never reaches its join"),
         ] {
             let refused = region_shape(wrong).expect_err(wrong);

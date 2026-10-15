@@ -3705,7 +3705,10 @@ held by criterion 16's differential test against the word itself.
    `DupTop`, `DropTop`, `AddInt` and `SubInt`, and `Guard` has `TopAreInt`
    and `Depth`; nothing branches. C needs an op that pops a BOOL and runs
    one of two bodies, which is a change to RFC-0005's IR and so a decision
-   when it is raised, not this one.
+   when it is raised, not this one. *(2026-10-15: `Op` also has `SwapTop`,
+   `LtInt` and `PushBool`, for the `swap`, `<` and `-` arms built that day
+   under RFC-0005 §S6's own rule — each measured, each with criterion 16's
+   three legs. Still nothing branches.)*
 2. **The site.** When the tier lowers a body and finds a LAMBDA literal
    followed by a CALL whose slot is, at compile time, the built-in `if` or
    `if.false`, it emits the branch over the literal's body instead of a

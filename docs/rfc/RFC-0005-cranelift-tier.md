@@ -2320,6 +2320,11 @@ arise, because `Guard::TopAreInt` admits unboxed scalars only.
 *(2026-10-11: the function is `Stacks::push_as`, in
 `crates/bund2-interp/src/stacks.rs` since F198, here and in §S1.)*
 
+*(2026-10-15: there is no `push_as` any more. `Stack::push` tags in place —
+the delegation cloned the stack's name on every push to lend it beside
+`&mut self`, and a scalar never reads it — and the workbench push never went
+through it. The tagging described above is unchanged.)*
+
 The obligation falls on fragments instead: an arm that compares, orders or hashes
 must materialise identity wherever its word does. Today's fragments compare
 nothing, and scalars compare by content (D30). Criterion 16's differential
@@ -2399,7 +2404,7 @@ inlining rules:
   re-mints and re-records them, and `bund2-jit` reads that set when it
   compiles, as it reads the fragment table. An earlier revision called the set
   "the same set its fragments are keyed by", but the fragment table holds three
-  ids (the tenth review's S1). A command carries no D43 id, so no command is
+  ids (the tenth review's S1) *(2026-10-15: six)*. A command carries no D43 id, so no command is
   ever crossed; `bund2-stdlib` registers none. Every other native is synced
   before, as at an opaque site: an embedder's, an external package's under D9,
   or a `bund2-stdlib` native no audit brought to `Ok`. That costs speed, never
@@ -2639,6 +2644,12 @@ and an error slot, so an error travels in the context and never as an unwind
 (§S11). The guard is asked before entry, exactly as `frag::run` asks it, so the
 emitted code may assume admission and every helper's non-zero status branches to
 a single failure block.
+
+*(2026-10-15: six helpers. `jit_swap_top` is `SwapTop`'s — the word's own
+pull, pull, push, push — and `jit_push_bool` is `PushBool`'s, which pushes
+through its helper at every site whatever the site would otherwise keep in a
+register, because §S5's model holds int literals only. Criterion 21's check
+admits a direct call to any of the six and nothing else.)*
 
 **Two of §S8's four boundary pieces are built, 2026-09-13.** The arm is emitted
 under **`CallConv::Tail`** (§S8's first piece), and Rust enters it only through
@@ -3199,6 +3210,32 @@ exactly the kind of thing a later reader needs to see rather than have tidied
 away. **Absolutes here are one machine's; the shares in §S1's update are what
 the gate turns on, and they moved by under half a point across the two runs.**
 
+*(2026-10-15 — **three more arms, measured the same way before each was
+published**: `Int - Int`, `Int < Int` and `swap`, for a recursive `fib` whose
+bodies are `dup 1 < { … } if` and `dup 1 swap - fib swap 2 swap - fib +` and
+in which `+` had been the only site the tier could inline. Same command, same
+machine, one run, release, per operation; the `<` chain is `0 1 < drop` with
+the `drop` in every column, because a boolean left on the stack is what the
+next `<` would refuse:*
+
+| | `tier0` | `inlined` | `lowered` | inlining ceiling |
+|---|---|---|---|---|
+| `Int + Int` *(re-run)* | 46.2 ns | 25.9 ns | 22.0 ns | 2.10× |
+| `dup drop` *(re-run)* | 58.6 ns | 24.1 ns | 17.9 ns | 3.27× |
+| `Int - Int` | 47.7 ns | 26.2 ns | 22.9 ns | 2.08× |
+| `Int < Int`, with its `drop` | 79.4 ns | 31.1 ns | 26.4 ns | 3.00× |
+| `swap` | 41.0 ns | 24.6 ns | 22.1 ns | 1.86× |
+
+*The `promoted` column is not repeated: for `-` it is `int_add/promoted`
+(11.6 ns in this run) with the sign changed, and the model holds no boolean
+and promotes nothing across a `Depth` guard, so `<` and `swap` have no such
+ceiling. The three arms are `int_sub`, `int_lt` and `swap` in
+`crates/bund2-stdlib/src/fragments.rs`, keyed by `-`, `<` and `swap_one`
+— `swap` is an alias, as `dup` is, and F20 records that its slot's own native
+is shadowed by that alias. `bund2_ir::Op` gained `SwapTop`, `LtInt` and
+`PushBool` for them; `SubInt`, which had no fragment, now has one. What the
+arms bought on `fib` is under criterion 10.)*
+
 ### What has been built, 2026-09-09 and 2026-09-10
 
 The representation and its first consumer, which is everything on this side of
@@ -3215,6 +3252,12 @@ a code generator:
 
 **Criterion 15 holds**: `cargo tree -p bund2-stdlib` lists neither `bund2-jit`
 nor any `cranelift-*` crate, with `bund2-stdlib` now depending on `bund2-ir`.
+
+*(2026-10-15: the table's last two rows now read six arms — `int_add`,
+`int_sub`, `int_lt`, `dup`, `swap`, `drop_top` — and a differential test per
+arm; `Op` has nine operations, `frag::run` executes all nine, and
+`Fragment::new`'s typed walk counts `SwapTop` as consuming two and refuses a
+`PopInt` of what `PushBool` left.)*
 
 `frag::run` is **not Tier 1** — it generates no code and caches nothing. It
 exists so the representation is exercised rather than assumed, and so
@@ -6681,6 +6724,24 @@ criterion.)*
     F204's code generator setting, which changes no instruction there; the
     note of this date under criterion 7 has the test. No x86-64 reading.)*
 
+    *(2026-10-15 — **the A/B on `fib`, with every arithmetic site of its
+    bodies inlinable.** `bund_examples/fibonacci/fibonacci.bund`, `fib(30)`,
+    user seconds, best of five, this machine. Tier 0: **0.49 s**. Tier 1 at
+    the default threshold, before the `-` and `<` arms: 0.60 s, one body
+    compiled, one site inlined. After them: **0.60 s**, two bodies compiled,
+    four sites inlined, three values promoted, nine of sixteen values generic
+    — `dup` twice and `swap` three times are aliases, which §S6's
+    direct-resolution rule calls rather than inlines, and `fib`, the lambda
+    literal and `if` are calls. With the program rewritten to name `dup_one`
+    and `swap_one` directly, so that nine sites inline and four values stay
+    generic: Tier 0 0.49 s, Tier 1 **0.50 s**. So inlining alone, compiled,
+    comes in under 1× on this shape, not under 2×: the stop rule's reading is
+    that arithmetic and stack-traffic inlining does not earn its keep here,
+    and the ceilings above said as much. The generic values are what the tier
+    pays for — the per-value cost of F136's decomposition — and what is left
+    to buy is the `{ … } if` branch and the recursion's operand kept out of a
+    `BundValue`, both decisions and neither built.)*
+
 11. **A promoted recursion does not overflow the machine stack.** §S8's
     correctness problem, and the criterion is one that already exists:
 
@@ -7008,6 +7069,8 @@ criterion.)*
     Until this landed the property was believed by reading `jit_push_int` —
     which calls `Vm::push`, hence `Stack::push`, hence `push_as` with the
     stack's own symbol. That reasoning was right, and it was not a test.
+    *(2026-10-15: `Stack::push` tags in place now and `push_as` is gone;
+    the chain is one link shorter and the property is the same.)*
 
 13. **An absent effect is treated as `Opaque`, never as zero.** §S6's *Where
     promotion stops* counts **21 sites** (2026-09-11) whose word declares no effect at all. A defaulted
@@ -7195,6 +7258,21 @@ criterion.)*
 
     Runs today: `cargo test -p bund2-stdlib fragments` for the first two legs,
     and `cargo test -p bund2-jit --features jit` for the third.
+
+    *(2026-10-15: the three arms added that day carry all three legs. The
+    model's: `the_int_sub_arm_agrees_with_the_word` over the squared boundary
+    set, which holds every pair in both orders and so is where a reversed
+    register file shows; `the_int_sub_arm_takes_the_top_as_its_left_operand_and_wraps`
+    pins `3 5 -` to `2` and `1 i64::MIN -` to `i64::MAX`;
+    `the_int_lt_arm_agrees_with_the_word` and
+    `the_int_lt_arm_compares_the_top_against_the_value_beneath` pin `1 2 <`
+    to `false`; `the_swap_arm_agrees_with_its_word_and_moves_rather_than_copies`
+    asserts on D35's payload key that a heap value keeps its payload, since
+    `identity()` mints for a scalar on every call and the render blanks ids.
+    The lowered leg: `the_lowered_int_sub_agrees_with_frag_run_at_every_boundary`,
+    `the_lowered_int_lt_agrees_with_frag_run_at_every_boundary` and
+    `the_lowered_swap_agrees_with_frag_run_and_moves_rather_than_copies`, in
+    `crates/bund2-jit/src/lower.rs`, with the same pins on the compiled path.)*
 
 17. **Every inlined site carries its meaning guard.** §S6: an inlined
     fragment is entered only while the site's slot still holds the binding it

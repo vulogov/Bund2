@@ -146,6 +146,41 @@ pub fn run(i: &mut Interp, f: &Fragment) -> Result<bool, Error> {
                     *slot = x.wrapping_sub(y);
                 }
             }
+            Op::LtInt { dst, a, b } => {
+                let (Some(x), Some(y)) = (
+                    regs.get(*a as usize).copied(),
+                    regs.get(*b as usize).copied(),
+                ) else {
+                    return Err(Error::internal(
+                        "fragment op LtInt names a register outside the fragment's file",
+                    ));
+                };
+                if let Some(slot) = regs.get_mut(*dst as usize) {
+                    *slot = i64::from(x < y);
+                }
+            }
+            Op::PushBool(r) => {
+                let Some(v) = regs.get(*r as usize).copied() else {
+                    return Err(Error::internal(
+                        "fragment op PushBool names a register outside the fragment's file",
+                    ));
+                };
+                i.push(BundValue::boolean(v != 0));
+            }
+            Op::SwapTop => {
+                // The word's own sequence (`swap_one`,
+                // `crates/bund2-stdlib/src/stack.rs`): pull the top, pull the
+                // one beneath, push the top back, push the other over it. Two
+                // pushes, so both values take D41's stack symbol again, as
+                // they do under the word.
+                let (Some(top), Some(below)) = (i.pull(), i.pull()) else {
+                    return Err(Error::internal(
+                        "fragment op SwapTop found fewer than two values after its guard admitted",
+                    ));
+                };
+                i.push(top);
+                i.push(below);
+            }
         }
     }
     Ok(true)
@@ -217,6 +252,62 @@ mod tests {
         let before = i.snapshot();
         assert_eq!(run(&mut i, &add_fragment()).ok(), Some(false));
         assert_eq!(i.snapshot(), before);
+    }
+
+    /// The three arms added 2026-10-15, run through the model: `-` takes the
+    /// top as its left operand, `<` asks whether the top is less than the
+    /// value beneath, and `swap` exchanges without copying.
+    #[test]
+    fn the_sub_lt_and_swap_arms_compute_what_their_words_compute() {
+        let sub = Fragment::new(
+            Guard::TopAreInt(2),
+            vec![
+                Op::PopInt,
+                Op::PopInt,
+                Op::SubInt { dst: 0, a: 1, b: 0 },
+                Op::PushInt(0),
+            ],
+            2,
+        )
+        .expect("well-formed");
+        let mut i = Interp::new();
+        i.push(BundValue::int(3));
+        i.push(BundValue::int(5));
+        assert_eq!(run(&mut i, &sub).ok(), Some(true));
+        assert_eq!(
+            i.pull().and_then(|v| v.as_int()),
+            Some(2),
+            "`3 5 -` is 5 - 3"
+        );
+
+        let lt = Fragment::new(
+            Guard::TopAreInt(2),
+            vec![
+                Op::PopInt,
+                Op::PopInt,
+                Op::LtInt { dst: 0, a: 1, b: 0 },
+                Op::PushBool(0),
+            ],
+            2,
+        )
+        .expect("well-formed");
+        let mut i = Interp::new();
+        i.push(BundValue::int(1));
+        i.push(BundValue::int(2));
+        assert_eq!(run(&mut i, &lt).ok(), Some(true));
+        assert!(
+            matches!(i.pull(), Some(BundValue::Bool(false, _))),
+            "`1 2 <` asks whether 2 < 1"
+        );
+
+        let swap = Fragment::new(Guard::Depth(2), vec![Op::SwapTop], 0).expect("well-formed");
+        let mut i = Interp::new();
+        i.push(BundValue::str("below"));
+        i.push(BundValue::int(9));
+        assert_eq!(run(&mut i, &swap).ok(), Some(true));
+        assert_eq!(i.pull().and_then(|v| v.as_str()).as_deref(), Some("below"));
+        assert_eq!(i.pull().and_then(|v| v.as_int()), Some(9));
+        assert_eq!(i.depth(), 0);
     }
 
     /// A fragment whose ops outrun its guard **cannot be built**.

@@ -96,9 +96,14 @@ pub fn catch_panic(f: impl FnOnce() -> Result<(), Error>) -> Result<Result<(), E
             }
         }));
     });
-    CATCHING.with(|c| c.set(c.get() + 1));
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
-    CATCHING.with(|c| c.set(c.get().saturating_sub(1)));
+    // One thread-local access, not two: the increment and the decrement sit
+    // in one `with`, and this runs once per native call (`Interp::invoke`).
+    let r = CATCHING.with(|c| {
+        c.set(c.get() + 1);
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+        c.set(c.get().saturating_sub(1));
+        r
+    });
     r.map_err(|p| {
         let message = p
             .downcast_ref::<&str>()
@@ -2026,22 +2031,33 @@ impl Registry {
     /// does not precede everything. Then the sigil decides whether `lambda` is
     /// consulted, then `native`.
     pub fn resolve(&self, s: Symbol, sigil: bool) -> Resolved {
+        self.resolve_to(s, sigil).0
+    }
+
+    /// [`Registry::resolve`] together with where the alias chain landed —
+    /// the slot the verdict was read from. For a `Command` that is `s`
+    /// itself, since a command answers before any alias is followed.
+    ///
+    /// One walk of the chain, where `resolve` followed by `resolve_target`
+    /// made two; `dispatch` reaches `dup_one` through `dup` on every `dup`,
+    /// and walked it twice per call.
+    pub fn resolve_to(&self, s: Symbol, sigil: bool) -> (Resolved, Symbol) {
         if let Some(slot) = self.slots.get(s.index())
             && slot.command.is_some()
         {
-            return Resolved::Command;
+            return (Resolved::Command, s);
         }
         let target = self.follow(s);
         let Some(slot) = self.slots.get(target.index()) else {
-            return Resolved::Unbound;
+            return (Resolved::Unbound, target);
         };
         if !sigil && slot.lambda.is_some() {
-            return Resolved::Lambda;
+            return (Resolved::Lambda, target);
         }
         if slot.native.is_some() {
-            return Resolved::Native;
+            return (Resolved::Native, target);
         }
-        Resolved::Unbound
+        (Resolved::Unbound, target)
     }
 
     /// Where an alias chain lands, for a caller that needs the target slot

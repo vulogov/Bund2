@@ -270,6 +270,173 @@ fn fragment(c: &mut Criterion) {
         );
     });
 
+    // --- 2026-10-15: the three arms published for `fib` ----------------
+    //
+    // `Int - Int`, `Int < Int` and `swap`, measured in the same three columns
+    // before each was published, as §S6 requires. The shapes are the ones
+    // above: a chain of the word at Tier 0, the real fragment through
+    // `frag::run`, and the fragment's own ops written out — guard asked through
+    // indexed peeks, nothing folded. `promoted` is not repeated: for `-` it is
+    // `int_add/promoted` with the sign changed, and for `<` and `swap` the
+    // model holds no boolean and promotes nothing across a `Depth` guard.
+    //
+    // `<` leaves a boolean, which the next `<` would refuse, so its chain is
+    // `0 1 < drop` and the `drop` is in every column. `swap` is pure stack
+    // traffic over two values that never leave the stack.
+    let src3 = format!("0 {}", "1 - ".repeat(N));
+    let stream3 = bund2_syntax::compile(&src3).unwrap_or_default();
+    g.bench_function("int_sub/tier0", |b| {
+        b.iter_batched(
+            interp,
+            |mut i| black_box(i.eval(black_box(&stream3))).is_ok(),
+            BatchSize::SmallInput,
+        );
+    });
+    let f_sub = bund2_stdlib::fragments::int_sub();
+    assert!(f_sub.is_ok(), "{f_sub:?}");
+    let Ok(f_sub) = f_sub else { return };
+    g.bench_function("int_sub/inlined", |b| {
+        b.iter_batched(
+            || {
+                let mut i = interp();
+                i.push(BundValue::int(0));
+                i
+            },
+            |mut i| {
+                for _ in 0..N {
+                    i.push(BundValue::int(1));
+                    let _ = black_box(frag::run(&mut i, black_box(&f_sub)));
+                }
+                black_box(i.pull())
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    g.bench_function("int_sub/lowered", |b| {
+        b.iter_batched(
+            || {
+                let mut i = interp();
+                i.push(BundValue::int(0));
+                i
+            },
+            |mut i| {
+                for _ in 0..N {
+                    i.push(BundValue::int(1));
+                    let admitted = matches!(i.peek_at(0), Some(BundValue::Int(_, _)))
+                        && matches!(i.peek_at(1), Some(BundValue::Int(_, _)));
+                    if admitted {
+                        let top = i.pull().and_then(|v| v.as_int()).unwrap_or(0);
+                        let below = i.pull().and_then(|v| v.as_int()).unwrap_or(0);
+                        i.push(BundValue::int(top.wrapping_sub(below)));
+                    }
+                }
+                black_box(i.pull())
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    let src4 = "0 1 < drop ".repeat(N);
+    let stream4 = bund2_syntax::compile(&src4).unwrap_or_default();
+    g.bench_function("int_lt/tier0", |b| {
+        b.iter_batched(
+            interp,
+            |mut i| black_box(i.eval(black_box(&stream4))).is_ok(),
+            BatchSize::SmallInput,
+        );
+    });
+    let f_lt = bund2_stdlib::fragments::int_lt();
+    assert!(f_lt.is_ok(), "{f_lt:?}");
+    let Ok(f_lt) = f_lt else { return };
+    g.bench_function("int_lt/inlined", |b| {
+        b.iter_batched(
+            interp,
+            |mut i| {
+                for _ in 0..N {
+                    i.push(BundValue::int(0));
+                    i.push(BundValue::int(1));
+                    let _ = black_box(frag::run(&mut i, black_box(&f_lt)));
+                    let _ = i.pull();
+                }
+                black_box(i.depth())
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    g.bench_function("int_lt/lowered", |b| {
+        b.iter_batched(
+            interp,
+            |mut i| {
+                for _ in 0..N {
+                    i.push(BundValue::int(0));
+                    i.push(BundValue::int(1));
+                    let admitted = matches!(i.peek_at(0), Some(BundValue::Int(_, _)))
+                        && matches!(i.peek_at(1), Some(BundValue::Int(_, _)));
+                    if admitted {
+                        let top = i.pull().and_then(|v| v.as_int()).unwrap_or(0);
+                        let below = i.pull().and_then(|v| v.as_int()).unwrap_or(0);
+                        i.push(BundValue::boolean(top < below));
+                    }
+                    let _ = i.pull();
+                }
+                black_box(i.depth())
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    let src5 = format!("1 2 {}", "swap ".repeat(N));
+    let stream5 = bund2_syntax::compile(&src5).unwrap_or_default();
+    g.bench_function("swap/tier0", |b| {
+        b.iter_batched(
+            interp,
+            |mut i| black_box(i.eval(black_box(&stream5))).is_ok(),
+            BatchSize::SmallInput,
+        );
+    });
+    let f_swap = bund2_stdlib::fragments::swap();
+    assert!(f_swap.is_ok(), "{f_swap:?}");
+    let Ok(f_swap) = f_swap else { return };
+    g.bench_function("swap/inlined", |b| {
+        b.iter_batched(
+            || {
+                let mut i = interp();
+                i.push(BundValue::int(1));
+                i.push(BundValue::int(2));
+                i
+            },
+            |mut i| {
+                for _ in 0..N {
+                    let _ = black_box(frag::run(&mut i, black_box(&f_swap)));
+                }
+                black_box(i.pull())
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    g.bench_function("swap/lowered", |b| {
+        b.iter_batched(
+            || {
+                let mut i = interp();
+                i.push(BundValue::int(1));
+                i.push(BundValue::int(2));
+                i
+            },
+            |mut i| {
+                for _ in 0..N {
+                    if i.depth() >= 2
+                        && let (Some(top), Some(below)) = (i.pull(), i.pull())
+                    {
+                        i.push(top);
+                        i.push(below);
+                    }
+                }
+                black_box(i.pull())
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
     g.finish();
 }
 
