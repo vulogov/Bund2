@@ -21,6 +21,13 @@
 //! which a running program should have to solve to know what it is.
 //!
 //! **Only the builder touches a file**, and only a copy of one.
+//!
+//! **The payload is compressed — D174, format 2.** The region is 1 MiB and a
+//! program can be larger; Bund text deflates two to three and a half times
+//! (measured over the corpus, D174), so the region holds two to three MiB
+//! of it. The payload is a four-byte raw length and a raw deflate stream;
+//! `len` counts the payload's bytes. The raw length bounds the inflate, so
+//! a damaged stream cannot grow without end.
 
 /// The program a bundle may carry — RFC-0006, 1 MiB on the owner's ruling.
 ///
@@ -31,7 +38,20 @@
 pub const CAPACITY: usize = 1024 * 1024;
 
 /// This container's version. Read before anything else in the region.
-pub const FORMAT: u32 = 1;
+///
+/// 2 since D174: the payload is `[raw length: u32 LE][deflate]`. Version 1
+/// held the text plain; `inspect` still reads one, since an artefact built
+/// before the change may be handed to this bund2 to describe.
+pub const FORMAT: u32 = 2;
+/// Format 1: the payload was the program's text, uncompressed.
+const FORMAT_PLAIN: u32 = 1;
+/// The raw length a payload may claim. Deflate inflates by a thousand at
+/// most, so 1 MiB cannot hold more than this anyway; the bound is what
+/// keeps a forged length from asking for memory it never had.
+pub const RAW_LIMIT: usize = 64 * 1024 * 1024;
+/// `miniz_oxide`'s compression level: the slowest and smallest. A build
+/// runs once; the bytes are read at every start.
+const LEVEL: u8 = 10;
 
 /// Written where a payload would be, so the region lands in the image.
 ///
@@ -184,6 +204,8 @@ pub enum Damaged {
     Length(u32),
     /// A payload that is not UTF-8 — the payload is source text (§B2).
     NotText,
+    /// A payload that does not inflate to the length it claims (D174).
+    Payload(String),
     /// Restriction bits outside [`FLAGS_KNOWN`]; the unknown bits are carried.
     Restriction(u8),
 }
@@ -210,6 +232,10 @@ impl std::fmt::Display for Damaged {
                 f,
                 "this artefact's program is not valid UTF-8; a bundle carries source \
                  text, so the file is damaged"
+            ),
+            Self::Payload(why) => write!(
+                f,
+                "this artefact's program does not unpack: {why}; the file is damaged"
             ),
             Self::Restriction(bits) => write!(
                 f,
@@ -239,6 +265,40 @@ fn padded<const N: usize>(text: &str) -> [u8; N] {
 fn text(bytes: &[u8]) -> String {
     let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
     String::from_utf8_lossy(&bytes[..end]).into_owned()
+}
+
+/// The payload for `source`: its length, then its deflate stream.
+fn pack(source: &str) -> Result<Vec<u8>, String> {
+    let raw = u32::try_from(source.len())
+        .map_err(|_| "the program's length does not fit the container".to_string())?;
+    let mut out = raw.to_le_bytes().to_vec();
+    out.extend(miniz_oxide::deflate::compress_to_vec(
+        source.as_bytes(),
+        LEVEL,
+    ));
+    Ok(out)
+}
+
+/// The program a payload holds, inflated to exactly the length it claims.
+fn unpack(payload: &[u8]) -> Result<String, Damaged> {
+    let (head, stream) = payload
+        .split_at_checked(4)
+        .ok_or_else(|| Damaged::Payload("it is shorter than its own length field".into()))?;
+    let raw = u32::from_le_bytes([head[0], head[1], head[2], head[3]]) as usize;
+    if raw > RAW_LIMIT {
+        return Err(Damaged::Payload(format!(
+            "it claims a {raw}-byte program and the limit is {RAW_LIMIT}"
+        )));
+    }
+    let bytes = miniz_oxide::inflate::decompress_to_vec_with_limit(stream, raw)
+        .map_err(|e| Damaged::Payload(format!("the deflate stream is damaged ({:?})", e.status)))?;
+    if bytes.len() != raw {
+        return Err(Damaged::Payload(format!(
+            "it claims {raw} bytes and inflates to {}",
+            bytes.len()
+        )));
+    }
+    String::from_utf8(bytes).map_err(|_| Damaged::NotText)
 }
 
 /// What program this binary carries, if any.
@@ -280,9 +340,7 @@ pub fn carried() -> Result<Option<Carried>, Damaged> {
                 .payload
                 .get(..len)
                 .ok_or(Damaged::Length(region.len))?;
-            let source = std::str::from_utf8(bytes)
-                .map_err(|_| Damaged::NotText)?
-                .to_string();
+            let source = unpack(bytes)?;
             if region.flags & !FLAGS_KNOWN != 0 {
                 return Err(Damaged::Restriction(region.flags & !FLAGS_KNOWN));
             }
@@ -300,7 +358,10 @@ pub fn carried() -> Result<Option<Carried>, Damaged> {
 pub struct Inspected {
     pub format: u32,
     pub carries_program: bool,
+    /// Payload bytes in the region: the compressed size under format 2.
     pub used: usize,
+    /// The program's own size. Equal to `used` for a format 1 artefact.
+    pub raw: usize,
     pub capacity: usize,
     pub noio: bool,
     pub noeval: bool,
@@ -334,10 +395,18 @@ pub fn inspect(image: &[u8]) -> Result<Inspected, String> {
             .unwrap_or(0)
     };
     let flags = byte(at::FLAGS);
+    let format = word(at::FORMAT);
+    let used = word(at::LEN) as usize;
+    let raw = if format == FORMAT_PLAIN {
+        used
+    } else {
+        word(at::PAYLOAD) as usize
+    };
     Ok(Inspected {
-        format: word(at::FORMAT),
+        format,
         carries_program: byte(at::STATE) == FILLED,
-        used: word(at::LEN) as usize,
+        used,
+        raw,
         capacity: CAPACITY,
         noio: flags & FLAG_NOIO != 0,
         noeval: flags & FLAG_NOEVAL != 0,
@@ -418,7 +487,9 @@ fn header_validates(image: &[u8], start: usize) -> bool {
     let Ok(fmt) = <[u8; 4]>::try_from(fmt) else {
         return false;
     };
-    if u32::from_le_bytes(fmt) != FORMAT {
+    // Both versions validate a header: an older artefact is inspected and
+    // described, and only `carried` holds a runtime to its own version.
+    if !matches!(u32::from_le_bytes(fmt), FORMAT | FORMAT_PLAIN) {
         return false;
     }
     match region.get(at::STATE) {
@@ -451,13 +522,20 @@ pub fn write_into(
     crate::ui::trace!(
         "payload region at offset {start:#x}, {CAPACITY} bytes of capacity, format {FORMAT}"
     );
-    if source.len() > CAPACITY {
+    let packed = pack(source)?;
+    if packed.len() > CAPACITY {
         return Err(format!(
-            "the program is {} bytes and a bundle carries at most {CAPACITY}. \
-             Nothing was written.",
-            source.len()
+            "the program is {} bytes, which compresses to {} bytes, and a bundle carries \
+             at most {CAPACITY} compressed bytes. Nothing was written.",
+            source.len(),
+            packed.len()
         ));
     }
+    crate::ui::debug!(
+        "the program is {} bytes and packs to {} bytes",
+        source.len(),
+        packed.len()
+    );
     let put = |image: &mut [u8], off: usize, bytes: &[u8]| -> Result<(), String> {
         let at = start + off;
         image
@@ -466,7 +544,7 @@ pub fn write_into(
             .copy_from_slice(bytes);
         Ok(())
     };
-    let len = u32::try_from(source.len())
+    let len = u32::try_from(packed.len())
         .map_err(|_| "the program's length does not fit the container".to_string())?;
     put(image, at::FORMAT, &FORMAT.to_le_bytes())?;
     put(image, at::STATE, &[FILLED])?;
@@ -498,9 +576,9 @@ pub fn write_into(
     put(image, at::FEATURES, &padded::<64>(features))?;
     put(image, at::PINNED, &padded::<256>(pinned))?;
     // The payload, then the filler over whatever a previous build left.
-    put(image, at::PAYLOAD, source.as_bytes())?;
-    let tail = at::PAYLOAD + source.len();
-    let rest = CAPACITY - source.len();
+    put(image, at::PAYLOAD, &packed)?;
+    let tail = at::PAYLOAD + packed.len();
+    let rest = CAPACITY - packed.len();
     let filler = vec![FILLER; rest];
     put(image, tail, &filler)?;
     Ok(())
@@ -608,10 +686,9 @@ mod tests {
             image[start + at::LEN + 2],
             image[start + at::LEN + 3],
         ]) as usize;
-        assert_eq!(len, "1 2 + println\n".len());
         assert_eq!(
-            std::str::from_utf8(&image[start + at::PAYLOAD..start + at::PAYLOAD + len]),
-            Ok("1 2 + println\n")
+            unpack(&image[start + at::PAYLOAD..start + at::PAYLOAD + len]).ok(),
+            Some("1 2 + println\n".to_string())
         );
         assert_eq!(
             text(&image[start + at::VERSION..start + at::VERSION + 32]),
@@ -624,8 +701,66 @@ mod tests {
         assert_eq!(seen.pinned, "abc123 reference/Bund");
         assert_eq!(seen.bund2_version, "9.9.9");
         assert!(seen.carries_program && seen.noeval && !seen.noio);
-        assert_eq!(seen.used, "1 2 + println\n".len());
+        assert_eq!(seen.raw, "1 2 + println\n".len());
+        assert_eq!(seen.used, len);
+        assert_eq!(seen.format, FORMAT);
         assert_eq!(seen.capacity, CAPACITY);
+    }
+
+    /// Bytes that deflate cannot shrink, for the capacity tests: a program
+    /// of repeated text packs to a few hundred bytes however long it is.
+    pub(crate) fn incompressible(n: usize) -> String {
+        const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut out = String::with_capacity(n + 16);
+        out.push('"');
+        for _ in 0..n {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            out.push(ALPHABET[(x % ALPHABET.len() as u64) as usize] as char);
+        }
+        out.push_str("\" drop\n");
+        out
+    }
+
+    /// **D174.** The region holds the compressed form, so a program past
+    /// 1 MiB of repeated text fits, and the raw length comes back whole.
+    #[test]
+    fn a_program_past_the_region_s_size_fits_when_it_compresses() {
+        let exe = std::env::current_exe().expect("a test binary has a path");
+        let mut image = std::fs::read(&exe).expect("and it is readable");
+        let big = "1 drop\n".repeat(CAPACITY / 7 + 1);
+        assert!(big.len() > CAPACITY);
+        write_into(&mut image, &big, "big.bund", 0, "1.0", "", "").expect("fits");
+        let seen = inspect(&image).expect("describes itself");
+        assert_eq!(seen.raw, big.len());
+        assert!(seen.used < CAPACITY / 100, "{} compressed bytes", seen.used);
+        let start = locate(&image).expect("located");
+        let payload = &image[start + at::PAYLOAD..start + at::PAYLOAD + seen.used];
+        assert_eq!(unpack(payload).ok().as_deref(), Some(big.as_str()));
+    }
+
+    /// A payload that lies about its length, or whose stream is damaged, is
+    /// refused with the reason and never inflated past the limit.
+    #[test]
+    fn a_damaged_payload_is_refused_with_the_reason() {
+        let mut lying = pack("1 2 +").expect("packs");
+        lying[..4].copy_from_slice(&(RAW_LIMIT as u32 + 1).to_le_bytes());
+        assert!(matches!(unpack(&lying), Err(Damaged::Payload(w)) if w.contains("limit")));
+        let mut short = pack("1 2 +").expect("packs");
+        short[..4].copy_from_slice(&3u32.to_le_bytes());
+        assert!(matches!(unpack(&short), Err(Damaged::Payload(_))));
+        let mut torn = pack("1 2 + println\n").expect("packs");
+        torn.truncate(6);
+        assert!(matches!(unpack(&torn), Err(Damaged::Payload(_))));
+        assert!(matches!(unpack(&[1, 0]), Err(Damaged::Payload(_))));
+        let mut not_text = (3u32).to_le_bytes().to_vec();
+        not_text.extend(miniz_oxide::deflate::compress_to_vec(
+            &[0xff, 0xfe, 0xfd],
+            LEVEL,
+        ));
+        assert!(matches!(unpack(&not_text), Err(Damaged::NotText)));
     }
 
     /// A program over capacity is refused, and **nothing is written** — the
@@ -635,12 +770,14 @@ mod tests {
         let exe = std::env::current_exe().expect("a test binary has a path");
         let mut image = std::fs::read(&exe).expect("and it is readable");
         let untouched = image.clone();
-        let big = "x".repeat(CAPACITY + 1);
+        // Text deflate cannot shrink below the region (D174).
+        let big = incompressible(CAPACITY + CAPACITY / 2);
         let err = write_into(&mut image, &big, "big.bund", 0, "1.0", "", "").expect_err("refused");
         assert!(
-            err.contains(&format!("{}", CAPACITY + 1)),
+            err.contains(&format!("{}", big.len())),
             "names the size: {err}"
         );
+        assert!(err.contains("compresses to"), "and the packed size: {err}");
         assert!(
             err.contains(&CAPACITY.to_string()),
             "names the capacity: {err}"
@@ -667,6 +804,7 @@ mod tests {
             (Damaged::Format(99), "99"),
             (Damaged::Length(CAPACITY as u32 + 1), "1048577"),
             (Damaged::NotText, "UTF-8"),
+            (Damaged::Payload("it claims 9 bytes".into()), "9 bytes"),
         ] {
             let text = d.to_string();
             assert!(text.contains(needle), "{text} should name {needle}");

@@ -3649,6 +3649,61 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D174 — a bundle's payload is deflated; appending is the escape hatch
+
+**Raised 2026-10-15** by the repository owner, on the explanation of what
+`bund2 build` does: "at some point source can be larger than 1 MiB, what
+then?" RFC-0006 §B1 reserves a 1 MiB region in every binary and refuses a
+larger program at build. A 1 MiB Bund source is about 30,000 lines, a real
+ceiling for a large or generated program.
+
+- Blocks: nothing
+- Depends on: RFC-0006 §B1, Q40, D118
+- Options:
+  - **A.** Deflate the payload. The region stays; it holds the compressed
+    form; the trailer gains nothing, since the raw length sits in the
+    payload's first four bytes under a new container version. The ceiling
+    remains, at a size few programs reach.
+  - **B.** A larger region, chosen when `bund2` is built, as a cargo
+    feature. Every binary built with it pays the size whether or not it is
+    filled.
+  - **C.** Append the payload after the image. No ceiling; but the runtime
+    would have to find and read its own executable, which D118 did not
+    take, and Q40 measured that `codesign` refuses a Mach-O with trailing
+    data.
+  - **D.** Leave it, documented.
+- Status: **RESOLVED** by the repository owner, 2026-10-15: "do 1 now and
+  keep 3 as the escape hatch if a real program ever outgrows it" — A built;
+  C recorded here as the way past A's ceiling, to be taken on a ruling and
+  after Q40 is measured again.
+
+### Built, the same day
+
+- **Container version 2** (`crates/bund2-cli/src/bundle.rs`, `FORMAT`): the
+  payload is a four-byte little-endian raw length and a raw deflate stream
+  from `miniz_oxide` at its highest level; `len` counts the payload's
+  bytes. `carried` inflates to exactly the claimed length, bounded by
+  `RAW_LIMIT` (64 MiB; deflate cannot exceed a thousandfold, so a forged
+  length is what the bound is for), and a stream that is torn, or inflates
+  to another length, or to bytes that are not UTF-8, is `Damaged` with the
+  reason — criterion 12's list grows by one. `inspect` reads version 1 and
+  version 2 alike, so an artefact built before this is still described;
+  `carried` holds a runtime to its own version, as before.
+- **The numbers.** Deflate over the corpus, measured with zlib at level 9:
+  212 programs, 228,505 bytes, 2.19× file by file (small files pay the
+  stream's overhead), 3.52× concatenated, and the worst program over 2 KB
+  2.05× (`tests/probes/debug-repl-words.bund`). So the region holds two to
+  three and a half MiB of Bund text, not the "four to six times" first
+  estimated. A refusal names the text's size, the compressed size and the
+  capacity. `--inspect` and the build's last line print both sizes.
+- **Tests.** `a_program_past_the_region_s_size_fits_when_it_compresses`
+  (1 MiB of repeated text packs to under 1% of the region and reads back
+  whole); `a_damaged_payload_is_refused_with_the_reason`; the two
+  over-capacity tests now build pseudo-random letters half again the
+  region's size, since repeated text no longer overflows anything; the
+  integration tests locate the region by its sentinel rather than by the
+  program's text, which is no longer in the image to find.
+
 ## D173 — the command line's voice: levels, colour, a traceback on a terminal, and a panic explained
 
 **Raised 2026-10-15** by the repository owner: "UX polishing for bund2 cli"
@@ -3749,6 +3804,25 @@ decision here.
 - **Measured.** Default output on a pipe is byte-for-byte what it was
   (`a_pipe_still_sees_the_reference_s_table`); the seven process-level
   tests are `crates/bund2-cli/tests/cli_ux.rs`.
+
+**Note, later 2026-10-15 — the conventions a command line is held to**, on
+the owner's finding that `bund2 help` and `bund2 --version` answered
+`unknown argument`, and the request that `script` support shebang
+execution. Built, in `crates/bund2-cli/src/help.rs` and `main.rs`:
+`help [<command>]`, `--help`, `-h` and `--version`/`-V`, with the text
+kept by hand beside the hand-written parsers and a test that every flag
+the parsers take is named; no arguments, an unknown command and an unknown
+flag each say what the commands or the flags are and where to read them,
+and exit 2. A value flag takes `--flag=value` as `build` already did. A
+bare path runs — `bund2 p.bund` — and ends the flags: everything after it
+is the program's `args`, which is how `#!/usr/bin/env bund2` at the top
+of an executable file passes what it was run with. That first line is
+blanked before parsing, its newline kept so line numbers hold. **The
+deviation, measured on the oracle:** the reference reads `#!/usr/bin/env`
+as a word and fails to evaluate it (`Attempt to evaluate value … "#!/usr/bin/env"`),
+so no program that ran there reads differently here; one that could not
+run there now can. Applied to `script`, `build`, `check` and `infer`
+alike, so a bundle built from such a file carries the same text.
 
 ## D172 — `json.from_value` refuses a value nested deeper than the parser's limit
 

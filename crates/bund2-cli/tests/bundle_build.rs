@@ -477,25 +477,54 @@ const FLAGS_BEFORE_PAYLOAD: usize = 652 - 37;
 /// And the length field: `at::PAYLOAD` minus `at::LEN` (40).
 const LEN_BEFORE_PAYLOAD: usize = 652 - 40;
 
-/// Find the payload by its own text, so the test needs none of the builder's
-/// internals. The guard on the `state` byte is what makes the offsets above
-/// safe: if the layout moves, this fails rather than patching something else.
+/// The region's sentinel, as the container unmasks it: the masked constant
+/// in `bundle.rs` XOR its filler byte. A copy, as the offsets are copies.
+const SENTINEL_MASKED: [u8; 32] = [
+    0xE7, 0xC8, 0xC7, 0xC3, 0xC9, 0xF1, 0xD7, 0xC4, 0xC9, 0xD2, 0xF1, 0xD6, 0xC4, 0xC2, 0xC8, 0xC9,
+    0xC7, 0xD7, 0xF1, 0xB4, 0xB1, 0xB0, 0xB6, 0xF4, 0x19, 0x2A, 0x3B, 0x4C, 0x5D, 0x6E, 0x7F, 0x80,
+];
+const FILLER: u8 = 0xA5;
+
+/// Find the payload by the region's sentinel and a header that reads as
+/// filled, so the test needs none of the builder's code. **By the sentinel
+/// since D174**: the payload is deflated, so the program's text is no longer
+/// in the image to search for. The marker is still checked, inflated, so the
+/// test knows it found the program and not a constant in the code; the
+/// guard on the `state` byte is what makes the offsets above safe.
 fn payload_at(image: &[u8], marker: &str) -> usize {
-    let m = marker.as_bytes();
-    let at = image
-        .windows(m.len())
-        .position(|w| w == m)
-        .expect("the program is in the artefact");
+    let sentinel: Vec<u8> = SENTINEL_MASKED.iter().map(|b| b ^ FILLER).collect();
+    let header = |start: usize| {
+        image.get(start + 36) == Some(&1)
+            && image
+                .get(start + 32..start + 36)
+                .is_some_and(|f| u32::from_le_bytes([f[0], f[1], f[2], f[3]]) == 2)
+    };
+    let start = (0..image.len().saturating_sub(sentinel.len()))
+        .find(|i| image[*i..*i + sentinel.len()] == sentinel[..] && header(*i))
+        .expect("the filled region is in the artefact");
+    let at = start + 652;
     assert_eq!(
         image[at - STATE_BEFORE_PAYLOAD],
         1,
         "the state byte must read FILLED at the offset this test assumes; \
          if the container's layout changed, these constants must follow"
     );
+    let len = u32::from_le_bytes([
+        image[at - LEN_BEFORE_PAYLOAD],
+        image[at - LEN_BEFORE_PAYLOAD + 1],
+        image[at - LEN_BEFORE_PAYLOAD + 2],
+        image[at - LEN_BEFORE_PAYLOAD + 3],
+    ]) as usize;
+    let text = miniz_oxide::inflate::decompress_to_vec(&image[at + 4..at + len])
+        .expect("the payload inflates");
+    assert!(
+        String::from_utf8_lossy(&text).contains(marker),
+        "the region found carries the program"
+    );
     at
 }
 
-/// **Criterion 12: a damaged artefact is refused, not aborted.** Five cases,
+/// **Criterion 12: a damaged artefact is refused, not aborted.** Six cases,
 /// each an error with an explanation, none a panic — D37.
 #[test]
 fn a_damaged_artefact_is_refused_with_an_explanation() {
@@ -503,7 +532,7 @@ fn a_damaged_artefact_is_refused_with_an_explanation() {
     /// One case: a name, the damage to apply, and what the report must say.
     /// Named because the tuple is otherwise unreadable at the call site.
     type Case = (&'static str, Box<dyn Fn(&mut Vec<u8>, usize)>, &'static str);
-    let cases: [Case; 5] = [
+    let cases: [Case; 6] = [
         (
             "format",
             // A container version this runtime does not read.
@@ -529,9 +558,26 @@ fn a_damaged_artefact_is_refused_with_an_explanation() {
         ),
         (
             "not-text",
-            // A lone continuation byte is never valid UTF-8.
-            Box::new(|img, at| img[at] = 0x80),
+            // A payload that inflates to bytes that are not UTF-8 (D174): a
+            // lone continuation byte, written as the region writes it.
+            Box::new(|img, at| {
+                let mut payload = 1u32.to_le_bytes().to_vec();
+                payload.extend(miniz_oxide::deflate::compress_to_vec(&[0x80], 6));
+                img[at..at + payload.len()].copy_from_slice(&payload);
+                img[at - LEN_BEFORE_PAYLOAD..at - LEN_BEFORE_PAYLOAD + 4]
+                    .copy_from_slice(&(payload.len() as u32).to_le_bytes());
+            }),
             "UTF-8",
+        ),
+        (
+            "payload",
+            // A deflate stream torn in the middle (D174).
+            Box::new(|img, at| {
+                for b in &mut img[at + 4..at + 12] {
+                    *b = 0xff;
+                }
+            }),
+            "does not unpack",
         ),
         (
             "restriction",
@@ -1188,11 +1234,19 @@ fn inspecting_a_damaged_artefact_does_not_call_it_regionless() {
 #[test]
 fn a_program_over_capacity_fails_the_build_and_writes_nothing() {
     let src = scratch("over.bund");
-    // One byte past 1 MiB, and a program that parses.
-    let mut text = "1 drop\n".repeat(1024 * 1024 / 7);
-    while text.len() <= 1024 * 1024 {
-        text.push(' ');
+    // A program that parses and that deflate cannot bring under 1 MiB: a
+    // string literal of pseudo-random letters, half again the region's size.
+    // Repeated text packs to a few hundred bytes however long it is (D174).
+    const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut text = String::from("\"");
+    for _ in 0..(1024 * 1024 + 512 * 1024) {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        text.push(ALPHABET[(x % ALPHABET.len() as u64) as usize] as char);
     }
+    text.push_str("\" drop\n");
     std::fs::write(&src, &text).expect("writing the source");
     let out = scratch("over");
     let _ = std::fs::remove_file(&out);

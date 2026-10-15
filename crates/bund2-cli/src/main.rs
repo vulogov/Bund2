@@ -20,6 +20,7 @@ use std::process::ExitCode;
 
 mod bundle;
 mod debugger;
+mod help;
 mod trace;
 #[macro_use]
 mod ui;
@@ -182,6 +183,36 @@ fn run_cli() -> ExitCode {
     };
     ui::configure_colors(false);
 
+    // **`help`, `--help`, `-h`, `--version` — D173.** Asked before any
+    // command parses, so `bund2 build --help` is help and not a build with
+    // a bad flag. No arguments at all is a mistake, told as one: the short
+    // usage on standard error and exit 2, as any other bad command line.
+    match help::asked(&args) {
+        Some(help::Asked::Usage) => {
+            bund2_api::say!("{}", help::USAGE);
+            return ExitCode::SUCCESS;
+        }
+        Some(help::Asked::Command(text)) => {
+            bund2_api::say!("{text}");
+            return ExitCode::SUCCESS;
+        }
+        Some(help::Asked::Version) => {
+            bund2_api::say!("{}", help::version(&features_built_in(), &pinned_summary()));
+            return ExitCode::SUCCESS;
+        }
+        Some(help::Asked::Unknown(name)) => {
+            ui::error!(
+                "`{name}` is not a command. The commands are script, build, check, infer, words and effects."
+            );
+            return ExitCode::from(2);
+        }
+        None => {}
+    }
+    if args.is_empty() {
+        ui::error!("expected a command: bund2 script --file <path>, or bund2 --help");
+        return ExitCode::from(2);
+    }
+
     // `bund2 build --file <src> --output <path>` — RFC-0006.
     if args.first().map(String::as_str) == Some("build") {
         return build(&args);
@@ -222,7 +253,7 @@ fn run_cli() -> ExitCode {
             bund2_api::errln!("bund2: expected: bund2 infer --file <path>");
             return ExitCode::from(2);
         };
-        let Ok(src) = std::fs::read_to_string(&file) else {
+        let Ok(src) = std::fs::read_to_string(&file).map(without_shebang) else {
             bund2_api::errln!("bund2: reading {file}");
             return ExitCode::from(2);
         };
@@ -239,12 +270,32 @@ fn run_cli() -> ExitCode {
             bund2_api::errln!("bund2: expected: bund2 check --file <path>");
             return ExitCode::from(2);
         };
-        let Ok(src) = std::fs::read_to_string(&file) else {
+        let Ok(src) = std::fs::read_to_string(&file).map(without_shebang) else {
             bund2_api::errln!("bund2: reading {file}");
             return ExitCode::from(2);
         };
         return run_check(&src, &file);
     }
+    // **A command that is not one is told so — D173**, with the list, and a
+    // path on its own runs: `bund2 p.bund` is `bund2 script --file p.bund`,
+    // the shortcut every interpreter's command line has.
+    let args = match args.first().map(String::as_str) {
+        Some("script") => args,
+        Some(flag) if flag.starts_with('-') => args,
+        Some(path) if std::path::Path::new(path).is_file() => {
+            let mut run = vec!["script".to_string()];
+            run.extend(args.iter().cloned());
+            run
+        }
+        Some(other) => {
+            ui::error!(
+                "`{other}` is not a command, and not a file. The commands are script, \
+                 build, check, infer, words and effects; `bund2 --help` lists them."
+            );
+            return ExitCode::from(2);
+        }
+        None => args,
+    };
     let args = match parse_args(&args) {
         Ok(f) => f,
         Err(e) => {
@@ -252,7 +303,7 @@ fn run_cli() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let src = match std::fs::read_to_string(&args.file) {
+    let src = match std::fs::read_to_string(&args.file).map(without_shebang) {
         Ok(s) => s,
         Err(e) => {
             bund2_api::errln!("bund2: reading {}: {e}", args.file);
@@ -340,15 +391,25 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut host = bund2_stdlib::host::HostOptions::default();
     let mut script_args = Vec::new();
     while let Some(a) = it.next() {
-        match a.as_str() {
+        // `--flag=value` and `--flag value` alike (D173), as `build` takes
+        // them; a bare path is the file, so `bund2 script p.bund` runs it.
+        let (name, inline) = match a.split_once('=') {
+            Some((n, v)) if n.starts_with("--") => (n, Some(v.to_string())),
+            _ => (a.as_str(), None),
+        };
+        let mut operand = |what: &str| -> Result<String, String> {
+            inline
+                .clone()
+                .or_else(|| it.next().cloned())
+                .ok_or_else(|| format!("`{name}` needs {what}; see `bund2 help script`"))
+        };
+        match name {
             "script" => {}
             "--report" => {
-                let v = it
-                    .next()
-                    .ok_or("--report needs a rendering: auto, box or trace")?;
-                report = trace::Mode::parse(v)?;
+                let v = operand("a rendering: auto, box or trace")?;
+                report = trace::Mode::parse(&v)?;
             }
-            "--file" => file = it.next().cloned(),
+            "--file" => file = Some(operand("a path")?),
             "--dump-stack" => dump_stack = true,
             "--no-dump-stack" => dump_stack = false,
             "--raw-values" | "--debug-values" => raw_values = true,
@@ -360,9 +421,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             // the runtime reads it in a constructor — so that one is ignored
             // when malformed and `--stats` prints what was actually adopted.
             "--jit-threshold" => {
-                let v = it
-                    .next()
-                    .ok_or("--jit-threshold needs a number, as in `--jit-threshold 1`")?;
+                let v = operand("a number, as in `--jit-threshold 1`")?;
                 jit_threshold = Some(
                     v.parse::<u32>()
                         .map_err(|_| format!("--jit-threshold takes a number, not `{v}`"))?,
@@ -376,11 +435,28 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--" => {
                 script_args = it.by_ref().cloned().collect();
             }
-            other => return Err(format!("unknown argument `{other}`")),
+            // **A bare path ends the flags (D173)**: what follows it is the
+            // program's, as `#!/usr/bin/env bund2` passes it and as every
+            // interpreter's command line reads it. A `--` right after the
+            // path is the separator and not an argument.
+            path if !path.starts_with('-') && file.is_none() => {
+                file = Some(path.to_string());
+                let mut rest = it.by_ref().cloned().peekable();
+                if rest.peek().is_some_and(|a| a == "--") {
+                    rest.next();
+                }
+                script_args = rest.collect();
+            }
+            other => {
+                return Err(format!(
+                    "unknown argument `{other}`; `bund2 help script` lists the flags"
+                ));
+            }
         }
     }
     Ok(Args {
-        file: file.ok_or("expected: bund2 script --file <path>")?,
+        file: file
+            .ok_or("expected: bund2 script --file <path>, or bund2 <path>; see `bund2 --help`")?,
         host,
         script_args,
         dump_stack,
@@ -546,6 +622,22 @@ fn run_check(src: &str, file: &str) -> ExitCode {
         bund2_api::sayln!("  tracked. Nothing is claimed about the rest.");
     }
     ExitCode::SUCCESS
+}
+
+/// A program's text with a leading `#!` line blanked — D173, so that
+/// `#!/usr/bin/env bund2` at the top of an executable file runs it. The
+/// line's bytes go and its newline stays, so every later position is what
+/// the file says. The reference took `#!/usr/bin/env` for a word and
+/// failed to evaluate it (measured 2026-10-15), so no program that ran
+/// there reads differently here.
+fn without_shebang(src: String) -> String {
+    if !src.starts_with("#!") {
+        return src;
+    }
+    match src.find('\n') {
+        Some(end) => src[end..].to_string(),
+        None => String::new(),
+    }
 }
 
 /// Turn a byte offset into a position a programmer can act on.
@@ -801,7 +893,7 @@ fn build(args: &[String]) -> ExitCode {
     };
 
     bar.set_message(format!("reading {src_path}"));
-    let src = match std::fs::read_to_string(&src_path) {
+    let src = match std::fs::read_to_string(&src_path).map(without_shebang) {
         Ok(s) => s,
         Err(e) => {
             return fail(
@@ -930,7 +1022,7 @@ fn build(args: &[String]) -> ExitCode {
         return fail(&bar, ExitCode::FAILURE, format_args!("{e}"));
     }
     ui::info!(
-        "wrote the program into the image: {} of {} bytes used",
+        "wrote the program into the image: {} bytes, compressed into the {} byte region",
         src.len(),
         bundle::CAPACITY
     );
@@ -942,8 +1034,9 @@ fn build(args: &[String]) -> ExitCode {
     }
     bar.inc(1);
     bar.finish_and_clear();
+    let packed = bundle::inspect(&image).map(|s| s.used).unwrap_or(0);
     ui::error!(
-        "wrote {out_path} — {} of {} bytes used",
+        "wrote {out_path} — {} bytes, {packed} compressed of {} bytes used",
         src.len(),
         bundle::CAPACITY
     );
@@ -1131,8 +1224,13 @@ fn inspect(path: &str) -> ExitCode {
     bund2_api::sayln!("  container      version {}", seen.format);
     if seen.carries_program {
         bund2_api::sayln!(
-            "  program        {} of {} bytes, from {}",
-            seen.used,
+            "  program        {} bytes, {} of {} bytes in the region, from {}",
+            seen.raw,
+            if seen.format == bundle::FORMAT {
+                format!("{} compressed", seen.used)
+            } else {
+                format!("{} plain", seen.used)
+            },
             seen.capacity,
             if seen.source_name.is_empty() {
                 "an unrecorded path"

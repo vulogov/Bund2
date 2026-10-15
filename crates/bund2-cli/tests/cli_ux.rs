@@ -252,3 +252,153 @@ fn a_failed_build_still_says_nothing_was_written() {
         r.err
     );
 }
+
+/// `help` in every spelling, for one command too, and `--version`; no
+/// arguments is a mistake and is told as one.
+#[test]
+fn help_and_version_are_answered_and_no_arguments_is_told() {
+    for args in [&["help"][..], &["--help"], &["-h"], &["-v", "--help"]] {
+        let r = bund2(args, &[]);
+        assert_eq!(r.code, Some(0), "{args:?}: {}", r.err);
+        assert!(
+            r.out.contains("USAGE") && r.out.contains("script --file <path>"),
+            "{}",
+            r.out
+        );
+        assert!(
+            r.out.contains("--verbose=") && r.out.contains("BUND2_REPORT"),
+            "{}",
+            r.out
+        );
+    }
+    for args in [
+        &["help", "build"][..],
+        &["build", "--help"],
+        &["build", "-h", "--file", "x"],
+    ] {
+        let r = bund2(args, &[]);
+        assert_eq!(r.code, Some(0), "{args:?}: {}", r.err);
+        assert!(r.out.starts_with("bund2 build — "), "{}", r.out);
+        assert!(
+            r.out.contains("--inspect") && r.out.contains("--output"),
+            "{}",
+            r.out
+        );
+    }
+    let r = bund2(&["script", "--help"], &[]);
+    assert!(
+        r.out.contains("--report <mode>") && r.out.contains("--no-dump-stack"),
+        "{}",
+        r.out
+    );
+
+    let r = bund2(&["help", "nope"], &[]);
+    assert_eq!(r.code, Some(2));
+    assert!(r.err.contains("`nope` is not a command"), "{}", r.err);
+
+    for args in [&["--version"][..], &["-V"]] {
+        let r = bund2(args, &[]);
+        assert_eq!(r.code, Some(0));
+        assert!(
+            r.out
+                .starts_with(&format!("bund2 {}", env!("CARGO_PKG_VERSION"))),
+            "{}",
+            r.out
+        );
+        assert!(r.out.contains("features"), "{}", r.out);
+    }
+
+    let r = bund2(&[], &[]);
+    assert_eq!(r.code, Some(2));
+    assert!(
+        r.err.contains("expected a command") && r.err.contains("--help"),
+        "{}",
+        r.err
+    );
+    assert!(r.out.is_empty());
+}
+
+/// The conventions a command line is expected to keep: a bare path runs
+/// and ends the flags, a flag takes `=value`, an unknown command and an
+/// unknown flag are named with where to look, and a missing file is a
+/// usage error.
+#[test]
+fn a_path_runs_flags_take_equals_and_mistakes_point_at_help() {
+    let p = program("conv.bund", "1 2 + println\n");
+    let path = p.to_str().unwrap();
+    for args in [
+        &[path][..],
+        &["script", path],
+        &["script", &format!("--file={path}")],
+        &["--no-dump-stack", path],
+        &["script", "--no-dump-stack", path],
+    ] {
+        let r = bund2(args, &[]);
+        assert_eq!(r.code, Some(0), "{args:?}: {}", r.err);
+        assert_eq!(r.out, "3\n", "{args:?}");
+    }
+    let r = bund2(&["frobnicate"], &[]);
+    assert_eq!(r.code, Some(2));
+    assert!(
+        r.err.contains("`frobnicate` is not a command") && r.err.contains("--help"),
+        "{}",
+        r.err
+    );
+    let r = bund2(&["script", "--file", path, "--loud"], &[]);
+    assert_eq!(r.code, Some(2));
+    assert!(
+        r.err.contains("unknown argument `--loud`") && r.err.contains("help script"),
+        "{}",
+        r.err
+    );
+    let r = bund2(&["script"], &[]);
+    assert_eq!(r.code, Some(2));
+    assert!(
+        r.err.contains("expected: bund2 script --file <path>"),
+        "{}",
+        r.err
+    );
+    let r = bund2(&["script", "--file"], &[]);
+    assert_eq!(r.code, Some(2));
+    assert!(r.err.contains("`--file` needs a path"), "{}", r.err);
+}
+
+/// `#!/usr/bin/env bund2`: the file runs itself, its arguments reach the
+/// program, the first line is skipped and the line numbers are not.
+#[cfg(unix)]
+#[test]
+fn a_shebang_file_runs_itself_with_its_arguments_and_its_line_numbers() {
+    use std::os::unix::fs::PermissionsExt;
+    let p = program(
+        "she.bund",
+        &format!(
+            "#!{}\nargs println\n1 list /\n",
+            env!("CARGO_BIN_EXE_bund2")
+        ),
+    );
+    let mut perm = std::fs::metadata(&p).unwrap().permissions();
+    perm.set_mode(0o755);
+    std::fs::set_permissions(&p, perm).unwrap();
+    let out = Command::new(&p)
+        .args(["--alpha", "beta"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("the file ran");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("--alpha") && stdout.contains("beta"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("DIV returns error"), "{stdout}");
+    // Line 3 of the file, not line 2 of what was parsed.
+    assert!(
+        stdout.contains(&format!("{}:3:", p.display())) || stdout.contains(":3:"),
+        "{stdout}"
+    );
+    assert_eq!(out.status.code(), Some(0));
+    // After a bare path, `--` is the separator and the rest is the program's.
+    let r = bund2(&[p.to_str().unwrap(), "--", "-q"], &[]);
+    assert!(r.out.contains("-q"), "{}", r.out);
+}

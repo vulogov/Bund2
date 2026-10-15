@@ -335,6 +335,7 @@ dependencies = [
  "console 0.15.11",
  "human-panic",
  "indicatif",
+ "miniz_oxide 0.8.9",
  "rustix",
 ]
 

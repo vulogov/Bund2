@@ -424,6 +424,14 @@ cost is a capacity ceiling, which the region records along with the used
 length, and a program larger than it is refused at build with both numbers
 named.
 
+*(2026-10-15, D174: the region holds the program **deflated**, under
+container version 2 — a four-byte raw length and the stream — so the ceiling
+is on the compressed form, two to three and a half times the text's size
+measured over the corpus. A program is refused when its compressed form
+does not fit, with three numbers named. Appending the payload remains the
+escape hatch if a program outgrows that, on the owner's ruling, with Q40's
+signing cost to be measured again then.)*
+
 **The in-place form does not run until it is signed again, and the first
 version of this section had that backwards.** It said signing "happens
 afterwards … so D10 is untouched", as though it were optional. Building the
@@ -492,6 +500,10 @@ and five that are, none of them an abort (`crates/bund2-cli/src/bundle.rs`,
   read of the payload.
 - **A payload that is not UTF-8.** The payload is source (§B2), so this is
   refused before the parser sees it.
+- *(2026-10-15, D174:)* **A payload that does not unpack**: a raw length
+  over the limit, a deflate stream that is damaged, or one that inflates to
+  a length other than the one claimed. Refused with the reason; the raw
+  length bounds the inflate, so a damaged stream never grows without end.
 - **A restriction bit this bund2 does not define** — added 2026-10-09, the
   eleventh review's S2, and missing from this list until the twelfth's S4.
   Refused: a restriction that cannot be enforced is not passed over.
@@ -2011,7 +2023,7 @@ on the answer.
 | `--nocolor` | **Preserved as a per-run choice**, in the environment-variable channel with the diagnostic flags. Presentational, not a capability. |
 | Diagnostic file name | **Preserved for a path of up to 256 bytes** via the trailer's recorded source path (§B3), without which a bundle's report differs by construction and the CEILING moves. **A longer path is changed**: its last 256 bytes are kept, and the build says so. **And the path is disclosed**: an artefact carries the path its builder gave, to whoever runs it or inspects it, and two builds of one source from two directories are two different artefacts. That is new surface a `script` run does not have, the like of §B2's cost for the source text. |
 | How a report's lines are broken | **Preserved, on a test and not a proof — F186, 2026-10-10.** A report's cells are now broken by Bund2 before `comfy_table` sees them, for time and not for appearance. 1,932 reports rendered both ways are equal byte for byte. Two limits: a report narrower than 40 columns is broken by the table as before, and for a word that holds characters outside printable ASCII nothing proves the two agree where the test did not look. A bundle and a `script` run share the reporter, so this is the same in both. |
-| A program larger than 1 MiB | **Changed: it runs under `script` and cannot be bundled.** Refused at build with both numbers named (§B1, criterion 11). The limit is not discoverable before it is hit except by `--inspect`, which prints the capacity. |
+| A program larger than 1 MiB | **Changed: it runs under `script` and cannot be bundled.** Refused at build with both numbers named (§B1, criterion 11). The limit is not discoverable before it is hit except by `--inspect`, which prints the capacity. *(2026-10-15, D174: the limit is now on the deflated form, so a program of up to two to three MiB of text bundles; the refusal names the text's size, the compressed size and the capacity.)* |
 | The debugger's history files in a shipped artefact | **New surface, and ungated.** A bundle whose program calls `debug.shell` or `debug` writes line history under the configuration directory of whoever runs it (§B3a). |
 | `bund2` itself | **Changed.** Every `bund2` carries the 1 MiB region and reads it before it acts on argv, so a damaged region stops the plain interpreter too (§B1). |
 | `bund2 build`'s arguments | **Refused when not understood** — `--emit=native`, `--features`, a repeated `--file`, anything unknown (§B3, "The command line"). |
@@ -2338,6 +2350,10 @@ on the answer.
     **Through the binary since 2026-10-08**:
     `a_program_over_capacity_fails_the_build_and_writes_nothing` builds a
     program one byte past 1 MiB and finds exit 1, both numbers, and no file.
+    *(2026-10-15, D174: a program of repeated text past 1 MiB now fits, and
+    `a_program_past_the_region_s_size_fits_when_it_compresses` holds that;
+    both refusal tests build a string of pseudo-random letters half again
+    the region's size, which deflate cannot bring under it.)*
 12. **A damaged artefact is refused, not aborted.** The first four of §B1's
     kinds of damage — an unknown container version, a state byte that is neither value,
     a length past capacity, a payload that is not UTF-8 — produce a diagnostic
