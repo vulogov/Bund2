@@ -4071,6 +4071,67 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F210 — a single native call can allocate without bound, where the OOM guard cannot reach it
+
+**A defect shared with the reference; found 2026-10-15** by the stability
+pass's word sweep, run in a memory-capped Linux container.
+
+D171's guard stops a program at its next call, so it cannot stop one native
+that allocates everything at once. Two words take a count and allocate that
+much in one call:
+
+- `seq` reads `N` from its config and collects `N` floats
+  (`crates/bund2-stdlib/src/seq.rs`, `seq`). The reference does the same with
+  `n as usize` (`reference/Bund/src/stdlib/functions/math/seq.rs:21-22`).
+  Bund2 clamps a negative `N` to 0; a large positive one is taken whole.
+- `string.random.lorem` asks `lipsum` for that many words
+  (`crates/bund2-stdlib/src/random.rs`, `lorem`), as the reference does
+  (`reference/Bund/src/stdlib/functions/string/random.rs:60`). F106 refused a
+  negative count; `9223372036854775807 string.random.lorem` is the same
+  hazard by another route, and under a 600 MB address-space cap it aborted
+  with `memory allocation of 469762048 bytes failed`.
+
+On a host without a limit either one grows until the machine is in trouble,
+which is what D171 exists to prevent. Neither was run uncapped.
+
+- Disposition: **OPEN.** The shapes: refuse a count whose result could not
+  fit in the memory the host reports available (machine-dependent, and a
+  refusal where the reference would succeed on a larger machine); allocate
+  fallibly and report the failure as a run-time error (covers `seq`, whose
+  vector is sized up front, but not `lipsum`, which grows its string inside
+  the crate); or a fixed cap per word, which is a language decision. Not
+  decided here.
+
+## F209 — `json.from_value` overflows the machine stack on a deeply nested value
+
+**A defect shared with the reference; found 2026-10-15** by the stability
+pass, in a memory-capped Linux container.
+
+`value_to_json` recurses once per level of a LIST or DICT
+(`crates/bund2-stdlib/src/json.rs`, `value_to_json`), as the reference's
+`cast_value_to_json` does
+(`reference/rust_dynamic/src/cast_value_to_json.rs:42`). A value nested
+beyond the parser's 1024 levels can only be built at run time — `list N {
+drop list push } times` — and at N = 100,000 the conversion overflows the
+evaluation thread's stack and the process aborts (exit 134, "has overflowed
+its stack"), which D37 forbids. At N = 10,000 it succeeds. Other words that
+walk a value survived 1,000,000 levels in the same run: `drop`, `println`,
+`convert.to_string`, `type`, `len`, `sort`, `unique`, and the stack shown at
+the end of a run.
+
+A conversion made iterative would not be enough on its own: the result is a
+`serde_json::Value`, which `serde_json` drops, prints and serialises by
+recursion, so a value deep enough to need the fix overflows later instead.
+A failure deep inside also wraps one `Error casting LIST: ` per level, so
+its message grows with the depth.
+
+- Disposition: **OPEN.** The shapes: refuse past a fixed depth (the parser's
+  `MAX_NESTING` of 1024 is the natural number, and `json`'s own parser stops
+  at `serde_json`'s 128) — deterministic, but a refusal at depths the
+  reference converts; or refuse when the machine stack runs low, as F85's
+  floor does for evaluation — refuses only where the process would abort,
+  but does not protect the later drop or print. Not decided here.
+
 ## F208 — the reference writes a JSON value inside a container, which its decoder cannot read
 
 **A reference defect; found 2026-10-14** by RFC-0007's fifth review (B1).

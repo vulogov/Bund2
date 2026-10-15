@@ -486,4 +486,53 @@ mod tests {
         // Not ASCII lower-case after folding, so returned as it is.
         assert_eq!(porter("na\u{ef}ve"), "na\u{ef}ve");
     }
+
+    /// **No word indexes outside itself.** The stemmer is byte-indexed with
+    /// a signed end, and every step moves that end, so a short word or a
+    /// stem shorter than a suffix is where an index could go below zero.
+    /// This runs every word of three to five letters over the letters the
+    /// suffix rules test, and every stem of up to three such letters joined
+    /// to every suffix a rule names, alone and doubled: about 1.2 million.
+    #[test]
+    fn every_short_word_and_every_suffixed_stem_stems_within_bounds() {
+        const LETTERS: &[u8] = b"aeiouysltnbdgczm";
+        const SUFFIXES: &[&str] = &[
+            "able", "al", "alism", "aliti", "alize", "alli", "ance", "anci", "ant", "at", "ate",
+            "ation", "ational", "ative", "ator", "biliti", "bl", "bli", "ed", "eed", "eli",
+            "ement", "ence", "enci", "ent", "entli", "er", "ful", "fulness", "ible", "ic", "ical",
+            "icate", "iciti", "ies", "ing", "ion", "ism", "iti", "ive", "iveness", "iviti", "iz",
+            "ization", "ize", "izer", "logi", "ment", "ness", "ou", "ous", "ousli", "ousness",
+            "sses", "tional", "y", "s", "e", "ll",
+        ];
+        fn words(len: usize) -> Vec<String> {
+            let mut out = vec![String::new()];
+            for _ in 0..len {
+                out = out
+                    .iter()
+                    .flat_map(|w| LETTERS.iter().map(move |c| format!("{w}{}", *c as char)))
+                    .collect();
+            }
+            out
+        }
+        let mut n = 0usize;
+        let mut check = |w: &str| {
+            let st = porter(w);
+            assert!(st.len() <= w.len() + 3, "{w} -> {st}");
+            n += 1;
+        };
+        for len in 3..=5 {
+            for w in words(len) {
+                check(&w);
+            }
+        }
+        for len in 0..=3 {
+            for stem in words(len) {
+                for suf in SUFFIXES {
+                    check(&format!("{stem}{suf}"));
+                    check(&format!("{stem}{suf}{suf}"));
+                }
+            }
+        }
+        assert!(n > 1_000_000, "{n} words");
+    }
 }
