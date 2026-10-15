@@ -1697,6 +1697,11 @@ Option 2 was taken — **interning only, no layout change**: `tags` is now
 `"stack"` key and its own name, and `Stacks::current_mut` clones the front
 `Rc` instead of calling `current_name().to_string()`, which had been
 allocating on **every push and every pull**.
+*(2026-10-15: `Stacks::current_mut` no longer looks anything up. The current
+stack is held in a field of its own, out of the map, and moved in and out as
+the ring turns; the by-name lookup it kept was a quarter of a recursive
+`fib`'s time. With the CALL memo, which resolves a body's word names once,
+`fib(30)` went from 1.06 s to 0.53 s (`bund_examples/fibonacci`).)*
 
 `Rc<str>` orders by content, so a `BTreeMap` keyed on it iterates exactly as
 the `String`-keyed one did — which is what the 39 tag-bearing goldens depend

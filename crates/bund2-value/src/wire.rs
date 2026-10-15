@@ -392,6 +392,7 @@ impl WireValue {
             built[i] = Some(BundValue::Heap(Rc::new(HeapValue {
                 identity: Cell::new(0),
                 stamp: Cell::new(node.stamp),
+                call_memo: Cell::new(0),
                 dt: node.dt,
                 q: node.q,
                 curr: node.curr,

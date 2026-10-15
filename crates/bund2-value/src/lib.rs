@@ -290,6 +290,12 @@ pub struct HeapValue {
     identity: Cell<u64>,
     /// Lazy stamp, sampled on first observation (D2). Zero means unsampled.
     stamp: Cell<f64>,
+    /// **What a CALL's name resolved to, memoised by the interpreter that
+    /// resolved it.** Zero means none. Opaque here: the interner that wrote
+    /// it packs its own key beside the symbol, so another interpreter's memo
+    /// reads as a miss. Not part of the value — equality, hashing, rendering
+    /// and the wire format never read it — and only a CALL is ever given one.
+    call_memo: Cell<u64>,
     /// The reference's `dt`. Independent of the payload: `Val::String` carries
     /// `STRING`, `PTR` and `CALL` among others, and they behave differently.
     dt: u16,
@@ -378,6 +384,7 @@ impl HeapValue {
         Self {
             identity: Cell::new(0),
             stamp: Cell::new(0.0),
+            call_memo: Cell::new(0),
             dt,
             q: 100.0,
             curr: -1,
@@ -894,6 +901,23 @@ impl BundValue {
                 _ => None,
             },
             _ => None,
+        }
+    }
+
+    /// The memo an interpreter left on this value when it resolved it as a
+    /// CALL, or zero. See `HeapValue::call_memo`.
+    pub fn call_memo(&self) -> u64 {
+        match self {
+            BundValue::Heap(h) => h.call_memo.get(),
+            _ => 0,
+        }
+    }
+
+    /// Leave a memo on this value. A scalar has no header and keeps none,
+    /// which costs a lookup and nothing else: a CALL is always heap.
+    pub fn set_call_memo(&self, memo: u64) {
+        if let BundValue::Heap(h) = self {
+            h.call_memo.set(memo);
         }
     }
 
@@ -1682,6 +1706,7 @@ impl BundValue {
                 BundValue::Heap(Rc::new(HeapValue {
                     identity: Cell::new(0),
                     stamp: Cell::new(stamp),
+                    call_memo: Cell::new(h.call_memo.get()),
                     dt: h.dt,
                     q: h.q,
                     curr: h.curr,
@@ -2539,6 +2564,7 @@ mod render_tests {
         BundValue::Heap(Rc::new(HeapValue {
             identity: Cell::new(h.identity.get()),
             stamp: Cell::new(h.stamp.get()),
+            call_memo: Cell::new(h.call_memo.get()),
             dt: h.dt,
             q: h.q,
             curr: h.curr,
@@ -2737,6 +2763,7 @@ impl Clone for HeapValue {
         Self {
             identity: Cell::new(self.identity.get()),
             stamp: Cell::new(self.stamp.get()),
+            call_memo: Cell::new(self.call_memo.get()),
             dt: self.dt,
             q: self.q,
             curr: self.curr,

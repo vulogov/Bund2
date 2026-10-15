@@ -867,13 +867,28 @@ impl Interp {
         self.exit_gate()?;
         match v.dt() {
             bund2_value::CALL => {
+                // **A body's CALL resolves its name once.** The memo is the
+                // symbol this interpreter found last time; a miss — the first
+                // call, or a memo another interpreter left — looks the name up
+                // and leaves one. An unregistered name leaves none, since a
+                // later `register` can bind it. Borrowed, not copied: the copy
+                // and the hashed lookup were a fifth of a recursive `fib`.
+                if let Some((s, sigil)) = self.registry.interner.from_memo(v.call_memo()) {
+                    return self.dispatch(s, sigil);
+                }
                 let name = v
-                    .as_str()
+                    .str_ref()
                     .ok_or_else(|| Error("Empty function name passed for CALL".into()))?;
                 if name.is_empty() {
                     return Err(Error("Empty function name passed for CALL".into()));
                 }
-                self.dispatch_name(&name)
+                match self.registry.interner.lookup_call(name) {
+                    Some((s, sigil)) => {
+                        v.set_call_memo(self.registry.interner.memo_for(s, sigil));
+                        self.dispatch(s, sigil)
+                    }
+                    None => Err(Error(format!("{name} not registered"))),
+                }
             }
             bund2_value::CONTEXT => {
                 let name = v.as_str().ok_or_else(|| {
@@ -1548,25 +1563,15 @@ impl Vm for Interp {
         // Not through `depth_of`: a depth guard reads only as far as its
         // operands, which D55's differential checks, and must not be taken
         // for a read of a stack by name.
-        self.stacks
-            .stacks
-            .get(self.stacks.current_name())
-            .map(Stack::len)
-            .unwrap_or(0)
+        self.stacks.current().len()
     }
 
     fn peek(&self) -> Option<BundValue> {
-        self.stacks
-            .stacks
-            .get(self.stacks.current_name())
-            .and_then(|s| s.peek().cloned())
+        self.stacks.current().peek().cloned()
     }
 
     fn peek_at(&self, n: usize) -> Option<BundValue> {
-        self.stacks
-            .stacks
-            .get(self.stacks.current_name())
-            .and_then(|s| s.peek_at(n).cloned())
+        self.stacks.current().peek_at(n).cloned()
     }
 
     fn clear(&mut self) {
@@ -1576,11 +1581,7 @@ impl Vm for Interp {
 
     fn snapshot(&self) -> Vec<BundValue> {
         self.note_observation("reads the whole current stack");
-        self.stacks
-            .stacks
-            .get(self.stacks.current_name())
-            .map(Stack::contents)
-            .unwrap_or_default()
+        self.stacks.current().contents()
     }
 
     fn snapshot_workbench(&self) -> Vec<BundValue> {
@@ -1624,10 +1625,7 @@ impl Vm for Interp {
     /// `push_to_stack` does (`reference/rust_multistack/src/ts_push.rs:46`),
     /// and F70 is the same mechanism seen through `move`.
     fn ensure_stack(&mut self, name: &str) {
-        self.stacks
-            .stacks
-            .entry(Rc::from(name))
-            .or_insert_with_key(|k| Stack::from_rc(Rc::clone(k)));
+        self.stacks.create(name);
         if !self.stacks.in_ring(name) {
             self.stacks.add_as_current(Rc::from(name), &self.cells);
         }
@@ -1638,7 +1636,7 @@ impl Vm for Interp {
         // The reference only records a capacity the first time
         // (`reference/rust_multistack/src/ts_ensure.rs:20-22` inserts into
         // `stack_cap` only when absent), so a second call does not resize.
-        if let Some(s) = self.stacks.stacks.get_mut(name)
+        if let Some(s) = self.stacks.get_mut(name)
             && s.cap.is_none()
         {
             s.cap = Some(cap);
@@ -1647,7 +1645,7 @@ impl Vm for Interp {
 
     fn depth_of(&self, name: &str) -> usize {
         self.note_observation("reads the depth of a stack by name");
-        self.stacks.stacks.get(name).map(Stack::len).unwrap_or(0)
+        self.stacks.get(name).map(Stack::len).unwrap_or(0)
     }
 
     /// **In rotation order, not alphabetical.** `order` is the stack-of-stacks
@@ -1663,7 +1661,6 @@ impl Vm for Interp {
         self.note_observation("reads a stack by name");
         // `contents` is what `snapshot` uses, so the two orders agree.
         self.stacks
-            .stacks
             .get(name)
             .map(Stack::contents)
             .unwrap_or_default()
@@ -1679,17 +1676,17 @@ impl Vm for Interp {
 
     fn push_to(&mut self, name: &str, v: BundValue) {
         self.ensure_stack(name);
-        if let Some(s) = self.stacks.stacks.get_mut(name) {
+        if let Some(s) = self.stacks.get_mut(name) {
             s.push(v);
         }
     }
 
     fn pull_from(&mut self, name: &str) -> Option<BundValue> {
-        self.stacks.stacks.get_mut(name).and_then(Stack::pull)
+        self.stacks.get_mut(name).and_then(Stack::pull)
     }
 
     fn clear_stack(&mut self, name: &str) {
-        if let Some(s) = self.stacks.stacks.get_mut(name) {
+        if let Some(s) = self.stacks.get_mut(name) {
             s.items.clear();
         }
     }
@@ -1999,15 +1996,7 @@ impl Vm for Interp {
             let fmt = |v: &BundValue| if raw { v.render(false) } else { v.summary(w) };
             // Read directly: a report's snapshot is the interpreter's, not the
             // reporting native's, and D45 already governs it (D55).
-            let stack = self
-                .stacks
-                .stacks
-                .get(self.stacks.current_name())
-                .map(Stack::contents)
-                .unwrap_or_default()
-                .iter()
-                .map(&fmt)
-                .collect();
+            let stack = self.stacks.current().contents().iter().map(&fmt).collect();
             let wb = self.stacks.workbench.contents().iter().map(&fmt).collect();
             d.on_stack(self.stacks.current_name().to_string())
                 .with_stack(stack)
@@ -2605,6 +2594,129 @@ mod tests {
         i.to_stack("main");
         assert_eq!(i.stacks.current_name(), "main");
         assert_eq!(i.stacks.names().count(), 3, "no stack was lost");
+    }
+
+    /// **The current stack is held out of the map**, and every way the ring
+    /// moves must bring the right stack in and put the old one back. Each
+    /// stack holds one marker; after switching, rotating and dropping the
+    /// current stack, every survivor still holds its own and the dropped one
+    /// is gone.
+    #[test]
+    fn the_held_current_stack_follows_every_move_of_the_ring() {
+        let mut i = Interp::new();
+        i.push(BundValue::int(0));
+        for (n, name) in [(1, "a"), (2, "b"), (3, "c")] {
+            i.to_stack(name);
+            i.push(BundValue::int(n));
+        }
+        let holds = |i: &Interp, name: &str| -> Vec<i64> {
+            i.snapshot_of(name)
+                .iter()
+                .filter_map(|v| v.as_int())
+                .collect()
+        };
+        i.rotate_stacks_left();
+        i.rotate_stacks_right();
+        i.rotate_stacks_right();
+        let cur = i.stacks.current_name().to_string();
+        assert_eq!(
+            i.peek().and_then(|v| v.as_int()),
+            holds(&i, &cur).last().copied()
+        );
+        i.to_stack("b");
+        assert_eq!(i.pull().and_then(|v| v.as_int()), Some(2));
+        i.push(BundValue::int(2));
+        i.drop_stack("b");
+        assert!(
+            !i.stack_exists("b"),
+            "the dropped current stack must not come back"
+        );
+        for (n, name) in [(0, "main"), (1, "a"), (3, "c")] {
+            assert_eq!(holds(&i, name), vec![n], "{name} lost or swapped its value");
+        }
+        let cur = i.stacks.current_name().to_string();
+        assert_eq!(i.depth(), i.depth_of(&cur), "depth reads the current stack");
+        assert_eq!(i.stacks.names().count(), 3);
+        // Dropping every stack leaves `main`, empty and current.
+        for name in ["a", "c", "main"] {
+            i.drop_stack(name);
+        }
+        assert_eq!(i.stacks.current_name(), "main");
+        assert_eq!(i.depth(), 0);
+    }
+
+    /// **The CALL memo caches a name's symbol, never its binding.** A body run
+    /// once, the word re-registered, and the same body run again calls the
+    /// new binding.
+    #[test]
+    fn a_memoised_call_sees_a_word_registered_again() {
+        fn one(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.push(BundValue::int(1));
+            Ok(())
+        }
+        fn two(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.push(BundValue::int(2));
+            Ok(())
+        }
+        let mut i = Interp::new();
+        let body = [BundValue::call("w")];
+        i.registry.register_native("w", one, eff(), WordKind::Sync);
+        i.eval(&body).unwrap();
+        assert_ne!(body[0].call_memo(), 0, "the first call left a memo");
+        i.registry.register_native("w", two, eff(), WordKind::Sync);
+        i.eval(&body).unwrap();
+        assert_eq!(i.pull().and_then(|v| v.as_int()), Some(2));
+    }
+
+    /// **A miss is not memoised**: a name registered after a call failed is
+    /// found by the same CALL value the next time.
+    #[test]
+    fn a_call_that_missed_finds_a_word_registered_later() {
+        fn one(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.push(BundValue::int(1));
+            Ok(())
+        }
+        let mut i = Interp::new();
+        let body = [BundValue::call("later")];
+        let e = i.eval(&body).unwrap_err();
+        assert!(e.0.contains("later not registered"), "{}", e.0);
+        assert_eq!(body[0].call_memo(), 0);
+        i.registry
+            .register_native("later", one, eff(), WordKind::Sync);
+        i.eval(&body).unwrap();
+        assert_eq!(i.pull().and_then(|v| v.as_int()), Some(1));
+    }
+
+    /// **One interpreter's memo is a miss in another.** The second interns
+    /// two names first, so `w` has a different symbol there; reading the
+    /// first's memo would dispatch to `pad`, which is bound to nothing.
+    #[test]
+    fn a_memo_left_by_another_interpreter_is_not_read() {
+        fn one(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.push(BundValue::int(1));
+            Ok(())
+        }
+        fn two(vm: &mut dyn Vm) -> Result<(), Error> {
+            vm.push(BundValue::int(2));
+            Ok(())
+        }
+        let body = [BundValue::call("w")];
+        let mut first = Interp::new();
+        first
+            .registry
+            .register_native("w", one, eff(), WordKind::Sync);
+        first.eval(&body).unwrap();
+        let mut second = Interp::new();
+        second.registry.interner.intern("pad");
+        second.registry.interner.intern("pad2");
+        second
+            .registry
+            .register_native("w", two, eff(), WordKind::Sync);
+        second.eval(&body).unwrap();
+        assert_eq!(second.pull().and_then(|v| v.as_int()), Some(2));
+        // And a cloned registry's interner takes its own key.
+        let cloned = second.registry.interner.clone();
+        assert_eq!(cloned.from_memo(body[0].call_memo()), None);
     }
 
     /// The stacks are circular buffers, which is why they are `VecDeque`s.

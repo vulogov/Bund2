@@ -195,7 +195,18 @@ impl Stack {
 /// The stack of stacks, plus the workbench.
 #[derive(Debug)]
 pub struct Stacks {
-    pub(super) stacks: BTreeMap<Rc<str>, Stack>,
+    /// **The current stack, held out of the map.** Every push, pull, peek and
+    /// depth guard reaches it, and each one used to find it by name in the
+    /// map: a quarter of the time a recursive `fib` spent. Held here, the
+    /// lookup is a field access, and "a current stack always exists" is the
+    /// type's shape rather than a fallback arm to write.
+    ///
+    /// Its name is the front of `order`. [`Stacks::settle`] keeps the two in
+    /// step, and every mutator that moves the front calls it.
+    current: Stack,
+    /// Every other stack, by name. Never holds the current stack's name, so
+    /// a stack is in exactly one of the two places.
+    others: BTreeMap<Rc<str>, Stack>,
     /// Names in rotation order. The reference's stack-of-stacks is itself a
     /// circular buffer, and selecting a named stack **rotates it to the top**
     /// (`…/Introduction_the_art_of_stack_operations.typ:43`).
@@ -233,11 +244,10 @@ pub struct Stacks {
 
 impl Default for Stacks {
     fn default() -> Self {
-        let mut stacks = BTreeMap::new();
         let main: Rc<str> = Rc::from("main");
-        stacks.insert(Rc::clone(&main), Stack::from_rc(Rc::clone(&main)));
         Self {
-            stacks,
+            current: Stack::from_rc(Rc::clone(&main)),
+            others: BTreeMap::new(),
             order: VecDeque::from([main]),
             workbench: Stack::named("main"),
             epoch: 0,
@@ -250,23 +260,63 @@ impl Stacks {
         self.order.front().map(|n| &**n).unwrap_or("main")
     }
 
-    /// The current stack, creating it if it has somehow gone missing.
-    ///
-    /// The invariant is that a current stack always exists, and asserting it
-    /// put a panic on the hottest path in the interpreter. Creating an empty
-    /// one instead is indistinguishable in every reachable case and cannot
-    /// abort the program in an unreachable one.
+    /// The current stack. A field, so there is no lookup and nothing to miss.
+    pub(super) fn current(&self) -> &Stack {
+        &self.current
+    }
+
+    /// The current stack, mutably. See [`Stacks::current`].
     pub(super) fn current_mut(&mut self) -> &mut Stack {
-        // **No allocation.** Cloning the front `Rc` is a refcount bump; this
-        // used to be `current_name().to_string()`, which allocated on every
-        // push and every pull.
-        let name = match self.order.front() {
+        &mut self.current
+    }
+
+    /// A stack by name, current or not.
+    pub(super) fn get(&self, name: &str) -> Option<&Stack> {
+        if &*self.current.name == name {
+            Some(&self.current)
+        } else {
+            self.others.get(name)
+        }
+    }
+
+    /// A stack by name, mutably.
+    pub(super) fn get_mut(&mut self, name: &str) -> Option<&mut Stack> {
+        if &*self.current.name == name {
+            Some(&mut self.current)
+        } else {
+            self.others.get_mut(name)
+        }
+    }
+
+    /// Create a stack of this name if none exists. **Does not make it
+    /// current**: that is the ring's business, and the caller's.
+    pub(super) fn create(&mut self, name: &str) {
+        if &*self.current.name != name && !self.others.contains_key(name) {
+            let n: Rc<str> = Rc::from(name);
+            self.others.insert(Rc::clone(&n), Stack::from_rc(n));
+        }
+    }
+
+    /// Bring the stack the ring's front names into `current`, creating it if
+    /// it has none — which is what the map lookup this replaced did on every
+    /// push. The outgoing stack goes back to the map, **unless `keep_old` is
+    /// false**: `drop_named` has removed it, and it must not return.
+    fn settle(&mut self, keep_old: bool) {
+        let front: Rc<str> = match self.order.front() {
             Some(n) => Rc::clone(n),
             None => Rc::from("main"),
         };
-        self.stacks
-            .entry(name)
-            .or_insert_with_key(|k| Stack::from_rc(Rc::clone(k)))
+        if keep_old && self.current.name == front {
+            return;
+        }
+        let incoming = match self.others.remove(&front) {
+            Some(s) => s,
+            None => Stack::from_rc(front),
+        };
+        let outgoing = std::mem::replace(&mut self.current, incoming);
+        if keep_old {
+            self.others.insert(Rc::clone(&outgoing.name), outgoing);
+        }
     }
 
     /// Put a newly created stack in the ring as the current one — **F89**.
@@ -285,6 +335,7 @@ impl Stacks {
             self.order.rotate_left(1);
         }
         self.order.push_front(name);
+        self.settle(true);
         // A new stack becomes current, so the epoch always moves here.
         self.bump_epoch(cells);
     }
@@ -318,15 +369,15 @@ impl Stacks {
     /// every guard in a compiled body on a drop that touched some other stack.
     pub(super) fn drop_named(&mut self, name: &str, cells: &Cells) {
         let before = self.current_name().to_string();
-        self.stacks.remove(name);
+        // The current stack is not in `others`; dropping it means `settle`
+        // must discard it rather than put it back.
+        let dropped_current = &*self.current.name == name;
+        self.others.remove(name);
         self.order.retain(|n| &**n != name);
         if self.order.is_empty() {
-            let main: Rc<str> = Rc::from("main");
-            self.order.push_back(Rc::clone(&main));
-            self.stacks
-                .entry(main)
-                .or_insert_with_key(|k| Stack::from_rc(Rc::clone(k)));
+            self.order.push_back(Rc::from("main"));
         }
+        self.settle(!dropped_current);
         if self.current_name() != before {
             self.bump_epoch(cells);
         }
@@ -340,6 +391,7 @@ impl Stacks {
     pub(super) fn rotate_left(&mut self, cells: &Cells) {
         if self.order.len() > 1 {
             self.order.rotate_left(1);
+            self.settle(true);
             self.bump_epoch(cells);
         }
     }
@@ -348,13 +400,14 @@ impl Stacks {
     pub(super) fn rotate_right(&mut self, cells: &Cells) {
         if self.order.len() > 1 {
             self.order.rotate_right(1);
+            self.settle(true);
             self.bump_epoch(cells);
         }
     }
 
     /// Whether a stack of this name exists.
     pub(super) fn has(&self, name: &str) -> bool {
-        self.stacks.contains_key(name)
+        self.get(name).is_some()
     }
 
     /// Whether the ring already carries this name.
@@ -372,9 +425,7 @@ impl Stacks {
     // `pub`, since it leaves exported names alone.
     #[allow(clippy::wrong_self_convention)]
     pub(super) fn to_stack(&mut self, name: &str, cells: &Cells) {
-        self.stacks
-            .entry(Rc::from(name))
-            .or_insert_with_key(|k| Stack::from_rc(Rc::clone(k)));
+        self.create(name);
         if !self.order.iter().any(|n| &**n == name) {
             self.add_as_current(Rc::from(name), cells);
             return;
@@ -400,6 +451,7 @@ impl Stacks {
             }
             self.order.rotate_left(1);
         }
+        self.settle(true);
         // Exact, as in `drop_named`: `to_stack` to the stack already current
         // rotates zero times and changes nothing, and must not bump.
         if self.current_name() != before {
@@ -413,8 +465,12 @@ impl Stacks {
         self.order.iter().map(|n| &**n)
     }
 
+    /// Every stack's name, in name order, as the map this replaced gave them.
     pub fn names(&self) -> impl Iterator<Item = &str> {
-        self.stacks.keys().map(|k| &**k)
+        let mut all: Vec<&str> = self.others.keys().map(|k| &**k).collect();
+        all.push(&self.current.name);
+        all.sort_unstable();
+        all.into_iter()
     }
 
     pub fn workbench(&mut self) -> &mut Stack {

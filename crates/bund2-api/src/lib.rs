@@ -1305,15 +1305,77 @@ pub enum Resolved {
 /// what crosses every boundary — the `Debug` rendering the goldens capture,
 /// and the world file, where `save.lambdas` bincodes whole values and a
 /// per-run index would be meaningless on reload.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug)]
 pub struct Interner {
     names: Vec<String>,
     index: HashMap<String, Symbol>,
+    /// **This interner's key in a CALL value's memo.** Process-unique, so a
+    /// memo another interpreter left on a shared value — a body crossing
+    /// between two `Interp`s on one thread — reads as a miss here rather than
+    /// as someone else's symbol. Zero when the keys ran out, and then nothing
+    /// is memoised.
+    memo_key: u64,
+}
+
+/// The next interner's memo key. Keys fit 31 bits: the memo packs a key, the
+/// sigil and a 32-bit symbol into one `u64`.
+fn next_memo_key() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    let k = NEXT.fetch_add(1, Ordering::Relaxed);
+    if k < (1 << 31) { k } else { 0 }
+}
+
+impl Default for Interner {
+    fn default() -> Self {
+        Self {
+            names: Vec::new(),
+            index: HashMap::new(),
+            memo_key: next_memo_key(),
+        }
+    }
+}
+
+/// **A clone takes a fresh key.** The two interners agree on every name
+/// interned so far and diverge on the next: each would give a new name the
+/// same index. A shared key would let one read the other's memo for a name
+/// it had interned differently.
+impl Clone for Interner {
+    fn clone(&self) -> Self {
+        Self {
+            names: self.names.clone(),
+            index: self.index.clone(),
+            memo_key: next_memo_key(),
+        }
+    }
 }
 
 impl Interner {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The memo to leave on a CALL value that resolved to `(s, sigil)` here.
+    ///
+    /// Sound because a name, once interned, keeps its symbol for the
+    /// interner's life: nothing removes or renumbers one. What the symbol is
+    /// *bound to* is not memoised — `dispatch` resolves the slot every time —
+    /// so `register` rebinding a word is seen at the next call.
+    pub fn memo_for(&self, s: Symbol, sigil: bool) -> u64 {
+        if self.memo_key == 0 {
+            return 0;
+        }
+        (self.memo_key << 33) | (u64::from(sigil) << 32) | u64::from(s.0)
+    }
+
+    /// What a memo says, if this interner wrote it.
+    pub fn from_memo(&self, memo: u64) -> Option<(Symbol, bool)> {
+        if memo == 0 || memo >> 33 != self.memo_key {
+            return None;
+        }
+        // The low 32 bits are the symbol `memo_for` packed; the truncation is
+        // the unpacking.
+        Some((Symbol(memo as u32), (memo >> 32) & 1 == 1))
     }
 
     /// Every interned name, in symbol order.
