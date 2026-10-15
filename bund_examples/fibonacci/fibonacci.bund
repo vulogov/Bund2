@@ -1,0 +1,28 @@
+//
+// Naive recursive Fibonacci, for timing against fibonacci.py.
+//
+//   fib(n) = n                      when n < 2
+//   fib(n) = fib(n-1) + fib(n-2)    otherwise
+//
+// Bund's binary words take their right operand first: `a b -` is b - a and
+// `a b <` is b < a. So `dup 1 <` asks 1 < n, and `1 swap -` computes n - 1.
+//
+:fib {
+  dup 1 < {
+    dup 1 swap - fib    // n fib(n-1)
+    swap 2 swap - fib   // fib(n-1) fib(n-2)
+    +
+  } if
+} register
+
+//
+// N comes from `--n <int>`, 30 when absent:
+//   bund2 script --file fibonacci.bund -- --n 25
+//   ./fibonacci --n 25
+//
+args.parse :n ?key
+{ drop 30 }
+{ :n get car convert.to_int }
+?true*
+
+fib println
