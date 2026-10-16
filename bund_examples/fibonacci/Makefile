@@ -7,8 +7,9 @@
 #   make bench-jit  also build and time a bundle on the Cranelift JIT runtime
 #   make clean
 #
-# `bund2 build` copies the bund2 binary that runs it and appends the program,
-# so the bundle carries whatever runtime built it. The JIT bundle is built by a
+# `bund2 build` copies the bund2 binary that runs it and writes the program,
+# deflated, into a region reserved inside that copy, so the bundle carries
+# whatever runtime built it. The JIT bundle is built by a
 # bund2 compiled with `--features jit`, in its own target directory so the
 # default build is left alone.
 

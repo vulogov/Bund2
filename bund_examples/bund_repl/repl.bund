@@ -1,0 +1,88 @@
+//
+// A read–eval–print loop, written in Bund.
+//
+// Every line typed is handed to `bund.eval`, which runs it in this same VM:
+// a word you `register` stays registered, and the stack carries over from one
+// line to the next. A line that fails is reported and the loop goes on. A few
+// lines are commands of the loop itself and never reach the evaluator.
+// Ctrl-D, `quit` or `exit` ends the session.
+//
+
+//
+// What the loop prints for `help`.
+//
+:repl.help {
+  "A Bund REPL, written in Bund. Type Bund; the stack carries over." println
+  "" println
+  "  help, ?      this text" println
+  "  stack, .s    show the stack" println
+  "  clear        empty the stack" println
+  "  quit, exit   leave (so does Ctrl-D)" println
+  "" println
+  "Anything else is evaluated. Try:  1 2 +   then   :sq { dup * } register   then   7 sq" println
+} register
+
+//
+// The loop's own commands: a dictionary from a line's text to the lambda that
+// handles it. The word table is data here — a line is looked up, and the
+// lambda found is run with `!` — which is the metaprogramming Bund is built on.
+// `bund.exit` takes its code from the top of the stack, so `0` is pushed first
+// or a session that leaves `49` behind would exit 49.
+//
+:repl.commands {
+  dict
+  "help"  { repl.help } set
+  "?"     { repl.help } set
+  "stack" { debug.display_stack } set
+  ".s"    { debug.display_stack } set
+  "clear" { clear } set
+  "quit"  { "bye" println 0 bund.exit } set
+  "exit"  { "bye" println 0 bund.exit } set
+} register
+
+//
+// Show what is on top after a line, if anything is. `dup` fails on an empty
+// stack; `?try` turns that failure into a value, which `except` drops. The
+// `dup` comes first, so nothing is printed when there is nothing to show.
+//
+:repl.show {
+  ?try
+    :try      { dup "=> " print println } set
+    :except   { drop } set
+  !
+} register
+
+//
+// Evaluate one line. On failure `?try` pushes the error as a value whose
+// `context` slot holds the text; that is printed and the loop continues.
+//
+:repl.eval {
+  ?try
+    :try      { bund.eval } set
+    :except   { "error: " print :context get println } set
+  !
+  repl.show
+} register
+
+//
+// One line, as `input*` hands it over: already trimmed, on top of the stack.
+// An empty line does nothing. A command runs its lambda; anything else is
+// evaluated.
+//
+:repl.line {
+  dup "" ==
+  {
+    dup repl.commands swap ?key
+    { drop repl.eval }
+    { swap get ! }
+    ?true*
+  }
+  { drop }
+  ?true*
+} register
+
+"Bund" io.banner println
+"Bund REPL — type help for the commands, Ctrl-D to leave." println
+bund.prompt { repl.line } input*
+"" println
+"bye" println
