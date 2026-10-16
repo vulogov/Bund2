@@ -4007,7 +4007,11 @@ held by criterion 16's differential test against the word itself.
    when it is raised, not this one. *(2026-10-15: `Op` also has `SwapTop`,
    `LtInt` and `PushBool`, for the `swap`, `<` and `-` arms built that day
    under RFC-0005 §S6's own rule — each measured, each with criterion 16's
-   three legs. Still nothing branches.)*
+   three legs. Still nothing branches.)* *(Later that day: `MulInt` too,
+   for `*`'s arm, after `bund_examples/jit_vs_tier0` showed one `*` in a
+   chain of nine operators as the one generic site; `>`'s arm reuses
+   `LtInt` with the registers exchanged. Ten operations, eight arms. Still
+   nothing branches.)*
 2. **The site.** When the tier lowers a body and finds a LAMBDA literal
    followed by a CALL whose slot is, at compile time, the built-in `if` or
    `if.false`, it emits the branch over the literal's body instead of a

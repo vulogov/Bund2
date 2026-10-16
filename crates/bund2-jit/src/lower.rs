@@ -374,7 +374,10 @@ fn emit_fragment_ops(
                 f.switch_to_block(next);
                 emitted_any_call = true;
             }
-            Op::AddInt { dst, a, b } | Op::SubInt { dst, a, b } | Op::LtInt { dst, a, b } => {
+            Op::AddInt { dst, a, b }
+            | Op::SubInt { dst, a, b }
+            | Op::MulInt { dst, a, b }
+            | Op::LtInt { dst, a, b } => {
                 let (Some(&va), Some(&vb)) = (file.get(usize::from(*a)), file.get(usize::from(*b)))
                 else {
                     return Err(format!(
@@ -391,6 +394,7 @@ fn emit_fragment_ops(
                 let r = match op {
                     Op::AddInt { .. } => f.ins().iadd(x, y),
                     Op::SubInt { .. } => f.ins().isub(x, y),
+                    Op::MulInt { .. } => f.ins().imul(x, y),
                     _ => {
                         let c = f.ins().icmp(IntCC::SignedLessThan, x, y);
                         f.ins().uextend(types::I64, c)
@@ -523,13 +527,18 @@ fn emit_sync_top_n(
 ///   address the stack directly through their helpers, so a fragment using any
 ///   of them must see its operands there. `Op::PushBool` pushes through its
 ///   helper too, because the model holds no boolean — so `<`'s arm, whose
-///   `LtInt` alone would qualify, takes its operands from the stack.
+///   `LtInt` alone would qualify, takes its operands from the stack, and so
+///   does `>`'s, which is the same `LtInt` read the other way.
 fn takes_registers(fragment: &Fragment) -> bool {
     matches!(fragment.guard(), Guard::TopAreInt(_))
         && fragment.ops().iter().all(|o| {
             matches!(
                 o,
-                Op::PopInt | Op::PushInt(_) | Op::AddInt { .. } | Op::SubInt { .. }
+                Op::PopInt
+                    | Op::PushInt(_)
+                    | Op::AddInt { .. }
+                    | Op::SubInt { .. }
+                    | Op::MulInt { .. }
             )
         })
 }
@@ -4400,6 +4409,82 @@ mod tests {
 
     fn swap_arm() -> Fragment {
         bund2_stdlib::fragments::swap().expect("well-formed")
+    }
+
+    fn mul_arm() -> Fragment {
+        bund2_stdlib::fragments::int_mul().expect("well-formed")
+    }
+
+    fn gt_arm() -> Fragment {
+        bund2_stdlib::fragments::int_gt().expect("well-formed")
+    }
+
+    /// **Criterion 16's third leg for `Int * Int`**, over the squared boundary
+    /// set, with the wrap pinned by value: `imul` must wrap as the word's
+    /// `wrapping_mul` does, and `i64::MAX 2 *` is `-2` on both paths.
+    #[test]
+    fn the_lowered_int_mul_agrees_with_frag_run_at_every_boundary() {
+        let f = mul_arm();
+        for a in EDGES {
+            for b in EDGES {
+                assert_agree(
+                    &f,
+                    &[BundValue::int(a), BundValue::int(b)],
+                    &format!("{a} {b} *"),
+                );
+            }
+        }
+        let compiled = compile(&f).expect("lowers");
+        for (a, b, want) in [
+            (3, 5, 15),
+            (-3, 5, -15),
+            (i64::MAX, 2, -2),
+            (i64::MIN, -1, i64::MIN),
+            (i64::MAX, i64::MAX, 1),
+        ] {
+            let mut vm = interp_with(&[BundValue::int(a), BundValue::int(b)]);
+            assert_eq!(compiled.run(&mut vm), Ok(true));
+            assert_eq!(
+                vm.snapshot().first().and_then(BundValue::as_int),
+                Some(want),
+                "the lowered `{a} {b} *` must be {want}, wrapped"
+            );
+        }
+    }
+
+    /// **The third leg for `Int > Int`**, over the same squared set, with the
+    /// orientation pinned by value: `1 2 >` asks whether 2 is greater than 1,
+    /// which is `<`'s `LtInt` with the register file read the other way.
+    #[test]
+    fn the_lowered_int_gt_agrees_with_frag_run_at_every_boundary() {
+        let f = gt_arm();
+        for a in EDGES {
+            for b in EDGES {
+                assert_agree(
+                    &f,
+                    &[BundValue::int(a), BundValue::int(b)],
+                    &format!("{a} {b} >"),
+                );
+            }
+        }
+        let compiled = compile(&f).expect("lowers");
+        for (a, b, want) in [
+            (1, 2, true),
+            (2, 1, false),
+            (2, 2, false),
+            (i64::MIN, i64::MAX, true),
+            (i64::MAX, i64::MIN, false),
+        ] {
+            let mut vm = interp_with(&[BundValue::int(a), BundValue::int(b)]);
+            assert_eq!(compiled.run(&mut vm), Ok(true));
+            let stack = vm.snapshot();
+            assert_eq!(stack.len(), 1, "{a} {b} >: one value left");
+            assert!(
+                matches!(stack.first(), Some(BundValue::Bool(v, _)) if *v == want),
+                "{a} {b} > must leave {want}, left {:?}",
+                stack.first()
+            );
+        }
     }
 
     /// **Criterion 16's third leg for `Int - Int`.** The squared boundary set

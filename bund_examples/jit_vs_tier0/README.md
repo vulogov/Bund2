@@ -113,22 +113,26 @@ A lambda that is nothing but one word, `{ poly }`, measures the same as the
 chain written out, one body and no generic site; it is the word *alongside*
 other sites that pays.
 
-**Multiplication.** Replace one `+` with `*`:
+**Division.** Replace the first `+` with `/`:
 
 ```bund
-dup { 1 + 2 + 3 - 4 + 5 * 6 - 7 + 8 + 9 - drop } times
+dup { 1 + 2 / 3 - 4 + 5 + 6 - 7 + 8 + 9 - drop } times
 ```
 
 | Runtime | user |
 |---|---|
-| Tier 0 | 2.9 s |
-| JIT | 1.1 s |
+| Tier 0 | 2.7 s |
+| JIT | 0.83 s |
 
-The tier's integer fragments are `+`, `-` and `<`, each added on its own
-with a measurement before it and a differential test against the word after
-it. `*` has none yet, so it is a generic site in the middle of the chain, and
-the values around it are boxed and unboxed on every iteration. One `*` costs
-more than the other eight operators together.
+The tier's integer fragments are `+`, `-`, `*`, `<` and `>`, each added on
+its own with a measurement before it and a differential test against the word
+after it. `/` has none, so it is a generic site in the middle of the chain,
+and the values around it are boxed and unboxed on every iteration. One `/`
+doubles the compiled time: it costs about as much as the loop and the other
+eight operators together. `*` was in that position when this example was
+first written, one `*` in the chain costing 1.1 s, and it got its arm the
+same day; the stats line for the `*` variant now reads `0 generic of 19` and
+the time is the 0.42 s of the original.
 
 **A body of one word.** The classic accumulating counter:
 

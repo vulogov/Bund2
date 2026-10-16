@@ -91,6 +91,14 @@ pub enum Op {
     /// is that fragment, and its differential test is the one that would catch
     /// the reversed file.)*
     SubInt { dst: u8, a: u8, b: u8 },
+    /// `dst = a * b`, wrapping — the word's `wrapping_mul` (`Op::int` in
+    /// `crates/bund2-stdlib/src/math.rs`). Multiplication commutes, so the
+    /// register order is invisible here as it is for `AddInt`; the boundary
+    /// that matters is the wrap, `i64::MAX 2 *` being `-2`. *(2026-10-15:
+    /// added for `*`'s arm, after `bund_examples/jit_vs_tier0` measured one
+    /// `*` in a chain of nine operators costing more than the other eight,
+    /// because its site was generic.)*
+    MulInt { dst: u8, a: u8, b: u8 },
     /// Exchange the top two values the way `swap_one` does: pull the top, pull
     /// the one beneath, push the top back, push the other on top of it
     /// (`swap_one` in `crates/bund2-stdlib/src/stack.rs`). The values keep
@@ -227,7 +235,7 @@ impl Fragment {
     ///   `drop drop` under `Depth(1)` is refused rather than dropping twice
     ///   and silently doing nothing the second time.
     /// - A register must be **written before it is read**: `PushInt`,
-    ///   `PushBool`, `AddInt`, `SubInt` and `LtInt` may only read registers an
+    ///   `PushBool`, `AddInt`, `SubInt`, `MulInt` and `LtInt` may only read registers an
     ///   earlier `PopInt` or arithmetic op wrote. The file starts zeroed, so an
     ///   unwritten read would push `0` and report success.
     /// - `PushBool` leaves a value of no known kind on the abstract stack: a
@@ -332,7 +340,10 @@ impl Fragment {
                     }
                     stack.push(Kind::Any);
                 }
-                Op::AddInt { dst, a, b } | Op::SubInt { dst, a, b } | Op::LtInt { dst, a, b } => {
+                Op::AddInt { dst, a, b }
+                | Op::SubInt { dst, a, b }
+                | Op::MulInt { dst, a, b }
+                | Op::LtInt { dst, a, b } => {
                     if let Some(bad) = [*dst, *a, *b].into_iter().find(|r| !inside(*r)) {
                         return Err(format!(
                             "op {i} ({op:?}) names register {bad}, outside a file of {regs}"
@@ -448,6 +459,35 @@ mod tests {
             Fragment::new(
                 Guard::TopAreInt(2),
                 vec![Op::PopInt, Op::LtInt { dst: 0, a: 0, b: 1 }],
+                2
+            )
+            .is_err(),
+            "register 1 is read before anything writes it"
+        );
+    }
+
+    /// `MulInt` is walked as `AddInt` is: it reads two written registers and
+    /// writes one, and a read of an unwritten register is refused.
+    #[test]
+    fn mul_is_walked_like_add() {
+        assert!(
+            Fragment::new(
+                Guard::TopAreInt(2),
+                vec![
+                    Op::PopInt,
+                    Op::PopInt,
+                    Op::MulInt { dst: 0, a: 0, b: 1 },
+                    Op::PushInt(0),
+                ],
+                2
+            )
+            .is_ok(),
+            "the `*` arm"
+        );
+        assert!(
+            Fragment::new(
+                Guard::TopAreInt(2),
+                vec![Op::PopInt, Op::MulInt { dst: 0, a: 0, b: 1 }],
                 2
             )
             .is_err(),

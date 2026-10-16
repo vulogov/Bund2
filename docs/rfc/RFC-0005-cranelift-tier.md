@@ -2404,7 +2404,7 @@ inlining rules:
   re-mints and re-records them, and `bund2-jit` reads that set when it
   compiles, as it reads the fragment table. An earlier revision called the set
   "the same set its fragments are keyed by", but the fragment table holds three
-  ids (the tenth review's S1) *(2026-10-15: six)*. A command carries no D43 id, so no command is
+  ids (the tenth review's S1) *(2026-10-15: six; later that day, eight)*. A command carries no D43 id, so no command is
   ever crossed; `bund2-stdlib` registers none. Every other native is synced
   before, as at an opaque site: an embedder's, an external package's under D9,
   or a `bund2-stdlib` native no audit brought to `Ok`. That costs speed, never
@@ -3236,6 +3236,28 @@ is shadowed by that alias. `bund2_ir::Op` gained `SwapTop`, `LtInt` and
 `PushBool` for them; `SubInt`, which had no fragment, now has one. What the
 arms bought on `fib` is under criterion 10.)*
 
+*(2026-10-15, later — **two more, the same way, at the owner's direction**:
+`Int * Int` and `Int > Int`. `bund_examples/jit_vs_tier0`'s loop body, nine
+`+`/`-` sites and a `drop`, ran 6.3× faster compiled — 2.64 s to 0.42 s user
+over ten million iterations; the same body with one `+` changed to `*` ran
+1.1 s compiled, because `*` had no arm and its site was generic, and with the
+arm it runs the 0.42 s again. `>` needed no new operation: it is `LtInt`
+with the register file read the other way. Same command, same machine, one
+run, release, per operation; the `>` chain is `0 1 > drop`, as `<`'s is:*
+
+| | `tier0` | `inlined` | `lowered` | inlining ceiling |
+|---|---|---|---|---|
+| `Int + Int` *(re-run)* | 43.3 ns | 24.3 ns | 20.9 ns | 2.07× |
+| `Int < Int`, with its `drop` *(re-run)* | 67.2 ns | 27.4 ns | 23.8 ns | 2.83× |
+| `Int * Int` | 44.2 ns | 23.5 ns | 19.9 ns | 2.22× |
+| `Int > Int`, with its `drop` | 68.1 ns | 27.4 ns | 23.8 ns | 2.86× |
+
+*The arms are `int_mul` and `int_gt` in `crates/bund2-stdlib/src/fragments.rs`,
+keyed by `*` and `>`; `bund2_ir::Op` gained `MulInt`, lowered to `imul`, and
+`frag::run` wraps it as the word's `wrapping_mul` does. On `fib`, whose
+bodies use neither word, nothing moved — Tier 0 0.47 s, Tier 1 0.59 s,
+re-measured after them.)*
+
 ### What has been built, 2026-09-09 and 2026-09-10
 
 The representation and its first consumer, which is everything on this side of
@@ -3257,7 +3279,8 @@ nor any `cranelift-*` crate, with `bund2-stdlib` now depending on `bund2-ir`.
 `int_sub`, `int_lt`, `dup`, `swap`, `drop_top` — and a differential test per
 arm; `Op` has nine operations, `frag::run` executes all nine, and
 `Fragment::new`'s typed walk counts `SwapTop` as consuming two and refuses a
-`PopInt` of what `PushBool` left.)*
+`PopInt` of what `PushBool` left.)* *(Later that day: eight arms, `int_mul`
+and `int_gt` added, and ten operations, `MulInt` the tenth.)*
 
 `frag::run` is **not Tier 1** — it generates no code and caches nothing. It
 exists so the representation is exercised rather than assumed, and so
@@ -6742,6 +6765,9 @@ criterion.)*
     to buy is the `{ … } if` branch and the recursion's operand kept out of a
     `BundValue`, both decisions and neither built.)*
 
+    *(2026-10-15, later: the `*` and `>` arms touch no site of `fib`'s.
+    Re-measured after them, Tier 0 0.47 s, Tier 1 0.59 s.)*
+
 11. **A promoted recursion does not overflow the machine stack.** §S8's
     correctness problem, and the criterion is one that already exists:
 
@@ -7273,6 +7299,17 @@ criterion.)*
     `the_lowered_int_lt_agrees_with_frag_run_at_every_boundary` and
     `the_lowered_swap_agrees_with_frag_run_and_moves_rather_than_copies`, in
     `crates/bund2-jit/src/lower.rs`, with the same pins on the compiled path.)*
+
+    *(2026-10-15, later: the `*` and `>` arms carry the three legs too. The
+    model's: `the_int_mul_arm_agrees_with_the_word` over the squared boundary
+    set and `the_int_mul_arm_wraps`, which pins `i64::MAX 2 *` to `-2` and
+    `i64::MIN -1 *` to `i64::MIN`; `the_int_gt_arm_agrees_with_the_word` and
+    `the_int_gt_arm_compares_the_top_against_the_value_beneath`, which pins
+    `1 2 >` to `true`. The lowered leg:
+    `the_lowered_int_mul_agrees_with_frag_run_at_every_boundary` and
+    `the_lowered_int_gt_agrees_with_frag_run_at_every_boundary`, with the same
+    pins on the compiled path. The declining test now covers all four
+    two-operand arms.)*
 
 17. **Every inlined site carries its meaning guard.** §S6: an inlined
     fragment is entered only while the site's slot still holds the binding it

@@ -616,12 +616,14 @@ mod tests {
 
     /// **F133: a body the tier cannot help is left interpreted.**
     ///
-    /// The body is `{ 1.0 1.000001 * }`. Nothing in it is a site — §S6 publishes
-    /// no fragment for float multiplication — and nothing in it promotes, since
+    /// The body is `{ 1.0 1.000001 / }`. Nothing in it is a site — §S6 publishes
+    /// no fragment for `/` — and nothing in it promotes, since
     /// D66's `Plan::Literal` carries an `i64` and a float literal is not one. So
     /// a compiled form would run every value through `Vm::apply`, Tier 0's own
     /// path, and add the boundary around it: measured at **+24%** on
-    /// `arith/float_mul/1000` before this rule existed.
+    /// `arith/float_mul/1000` before this rule existed. *(The fixture was
+    /// `{ 1.0 1.000001 * }` until 2026-10-15, when `*` gained an arm and the
+    /// body gained a site; `/` has none, and the three fixtures here use it.)*
     ///
     /// **The fixture must be the inlining one.** `runtime_with` installs an
     /// empty table, under which *every* body has zero sites, so it would pass
@@ -633,7 +635,7 @@ mod tests {
         let body = BundValue::lambda(vec![
             BundValue::float(1.0),
             BundValue::float(1.000001),
-            BundValue::call("*"),
+            BundValue::call("/"),
         ]);
         r.interp.registry.register_lambda("f", body.clone());
 
@@ -690,7 +692,7 @@ mod tests {
         let body = BundValue::lambda(vec![
             BundValue::float(2.5),
             BundValue::float(4.0),
-            BundValue::call("*"),
+            BundValue::call("/"),
         ]);
         r.interp.registry.register_lambda("f", body.clone());
 
@@ -761,7 +763,7 @@ mod tests {
         let refused = BundValue::lambda(vec![
             BundValue::float(2.5),
             BundValue::float(4.0),
-            BundValue::call("*"),
+            BundValue::call("/"),
         ]);
         let gains = BundValue::lambda(vec![
             BundValue::int(1),

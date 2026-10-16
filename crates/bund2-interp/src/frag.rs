@@ -146,6 +146,19 @@ pub fn run(i: &mut Interp, f: &Fragment) -> Result<bool, Error> {
                     *slot = x.wrapping_sub(y);
                 }
             }
+            Op::MulInt { dst, a, b } => {
+                let (Some(x), Some(y)) = (
+                    regs.get(*a as usize).copied(),
+                    regs.get(*b as usize).copied(),
+                ) else {
+                    return Err(Error::internal(
+                        "fragment op MulInt names a register outside the fragment's file",
+                    ));
+                };
+                if let Some(slot) = regs.get_mut(*dst as usize) {
+                    *slot = x.wrapping_mul(y);
+                }
+            }
             Op::LtInt { dst, a, b } => {
                 let (Some(x), Some(y)) = (
                     regs.get(*a as usize).copied(),

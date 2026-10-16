@@ -385,6 +385,110 @@ fn fragment(c: &mut Criterion) {
         );
     });
 
+    // `*` chains like `+` with the operand 1, so the value never leaves 1 and
+    // nothing wraps; `>` is shaped like `<`, with the `drop` in every column.
+    let src6 = format!("1 {}", "1 * ".repeat(N));
+    let stream6 = bund2_syntax::compile(&src6).unwrap_or_default();
+    g.bench_function("int_mul/tier0", |b| {
+        b.iter_batched(
+            interp,
+            |mut i| black_box(i.eval(black_box(&stream6))).is_ok(),
+            BatchSize::SmallInput,
+        );
+    });
+    let f_mul = bund2_stdlib::fragments::int_mul();
+    assert!(f_mul.is_ok(), "{f_mul:?}");
+    let Ok(f_mul) = f_mul else { return };
+    g.bench_function("int_mul/inlined", |b| {
+        b.iter_batched(
+            || {
+                let mut i = interp();
+                i.push(BundValue::int(1));
+                i
+            },
+            |mut i| {
+                for _ in 0..N {
+                    i.push(BundValue::int(1));
+                    let _ = black_box(frag::run(&mut i, black_box(&f_mul)));
+                }
+                black_box(i.pull())
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    g.bench_function("int_mul/lowered", |b| {
+        b.iter_batched(
+            || {
+                let mut i = interp();
+                i.push(BundValue::int(1));
+                i
+            },
+            |mut i| {
+                for _ in 0..N {
+                    i.push(BundValue::int(1));
+                    let admitted = matches!(i.peek_at(0), Some(BundValue::Int(_, _)))
+                        && matches!(i.peek_at(1), Some(BundValue::Int(_, _)));
+                    if admitted {
+                        let top = i.pull().and_then(|v| v.as_int()).unwrap_or(0);
+                        let below = i.pull().and_then(|v| v.as_int()).unwrap_or(0);
+                        i.push(BundValue::int(below.wrapping_mul(top)));
+                    }
+                }
+                black_box(i.pull())
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    let src7 = "0 1 > drop ".repeat(N);
+    let stream7 = bund2_syntax::compile(&src7).unwrap_or_default();
+    g.bench_function("int_gt/tier0", |b| {
+        b.iter_batched(
+            interp,
+            |mut i| black_box(i.eval(black_box(&stream7))).is_ok(),
+            BatchSize::SmallInput,
+        );
+    });
+    let f_gt = bund2_stdlib::fragments::int_gt();
+    assert!(f_gt.is_ok(), "{f_gt:?}");
+    let Ok(f_gt) = f_gt else { return };
+    g.bench_function("int_gt/inlined", |b| {
+        b.iter_batched(
+            interp,
+            |mut i| {
+                for _ in 0..N {
+                    i.push(BundValue::int(0));
+                    i.push(BundValue::int(1));
+                    let _ = black_box(frag::run(&mut i, black_box(&f_gt)));
+                    let _ = i.pull();
+                }
+                black_box(i.depth())
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    g.bench_function("int_gt/lowered", |b| {
+        b.iter_batched(
+            interp,
+            |mut i| {
+                for _ in 0..N {
+                    i.push(BundValue::int(0));
+                    i.push(BundValue::int(1));
+                    let admitted = matches!(i.peek_at(0), Some(BundValue::Int(_, _)))
+                        && matches!(i.peek_at(1), Some(BundValue::Int(_, _)));
+                    if admitted {
+                        let top = i.pull().and_then(|v| v.as_int()).unwrap_or(0);
+                        let below = i.pull().and_then(|v| v.as_int()).unwrap_or(0);
+                        i.push(BundValue::boolean(top > below));
+                    }
+                    let _ = i.pull();
+                }
+                black_box(i.depth())
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
     let src5 = format!("1 2 {}", "swap ".repeat(N));
     let stream5 = bund2_syntax::compile(&src5).unwrap_or_default();
     g.bench_function("swap/tier0", |b| {

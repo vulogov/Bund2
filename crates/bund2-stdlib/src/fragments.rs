@@ -28,6 +28,14 @@
 //! tier could inline. `swap`'s arm is published under `swap_one`, the native,
 //! for the reason `dup`'s is under `dup_one`.)*
 //!
+//! *(2026-10-15, later — two more, at the owner's direction: `Int * Int` and
+//! `Int > Int`. `bund_examples/jit_vs_tier0` measured a loop body of nine
+//! `+`/`-` sites running 6× faster compiled, and the same body with one `+`
+//! changed to `*` losing most of that, because `*` had no arm and its site
+//! was generic. `>` needed no new operation: it is `<`'s `LtInt` with the
+//! register file read the other way. Both measured in the same bench before
+//! they were published, both with the differential test below.)*
+//!
 //! **What makes `Int + Int` free of `q` is the guard, not the arithmetic.**
 //! `Guard::TopAreInt` admits only *unboxed* scalars, whose `q` is the 100.0
 //! every constructor writes, and the word's result is a fresh value at 100.0
@@ -99,6 +107,47 @@ pub fn int_lt() -> Result<Fragment, String> {
     )
 }
 
+/// `Int * Int → Int`, the arm behind `*`.
+///
+/// Multiplication commutes, so the register order is invisible, as it is for
+/// `+`; the pops still happen in the word's order. The word wraps
+/// (`Op::int`'s `wrapping_mul` in `crate::math`), and so does `Op::MulInt`,
+/// which is the boundary the differential test squares over.
+pub fn int_mul() -> Result<Fragment, String> {
+    Fragment::new(
+        Guard::TopAreInt(2),
+        vec![
+            Op::PopInt,
+            Op::PopInt,
+            Op::MulInt { dst: 0, a: 0, b: 1 },
+            Op::PushInt(0),
+        ],
+        2,
+    )
+}
+
+/// `Int > Int → Bool`, the arm behind `>`.
+///
+/// **No new operation**: `run` in `crate::logic` pulls `v1` first and
+/// `numeric_ord` asks `v1 > v2`, so `1 2 >` asks whether 2 is greater than 1
+/// — the top against the value beneath, as `<` does. `top > below` is
+/// `below < top`, and after two pops the value beneath is in slot 0 and the
+/// top in slot 1, so this is `<`'s `LtInt` with `a` and `b` exchanged:
+/// `a: 0, b: 1`. The differential test's squared set holds every pair in
+/// both orders, which is where the exchange would show if it were wrong.
+pub fn int_gt() -> Result<Fragment, String> {
+    Fragment::new(
+        Guard::TopAreInt(2),
+        vec![
+            Op::PopInt,
+            Op::PopInt,
+            Op::LtInt { dst: 0, a: 0, b: 1 },
+            Op::PushBool(0),
+        ],
+        2,
+    )
+}
+
 /// `swap` — exchange the top two, whatever they are. Depth is the only guard,
 /// because `swap_one` inspects neither value.
 pub fn swap() -> Result<Fragment, String> {
@@ -122,12 +171,14 @@ pub fn drop_top() -> Result<Fragment, String> {
 /// aliases (`crates/bund2-stdlib/src/stack.rs`, `register`), and an alias
 /// holds no `Native` and therefore no registration id, so keying an arm by the
 /// alias would put an entry in the table that can never match a callee. The
-/// natives are `dup_one` and `swap_one`. `+`, `-`, `<` and `drop` are
-/// registered under their own names.
-const PUBLISHED: [(&str, Build); 6] = [
+/// natives are `dup_one` and `swap_one`. `+`, `-`, `*`, `<`, `>` and `drop`
+/// are registered under their own names.
+const PUBLISHED: [(&str, Build); 8] = [
     ("+", int_add),
     ("-", int_sub),
+    ("*", int_mul),
     ("<", int_lt),
+    (">", int_gt),
     ("dup_one", dup),
     ("swap_one", swap),
     ("drop", drop_top),
@@ -167,7 +218,7 @@ type Build = fn() -> Result<Fragment, String>;
 ///
 /// A word this crate did not register — under `--noio` or `--noeval`, say, or
 /// in a registry built by hand — is simply absent from the table. None of the
-/// six is ever stubbed, so in a default registry all six are present.
+/// eight is ever stubbed, so in a default registry all eight are present.
 pub fn published(
     r: &bund2_api::Registry,
 ) -> Result<Vec<(bund2_api::RegistrationId, Fragment)>, String> {
@@ -466,9 +517,86 @@ mod tests {
         );
     }
 
-    /// The `-` and `<` arms must **decline** everything outside `TopAreInt(2)`.
+    /// **Criterion 16 for `Int * Int`**, over the squared boundary set, which
+    /// holds the wrap at every corner: `i64::MAX * 2`, `i64::MIN * -1`,
+    /// `i64::MAX * i64::MAX`.
     #[test]
-    fn the_int_sub_and_lt_arms_decline_what_they_do_not_claim() {
+    fn the_int_mul_arm_agrees_with_the_word() {
+        for &a in &INT_BOUNDARY {
+            for &b in &INT_BOUNDARY {
+                let ops = [BundValue::int(a), BundValue::int(b)];
+                let word = via_word("*", &ops);
+                let frag = via_fragment(&int_mul().expect("well-formed"), &ops)
+                    .unwrap_or_else(|| panic!("guard declined {a} {b} *"));
+                assert_eq!(word.len(), frag.len(), "{a} {b} *: different stack depth");
+                for (w, f) in word.iter().zip(frag.iter()) {
+                    assert_same(w, f, &format!("{a} {b} *"));
+                }
+            }
+        }
+    }
+
+    /// **The wrap, asserted by value**: `i64::MAX 2 *` is `-2`, and
+    /// `i64::MIN -1 *` is `i64::MIN` — the two products a checked or trapping
+    /// `imul` would refuse.
+    #[test]
+    fn the_int_mul_arm_wraps() {
+        let arm = int_mul().expect("well-formed");
+        let out =
+            via_fragment(&arm, &[BundValue::int(i64::MAX), BundValue::int(2)]).expect("admitted");
+        assert_eq!(out.last().and_then(|v| v.as_int()), Some(-2));
+        let out =
+            via_fragment(&arm, &[BundValue::int(i64::MIN), BundValue::int(-1)]).expect("admitted");
+        assert_eq!(out.last().and_then(|v| v.as_int()), Some(i64::MIN));
+        let out = via_fragment(&arm, &[BundValue::int(3), BundValue::int(5)]).expect("admitted");
+        assert_eq!(out.last().and_then(|v| v.as_int()), Some(15));
+    }
+
+    /// **Criterion 16 for `Int > Int`**, over the squared set, so every pair
+    /// appears in both orders — which is where an exchanged register file
+    /// would show, since `>` is `<` with `a` and `b` swapped.
+    #[test]
+    fn the_int_gt_arm_agrees_with_the_word() {
+        for &a in &INT_BOUNDARY {
+            for &b in &INT_BOUNDARY {
+                let ops = [BundValue::int(a), BundValue::int(b)];
+                let word = via_word(">", &ops);
+                let frag = via_fragment(&int_gt().expect("well-formed"), &ops)
+                    .unwrap_or_else(|| panic!("guard declined {a} {b} >"));
+                assert_eq!(word.len(), frag.len(), "{a} {b} >: different stack depth");
+                for (w, f) in word.iter().zip(frag.iter()) {
+                    assert_same(w, f, &format!("{a} {b} >"));
+                }
+            }
+        }
+    }
+
+    /// **The orientation, asserted by value**: `1 2 >` asks whether 2 is
+    /// greater than 1, and the oracle answers `true`.
+    #[test]
+    fn the_int_gt_arm_compares_the_top_against_the_value_beneath() {
+        let arm = int_gt().expect("well-formed");
+        let out = via_fragment(&arm, &[BundValue::int(1), BundValue::int(2)]).expect("admitted");
+        assert!(
+            matches!(out.last(), Some(BundValue::Bool(true, _))),
+            "`1 2 >`"
+        );
+        let out = via_fragment(&arm, &[BundValue::int(2), BundValue::int(1)]).expect("admitted");
+        assert!(
+            matches!(out.last(), Some(BundValue::Bool(false, _))),
+            "`2 1 >`"
+        );
+        let out = via_fragment(&arm, &[BundValue::int(2), BundValue::int(2)]).expect("admitted");
+        assert!(
+            matches!(out.last(), Some(BundValue::Bool(false, _))),
+            "`2 2 >`"
+        );
+    }
+
+    /// The `-`, `*`, `<` and `>` arms must **decline** everything outside
+    /// `TopAreInt(2)`.
+    #[test]
+    fn the_int_sub_mul_lt_and_gt_arms_decline_what_they_do_not_claim() {
         let outside = [
             vec![BundValue::int(1), BundValue::float(2.0)],
             vec![BundValue::float(1.0), BundValue::int(2)],
@@ -478,7 +606,12 @@ mod tests {
             vec![],
         ];
         for ops in outside {
-            for (name, arm) in [("-", int_sub()), ("<", int_lt())] {
+            for (name, arm) in [
+                ("-", int_sub()),
+                ("*", int_mul()),
+                ("<", int_lt()),
+                (">", int_gt()),
+            ] {
                 assert!(
                     via_fragment(&arm.expect("well-formed"), &ops).is_none(),
                     "{name}'s arm claimed {ops:?}, which is outside TopAreInt(2)"
@@ -629,18 +762,18 @@ mod tests {
             .and_then(|n| n.id)
     }
 
-    /// **RFC-0005 §S6, D43.** The table names six registrations, each the one
-    /// `register_all` minted for that word, and no two share an id.
+    /// **RFC-0005 §S6, D43.** The table names eight registrations, each the
+    /// one `register_all` minted for that word, and no two share an id.
     #[test]
     fn the_published_table_keys_each_arm_by_its_registration() {
         let r = stdlib_registry();
         let table = published(&r).expect("the published fragments are well-formed");
-        assert_eq!(table.len(), 6, "§S5: the fragment table holds six ids");
+        assert_eq!(table.len(), 8, "§S5: the fragment table holds eight ids");
 
         let ids: std::collections::BTreeSet<_> = table.iter().map(|(id, _)| *id).collect();
-        assert_eq!(ids.len(), 6, "two arms must not share a registration id");
+        assert_eq!(ids.len(), 8, "two arms must not share a registration id");
 
-        for name in ["+", "-", "<", "dup_one", "swap_one", "drop"] {
+        for name in ["+", "-", "*", "<", ">", "dup_one", "swap_one", "drop"] {
             let id = id_of(&r, name).unwrap_or_else(|| panic!("{name} is registered as a native"));
             assert!(ids.contains(&id), "{name}'s registration is in the table");
         }
