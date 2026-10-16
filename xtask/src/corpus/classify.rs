@@ -462,6 +462,35 @@ pub struct Deferral {
     pub reason: &'static str,
 }
 
+/// Words inside a deferred path that a later decision brought **into**
+/// scope, by name. Consulted before [`DEFERRED_PATHS`], so a word here is in
+/// scope although its file is not — the per-word form of what D87 did per
+/// file for `bus/`.
+///
+/// D175, 2026-10-16: tier A of `bund/statistics` — the four bases whose
+/// arithmetic a golden cannot disagree with (`math.max`, `math.min`,
+/// `stat.count`, `stat.mean.arithmetic`), in all four forms each, built
+/// without the reference's `rstats`. The geometric, harmonic and weighted
+/// means stay under D28 until their formulas are read at the pinned version.
+const IN_SCOPE_WORDS: &[(&str, &str)] = &[
+    ("math.max", "D175"),
+    ("math.max,", "D175"),
+    ("math.max.", "D175"),
+    ("math.max.,", "D175"),
+    ("math.min", "D175"),
+    ("math.min,", "D175"),
+    ("math.min.", "D175"),
+    ("math.min.,", "D175"),
+    ("stat.count", "D175"),
+    ("stat.count,", "D175"),
+    ("stat.count.", "D175"),
+    ("stat.count.,", "D175"),
+    ("stat.mean.arithmetic", "D175"),
+    ("stat.mean.arithmetic,", "D175"),
+    ("stat.mean.arithmetic.", "D175"),
+    ("stat.mean.arithmetic.,", "D175"),
+];
+
 /// Registration paths that are out of scope, longest prefix first.
 /// `reference/` prefix implied.
 const DEFERRED_PATHS: &[(&str, Deferral)] = &[
@@ -524,11 +553,14 @@ const DEFERRED_PATHS: &[(&str, Deferral)] = &[
             reason: "augurs forecasting — not essential",
         },
     ),
+    // D175 took sixteen of these names back into scope — see
+    // `IN_SCOPE_WORDS`, which is consulted first.
     (
         "Bund/src/stdlib/functions/statistics",
         Deferral {
             decision: "D28",
-            reason: "42 registered names, zero corpus uses — not essential",
+            reason: "42 registered names, zero corpus uses — not essential \
+                     (sixteen names in scope since D175)",
         },
     ),
 ];
@@ -558,6 +590,9 @@ impl Classifier {
     /// Whether a word is out of scope, and under which decision.
     pub fn deferral_of(reg: &Registry, word: &str) -> Option<(Deferral, Site)> {
         let site = reg.implementing_site(word)?;
+        if IN_SCOPE_WORDS.iter().any(|(w, _)| *w == word) {
+            return None;
+        }
         let path = site.path.strip_prefix("reference/").unwrap_or(&site.path);
         DEFERRED_PATHS
             .iter()

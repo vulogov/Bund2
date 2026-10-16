@@ -98,13 +98,19 @@ pub const BUILD: &str = "\
 bund2 build — write a program into a copy of this binary
 
 USAGE
-  bund2 [GLOBAL] build --file <path> --output <path> [--noio] [--noeval]
+  bund2 [GLOBAL] build --file <path> --output <path> [--include <path>]...
+                       [--noio] [--noeval]
   bund2 [GLOBAL] build --inspect <artefact>
 
 FLAGS
   --file <path>         The program to carry.
   --output, -o <path>   Where the bundle goes. Never this binary, never the
-                        program's own file.
+                        program's own file, never an included one.
+  --include <path>      A file to carry ahead of the program and run before
+                        it, in the program's VM; repeat for several, in the
+                        order they should run. Words a file registers are
+                        there when the program starts. A failure in one
+                        names that file, and the program does not run.
   --noio, --noeval      Restrictions recorded in the bundle: a floor the
                         environment may tighten (BUND2_NOIO, BUND2_NOEVAL)
                         and never lift.
@@ -114,9 +120,11 @@ FLAGS
                         oracle it conformed to.
 
 The bundle is this binary, so it carries this binary's features; a
-different runtime needs a different bund2. The program is stored deflated
-in a 1 MiB region, which holds two to three MiB of Bund text; a program
-whose compressed form does not fit is refused with both sizes named. Progress is drawn on a terminal
+different runtime needs a different bund2. The program and its includes
+are stored deflated in a 1 MiB region, which holds two to three MiB of
+Bund text; a program whose compressed form does not fit is refused with
+both sizes named. `--include` carries a prelude; `use` inside a program
+still fetches at run time (D76). Progress is drawn on a terminal
 and the steps are said at -v, -vv and -vvv.
 ";
 

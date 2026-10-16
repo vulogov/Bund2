@@ -7,6 +7,16 @@
 //! the shape D87 met with the bus: a deferred directory holding something an
 //! in-scope word needs. Nothing here registers a statistics word.
 //!
+//! *(2026-10-16, D175: that last sentence no longer holds. Sixteen of the
+//! forty-two statistics names are in scope — `math.max`, `math.min`,
+//! `stat.count` and `stat.mean.arithmetic`, each in its four forms — because
+//! their arithmetic is a fold, a length and a sum over a count, which a golden
+//! cannot disagree with. They are built here, over the same reader, without
+//! the reference's `rstats`; the reference's formula for the one that had a
+//! crate behind it was read at the pinned version, `rstats` 2.1.15, and is
+//! quoted at [`amean`]. The geometric, harmonic and weighted means stay under
+//! D28.)*
+//!
 //! **`get_data` has three sources and the top of the stack chooses.** A LIST
 //! is taken whole, a METRICS yields each sample's `data`, and anything else
 //! **drains the stack** value by value until it empties or meets a `NODATA`
@@ -191,6 +201,84 @@ fn smoothing(vm: &mut dyn Vm, side: Side, mode: Mode, prefix: &str) -> Result<()
     Ok(())
 }
 
+/// Which extreme `math.max` and `math.min` keep.
+#[derive(Clone, Copy)]
+enum Extreme {
+    Min,
+    Max,
+}
+
+/// `math.max` and `math.min` — one extreme of the series, as a FLOAT.
+///
+/// **`fold` from NaN, as the reference does**
+/// (`reference/Bund/src/stdlib/functions/statistics/minmax.rs:20-21`):
+/// `f64::max` and `f64::min` ignore a NaN accumulator, so a series answers
+/// its extreme and an empty one — `list` on top — answers NaN rather than
+/// failing. An integer series answers a FLOAT, because the reader converts
+/// on the way in and the word pushes `from_float` (`:24-25`).
+fn extreme(
+    vm: &mut dyn Vm,
+    side: Side,
+    mode: Mode,
+    which: Extreme,
+    prefix: &str,
+) -> Result<(), Error> {
+    let source = get_data(vm, side, mode, prefix)
+        .map_err(|e| Error(format!("{prefix} returned: {}", e.0)))?;
+    let res = match which {
+        Extreme::Min => source.iter().copied().fold(f64::NAN, f64::min),
+        Extreme::Max => source.iter().copied().fold(f64::NAN, f64::max),
+    };
+    side.push(vm, BundValue::float(res));
+    Ok(())
+}
+
+fn maximum(vm: &mut dyn Vm, side: Side, mode: Mode, prefix: &str) -> Result<(), Error> {
+    extreme(vm, side, mode, Extreme::Max, prefix)
+}
+
+fn minimum(vm: &mut dyn Vm, side: Side, mode: Mode, prefix: &str) -> Result<(), Error> {
+    extreme(vm, side, mode, Extreme::Min, prefix)
+}
+
+/// `stat.count` — how many samples the series holds, as an INTEGER
+/// (`reference/Bund/src/stdlib/functions/statistics/count.rs:15`). The one
+/// word of the family whose answer is not a FLOAT.
+fn count(vm: &mut dyn Vm, side: Side, mode: Mode, prefix: &str) -> Result<(), Error> {
+    let source = get_data(vm, side, mode, prefix)
+        .map_err(|e| Error(format!("{prefix} returned: {}", e.0)))?;
+    side.push(vm, BundValue::int(source.len() as i64));
+    Ok(())
+}
+
+/// `stat.mean.arithmetic` — the sum over the count.
+///
+/// The reference calls `rstats`' `amean`
+/// (`reference/Bund/src/stdlib/functions/statistics/statistics.rs:27`),
+/// which at the pinned 2.1.15 is `self.iter().map(..).sum::<f64>() / (n as
+/// f64)` for a non-empty series and `nodata_error("amean: empty self vec")`
+/// otherwise (`rstats-2.1.15/src/stats.rs`, `amean`); its `Display` is
+/// `Missing or insufficient data: {s}` (`src/error.rs`). The word wraps
+/// either failure as `{prefix} returned: ..` (`statistics.rs:35`). The sum is
+/// taken in series order, as `sum` takes it, so the float answer is the
+/// crate's to the bit.
+///
+/// **The prefix is `STAT.MEAN.ARITHMETICMEAN`**, not the word's own name, in
+/// all four forms (`statistics.rs:54-66`) — the `MATH.SMOOTH` shape again.
+fn amean(vm: &mut dyn Vm, side: Side, mode: Mode, prefix: &str) -> Result<(), Error> {
+    let source = get_data(vm, side, mode, prefix)
+        .map_err(|e| Error(format!("{prefix} returned: {}", e.0)))?;
+    if source.is_empty() {
+        return Err(Error(format!(
+            "{prefix} returned: Missing or insufficient data: amean: empty self vec"
+        )));
+    }
+    let n = source.len() as f64;
+    let sum: f64 = source.iter().sum();
+    side.push(vm, BundValue::float(sum / n));
+    Ok(())
+}
+
 /// `seq.asc` and `seq.desc` — a range of floats.
 ///
 /// **Three operands, pulled x then step then n**, so the stack reads
@@ -321,6 +409,51 @@ pub fn register(r: &mut Registry) {
         StackEffect::opaque(0),
         WordKind::Sync,
     );
+    // **D175's sixteen**, in the reference's four forms each: the plain word
+    // and `,` read the stack and are `opaque(1)` for the drain's sake; `.`
+    // and `.,` read the workbench and are `opaque(0)`, as `math.normalize`'s
+    // are above. The prefix is the word's error name, which for the mean is
+    // not its own.
+    macro_rules! stat_forms {
+        ($base:literal, $f:ident, $prefix:literal) => {{
+            fn s(vm: &mut dyn Vm) -> Result<(), Error> {
+                $f(vm, Side::Stack, Mode::Consume, $prefix)
+            }
+            fn sk(vm: &mut dyn Vm) -> Result<(), Error> {
+                $f(vm, Side::Stack, Mode::Keep, concat!($prefix, ","))
+            }
+            fn w(vm: &mut dyn Vm) -> Result<(), Error> {
+                $f(vm, Side::Bench, Mode::Consume, concat!($prefix, "."))
+            }
+            fn wk(vm: &mut dyn Vm) -> Result<(), Error> {
+                $f(vm, Side::Bench, Mode::Keep, concat!($prefix, ".,"))
+            }
+            r.register_native($base, s, StackEffect::opaque(1), WordKind::Sync);
+            r.register_native(
+                concat!($base, ","),
+                sk,
+                StackEffect::opaque(1),
+                WordKind::Sync,
+            );
+            r.register_native(
+                concat!($base, "."),
+                w,
+                StackEffect::opaque(0),
+                WordKind::Sync,
+            );
+            r.register_native(
+                concat!($base, ".,"),
+                wk,
+                StackEffect::opaque(0),
+                WordKind::Sync,
+            );
+        }};
+    }
+    stat_forms!("math.max", maximum, "MATH.MAX");
+    stat_forms!("math.min", minimum, "MATH.MIN");
+    stat_forms!("stat.count", count, "STAT.COUNT");
+    stat_forms!("stat.mean.arithmetic", amean, "STAT.MEAN.ARITHMETICMEAN");
+
     r.register_native("seq.asc", asc, eff(3, 1), WordKind::Sync);
     crate::wb::bench!(r, "seq.asc", asc, 3, 0);
     r.register_native("seq.desc", desc, eff(3, 1), WordKind::Sync);
@@ -456,6 +589,74 @@ mod tests {
     fn a_step_of_zero_is_an_empty_sequence() {
         let out = run("5 0.0 1.0 seq.asc").expect("runs");
         assert!(floats(&out[0]).is_empty(), "{:?}", out[0]);
+    }
+
+    /// **D175's four bases over the three sources**: a LIST in order, a
+    /// drained stack, and the empty list, where the fold answers NaN, the
+    /// count answers zero and the mean fails with rstats' own words.
+    #[test]
+    fn the_tier_a_statistics_answer_as_the_reference_does() {
+        let top = |src: &str| run(src).expect(src).last().cloned().expect("a value");
+        trait PipeFloat {
+            fn pipe_float(&self) -> Option<f64>;
+        }
+        impl PipeFloat for BundValue {
+            fn pipe_float(&self) -> Option<f64> {
+                match self.unboxed() {
+                    BundValue::Float(f, _) => Some(*f),
+                    _ => None,
+                }
+            }
+        }
+        assert_eq!(top("[ 1 2 3 ] math.max").pipe_float(), Some(3.0));
+        assert_eq!(top("[ 1 2 3 ] math.min").pipe_float(), Some(1.0));
+        assert_eq!(top("4 9 2 math.max").pipe_float(), Some(9.0));
+        assert_eq!(top("[ 1 2 3 4 ] stat.count").as_int(), Some(4));
+        assert_eq!(
+            top("[ 1 2 3 4 ] stat.mean.arithmetic").pipe_float(),
+            Some(2.5)
+        );
+        assert_eq!(top("1.0 2.0 stat.mean.arithmetic").pipe_float(), Some(1.5));
+        // The empty list: NaN, zero, and the crate's refusal.
+        assert!(top("list math.max").pipe_float().is_some_and(f64::is_nan));
+        assert_eq!(top("list stat.count").as_int(), Some(0));
+        let e = run("list stat.mean.arithmetic").expect_err("empty");
+        assert!(
+            e.ends_with(
+                "STAT.MEAN.ARITHMETICMEAN returned: Missing or insufficient data: amean: empty self vec"
+            ),
+            "{e}"
+        );
+        // The shallow message carries the prefix, which for the mean is not
+        // the word's name.
+        let e = run("stat.mean.arithmetic").expect_err("too shallow");
+        assert!(
+            e.ends_with(
+                "STAT.MEAN.ARITHMETICMEAN returned: Stack is too shallow for inline STAT.MEAN.ARITHMETICMEAN"
+            ),
+            "{e}"
+        );
+        let e = run("math.max.").expect_err("too shallow");
+        assert!(
+            e.ends_with("MATH.MAX. returned: Workbench is too shallow for inline MATH.MAX."),
+            "{e}"
+        );
+    }
+
+    /// **`,` keeps a LIST, and the answer sits on top of it.** A drain keeps
+    /// nothing, as for `math.normalize,`.
+    #[test]
+    fn the_keep_forms_of_tier_a_restore_a_list() {
+        let out = run("[ 5 1 3 ] math.max,").expect("runs");
+        assert_eq!(out.len(), 2, "{out:?}");
+        assert_eq!(out[0].as_list().map(<[BundValue]>::len), Some(3));
+        assert!(
+            matches!(out[1].unboxed(), BundValue::Float(f, _) if *f == 5.0),
+            "{out:?}"
+        );
+        let out = run("5 1 3 stat.count,").expect("runs");
+        assert_eq!(out.len(), 1, "a drain leaves only the count: {out:?}");
+        assert_eq!(out[0].as_int(), Some(3));
     }
 
     /// **F147: the reference's own parser, and untrimmed.** Both halves, since

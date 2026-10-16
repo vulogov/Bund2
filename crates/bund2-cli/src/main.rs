@@ -725,7 +725,7 @@ fn run_carried(carried: &bundle::Carried, argv: Vec<String>) -> ExitCode {
         report: trace::Mode::from_env(),
     };
     bund2_stdlib::host::set_args(args.script_args.clone());
-    match run(&carried.source, &args) {
+    match run_with_prelude(&carried.includes, &carried.source, &args) {
         Some(code) => ExitCode::from(u8::try_from(code.rem_euclid(256)).unwrap_or(1)),
         None => ExitCode::SUCCESS,
     }
@@ -743,16 +743,18 @@ fn env_set(name: &str) -> bool {
 enum BuildRequest {
     /// `--inspect <artefact>`.
     Inspect(String),
-    /// `--file <src> --output <path>`, with D78's floor.
+    /// `--file <src> --output <path>`, with D78's floor and D176's includes.
     Bundle {
+        /// `--include <path>`, each as given, in order.
+        includes: Vec<String>,
         src_path: String,
         out_path: String,
         flags: u8,
     },
 }
 
-const BUILD_USAGE: &str = "expected: bund2 build --file <path> --output <path> [--noio] [--noeval], \
-     or: bund2 build --inspect <artefact>";
+const BUILD_USAGE: &str = "expected: bund2 build --file <path> --output <path> [--include <path>]... \
+     [--noio] [--noeval], or: bund2 build --inspect <artefact>";
 
 /// Read `bund2 build`'s arguments, refusing whatever it does not understand.
 ///
@@ -767,6 +769,7 @@ fn build_request(args: &[String]) -> Result<BuildRequest, String> {
     let mut file: Option<String> = None;
     let mut output: Option<String> = None;
     let mut inspect: Option<String> = None;
+    let mut includes: Vec<String> = Vec::new();
     let mut flags = 0u8;
     let mut rest = args.iter().skip(1);
     while let Some(arg) = rest.next() {
@@ -799,6 +802,12 @@ fn build_request(args: &[String]) -> Result<BuildRequest, String> {
                 let v = operand("a path to write")?;
                 once(&mut output, v)?;
             }
+            // **Repeatable, and the order is the order of evaluation** —
+            // D176. A prelude the program is written against, carried with
+            // it; each file runs in the program's VM before the program, so
+            // the whole is what piping the files concatenated into `bund2`
+            // means, with each diagnostic naming its own file.
+            "--include" => includes.push(operand("a source path")?),
             "--inspect" => {
                 let v = operand("an artefact to read")?;
                 once(&mut inspect, v)?;
@@ -839,13 +848,14 @@ fn build_request(args: &[String]) -> Result<BuildRequest, String> {
         }
     }
     if let Some(target) = inspect {
-        if file.is_some() || output.is_some() || flags != 0 {
+        if file.is_some() || output.is_some() || flags != 0 || !includes.is_empty() {
             return Err("`--inspect` reads an artefact and takes no other argument".to_string());
         }
         return Ok(BuildRequest::Inspect(target));
     }
     match (file, output) {
         (Some(src_path), Some(out_path)) => Ok(BuildRequest::Bundle {
+            includes,
             src_path,
             out_path,
             flags,
@@ -862,7 +872,7 @@ fn build_request(args: &[String]) -> Result<BuildRequest, String> {
 /// ran it. The parse result is then discarded — the artefact parses again at
 /// start-up, which is what keeps §B2's preservation exact.
 fn build(args: &[String]) -> ExitCode {
-    let (src_path, out_path, flags) = match build_request(args) {
+    let (includes, src_path, out_path, flags) = match build_request(args) {
         // `bund2 build --inspect <artefact>` — D78's readable trailer.
         //
         // **Reads a file, unlike everything else about a bundle.** A runtime
@@ -871,10 +881,11 @@ fn build(args: &[String]) -> ExitCode {
         // not the person who built it.
         Ok(BuildRequest::Inspect(target)) => return inspect(&target),
         Ok(BuildRequest::Bundle {
+            includes,
             src_path,
             out_path,
             flags,
-        }) => (src_path, out_path, flags),
+        }) => (includes, src_path, out_path, flags),
         Err(why) => {
             ui::error!("build: {why}");
             ui::error!("{BUILD_USAGE}");
@@ -904,18 +915,41 @@ fn build(args: &[String]) -> ExitCode {
         }
     };
     ui::info!("read {src_path}: {} bytes", src.len());
+    // **The includes, in the order given — D176.** Read like the program,
+    // shebang and all, so a file that runs on its own is carried as it is.
+    let mut included: Vec<(String, String)> = Vec::with_capacity(includes.len());
+    for path in &includes {
+        bar.set_message(format!("reading {path}"));
+        match std::fs::read_to_string(path).map(without_shebang) {
+            Ok(text) => {
+                ui::info!("read {path}: {} bytes", text.len());
+                included.push((path.clone(), text));
+            }
+            Err(e) => {
+                return fail(&bar, ExitCode::FAILURE, format_args!("reading {path}: {e}"));
+            }
+        }
+    }
     bar.inc(1);
 
-    // The parse, discarded on success and reported on failure.
+    // The parse, discarded on success and reported on failure — for each
+    // included file first, then the program, so a build refuses what a run
+    // would refuse and names the file.
     bar.set_message("parsing the program");
-    match bund2_syntax::parse(&src) {
-        Ok(terms) => ui::info!("parsed {src_path}: {} top-level terms", terms.len()),
-        Err(e) => {
-            let loc = locate(&src, &src_path, e.span);
-            bar.finish_and_clear();
-            ui::error!("{src_path}:{}:{}: {}", loc.line, loc.column, e.what);
-            ui::error!("nothing was written");
-            return ExitCode::FAILURE;
+    for (path, text) in included
+        .iter()
+        .map(|(p, t)| (p.as_str(), t.as_str()))
+        .chain(std::iter::once((src_path.as_str(), src.as_str())))
+    {
+        match bund2_syntax::parse(text) {
+            Ok(terms) => ui::info!("parsed {path}: {} top-level terms", terms.len()),
+            Err(e) => {
+                let loc = locate(text, path, e.span);
+                bar.finish_and_clear();
+                ui::error!("{path}:{}:{}: {}", loc.line, loc.column, e.what);
+                ui::error!("nothing was written");
+                return ExitCode::FAILURE;
+            }
         }
     }
     bar.inc(1);
@@ -977,6 +1011,21 @@ fn build(args: &[String]) -> ExitCode {
             ),
         );
     }
+    // Nor over a file it includes, for the same reason.
+    for (path, _) in &included {
+        if let Ok(source) = std::fs::canonicalize(path)
+            && destination(&out_path) == source
+        {
+            return fail(
+                &bar,
+                ExitCode::FAILURE,
+                format_args!(
+                    "--output is an included file ({out_path}). The artefact would \
+                     replace a file it carries. Nothing was written."
+                ),
+            );
+        }
+    }
     ui::trace!(
         "the artefact will be placed at {}",
         destination(&out_path).display()
@@ -1016,14 +1065,27 @@ fn build(args: &[String]) -> ExitCode {
             pinned.as_str()
         }
     );
+    let include_refs: Vec<(&str, &str)> = included
+        .iter()
+        .map(|(p, t)| (p.as_str(), t.as_str()))
+        .collect();
     if let Err(e) = bundle::write_into(
-        &mut image, &src, &src_path, flags, version, &features, &pinned,
+        &mut image,
+        &include_refs,
+        &src,
+        &src_path,
+        flags,
+        version,
+        &features,
+        &pinned,
     ) {
         return fail(&bar, ExitCode::FAILURE, format_args!("{e}"));
     }
+    let total: usize = src.len() + included.iter().map(|(_, t)| t.len()).sum::<usize>();
     ui::info!(
-        "wrote the program into the image: {} bytes, compressed into the {} byte region",
-        src.len(),
+        "wrote the program into the image: {total} bytes in {} file(s), compressed into \
+         the {} byte region",
+        included.len() + 1,
         bundle::CAPACITY
     );
     bar.inc(1);
@@ -1036,8 +1098,12 @@ fn build(args: &[String]) -> ExitCode {
     bar.finish_and_clear();
     let packed = bundle::inspect(&image).map(|s| s.used).unwrap_or(0);
     ui::error!(
-        "wrote {out_path} — {} bytes, {packed} compressed of {} bytes used",
-        src.len(),
+        "wrote {out_path} — {total} bytes{}, {packed} compressed of {} bytes used",
+        if included.is_empty() {
+            String::new()
+        } else {
+            format!(" in {} files", included.len() + 1)
+        },
         bundle::CAPACITY
     );
     // **Said, not left to be discovered.** The recorded path is what a bundle's
@@ -1240,6 +1306,15 @@ fn inspect(path: &str) -> ExitCode {
         );
     } else {
         bund2_api::sayln!("  program        none — this is the plain interpreter");
+    }
+    // **The includes, in the order they run — D176.** Every file but the
+    // last is one; the last is the program the line above described.
+    if seen.files.len() > 1 {
+        let listed: Vec<String> = seen.files[..seen.files.len() - 1]
+            .iter()
+            .map(|(name, n)| format!("{name} ({n} bytes)"))
+            .collect();
+        bund2_api::sayln!("  includes       {}", listed.join(", "));
     }
     // **Named even when empty.** "restrictions none" and a missing line say
     // different things to someone deciding whether to trust an artefact, and
@@ -1486,6 +1561,14 @@ fn shell_after_a_failure(vm: &mut bund2_interp::Interp, args: &Args) {
 /// every golden capturing a failing program pins that. Changing it would be a
 /// deviation nobody has asked for.
 fn run(src: &str, args: &Args) -> Option<i32> {
+    run_with_prelude(&[], src, args)
+}
+
+/// [`run`], with the files a bundle's `--include` named evaluated first, in
+/// order, in the same VM — D176. A failure in one is reported against that
+/// file and the program does not run, exactly as a failure partway through
+/// one concatenated stream would leave the rest unrun.
+fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Option<i32> {
     let file = args.file.as_str();
     // **Through `Runtime`, which is what installs the tier — F124.** Building
     // an `Interp` here directly is what made `--features jit` inert: the
@@ -1522,7 +1605,8 @@ fn run(src: &str, args: &Args) -> Option<i32> {
             trace::Mode::Trace => "--report trace",
         }
     );
-    vm.reporter = Box::new(trace::TraceReporter::new(reporter, src, file, traces));
+    vm.reporter =
+        Box::new(trace::TraceReporter::new(reporter, src, file, traces).with_sources(prelude));
     ui::info!("running {file}, {} bytes", src.len());
     // Found while the runtime was assembled, before this reporter existed.
     if let Some(e) = startup_defect {
@@ -1557,6 +1641,42 @@ fn run(src: &str, args: &Args) -> Option<i32> {
         // console it gets reads through the program's own input. Not under
         // `--debugger`, where one is attached already and owns standard input.
         vm.console_factory = Some(debugger::OverInput::boxed);
+    }
+
+    // **The prelude first — D176.** Each included file is parsed and run as
+    // the program is below, against its own name, and the first failure ends
+    // the run before the program starts.
+    for (name, text) in prelude {
+        ui::info!("running the included {name}, {} bytes", text.len());
+        let terms = match bund2_syntax::parse(text) {
+            Ok(t) => t,
+            Err(e) => {
+                vm.report(
+                    bund2_api::diag::Diagnostic::error(e.what.clone())
+                        .at(locate(text, name, e.span)),
+                );
+                shell_after_a_failure(vm, args);
+                if args.stats {
+                    print_stats(&rt);
+                }
+                return None;
+            }
+        };
+        let lowered = bund2_syntax::lower_with_spans(&terms, text.len());
+        if let Err((i, e)) = vm.eval_indexed(&lowered.values) {
+            ui::trace!("value {i} of the included {name} failed: {}", e.0);
+            let mut d = bund2_api::diag::Diagnostic::error(e.0);
+            if let Some(span) = lowered.span_of(i) {
+                d = d.at(locate(text, name, span));
+            }
+            vm.report(d);
+            shell_after_a_failure(vm, args);
+            let code = vm.exit_requested();
+            if args.stats {
+                print_stats(&rt);
+            }
+            return code;
+        }
     }
 
     // No `\n` is appended. The reference appends one at four of its five parse

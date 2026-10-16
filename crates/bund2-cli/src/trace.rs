@@ -70,8 +70,9 @@ impl Mode {
 /// it where [`Mode`] says so.
 pub struct TraceReporter {
     inner: TextReporter,
-    src: String,
-    file: String,
+    /// The program's `(file, text)` first, then every included file (D176),
+    /// so a traceback is drawn over the file the diagnostic names.
+    sources: Vec<(String, String)>,
     trace: bool,
 }
 
@@ -79,10 +80,25 @@ impl TraceReporter {
     pub fn new(inner: TextReporter, src: &str, file: &str, trace: bool) -> Self {
         Self {
             inner,
-            src: src.to_string(),
-            file: file.to_string(),
+            sources: vec![(file.to_string(), src.to_string())],
             trace,
         }
+    }
+
+    /// The files a bundle's `--include` put ahead of the program, as
+    /// `(path, text)`, so a failure inside one is drawn over its own text.
+    pub fn with_sources(mut self, more: &[(String, String)]) -> Self {
+        self.sources.extend(more.iter().cloned());
+        self
+    }
+
+    /// The file a diagnostic names, or the program when it names none or
+    /// one this reporter was not given.
+    fn source_for(&self, file: Option<&str>) -> (&str, &str) {
+        file.and_then(|f| self.sources.iter().find(|(name, _)| name == f))
+            .or(self.sources.first())
+            .map(|(name, text)| (name.as_str(), text.as_str()))
+            .unwrap_or(("", ""))
     }
 
     /// The report, as text, or `None` where `ariadne` could not write it —
@@ -90,13 +106,13 @@ impl TraceReporter {
     /// the failure being reported.
     fn render(&self, d: &Diagnostic) -> Option<String> {
         let loc = d.location.as_ref()?;
+        let (id, src) = self.source_for(loc.file.as_deref());
         let span = loc
             .span
             .map(|(s, e)| s..e)
-            .unwrap_or_else(|| guess_span(&self.src, loc.line, loc.column));
-        let start = span.start.min(self.src.len());
-        let end = span.end.clamp(start, self.src.len());
-        let id = self.file.as_str();
+            .unwrap_or_else(|| guess_span(src, loc.line, loc.column));
+        let start = span.start.min(src.len());
+        let end = span.end.clamp(start, src.len());
         let mut report = Report::build(ReportKind::Error, (id, start..end))
             .with_config(
                 Config::default()
@@ -123,7 +139,7 @@ impl TraceReporter {
         let mut out = Vec::new();
         report
             .finish()
-            .write((id, Source::from(self.src.as_str())), &mut out)
+            .write((id, Source::from(src)), &mut out)
             .ok()?;
         Some(String::from_utf8_lossy(&out).into_owned())
     }

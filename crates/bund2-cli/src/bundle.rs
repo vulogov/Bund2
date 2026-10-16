@@ -37,14 +37,18 @@
 /// it, which is why the number was decided rather than assumed.
 pub const CAPACITY: usize = 1024 * 1024;
 
-/// This container's version. Read before anything else in the region.
+/// The container version this bund2 writes and its runtime reads back.
 ///
-/// 2 since D174: the payload is `[raw length: u32 LE][deflate]`. Version 1
-/// held the text plain; `inspect` still reads one, since an artefact built
-/// before the change may be handed to this bund2 to describe.
-pub const FORMAT: u32 = 2;
-/// Format 1: the payload was the program's text, uncompressed.
+/// **3, since D176**: the payload is a deflated *file table* — the files
+/// `--include` named, in order, then the program — so a bundle can carry a
+/// prelude and still name the right file in a diagnostic. Version 2 (D174)
+/// held one deflated program and version 1 held it plain; `inspect` reads
+/// all three, a runtime reads only its own.
+pub const FORMAT: u32 = 3;
+/// Version 1: the program's text, uncompressed.
 const FORMAT_PLAIN: u32 = 1;
+/// Version 2: one program, deflated behind its raw length (D174).
+const FORMAT_DEFLATED_ONE: u32 = 2;
 /// The raw length a payload may claim. Deflate inflates by a thousand at
 /// most, so 1 MiB cannot hold more than this anyway; the bound is what
 /// keeps a forged length from asking for memory it never had.
@@ -186,6 +190,10 @@ static REGION: Region = Region {
 
 /// What this binary carries, read from its own image.
 pub struct Carried {
+    /// The files `bund2 build --include` named, in the order given, each with
+    /// the path it was given — evaluated before the program, in that order,
+    /// in the same VM (D176).
+    pub includes: Vec<(String, String)>,
     pub source: String,
     pub name: String,
     pub flags: u8,
@@ -267,20 +275,80 @@ fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(&bytes[..end]).into_owned()
 }
 
-/// The payload for `source`: its length, then its deflate stream.
-fn pack(source: &str) -> Result<Vec<u8>, String> {
-    let raw = u32::try_from(source.len())
-        .map_err(|_| "the program's length does not fit the container".to_string())?;
-    let mut out = raw.to_le_bytes().to_vec();
-    out.extend(miniz_oxide::deflate::compress_to_vec(
-        source.as_bytes(),
-        LEVEL,
-    ));
+/// The file table a version 3 payload deflates: a count, then for each file
+/// its name and its text, each behind a little-endian `u32` length. The
+/// program is the last entry; everything before it is an include, in order.
+fn table(files: &[(&str, &str)]) -> Result<Vec<u8>, String> {
+    let len = |n: usize| {
+        u32::try_from(n).map_err(|_| "a file's length does not fit the container".to_string())
+    };
+    let mut out = len(files.len())?.to_le_bytes().to_vec();
+    for (name, text) in files {
+        out.extend(len(name.len())?.to_le_bytes());
+        out.extend(name.as_bytes());
+        out.extend(len(text.len())?.to_le_bytes());
+        out.extend(text.as_bytes());
+    }
     Ok(out)
 }
 
-/// The program a payload holds, inflated to exactly the length it claims.
-fn unpack(payload: &[u8]) -> Result<String, Damaged> {
+/// The files a table holds, as `(name, text)` pairs, the program last.
+fn untable(bytes: &[u8]) -> Result<Vec<(String, String)>, Damaged> {
+    fn torn(what: &str) -> Damaged {
+        Damaged::Payload(format!("its file table is torn at {what}"))
+    }
+    fn word(bytes: &[u8], at: &mut usize, what: &str) -> Result<usize, Damaged> {
+        let b = bytes.get(*at..*at + 4).ok_or_else(|| torn(what))?;
+        *at += 4;
+        Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
+    }
+    fn take<'a>(
+        bytes: &'a [u8],
+        at: &mut usize,
+        n: usize,
+        what: &str,
+    ) -> Result<&'a [u8], Damaged> {
+        let b = bytes.get(*at..*at + n).ok_or_else(|| torn(what))?;
+        *at += n;
+        Ok(b)
+    }
+    let mut at = 0usize;
+    let count = word(bytes, &mut at, "the file count")?;
+    if count == 0 {
+        return Err(Damaged::Payload("its file table names no program".into()));
+    }
+    let mut files = Vec::with_capacity(count.min(1024));
+    for _ in 0..count {
+        let n = word(bytes, &mut at, "a file's name length")?;
+        let name = take(bytes, &mut at, n, "a file's name")?;
+        let n = word(bytes, &mut at, "a file's text length")?;
+        let text = take(bytes, &mut at, n, "a file's text")?;
+        files.push((
+            String::from_utf8(name.to_vec()).map_err(|_| Damaged::NotText)?,
+            String::from_utf8(text.to_vec()).map_err(|_| Damaged::NotText)?,
+        ));
+    }
+    if at != bytes.len() {
+        return Err(Damaged::Payload(format!(
+            "its file table is followed by {} byte(s) it does not account for",
+            bytes.len() - at
+        )));
+    }
+    Ok(files)
+}
+
+/// The payload for `files`: the table's length, then its deflate stream.
+fn pack(files: &[(&str, &str)]) -> Result<Vec<u8>, String> {
+    let table = table(files)?;
+    let raw = u32::try_from(table.len())
+        .map_err(|_| "the program's length does not fit the container".to_string())?;
+    let mut out = raw.to_le_bytes().to_vec();
+    out.extend(miniz_oxide::deflate::compress_to_vec(&table, LEVEL));
+    Ok(out)
+}
+
+/// The bytes a payload holds, inflated to exactly the length it claims.
+fn inflate(payload: &[u8]) -> Result<Vec<u8>, Damaged> {
     let (head, stream) = payload
         .split_at_checked(4)
         .ok_or_else(|| Damaged::Payload("it is shorter than its own length field".into()))?;
@@ -298,7 +366,12 @@ fn unpack(payload: &[u8]) -> Result<String, Damaged> {
             bytes.len()
         )));
     }
-    String::from_utf8(bytes).map_err(|_| Damaged::NotText)
+    Ok(bytes)
+}
+
+/// The files a version 3 payload holds, the program last.
+fn unpack(payload: &[u8]) -> Result<Vec<(String, String)>, Damaged> {
+    untable(&inflate(payload)?)
 }
 
 /// What program this binary carries, if any.
@@ -340,12 +413,17 @@ pub fn carried() -> Result<Option<Carried>, Damaged> {
                 .payload
                 .get(..len)
                 .ok_or(Damaged::Length(region.len))?;
-            let source = unpack(bytes)?;
+            let mut files = unpack(bytes)?;
             if region.flags & !FLAGS_KNOWN != 0 {
                 return Err(Damaged::Restriction(region.flags & !FLAGS_KNOWN));
             }
+            // `untable` refuses an empty table, so the program is there.
+            let source = files.pop().map(|(_, text)| text).unwrap_or_default();
             Ok(Some(Carried {
+                includes: files,
                 source,
+                // The header's copy, which keeps a long path's tail (below)
+                // and is what a diagnostic from the program names.
                 name: text(&region.source_name),
                 flags: region.flags,
             }))
@@ -358,10 +436,15 @@ pub fn carried() -> Result<Option<Carried>, Damaged> {
 pub struct Inspected {
     pub format: u32,
     pub carries_program: bool,
-    /// Payload bytes in the region: the compressed size under format 2.
+    /// Payload bytes in the region: the compressed size under formats 2 and 3.
     pub used: usize,
-    /// The program's own size. Equal to `used` for a format 1 artefact.
+    /// The text's own size, every file counted. Equal to `used` for a
+    /// format 1 artefact.
     pub raw: usize,
+    /// Every file a format 3 artefact carries, with its size: the includes
+    /// in order, then the program. Empty for an older format or a damaged
+    /// table.
+    pub files: Vec<(String, usize)>,
     pub capacity: usize,
     pub noio: bool,
     pub noeval: bool,
@@ -397,16 +480,33 @@ pub fn inspect(image: &[u8]) -> Result<Inspected, String> {
     let flags = byte(at::FLAGS);
     let format = word(at::FORMAT);
     let used = word(at::LEN) as usize;
-    let raw = if format == FORMAT_PLAIN {
-        used
-    } else {
-        word(at::PAYLOAD) as usize
+    let mut files = Vec::new();
+    let raw = match format {
+        FORMAT_PLAIN => used,
+        FORMAT_DEFLATED_ONE => word(at::PAYLOAD) as usize,
+        _ => {
+            // The table has to be read to be described; a damaged one is
+            // reported as the runtime would report it, and the raw length
+            // the payload claims stands in for the sizes.
+            match image
+                .get(start + at::PAYLOAD..start + at::PAYLOAD + used.min(CAPACITY))
+                .ok_or(Damaged::Length(used as u32))
+                .and_then(unpack)
+            {
+                Ok(table) => {
+                    files = table.iter().map(|(n, t)| (n.clone(), t.len())).collect();
+                    table.iter().map(|(_, t)| t.len()).sum()
+                }
+                Err(_) => word(at::PAYLOAD) as usize,
+            }
+        }
     };
     Ok(Inspected {
         format,
         carries_program: byte(at::STATE) == FILLED,
         used,
         raw,
+        files,
         capacity: CAPACITY,
         noio: flags & FLAG_NOIO != 0,
         noeval: flags & FLAG_NOEVAL != 0,
@@ -487,9 +587,12 @@ fn header_validates(image: &[u8], start: usize) -> bool {
     let Ok(fmt) = <[u8; 4]>::try_from(fmt) else {
         return false;
     };
-    // Both versions validate a header: an older artefact is inspected and
+    // Every version validates a header: an older artefact is inspected and
     // described, and only `carried` holds a runtime to its own version.
-    if !matches!(u32::from_le_bytes(fmt), FORMAT | FORMAT_PLAIN) {
+    if !matches!(
+        u32::from_le_bytes(fmt),
+        FORMAT | FORMAT_DEFLATED_ONE | FORMAT_PLAIN
+    ) {
         return false;
     }
     match region.get(at::STATE) {
@@ -502,15 +605,35 @@ fn header_validates(image: &[u8], start: usize) -> bool {
     let Ok(len) = <[u8; 4]>::try_from(len) else {
         return false;
     };
-    u32::from_le_bytes(len) as usize <= CAPACITY
+    let len = u32::from_le_bytes(len) as usize;
+    if len > CAPACITY {
+        return false;
+    }
+    // **What a constant pool cannot fake: the filler.** The header fields
+    // above all have small legal ranges, and a release build was found with
+    // the sentinel constant lying next to the format constants in read-only
+    // data, so that the bytes after it read as version 1, empty, three bytes
+    // long — a second validating candidate, and no bundle could be built.
+    // The payload past `len` is `FILLER` in every region this runtime writes
+    // (`REGION`'s initialiser, and `write_into` fills the rest), and a
+    // megabyte of one byte is not something the optimiser puts beside a
+    // constant.
+    region
+        .get(at::PAYLOAD + len..at::PAYLOAD + CAPACITY)
+        .is_some_and(|tail| tail.iter().all(|b| *b == FILLER))
 }
 
-/// Write `source` into a copy of this executable, in place.
+/// Write `source`, preceded by `includes`, into a copy of this executable,
+/// in place.
 ///
-/// Returns the finished image. Nothing about the file's length or layout
-/// changes, which is what Q40 showed a signature requires.
+/// `includes` are `(path, text)` pairs in the order `--include` gave them
+/// (D176); `name` is the program's path. Returns the finished image. Nothing
+/// about the file's length or layout changes, which is what Q40 showed a
+/// signature requires.
+#[allow(clippy::too_many_arguments)]
 pub fn write_into(
     image: &mut [u8],
+    includes: &[(&str, &str)],
     source: &str,
     name: &str,
     flags: u8,
@@ -522,18 +645,25 @@ pub fn write_into(
     crate::ui::trace!(
         "payload region at offset {start:#x}, {CAPACITY} bytes of capacity, format {FORMAT}"
     );
-    let packed = pack(source)?;
+    let mut files: Vec<(&str, &str)> = includes.to_vec();
+    files.push((name, source));
+    let total: usize = files.iter().map(|(_, t)| t.len()).sum();
+    let packed = pack(&files)?;
     if packed.len() > CAPACITY {
         return Err(format!(
-            "the program is {} bytes, which compresses to {} bytes, and a bundle carries \
-             at most {CAPACITY} compressed bytes. Nothing was written.",
-            source.len(),
+            "the program is {total} bytes{}, which compresses to {} bytes, and a bundle \
+             carries at most {CAPACITY} compressed bytes. Nothing was written.",
+            if includes.is_empty() {
+                String::new()
+            } else {
+                format!(" in {} files", files.len())
+            },
             packed.len()
         ));
     }
     crate::ui::debug!(
-        "the program is {} bytes and packs to {} bytes",
-        source.len(),
+        "the program is {total} bytes in {} file(s) and packs to {} bytes",
+        files.len(),
         packed.len()
     );
     let put = |image: &mut [u8], off: usize, bytes: &[u8]| -> Result<(), String> {
@@ -667,6 +797,7 @@ mod tests {
         let before = image.len();
         write_into(
             &mut image,
+            &[],
             "1 2 + println\n",
             "/tmp/x.bund",
             FLAG_NOEVAL,
@@ -688,7 +819,10 @@ mod tests {
         ]) as usize;
         assert_eq!(
             unpack(&image[start + at::PAYLOAD..start + at::PAYLOAD + len]).ok(),
-            Some("1 2 + println\n".to_string())
+            Some(vec![(
+                "/tmp/x.bund".to_string(),
+                "1 2 + println\n".to_string()
+            )])
         );
         assert_eq!(
             text(&image[start + at::VERSION..start + at::VERSION + 32]),
@@ -732,35 +866,111 @@ mod tests {
         let mut image = std::fs::read(&exe).expect("and it is readable");
         let big = "1 drop\n".repeat(CAPACITY / 7 + 1);
         assert!(big.len() > CAPACITY);
-        write_into(&mut image, &big, "big.bund", 0, "1.0", "", "").expect("fits");
+        write_into(&mut image, &[], &big, "big.bund", 0, "1.0", "", "").expect("fits");
         let seen = inspect(&image).expect("describes itself");
         assert_eq!(seen.raw, big.len());
         assert!(seen.used < CAPACITY / 100, "{} compressed bytes", seen.used);
         let start = locate(&image).expect("located");
         let payload = &image[start + at::PAYLOAD..start + at::PAYLOAD + seen.used];
-        assert_eq!(unpack(payload).ok().as_deref(), Some(big.as_str()));
+        assert_eq!(
+            unpack(payload).ok().map(|f| f[0].1.clone()).as_deref(),
+            Some(big.as_str())
+        );
+    }
+
+    /// **D176: the includes travel in the table, in order, ahead of the
+    /// program**, read back by name and text, and `inspect` lists every
+    /// file with its size.
+    #[test]
+    fn includes_read_back_in_order_and_inspect_lists_them() {
+        let exe = std::env::current_exe().expect("a test binary has a path");
+        let mut image = std::fs::read(&exe).expect("and it is readable");
+        let includes = [
+            ("lib/α.bund", ":twice { 2 * } register\n"),
+            ("util.bund", ""),
+        ];
+        write_into(
+            &mut image,
+            &includes,
+            "21 twice println\n",
+            "main.bund",
+            0,
+            "9.9.9",
+            "",
+            "",
+        )
+        .expect("writes");
+        let start = locate(&image).expect("still locatable");
+        let len = u32::from_le_bytes([
+            image[start + at::LEN],
+            image[start + at::LEN + 1],
+            image[start + at::LEN + 2],
+            image[start + at::LEN + 3],
+        ]) as usize;
+        let Ok(files) = unpack(&image[start + at::PAYLOAD..start + at::PAYLOAD + len]) else {
+            panic!("the payload reads back as a table");
+        };
+        assert_eq!(
+            files,
+            vec![
+                (
+                    "lib/α.bund".to_string(),
+                    ":twice { 2 * } register\n".to_string()
+                ),
+                ("util.bund".to_string(), String::new()),
+                ("main.bund".to_string(), "21 twice println\n".to_string()),
+            ]
+        );
+        let seen = inspect(&image).expect("describes itself");
+        assert_eq!(seen.format, FORMAT);
+        assert_eq!(
+            seen.files,
+            vec![
+                ("lib/α.bund".to_string(), ":twice { 2 * } register\n".len()),
+                ("util.bund".to_string(), 0),
+                ("main.bund".to_string(), "21 twice println\n".len()),
+            ]
+        );
+        assert_eq!(
+            seen.raw,
+            ":twice { 2 * } register\n".len() + "21 twice println\n".len()
+        );
+        assert_eq!(seen.source_name, "main.bund");
+        assert_eq!(seen.used, len);
     }
 
     /// A payload that lies about its length, or whose stream is damaged, is
     /// refused with the reason and never inflated past the limit.
     #[test]
     fn a_damaged_payload_is_refused_with_the_reason() {
-        let mut lying = pack("1 2 +").expect("packs");
+        let one = [("p.bund", "1 2 +")];
+        let mut lying = pack(&one).expect("packs");
         lying[..4].copy_from_slice(&(RAW_LIMIT as u32 + 1).to_le_bytes());
         assert!(matches!(unpack(&lying), Err(Damaged::Payload(w)) if w.contains("limit")));
-        let mut short = pack("1 2 +").expect("packs");
+        let mut short = pack(&one).expect("packs");
         short[..4].copy_from_slice(&3u32.to_le_bytes());
         assert!(matches!(unpack(&short), Err(Damaged::Payload(_))));
-        let mut torn = pack("1 2 + println\n").expect("packs");
+        let mut torn = pack(&[("p.bund", "1 2 + println\n")]).expect("packs");
         torn.truncate(6);
         assert!(matches!(unpack(&torn), Err(Damaged::Payload(_))));
         assert!(matches!(unpack(&[1, 0]), Err(Damaged::Payload(_))));
-        let mut not_text = (3u32).to_le_bytes().to_vec();
-        not_text.extend(miniz_oxide::deflate::compress_to_vec(
-            &[0xff, 0xfe, 0xfd],
-            LEVEL,
-        ));
+        // A table whose text is not UTF-8: count 1, a one-byte name, then
+        // three bytes of text that are not a character.
+        let mut raw = 1u32.to_le_bytes().to_vec();
+        raw.extend(1u32.to_le_bytes());
+        raw.push(b'p');
+        raw.extend(3u32.to_le_bytes());
+        raw.extend([0xff, 0xfe, 0xfd]);
+        let mut not_text = (raw.len() as u32).to_le_bytes().to_vec();
+        not_text.extend(miniz_oxide::deflate::compress_to_vec(&raw, LEVEL));
         assert!(matches!(unpack(&not_text), Err(Damaged::NotText)));
+        // A table that is well-formed bytes but not a table: a count of zero,
+        // and a count that outruns its bytes.
+        for raw in [0u32.to_le_bytes().to_vec(), 2u32.to_le_bytes().to_vec()] {
+            let mut p = (raw.len() as u32).to_le_bytes().to_vec();
+            p.extend(miniz_oxide::deflate::compress_to_vec(&raw, LEVEL));
+            assert!(matches!(unpack(&p), Err(Damaged::Payload(_))), "{raw:?}");
+        }
     }
 
     /// A program over capacity is refused, and **nothing is written** — the
@@ -772,7 +982,8 @@ mod tests {
         let untouched = image.clone();
         // Text deflate cannot shrink below the region (D174).
         let big = incompressible(CAPACITY + CAPACITY / 2);
-        let err = write_into(&mut image, &big, "big.bund", 0, "1.0", "", "").expect_err("refused");
+        let err =
+            write_into(&mut image, &[], &big, "big.bund", 0, "1.0", "", "").expect_err("refused");
         assert!(
             err.contains(&format!("{}", big.len())),
             "names the size: {err}"

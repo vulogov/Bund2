@@ -577,6 +577,14 @@ parse-at-build, and it would be a new decision.
 
 ### §B2 — What is embedded: the source text
 
+*(2026-10-16, D176: the source text of **several files**. `bund2 build
+--include <path>`, repeatable, carries each named file's text ahead of the
+program in a file table — container version 3 — and the runtime evaluates
+them in that order, in the program's VM, before the program. Every point
+below holds of each file as it holds of the program: text, not values, so
+stamps, context names and literals are made at run time. `use` is unchanged,
+§B7.)*
+
 **The payload is the program's source text, not an encoding of its values.**
 The first draft encoded the stream with `wire`, and the review found four
 changes in meaning that follow. All four were reproduced.
@@ -1568,6 +1576,11 @@ part. *(Until 2026-10-08 this ended "it needs a prebuilt runtime for that
 target rather than a compiler on the build host".)*
 
 ### §B7 — `use` in a built artefact
+
+*(2026-10-16: unchanged by D176. `--include` is a prelude chosen at build
+time by the person building; `use` is still a fetch at run time by the
+program. The two can be used together, and the hatch D76 names for `use`,
+`--embed-use`, is not built.)*
 
 **A bundle's `use` and `use.` fetch when they run, exactly as the
 interpreter's do** — D76, on Q38. The operand is resolved at run time and the

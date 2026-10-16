@@ -1340,7 +1340,8 @@ The subsystems they serve are the ones already being deferred or shown unused:
 `bund/ai` and the classifiers, `bund/internaldb` (D26), `bund/image`,
 `bund/bus`, `bund/forecast` and `bund/statistics` (42 registered names, zero
 corpus uses), `bund/console` (D15), and the random-string and hyphenation
-corners of `bund/string`.
+corners of `bund/string`. *(2026-10-16: sixteen of the statistics names are
+in scope by D175, built by hand without `rstats`; the crate stays out.)*
 
 **Consequence for Q14, which this partly overturns.** The Phase 0 finding that
 "93% of every run is fixed cost" is a property of the *reference's*
@@ -3649,6 +3650,124 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D176 — `bund2 build --include <file>`: a prelude carried with the program
+
+**Raised 2026-10-16** by the repository owner, asking how external files can
+be incorporated into a built program "similar to `#include <>` in C, or 'add
+a library modules'", and ruling on the options offered: "do `--include
+<file>`, repeatable, on `bund2 build`". D76 settled `use` in a bundle —
+fetched at run time, nothing embedded — and named its own reopening: a flag
+such as `--embed-use`, in source-text form, on a decision of its own. This
+is a different flag with a smaller claim, and D76 stands.
+
+- Blocks: nothing
+- Depends on: D76 (what `use` does in a bundle), D174 (the deflated payload
+  and its region), D173 (a diagnostic names its file), RFC-0006 §B1–§B3
+- Options:
+  - **A. `--include <path>`, repeatable, on `bund2 build`.** Each named
+    file's text travels in the payload ahead of the program and is
+    evaluated before it, in the order given, in the program's VM. No word
+    changes meaning: the whole is what piping the files concatenated into
+    `bund2` already means, except that a diagnostic names the file it comes
+    from. The container gains a file table.
+  - **B. `--embed-use`**, D76's hatch: embed the files a literal `use`
+    names and consult the table before fetching. A transitive walk and a
+    staleness rule stated as a deviation; a run-time operand still fetches.
+  - **C. A manifest** naming modules and their order — A with a file in
+    place of the flags.
+  - **D. A new scheme**, `use "bundle://…"` — a language change under D54.
+- Recommendation: A, with the file table done so that B can use it later.
+- Status: **RESOLVED** by the repository owner, 2026-10-16: A. Built the
+  same day; B, C and D not built, and D76's hatch is still open under D76.
+
+### Built, the same day
+
+- **Container version 3** (`crates/bund2-cli/src/bundle.rs`, `FORMAT`):
+  the payload is the raw length of a *file table* followed by its deflate
+  stream, where the table is a count and then, per file, a name and a text
+  each behind a little-endian `u32` length. The includes come first, in the
+  order given, and the program last; the header's `source_name` still
+  carries the program's path as before. `inspect` reads versions 1, 2 and 3
+  and lists every file with its size; a runtime reads only its own version,
+  as before. A torn table, a table naming no file, and a name or text that
+  is not UTF-8 are `Damaged`, with the reason.
+- **`bund2 build --include <path>`**, repeatable (`build_request`). Each
+  file is read as the program is, shebang dropped, parsed before anything
+  is written so a build refuses what a run would refuse and names the file,
+  and refused as `--output`, as the program is. The capacity check covers
+  the whole. The build's last line counts the files.
+- **At run time** (`run_with_prelude`): each include is parsed and
+  evaluated against its own name before the program, through the same
+  reporter, which now holds every file's text so a traceback is drawn over
+  the file the diagnostic names (`trace::TraceReporter::with_sources`). The
+  first failure ends the run before the program starts, with the exit code
+  the failing stream asked for and otherwise 0 — what a failure partway
+  through one concatenated stream does.
+- **Found on the way, F211**: the release binary's constant pool read as a
+  second valid region once the format constants changed; `header_validates`
+  now requires the filler past the payload, which no constant pool has.
+- **Not built**: the flag on a plain `bund2 <file>` run. A program written
+  against a prelude is run unbuilt by concatenation or by `use`; whether
+  the interpreter should take the same flag is a question this entry
+  records and does not answer.
+- **Tests**: `includes_read_back_in_order_and_inspect_lists_them` in the
+  container; `included_files_run_before_the_program_in_the_order_given`,
+  `a_failing_include_is_named_and_stops_the_run` and
+  `an_include_that_does_not_parse_refuses_the_build` end to end
+  (`crates/bund2-cli/tests/bundle_build.rs`).
+
+## D175 — tier A of `bund/statistics` is in scope, built without `rstats`
+
+**Raised 2026-10-16** by the repository owner, asking for "easy, no risk
+bund stdlib words" and choosing, from the list offered, "tier A of the
+statistics family". D28 deferred `bund/statistics` whole — "42 registered
+names, zero corpus uses" — as one of the subsystems whose crates make the
+reference binary 381 MB. Its reader, `statistics::get_data`, was already in
+scope through `math.normalize` and `math.smoothing` (`crates/bund2-stdlib/src/series.rs`),
+so the family's words were deferred for their crate and their disuse, not
+for their behaviour.
+
+- Blocks: nothing
+- Depends on: D28, D18 (the `.` forms), D14 (the partition), D21 (goldens
+  are captured, not written)
+- Options:
+  - **A. Tier A only**: the four bases whose arithmetic is a fold, a length
+    and a sum over a count — `math.max`, `math.min`, `stat.count`,
+    `stat.mean.arithmetic` — in all four forms each, sixteen names, written
+    by hand without `rstats`. The one formula with a crate behind it,
+    `amean`, is read at the pinned 2.1.15: `sum / n` in series order, and
+    `Missing or insufficient data: amean: empty self vec` for an empty
+    series.
+  - **B. The whole family**: tier A and the geometric, harmonic, weighted
+    and spread means, 28 more names, each formula read from `rstats` and
+    copied operation by operation, or a last-bit difference shows in a
+    golden.
+  - **C. Leave D28 as it stands.**
+- Recommendation: A. Sixteen words a golden cannot disagree with, one source
+  file to read, and `math.max`/`math.min` are what a program writer reaches
+  for first. B stays available on its own ruling once the formulas are read.
+- Status: **RESOLVED** by the repository owner, 2026-10-16: "tier A of the
+  statistics family". A built.
+
+### Built, the same day
+
+- **The sixteen words**, in `crates/bund2-stdlib/src/series.rs` beside the
+  reader they share: `extreme` folds from NaN as the reference's `minmax.rs`
+  does, so `list math.max` is NaN; `count` pushes an INTEGER; `amean` pushes
+  `sum / n` and fails on an empty series with the crate's own sentence under
+  the word's wrapper. The stack forms are `opaque(1)` for the drain's sake
+  and the workbench forms `opaque(0)`, as `math.normalize`'s are.
+- **The error prefix of the mean is `STAT.MEAN.ARITHMETICMEAN`** in all four
+  forms (`reference/Bund/src/stdlib/functions/statistics/statistics.rs:54-66`),
+  not the word's name — preserved, as `MATH.SMOOTH` is.
+- **Scope**: `IN_SCOPE_WORDS` in `xtask/src/corpus/classify.rs`, consulted
+  before `DEFERRED_PATHS`, names the sixteen under this decision — the
+  per-word form of D87's per-file narrowing. Coverage's denominator grows by
+  sixteen; conformance's does not move.
+- **Probe**: `tests/probes/stat-tier-a.bund`, its golden captured from the
+  oracle.
+- **Not built**: option B's 28 names, which stay under D28.
+
 ## D174 — a bundle's payload is deflated; appending is the escape hatch
 
 **Raised 2026-10-15** by the repository owner, on the explanation of what
@@ -3679,7 +3798,9 @@ ceiling for a large or generated program.
 
 ### Built, the same day
 
-- **Container version 2** (`crates/bund2-cli/src/bundle.rs`, `FORMAT`): the
+- **Container version 2** (`crates/bund2-cli/src/bundle.rs`, `FORMAT`) *(2026-10-16:
+  superseded by version 3, D176, which deflates a file table — the includes
+  and the program — behind the same raw length; `inspect` still reads 2)*: the
   payload is a four-byte little-endian raw length and a raw deflate stream
   from `miniz_oxide` at its highest level; `len` counts the payload's
   bytes. `carried` inflates to exactly the claimed length, bounded by
@@ -10489,7 +10610,9 @@ have, and does not claim one.
 
 A real case for embedding: a program distributed to users whose library must
 travel with it. Then a flag — `bund2 build --embed-use` or similar — with a
-decision of its own, in the source-text form above. Deferring it this way keeps
+decision of its own, in the source-text form above. *(2026-10-16: D176 built
+a neighbouring flag, `--include <file>`, which carries a prelude and leaves
+`use` exactly as this entry decided it. The hatch here is still open.)* Deferring it this way keeps
 option 2 one call away rather than foreclosed, which is the shape D75 chose for
 D68's crossing.
 

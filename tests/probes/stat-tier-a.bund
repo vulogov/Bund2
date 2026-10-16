@@ -1,0 +1,52 @@
+//
+// Probe: tier A of `bund/statistics` — `math.max`, `math.min`, `stat.count`
+// and `stat.mean.arithmetic`, in their four forms (D175).
+//
+// The four share the reader `math.normalize` uses, so the sources are the
+// same three: a LIST taken in order, a drained stack, and the workbench
+// through `?.`. What this pins beyond the reader:
+//
+//   - **An integer series answers a FLOAT** for the extremes and the mean,
+//     and an INTEGER for the count.
+//   - **The empty list** gives the fold's NaN start for `math.max` and
+//     `math.min` and zero for `stat.count`. The mean's refusal of it — the
+//     words of the crate the reference calls — is pinned by a unit test
+//     instead, because an error ends a golden in the reference's own error
+//     table, which no Bund2 output matches (D36) and would make this golden
+//     an approved deviation rather than a conformance point.
+//   - **`,` keeps a LIST** and the answer sits above it; a drained stack keeps
+//     nothing, since the third reader takes no mode.
+//   - **The mean's error prefix is `STAT.MEAN.ARITHMETICMEAN`**, not the
+//     word's name, in every form.
+//
+"probe: math.max and math.min over a list" println
+[ 3 9 1 4 ] math.max
+[ 3 9 1 4 ] math.min
+
+"probe: over a drained stack, floats and integers mixed" println
+2.5 7 1 math.max
+2.5 7 1 math.min
+
+"probe: stat.count answers an INTEGER" println
+[ 3 9 1 4 ] stat.count
+10 20 30 stat.count
+
+"probe: stat.mean.arithmetic answers the sum over the count" println
+[ 1 2 3 4 ] stat.mean.arithmetic
+1.0 2.0 stat.mean.arithmetic
+
+"probe: the keep forms restore a list" println
+[ 5 1 3 ] math.max,
+[ 5 1 3 ] stat.count,
+[ 5 1 3 ] stat.mean.arithmetic,
+
+"probe: the workbench forms read and answer there" println
+[ 1 2 3 ] { true } ?. math.max.
+[ 1 2 3 ] { true } ?. math.min.,
+[ 1 2 3 ] { true } ?. stat.count.
+[ 1 2 3 ] { true } ?. stat.mean.arithmetic.,
+
+"probe: the empty list (`list`) — NaN for the extremes, zero for the count" println
+list math.max
+list math.min
+list stat.count

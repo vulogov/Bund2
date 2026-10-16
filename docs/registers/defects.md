@@ -4071,6 +4071,31 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F211 — a release `bund2` found two payload regions and could build nothing
+
+**A Bund2 defect; found and fixed 2026-10-16** while building D176.
+
+`bundle::locate` identifies the payload region by its sentinel and a header
+that validates: a known container version, an empty-or-filled state byte and
+a length within capacity. The release binary built after the container
+moved to version 3 reported `2 sentinel matches in this binary and more than
+one carries a valid header`, and every `bund2 build` was refused. The second
+match was the sentinel **constant** in read-only data, which the optimiser
+had laid beside the format constants, so the bytes after it read `1, 0, 3`:
+version 1, empty, three bytes long — every field inside its small legal
+range. Before version 3 the same pool read as nothing valid, which is luck,
+and the unit test that asserts exactly one validating candidate runs on the
+test binary, whose constant pool differs.
+
+- Disposition: **FIXED.** `header_validates` now also requires what a
+  constant pool cannot supply: the payload bytes past the recorded length,
+  up to the region's capacity, are all the filler byte — a megabyte of one
+  value, which `REGION`'s initialiser writes and `write_into` restores
+  behind every program. Versions 1, 2 and 3 all validate, so an older
+  artefact is still inspected. `cargo xtask bundle`, which builds and runs a
+  release artefact, is the instrument that catches this class; the unit test
+  cannot.
+
 ## F210 — a single native call can allocate without bound, where the OOM guard cannot reach it
 
 **A defect shared with the reference; found 2026-10-15** by the stability

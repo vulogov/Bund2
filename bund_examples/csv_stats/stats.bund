@@ -1,0 +1,45 @@
+//
+// Statistics over one column of a CSV file.
+//
+// `csv` reads the file through a conditional: the program names a column and
+// a lambda, and `!` runs the lambda once with that column's cells as one LIST,
+// typed by inference — a column of numbers arrives as numbers. The four words
+// of the report take a LIST and answer a FLOAT, or an INTEGER for the count.
+// The `,` forms keep the list they read, so one list serves four questions;
+// the last word consumes it.
+//
+//   bund2 stats.bund                                readings.csv, temperature
+//   bund2 stats.bund --column humidity
+//   bund2 stats.bund --file other.csv --column total
+//   ./stats --column humidity                       the built binary
+//
+
+//
+// One column's cells, as a LIST on top of the stack: the four answers.
+//
+:stats.report {
+  "count   " print stat.count, println
+  "min     " print math.min, println
+  "max     " print math.max, println
+  "mean    " print stat.mean.arithmetic println
+} register
+
+//
+// The column first, then the file, so the file is on top for `csv`.
+//
+args.parse :column ?key
+{ drop "temperature" }
+{ :column get car }
+?true*
+
+args.parse :file ?key
+{ drop "readings.csv" }
+{ :file get car }
+?true*
+
+"file    " print dup println
+csv
+swap "column  " print dup println
+:column swap set
+:lambda { stats.report } set
+!

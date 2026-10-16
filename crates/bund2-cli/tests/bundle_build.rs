@@ -497,7 +497,7 @@ fn payload_at(image: &[u8], marker: &str) -> usize {
         image.get(start + 36) == Some(&1)
             && image
                 .get(start + 32..start + 36)
-                .is_some_and(|f| u32::from_le_bytes([f[0], f[1], f[2], f[3]]) == 2)
+                .is_some_and(|f| u32::from_le_bytes([f[0], f[1], f[2], f[3]]) == 3)
     };
     let start = (0..image.len().saturating_sub(sentinel.len()))
         .find(|i| image[*i..*i + sentinel.len()] == sentinel[..] && header(*i))
@@ -558,11 +558,17 @@ fn a_damaged_artefact_is_refused_with_an_explanation() {
         ),
         (
             "not-text",
-            // A payload that inflates to bytes that are not UTF-8 (D174): a
-            // lone continuation byte, written as the region writes it.
+            // A payload whose file table (D176) holds a text that is not
+            // UTF-8: one file, a one-byte name, and a lone continuation byte
+            // for its text, written as the region writes it.
             Box::new(|img, at| {
-                let mut payload = 1u32.to_le_bytes().to_vec();
-                payload.extend(miniz_oxide::deflate::compress_to_vec(&[0x80], 6));
+                let mut table = 1u32.to_le_bytes().to_vec();
+                table.extend(1u32.to_le_bytes());
+                table.push(b'p');
+                table.extend(1u32.to_le_bytes());
+                table.push(0x80);
+                let mut payload = (table.len() as u32).to_le_bytes().to_vec();
+                payload.extend(miniz_oxide::deflate::compress_to_vec(&table, 6));
                 img[at..at + payload.len()].copy_from_slice(&payload);
                 img[at - LEN_BEFORE_PAYLOAD..at - LEN_BEFORE_PAYLOAD + 4]
                     .copy_from_slice(&(payload.len() as u32).to_le_bytes());
@@ -1386,5 +1392,107 @@ impl KeepInput for std::process::Child {
             stdout,
             stderr,
         }
+    }
+}
+
+/// **D176: `--include` carries a prelude, run before the program, in
+/// order.** The first include registers a word, the second uses it to
+/// register another, and the program calls the second: the order is the
+/// order given, and what a file registers is there for the next.
+#[test]
+fn included_files_run_before_the_program_in_the_order_given() {
+    let lib = scratch("inc-lib.bund");
+    std::fs::write(&lib, ":twice { 2 * } register\n").expect("writing the first include");
+    let more = scratch("inc-more.bund");
+    std::fs::write(&more, ":quad { twice twice } register\n").expect("writing the second");
+    let exe = build(
+        "10 quad println\n",
+        "inc-order",
+        &[
+            "--include",
+            lib.to_str().expect("utf-8"),
+            "--include",
+            more.to_str().expect("utf-8"),
+        ],
+    );
+    let (code, out) = run(&exe, &[], &[]);
+    assert_eq!(code, Some(0), "output was: {out}");
+    assert!(out.contains("40"), "the program used both includes: {out}");
+
+    // `--inspect` lists the includes, in order, before the program.
+    let r = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        .arg("build")
+        .arg("--inspect")
+        .arg(&exe)
+        .output()
+        .expect("inspect runs");
+    let text = String::from_utf8_lossy(&r.stdout).into_owned();
+    assert!(r.status.success(), "{text}");
+    let line = text
+        .lines()
+        .find(|l| l.trim_start().starts_with("includes"))
+        .unwrap_or_else(|| panic!("an includes line: {text}"));
+    let a = line.find("inc-lib.bund").expect("names the first");
+    let b = line.find("inc-more.bund").expect("names the second");
+    assert!(a < b, "in order: {line}");
+    assert!(text.contains("container      version 3"), "{text}");
+    for p in [&exe, &lib, &more] {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
+/// **A failure inside an include names that file and its line, and the
+/// program does not run.** Reported through the same reporter as the
+/// program's own failures, so the table carries the include's path.
+#[test]
+fn a_failing_include_is_named_and_stops_the_run() {
+    let lib = scratch("inc-bad.bund");
+    std::fs::write(&lib, "\"prelude\" println\ninc.undefined.word\n").expect("writing the include");
+    let exe = build(
+        "\"never\" println\n",
+        "inc-fails",
+        &["--include", lib.to_str().expect("utf-8")],
+    );
+    let (code, out) = run(&exe, &[], &[("BUND2_REPORT", "box")]);
+    assert_eq!(code, Some(0), "a failure is not an error exit: {out}");
+    assert!(
+        out.contains("prelude"),
+        "the include ran up to its failure: {out}"
+    );
+    assert!(
+        out.contains("inc-bad.bund"),
+        "the report names the include: {out}"
+    );
+    assert!(!out.contains("never"), "and the program did not run: {out}");
+    let _ = std::fs::remove_file(&exe);
+    let _ = std::fs::remove_file(&lib);
+}
+
+/// **An include that does not parse refuses the build**, naming the file,
+/// and writes nothing — the same gate the program itself passes.
+#[test]
+fn an_include_that_does_not_parse_refuses_the_build() {
+    let lib = scratch("inc-parse.bund");
+    std::fs::write(&lib, "{ 1 2\n").expect("writing the include");
+    let s = scratch("inc-parse-main.bund");
+    std::fs::write(&s, "1 println\n").expect("writing the source");
+    let out = scratch("inc-parse-out");
+    let r = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        .arg("build")
+        .arg("--file")
+        .arg(&s)
+        .arg("--output")
+        .arg(&out)
+        .arg("--include")
+        .arg(&lib)
+        .output()
+        .expect("bund2 build runs");
+    let err = String::from_utf8_lossy(&r.stderr).into_owned();
+    assert!(!r.status.success(), "refused: {err}");
+    assert!(err.contains("inc-parse.bund"), "names the include: {err}");
+    assert!(err.contains("nothing was written"), "{err}");
+    assert!(!out.exists(), "and wrote nothing");
+    for p in [&lib, &s] {
+        let _ = std::fs::remove_file(p);
     }
 }
