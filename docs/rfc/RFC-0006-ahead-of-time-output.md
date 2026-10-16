@@ -358,6 +358,12 @@ changed:
 
 ### §B1 — How the artefact is constructed
 
+*(2026-10-16, D177: before the copy, every file — the program and its
+`--include` files, D176 — is parsed, and a syntax error refuses the build
+naming its file, line and column; then RFC-0004's underflow analysis walks
+them as one stream and prints its findings as warnings, or refuses under
+`--strict`. `bund2 build --check` stops there and writes nothing.)*
+
 **`bund2 build --emit=bundle` invokes no compiler.** This is the part the
 first draft left unstated, and the obvious reading — `include_bytes!` into a
 stub and link it, as `docs/research/02-native-binaries.md:44-49` describes —

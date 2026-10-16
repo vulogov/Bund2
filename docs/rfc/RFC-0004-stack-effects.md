@@ -305,6 +305,13 @@ seam is a seam rather than an indirection.
 `check` **never changes what `script` does.** A program that `check` warns about
 still runs, and still fails the way it fails today.
 
+*(2026-10-16, D177: `bund2 build` now runs this analysis over the program and
+its `--include` files as one stream before writing anything, and prints the
+findings as warnings — the same rule, a second caller. `bund2 build --strict`
+refuses the build on a finding, and it is **opt-in**: the alternatives
+section's reason for not failing a build stands, and whoever sets the flag
+has accepted it. `bund2 build --check` is the dry run.)*
+
 ### S5. `?effect` answers the table at runtime
 
 > **Built.** `:+ ?effect` answers
@@ -338,6 +345,16 @@ Four barriers, all grounded above:
 A checker that silently skips these would report "no problems" on the corpus's
 most-used word. Each is a named `Opaque`, and `check` says how many sites it
 could not analyse alongside how many it could.
+
+*(2026-10-16, D178: a fifth kind of site stops being a barrier when the
+program's own text fixes it. `format` is `Opaque` because its arity is the
+number of distinct keys in a template it reads at run time; when that
+template is the STRING literal lowered immediately before the call, the
+count is in the program, and `check` takes it from the same `leon` parser
+the word runs. It was the barrier the corpus hit most — 134 sites — and the
+rule moved the sites analysed from 2259 to 2402 over 224 programs with no
+new finding. A computed template is as opaque as before; nothing here
+touches the four barriers above.)*
 
 ## Preservation analysis
 

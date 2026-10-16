@@ -664,7 +664,14 @@ fn a_program_nested_to_the_parsers_limit_bundles_and_runs() {
 fn a_default_artefact_contains_no_code_generator() {
     let exe = build("1 2 + println\n", "nojit", &[]);
     let image = std::fs::read(&exe).expect("reading the artefact");
-    for needle in [b"cranelift".as_slice(), b"ISLE".as_slice()] {
+    // **Needles a code generator cannot be built without, and long enough
+    // that code cannot fake them.** `ISLE` was the second needle until
+    // 2026-10-16, when a debug test binary matched it inside a table of
+    // offsets — four bytes is short enough to occur by chance in machine
+    // data, and the release artefact had no match at all. A `jit` build
+    // carries `cranelift` about 1,800 times and `regalloc2`, its register
+    // allocator, in every panic path; the default build carries neither.
+    for needle in [b"cranelift".as_slice(), b"regalloc2".as_slice()] {
         assert!(
             !image.windows(needle.len()).any(|w| w == needle),
             "a default bundle must not carry {}",
@@ -1491,6 +1498,87 @@ fn an_include_that_does_not_parse_refuses_the_build() {
     assert!(!r.status.success(), "refused: {err}");
     assert!(err.contains("inc-parse.bund"), "names the include: {err}");
     assert!(err.contains("nothing was written"), "{err}");
+    assert!(!out.exists(), "and wrote nothing");
+    for p in [&lib, &s] {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
+/// **D177: `--check` is a dry run.** Every file is parsed and analysed, the
+/// report is printed, and nothing is written — whether or not `--output`
+/// was given.
+#[test]
+fn check_parses_and_analyses_every_file_and_writes_nothing() {
+    let lib = scratch("chk-lib.bund");
+    std::fs::write(&lib, ":twice { 2 * } register\n").expect("writing the include");
+    let s = scratch("chk-main.bund");
+    std::fs::write(&s, "21 twice println\n").expect("writing the source");
+    let out = scratch("chk-out");
+    let r = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        .args(["build", "--check", "--file"])
+        .arg(&s)
+        .arg("--output")
+        .arg(&out)
+        .arg("--include")
+        .arg(&lib)
+        .output()
+        .expect("bund2 build runs");
+    let text = String::from_utf8_lossy(&r.stdout).into_owned();
+    let err = String::from_utf8_lossy(&r.stderr).into_owned();
+    assert!(r.status.success(), "{err}");
+    assert!(text.contains("checked 2 files: 0 finding(s)"), "{text}");
+    assert!(!out.exists(), "a dry run writes nothing");
+    // The include's `twice` was known to the analysis: nothing abandoned.
+    assert!(text.contains("0 abandoned"), "{text}");
+
+    // A syntax error in an include is the same refusal a build gives.
+    std::fs::write(&lib, "{ 1 2\n").expect("rewriting the include");
+    let r = Command::new(env!("CARGO_BIN_EXE_bund2"))
+        .args(["build", "--check", "--file"])
+        .arg(&s)
+        .arg("--include")
+        .arg(&lib)
+        .output()
+        .expect("bund2 build runs");
+    let err = String::from_utf8_lossy(&r.stderr).into_owned();
+    assert!(!r.status.success(), "{err}");
+    assert!(err.contains("chk-lib.bund"), "names the include: {err}");
+    for p in [&lib, &s] {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
+/// **D177: an underflow is a warning naming its file, and `--strict` makes
+/// it a refusal.** The finding is in the include, found over the combined
+/// stream, and the program it precedes is still built without `--strict`.
+#[test]
+fn an_underflow_warns_with_its_file_and_strict_refuses() {
+    let lib = scratch("uf-lib.bund");
+    std::fs::write(&lib, "\"prelude\" println\n+\n").expect("writing the include");
+    let s = scratch("uf-main.bund");
+    std::fs::write(&s, "1 2 + println\n").expect("writing the source");
+    let out = scratch("uf-out");
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_bund2"));
+    cmd.args(["build", "--file"])
+        .arg(&s)
+        .arg("--output")
+        .arg(&out)
+        .arg("--include")
+        .arg(&lib);
+    let r = cmd.output().expect("bund2 build runs");
+    let err = String::from_utf8_lossy(&r.stderr).into_owned();
+    assert!(r.status.success(), "a warning does not refuse: {err}");
+    assert!(
+        err.contains("uf-lib.bund:2:1") && err.contains("`+` needs 2"),
+        "the warning names the include and the line: {err}"
+    );
+    assert!(out.exists(), "and the bundle was written");
+    let _ = std::fs::remove_file(&out);
+
+    let r = cmd.arg("--strict").output().expect("bund2 build runs");
+    let err = String::from_utf8_lossy(&r.stderr).into_owned();
+    assert!(!r.status.success(), "--strict refuses: {err}");
+    assert!(err.contains("--strict"), "{err}");
     assert!(!out.exists(), "and wrote nothing");
     for p in [&lib, &s] {
         let _ = std::fs::remove_file(p);

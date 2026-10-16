@@ -624,6 +624,79 @@ fn run_check(src: &str, file: &str) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// What the build's underflow analysis says — D177.
+struct Underflow {
+    /// One line per finding, `file:line:col: …`, in stream order.
+    findings: Vec<String>,
+    /// The one-line count, `check`'s own wording.
+    summary: String,
+    /// Where the analysis stopped, for `--check`'s report.
+    detail: Vec<String>,
+}
+
+/// `bund2 check`'s analysis over several files as one stream, the includes
+/// first — D177. Each finding is located in the file it falls in.
+fn underflow_over(files: &[(&str, &str, bund2_syntax::Lowered)]) -> Underflow {
+    let mut stream = Vec::new();
+    let mut starts = Vec::with_capacity(files.len());
+    for (_, _, lowered) in files {
+        starts.push(stream.len());
+        stream.extend(lowered.values.iter().cloned());
+    }
+    let mut i = Interp::new();
+    bund2_stdlib::register_all(&mut i.registry);
+    let report = bund2_stdlib::check::check(&stream, &i.registry, 0);
+    let findings = report
+        .findings
+        .iter()
+        .map(|f| {
+            // The file whose range holds the finding: the last start at or
+            // before it.
+            let k = starts.iter().rposition(|s| *s <= f.at).unwrap_or(0);
+            let (path, text, lowered) = &files[k];
+            let (line, column) = lowered
+                .span_of(f.at - starts[k])
+                .map(|sp| {
+                    let l = locate(text, path, sp);
+                    (l.line, l.column)
+                })
+                .unwrap_or((0, 0));
+            format!(
+                "{path}:{line}:{column}: `{}` needs {} value(s); {} can be proven here",
+                f.word, f.needs, f.have
+            )
+        })
+        .collect();
+    let what = if files.len() == 1 {
+        files[0].0.to_string()
+    } else {
+        format!("{} files", files.len())
+    };
+    let summary = format!(
+        "checked {what}: {} finding(s), {} site(s) analysed, {} abandoned",
+        report.findings.len(),
+        report.analysed,
+        report.abandoned
+    );
+    let mut detail = Vec::new();
+    if !report.reasons.is_empty() {
+        detail.push("  analysis stopped at:".to_string());
+        for (why, n) in &report.reasons {
+            detail.push(format!("    {n:>4}  {why}"));
+        }
+        detail.push(format!(
+            "  A finding is only ever about the {} site(s) above that were",
+            report.analysed
+        ));
+        detail.push("  tracked. Nothing is claimed about the rest.".to_string());
+    }
+    Underflow {
+        findings,
+        summary,
+        detail,
+    }
+}
+
 /// A program's text with a leading `#!` line blanked — D173, so that
 /// `#!/usr/bin/env bund2` at the top of an executable file runs it. The
 /// line's bytes go and its newline stays, so every later position is what
@@ -750,11 +823,17 @@ enum BuildRequest {
         src_path: String,
         out_path: String,
         flags: u8,
+        /// `--check`: read, parse and analyse every file, write nothing
+        /// (D177).
+        check_only: bool,
+        /// `--strict`: an underflow finding refuses the build (D177).
+        strict: bool,
     },
 }
 
 const BUILD_USAGE: &str = "expected: bund2 build --file <path> --output <path> [--include <path>]... \
-     [--noio] [--noeval], or: bund2 build --inspect <artefact>";
+     [--noio] [--noeval] [--strict], or: bund2 build --check --file <path> [--include <path>]..., \
+     or: bund2 build --inspect <artefact>";
 
 /// Read `bund2 build`'s arguments, refusing whatever it does not understand.
 ///
@@ -771,6 +850,8 @@ fn build_request(args: &[String]) -> Result<BuildRequest, String> {
     let mut inspect: Option<String> = None;
     let mut includes: Vec<String> = Vec::new();
     let mut flags = 0u8;
+    let mut check_only = false;
+    let mut strict = false;
     let mut rest = args.iter().skip(1);
     while let Some(arg) = rest.next() {
         let (name, inline) = match arg.split_once('=') {
@@ -808,6 +889,12 @@ fn build_request(args: &[String]) -> Result<BuildRequest, String> {
             // the whole is what piping the files concatenated into `bund2`
             // means, with each diagnostic naming its own file.
             "--include" => includes.push(operand("a source path")?),
+            // **The dry run and the gate — D177.** `--check` stops after the
+            // parse and the underflow analysis and writes nothing; `--strict`
+            // turns a finding into a refusal, which RFC-0004 §S4 keeps opt-in
+            // because `!` is opaque and a false positive is certain.
+            "--check" if inline.is_none() => check_only = true,
+            "--strict" if inline.is_none() => strict = true,
             "--inspect" => {
                 let v = operand("an artefact to read")?;
                 once(&mut inspect, v)?;
@@ -848,16 +935,30 @@ fn build_request(args: &[String]) -> Result<BuildRequest, String> {
         }
     }
     if let Some(target) = inspect {
-        if file.is_some() || output.is_some() || flags != 0 || !includes.is_empty() {
+        if file.is_some()
+            || output.is_some()
+            || flags != 0
+            || !includes.is_empty()
+            || check_only
+            || strict
+        {
             return Err("`--inspect` reads an artefact and takes no other argument".to_string());
         }
         return Ok(BuildRequest::Inspect(target));
     }
+    // `--check` needs no `--output`; one given is accepted and not written.
+    let output = if check_only {
+        Some(output.unwrap_or_default())
+    } else {
+        output
+    };
     match (file, output) {
         (Some(src_path), Some(out_path)) => Ok(BuildRequest::Bundle {
             includes,
             src_path,
             out_path,
+            check_only,
+            strict,
             flags,
         }),
         (None, _) => Err("no `--file` was given".to_string()),
@@ -872,7 +973,7 @@ fn build_request(args: &[String]) -> Result<BuildRequest, String> {
 /// ran it. The parse result is then discarded — the artefact parses again at
 /// start-up, which is what keeps §B2's preservation exact.
 fn build(args: &[String]) -> ExitCode {
-    let (includes, src_path, out_path, flags) = match build_request(args) {
+    let (includes, src_path, out_path, flags, check_only, strict) = match build_request(args) {
         // `bund2 build --inspect <artefact>` — D78's readable trailer.
         //
         // **Reads a file, unlike everything else about a bundle.** A runtime
@@ -885,7 +986,9 @@ fn build(args: &[String]) -> ExitCode {
             src_path,
             out_path,
             flags,
-        }) => (includes, src_path, out_path, flags),
+            check_only,
+            strict,
+        }) => (includes, src_path, out_path, flags, check_only, strict),
         Err(why) => {
             ui::error!("build: {why}");
             ui::error!("{BUILD_USAGE}");
@@ -896,7 +999,11 @@ fn build(args: &[String]) -> ExitCode {
     // **Six steps, drawn on a terminal and silent on a pipe — D173.** Every
     // failure clears the bar before it is reported, so the report is the
     // last thing on the line, and every step says what it did at `info`.
-    let bar = ui::progress(6, "build");
+    // Under `--check` the first two are the whole job.
+    let bar = ui::progress(
+        if check_only { 2 } else { 6 },
+        if check_only { "check" } else { "build" },
+    );
     let fail = |bar: &indicatif::ProgressBar, code: ExitCode, why: std::fmt::Arguments<'_>| {
         bar.finish_and_clear();
         ui::error!("{why}");
@@ -932,17 +1039,25 @@ fn build(args: &[String]) -> ExitCode {
     }
     bar.inc(1);
 
-    // The parse, discarded on success and reported on failure — for each
+    // The parse, kept for the analysis and reported on failure — for each
     // included file first, then the program, so a build refuses what a run
     // would refuse and names the file.
     bar.set_message("parsing the program");
+    let mut parsed = Vec::with_capacity(included.len() + 1);
     for (path, text) in included
         .iter()
         .map(|(p, t)| (p.as_str(), t.as_str()))
         .chain(std::iter::once((src_path.as_str(), src.as_str())))
     {
         match bund2_syntax::parse(text) {
-            Ok(terms) => ui::info!("parsed {path}: {} top-level terms", terms.len()),
+            Ok(terms) => {
+                ui::info!("parsed {path}: {} top-level terms", terms.len());
+                parsed.push((
+                    path,
+                    text,
+                    bund2_syntax::lower_with_spans(&terms, text.len()),
+                ));
+            }
             Err(e) => {
                 let loc = locate(text, path, e.span);
                 bar.finish_and_clear();
@@ -952,7 +1067,42 @@ fn build(args: &[String]) -> ExitCode {
             }
         }
     }
-    bar.inc(1);
+    // **The underflow analysis, over every file as one stream — D177.** The
+    // includes run before the program, so a word an include registers is a
+    // known effect when the program uses it, and the depth carries across
+    // the file boundary exactly as it does at run time. Findings are
+    // warnings (RFC-0004 §S4); `--strict` makes them a refusal.
+    let underflow = underflow_over(&parsed);
+    drop(parsed);
+    bar.finish_and_clear();
+    for line in &underflow.findings {
+        ui::warning!("{line}");
+    }
+    if check_only {
+        bund2_api::sayln!("{}", underflow.summary);
+        for line in &underflow.detail {
+            bund2_api::sayln!("{line}");
+        }
+        return if strict && !underflow.findings.is_empty() {
+            ui::error!(
+                "{} underflow finding(s) under --strict",
+                underflow.findings.len()
+            );
+            ExitCode::FAILURE
+        } else {
+            ExitCode::SUCCESS
+        };
+    }
+    ui::info!("{}", underflow.summary);
+    if strict && !underflow.findings.is_empty() {
+        ui::error!(
+            "{} underflow finding(s) under --strict; nothing was written",
+            underflow.findings.len()
+        );
+        return ExitCode::FAILURE;
+    }
+    let bar = ui::progress(6, "build");
+    bar.inc(2);
 
     bar.set_message("locating this executable");
     let exe = match std::env::current_exe() {

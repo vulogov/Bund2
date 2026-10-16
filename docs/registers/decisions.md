@@ -3650,6 +3650,149 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D178 — `check` reads `format`'s arity from its literal template: the first barrier lowered by the program's own text
+
+**Raised 2026-10-16** by the repository owner: "implement one #4 feature
+that shall verify most common abandonment" — one piece of D177's option 4,
+to be chosen by measuring which barrier the analysis hits most rather than
+by taking D177's guess. D177's note had named `{ … } !` as the cheap step;
+the measurement said otherwise, and the note is superseded by this entry.
+
+**The measurement**, over the 224 programs `check` can read — the reference
+examples and tests, and `tests/probes` — made two ways, because the walk
+stops tracking at its first barrier and never resumes, so "what it stopped
+at" counts only the first barrier in each file:
+
+| | first barrier per file | occurrences in the corpus |
+|---|---|---|
+| `format` | 15 | **134** |
+| `object` | 25 | 107 |
+| `!` | 18 | 107 |
+| a stack switch | 15 | 34 `@main`, 59 in all |
+| `loop` | 11 | 58 |
+| `if` | 6 | 45 |
+| `times` | 9 | 21 |
+
+`format` is the opaque word the corpus uses most, and its idiom is one
+shape: a literal template, nearly always with one key, right before the
+call (`"Generated value = {0}" format println` and its kin). The `!` sites
+D177 had in mind are rare: of 105, two follow a literal `{ … }`; the common
+forms are `object !` (25), `set !` (22), `swap !` (10) and `ptr !` (5), all
+computed, and no inline walk reaches them.
+
+- Blocks: nothing
+- Depends on: RFC-0004 §S6 (the barriers, and why they are stated), D177
+  (the build runs the analysis; option 4 costed there), D16 (why the
+  analysis cannot be sound in general), F92 (`format` declared `1 -> 1`
+  before it was made opaque)
+- Options:
+  - **A. A literal-operand rule for `format`.** When the value lowered
+    immediately before `format` is a STRING, the arity is in the program:
+    the template, then one value per distinct key
+    (`reference/rust_multistackvm/src/stdlib/string/format.rs:13-28`, a
+    repeated key filled once at `:25-27`). The analysis counts the keys with
+    the `leon` parser the word itself runs, so the prediction is the word's
+    own reading of the template. A computed template, or one `leon`
+    refuses, is left as opaque as before; `format.` is excluded, since its
+    template comes from the workbench and no literal in the stream puts it
+    there.
+  - **B. Walk a literal `{ … } !` inline** — D177's note. Two sites in the
+    corpus.
+  - **C. Track tags, not depths**, so `object` and `!` on a known class can
+    be followed — D177's option 4 proper, RFC-0004's territory.
+  - **D. One depth per named stack**, so `@name` stops being a barrier.
+- Recommendation: A, by the count.
+- Status: **RESOLVED** by the repository owner, 2026-10-16: "implement one
+  #4 feature that shall verify most common abandonment". A built the same
+  day.
+
+### Built, the same day
+
+- `literal_operand_effect` in `crates/bund2-stdlib/src/check.rs`, consulted
+  before the registry at every call site, in the program walk and in body
+  inference alike: `"a={A} b={B}" format` is `3 -> 1` wherever it stands.
+- **On the corpus**, the same 224 programs: sites analysed 2259 → 2402;
+  abandonments 167 → 165; `format` as the first barrier 15 → 0, the
+  tracked regions now running on to the next barrier (`!` 18 → 22,
+  `loop` 11 → 12, `graph!` 5 → 6, `use` appears with 2). **Findings
+  unchanged at 3**, none of them new and none at a `format` site, so the
+  rule produced no false positive. The three that were there before are
+  recorded here rather than left to be rediscovered: two in
+  `json_answer.bund`, where `,` on a TEXT is `set`'s declared `3`, the
+  DICT arity, and one in `hello_distributed_world_with_value.bund`, where
+  `swap` meets a value that arrives from the bus. Both are the declared
+  pair being the wrong arm for the receiver, which is option C's subject,
+  not this entry's.
+- **Tests**: `a_literal_template_fixes_formats_arity` and
+  `check_tracks_through_a_literal_template` beside the analysis.
+- **Not built**: B, C and D. The rule is one function with one arm; a table
+  of literal-operand rules is for the day a second word earns one, and the
+  candidates are the words whose arity a literal fixes — `?.` with a literal
+  count is the next by the measurement, at 20 occurrences.
+
+## D177 — `bund2 build` checks before it writes: the parse, the underflow analysis, `--check` and `--strict`
+
+**Raised 2026-10-16** by the repository owner: "perform syntax check during
+`bund2 build` in code and includes before actually building it", and the
+ruling on the options offered: "do 1 then 2". The parse gate already
+existed — `bund2 build` parsed the program before writing since RFC-0006,
+and each include since D176 — so what was open was what more a check at
+build time could say.
+
+- Blocks: nothing
+- Depends on: RFC-0004 §S4 (`check` reports, it does not fail), D176 (the
+  includes), D36 (a finding is a warning), D16 (why a static check cannot be
+  sound)
+- Options:
+  1. **`--check`**, a dry run: read, parse and analyse every file and write
+     nothing. The build's own first two steps, stopped before the copy.
+  2. **Run `check`'s underflow analysis during every build, as warnings**,
+     over the includes and the program as one stream in that order, so a
+     word an include registers is a known effect when the program uses it.
+     A `--strict` flag turns a finding into a refusal for whoever wants a
+     gate and accepts RFC-0004's false positives.
+  3. **An unknown-word warning** in the same pass — a call naming nothing
+     the registry or the carried files register. Warning only, for D16's
+     reason.
+  4. **A full static check of effects per word**, RFC-0004's territory and
+     not cheap.
+- Recommendation: 1 then 2, with 3 folded into 2 since they share the walk.
+- Status: **RESOLVED** by the repository owner, 2026-10-16: 1 and 2. Both
+  built the same day; 3 not built; 4 costed and not proposed.
+
+### Built, the same day
+
+- **Every build runs the analysis** after the parse and before the copy:
+  the lowered streams of the includes and the program are concatenated in
+  run order and walked once by `bund2_stdlib::check::check`
+  (`crates/bund2-cli/src/main.rs`, `underflow_over`), so `prebind` sees the
+  words the includes register and the depth carries across files. Each
+  finding is located in the file it falls in and printed as a warning in
+  `check`'s own words; the count of sites analysed and abandoned is said at
+  `-v`. **Findings do not refuse a build**, as RFC-0004 §S4 and its
+  alternatives section require.
+- **`--strict`** refuses the build on any finding, naming the count, and
+  writes nothing. Opt-in, so RFC-0004's reasoning stands: whoever turns it
+  on has accepted that `!` is opaque and a finding can be wrong.
+- **`--check`** stops after the analysis and prints `check`'s report on
+  standard output, including where the analysis stopped; `--output` is not
+  required and is not written when given. A syntax error in any file is the
+  same refusal a build gives, with its file, line and column.
+- **Not built**: the unknown-word warning (option 3), and anything of
+  option 4. One cheap step short of 4 is recorded for later: `prebind`
+  recognises only `:Name { … } register`; a literal `{ … } !` could be
+  walked inline rather than abandoned, which would lower the abandonment
+  count on the corpus's most-used word without any claim about computed
+  dispatch.
+  *(2026-10-16, later: measured and superseded by D178 — two such sites in
+  the corpus; `format` with a literal template was the barrier that
+  counted, and it is the one lowered.)*
+- **Tests**: `check_parses_and_analyses_every_file_and_writes_nothing` and
+  `an_underflow_warns_with_its_file_and_strict_refuses`
+  (`crates/bund2-cli/tests/bundle_build.rs`). The scan test beside them lost
+  its four-byte `ISLE` needle the same day, after a debug test binary
+  matched it inside a table of offsets; `regalloc2` replaces it.
+
 ## D176 — `bund2 build --include <file>`: a prelude carried with the program
 
 **Raised 2026-10-16** by the repository owner, asking how external files can

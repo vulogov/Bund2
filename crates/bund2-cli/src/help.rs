@@ -99,7 +99,8 @@ bund2 build — write a program into a copy of this binary
 
 USAGE
   bund2 [GLOBAL] build --file <path> --output <path> [--include <path>]...
-                       [--noio] [--noeval]
+                       [--noio] [--noeval] [--strict]
+  bund2 [GLOBAL] build --check --file <path> [--include <path>]...
   bund2 [GLOBAL] build --inspect <artefact>
 
 FLAGS
@@ -115,9 +116,20 @@ FLAGS
                         environment may tighten (BUND2_NOIO, BUND2_NOEVAL)
                         and never lift.
   --emit bundle         The one mode there is.
+  --check               Read, parse and analyse every file and write
+                        nothing: a dry run of the two gates below.
+  --strict              Refuse the build on an underflow finding. Off by
+                        default, because `!` is opaque and a finding can be
+                        wrong.
   --inspect <artefact>  Print what a bundle says about itself: its program,
                         its restrictions, the bund2 that built it, and the
                         oracle it conformed to.
+
+Before anything is written, every file is parsed — a syntax error names its
+file, line and column and refuses the build — and the whole is walked by
+`bund2 check`'s underflow analysis, includes first, so a word an include
+registers is known when the program uses it. Findings are warnings; the
+count of sites analysed and abandoned is said at -v.
 
 The bundle is this binary, so it carries this binary's features; a
 different runtime needs a different bund2. The program and its includes
