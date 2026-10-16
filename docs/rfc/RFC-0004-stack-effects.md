@@ -370,6 +370,13 @@ from 59 to 72, with the three findings unchanged. What remains under
 barrier 1 is `!` on a value whose tag no native declares, which on the
 corpus is always a CONDITIONAL — barrier 4 by another road.)*
 
+*(2026-10-16, D180: the `if`/`times`/`loop` family barrier 4 contrasts
+itself with is now followed when the body is a literal lambda and one run
+of it leaves the stack as deep as it found it — then every count of runs
+does. A run that nets anything else is an abandonment that says how much
+per run. Over the same 224 programs: sites analysed 2548 → 2663, programs
+with no abandonment 72 → 89, findings unchanged.)*
+
 ## Preservation analysis
 
 | Current behaviour | Disposition |

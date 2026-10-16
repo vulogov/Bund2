@@ -3650,6 +3650,77 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D180 — `check` follows a body `times`, `loop` or `if` runs when one run leaves the stack as deep as it found it
+
+**Raised 2026-10-16** by the repository owner, after D179: "next barrier,
+times/loop with a literal body". After D179 the barriers the corpus hit
+first were `loop` (12 files), `times` (9) and `if` (9), every one of them
+with a literal `{ … }` body right before the word, which RFC-0003 §S7
+already separates from the CF registry as the statically analysable
+family.
+
+- Blocks: nothing
+- Depends on: D179 (the tagged stack, and a body walked on the caller's
+  stack), RFC-0004 §S3 (the dip), §S4 (a finding is a warning, so a body
+  that never runs may still be warned about), §S6 barrier 4
+- Options:
+  - **A. Walk the body once on a copy; keep the depth when one run nets
+    zero.** `times` pulls the body and the count and pushes the counter
+    before each run (`reference/rust_multistackvm/src/stdlib/logic/times_fun.rs:11-20`);
+    `loop` pulls the body and a list and pushes the element
+    (`loop_fun.rs:10-23`); `if`, `?true`, `if.false` and `?false` pull the
+    body and a condition and run the body once or not at all
+    (`if_fun.rs:28-66`). Each is the body run a number of times the walk
+    does not know. When one run leaves the stack exactly as deep as it
+    found it, every number of runs leaves it there, so the depth after is
+    known; the slots a run may have rewritten are forgotten, because the
+    zero-run stack and the many-run stack agree on depth and on nothing
+    else. A run that nets anything else is an abandonment saying how much
+    per run and what the count depends on. A finding inside the body is a
+    finding, charged to the site with the body named.
+  - **B. Numbers only**: infer the literal body's pair and test net zero
+    without walking on the caller's stack. Loses the tags D179 carries
+    through, and a finding inside the body.
+  - **C. Count a literal count**: `3 { … } times` unrolled. Three sites in
+    the corpus have a literal count; none needs it.
+- Recommendation: A.
+- Status: **RESOLVED** by the repository owner, 2026-10-16: "next barrier,
+  times/loop with a literal body". A built the same day, `if` and its
+  siblings included because they are the same rule with no push.
+
+### Built, the same day
+
+- `Walker::repeat` in `crates/bund2-stdlib/src/check.rs`, used by `times`,
+  `loop`, `if`, `?true`, `if.false` and `?false`; a body that is not a
+  literal lambda is "a body the walk cannot see", which is what the run
+  refuses with `#1 parameter must be lambda` when it is not a lambda at
+  all.
+- **On the corpus**, the same 224 programs, measured the same way:
+
+  | | after D179 | after D180 |
+  |---|---|---|
+  | sites analysed | 2548 | 2663 |
+  | abandonments | 152 | 135 |
+  | programs with no abandonment | 72 | 89 |
+  | `loop` as the first barrier | 12 | 0 |
+  | `if` as the first barrier | 9 | 0 |
+  | `times` as the first barrier | 9 | 2 |
+  | findings | 3 | 3 |
+
+  The two `times` sites left are bodies that net `+1` per run, and both
+  are right: `secure_random_gen.bund` pushes a random integer, formats it
+  and prints, and never takes the counter, so twenty integers are left
+  behind; `internal_bus_demo.bund`'s `:A swap send` takes the counter and
+  the name and `send` gives one value back. The depth after each depends
+  on the count, which is what the reason says. The three findings are
+  D178's three, unchanged.
+- **Tests**: `a_repeated_body_is_followed_when_one_run_nets_zero`;
+  `opaque_saturates` now uses `{ dup } loop`, since `{ drop } loop` has a
+  pair.
+- **Not built**: `while`, whose two bodies are a condition and a step
+  (17 occurrences), `*loop`, which runs until the stack empties, and
+  `for`; the literal-count unrolling of option C.
+
 ## D179 — `check` tracks tags: `!` takes the arm the run would take, `object` follows construction, and a method native declares what it does to its receiver
 
 **Raised 2026-10-16** by the repository owner, after D178: "next barrier,
@@ -3763,6 +3834,7 @@ the OOP idioms: `:Name object`, `:.id :Probed object ! swap drop`,
   how many times it runs is not — `times` and `loop` with a body whose net
   is zero after the index is the next candidate by the count, at 12 and 9
   files.
+  *(2026-10-16, later: the family built as D180.)*
 
 ## D178 — `check` reads `format`'s arity from its literal template: the first barrier lowered by the program's own text
 

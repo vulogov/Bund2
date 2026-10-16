@@ -344,6 +344,19 @@ fn same_class(a: &Rc<ClassModel>, b: &Rc<ClassModel>) -> bool {
     Rc::ptr_eq(a, b) || matches!((&a.name, &b.name), (Some(x), Some(y)) if x == y)
 }
 
+/// The same knowledge about a slot, for the merge a repeated body needs.
+fn same(a: &Abs, b: &Abs) -> bool {
+    match (a, b) {
+        (Abs::Unknown, Abs::Unknown) => true,
+        (Abs::Tagged(x), Abs::Tagged(y)) => x == y,
+        (Abs::Name(x, m), Abs::Name(y, n)) => x == y && m == n,
+        (Abs::Lambda(x), Abs::Lambda(y)) => Rc::ptr_eq(x, y),
+        (Abs::List(x), Abs::List(y)) => Rc::ptr_eq(x, y),
+        (Abs::Class(x), Abs::Class(y)) | (Abs::Object(x), Abs::Object(y)) => same_class(x, y),
+        _ => false,
+    }
+}
+
 /// Why a walk is running: over a program, where taking from an empty stack
 /// is a finding, or over a body whose effect is wanted, where it is the
 /// body's consumption (RFC-0004 §S3's dip).
@@ -706,6 +719,25 @@ impl<'a> Walker<'a> {
                 }
                 true
             }
+            // `n { … } times` pushes the counter before each run
+            // (`reference/rust_multistackvm/src/stdlib/logic/times_fun.rs:18-20`);
+            // `list { … } loop` pushes the element (`loop_fun.rs:21-23`); `cond
+            // { … } if` and its three siblings run the body once or not at all
+            // (`if_fun.rs:28-66`). Each is the body run a number of times the
+            // walk does not know — D180.
+            "times" => self.repeat(
+                name,
+                Some(Abs::Tagged(INTEGER)),
+                "the count",
+                stack,
+                at,
+                via,
+                level,
+            ),
+            "loop" => self.repeat(name, Some(Abs::Unknown), "the list", stack, at, via, level),
+            "if" | "?true" | "if.false" | "?false" => {
+                self.repeat(name, None, "the condition", stack, at, via, level)
+            }
             "object" => self.object_word(stack, at, via, level),
             // `True` and `False` are `true "Bool" object` and its twin
             // (`reference/Bund/src/stdlib/functions/oop/bool_class.rs`).
@@ -718,6 +750,71 @@ impl<'a> Walker<'a> {
             _ => return None,
         };
         Some(went)
+    }
+
+    /// A body run some number of times the walk cannot know — D180. `times`,
+    /// `loop` and the `if` family all pull the body from the top and what
+    /// governs the runs from beneath it, then run the body with `each`
+    /// pushed first, zero or more times.
+    ///
+    /// The depth after is known only when one run leaves the stack as deep
+    /// as it found it, because then every count of runs leaves it there. The
+    /// body is walked once on a copy; a run that nets anything else is an
+    /// abandonment that says how much, and a run that nets zero is kept with
+    /// every slot it may have rewritten forgotten — the zero-run and the
+    /// many-run stacks agree on depth and on nothing else. A finding inside
+    /// the body is a finding: a body that cannot run once is wrong whatever
+    /// the count, and RFC-0004 §S4 made findings warnings for exactly the
+    /// case of a body that never runs.
+    #[allow(clippy::too_many_arguments)]
+    fn repeat(
+        &mut self,
+        name: &str,
+        each: Option<Abs>,
+        governs: &str,
+        stack: &mut Stack,
+        at: usize,
+        via: Option<&str>,
+        level: u8,
+    ) -> Went {
+        self.report.analysed += 1;
+        let Some(mut t) = self.take(stack, 2, name, at, via) else {
+            return self.abandon(format!("`{name}` with nothing beneath it to run"));
+        };
+        let Abs::Lambda(b) = t.remove(0) else {
+            return self.abandon(format!("`{name}` with a body the walk cannot see"));
+        };
+        let before = stack.items.len();
+        let mut once = Stack {
+            items: stack.items.clone(),
+            dip: stack.dip,
+        };
+        if let Some(e) = each {
+            once.push(e);
+        }
+        let inside = format!("the body `{name}` runs");
+        if !self.walk(&b, &mut once, Some(at), Some(&inside), level + 1) {
+            return false;
+        }
+        let dipped = (once.dip - stack.dip).max(0) as usize;
+        let net = once.items.len() as i64 - dipped as i64 - before as i64;
+        if net != 0 {
+            return self.abandon(format!(
+                "`{name}` with a body that leaves {net:+} value(s) per run, so the depth after depends on {governs}"
+            ));
+        }
+        let mut merged = Vec::with_capacity(once.items.len());
+        for (j, after) in once.items.iter().enumerate() {
+            let kept = j
+                .checked_sub(dipped)
+                .and_then(|i| stack.items.get(i))
+                .filter(|orig| same(orig, after))
+                .cloned();
+            merged.push(kept.unwrap_or(Abs::Unknown));
+        }
+        stack.items = merged;
+        stack.dip = once.dip;
+        true
     }
 
     /// `object` — construct from a registered class, by name
@@ -1101,7 +1198,10 @@ mod tests {
             eff_of("1 2 + !").opaque,
             "`!` on an INTEGER is the fallback arm"
         );
-        assert!(eff_of("{ drop } loop").opaque, "`loop` runs a body");
+        assert!(
+            eff_of("{ dup } loop").opaque,
+            "`loop` whose body nets +1 per run has no pair — D180"
+        );
         assert!(
             eff_of("nosuchwordanywhere").opaque,
             "an unknown name may be bound at run time — D16"
@@ -1214,6 +1314,53 @@ mod tests {
         let rep = check_src(":nosuchslot 42 :Value object !");
         assert_eq!(rep.abandoned, 1, "{rep:?}");
         assert!(rep.reasons[0].0.contains("no slot"), "{:?}", rep.reasons);
+    }
+
+    /// **D180.** A body `times`, `loop` or `if` runs is walked once; the
+    /// depth after is known when one run nets zero, and said to depend on
+    /// the count or the condition when it does not. A finding inside the
+    /// body is reported with the body named.
+    #[test]
+    fn a_repeated_body_is_followed_when_one_run_nets_zero() {
+        let e = eff_of("5 { drop } times");
+        assert_eq!((e.consumes, e.produces, e.opaque), (0, 0, false));
+
+        // The count and the accumulator beneath are taken, the sum is left.
+        let e = eff_of("{ + } times");
+        assert_eq!((e.consumes, e.produces, e.opaque), (2, 1, false));
+
+        assert!(clean(&check_src("0 10 { + } times println")));
+        assert!(clean(&check_src("[ 1 2 3 ] { println } loop")));
+        assert!(clean(&check_src("true { \"yes\" println } if")));
+        assert!(clean(&check_src(
+            "42 :Value object ?object { \"built\" println } if println"
+        )));
+
+        // The counter is pushed and never taken, and `dup` adds one more.
+        let rep = check_src("3 { dup } times");
+        assert_eq!(rep.abandoned, 1, "{rep:?}");
+        assert!(
+            rep.reasons[0].0.contains("+2") && rep.reasons[0].0.contains("the count"),
+            "{:?}",
+            rep.reasons
+        );
+
+        let rep = check_src("true { 1 } if");
+        assert!(
+            rep.reasons[0].0.contains("the condition"),
+            "{:?}",
+            rep.reasons
+        );
+
+        let rep = check_src("10 { + } times println");
+        assert_eq!(rep.findings.len(), 1, "{rep:?}");
+        assert_eq!(
+            rep.findings[0].via.as_deref(),
+            Some("the body `times` runs")
+        );
+
+        let rep = check_src("3 :nobody times");
+        assert!(rep.reasons[0].0.contains("cannot see"), "{:?}", rep.reasons);
     }
 
     /// **D179.** A class the program defines is read as it is built, parents
