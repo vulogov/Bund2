@@ -489,6 +489,87 @@ fn fragment(c: &mut Criterion) {
         );
     });
 
+    // The other four comparisons, 2026-10-16, each in `>`'s three columns:
+    // `0 1 OP drop`, the word's own dispatch, then `frag::run`, then the
+    // hand-written lowering. One helper loop, because the rows differ only
+    // in the word, the arm and the comparison the lowering performs.
+    type Compare = fn(i64, i64) -> bool;
+    let comparisons = [
+        (
+            "int_le",
+            "<=",
+            bund2_stdlib::fragments::int_le(),
+            (|top, below| top <= below) as Compare,
+        ),
+        (
+            "int_ge",
+            ">=",
+            bund2_stdlib::fragments::int_ge(),
+            (|top, below| top >= below) as Compare,
+        ),
+        (
+            "int_eq",
+            "==",
+            bund2_stdlib::fragments::int_eq(),
+            (|top, below| top == below) as Compare,
+        ),
+        (
+            "int_ne",
+            "!=",
+            bund2_stdlib::fragments::int_ne(),
+            (|top, below| top != below) as Compare,
+        ),
+    ];
+    for (label, word, arm, compare) in comparisons {
+        let src = format!("0 1 {word} drop ").repeat(N);
+        let stream = bund2_syntax::compile(&src).unwrap_or_default();
+        g.bench_function(format!("{label}/tier0"), |b| {
+            b.iter_batched(
+                interp,
+                |mut i| black_box(i.eval(black_box(&stream))).is_ok(),
+                BatchSize::SmallInput,
+            );
+        });
+        assert!(arm.is_ok(), "{arm:?}");
+        let Ok(arm) = arm else { return };
+        g.bench_function(format!("{label}/inlined"), |b| {
+            b.iter_batched(
+                interp,
+                |mut i| {
+                    for _ in 0..N {
+                        i.push(BundValue::int(0));
+                        i.push(BundValue::int(1));
+                        let _ = black_box(frag::run(&mut i, black_box(&arm)));
+                        let _ = i.pull();
+                    }
+                    black_box(i.depth())
+                },
+                BatchSize::SmallInput,
+            );
+        });
+        g.bench_function(format!("{label}/lowered"), |b| {
+            b.iter_batched(
+                interp,
+                |mut i| {
+                    for _ in 0..N {
+                        i.push(BundValue::int(0));
+                        i.push(BundValue::int(1));
+                        let admitted = matches!(i.peek_at(0), Some(BundValue::Int(_, _)))
+                            && matches!(i.peek_at(1), Some(BundValue::Int(_, _)));
+                        if admitted {
+                            let top = i.pull().and_then(|v| v.as_int()).unwrap_or(0);
+                            let below = i.pull().and_then(|v| v.as_int()).unwrap_or(0);
+                            i.push(BundValue::boolean(compare(top, below)));
+                        }
+                        let _ = i.pull();
+                    }
+                    black_box(i.depth())
+                },
+                BatchSize::SmallInput,
+            );
+        });
+    }
+
     let src5 = format!("1 2 {}", "swap ".repeat(N));
     let stream5 = bund2_syntax::compile(&src5).unwrap_or_default();
     g.bench_function("swap/tier0", |b| {

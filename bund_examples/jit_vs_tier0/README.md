@@ -124,9 +124,9 @@ dup { 1 + 2 / 3 - 4 + 5 + 6 - 7 + 8 + 9 - drop } times
 | Tier 0 | 2.7 s |
 | JIT | 0.83 s |
 
-The tier's integer fragments are `+`, `-`, `*`, `<` and `>`, each added on
-its own with a measurement before it and a differential test against the word
-after it. `/` has none, so it is a generic site in the middle of the chain,
+The tier's integer fragments are `+`, `-`, `*` and the six comparisons
+`<`, `>`, `<=`, `>=`, `==` and `!=`, each added on its own with a measurement
+before it and a differential test against the word after it. `/` has none, so it is a generic site in the middle of the chain,
 and the values around it are boxed and unboxed on every iteration. One `/`
 doubles the compiled time: it costs about as much as the loop and the other
 eight operators together. `*` was in that position when this example was

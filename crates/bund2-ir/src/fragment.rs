@@ -118,6 +118,23 @@ pub enum Op {
     /// `LtInt { dst: 0, a: 1, b: 0 }` — the same shape `SubInt` takes, for the
     /// same reason.
     LtInt { dst: u8, a: u8, b: u8 },
+    /// `dst = (a <= b) as i64`. The arm behind `<=`, read as [`Op::LtInt`]
+    /// is: `1 2 <=` asks whether 2 is at most 1, so `<=`'s fragment is
+    /// `LeInt { dst: 0, a: 1, b: 0 }`, and `>=`'s is the same operation with
+    /// `a` and `b` exchanged, as `>`'s is `LtInt`'s. *(2026-10-16: added with
+    /// `EqInt` and `NeInt` so the six comparison words all have an arm; a
+    /// `NotBool` would have served `<=` and `!=` with one op fewer, at the
+    /// price of an arm that is two ops where the word is one comparison.)*
+    LeInt { dst: u8, a: u8, b: u8 },
+    /// `dst = (a == b) as i64`. Equality commutes, so the register order is
+    /// invisible, as it is for `AddInt`. On two unboxed ints the word `==` is
+    /// `i64` equality (`numeric_eq` in `crates/bund2-stdlib/src/logic.rs`,
+    /// the `Int, Int` arm); D30's exactness is about a float against an int,
+    /// which the guard never admits.
+    EqInt { dst: u8, a: u8, b: u8 },
+    /// `dst = (a != b) as i64`, the complement of [`Op::EqInt`] as one
+    /// operation rather than a comparison and a negation.
+    NeInt { dst: u8, a: u8, b: u8 },
     /// Push a register as a fresh boolean: `false` for `0`, `true` otherwise.
     ///
     /// The value is what `BundValue::boolean` builds, which is what `<`
@@ -235,8 +252,9 @@ impl Fragment {
     ///   `drop drop` under `Depth(1)` is refused rather than dropping twice
     ///   and silently doing nothing the second time.
     /// - A register must be **written before it is read**: `PushInt`,
-    ///   `PushBool`, `AddInt`, `SubInt`, `MulInt` and `LtInt` may only read registers an
-    ///   earlier `PopInt` or arithmetic op wrote. The file starts zeroed, so an
+    ///   `PushBool`, `AddInt`, `SubInt`, `MulInt`, `LtInt`, `LeInt`, `EqInt`
+    ///   and `NeInt` may only read registers an earlier `PopInt` or
+    ///   arithmetic op wrote. The file starts zeroed, so an
     ///   unwritten read would push `0` and report success.
     /// - `PushBool` leaves a value of no known kind on the abstract stack: a
     ///   later `PopInt` may not read it, because it is not an `Int`.
@@ -343,7 +361,10 @@ impl Fragment {
                 Op::AddInt { dst, a, b }
                 | Op::SubInt { dst, a, b }
                 | Op::MulInt { dst, a, b }
-                | Op::LtInt { dst, a, b } => {
+                | Op::LtInt { dst, a, b }
+                | Op::LeInt { dst, a, b }
+                | Op::EqInt { dst, a, b }
+                | Op::NeInt { dst, a, b } => {
                     if let Some(bad) = [*dst, *a, *b].into_iter().find(|r| !inside(*r)) {
                         return Err(format!(
                             "op {i} ({op:?}) names register {bad}, outside a file of {regs}"
@@ -493,6 +514,47 @@ mod tests {
             .is_err(),
             "register 1 is read before anything writes it"
         );
+    }
+
+    /// The three comparison ops added 2026-10-16 are walked as `LtInt` is:
+    /// two written registers read, one written, and a read of an unwritten
+    /// register refused.
+    #[test]
+    fn le_eq_and_ne_are_walked_like_lt() {
+        for op in [
+            Op::LeInt { dst: 0, a: 1, b: 0 },
+            Op::EqInt { dst: 0, a: 0, b: 1 },
+            Op::NeInt { dst: 0, a: 0, b: 1 },
+        ] {
+            assert!(
+                Fragment::new(
+                    Guard::TopAreInt(2),
+                    vec![Op::PopInt, Op::PopInt, op.clone(), Op::PushBool(0)],
+                    2
+                )
+                .is_ok(),
+                "{op:?}: the arm"
+            );
+            assert!(
+                Fragment::new(Guard::TopAreInt(2), vec![Op::PopInt, op.clone()], 2).is_err(),
+                "{op:?}: register 1 is read before anything writes it"
+            );
+            assert!(
+                Fragment::new(
+                    Guard::TopAreInt(2),
+                    vec![
+                        Op::PopInt,
+                        Op::PopInt,
+                        op.clone(),
+                        Op::PushBool(0),
+                        Op::PopInt
+                    ],
+                    2
+                )
+                .is_err(),
+                "{op:?}: a pushed boolean is not an integer a PopInt may read"
+            );
+        }
     }
 
     #[test]

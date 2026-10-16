@@ -172,6 +172,24 @@ pub fn run(i: &mut Interp, f: &Fragment) -> Result<bool, Error> {
                     *slot = i64::from(x < y);
                 }
             }
+            Op::LeInt { dst, a, b } | Op::EqInt { dst, a, b } | Op::NeInt { dst, a, b } => {
+                let (Some(x), Some(y)) = (
+                    regs.get(*a as usize).copied(),
+                    regs.get(*b as usize).copied(),
+                ) else {
+                    return Err(Error::internal(
+                        "fragment op LeInt/EqInt/NeInt names a register outside the fragment's file",
+                    ));
+                };
+                let held = match op {
+                    Op::LeInt { .. } => x <= y,
+                    Op::EqInt { .. } => x == y,
+                    _ => x != y,
+                };
+                if let Some(slot) = regs.get_mut(*dst as usize) {
+                    *slot = i64::from(held);
+                }
+            }
             Op::PushBool(r) => {
                 let Some(v) = regs.get(*r as usize).copied() else {
                     return Err(Error::internal(

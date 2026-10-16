@@ -4011,7 +4011,9 @@ held by criterion 16's differential test against the word itself.
    for `*`'s arm, after `bund_examples/jit_vs_tier0` showed one `*` in a
    chain of nine operators as the one generic site; `>`'s arm reuses
    `LtInt` with the registers exchanged. Ten operations, eight arms. Still
-   nothing branches.)*
+   nothing branches.)* *(2026-10-16: `LeInt`, `EqInt` and `NeInt`, for the
+   `<=`, `>=`, `==` and `!=` arms, each one `icmp`. Thirteen operations,
+   twelve arms. Still nothing branches.)*
 2. **The site.** When the tier lowers a body and finds a LAMBDA literal
    followed by a CALL whose slot is, at compile time, the built-in `if` or
    `if.false`, it emits the branch over the literal's body instead of a
@@ -7759,7 +7761,11 @@ half-finished families, or leaving D24 deferred.
 - Blocks: nothing
 - Depends on: D18, D24, D14, F73
 - Status: **RESOLVED for one operand**, built 2026-10-07. Two and three
-  operands are open, and are this entry's last section.
+  operands are open, and are this entry's last section. *(2026-10-16: that
+  section's dated note of 2026-10-07 ruled and built them — 85 forms over
+  the 260 words that had none — so the entry is RESOLVED whole, and the
+  words still without a form are so by D24, by that note, or because
+  nothing has asked for one of the 48 opaque words.)*
 
 ### Where D24 stood
 

@@ -1022,6 +1022,21 @@ RFC was drafted.)*
 `reference/`. `[UNGROUNDED]`, Q43: a negative over six repositories, which no
 single `path:line` shows.)*
 
+*(2026-10-16: **grounded by a recorded search**, Q43 (1). The six trees are
+`reference/Bund`, `bund_language_parser`, `bundcore`, `rust_dynamic`,
+`rust_multistack` and `rust_multistackvm`. A search of every `.rs` under
+their `src/` for the names a second tier would carry — `jit`, `cranelift`,
+`llvm`, `inkwell`, `dynasm`, `asm!`, `libloading`, `mmap`, `codegen`,
+`bytecode`, `compile_to`, `emit_`, "machine code", "native code" — finds
+one line, `compile_to_binary` in
+`reference/bund_language_parser/src/compile.rs:23-30`, which parses source
+to a LIST of values and serialises it with `to_binary`: a wire form of the
+parse, not code. The `[dependencies]` table of each of the six `Cargo.toml`
+files names no code generator, assembler or loader; `reference/Bund`'s long
+list is data, terminal and I/O libraries. So "no second tier and no compiled
+code of any kind" is the search's result, and the search is what this note
+records.)*
+
 There is no Tier 1 *code*: `crates/bund2-jit/src/lib.rs` is a doc comment and
 lint configuration — twelve lines — and `crates/bund2-ir/src/lib.rs` now
 declares `pub mod fragment` and re-exports `Fragment`, `Guard` and `Op`: the
@@ -2404,7 +2419,8 @@ inlining rules:
   re-mints and re-records them, and `bund2-jit` reads that set when it
   compiles, as it reads the fragment table. An earlier revision called the set
   "the same set its fragments are keyed by", but the fragment table holds three
-  ids (the tenth review's S1) *(2026-10-15: six; later that day, eight)*. A command carries no D43 id, so no command is
+  ids (the tenth review's S1) *(2026-10-15: six; later that day, eight;
+  2026-10-16: twelve)*. A command carries no D43 id, so no command is
   ever crossed; `bund2-stdlib` registers none. Every other native is synced
   before, as at an opaque site: an embedder's, an external package's under D9,
   or a `bund2-stdlib` native no audit brought to `Ok`. That costs speed, never
@@ -3258,6 +3274,37 @@ keyed by `*` and `>`; `bund2_ir::Op` gained `MulInt`, lowered to `imul`, and
 bodies use neither word, nothing moved — Tier 0 0.47 s, Tier 1 0.59 s,
 re-measured after them.)*
 
+*(2026-10-16 — **the other four comparisons, at the owner's direction**:
+`<=`, `>=`, `==` and `!=` on two ints, so the six comparison words read as a
+set. Three operations for four arms: `LeInt`, with `>=` as `LeInt` read the
+other way exactly as `>` is `LtInt`; `EqInt`; `NeInt`, one operation rather
+than `EqInt` and a negation. All lower to one `icmp` each; still nothing
+branches. Same command, same machine, one run, release, per operation; every
+chain is `0 1 OP drop`, as `<`'s is:*
+
+| | `tier0` | `inlined` | `lowered` | inlining ceiling |
+|---|---|---|---|---|
+| `Int < Int` *(re-run)* | 72.6 ns | 28.1 ns | 24.6 ns | 2.95× |
+| `Int > Int` *(re-run)* | 69.9 ns | 28.4 ns | 24.4 ns | 2.87× |
+| `Int <= Int` | 69.2 ns | 28.5 ns | 24.8 ns | 2.79× |
+| `Int >= Int` | 69.0 ns | 27.9 ns | 24.5 ns | 2.81× |
+| `Int == Int` | 70.3 ns | 27.8 ns | 24.3 ns | 2.89× |
+| `Int != Int` | 68.1 ns | 27.0 ns | 23.3 ns | 2.92× |
+
+*On `bund_examples/jit_vs_tier0`'s kernel with its last `-` changed to one of
+the four — nine arithmetic sites, one comparison, one `drop` — Tier 0 runs
+2.65 s and the JIT 0.57–0.58 s over ten million iterations, `0 generic of
+19`; the previous commit's JIT, where that site was generic, ran 0.65–0.68 s
+on the same files, `1 generic of 19`, so the arm buys about an eighth of
+the compiled time here rather than the 1.1 s to 0.42 s `*` bought: a
+comparison closes the chain, so nothing after it was boxed around the
+generic site. The all-arithmetic kernel is 0.43 s compiled: the
+comparison's boolean is pushed through its helper and the `drop` pulls it,
+which is the difference. On `fib`, whose bodies use `<` only, nothing moved
+within the run-to-run spread — Tier 0 0.50 s, Tier 1 0.61 s, against 0.47 s
+and 0.59 s the day before. The arms are `int_le`, `int_ge`, `int_eq` and
+`int_ne` in `crates/bund2-stdlib/src/fragments.rs`.)*
+
 ### What has been built, 2026-09-09 and 2026-09-10
 
 The representation and its first consumer, which is everything on this side of
@@ -3280,7 +3327,9 @@ nor any `cranelift-*` crate, with `bund2-stdlib` now depending on `bund2-ir`.
 arm; `Op` has nine operations, `frag::run` executes all nine, and
 `Fragment::new`'s typed walk counts `SwapTop` as consuming two and refuses a
 `PopInt` of what `PushBool` left.)* *(Later that day: eight arms, `int_mul`
-and `int_gt` added, and ten operations, `MulInt` the tenth.)*
+and `int_gt` added, and ten operations, `MulInt` the tenth.)* *(2026-10-16:
+twelve arms and thirteen operations — `int_le`, `int_ge`, `int_eq`, `int_ne`
+over `LeInt`, `EqInt` and `NeInt`.)*
 
 `frag::run` is **not Tier 1** — it generates no code and caches nothing. It
 exists so the representation is exercised rather than assumed, and so
@@ -4842,6 +4891,31 @@ does not violate D10 — but it must not drag in anything that does.
 *(2026-10-11: "Cranelift is pure Rust and needs no `cc`" has no citation.
 `[UNGROUNDED]`, Q43. What is checked is narrower: `cargo tree` over the
 feature, which nobody has read for a build script that invokes a C compiler.)*
+
+*(2026-10-16: **grounded by reading the build scripts**, Q43 (2), at the
+pinned versions in the lock file. `cargo tree -p bund2-jit -e normal,build`
+with and without `--features jit`, diffed, says the feature adds twenty-eight
+crates: the sixteen `cranelift-*` at 0.135.0, `regalloc2`, `cranelift-jit`'s
+`memmap2`, `region`, `mach2` and `wasmtime-internal-jit-icache-coherence`,
+`wasmtime-internal-core`, `target-lexicon`, `gimli` 0.33, `arbitrary`,
+`bumpalo`, `foldhash` 0.2, `hashbrown` 0.16 and `rustc-hash`. Five of them
+carry a `build.rs`, and each was read: `cranelift-codegen`'s runs the ISLE
+compiler, which is the Rust crate `cranelift-isle`, and spawns `git
+rev-parse HEAD` for a version string, falling back to the package version
+when `git` is absent or the directory is not a repository;
+`cranelift-assembler-x64`'s calls its `-meta` crate to generate Rust;
+`cranelift-isle`'s writes a list of its own tests; `target-lexicon`'s runs
+`rustc --version` for the host triple; `wasmtime-internal-core`'s prints a
+`check-cfg` line. None names a C compiler, a `.c` file or the `cc` crate, and
+their `[build-dependencies]` are `cranelift-*-meta` and nothing else. `cargo
+tree -p bund2-jit --features jit -e normal,build -i cc` prints nothing: the
+`cc` crate is not in the tree at all. So the feature needs no C toolchain,
+which is what D10's second half asks. One finding outside the feature:
+`signal-hook`, in the Tier 0 tree through `reference/Bund`'s own
+dependencies, has an optional `cc` build-dependency behind its
+`extended-siginfo-raw` feature; the same `-i cc` over the default tree
+prints nothing, so the feature is off and no C is compiled below `bund2
+build` today either.)*
 
 Exact version pins are already in place (`=0.135.0`) and §3.2e's instruction —
 "pin exact versions; budget for periodic migration work" — is honoured by the
@@ -6766,7 +6840,9 @@ criterion.)*
     `BundValue`, both decisions and neither built.)*
 
     *(2026-10-15, later: the `*` and `>` arms touch no site of `fib`'s.
-    Re-measured after them, Tier 0 0.47 s, Tier 1 0.59 s.)*
+    Re-measured after them, Tier 0 0.47 s, Tier 1 0.59 s.)* *(2026-10-16:
+    nor do the `<=`, `>=`, `==` and `!=` arms — `fib` compares with `<`.
+    Re-measured, Tier 0 0.50 s, Tier 1 0.61 s, the same ratio.)*
 
 11. **A promoted recursion does not overflow the machine stack.** §S8's
     correctness problem, and the criterion is one that already exists:
@@ -7310,6 +7386,19 @@ criterion.)*
     `the_lowered_int_gt_agrees_with_frag_run_at_every_boundary`, with the same
     pins on the compiled path. The declining test now covers all four
     two-operand arms.)*
+
+    *(2026-10-16: the `<=`, `>=`, `==` and `!=` arms carry the three legs.
+    The model's: `the_int_le_ge_eq_and_ne_arms_agree_with_their_words` over
+    the squared boundary set for each of the four, and
+    `the_int_le_ge_eq_and_ne_arms_answer_as_the_oracle_does`, which pins
+    `1 2 <=` to `false`, `1 2 >=` to `true`, both to `true` at equality, and
+    `==` against `!=` on the same pairs including `i64::MIN` against itself.
+    The lowered leg:
+    `the_lowered_int_le_ge_eq_and_ne_agree_with_frag_run_at_every_boundary`,
+    with six pinned pairs per arm on the compiled path. The declining test,
+    `the_two_operand_int_arms_decline_what_they_do_not_claim`, now covers all
+    eight two-operand arms. `Fragment::new`'s walk has
+    `le_eq_and_ne_are_walked_like_lt`.)*
 
 17. **Every inlined site carries its meaning guard.** §S6: an inlined
     fragment is entered only while the site's slot still holds the binding it
@@ -8270,6 +8359,23 @@ criterion.)*
 
     *(2026-10-11: "today only opaque words make such calls" rests on no scan.
     `[UNGROUNDED]`, Q43.)*
+
+    *(2026-10-16: **grounded by a scan**, Q43 (3). Over `bund2-stdlib`'s
+    shipped source — every file cut at its first test module, as criterion
+    25's scan cuts — the 225 functions the crate hands to `register_native`
+    were collected, and every call of one of them written as a Rust call
+    `name(vm)` outside a registration was listed. There are three:
+    `unwrap_word(vm)` and `crate::values::execute_top(vm)` in
+    `object_execute_base`, which is `#` and `#.`, and
+    `crate::values::execute_top(vm)` in `display`. The conditional runners
+    were scanned the same way, as calls of what `vm.conditional(..)` returns:
+    one, the `fmt` runner, in `display`. `#` is registered
+    `StackEffect::opaque(2)`, `#.` `opaque(1)` and `display` `opaque(1)`
+    (`crates/bund2-stdlib/src/oop.rs`, `crates/bund2-stdlib/src/singles.rs`).
+    So the sentence holds today, by this scan and not by a test: a fourth
+    such call in a fixed-effect word would not fail a build. The method
+    bodies `dispatch_method` runs go through `Vm::eval_lambda`, which the
+    audit does see as a body start.)*
 
 25. **No native reports at `Error` severity.** §S5's reporter rule reads
     `Warning` and `Notice` because natives return errors rather than

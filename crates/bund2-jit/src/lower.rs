@@ -377,7 +377,10 @@ fn emit_fragment_ops(
             Op::AddInt { dst, a, b }
             | Op::SubInt { dst, a, b }
             | Op::MulInt { dst, a, b }
-            | Op::LtInt { dst, a, b } => {
+            | Op::LtInt { dst, a, b }
+            | Op::LeInt { dst, a, b }
+            | Op::EqInt { dst, a, b }
+            | Op::NeInt { dst, a, b } => {
                 let (Some(&va), Some(&vb)) = (file.get(usize::from(*a)), file.get(usize::from(*b)))
                 else {
                     return Err(format!(
@@ -388,7 +391,7 @@ fn emit_fragment_ops(
                 let y = f.use_var(vb);
                 // Wrapping, as D4's `i64` arithmetic and the word are: a
                 // trapping or checked add is where a lowering would part
-                // company with `frag::run` at `i64::MAX`. The comparison is
+                // company with `frag::run` at `i64::MAX`. The comparisons are
                 // signed, as `i64::cmp` is, and widened to the register's
                 // width so `PushBool` reads `0` or `1`.
                 let r = match op {
@@ -396,7 +399,13 @@ fn emit_fragment_ops(
                     Op::SubInt { .. } => f.ins().isub(x, y),
                     Op::MulInt { .. } => f.ins().imul(x, y),
                     _ => {
-                        let c = f.ins().icmp(IntCC::SignedLessThan, x, y);
+                        let cc = match op {
+                            Op::LeInt { .. } => IntCC::SignedLessThanOrEqual,
+                            Op::EqInt { .. } => IntCC::Equal,
+                            Op::NeInt { .. } => IntCC::NotEqual,
+                            _ => IntCC::SignedLessThan,
+                        };
+                        let c = f.ins().icmp(cc, x, y);
                         f.ins().uextend(types::I64, c)
                     }
                 };
@@ -528,7 +537,8 @@ fn emit_sync_top_n(
 ///   of them must see its operands there. `Op::PushBool` pushes through its
 ///   helper too, because the model holds no boolean — so `<`'s arm, whose
 ///   `LtInt` alone would qualify, takes its operands from the stack, and so
-///   does `>`'s, which is the same `LtInt` read the other way.
+///   do the other five comparisons' (`>` is the same `LtInt` read the other
+///   way; `<=`, `>=`, `==` and `!=` are `LeInt`, `EqInt` and `NeInt`).
 fn takes_registers(fragment: &Fragment) -> bool {
     matches!(fragment.guard(), Guard::TopAreInt(_))
         && fragment.ops().iter().all(|o| {
@@ -4417,6 +4427,76 @@ mod tests {
 
     fn gt_arm() -> Fragment {
         bund2_stdlib::fragments::int_gt().expect("well-formed")
+    }
+
+    /// **The third leg for `<=`, `>=`, `==` and `!=`**, 2026-10-16, over the
+    /// squared set, with the orientation and the two answers pinned by value
+    /// on the compiled path. `1 2 <=` asks whether 2 is at most 1; `1 2 >=`
+    /// whether 2 is at least 1; equality and its complement commute.
+    #[test]
+    fn the_lowered_int_le_ge_eq_and_ne_agree_with_frag_run_at_every_boundary() {
+        type Want = fn(i64, i64) -> bool;
+        let arms: [(&str, Fragment, Want); 4] = [
+            (
+                "<=",
+                bund2_stdlib::fragments::int_le().expect("well-formed"),
+                |below, top| top <= below,
+            ),
+            (
+                ">=",
+                bund2_stdlib::fragments::int_ge().expect("well-formed"),
+                |below, top| top >= below,
+            ),
+            (
+                "==",
+                bund2_stdlib::fragments::int_eq().expect("well-formed"),
+                |below, top| top == below,
+            ),
+            (
+                "!=",
+                bund2_stdlib::fragments::int_ne().expect("well-formed"),
+                |below, top| top != below,
+            ),
+        ];
+        for (word, f, want) in &arms {
+            for a in EDGES {
+                for b in EDGES {
+                    assert_agree(
+                        f,
+                        &[BundValue::int(a), BundValue::int(b)],
+                        &format!("{a} {b} {word}"),
+                    );
+                }
+            }
+            let compiled = compile(f).expect("lowers");
+            for (a, b) in [
+                (1, 2),
+                (2, 1),
+                (2, 2),
+                (i64::MIN, i64::MAX),
+                (i64::MAX, i64::MIN),
+                (i64::MIN, i64::MIN),
+            ] {
+                let mut vm = interp_with(&[BundValue::int(a), BundValue::int(b)]);
+                assert_eq!(compiled.run(&mut vm), Ok(true));
+                let stack = vm.snapshot();
+                assert_eq!(stack.len(), 1, "{a} {b} {word}: one value left");
+                let expect = want(a, b);
+                assert!(
+                    matches!(stack.first(), Some(BundValue::Bool(v, _)) if *v == expect),
+                    "{a} {b} {word} must leave {expect}, left {:?}",
+                    stack.first()
+                );
+            }
+        }
+        // The pins above are not vacuous: each arm answers both ways
+        // somewhere in the set.
+        for (word, _, want) in &arms {
+            assert!(
+                want(1, 2) != want(2, 1) || want(2, 2) != want(1, 2),
+                "{word}"
+            );
+        }
     }
 
     /// **Criterion 16's third leg for `Int * Int`**, over the squared boundary
