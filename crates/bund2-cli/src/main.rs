@@ -591,13 +591,14 @@ fn run_check(src: &str, file: &str) -> ExitCode {
                 span: None,
             });
         bund2_api::errln!(
-            "Warning: {}:{}:{}: `{}` needs {} value(s); {} can be proven here",
+            "Warning: {}:{}:{}: `{}` needs {} value(s); {} can be proven here{}",
             where_.file.as_deref().unwrap_or(file),
             where_.line,
             where_.column,
             f.word,
             f.needs,
-            f.have
+            f.have,
+            via_of(f)
         );
     }
 
@@ -622,6 +623,17 @@ fn run_check(src: &str, file: &str) -> ExitCode {
         bund2_api::sayln!("  tracked. Nothing is claimed about the rest.");
     }
     ExitCode::SUCCESS
+}
+
+/// Where a finding inside a body was reached from — D179. A finding in a
+/// lambda `!` runs, or in a method or constructor, is located at the site
+/// that ran it, and this names the body so the line is not read as the
+/// site's own arity.
+fn via_of(f: &bund2_stdlib::check::Finding) -> String {
+    match &f.via {
+        Some(v) => format!(", inside {v}"),
+        None => String::new(),
+    }
 }
 
 /// What the build's underflow analysis says — D177.
@@ -662,8 +674,11 @@ fn underflow_over(files: &[(&str, &str, bund2_syntax::Lowered)]) -> Underflow {
                 })
                 .unwrap_or((0, 0));
             format!(
-                "{path}:{line}:{column}: `{}` needs {} value(s); {} can be proven here",
-                f.word, f.needs, f.have
+                "{path}:{line}:{column}: `{}` needs {} value(s); {} can be proven here{}",
+                f.word,
+                f.needs,
+                f.have,
+                via_of(f)
             )
         })
         .collect();

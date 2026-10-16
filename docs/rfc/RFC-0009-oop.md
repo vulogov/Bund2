@@ -342,6 +342,13 @@ ordinary polymorphic execute on whatever `unwrap` produced. Bund2 implements
 them separately, and only the first fills the `execute` arm RFC-0003 §S4b left
 open.
 
+*(2026-10-16, D179: `bund2 check` reads §4 and §5 statically. With the
+receiver's class known from `object` or `<class> !`, a literal method name
+beneath it is located as `m` locates it — own slot, then each parent depth
+first — and a LAMBDA slot is walked in place, a PTR slot takes the
+`MethodEffect` its native declares, any other slot is pushed. `#` stays
+opaque: what `unwrap` produces has no tag the walk can see.)*
+
 ### S7. `<class> !` constructs, from the value — D23 and D25
 
 F16's disposition is FIX and D23 resolves the shape: **build from the CLASS

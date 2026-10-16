@@ -3650,6 +3650,120 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D179 — `check` tracks tags: `!` takes the arm the run would take, `object` follows construction, and a method native declares what it does to its receiver
+
+**Raised 2026-10-16** by the repository owner, after D178: "next barrier,
+object/! tag tracking" — D178's option C, the first piece of RFC-0004's
+territory that D177 costed as "a new abstract interpreter over tags". After
+D178 the barriers the corpus hit first were `object` (25 files) and `!` (22
+files), and every one of the `object` sites and most of the `!` sites were
+the OOP idioms: `:Name object`, `:.id :Probed object ! swap drop`,
+`:overlap swap !`, `:greet :B object !`.
+
+- Blocks: nothing
+- Depends on: RFC-0004 §S3 (inference by composition), §S6 (the barriers);
+  RFC-0009 §4 (dispatch peeks and searches the ancestry), §5 (`!` on an
+  OBJECT pulls a name), §S7 (`<class> !` constructs from the value, D23 and
+  D25); D178 (the literal-operand rule, kept); F93 (a lambda shadows a
+  native, so a redefined `!` is the program's word)
+- Options:
+  - **A. One abstract stack of tagged slots, and the arms the tags open.**
+    The walk keeps a slot per value — its tag, a literal name, a literal
+    body, a class or an object of one, or nothing — instead of a depth.
+    `!` on a known slot takes the arm `execute` takes on that tag
+    (`reference/rust_multistackvm/src/stdlib/execute.rs:26-98`): a literal
+    LAMBDA is walked in place on the same stack (`:93-94`); a literal name
+    is the word of that name (`:27-30`); a CLASS is constructed, Bund2's
+    D23 arm; an OBJECT pulls a method name from beneath it, pushes the
+    object back and dispatches (`bund_execute/execute_object.rs:8-20`),
+    searching the class and then each parent depth first
+    (`multistackvm_object.rs:6-24`), walking a LAMBDA slot in place, taking
+    a PTR slot's declared effect, pushing any other slot (`:55-79`).
+    `object` follows construction as the run performs it
+    (`bund_object.rs:27-113`, `:115-188`): every parent in `.super` is
+    built and its `.init` run with the parent object on top, pulled again
+    only if still there (`:83-94`); the object is then pushed, its own
+    `.init` run, and the object left on top whatever the constructor did
+    (`:132-174`). A class the program defines is read as it is built —
+    `class`, `set` with a literal key on the CLASS, `register`
+    (`lambdas/registry.rs:9-23`) — so its methods and constructor are
+    bodies the walk enters. `dup`, `swap` and `drop` move slots with their
+    tags; `ptr` keeps a literal's text; `True` and `False` are `true "Bool"
+    object` and its twin.
+  - **B. Native method effects at the registration site.** `m` peeks
+    (`multistackvm_object.rs:45-49`), so what a method does *to its
+    receiver* is what a plain pair cannot say and what construction's
+    "is the object still on top" test needs (`bund_object.rs:163-174`). A
+    `MethodEffect` — `Peek`, `Rebuild`, `Consume` or `Opaque` — is declared
+    with each of the twenty method natives, RFC-0004 §S2's rule applied to
+    RFC-0009 §2's fifth table.
+  - **C. Only the literal `{ … } !` arm**, D177's note. Two sites.
+  - **D. Tags without construction**: `!` on literal lambdas and names, no
+    `object`. Leaves every OOP site where it was.
+- Recommendation: A with B; C is contained in A.
+- Status: **RESOLVED** by the repository owner, 2026-10-16: "next barrier,
+  object/! tag tracking". A and B built the same day.
+
+### Built, the same day
+
+- `crates/bund2-stdlib/src/check.rs` rewritten around the abstract stack:
+  one walker runs the program (where taking from an empty stack is a
+  finding) and infers a body (where it is the body's consumption, §S3's
+  dip), so `infer` is the same walk on an empty stack and a body entered
+  through `!`, a method or a constructor is walked on the caller's stack.
+  A finding inside such a body is located at the site that entered it and
+  carries `via` — "the lambda `!` runs", "method `greet` of `B`", "the
+  constructor of `Value`" — which `bund2 check` and `bund2 build` print.
+  Nothing is guessed: a computed class or method name, a slot the class
+  lacks, a parent neither the program nor Bund2 defines, a LIST or
+  CONDITIONAL under `!`, and `.format`'s template-driven arity are each an
+  abandonment with its own reason, and the reason now names the tag `!`
+  met rather than "`!`".
+- `bund2_api::MethodEffect` and `Registry::register_method(name, f,
+  effect)`, with `method_effect` for the reader. `.id`, `.timestamp` and
+  `.str` peek and push one; `.print` and `.println` peek and push none;
+  `.value_init` rebuilds taking one from beneath; the converting inits and
+  `.floats_init`, `.intervals_init` rebuild taking none; the three `push`
+  methods rebuild taking one; `.intervals_overlap` consumes the receiver
+  and one beneath and answers one; `.format` and `.display` are opaque.
+  Each pair is read from the method's own body in `oop.rs` and the
+  reference file it cites.
+- **On the corpus**, the same 224 programs as D178, measured the same way:
+
+  | | after D178 | after D179 |
+  |---|---|---|
+  | sites analysed | 2402 | 2548 |
+  | abandonments | 165 | 152 |
+  | programs with no abandonment | 59 | 72 |
+  | `object` as the first barrier | 25 | 10 |
+  | `!` as the first barrier | 22 | 16 |
+  | findings | 3 | 3 |
+
+  The ten `object` sites left are all `IMAGE`, a class no word package of
+  Bund2 defines, and the reason says so. The sixteen `!` sites left are
+  all a CONDITIONAL built by `set` on what `?`, `?try`, `csv` or `sqlite`
+  pushed — RFC-0004 §S6's fourth barrier, the CF registry, reached through
+  a value whose tag the walk does not see because no native declares the
+  tag of what it produces. The three findings are D178's three, unchanged:
+  no false positive was added, and the `,`-on-a-TEXT pair that produces
+  two of them is still the declared `3` of `set`.
+- **Tests**: `bang_on_a_literal_lambda_or_name_is_followed`,
+  `object_follows_the_constructors_of_a_built_in_class`,
+  `a_method_call_on_a_known_object_is_followed` and
+  `a_class_the_program_defines_is_modelled`, the last two walking
+  `value_demo.bund`, `intervals_demo.bund`,
+  `class_hierarhy_call_method.bund` and `class_constructors_demo.bund` as
+  the corpus writes them, beside the four that were there.
+- **Not built**: the tag of what a native *produces* (`?`, `csv` and
+  `sqlite` push a CONDITIONAL; `class` is the one word whose result the
+  walk knows), which is what would name the sixteen `!` sites and is a
+  declaration per native, not a walk change; the `LIST` arm of `!`, which
+  executes each element; the `MAP` arm, which pulls a key; and the
+  `loop`/`times`/`if` family, where a literal body's effect is known but
+  how many times it runs is not — `times` and `loop` with a body whose net
+  is zero after the index is the next candidate by the count, at 12 and 9
+  files.
+
 ## D178 — `check` reads `format`'s arity from its literal template: the first barrier lowered by the program's own text
 
 **Raised 2026-10-16** by the repository owner: "implement one #4 feature
@@ -3729,6 +3843,8 @@ computed, and no inline walk reaches them.
   of literal-operand rules is for the day a second word earns one, and the
   candidates are the words whose arity a literal fixes — `?.` with a literal
   count is the next by the measurement, at 20 occurrences.
+  *(2026-10-16, later: C built as D179, and B with it — a literal `{ … }`
+  under `!` is one of the arms a tracked tag opens.)*
 
 ## D177 — `bund2 build` checks before it writes: the parse, the underflow analysis, `--check` and `--strict`
 

@@ -148,7 +148,8 @@ USAGE
 
 Never runs the program. Prints each finding as a warning, then how many
 sites were analysed and how many abandoned, and why. Exit 0 either way:
-`!` is opaque and a false positive is certain, so check does not gate.
+`!` on a value the analysis cannot see is opaque and a false positive is
+certain, so check does not gate.
 ";
 
 pub const INFER: &str = "\

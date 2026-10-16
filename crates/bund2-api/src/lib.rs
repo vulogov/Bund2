@@ -1176,6 +1176,44 @@ impl StackEffect {
     }
 }
 
+/// What a method native does to the stack, said at its registration site —
+/// D179, RFC-0004 §S2's rule applied to the fifth table.
+///
+/// A method runs with its receiver on top: `m` peeks rather than pulls
+/// (`reference/rust_multistackvm/src/multistackvm_object.rs:45-49`), and what
+/// the method then does *to the receiver* is the part a plain pair cannot say.
+/// `bund2 check` needs it twice over — construction tests whether the object
+/// is still on top after `.init` (`bund_object.rs:163-174`), and a method call
+/// followed by another needs the receiver's tag to survive the first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MethodEffect {
+    /// The receiver stays; `produces` values are pushed above it.
+    Peek { produces: u8 },
+    /// The receiver and `below` values beneath it are taken, and the receiver,
+    /// possibly rebuilt, is pushed back alone.
+    Rebuild { below: u8 },
+    /// The receiver and `below` values beneath it are taken; `produces`
+    /// values are pushed, none of them the receiver.
+    Consume { below: u8, produces: u8 },
+    /// What it takes depends on what it finds — `.format` pulls one value per
+    /// template key the object does not carry.
+    Opaque,
+}
+
+impl MethodEffect {
+    /// The pair, for a reader that only counts.
+    pub const fn as_effect(self) -> StackEffect {
+        match self {
+            Self::Peek { produces } => StackEffect::fixed(1, produces.saturating_add(1)),
+            Self::Rebuild { below } => StackEffect::fixed(below.saturating_add(1), 1),
+            Self::Consume { below, produces } => {
+                StackEffect::fixed(below.saturating_add(1), produces)
+            }
+            Self::Opaque => StackEffect::opaque(1),
+        }
+    }
+}
+
 /// A native binding.
 #[derive(Clone, Copy)]
 pub struct Native {
@@ -1494,7 +1532,7 @@ pub struct Registry {
     /// **The method table** — the fifth name-keyed table
     /// (`reference/rust_multistackvm/src/multistackvm_methods.rs:8`). A method
     /// is reachable only through a class slot; nothing dispatches it by name.
-    methods: std::collections::BTreeMap<String, NativeFn>,
+    methods: std::collections::BTreeMap<String, (NativeFn, MethodEffect)>,
     /// Bumped by `register_class` and `register_method`. RFC-0002's generation
     /// is **per word-table slot** and never sees either of these tables, so a
     /// dispatch cache keyed on a class needs its own.
@@ -1741,15 +1779,21 @@ impl Registry {
         }
     }
 
-    /// Bind a method name to a native. Methods are reached through a class
-    /// slot holding a PTR, never by word dispatch.
-    pub fn register_method(&mut self, name: &str, f: NativeFn) {
-        self.methods.insert(name.to_string(), f);
+    /// Bind a method name to a native, with what it does to the stack.
+    /// Methods are reached through a class slot holding a PTR, never by word
+    /// dispatch.
+    pub fn register_method(&mut self, name: &str, f: NativeFn, effect: MethodEffect) {
+        self.methods.insert(name.to_string(), (f, effect));
         self.method_generation = self.method_generation.saturating_add(1);
     }
 
     pub fn method(&self, name: &str) -> Option<NativeFn> {
-        self.methods.get(name).copied()
+        self.methods.get(name).map(|(f, _)| *f)
+    }
+
+    /// The declared effect of a method native, for `bund2 check` — D179.
+    pub fn method_effect(&self, name: &str) -> Option<MethodEffect> {
+        self.methods.get(name).map(|(_, e)| *e)
     }
 
     pub fn is_method(&self, name: &str) -> bool {

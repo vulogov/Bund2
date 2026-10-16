@@ -18,7 +18,7 @@
 //! a *name* (F16). D23 says build from the value; D25 says take `.class_name`
 //! from the class itself and fail if it carries none.
 
-use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
+use bund2_api::{Error, MethodEffect, Registry, StackEffect, Vm, WordKind};
 use bund2_value::{BundValue, LAMBDA, OBJECT, PTR};
 
 fn eff(consumes: u8, produces: u8) -> StackEffect {
@@ -472,14 +472,26 @@ fn method_print(vm: &mut dyn Vm) -> Result<(), Error> {
 /// the method `` `.id ``, while `Printable` maps the slot `str` to `` `.str ``.
 /// The leading dot belongs to the method's name, not the slot's.
 fn register_base(r: &mut Registry) {
-    r.register_method(".id", method_id);
-    r.register_method(".timestamp", method_timestamp);
-    r.register_method(".str", method_str);
-    r.register_method(".print", method_print);
-    r.register_method(".println", method_println);
+    // **Each method says what it does to its receiver — D179.** `.id`,
+    // `.timestamp` and `.str` peek and push one value; `.print` and
+    // `.println` push and consume it again; `.format` pulls a stack value
+    // per template key the object lacks, so its arity is the template's.
+    r.register_method(".id", method_id, MethodEffect::Peek { produces: 1 });
+    r.register_method(
+        ".timestamp",
+        method_timestamp,
+        MethodEffect::Peek { produces: 1 },
+    );
+    r.register_method(".str", method_str, MethodEffect::Peek { produces: 1 });
+    r.register_method(".print", method_print, MethodEffect::Peek { produces: 0 });
+    r.register_method(
+        ".println",
+        method_println,
+        MethodEffect::Peek { produces: 0 },
+    );
 
-    r.register_method(".format", method_format);
-    r.register_method(".display", method_display);
+    r.register_method(".format", method_format, MethodEffect::Opaque);
+    r.register_method(".display", method_display, MethodEffect::Opaque);
 
     let display = BundValue::class(Default::default())
         .set(".class_name", BundValue::str("Display"))
@@ -1026,10 +1038,31 @@ fn object_execute_base(vm: &mut dyn Vm, side: crate::wb::Side) -> Result<(), Err
 /// inherits `str`, `println` and the rest of the base chain — that is how
 /// `"…{A}…" format` reaches inside one.
 fn register_wrapped(r: &mut Registry) {
-    r.register_method(".value_init", method_value_init);
-    r.register_method(".int_init", method_int_init);
-    r.register_method(".bool_init", method_bool_init);
-    r.register_method(".float_init", method_float_init);
+    // D179: every `.init` here pulls its receiver and pushes it back rebuilt;
+    // `.value_init` takes the wrapped value from beneath it first, and the
+    // converting inits take nothing more. `push` takes the item beneath the
+    // receiver and gives the receiver back; `overlap` consumes the receiver
+    // and answers a label in its place.
+    r.register_method(
+        ".value_init",
+        method_value_init,
+        MethodEffect::Rebuild { below: 1 },
+    );
+    r.register_method(
+        ".int_init",
+        method_int_init,
+        MethodEffect::Rebuild { below: 0 },
+    );
+    r.register_method(
+        ".bool_init",
+        method_bool_init,
+        MethodEffect::Rebuild { below: 0 },
+    );
+    r.register_method(
+        ".float_init",
+        method_float_init,
+        MethodEffect::Rebuild { below: 0 },
+    );
 
     let value = BundValue::class(Default::default())
         .set(".class_name", BundValue::str("Value"))
@@ -1059,13 +1092,44 @@ fn register_wrapped(r: &mut Registry) {
     // **`List` and its two children** — RFC-0010 §S1, additive: the parents
     // the reference declares, so no existing ancestry moves and
     // `bool-objects.golden` is untouched.
-    r.register_method(".list_init", method_list_init);
-    r.register_method(".list_push", method_list_push);
-    r.register_method(".floats_init", method_floats_init);
-    r.register_method(".floats_push", method_floats_push);
-    r.register_method(".intervals_init", method_intervals_init);
-    r.register_method(".intervals_push", method_intervals_push);
-    r.register_method(".intervals_overlap", method_intervals_overlap);
+    r.register_method(
+        ".list_init",
+        method_list_init,
+        MethodEffect::Rebuild { below: 0 },
+    );
+    r.register_method(
+        ".list_push",
+        method_list_push,
+        MethodEffect::Rebuild { below: 1 },
+    );
+    r.register_method(
+        ".floats_init",
+        method_floats_init,
+        MethodEffect::Rebuild { below: 0 },
+    );
+    r.register_method(
+        ".floats_push",
+        method_floats_push,
+        MethodEffect::Rebuild { below: 1 },
+    );
+    r.register_method(
+        ".intervals_init",
+        method_intervals_init,
+        MethodEffect::Rebuild { below: 0 },
+    );
+    r.register_method(
+        ".intervals_push",
+        method_intervals_push,
+        MethodEffect::Rebuild { below: 1 },
+    );
+    r.register_method(
+        ".intervals_overlap",
+        method_intervals_overlap,
+        MethodEffect::Consume {
+            below: 1,
+            produces: 1,
+        },
+    );
 
     let list = BundValue::class(Default::default())
         .set(".class_name", BundValue::str("List"))
@@ -1488,8 +1552,10 @@ mod tests {
         crate::register_all(&mut a.registry);
         let mut b = Interp::new();
         crate::register_all(&mut b.registry);
-        a.registry.register_method(".id", pushes_one);
-        b.registry.register_method(".id", pushes_two);
+        a.registry
+            .register_method(".id", pushes_one, MethodEffect::Peek { produces: 1 });
+        b.registry
+            .register_method(".id", pushes_two, MethodEffect::Peek { produces: 1 });
 
         let src = ":A class \".super\" [ :Object ] set register\n:.id :A object !";
         for (vm, want) in [(&mut a, 1i64), (&mut b, 2i64)] {

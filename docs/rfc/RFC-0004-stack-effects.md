@@ -356,6 +356,20 @@ rule moved the sites analysed from 2259 to 2402 over 224 programs with no
 new finding. A computed template is as opaque as before; nothing here
 touches the four barriers above.)*
 
+*(2026-10-16, D179: barrier 1 is now a barrier only where the walk does not
+know the tag. The abstract stack holds a slot per value — tag, literal
+name, literal body, class, object — and `!` on a known slot takes the arm
+`execute` takes on that tag: a literal lambda is walked in place, a literal
+name is the word, a CLASS is constructed, an OBJECT dispatches by the
+literal name beneath it through RFC-0009 §4's search. `object` follows
+construction parent by parent, and each method native declares a
+`MethodEffect` — what it does to its receiver — at its registration site,
+§S2's rule applied to the method table. Over the same 224 programs the
+sites analysed moved from 2402 to 2548 and the programs with no abandonment
+from 59 to 72, with the three findings unchanged. What remains under
+barrier 1 is `!` on a value whose tag no native declares, which on the
+corpus is always a CONDITIONAL — barrier 4 by another road.)*
+
 ## Preservation analysis
 
 | Current behaviour | Disposition |
