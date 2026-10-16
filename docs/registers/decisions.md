@@ -3650,6 +3650,95 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D181 — a native declares what it leaves on top, and a CONDITIONAL is followed by its declared type
+
+**Raised 2026-10-16** by the repository owner, after D180: "next barrier,
+declare the tag a native produces". After D180 the barrier the corpus hit
+first was `!` on a value whose tag the walk did not know (16 files), and
+every one of those values was a CONDITIONAL — pushed by `?`, `?try`, `csv`
+or `sqlite`, filled by `set`, and run by `!` through the CF registry,
+RFC-0004 §S6's fourth barrier. The walk did not know the tag because no
+native said what it leaves.
+
+- Blocks: nothing
+- Depends on: RFC-0004 §S1 (the effect's axes), §S2 (declared at the
+  registration site), §S6 barrier 4; D179 (slot models and `!` by tag),
+  D180 (a body run some number of times)
+- Options:
+  - **A. A third thing beside the pair: `Leaves`.** `StackEffect` gains
+    `leaves`, `Unknown` unless the registration site says `Tag(t)` or
+    `Conditional(type)`, set with `.leaving(…)` on the pair so the thirty
+    `eff(a, b)` sites stand. The walk tags the top value a fixed-pair word
+    produces with it, and a `Conditional(type)` becomes a slot model, as a
+    class is, that `set` with a literal key fills. `!` on that model takes
+    the handler its type names (`reference/rust_multistackvm/src/stdlib/execute_types/execute_conditionals.rs:9-25`):
+    `through` runs `run`
+    (`reference/rust_multistackvm/src/stdlib/artefacts.rs:121-125`, the
+    constructor); `ifthenelse` runs `if`, takes the condition and runs one
+    branch (`reference/Bund/src/stdlib/functions/conditional/conditional_ifthenelse.rs:14-50`),
+    so both branches are walked and the stack kept only where they agree;
+    `error` runs `associated`; `csv` and `sqlite` push a row and run
+    `lambda` per row (`run_csv`, `run_sqlite` in
+    `crates/bund2-stdlib/src/data.rs`), which is D180's rule with a LIST or
+    a MAP pushed, or once over a column as a LIST; `curry` registers a word
+    built from `data`, `lambda` and `!` (`run_curry`), which the walk
+    registers too. A slot that is not a literal lambda — a missing slot is
+    an empty body, as `slot_body` reads it, but a computed one may be a
+    lambda at run time — is an abandonment naming the slot.
+  - **B. Tags only, no slot model**: `!` on a CONDITIONAL named precisely
+    and still abandoned. Changes no number.
+  - **C. Special-case the constructor words in the walk** instead of
+    declaring at the registration site. Against §S2.
+- Recommendation: A.
+- Status: **RESOLVED** by the repository owner, 2026-10-16: "next barrier,
+  declare the tag a native produces". A built the same day.
+
+### Built, the same day
+
+- `bund2_api::Leaves` and `StackEffect::leaves`, declared on the nine
+  constructors: `?`/`conditional`, `?ifthenelse`, `?try`, `?error`, `fmt`,
+  `context`, `curry`, `csv` and `sqlite`, each with the `type` string its
+  own body writes.
+- `Abs::Cond`, `Walker::run_conditional`, `slot_walk` and `Stack::join` in
+  `crates/bund2-stdlib/src/check.rs`; `repeat` split so `csv` and `sqlite`
+  share D180's rule.
+- **Not followed, by design**: `?try`, after which the depth depends on
+  whether `try` failed — the except path pushes an error and runs `except`
+  and `recovery` from wherever the failure left the stack
+  (`conditional_tryexcept.rs:30-50`), and a walk of `try` alone would
+  report, as findings, underflows the program may be catching on purpose;
+  `context`, a stack switch; `fmt`, whose message pulls what its template
+  names.
+- **On the corpus**, the same 224 programs, measured the same way:
+
+  | | after D180 | after D181 |
+  |---|---|---|
+  | sites analysed | 2663 | 2800 |
+  | abandonments | 135 | 130 |
+  | programs with no abandonment | 89 | 94 |
+  | `!` on a value of unknown tag | 16 | 0 |
+  | `?try` | — | 5 |
+  | findings | 3 | 3 |
+
+  Every former unknown-tag site is now followed or named: five are `?try`,
+  the rest run through. The first barrier by count is now the stack switch
+  (16), then `IMAGE` (10).
+- **The three findings, corrected.** D178 and D179 described the two in
+  `json_answer.bund` as the declared pair being the wrong arm for a TEXT
+  receiver. They are not: `set` pulls three in the reference whatever the
+  receiver is (`reference/rust_multistackvm/src/stdlib/values/value_dict.rs:7-16`),
+  and both engines refuse the program at exactly that site with `Stack is
+  too shallow for inline set`, the oracle run and `bund2` run the same day
+  agreeing. The analysis was right, and the example is broken. The third,
+  `swap` in `hello_distributed_world_with_value.bund`, meets a value the
+  bus delivers before the script runs, which a walk of the script alone
+  cannot see; it stays a warning.
+- **Tests**: `a_conditional_is_followed_by_its_declared_type`.
+- **Not built**: `Leaves::Tag` on any native — the machinery is there and
+  no site needs it yet; `?ifthenelse`'s cousin `?true*`, which is a word
+  with a THEN and an ELSE on the stack (5 files) and is the next by the
+  count after the stack switch; `*loop`, `while` and `for`.
+
 ## D180 — `check` follows a body `times`, `loop` or `if` runs when one run leaves the stack as deep as it found it
 
 **Raised 2026-10-16** by the repository owner, after D179: "next barrier,
@@ -3818,6 +3907,8 @@ the OOP idioms: `:Name object`, `:.id :Probed object ! swap drop`,
   tag of what it produces. The three findings are D178's three, unchanged:
   no false positive was added, and the `,`-on-a-TEXT pair that produces
   two of them is still the declared `3` of `set`.
+  *(2026-10-16, later: the two `,` findings are real — D181 ran both
+  engines on the example and each refuses it at that site.)*
 - **Tests**: `bang_on_a_literal_lambda_or_name_is_followed`,
   `object_follows_the_constructors_of_a_built_in_class`,
   `a_method_call_on_a_known_object_is_followed` and

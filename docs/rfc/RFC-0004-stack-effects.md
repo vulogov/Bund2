@@ -377,6 +377,17 @@ does. A run that nets anything else is an abandonment that says how much
 per run. Over the same 224 programs: sites analysed 2548 → 2663, programs
 with no abandonment 72 → 89, findings unchanged.)*
 
+*(2026-10-16, D181: barrier 4 is followed where the CONDITIONAL's slots are
+literal. A constructor declares the `type` it writes — `StackEffect::leaves`,
+§S2's rule with a third thing beside the pair — so the walk holds the
+conditional as a slot model that `set` fills, and `!` takes the handler the
+type names: `through`, `ifthenelse` with both branches joined, `error`,
+`csv` and `sqlite` under D180's rule, `curry` as a registration. `?try` is
+named and not followed, because after it the depth depends on whether
+`try` failed. Over the same 224 programs: sites analysed 2663 → 2800,
+programs with no abandonment 89 → 94, and no `!` site is left whose tag
+the walk does not know.)*
+
 ## Preservation analysis
 
 | Current behaviour | Disposition |

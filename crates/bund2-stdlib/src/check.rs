@@ -89,7 +89,7 @@
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use bund2_api::{MethodEffect, Registry, StackEffect};
+use bund2_api::{Leaves, MethodEffect, Registry, StackEffect};
 use bund2_value::{
     BOOL, BundValue, CALL, CLASS, CONDITIONAL, CONTEXT, FLOAT, INTEGER, LAMBDA, LIST, MAP, OBJECT,
     PTR, STRING,
@@ -214,6 +214,9 @@ enum Abs {
     Class(Rc<ClassModel>),
     /// An OBJECT, and the class it was constructed from.
     Object(Rc<ClassModel>),
+    /// A CONDITIONAL — its `type` as the model's name, its slots as `set`
+    /// filled them — D181.
+    Cond(Rc<ClassModel>),
 }
 
 impl Abs {
@@ -245,6 +248,7 @@ impl Abs {
             Abs::List(_) => "a LIST".into(),
             Abs::Class(m) => format!("the class {}", m.display_name()),
             Abs::Object(m) => format!("an object of {}", m.display_name()),
+            Abs::Cond(m) => format!("a CONDITIONAL of type {}", m.display_name()),
         }
     }
 }
@@ -292,6 +296,14 @@ impl ClassModel {
         Self {
             name: Some(Rc::from(name)),
             slots,
+        }
+    }
+
+    /// A CONDITIONAL of this `type`, with no slot filled yet.
+    fn kind(ty: &str) -> Self {
+        Self {
+            name: Some(Rc::from(ty)),
+            slots: BTreeMap::new(),
         }
     }
 
@@ -352,7 +364,9 @@ fn same(a: &Abs, b: &Abs) -> bool {
         (Abs::Name(x, m), Abs::Name(y, n)) => x == y && m == n,
         (Abs::Lambda(x), Abs::Lambda(y)) => Rc::ptr_eq(x, y),
         (Abs::List(x), Abs::List(y)) => Rc::ptr_eq(x, y),
-        (Abs::Class(x), Abs::Class(y)) | (Abs::Object(x), Abs::Object(y)) => same_class(x, y),
+        (Abs::Class(x), Abs::Class(y))
+        | (Abs::Object(x), Abs::Object(y))
+        | (Abs::Cond(x), Abs::Cond(y)) => same_class(x, y),
         _ => false,
     }
 }
@@ -396,6 +410,61 @@ impl Stack {
             self.items.push(Abs::Unknown);
         }
     }
+
+    fn copy(&self) -> Stack {
+        Stack {
+            items: self.items.clone(),
+            dip: self.dip,
+        }
+    }
+
+    /// How much deeper this stack is than `base`, counting what it took
+    /// from beneath `base`'s bottom as taken.
+    fn net_against(&self, base: &Stack) -> i64 {
+        let dipped = (self.dip - base.dip).max(0);
+        self.items.len() as i64 - dipped - base.items.len() as i64
+    }
+
+    /// Replace this stack by `once`, a run of the same depth over it,
+    /// keeping a slot only where the two agree — D180.
+    fn keep_what_agrees(&mut self, once: &Stack) {
+        let dipped = (once.dip - self.dip).max(0) as usize;
+        let mut merged = Vec::with_capacity(once.items.len());
+        for (j, after) in once.items.iter().enumerate() {
+            let kept = j
+                .checked_sub(dipped)
+                .and_then(|i| self.items.get(i))
+                .filter(|orig| same(orig, after))
+                .cloned();
+            merged.push(kept.unwrap_or(Abs::Unknown));
+        }
+        self.items = merged;
+        self.dip = once.dip;
+    }
+
+    /// Two branches joined: the same depth, and a slot kept only where both
+    /// agree — D181. `None` when their depths differ.
+    fn join(a: Stack, b: &Stack) -> Option<Stack> {
+        if a.items.len() != b.items.len() || a.dip != b.dip {
+            return None;
+        }
+        let items = a
+            .items
+            .into_iter()
+            .zip(b.items.iter())
+            .map(|(x, y)| if same(&x, y) { x } else { Abs::Unknown })
+            .collect();
+        Some(Stack { items, dip: a.dip })
+    }
+}
+
+/// A CONDITIONAL's slot, as its handler would read it.
+enum Slot {
+    Lambda(Rc<[BundValue]>),
+    /// Missing, or a literal that is not a lambda: an empty body.
+    Absent,
+    /// A value the walk cannot see into, which may be a lambda at run time.
+    Unseen,
 }
 
 /// What dispatch found for a method name on a class.
@@ -478,7 +547,8 @@ impl<'a> Walker<'a> {
         Some((0..n).map(|_| stack.pop()).collect())
     }
 
-    /// A word with a fixed pair: take, then leave that many unknowns.
+    /// A word with a fixed pair: take, then leave that many unknowns — the
+    /// top one tagged when the registration site says what it is (D181).
     fn apply_fixed(
         &mut self,
         stack: &mut Stack,
@@ -489,7 +559,15 @@ impl<'a> Walker<'a> {
     ) {
         self.report.analysed += 1;
         let _ = self.take(stack, eff.consumes, word, at, via);
-        stack.push_unknown(eff.produces);
+        if eff.produces == 0 {
+            return;
+        }
+        stack.push_unknown(eff.produces - 1);
+        stack.push(match eff.leaves {
+            Leaves::Unknown => Abs::Unknown,
+            Leaves::Tag(t) => Abs::Tagged(t),
+            Leaves::Conditional(ty) => Abs::Cond(Rc::new(ClassModel::kind(ty))),
+        });
     }
 
     /// Walk one stream on one stack. `site` is the top-level index a nested
@@ -712,6 +790,9 @@ impl<'a> Walker<'a> {
                             (Abs::Class(m), Abs::Name(_, k)) => {
                                 stack.push(Abs::Class(Rc::new(m.with(&k, value))));
                             }
+                            (Abs::Cond(m), Abs::Name(_, k)) => {
+                                stack.push(Abs::Cond(Rc::new(m.with(&k, value))));
+                            }
                             _ => stack.push(Abs::Unknown),
                         }
                     }
@@ -737,6 +818,20 @@ impl<'a> Walker<'a> {
             "loop" => self.repeat(name, Some(Abs::Unknown), "the list", stack, at, via, level),
             "if" | "?true" | "if.false" | "?false" => {
                 self.repeat(name, None, "the condition", stack, at, via, level)
+            }
+            // `curry` takes its name first (`conditional_curry.rs`, through
+            // `named`) and `!` on it registers a word — D181.
+            "curry" => {
+                self.report.analysed += 1;
+                match self.take(stack, 1, name, at, via) {
+                    Some(mut t) => {
+                        let mut m = ClassModel::kind("curry");
+                        m.slots.insert("name".into(), t.remove(0));
+                        stack.push(Abs::Cond(Rc::new(m)));
+                    }
+                    None => stack.push_unknown(1),
+                }
+                true
             }
             "object" => self.object_word(stack, at, via, level),
             // `True` and `False` are `true "Bool" object` and its twin
@@ -784,37 +879,176 @@ impl<'a> Walker<'a> {
         let Abs::Lambda(b) = t.remove(0) else {
             return self.abandon(format!("`{name}` with a body the walk cannot see"));
         };
-        let before = stack.items.len();
-        let mut once = Stack {
-            items: stack.items.clone(),
-            dip: stack.dip,
-        };
+        self.run_repeatedly(name, each, governs, &b, stack, at, level)
+    }
+
+    /// `body` run with `each` pushed first, zero or more times, on `stack`:
+    /// kept when one run nets zero, abandoned with the amount otherwise.
+    #[allow(clippy::too_many_arguments)]
+    fn run_repeatedly(
+        &mut self,
+        name: &str,
+        each: Option<Abs>,
+        governs: &str,
+        body: &[BundValue],
+        stack: &mut Stack,
+        at: usize,
+        level: u8,
+    ) -> Went {
+        let mut once = stack.copy();
         if let Some(e) = each {
             once.push(e);
         }
         let inside = format!("the body `{name}` runs");
-        if !self.walk(&b, &mut once, Some(at), Some(&inside), level + 1) {
+        if !self.walk(body, &mut once, Some(at), Some(&inside), level + 1) {
             return false;
         }
-        let dipped = (once.dip - stack.dip).max(0) as usize;
-        let net = once.items.len() as i64 - dipped as i64 - before as i64;
+        let net = once.net_against(stack);
         if net != 0 {
             return self.abandon(format!(
                 "`{name}` with a body that leaves {net:+} value(s) per run, so the depth after depends on {governs}"
             ));
         }
-        let mut merged = Vec::with_capacity(once.items.len());
-        for (j, after) in once.items.iter().enumerate() {
-            let kept = j
-                .checked_sub(dipped)
-                .and_then(|i| stack.items.get(i))
-                .filter(|orig| same(orig, after))
-                .cloned();
-            merged.push(kept.unwrap_or(Abs::Unknown));
-        }
-        stack.items = merged;
-        stack.dip = once.dip;
+        stack.keep_what_agrees(&once);
         true
+    }
+
+    /// One slot of a CONDITIONAL, as its handler reads it: a LAMBDA is run and
+    /// anything else is an empty body (`slot_body`, after
+    /// `conditional_ifthenelse.rs:15-26`).
+    fn slot(m: &ClassModel, key: &str) -> Slot {
+        match m.slots.get(key) {
+            None => Slot::Absent,
+            Some(Abs::Lambda(b)) => Slot::Lambda(b.clone()),
+            Some(Abs::Unknown) | Some(Abs::Tagged(LAMBDA)) => Slot::Unseen,
+            Some(_) => Slot::Absent,
+        }
+    }
+
+    /// Walk a slot's body in place, or nothing when the slot is empty.
+    fn slot_walk(
+        &mut self,
+        m: &ClassModel,
+        key: &str,
+        word: &str,
+        stack: &mut Stack,
+        at: usize,
+        level: u8,
+    ) -> Went {
+        match Self::slot(m, key) {
+            Slot::Lambda(b) => {
+                self.report.analysed += 1;
+                let inside = format!("the `{key}` of `{word}`");
+                self.walk(&b, stack, Some(at), Some(&inside), level + 1)
+            }
+            Slot::Absent => true,
+            Slot::Unseen => self.abandon(format!(
+                "the `{key}` slot of `{word}`, which is not a literal lambda"
+            )),
+        }
+    }
+
+    /// `!` on a CONDITIONAL: `execute_conditionals.rs:9-25` reads `type` and
+    /// calls its handler. Followed where the handler runs literal slots:
+    /// `through` runs `run`; `ifthenelse` runs `if`, takes the condition and
+    /// runs one branch (`conditional_ifthenelse.rs:14-50`), so both branches
+    /// are walked and kept only where they agree; `error` runs
+    /// `associated`; `csv` and `sqlite` push a row and run `lambda` per row
+    /// (`run_csv`, `run_sqlite`), which is D180's rule, or once over a
+    /// column as a LIST; `curry` registers a word built from `data`, `lambda`
+    /// and `!` (`run_curry`). `tryexcept` is not followed: after it the depth
+    /// depends on whether `try` failed (`conditional_tryexcept.rs:30-50`).
+    fn run_conditional(
+        &mut self,
+        m: &Rc<ClassModel>,
+        stack: &mut Stack,
+        at: usize,
+        via: Option<&str>,
+        level: u8,
+    ) -> Went {
+        let kind = m.name.as_deref().unwrap_or("").to_string();
+        match kind.as_str() {
+            "through" => self.slot_walk(m, "run", "?", stack, at, level),
+            "error" => self.slot_walk(m, "associated", "?error", stack, at, level),
+            "ifthenelse" => {
+                if !self.slot_walk(m, "if", "?ifthenelse", stack, at, level) {
+                    return false;
+                }
+                self.report.analysed += 1;
+                if self.take(stack, 1, "?ifthenelse", at, via).is_none() {
+                    return self.abandon("`?ifthenelse` whose `if` left no condition".into());
+                }
+                let mut then_s = stack.copy();
+                let mut else_s = stack.copy();
+                if !self.slot_walk(m, "then", "?ifthenelse", &mut then_s, at, level) {
+                    return false;
+                }
+                if !self.slot_walk(m, "else", "?ifthenelse", &mut else_s, at, level) {
+                    return false;
+                }
+                match Stack::join(then_s, &else_s) {
+                    Some(j) => {
+                        *stack = j;
+                        true
+                    }
+                    None => self.abandon(
+                        "`?ifthenelse` whose `then` and `else` leave different depths, so the depth after depends on the condition"
+                            .into(),
+                    ),
+                }
+            }
+            "tryexcept" => {
+                self.abandon("`?try`, after which the depth depends on whether `try` failed".into())
+            }
+            "csv" | "sqlite" => {
+                let body = match Self::slot(m, "lambda") {
+                    Slot::Lambda(b) => b,
+                    Slot::Absent => Rc::from(Vec::new()),
+                    Slot::Unseen => {
+                        return self.abandon(format!(
+                            "the `lambda` slot of `{kind}`, which is not a literal lambda"
+                        ));
+                    }
+                };
+                self.report.analysed += 1;
+                if kind == "csv" && m.slots.contains_key("column") {
+                    stack.push(Abs::Tagged(LIST));
+                    let inside = "the `lambda` of `csv`".to_string();
+                    return self.walk(&body, stack, Some(at), Some(&inside), level + 1);
+                }
+                let each = if kind == "csv" {
+                    Abs::Tagged(LIST)
+                } else {
+                    Abs::Tagged(MAP)
+                };
+                self.run_repeatedly(&kind, Some(each), "the rows", &body, stack, at, level)
+            }
+            "curry" => {
+                let (Some(Abs::Name(_, n)), Slot::Lambda(b)) =
+                    (m.slots.get("name"), Self::slot(m, "lambda"))
+                else {
+                    return self.abandon("`curry` whose name or lambda is not a literal".into());
+                };
+                let data: Vec<BundValue> = match m.slots.get("data") {
+                    None => Vec::new(),
+                    Some(Abs::List(items)) => items.iter().rev().cloned().collect(),
+                    Some(_) => {
+                        return self.abandon("`curry` whose `data` is not a literal list".into());
+                    }
+                };
+                self.report.analysed += 1;
+                let mut body = data;
+                body.push(BundValue::lambda(b.to_vec()));
+                body.push(BundValue::call("!"));
+                self.lambdas.insert(n.to_string(), Rc::from(body));
+                true
+            }
+            "context" => self.abandon("a stack switch".into()),
+            "fmt" => self.abandon("`fmt`, whose message pulls what its template names".into()),
+            other => self.abandon(format!(
+                "`!` on a CONDITIONAL of type `{other}`, which the walk does not follow"
+            )),
+        }
     }
 
     /// `object` — construct from a registered class, by name
@@ -1004,6 +1238,8 @@ impl<'a> Walker<'a> {
             Abs::Name(_, n) => self.call(&n, None, stack, at, via, level),
             // D23: Bund2 constructs from the CLASS value.
             Abs::Class(m) => self.construct(&m, stack, at, level),
+            // `execute_conditionals.rs:9-25`: by the `type` slot — D181.
+            Abs::Cond(m) => self.run_conditional(&m, stack, at, via, level),
             // `execute_object.rs:8-20`: pull the name, push the object back,
             // dispatch.
             Abs::Object(m) => {
@@ -1361,6 +1597,61 @@ mod tests {
 
         let rep = check_src("3 :nobody times");
         assert!(rep.reasons[0].0.contains("cannot see"), "{:?}", rep.reasons);
+    }
+
+    /// **D181.** A constructor's declared `Leaves` makes the CONDITIONAL a
+    /// slot model, `set` fills it, and `!` runs the handler the type names.
+    #[test]
+    fn a_conditional_is_followed_by_its_declared_type() {
+        // `through`: `run` on the same stack.
+        let e = eff_of("? :run { 1 2 + } set !");
+        assert_eq!((e.consumes, e.produces, e.opaque), (0, 1, false));
+        let rep = check_src("? :run { + } set !");
+        assert_eq!(rep.findings.len(), 1, "{rep:?}");
+        assert_eq!(rep.findings[0].via.as_deref(), Some("the `run` of `?`"));
+
+        // `ifthenelse`: both branches walked, kept where they agree.
+        let e = eff_of("?ifthenelse :if { true } set :then { 1 } set :else { 2 } set !");
+        assert_eq!((e.consumes, e.produces, e.opaque), (0, 1, false));
+        let rep = check_src("?ifthenelse :if { true } set :then { 1 } set :else { 1 2 } set !");
+        assert!(
+            rep.reasons[0].0.contains("different depths"),
+            "{:?}",
+            rep.reasons
+        );
+
+        // `tryexcept` is not followed, and says why.
+        let rep = check_src("?try :try { 1 } set :except { drop } set !");
+        assert_eq!(rep.abandoned, 1, "{rep:?}");
+        assert!(
+            rep.reasons[0].0.contains("`try` failed"),
+            "{:?}",
+            rep.reasons
+        );
+
+        // `csv` and `sqlite`: a row per run, D180's rule; a column once.
+        assert!(clean(&check_src("\"f.csv\" csv :lambda { println } set !")));
+        assert!(clean(&check_src(
+            "\"f.csv\" csv :column \"x\" set :lambda { println } set !"
+        )));
+        assert!(clean(&check_src(
+            "\"f.db\" sqlite :sql \"select 1\" set :lambda { println } set !"
+        )));
+        // The row is pushed and never taken, and `dup` adds one more.
+        let rep = check_src("\"f.csv\" csv :lambda { dup } set !");
+        assert!(rep.reasons[0].0.contains("+2"), "{:?}", rep.reasons);
+
+        // A slot filled with something the walk cannot see is said so.
+        let rep = check_src("? :run 1 2 + set !");
+        assert!(
+            rep.reasons[0].0.contains("not a literal lambda"),
+            "{:?}",
+            rep.reasons
+        );
+
+        // `curry`: the word it registers has the effect of its body.
+        let e = eff_of(":f curry :lambda { + } set :data [ 1 ] set ! f");
+        assert_eq!((e.consumes, e.produces, e.opaque), (1, 1, false));
     }
 
     /// **D179.** A class the program defines is read as it is built, parents

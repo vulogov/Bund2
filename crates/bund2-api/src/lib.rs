@@ -1137,10 +1137,34 @@ pub enum WordKind {
 /// the second pull fails with a different message; declaring the guard's
 /// number would put a static arity that lies into RFC-0004's inference and
 /// RFC-0005's guard ordering.
+/// What a word leaves on top of what it produces, when that is known at the
+/// registration site — D181, the third thing `bund2 check` reads beside the
+/// pair and the `Opaque` flag.
+///
+/// Most words leave a value whose tag depends on their operands, and say
+/// nothing. A constructor of a CONDITIONAL leaves one of a `type` the word
+/// itself wrote (`reference/Bund/src/stdlib/functions/conditional/conditional_ifthenelse.rs:8-10`),
+/// and that type is what `!` dispatches on
+/// (`reference/rust_multistackvm/src/stdlib/execute_types/execute_conditionals.rs:9-25`),
+/// so declaring it is what lets the walk follow `? :run { … } set !`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Leaves {
+    /// Nothing is said.
+    #[default]
+    Unknown,
+    /// A value of this tag.
+    Tag(u16),
+    /// A CONDITIONAL whose `type` slot holds this string.
+    Conditional(&'static str),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StackEffect {
     pub consumes: u8,
     pub produces: u8,
+    /// What the top of `produces` is — D181. `Leaves::Unknown` unless the
+    /// registration site says.
+    pub leaves: Leaves,
     /// **The word's effect is not this pair.** RFC-0004 §S1's `Opaque` arm,
     /// carried as a flag rather than a third variant so the 30-odd existing
     /// `eff(a, b)` sites keep compiling.
@@ -1162,7 +1186,13 @@ impl StackEffect {
             consumes,
             produces,
             opaque: false,
+            leaves: Leaves::Unknown,
         }
+    }
+
+    /// The same pair, with what it leaves on top said — D181.
+    pub const fn leaving(self, leaves: Leaves) -> Self {
+        Self { leaves, ..self }
     }
 
     /// A word whose effect cannot be stated as a pair. `consumes` is still a
@@ -1172,6 +1202,7 @@ impl StackEffect {
             consumes: floor,
             produces: 0,
             opaque: true,
+            leaves: Leaves::Unknown,
         }
     }
 }

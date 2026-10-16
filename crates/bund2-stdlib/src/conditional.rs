@@ -15,7 +15,7 @@
 //! (`conditional_ifthenelse.rs:15-26`), so a half-populated conditional runs
 //! and does nothing. That is preserved.
 
-use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
+use bund2_api::{Error, Leaves, Registry, StackEffect, Vm, WordKind};
 use bund2_value::{BundValue, CONDITIONAL, LAMBDA, STRING};
 
 fn eff(consumes: u8, produces: u8) -> StackEffect {
@@ -416,14 +416,32 @@ fn stacks_noop(_vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 pub fn register(r: &mut Registry) {
-    r.register_native("?ifthenelse", q_ifthenelse, eff(0, 1), WordKind::Sync);
-    r.register_native("?try", q_try, eff(0, 1), WordKind::Sync);
-    r.register_native("?error", q_error, eff(0, 1), WordKind::Sync);
-    r.register_native("fmt", q_fmt, eff(0, 1), WordKind::Sync);
-    r.register_native("conditional", conditional, eff(0, 1), WordKind::Sync);
-    r.register_native("context", context_word, eff(1, 1), WordKind::Sync);
+    // Each constructor says the `type` it writes — D181 — which is what `!`
+    // dispatches on and what `bund2 check` follows.
+    let cond = |ty: &'static str| eff(0, 1).leaving(Leaves::Conditional(ty));
+    r.register_native(
+        "?ifthenelse",
+        q_ifthenelse,
+        cond("ifthenelse"),
+        WordKind::Sync,
+    );
+    r.register_native("?try", q_try, cond("tryexcept"), WordKind::Sync);
+    r.register_native("?error", q_error, cond("error"), WordKind::Sync);
+    r.register_native("fmt", q_fmt, cond("fmt"), WordKind::Sync);
+    r.register_native("conditional", conditional, cond("through"), WordKind::Sync);
+    r.register_native(
+        "context",
+        context_word,
+        eff(1, 1).leaving(Leaves::Conditional("context")),
+        WordKind::Sync,
+    );
     crate::wb::bench!(r, "context", context_word);
-    r.register_native("curry", curry_word, eff(1, 1), WordKind::Sync);
+    r.register_native(
+        "curry",
+        curry_word,
+        eff(1, 1).leaving(Leaves::Conditional("curry")),
+        WordKind::Sync,
+    );
     crate::wb::bench!(r, "curry", curry_word);
     r.register_native("raise", raise, eff(1, 0), WordKind::Sync);
     r.register_native("endcontext", endcontext, eff(0, 0), WordKind::Sync);
