@@ -1,0 +1,23 @@
+//
+// A numeric inner loop, for timing the Cranelift JIT against the Tier 0
+// interpreter on one and the same program. The body is the shape the tier
+// compiles best: an integer in, a straight line of literal arithmetic, and
+// nothing left behind.
+//
+// `times` pushes the iteration index before each run of the body. Bund's
+// binary words take their right operand first, so `x 3 -` is 3 - x, and the
+// chain turns the index x into -(x + 3) before `drop` discards it. The loop
+// keeps nothing it computes; the README says what it is for.
+//
+// N comes from `--n <int>`, ten million when absent:
+//   bund2 kernel.bund --n 1000000
+//   ./kernel --n 1000000
+//
+
+args.parse :n ?key
+{ drop 10000000 }
+{ :n get car convert.to_int }
+?true*
+
+dup { 1 + 2 + 3 - 4 + 5 + 6 - 7 + 8 + 9 - drop } times
+print " iterations" println
