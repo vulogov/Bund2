@@ -411,6 +411,13 @@ impl Stack {
         }
     }
 
+    /// The same depth, nothing known about any slot: a rotation.
+    fn forget_tags(&mut self) {
+        for a in &mut self.items {
+            *a = Abs::Unknown;
+        }
+    }
+
     fn copy(&self) -> Stack {
         Stack {
             items: self.items.clone(),
@@ -490,6 +497,18 @@ struct Walker<'a> {
     report: Report,
     why: BTreeMap<String, usize>,
     mode: Mode,
+    /// The named stacks that are not current, each known or forgotten — D182.
+    /// A stack never switched to is absent, and is created empty when it is
+    /// (`reference/rust_multistack/src/ts_ensure.rs:10-15`).
+    stacks: BTreeMap<String, Option<Stack>>,
+    /// The name of the stack the walk is on. The program starts on `main`.
+    current: String,
+    /// The stack to return to at each `endcontext`, pushed at every switch
+    /// as `VM::to_stack` pushes it (`reference/rust_multistackvm/src/multistackvm_to_stack.rs:5-19`).
+    nesting: Vec<String>,
+    /// False while a body runs on a copy of the stack, where a switch would
+    /// move the copy under another name.
+    may_switch: bool,
 }
 
 /// The outcome of one site: the walk goes on, or it has abandoned.
@@ -505,6 +524,48 @@ impl<'a> Walker<'a> {
             report: Report::default(),
             why: BTreeMap::new(),
             mode,
+            stacks: BTreeMap::new(),
+            current: "main".to_string(),
+            nesting: Vec::new(),
+            may_switch: true,
+        }
+    }
+
+    /// Switch the walk to the stack called `name`, saving the current one —
+    /// `VM::to_stack` through `TS::ensure_stack`, which creates a missing
+    /// stack empty (`reference/rust_multistack/src/ts_ensure.rs:10-15`).
+    fn switch_to(&mut self, name: &str, stack: &mut Stack) -> Went {
+        if self.mode != Mode::Program {
+            return self.abandon("a stack switch".into());
+        }
+        if !self.may_switch {
+            return self.abandon("a stack switch inside a body run some number of times".into());
+        }
+        self.report.analysed += 1;
+        if name == self.current {
+            return true;
+        }
+        let old = std::mem::take(stack);
+        self.stacks.insert(self.current.clone(), Some(old));
+        match self.stacks.remove(name) {
+            Some(Some(s)) => *stack = s,
+            Some(None) => {
+                return self.abandon(format!(
+                    "a switch to `{name}`, a stack another word may have changed"
+                ));
+            }
+            None => *stack = Stack::default(),
+        }
+        self.current = name.to_string();
+        true
+    }
+
+    /// A word that reaches a stack by name leaves the walk's picture of every
+    /// other stack stale, so they are forgotten and a later switch to one is
+    /// an abandonment rather than a claim.
+    fn forget_other_stacks(&mut self) {
+        for v in self.stacks.values_mut() {
+            *v = None;
         }
     }
 
@@ -586,9 +647,21 @@ impl<'a> Walker<'a> {
         for (i, v) in stream.iter().enumerate() {
             let at = site.unwrap_or(i);
             match v.dt() {
-                // `@name` and a CONTEXT both change which stack the walk is
-                // about, so the stack stops meaning anything.
-                CONTEXT => return self.abandon("a stack switch".into()),
+                // `@name` and `( … )` switch stacks — D182: the current one
+                // is saved under its name, the target is restored or created
+                // empty, and the name to return to is pushed
+                // (`reference/rust_multistackvm/src/multistackvm_apply.rs:69-87`).
+                CONTEXT => {
+                    let Some(name) = v.as_str() else {
+                        return self.abandon("a stack switch with no name".into());
+                    };
+                    if self.mode == Mode::Program && self.may_switch {
+                        self.nesting.push(self.current.clone());
+                    }
+                    if !self.switch_to(&name, stack) {
+                        return false;
+                    }
+                }
                 CALL => {
                     let Some(name) = v.as_str() else {
                         return self.abandon("a call with no name".into());
@@ -833,6 +906,73 @@ impl<'a> Walker<'a> {
                 }
                 true
             }
+            // The stack family — D182. `clear` and `fold` take the whole
+            // current stack, which the abstract stack knows; `endcontext`
+            // returns to the stack a switch left; `to_stack` and `to_current`
+            // switch by a literal name; the rotations and the words that
+            // reach another stack by name are followed as far as a pair goes
+            // and the rest of the picture is forgotten.
+            "clear" => {
+                if self.mode != Mode::Program {
+                    return Some(self.abandon("`clear`, whose effect is not a fixed pair".into()));
+                }
+                self.report.analysed += 1;
+                stack.items.clear();
+                true
+            }
+            // `fold` pulls until a NODATA, which it consumes, or the bottom
+            // (`reference/rust_multistack/src/ts_list.rs:8-24`). Followed
+            // when every slot it would pull is a known tag: down to the first
+            // NODATA from the top, or the whole stack. A slot the walk does
+            // not know may be a NODATA, and then the depth after is not known.
+            "fold" => {
+                if self.mode != Mode::Program {
+                    return Some(self.abandon("`fold`, whose effect is not a fixed pair".into()));
+                }
+                let mut keep = 0;
+                for (i, a) in stack.items.iter().enumerate().rev() {
+                    match a {
+                        Abs::Tagged(bund2_value::NODATA) => {
+                            keep = i;
+                            break;
+                        }
+                        Abs::Unknown => {
+                            return Some(self.abandon(
+                                "`fold`, which stops at a NODATA the walk cannot rule out".into(),
+                            ));
+                        }
+                        _ => {}
+                    }
+                }
+                self.report.analysed += 1;
+                stack.items.truncate(keep);
+                stack.push(Abs::Tagged(LIST));
+                true
+            }
+            "endcontext" => self.endcontext(stack),
+            "to_stack" | "to_current" => {
+                let Some(mut t) = self.take(stack, 1, name, at, via) else {
+                    return Some(self.abandon(format!("`{name}` with no stack name")));
+                };
+                match t.remove(0) {
+                    Abs::Name(_, n) => self.switch_to(&n, stack),
+                    _ => self.abandon(format!("`{name}` to a computed stack name")),
+                }
+            }
+            "rotate_current_left" | "rotate_current_right" | "<--" | "-->" => {
+                self.report.analysed += 1;
+                stack.forget_tags();
+                true
+            }
+            "stacks_right" | "stacks_left" | "->" | "→" | "<-" | "←" | "drop_stack" => {
+                self.abandon(format!("`{name}`, which changes the current stack"))
+            }
+            "rotate_stack_left" | "rotate_stack_right" | "return_to" | "move_from" | "swap_in" => {
+                let eff = self.registry.effect_of(name)?;
+                self.apply_fixed(stack, name, eff, at, via);
+                self.forget_other_stacks();
+                true
+            }
             "object" => self.object_word(stack, at, via, level),
             // `True` and `False` are `true "Bool" object` and its twin
             // (`reference/Bund/src/stdlib/functions/oop/bool_class.rs`).
@@ -900,7 +1040,10 @@ impl<'a> Walker<'a> {
             once.push(e);
         }
         let inside = format!("the body `{name}` runs");
-        if !self.walk(body, &mut once, Some(at), Some(&inside), level + 1) {
+        let outer = std::mem::replace(&mut self.may_switch, false);
+        let went = self.walk(body, &mut once, Some(at), Some(&inside), level + 1);
+        self.may_switch = outer;
+        if !went {
             return false;
         }
         let net = once.net_against(stack);
@@ -980,10 +1123,11 @@ impl<'a> Walker<'a> {
                 }
                 let mut then_s = stack.copy();
                 let mut else_s = stack.copy();
-                if !self.slot_walk(m, "then", "?ifthenelse", &mut then_s, at, level) {
-                    return false;
-                }
-                if !self.slot_walk(m, "else", "?ifthenelse", &mut else_s, at, level) {
+                let outer = std::mem::replace(&mut self.may_switch, false);
+                let went = self.slot_walk(m, "then", "?ifthenelse", &mut then_s, at, level)
+                    && self.slot_walk(m, "else", "?ifthenelse", &mut else_s, at, level);
+                self.may_switch = outer;
+                if !went {
                     return false;
                 }
                 match Stack::join(then_s, &else_s) {
@@ -1049,6 +1193,36 @@ impl<'a> Walker<'a> {
                 "`!` on a CONDITIONAL of type `{other}`, which the walk does not follow"
             )),
         }
+    }
+
+    /// `endcontext` — the top to the workbench if there is one, the current
+    /// stack dropped, and the walk back on the stack the switch left
+    /// (`reference/rust_multistackvm/src/stdlib/ctx.rs:5-27`, with Bund2
+    /// keeping the stack to return to in the context record).
+    fn endcontext(&mut self, stack: &mut Stack) -> Went {
+        if self.mode != Mode::Program || !self.may_switch {
+            return self.abandon("a stack switch".into());
+        }
+        let Some(prev) = self.nesting.pop() else {
+            return self.abandon("`endcontext` with no context open".into());
+        };
+        self.report.analysed += 1;
+        if !stack.items.is_empty() {
+            stack.pop();
+        }
+        let dropped = std::mem::take(&mut self.current);
+        self.stacks.remove(&dropped);
+        *stack = match self.stacks.remove(&prev) {
+            Some(Some(s)) => s,
+            Some(None) => {
+                return self.abandon(format!(
+                    "a return to `{prev}`, a stack another word may have changed"
+                ));
+            }
+            None => Stack::default(),
+        };
+        self.current = prev;
+        true
     }
 
     /// `object` — construct from a registered class, by name
@@ -1652,6 +1826,77 @@ mod tests {
         // `curry`: the word it registers has the effect of its body.
         let e = eff_of(":f curry :lambda { + } set :data [ 1 ] set ! f");
         assert_eq!((e.consumes, e.produces, e.opaque), (1, 1, false));
+    }
+
+    /// **D182.** One abstract stack per name: `@name` saves the current one
+    /// and restores or creates the target, `( … )` returns through
+    /// `endcontext`, `clear` and `fold` take the whole current stack, and a
+    /// word that reaches another stack by name makes a later switch to it an
+    /// abandonment rather than a claim.
+    #[test]
+    fn a_stack_switch_is_followed_per_name() {
+        assert!(clean(&check_src(
+            "@t 1 2 @main 3 @t + println @main println"
+        )));
+
+        // A fresh stack is empty, in both engines.
+        let rep = check_src("1 2 @t +");
+        assert_eq!(rep.findings.len(), 1, "{rep:?}");
+        assert_eq!(
+            (rep.findings[0].word.as_str(), rep.findings[0].have),
+            ("+", 0)
+        );
+
+        // `( … )` carries its top out to the workbench; `take` brings it back.
+        assert!(clean(&check_src("( 1 2 + ) take println")));
+        let rep = check_src("1 2 ( + ) take println");
+        assert_eq!(
+            rep.findings.len(),
+            1,
+            "a scratch context starts empty: {rep:?}"
+        );
+        let rep = check_src("1 endcontext");
+        assert!(
+            rep.reasons[0].0.contains("no context open"),
+            "{:?}",
+            rep.reasons
+        );
+
+        assert!(clean(&check_src(
+            ":t to_stack 1 :main to_stack 2 :t to_stack println"
+        )));
+        assert!(clean(&check_src("1 2 3 clear 4 println")));
+        let rep = check_src("1 2 clear +");
+        assert_eq!(rep.findings.len(), 1, "{rep:?}");
+        assert!(clean(&check_src("1 2 3 fold println")));
+        // `fold` stops at a NODATA and consumes it; what lies beneath stays.
+        assert!(clean(&check_src(
+            "1 2 nodata 3 4 fold println println println"
+        )));
+        let rep = check_src("1 2 + 3 fold println");
+        assert!(rep.reasons[0].0.contains("NODATA"), "{:?}", rep.reasons);
+
+        let rep = check_src("@t 1 stacks_right");
+        assert!(
+            rep.reasons[0].0.contains("changes the current stack"),
+            "{:?}",
+            rep.reasons
+        );
+        let rep = check_src("@t 1 2 @main :t rotate_stack_left @t");
+        assert!(
+            rep.reasons[0].0.contains("another word may have changed"),
+            "{:?}",
+            rep.reasons
+        );
+
+        // A body's effect is about one stack: a switch inside it has no pair.
+        assert!(eff_of("@t 1").opaque);
+        let rep = check_src("3 { @t drop } times");
+        assert!(
+            rep.reasons[0].0.contains("inside a body"),
+            "{:?}",
+            rep.reasons
+        );
     }
 
     /// **D179.** A class the program defines is read as it is built, parents

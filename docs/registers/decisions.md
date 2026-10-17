@@ -3650,6 +3650,85 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D182 — `check` keeps one abstract stack per name: `@name` and `( … )` switch, `clear` and `fold` take what the stack holds
+
+**Raised 2026-10-16** by the repository owner, after D181: "next barrier,
+stack switch @name". After D181 the barrier the corpus hit first was the
+stack switch (16 files), RFC-0004 §S6's third: a CONTEXT value in the
+stream, `@name` or the `(` of a scratch context, made the depth being
+tracked no longer the depth in play, and the walk gave up.
+
+- Blocks: nothing
+- Depends on: RFC-0004 §S1 (an effect is about the current stack), §S6
+  barrier 3; D179 (the tagged stack); D180 (a body run on a copy); D181
+  (`Leaves`, first used for a tag here)
+- Options:
+  - **A. One abstract stack per name, switched as the run switches.** A
+    CONTEXT value switches the VM to the stack it names, creating it empty
+    when it does not exist (`reference/rust_multistackvm/src/multistackvm_apply.rs:69-87`,
+    `multistackvm_to_stack.rs:5-19`, `reference/rust_multistack/src/ts_ensure.rs:10-15`),
+    and pushes the name to return to; `endcontext` carries the top to the
+    workbench, drops the current stack and returns
+    (`reference/rust_multistackvm/src/stdlib/ctx.rs:5-27`). The walk does
+    the same: the current stack is saved under its name, the target is
+    restored or created empty, and `endcontext` returns through the name
+    the switch pushed. `to_stack` and `to_current` with a literal name are
+    the same switch without the push. A word that reaches another stack by
+    name — `rotate_stack_*`, `return_to`, `move_from`, `swap_in` — is
+    applied to the current stack by its pair and every other stack is
+    forgotten, so a later switch to one is an abandonment that says so
+    rather than a claim; a word that changes which stack is current without
+    naming it — `stacks_right`, `stacks_left`, `drop_stack` — is an
+    abandonment outright; a rotation of the current stack keeps its depth
+    and forgets its tags. Inside a body run on a copy (D180, D181's
+    branches) a switch is an abandonment, since the copy would be saved
+    under another name. In inference a switch stays opaque: a pair is
+    about one stack.
+  - **B. The whole-stack words.** With the stack known, `clear` is an
+    empty stack and `fold` is a LIST in place of what it pulled — down to
+    the first NODATA from the top, which it consumes
+    (`reference/rust_multistack/src/ts_list.rs:8-24`), or the whole stack.
+    `nodata` declares `Leaves::Tag(NODATA)` for it, D181's first tag. A
+    slot the walk does not know may be a NODATA, and then `fold` is an
+    abandonment that says so.
+  - **C. Depth only**, no per-name stacks: abandon as before and name the
+    stack. Changes no number.
+- Recommendation: A with B.
+- Status: **RESOLVED** by the repository owner, 2026-10-16: "next barrier,
+  stack switch @name". A and B built the same day.
+
+### Built, the same day
+
+- `Walker::switch_to`, `endcontext`, `forget_other_stacks` and the
+  `stacks`, `current`, `nesting` and `may_switch` fields in
+  `crates/bund2-stdlib/src/check.rs`; the `clear`, `fold`, `to_stack`,
+  `to_current`, rotation and cross-stack arms of `structural`.
+- **On the corpus**, the same 224 programs, measured the same way:
+
+  | | after D181 | after D182 |
+  |---|---|---|
+  | sites analysed | 2800 | 3055 |
+  | abandonments | 130 | 122 |
+  | programs with no abandonment | 94 | 102 |
+  | a stack switch | 16 | 2 |
+  | findings | 3 | 4 |
+
+  The two switches left are `context` conditionals, which run on a named
+  stack through the CF registry and stay where D181 left them. **The new
+  finding is real**: `make_xy.bund` does `@X list . { … } loop`, sending
+  its list to the workbench and leaving `loop` one operand short, and both
+  engines refuse it at 8:5 with `Stack is too shallow for inline LOOP`.
+  A fifth finding that appeared on the way was wrong and is gone: the first
+  cut of `fold` took the whole stack, and the probe that folds past a
+  NODATA — `1 2 nodata 3 4 fold` leaves `2` and `1` beneath the list —
+  showed it; that is where B's NODATA rule and the `nodata` declaration
+  come from.
+- **Tests**: `a_stack_switch_is_followed_per_name`.
+- **Not built**: the workbench as a second tracked axis, which is what
+  would let `take` and `return` be followed and `( … ) take` know what it
+  took (§S1's second axis); the `context` conditional; `*loop`, `while`,
+  `for`; `?true*` (5 files), next by the count after `IMAGE`.
+
 ## D181 — a native declares what it leaves on top, and a CONDITIONAL is followed by its declared type
 
 **Raised 2026-10-16** by the repository owner, after D180: "next barrier,

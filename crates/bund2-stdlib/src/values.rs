@@ -624,7 +624,13 @@ pub fn register_words(r: &mut Registry) {
     r.register_native("list", list, eff(0, 1), WordKind::Sync);
     r.register_native("lambda", lambda, eff(0, 1), WordKind::Sync);
     r.register_native("metrics", metrics, eff(0, 1), WordKind::Sync);
-    r.register_native("nodata", nodata, eff(0, 1), WordKind::Sync);
+    // D181: what it leaves is a NODATA, which `fold` stops at (D182).
+    r.register_native(
+        "nodata",
+        nodata,
+        eff(0, 1).leaving(bund2_api::Leaves::Tag(bund2_value::NODATA)),
+        WordKind::Sync,
+    );
     r.register_native("set", set, eff(3, 1), WordKind::Sync);
     crate::wb::bench!(r, "set", set, 3, 2);
     r.register_native("get", get, eff(2, 1), WordKind::Sync);

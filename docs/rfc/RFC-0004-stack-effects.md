@@ -388,6 +388,18 @@ named and not followed, because after it the depth depends on whether
 programs with no abandonment 89 → 94, and no `!` site is left whose tag
 the walk does not know.)*
 
+*(2026-10-16, D182: barrier 3 is followed. The walk keeps one abstract
+stack per name and switches as the run switches — `@name` and `( … )`
+save the current stack and restore or create the target, `endcontext`
+returns through the name the switch pushed — and a word that reaches
+another stack by name forgets the walk's picture of every other stack, so
+a later switch there is an abandonment rather than a claim. `clear` and
+`fold` take what the stack is known to hold, `fold` stopping at a NODATA
+it can see. Over the same 224 programs: sites analysed 2800 → 3055,
+programs with no abandonment 94 → 102, two switches left, both `context`
+conditionals, and one new finding, a real one. Inference still stops at a
+switch: a pair is about one stack, §S1.)*
+
 ## Preservation analysis
 
 | Current behaviour | Disposition |
