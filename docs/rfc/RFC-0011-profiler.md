@@ -453,6 +453,26 @@ Node fill scales with exclusive share; an edge label is count and time, or
 count alone on a self edge. `dot -Tsvg` must accept the file with no
 preprocessing.
 
+*(2026-10-17, on the owner's "then items 1 and 2" after D188. **The
+markdown is pruned.** Past the first twelve rows, a word under 0.05 % of
+the wall, exclusive and inclusive, and of the steps is one entry of a line
+after the table — name and calls — so a reader scanning for the hot words
+is not made to scan the cold ones and a reader looking for one word still
+finds its count; and the callers-and-callees section is only for words
+with more than one caller or any callee, since the tree already says
+everything about a single-caller leaf. **The dot file is redrawn.** The
+two clusters are gone, which let `dot` lay every native in one column;
+kind is shape instead — double box the program, rounded box a word,
+ellipse a native, octagon a method, diamond a conditional runner — so the
+layout follows the calls. A node is labelled with the spelling the program
+used and the resolved name beneath, so a program that wrote `dup` finds
+`dup`, not `dup_one`. Edge width scales with the callee's time along it.
+In a graph of more than twenty nodes, words under 0.5 % of the wall,
+inclusive and exclusive, fold into one note node with their edges summed,
+so the hot ones can be read. A plaintext legend says all of this in the
+file. The sample above is the shape before this note; the code is the
+record of the shape after.)*
+
 ### §S6 — The flag, the files, and what reaches the terminal
 
 `bund2 script --profile <base> --file …`, or `--profile=<base>`. Off by
@@ -773,6 +793,14 @@ Criterion 3 was read again under D188: every program inside D117's band,
 +0.05 % to +1.01 % on the off path, and 695 to 709 instructions a call on
 the on path with the step counter in. Criteria 1 and 4: `conform` and
 `conform --profile` read the same numbers as before.
+
+**Later the same day, on the owner's "then items 1 and 2"**: the markdown
+pruning and the dot redraw described under §S5's note. Renderer only; the
+record, the hooks and the hot path are untouched, so criterion 3 was not
+read again. The process test checks the pruned section's heading, that a
+single-caller leaf has no section, and the legend in the graph; `dot`
+itself was not on the host that built this, so the test's `dot -Tsvg`
+half skipped there, as it says it does.
 
 ## Open questions
 

@@ -67,10 +67,25 @@ impl Clock {
 
 /// How many rows the hottest-words table prints before it says "and more".
 const HOTTEST_ROWS: usize = 60;
+/// A row is printed in full when it holds at least this share of the wall,
+/// exclusive or inclusive, or of the steps; under all three, it is one
+/// entry of the line after the table. Inclusive counts, or a word that is
+/// the whole run and does nothing itself would be folded away.
+const ROW_SHARE: f64 = 0.0005;
+/// The table prints at least this many rows in full whatever their share,
+/// so a short run's table is not one line.
+const ROWS_ALWAYS: usize = 12;
 /// How deep the call tree goes.
 const TREE_DEPTH: usize = 6;
-/// How many of the hottest words get a callers-and-callees section.
+/// How many words get a callers-and-callees section: the hottest among
+/// those the tree does not already say everything about, which is a word
+/// with more than one caller or with any callee.
 const DETAILED: usize = 10;
+/// The dot file folds words under this share of the wall, inclusive and
+/// exclusive, into one node — but only when the graph has more than
+/// `DOT_FOLD_ABOVE` nodes, since a small graph is readable whole.
+const DOT_FOLD_SHARE: f64 = 0.005;
+const DOT_FOLD_ABOVE: usize = 20;
 
 /// What the clock is worth here, measured now: twenty thousand readings
 /// back to back give the cost of one, averaged, and the smallest non-zero
@@ -414,7 +429,40 @@ pub fn render_markdown(p: &Profile, reg: &Registry, meta: &Meta<'_>) -> String {
     );
     let ranked = ranked(p, reg);
     let total_steps = p.steps();
-    for (_, n) in ranked.iter().take(HOTTEST_ROWS) {
+    // A row under `ROW_SHARE` of both the wall and the steps, past the
+    // first `ROWS_ALWAYS`, is one entry of the line after the table: a
+    // reader scanning for the hot words is not made to scan the cold ones,
+    // and a reader looking for one word still finds its count.
+    let share_of = |n: &Node| -> (f64, f64, f64) {
+        let of_wall = |d: Duration| {
+            if wall.is_zero() {
+                0.0
+            } else {
+                d.as_secs_f64() / wall.as_secs_f64()
+            }
+        };
+        let st = if total_steps == 0 {
+            0.0
+        } else {
+            n.steps as f64 / total_steps as f64
+        };
+        (of_wall(n.exclusive), of_wall(n.inclusive), st)
+    };
+    let full: Vec<&(usize, &Node)> = ranked
+        .iter()
+        .enumerate()
+        .filter(|(i, (_, n))| {
+            let (t, ti, st) = share_of(n);
+            *i < ROWS_ALWAYS || t >= ROW_SHARE || ti >= ROW_SHARE || st >= ROW_SHARE
+        })
+        .map(|(_, r)| r)
+        .take(HOTTEST_ROWS)
+        .collect();
+    let folded: Vec<&(usize, &Node)> = ranked
+        .iter()
+        .filter(|r| !full.iter().any(|f| f.0 == r.0))
+        .collect();
+    for (_, n) in &full {
         let each = per_call(n.exclusive, n.calls);
         let _ = writeln!(
             out,
@@ -440,12 +488,23 @@ pub fn render_markdown(p: &Profile, reg: &Registry, meta: &Meta<'_>) -> String {
             dur(n.max),
         );
     }
-    if ranked.len() > HOTTEST_ROWS {
+    if !folded.is_empty() {
+        let time: Duration = folded.iter().map(|(_, n)| n.exclusive).sum();
+        let steps: u64 = folded.iter().map(|(_, n)| n.steps).sum();
+        let names: Vec<String> = folded
+            .iter()
+            .map(|(_, n)| format!("`{}` ×{}", name_of(n, reg), thousands(n.calls)))
+            .collect();
         let _ = writeln!(
             out,
-            "\nand {} more, each under {} of exclusive time.",
-            ranked.len() - HOTTEST_ROWS,
-            dur(ranked[HOTTEST_ROWS].1.exclusive)
+            "\nand {} more, each under {:.2} % of wall, exclusive and inclusive, and of \
+             steps, together {} ({} %) and {} steps: {}.",
+            folded.len(),
+            ROW_SHARE * 100.0,
+            dur(time),
+            pct(time, wall),
+            thousands(steps),
+            names.join(", ")
         );
     }
     out.push('\n');
@@ -461,8 +520,31 @@ pub fn render_markdown(p: &Profile, reg: &Registry, meta: &Meta<'_>) -> String {
     out.push('\n');
 
     // --- callers and callees -------------------------------------------------
-    let _ = writeln!(out, "## Callers and callees of the hottest words\n");
-    for (id, n) in ranked.iter().take(DETAILED) {
+    // The tree above already says everything about a word with one caller
+    // and no callee; a section repeating it is bulk. Those with more than
+    // one caller or any callee are where the graph is not a tree.
+    let _ = writeln!(
+        out,
+        "## Callers and callees of the hottest words with more than one caller or any callee\n"
+    );
+    let detailed: Vec<&(usize, &Node)> = ranked
+        .iter()
+        .filter(|(id, _)| {
+            let callers = callers_of(p, reg, *id);
+            let distinct = {
+                let mut v: Vec<usize> = callers.iter().map(|h| h.other).collect();
+                v.sort_unstable();
+                v.dedup();
+                v.len()
+            };
+            distinct > 1 || !children_of(p, reg, *id).is_empty()
+        })
+        .take(DETAILED)
+        .collect();
+    if detailed.is_empty() {
+        let _ = writeln!(out, "- none: the tree says it all.\n");
+    }
+    for (id, n) in detailed {
         let _ = writeln!(out, "### `{}`\n", name_of(n, reg));
         let callers = callers_of(p, reg, *id);
         if !callers.is_empty() {
@@ -620,56 +702,132 @@ fn dot_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-/// §S5's dot file: one node per word, two clusters, the root as a box, an
-/// edge label of count and time, or count alone on a self edge.
+/// §S5's dot file: one node per word, shaped by its kind, the root as a
+/// double box; an edge label of count and time, or count alone on a self
+/// edge, its width by the callee's time along it; a legend; and, in a
+/// graph of more than `DOT_FOLD_ABOVE` nodes, the words under
+/// `DOT_FOLD_SHARE` of the wall folded into one node so the hot ones can
+/// be read.
 pub fn render_dot(p: &Profile, reg: &Registry) -> String {
     let wall = p.wall.unwrap_or_default();
     let nodes = p.nodes();
+    let share = |d: Duration| -> f64 {
+        if wall.is_zero() {
+            0.0
+        } else {
+            d.as_secs_f64() / wall.as_secs_f64()
+        }
+    };
+    // Which nodes are drawn whole, and which are folded into `others`.
+    let fold = nodes.len() - 1 > DOT_FOLD_ABOVE;
+    let folded: Vec<bool> = nodes
+        .iter()
+        .enumerate()
+        .map(|(id, n)| {
+            id != 0
+                && fold
+                && share(n.inclusive) < DOT_FOLD_SHARE
+                && share(n.exclusive) < DOT_FOLD_SHARE
+        })
+        .collect();
+    let others = nodes.len();
+    let folded_count = folded.iter().filter(|f| **f).count();
+
     let mut out = String::new();
     let _ = writeln!(out, "digraph profile {{");
     let _ = writeln!(out, "  rankdir=LR;");
-    let _ = writeln!(out, "  node [shape=ellipse, fontname=\"Helvetica\"];");
     let _ = writeln!(
         out,
-        "  n0 [shape=box, label=\"{}\\n{}\"];",
+        "  node [fontname=\"Helvetica\", style=filled, fillcolor=\"#ffffff\"];"
+    );
+    let _ = writeln!(out, "  edge [fontname=\"Helvetica\", fontsize=10];");
+    let _ = writeln!(
+        out,
+        "  n0 [shape=box, peripheries=2, label=\"{}\\n{}\"];",
         dot_escape(&name_of(&nodes[0], reg)),
         dur(wall)
     );
-    for (cluster, label, kinds) in [
-        (
-            "natives",
-            "natives",
-            &[Kind::Native, Kind::Method, Kind::Conditional][..],
-        ),
-        ("words", "words", &[Kind::Word][..]),
-    ] {
-        let _ = writeln!(out, "  subgraph cluster_{cluster} {{");
-        let _ = writeln!(out, "    label=\"{label}\";");
-        for (id, n) in nodes.iter().enumerate().skip(1) {
-            if !kinds.contains(&n.kind) {
-                continue;
-            }
-            let share = if wall.is_zero() {
-                0.0
-            } else {
-                n.exclusive.as_secs_f64() / wall.as_secs_f64()
-            };
-            // White at nothing, a full red at half the run or more.
-            let level = (255.0 - (share * 2.0).min(1.0) * 160.0) as u8;
-            let _ = writeln!(
-                out,
-                "    n{id} [label=\"{}\\n{} calls\\n{} self\", style=filled, fillcolor=\"#ff{level:02x}{level:02x}\"];",
-                dot_escape(&name_of(n, reg)),
-                thousands(n.calls),
-                dur(n.exclusive)
-            );
+    for (id, n) in nodes.iter().enumerate().skip(1) {
+        if folded[id] {
+            continue;
         }
-        let _ = writeln!(out, "  }}");
+        // The spelling the program used is what a reader of the program
+        // looks for; the resolved name goes beneath it.
+        let name = name_of(n, reg);
+        let label_name = if n.spelled.is_empty() {
+            name
+        } else {
+            let spelled: Vec<String> = n
+                .spelled
+                .iter()
+                .map(|s| reg.interner.name(*s).to_string())
+                .collect();
+            format!("{}\\n({name})", spelled.join(", "))
+        };
+        let shape = match n.kind {
+            Kind::Program => "box",
+            Kind::Word => "box, style=\"rounded,filled\"",
+            Kind::Native => "ellipse",
+            Kind::Method => "octagon",
+            Kind::Conditional => "diamond",
+        };
+        // White at nothing, a full red at half the run or more.
+        let level = (255.0 - (share(n.exclusive) * 2.0).min(1.0) * 160.0) as u8;
+        let _ = writeln!(
+            out,
+            "  n{id} [shape={shape}, label=\"{}\\n{} calls\\n{} self\", fillcolor=\"#ff{level:02x}{level:02x}\"];",
+            dot_escape(&label_name),
+            thousands(n.calls),
+            dur(n.exclusive)
+        );
     }
-    let mut edges: Vec<(usize, usize, Option<usize>, u64, Duration)> = p
-        .edges()
-        .map(|(a, b, via, e)| (a, b, via, e.calls, e.time))
-        .collect();
+    if folded_count > 0 {
+        let calls: u64 = nodes
+            .iter()
+            .enumerate()
+            .filter(|(id, _)| folded[*id])
+            .map(|(_, n)| n.calls)
+            .sum();
+        let time: Duration = nodes
+            .iter()
+            .enumerate()
+            .filter(|(id, _)| folded[*id])
+            .map(|(_, n)| n.exclusive)
+            .sum();
+        let _ = writeln!(
+            out,
+            "  n{others} [shape=note, label=\"{folded_count} more words\\neach under {:.1} % of wall\\n{} calls\\n{} self\"];",
+            DOT_FOLD_SHARE * 100.0,
+            thousands(calls),
+            dur(time)
+        );
+    }
+    // Edges: a kept pair as it is; a pair with one folded end goes to or
+    // from `others`, summed over the pairs it stands for; both ends folded,
+    // or a folded self edge, is inside `others` and not drawn.
+    let mut edges: Vec<(usize, usize, Option<usize>, u64, Duration)> = Vec::new();
+    for (a, b, via, e) in p.edges() {
+        let (fa, fb) = (folded[a], folded[b]);
+        if fa && fb {
+            continue;
+        }
+        let (a2, b2, via2) = match (fa, fb) {
+            (false, false) => (a, b, via),
+            (true, false) => (others, b, None),
+            (false, true) => (a, others, None),
+            (true, true) => continue,
+        };
+        match edges
+            .iter_mut()
+            .find(|x| x.0 == a2 && x.1 == b2 && x.2 == via2 && (fa || fb))
+        {
+            Some(x) => {
+                x.3 += e.calls;
+                x.4 += e.time;
+            }
+            None => edges.push((a2, b2, via2, e.calls, e.time)),
+        }
+    }
     edges.sort_by_key(|x| (x.0, x.1, x.2));
     for (a, b, via, calls, time) in edges {
         let label = if a == b {
@@ -680,12 +838,26 @@ pub fn render_dot(p: &Profile, reg: &Registry) -> String {
         let via_label = via
             .map(|v| format!(" via {}", dot_escape(&name_of(&nodes[v], reg))))
             .unwrap_or_default();
+        // One point wide for nothing, five for the whole wall.
+        let width = 1.0 + 4.0 * share(time).min(1.0);
         let _ = writeln!(
             out,
-            "  n{a} -> n{b} [label=\"{label}{via_label}\"{}];",
+            "  n{a} -> n{b} [label=\"{label}{via_label}\", penwidth={width:.1}{}];",
             if via.is_some() { ", style=dashed" } else { "" }
         );
     }
+    let _ = writeln!(
+        out,
+        "  legend [shape=plaintext, fillcolor=\"#ffffff\", label=\"shape: double box the program, rounded box a word, ellipse a native, octagon a method, diamond a conditional runner\\lfill: exclusive share of the wall, white at none, red at half or more\\llabel: the spelling the program used, the resolved name beneath; calls; exclusive time\\ledge: calls · the callee's time along it; width by that time; dashed: the body was filed by the named native as a tail request\\l{}\"];",
+        if folded_count > 0 {
+            format!(
+                "folded: words under {:.1} % of the wall, inclusive and exclusive, are one note node\\l",
+                DOT_FOLD_SHARE * 100.0
+            )
+        } else {
+            String::new()
+        }
+    );
     let _ = writeln!(out, "}}");
     out
 }

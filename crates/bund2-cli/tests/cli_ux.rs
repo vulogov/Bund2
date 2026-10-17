@@ -475,6 +475,21 @@ fn profile_needs_a_base_and_then_writes_two_files_and_nothing_else() {
     assert!(md.contains("| steps | % of steps |"), "{md}");
     assert!(md.contains("| `inc` |"), "{md}");
     assert!(md.contains("## Call tree"), "{md}");
+    // Items 1 and 2 of 2026-10-17: a section only for words the tree does
+    // not already describe, and a legend in the graph.
+    assert!(
+        md.contains(
+            "## Callers and callees of the hottest words with more than one caller or any callee"
+        ),
+        "{md}"
+    );
+    assert!(md.contains("### `inc`"), "{md}");
+    assert!(
+        !md.contains("### `println`"),
+        "a single-caller leaf has no section: {md}"
+    );
+    assert!(dot.contains("legend [shape=plaintext"), "{dot}");
+    assert!(dot.contains("peripheries=2"), "{dot}");
     assert!(dot.starts_with("digraph profile {"), "{dot}");
     assert_eq!(
         dot.matches('{').count(),
