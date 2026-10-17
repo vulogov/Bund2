@@ -809,6 +809,11 @@ process test's program spells `dup` and asserts the break, and its
 `dot -Tsvg` half runs on this host and passes.
 `bund_examples/fibonacci/fib.profile.png` is re-rendered from the new
 file.)*
+*(Then, on the owner's "pin the legend to a corner": the legend is no
+longer a node, which ranking placed wherever it fitted, but the graph's
+own label with `labelloc="b"` and `labeljust="l"`, which `dot` puts in
+the bottom-left corner whatever the layout. The example graph is
+re-rendered again.)*
 
 ## Open questions
 

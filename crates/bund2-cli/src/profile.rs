@@ -713,7 +713,9 @@ fn dot_escape(s: &str) -> String {
 
 /// §S5's dot file: one node per word, shaped by its kind, the root as a
 /// double box; an edge label of count and time, or count alone on a self
-/// edge, its width by the callee's time along it; a legend; and, in a
+/// edge, its width by the callee's time along it; a legend as the graph's
+/// own label, which `dot` pins to the bottom-left corner whatever the
+/// layout, where a legend node floats wherever ranking puts it; and, in a
 /// graph of more than `DOT_FOLD_ABOVE` nodes, the words under
 /// `DOT_FOLD_SHARE` of the wall folded into one node so the hot ones can
 /// be read.
@@ -859,7 +861,7 @@ pub fn render_dot(p: &Profile, reg: &Registry) -> String {
     }
     let _ = writeln!(
         out,
-        "  legend [shape=plaintext, fillcolor=\"#ffffff\", label=\"shape: double box the program, rounded box a word, ellipse a native, octagon a method, diamond a conditional runner\\lfill: exclusive share of the wall, white at none, red at half or more\\llabel: the spelling the program used, the resolved name beneath; calls; exclusive time\\ledge: calls · the callee's time along it; width by that time; dashed: the body was filed by the named native as a tail request\\l{}\"];",
+        "  labelloc=\"b\"; labeljust=\"l\"; fontname=\"Helvetica\"; fontsize=11;\n  label=\"shape: double box the program, rounded box a word, ellipse a native, octagon a method, diamond a conditional runner\\lfill: exclusive share of the wall, white at none, red at half or more\\llabel: the spelling the program used, the resolved name beneath; calls; exclusive time\\ledge: calls · the callee's time along it; width by that time; dashed: the body was filed by the named native as a tail request\\l{}\";",
         if folded_count > 0 {
             format!(
                 "folded: words under {:.1} % of the wall, inclusive and exclusive, are one note node\\l",

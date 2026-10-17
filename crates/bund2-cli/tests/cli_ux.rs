@@ -491,7 +491,12 @@ fn profile_needs_a_base_and_then_writes_two_files_and_nothing_else() {
         !md.contains("### `println`"),
         "a single-caller leaf has no section: {md}"
     );
-    assert!(dot.contains("legend [shape=plaintext"), "{dot}");
+    // The legend is the graph's own label, pinned bottom left.
+    assert!(dot.contains("labelloc=\"b\"; labeljust=\"l\";"), "{dot}");
+    assert!(
+        dot.contains("label=\"shape: double box the program"),
+        "{dot}"
+    );
     // A node spelled differently from its resolved name breaks its label
     // with `\n`, not a literal backslash `dot` would print as text.
     assert!(dot.contains("dup\\n(dup_one)"), "{dot}");
