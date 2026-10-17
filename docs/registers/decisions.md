@@ -3650,6 +3650,109 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D187 — a profiled run's two files: names, order, the command line's voice, and the exit code when they cannot be written
+
+**Raised 2026-10-17** by RFC-0011 (open question 3). The profiler writes a
+markdown report and a Graphviz file at a base the user named (D185), and
+four small choices about them are observable: what the files are called,
+which is written first, how the command line says it wrote them, and what
+the process exits with when it could not.
+
+- Blocks: RFC-0011 §S6
+- Depends on: D36 (a program's failure exits 0, as the reference's does;
+  `bund2 help script` says so), D173 (the command line's two voices),
+  D185, F181 (one file staged and renamed per `place`)
+- Options, one set per choice:
+  - **Names.** `<base>.profile.md` and `<base>.profile.dot`, or `<base>.md`
+    and `<base>.dot`. The longer pair cannot collide with a program's own
+    `run1.md` under a base of `out/run1`, and a listing says what they are.
+  - **Order.** The `dot` file first and the markdown last, so that the
+    markdown's presence means both exist; or the markdown first, which
+    leaves the readable file present and the graph missing, the failure a
+    reader notices later.
+  - **Voice.** One `ui::info!` line naming both paths, hidden by default
+    and shown at `-v`; or a `Notice` through the reporter, which prints
+    under `-q` and reaches a TUI's reporter as if the program had spoken;
+    or nothing.
+  - **Exit code after a write failure.** (i) The program's code: the
+    profile is a report about the run, not part of it. (ii) Non-zero
+    always: the command did not do what it was told. (iii) Non-zero only
+    when the program itself succeeded, with the program's own code kept
+    when it failed, since that is the more important fact; the code is
+    `ExitCode::FAILURE`, which `bund2 build` answers when `place` cannot
+    write its output, so one number has one meaning across the CLI.
+- Recommendation: the first of each pair, and (iii) for the code.
+- Status: **RESOLVED** by the repository owner, 2026-10-17: "D187 for
+  question 3", taking the recommendation. `<base>.profile.md` and
+  `<base>.profile.dot`; `dot` first; `ui::info!` on success and
+  `ui::error!` on failure; exit 1 when a successful program's profile
+  could not be written, the program's own code otherwise.
+
+## D186 — a profiled run declines the compiled tier
+
+**Raised 2026-10-17** by RFC-0011 (open question 2). A compiled body's
+frame is the tier's (D139, `Vm::tier_frame`), the natives it calls go
+through the JIT's adapter and not `Interp::invoke`, and the words the
+lowering inlines call nothing, so a profile taken under the tier shows a
+hot body as one span with some of its natives missing and some present,
+depending on what the tier chose to inline for that run.
+
+- Blocks: RFC-0011 §S3
+- Depends on: D139, D145, D146, RFC-0008 §D6 (a debugged run installs no
+  tier, through `Runtime::for_debugging`)
+- Options:
+  - **A. Decline the tier for the run**, through the constructor the
+    debugger uses. The profile is Tier 0's, whole and consistent. Cost:
+    `--profile` and the tier are exclusive; the numbers describe
+    interpreted speed; a program near a recursion limit may fail under one
+    and not the other, the caveat §D6 already accepts.
+  - **B. Profile under the tier and mark the gaps.** Hook the JIT's native
+    adapter and `tier_frame` too. Cost: what is visible depends on what the
+    tier inlined, so two runs of one program draw different graphs, and an
+    inlined `dup` leaves no trace.
+  - **C. Run twice under one flag**, Tier 0 for the graph and the tier for
+    the totals. Cost: two runs of a program with side effects.
+- Recommendation: A. A profiler answers where the program spends its time,
+  which is a property of its structure and what Tier 0 shows exactly; the
+  tier's contribution is `--stats`'s and the bench's question. B is the
+  later step RFC-0011 §S8 lists; C fails on side effects.
+- Status: **RESOLVED** by the repository owner, 2026-10-17: "D186 for
+  question 2", taking A. The report header says `tier: declined
+  (profiling)`; a `debug.*` word that arms a console is the second reason
+  the tier may be off, and the header marks it.
+
+## D185 — `--profile <base>` is Bund2's own flag: a profiler of words, two files, a required operand
+
+**Raised 2026-10-17** by RFC-0011 (open question 1). D157 ruled the
+reference's `--profile` out of scope: its table names the reference's own
+Rust functions (`reference/Bund/src/cmd/mod.rs:106-109`), so no Bund2
+output could match it, and the CLI refuses the flag as unknown. RFC-0011
+designs a profiler whose unit is the Bund word, whose output is a markdown
+report and a Graphviz file, and whose natural spelling is the same word.
+
+- Blocks: RFC-0011 §S6
+- Depends on: D157; F181 (an unexpected write is a real cost); RFC-0008's
+  flag table
+- Options:
+  - **A. Keep D157 and spell the flag differently** — `--prof`, `--timing`.
+    The natural word stays taken by a refusal, and two spellings differ by
+    nothing but spelling.
+  - **B. Supersede D157 and take `--profile` with a default base.** A bare
+    `--profile` writes two files beside the program. D157's risk turned
+    around: a command line carried over from the reference no longer
+    fails, it writes files nobody asked for.
+  - **C. Supersede D157 and take `--profile` with a required operand.**
+    `--profile <base>` or `--profile=<base>`; a bare `--profile` is refused
+    with the operand message `parse_args` already produces for `--file`
+    and `--report`. The reference's flag is a bare boolean, so its shape is
+    exactly what is refused, and the refusal names what to do instead.
+- Recommendation: C.
+- Status: **RESOLVED** by the repository owner, 2026-10-17: "C". D157's
+  status carries the note; RFC-0008's flag table row and RFC-0011 §S6 are
+  amended the same day. The `BUND2_PROFILE` environment variable, where
+  RFC-0011 keeps it, names the base path rather than a switch, and the
+  command line wins over it.
+
 ## D184 — `check` follows `?true*`, `while`, `for` and `*loop`
 
 **Raised 2026-10-16** by the repository owner, after D183: "?true* and the
@@ -5380,6 +5483,11 @@ nothing in Bund2 is instrumented.
   with `--profile` in it fails.
 - Status: **RESOLVED** by the repository owner, 2026-10-13: "D157: A" —
   out of scope. `--profile` is a reference flag Bund2 does not have.
+  *(2026-10-17: **superseded by D185** for the spelling only. `--profile
+  <base>` is Bund2's own flag, RFC-0011's profiler of words, with a required
+  operand so that the reference's bare `--profile` is still refused, with a
+  message that names the operand. The reference's table of its own Rust
+  functions stays out of scope.)*
 
 ## D156 — the reference's `--debug-shell` flag
 

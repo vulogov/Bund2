@@ -209,3 +209,12 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   What does not hold is "a mechanism the language already has a word for":
   no Bund word calls either method; the words `wrap` and `unwrap` are OOP
   `.data` words. The reference bus uses neither (`bus/mod.rs:88`).
+
+- `02-native-binaries.md:183-184` -> the spelling `--profile` is taken by
+  another feature, recorded here on 2026-10-17 (RFC-0011, D185). The
+  research's `bund2 run --profile prog.prof` records observed type tags for
+  profile-guided AOT; D83 withdrew the AOT and nothing records type tags.
+  D185 gives `--profile <base>` to RFC-0011's profiler of words, which
+  writes a markdown report and a Graphviz file. If profile-guided guard
+  ordering ever returns it needs another name; the research's sentence is
+  left as the design it was.
