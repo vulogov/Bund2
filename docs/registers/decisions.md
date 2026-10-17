@@ -3725,7 +3725,80 @@ edges and the tree stay exact. Only how often a span is *timed* changes.
   flag decision. Of the others: A is acceptable and costs nothing to
   keep; B estimates the figures that matter most; D removes what the
   profiler is for.
-- Status: **OPEN.** No code is written against it.
+- Status: **RESOLVED** by the repository owner, 2026-10-17: "C as
+  default, build it". Option C, sampling on by default, no new spelling;
+  exact timing on request is not built and would be its own flag
+  decision.
+
+### Built, the same day
+
+- The rule, in the record (`crates/bund2-interp/src/profile.rs`): a leaf
+  — native, method or conditional runner — is timed on each of its first
+  `SAMPLE_AFTER` = 64 calls. It is then sampled if the mean of its timed
+  exclusive spans that lie within four times `threshold` is under
+  `threshold`, and no more than one in sixteen of them lie outside;
+  `threshold` is four times D188's floor, `4 × (2 × cost + resolution)`,
+  and zero when the clock was not measured, so nothing is sampled. A
+  sampled leaf is timed one call in `SAMPLE_EVERY` = 16. The rule is
+  rechecked at each of those, and a leaf that stops meeting it is timed
+  on every call for the rest of the run (`Timing::Returned`). The spans
+  over the bound are excluded from the mean the rule is judged on so one
+  preempted call cannot decide it, but kept in the mean an untimed call
+  is charged, which is the unbiased one.
+- An untimed call reads no clock. It is charged the mean of the leaf's
+  timed exclusive spans plus whatever it called beneath itself, which is
+  measured; the charge goes to the leaf's exclusive and inclusive time,
+  its edge, and its parent's children, as a span would. `min` and `max`
+  are over timed spans only. Calls, steps, edges and the tree are exact.
+  Words and the program are timed on every call.
+- The renderer (`crates/bund2-cli/src/profile.rs`): when any call was
+  estimated, a paragraph after the header says the rule, the threshold,
+  how many calls were estimated and how many readings that left untaken;
+  every time cell of an estimated row carries `~`; a `## Timing` section
+  lists each sampled native with its calls, timed, estimated, the mean of
+  its timed calls and whether it stayed sampled, or says "every call was
+  timed". In the `dot` file a sampled node's self time carries `~` and the
+  legend gains a line saying what one means.
+- **D117's reading on this host**, the binary before (`cf53c8f`) and
+  after, `/usr/bin/time -l`, five runs, the median, the empty program
+  subtracted (with the flag present, the empty program profiled), on
+  D188's files of 300,000 lines:
+
+  | program | before, off | after, off | change | before, on | after, on | change |
+  |---|---|---|---|---|---|---|
+  | `1 drop` | 1,127.5 M | 1,134.9 M | +0.65% | 1,327.4 M | 1,257.4 M | −5.3% |
+  | eight literals, eight `drop` | 9,068.2 M | 9,138.7 M | +0.78% | | | |
+  | `1 dup drop` | 2,014.8 M | 2,052.8 M | +1.89% | 2,441.8 M | 2,298.5 M | −5.9% |
+  | `1 2 + drop` | 2,265.4 M | 2,301.1 M | +1.57% | | | |
+  | `f`, where `:f { 1 drop } register` | 964.5 M | 970.1 M | +0.58% | 1,376.4 M | 1,304.3 M | −5.2% |
+
+  The off path is untouched by the change, `lib.rs` included, and every
+  row is inside D117's 5% band; the movement is layout. On the path, the
+  per-call cost over the unprofiled run falls from 666 to 408
+  instructions for `1 drop` and from 712 to 409 for `1 dup drop`; `f`,
+  a word that is always timed around a sampled `drop`, from 1,373 to
+  1,114.
+- **fibonacci.bund**, the same method: profiled, 28.23 G instructions
+  before and 23.33 G after (−17%), against 12.82 G unprofiled; the median
+  wall of five profiled runs 1.04 s before and 0.84 s after, against 0.47 s
+  unprofiled. **The estimate above, roughly 0.6 s, was optimistic**:
+  readings fell from 43.1 M to 10.3 M, but entering and leaving every
+  call, which sampling keeps, is most of what remains. Every native in
+  `fib` is sampled; 16,407,287 of 20,194,030 calls are estimated; the
+  sampled natives' means, 21 to 25 ns, match the exact figures of the run
+  before.
+- Tests: `a_cheap_native_is_sampled_and_its_counts_stay_exact` (calls,
+  the edge and the steps equal to an exact run's, timed and estimated
+  counts to the call, readings fewer by exactly two per estimated call),
+  `an_unmeasured_clock_samples_nothing` and
+  `a_native_over_the_threshold_stays_exact` in
+  `crates/bund2-stdlib/tests/profile.rs`; the process test in
+  `crates/bund2-cli/tests/cli_ux.rs` checks "every call was timed" for a
+  short program, and for a loop of 5,000 `+` the paragraph, the `~` on
+  `+`'s row, its *Timing* row (372 timed, 4,628 estimated) and the `dot`
+  file's `~` and legend line.
+- `cargo xtask conform` and `cargo xtask conform --profile` read 135/147,
+  CEILING 135/147, as before (RFC-0011 criteria 1 and 4).
 
 ## D188 — a profile says what its clock cannot show, and counts steps beside the time
 

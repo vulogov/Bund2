@@ -560,9 +560,8 @@ runs no program; `build` and `check` have nothing to profile.
 - A per-site record, word *at* a call site, once per-value spans exist.
 - Read the clock less: time a native's call every Nth time once it has
   been seen K times, and scale, with the figure marked estimated and the
-  count and the steps still exact. D188's option C; **D189**, OPEN, puts
-  four options for a ruling and recommends sampling only the natives
-  whose measured cost is already under the clock's floor.
+  count and the steps still exact. D188's option C; **D189**. *Built
+  2026-10-17 under D189's option C, by default; see the amendment below.*
 
 ### §S9 — Open questions
 
@@ -831,6 +830,23 @@ longer a node, which ranking placed wherever it fitted, but the graph's
 own label with `labelloc="b"` and `labeljust="l"`, which `dot` puts in
 the bottom-left corner whatever the layout. The example graph is
 re-rendered again.)*
+
+### Amended 2026-10-17 — D189: a cheap native is timed one call in sixteen
+
+On the owner's "C as default, build it". §S2's "two readings per
+activation" now holds for words and for every leaf whose cost the clock
+can see. A leaf whose first 64 timed calls average under four times
+D188's floor, with no more than one in sixteen over four times that, is
+timed one call in 16 from then on, and each untimed call is charged the
+mean of its timed ones. Calls, steps, edges and the tree are still exact,
+and exclusive times still sum to the wall within the estimate's error.
+§S5's report marks every estimated figure with `~`, explains the rule
+after the header, and lists the sampled natives under a new `## Timing`
+section; the `dot` file marks them and its legend says what `~` means.
+On fibonacci the profiled run takes 23.33 G instructions instead of
+28.23 G and 0.84 s instead of 1.04 s, against 0.47 s unprofiled; the
+readings fall from 43.1 M to 10.3 M. The figures, the off path's reading
+and the tests are in D189.
 
 ## Open questions
 

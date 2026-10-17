@@ -97,6 +97,11 @@ out: here, that `fib` is recursive to depth 31. Because `if` runs its
 chosen block as a tail call, the block's words appear as `fib`'s own,
 marked `via if`, and the recursion is a self edge.
 
+The natives in `fib` cost less than the clock that would time them, so
+after their first 64 calls they are timed one call in 16 and the rest are
+charged the timed calls' mean. Their figures carry a `~`, the report's
+*Timing* section lists them, and their call counts stay exact.
+
 ## Building a standalone binary
 
 `bund2 build` compiles nothing. It copies the `bund2` executable that runs it

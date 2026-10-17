@@ -15,12 +15,17 @@
 //! the clock's and only its count and its steps are the word's. Steps, the
 //! values dispatched while a word was innermost, are exact and the same on
 //! every host, and sit beside the time in every table.
+//!
+//! **An estimate is marked — D189.** A cheap native is timed one call in
+//! sixteen after its first sixty-four; its other calls are charged the
+//! mean of its timed ones. Every figure that holds an estimate carries a
+//! `~`, and a section names each sampled native and why it was.
 
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 
 use bund2_api::{MethodEffect, Registry, StackEffect, WordKind};
-use bund2_interp::profile::{Key, Kind, Node, Profile};
+use bund2_interp::profile::{Key, Kind, Node, Profile, SAMPLE_AFTER, SAMPLE_EVERY, Timing};
 
 /// How the run ended, as the command line saw it. The record knows which
 /// word was innermost when the last failure was raised; this says whether
@@ -438,6 +443,24 @@ pub fn render_markdown(p: &Profile, reg: &Registry, meta: &Meta<'_>) -> String {
         pct(overhead, wall),
         dur(floor),
     );
+    let estimated: u64 = nodes.iter().map(|n| n.estimated).sum();
+    if estimated > 0 {
+        let _ = writeln!(
+            out,
+            "**Some calls were estimated, not measured (D189).** A native whose first \
+             {SAMPLE_AFTER} calls averaged under {} — four times the floor — was timed \
+             one call in {SAMPLE_EVERY} after them, and each of its other calls was \
+             charged the mean of its timed ones: {} of {} calls, {} readings of the \
+             clock not taken. Its figures carry a `~`. Its caller's exclusive time is \
+             the caller's measured span less the estimate, so it carries the same \
+             error unmarked. Calls and steps are counted on every call. The natives \
+             sampled are listed under *Timing*.\n",
+            dur(p.threshold),
+            thousands(estimated),
+            thousands(calls),
+            thousands(estimated * 2),
+        );
+    }
 
     // --- the hottest words ---------------------------------------------------
     let _ = writeln!(out, "## Hottest words, by exclusive time\n");
@@ -486,9 +509,10 @@ pub fn render_markdown(p: &Profile, reg: &Registry, meta: &Meta<'_>) -> String {
         .collect();
     for (_, n) in &full {
         let each = per_call(n.exclusive, n.calls);
+        let est = if n.estimated > 0 { "~" } else { "" };
         let _ = writeln!(
             out,
-            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {}{} | {} | {} | {} | {} |",
+            "| `{}` | {} | {} | {} | {} | {} | {} | {est}{} | {est}{} | {est}{}{} | {est}{} | {est}{} | {} | {} |",
             name_of(n, reg),
             spelled_of(n, reg),
             kind_of(n),
@@ -681,6 +705,49 @@ pub fn render_markdown(p: &Profile, reg: &Registry, meta: &Meta<'_>) -> String {
     if !any {
         let _ = writeln!(out, "- none derived.");
     }
+
+    // --- timing -----------------------------------------------------------------
+    // Which natives were sampled and why (D189), so no estimate is
+    // unexplained. A native that stayed exact is not listed: that is every
+    // figure without a `~`.
+    let sampled: Vec<&(usize, &Node)> = ranked
+        .iter()
+        .filter(|(_, n)| matches!(n.timing, Timing::Sampled | Timing::Returned(_)))
+        .collect();
+    let _ = writeln!(out, "\n## Timing\n");
+    if sampled.is_empty() {
+        let _ = writeln!(out, "- every call was timed.");
+    } else {
+        let _ = writeln!(
+            out,
+            "Sampled: under {} a call over the first {SAMPLE_AFTER} timed calls, with no more \
+             than one in sixteen over four times that; timed one call in {SAMPLE_EVERY} after.\n",
+            dur(p.threshold)
+        );
+        let _ = writeln!(
+            out,
+            "| native | calls | timed | estimated | mean of timed | timing |"
+        );
+        let _ = writeln!(out, "|---|---|---|---|---|---|");
+        for (_, n) in sampled {
+            let _ = writeln!(
+                out,
+                "| `{}` | {} | {} | {} | {} | {} |",
+                name_of(n, reg),
+                thousands(n.calls),
+                thousands(n.timed),
+                thousands(n.estimated),
+                dur(n.timed_mean()),
+                match n.timing {
+                    Timing::Returned(at) => format!(
+                        "sampled, then timed on every call from call {}: its timed calls stopped meeting the rule",
+                        thousands(at)
+                    ),
+                    _ => "sampled to the end".to_string(),
+                }
+            );
+        }
+    }
     out
 }
 
@@ -810,9 +877,10 @@ pub fn render_dot(p: &Profile, reg: &Registry) -> String {
         let level = (255.0 - (share(n.exclusive) * 2.0).min(1.0) * 160.0) as u8;
         let _ = writeln!(
             out,
-            "  n{id} [shape={shape}, label=\"{}\\n{}\\n{} self\", fillcolor=\"#ff{level:02x}{level:02x}\"];",
+            "  n{id} [shape={shape}, label=\"{}\\n{}\\n{}{} self\", fillcolor=\"#ff{level:02x}{level:02x}\"];",
             label_name,
             calls_text(n.calls),
+            if n.estimated > 0 { "~" } else { "" },
             dur(n.exclusive)
         );
     }
@@ -883,11 +951,18 @@ pub fn render_dot(p: &Profile, reg: &Registry) -> String {
     }
     let _ = writeln!(
         out,
-        "  labelloc=\"b\"; labeljust=\"l\"; fontname=\"Helvetica\"; fontsize=11;\n  label=\"shape: double box the program, rounded box a word, ellipse a native, octagon a method, diamond a conditional runner\\lfill: exclusive share of the wall, white at none, red at half or more\\llabel: the spelling the program used, the resolved name beneath; calls; exclusive time\\ledge: calls · the callee's time along it; width by that time; dashed: the body was filed by the named native as a tail request\\l{}\";",
+        "  labelloc=\"b\"; labeljust=\"l\"; fontname=\"Helvetica\"; fontsize=11;\n  label=\"shape: double box the program, rounded box a word, ellipse a native, octagon a method, diamond a conditional runner\\lfill: exclusive share of the wall, white at none, red at half or more\\llabel: the spelling the program used, the resolved name beneath; calls; exclusive time\\ledge: calls · the callee's time along it; width by that time; dashed: the body was filed by the named native as a tail request\\l{}{}\";",
         if folded_count > 0 {
             format!(
                 "folded: words under {:.1} % of the wall, inclusive and exclusive, are one note node\\l",
                 DOT_FOLD_SHARE * 100.0
+            )
+        } else {
+            String::new()
+        },
+        if nodes.iter().any(|n| n.estimated > 0) {
+            format!(
+                "~: a native timed one call in {SAMPLE_EVERY}, its other calls charged the timed ones' mean (D189)\\l"
             )
         } else {
             String::new()

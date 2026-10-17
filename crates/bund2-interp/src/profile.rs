@@ -28,6 +28,19 @@
 //! program on any two hosts count the same. A native dispatches nothing of
 //! its own, so its steps are zero; its cost in steps is the one step that
 //! named it, charged to the word whose body did.
+//!
+//! **Reading the clock less (D189).** A leaf — a native, method or runner —
+//! is timed on every one of its first [`SAMPLE_AFTER`] calls. If those put
+//! its mean under [`Profile::threshold`], four times the clock's floor, and
+//! no more than one in sixteen of them over four times that, it is from then
+//! on timed one call in [`SAMPLE_EVERY`]; an untimed call is charged the
+//! mean of its timed ones, as an estimate, to its own exclusive time, to its
+//! edge and to its parent's children, so exclusive times still sum to the
+//! wall within the estimate's error. Every call is still entered and left,
+//! so calls, steps, edges and the tree stay exact. A sampled leaf whose
+//! timed calls stop meeting the rule goes back to exact timing for the rest
+//! of the run. Words are timed on every call: their spans are what the tree
+//! is made of.
 
 use std::collections::{HashMap, HashSet};
 
@@ -36,6 +49,26 @@ const NONE: u32 = u32::MAX;
 use std::time::{Duration, Instant};
 
 use bund2_api::{Symbol, WordKind};
+
+/// A leaf's first calls, all timed, before it can be sampled (D189).
+pub const SAMPLE_AFTER: u64 = 64;
+/// A sampled leaf is timed one call in this many.
+pub const SAMPLE_EVERY: u32 = 16;
+
+/// How a node's calls are timed (D189).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Timing {
+    /// Every call timed: a word, the program, or a leaf whose first calls
+    /// put it over the threshold.
+    Exact,
+    /// A leaf still in its first [`SAMPLE_AFTER`] calls, every one timed.
+    Learning,
+    /// A leaf timed one call in [`SAMPLE_EVERY`], the rest estimated.
+    Sampled,
+    /// A leaf that was sampled until its timed calls stopped meeting the
+    /// rule at this call, and was timed on every call from then on.
+    Returned(u64),
+}
 
 /// What kind of word a node is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -91,6 +124,20 @@ pub struct Node {
     /// Values dispatched inside this node's outermost activations, its own
     /// and its callees' — its inclusive steps.
     pub steps_inclusive: u64,
+    /// How this node's calls are timed (D189).
+    pub timing: Timing,
+    /// Calls no reading measured, charged the mean of the timed ones.
+    pub estimated: u64,
+    /// Calls whose span was read off the clock, and their exclusive spans.
+    pub timed: u64,
+    pub timed_exclusive: Duration,
+    /// The timed calls whose exclusive span was within four times the
+    /// threshold, and those spans: the mean the rule is judged on, so one
+    /// preempted call does not decide it.
+    within: u64,
+    within_exclusive: Duration,
+    /// Calls left before the next timed one, while sampled.
+    countdown: u32,
     active: u32,
     /// The edges out of this node: `(callee, via, edge)`. A short list
     /// scanned linearly, which is cheaper than hashing a three-tuple for the
@@ -114,9 +161,43 @@ impl Node {
             max_depth: 0,
             steps: 0,
             steps_inclusive: 0,
+            timing: match kind {
+                Kind::Program | Kind::Word => Timing::Exact,
+                Kind::Native | Kind::Method | Kind::Conditional => Timing::Learning,
+            },
+            estimated: 0,
+            timed: 0,
+            timed_exclusive: Duration::ZERO,
+            within: 0,
+            within_exclusive: Duration::ZERO,
+            countdown: 0,
             active: 0,
             out: Vec::new(),
         }
+    }
+
+    /// The mean exclusive span of the timed calls: what an untimed one is
+    /// charged.
+    pub fn timed_mean(&self) -> Duration {
+        match u32::try_from(self.timed) {
+            Ok(n) if n > 0 => self.timed_exclusive / n,
+            _ => Duration::ZERO,
+        }
+    }
+
+    /// The rule a leaf is sampled under (D189): at least [`SAMPLE_AFTER`]
+    /// timed calls, no more than one in sixteen of them over four times
+    /// `threshold`, and the rest's mean under it.
+    fn may_sample(&self, threshold: Duration) -> bool {
+        let over = self.timed - self.within;
+        let mean = match u32::try_from(self.within) {
+            Ok(n) if n > 0 => self.within_exclusive / n,
+            _ => return false,
+        };
+        !threshold.is_zero()
+            && self.timed >= SAMPLE_AFTER
+            && over * 16 <= self.timed
+            && mean < threshold
     }
 }
 
@@ -145,7 +226,8 @@ struct Open {
     /// The interpreter's frame depth this entry belongs to: a word's frame
     /// sits at this depth, a leaf was opened while the frames were this deep.
     depth: usize,
-    start: Instant,
+    /// `None` for a sampled leaf's untimed call (D189).
+    start: Option<Instant>,
     /// The record's step count when this entry opened.
     start_steps: u64,
     /// The spans of the direct children already closed under this entry.
@@ -195,6 +277,10 @@ pub struct Profile {
     /// zero or as one tick; a per-call figure near it is the clock's, not
     /// the word's.
     pub resolution: Duration,
+    /// A leaf whose timed calls average under this is sampled (D189): four
+    /// times the floor, `2 × reading_cost + resolution`. Zero, so nothing is
+    /// sampled, when the clock was not measured.
+    pub threshold: Duration,
     /// The node that was innermost when the run's last failure was raised,
     /// with the failure's text: the native that answered the error, or the
     /// word whose body named something that could not be dispatched. `None`
@@ -229,6 +315,7 @@ impl Profile {
             readings: 1,
             reading_cost,
             resolution,
+            threshold: (reading_cost * 2 + resolution) * 4,
             console_attached: false,
             redefined: HashSet::new(),
             filed_by: None,
@@ -317,8 +404,27 @@ impl Profile {
     }
 
     fn enter(&mut self, node: Option<usize>, depth: usize, leaf: bool, via: Option<usize>) {
-        let start = Instant::now();
-        self.readings += 1;
+        // A sampled leaf reads the clock one call in `SAMPLE_EVERY` (D189);
+        // everything else on every call.
+        let timed = match node {
+            Some(id) if leaf && self.nodes[id].timing == Timing::Sampled => {
+                let n = &mut self.nodes[id];
+                n.countdown = n.countdown.saturating_sub(1);
+                if n.countdown == 0 {
+                    n.countdown = SAMPLE_EVERY;
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => true,
+        };
+        let start = if timed {
+            self.readings += 1;
+            Some(Instant::now())
+        } else {
+            None
+        };
         let mut nested = false;
         let mut edge = None;
         if let Some(id) = node {
@@ -350,13 +456,53 @@ impl Profile {
         let Some(o) = self.open.pop() else {
             return;
         };
-        let span = o.start.elapsed();
         let span_steps = self.steps.saturating_sub(o.start_steps);
-        self.readings += 1;
+        let measured = o.start.map(|s| s.elapsed());
+        if measured.is_some() {
+            self.readings += 1;
+        }
         let Some(id) = o.node else {
             // An anonymous body: its children were charged to the named node
             // above it as they closed, and its own span is nobody's.
             return;
+        };
+        let threshold = self.threshold;
+        let span = {
+            let n = &mut self.nodes[id];
+            match measured {
+                Some(span) => {
+                    if o.leaf {
+                        let own = span.saturating_sub(o.children);
+                        n.timed += 1;
+                        n.timed_exclusive += own;
+                        if own <= threshold * 4 {
+                            n.within += 1;
+                            n.within_exclusive += own;
+                        }
+                        match n.timing {
+                            Timing::Learning if n.timed >= SAMPLE_AFTER => {
+                                if n.may_sample(threshold) {
+                                    n.timing = Timing::Sampled;
+                                    n.countdown = SAMPLE_EVERY;
+                                } else {
+                                    n.timing = Timing::Exact;
+                                }
+                            }
+                            Timing::Sampled if !n.may_sample(threshold) => {
+                                n.timing = Timing::Returned(n.calls);
+                            }
+                            _ => {}
+                        }
+                    }
+                    span
+                }
+                // An untimed call: its own time is the timed calls' mean,
+                // and what it called beneath itself was measured.
+                None => {
+                    n.estimated += 1;
+                    n.timed_mean() + o.children
+                }
+            }
         };
         {
             let n = &mut self.nodes[id];
@@ -370,8 +516,11 @@ impl Profile {
                 n.outer += 1;
                 n.inclusive += span;
                 n.steps_inclusive += span_steps;
-                n.min = n.min.min(span);
-                n.max = n.max.max(span);
+                // An estimate is no span anyone saw.
+                if measured.is_some() {
+                    n.min = n.min.min(span);
+                    n.max = n.max.max(span);
+                }
             }
         }
         match self.open.iter_mut().rev().find(|x| x.node.is_some()) {

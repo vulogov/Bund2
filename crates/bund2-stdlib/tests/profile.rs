@@ -13,15 +13,25 @@ use std::time::Duration;
 
 use bund2_api::Vm;
 use bund2_interp::Interp;
-use bund2_interp::profile::{Key, Kind, Node, Profile};
+use bund2_interp::profile::{Key, Kind, Node, Profile, SAMPLE_AFTER, SAMPLE_EVERY, Timing};
 
 /// Run `src` profiled. Answers the interpreter, the record after `finish`,
 /// how many mirror entries were open when the run ended, and the run's
 /// outcome.
 fn profiled(src: &str) -> (Interp, Box<Profile>, usize, Result<(), String>) {
+    profiled_with(src, Duration::ZERO, Duration::ZERO)
+}
+
+/// As [`profiled`], with the clock's cost and resolution as given, which
+/// set the threshold a leaf is sampled under (D189).
+fn profiled_with(
+    src: &str,
+    cost: Duration,
+    resolution: Duration,
+) -> (Interp, Box<Profile>, usize, Result<(), String>) {
     let mut i = Interp::new();
     bund2_stdlib::register_all(&mut i.registry);
-    i.profile = Some(Box::new(Profile::new(Duration::ZERO, Duration::ZERO)));
+    i.profile = Some(Box::new(Profile::new(cost, resolution)));
     let stream = bund2_syntax::compile(src).expect("compiles");
     let outcome = i.eval(&stream).map_err(|e| e.0);
     let mut p = i.profile.take().unwrap();
@@ -359,4 +369,57 @@ fn the_failing_word_is_marked() {
         Some(h_id),
         "the failure that ended the run, not the one caught"
     );
+}
+
+/// D189: a leaf whose first calls are under the threshold is timed one call
+/// in `SAMPLE_EVERY` after its first `SAMPLE_AFTER`. Its calls, its edge and
+/// every step stay exact, and the clock is read twice less for every call
+/// not timed — to the reading.
+#[test]
+fn a_cheap_native_is_sampled_and_its_counts_stay_exact() {
+    let src = "0 1000 { 1 + } times drop";
+    let (i0, exact, _, _) = profiled(src);
+    // A clock costing a second a reading puts every native under the
+    // threshold.
+    let (i, p, open, outcome) = profiled_with(src, Duration::from_secs(1), Duration::ZERO);
+    assert!(outcome.is_ok(), "{outcome:?}");
+    assert_eq!(open, 0);
+    let (plus_id, plus) = find(&i, &p, "+").unwrap();
+    assert_eq!(plus.timing, Timing::Sampled);
+    assert_eq!(plus.calls, 1000);
+    let timed = SAMPLE_AFTER + (1000 - SAMPLE_AFTER) / u64::from(SAMPLE_EVERY);
+    assert_eq!(plus.timed, timed);
+    assert_eq!(plus.estimated, 1000 - timed);
+    let (times_id, _) = find(&i, &p, "times").unwrap();
+    assert_eq!(edge(&p, times_id, plus_id).unwrap().0, 1000);
+    assert_eq!(p.steps(), exact.steps());
+    let (_, plus0) = find(&i0, &exact, "+").unwrap();
+    assert_eq!(plus0.timing, Timing::Exact);
+    assert_eq!(plus0.estimated, 0);
+    assert_eq!(p.readings, exact.readings - 2 * plus.estimated);
+}
+
+/// A clock nobody measured gives a zero threshold, and nothing is sampled.
+#[test]
+fn an_unmeasured_clock_samples_nothing() {
+    let (i, p, _, _) = profiled("0 1000 { 1 + } times drop");
+    for n in p.nodes() {
+        assert_eq!(n.estimated, 0, "{}", name(&i, n));
+        assert!(n.timing != Timing::Sampled, "{}", name(&i, n));
+    }
+}
+
+/// A native over the threshold stays timed on every call. A threshold of
+/// four nanoseconds is under any span that holds a reading of the clock.
+#[test]
+fn a_native_over_the_threshold_stays_exact() {
+    let (i, p, _, _) = profiled_with(
+        "0 1000 { 1 + } times drop",
+        Duration::ZERO,
+        Duration::from_nanos(1),
+    );
+    let (_, plus) = find(&i, &p, "+").unwrap();
+    assert_eq!(plus.timing, Timing::Exact);
+    assert_eq!(plus.estimated, 0);
+    assert_eq!(plus.timed, 1000);
 }

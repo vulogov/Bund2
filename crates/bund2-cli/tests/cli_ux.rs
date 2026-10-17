@@ -636,4 +636,36 @@ fn profile_needs_a_base_and_then_writes_two_files_and_nothing_else() {
     assert!(md2.contains("| error in `⟨program⟩`: "), "{md2}");
     assert!(md2.contains("boom"), "{md2}");
     assert!(md2.contains("profiled-bad.bund:1:"), "{md2}");
+    // D189: nothing in the first run was called often enough to be sampled,
+    // and the report says so; a loop of cheap natives is sampled, every
+    // estimated figure carries a `~`, and the graph's legend says what one
+    // means.
+    assert!(
+        md.contains("## Timing\n\n- every call was timed."),
+        "{md}"
+    );
+    assert!(!md.contains("~"), "{md}");
+    let lp = program("profiled-loop.bund", "0 5000 { 1 + } times println\n");
+    let base4 = p.with_file_name("run4");
+    let base4_s = base4.to_str().unwrap();
+    let r4 = bund2(
+        &["script", "--profile", base4_s, "--file", lp.to_str().unwrap()],
+        &[],
+    );
+    assert_eq!(r4.code, Some(0), "{}", r4.err);
+    assert_eq!(r4.out, "5000\n");
+    let md4 = std::fs::read_to_string(format!("{base4_s}.profile.md")).expect("the report");
+    let dot4 = std::fs::read_to_string(format!("{base4_s}.profile.dot")).expect("the graph");
+    assert!(
+        md4.contains("**Some calls were estimated, not measured (D189).**"),
+        "{md4}"
+    );
+    assert!(md4.contains("| `+` |  | native | (2, 1) | 5 000 | 0 | 0.0 | ~"), "{md4}");
+    assert!(
+        md4.contains("| `+` | 5 000 | 372 | 4 628 | "),
+        "{md4}"
+    );
+    assert!(md4.contains("| sampled to the end |"), "{md4}");
+    assert!(dot4.contains("\\n~"), "{dot4}");
+    assert!(dot4.contains("~: a native timed one call in 16"), "{dot4}");
 }
