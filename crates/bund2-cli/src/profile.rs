@@ -698,6 +698,15 @@ fn tree(
     }
 }
 
+/// `1 call`, `2 calls`, `1 346 268 calls`.
+fn calls_text(n: u64) -> String {
+    if n == 1 {
+        "1 call".to_string()
+    } else {
+        format!("{} calls", thousands(n))
+    }
+}
+
 fn dot_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
@@ -753,14 +762,16 @@ pub fn render_dot(p: &Profile, reg: &Registry) -> String {
         }
         // The spelling the program used is what a reader of the program
         // looks for; the resolved name goes beneath it.
-        let name = name_of(n, reg);
+        // Escaped before the line break goes in, or the break's own
+        // backslash is escaped and `dot` prints `\n` literally.
+        let name = dot_escape(&name_of(n, reg));
         let label_name = if n.spelled.is_empty() {
             name
         } else {
             let spelled: Vec<String> = n
                 .spelled
                 .iter()
-                .map(|s| reg.interner.name(*s).to_string())
+                .map(|s| dot_escape(reg.interner.name(*s)))
                 .collect();
             format!("{}\\n({name})", spelled.join(", "))
         };
@@ -775,9 +786,9 @@ pub fn render_dot(p: &Profile, reg: &Registry) -> String {
         let level = (255.0 - (share(n.exclusive) * 2.0).min(1.0) * 160.0) as u8;
         let _ = writeln!(
             out,
-            "  n{id} [shape={shape}, label=\"{}\\n{} calls\\n{} self\", fillcolor=\"#ff{level:02x}{level:02x}\"];",
-            dot_escape(&label_name),
-            thousands(n.calls),
+            "  n{id} [shape={shape}, label=\"{}\\n{}\\n{} self\", fillcolor=\"#ff{level:02x}{level:02x}\"];",
+            label_name,
+            calls_text(n.calls),
             dur(n.exclusive)
         );
     }
@@ -796,9 +807,9 @@ pub fn render_dot(p: &Profile, reg: &Registry) -> String {
             .sum();
         let _ = writeln!(
             out,
-            "  n{others} [shape=note, label=\"{folded_count} more words\\neach under {:.1} % of wall\\n{} calls\\n{} self\"];",
+            "  n{others} [shape=note, label=\"{folded_count} more words\\neach under {:.1} % of wall\\n{}\\n{} self\"];",
             DOT_FOLD_SHARE * 100.0,
-            thousands(calls),
+            calls_text(calls),
             dur(time)
         );
     }

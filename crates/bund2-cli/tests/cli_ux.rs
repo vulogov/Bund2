@@ -425,7 +425,10 @@ fn a_shebang_file_runs_itself_with_its_arguments_and_its_line_numbers() {
 /// succeeded.
 #[test]
 fn profile_needs_a_base_and_then_writes_two_files_and_nothing_else() {
-    let p = program("profiled.bund", ":inc { 1 + } register 5 inc inc println\n");
+    let p = program(
+        "profiled.bund",
+        ":inc { 1 + } register 5 inc inc dup drop println\n",
+    );
     let path = p.to_str().unwrap();
 
     let bare = bund2(&["script", "--file", path, "--profile"], &[]);
@@ -489,6 +492,11 @@ fn profile_needs_a_base_and_then_writes_two_files_and_nothing_else() {
         "a single-caller leaf has no section: {md}"
     );
     assert!(dot.contains("legend [shape=plaintext"), "{dot}");
+    // A node spelled differently from its resolved name breaks its label
+    // with `\n`, not a literal backslash `dot` would print as text.
+    assert!(dot.contains("dup\\n(dup_one)"), "{dot}");
+    assert!(!dot.contains("\\\\n"), "an escaped line break: {dot}");
+    assert!(dot.contains("\\n1 call\\n"), "singular for one call: {dot}");
     assert!(dot.contains("peripheries=2"), "{dot}");
     assert!(dot.starts_with("digraph profile {"), "{dot}");
     assert_eq!(

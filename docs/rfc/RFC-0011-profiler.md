@@ -800,7 +800,15 @@ record, the hooks and the hot path are untouched, so criterion 3 was not
 read again. The process test checks the pruned section's heading, that a
 single-caller leaf has no section, and the legend in the graph; `dot`
 itself was not on the host that built this, so the test's `dot -Tsvg`
-half skipped there, as it says it does.
+half skipped there, as it says it does. *(Graphviz was then found at
+`/opt/homebrew/bin/dot`, and rendering the redrawn file showed a
+spelled node's label printing a literal `\n`, `dup\n(dup_one)`: the name
+was escaped after the line break went in, so the break's own backslash
+was escaped. Names are now escaped first; one call reads `1 call`; the
+process test's program spells `dup` and asserts the break, and its
+`dot -Tsvg` half runs on this host and passes.
+`bund_examples/fibonacci/fib.profile.png` is re-rendered from the new
+file.)*
 
 ## Open questions
 
