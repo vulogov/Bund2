@@ -3650,6 +3650,100 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D183 — `check` follows `?try` where a `raise` places the failure
+
+**Raised 2026-10-16** by the repository owner, after D182: "next barrier,
+?try joined like ?ifthenelse". After D182 `?try` was abandoned outright
+with "after which the depth depends on whether `try` failed" — 5 sites on
+the corpus, the largest reason left that is a rule of the walk rather than
+a word Bund2 does not define.
+
+- Blocks: nothing
+- Depends on: RFC-0004 §S4 (what a finding promises), §S6 barrier 4; D180
+  (a body run on a copy); D181 (a CONDITIONAL followed by its type,
+  `?ifthenelse` joined)
+- What the reference does: `conditional_tryexcept.rs:30-50` runs `try`;
+  on an error it pushes an ERROR conditional carrying the `?try`'s own
+  `associated` and the message, runs `except`, then `recovery`, and an
+  error in either of those is its caller's (`:42`, `:46`). The stack
+  `except` sees is whatever the failing word left. `raise` pulls its
+  message — none is "No message for raise", not an underflow — and fails
+  unconditionally (`raise.rs:6-16`). `/` by zero leaves the stack without
+  either operand: the golden for `tryexcept_demo_divide_to_0.bund` shows
+  `0 ?try :try { 1 / } set :except { ! } set !` ending with an empty
+  stack.
+- Options:
+  - **A. Place the failure at `raise`.** The walk assumes every word it
+    passes returns — it does everywhere, since outside a `try` a failure
+    ends the program and there is nothing after it to be wrong about. The
+    one word that never returns is `raise`, so a `raise` the walk reaches
+    inside `try` ends the path it is on, with the stack it left — the
+    message pulled — as the stack `except` sees. Reached on the `try`'s
+    own path it leaves no success path; reached inside a body that `if`
+    or `times` runs on a copy, it leaves the path where that body does
+    not run, and the two are joined as `?ifthenelse` joins its branches —
+    the same depth, a slot kept where both agree. A second `raise` that
+    leaves a different depth is an abandonment that says so. A `try` with
+    no `raise` on any path the walk takes **may still fail at any word**,
+    and the walk cannot say where; following it on the standing
+    assumption would hand `except` a stack the walk did not model, and
+    a finding after it would rest on that. So it is abandoned, with a
+    reason that names the gap: "whose `try` reaches no `raise`, so the
+    walk cannot place the failure `except` handles". `except` and
+    `recovery` run on what the failure left plus the ERROR conditional,
+    whose `associated` is the `?try`'s, so `!` on it in `except` runs
+    that lambda as D181's `error` arm does; a `raise` inside `except` is
+    the enclosing `?try`'s, if there is one, as `:42` makes it. A body
+    inferred for its pair (§S3) is not on the `try`'s path: `raise` in it
+    is the pair it declares.
+  - **B. Follow the success path alone** when `try` has no `raise`. Moves
+    two more sites, and makes the depth after every such `?try` a claim
+    the run can refute: the divide demo's except leaves nothing where the
+    walk would say one.
+  - **C. Range the failure** over every prefix of `try`, each less the
+    operands the failing word may have pulled, and join them all. Sound
+    for words that pull then fail, which `/` and `raise` do, and
+    joinable only when every prefix has the same depth, which no body
+    that does anything has. Changes no number.
+- Recommendation: A.
+- Status: **RESOLVED** by the repository owner, 2026-10-16: "next barrier,
+  ?try joined like ?ifthenelse". A built the same day.
+
+### Built, the same day
+
+- `Walker::run_tryexcept`, `record_raise`, the `raised` and `halted`
+  fields and the `raise` arm of `structural` in
+  `crates/bund2-stdlib/src/check.rs`; `walk` stops at a halt, a body run
+  on a copy clears it and keeps the path where the body does not run, and
+  `?ifthenelse` drops a branch that raised from its join. `raise` on an
+  empty stack is no longer a finding, after `raise.rs:14`.
+- **On the corpus**, the same 224 programs, measured the same way:
+
+  | | after D182 | after D183 |
+  |---|---|---|
+  | sites analysed | 3055 | 3092 |
+  | abandonments | 122 | 120 |
+  | programs with no abandonment | 102 | 104 |
+  | `?try` | 5 | 2 |
+  | findings | 4 | 4 |
+
+  Of the five: `testing_tryexcept.bund` and
+  `tryexcept_demo_with_error_execute.bund` are followed to the end, and
+  the first leaves what its golden shows, the message and `true`;
+  `tryexcept_demo.bund` reaches its `except` and stops at `!` on what
+  `:associated get` pulled, barrier 1 by another road; the divide demo
+  and the fifth example of `application_conditional_demos.bund` have no
+  `raise` and abandon with the new reason, which is the honest answer for
+  both — the divide demo's `except` runs on an empty stack where its
+  `try` would have left one.
+- **Tests**: `a_try_is_followed_where_a_raise_places_the_failure`; the
+  `tryexcept` case of `a_conditional_is_followed_by_its_declared_type`
+  now expects the new reason.
+- **Not built**: a word that *declares* it cannot fail, which is what
+  would let a `try` without `raise` be followed on more than an
+  assumption; the rest of D182's list — the workbench as a second axis,
+  `context`, `*loop`, `while`, `for`, `?true*`.
+
 ## D182 — `check` keeps one abstract stack per name: `@name` and `( … )` switch, `clear` and `fold` take what the stack holds
 
 **Raised 2026-10-16** by the repository owner, after D181: "next barrier,

@@ -400,6 +400,18 @@ programs with no abandonment 94 → 102, two switches left, both `context`
 conditionals, and one new finding, a real one. Inference still stops at a
 switch: a pair is about one stack, §S1.)*
 
+*(2026-10-16, D183: `?try` under barrier 4 is followed where the walk can
+place the failure. The walk assumes every word it passes returns, as it
+must everywhere; `raise` is the one word that never does, so a `raise`
+reached inside `try` ends its path with the stack `except` will see, and
+a `raise` inside a body `if` or `times` runs leaves the path where that
+body does not run, joined with the failure as `?ifthenelse` joins its
+branches. A `try` that reaches no `raise` may fail at any word and is
+abandoned with a reason that says so, rather than followed on the
+assumption. Over the same 224 programs: sites analysed 3055 → 3092,
+programs with no abandonment 102 → 104, `?try` 5 → 2, findings
+unchanged.)*
+
 ## Preservation analysis
 
 | Current behaviour | Disposition |

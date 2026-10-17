@@ -509,6 +509,23 @@ struct Walker<'a> {
     /// False while a body runs on a copy of the stack, where a switch would
     /// move the copy under another name.
     may_switch: bool,
+    /// `Some` while the `try` slot of a `?try` is walked — D183: what the
+    /// `raise`s reached in it leave for `except`. `None` outside one.
+    raised: Option<Raised>,
+    /// A `raise` inside `try` has ended the path the walk is on: every
+    /// enclosing body stops, up to the `?try` that reads this.
+    halted: bool,
+}
+
+/// What the `raise`s reached so far inside a `try` leave on the stack.
+enum Raised {
+    /// None reached yet.
+    Nowhere,
+    /// The stack every `raise` reached agrees on, slot by slot.
+    At(Stack),
+    /// Two left different depths, so `except` runs at a depth the walk
+    /// cannot name.
+    Disagree,
 }
 
 /// The outcome of one site: the walk goes on, or it has abandoned.
@@ -528,6 +545,8 @@ impl<'a> Walker<'a> {
             current: "main".to_string(),
             nesting: Vec::new(),
             may_switch: true,
+            raised: None,
+            halted: false,
         }
     }
 
@@ -675,6 +694,9 @@ impl<'a> Walker<'a> {
                 // string, a PTR, a lowered `{ … }` block or `[ … ]` list.
                 _ => stack.push(Abs::of_literal(v)),
             }
+            if self.halted {
+                return true;
+            }
         }
         true
     }
@@ -759,12 +781,16 @@ impl<'a> Walker<'a> {
         let saved_report = std::mem::take(&mut self.report);
         let saved_why = std::mem::take(&mut self.why);
         let saved_mode = self.mode;
+        // A body inferred for its pair is not on a `try`'s path: a `raise`
+        // in it is the pair `raise` declares, not a failure to place.
+        let saved_raised = self.raised.take();
         self.mode = Mode::Infer;
         let mut st = Stack::default();
         let went = self.walk(body, &mut st, Some(0), None, level);
         self.report = saved_report;
         self.why = saved_why;
         self.mode = saved_mode;
+        self.raised = saved_raised;
         if !went {
             return StackEffect::opaque(0);
         }
@@ -912,6 +938,22 @@ impl<'a> Walker<'a> {
             // switch by a literal name; the rotations and the words that
             // reach another stack by name are followed as far as a pair goes
             // and the rest of the picture is forgotten.
+            // `raise.rs:6-16`: pull the message — none is not an underflow,
+            // `:14` — and fail. Inside a `try` the path ends here and
+            // `except` runs on what is left; the `?try` reads it — D183.
+            "raise" => {
+                self.report.analysed += 1;
+                if self.mode == Mode::Program && stack.items.is_empty() {
+                    // "No message for raise": nothing pulled.
+                } else {
+                    let _ = self.take(stack, 1, name, at, via);
+                }
+                if self.raised.is_some() {
+                    self.record_raise(stack);
+                    self.halted = true;
+                }
+                true
+            }
             "clear" => {
                 if self.mode != Mode::Program {
                     return Some(self.abandon("`clear`, whose effect is not a fixed pair".into()));
@@ -1046,6 +1088,12 @@ impl<'a> Walker<'a> {
         if !went {
             return false;
         }
+        // The run reached a `raise`: that run ends in `except`, which has
+        // the stack it left, and the path that goes on past `{name}` is the
+        // one where the body does not run — D183.
+        if std::mem::take(&mut self.halted) {
+            return true;
+        }
         let net = once.net_against(stack);
         if net != 0 {
             return self.abandon(format!(
@@ -1054,6 +1102,116 @@ impl<'a> Walker<'a> {
         }
         stack.keep_what_agrees(&once);
         true
+    }
+
+    /// A `raise` inside `try` left `stack`: the first fixes what `except`
+    /// sees, a later one is joined with it as two branches are.
+    fn record_raise(&mut self, stack: &Stack) {
+        self.raised = Some(match self.raised.take() {
+            Some(Raised::At(prev)) => match Stack::join(prev, stack) {
+                Some(j) => Raised::At(j),
+                None => Raised::Disagree,
+            },
+            Some(Raised::Disagree) => Raised::Disagree,
+            Some(Raised::Nowhere) | None => Raised::At(stack.copy()),
+        });
+    }
+
+    /// `?try` — `conditional_tryexcept.rs:30-50`: run `try`; when it fails,
+    /// push an ERROR conditional carrying `associated` and the message, then
+    /// run `except` and `recovery`. Followed where the walk can **place** the
+    /// failure — D183. The walk assumes every word it passes returns, as it
+    /// does everywhere; the one word that never does is `raise`
+    /// (`raise.rs:16`), so a `raise` the walk reaches ends the path it is on
+    /// with the stack `except` will see. A `raise` reached on the `try`'s
+    /// own path leaves no success path; one reached inside a body `if` or
+    /// `times` runs leaves the path where that body does not run, and the
+    /// two are joined as `?ifthenelse` joins its branches. A `try` with no
+    /// `raise` may still fail at any word, and the walk cannot say where,
+    /// so it is abandoned rather than followed on the assumption.
+    fn run_tryexcept(
+        &mut self,
+        m: &Rc<ClassModel>,
+        stack: &mut Stack,
+        at: usize,
+        level: u8,
+    ) -> Went {
+        let body = match Self::slot(m, "try") {
+            Slot::Lambda(b) => b,
+            // `:14-17`: no `try` is an empty lambda, which cannot fail.
+            Slot::Absent => {
+                self.report.analysed += 1;
+                return true;
+            }
+            Slot::Unseen => {
+                return self
+                    .abandon("the `try` slot of `?try`, which is not a literal lambda".into());
+            }
+        };
+        self.report.analysed += 1;
+        let mut ok = stack.copy();
+        let outer = std::mem::replace(&mut self.may_switch, false);
+        let saved = self.raised.replace(Raised::Nowhere);
+        let went = self.walk(
+            &body,
+            &mut ok,
+            Some(at),
+            Some("the `try` of `?try`"),
+            level + 1,
+        );
+        let raised = std::mem::replace(&mut self.raised, saved);
+        let try_ended = std::mem::take(&mut self.halted);
+        if !went {
+            self.may_switch = outer;
+            return false;
+        }
+        let mut failed = match raised {
+            Some(Raised::At(f)) => f,
+            Some(Raised::Disagree) => {
+                self.may_switch = outer;
+                return self.abandon(
+                    "`?try` whose `raise`s leave different depths, so the depth after depends on which one runs"
+                        .into(),
+                );
+            }
+            Some(Raised::Nowhere) | None => {
+                self.may_switch = outer;
+                return self.abandon(
+                    "`?try` whose `try` reaches no `raise`, so the walk cannot place the failure `except` handles"
+                        .into(),
+                );
+            }
+        };
+        // `:34-39`: the ERROR conditional, with the `?try`'s own `associated`.
+        let mut error = ClassModel::kind("error");
+        if let Some(a) = m.slots.get("associated") {
+            error.slots.insert("associated".into(), a.clone());
+        }
+        error.slots.insert("context".into(), Abs::Tagged(STRING));
+        failed.push(Abs::Cond(Rc::new(error)));
+        // `:40-47`: `except`, then `recovery`, each on what the other left. A
+        // `raise` in either is not this `?try`'s to catch (`:42`, `:46`): the
+        // walk is back under the enclosing one, if any.
+        let went = self.slot_walk(m, "except", "?try", &mut failed, at, level)
+            && self.slot_walk(m, "recovery", "?try", &mut failed, at, level);
+        self.may_switch = outer;
+        if !went {
+            return false;
+        }
+        if try_ended {
+            *stack = failed;
+            return true;
+        }
+        match Stack::join(ok, &failed) {
+            Some(j) => {
+                *stack = j;
+                true
+            }
+            None => self.abandon(
+                "`?try` whose `try` and `except` leave different depths, so the depth after depends on whether `try` failed"
+                    .into(),
+            ),
+        }
     }
 
     /// One slot of a CONDITIONAL, as its handler reads it: a LAMBDA is run and
@@ -1099,8 +1257,9 @@ impl<'a> Walker<'a> {
     /// `associated`; `csv` and `sqlite` push a row and run `lambda` per row
     /// (`run_csv`, `run_sqlite`), which is D180's rule, or once over a
     /// column as a LIST; `curry` registers a word built from `data`, `lambda`
-    /// and `!` (`run_curry`). `tryexcept` is not followed: after it the depth
-    /// depends on whether `try` failed (`conditional_tryexcept.rs:30-50`).
+    /// and `!` (`run_curry`); `tryexcept` runs `try` and, where a `raise`
+    /// places the failure, `except` and `recovery` on what it left
+    /// (`run_tryexcept`, D183).
     fn run_conditional(
         &mut self,
         m: &Rc<ClassModel>,
@@ -1124,11 +1283,29 @@ impl<'a> Walker<'a> {
                 let mut then_s = stack.copy();
                 let mut else_s = stack.copy();
                 let outer = std::mem::replace(&mut self.may_switch, false);
-                let went = self.slot_walk(m, "then", "?ifthenelse", &mut then_s, at, level)
-                    && self.slot_walk(m, "else", "?ifthenelse", &mut else_s, at, level);
+                let went_then = self.slot_walk(m, "then", "?ifthenelse", &mut then_s, at, level);
+                let then_raised = std::mem::take(&mut self.halted);
+                let went_else = self.slot_walk(m, "else", "?ifthenelse", &mut else_s, at, level);
+                let else_raised = std::mem::take(&mut self.halted);
                 self.may_switch = outer;
-                if !went {
+                if !(went_then && went_else) {
                     return false;
+                }
+                // A branch that ends in a `raise` leaves no path to join — D183.
+                match (then_raised, else_raised) {
+                    (true, true) => {
+                        self.halted = true;
+                        return true;
+                    }
+                    (true, false) => {
+                        *stack = else_s;
+                        return true;
+                    }
+                    (false, true) => {
+                        *stack = then_s;
+                        return true;
+                    }
+                    (false, false) => {}
                 }
                 match Stack::join(then_s, &else_s) {
                     Some(j) => {
@@ -1141,9 +1318,7 @@ impl<'a> Walker<'a> {
                     ),
                 }
             }
-            "tryexcept" => {
-                self.abandon("`?try`, after which the depth depends on whether `try` failed".into())
-            }
+            "tryexcept" => self.run_tryexcept(m, stack, at, level),
             "csv" | "sqlite" => {
                 let body = match Self::slot(m, "lambda") {
                     Slot::Lambda(b) => b,
@@ -1794,11 +1969,12 @@ mod tests {
             rep.reasons
         );
 
-        // `tryexcept` is not followed, and says why.
+        // `tryexcept` with no `raise` to place the failure is not followed,
+        // and says why.
         let rep = check_src("?try :try { 1 } set :except { drop } set !");
         assert_eq!(rep.abandoned, 1, "{rep:?}");
         assert!(
-            rep.reasons[0].0.contains("`try` failed"),
+            rep.reasons[0].0.contains("reaches no `raise`"),
             "{:?}",
             rep.reasons
         );
@@ -1833,6 +2009,62 @@ mod tests {
     /// `endcontext`, `clear` and `fold` take the whole current stack, and a
     /// word that reaches another stack by name makes a later switch to it an
     /// abandonment rather than a claim.
+    /// **D183.** A `raise` the walk reaches inside `try` ends that path with
+    /// the stack `except` sees: what `try` left, then the ERROR conditional.
+    #[test]
+    fn a_try_is_followed_where_a_raise_places_the_failure() {
+        // `raise.rs:14`: no message is not an underflow.
+        assert!(clean(&check_src("raise")));
+
+        // The `try` path ends at `raise`: `except` drops the error and leaves
+        // one value, the only path there is.
+        let e = eff_of("?try :try { \"boom\" raise } set :except { drop 1 } set !");
+        assert_eq!((e.consumes, e.produces, e.opaque), (0, 1, false));
+
+        // `recovery` runs on what `except` left, and `!` on the error runs
+        // the `?try`'s `associated`.
+        let e = eff_of(
+            "?try :try { \"boom\" raise } set :except { drop 1 2 } set :recovery { drop } set !",
+        );
+        assert_eq!((e.consumes, e.produces, e.opaque), (0, 1, false));
+        let e =
+            eff_of("?try :try { \"boom\" raise } set :except { ! } set :associated { 1 } set !");
+        assert_eq!((e.consumes, e.produces, e.opaque), (0, 1, false));
+
+        // A `raise` inside a body `if` runs leaves two paths — the body not
+        // run, and `except` on what the body left — joined where they agree.
+        let e = eff_of("?try :try { 1 true { \"boom\" raise } if } set :except { drop } set !");
+        assert_eq!((e.consumes, e.produces, e.opaque), (0, 1, false));
+        let rep =
+            check_src("?try :try { 1 true { \"boom\" raise } if } set :except { drop drop } set !");
+        assert_eq!(rep.abandoned, 1, "{rep:?}");
+        assert!(
+            rep.reasons[0].0.contains("whether `try` failed"),
+            "{:?}",
+            rep.reasons
+        );
+
+        // Two `raise`s at different depths: `except` runs at a depth the walk
+        // cannot name.
+        let rep = check_src(
+            "?try :try { true { \"a\" raise } if 1 \"b\" raise } set :except { drop } set !",
+        );
+        assert_eq!(rep.abandoned, 1, "{rep:?}");
+        assert!(
+            rep.reasons[0]
+                .0
+                .contains("different depths, so the depth after depends on which"),
+            "{:?}",
+            rep.reasons
+        );
+
+        // The corpus's `testing_tryexcept.bund`: the message and `true` are
+        // what the golden shows.
+        assert!(clean(&check_src(
+            "\"Testing\" ?try :try { \"I raise\" raise } set :except { drop true } set ! println println"
+        )));
+    }
+
     #[test]
     fn a_stack_switch_is_followed_per_name() {
         assert!(clean(&check_src(
