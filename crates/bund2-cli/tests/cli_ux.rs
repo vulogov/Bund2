@@ -379,13 +379,27 @@ fn a_shebang_file_runs_itself_with_its_arguments_and_its_line_numbers() {
     let mut perm = std::fs::metadata(&p).unwrap().permissions();
     perm.set_mode(0o755);
     std::fs::set_permissions(&p, perm).unwrap();
-    let out = Command::new(&p)
-        .args(["--alpha", "beta"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .expect("the file ran");
+    // **F212.** The tests run as threads of one process, and on Linux a
+    // child another test forks between this file's write and its close
+    // inherits the write handle until it execs. Executing the file while
+    // that child holds it is `ETXTBSY`, "Text file busy", which CI met once.
+    // The handle is gone within milliseconds, so the exec is retried.
+    let mut tries = 0;
+    let out = loop {
+        let r = Command::new(&p)
+            .args(["--alpha", "beta"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output();
+        match r {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy && tries < 50 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            other => break other.expect("the file ran"),
+        }
+    };
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
         stdout.contains("--alpha") && stdout.contains("beta"),

@@ -4071,6 +4071,26 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F212 — the shebang test raced another test's fork on Linux and read `Text file busy`
+
+**A Bund2 test-harness defect; found 2026-10-17 by CI on D182's commit,
+fixed the same day.** Nothing in the shipped binary is involved.
+
+`a_shebang_file_runs_itself_with_its_arguments_and_its_line_numbers`
+(`crates/bund2-cli/tests/cli_ux.rs`) writes a `#!` file, makes it
+executable and executes it. The tests run as threads of one process, and
+Linux refuses to execute a file that any process holds open for writing
+(`ETXTBSY`). A child that another test forks in the window between this
+test's write and its close inherits the write handle until it execs, so
+the exec fails with `Text file busy` — once in eleven CI runs that day,
+never on the macOS host, which has no such rule. The change under test,
+D182, touched no file the test reads.
+
+The exec is retried while the error is `ExecutableFileBusy`, up to fifty
+times at twenty milliseconds, which outlives any child's fork-to-exec
+window by orders of magnitude; any other error, and the assertions after,
+are as before.
+
 ## F211 — a release `bund2` found two payload regions and could build nothing
 
 **A Bund2 defect; found and fixed 2026-10-16** while building D176.
