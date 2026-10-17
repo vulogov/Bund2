@@ -477,6 +477,8 @@ fn profile_needs_a_base_and_then_writes_two_files_and_nothing_else() {
     assert!(md.contains(env!("CARGO_PKG_VERSION")), "{md}");
     assert!(md.contains("| steps | % of steps |"), "{md}");
     assert!(md.contains("| `inc` |"), "{md}");
+    // Item 3: a fixed pair is printed as one.
+    assert!(md.contains("| `inc` |  | word | (1, 1) |"), "{md}");
     assert!(md.contains("## Call tree"), "{md}");
     // Items 1 and 2 of 2026-10-17: a section only for words the tree does
     // not already describe, and a legend in the graph.
@@ -597,6 +599,37 @@ fn profile_needs_a_base_and_then_writes_two_files_and_nothing_else() {
     );
     assert_eq!(r.code, Some(0), "{}", r.err);
     let md2 = std::fs::read_to_string(format!("{base2_s}.profile.md")).expect("the report");
+    // Item 3: `boom` declares no effect, so `inc` is still a pair, and the
+    // recursive case is the record test's; here an opaque native says its
+    // opaque is declared.
+    let rec = program(
+        "profiled-rec.bund",
+        ":r { dup 3 > { 1 + r } if } register 0 r println\n",
+    );
+    let base3 = p.with_file_name("run3");
+    let base3_s = base3.to_str().unwrap();
+    let r3 = bund2(
+        &[
+            "script",
+            "--profile",
+            base3_s,
+            "--file",
+            rec.to_str().unwrap(),
+        ],
+        &[],
+    );
+    assert_eq!(r3.code, Some(0), "{}", r3.err);
+    let md3 = std::fs::read_to_string(format!("{base3_s}.profile.md")).expect("the report");
+    assert!(
+        md3.contains(
+            "| `r` |  | word | opaque: recursive, `r`, whose effect is not a fixed pair |"
+        ),
+        "{md3}"
+    );
+    assert!(
+        md3.contains("| `if` |  | native | opaque, declared |"),
+        "{md3}"
+    );
     // D188: the header says the run ended in an error, names the word that
     // was innermost — the top level, where `boom` was named — and gives
     // the reason and where.

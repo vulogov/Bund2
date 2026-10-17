@@ -3650,6 +3650,83 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D189 — a profiled run reads the clock less: which calls are timed, and how a time no reading measured is reported
+
+**Raised 2026-10-17** by the repository owner ("item 3 + ruling on sampling
+the clock"), from D188's option C, which D188 deferred and RFC-0011 §S8
+lists. D188 made the cost of the clock visible; this asks whether to cut
+it. On this host the profile of `bund_examples/fibonacci/fibonacci.bund`
+takes 43,080,600 readings at about 16 ns each, about 689 ms of a 1.04 s
+run whose unprofiled time is 0.48 s, and every native in `fib` measures
+20 to 25 ns a call, under the 73 ns floor D188 prints. The time the
+report gives those natives is the clock's.
+
+Where the readings go: two per activation of every node (§S2), and fib's
+run is about 2.7 M word activations and about 18.8 M native calls, so
+natives take roughly seven readings in eight. **Not to be confused with
+RFC-0011's rejected alternative "Sample instead of instrument"**: that
+was sampling the call stack, which cannot draw an edge it did not see.
+Every option below still enters and leaves every call, so calls, steps,
+edges and the tree stay exact. Only how often a span is *timed* changes.
+
+- Blocks: RFC-0011 §S8's item "Read the clock less"
+- Depends on: D186 (the on-path cost, 695 to 709 instructions a call),
+  D188 (the floor, `2 × cost + resolution`, and its rule that nothing is
+  subtracted, because a corrected figure would read as measured when it
+  is modelled), D117 (the off path's band, which no option here may move,
+  since the off path never reaches the record)
+- Options:
+  - **A. Read the clock on every call, as now.** Every figure is measured.
+    Cost: a profiled run of a native-heavy program takes about twice as
+    long, and the cheapest natives' figures stay the clock's, which D188
+    now says in words.
+  - **B. Time a native one call in N, after its first K calls, and scale.**
+    Words stay timed on every call, because a word's inclusive time and
+    the arithmetic around it are what the tree is made of. For an untimed
+    native call, the record charges the native's running mean, as an
+    estimate, to its own exclusive time and to its parent's children, so
+    exclusive times still sum to the wall within the estimate's error.
+    The report marks every estimated figure and prints N and K. Cost: an
+    estimate beside measured figures, which is what D188's option B was
+    refused for, and an error that is largest for a native whose cost
+    varies with its operands, such as `format` or `println`, whose slow
+    calls the sample can miss.
+  - **C. Adaptive: sample only what the clock cannot measure anyway.** As
+    B, but a native leaves exact timing only once its first K calls put
+    its mean under a threshold tied to D188's floor, say four times the
+    floor. A native above it, or one whose spans vary by more than a set
+    ratio, stays timed on every call. So an estimate appears only where
+    the measured figure was already mostly the clock's, and the slow,
+    variable natives a reader is looking for are measured exactly. Cost:
+    the most rules of the three, and the line between measured and
+    estimated is decided per run by the run's own figures, so two runs of
+    a program can draw it differently for a native near the threshold.
+    The report says which natives were sampled and why.
+  - **D. Do not time natives at all.** Count them and their steps, and
+    charge their time to the caller's exclusive time. Exact, and the
+    cheapest. Cost: the report can no longer say that a program spends
+    its time in `format` rather than in the loop around it, which is the
+    sentence RFC-0011's motivation opens with.
+- Sub-question, for B and C: **whether sampling is the default or asked
+  for.** A new spelling is a flag decision, as D185 was, and a bundle has
+  no flags (RFC-0006 §B3), so asking for it would take `BUND2_PROFILE_*`
+  in a bundle and a flag in `script`. Making it the default needs nothing
+  new on the command line; the exact mode would then be the one asked
+  for, by the same means.
+- Expected effect, **estimated, not measured**: under C with N = 16 on
+  fibonacci, every native in `fib` is under the threshold, so about
+  37.7 M of the 43.1 M readings fall to about 2.4 M, and the profiled run
+  would take roughly 0.6 s instead of 1.06 s. To be measured by D117's
+  method before any figure is quoted as a result.
+- Recommendation: **C, as the default, with no new spelling for now.** It
+  confines the estimate to figures D188 already tells the reader not to
+  trust, and leaves every figure a reader would act on measured. Exact
+  timing on request can wait for a run that needs it, and then be its own
+  flag decision. Of the others: A is acceptable and costs nothing to
+  keep; B estimates the figures that matter most; D removes what the
+  profiler is for.
+- Status: **OPEN.** No code is written against it.
+
 ## D188 — a profile says what its clock cannot show, and counts steps beside the time
 
 **Raised 2026-10-17** by the repository owner ("brainstorm for improving

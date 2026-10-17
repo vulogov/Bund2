@@ -205,10 +205,32 @@ fn pair(e: StackEffect) -> String {
 fn effect_of(n: &Node, reg: &Registry) -> String {
     let name = name_of(n, reg);
     match n.kind {
-        Kind::Native => reg.effect_of(&name).map(pair).unwrap_or_default(),
+        // A native's opaque is its registration's word, not an inference.
+        Kind::Native => reg
+            .effect_of(&name)
+            .map(|e| {
+                if e.opaque {
+                    "opaque, declared".to_string()
+                } else {
+                    pair(e)
+                }
+            })
+            .unwrap_or_default(),
+        // An opaque word says why, in `bund2 check`'s words, so the column
+        // points at the term to look at rather than ending the question.
         Kind::Word => reg
             .lambda_body(&name)
-            .map(|body| pair(bund2_stdlib::check::infer(&body, reg, 0)))
+            .map(
+                |body| match bund2_stdlib::check::infer_explained(&body, reg, 0) {
+                    // The blocking term is the word itself: say so, since that
+                    // is the reason a reader acts on.
+                    (e, Some(why)) if e.opaque && why.starts_with(&format!("`{name}`,")) => {
+                        format!("opaque: recursive, {}", cell(&why))
+                    }
+                    (e, Some(why)) if e.opaque => format!("opaque: {}", cell(&why)),
+                    (e, _) => pair(e),
+                },
+            )
             .unwrap_or_default(),
         Kind::Method => match reg.method_effect(&name) {
             Some(MethodEffect::Peek { produces }) => format!("peek, +{produces}"),

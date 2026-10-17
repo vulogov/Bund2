@@ -775,8 +775,20 @@ impl<'a> Walker<'a> {
     /// The body's own abandonments and findings are not the caller's: they
     /// are kept apart, and the caller sees one `Opaque` for the whole body.
     fn infer_in(&mut self, body: &[BundValue], level: u8) -> StackEffect {
+        self.infer_in_why(body, level).0
+    }
+
+    /// [`Walker::infer_in`], and when the body is opaque, why: the reason
+    /// the walk gave up *in this body*, the one most often given when there
+    /// were several. A nested body's reasons stay its own, as they do in
+    /// `infer_in`, so the reason names the term of this body that blocked —
+    /// for a word that calls itself, the call to itself.
+    fn infer_in_why(&mut self, body: &[BundValue], level: u8) -> (StackEffect, Option<String>) {
         if level >= MAX_INFER_DEPTH {
-            return StackEffect::opaque(0);
+            return (
+                StackEffect::opaque(0),
+                Some("a body nested deeper than the analysis follows".to_string()),
+            );
         }
         let saved_report = std::mem::take(&mut self.report);
         let saved_why = std::mem::take(&mut self.why);
@@ -787,16 +799,19 @@ impl<'a> Walker<'a> {
         self.mode = Mode::Infer;
         let mut st = Stack::default();
         let went = self.walk(body, &mut st, Some(0), None, level);
+        let why = std::mem::replace(&mut self.why, saved_why)
+            .into_iter()
+            .max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(&a.0)))
+            .map(|(reason, _)| reason);
         self.report = saved_report;
-        self.why = saved_why;
         self.mode = saved_mode;
         self.raised = saved_raised;
         if !went {
-            return StackEffect::opaque(0);
+            return (StackEffect::opaque(0), why);
         }
         let consumes = st.dip.clamp(0, i64::from(u8::MAX)) as u8;
         let produces = st.items.len().min(usize::from(u8::MAX)) as u8;
-        StackEffect::fixed(consumes, produces)
+        (StackEffect::fixed(consumes, produces), None)
     }
 
     /// The words whose meaning the walk reads, beyond a pair: the three that
@@ -1863,6 +1878,19 @@ pub fn infer(body: &[BundValue], registry: &Registry, depth: u8) -> StackEffect 
     w.infer_in(body, depth)
 }
 
+/// [`infer`], and for an opaque body the reason the walk gave up in it, in
+/// the words `bund2 check` reports — RFC-0011's effect column prints it, so
+/// `opaque` says what to look at. `None` beside a fixed pair, and beside an
+/// opaque one only if the walk stopped without saying why.
+pub fn infer_explained(
+    body: &[BundValue],
+    registry: &Registry,
+    depth: u8,
+) -> (StackEffect, Option<String>) {
+    let mut w = Walker::new(registry, Mode::Infer);
+    w.infer_in_why(body, depth)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1884,6 +1912,57 @@ mod tests {
             .take_while(|v| v.dt() != bund2_value::EXIT)
             .collect();
         infer(&body, &r, 0)
+    }
+
+    /// `infer_explained` over the body of `word` after `src` registered it.
+    fn explained(src: &str, word: &str) -> (StackEffect, Option<String>) {
+        let mut i = Interp::new();
+        crate::register_all(&mut i.registry);
+        let stream = bund2_syntax::compile(src).expect("compiles");
+        i.eval(&stream).expect("runs");
+        let body = i.registry.lambda_body(word).expect("registered");
+        infer_explained(&body, &i.registry, 0)
+    }
+
+    /// **RFC-0011's effect column says why a word is opaque.** A fixed pair
+    /// has no reason; a word that calls itself is opaque because of the
+    /// call to itself, and the reason names it; a word that calls something
+    /// with no declared effect names that.
+    #[test]
+    fn an_opaque_body_says_why() {
+        let (e, why) = explained(":inc { 1 + } register", "inc");
+        assert_eq!((e.consumes, e.produces, e.opaque), (1, 1, false));
+        assert_eq!(why, None);
+
+        let (e, why) = explained(
+            ":fib { dup 1 < { dup 1 swap - fib swap 2 swap - fib + } if } register",
+            "fib",
+        );
+        assert!(e.opaque);
+        let why = why.expect("a reason");
+        assert!(why.contains("`fib`"), "{why}");
+
+        let (e, why) = explained(":w { 1 nosuchword } register", "w");
+        assert!(e.opaque);
+        assert_eq!(
+            why.as_deref(),
+            Some("`nosuchword`, which declares no effect")
+        );
+
+        // The same answer `infer` gives.
+        let mut i = Interp::new();
+        crate::register_all(&mut i.registry);
+        let body = bund2_syntax::compile("1 +").expect("compiles");
+        let body: Vec<_> = body
+            .into_iter()
+            .take_while(|v| v.dt() != bund2_value::EXIT)
+            .collect();
+        let (e, _) = infer_explained(&body, &i.registry, 0);
+        let f = infer(&body, &i.registry, 0);
+        assert_eq!(
+            (e.consumes, e.produces, e.opaque),
+            (f.consumes, f.produces, f.opaque)
+        );
     }
 
     fn check_src(src: &str) -> Report {

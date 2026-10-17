@@ -560,7 +560,9 @@ runs no program; `build` and `check` have nothing to profile.
 - A per-site record, word *at* a call site, once per-value spans exist.
 - Read the clock less: time a native's call every Nth time once it has
   been seen K times, and scale, with the figure marked estimated and the
-  count and the steps still exact. D188's option C.
+  count and the steps still exact. D188's option C; **D189**, OPEN, puts
+  four options for a ruling and recommends sampling only the natives
+  whose measured cost is already under the clock's floor.
 
 ### §S9 — Open questions
 
@@ -743,6 +745,21 @@ reading of each criterion:
    times summing to it; `a_self_edge_carries_the_count_alone` ends through
    `bund.exit` with the same checks; a `SIGINT` is not tested, the process
    being gone.
+
+### Amended 2026-10-17 — the effect column says why a word is opaque
+
+On the owner's "item 3": `bund2_stdlib::check::infer_explained` answers
+the effect `infer` answers and, for an opaque body, the reason the walk
+gave up *in that body*, in the words `bund2 check` reports. It shares
+`Walker::infer_in_why` with `infer`, so the two cannot disagree; before
+this, `infer_in` dropped the reason when it restored the caller's. The
+effect column prints `opaque: <reason>` for a word, `opaque: recursive,
+<reason>` when the blocking term is the word itself, and `opaque,
+declared` for a native whose registration says so. On fibonacci, `fib`
+reads `opaque: recursive, `fib`, whose effect is not a fixed pair`.
+`an_opaque_body_says_why` in `crates/bund2-stdlib/src/check.rs` and the
+process test check the three forms. Renderer and inference only; the
+record and the hot path are untouched.
 
 ### Amended 2026-10-17 — D188: the clock's honesty, and steps beside the time
 
