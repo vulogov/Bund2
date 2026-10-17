@@ -4071,6 +4071,35 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F215 — the report never printed a native's `WordKind`, which RFC-0011 §S2 promised
+
+**A Bund2 defect; found 2026-10-17 by the owner's brainstorm over the
+built RFC-0011, fixed the same day under D188.** §S2 says the header
+prints each native's `WordKind`, "because a `Blocking` word that waits on
+input or a bus reads as hot on a wall clock and is not"; the record kept
+it in `Node::word_kind` and `render_markdown` in
+`crates/bund2-cli/src/profile.rs` had no column for it. The kind column
+now reads `native, blocking` or `native, async` for such a word and
+`native` for a `Sync` one.
+
+## F214 — the anomaly for a recursive word compared its outermost span with a mean over every activation
+
+**A Bund2 defect; found 2026-10-17 by the owner's brainstorm over the
+built RFC-0011, fixed the same day under D188.** The anomalies section of
+`render_markdown` in `crates/bund2-cli/src/profile.rs` divided a node's
+inclusive time by its calls and reported a call whose maximum span was
+ten times that mean. Inclusive time is the sum over *outermost*
+activations only (§S2), and calls count every activation, so for any
+recursive word the mean was over the wrong population: the profile of
+`bund_examples/fibonacci/fibonacci.bund` said "`fib`: one call holds
+100.0 % of wall time (max 1.079 s, mean 400 ns)", which is the one
+outermost call against 2.7 million nested ones. The same held of the
+`min` and `max` columns, whose minimum was a leaf-level nested span.
+
+The record now counts a node's outermost activations (`Node::outer`),
+reads `min` and `max` over those alone, and the anomaly's mean is
+inclusive over outer. `fib` draws the recursion line and nothing false.
+
 ## F213 — the `--stats` no-tier line said "built without `jit`" when the tier had been declined
 
 **A Bund2 defect; found 2026-10-17 while meeting RFC-0011 criterion 7,

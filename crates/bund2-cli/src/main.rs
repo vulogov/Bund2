@@ -1803,11 +1803,12 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
     // **RFC-0011: the record, installed before anything runs.** The clock's
     // cost is measured first so the report can print it.
     if args.profile.is_some() {
+        let clock = profile::calibrate();
         vm.profile = Some(Box::new(bund2_interp::profile::Profile::new(
-            profile::calibrate(),
+            clock.cost,
+            clock.resolution,
         )));
     }
-    let mut failed = false;
     ui::configure_colors(args.host.nocolor);
     let mut reporter = bund2_stdlib::report::TextReporter::new(args.dump_stack);
     reporter.raw_values = args.raw_values;
@@ -1882,7 +1883,8 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
                 if args.stats {
                     print_stats(&rt, args.tier_declined());
                 }
-                return finish_profile(&mut rt, args, true, None);
+                let ended = profile::Ended::ParseError(e.what.clone());
+                return finish_profile(&mut rt, args, ended, None);
             }
         };
         let lowered = bund2_syntax::lower_with_spans(&terms, text.len());
@@ -1892,13 +1894,14 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
             if let Some(span) = lowered.span_of(i) {
                 d = d.at(locate(text, name, span));
             }
+            let ended = profile::Ended::Error(ended_text(&d));
             vm.report(d);
             shell_after_a_failure(vm, args);
             let code = vm.exit_requested();
             if args.stats {
                 print_stats(&rt, args.tier_declined());
             }
-            return finish_profile(&mut rt, args, true, code);
+            return finish_profile(&mut rt, args, ended, code);
         }
     }
 
@@ -1915,7 +1918,8 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
             if args.stats {
                 print_stats(&rt, args.tier_declined());
             }
-            return finish_profile(&mut rt, args, true, None);
+            let ended = profile::Ended::ParseError(e.what.clone());
+            return finish_profile(&mut rt, args, ended, None);
         }
     };
     let lowered = bund2_syntax::lower_with_spans(&terms, src.len());
@@ -1924,22 +1928,37 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
         terms.len(),
         lowered.values.len()
     );
+    let mut ended = None;
     if let Err((i, e)) = vm.eval_indexed(&lowered.values) {
-        failed = true;
         ui::trace!("value {i} of the top-level stream failed: {}", e.0);
         let mut d = bund2_api::diag::Diagnostic::error(e.0);
         if let Some(span) = lowered.span_of(i) {
             d = d.at(locate(src, file, span));
         }
+        ended = Some(profile::Ended::Error(ended_text(&d)));
         vm.report(d);
         shell_after_a_failure(vm, args);
     }
     let code = vm.exit_requested();
+    let ended = match (ended, code) {
+        (Some(e), _) => e,
+        (None, Some(c)) => profile::Ended::Exit(c),
+        (None, None) => profile::Ended::Normally,
+    };
 
     if args.stats {
         print_stats(&rt, args.tier_declined());
     }
-    finish_profile(&mut rt, args, failed, code)
+    finish_profile(&mut rt, args, ended, code)
+}
+
+/// A diagnostic's reason with its location, for the profile's `ended`
+/// cell: the same two things the reporter shows, on one line.
+fn ended_text(d: &bund2_api::diag::Diagnostic) -> String {
+    match &d.location {
+        Some(loc) => format!("{} at {loc}", d.reason),
+        None => d.reason.clone(),
+    }
 }
 
 /// **RFC-0011 §S6, D187: render the record and write the two files.**
@@ -1953,7 +1972,7 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
 fn finish_profile(
     rt: &mut bund2_runtime::Runtime,
     args: &Args,
-    failed: bool,
+    ended: profile::Ended,
     code: Option<i32>,
 ) -> Option<i32> {
     let Some(base) = args.profile.as_deref() else {
@@ -1963,9 +1982,14 @@ fn finish_profile(
         return code;
     };
     record.finish();
+    let failed = matches!(
+        ended,
+        profile::Ended::Error(_) | profile::Ended::ParseError(_)
+    );
     let meta = profile::Meta {
         program: &args.file,
         jit_threshold_given: args.jit_threshold.is_some(),
+        ended,
     };
     let dot = profile::render_dot(&record, &rt.interp.registry);
     let md = profile::render_markdown(&record, &rt.interp.registry, &meta);

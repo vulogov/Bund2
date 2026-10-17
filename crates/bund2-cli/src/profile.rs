@@ -2,23 +2,67 @@
 //!
 //! The record is `bund2_interp::profile::Profile`; nothing here changes it.
 //! The markdown is written for a reader who did not see the run, human or
-//! model: a header table, the hottest words by exclusive time, the call tree
-//! to a capped depth, callers and callees of the hottest words, and an
+//! model: two header tables, the hottest words by exclusive time, the call
+//! tree to a capped depth, callers and callees of the hottest words, and an
 //! anomalies section that is derived rather than judged. The `dot` file is
 //! the aggregated call graph, one node per word and one edge per pair,
 //! which `dot -Tsvg` must accept with no preprocessing.
+//!
+//! **The report says what its clock can and cannot show — D188.** The
+//! header prints the clock's cost and its resolution, how many times it was
+//! read and what that came to against the wall; every word has a per-call
+//! figure, and one under the clock's floor is marked, because its time is
+//! the clock's and only its count and its steps are the word's. Steps, the
+//! values dispatched while a word was innermost, are exact and the same on
+//! every host, and sit beside the time in every table.
 
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 
-use bund2_api::{MethodEffect, Registry, StackEffect};
+use bund2_api::{MethodEffect, Registry, StackEffect, WordKind};
 use bund2_interp::profile::{Key, Kind, Node, Profile};
+
+/// How the run ended, as the command line saw it. The record knows which
+/// word was innermost when the last failure was raised; this says whether
+/// that failure ended the run.
+pub enum Ended {
+    /// The program ran to its end.
+    Normally,
+    /// `bund.exit` with this code; the program ran no further.
+    Exit(i32),
+    /// The program raised and was not caught; the text is the diagnostic's
+    /// reason and, where the source gave one, its location.
+    Error(String),
+    /// The source did not parse, so nothing ran.
+    ParseError(String),
+}
 
 /// What the header says about the run beyond what the record knows.
 pub struct Meta<'a> {
     pub program: &'a str,
     /// `--jit-threshold` was given and is ignored (§S3).
     pub jit_threshold_given: bool,
+    pub ended: Ended,
+}
+
+/// What the clock is worth on this host, measured once before the run.
+#[derive(Debug, Clone, Copy)]
+pub struct Clock {
+    /// What one reading costs, as a throughput: readings back to back,
+    /// averaged.
+    pub cost: Duration,
+    /// The smallest difference two readings showed: the tick the clock
+    /// advances by, or the cost of a reading where the clock is finer than
+    /// that.
+    pub resolution: Duration,
+}
+
+impl Clock {
+    /// Below this, a per-call figure is the clock's rather than the word's:
+    /// the two readings a call carries, plus one tick of quantisation.
+    pub fn floor(self) -> Duration {
+        self.cost * 2 + self.resolution
+    }
 }
 
 /// How many rows the hottest-words table prints before it says "and more".
@@ -28,17 +72,57 @@ const TREE_DEPTH: usize = 6;
 /// How many of the hottest words get a callers-and-callees section.
 const DETAILED: usize = 10;
 
-/// What one reading of the clock costs here, measured now: twenty thousand
-/// readings back to back, averaged. Printed beside every table so a reader
-/// can discount the cheapest words by it (§S2).
-pub fn calibrate() -> Duration {
+/// What the clock is worth here, measured now: twenty thousand readings
+/// back to back give the cost of one, averaged, and the smallest non-zero
+/// step between two of them is the resolution. Printed in the header so a
+/// reader can discount the cheapest words by both (§S2, D188).
+pub fn calibrate() -> Clock {
     const N: u32 = 20_000;
     let start = Instant::now();
     let mut last = start;
+    let mut resolution = Duration::MAX;
     for _ in 0..N {
-        last = Instant::now();
+        let now = Instant::now();
+        let step = now.duration_since(last);
+        if !step.is_zero() && step < resolution {
+            resolution = step;
+        }
+        last = now;
     }
-    last.duration_since(start) / N
+    let cost = last.duration_since(start) / N;
+    // A clock that never advanced in twenty thousand readings has a
+    // resolution coarser than the whole loop; say so rather than claim one.
+    if resolution == Duration::MAX {
+        resolution = last.duration_since(start);
+    }
+    Clock { cost, resolution }
+}
+
+/// Today's date in UTC as `YYYY-MM-DD`, from the system clock, with no
+/// calendar crate: Howard Hinnant's civil-from-days, pure integer
+/// arithmetic. A system clock before 1970 reads as the epoch.
+fn today_utc() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let days = i64::try_from(secs / 86_400).unwrap_or(0);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// A markdown table cell: one line, with the pipe escaped.
+fn cell(s: &str) -> String {
+    s.replace('\n', " ").replace('|', "\\|")
 }
 
 fn name_of(n: &Node, reg: &Registry) -> String {
@@ -57,13 +141,39 @@ fn spelled_of(n: &Node, reg: &Registry) -> String {
         .join(", ")
 }
 
-fn kind_of(n: &Node) -> &'static str {
-    match n.kind {
+/// The kind column: what the node is, and for a native what `WordKind` it
+/// declared, because a `Blocking` word that waits on input or a bus reads
+/// as hot on a wall clock and is not (§S2).
+fn kind_of(n: &Node) -> String {
+    let kind = match n.kind {
         Kind::Program => "program",
         Kind::Native => "native",
         Kind::Method => "method",
         Kind::Conditional => "conditional",
         Kind::Word => "word",
+    };
+    match n.word_kind {
+        Some(WordKind::Blocking) => format!("{kind}, blocking"),
+        Some(WordKind::Async) => format!("{kind}, async"),
+        Some(WordKind::Sync) | None => kind.to_string(),
+    }
+}
+
+/// `part` as a percentage of `whole`, both counts.
+fn pct_n(part: u64, whole: u64) -> String {
+    if whole == 0 {
+        return "—".to_string();
+    }
+    format!("{:.1}", part as f64 / whole as f64 * 100.0)
+}
+
+/// A per-call figure: the duration over the count, or nothing for no calls.
+fn per_call(d: Duration, calls: u64) -> Duration {
+    match u32::try_from(calls) {
+        Ok(n) if n > 0 => d / n,
+        Ok(_) => Duration::ZERO,
+        // More calls than a `u32` holds: the mean is under a nanosecond.
+        Err(_) => Duration::ZERO,
     }
 }
 
@@ -196,22 +306,44 @@ fn callers_of(p: &Profile, reg: &Registry, to: usize) -> Vec<Hop> {
     v
 }
 
+/// The `ended` cell: how the run ended and, when it ended in a failure,
+/// the word that was innermost when the failure was raised.
+fn ended_of(p: &Profile, reg: &Registry, meta: &Meta<'_>) -> String {
+    let failing = p
+        .failing()
+        .map(|id| format!(" in `{}`", name_of(&p.nodes()[id], reg)))
+        .unwrap_or_default();
+    match &meta.ended {
+        Ended::Normally => "normally".to_string(),
+        Ended::Exit(code) => format!("`bund.exit` {code}{failing}"),
+        Ended::Error(what) => format!("error{failing}: {}", cell(what)),
+        Ended::ParseError(what) => format!("parse error, nothing ran: {}", cell(what)),
+    }
+}
+
 /// §S5's markdown.
 pub fn render_markdown(p: &Profile, reg: &Registry, meta: &Meta<'_>) -> String {
     let wall = p.wall.unwrap_or_default();
     let nodes = p.nodes();
     let calls: u64 = nodes.iter().skip(1).map(|n| n.calls).sum();
+    let clock = Clock {
+        cost: p.reading_cost,
+        resolution: p.resolution,
+    };
+    let floor = clock.floor();
+    let overhead = p.reading_cost * u32::try_from(p.readings).unwrap_or(u32::MAX);
     let mut out = String::new();
     let _ = writeln!(out, "# bund2 profile\n");
     let _ = writeln!(
         out,
-        "| program | tier | console | wall | calls | clock readings | clock cost / reading |"
+        "| program | ended | tier | console | wall | steps | calls |"
     );
     let _ = writeln!(out, "|---|---|---|---|---|---|---|");
     let _ = writeln!(
         out,
-        "| {} | declined (profiling){} | {} | {} | {} | {} | {} |\n",
-        meta.program,
+        "| {} | {} | declined (profiling){} | {} | {} | {} | {} |\n",
+        cell(meta.program),
+        ended_of(p, reg, meta),
         if meta.jit_threshold_given {
             ", jit-threshold ignored"
         } else {
@@ -223,40 +355,81 @@ pub fn render_markdown(p: &Profile, reg: &Registry, meta: &Meta<'_>) -> String {
             "none"
         },
         dur(wall),
+        thousands(p.steps()),
         thousands(calls),
-        thousands(p.readings),
+    );
+    let _ = writeln!(
+        out,
+        "| bund2 | date | clock cost / reading | clock resolution | clock readings | clock overhead | % of wall | per-call floor |"
+    );
+    let _ = writeln!(out, "|---|---|---|---|---|---|---|---|");
+    let _ = writeln!(
+        out,
+        "| {} | {} | {} | {} | {} | {} | {} | {} |\n",
+        env!("CARGO_PKG_VERSION"),
+        today_utc(),
         dur(p.reading_cost),
+        dur(p.resolution),
+        thousands(p.readings),
+        dur(overhead),
+        pct(overhead, wall),
+        dur(floor),
     );
     let _ = writeln!(
         out,
         "Percentages are of wall time, measured from the record's creation to the \
          program's end. The time inside no word at all is the program's own: {} \
-         ({} %). Every reading of the clock costs about {}, and a word's figures \
-         carry two readings per call.\n",
+         ({} %). **The clock is in the figures.** A word's time carries two \
+         readings per call, about {} each, and every span is quantised to the \
+         clock's resolution of {}; the {} readings this record took come to about \
+         {}, {} % of the wall, and that time is inside the words' figures, not \
+         beside them. A per-call figure under the floor of {} is marked \
+         *(floor)*: it is the clock's, not the word's, and only the word's calls \
+         and steps are to be trusted. **Steps are exact.** A step is one value the \
+         interpreter dispatched; a word's steps are those dispatched while it was \
+         the innermost named word open, so a native's are zero and the step that \
+         named it is its caller's. Steps do not depend on the host or the clock, \
+         and two profiles of one program agree on them to the step. `min` and \
+         `max` are of one outermost span; a nested activation of a recursive word \
+         lies inside an outer one and is counted in `calls` alone.\n",
         dur(nodes[0].exclusive),
         pct(nodes[0].exclusive, wall),
-        dur(p.reading_cost)
+        dur(p.reading_cost),
+        dur(p.resolution),
+        thousands(p.readings),
+        dur(overhead),
+        pct(overhead, wall),
+        dur(floor),
     );
 
     // --- the hottest words ---------------------------------------------------
     let _ = writeln!(out, "## Hottest words, by exclusive time\n");
     let _ = writeln!(
         out,
-        "| word | spelled | kind | effect | calls | exclusive | % of wall | inclusive | % of wall | min | max |"
+        "| word | spelled | kind | effect | calls | steps | % of steps | exclusive | % of wall | per call | inclusive | % of wall | min | max |"
     );
-    let _ = writeln!(out, "|---|---|---|---|---|---|---|---|---|---|---|");
+    let _ = writeln!(
+        out,
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
+    );
     let ranked = ranked(p, reg);
+    let total_steps = p.steps();
     for (_, n) in ranked.iter().take(HOTTEST_ROWS) {
+        let each = per_call(n.exclusive, n.calls);
         let _ = writeln!(
             out,
-            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {}{} | {} | {} | {} | {} |",
             name_of(n, reg),
             spelled_of(n, reg),
             kind_of(n),
             effect_of(n, reg),
             thousands(n.calls),
+            thousands(n.steps),
+            pct_n(n.steps, total_steps),
             dur(n.exclusive),
             pct(n.exclusive, wall),
+            dur(each),
+            if each < floor { " *(floor)*" } else { "" },
             dur(n.inclusive),
             pct(n.inclusive, wall),
             dur(if n.min == Duration::MAX {
@@ -339,18 +512,40 @@ pub fn render_markdown(p: &Profile, reg: &Registry, meta: &Meta<'_>) -> String {
             let _ = writeln!(out, "- `{name}` is recursive to depth {}.", n.max_depth);
             any = true;
         }
-        if n.calls >= 2 && !wall.is_zero() {
-            let mean = n.inclusive / u32::try_from(n.calls.min(u64::from(u32::MAX))).unwrap_or(1);
+        // Over outermost activations only: a nested span of a recursive
+        // word lies inside its outer one, so comparing the outermost with a
+        // mean over every activation said something false of every
+        // recursive word (F214).
+        if n.outer >= 2 && !wall.is_zero() {
+            let mean = per_call(n.inclusive, n.outer);
             if n.max > mean * 10 && n.max.as_secs_f64() / wall.as_secs_f64() >= 0.01 {
                 let _ = writeln!(
                     out,
-                    "- `{name}`: one call holds {} % of wall time (max {}, mean {}).",
+                    "- `{name}`: one outermost call holds {} % of wall time (max {}, mean {} over {} outermost calls).",
                     pct(n.max, wall),
                     dur(n.max),
-                    dur(mean)
+                    dur(mean),
+                    thousands(n.outer)
                 );
                 any = true;
             }
+        }
+        // A word under the clock's floor that still holds a visible share of
+        // the wall: the share is the clock's.
+        if n.calls > 0
+            && !wall.is_zero()
+            && per_call(n.exclusive, n.calls) < floor
+            && n.exclusive.as_secs_f64() / wall.as_secs_f64() >= 0.01
+        {
+            let _ = writeln!(
+                out,
+                "- `{name}` holds {} % of wall at {} a call, under the clock's floor of {}: that share is the clock's cost around {} calls, not the word's.",
+                pct(n.exclusive, wall),
+                dur(per_call(n.exclusive, n.calls)),
+                dur(floor),
+                thousands(n.calls)
+            );
+            any = true;
         }
         if n.calls == 1 && !wall.is_zero() && n.exclusive.as_secs_f64() / wall.as_secs_f64() >= 0.5
         {

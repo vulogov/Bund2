@@ -461,10 +461,18 @@ fn profile_needs_a_base_and_then_writes_two_files_and_nothing_else() {
     let dot = std::fs::read_to_string(format!("{base_s}.profile.dot")).expect("the graph");
     assert!(md.starts_with("# bund2 profile\n"), "{md}");
     assert!(
-        md.contains("| program | tier | console | wall | calls |"),
+        md.contains("| program | ended | tier | console | wall | steps | calls |"),
         "{md}"
     );
-    assert!(md.contains("declined (profiling)"), "{md}");
+    assert!(md.contains("| normally | declined (profiling)"), "{md}");
+    // D188: the clock's cost and resolution, the overhead and the floor are
+    // in the header, and the version with them.
+    assert!(
+        md.contains("| bund2 | date | clock cost / reading | clock resolution | clock readings | clock overhead | % of wall | per-call floor |"),
+        "{md}"
+    );
+    assert!(md.contains(env!("CARGO_PKG_VERSION")), "{md}");
+    assert!(md.contains("| steps | % of steps |"), "{md}");
     assert!(md.contains("| `inc` |"), "{md}");
     assert!(md.contains("## Call tree"), "{md}");
     assert!(dot.starts_with("digraph profile {"), "{dot}");
@@ -560,5 +568,11 @@ fn profile_needs_a_base_and_then_writes_two_files_and_nothing_else() {
         &[],
     );
     assert_eq!(r.code, Some(0), "{}", r.err);
-    assert!(std::fs::metadata(format!("{base2_s}.profile.md")).is_ok());
+    let md2 = std::fs::read_to_string(format!("{base2_s}.profile.md")).expect("the report");
+    // D188: the header says the run ended in an error, names the word that
+    // was innermost — the top level, where `boom` was named — and gives
+    // the reason and where.
+    assert!(md2.contains("| error in `⟨program⟩`: "), "{md2}");
+    assert!(md2.contains("boom"), "{md2}");
+    assert!(md2.contains("profiled-bad.bund:1:"), "{md2}");
 }

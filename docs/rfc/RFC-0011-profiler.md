@@ -1,15 +1,23 @@
 # RFC-0011: A profiler of words
 
-- Status: **Proposed** (2026-10-17), by the repository owner's three
+- Status: **Accepted** (2026-10-17) by the repository owner ("accept
+  RFC-0011"), with all eight criteria met and each naming the test or the
+  reading that decided it, and with D188's amendment built and read
+  against criteria 1, 3 and 4 the same day. Accepting means: the unit is
+  the word and a body no word names has no node (§S1); the tier is
+  declined for a profiled run (D186), and profiling under it stays §S8's
+  first item; the two files, their order and the command line's voice are
+  D187's; and the report says what its clock cannot show and counts steps
+  beside the time (D188).
+
+  Before that: **Proposed** (2026-10-17), by the repository owner's three
   rulings of that date: **D185** (the flag and its operand), **D186** (a
   profiled run declines the tier) and **D187** (the files, the voice and
-  the exit code). No question is open.
-  *(Later the same day, on the owner's "Build RFC-0011": **built**, and
-  every criterion has its reading under "Built" below. Proposed stands
-  until the owner accepts. Two things building taught, each recorded
-  where it belongs: the `via` mark is the native that filed the body, not
-  only `!` (§S1's note), and the `--stats` no-tier line was wrong for a
-  declined tier (F213).)*
+  the exit code). *(Later the same day, on the owner's "Build RFC-0011":
+  **built**, and every criterion has its reading under "Built" below. Two
+  things building taught, each recorded where it belongs: the `via` mark
+  is the native that filed the body, not only `!` (§S1's note), and the
+  `--stats` no-tier line was wrong for a declined tier (F213).)*
 
   Before that: **Draft** (2026-10-16), revised 2026-10-17 after its first
   adversarial review (`docs/rfc/reviews/RFC-0011-review-2026-10-17.md`),
@@ -27,7 +35,9 @@
   one; its flag table carries D157 and D185)
 - Decisions produced: **D185** (the flag and its required operand),
   **D186** (the tier is declined), **D187** (the two files, `ui::info!`,
-  and exit 1 when a successful program's profile cannot be written)
+  and exit 1 when a successful program's profile cannot be written);
+  **D188** (2026-10-17, after the build: the report says what its clock
+  cannot show, and counts steps beside the time)
 - Decisions consumed: D36 (what is reported goes through the reporter, by
   severity), D49 (a native call is caught where it is made, at three kinds
   of site), D117 (the hot path's cost is read in instructions retired),
@@ -290,6 +300,15 @@ words by it. The header also prints each native's `WordKind`, because a
 `Blocking` word that waits on input or a bus reads as hot on a wall clock
 and is not.
 
+*(2026-10-17, D188: the calibration measures the clock's **resolution**
+beside its cost — the smallest non-zero step between consecutive readings,
+41 ns on this host against a 16 ns cost — and the report prints both, the
+readings taken, what they come to against the wall, and a per-call floor of
+two readings and one tick. A per-call figure under the floor is the
+clock's, and the report marks it. Beside the clock, each node counts its
+**steps**, the values dispatched while it was innermost, under this same
+arithmetic and with no clock at all; see the amendment under "Built".)*
+
 ### §S3 — Profiling declines the tier
 
 A profiled run installs no tier, through the `Runtime` constructor
@@ -331,6 +350,16 @@ saturates; the call count; inclusive and exclusive time; the minimum and
 maximum of one span; and a flag when the name was registered more than
 once during the run. Per edge: caller, callee, call count, the callee's
 time along the edge, and the `via !` mark.
+
+*(2026-10-17, D188: three more things per node — the number of
+**outermost** activations, which is what the inclusive time, the minimum
+and the maximum are over, so that a recursive word's nested spans are
+counted in `calls` and nowhere else (F214); the **steps**, the values the
+interpreter dispatched while the node was the innermost named node open,
+exclusive and inclusive under the same arithmetic as the time, one
+increment per step and no clock; and, for the run, the node that was
+innermost when the last failure was raised. Per edge, the callee's steps
+along it. The clock's resolution joins its cost on the record.)*
 
 **Not recorded: where a word was registered.** No slot and no native holds
 a file, a line or a package today, and a word's definition site needs the
@@ -383,6 +412,17 @@ what makes it usable by a model:
 - `fib` is recursive to depth 31.
 - `println`: one call holds 9.8 % of exclusive time (max 0.126 s, mean 0.001 s).
 ```
+
+*(2026-10-17, D188: the header is two tables. The first adds `ended` —
+`normally`, `` `bund.exit` 7 ``, or `error in `+`: reason at file:line:col`
+— and the run's `steps`. The second carries the bund2 version, the date,
+the clock's cost and resolution, the readings taken, what they come to
+and their share of the wall, and the per-call floor, `2 × cost + one
+tick`. The hottest table adds `steps`, `% of steps` and `per call`, marks
+a per-call figure under the floor *(floor)*, and its kind column names a
+native's `WordKind` (F215). The paragraph under the header says in words
+that the clock's time is inside the figures and that only calls and steps
+are exact.)*
 
 Percentages are of wall time, not of the root's inclusive, and the two
 differ by start-up and by time outside any frame; the header gives both so
@@ -498,6 +538,9 @@ runs no program; `build` and `check` have nothing to profile.
 - Merge worker VMs' records into the main report, one section per VM.
 - A `?profile` or `debug.profile` word that writes the record mid-run.
 - A per-site record, word *at* a call site, once per-value spans exist.
+- Read the clock less: time a native's call every Nth time once it has
+  been seen K times, and scale, with the figure marked estimated and the
+  count and the steps still exact. D188's option C.
 
 ### §S9 — Open questions
 
@@ -680,6 +723,56 @@ reading of each criterion:
    times summing to it; `a_self_edge_carries_the_count_alone` ends through
    `bund.exit` with the same checks; a `SIGINT` is not tested, the process
    being gone.
+
+### Amended 2026-10-17 — D188: the clock's honesty, and steps beside the time
+
+Two profiles taken on the build above showed what the report could not
+say. On this host `fibonacci.bund` runs in 0.48 s unprofiled and 1.06 s
+profiled; its record took 43,080,600 readings at 12 to 16 ns each, which
+is the whole difference, and every native in `fib` measured 20 to 25 ns
+a call, under what two readings cost. The report printed the cost per
+reading and left the reader to multiply. Every small span was also a
+multiple of 41.7 ns, the 24 MHz tick on Apple Silicon, which the
+throughput calibration does not see. The owner's ruling, D188, takes
+option A there:
+
+- **The clock is in the figures, and the report says so.** `calibrate`
+  answers a `Clock` of cost and resolution, the resolution being the
+  smallest non-zero step between consecutive readings. The header prints
+  both, the readings taken, their product against the wall, and a floor
+  of two readings and one tick; the hottest table prints a per-call
+  figure and marks one under the floor; an anomaly line names each word
+  under the floor that still holds 1 % of the wall, and says the share is
+  the clock's. Nothing is subtracted: a corrected figure would read as
+  measured when it is modelled (D188's option B).
+- **Steps are exact.** `run_to` and the top-level loop count one step
+  before each `apply_step` when a record is kept; the record charges it
+  to the innermost named node and carries exclusive and inclusive steps
+  per node and steps per edge under §S2's arithmetic. A native's steps
+  are zero, since it dispatches nothing; the step that named it is its
+  caller's. The same program counts the same on every host, which no time
+  in the report can claim, and `steps_are_exact_and_add_up` asserts the
+  counts to the step where the time tests assert bounds.
+- **F214 and F215.** `min`, `max` and the max-against-mean anomaly are
+  over outermost activations, counted in `Node::outer`; the kind column
+  carries a native's `WordKind`.
+- **`ended`.** The first header cell after the program says how the run
+  ended — normally, by `bund.exit` with its code, by an uncaught error,
+  or by a parse error that ran nothing — and, for a failure, names the
+  word that was innermost when it was raised: the native that answered
+  the error, or the word whose body named something that could not be
+  dispatched. The record marks the failure at the three native call
+  sites, in `run_to`'s error arm and at the top level, keeping the inner
+  mark of one failure seen at several levels and replacing it on a later
+  failure, the rule D173's traceback uses; so a failure `?try` caught and
+  a later one that ended the run leave the later one named.
+- **Version and date** in the second header table, so a report read
+  apart from its run says which bund2 wrote it and when.
+
+Criterion 3 was read again under D188: every program inside D117's band,
++0.05 % to +1.01 % on the off path, and 695 to 709 instructions a call on
+the on path with the step counter in. Criteria 1 and 4: `conform` and
+`conform --profile` read the same numbers as before.
 
 ## Open questions
 

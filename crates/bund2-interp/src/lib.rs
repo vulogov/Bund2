@@ -640,6 +640,9 @@ impl Interp {
             r
         };
         if profiled && let Some(p) = self.profile.as_mut() {
+            if let Err(e) = &r {
+                p.mark_failure(&e.0);
+            }
             p.close_leaf();
         }
         r
@@ -1054,10 +1057,18 @@ impl Interp {
                         self.safepoint(Some((i, v)));
                     }
                     observe(v);
+                    // **D188: a top-level value is a step too**, the root's
+                    // own, since this loop and not `run_to` dispatches it.
+                    if let Some(p) = self.profile.as_mut() {
+                        p.step();
+                    }
                     // A step refused because the program asked to exit is not
                     // a failure: the program is over, and there is nothing to
                     // report (D52).
                     if let Err(e) = self.apply_step(v.clone()) {
+                        if let Some(p) = self.profile.as_mut() {
+                            p.mark_failure(&e.0);
+                        }
                         if self.exit_code.is_some() {
                             return Ok(());
                         }
@@ -1065,6 +1076,9 @@ impl Interp {
                     }
                     // A top-level word may have asked for a body to run.
                     if let Err(e) = self.drain_frames() {
+                        if let Some(p) = self.profile.as_mut() {
+                            p.mark_failure(&e.0);
+                        }
                         if self.exit_code.is_some() {
                             return Ok(());
                         }
@@ -1578,6 +1592,13 @@ impl Interp {
                     ));
                 }
             };
+            // **D188: one step, counted.** One branch on the off path, the
+            // same price as the safepoint above; on the on path one increment
+            // and no clock, which is what makes the count the same on every
+            // host.
+            if let Some(p) = self.profile.as_mut() {
+                p.step();
+            }
             match self.apply_step(v).and_then(|()| self.take_pending()) {
                 // `take_pending` can now fail: it reaches `push_frame`, where a
                 // tier may run the body and answer an error. That failure takes
@@ -1586,6 +1607,12 @@ impl Interp {
                 Ok(()) => {}
                 Err(e) => {
                     self.note_failure(&e);
+                    // The word whose body raised, for the report's `ended`
+                    // line; a native that answered the error marked itself
+                    // first, and the first mark is kept.
+                    if let Some(p) = self.profile.as_mut() {
+                        p.mark_failure(&e.0);
+                    }
                     self.unwind_to(floor);
                     return Err(e);
                 }
@@ -2178,6 +2205,9 @@ impl Vm for Interp {
         let r = bund2_api::catch_panic(|| f(&mut *self))
             .unwrap_or_else(|msg| Err(bund2_api::panicked(&format!("method `{name}`"), &msg)));
         if profiled && let Some(p) = self.profile.as_mut() {
+            if let Err(e) = &r {
+                p.mark_failure(&e.0);
+            }
             p.close_leaf();
         }
         Some(r)
@@ -2196,6 +2226,9 @@ impl Vm for Interp {
         let r = bund2_api::catch_panic(|| f(&mut *self, c))
             .unwrap_or_else(|msg| Err(bund2_api::panicked(&format!("conditional `{ty}`"), &msg)));
         if profiled && let Some(p) = self.profile.as_mut() {
+            if let Err(e) = &r {
+                p.mark_failure(&e.0);
+            }
             p.close_leaf();
         }
         Some(r)

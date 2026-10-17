@@ -18,6 +18,16 @@
 //! **A body no word names has no node** (RFC-0008 §D2): it is an anonymous
 //! entry on the mirror, so what it calls is charged to the nearest named
 //! node above it. The one exception is the root, node 0, the program itself.
+//!
+//! **Steps (D188).** Beside the clock, every node carries a count of the
+//! values the interpreter dispatched while it was the innermost named node
+//! open: one increment per step of `run_to`, no reading of any clock. The
+//! count follows the same arithmetic as the time — a span's steps are the
+//! steps between its opening and its closing, exclusive less its direct
+//! children's — so exclusive steps sum to the root's, and two runs of one
+//! program on any two hosts count the same. A native dispatches nothing of
+//! its own, so its steps are zero; its cost in steps is the one step that
+//! named it, charged to the word whose body did.
 
 use std::collections::{HashMap, HashSet};
 
@@ -61,13 +71,26 @@ pub struct Node {
     /// `execute` — so a report can say both names (§S1).
     pub spelled: Vec<Symbol>,
     pub calls: u64,
+    /// The activations that were not nested inside another activation of
+    /// this node: the ones whose spans `inclusive`, `min` and `max` are over.
+    /// Equal to `calls` for a word that never recursed.
+    pub outer: u64,
     pub inclusive: Duration,
     pub exclusive: Duration,
+    /// The shortest and longest of one *outermost* span. A nested
+    /// activation's span lies inside an outer one and says nothing on its
+    /// own, so it is left out, as it is left out of `inclusive`.
     pub min: Duration,
     pub max: Duration,
     /// The deepest nesting of this node inside itself: 1 for a word that
     /// never recursed.
     pub max_depth: u32,
+    /// Values dispatched while this node was the innermost named node open —
+    /// its exclusive steps (D188). Exact, and the same on every host.
+    pub steps: u64,
+    /// Values dispatched inside this node's outermost activations, its own
+    /// and its callees' — its inclusive steps.
+    pub steps_inclusive: u64,
     active: u32,
     /// The edges out of this node: `(callee, via, edge)`. A short list
     /// scanned linearly, which is cheaper than hashing a three-tuple for the
@@ -83,11 +106,14 @@ impl Node {
             word_kind: None,
             spelled: Vec::new(),
             calls: 0,
+            outer: 0,
             inclusive: Duration::ZERO,
             exclusive: Duration::ZERO,
             min: Duration::MAX,
             max: Duration::ZERO,
             max_depth: 0,
+            steps: 0,
+            steps_inclusive: 0,
             active: 0,
             out: Vec::new(),
         }
@@ -107,6 +133,9 @@ pub struct Edge {
     pub calls: u64,
     /// The callee's spans along this edge; zero on a self edge.
     pub time: Duration,
+    /// The steps inside the callee's spans along this edge; zero on a self
+    /// edge, as the time is.
+    pub steps: u64,
 }
 
 /// An open activation on the mirror stack.
@@ -117,8 +146,12 @@ struct Open {
     /// sits at this depth, a leaf was opened while the frames were this deep.
     depth: usize,
     start: Instant,
+    /// The record's step count when this entry opened.
+    start_steps: u64,
     /// The spans of the direct children already closed under this entry.
     children: Duration,
+    /// The steps inside those children.
+    children_steps: u64,
     /// Another activation of the same node was open when this one started.
     nested: bool,
     /// A native, closed by its caller rather than by a frame pop.
@@ -147,11 +180,26 @@ pub struct Profile {
     /// The spans of the top-level nodes, which the root's exclusive time is
     /// the wall less.
     root_children: Duration,
+    /// The steps inside those spans.
+    root_children_steps: u64,
+    /// Every value the interpreter dispatched while the record was kept
+    /// (D188). One increment per step, read by no clock.
+    steps: u64,
     /// How many times the clock was read.
     pub readings: u64,
     /// What one reading costs on this host, measured by whoever made the
     /// record and printed beside every table.
     pub reading_cost: Duration,
+    /// The smallest difference two readings of the clock can show on this
+    /// host, measured with `reading_cost`. A span shorter than this reads as
+    /// zero or as one tick; a per-call figure near it is the clock's, not
+    /// the word's.
+    pub resolution: Duration,
+    /// The node that was innermost when the run's last failure was raised,
+    /// with the failure's text: the native that answered the error, or the
+    /// word whose body named something that could not be dispatched. `None`
+    /// when nothing failed.
+    failed_in: Option<(usize, String)>,
     /// A debugger console was attached during the run, so the tier was off
     /// for two reasons and a stop's wall time lies in whichever node was open.
     pub console_attached: bool,
@@ -163,7 +211,10 @@ pub struct Profile {
 }
 
 impl Profile {
-    pub fn new(reading_cost: Duration) -> Self {
+    /// A fresh record. `reading_cost` and `resolution` are what whoever
+    /// makes the record measured of the clock on this host; the record
+    /// prints them and never measures them itself.
+    pub fn new(reading_cost: Duration, resolution: Duration) -> Self {
         let root = Node::new(Key::Name("<program>".into(), Kind::Program), Kind::Program);
         Self {
             nodes: vec![root],
@@ -173,16 +224,30 @@ impl Profile {
             started: Instant::now(),
             wall: None,
             root_children: Duration::ZERO,
+            root_children_steps: 0,
+            steps: 0,
             readings: 1,
             reading_cost,
+            resolution,
             console_attached: false,
             redefined: HashSet::new(),
             filed_by: None,
+            failed_in: None,
         }
     }
 
     pub fn nodes(&self) -> &[Node] {
         &self.nodes
+    }
+
+    /// Every value dispatched while the record was kept.
+    pub fn steps(&self) -> u64 {
+        self.steps
+    }
+
+    /// The node that was innermost when the last failure was raised.
+    pub fn failing(&self) -> Option<usize> {
+        self.failed_in.as_ref().map(|(id, _)| *id)
     }
 
     /// Every edge as `(caller, callee, via, edge)`.
@@ -271,7 +336,9 @@ impl Profile {
             node,
             depth,
             start,
+            start_steps: self.steps,
             children: Duration::ZERO,
+            children_steps: 0,
             nested,
             leaf,
             via,
@@ -284,6 +351,7 @@ impl Profile {
             return;
         };
         let span = o.start.elapsed();
+        let span_steps = self.steps.saturating_sub(o.start_steps);
         self.readings += 1;
         let Some(id) = o.node else {
             // An anonymous body: its children were charged to the named node
@@ -294,20 +362,55 @@ impl Profile {
             let n = &mut self.nodes[id];
             n.active = n.active.saturating_sub(1);
             n.exclusive += span.saturating_sub(o.children);
+            n.steps += span_steps.saturating_sub(o.children_steps);
+            // An outermost activation: its span is the node's own time, and
+            // the one a minimum or maximum can be read from. A nested one
+            // lies inside it and is counted once, in `calls` and `max_depth`.
             if !o.nested {
+                n.outer += 1;
                 n.inclusive += span;
+                n.steps_inclusive += span_steps;
+                n.min = n.min.min(span);
+                n.max = n.max.max(span);
             }
-            n.min = n.min.min(span);
-            n.max = n.max.max(span);
         }
         match self.open.iter_mut().rev().find(|x| x.node.is_some()) {
-            Some(p) => p.children += span,
-            None => self.root_children += span,
+            Some(p) => {
+                p.children += span;
+                p.children_steps += span_steps;
+            }
+            None => {
+                self.root_children += span;
+                self.root_children_steps += span_steps;
+            }
         }
         if let Some((parent, i)) = o.edge
             && parent != id
         {
-            self.nodes[parent].out[i].2.time += span;
+            let e = &mut self.nodes[parent].out[i].2;
+            e.time += span;
+            e.steps += span_steps;
+        }
+    }
+
+    /// The interpreter is about to dispatch one value (D188). One increment
+    /// on the on path; the off path never reaches here.
+    #[inline]
+    pub fn step(&mut self) {
+        self.steps += 1;
+    }
+
+    /// A failure with this text was raised with the mirror as it is: the
+    /// innermost named node open is where. One failure is seen at every
+    /// level it passes on its way out, wrapped by the natives it passes
+    /// through, so a mark whose text contains the one kept is the same
+    /// failure further out and the inner mark stands — the rule D173's
+    /// traceback uses. A different text is a later failure, and the last
+    /// one raised is the one that ended the run.
+    pub fn mark_failure(&mut self, reason: &str) {
+        match &self.failed_in {
+            Some((_, kept)) if reason.contains(kept.as_str()) => {}
+            _ => self.failed_in = Some((self.parent().0, reason.to_string())),
         }
     }
 
@@ -399,11 +502,14 @@ impl Profile {
         self.wall = Some(wall);
         let root = &mut self.nodes[0];
         root.calls = 1;
+        root.outer = 1;
         root.inclusive = wall;
         root.exclusive = wall.saturating_sub(self.root_children);
         root.min = wall;
         root.max = wall;
         root.max_depth = 1;
+        root.steps_inclusive = self.steps;
+        root.steps = self.steps.saturating_sub(self.root_children_steps);
     }
 
     /// Open entries, for a test that checks the mirror did not drift.

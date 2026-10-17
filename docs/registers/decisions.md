@@ -3650,6 +3650,107 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D188 — a profile says what its clock cannot show, and counts steps beside the time
+
+**Raised 2026-10-17** by the repository owner ("brainstorm for improving
+RFC-0011 profiler"), from two profiles taken on the built RFC-0011 and the
+run they measured. `bund_examples/fibonacci/fibonacci.bund` runs in 0.48 s
+unprofiled and 1.06 s profiled on this host, and the profiled run's record
+took 43,080,600 readings of a clock whose reading costs 12 to 16 ns: the
+readings alone are the whole difference. The report printed the cost per
+reading and nothing else about the clock, so a reader had no way to see
+that `dup_one` at 21 ns a call, 8 % of the wall, is the clock's cost around
+four million calls and not the word's. Three more things the report said
+were wrong or missing against RFC-0011's own text: every small span was a
+multiple of 41.7 ns, the 24 MHz tick of Apple Silicon's counter, so `min`
+read `0 ns` for every hot native and the "cost per reading" understated
+the real floor; the anomaly for a recursive word compared its outermost
+span with a mean over every activation (F214); and §S2's promise that the
+header prints each native's `WordKind` was never built (F215). A fourth
+was missing by omission: a profile of a run that failed said nothing about
+the failure.
+
+- Blocks: RFC-0011 §S2, §S4, §S5
+- Depends on: D117 (the hot path's cost is a count, not a clock, which is
+  the principle the step counter brings to the profile), D186 (the on-path
+  figures that bound what the clock can add), D173 (the one-line
+  `reason at location` the `ended` cell reuses)
+- Options:
+  - **A. Say what the clock is worth, and count steps beside it.** The
+    header prints the clock's cost, its resolution measured with the cost,
+    how many readings the record took, what they come to against the wall,
+    and the per-call floor below which a figure is the clock's; every word
+    gets a per-call figure and one under the floor is marked; `min` and
+    `max` are of one outermost span; the kind column carries a native's
+    `WordKind`; the header says how the run ended and in which word, and
+    carries the version and the date. Beside the time, every node counts
+    the values the interpreter dispatched while it was innermost — one
+    increment per step, no clock — under the same inclusive and exclusive
+    arithmetic, so two profiles of one program agree to the step on any
+    two hosts. Cost: one more increment on the on path, one more branch
+    per step on the off path.
+  - **B. Subtract the clock from the figures.** A "net of clock" column,
+    exclusive less two readings a call. Cost: a correction is a claim that
+    the clock's cost is known to the nanosecond, and the calibration is a
+    throughput over twenty thousand back-to-back readings, not the cost of
+    one reading inside a native's span; a corrected figure would read as
+    measured when it is modelled.
+  - **C. Read the clock less.** Time a native's call every Nth time once
+    it has been seen K times, and scale. Cost: a time that is estimated
+    beside a count that is exact, and a design of its own.
+- Recommendation: A. B dresses an estimate as a measurement; C is a later
+  item and is listed in RFC-0011 §S8.
+- Status: **RESOLVED** by the repository owner, 2026-10-17: "clock-honesty
+  bundle plus the deterministic step counter", taking A.
+
+### Built, the same day
+
+- The record (`crates/bund2-interp/src/profile.rs`) carries `steps` and
+  `steps_inclusive` per node, `steps` per edge, `outer` per node (the
+  activations not nested inside another of the same node, the ones
+  `inclusive`, `min` and `max` are over), the clock's `resolution`, and
+  the node that was innermost when the last failure was raised, marked at
+  the three native call sites, in `run_to`'s error arm and at the top
+  level, under the rule D173's traceback uses to tell one failure seen at
+  several levels from a later one. `run_to` and `eval_observed` count a
+  step before each `apply_step`.
+- The renderer (`crates/bund2-cli/src/profile.rs`) prints two header
+  tables; `calibrate` measures the resolution as the smallest non-zero
+  step between consecutive readings; the floor is two readings and one
+  tick, `2 × cost + resolution`.
+- **RFC-0011 criterion 3, D117's reading on this host**, two release
+  binaries, `/usr/bin/time -l`, five runs each, the median, the empty
+  program subtracted. Each program is a file of 300,000 lines of the
+  snippet, so the absolute figures are not D186's, which were read from
+  different files; the comparison is between the two binaries on the
+  same files.
+
+  | program, ×300,000 lines | before (`5518bbf`) | after, flag absent | change |
+  |---|---|---|---|
+  | `1 drop` | 1,131.3 M | 1,142.7 M | +1.01% |
+  | eight literals, eight `drop` | 9,114.3 M | 9,119.0 M | +0.05% |
+  | `1 dup drop` | 2,035.0 M | 2,047.8 M | +0.63% |
+  | `1 2 + drop` | 2,284.7 M | 2,299.5 M | +0.65% |
+  | `f`, where `:f { 1 drop } register` | 966.4 M | 972.7 M | +0.65% |
+
+  The empty program: 38.2 M before, 37.8 M after. **Every row is inside
+  D117's 5% band.** With the flag present, `1 drop`, `1 dup drop` and `f`
+  read 1,351.2 M, 2,473.5 M and 1,391.4 M: **695, 709 and 698
+  instructions a call** on the on path, the step counter included.
+- The clock on this host calibrates at 16 ns a reading with a resolution
+  of 41 ns, so the floor is 73 ns. The profile of `fibonacci.bund` now
+  says its 43,080,600 readings come to about 689 ms, 66 % of a 1.044 s
+  wall, marks every native in `fib` as under the floor, and gives `fib`
+  28,271,633 of the run's 28,271,635 steps.
+- Tests: `steps_are_exact_and_add_up`,
+  `a_recursive_word_counts_its_outermost_steps_once` and
+  `the_failing_word_is_marked` in `crates/bund2-stdlib/tests/profile.rs`,
+  over the record; the process test in `crates/bund2-cli/tests/cli_ux.rs`
+  checks both header tables, the version, the steps columns, and the
+  `ended` cell of a run that failed.
+- `cargo xtask conform` and `cargo xtask conform --profile` read the
+  numbers they read before the change (RFC-0011 criteria 1 and 4).
+
 ## D187 — a profiled run's two files: names, order, the command line's voice, and the exit code when they cannot be written
 
 **Raised 2026-10-17** by RFC-0011 (open question 3). The profiler writes a

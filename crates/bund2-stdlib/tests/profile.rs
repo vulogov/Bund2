@@ -21,7 +21,7 @@ use bund2_interp::profile::{Key, Kind, Node, Profile};
 fn profiled(src: &str) -> (Interp, Box<Profile>, usize, Result<(), String>) {
     let mut i = Interp::new();
     bund2_stdlib::register_all(&mut i.registry);
-    i.profile = Some(Box::new(Profile::new(Duration::ZERO)));
+    i.profile = Some(Box::new(Profile::new(Duration::ZERO, Duration::ZERO)));
     let stream = bund2_syntax::compile(src).expect("compiles");
     let outcome = i.eval(&stream).map_err(|e| e.0);
     let mut p = i.profile.take().unwrap();
@@ -267,4 +267,96 @@ fn a_redefinition_is_named() {
     let (_, w) = find(&i, &p, "w").unwrap();
     assert_eq!(w.calls, 2);
     assert!(p.redefined.contains("w"));
+}
+
+/// **D188: steps are exact and add up.** A step is one value `run_to`
+/// dispatched. The top-level stream of `:inc { 1 + } register 5 inc inc` is
+/// six values, each the root's own; `inc`'s body is two, `1` and `+`, so two
+/// calls are four steps, all `inc`'s own because `+` dispatches nothing; and
+/// the total is the sum. The same program counts the same on every host,
+/// which no clock figure in this file can claim.
+#[test]
+fn steps_are_exact_and_add_up() {
+    let (i, p, _, outcome) = profiled(":inc { 1 + } register 5 inc inc");
+    assert!(outcome.is_ok(), "{outcome:?}");
+    let root = &p.nodes()[0];
+    let (inc_id, inc) = find(&i, &p, "inc").unwrap();
+    let (plus_id, plus) = find(&i, &p, "+").unwrap();
+    assert_eq!(p.steps(), 10);
+    assert_eq!(root.steps_inclusive, 10);
+    assert_eq!(root.steps, 6);
+    assert_eq!(inc.steps, 4);
+    assert_eq!(inc.steps_inclusive, 4);
+    assert_eq!(plus.steps, 0);
+    assert_eq!(plus.steps_inclusive, 0);
+    let sum: u64 = p.nodes().iter().map(|n| n.steps).sum();
+    assert_eq!(sum, p.steps(), "exclusive steps sum to the total");
+    // The edges carry the callee's steps as they carry its time.
+    let inc_edge = p
+        .edges()
+        .find(|(a, b, _, _)| *a == 0 && *b == inc_id)
+        .map(|(_, _, _, e)| e.steps);
+    assert_eq!(inc_edge, Some(4));
+    let plus_edge = p
+        .edges()
+        .find(|(a, b, _, _)| *a == inc_id && *b == plus_id)
+        .map(|(_, _, _, e)| e.steps);
+    assert_eq!(plus_edge, Some(0));
+    // Nothing failed, so no word is named as failing.
+    assert_eq!(p.failing(), None);
+}
+
+/// **D188: a recursive word's steps follow the inclusive rule.** `r` recurses
+/// to depth 21 through `if`: its inclusive steps are the outermost
+/// activation's, which hold every step of the run but the root's own, and
+/// its outermost activations number one where its calls number twenty-one.
+#[test]
+fn a_recursive_word_counts_its_outermost_steps_once() {
+    let (i, p, _, outcome) = profiled(":r { dup 20 > { 1 + r } if } register 0 r");
+    assert!(outcome.is_ok(), "{outcome:?}");
+    let root = &p.nodes()[0];
+    let (_, r) = find(&i, &p, "r").unwrap();
+    assert_eq!(r.calls, 21);
+    assert_eq!(r.outer, 1, "one outermost activation");
+    assert_eq!(
+        root.steps, 5,
+        "`:r`, the lambda, `register`, `0` and `r`: the step that names a word is its caller's"
+    );
+    assert_eq!(r.steps_inclusive, p.steps() - root.steps);
+    // Every step but the root's is `r`'s own: `if` and `+` dispatch nothing,
+    // and the bodies `if` files run as `r`'s own via `if`.
+    assert_eq!(r.steps, r.steps_inclusive);
+    // `min` and `max` are of the one outermost span, so they agree.
+    assert_eq!(r.min, r.max);
+    assert_eq!(r.max, r.inclusive);
+}
+
+/// **D188: the report can say where the run ended.** A native that answers
+/// an error is the failing node; so is the word whose body named something
+/// that could not be dispatched; a failure `?try` caught and a later one
+/// that ended the run leave the later one marked.
+#[test]
+fn the_failing_word_is_marked() {
+    let (i, p, _, outcome) = profiled(":g { + } register g");
+    assert!(outcome.is_err());
+    let (plus_id, _) = find(&i, &p, "+").unwrap();
+    assert_eq!(
+        p.failing(),
+        Some(plus_id),
+        "the native that answered the error"
+    );
+
+    let (i, p, _, outcome) = profiled(":f { boom } register f");
+    assert!(outcome.is_err());
+    let (f_id, _) = find(&i, &p, "f").unwrap();
+    assert_eq!(p.failing(), Some(f_id), "the word whose body named `boom`");
+
+    let (i, p, _, outcome) = profiled(":g { + } register { g } ?try :h { boom } register h");
+    assert!(outcome.is_err());
+    let (h_id, _) = find(&i, &p, "h").unwrap();
+    assert_eq!(
+        p.failing(),
+        Some(h_id),
+        "the failure that ended the run, not the one caught"
+    );
 }
