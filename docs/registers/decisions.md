@@ -3650,6 +3650,88 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D184 — `check` follows `?true*`, `while`, `for` and `*loop`
+
+**Raised 2026-10-16** by the repository owner, after D183: "?true* and the
+conditional loops". After D183 `?true*` was the largest reason left that
+is a rule of the walk rather than a word Bund2 does not define — 5 sites,
+"whose effect is not a fixed pair" — and `*loop`, `while` and `for` were
+opaque beside it.
+
+- Blocks: nothing
+- Depends on: D180 (a body run on a copy, kept where one run agrees);
+  D181 (`?ifthenelse` joined); D183 (a `raise` ends its path)
+- What the reference does: `?true*` is an alias of the inline
+  `ifthenelse` (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:10`),
+  which pulls the `then` lambda from the top, the `else` beneath it and
+  the condition beneath both, and runs one
+  (`reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:28-71`);
+  `notifthenelse` and `?false*` run the other one (`:64-70`, `:15`).
+  `while` pulls its lambda, then before every run pulls a condition and
+  stops at the first false one
+  (`reference/rust_multistackvm/src/stdlib/logic/while_fun.rs:5-47`);
+  `for` pulls its lambda, runs it, then pulls the condition, and so runs at
+  least once (`for_fun.rs:5-50`); `for.` reads the stack as `for` does
+  (`:52-97`). `*loop` pulls its lambda and runs it while the stack is not
+  empty and its top is not a NODATA, which it pulls
+  (`reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:51-101`), and
+  `*loop.` reads the stack too (`:115-117`, F78).
+- Options:
+  - **A. The inline branches as the CONDITIONAL's.** `?true*` and its
+    three spellings take the two lambdas and the condition, walk each
+    lambda on a copy and join them as D181 joins `?ifthenelse` — the same
+    depth, a slot kept where both agree — through one `join_branches` the
+    CONDITIONAL now uses too. Which branch runs does not matter to the
+    walk, so `notifthenelse` is the same rule.
+  - **B. The conditional loops as D180's rule, with the condition in the
+    run.** One run of `while` is "pull the condition, run the body" and
+    one run of `for` is "run the body, pull the condition"; either nets
+    zero against the stack the loop found — with the first condition on
+    top for `while` — or the depth after depends on how many runs there
+    are, and the abandonment says how much a run leaves beyond the
+    condition it takes. `while` ends by pulling the condition it found
+    false. A `raise` on the run is D183's: `for` runs at least once, so
+    the path ends; `while` may find its first condition false, so the path
+    where nothing runs goes on.
+  - **C. `*loop` on the stack itself.** In `Program` mode the depth is
+    exact, so the runs are walked one by one on the stack until it is
+    empty or a NODATA the walk can see is on top; a run that takes beneath
+    the stack is a finding charged to the body, as any run's is, and a run
+    that does not shorten the stack never reaches the end. A slot the walk
+    does not know may be a NODATA — every native's result is one — and
+    then `*loop` is abandoned as `fold` is (D182). In inference the depth
+    is not known and `*loop` stays opaque.
+  - **D. Leave them opaque.** Changes no number.
+- Recommendation: A, B and C.
+- Status: **RESOLVED** by the repository owner, 2026-10-16: "?true* and the
+  conditional loops". Built the same day.
+
+### Built, the same day
+
+- `Walker::join_branches`, `run_until`, `run_over_stack` and `body_of`,
+  and the `ifthenelse`, `while`/`for`/`for.` and `*loop`/`*loop.` arms of
+  `structural` in `crates/bund2-stdlib/src/check.rs`; the `?ifthenelse`
+  arm of `run_conditional` goes through `join_branches`.
+- **On the corpus**, the same 224 programs, measured the same way:
+
+  | | after D183 | after D184 |
+  |---|---|---|
+  | sites analysed | 3092 | 3216 |
+  | abandonments | 120 | 116 |
+  | programs with no abandonment | 104 | 108 |
+  | `?true*` | 5 | 0 |
+  | `*loop` | 1 | 0 |
+  | findings | 4 | 4 |
+
+  The corpus's `while` and `for` carry their counters on the workbench —
+  `0 . true { 1 +. take dup . 42 > } while` — and stop at `.` as before;
+  the rule is exercised by the tests until the workbench is tracked.
+- **Tests**: `the_inline_branches_and_the_conditional_loops_are_followed`.
+- **Not built**: `while.`, `ifthenelse.` and `notifthenelse.`, which read
+  the condition from the workbench; the workbench as a second axis,
+  `context`; the `IMAGE` class and the natives with no effect, which are
+  words to implement rather than rules to add.
+
 ## D183 — `check` follows `?try` where a `raise` places the failure
 
 **Raised 2026-10-16** by the repository owner, after D182: "next barrier,

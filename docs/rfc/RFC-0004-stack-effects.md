@@ -412,6 +412,20 @@ assumption. Over the same 224 programs: sites analysed 3055 → 3092,
 programs with no abandonment 102 → 104, `?try` 5 → 2, findings
 unchanged.)*
 
+*(2026-10-16, D184: the inline `ifthenelse` — `?true*`, `?false*`,
+`notifthenelse` — takes its two lambdas and the condition and is joined
+as `?ifthenelse` is, through one rule for both. `while` and `for` are
+D180's rule with the condition inside the run: "pull, body" or "body,
+pull" nets zero against the stack the loop found or the depth after
+depends on the runs. `*loop` runs on the stack itself, whose depth
+`Program` mode knows exactly, until it is empty or a NODATA it can see is
+on top; a run that takes beneath it is a finding charged to the body. Over
+the same 224 programs: sites analysed 3092 → 3216, programs with no
+abandonment 104 → 108, `?true*` 5 → 0, findings unchanged. §S6's fourth
+barrier is now the CF registry's `context`, `fmt` and the kinds a native
+does not declare; the `if`/`times`/`while`/`loop` family RFC-0003 §S7 set
+apart is followed whole.)*
+
 ## Preservation analysis
 
 | Current behaviour | Disposition |

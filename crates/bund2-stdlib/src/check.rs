@@ -91,8 +91,8 @@ use std::rc::Rc;
 
 use bund2_api::{Leaves, MethodEffect, Registry, StackEffect};
 use bund2_value::{
-    BOOL, BundValue, CALL, CLASS, CONDITIONAL, CONTEXT, FLOAT, INTEGER, LAMBDA, LIST, MAP, OBJECT,
-    PTR, STRING,
+    BOOL, BundValue, CALL, CLASS, CONDITIONAL, CONTEXT, FLOAT, INTEGER, LAMBDA, LIST, MAP, NODATA,
+    OBJECT, PTR, STRING,
 };
 
 /// One site that would take more than the stack can give.
@@ -918,6 +918,55 @@ impl<'a> Walker<'a> {
             "if" | "?true" | "if.false" | "?false" => {
                 self.repeat(name, None, "the condition", stack, at, via, level)
             }
+            // `ifthenelse_fun.rs:28-71`: the `then` lambda on top, the `else`
+            // beneath it, the condition beneath both; one of the two runs.
+            // `notifthenelse` runs the other one, which the walk need not
+            // tell apart. Both are walked and joined — D184.
+            "ifthenelse" | "?true*" | "notifthenelse" | "?false*" => {
+                self.report.analysed += 1;
+                let Some(mut t) = self.take(stack, 3, name, at, via) else {
+                    return Some(self.abandon(format!("`{name}` with nothing beneath it to run")));
+                };
+                let (Abs::Lambda(then_b), Abs::Lambda(else_b)) = (t.remove(0), t.remove(0)) else {
+                    return Some(
+                        self.abandon(format!("`{name}` with a branch the walk cannot see")),
+                    );
+                };
+                self.join_branches(name, &then_b, &else_b, stack, at, level)
+            }
+            // `while_fun.rs:5-47`: the lambda on top, then a condition pulled
+            // before every run, so the body leaves the next one; `for_fun.rs:5-50`:
+            // the lambda on top, the body runs first and leaves the condition
+            // pulled after it. Either way one run nets zero against the
+            // stack it found, or the depth after depends on the runs — D184.
+            "while" | "for" | "for." => {
+                self.report.analysed += 1;
+                let Some(mut t) = self.take(stack, 1, name, at, via) else {
+                    return Some(self.abandon(format!("`{name}` with nothing beneath it to run")));
+                };
+                let Abs::Lambda(b) = t.remove(0) else {
+                    return Some(self.abandon(format!("`{name}` with a body the walk cannot see")));
+                };
+                self.run_until(name, &b, stack, at, via, level)
+            }
+            // `loop_fun.rs:51-101`: the lambda on top, then the body runs
+            // while the stack is not empty and its top is not a NODATA, which
+            // is pulled. `*loop.` reads the stack as well (`:115-117`, F78).
+            "*loop" | "*loop." => {
+                if self.mode != Mode::Program {
+                    return Some(self.abandon(format!(
+                        "`{name}`, which runs to the end of a stack whose depth is not known"
+                    )));
+                }
+                self.report.analysed += 1;
+                let Some(mut t) = self.take(stack, 1, name, at, via) else {
+                    return Some(self.abandon(format!("`{name}` with nothing beneath it to run")));
+                };
+                let Abs::Lambda(b) = t.remove(0) else {
+                    return Some(self.abandon(format!("`{name}` with a body the walk cannot see")));
+                };
+                self.run_over_stack(name, &b, stack, at, level)
+            }
             // `curry` takes its name first (`conditional_curry.rs`, through
             // `named`) and `!` on it registers a word — D181.
             "curry" => {
@@ -974,7 +1023,7 @@ impl<'a> Walker<'a> {
                 let mut keep = 0;
                 for (i, a) in stack.items.iter().enumerate().rev() {
                     match a {
-                        Abs::Tagged(bund2_value::NODATA) => {
+                        Abs::Tagged(NODATA) => {
                             keep = i;
                             break;
                         }
@@ -1104,6 +1153,165 @@ impl<'a> Walker<'a> {
         true
     }
 
+    /// Two bodies of which one runs, each walked on a copy with the same
+    /// stack and joined where they agree — `?ifthenelse` (D181), `?true*`
+    /// (D184). A branch that ends in a `raise` leaves no path to join (D183).
+    fn join_branches(
+        &mut self,
+        word: &str,
+        then_b: &[BundValue],
+        else_b: &[BundValue],
+        stack: &mut Stack,
+        at: usize,
+        level: u8,
+    ) -> Went {
+        let mut then_s = stack.copy();
+        let mut else_s = stack.copy();
+        let outer = std::mem::replace(&mut self.may_switch, false);
+        let inside = format!("the `then` of `{word}`");
+        let went_then = self.walk(then_b, &mut then_s, Some(at), Some(&inside), level + 1);
+        let then_raised = std::mem::take(&mut self.halted);
+        let inside = format!("the `else` of `{word}`");
+        let went_else = self.walk(else_b, &mut else_s, Some(at), Some(&inside), level + 1);
+        let else_raised = std::mem::take(&mut self.halted);
+        self.may_switch = outer;
+        if !(went_then && went_else) {
+            return false;
+        }
+        match (then_raised, else_raised) {
+            (true, true) => {
+                self.halted = true;
+                return true;
+            }
+            (true, false) => {
+                *stack = else_s;
+                return true;
+            }
+            (false, true) => {
+                *stack = then_s;
+                return true;
+            }
+            (false, false) => {}
+        }
+        match Stack::join(then_s, &else_s) {
+            Some(j) => {
+                *stack = j;
+                true
+            }
+            None => self.abandon(format!(
+                "`{word}` whose `then` and `else` leave different depths, so the depth after depends on the condition"
+            )),
+        }
+    }
+
+    /// `while` and `for`: a body run until a condition it leaves is false.
+    /// `while` pulls the condition before each run and `for` after, so one
+    /// run is "pull, body" or "body, pull" against the stack the loop found,
+    /// with the first condition on top for `while`; it nets zero or the
+    /// depth after depends on how many runs there are. `while` ends by
+    /// pulling the condition it found false; `for` runs at least once, so a
+    /// `raise` on the run ends its path (D183).
+    fn run_until(
+        &mut self,
+        name: &str,
+        body: &[BundValue],
+        stack: &mut Stack,
+        at: usize,
+        via: Option<&str>,
+        level: u8,
+    ) -> Went {
+        let before = name == "while";
+        let mut once = stack.copy();
+        let inside = format!("the body `{name}` runs");
+        let outer = std::mem::replace(&mut self.may_switch, false);
+        let went = if before {
+            if self.take(&mut once, 1, name, at, via).is_none() {
+                self.may_switch = outer;
+                return self.abandon(format!("`{name}` with no condition beneath its body"));
+            }
+            self.walk(body, &mut once, Some(at), Some(&inside), level + 1)
+        } else {
+            let went = self.walk(body, &mut once, Some(at), Some(&inside), level + 1);
+            if went && !self.halted && self.take(&mut once, 1, name, at, Some(&inside)).is_none() {
+                self.may_switch = outer;
+                return self.abandon(format!("`{name}` whose body leaves no condition"));
+            }
+            went
+        };
+        self.may_switch = outer;
+        if !went {
+            return false;
+        }
+        if std::mem::take(&mut self.halted) {
+            if before {
+                // The condition the loop found may be false: that path takes
+                // it and runs nothing.
+                let _ = self.take(stack, 1, name, at, via);
+            } else {
+                self.halted = true;
+            }
+            return true;
+        }
+        let net = once.net_against(stack);
+        if net != 0 {
+            return self.abandon(format!(
+                "`{name}` with a run that leaves {net:+} value(s) beyond the condition it takes, so the depth after depends on how many runs there are"
+            ));
+        }
+        stack.keep_what_agrees(&once);
+        if before {
+            let _ = self.take(stack, 1, name, at, via);
+        }
+        true
+    }
+
+    /// `*loop`: the body run on the stack itself until it is empty or a
+    /// NODATA is on top, which is pulled. In `Program` mode the depth is
+    /// exact, so the runs are walked one by one on the stack — a run that
+    /// takes beneath it is a finding, charged to the body as any run's is —
+    /// and a run that does not shorten the stack never ends.
+    fn run_over_stack(
+        &mut self,
+        name: &str,
+        body: &[BundValue],
+        stack: &mut Stack,
+        at: usize,
+        level: u8,
+    ) -> Went {
+        let inside = format!("the body `{name}` runs");
+        let outer = std::mem::replace(&mut self.may_switch, false);
+        let mut went = true;
+        loop {
+            match stack.items.last() {
+                None => break,
+                Some(Abs::Tagged(NODATA)) => {
+                    stack.pop();
+                    break;
+                }
+                Some(Abs::Unknown) => {
+                    went = self.abandon(format!(
+                        "`{name}`, which stops at a NODATA the walk cannot rule out"
+                    ));
+                    break;
+                }
+                Some(_) => {}
+            }
+            let depth = stack.items.len();
+            went = self.walk(body, stack, Some(at), Some(&inside), level + 1);
+            if !went || self.halted {
+                break;
+            }
+            if stack.items.len() >= depth {
+                went = self.abandon(format!(
+                    "`{name}` with a run that does not shorten the stack, so it never reaches the end"
+                ));
+                break;
+            }
+        }
+        self.may_switch = outer;
+        went
+    }
+
     /// A `raise` inside `try` left `stack`: the first fixes what `except`
     /// sees, a later one is joined with it as two branches are.
     fn record_raise(&mut self, stack: &Stack) {
@@ -1214,6 +1422,14 @@ impl<'a> Walker<'a> {
         }
     }
 
+    /// The body a slot runs: the lambda, or nothing.
+    fn body_of(slot: Slot) -> Rc<[BundValue]> {
+        match slot {
+            Slot::Lambda(b) => b,
+            Slot::Absent | Slot::Unseen => Rc::from(Vec::new()),
+        }
+    }
+
     /// One slot of a CONDITIONAL, as its handler reads it: a LAMBDA is run and
     /// anything else is an empty body (`slot_body`, after
     /// `conditional_ifthenelse.rs:15-26`).
@@ -1280,43 +1496,16 @@ impl<'a> Walker<'a> {
                 if self.take(stack, 1, "?ifthenelse", at, via).is_none() {
                     return self.abandon("`?ifthenelse` whose `if` left no condition".into());
                 }
-                let mut then_s = stack.copy();
-                let mut else_s = stack.copy();
-                let outer = std::mem::replace(&mut self.may_switch, false);
-                let went_then = self.slot_walk(m, "then", "?ifthenelse", &mut then_s, at, level);
-                let then_raised = std::mem::take(&mut self.halted);
-                let went_else = self.slot_walk(m, "else", "?ifthenelse", &mut else_s, at, level);
-                let else_raised = std::mem::take(&mut self.halted);
-                self.may_switch = outer;
-                if !(went_then && went_else) {
-                    return false;
-                }
-                // A branch that ends in a `raise` leaves no path to join — D183.
-                match (then_raised, else_raised) {
-                    (true, true) => {
-                        self.halted = true;
-                        return true;
+                let (then_b, else_b) = match (Self::slot(m, "then"), Self::slot(m, "else")) {
+                    (Slot::Unseen, _) | (_, Slot::Unseen) => {
+                        return self.abandon(
+                            "a `then` or `else` slot of `?ifthenelse`, which is not a literal lambda".into(),
+                        );
                     }
-                    (true, false) => {
-                        *stack = else_s;
-                        return true;
-                    }
-                    (false, true) => {
-                        *stack = then_s;
-                        return true;
-                    }
-                    (false, false) => {}
-                }
-                match Stack::join(then_s, &else_s) {
-                    Some(j) => {
-                        *stack = j;
-                        true
-                    }
-                    None => self.abandon(
-                        "`?ifthenelse` whose `then` and `else` leave different depths, so the depth after depends on the condition"
-                            .into(),
-                    ),
-                }
+                    (t, e) => (Self::body_of(t), Self::body_of(e)),
+                };
+                self.report.analysed += 2;
+                self.join_branches("?ifthenelse", &then_b, &else_b, stack, at, level)
             }
             "tryexcept" => self.run_tryexcept(m, stack, at, level),
             "csv" | "sqlite" => {
@@ -2063,6 +2252,93 @@ mod tests {
         assert!(clean(&check_src(
             "\"Testing\" ?try :try { \"I raise\" raise } set :except { drop true } set ! println println"
         )));
+    }
+
+    /// **D184.** `?true*` is the inline `ifthenelse`: both branches walked
+    /// and joined. `while` and `for` are followed when one run nets zero
+    /// beyond the condition it takes; `*loop` runs on the stack itself.
+    #[test]
+    fn the_inline_branches_and_the_conditional_loops_are_followed() {
+        // `?true*`: the `then` lambda on top, `else` beneath, condition
+        // beneath both.
+        let e = eff_of("true { 1 } { 2 } ?true*");
+        assert_eq!((e.consumes, e.produces, e.opaque), (0, 1, false));
+        // The condition beneath both branches, then what the branch takes.
+        let e = eff_of("{ drop } { drop } ?false*");
+        assert_eq!((e.consumes, e.produces, e.opaque), (2, 0, false));
+        assert!(clean(&check_src(
+            "42 42 != { true } { false } ifthenelse println"
+        )));
+        let rep = check_src("true { 1 } { 1 2 } ?true*");
+        assert!(
+            rep.reasons[0]
+                .0
+                .contains("`?true*` whose `then` and `else`"),
+            "{:?}",
+            rep.reasons
+        );
+        // The lambda on top is `then` (`ifthenelse_fun.rs:28-37`).
+        let rep = check_src("true { 1 } { + } ?true*");
+        assert_eq!(rep.findings.len(), 1, "{rep:?}");
+        assert_eq!(
+            rep.findings[0].via.as_deref(),
+            Some("the `then` of `?true*`")
+        );
+
+        // `while`: the condition is pulled before each run and the body
+        // leaves the next; the loop ends by pulling the one it found false.
+        assert!(clean(&check_src("0 true { 1 + dup 10 < } while println")));
+        let e = eff_of("{ 1 + dup 10 < } while");
+        assert_eq!((e.consumes, e.produces, e.opaque), (2, 1, false));
+        let rep = check_src("0 true { 1 + dup dup 10 < } while");
+        assert!(
+            rep.reasons[0]
+                .0
+                .contains("`while` with a run that leaves +1"),
+            "{:?}",
+            rep.reasons
+        );
+
+        // `for`: the body runs first and leaves the condition pulled after.
+        assert!(clean(&check_src("0 { 1 + dup 10 < } for println")));
+        let e = eff_of("{ dup 10 < } for");
+        assert_eq!((e.consumes, e.produces, e.opaque), (1, 1, false));
+        let rep = check_src("0 { 1 + } for");
+        assert!(
+            rep.reasons[0].0.contains("`for` with a run that leaves -1"),
+            "{:?}",
+            rep.reasons
+        );
+
+        // `*loop`: the stack is walked to its end, or to a NODATA it pulls.
+        let rep = check_src("1 2 3 { println } *loop");
+        assert!(clean(&rep), "{rep:?}");
+        assert!(clean(&check_src("5 nodata 1 2 { println } *loop println")));
+        let rep = check_src("5 nodata 1 2 { println } *loop println println");
+        assert_eq!(rep.findings.len(), 1, "{rep:?}");
+        // A run that takes beneath the stack is a finding charged to the body:
+        // three values, two taken per run, the second run one short.
+        let rep = check_src("1 2 3 { drop drop } *loop");
+        assert_eq!(rep.findings.len(), 1, "{rep:?}");
+        assert_eq!(
+            rep.findings[0].via.as_deref(),
+            Some("the body `*loop` runs")
+        );
+        // What a native leaves is not known not to be a NODATA.
+        let rep = check_src("1 2 3 { + } *loop");
+        assert!(
+            rep.reasons[0].0.contains("cannot rule out"),
+            "{:?}",
+            rep.reasons
+        );
+        let rep = check_src("1 2 3 { dup } *loop");
+        assert!(
+            rep.reasons[0].0.contains("never reaches the end"),
+            "{:?}",
+            rep.reasons
+        );
+        let e = eff_of("{ drop } *loop");
+        assert!(e.opaque);
     }
 
     #[test]
