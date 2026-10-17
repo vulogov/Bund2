@@ -21,6 +21,7 @@ use std::process::ExitCode;
 mod bundle;
 mod debugger;
 mod help;
+mod profile;
 mod trace;
 #[macro_use]
 mod ui;
@@ -358,6 +359,11 @@ struct Args {
     /// it the only evidence a tier ran is timing, which cannot tell a compiled
     /// body from a fast interpreted one. F124 is what that gap allowed.
     stats: bool,
+    /// `--profile <base>`: write `<base>.profile.md` and `<base>.profile.dot`
+    /// when the program has ended — RFC-0011, D185. The operand is required,
+    /// so the reference's bare `--profile` is still refused. A profiled run
+    /// installs no tier (D186). A bundle reads `BUND2_PROFILE` instead.
+    profile: Option<String>,
     /// `--jit-threshold <n>`: how many evaluations of one body earn it
     /// compilation — §S7's knob, and what RFC-0005 criterion 2's third run
     /// needs (F125).
@@ -376,6 +382,21 @@ struct Args {
     report: trace::Mode,
 }
 
+impl Args {
+    /// Why this run installs no tier though the build may have one: the
+    /// debugger (RFC-0008 §D6) or the profiler (D186). `None` when the tier
+    /// is offered.
+    fn tier_declined(&self) -> Option<&'static str> {
+        if self.debugger {
+            Some("debugging")
+        } else if self.profile.is_some() {
+            Some("profiling")
+        } else {
+            None
+        }
+    }
+}
+
 /// `script --file <path> [-- <args>…]`, the shape `conform` and the oracle
 /// share.
 fn parse_args(args: &[String]) -> Result<Args, String> {
@@ -384,6 +405,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut dump_stack = true;
     let mut raw_values = false;
     let mut stats = false;
+    let mut profile: Option<String> = None;
     let mut jit_threshold: Option<u32> = None;
     let mut debugger = false;
     let mut debug_shell = false;
@@ -414,6 +436,19 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--no-dump-stack" => dump_stack = false,
             "--raw-values" | "--debug-values" => raw_values = true,
             "--stats" => stats = true,
+            // **D185: the operand is required.** A bare `--profile`, the
+            // reference's shape, is refused with the operand message; so is
+            // one whose "operand" is the next flag, which the shared closure
+            // would otherwise take as a path and write two files beside.
+            "--profile" => {
+                let base = operand("a path for the two files")?;
+                if base.is_empty() || base.starts_with('-') {
+                    return Err(format!(
+                        "`--profile` needs a path for the two files, not `{base}`; see `bund2 help script`"
+                    ));
+                }
+                profile = Some(base);
+            }
             "--debugger" => debugger = true,
             "--debug-shell" => debug_shell = true,
             // Refused rather than ignored when it is not a number: this is a
@@ -462,6 +497,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
         dump_stack,
         raw_values,
         stats,
+        profile,
         debugger,
         debug_shell,
         carried: false,
@@ -789,6 +825,12 @@ fn run_carried(carried: &bundle::Carried, argv: Vec<String>) -> ExitCode {
         dump_stack: !env_set("BUND2_NO_DUMP_STACK"),
         raw_values: env_set("BUND2_RAW_VALUES"),
         stats: env_set("BUND2_STATS"),
+        // **RFC-0011 §S6: a bundle owns all of argv, so the profiler reaches
+        // it through the environment, holding the base path** — D185's
+        // operand by another road. Resolved against the run's directory.
+        profile: std::env::var("BUND2_PROFILE")
+            .ok()
+            .filter(|s| !s.is_empty()),
         jit_threshold: None,
         // **A bundle is never dropped into the debugger, and not by omission.**
         // The exhaustive literal made this a choice rather than a default, as
@@ -1577,7 +1619,10 @@ fn make_executable(_path: &str) -> Result<(), String> {
 /// floors belong to the process and not to the program, and RFC-0005's
 /// criterion 11 has every run report them: `cargo xtask depth`'s `nesting`
 /// axis ends at the parser's refusal and printed nothing.
-fn print_stats(rt: &bund2_runtime::Runtime) {
+/// `declined` names why no tier was installed when the build has one —
+/// `--debugger` (RFC-0008 §D6) or `--profile` (D186) — so the no-tier line
+/// says that rather than "built without `jit`", which would be false.
+fn print_stats(rt: &bund2_runtime::Runtime, declined: Option<&str>) {
     // **How many of those bodies actually ran, when the tier can say.**
     // Every figure below counts a decision the *compiler* made. None of
     // them counts an execution, so a tier that compiles a corpus and then
@@ -1649,7 +1694,10 @@ fn print_stats(rt: &bund2_runtime::Runtime) {
         (Some(bodies), None, _, _) => {
             bund2_api::errln!("bund2: tier compiled {bodies} bodies{entered}")
         }
-        _ => bund2_api::errln!("bund2: no tier (built without `jit`)"),
+        _ => match declined {
+            Some(why) => bund2_api::errln!("bund2: no tier (declined: {why})"),
+            None => bund2_api::errln!("bund2: no tier (built without `jit`)"),
+        },
     }
     // **§S8's floors, and what the upper one has done** — RFC-0005
     // criterion 11 as D147 leaves it. A line of its own, because the
@@ -1743,13 +1791,23 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
     // feature is on; everything below reaches the interpreter through it.
     // **§D6: a debugged session installs no tier.** One call, in the one place
     // a tier is installed, which is what §D6 means by needing nothing new.
-    let mut rt = if args.debugger {
+    // **D186: a profiled run installs no tier either**, through the same
+    // constructor and for the same shape of reason (RFC-0011 §S3).
+    let mut rt = if args.tier_declined().is_some() {
         bund2_runtime::Runtime::for_debugging(&args.host, args.jit_threshold)
     } else {
         bund2_runtime::Runtime::with_options_and_threshold(&args.host, args.jit_threshold)
     };
     let startup_defect = rt.take_startup_defect();
     let vm = &mut rt.interp;
+    // **RFC-0011: the record, installed before anything runs.** The clock's
+    // cost is measured first so the report can print it.
+    if args.profile.is_some() {
+        vm.profile = Some(Box::new(bund2_interp::profile::Profile::new(
+            profile::calibrate(),
+        )));
+    }
+    let mut failed = false;
     ui::configure_colors(args.host.nocolor);
     let mut reporter = bund2_stdlib::report::TextReporter::new(args.dump_stack);
     reporter.raw_values = args.raw_values;
@@ -1822,9 +1880,9 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
                 );
                 shell_after_a_failure(vm, args);
                 if args.stats {
-                    print_stats(&rt);
+                    print_stats(&rt, args.tier_declined());
                 }
-                return None;
+                return finish_profile(&mut rt, args, true, None);
             }
         };
         let lowered = bund2_syntax::lower_with_spans(&terms, text.len());
@@ -1838,9 +1896,9 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
             shell_after_a_failure(vm, args);
             let code = vm.exit_requested();
             if args.stats {
-                print_stats(&rt);
+                print_stats(&rt, args.tier_declined());
             }
-            return code;
+            return finish_profile(&mut rt, args, true, code);
         }
     }
 
@@ -1855,9 +1913,9 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
             );
             shell_after_a_failure(vm, args);
             if args.stats {
-                print_stats(&rt);
+                print_stats(&rt, args.tier_declined());
             }
-            return None;
+            return finish_profile(&mut rt, args, true, None);
         }
     };
     let lowered = bund2_syntax::lower_with_spans(&terms, src.len());
@@ -1867,6 +1925,7 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
         lowered.values.len()
     );
     if let Err((i, e)) = vm.eval_indexed(&lowered.values) {
+        failed = true;
         ui::trace!("value {i} of the top-level stream failed: {}", e.0);
         let mut d = bund2_api::diag::Diagnostic::error(e.0);
         if let Some(span) = lowered.span_of(i) {
@@ -1878,7 +1937,50 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
     let code = vm.exit_requested();
 
     if args.stats {
-        print_stats(&rt);
+        print_stats(&rt, args.tier_declined());
     }
-    code
+    finish_profile(&mut rt, args, failed, code)
+}
+
+/// **RFC-0011 §S6, D187: render the record and write the two files.**
+///
+/// Nothing is said at the default level on success: writing the files is the
+/// command line's own work, so it speaks in D173's second voice, one `info`
+/// line. A failure to write is an `error` at every level. The exit code is
+/// the program's, except when the program itself succeeded and set no code
+/// and its profile could not be written: then it is 1, the code `build`
+/// answers when it cannot write its output, so one number has one meaning.
+fn finish_profile(
+    rt: &mut bund2_runtime::Runtime,
+    args: &Args,
+    failed: bool,
+    code: Option<i32>,
+) -> Option<i32> {
+    let Some(base) = args.profile.as_deref() else {
+        return code;
+    };
+    let Some(mut record) = rt.interp.profile.take() else {
+        return code;
+    };
+    record.finish();
+    let meta = profile::Meta {
+        program: &args.file,
+        jit_threshold_given: args.jit_threshold.is_some(),
+    };
+    let dot = profile::render_dot(&record, &rt.interp.registry);
+    let md = profile::render_markdown(&record, &rt.interp.registry, &meta);
+    match profile::write_both(base, &dot, &md) {
+        Ok((dot_path, md_path)) => {
+            ui::info!("wrote {md_path} and {dot_path}");
+            code
+        }
+        Err(e) => {
+            ui::error!("{e}");
+            if !failed && code.is_none() {
+                Some(1)
+            } else {
+                code
+            }
+        }
+    }
 }

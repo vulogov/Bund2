@@ -274,9 +274,31 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // twenty-third review this file asked the binary for nothing and failed
     // on nothing. A `jit` run now asks every program for its `--stats` line,
     // takes it back out of the output before the comparison, and sums it.
-    let with_tier = features.split(',').any(|f| f.trim() == "jit");
+    // **RFC-0011 criterion 4.** `--profile` adds `--profile <scratch>` to
+    // every source run and `BUND2_PROFILE` to every bundle run, so the whole
+    // corpus runs profiled; N/M and CEILING must then equal a plain run's,
+    // since `conform` compares `stdout` with `stderr` appended and the
+    // profiler may add a line to neither at the default level. **A profiled
+    // run declines the tier (D186)**, so under `jit` this run asks for no
+    // `--stats` line and totals nothing: it is Tier 0 by design, and D141's
+    // "compiled no body" check would otherwise read that as a failure.
+    let profiled = args.iter().any(|a| a == "--profile");
+    let jit_built = features.split(',').any(|f| f.trim() == "jit");
+    let with_tier = jit_built && !profiled;
     if with_tier {
         threshold_args.push("--stats".to_string());
+    }
+    if jit_built && profiled {
+        bund2_api::sayln!(
+            "  --profile declines the tier (D186): this `jit` run is Tier 0 by design, and its tier total is not taken"
+        );
+    }
+    let profile_base = repo.join("target").join("conform-profile").join("case");
+    if profiled {
+        std::fs::create_dir_all(repo.join("target").join("conform-profile"))
+            .map_err(|e| format!("creating the profile scratch directory: {e}"))?;
+        threshold_args.push("--profile".to_string());
+        threshold_args.push(profile_base.to_string_lossy().into_owned());
     }
     let mut tier = TierTotal::default();
     let args = args.as_slice();
@@ -301,7 +323,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
         match a.as_str() {
             "--accept-deviation" => accept_deviation = it.next().cloned(),
             "--reason" => reason = it.next().cloned(),
-            "--accept" | "-v" | "--verbose" | "--parse-only" | "--blocked-on" | "--bundles" => {}
+            "--accept" | "-v" | "--verbose" | "--parse-only" | "--blocked-on" | "--bundles"
+            | "--profile" => {}
             other => return Err(format!("unknown argument `{other}`")),
         }
     }
@@ -387,6 +410,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     }
                     if with_tier {
                         env.push(("BUND2_STATS".into(), "1".into()));
+                    }
+                    if profiled {
+                        env.push((
+                            "BUND2_PROFILE".into(),
+                            profile_base.to_string_lossy().into_owned(),
+                        ));
                     }
                     golden::run_artifact_once(&artefact, cwd, &env)
                 }

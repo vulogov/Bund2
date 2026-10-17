@@ -3688,6 +3688,23 @@ the process exits with when it could not.
   `ui::error!` on failure; exit 1 when a successful program's profile
   could not be written, the program's own code otherwise.
 
+### Built, the same day
+
+- `finish_profile` in `crates/bund2-cli/src/main.rs` and `write_both` in
+  `crates/bund2-cli/src/profile.rs`: each file staged beside its target
+  and renamed, the `dot` file first; one `ui::info!` naming both paths;
+  `ui::error!` and exit 1 when a program that succeeded and set no code
+  has no profile, the program's own code otherwise. A bundle reads
+  `BUND2_PROFILE` in `run_carried`.
+- **Tested** at process level by
+  `profile_needs_a_base_and_then_writes_two_files_and_nothing_else` in
+  `crates/bund2-cli/tests/cli_ux.rs`: a bare `--profile` and a `--profile`
+  followed by the next flag are both refused with the operand message and
+  exit 2; a profiled run's `stdout` equals the plain run's and its
+  `stderr` is empty; `-v` names the files; a base in a directory that does
+  not exist leaves the program's output, no files, an error line and exit
+  1; a failing program keeps exit 0 and still has its profile.
+
 ## D186 — a profiled run declines the compiled tier
 
 **Raised 2026-10-17** by RFC-0011 (open question 2). A compiled body's
@@ -3720,6 +3737,39 @@ depending on what the tier chose to inline for that run.
   question 2", taking A. The report header says `tier: declined
   (profiling)`; a `debug.*` word that arms a console is the second reason
   the tier may be off, and the header marks it.
+
+### Built, the same day
+
+- `Args::tier_declined` in `crates/bund2-cli/src/main.rs` answers
+  `profiling` as it answers `debugging`, and `script` chooses
+  `Runtime::for_debugging` on either. The `--stats` no-tier line says
+  which (F213). `--jit-threshold` beside `--profile` is accepted and the
+  report header says `jit-threshold ignored`.
+- **RFC-0011 criterion 3, D117's reading on this host** — Apple M5 Pro,
+  two release binaries, `/usr/bin/time -l`, five runs each, the median,
+  the empty program subtracted:
+
+  | program, ×300,000 | before (`11c46d6`) | after, flag absent | change |
+  |---|---|---|---|
+  | `1 drop` | 239.7 M | 243.9 M | +1.75% |
+  | eight literals, eight `drop` | 1,214.0 M | 1,239.5 M | +2.10% |
+  | `1 dup drop` | 378.5 M | 386.5 M | +2.11% |
+  | `1 2 + drop` | 444.7 M | 452.1 M | +1.66% |
+  | `f`, where `:f { 1 drop } register` | 349.4 M | 356.0 M | +1.91% |
+
+  The empty program: 38.2 M before, 37.6 M after. **Every row is inside
+  D117's 5% band.** With the flag present, the same programs read 579.0 M,
+  938.3 M and 891.9 M for `1 drop`, `1 dup drop` and `f`: divided by the
+  calls the report counts, **1,116, 919 and 893 instructions a call** on
+  the on path. A first cut keyed its nodes and edges in two hash maps and
+  read 1,891, 1,819 and 1,668; a table indexed by symbol and a short edge
+  list per node replaced them before this reading. The clock calibrates at
+  15 to 21 ns a reading here, which the report prints.
+- **RFC-0011 criterion 7**: a `jit` release binary run profiled over
+  `bund_examples/fibonacci/fibonacci.bund` with `--stats` prints
+  `bund2: no tier (declined: profiling)` where the plain run prints
+  `tier compiled 2 bodies (4036171 entered), inlined 4 sites`; the report
+  header reads `declined (profiling)`.
 
 ## D185 — `--profile <base>` is Bund2's own flag: a profiler of words, two files, a required operand
 

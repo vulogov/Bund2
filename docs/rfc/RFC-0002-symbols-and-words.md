@@ -674,6 +674,13 @@ them and one was vacuous without saying so. Each below names the tool.
    because the boundary holds rather than because there is nothing to drag.
    It is also what forced the `Vm` trait into `bund2-api`: the criterion
    leaves nowhere else for `NativeFn`'s receiver to live.
+   *(2026-10-17, RFC-0011 §S2: the trait gained `call_method` and
+   `run_conditional`, one function per kind of native D49 names beside
+   `Interp::invoke`, so that a method native and a conditional runner are
+   called by the VM — under D49's catch, where a profiler sees them —
+   rather than by `bund2-stdlib` directly. The catch and the messages are
+   unchanged; the three call sites in `oop.rs` and `conditional.rs` call
+   the seam.)*
 5. `"dup_one" resolve` succeeds, and so does `resolve` for each of the 31
    stack-layer words — F31's regression test. **This cannot be a golden.**
    Goldens capture what the oracle does, and the oracle *fails* this: F31 is a

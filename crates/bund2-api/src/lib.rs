@@ -609,6 +609,16 @@ pub trait Vm {
     fn unregister_class(&mut self, name: &str);
     fn method(&self, name: &str) -> Option<NativeFn>;
     fn is_method(&self, name: &str) -> bool;
+    /// **Call the method native `name` on this VM** — RFC-0011 §S2's second
+    /// hook, and the one place a method native is called, so that D49's
+    /// catch, the effect audit and a profiler see it there. `None` when no
+    /// method of that name is registered; otherwise the call's outcome, with
+    /// a panic in it answered as `Error::internal` naming the method.
+    fn call_method(&mut self, name: &str) -> Option<Result<(), Error>>;
+    /// **Run the conditional runner bound to `ty` with `c`** — the same seam
+    /// for the third kind of native D49 names. `None` when no runner is
+    /// bound to `ty`.
+    fn run_conditional(&mut self, ty: &str, c: BundValue) -> Option<Result<(), Error>>;
 
     // --- variables, the sixth namespace ------------------------------------
     /// A word's declared effect, or `None` if it has none.
@@ -2272,6 +2282,12 @@ mod tests {
         }
         fn is_native(&self, _: &str) -> bool {
             false
+        }
+        fn call_method(&mut self, _: &str) -> Option<Result<(), Error>> {
+            None
+        }
+        fn run_conditional(&mut self, _: &str, _: BundValue) -> Option<Result<(), Error>> {
+            None
         }
         fn is_alias(&self, _: &str) -> bool {
             false

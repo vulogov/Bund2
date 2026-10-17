@@ -148,13 +148,9 @@ fn run_init(vm: &mut dyn Vm, obj: &BundValue) -> Result<(), Error> {
             let Some(mname) = init.as_str() else {
                 return Ok(());
             };
-            match vm.method(&mname) {
-                // D49: a method native is a native, called here directly.
-                Some(f) => bund2_api::catch_panic(|| f(vm)).unwrap_or_else(|msg| {
-                    Err(bund2_api::panicked(&format!("method `{mname}`"), &msg))
-                }),
-                None => Ok(()),
-            }
+            // D49: a method native is a native; the VM calls it, under its
+            // catch, where a profiler sees it (RFC-0011 §S2).
+            vm.call_method(&mname).unwrap_or(Ok(()))
         }
         _ => Ok(()),
     }
@@ -271,11 +267,10 @@ pub fn dispatch_method(vm: &mut dyn Vm, name: &str) -> Result<(), Error> {
             let mname = slot
                 .as_str()
                 .ok_or_else(|| Error::internal("a PTR slot carried no name"))?;
-            match vm.method(&mname) {
-                // D49: a method native is a native, called here directly.
-                Some(f) => bund2_api::catch_panic(|| f(vm)).unwrap_or_else(|msg| {
-                    Err(bund2_api::panicked(&format!("method `{mname}`"), &msg))
-                }),
+            // D49: a method native is a native; the VM calls it, under its
+            // catch, where a profiler sees it (RFC-0011 §S2).
+            match vm.call_method(&mname) {
+                Some(r) => r,
                 None => Err(Error(format!(
                     "m({name}) returned: method {mname} not registered"
                 ))),

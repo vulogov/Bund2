@@ -3,8 +3,13 @@
 - Status: **Proposed** (2026-10-17), by the repository owner's three
   rulings of that date: **D185** (the flag and its operand), **D186** (a
   profiled run declines the tier) and **D187** (the files, the voice and
-  the exit code). No question is open. Nothing here is built; the eight
-  criteria below are what building it is measured by.
+  the exit code). No question is open.
+  *(Later the same day, on the owner's "Build RFC-0011": **built**, and
+  every criterion has its reading under "Built" below. Proposed stands
+  until the owner accepts. Two things building taught, each recorded
+  where it belongs: the `via` mark is the native that filed the body, not
+  only `!` (§S1's note), and the `--stats` no-tier line was wrong for a
+  declined tier (F213).)*
 
   Before that: **Draft** (2026-10-16), revised 2026-10-17 after its first
   adversarial review (`docs/rfc/reviews/RFC-0011-review-2026-10-17.md`),
@@ -215,6 +220,17 @@ report says which:
 Two spellings of one program can draw two graphs; the `via` mark is how a
 reader tells them apart.
 
+*(2026-10-17, built: **the mark is `via <native>`, for whichever native
+filed the body as a tail request**, not `via !` alone. The first profile
+of `fibonacci.bund` drew `via !` on a program with no `!` in it: `if`,
+`?true`, `if.stack` and the inline `ifthenelse` file their chosen body
+through `tail_lambda` as `!` does — RFC-0003 §S4a's tail position — so
+`{ … } if` at top reach hangs its body's calls under the enclosing word
+`via if`, and a self-recursive word through `if` carries a self edge
+`via if`. `times`, `map`, `?try` and the rest run bodies through
+`eval_lambda`, inside their own span. The record keys an edge by
+`(caller, callee, via)`, so the two roads to one callee are two lines.)*
+
 ### §S2 — Where the clock goes
 
 Three hooks, all behind one `Option` on the interpreter, each taking the
@@ -231,6 +247,10 @@ plain path in one branch when it is `None`:
    `Vm` trait, and the two call sites in `oop.rs` and the one in
    `conditional.rs` become calls to them. D49's rule, "caught where the
    native is called", is kept; where it is called moves one function down.
+   *(Built as written: `Vm::call_method(name) -> Option<Result>` and
+   `Vm::run_conditional(ty, c) -> Option<Result>`, `None` when nothing is
+   bound to the name, which the three call sites turn into the errors
+   they answered before.)*
 3. **At the frame push and at every pop.** A Bund word's time is the
    lifetime of the frame pushed for it with `who = Some(w)`. The profiler
    keeps a mirror stack of open nodes, each stamped with the frame depth it
@@ -587,7 +607,7 @@ first draft's text refers to.
    `stdout` with `stderr` appended, so an unexpected line in either is a
    failure, and the programs it runs are the ones whose output reproduces,
    `tests/golden/UNSTABLE.txt` excluded.
-5. **The graph is the graph.** For `{ 1 + } :inc register 5 inc inc` the
+5. **The graph is the graph.** For `:inc { 1 + } register 5 inc inc` the
    record has exactly one node of kind `word`, `inc`; nodes of kind
    `native` for `+` and `register` and no other natives on the edge from
    `inc`; the edge `inc → +` with count 2; and `inc`'s inclusive time not
@@ -607,6 +627,59 @@ first draft's text refers to.
    D171's OOM trip, both of which end the run through the error path; a
    `SIGINT` writes nothing, since the process ends before the renderers
    run.
+
+### Built, 2026-10-17
+
+The record is `crates/bund2-interp/src/profile.rs`, the hooks are in
+`crates/bund2-interp/src/lib.rs` (`call_native`, `push_frame`,
+`profile_frames_popped` at the three pop sites, `tail_lambda`,
+`call_method`, `run_conditional`, `register_lambda`, the two console
+attachments), the seam is in `crates/bund2-api/src/lib.rs`,
+`crates/bund2-cli/src/profile.rs` holds the renderers and `write_both`,
+`crates/bund2-cli/src/main.rs` holds the flag and `finish_profile`,
+and `cargo xtask conform --profile` is the switch criterion 4 names. The
+reading of each criterion:
+
+1. **Met.** With the flag absent the verify script of 2026-10-17 read
+   `CONFORMANCE 135/147 (+12 approved deviations)`, `CEILING 135/147`, in
+   all three configurations: default, `--features jit`, and
+   `--features jit --jit-threshold 1`. The same numbers it read before
+   the change.
+2. **Met.** `profile_needs_a_base_and_then_writes_two_files_and_nothing_else`
+   in `crates/bund2-cli/tests/cli_ux.rs` checks the header table, the
+   `digraph`, balanced braces and that every edge names a declared node,
+   and runs `dot -Tsvg` where the host has it; this host has it, and it
+   accepted the file for `fibonacci.bund` and for the test's program.
+3. **Met.** D186's "Built" has the table: +1.66% to +2.11% on the five
+   programs, flag absent, inside the band; 893 to 1,116 instructions a
+   call on the on path; the clock at 15 to 21 ns a reading, printed.
+4. **Met.** `cargo xtask conform --profile` adds `--profile <scratch>` to
+   every source run and `BUND2_PROFILE` to every bundle run, and read
+   `CONFORMANCE 135/147 (+12 approved deviations)`, `CEILING 135/147` on
+   the default build and on `--features jit`; under `jit` it asks for no
+   `--stats` line and takes no tier total, since D186 makes the run Tier 0
+   by design, and says so. `conform` compares `stdout` with `stderr`
+   appended, so the equal numbers are the check that the profiler adds a
+   line to neither.
+5. **Met.** `the_graph_is_the_graph` in `crates/bund2-stdlib/tests/profile.rs`,
+   over the record: one node of kind `word`, the edge `inc → +` with count
+   2, `register` reached from the root and not from `inc`, and §S2's
+   identity `exclusive(inc) + inclusive(+) = inclusive(inc)` to the
+   microsecond.
+6. **Met.** `recursion_adds_up` and `a_self_edge_carries_the_count_alone`
+   in the same file: exclusive times sum to the wall to the microsecond,
+   a word recursive to depth 21 has inclusive time at most the wall and
+   `max_depth` 21, its recursion is a self edge `via if` with a count and
+   no time, and direct recursion is a self edge with no `via`.
+7. **Met.** D186's "Built": on a `jit` release binary the profiled run's
+   `--stats` reads `no tier (declined: profiling)`, with nothing
+   compiled and nothing inlined, and the header says so.
+8. **Met.** `a_failing_program_leaves_a_closed_record` fails forty-one
+   words deep and finds the mirror empty, the failing word's node present
+   with 41 calls, every inclusive time at most the wall and the exclusive
+   times summing to it; `a_self_edge_carries_the_count_alone` ends through
+   `bund.exit` with the same checks; a `SIGINT` is not tested, the process
+   being gone.
 
 ## Open questions
 

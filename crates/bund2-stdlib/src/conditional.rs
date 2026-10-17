@@ -468,10 +468,10 @@ pub fn execute_conditional(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
         .get("type")
         .and_then(|v| v.as_str())
         .ok_or_else(|| Error("EXECUTE:CONDITIONAL can not detect conditional type".into()))?;
-    match vm.conditional(&ty) {
-        // D49: a conditional runner is native code, called here directly.
-        Some(f) => bund2_api::catch_panic(|| f(vm, c))
-            .unwrap_or_else(|msg| Err(bund2_api::panicked(&format!("conditional `{ty}`"), &msg))),
+    // D49: a conditional runner is native code; the VM calls it, under its
+    // catch, where a profiler sees it (RFC-0011 §S2).
+    match vm.run_conditional(&ty, c) {
+        Some(r) => r,
         None => Err(Error(format!(
             "EXECUTE:CONDITIONAL conditionals handler does not exist: {ty}"
         ))),

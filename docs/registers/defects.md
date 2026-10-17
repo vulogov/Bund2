@@ -4071,6 +4071,20 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F213 — the `--stats` no-tier line said "built without `jit`" when the tier had been declined
+
+**A Bund2 defect; found 2026-10-17 while meeting RFC-0011 criterion 7,
+fixed the same day.** `print_stats` in `crates/bund2-cli/src/main.rs` had
+one arm for a run with no tier, and its text named a build without the
+feature. A `jit` build run under `--debugger` installs no tier either
+(RFC-0008 §D6), and so does one under `--profile` (D186), and the line
+then said something false about the binary in hand. `print_stats` now
+takes why the tier was declined, from `Args::tier_declined`, and prints
+`bund2: no tier (declined: profiling)` or `(declined: debugging)`; the
+build-without-feature text is kept for the case it was written for.
+`conform` never met the line: it asks for `--stats` only under `jit` with
+the tier offered, and its `--profile` switch asks for none.
+
 ## F212 — the shebang test raced another test's fork on Linux and read `Text file busy`
 
 **A Bund2 test-harness defect; found 2026-10-17 by CI on D182's commit,

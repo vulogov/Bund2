@@ -78,6 +78,25 @@ the program's arguments follow `--`. The Python twin takes the same flag:
 
     python3 bund_examples/fibonacci/fibonacci.py --n 10
 
+## Profiling it
+
+`--profile <base>` records how long every word took and which word called
+which, and writes two files when the program ends: a markdown report and
+a Graphviz graph. The operand is required, so a bare `--profile` is
+refused. The run is interpreted — the compiled tier is set aside so that
+every word is seen — and the program's own output is unchanged.
+
+    bund2 script --profile /tmp/fib --file bund_examples/fibonacci/fibonacci.bund
+    less /tmp/fib.profile.md
+    dot -Tsvg /tmp/fib.profile.dot -o /tmp/fib.svg
+
+The report opens with the run's wall time and the number of calls, then
+the hottest words by exclusive time — `fib` itself, then `swap`, `dup`,
+`if`, `<`, `-` and `+` — the call tree, who called whom, and what stood
+out: here, that `fib` is recursive to depth 31. Because `if` runs its
+chosen block as a tail call, the block's words appear as `fib`'s own,
+marked `via if`, and the recursion is a self edge.
+
 ## Building a standalone binary
 
 `bund2 build` compiles nothing. It copies the `bund2` executable that runs it

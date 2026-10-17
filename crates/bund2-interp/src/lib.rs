@@ -25,6 +25,7 @@
 mod declined;
 /// Executing a word's specialised arm — RFC-0005 §S6's first consumer.
 pub mod frag;
+pub mod profile;
 mod stacks;
 
 /// §D1's safepoint — RFC-0008's first consumer.
@@ -320,6 +321,11 @@ pub struct Interp {
     /// sentence. RFC-0005 §S5 keeps values in registers across such a native,
     /// so every breach is a value the native could not have seen.
     pub effect_audit: Option<Vec<String>>,
+    /// **The profiler's record — RFC-0011.** `None` in a plain run, so each
+    /// of the three hooks costs one branch; the CLI installs one for
+    /// `--profile <base>` and renders it when the program has ended. Boxed
+    /// so the branch is on a pointer-sized field.
+    pub profile: Option<Box<profile::Profile>>,
     /// The fixed-effect native running now. Only ever `Some` while the audit
     /// is on, so the checks that read it cost production one branch.
     audit_inside: Option<Symbol>,
@@ -439,6 +445,7 @@ impl Interp {
             entry_log: None,
             debug: None,
             effect_audit: None,
+            profile: None,
             audit_inside: None,
             audit_native: None,
             stack_floor: tier0_floor(),
@@ -607,20 +614,44 @@ impl Interp {
                 return Err(Error::exited(code));
             }
         }
-        if self.effect_audit.is_none() {
-            return self.invoke(name, n);
+        // **RFC-0011 §S2, hook 1.** Opened after the breakpoint above, so a
+        // stop's wall time lies in the caller, and closed whatever the native
+        // answered. The native's own frames are closed by the pops inside it.
+        let profiled = self.profile.is_some();
+        if profiled {
+            let depth = self.frames.len();
+            if let Some(p) = self.profile.as_mut() {
+                p.open_native(name, n.kind, depth);
+            }
         }
-        if let Some(outer) = self.audit_inside {
-            let callee = self.registry.interner.name(name).to_string();
-            self.audit_breach(
-                outer,
-                &format!("declares a fixed effect and dispatched `{callee}`"),
-            );
+        let r = if self.effect_audit.is_none() {
+            self.invoke(name, n)
+        } else {
+            if let Some(outer) = self.audit_inside {
+                let callee = self.registry.interner.name(name).to_string();
+                self.audit_breach(
+                    outer,
+                    &format!("declares a fixed effect and dispatched `{callee}`"),
+                );
+            }
+            let outer_native = self.audit_native.replace(name);
+            let r = self.call_audited(name, n);
+            self.audit_native = outer_native;
+            r
+        };
+        if profiled && let Some(p) = self.profile.as_mut() {
+            p.close_leaf();
         }
-        let outer_native = self.audit_native.replace(name);
-        let r = self.call_audited(name, n);
-        self.audit_native = outer_native;
         r
+    }
+
+    /// **RFC-0011 §S2, hook 3's close**: the frames changed depth, so every
+    /// entry of the profiler's mirror that belonged to a deeper frame closes.
+    /// Called at every site that pops or truncates `frames`.
+    fn profile_frames_popped(&mut self) {
+        if let Some(p) = self.profile.as_mut() {
+            p.close_to(self.frames.len());
+        }
     }
 
     /// [`Interp::call_native`]'s audited half: everything but tracking which
@@ -757,6 +788,11 @@ impl Interp {
                 // so the registry is not borrowed, and handed to the loop as a
                 // tail request below (RFC-0003 §S4's frame loop).
                 self.alias_breakpoint(s, target)?;
+                if s != target
+                    && let Some(p) = self.profile.as_mut()
+                {
+                    p.spelled(target, profile::Kind::Word, s);
+                }
                 let body = self
                     .registry
                     .slot(target)
@@ -778,6 +814,11 @@ impl Interp {
             }
             Resolved::Native => {
                 self.alias_breakpoint(s, target)?;
+                if s != target
+                    && let Some(p) = self.profile.as_mut()
+                {
+                    p.spelled(target, profile::Kind::Native, s);
+                }
                 let n = self
                     .registry
                     .slot(target)
@@ -1151,6 +1192,7 @@ impl Interp {
             let answered = tier.enter(&body, self);
             if self.tier_shadow.take().is_some() {
                 self.frames.truncate(depth);
+                self.profile_frames_popped();
             }
             self.tier_entry = outer_entry;
             self.tier_shadow = outer_shadow;
@@ -1179,6 +1221,11 @@ impl Interp {
             exit,
             who,
         });
+        // **RFC-0011 §S2, hook 3's open.** A named frame opens its word's
+        // node; an unnamed one is an anonymous entry.
+        if let Some(p) = self.profile.as_mut() {
+            p.open_frame(who, self.frames.len());
+        }
         Ok(())
     }
 
@@ -1194,6 +1241,7 @@ impl Interp {
                 self.run_exit(action);
             }
         }
+        self.profile_frames_popped();
     }
 
     /// Run frames until the stack returns to `floor`.
@@ -1251,6 +1299,9 @@ impl Interp {
     /// not touch a value.
     pub fn attach_debugger(&mut self, console: Box<dyn debug::Console>) {
         self.debug = Some(Box::new(debug::Debug::new(console)));
+        if let Some(p) = self.profile.as_mut() {
+            p.console_attached = true;
+        }
     }
 
     /// Whether a debugger is attached, and how many safepoints it stopped at.
@@ -1511,6 +1562,7 @@ impl Interp {
                 }
                 Some(None) => {
                     let done = self.frames.pop();
+                    self.profile_frames_popped();
                     if let Some(Frame {
                         exit: Some(action), ..
                     }) = done
@@ -1774,6 +1826,9 @@ impl Vm for Interp {
     /// they act on what the body left behind; `if` does not, and uses
     /// [`Interp::request_tail`] instead.
     fn tail_lambda(&mut self, lambda: BundValue) {
+        if let Some(p) = self.profile.as_mut() {
+            p.tail_filed();
+        }
         Interp::request_tail(self, lambda);
     }
 
@@ -1879,6 +1934,12 @@ impl Vm for Interp {
     }
 
     fn register_lambda(&mut self, name: &str, body: BundValue) {
+        if self.profile.is_some()
+            && (Vm::is_lambda(self, name) || Vm::is_native(self, name))
+            && let Some(p) = self.profile.as_mut()
+        {
+            p.redefined(name);
+        }
         self.registry.register_lambda(name, body);
     }
 
@@ -2010,6 +2071,9 @@ impl Vm for Interp {
                 ));
             };
             self.debug = Some(Box::new(debug::Debug::quiet(make())));
+            if let Some(p) = self.profile.as_mut() {
+                p.console_attached = true;
+            }
         }
         // D113.6: from the first such word, no body is compiled or run
         // compiled. A stop inside compiled code cannot happen.
@@ -2099,6 +2163,42 @@ impl Vm for Interp {
 
     fn method(&self, name: &str) -> Option<bund2_api::NativeFn> {
         self.registry.method(name)
+    }
+
+    /// D49's catch for a method native, and RFC-0011 §S2's hook 2.
+    fn call_method(&mut self, name: &str) -> Option<Result<(), Error>> {
+        let f = self.registry.method(name)?;
+        let profiled = self.profile.is_some();
+        if profiled {
+            let depth = self.frames.len();
+            if let Some(p) = self.profile.as_mut() {
+                p.open_method(name, depth);
+            }
+        }
+        let r = bund2_api::catch_panic(|| f(&mut *self))
+            .unwrap_or_else(|msg| Err(bund2_api::panicked(&format!("method `{name}`"), &msg)));
+        if profiled && let Some(p) = self.profile.as_mut() {
+            p.close_leaf();
+        }
+        Some(r)
+    }
+
+    /// D49's catch for a conditional runner, and RFC-0011 §S2's hook 2.
+    fn run_conditional(&mut self, ty: &str, c: BundValue) -> Option<Result<(), Error>> {
+        let f = self.registry.conditional(ty)?;
+        let profiled = self.profile.is_some();
+        if profiled {
+            let depth = self.frames.len();
+            if let Some(p) = self.profile.as_mut() {
+                p.open_conditional(ty, depth);
+            }
+        }
+        let r = bund2_api::catch_panic(|| f(&mut *self, c))
+            .unwrap_or_else(|msg| Err(bund2_api::panicked(&format!("conditional `{ty}`"), &msg)));
+        if profiled && let Some(p) = self.profile.as_mut() {
+            p.close_leaf();
+        }
+        Some(r)
     }
 
     fn is_method(&self, name: &str) -> bool {

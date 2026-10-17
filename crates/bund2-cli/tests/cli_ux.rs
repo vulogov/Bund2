@@ -416,3 +416,149 @@ fn a_shebang_file_runs_itself_with_its_arguments_and_its_line_numbers() {
     let r = bund2(&[p.to_str().unwrap(), "--", "-q"], &[]);
     assert!(r.out.contains("-q"), "{}", r.out);
 }
+
+/// **RFC-0011, D185 and D187 at process level.** A bare `--profile` is
+/// refused naming the operand, as is one whose operand is the next flag;
+/// `--profile <base>` writes the two files, changes nothing on `stdout` and
+/// says nothing on `stderr` at the default level; `-v` names the files; and
+/// a base nobody can write to is an error with exit 1 after a program that
+/// succeeded.
+#[test]
+fn profile_needs_a_base_and_then_writes_two_files_and_nothing_else() {
+    let p = program("profiled.bund", ":inc { 1 + } register 5 inc inc println\n");
+    let path = p.to_str().unwrap();
+
+    let bare = bund2(&["script", "--file", path, "--profile"], &[]);
+    assert_eq!(bare.code, Some(2), "{}", bare.err);
+    assert!(
+        bare.err
+            .contains("`--profile` needs a path for the two files"),
+        "{}",
+        bare.err
+    );
+    let flag_as_operand = bund2(&["script", "--profile", "--file", path], &[]);
+    assert_eq!(flag_as_operand.code, Some(2), "{}", flag_as_operand.err);
+    assert!(
+        flag_as_operand
+            .err
+            .contains("needs a path for the two files"),
+        "{}",
+        flag_as_operand.err
+    );
+
+    let plain = bund2(&["script", "--file", path], &[]);
+    let base = p.with_file_name("run1");
+    let base_s = base.to_str().unwrap();
+    let profiled = bund2(&["script", "--profile", base_s, "--file", path], &[]);
+    assert_eq!(profiled.code, Some(0), "{}", profiled.err);
+    assert_eq!(
+        profiled.out, plain.out,
+        "a profiled run's stdout is the plain run's"
+    );
+    assert_eq!(profiled.out, "7\n");
+    assert_eq!(profiled.err, "", "nothing on stderr at the default level");
+    let md = std::fs::read_to_string(format!("{base_s}.profile.md")).expect("the report");
+    let dot = std::fs::read_to_string(format!("{base_s}.profile.dot")).expect("the graph");
+    assert!(md.starts_with("# bund2 profile\n"), "{md}");
+    assert!(
+        md.contains("| program | tier | console | wall | calls |"),
+        "{md}"
+    );
+    assert!(md.contains("declined (profiling)"), "{md}");
+    assert!(md.contains("| `inc` |"), "{md}");
+    assert!(md.contains("## Call tree"), "{md}");
+    assert!(dot.starts_with("digraph profile {"), "{dot}");
+    assert_eq!(
+        dot.matches('{').count(),
+        dot.matches('}').count(),
+        "balanced braces: {dot}"
+    );
+    // Every edge names two declared nodes.
+    let declared: Vec<String> = dot
+        .lines()
+        .filter_map(|l| l.trim_start().strip_prefix('n'))
+        .filter_map(|l| {
+            l.split_once(' ')
+                .map(|(id, _)| id.trim_end_matches("->").to_string())
+        })
+        .filter(|id| id.chars().all(|c| c.is_ascii_digit()))
+        .collect();
+    for line in dot.lines().filter(|l| l.contains(" -> ")) {
+        let (a, rest) = line.trim().split_once(" -> ").unwrap();
+        let b = rest.split(' ').next().unwrap();
+        for id in [a, b] {
+            let id = id.trim_start_matches('n');
+            assert!(
+                declared.contains(&id.to_string()),
+                "{id} undeclared in {dot}"
+            );
+        }
+    }
+    // `dot` itself, where the host has it.
+    match Command::new("dot")
+        .arg("-Tsvg")
+        .arg(format!("{base_s}.profile.dot"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+    {
+        Ok(out) => assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        ),
+        Err(_) => eprintln!(
+            "dot is not installed here; the parse half of criterion 2 ran, the render half did not"
+        ),
+    }
+
+    let verbose = bund2(&["-v", "script", "--profile", base_s, "--file", path], &[]);
+    assert_eq!(verbose.code, Some(0));
+    assert!(
+        verbose.err.contains(&format!(
+            "wrote {base_s}.profile.md and {base_s}.profile.dot"
+        )),
+        "{}",
+        verbose.err
+    );
+
+    // A base in a directory that does not exist: the program ran and its
+    // output is there, the files are not, and the process says so with 1.
+    let nowhere = p.with_file_name("no-such-dir").join("run");
+    let failed = bund2(
+        &[
+            "script",
+            "--profile",
+            nowhere.to_str().unwrap(),
+            "--file",
+            path,
+        ],
+        &[],
+    );
+    assert_eq!(failed.out, "7\n");
+    assert_eq!(failed.code, Some(1), "{}", failed.err);
+    assert!(failed.err.contains("--profile:"), "{}", failed.err);
+    assert!(
+        failed.err.contains("No profile was written"),
+        "{}",
+        failed.err
+    );
+
+    // A program that fails keeps its code, 0, even when its profile is
+    // written; and the profile is written.
+    let bad = program("profiled-bad.bund", ":inc { 1 + } register 5 inc boom\n");
+    let base2 = p.with_file_name("run2");
+    let base2_s = base2.to_str().unwrap();
+    let r = bund2(
+        &[
+            "script",
+            "--profile",
+            base2_s,
+            "--file",
+            bad.to_str().unwrap(),
+        ],
+        &[],
+    );
+    assert_eq!(r.code, Some(0), "{}", r.err);
+    assert!(std::fs::metadata(format!("{base2_s}.profile.md")).is_ok());
+}

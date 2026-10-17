@@ -82,6 +82,9 @@ FLAGS
                         wants them; the default is a summary that fits.
   --stats               What the tier did, on standard error (jit builds).
   --jit-threshold <n>   Runs of a body before it is compiled (jit builds).
+  --profile <base>      Write <base>.profile.md and <base>.profile.dot when
+                        the program ends: what each word cost and which
+                        called which. The run is interpreted; no tier.
   --debugger            Stop before every value and take commands on stdin.
   --debug-shell         After a failure, open debug.shell on the VM as the
                         program left it.
@@ -273,6 +276,7 @@ mod tests {
             "--raw-values",
             "--stats",
             "--jit-threshold",
+            "--profile",
             "--debugger",
             "--debug-shell",
             "--noio",
