@@ -13,6 +13,7 @@ explains it. They are not part of the conformance corpus; that lives under
 | [`csv_stats/`](csv_stats/) | One column of a CSV file, read through the `csv` conditional, and its count, minimum, maximum and mean from the four statistics words, with their `,` forms keeping the list between questions. The example for reading data in. |
 | [`profiler_demo/`](profiler_demo/) | Every feature of `debug.profile`, which writes the profile of the run so far: snapshots at the top level, from deep inside a recursion, and one file rewritten as a run goes on, beside the end-of-run report; a failed write caught by `?try`; the warning without `--profile`, and the stub under `--noio`. The example for profiling. |
 | [`graph_demo/`](graph_demo/) | Every graph word — the reference's seven, the twelve Bund2 adds, their workbench forms and `io.graph` — over build tasks, roads, ferries and water mains: building and checking a graph, a build order and the cycle that breaks it, the groups a graph falls into, a minimum spanning tree, shortest paths and distances with negative weights, an exact maximum flow, a graph kept in a file with `encode.base64` and read back, and what the words refuse: weights that are not finite, wrong types named in the message, and `found=false` where the reference's `graph.path` crashes. Every answer in node order, so two runs print the same. The example for graphs. |
+| [`object_oriented/`](object_oriented/) | Every part of Bund's object system, over shapes, a duck, small class trees and the built-in classes: defining, registering and resolving a class, objects, fields and methods, constructors and the order they run in, inheritance and multiple inheritance with the first match winning, a method written once that each object answers in its own way, the base classes' `.id`, `.timestamp`, `str` and `.template`, the classes that wrap one value with `wrap`, `unwrap`, `is` and `#`, `List`, `Floats` and `Intervals`, and what Bund2 adds: `<class> !`, `?is` and the workbench forms. The example for objects. |
 
 ## Running an example
 
@@ -25,6 +26,7 @@ Any of them runs straight from its source, with `bund2` built:
     cd bund_examples/profiler_demo && mkdir -p profiles && \
         bund2 script --profile profiles/end --file demo.bund -- --out profiles
     bund2 bund_examples/graph_demo/demo.bund
+    cd bund_examples/object_oriented && bund2 demo.bund
 
 With the bare path, everything after it belongs to the program. The
 `script --file` form takes the program's arguments after `--`:

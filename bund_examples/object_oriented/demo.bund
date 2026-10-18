@@ -1,0 +1,256 @@
+//
+// Every part of Bund's object system, over shapes, a few small class
+// trees and the built-in classes: defining and registering a class, making
+// objects, fields and methods, constructors, inheritance (multiple, first
+// match wins), methods that call other methods on the same object, the
+// base classes every object can reach, the classes that wrap one value,
+// and the words Bund2 adds: `<class> !` (D23, D25), `?is` (D96) and the
+// workbench forms. Run it:
+//
+//   bund2 demo.bund
+//
+// A class is a dict of slots. A slot holding a lambda is a method; any
+// other slot is a field. `register` files the class under a name, and
+// `object` builds an object from it.
+//
+// A method is called as `<name> <object> !`: the name goes *beneath* the
+// object. `!` dispatches on the object and leaves it on the stack, so the
+// method finds it on top, and so does whatever runs next.
+//
+
+//
+// 1. A class and its objects. `:Name class` starts a class; each `set`
+//    adds a slot; `register` takes the name from beneath and files it.
+//    `.init`, if a class has one, is its constructor: it runs on the new
+//    object, which is on top of the stack, with the arguments beneath it.
+//    A constructor that leaves an object of the class on top hands that
+//    object back in place of the one it was given, which is how it fills
+//    in fields: `set` answers a changed copy.
+//
+:Rect class
+  :.super [ :Object ] set
+  :name   "rectangle" set
+  :w      1.0 set
+  :h      1.0 set
+  :.init  { swap :h swap set swap :w swap set } set
+  // A method that answers something leaves its object beneath the answer,
+  // as the built-in methods do, so a caller can keep using the object.
+  :area   { dup dup :w get swap :h get * } set
+register
+
+"-- a class and its objects" println
+"is Rect a class?          " print :Rect ?class println
+"is Oval a class?          " print :Oval ?class println
+"the class's default w:    " print :Rect resolve.class :w get println
+:door 1.0 2.0 :Rect object var
+"is a door an object?      " print :door var? ?object println drop
+"the door's w, by get:     " print :door var? :w get println
+"the door's h, by name:    " print :h :door var? ! println drop
+"the door's area:          " print :area :door var? ! println drop
+// A value never changes; `set` answers a changed copy, and the door kept
+// in `:door` is the same door as before.
+"a wider copy's w:         " print :door var? :w 1.2 set :w get println
+"the door's w is still:    " print :door var? :w get println
+
+//
+// 2. Inheritance. `.super` lists a class's parents by name. A slot an
+//    object does not have is looked for in its parents, depth first, and
+//    the first one found wins. Here `describe` is written once, in Shape,
+//    and asks the object for its `area`: each shape answers with its own.
+//
+:Shape class
+  :.super   [ :Object ] set
+  :name     "shape" set
+  :area     { 0.0 } set
+  :describe {
+    :name swap ! print " of area " print
+    :area swap ! println
+  } set
+register
+
+:Square class
+  :.super [ :Shape ] set
+  :name   "square" set
+  :side   1.0 set
+  :.init  { swap :side swap set } set
+  :area   { dup dup :side get swap :side get * } set
+register
+
+:Circle class
+  :.super [ :Shape ] set
+  :name   "circle" set
+  :r      1.0 set
+  :.init  { swap :r swap set } set
+  :area   { dup dup :r get swap :r get * 3.14159 * } set
+register
+
+// A Blob says nothing about its area, so it takes Shape's.
+:Blob class :.super [ :Shape ] set :name "blob" set register
+
+"" println
+"-- one method, three answers" println
+:describe 3.0 :Square object ! drop
+:describe 2.0 :Circle object ! drop
+:describe :Blob object ! drop
+
+//
+// Multiple inheritance. A Duck is both a Swimmer and a Flyer, and both
+// say how it moves. The parents are searched in the order `.super` lists
+// them, so the Swimmer's answer wins. A Duck says its own sound, and a
+// slot the class has itself always comes first.
+//
+:Swimmer class :moves "it swims" set :sound "splash" set register
+:Flyer   class :moves "it flies" set :wings 2 set register
+:Duck    class :.super [ :Swimmer :Flyer ] set :sound "quack" set register
+
+"" println
+"-- a duck: a swimmer first, then a flyer" println
+:duck :Duck object var
+"how it moves:   " print :moves :duck var? ! println drop
+"how many wings: " print :wings :duck var? ! println drop
+"what it says:   " print :sound :duck var? ! println drop
+
+//
+// Constructors run parents first. Making an A makes its parents, B then
+// E; making B makes C and D first. Each constructor runs as soon as its
+// own parents are made, and A's runs last.
+//
+:A class :.super [ :B :E ] set :.init { :.class_name get print " " print } set register
+:B class :.super [ :C :D ] set :.init { :.class_name get print " " print } set register
+:C class :.init { :.class_name get print " " print } set register
+:D class :.init { :.class_name get print " " print } set register
+:E class :.init { :.class_name get print " " print } set register
+
+"" println
+"-- the order constructors run in" println
+"A has parents B and E, B has C and D: " print :A object "" println drop
+
+//
+// 3. What every object inherits. A class with `Object` in its `.super`
+//    reaches the base classes: `Object` gives `.id` and `.timestamp`,
+//    `Printable` gives `str`, `print` and `println`, and `Display` gives
+//    `format` and `display`, which fill the `.template` a class carries.
+//    `.id` is different on every run, so the demo compares ids rather than
+//    printing them.
+//
+"" println
+"-- what every object inherits" println
+"the door as a string:     " print :str :door var? ! println drop
+"println on the door:      " print :println :door var? ! drop
+"the door's id, asked twice, is the same: " print
+:.id :door var? ! swap drop :.id :door var? ! swap drop == println
+"two doors have two ids:   " print
+:.id :door var? ! swap drop :.id 1.0 2.0 :Rect object ! swap drop == println
+// `>` asks whether the top is greater than what is beneath it.
+"it was made at a time:    " print 0.0 :.timestamp :door var? ! swap drop > println
+
+// A key the template names and the object lacks comes from the stack:
+// `{answer}` is a slot, `{pi}` is the 3.14 beneath.
+:Answer class
+  :.super    [ :Object ] set
+  :answer    42 set
+  :.template "The answer is {answer}, and pi is {pi}" set
+register
+// The text `format` answers ends in a newline of its own, so it is
+// printed with `print`; `display` prints it.
+"format:                   " print 3.14 :format :Answer object ! print drop
+"display:                  " print 3.14 :display :Answer object ! drop
+
+//
+// 4. Objects that wrap one value. `Value` keeps whatever it is given in
+//    `.data`; `Integer`, `Float` and `Bool` convert it as they keep it.
+//    `unwrap` answers the value, `is` answers it and keeps the object
+//    beneath, `wrap` puts a new value in, and `#` runs a lambda on the
+//    value. `True` and `False` make Bool objects in one word.
+//
+"" println
+"-- objects that wrap one value" println
+"a Value holding 42:       " print :str 42 :Value object ! println drop
+"the text 42 as an Integer, plus 1: " print "42" :Integer object unwrap 1 + println
+"the text 2.5 as a Float, doubled: " print "2.5" :Float object unwrap 2.0 * println
+"1 as a Bool:              " print 1 :Bool object unwrap println
+"True and False:           " print True unwrap print " " print False unwrap println
+"is answers 7, and keeps an object beneath: " print 7 :Integer object is print " " print ?object println drop
+"wrap a new value in:      " print 10 :Integer object dup unwrap 5 * swap wrap unwrap println
+"# runs a lambda on it:    " print 41 :Integer object { 1 + } # println
+
+//
+// `List` keeps a list and `push` adds to it; `Floats` makes every item a
+// FLOAT; `Intervals` keeps ranges and `overlap` names the one a number
+// falls in. Each constructor word makes an empty one.
+//
+:basket List var
+:basket "apple" :push :basket var? ! var
+:basket "pear"  :push :basket var? ! var
+"a List, pushed twice:     " print :str :basket var? ! println drop
+"Floats, given 7 and 8:    " print 8 :push 7 :push Floats ! ! :str swap ! println drop
+:bands [ [ 0.0 10.0 ] [ 10.0 20.0 ] [ 20.0 30.0 ] ] :Intervals object var
+"15 falls in:              " print 15.0 :overlap :bands var? ! println
+"25 falls in:              " print 25.0 :overlap :bands var? ! println
+
+//
+// 5. What Bund2 adds.
+//
+//    `<class> !` makes an object from a class value, however it came to be
+//    on the stack (D23). The class must carry its own `.class_name`, which
+//    every built-in class does and a class made with `class` does not
+//    until it is given one (D25). The reference cannot do this at all
+//    (F16).
+//
+"" println
+"-- what Bund2 adds" println
+"an Object from its class: " print :Object resolve.class ! ?object println drop
+"a class never registered: " print
+class :.class_name "Point" set :x 3 set :y 4 set ! :x swap ! print " " print :y swap ! println drop
+?try
+  :try    { class :x 3 set ! } set
+  :except { "a class with no name:     " print :context get println } set
+!
+
+//
+// `?is` asks whether an object is of a class or of one descended from it
+// (D96). It looks up the tree, never down.
+//
+"a square is a Square:     " print 3.0 :Square object "Square" ?is println
+"a square is a Shape:      " print 3.0 :Square object "Shape" ?is println
+"a square is an Object:    " print 3.0 :Square object "Object" ?is println
+"a square is a Circle:     " print 3.0 :Square object "Circle" ?is println
+"a duck is a Flyer:        " print :duck var? "Flyer" ?is println
+"Floats is a List:         " print Floats "List" ?is println
+"a List is Floats:         " print List "Floats" ?is println
+
+//
+// The workbench forms take their operand from the workbench and leave
+// the answer there; `take` brings it back.
+//
+"?class.                   " print :Rect . ?class. take println
+"?object.                  " print :door var? . ?object. take println take drop
+"resolve.class.            " print :Rect . resolve.class. take :w get println
+"is.                       " print 42 :Integer object . is. take println take drop
+"?is.                      " print :duck var? . "Swimmer" ?is. take println
+"#.                        " print 41 :Integer object . { 1 + } #. println
+
+//
+// 6. What goes wrong. Each mistake is an error the program catches.
+//
+"" println
+"-- what goes wrong" println
+?try
+  :try    { :Oval object } set
+  :except { "a class never registered: " print :context get println } set
+!
+// Dispatch looks at the object without taking it, so after the error the
+// door is still on the stack, and the handler drops it.
+?try
+  :try    { :colour :door var? ! } set
+  :except { "a slot no class has:      " print :context get println drop } set
+!
+:Orphan class :.super [ :Nobody ] set register
+?try
+  :try    { :Orphan object } set
+  :except { "a parent never registered: " print :context get println } set
+!
+?try
+  :try    { 42 "Object" ?is } set
+  :except { "?is on a number:          " print :context get println } set
+!
