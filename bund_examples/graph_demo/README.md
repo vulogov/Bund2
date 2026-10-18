@@ -1,10 +1,11 @@
 # graph_demo
 
-The twelve graph words Bund2 adds to the reference's seven, over three
-small graphs: build tasks, roads between towns, and water mains. The words
-are Bund2's own (D192, RFC-0012); the reference has `graph!`, `graph`,
-`graph.path`, `graph.paths`, `graph.allpath` and
-`graph.transitiveclosure`, and Bund2 has those too.
+Every graph word, over a few small graphs: build tasks, roads between
+towns, ferries between islands and water mains. That is the reference's
+seven — `graph!`, `graph`, `graph.`, `graph.path`, `graph.paths`,
+`graph.allpath` and `graph.transitiveclosure` — the twelve Bund2 adds
+(D192, RFC-0012), every word's `.` form, and `io.graph`, which draws a
+chart. It ends by keeping a graph in a file and reading it back.
 
     make            # run demo.bund
     make twice      # run it twice and compare the output
@@ -12,6 +13,9 @@ are Bund2's own (D192, RFC-0012); the reference has `graph!`, `graph`,
 or, without `make`, from this directory:
 
     bund2 demo.bund
+
+It writes one file, `roads.graph`, in the directory it runs from;
+`make clean` removes it.
 
 ## A graph
 
@@ -38,6 +42,23 @@ lists, the edges first:
 
 The graph goes on top; a node, when the word takes one, beneath it.
 
+From the reference:
+
+| word | stack | answers |
+|---|---|---|
+| `graph!` | `<edges> <nodes>` | the graph MAP; never fails, leaving what is not a list where it was |
+| `graph` | `<map>` | the MAP as a graph: `type`, `nodes` and `edges` filled in, and checked |
+| `graph.` | | the same, on the workbench |
+| `graph.path` | `<end> <start> <graph>` | `{ found path weight }`: one shortest path |
+| `graph.paths` | `<start> <graph>` | the distance to every node, by Dijkstra |
+| `graph.allpath` | `<graph>` | every pair's distance, by Johnson |
+| `graph.transitiveclosure` | `<graph>` | every pair a path connects |
+
+`graph.path` and `graph.paths` look their nodes up exactly as given, so
+they want `"Ashby"`, not `:ashby`.
+
+Bund2's own:
+
 | word | stack | answers |
 |---|---|---|
 | `graph.toposort` | `<graph>` | every node, each before the nodes its edges lead to |
@@ -53,10 +74,20 @@ The graph goes on top; a node, when the word takes one, beneath it.
 | `graph.bellmanford` | `<node> <graph>` | the distance to every node, as `graph.paths` answers it, negative weights allowed |
 | `graph.maxflow` | `<sink> <source> <graph>` | `{ flow edges }`: the most that can flow, each weight a capacity, and each edge's share |
 
-Each has a `.` form that holds the graph on the workbench:
-`<graph> . :fetch graph.bfs.` leaves the answer there.
+Each word that asks a question has a `.` form that takes the graph from
+the workbench and leaves the answer there; a node stays on the stack:
+`<graph> . :fetch graph.bfs. take` brings the answer back.
+
+And one more that is not a graph word: `io.graph` takes a list of FLOATs
+and answers a text chart of them; `io.graph.` takes the list from the
+workbench.
 
 ## What the demo shows
+
+**Making a graph.** `graph!` from two lists; `graph` on a bare dict and
+on one built by hand with `set`; `graph.` on the workbench; `graph!` on
+something that is not a list, which it leaves on the stack; and `graph`
+refusing a MAP whose `nodes` is not a list.
 
 **Build tasks.** An order to run them in, what a change to `compile`
 reaches, the two searches from `fetch`, and the groups: `docs` depends on
@@ -81,10 +112,35 @@ without end, and that is an error naming a town on the loop:
 
     a loop that pays: Lambda content evaluation returned error: GRAPH.BELLMANFORD: Ashby reaches a negative cycle through Brook
 
+Then the reference's `graph.path` finds the shortest way from Ashby to
+Elm (19 km, by Cliff and Dale) and refuses `:ashby`; and over one-way
+ferries, `graph.allpath` gives every pair's distance and
+`graph.transitiveclosure` every pair a trip connects.
+
 **Water mains.** 14 units a second reach the town: the two mains into it
 carry 4 and 10, and nothing more can get through them.
 
     { edges=[ … ] ::  flow=14.0 :: }
+
+**The workbench.** Every question again, through its `.` form, with the
+same answers.
+
+**A graph in a file.** A graph is an ordinary MAP, so it travels as any
+value does. `encode.base64` turns it into Bund's binary form and that
+into one line of text, `file.write` keeps the line in `roads.graph`,
+`io.textfile … car` reads it back, `decode.base64` restores the MAP, and
+`graph` checks it before it is asked anything. `==` cannot compare two
+MAPs, so the demo compares what they answer. Last, `io.graph` charts the
+distance from Ashby to each town, taken from `graph.bellmanford`'s rows
+with `{ :path get } map`:
+
+     19.00 ┤   ╭
+     13.00 ┤  ╭╯
+      9.00 ┤ ╭╯
+      7.00 ┤╭╯
+      0.00 ┼╯
+
+(The chart above is shortened; the real one has a row for every unit.)
 
 ## Writing Bund like this
 

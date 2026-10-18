@@ -1,6 +1,9 @@
 //
-// The graph words Bund2 adds to the reference's seven (D192, RFC-0012),
-// over three small graphs. Run it:
+// Every graph word: the reference's seven — `graph!`, `graph`, `graph.`,
+// `graph.path`, `graph.paths`, `graph.allpath`, `graph.transitiveclosure` —
+// and the twelve Bund2 adds (D192, RFC-0012), then each word's `.` form,
+// which holds the graph on the workbench, and last a graph kept in a file
+// and charted with `io.graph`. Run it:
 //
 //   bund2 demo.bund
 //
@@ -9,6 +12,26 @@
 // `Fetch`. Every answer is in the order of the `nodes` list, so the output
 // is the same on every run.
 //
+
+//
+// 0. Making a graph. `graph!` builds one from two lists. `graph` takes a
+//    MAP made any other way, fills in what is missing and checks the rest;
+//    `graph.` does the same on the workbench. `graph!` never fails: what is
+//    not a list it leaves where it was, and builds an empty graph instead.
+//
+"-- making a graph" println
+"graph! from two lists:     " print [ [ :a :b 2.0 ] ] [ :a :b ] graph! println
+"graph on a bare dict:      " print dict graph println
+"graph on a dict built by hand: " print
+dict :nodes [ :A :B ] set :edges [ [ :A :B 1.0 ] ] set graph println
+"graph. on the workbench:   " print dict . graph. take println
+"graph! on something else:  " print "rubbish" graph! println
+"  ... and it left behind:  " print println
+?try
+  :try    { dict :nodes 1 set graph println } set
+  :except { "graph refuses bad nodes: " print :context get println } set
+!
+"" println
 
 //
 // 1. Build tasks. An edge [ a b ] says a comes before b. `docs` depends on
@@ -81,6 +104,25 @@ graph! var
 // not Title-cased as every other name is: `:ashby` would be unknown.
 "from Ashby, by Dijkstra (the reference's word): " println "Ashby" :roads var? graph.paths println
 "from Ashby, by Bellman-Ford: " println :ashby :roads var? graph.bellmanford println
+// `graph.path` is the reference's word too, and looks both towns up as
+// given: the end goes deepest, the start above it.
+"the shortest way from Ashby to Elm: " print "Elm" "Ashby" :roads var? graph.path println
+?try
+  :try    { :elm :ashby :roads var? graph.path println } set
+  :except { "lower case is unknown to graph.path: " print :context get println } set
+!
+
+//
+// One-way ferries between three islands. `graph.allpath` answers every
+// pair's shortest distance, each island to itself included, and
+// `graph.transitiveclosure` every pair a ferry trip connects.
+//
+:ferries
+[ [ :north :east 2.0 ] [ :east :south 3.0 ] [ :north :south 9.0 ] ]
+[ :north :east :south ]
+graph! var
+"every pair's distance by ferry: " println :ferries var? graph.allpath println
+"every pair a ferry trip connects: " println :ferries var? graph.transitiveclosure println
 
 //
 // A toll road that pays you to take it is a negative weight, which
@@ -116,3 +158,62 @@ graph! graph.bellmanford println
 ]
 [ :reservoir :north :south :town ]
 graph! graph.maxflow println
+
+//
+// 4. Every word on the workbench. Its `.` form takes the graph from the
+//    workbench rather than the stack, and leaves the answer there; any
+//    node goes on the stack as before. `take` brings the answer back.
+//
+"" println
+"-- the same questions, the graph on the workbench" println
+"graph.toposort.     " print :tasks var? . graph.toposort. take println
+"graph.reachable.    " print :tasks var? . :compile graph.reachable. take println
+"graph.bfs.          " print :tasks var? . :fetch graph.bfs. take println
+"graph.dfs.          " print :tasks var? . :fetch graph.dfs. take println
+"graph.neighbors.    " print :tasks var? . :compile graph.neighbors. take println
+"graph.degree.       " print :tasks var? . :package graph.degree. take println
+"graph.components.   " print :tasks var? . graph.components. take println
+"graph.scc.          " print :broken var? . graph.scc. take println
+"graph.cycle.        " print :broken var? . graph.cycle. take println
+"graph.mst.          " print :roads var? . graph.mst. take println
+"graph.bellmanford.  " print :roads var? . :ashby graph.bellmanford. take println
+"graph.paths.        " print :roads var? . "Ashby" graph.paths. take println
+"graph.path.         " print :roads var? . "Elm" "Ashby" graph.path. take println
+"graph.allpath.      " print :ferries var? . graph.allpath. take println
+"graph.transitiveclosure. " print :ferries var? . graph.transitiveclosure. take println
+"graph.maxflow.      " print
+[
+  [ :reservoir :north 10.0 ] [ :reservoir :south 5.0 ]
+  [ :north :south 15.0 ]     [ :north :town 4.0 ]
+  [ :south :town 10.0 ]
+]
+[ :reservoir :north :south :town ]
+graph! . :town :reservoir graph.maxflow. take println
+
+//
+// 5. A graph outside the program. A graph is an ordinary MAP, so any word
+//    that carries a value carries a graph. `encode.base64` turns a value
+//    into Bund's binary form and that into one line of text; `file.write`
+//    keeps the line, `io.textfile` reads the file back as a list of lines,
+//    and `decode.base64` turns the line into the same MAP. `graph` checks
+//    that what came back is a graph before anything asks it a question.
+//
+"" println
+"-- the roads, kept in a file and read back" println
+:roads var? encode.base64 "roads.graph" file.write
+:stored "roads.graph" io.textfile car decode.base64 graph var
+// `==` does not compare MAPs, so compare what each answers.
+"the nodes that came back: " print :stored var? :nodes get println
+"the least roads, before and after: " print
+:roads var? graph.mst :weight get :stored var? graph.mst :weight get == println
+"the shortest way from Ashby to Elm, asked of it: " print "Elm" "Ashby" :stored var? graph.path println
+
+//
+// `io.graph` is not a graph word at all: it draws a list of FLOATs as a
+// text chart. Here it draws the distance from Ashby to each town, in the
+// order of the `nodes` list, taken from `graph.bellmanford`'s rows.
+//
+"the distance from Ashby to each town, charted by io.graph:" println
+:ashby :stored var? graph.bellmanford { :path get } map io.graph println
+"and io.graph. takes its list from the workbench:" println
+:ashby :stored var? graph.bellmanford { :path get } map . io.graph. println
