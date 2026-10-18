@@ -2,8 +2,9 @@
 // Every graph word: the reference's seven — `graph!`, `graph`, `graph.`,
 // `graph.path`, `graph.paths`, `graph.allpath`, `graph.transitiveclosure` —
 // and the twelve Bund2 adds (D192, RFC-0012), then each word's `.` form,
-// which holds the graph on the workbench, and last a graph kept in a file
-// and charted with `io.graph`. Run it:
+// which holds the graph on the workbench, a graph kept in a file and
+// charted with `io.graph`, and last what the words refuse, and the
+// answers Bund2 gives where the reference crashes (D193, F219). Run it:
 //
 //   bund2 demo.bund
 //
@@ -160,6 +161,16 @@ graph! graph.bellmanford println
 graph! graph.maxflow println
 
 //
+// The flow is exact (D193): a main of 5 beside two of ten thousand
+// billion still carries its 5, and the answer is 10000000000005.0.
+//
+"a small main beside two huge ones: " println
+:town :reservoir
+[ [ :reservoir :dam 1.0e13 ] [ :dam :town 1.0e13 ] [ :reservoir :town 5.0 ] ]
+[ :reservoir :dam :town ]
+graph! graph.maxflow println
+
+//
 // 4. Every word on the workbench. Its `.` form takes the graph from the
 //    workbench rather than the stack, and leaves the answer there; any
 //    node goes on the stack as before. `take` brings the answer back.
@@ -217,3 +228,66 @@ graph! . :town :reservoir graph.maxflow. take println
 :ashby :stored var? graph.bellmanford { :path get } map io.graph println
 "and io.graph. takes its list from the workbench:" println
 :ashby :stored var? graph.bellmanford { :path get } map . io.graph. println
+
+//
+// 6. What the words will not take, and where the reference crashes.
+//
+//    `graph.path` reads its graph its own way: it drops an edge to itself
+//    and an edge that weighs less than 1 (F101). A town only such an edge
+//    reaches, or no edge at all, is one it cannot route to. The reference
+//    crashes there; Bund2 answers `found=false` (F219, D193). `graph.paths`
+//    keeps the light lane, so it reaches Farm and not Mill.
+//
+"" println
+"-- what the words refuse, and where the reference crashes" println
+:lanes
+[ [ :ashby :brook 7.0 ] [ :ashby :farm 0.5 ] [ :brook :brook 1.0 ] ]
+[ :ashby :brook :farm :mill ]
+graph! var
+"from Ashby to Farm, down a lane of half a km: " print "Farm" "Ashby" :lanes var? graph.path println
+"from Ashby to Mill, which no road reaches:     " print "Mill" "Ashby" :lanes var? graph.path println
+"from Ashby, by graph.paths: " println "Ashby" :lanes var? graph.paths println
+
+//
+// A weight must be a finite FLOAT. Bund makes the two that are not:
+// `-1.0 math.sqrt` is NaN, and `1.0e200 1.0e200 *` overflows to inf.
+// Every word Bund2 adds refuses either, naming the edge (D193). The
+// reference's `graph.paths` takes them, as the reference does, and its
+// distance comes out NaN.
+//
+:nan -1.0 math.sqrt var
+:inf 1.0e200 1.0e200 * var
+?try
+  :try    { :ashby :nan var? [ :ashby :brook ] ++ list push [ :ashby :brook ] graph! graph.bfs println } set
+  :except { "a weight of NaN:    " print :context get println } set
+!
+?try
+  :try    { :inf var? [ :ashby :brook ] ++ list push [ :ashby :brook ] graph! graph.mst println } set
+  :except { "a weight of inf:    " print :context get println } set
+!
+"graph.paths takes NaN: " print
+"Ashby" :nan var? [ :ashby :brook ] ++ list push [ :ashby :brook ] graph! graph.paths println
+
+//
+// A refusal names the word and the type it was given.
+//
+?try
+  :try    { :ashby [ [ :ashby :brook 7 ] ] [ :ashby :brook ] graph! graph.bfs println } set
+  :except { "a weight of 7, not 7.0: " print :context get println } set
+!
+?try
+  :try    { :ashby [ :ashby ] [ :ashby :brook ] graph! graph.bfs println } set
+  :except { "an edge that is a name: " print :context get println } set
+!
+?try
+  :try    { 7 :lanes var? graph.bfs println } set
+  :except { "a start that is a number: " print :context get println } set
+!
+?try
+  :try    { :zed :lanes var? graph.bfs println } set
+  :except { "a town not in the graph: " print :context get println } set
+!
+?try
+  :try    { :brook :ashby [ [ :ashby :brook -1.0 ] ] [ :ashby :brook ] graph! graph.maxflow println } set
+  :except { "a main that carries -1: " print :context get println } set
+!

@@ -5,7 +5,8 @@ towns, ferries between islands and water mains. That is the reference's
 seven — `graph!`, `graph`, `graph.`, `graph.path`, `graph.paths`,
 `graph.allpath` and `graph.transitiveclosure` — the twelve Bund2 adds
 (D192, RFC-0012), every word's `.` form, and `io.graph`, which draws a
-chart. It ends by keeping a graph in a file and reading it back.
+chart. It keeps a graph in a file and reads it back, and ends with what
+the words refuse and the answers Bund2 gives where the reference crashes.
 
     make            # run demo.bund
     make twice      # run it twice and compare the output
@@ -28,7 +29,8 @@ lists, the edges first:
 
 - **Edges are directed.** A two-way road is two edges.
 - **An edge weighs 100.0 unless it says otherwise**, and a weight must be
-  a FLOAT: `[ :a :b 7.0 ]`, not `[ :a :b 7 ]`.
+  a FLOAT: `[ :a :b 7.0 ]`, not `[ :a :b 7 ]`. The twelve new words also
+  want it finite: NaN and inf are refused (D193).
 - **Names are Title-cased**, so `:fetch` comes back as `Fetch` and
   `:water_main` as `Water Main`. A node handed to one of the new words is
   Title-cased too; the reference's `graph.path` and `graph.paths` look it
@@ -55,7 +57,10 @@ From the reference:
 | `graph.transitiveclosure` | `<graph>` | every pair a path connects |
 
 `graph.path` and `graph.paths` look their nodes up exactly as given, so
-they want `"Ashby"`, not `:ashby`.
+they want `"Ashby"`, not `:ashby`. `graph.path` also drops an edge from a
+node to itself and an edge lighter than 1 before it searches (F101); a
+node only such an edge reaches answers `{ found=false }`, where the
+reference crashes (F219).
 
 Bund2's own:
 
@@ -72,7 +77,7 @@ Bund2's own:
 | `graph.cycle` | `<graph>` | one cycle, `[ A B C ]` for A→B→C→A, or `[]` |
 | `graph.mst` | `<graph>` | `{ edges weight }`: the lightest edges joining everything, every edge read both ways |
 | `graph.bellmanford` | `<node> <graph>` | the distance to every node, as `graph.paths` answers it, negative weights allowed |
-| `graph.maxflow` | `<sink> <source> <graph>` | `{ flow edges }`: the most that can flow, each weight a capacity, and each edge's share |
+| `graph.maxflow` | `<sink> <source> <graph>` | `{ flow edges }`: the most that can flow, each weight a capacity, and each edge's share; exact, with no tolerance |
 
 Each word that asks a question has a `.` form that takes the graph from
 the workbench and leaves the answer there; a node stays on the stack:
@@ -122,6 +127,9 @@ carry 4 and 10, and nothing more can get through them.
 
     { edges=[ … ] ::  flow=14.0 :: }
 
+The flow is exact (D193): a main of 5 beside two of 10¹³ still carries
+its 5, and the answer is `10000000000005.0`.
+
 **The workbench.** Every question again, through its `.` form, with the
 same answers.
 
@@ -142,9 +150,37 @@ with `{ :path get } map`:
 
 (The chart above is shortened; the real one has a row for every unit.)
 
+**What the words refuse, and where the reference crashes.** Over lanes
+where Farm is reached only by a lane of half a km and Mill by nothing,
+`graph.path` answers no path to either. The reference panics on both
+(F219); Bund2 answers `{ found=false }`. `graph.paths` keeps the light
+lane, so it reaches Farm and not Mill:
+
+    from Ashby to Farm, down a lane of half a km: { found=false :: }
+    from Ashby to Mill, which no road reaches:     { found=false :: }
+
+Then a weight that is not finite, made in Bund with `-1.0 math.sqrt`
+(NaN) and `1.0e200 1.0e200 *` (inf). Every new word refuses it, naming
+the edge; the reference's `graph.paths` takes it and answers NaN, as the
+reference does:
+
+    a weight of NaN:    … GRAPH.BFS: an edge's weight must be finite: Ashby -> Brook weighs NaN
+    graph.paths takes NaN: [ { node=Ashby ::  path=0.0 :: } ::  { node=Brook ::  path=NaN :: } :: ]
+
+Last, refusals that name the word and the type they were given: an
+INTEGER weight, an edge that is a name, a start node that is a number,
+a town not in the graph, and a capacity below zero:
+
+    a weight of 7, not 7.0: … GRAPH.BFS: an edge's weight must be a FLOAT, not Integer
+    an edge that is a name: … GRAPH.BFS: an edge must be a LIST, not String
+    a main that carries -1: … GRAPH.MAXFLOW: a capacity must not be below zero: Ashby -> Brook weighs -1
+
 ## Writing Bund like this
 
 - `graph!` takes the edges first and the nodes second: the nodes list is
   on top.
+- `<value> [ :a :b ] ++ list push` builds an edge list around a weight
+  computed at run time. A list literal is not evaluated: `[ :a :b :x var? ]`
+  holds the words `:x` and `var?`, not the value.
 - `:name <value> var` keeps a graph to ask several questions of, and
   `:name var?` reads it back; a bare name does not.
