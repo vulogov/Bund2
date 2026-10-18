@@ -623,6 +623,14 @@ fn catch_stops_once_where_a_failure_is_raised_with_its_frames() {
         "{err}"
     );
     assert_eq!((out.as_str(), code), ("7\n", Some(0)), "{err}");
+    // A second failure, after the first was caught and the program moved
+    // on, is a new one and stops again.
+    let two = ":boom { 7 1 list / } register\n\
+?try :try { boom } set :except { drop } set !\n\
+?try :try { boom } set :except { drop } set !\n\"ok\" println\n";
+    let (out, err, _) = session(two, "catch\nc\nc\nc\n");
+    assert_eq!(err.matches("caught: ").count(), 2, "{err}");
+    assert_eq!(out, "ok\n");
 }
 
 /// **D191: `watch redefine` stops when a bound name is registered again** —
