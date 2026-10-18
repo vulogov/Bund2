@@ -65,7 +65,7 @@ lists them. Call counts and steps are exact in every report.
 **A write that fails is an error the program can catch.** Phase 4 wraps
 the word in `?try`:
 
-    a snapshot could not be written: Lambda content evaluation returned error: DEBUG.PROFILE: writing /no/such/directory/… No such file or directory (os error 2). No profile was written.
+    a snapshot could not be written: Lambda content evaluation returned error: DEBUG.PROFILE: writing /no/such/directory/x.profile.dot: No such file or directory (os error 2). No profile was written.
 
 **No profile is a warning, not an error.** A program instrumented with
 `debug.profile` still runs without `--profile`. Each snapshot prints one

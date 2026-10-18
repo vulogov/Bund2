@@ -721,6 +721,29 @@ fn debug_profile_writes_the_run_so_far() {
         plain.err
     );
 
+    // A write that fails names the file the program asked for, not the
+    // staged name it is first written under.
+    let bad = program(
+        "midrun-bad.bund",
+        "\"/no/such/directory/x\" debug.profile\n",
+    );
+    let rb = bund2(
+        &[
+            "script",
+            "--profile",
+            end_s,
+            "--file",
+            bad.to_str().unwrap(),
+        ],
+        &[],
+    );
+    assert!(
+        rb.out.contains("writing /no/such/directory/x.profile.dot:"),
+        "{}",
+        rb.out
+    );
+    assert!(!rb.out.contains(".bund2-profile-"), "{}", rb.out);
+
     let noio = bund2(&["script", "--noio", "--file", path], &[]);
     // The error table goes where the reference prints it, to stdout.
     assert!(

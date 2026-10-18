@@ -1000,7 +1000,10 @@ fn place_text(path: &str, text: &str) -> Result<(), String> {
         name.to_string_lossy()
     ));
     let done = std::fs::write(&staged, text)
-        .map_err(|e| format!("writing {}: {e}", staged.display()))
+        // The path the program asked for: the staged name is this
+        // function's business, and a reader looking for the file would not
+        // know it.
+        .map_err(|e| format!("writing {path}: {e}"))
         .and_then(|()| {
             std::fs::rename(&staged, dest).map_err(|e| format!("moving the file to {path}: {e}"))
         });
