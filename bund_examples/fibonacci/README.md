@@ -93,7 +93,7 @@ every word is seen — and the program's own output is unchanged.
 The report opens with the run's wall time and the number of calls, then
 the hottest words by exclusive time — `fib` itself, then `swap`, `dup`,
 `if`, `<`, `-` and `+` — the call tree, who called whom, and what stood
-out: here, that `fib` is recursive to depth 31. Because `if` runs its
+out: here, that `fib` is recursive to depth 30: `fib(30)` down to `fib(1)`. Because `if` runs its
 chosen block as a tail call, the block's words appear as `fib`'s own,
 marked `via if`, and the recursion is a self edge.
 

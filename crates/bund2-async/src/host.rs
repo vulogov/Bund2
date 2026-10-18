@@ -1120,16 +1120,22 @@ mod facade_tests {
     /// **A panicking VM resolves rather than hanging.** The `Drop` guard marks
     /// it done and wakes the waiter on the unwind, so the future completes
     /// with an error — D37's reasoning applied to a thread boundary.
+    ///
+    /// **The unwind is started with `resume_unwind`, which runs no panic
+    /// hook.** A `panic!` runs the process's hook before unwinding, and with
+    /// `RUST_BACKTRACE=1` the default hook resolves a backtrace of the whole
+    /// test binary, cold for many seconds, while holding the hook's lock. The
+    /// first native call on any other thread installs `catch_panic`'s quiet
+    /// hook (`bund2_api::catch_panic`) and so waits on that lock: the
+    /// ping-pong test beside this one stalled past the executor's patience,
+    /// and this one did too, its guard not reached until the hook returned.
+    /// What is under test is the guard on the unwind, which is the same
+    /// either way.
     #[test]
     fn a_panicking_vm_resolves_as_an_error_rather_than_hanging() {
         let mut host = Host::new();
         let vm: Vm<u32> = host
-            .spawn(|_| {
-                #[allow(clippy::panic)]
-                {
-                    panic!("a dependency gave up")
-                }
-            })
+            .spawn(|_| std::panic::resume_unwind(Box::new("a dependency gave up")))
             .expect("spawns");
         let e = block_on(vm)
             .expect("the executor was driven")
@@ -1144,12 +1150,8 @@ mod facade_tests {
     fn a_panicking_vm_gives_its_slot_back() {
         let mut host = Host::with_limit(1).expect("one");
         let vm: Vm<u32> = host
-            .spawn(|_| {
-                #[allow(clippy::panic)]
-                {
-                    panic!("again")
-                }
-            })
+            // No hook, as above.
+            .spawn(|_| std::panic::resume_unwind(Box::new("again")))
             .expect("spawns");
         let _ = vm.join();
         // The slot is free, so a one-VM host can spawn again.

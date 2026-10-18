@@ -4071,6 +4071,35 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F216 — two `bund2-async` tests timed out when a test VM's panic hook resolved a backtrace
+
+**A Bund2 test defect; found and fixed 2026-10-17.** In one full
+workspace run, `an_executor_driving_two_vms_makes_progress_on_both` and
+`a_panicking_vm_resolves_as_an_error_rather_than_hanging` in
+`crates/bund2-async/src/host.rs` both failed with the test executor's
+"no wake arrived in 10s"; reruns passed in milliseconds. The shell had
+`RUST_BACKTRACE=1`. Run alone and cold, the panicking test took 15.7 s
+and failed the same way; warm, it passed in 0.1 s.
+
+The cause, as reproduced: the panic test's VM ended with `panic!`, which
+runs the process's panic hook before unwinding, and the default hook,
+with backtraces on, resolves the test binary's symbols. The VM's
+`Finish` guard, which wakes the waiter, runs only after the hook
+returns. Meanwhile the first native call on any other thread runs
+`catch_panic`'s one-time install of the quiet hook
+(`crates/bund2-api/src/lib.rs:87-99`, `take_hook` then `set_hook`),
+which waits while a hook is running, so the ping-pong VMs in the same
+process stalled behind it. That the standard library holds the hook's
+lock across the hook is inferred from the stall, not read in its source,
+which is not installed here.
+
+Neither test was measuring the hook. Both panicking tests now end their
+VM with `std::panic::resume_unwind`, which unwinds through the same
+guard and runs no hook. Three runs with `RUST_BACKTRACE=1` pass. Shipped
+code is not affected in practice: it does not panic (D37), and a stall
+needs a panic outside `catch_panic` racing a process's first native
+call.
+
 ## F215 — the report never printed a native's `WordKind`, which RFC-0011 §S2 promised
 
 **A Bund2 defect; found 2026-10-17 by the owner's brainstorm over the
