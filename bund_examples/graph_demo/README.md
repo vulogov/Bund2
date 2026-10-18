@@ -26,9 +26,9 @@ lists, the edges first:
 - **An edge weighs 100.0 unless it says otherwise**, and a weight must be
   a FLOAT: `[ :a :b 7.0 ]`, not `[ :a :b 7 ]`.
 - **Names are Title-cased**, so `:fetch` comes back as `Fetch` and
-  `:water_main` as `Water Main`. A node handed to a word is Title-cased
-  too, except by the reference's `graph.paths`, which looks it up as
-  given: the demo passes it `"Ashby"`.
+  `:water_main` as `Water Main`. A node handed to one of the new words is
+  Title-cased too; the reference's `graph.path` and `graph.paths` look it
+  up as given, so the demo passes `graph.paths` `"Ashby"`.
 - **Every answer is in the order of the `nodes` list**, so the output is
   the same on every run. The reference's own `graph.paths`, `graph.allpath`
   and `graph.transitiveclosure` answer in an order that changes (F17);

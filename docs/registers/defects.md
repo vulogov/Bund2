@@ -4085,6 +4085,35 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F218 — `graph.path` Title-cased its node operands, where the reference looks them up as given
+
+**A Bund2 defect; found 2026-10-18 by the RFC-0012 review (finding 1),
+recorded and fixed the same day on the owner's ruling (1A).** The
+reference's `graph.path` casts its start and end operands with
+`cast_string` and looks each up in the node table as given
+(`reference/Bund/src/stdlib/functions/graph/getpath.rs:53-60`,
+`:65-71`). The table's keys are Title-cased (`make_graph.rs:9-11`), so
+`:c :a … graph! graph.path` answers `GRAPH.PATH: unknown start node: a`
+in the oracle. Bund2's `graph_path` passed both operands through
+`node_name` before the lookup and found the path. It also dropped the
+cast error's text, answering `casting start node name returns` where the
+reference appends `: This Dynamic type is not string`
+(`reference/rust_dynamic/src/cast.rs:33-39`).
+
+Introduced in `38405c0` (2026-09-10) with no reason given. No golden
+caught it: the corpus names its nodes with single capitals, which
+Title-casing leaves alone. No register recorded it, and D192 justified
+Title-casing the new graph words' node operands "as `graph.path`'s are".
+
+`graph_path` now looks both operands up as given and carries the cast
+error's text. The end node's errors keep the reference's slips: an
+unknown end is named by the start (`getpath.rs:71`) and a non-STRING
+end gets the start's message (`:67`). Checked by
+`graph_path_looks_its_nodes_up_as_given` in
+`crates/bund2-stdlib/src/graph.rs`. Conformance does not move. D192's
+reason for Title-casing the new words' operands is restated in its
+2026-10-18 note. **Disposition: FIX** (2026-10-18, owner ruling 1A).
+
 ## F217 — a debugger stop numbered its frame from the outside, and `bt` from the inside
 
 **A Bund2 defect; found 2026-10-17 building D191, recorded and fixed the

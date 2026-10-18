@@ -180,6 +180,11 @@ fn build(nodes: &BundValue, edges: &BundValue) -> Result<Built, Error> {
 /// `:60`), all pulled — so the source reads `<end> <start> … graph.path`, and
 /// the golden's `:C :A [edges] [nodes] graph!` puts `C` deepest as the end.
 ///
+/// **Neither node operand is Title-cased** (`:53-60`, `:65-71`): each is
+/// cast and looked up as given, so `:a` finds nothing where `:A` finds `A`
+/// (F218). An unknown end node is reported with the *start* node's name
+/// (`:71`), and a non-STRING end with the start's message (`:67`).
+///
 /// The answer is a MAP: `found` alone when there is no path (`:76`), or
 /// `path`, `weight` and `found` when there is (`:87-89`). `weight` is pushed
 /// as a **FLOAT** even though `fast_paths` computes in `usize` (`:88`), which
@@ -223,20 +228,19 @@ fn graph_path(vm: &mut dyn Vm) -> Result<(), Error> {
     let start_val = vm
         .pull()
         .ok_or_else(|| Error("GRAPH.PATH: NO DATA #2".into()))?;
-    let start = start_val
-        .as_str()
-        .map(|s| node_name(&s))
-        .ok_or_else(|| Error("GRAPH.PATH: casting start node name returns".into()))?;
+    // Looked up as given, not Title-cased: `:a` misses `A` (F218).
+    let start = start_val.as_str().ok_or_else(|| {
+        Error("GRAPH.PATH: casting start node name returns: This Dynamic type is not string".into())
+    })?;
     let Some(&start_ix) = ix.get(&start) else {
         return Err(Error(format!("GRAPH.PATH: unknown start node: {start}")));
     };
     let end_val = vm
         .pull()
         .ok_or_else(|| Error("GRAPH.PATH: NO DATA #3".into()))?;
-    let end = end_val
-        .as_str()
-        .map(|s| node_name(&s))
-        .ok_or_else(|| Error("GRAPH.PATH: casting start node name returns".into()))?;
+    let end = end_val.as_str().ok_or_else(|| {
+        Error("GRAPH.PATH: casting start node name returns: This Dynamic type is not string".into())
+    })?;
     let Some(&end_ix) = ix.get(&end) else {
         return Err(Error(format!("GRAPH.PATH: unknown end node: {start}")));
     };
@@ -454,8 +458,8 @@ pub(crate) fn graph_operand(
 /// The graph is on top and the start node beneath it. **The start node is not
 /// Title-cased**, unlike every node name in the graph, so `:a` finds nothing
 /// where `"A"` finds `A`. Each row is `node` and `path`, the distance or NODATA.
-/// The rows come in `HashMap` order, which changes from run to run, as the
-/// reference's do.
+/// `algos` answers in `HashMap` order, which changes from run to run; Bund2
+/// sorts the rows into node order (F17, D192 §4).
 fn graph_paths(vm: &mut dyn Vm) -> Result<(), Error> {
     let (nodes, edges) = graph_operand(vm, "GRAPH.PATHS")?;
     let (ix, names, g) = build_algos(&nodes, &edges)?;
@@ -613,6 +617,74 @@ mod tests {
     fn the_start_node_is_not_title_cased() {
         let e = err_of(":a list [ :A ] graph! graph.paths");
         assert!(e.contains("GRAPH.PATHS: unknown start node: a"), "{e}");
+    }
+
+    /// `graph.path` casts both node operands and looks them up as given
+    /// (`getpath.rs:53-60`, `:65-71`), so a lower-case operand misses the
+    /// Title-cased node (F218). An unknown end is named by the start
+    /// (`:71`).
+    #[test]
+    fn graph_path_looks_its_nodes_up_as_given() {
+        let g = "[ [ :A :B 1.0 ] [ :B :C 2.0 ] ] [ :A :B :C ] graph!";
+        let e = err_of(&format!(":c :a {g} graph.path"));
+        assert!(e.contains("GRAPH.PATH: unknown start node: a"), "{e}");
+        let e = err_of(&format!(":c :A {g} graph.path"));
+        assert!(e.contains("GRAPH.PATH: unknown end node: A"), "{e}");
+        let e = err_of(&format!(":C 1 {g} graph.path"));
+        assert!(
+            e.contains(
+                "GRAPH.PATH: casting start node name returns: This Dynamic type is not string"
+            ),
+            "{e}"
+        );
+        let found = top_text(&format!(":C :A {g} graph.path"));
+        assert!(found.contains("weight=3.0"), "{found}");
+    }
+
+    fn rows(src: &str) -> Vec<bund2_value::BundValue> {
+        match run_src(src) {
+            Ok(i) => i
+                .peek()
+                .and_then(|v| v.as_list().map(|r| r.to_vec()))
+                .unwrap_or_default(),
+            Err(e) => panic!("{src} failed: {e}"),
+        }
+    }
+
+    fn field(row: &bund2_value::BundValue, key: &str) -> String {
+        row.get_or_self(key)
+            .ok()
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+    }
+
+    /// The three `algos` words answer in the order of the `nodes` list, by
+    /// node and then by (from, to), not in the `HashMap` order `algos` hands
+    /// back (F17, D192 §4). The nodes are listed out of alphabetical order so
+    /// that a sort by name would fail too, and each word runs twenty times
+    /// because a `HashMap`'s order differs between maps.
+    #[test]
+    fn the_algos_words_answer_in_node_order() {
+        let g = "[ [ :C :A 1.0 ] [ :A :B 1.0 ] [ :B :C 1.0 ] ] [ :C :A :B ] graph!";
+        let order = ["C", "A", "B"];
+        let pairs: Vec<(String, String)> = order
+            .iter()
+            .flat_map(|f| order.iter().map(move |t| (f.to_string(), t.to_string())))
+            .collect();
+        for _ in 0..20 {
+            let p: Vec<String> = rows(&format!("\"C\" {g} graph.paths"))
+                .iter()
+                .map(|r| field(r, "node"))
+                .collect();
+            assert_eq!(p, order, "graph.paths");
+            for word in ["graph.allpath", "graph.transitiveclosure"] {
+                let got: Vec<(String, String)> = rows(&format!("{g} {word}"))
+                    .iter()
+                    .map(|r| (field(r, "from"), field(r, "to")))
+                    .collect();
+                assert_eq!(got, pairs, "{word}");
+            }
+        }
     }
 
     #[test]

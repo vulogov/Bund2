@@ -3784,6 +3784,59 @@ it and wait for review. Three things here were affected:
 
 "What checks it" above counted seven unit tests; there are now ten.
 
+### Dated note, 2026-10-18 — after the RFC-0012 review: F218, which reader, and what the build chose
+
+The review (`docs/rfc/reviews/RFC-0012-review-2026-10-18.md`) found that
+three statements above lean on things that are not so, or were not said:
+
+- **"A node operand is Title-cased, as `graph.path`'s are."** The
+  reference's `graph.path` looks both operands up as given
+  (`reference/Bund/src/stdlib/functions/graph/getpath.rs:53-60`,
+  `:65-71`); Bund2's Title-casing was a defect, now **F218**, fixed on the
+  owner's ruling (1A). So no reference word Title-cases a node operand, and
+  the new words' rule is this decision's own choice, not a precedent
+  copied. Its reason: the graph's names are Title-cased on the way in
+  (`make_graph.rs:9-11`), so a program that wrote `[ :my_node ]` holds a
+  node named `My Node`, and looking `:my_node` up as given can never find
+  it. Title-casing the operand is what lets a program name a node the way
+  it named it in `nodes`. The cost is that the family is split:
+  `graph.path` and `graph.paths` refuse `:a`, and `graph.bellmanford`,
+  offered as `graph.paths`' drop-in, accepts it, so the swap works one way.
+  It can be overruled.
+- **"So one graph holds the same edges whichever word reads it."** Not
+  true of the reference: `graph.path`'s `make_fast_graph` casts a weight
+  `as usize` (`make_graph.rs:64`) and keeps the lowest of a repeated
+  edge, while `make_graph`, behind `graph.paths`, `graph.allpath` and
+  `graph.transitiveclosure`, keeps the last given (`:130`). The new reader
+  is `make_graph`'s, chosen because it keeps a weight as written and
+  takes negative ones, which `graph.mst` and `graph.bellmanford` need.
+  `the_reader_agrees_with_build_algos` now runs 2,000 graphs with names
+  Title-casing merges, edges of one to four elements, fractional and
+  negative weights, INTEGER weights and unknown nodes, and asks that the
+  reader refuse exactly what `build_algos` refuses.
+- **A re-given edge keeps its first place.** `algos` removes the earlier
+  edge and pushes the new one to the end
+  (`~/.cargo/git/checkouts/algos-9d1538761d16fda1/4c08437/src/cs/graph.rs:108-113`);
+  `Net` keeps the edge where it first appeared, with the last weight. "The
+  order the graph lists them", which `graph.mst`'s ties and
+  `graph.maxflow`'s `edges` follow, therefore means first appearance. A
+  build choice, unstated until now.
+- **The twelve workbench forms are this decision's choice**, extending
+  D111's container family; D111's 2026-10-07 table lists only `graph.path`
+  and `graph.paths`.
+
+New tests: `graph_path_looks_its_nodes_up_as_given` and
+`the_algos_words_answer_in_node_order` in `graph.rs`;
+`answers_follow_the_nodes_list`, `ties_and_edges_follow_the_graph_order`,
+`every_node_operand_is_refused_naming_the_word`,
+`a_malformed_graph_is_refused_in_the_reference_words`,
+`a_capacity_that_is_not_finite_is_refused_through_the_word` and
+`traversal_orders_match_their_definitions` in `graph_algorithms.rs`. The
+Bellman–Ford cross-check now also asks that the node named be reachable
+from the start and the smallest on its cycle, the MST cross-check that the
+forest come lightest first with ties in the graph's order, and the flow
+cross-check every source and sink.
+
 ## D191 — the debugger: catch, hit counts, until, what changed, conditional and redefinition watches, the trace, and the console's history
 
 **Raised and ruled 2026-10-17** by the repository owner: shown a
