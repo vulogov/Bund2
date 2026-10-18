@@ -3650,6 +3650,66 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D193 — RFC-0012's second review: exact max flow, the Bellman–Ford rule as built, finite weights, and `graph.path`'s crash
+
+**Raised and ruled 2026-10-18** by the repository owner. The second
+adversarial review of RFC-0012
+(`docs/rfc/reviews/RFC-0012-review-2026-10-18-2.md`) found four places
+where the design gave a wrong answer, misdescribed one, or left a crash
+unrecorded. Each was shown with options and a recommendation, and the
+owner answered "1A 2A 3A 5A".
+
+- Decided by: repository owner, 2026-10-18
+- Blocks: nothing
+- Depends on: D192, D37, D39, D49, F219
+- Status: **RESOLVED — 1A 2A 3A 5A; built the same day.**
+
+### The rulings
+
+1. **`graph.maxflow` has no tolerance, A.** An arc is present while its
+   residual is above 0.0, and an edge is listed while its share is above
+   0.0. Before, a capacity below 1e-12 of the largest counted as absent:
+   `:T :S [ [ :S :T 1e13 ] [ :S :M 5.0 ] [ :M :T 5.0 ] ] … graph.maxflow`
+   answered 1e13, not 1e13 + 5. The bound on rounds does not need the
+   tolerance: the bottleneck arc ends at `cap - b`, exactly 0.0, and every
+   reverse arc gains `b > 0`. The cost is that a fractional capacity can
+   leave a share of rounding size in `edges`. Checked by
+   `a_small_capacity_beside_a_huge_one_still_carries_flow` and
+   `max_flow_is_the_min_cut_across_magnitudes` (whole capacities over
+   thirteen orders of magnitude, every source and sink, flow equal to the
+   least cut exactly).
+2. **The Bellman–Ford message names what the code finds, A.** The node
+   named is the smallest-numbered node of the one negative cycle the walk
+   back from the last relaxed edge finds. When two negative cycles are
+   reachable, which one that is depends on the order of the edges; the
+   message is still the same on every run of one program. RFC-0012 §S4
+   is restated to say so; the code is unchanged. D192's "so the message
+   does not depend on which edge the last pass relaxed" holds within one
+   cycle, not across two.
+3. **A weight that is not finite is refused, A.** Programs make them
+   (`-1.0 math.sqrt` is NaN and `1.0e200 1.0e200 *` is inf, in both
+   engines), and none of the twelve words' answers over one means
+   anything. The reader refuses one, naming the word, the edge and the
+   weight: `GRAPH.BFS: an edge's weight must be finite: A -> B weighs NaN`.
+   This is not `graph.paths`' reader, which takes any FLOAT and answers
+   `path=NaN`; RFC-0012 says so. `graph.maxflow`'s own message is now
+   `a capacity must not be below zero`, since it no longer sees +inf.
+   Checked by `a_weight_that_is_not_finite_is_refused`, all twelve words,
+   three weights made in Bund.
+5. **`graph.path`'s crash is fixed with "no path", A** (F219). A node past
+   every endpoint `fast_paths` kept is one no kept edge reaches, and the
+   answer is `{ found=false }`. The reference panics; this deviates from
+   it, and no golden moves.
+
+### Built with them, from the review's other findings
+
+- The silent fallbacks D37 forbids became `Error::internal`: `Net::name`
+  for an index out of range, `toposort` stalling with no cycle, and
+  Bellman–Ford's walk back reaching a node with no predecessor.
+- The reader's refusals name a type (`not Integer`), not its numeric
+  code, and "an edge must be a LIST of two or three" became "an edge must
+  be a LIST", which the four-element rule had contradicted.
+
 ## D192 — graph algorithms of Bund2's own: twelve words over the graph MAP
 
 **Raised and ruled 2026-10-18** by the repository owner: asked to "develop

@@ -11,13 +11,14 @@
 //!
 //! Three rules hold for every word here, and each was the owner's ruling:
 //!
-//! - **A graph reads as it does to the reference's words** (D192 §3): node
-//!   names Title-cased, a weight a FLOAT and 100.0 when absent, an edge
-//!   naming an unknown node an error, every edge directed. A second edge
-//!   between the same two nodes, in the same direction, replaces the first,
-//!   as `algos`' `Graph::add_edge` does for `graph.paths` — so one graph
-//!   holds the same edges whichever word reads it. A node operand is
-//!   Title-cased too, as `graph.path`'s are.
+//! - **A graph reads as it does to `graph.paths`** (D192 §3): node names
+//!   Title-cased, a weight a FLOAT and 100.0 when absent, an edge naming an
+//!   unknown node an error, every edge directed. A second edge between the
+//!   same two nodes, in the same direction, replaces the first, as `algos`'
+//!   `Graph::add_edge` does. Unlike `graph.paths`, a weight that is not
+//!   finite is refused (D193). `graph.path` reads differently (F101's note).
+//!   A node operand is Title-cased, which no reference word does (F218):
+//!   D192's choice, so a node is found the way `nodes` spelled it.
 //! - **Every answer is in the order of the `nodes` list** (§4), so it prints
 //!   the same on every run.
 //! - **An impossible question is an error** (§5) a program can catch with
@@ -63,18 +64,23 @@ impl Net {
         self.names.len()
     }
 
-    fn name_list(&self, nodes: &[usize]) -> BundValue {
-        BundValue::list(
-            nodes
-                .iter()
-                .filter_map(|n| self.names.get(*n))
-                .map(|s| BundValue::str(s.clone()))
-                .collect(),
-        )
+    fn name_list(&self, nodes: &[usize]) -> Result<BundValue, Error> {
+        let names = nodes
+            .iter()
+            .map(|n| self.name(*n).map(BundValue::str))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(BundValue::list(names))
     }
 
-    fn name(&self, n: usize) -> String {
-        self.names.get(n).cloned().unwrap_or_default()
+    /// A node's name. The algorithms answer only indices they were handed,
+    /// so one past the end is a defect here, not a node to leave out.
+    fn name(&self, n: usize) -> Result<String, Error> {
+        self.names.get(n).cloned().ok_or_else(|| {
+            Error::internal(format!(
+                "a graph algorithm answered node {n} of a graph of {}",
+                self.names.len()
+            ))
+        })
     }
 }
 
@@ -90,7 +96,7 @@ pub(crate) fn read(nodes: &BundValue, edges: &BundValue, word: &str) -> Result<N
         let name = n.as_str().map(|s| node_name(&s)).ok_or_else(|| {
             Error(format!(
                 "{word}: a node name must be a STRING, not {}",
-                n.dt()
+                n.type_name()
             ))
         })?;
         if !ix.contains_key(&name) {
@@ -106,8 +112,8 @@ pub(crate) fn read(nodes: &BundValue, edges: &BundValue, word: &str) -> Result<N
     for e in edge_list {
         let rel = e.as_list().ok_or_else(|| {
             Error(format!(
-                "{word}: an edge must be a LIST of two or three, not {}",
-                e.dt()
+                "{word}: an edge must be a LIST, not {}",
+                e.type_name()
             ))
         })?;
         if rel.len() < 2 {
@@ -133,12 +139,20 @@ pub(crate) fn read(nodes: &BundValue, edges: &BundValue, word: &str) -> Result<N
                 _ => {
                     return Err(Error(format!(
                         "{word}: an edge's weight must be a FLOAT, not {}",
-                        w.dt()
+                        w.type_name()
                     )));
                 }
             },
             _ => 100.0,
         };
+        // Not `graph.paths`' rule: `make_graph` takes any FLOAT, so NaN and
+        // ±inf, which `math.sqrt` and an overflowing `*` make, reach its
+        // Dijkstra. Here no answer over such a weight means anything (D193).
+        if !w.is_finite() {
+            return Err(Error(format!(
+                "{word}: an edge's weight must be finite: {from} -> {to} weighs {w}"
+            )));
+        }
         match at.get(&(f, t)) {
             Some(&k) => {
                 if let Some(slot) = edges.get_mut(k) {
@@ -195,7 +209,7 @@ fn node_operand(
     let name = v.as_str().map(|s| node_name(&s)).ok_or_else(|| {
         Error(format!(
             "{word}: the {role}node must be a STRING, not {}",
-            v.dt()
+            v.type_name()
         ))
     })?;
     net.ix
@@ -315,8 +329,9 @@ pub(crate) fn find_cycle(net: &Net) -> Option<Vec<usize>> {
 }
 
 /// A topological order, the smallest-numbered ready node first, or the node
-/// a cycle was found through.
-pub(crate) fn toposort(net: &Net) -> Result<Vec<usize>, usize> {
+/// a cycle was found through: the first node of the cycle [`find_cycle`]
+/// answers. The outer `Err` is a defect: a sort that stalled with no cycle.
+pub(crate) fn toposort(net: &Net) -> Result<Result<Vec<usize>, usize>, Error> {
     let n = net.len();
     let mut indegree = vec![0usize; n];
     for o in &net.out {
@@ -345,14 +360,16 @@ pub(crate) fn toposort(net: &Net) -> Result<Vec<usize>, usize> {
         }
     }
     if order.len() == n {
-        return Ok(order);
+        return Ok(Ok(order));
     }
     // Some node was never ready, so a cycle exists and the search finds it.
-    let through = find_cycle(net)
-        .and_then(|c| c.first().copied())
-        .or_else(|| indegree.iter().position(|d| *d > 0))
-        .unwrap_or(0);
-    Err(through)
+    match find_cycle(net).and_then(|c| c.first().copied()) {
+        Some(through) => Ok(Err(through)),
+        None => Err(Error::internal(format!(
+            "graph.toposort ordered {} of {n} nodes, and no cycle holds the rest",
+            order.len()
+        ))),
+    }
 }
 
 /// Group nodes by `label`: each group's members in node order, the groups
@@ -505,8 +522,11 @@ pub(crate) fn mst(net: &Net) -> Vec<(usize, usize, f64)> {
 }
 
 /// Shortest distances from `s` by Bellman–Ford, which takes negative
-/// weights. `Err` names a node on a negative cycle reachable from `s`.
-pub(crate) fn bellman_ford(net: &Net, s: usize) -> Result<Vec<Option<f64>>, usize> {
+/// weights. The inner `Err` names a node on a negative cycle reachable from
+/// `s`: the smallest-numbered node of the one cycle the walk back finds,
+/// which depends on the order of the edges when two cycles are reachable
+/// (D193). The outer `Err` is a defect in the walk.
+pub(crate) fn bellman_ford(net: &Net, s: usize) -> Result<Result<Vec<Option<f64>>, usize>, Error> {
     let n = net.len();
     let mut dist: Vec<Option<f64>> = vec![None; n];
     let mut pred: Vec<Option<usize>> = vec![None; n];
@@ -537,34 +557,51 @@ pub(crate) fn bellman_ford(net: &Net, s: usize) -> Result<Vec<Option<f64>>, usiz
     };
     for _ in 1..n.max(1) {
         if relax(&mut dist, &mut pred).is_none() {
-            return Ok(dist);
+            return Ok(Ok(dist));
         }
     }
     let Some(mut v) = relax(&mut dist, &mut pred) else {
-        return Ok(dist);
+        return Ok(Ok(dist));
+    };
+    // Every node the walk visits was relaxed, so it has a predecessor.
+    let back = |u: usize| -> Result<usize, Error> {
+        pred.get(u).copied().flatten().ok_or_else(|| {
+            Error::internal(format!(
+                "graph.bellmanford walked back to node {u}, which no edge relaxed"
+            ))
+        })
     };
     // Walking back as many steps as there are nodes lands on the cycle.
     for _ in 0..n {
-        v = pred.get(v).copied().flatten().unwrap_or(v);
+        v = back(v)?;
     }
-    // Report the cycle's smallest-numbered node, so the message is the same
-    // whichever edge the last pass relaxed.
-    let mut on_cycle = vec![v];
-    let mut u = pred.get(v).copied().flatten().unwrap_or(v);
-    while u != v && on_cycle.len() <= n {
-        on_cycle.push(u);
-        u = pred.get(u).copied().flatten().unwrap_or(v);
+    // Report that cycle's smallest-numbered node, so the message is the same
+    // whichever of its edges the last pass relaxed.
+    let mut least = v;
+    let mut u = back(v)?;
+    let mut steps = 0;
+    while u != v {
+        steps += 1;
+        if steps > n {
+            return Err(Error::internal(
+                "graph.bellmanford walked a cycle longer than the graph",
+            ));
+        }
+        least = least.min(u);
+        u = back(u)?;
     }
-    Err(on_cycle.into_iter().min().unwrap_or(v))
+    Ok(Err(least))
 }
 
 /// The maximum flow from `s` to `t`, each edge's weight its capacity, by
 /// Edmonds–Karp: augment along a shortest path in the residual graph until
 /// none is left. Answers the flow and each listed edge's share of it.
 ///
-/// `Err` is the message. A capacity must be a finite number, not below
-/// zero. Shortest augmenting paths need at most nodes × edges rounds; the
-/// loop stops there, and passing it would be a defect here, said as one.
+/// `Err` is the message. A capacity must not be below zero; the reader has
+/// already refused one that is not finite. Shortest augmenting paths need at
+/// most nodes × edges rounds; the loop stops there, and passing it would be
+/// a defect here, said as one. The bound needs no tolerance: the bottleneck
+/// arc ends at `cap - b`, exactly 0.0, and every reverse arc gains `b > 0`.
 pub(crate) fn max_flow(
     net: &Net,
     s: usize,
@@ -579,19 +616,22 @@ pub(crate) fn max_flow(
     let n = net.len();
     let mut arcs: Vec<Vec<Arc>> = (0..n).map(|_| Vec::new()).collect();
     let mut listed: Vec<(usize, usize, usize, f64)> = Vec::new();
-    let mut biggest = 0.0f64;
     for &(f, to, w) in &net.edges {
-        if !w.is_finite() || w < 0.0 {
+        if !w.is_finite() {
+            return Err(Error::internal(format!(
+                "graph.maxflow was handed a capacity of {w}, which the reader refuses"
+            )));
+        }
+        if w < 0.0 {
             return Err(Error(format!(
-                "{word}: a capacity must be a number not below zero: {} -> {} weighs {w}",
-                net.name(f),
-                net.name(to)
+                "{word}: a capacity must not be below zero: {} -> {} weighs {w}",
+                net.name(f)?,
+                net.name(to)?
             )));
         }
         if f == to {
             continue;
         }
-        biggest = biggest.max(w);
         let (kf, kt) = (
             arcs.get(f).map_or(0, Vec::len),
             arcs.get(to).map_or(0, Vec::len),
@@ -612,8 +652,8 @@ pub(crate) fn max_flow(
         }
         listed.push((f, to, kf, w));
     }
-    // A residual this small is rounding, not capacity.
-    let eps = 1e-12 * biggest.max(1.0);
+    // An arc is present while any capacity is left on it: no tolerance, so
+    // a small capacity beside a huge one still carries flow (D193).
     let bound = n.saturating_mul(net.edges.len()).saturating_add(1);
     let mut flow = 0.0;
     let mut rounds = 0usize;
@@ -633,7 +673,7 @@ pub(crate) fn max_flow(
                 .iter()
                 .enumerate()
             {
-                if a.cap > eps && a.to != s && via.get(a.to).is_some_and(Option::is_none) {
+                if a.cap > 0.0 && a.to != s && via.get(a.to).is_some_and(Option::is_none) {
                     if let Some(slot) = via.get_mut(a.to) {
                         *slot = Some((u, k));
                     }
@@ -690,7 +730,7 @@ pub(crate) fn max_flow(
         .filter_map(|(f, to, k, w)| {
             let left = arcs.get(f).and_then(|a| a.get(k)).map_or(w, |a| a.cap);
             let used = w - left;
-            (used > eps).then_some((f, to, used))
+            (used > 0.0).then_some((f, to, used))
         })
         .collect();
     Ok((flow, shares))
@@ -701,7 +741,7 @@ pub(crate) fn max_flow(
 fn graph_bfs(vm: &mut dyn Vm) -> Result<(), Error> {
     let net = operand(vm, "GRAPH.BFS")?;
     let s = node_operand(vm, &net, "GRAPH.BFS", "start", 2)?;
-    vm.push(net.name_list(&bfs(&net, s)));
+    vm.push(net.name_list(&bfs(&net, s))?);
     Ok(())
 }
 
@@ -710,7 +750,7 @@ fn graph_bfs(vm: &mut dyn Vm) -> Result<(), Error> {
 fn graph_dfs(vm: &mut dyn Vm) -> Result<(), Error> {
     let net = operand(vm, "GRAPH.DFS")?;
     let s = node_operand(vm, &net, "GRAPH.DFS", "start", 2)?;
-    vm.push(net.name_list(&dfs(&net, s)));
+    vm.push(net.name_list(&dfs(&net, s))?);
     Ok(())
 }
 
@@ -719,7 +759,7 @@ fn graph_dfs(vm: &mut dyn Vm) -> Result<(), Error> {
 fn graph_reachable(vm: &mut dyn Vm) -> Result<(), Error> {
     let net = operand(vm, "GRAPH.REACHABLE")?;
     let s = node_operand(vm, &net, "GRAPH.REACHABLE", "start", 2)?;
-    vm.push(net.name_list(&reachable(&net, s)));
+    vm.push(net.name_list(&reachable(&net, s))?);
     Ok(())
 }
 
@@ -728,7 +768,7 @@ fn graph_neighbors(vm: &mut dyn Vm) -> Result<(), Error> {
     let net = operand(vm, "GRAPH.NEIGHBORS")?;
     let u = node_operand(vm, &net, "GRAPH.NEIGHBORS", "", 2)?;
     let out = net.out.get(u).cloned().unwrap_or_default();
-    vm.push(net.name_list(&out));
+    vm.push(net.name_list(&out)?);
     Ok(())
 }
 
@@ -757,14 +797,14 @@ fn graph_degree(vm: &mut dyn Vm) -> Result<(), Error> {
 /// lead to. A cycle has no such order and is an error naming a node on it.
 fn graph_toposort(vm: &mut dyn Vm) -> Result<(), Error> {
     let net = operand(vm, "GRAPH.TOPOSORT")?;
-    match toposort(&net) {
+    match toposort(&net)? {
         Ok(order) => {
-            vm.push(net.name_list(&order));
+            vm.push(net.name_list(&order)?);
             Ok(())
         }
         Err(u) => Err(Error(format!(
             "GRAPH.TOPOSORT: the graph has a cycle through {}",
-            net.name(u)
+            net.name(u)?
         ))),
     }
 }
@@ -774,45 +814,45 @@ fn graph_toposort(vm: &mut dyn Vm) -> Result<(), Error> {
 fn graph_cycle(vm: &mut dyn Vm) -> Result<(), Error> {
     let net = operand(vm, "GRAPH.CYCLE")?;
     let cycle = find_cycle(&net).unwrap_or_default();
-    vm.push(net.name_list(&cycle));
+    vm.push(net.name_list(&cycle)?);
     Ok(())
 }
 
-fn push_groups(vm: &mut dyn Vm, net: &Net, groups: &[Vec<usize>]) {
-    vm.push(BundValue::list(
-        groups.iter().map(|g| net.name_list(g)).collect(),
-    ));
+fn push_groups(vm: &mut dyn Vm, net: &Net, groups: &[Vec<usize>]) -> Result<(), Error> {
+    let lists = groups
+        .iter()
+        .map(|g| net.name_list(g))
+        .collect::<Result<Vec<_>, _>>()?;
+    vm.push(BundValue::list(lists));
+    Ok(())
 }
 
 /// `<graph> graph.components` — the nodes in groups joined by edges in
 /// either direction: a LIST of LISTs.
 fn graph_components(vm: &mut dyn Vm) -> Result<(), Error> {
     let net = operand(vm, "GRAPH.COMPONENTS")?;
-    push_groups(vm, &net, &components(&net));
-    Ok(())
+    push_groups(vm, &net, &components(&net))
 }
 
 /// `<graph> graph.scc` — the nodes in groups where each reaches every
 /// other: a LIST of LISTs.
 fn graph_scc(vm: &mut dyn Vm) -> Result<(), Error> {
     let net = operand(vm, "GRAPH.SCC")?;
-    push_groups(vm, &net, &scc(&net));
-    Ok(())
+    push_groups(vm, &net, &scc(&net))
 }
 
-fn edge_rows(net: &Net, edges: &[(usize, usize, f64)]) -> BundValue {
-    BundValue::list(
-        edges
-            .iter()
-            .map(|&(f, t, w)| {
-                BundValue::list(vec![
-                    BundValue::str(net.name(f)),
-                    BundValue::str(net.name(t)),
-                    BundValue::float(w),
-                ])
-            })
-            .collect(),
-    )
+fn edge_rows(net: &Net, edges: &[(usize, usize, f64)]) -> Result<BundValue, Error> {
+    let rows = edges
+        .iter()
+        .map(|&(f, t, w)| {
+            Ok(BundValue::list(vec![
+                BundValue::str(net.name(f)?),
+                BundValue::str(net.name(t)?),
+                BundValue::float(w),
+            ]))
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+    Ok(BundValue::list(rows))
 }
 
 /// `<graph> graph.mst` — a minimum spanning forest, every edge read both
@@ -824,7 +864,7 @@ fn graph_mst(vm: &mut dyn Vm) -> Result<(), Error> {
     let total: f64 = chosen.iter().map(|e| e.2).sum();
     vm.push(
         BundValue::map(Default::default())
-            .set("edges", edge_rows(&net, &chosen))
+            .set("edges", edge_rows(&net, &chosen)?)
             .set("weight", BundValue::float(total)),
     );
     Ok(())
@@ -838,22 +878,25 @@ fn graph_mst(vm: &mut dyn Vm) -> Result<(), Error> {
 fn graph_bellmanford(vm: &mut dyn Vm) -> Result<(), Error> {
     let net = operand(vm, "GRAPH.BELLMANFORD")?;
     let s = node_operand(vm, &net, "GRAPH.BELLMANFORD", "start", 2)?;
-    let dist = bellman_ford(&net, s).map_err(|u| {
-        Error(format!(
-            "GRAPH.BELLMANFORD: {} reaches a negative cycle through {}",
-            net.name(s),
-            net.name(u)
-        ))
-    })?;
+    let dist = match bellman_ford(&net, s)? {
+        Ok(dist) => dist,
+        Err(u) => {
+            return Err(Error(format!(
+                "GRAPH.BELLMANFORD: {} reaches a negative cycle through {}",
+                net.name(s)?,
+                net.name(u)?
+            )));
+        }
+    };
     let rows = dist
         .iter()
         .enumerate()
         .map(|(u, d)| {
-            BundValue::map(Default::default())
-                .set("node", BundValue::str(net.name(u)))
-                .set("path", d.map_or_else(BundValue::nodata, BundValue::float))
+            Ok(BundValue::map(Default::default())
+                .set("node", BundValue::str(net.name(u)?))
+                .set("path", d.map_or_else(BundValue::nodata, BundValue::float)))
         })
-        .collect();
+        .collect::<Result<Vec<_>, Error>>()?;
     vm.push(BundValue::list(rows));
     Ok(())
 }
@@ -869,14 +912,14 @@ fn graph_maxflow(vm: &mut dyn Vm) -> Result<(), Error> {
     if s == t {
         return Err(Error(format!(
             "GRAPH.MAXFLOW: the source and the sink are one node: {}",
-            net.name(s)
+            net.name(s)?
         )));
     }
     let (flow, shares) = max_flow(&net, s, t, "GRAPH.MAXFLOW")?;
     vm.push(
         BundValue::map(Default::default())
             .set("flow", BundValue::float(flow))
-            .set("edges", edge_rows(&net, &shares)),
+            .set("edges", edge_rows(&net, &shares)?),
     );
     Ok(())
 }
@@ -1158,6 +1201,13 @@ mod tests {
                 panic!("{word}: plain {plain:?}, workbench {bench:?}");
             };
             assert!(wb.is_empty(), "{word}");
+            assert_eq!(stack.len(), 2, "{word}: one answer above the 7, {stack:?}");
+            assert_eq!(stack[0], "7", "{word}: the stack beneath moved");
+            assert_eq!(
+                bwb.len(),
+                1,
+                "{word}.: one answer on the workbench, {bwb:?}"
+            );
             assert_eq!(bstack, &["7"], "{word}.: the stack beneath moved");
             assert_eq!(&stack[1..], &bwb[..], "{word}.");
 
@@ -1184,7 +1234,7 @@ mod tests {
         assert!(e.contains("GRAPH.MAXFLOW: NO DATA #3"), "{e}");
         let e = err_of("[ [ :A :B 2 ] ] [ :A :B ] graph! graph.toposort");
         assert!(
-            e.contains("GRAPH.TOPOSORT: an edge's weight must be a FLOAT, not"),
+            e.contains("GRAPH.TOPOSORT: an edge's weight must be a FLOAT, not Integer"),
             "{e}"
         );
         let e = err_of("[ [ :A :Z ] ] [ :A ] graph! graph.scc");
@@ -1196,15 +1246,14 @@ mod tests {
         assert!(e.contains("GRAPH.CYCLE: an edge is too small"), "{e}");
         let e = err_of(":B :A [ [ :A :B -1.0 ] ] [ :A :B ] graph! graph.maxflow");
         assert!(
-            e.contains(
-                "GRAPH.MAXFLOW: a capacity must be a number not below zero: A -> B weighs -1"
-            ),
+            e.contains("GRAPH.MAXFLOW: a capacity must not be below zero: A -> B weighs -1"),
             "{e}"
         );
         // Four elements weigh 100.0, as two do (`make_graph.rs:125-133`).
         let d = top(":B :A [ [ :A :B 1.0 :x ] ] [ :A :B ] graph! graph.maxflow");
         assert!(d.contains("flow=100.0"), "{d}");
-        // A capacity no Bund literal spells, given to the algorithm directly.
+        // The reader refuses a capacity that is not finite, so one that reached
+        // the algorithm would be a defect, and is reported as one.
         let mut n = net(&(
             list_of(&["A", "B"]),
             BundValue::list(vec![BundValue::list(vec![
@@ -1215,10 +1264,7 @@ mod tests {
         ));
         n.edges[0].2 = f64::INFINITY;
         let e = max_flow(&n, 0, 1, "TEST").map(|f| f.0);
-        assert!(
-            matches!(&e, Err(m) if m.0.contains("not below zero")),
-            "{e:?}"
-        );
+        assert!(matches!(&e, Err(m) if m.is_internal()), "{e:?}");
     }
 
     /// **A graph too deep for a recursive search is answered.** A chain of
@@ -1226,31 +1272,46 @@ mod tests {
     /// node would overflow a test thread's 2 MiB stack long before the end.
     #[test]
     fn a_deep_graph_does_not_overflow_the_stack() {
+        // The stack is fixed here, not left to RUST_MIN_STACK.
+        let run = std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(deep_graph)
+            .unwrap_or_else(|e| panic!("{e}"));
+        if let Err(e) = run.join() {
+            std::panic::resume_unwind(e);
+        }
+    }
+
+    fn deep_graph() {
         const N: usize = 200_000;
-        let names: Vec<String> = (0..N).map(|k| format!("N{k}")).collect();
-        let open = Net {
-            ix: names
-                .iter()
-                .cloned()
-                .enumerate()
-                .map(|(k, s)| (s, k))
-                .collect(),
-            edges: (1..N).map(|k| (k - 1, k, 1.0)).collect(),
-            out: (0..N)
-                .map(|k| if k + 1 < N { vec![k + 1] } else { vec![] })
-                .collect(),
-            names,
-        };
+        // Read from the MAP's two lists, as a word reads it.
+        let chain = read(
+            &BundValue::list((0..N).map(|k| BundValue::str(format!("N{k}"))).collect()),
+            &BundValue::list(
+                (1..N)
+                    .map(|k| {
+                        BundValue::list(vec![
+                            BundValue::str(format!("N{}", k - 1)),
+                            BundValue::str(format!("N{k}")),
+                            BundValue::float(1.0),
+                        ])
+                    })
+                    .collect(),
+            ),
+            "TEST",
+        )
+        .unwrap_or_else(|e| panic!("{}", e.0));
+        let open = chain;
         assert_eq!(dfs(&open, 0).len(), N);
         assert_eq!(scc(&open).len(), N);
         assert_eq!(find_cycle(&open), None);
-        assert_eq!(toposort(&open).map(|o| o.len()), Ok(N));
+        assert_eq!(topo(&open).map(|o| o.len()), Ok(N));
         let mut closed = open;
         closed.edges.push((N - 1, 0, 1.0));
         closed.out[N - 1].push(0);
         assert_eq!(scc(&closed).len(), 1);
         assert_eq!(find_cycle(&closed).map(|c| c.len()), Some(N));
-        assert_eq!(toposort(&closed), Err(0));
+        assert_eq!(topo(&closed), Err(0));
     }
 
     /// **Every answer follows the `nodes` list, not the alphabet** (§S3).
@@ -1421,33 +1482,166 @@ mod tests {
         }
     }
 
-    /// A capacity that is not finite, which no Bund literal spells, given
-    /// through the word with a graph MAP built here.
+    /// **A weight that is not finite is refused by every word** (D193),
+    /// made as a program makes one: `math.sqrt` of a negative is NaN and an
+    /// overflowing `*` is ±inf.
     #[test]
-    fn a_capacity_that_is_not_finite_is_refused_through_the_word() {
-        for w in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
-            let mut i = Interp::new();
-            crate::register_all(&mut i.registry);
-            let graph = BundValue::map(Default::default())
-                .set("type", BundValue::str("graph"))
-                .set("nodes", list_of(&["A", "B"]))
-                .set(
-                    "edges",
-                    BundValue::list(vec![BundValue::list(vec![
-                        BundValue::str("A"),
-                        BundValue::str("B"),
-                        BundValue::float(w),
-                    ])]),
+    fn a_weight_that_is_not_finite_is_refused() {
+        for (make, shows) in [
+            ("-1.0 math.sqrt", "NaN"),
+            ("1.0e200 1.0e200 *", "inf"),
+            ("1.0e200 -1.0e200 *", "-inf"),
+        ] {
+            let g = format!("{make} [ :A :B ] ++ list push [ :A :B ] graph!");
+            for (word, rest) in FORMS {
+                // Nodes of this two-node graph, as many as the word takes.
+                let rest = [":B", ":A"][2 - rest.len()..].join(" ");
+                let e = err_of(&format!("{rest} {g} {word}"));
+                assert!(
+                    e.contains(&format!(
+                        "{}: an edge's weight must be finite: A -> B weighs {shows}",
+                        word.to_uppercase()
+                    )),
+                    "{word} {make}: {e}"
                 );
-            i.push(BundValue::str("B"));
-            i.push(BundValue::str("A"));
-            i.push(graph);
-            let e = graph_maxflow(&mut i).map_err(|e| e.0);
-            assert!(
-                matches!(&e, Err(m) if m.contains("GRAPH.MAXFLOW: a capacity must be a number not below zero: A -> B weighs")),
-                "{w}: {e:?}"
-            );
+            }
         }
+    }
+
+    /// **`graph.maxflow` counts every capacity above zero**, however small
+    /// beside the largest: the flow here is 1e13 + 5, exact in an f64.
+    #[test]
+    fn a_small_capacity_beside_a_huge_one_still_carries_flow() {
+        let f = top(
+            ":T :S [ [ :S :T 10000000000000.0 ] [ :S :M 5.0 ] [ :M :T 5.0 ] ] \
+             [ :S :M :T ] graph! graph.maxflow",
+        );
+        assert!(f.contains("flow=10000000000005.0"), "{f}");
+        assert!(
+            f.contains(&format!(
+                "edges={}",
+                edges_of(&[
+                    ("S", "T", 10000000000000.0),
+                    ("S", "M", 5.0),
+                    ("M", "T", 5.0)
+                ])
+            )),
+            "{f}"
+        );
+    }
+
+    /// The reader's refusals S4 lists, each naming a type by its name.
+    #[test]
+    fn every_reader_refusal_names_the_word_and_the_type() {
+        let e = err_of("list [ 1 ] graph! graph.scc");
+        assert!(
+            e.contains("GRAPH.SCC: a node name must be a STRING, not Integer"),
+            "{e}"
+        );
+        let e = err_of("[ 1 ] [ :A ] graph! graph.scc");
+        assert!(
+            e.contains("GRAPH.SCC: an edge must be a LIST, not Integer"),
+            "{e}"
+        );
+        let e = err_of("[ [ 1 :A ] ] [ :A ] graph! graph.scc");
+        assert!(
+            e.contains("GRAPH.SCC: an edge's node must be a STRING"),
+            "{e}"
+        );
+        let e = err_of(&format!("1 {DAG} graph.bfs"));
+        assert!(
+            e.contains("GRAPH.BFS: the start node must be a STRING, not Integer"),
+            "{e}"
+        );
+        // One node as both ends is refused before any capacity is looked at.
+        let e = err_of(":A :a [ [ :A :B -1.0 ] ] [ :A :B ] graph! graph.maxflow");
+        assert!(
+            e.contains("GRAPH.MAXFLOW: the source and the sink are one node: A"),
+            "{e}"
+        );
+    }
+
+    /// Run `src` to its end or its first refusal: the stack, the workbench,
+    /// and the refusal if there was one.
+    fn residue(src: &str) -> (Vec<String>, Vec<String>, Option<String>) {
+        let mut i = Interp::new();
+        crate::register_all(&mut i.registry);
+        let stream = bund2_syntax::compile(src).unwrap_or_else(|e| panic!("{}", e.render(src)));
+        let err = i.eval(&stream).err().map(|e| e.0);
+        let stack = i.snapshot().iter().map(BundValue::display).collect();
+        let mut bench = Vec::new();
+        while let Some(v) = i.pull_workbench() {
+            bench.push(v.display());
+        }
+        bench.reverse();
+        (stack, bench, err)
+    }
+
+    /// **What a refusal leaves** (§S4, RFC-0004's residual): the values a
+    /// word pulled before it refused are gone, the rest are where they were,
+    /// and a `.` form moves what its word left to the workbench.
+    #[test]
+    fn a_refusal_leaves_what_s4_says() {
+        let cases: [(&str, &[&str], &[&str], &str); 7] = [
+            (":Z DAG graph.bfs", &["7"], &[], "unknown start node: Z"),
+            (
+                ":E :Z DAG graph.maxflow",
+                &["7", "E"],
+                &[],
+                "unknown source node: Z",
+            ),
+            // A malformed graph is refused before its node is pulled.
+            (
+                ":A [ [ :A ] ] [ :A ] graph! graph.bfs",
+                &["7", "A"],
+                &[],
+                "an edge is too small",
+            ),
+            (
+                "[ [ :A :B 2 ] ] [ :A :B ] graph! graph.toposort",
+                &["7"],
+                &[],
+                "must be a FLOAT",
+            ),
+            ("DAG . :Z graph.bfs.", &["7"], &[], "unknown start node: Z"),
+            (
+                "DAG . :E :Z graph.maxflow.",
+                &["7"],
+                &["E"],
+                "unknown source node: Z",
+            ),
+            // A `.` form checks both sides before it takes anything.
+            (
+                "DAG . graph.maxflow.",
+                &["7"],
+                &["{DAG}"],
+                "Stack is too shallow for inline GRAPH.MAXFLOW.",
+            ),
+        ];
+        let dag = top(DAG);
+        for (src, stack, bench, says) in cases {
+            let src = format!("7 {}", src.replace("DAG", DAG));
+            let (st, wb, err) = residue(&src);
+            let err = err.unwrap_or_else(|| panic!("{src} did not refuse"));
+            assert!(err.contains(says), "{src}: {err}");
+            assert_eq!(st, stack, "{src}: the stack");
+            let bench: Vec<String> = bench
+                .iter()
+                .map(|b| {
+                    if *b == "{DAG}" {
+                        dag.clone()
+                    } else {
+                        b.to_string()
+                    }
+                })
+                .collect();
+            assert_eq!(wb, bench, "{src}: the workbench");
+        }
+        let (_, _, err) = residue(":A graph.bfs.");
+        assert!(
+            err.is_some_and(|e| e.contains("Workbench is too shallow for inline GRAPH.BFS.")),
+            "an empty workbench"
+        );
     }
 
     // ---- Cross-checks over seeded random graphs ----------------------------
@@ -1493,6 +1687,14 @@ mod tests {
         (0..count).map(|_| random(&mut rng, lo)).collect()
     }
 
+    fn topo(n: &Net) -> Result<Vec<usize>, usize> {
+        toposort(n).unwrap_or_else(|e| panic!("{}", e.0))
+    }
+
+    fn bf(n: &Net, s: usize) -> Result<Vec<Option<f64>>, usize> {
+        bellman_ford(n, s).unwrap_or_else(|e| panic!("{}", e.0))
+    }
+
     fn net(g: &(BundValue, BundValue)) -> Net {
         read(&g.0, &g.1, "TEST").unwrap_or_else(|e| panic!("{}", e.0))
     }
@@ -1503,8 +1705,9 @@ mod tests {
 
     /// A graph of anything the reader must take or refuse: names from
     /// `NAMES`, now and then an edge naming one the node list lacks; edges
-    /// of one to four elements; weights fractional, negative, or now and
-    /// then an INTEGER; and edges given more than once.
+    /// of one to four elements, and now and then a PAIR; weights
+    /// fractional, negative, or now and then an INTEGER; edges given more
+    /// than once; and, rarely, a node, an end or an edge of the wrong type.
     fn wide(rng: &mut Rng) -> (BundValue, BundValue) {
         let pick = |rng: &mut Rng| NAMES[rng.below(NAMES.len() as u64) as usize];
         let given: Vec<&str> = (0..1 + rng.below(7)).map(|_| pick(rng)).collect();
@@ -1516,7 +1719,17 @@ mod tests {
         };
         let edges = (0..rng.below(13))
             .map(|_| {
-                let mut e = vec![BundValue::str(end(rng)), BundValue::str(end(rng))];
+                let ends = |rng: &mut Rng| match rng.below(80) {
+                    0 => BundValue::int(1),
+                    _ => BundValue::str(end(rng)),
+                };
+                if rng.below(80) == 0 {
+                    return BundValue::int(2);
+                }
+                if rng.below(20) == 0 {
+                    return BundValue::pair(ends(rng), ends(rng));
+                }
+                let mut e = vec![ends(rng), ends(rng)];
                 match rng.below(60) {
                     0 => e.truncate(1),
                     1 => e.push(BundValue::int(3)),
@@ -1527,7 +1740,10 @@ mod tests {
                 BundValue::list(e)
             })
             .collect();
-        let nodes = given.iter().map(|s| BundValue::str(*s)).collect();
+        let mut nodes: Vec<BundValue> = given.iter().map(|s| BundValue::str(*s)).collect();
+        if rng.below(80) == 0 {
+            nodes.push(BundValue::int(3));
+        }
         (BundValue::list(nodes), BundValue::list(edges))
     }
 
@@ -1701,7 +1917,7 @@ mod tests {
     fn toposort_and_cycle_agree() {
         for g in graphs(5, 400, 1) {
             let n = net(&g);
-            match (toposort(&n), find_cycle(&n)) {
+            match (topo(&n), find_cycle(&n)) {
                 (Ok(order), None) => {
                     let mut at = vec![0; n.len()];
                     for (k, u) in order.iter().enumerate() {
@@ -1738,7 +1954,7 @@ mod tests {
                 crate::graph::build_algos(&g.0, &g.1).unwrap_or_else(|e| panic!("{}", e.0));
             for s in 0..n.len() {
                 let want = algos::cs::graph::dijkstra::shortest_paths(&a, &s).unwrap_or_default();
-                let got = bellman_ford(&n, s).unwrap_or_else(|u| panic!("cycle through {u}"));
+                let got = bf(&n, s).unwrap_or_else(|u| panic!("cycle through {u}"));
                 for (t, d) in got.iter().enumerate() {
                     assert_eq!(
                         *d,
@@ -1777,7 +1993,7 @@ mod tests {
             }
             for s in 0..k {
                 let negative = (0..k).any(|v| d[s][v].is_finite() && d[v][v] < 0.0);
-                match bellman_ford(&n, s) {
+                match bf(&n, s) {
                     Ok(got) => {
                         assert!(!negative, "{:?} from {s}: missed a cycle", n.edges);
                         for (t, x) in got.iter().enumerate() {
@@ -1865,6 +2081,50 @@ mod tests {
             assert_eq!(got, best, "{:?}", n.edges);
         }
         assert!(tried >= 100, "only {tried} of 200 graphs were small enough");
+    }
+
+    /// Capacities across thirteen orders of magnitude, every one a whole
+    /// number so that every sum is exact in an f64: the flow equals the least
+    /// cut exactly, for every source and sink. A tolerance relative to the
+    /// largest capacity would lose the small ones.
+    #[test]
+    fn max_flow_is_the_min_cut_across_magnitudes() {
+        let mut rng = Rng(11);
+        for _ in 0..300 {
+            let n = 2 + rng.below(6) as usize;
+            let nodes: Vec<BundValue> = LETTERS[..n].iter().map(|s| BundValue::str(*s)).collect();
+            let edges: Vec<BundValue> = (0..rng.below(13))
+                .map(|_| {
+                    let w = (1 + rng.below(9)) as f64 * 10f64.powi(rng.below(14) as i32);
+                    BundValue::list(vec![
+                        BundValue::str(LETTERS[rng.below(n as u64) as usize]),
+                        BundValue::str(LETTERS[rng.below(n as u64) as usize]),
+                        BundValue::float(w),
+                    ])
+                })
+                .collect();
+            let g = net(&(BundValue::list(nodes), BundValue::list(edges)));
+            for s in 0..n {
+                for t in (0..n).filter(|t| *t != s) {
+                    let (flow, _) =
+                        max_flow(&g, s, t, "TEST").unwrap_or_else(|e| panic!("{}", e.0));
+                    let mut cut = f64::INFINITY;
+                    for mask in 0u32..(1 << n) {
+                        if mask & (1 << s) == 0 || mask & (1 << t) != 0 {
+                            continue;
+                        }
+                        let c: f64 = g
+                            .edges
+                            .iter()
+                            .filter(|(f, to, _)| mask & (1 << f) != 0 && mask & (1 << to) == 0)
+                            .map(|e| e.2)
+                            .sum();
+                        cut = cut.min(c);
+                    }
+                    assert_eq!(flow, cut, "{:?} {s}->{t}", g.edges);
+                }
+            }
+        }
     }
 
     /// For every source and sink, the flow equals the least cut, found by

@@ -3359,6 +3359,18 @@ the exactly-three rule. The new `build_algos` port follows `make_graph`
 (`:78-141`) the same way. Unit tests in `graph.rs` cover both rules.
 Conformance 90/98, ceiling 90/98, before and after.
 
+**Dated note, 2026-10-18.** `make_fast_graph` is only half of how
+`graph.path` reads a graph. `fast_paths`' `do_add_edge` then **skips** a
+self-loop and an edge whose truncated weight is below 1
+(`~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fast_paths-1.0.0/src/input_graph.rs:190-203`),
+before `freeze` sorts and keeps the lowest of a repeated edge (`:136-161`).
+So under `graph.path` a 0.5 edge does not exist, and `[ :A :B 0.5 ]
+[ :A :B 5.0 ]` keeps 5.0. Bund2 calls the same crate and agrees; the
+second RFC-0012 review (finding 4) found the RFC's description short of
+this. `graph_path_drops_an_edge_under_one_before_the_lowest_is_kept` in
+`graph.rs` pins it. The skipped edges are also what F219's panic follows
+from.
+
 ## F102 — the alias `$` can never be called
 
 **An original-implementation defect, reproduced**, found while probing the last
@@ -4084,6 +4096,39 @@ and D37 gains a stated exception for bytes read from a file Bund2 did not
 write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
+
+## F219 — `graph.path` panics on a node no kept edge reaches
+
+**An original-implementation defect; found 2026-10-18 by the second
+RFC-0012 review (finding 5), recorded and fixed the same day on the
+owner's ruling (5A, D193).** `graph.path` builds its graph with
+`fast_paths`, whose `do_add_edge` skips a self-loop and any edge whose
+weight, cast `as usize` (`reference/Bund/src/stdlib/functions/graph/make_graph.rs:64`),
+is below 1, and sizes the graph by the largest endpoint of an edge it
+kept (`~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fast_paths-1.0.0/src/input_graph.rs:190-204`).
+`calc_path` then asserts that both nodes are inside that size
+(`path_calculator.rs:77-82`). A node in `nodes` past every kept endpoint
+fails the assertion, and the oracle panics (`invalid start node` or
+`invalid end node`). Run on the oracle on 2026-10-18, each of these
+panics:
+
+    :C :A [ [ :A :B 1.0 ] ] [ :A :B :C ] graph! graph.path      (an isolated last node)
+    :A :C [ [ :A :B 1.0 ] ] [ :A :B :C ] graph! graph.path      (the same, as the start)
+    :B :A list [ :A :B ] graph! graph.path                       (no edges)
+    :B :A [ [ :A :A 1.0 ] [ :B :B 1.0 ] ] [ :A :B ] graph! graph.path   (only self-loops)
+    :B :A [ [ :A :B 0.5 ] ] [ :A :B ] graph! graph.path          (only an edge under 1)
+
+Bund2 called the same crate, so D49 caught the panic and reported it as
+an internal error, "a defect in Bund2", to the author of a valid program.
+
+**Disposition: FIX** (2026-10-18, owner ruling 5A, D193). Before
+`calc_path`, `graph_path` checks both indices against the prepared
+graph's node count. A node outside it is one no kept edge reaches, so the
+answer is `{ found=false }`, what `graph.path` already answers for a node
+it cannot reach (`getpath.rs:76`). A deviation from the reference, which
+crashes; no golden runs these graphs, so conformance does not move.
+Checked by `graph_path_answers_no_path_for_a_node_no_kept_edge_reaches`
+in `crates/bund2-stdlib/src/graph.rs`.
 
 ## F218 — `graph.path` Title-cased its node operands, where the reference looks them up as given
 

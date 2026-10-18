@@ -185,6 +185,9 @@ fn build(nodes: &BundValue, edges: &BundValue) -> Result<Built, Error> {
 /// (F218). An unknown end node is reported with the *start* node's name
 /// (`:71`), and a non-STRING end with the start's message (`:67`).
 ///
+/// A node no kept edge reaches answers `found` false here, where the
+/// reference panics inside `fast_paths` (F219, D193).
+///
 /// The answer is a MAP: `found` alone when there is no path (`:76`), or
 /// `path`, `weight` and `found` when there is (`:87-89`). `weight` is pushed
 /// as a **FLOAT** even though `fast_paths` computes in `usize` (`:88`), which
@@ -245,6 +248,17 @@ fn graph_path(vm: &mut dyn Vm) -> Result<(), Error> {
         return Err(Error(format!("GRAPH.PATH: unknown end node: {start}")));
     };
 
+    // `fast_paths` numbers only the nodes its kept edges touch: it skips a
+    // self-loop and an edge under weight 1, and sizes the graph by the
+    // largest endpoint left (`fast_paths-1.0.0/src/input_graph.rs:190-204`).
+    // `calc_path` asserts both nodes are inside that size
+    // (`path_calculator.rs:77-82`), so the reference panics on a node past
+    // it. No kept edge reaches such a node, so there is no path (F219, D193).
+    let size = prepared.get_num_nodes();
+    if start_ix >= size || end_ix >= size {
+        vm.push(BundValue::map(Default::default()).set("found", BundValue::boolean(false)));
+        return Ok(());
+    }
     let Some(found) = fast_paths::calc_path(&prepared, start_ix, end_ix) else {
         return Err(Error("GRAPH.PATH: can not calculate path".into()));
     };
@@ -639,6 +653,44 @@ mod tests {
         );
         let found = top_text(&format!(":C :A {g} graph.path"));
         assert!(found.contains("weight=3.0"), "{found}");
+    }
+
+    /// **Where the reference panics, `graph.path` answers no path** (F219,
+    /// D193). `fast_paths` numbers only the nodes a kept edge touches, and
+    /// `calc_path` asserts both ends are among them
+    /// (`fast_paths-1.0.0/src/path_calculator.rs:77-82`); a node past them
+    /// is one no kept edge reaches.
+    #[test]
+    fn graph_path_answers_no_path_for_a_node_no_kept_edge_reaches() {
+        for g in [
+            ":C :A [ [ :A :B 1.0 ] ] [ :A :B :C ] graph!",
+            ":A :C [ [ :A :B 1.0 ] ] [ :A :B :C ] graph!",
+            ":B :A list [ :A :B ] graph!",
+            ":B :A [ [ :A :A 1.0 ] [ :B :B 1.0 ] ] [ :A :B ] graph!",
+            ":B :A [ [ :A :B 0.5 ] ] [ :A :B ] graph!",
+        ] {
+            let found = top_text(&format!("{g} graph.path"));
+            assert!(
+                found.contains("found=false") && !found.contains("path="),
+                "{g}: {found}"
+            );
+        }
+    }
+
+    /// `fast_paths` skips a self-loop and an edge under weight 1 before it
+    /// keeps the lowest of a repeated edge
+    /// (`fast_paths-1.0.0/src/input_graph.rs:190-203`, `:136-161`), so a
+    /// 0.5 edge is routed around and does not undercut a 5.0 one.
+    #[test]
+    fn graph_path_drops_an_edge_under_one_before_the_lowest_is_kept() {
+        let around = top_text(
+            ":B :A [ [ :A :B 0.5 ] [ :A :C 1.0 ] [ :C :B 1.0 ] ] [ :A :B :C ] graph! graph.path",
+        );
+        assert!(around.contains("weight=2.0"), "{around}");
+        let kept = top_text(":B :A [ [ :A :B 0.5 ] [ :A :B 5.0 ] ] [ :A :B ] graph! graph.path");
+        assert!(kept.contains("weight=5.0"), "{kept}");
+        let lowest = top_text(":B :A [ [ :A :B 7.0 ] [ :A :B 3.9 ] ] [ :A :B ] graph! graph.path");
+        assert!(lowest.contains("weight=3.0"), "{lowest}");
     }
 
     fn rows(src: &str) -> Vec<bund2_value::BundValue> {
