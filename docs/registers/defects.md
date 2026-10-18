@@ -4071,6 +4071,33 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F217 — a debugger stop numbered its frame from the outside, and `bt` from the inside
+
+**A Bund2 defect; found 2026-10-17 building D191, recorded and fixed the
+same day on the owner's instruction.** A stop's position line in the
+debugger names the frame the debuggee is in. `render_position` in
+`crates/bund2-interp/src/lib.rs` passed `frames.len() - 1` to
+`debug::frame_line` as the frame's number, which is the *outermost*
+frame's index, while `render_backtrace` numbers from the innermost, `#0`,
+as gdb does and as D173's traceback does. With one frame open the two
+agreed by accident; with two or more they named one frame differently.
+At a D191 `catch` stop inside `boom`, called from a `?try` body:
+
+    caught: DIV returns error: Incompartible operation for the list
+    #1  boom at 4  next: the end of the body
+    (bund2) bt
+    #0  boom at 4
+    #1  a lambda at 1
+
+Introduced with the console itself (`c497621`, 2026-10-04, RFC-0008),
+with no reason given; every test that pinned a position line did so one
+frame deep, where it read `#0` either way. The position line now passes
+`0`: the innermost frame is `#0` on both. The top level, with no frame,
+still reads `#0  the top-level stream`. Checked by
+`catch_stops_once_where_a_failure_is_raised_with_its_frames` in
+`crates/bund2-cli/tests/debugger_step.rs`, two frames deep, which also
+asserts that `#1  boom` no longer appears.
+
 ## F216 — two `bund2-async` tests timed out when a test VM's panic hook resolved a backtrace
 
 **A Bund2 test defect; found and fixed 2026-10-17.** In one full

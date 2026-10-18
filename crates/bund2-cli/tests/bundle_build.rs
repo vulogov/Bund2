@@ -1584,3 +1584,37 @@ fn an_underflow_warns_with_its_file_and_strict_refuses() {
         let _ = std::fs::remove_file(p);
     }
 }
+
+/// **D191: a bundle is traced through `BUND2_TRACE`**, as it is profiled
+/// through `BUND2_PROFILE` (RFC-0011 §S6): it owns its argv, so the file
+/// arrives by the environment. Unset or empty, nothing is written; the
+/// program's own arguments still reach it either way.
+#[test]
+fn a_bundle_is_traced_through_the_environment() {
+    let exe = build(
+        ":w { 1 + } register\nargs.parse :n ?key { drop 1 } { :n get car convert.to_int } ?true* w println\n",
+        "traced",
+        &[],
+    );
+    let trace = scratch("traced.trace");
+    let _ = std::fs::remove_file(&trace);
+    let trace_s = trace.to_str().expect("a UTF-8 path");
+    let (code, out) = run(&exe, &["--n", "41"], &[("BUND2_TRACE", trace_s)]);
+    assert_eq!(code, Some(0), "{out}");
+    assert_eq!(
+        out, "42\n",
+        "the program's own argv reached it, and nothing else was said"
+    );
+    let text = std::fs::read_to_string(&trace).expect("the trace was written");
+    assert!(text.starts_with("# bund2 trace of "), "{text}");
+    assert!(
+        text.contains("\nw\n  +\n"),
+        "the call and the native inside it:\n{text}"
+    );
+
+    let _ = std::fs::remove_file(&trace);
+    let (code, out) = run(&exe, &["--n", "41"], &[("BUND2_TRACE", "")]);
+    assert_eq!((code, out.as_str()), (Some(0), "42\n"));
+    assert!(!trace.exists(), "an empty BUND2_TRACE traces nothing");
+    let _ = std::fs::remove_file(&exe);
+}

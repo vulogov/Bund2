@@ -618,6 +618,15 @@ fn catch_stops_once_where_a_failure_is_raised_with_its_frames() {
         err.contains("#0  boom at 4"),
         "the frames are still there:\n{err}"
     );
+    // F217: the stop's position line names the innermost frame `#0`, as
+    // `bt` does, two frames deep; it said `#1  boom` while `bt` said `#0`.
+    assert!(
+        err.contains(
+            "caught: DIV returns error: Incompartible operation for the list\n#0  boom at 4  next:"
+        ),
+        "{err}"
+    );
+    assert!(!err.contains("#1  boom"), "{err}");
     assert!(
         err.contains("the failure unwinds when the program moves on"),
         "{err}"

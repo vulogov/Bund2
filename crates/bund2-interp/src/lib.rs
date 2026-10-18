@@ -1564,10 +1564,10 @@ impl Interp {
                     .and_then(|items| items.get(f.ip))
                     .map(|v| v.summary(48))
                     .unwrap_or_else(|| "the end of the body".to_string());
-                format!(
-                    "{}  next: {next}",
-                    debug::frame_line(&f.body, f.ip, self.frames.len() - 1, who)
-                )
+                // `#0`: the innermost frame is `bt`'s first line and the
+                // traceback's (D173), so a stop and the backtrace typed at it
+                // name it alike (F217). It was the outermost frame's index.
+                format!("{}  next: {next}", debug::frame_line(&f.body, f.ip, 0, who))
             }
             // **The index is the stream's, so it is a position a caller
             // holding `Lowered` can turn into a source span** — the whole of

@@ -3748,6 +3748,15 @@ that the ruling did not, so the owner can overrule any of it.
 - Status: **RESOLVED** — the eight features by the owner's ruling; the
   choices above by the build.
 
+**Dated note, 2026-10-17 — `BUND2_TRACE` tested; F217.** The bundle's road
+to the trace was built and not tested. `a_bundle_is_traced_through_the_environment`
+in `crates/bund2-cli/tests/bundle_build.rs` builds a bundle, runs it with
+`BUND2_TRACE` set and its own `--n 41` argument, and checks the trace and
+that the program's argv still reached it; an empty `BUND2_TRACE` writes
+nothing. On the same instruction, F217: a stop's position line numbered
+its frame from the outside while `bt` numbered from the inside, which
+D191's `catch` made visible two frames deep. Fixed; see F217.
+
 ## D190 — `debug.profile`: the profile of the run so far, written by a word
 
 **Raised and ruled 2026-10-17** by the repository owner: asked "what is
