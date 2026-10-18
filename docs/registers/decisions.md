@@ -3650,6 +3650,104 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D191 — the debugger: catch, hit counts, until, what changed, conditional and redefinition watches, the trace, and the console's history
+
+**Raised and ruled 2026-10-17** by the repository owner: shown a
+brainstorm of thirteen debugger improvements, answered "1, 3 and 2, then
+4, 5, 6, 7, 9". That rules that each of those eight exists. Every word
+added is Bund2's own, as D113's are, so `conform`, `COVERAGE` and
+`IMPLEMENTED` move by zero. This entry records what the build decided
+that the ruling did not, so the owner can overrule any of it.
+
+- Blocks: nothing
+- Depends on: RFC-0008 (§D1's safepoint, §D3's child VM, §D4's hooks,
+  §D7's deferred trace, §D8's history), D113 (the vocabulary and its
+  words), D102 (which deferred the trace), D161 (when history is
+  written), RFC-0011 (the record whose hooks the trace uses), D173 (one
+  failure seen at several levels)
+
+### Built, the same day
+
+1. **`catch` — stop where a failure is raised, before it unwinds.**
+   Console `catch`, word `debug.catch`, `delete catch`. The stop is in
+   `run_to`'s error arm before `unwind_to`, and on the top-level loop's
+   error path, so `bt` shows the frames the failure was raised under and
+   `st` the stack as it left it. *Choices:* the spelling is `catch`, not
+   `break error`, because `break <word>` takes any word and a program may
+   have one named `error`. One stop per failure: a failure is seen by
+   every `run_to` it unwinds through, so the first stop raises a flag the
+   program's next step clears; a failure a `?try` caught followed by a
+   later one stops twice. The stop cannot cancel the failure: continuing
+   lets it unwind as it would have, and the stop line says so. A failure
+   that is the program's own `bund.exit` is not caught.
+2. **What changed, at every stop.** Beneath the position line, one line
+   such as `changed: @main 2 → 1, popped 2, pushed 3`; a stack switch
+   reads `now on @other (n deep)`, and a workbench change is added.
+   Nothing when nothing moved, and nothing at the first stop. *Choices:*
+   compared against the state the program resumed in after the last
+   stop, so a line typed at that stop is counted; summaries of the top 32
+   values are what is compared, so a stop costs the same on a stack of a
+   million; at most four pushed values are shown, the last four.
+3. **Hit counts and a hit to stop at.** `info` shows `(hit n times)`
+   beside a breakpoint once it has hits, so a fresh `break w` still reads
+   `break w`; a breakpoint stop reads `breakpoint: w (hit n)`. `break w
+   100` stops at the hundredth hit **once**, and `break w 100 if <lambda>`
+   counts only hits whose condition held; word `debug.break.at` ("w" n).
+   *Choice:* once, not from then on (gdb's `ignore`): what was asked for
+   was "the 5,000th iteration goes wrong", and `continue` after it should
+   run on.
+4. **`until <word>`** — arm a breakpoint, run on, stop at the next call,
+   and forget it; word `debug.until`. `info` lists it as `until w` while
+   armed. The stop reads as a breakpoint stop.
+5. **The trace — RFC-0008 §D7, deferred by D102.** `--trace <file>`, and
+   `BUND2_TRACE` for a bundle as `BUND2_PROFILE` is (RFC-0011 §S6): one
+   line per call entered, natives included, indented two spaces per named
+   call open around it, and a `! <reason>` line where a failure is
+   raised. *Choices:* kept by RFC-0011's record, whose hooks are the
+   frame-loop hook D102 said was missing, so a traced run adds no branch
+   to an unprofiled one and, like a profiled run, installs no tier (D186);
+   `--trace` without `--profile` writes no report. Entries only, no
+   returns: the indentation says where a call ended, at half the size.
+   The resolved name, not the spelling. A file that cannot be created ends
+   the run before it starts with code 1; a write that fails later stops
+   the trace, not the program, and the run ends with code 1 and says the
+   trace is incomplete, as a report that cannot be written does (D187).
+   D102's reason — no consumer — is answered by the profiler: a trace says
+   in what order the calls happened that the profile only totals.
+6. **Conditional watchpoints.** `watch @s if <lambda>`, word
+   `debug.watch.if` ("@s" "source"). The condition runs in §D3's child
+   VM over the stack **with the value about to land on top**, so `{ 3 ==
+   }` reads that value. Not for the workbench, whose hook is a different
+   path; refused there with a message. *Also changed:* a condition that
+   fails is reported once per distinct reason, for breakpoints too — a
+   watch condition runs on every push and one that cannot read a lambda
+   said so at every lambda.
+7. **`watch redefine`** — stop when a name that is bound is registered
+   again, before the old body is replaced; word `debug.watch.redefine`,
+   `delete redefine`. *Choice:* any name, not one named name: the case is
+   "who replaced my word", and the stop line names the word. Hooked in
+   `Vm::register_lambda`, which `register` reaches; a native that binds a
+   name some other way is not seen.
+8. **History for the `--debugger` console.** At a terminal it reads its
+   commands with the line editor `input` uses and keeps them in
+   `bund2_debugger_history.txt`, the file the console a word attaches
+   already keeps, after each line (D161). Under a pipe it reads plain
+   lines as before, which the differential tests depend on.
+
+- Tests: `a_stop_reads_what_changed` in `crates/bund2-interp/src/debug.rs`;
+  six process tests in `crates/bund2-cli/tests/debugger_step.rs` (a hit
+  and its count, `until`, `catch` with its frames and once, `watch
+  redefine`, a conditional watch and its once-said failure, what
+  changed); `the_d191_words_arm_what_the_console_commands_arm` in
+  `debugger_words.rs`, over all five words and `info`'s listing;
+  `the_debugger_flag_at_a_terminal_keeps_a_history` in `terminal.rs`, at
+  a pseudo-terminal; `trace_writes_one_line_per_call` in `cli_ux.rs`.
+- The off path: the hot loops are unchanged. The new checks are on error
+  paths, in `register_lambda`, inside `if debug.is_some()` blocks, and
+  inside the profile record's own branch; no D117 reading was taken.
+- Status: **RESOLVED** — the eight features by the owner's ruling; the
+  choices above by the build.
+
 ## D190 — `debug.profile`: the profile of the run so far, written by a word
 
 **Raised and ruled 2026-10-17** by the repository owner: asked "what is
@@ -3738,6 +3836,15 @@ three snapshots in a loop without `--profile` and counts one warning.
 Also measured that day, and written into nothing else: the snapshot error
 names the path asked for, not the staged name it is first written under
 (`3daba87`).
+
+**Dated note, 2026-10-17 — "a bundle always warns" was wrong.** The
+fourth choice above says a bundle has no `--profile` and so always warns.
+A bundle has no flag, but it reads `BUND2_PROFILE` (RFC-0011 §S6), and
+with it set the word writes as from source: measured with
+`bund_examples/profiler_demo` built by `bund2 build`, four reports and the
+same open counts. Found building D191's `BUND2_TRACE`, which follows the
+same road. The demo's README and Makefile said the same and are
+corrected; `make bundle` now runs the bundle profiled.
 
 ## D189 — a profiled run reads the clock less: which calls are timed, and how a time no reading measured is reported
 

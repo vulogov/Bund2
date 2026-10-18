@@ -5,11 +5,11 @@
 //! stdout. A TUI would implement the same trait over its own event loop, and
 //! nothing in the interpreter changes.
 //!
-//! **Lines rather than readline.** `rustyline` is already a dependency, for
-//! `input` and `password`, and it is deliberately not used here: a line reader
-//! with history and editing wants a terminal, and this has to work under a
-//! pipe — which is how the criterion 6 differential drives it, feeding `step`
-//! until the program ends. History is §D8's, and §D8 is not built.
+//! **Lines under a pipe, an editor at a terminal.** Under a pipe — how the
+//! criterion 6 differential drives it, feeding `step` until the program ends
+//! — commands are plain lines. At a terminal they are read by the line
+//! editor `input` uses, with §D8's history in the same file the console a
+//! word attaches keeps (D191; RFC-0008 had left this console without one).
 //!
 //! **EOF detaches rather than killing the program.** A debugger that dies must
 //! not take the debuggee with it, so a closed stdin lets the program run to
@@ -34,16 +34,55 @@ use bund2_value::BundValue;
 
 /// A debugger driven by lines on stdin.
 pub struct Stdio {
-    input: std::io::Lines<std::io::StdinLock<'static>>,
+    input: Source,
     /// Suppresses the banner after the first stop.
     greeted: bool,
 }
 
+/// Where the commands come from.
+enum Source {
+    /// A pipe or a file: one command a line.
+    Lines(std::io::Lines<std::io::StdinLock<'static>>),
+    /// A terminal: the line editor, with a history (D191).
+    Terminal(Box<bund2_stdlib::terminal::Terminal>),
+}
+
 impl Stdio {
     pub fn new() -> Self {
+        use std::io::IsTerminal;
+        let input = if std::io::stdin().is_terminal() {
+            Source::Terminal(Box::new(bund2_stdlib::terminal::Terminal::new()))
+        } else {
+            Source::Lines(std::io::stdin().lock().lines())
+        };
         Self {
-            input: std::io::stdin().lock().lines(),
+            input,
             greeted: false,
+        }
+    }
+
+    /// One line, or `None` at the end of input or a failed read.
+    fn read(&mut self) -> Option<String> {
+        use bund2_api::input::{Ask, Input, Read};
+        match &mut self.input {
+            Source::Lines(lines) => {
+                let mut out = std::io::stderr();
+                let _ = write!(out, "(bund2) ");
+                let _ = out.flush();
+                lines.next().and_then(Result::ok)
+            }
+            Source::Terminal(t) => match t.line(&Ask::in_history("(bund2) ", HISTORY)) {
+                Ok(Read::Line(line)) => Some(line),
+                _ => None,
+            },
+        }
+    }
+
+    /// Keep a command in the history, at a terminal.
+    fn remember(&mut self, line: &str) {
+        use bund2_api::input::Input;
+        if let Source::Terminal(t) = &mut self.input {
+            t.remember(HISTORY, line);
         }
     }
 }
@@ -51,8 +90,9 @@ impl Stdio {
 /// What `?` answers. The short forms are the session's; every other line is
 /// Bund.
 const HELP: &str = "bund2: s(tep), n(ext), f(inish), c(ontinue), bt, st, info, \
-                    break <word> [if <lambda>], watch @stack, watch workbench, \
-                    delete <word>. Any other line is run as Bund in the program.";
+                    break <word> [<n>] [if <lambda>], until <word>, catch, \
+                    watch @stack [if <lambda>], watch workbench, watch redefine, \
+                    delete <word|catch|redefine>. Any other line is run as Bund in the program.";
 
 /// The command vocabulary, long and short forms.
 ///
@@ -70,17 +110,44 @@ fn parse(line: &str) -> Result<Command, String> {
         .or_else(|| line.strip_prefix("b "))
     {
         let rest = rest.trim();
-        if let Some((word, cond)) = rest.split_once(" if ") {
-            let (word, cond) = (word.trim(), cond.trim());
-            if word.is_empty() || cond.is_empty() {
-                return Err("bund2: `break <word> if <lambda>` needs both".to_string());
+        let (head, cond) = match rest.split_once(" if ") {
+            Some((h, c)) => {
+                let c = c.trim();
+                if h.trim().is_empty() || c.is_empty() {
+                    return Err("bund2: `break <word> if <lambda>` needs both".to_string());
+                }
+                (h.trim(), Some(c.to_string()))
             }
-            return Ok(Command::BreakIf(word.to_string(), cond.to_string()));
-        }
-        if rest.is_empty() {
+            None => (rest, None),
+        };
+        if head.is_empty() {
             return Err("bund2: `break` needs a word".to_string());
         }
-        return Ok(Command::Break(rest.to_string()));
+        // **D191: `break w 100` stops at the hundredth hit, once.** A word
+        // has no spaces, so a second token is the hit.
+        if let Some((word, n)) = head.split_once(char::is_whitespace) {
+            let n: u64 = match n.trim().parse() {
+                Ok(n) if n >= 1 => n,
+                _ => {
+                    return Err(
+                        "bund2: `break <word> <n>` stops at the n-th hit, counting from 1"
+                            .to_string(),
+                    );
+                }
+            };
+            return Ok(Command::BreakAt(word.to_string(), n, cond));
+        }
+        return Ok(match cond {
+            Some(c) => Command::BreakIf(head.to_string(), c),
+            None => Command::Break(head.to_string()),
+        });
+    }
+    if let Some(rest) = line.strip_prefix("until ") {
+        let word = rest.trim();
+        if word.is_empty() || word.contains(char::is_whitespace) {
+            return Err("bund2: `until <word>`".to_string());
+        }
+        return Ok(Command::Until(word.to_string()));
     }
     if let Some(rest) = line
         .strip_prefix("delete ")
@@ -103,6 +170,25 @@ fn parse(line: &str) -> Result<Command, String> {
         // silently taken as either.
         if rest == "workbench" {
             return Ok(Command::WatchWorkbench);
+        }
+        // D191: a bound name registered again. No `@`, as `workbench` has
+        // none: it is a hook, not a stack.
+        if rest == "redefine" {
+            return Ok(Command::WatchRedefine);
+        }
+        // D191: `watch @s if <lambda>`, split as `break … if` is.
+        if let Some((stack, cond)) = rest.split_once(" if ") {
+            let (stack, cond) = (stack.trim().trim_start_matches('@'), cond.trim());
+            if stack.is_empty() || cond.is_empty() {
+                return Err("bund2: `watch @stack if <lambda>` needs both".to_string());
+            }
+            if stack == "workbench" {
+                return Err(
+                    "bund2: a condition is for a named stack; `watch workbench` takes none"
+                        .to_string(),
+                );
+            }
+            return Ok(Command::WatchIf(stack.to_string(), cond.to_string()));
         }
         if rest == "@workbench" {
             return Err(
@@ -127,6 +213,8 @@ fn parse(line: &str) -> Result<Command, String> {
         // and a line here is Bund unless it is one of these short forms.
         "st" => Ok(Command::Stack),
         "i" | "info" => Ok(Command::Info),
+        // D191. `catch` is no Bund word, so a line saying it is this.
+        "catch" => Ok(Command::Catch),
         "?" | "help" => Err(HELP.to_string()),
         "" => Err(String::new()),
         // **Anything else is Bund, run in the program's own VM** — §W2, and
@@ -257,7 +345,8 @@ fn say_stopped(greeted: &mut bool, at: &str) {
         let _ = writeln!(
             out,
             "bund2: stopped. s(tep), n(ext), f(inish), c(ontinue), bt, st, \
-             info, break <word> [if <lambda>], watch @stack, watch workbench, \
+             info, break <word> [<n>] [if <lambda>], until <word>, catch, \
+             watch @stack [if <lambda>], watch workbench, watch redefine, \
              delete <word>. Any other line is run as Bund. EOF detaches and runs on."
         );
     }
@@ -322,16 +411,17 @@ impl Console for Stdio {
     fn next_command(&mut self) -> Option<Command> {
         loop {
             let mut out = std::io::stderr();
-            let _ = write!(out, "(bund2) ");
-            let _ = out.flush();
             // `None` is EOF, which detaches. A read error is treated the same
             // way: there is no further input to be had, and hanging is worse.
-            let Some(Ok(line)) = self.input.next() else {
+            let Some(line) = self.read() else {
                 say_detached();
                 return None;
             };
             match parse(&line) {
-                Ok(c) => return Some(c),
+                Ok(c) => {
+                    self.remember(&line);
+                    return Some(c);
+                }
                 // An empty line repeats nothing and asks again, which is what
                 // pressing return at a prompt should do.
                 Err(msg) if msg.is_empty() => {}

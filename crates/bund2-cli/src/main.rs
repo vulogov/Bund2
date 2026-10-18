@@ -364,6 +364,10 @@ struct Args {
     /// so the reference's bare `--profile` is still refused. A profiled run
     /// installs no tier (D186). A bundle reads `BUND2_PROFILE` instead.
     profile: Option<String>,
+    /// `--trace <file>`: one line per call entered, indented by depth, into
+    /// `<file>` — RFC-0008 §D7, D191. Kept by the profiler's record, so a
+    /// traced run installs no tier either. A bundle reads `BUND2_TRACE`.
+    trace: Option<String>,
     /// `--jit-threshold <n>`: how many evaluations of one body earn it
     /// compilation — §S7's knob, and what RFC-0005 criterion 2's third run
     /// needs (F125).
@@ -391,6 +395,8 @@ impl Args {
             Some("debugging")
         } else if self.profile.is_some() {
             Some("profiling")
+        } else if self.trace.is_some() {
+            Some("tracing")
         } else {
             None
         }
@@ -406,6 +412,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut raw_values = false;
     let mut stats = false;
     let mut profile: Option<String> = None;
+    let mut trace: Option<String> = None;
     let mut jit_threshold: Option<u32> = None;
     let mut debugger = false;
     let mut debug_shell = false;
@@ -448,6 +455,16 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
                     ));
                 }
                 profile = Some(base);
+            }
+            // D191: required, as `--profile`'s is, and for the same reason.
+            "--trace" => {
+                let path = operand("a file for the trace")?;
+                if path.is_empty() || path.starts_with('-') {
+                    return Err(format!(
+                        "`--trace` needs a file for the trace, not `{path}`; see `bund2 help script`"
+                    ));
+                }
+                trace = Some(path);
             }
             "--debugger" => debugger = true,
             "--debug-shell" => debug_shell = true,
@@ -498,6 +515,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
         raw_values,
         stats,
         profile,
+        trace,
         debugger,
         debug_shell,
         carried: false,
@@ -831,6 +849,8 @@ fn run_carried(carried: &bundle::Carried, argv: Vec<String>) -> ExitCode {
         profile: std::env::var("BUND2_PROFILE")
             .ok()
             .filter(|s| !s.is_empty()),
+        // D191: the trace by the same road.
+        trace: std::env::var("BUND2_TRACE").ok().filter(|s| !s.is_empty()),
         jit_threshold: None,
         // **A bundle is never dropped into the debugger, and not by omission.**
         // The exhaustive literal made this a choice rather than a default, as
@@ -1802,7 +1822,7 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
     let vm = &mut rt.interp;
     // **RFC-0011: the record, installed before anything runs.** The clock's
     // cost is measured first so the report can print it.
-    if args.profile.is_some() {
+    if args.profile.is_some() || args.trace.is_some() {
         let clock = profile::calibrate();
         let mut record = bund2_interp::profile::Profile::new(clock.cost, clock.resolution);
         // `debug.profile` renders mid-run with the same two renderers, so
@@ -1819,6 +1839,29 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
             let md = profile::render_markdown(p, reg, &meta);
             profile::write_both(base, &dot, &md).map(|(dot, md)| format!("{md} and {dot}"))
         }));
+        // **D191: the trace, opened before anything runs.** A file that
+        // cannot be made ends the run before it starts, as a bad operand
+        // would: a trace asked for and silently absent is worse.
+        if let Some(path) = args.trace.as_deref() {
+            let file = match std::fs::File::create(path) {
+                Ok(f) => f,
+                Err(e) => {
+                    ui::error!("--trace: cannot write {path}: {e}");
+                    return Some(1);
+                }
+            };
+            let out = std::rc::Rc::new(std::cell::RefCell::new(std::io::BufWriter::new(file)));
+            {
+                use std::io::Write as _;
+                let mut w = out.borrow_mut();
+                let _ = writeln!(
+                    w,
+                    "# bund2 trace of {}: one line per call entered, natives included, indented by the calls open around it; `!` marks where a failure was raised",
+                    args.file
+                );
+            }
+            record.trace_to(out);
+        }
         vm.profile = Some(Box::new(record));
     }
     ui::configure_colors(args.host.nocolor);
@@ -1987,17 +2030,30 @@ fn finish_profile(
     ended: profile::Ended,
     code: Option<i32>,
 ) -> Option<i32> {
-    let Some(base) = args.profile.as_deref() else {
-        return code;
-    };
     let Some(mut record) = rt.interp.profile.take() else {
         return code;
     };
-    record.finish();
+    // D191: the trace first, whether or not a report follows. A trace that
+    // lost lines says so and the run's code is 1, as for a report that
+    // could not be written.
     let failed = matches!(
         ended,
         profile::Ended::Error(_) | profile::Ended::ParseError(_)
     );
+    let code = match record.finish_trace() {
+        Ok(()) => code,
+        Err(e) => {
+            ui::error!(
+                "--trace: {}: {e}; the trace is incomplete",
+                args.trace.as_deref().unwrap_or("")
+            );
+            if failed { code } else { code.or(Some(1)) }
+        }
+    };
+    let Some(base) = args.profile.as_deref() else {
+        return code;
+    };
+    record.finish();
     let meta = profile::Meta {
         program: &args.file,
         jit_threshold_given: args.jit_threshold.is_some(),

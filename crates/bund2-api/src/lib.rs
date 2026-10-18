@@ -356,6 +356,17 @@ pub enum Debugging {
     Watch(String),
     /// Stop on a push to the workbench (§D4's second hook).
     WatchWorkbench,
+    /// Break on a word at its `n`th hit, once — D191.
+    BreakAt(String, u64),
+    /// Run on until a word is next called, and stop there once — D191.
+    Until(String),
+    /// Stop where any failure is raised, before it unwinds — D191.
+    Catch,
+    /// Watch a named stack, stopping when this source answers true in a
+    /// child VM over the stack and the value about to land — D191.
+    WatchIf(String, String),
+    /// Stop when a bound name is registered again — D191.
+    WatchRedefine,
     /// Stop watching this word or stack; `workbench` names the workbench.
     Delete(String),
     /// Stop before the next value, into any body.

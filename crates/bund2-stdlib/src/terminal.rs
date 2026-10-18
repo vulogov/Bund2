@@ -609,6 +609,73 @@ fn debug_break_if(vm: &mut dyn Vm) -> Result<(), Error> {
     debug_ask(vm, bund2_api::Debugging::BreakIf(word, cond), WHO)
 }
 
+/// `debug.break.at` — stop at the `n`th call of the named word, once —
+/// D191. `"w" 100 debug.break.at`. Bund2's own word.
+fn debug_break_at(vm: &mut dyn Vm) -> Result<(), Error> {
+    const WHO: &str = "DEBUG.BREAK.AT";
+    if vm.depth() < 2 {
+        return Err(Error(format!("Stack is too shallow for inline {WHO}")));
+    }
+    let n = vm
+        .pull()
+        .ok_or_else(|| Error(format!("{WHO} returns: NO DATA #1")))?;
+    let n = match n.as_int() {
+        Some(n) if n >= 1 => n as u64,
+        Some(_) => return Err(Error(format!("{WHO}: the hit to stop at counts from 1"))),
+        None => {
+            return Err(Error(format!(
+                "{WHO}: the hit to stop at is not an INTEGER"
+            )));
+        }
+    };
+    let word = debug_name(vm, WHO)?;
+    debug_ask(vm, bund2_api::Debugging::BreakAt(word, n), WHO)
+}
+
+/// `debug.until` — run on until the named word is next called, and stop
+/// there once — D191. Bund2's own word.
+fn debug_until(vm: &mut dyn Vm) -> Result<(), Error> {
+    let word = debug_name(vm, "DEBUG.UNTIL")?;
+    debug_ask(vm, bund2_api::Debugging::Until(word), "DEBUG.UNTIL")
+}
+
+/// `debug.catch` — stop where any failure is raised, before it unwinds —
+/// D191. Bund2's own word.
+fn debug_catch(vm: &mut dyn Vm) -> Result<(), Error> {
+    debug_ask(vm, bund2_api::Debugging::Catch, "DEBUG.CATCH")
+}
+
+/// `debug.watch.if` — stop on a push to the named stack when a condition
+/// holds — D191. The stack's name, then the condition as Bund source, as
+/// `debug.break.if` takes it; the condition sees the stack with the value
+/// about to land on top. Bund2's own word.
+fn debug_watch_if(vm: &mut dyn Vm) -> Result<(), Error> {
+    const WHO: &str = "DEBUG.WATCH.IF";
+    if vm.depth() < 2 {
+        return Err(Error(format!("Stack is too shallow for inline {WHO}")));
+    }
+    let cond = vm
+        .pull()
+        .ok_or_else(|| Error(format!("{WHO} returns: NO DATA #1")))?;
+    let Some(cond) = cond.as_str() else {
+        return Err(Error(format!(
+            "{WHO}: the condition is not a string of Bund source"
+        )));
+    };
+    let stack = debug_name(vm, WHO)?;
+    debug_ask(vm, bund2_api::Debugging::WatchIf(stack, cond), WHO)
+}
+
+/// `debug.watch.redefine` — stop when a name already bound is registered
+/// again — D191. Bund2's own word.
+fn debug_watch_redefine(vm: &mut dyn Vm) -> Result<(), Error> {
+    debug_ask(
+        vm,
+        bund2_api::Debugging::WatchRedefine,
+        "DEBUG.WATCH.REDEFINE",
+    )
+}
+
 /// `debug.watch` — stop on a push to the named stack. Bund2's own word.
 fn debug_watch(vm: &mut dyn Vm) -> Result<(), Error> {
     let stack = debug_name(vm, "DEBUG.WATCH")?;
@@ -1011,6 +1078,11 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
     for (name, f, n) in [
         ("debug.break", debug_break as bund2_api::NativeFn, 1),
         ("debug.break.if", debug_break_if, 2),
+        ("debug.break.at", debug_break_at, 2),
+        ("debug.until", debug_until, 1),
+        ("debug.catch", debug_catch, 0),
+        ("debug.watch.if", debug_watch_if, 2),
+        ("debug.watch.redefine", debug_watch_redefine, 0),
         ("debug.watch", debug_watch, 1),
         ("debug.watch.workbench", debug_watch_workbench, 0),
         ("debug.delete", debug_delete, 1),

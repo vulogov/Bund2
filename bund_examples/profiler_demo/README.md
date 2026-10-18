@@ -77,9 +77,15 @@ written, and the program goes on:
 
 Phase 4 prints nothing then: with nothing to write, nothing failed.
 
-**A bundle always warns.** `make bundle` builds `./profiler_demo` with
-`bund2 build`. A bundle takes no `--profile`, so it keeps no profile and
-prints the warning above once. Profile from source.
+**A bundle is profiled through the environment.** `make bundle` builds
+`./profiler_demo` with `bund2 build` and runs it profiled. A bundle owns its
+whole command line, so it takes no `--profile`; it reads `BUND2_PROFILE`,
+holding the base, instead (RFC-0011 §S6), and the snapshots work as from
+source:
+
+    BUND2_PROFILE=profiles/end ./profiler_demo --out profiles
+
+Without the variable it keeps no profile, and warns once as above.
 
 **`--noio` turns it off.** The word writes files, so under `--noio` it is a
 stub that fails, like every other word that touches the host's files. The

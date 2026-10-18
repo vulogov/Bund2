@@ -44,6 +44,13 @@ pub enum Stop {
     /// index in that string and the value's summary. Not forced — the
     /// stepping mode decides, as it does for [`Stop::Stepping`].
     Term(usize, String),
+    /// **A failure is being raised, and the frames it was raised under are
+    /// still there** — `catch`, D191. The text is the failure's. Continuing
+    /// lets it go on unwinding, as it would have.
+    Error(String),
+    /// A name already bound is being registered again — `watch redefine`,
+    /// D191. Before the registration, so the old body is still the one bound.
+    Redefine(String),
 }
 
 /// What the host asks of a stopped debuggee.
@@ -86,6 +93,21 @@ pub enum Command {
     /// workbench writes no stack tag, because it has no stack to name, so a
     /// `@name`-keyed watch cannot see it.
     WatchWorkbench,
+    /// **Break on that word at its `n`th hit, once — D191.** A hit is a call
+    /// that reaches the breakpoint with its condition, if any, holding; the
+    /// condition rides along as for [`Command::BreakIf`].
+    BreakAt(String, u64, Option<String>),
+    /// **Run on until that word is next called, and stop there once** — a
+    /// temporary breakpoint, gdb's `until`/`tbreak`, D191.
+    Until(String),
+    /// **Stop where any failure is raised, before it unwinds** — D191.
+    Catch,
+    /// **Watch a named stack, stopping only when a condition holds** — D191.
+    /// The condition runs in the child VM `break … if` uses, with the
+    /// program's stack and the value about to be pushed on top of it.
+    WatchIf(String, String),
+    /// **Stop when a name already bound is registered again** — D191.
+    WatchRedefine,
     /// Render what is being watched.
     Info,
     /// **A line of Bund, run in the debuggee's own VM — §W2.** What the
@@ -167,11 +189,27 @@ pub trait Console {
 pub struct Debug {
     console: Box<dyn Console>,
     mode: Mode,
-    /// Words to break on, and the condition each carries if any — §D3.
-    /// A `BTreeMap` so `info` lists them in one order.
-    breaks: std::collections::BTreeMap<String, Option<String>>,
-    /// Named stacks to watch — §D4's first hook.
-    watches: std::collections::BTreeSet<String>,
+    /// Words to break on — §D3 — with their conditions, counts and
+    /// targets (D191). A `BTreeMap` so `info` lists them in one order.
+    breaks: std::collections::BTreeMap<String, Break>,
+    /// Named stacks to watch — §D4's first hook — and the condition each
+    /// carries if any (D191).
+    watches: std::collections::BTreeMap<String, Option<String>>,
+    /// Stop where a failure is raised — `catch`, D191.
+    catching: bool,
+    /// The failure being raised has been stopped at already. One failure is
+    /// seen by every `run_to` it unwinds through, and each would stop; the
+    /// next step the program takes clears it, and only a step taken after
+    /// the failure was dealt with — a `?try`'s handler, say — can be one.
+    pub(crate) caught: bool,
+    /// Stop when a bound name is registered again — D191.
+    watch_redefine: bool,
+    /// The current stack's name, its depth, its top values and the
+    /// workbench's depth when the debuggee last left a stop — what the next
+    /// stop says has changed (D191).
+    seen: Option<Seen>,
+    /// The condition failures already reported, so each is said once.
+    said: std::collections::HashSet<String>,
     /// Whether the workbench is watched — §D4's *second* hook, separate
     /// because the workbench path writes no stack tag.
     watch_workbench: bool,
@@ -204,7 +242,12 @@ impl Debug {
             console,
             mode: Mode::Step,
             breaks: std::collections::BTreeMap::new(),
-            watches: std::collections::BTreeSet::new(),
+            watches: std::collections::BTreeMap::new(),
+            catching: false,
+            caught: false,
+            watch_redefine: false,
+            seen: None,
+            said: std::collections::HashSet::new(),
             watch_workbench: false,
             stops: 0,
             busy: false,
@@ -286,23 +329,48 @@ impl Debug {
             Command::Backtrace => Next::Render(Render::Backtrace),
             Command::Stack => Next::Render(Render::Stack),
             Command::Break(w) => {
-                self.breaks.insert(w, None);
+                self.breaks.insert(w, Break::new(None, None, false));
                 Next::Render(Render::Info)
             }
             Command::BreakIf(w, cond) => {
-                self.breaks.insert(w, Some(cond));
+                self.breaks.insert(w, Break::new(Some(cond), None, false));
+                Next::Render(Render::Info)
+            }
+            Command::BreakAt(w, n, cond) => {
+                self.breaks.insert(w, Break::new(cond, Some(n), false));
+                Next::Render(Render::Info)
+            }
+            Command::Until(w) => {
+                // Armed and run on: `continue` with one stop more.
+                self.breaks.insert(w, Break::new(None, None, true));
+                self.mode = Mode::Run;
+                Next::Resume
+            }
+            Command::Catch => {
+                self.catching = true;
+                Next::Render(Render::Info)
+            }
+            Command::WatchRedefine => {
+                self.watch_redefine = true;
                 Next::Render(Render::Info)
             }
             Command::Delete(w) => {
                 self.breaks.remove(&w);
                 self.watches.remove(&w);
-                if w == "workbench" {
-                    self.watch_workbench = false;
+                match w.as_str() {
+                    "workbench" => self.watch_workbench = false,
+                    "catch" => self.catching = false,
+                    "redefine" => self.watch_redefine = false,
+                    _ => {}
                 }
                 Next::Render(Render::Info)
             }
             Command::Watch(s) => {
-                self.watches.insert(s);
+                self.watches.insert(s, None);
+                Next::Render(Render::Info)
+            }
+            Command::WatchIf(s, cond) => {
+                self.watches.insert(s, Some(cond));
                 Next::Render(Render::Info)
             }
             Command::WatchWorkbench => {
@@ -329,11 +397,51 @@ impl Debug {
     ///
     /// `None` means not watched; `Some(None)` means watched unconditionally.
     pub(crate) fn condition_for(&self, word: &str) -> Option<Option<&str>> {
-        self.breaks.get(word).map(|c| c.as_deref())
+        self.breaks.get(word).map(|b| b.cond.as_deref())
     }
 
-    pub(crate) fn watches_stack(&self, name: &str) -> bool {
-        self.watches.contains(name)
+    /// **A call reached a breakpoint and its condition held: count it, and
+    /// say whether to stop** — D191. `Some(hit)` stops, with which hit it
+    /// is; a breakpoint with a target stops on that hit alone, and a
+    /// temporary one is gone once it has stopped.
+    pub(crate) fn count_hit(&mut self, word: &str) -> Option<u64> {
+        let b = self.breaks.get_mut(word)?;
+        b.hits += 1;
+        let hit = b.hits;
+        if b.nth.is_some_and(|n| n != hit) {
+            return None;
+        }
+        if b.temporary {
+            self.breaks.remove(word);
+        }
+        Some(hit)
+    }
+
+    /// The condition on a stack, if that stack is watched at all — as
+    /// [`Debug::condition_for`].
+    pub(crate) fn watch_condition(&self, name: &str) -> Option<Option<&str>> {
+        self.watches.get(name).map(|c| c.as_deref())
+    }
+
+    /// Whether a failure being raised should stop: `catch` is on, nothing
+    /// typed is running, and this failure has not stopped already.
+    pub(crate) fn catches(&self) -> bool {
+        self.catching && !self.caught && !self.busy && !self.gone
+    }
+
+    pub(crate) fn watches_redefinition(&self) -> bool {
+        self.watch_redefine && !self.busy && !self.gone
+    }
+
+    /// What changed since the debuggee last left a stop, as one line, or
+    /// nothing when nothing did or there was no stop before — D191.
+    pub(crate) fn changes(&self, now: &Seen) -> Option<String> {
+        self.seen.as_ref().and_then(|was| was.changes_to(now))
+    }
+
+    /// Remember the state the debuggee leaves this stop in.
+    pub(crate) fn leave(&mut self, now: Seen) {
+        self.seen = Some(now);
     }
 
     pub(crate) fn watches_workbench(&self) -> bool {
@@ -346,33 +454,169 @@ impl Debug {
     pub(crate) fn condition_holds(&mut self, source: &str, operands: &[BundValue]) -> bool {
         match self.console.evaluate_condition(source, operands) {
             Ok(v) => v,
+            // Reported once per distinct reason (D191): a watch condition
+            // runs on every push to its stack, and one that cannot read a
+            // lambda would otherwise say so at every lambda.
             Err(why) => {
-                self.console
-                    .answer(&format!("bund2: the condition did not stop: {why}\n"));
+                if self.said.insert(why.clone()) {
+                    self.console.answer(&format!(
+                        "bund2: the condition did not stop: {why} (said once)\n"
+                    ));
+                }
                 false
             }
         }
     }
 
-    /// What `info` renders.
+    /// What `info` renders. A breakpoint's count is shown once it has one,
+    /// so a fresh `break w` still reads `break w`.
     pub(crate) fn render_watched(&self) -> String {
-        if self.breaks.is_empty() && self.watches.is_empty() && !self.watch_workbench {
+        if self.breaks.is_empty()
+            && self.watches.is_empty()
+            && !self.watch_workbench
+            && !self.catching
+            && !self.watch_redefine
+        {
             return "nothing is watched\n".to_string();
         }
         let mut out = String::new();
-        for (w, cond) in &self.breaks {
-            match cond {
-                Some(c) => out.push_str(&format!("break {w} if {c}\n")),
-                None => out.push_str(&format!("break {w}\n")),
+        for (w, b) in &self.breaks {
+            let verb = if b.temporary { "until" } else { "break" };
+            out.push_str(&format!("{verb} {w}"));
+            if let Some(n) = b.nth {
+                out.push_str(&format!(" {n}"));
             }
+            if let Some(c) = &b.cond {
+                out.push_str(&format!(" if {c}"));
+            }
+            match b.hits {
+                0 => {}
+                1 => out.push_str("  (hit once)"),
+                n => out.push_str(&format!("  (hit {n} times)")),
+            }
+            out.push('\n');
         }
-        for s in &self.watches {
-            out.push_str(&format!("watch @{s}\n"));
+        for (s, cond) in &self.watches {
+            match cond {
+                Some(c) => out.push_str(&format!("watch @{s} if {c}\n")),
+                None => out.push_str(&format!("watch @{s}\n")),
+            }
         }
         if self.watch_workbench {
             out.push_str("watch workbench\n");
         }
+        if self.watch_redefine {
+            out.push_str("watch redefine\n");
+        }
+        if self.catching {
+            out.push_str("catch\n");
+        }
         out
+    }
+}
+
+/// One breakpoint — §D3, with D191's count, target and lifetime.
+struct Break {
+    cond: Option<String>,
+    /// Calls that reached it with the condition holding.
+    hits: u64,
+    /// Stop on this hit alone; `None` stops on every one.
+    nth: Option<u64>,
+    /// Gone once it has stopped — `until`.
+    temporary: bool,
+}
+
+impl Break {
+    fn new(cond: Option<String>, nth: Option<u64>, temporary: bool) -> Self {
+        Self {
+            cond,
+            hits: 0,
+            nth,
+            temporary,
+        }
+    }
+}
+
+/// How many of a stack's top values a stop compares with the last one. A
+/// bound, so a stop on a stack of a million values costs what one on a
+/// stack of thirty does.
+const SEEN_TOP: usize = 32;
+
+/// What a stop compares with the last one — D191. Summaries, not values:
+/// what the reader is shown is what is compared.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Seen {
+    pub stack: String,
+    pub depth: usize,
+    /// The top values, at most [`SEEN_TOP`], bottom first.
+    pub top: Vec<String>,
+    pub workbench: usize,
+}
+
+impl Seen {
+    /// The state to compare: the current stack's name, depth and top.
+    pub fn of(stack: &str, values: &[BundValue], workbench: usize) -> Self {
+        let from = values.len().saturating_sub(SEEN_TOP);
+        Self {
+            stack: stack.to_string(),
+            depth: values.len(),
+            top: values[from..].iter().map(|v| v.summary(32)).collect(),
+            workbench,
+        }
+    }
+
+    /// One line saying what moved from `self` to `now`, or `None`.
+    ///
+    /// The values both states share at the bottom of the compared window
+    /// are the ones nothing touched; above them, what `self` had is popped
+    /// and what `now` has is pushed. A change below the window reads as the
+    /// whole window popped and pushed — bounded, and never wrong about the
+    /// depth.
+    fn changes_to(&self, now: &Seen) -> Option<String> {
+        let mut parts = Vec::new();
+        if self.stack != now.stack {
+            parts.push(format!("now on @{} ({} deep)", now.stack, now.depth));
+        } else {
+            let base_was = self.depth - self.top.len();
+            let base_now = now.depth - now.top.len();
+            // Compared only where both windows reach; below that, taken as
+            // untouched, which a change deeper than the window makes wrong
+            // in where it is seen and never in the depths.
+            let start = base_was.max(base_now);
+            let mut same = start.min(self.depth).min(now.depth);
+            while same >= start
+                && same < self.depth
+                && same < now.depth
+                && self.top[same - base_was] == now.top[same - base_now]
+            {
+                same += 1;
+            }
+            let popped = self.depth - same;
+            let pushed = now.depth - same;
+            if popped > 0 || pushed > 0 {
+                let mut line = format!("@{} {} → {}", now.stack, self.depth, now.depth);
+                if popped > 0 {
+                    line.push_str(&format!(", popped {popped}"));
+                }
+                if pushed > 0 {
+                    const SHOWN: usize = 4;
+                    let k = pushed.min(SHOWN).min(now.top.len());
+                    let mut shown: Vec<&str> = now.top[now.top.len() - k..]
+                        .iter()
+                        .map(String::as_str)
+                        .collect();
+                    if pushed > k {
+                        shown.insert(0, "…");
+                    }
+                    line.push_str(&format!(", pushed {}", shown.join(" ")));
+                }
+                parts.push(line);
+            }
+        }
+        if self.workbench != now.workbench {
+            parts.push(format!("workbench {} → {}", self.workbench, now.workbench));
+        }
+        (!parts.is_empty()).then(|| format!("changed: {}", parts.join("; ")))
     }
 }
 
@@ -428,6 +672,44 @@ pub fn frame_line(body: &BundValue, ip: usize, depth: usize, who: Option<&str>) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// D191: what a stop says changed, over the cases that matter.
+    #[test]
+    fn a_stop_reads_what_changed() {
+        let v = |n: i64| BundValue::int(n);
+        let a = Seen::of("main", &[v(1), v(2)], 0);
+        assert_eq!(a.changes_to(&a), None, "nothing moved");
+        let b = Seen::of("main", &[v(1), v(2), v(3)], 0);
+        assert_eq!(
+            a.changes_to(&b).as_deref(),
+            Some("changed: @main 2 → 3, pushed 3")
+        );
+        let c = Seen::of("main", &[v(1), v(9)], 1);
+        assert_eq!(
+            a.changes_to(&c).as_deref(),
+            Some("changed: @main 2 → 2, popped 1, pushed 9; workbench 0 → 1")
+        );
+        let d = Seen::of("other", &[], 0);
+        assert_eq!(
+            a.changes_to(&d).as_deref(),
+            Some("changed: now on @other (0 deep)")
+        );
+        // Past the compared window: the depths are right, and five pushed
+        // values are shown as the last four.
+        let many: Vec<BundValue> = (0..40).map(v).collect();
+        let e = Seen::of("main", &many[..2], 0);
+        let f = Seen::of("main", &many, 0);
+        assert_eq!(
+            e.changes_to(&f).as_deref(),
+            Some("changed: @main 2 → 40, pushed … 36 37 38 39")
+        );
+        let g = Seen::of("main", &many, 0);
+        let h = Seen::of("main", &many[..1], 0);
+        assert_eq!(
+            g.changes_to(&h).as_deref(),
+            Some("changed: @main 40 → 1, popped 39")
+        );
+    }
     use crate::Interp;
     use bund2_api::{StackEffect, Symbol, Vm, WordKind};
 

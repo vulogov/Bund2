@@ -5,11 +5,11 @@
 #   make graphs      draw each report's .dot as an .svg (needs Graphviz)
 #   make unprofiled  the same program without --profile: one warning, once
 #   make noio        under --noio: the first snapshot is an error
-#   make bundle      build ./profiler_demo; a bundle has no --profile, so it warns
+#   make bundle      build ./profiler_demo and run it profiled, via BUND2_PROFILE
 #   make clean
 #
-# `debug.profile` writes only when the run keeps a profile, and only
-# `bund2 script --profile <base>` keeps one, so the demo runs from source.
+# `debug.profile` writes only when the run keeps a profile: from source,
+# `bund2 script --profile <base>`; from a bundle, BUND2_PROFILE=<base>.
 
 ROOT    := $(abspath ../..)
 include $(ROOT)/bund_examples/toolchain.mk
@@ -45,8 +45,11 @@ noio: $(BUND2)
 profiler_demo: demo.bund $(BUND2)
 	$(BUND2) build --file demo.bund --output $@
 
+# A bundle owns its command line, so it is profiled through the environment.
 bundle: profiler_demo
-	./profiler_demo
+	mkdir -p $(OUT)
+	BUND2_PROFILE=$(OUT)/end ./profiler_demo --out $(OUT)
+	@ls -1 $(OUT)
 
 clean:
 	rm -rf $(OUT) profiler_demo

@@ -87,6 +87,8 @@ FLAGS
                         in steps, and which called which. The run is
                         interpreted; no tier. The word debug.profile
                         writes the run so far.
+  --trace <file>        Write one line per call entered, natives included,
+                        indented by depth, to <file>. Interpreted; no tier.
   --debugger            Stop before every value and take commands on stdin.
   --debug-shell         After a failure, open debug.shell on the VM as the
                         program left it.
@@ -279,6 +281,7 @@ mod tests {
             "--stats",
             "--jit-threshold",
             "--profile",
+            "--trace",
             "--debugger",
             "--debug-shell",
             "--noio",

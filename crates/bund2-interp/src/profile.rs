@@ -42,12 +42,20 @@
 //! of the run. Words are timed on every call: their spans are what the tree
 //! is made of.
 //!
+//! **The trace (D191).** The same hooks, when a trace is installed, write
+//! one line per call entered — natives included — indented by how many
+//! named calls are open, and a line where a failure is marked. RFC-0008
+//! §D7's trace, deferred by D102 for want of a hook in the frame loop:
+//! this record's hooks are that hook. The line's name is the caller's to
+//! give, since the record holds symbols and the interner is the VM's.
+//!
 //! **Written mid-run (`debug.profile`).** [`Profile::snapshot`] copies the
 //! record and closes the copy's open activations at the moment of the copy,
 //! so a report of the run so far has the same arithmetic as one at the end,
 //! and the record itself goes on. The renderers are the embedder's, which
 //! installs them as [`Profile::writer`].
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -312,6 +320,14 @@ pub struct Profile {
     /// embedder, which owns the renderers; `None` and the word says nothing
     /// can be written.
     pub writer: Option<Rc<Writer>>,
+    /// Where the trace goes, when one is kept (D191).
+    trace: Option<Rc<RefCell<dyn std::io::Write>>>,
+    /// The first write to the trace that failed. Later lines are dropped:
+    /// the run is not stopped for its trace, and the embedder says why at
+    /// the end.
+    trace_failed: Option<String>,
+    /// Named calls open now: the trace's indent.
+    named_open: usize,
 }
 
 impl Profile {
@@ -339,6 +355,57 @@ impl Profile {
             filed_by: None,
             failed_in: None,
             writer: None,
+            trace: None,
+            trace_failed: None,
+            named_open: 0,
+        }
+    }
+
+    /// Keep a trace, written to `out` (D191).
+    pub fn trace_to(&mut self, out: Rc<RefCell<dyn std::io::Write>>) {
+        self.trace = Some(out);
+    }
+
+    /// Whether a trace is kept: the caller asks before naming a call.
+    #[inline]
+    pub fn tracing(&self) -> bool {
+        self.trace.is_some()
+    }
+
+    /// One line of the trace: the call just entered, under its name,
+    /// indented by the named calls open around it.
+    pub fn trace_call(&mut self, name: &str) {
+        let indent = self.named_open.saturating_sub(1) * 2;
+        self.trace_line(&format!("{:indent$}{name}", ""));
+    }
+
+    fn trace_line(&mut self, line: &str) {
+        if self.trace_failed.is_some() {
+            return;
+        }
+        let Some(out) = &self.trace else {
+            return;
+        };
+        let wrote = match out.try_borrow_mut() {
+            Ok(mut w) => writeln!(w, "{line}").map_err(|e| e.to_string()),
+            Err(_) => Err("the trace was being written already".to_string()),
+        };
+        if let Err(e) = wrote {
+            self.trace_failed = Some(e);
+        }
+    }
+
+    /// Flush the trace, and say whether every line reached it.
+    pub fn finish_trace(&mut self) -> Result<(), String> {
+        if let Some(e) = self.trace_failed.take() {
+            return Err(e);
+        }
+        match &self.trace {
+            Some(out) => match out.try_borrow_mut() {
+                Ok(mut w) => w.flush().map_err(|e| e.to_string()),
+                Err(_) => Err("the trace was being written already".to_string()),
+            },
+            None => Ok(()),
         }
     }
 
@@ -349,6 +416,9 @@ impl Profile {
     /// on the mirror too, and is nobody's activation.
     pub fn snapshot(&self) -> (Profile, usize) {
         let mut copy = self.clone();
+        // The copy closes calls the run has not left; none of that is the
+        // run's trace.
+        copy.trace = None;
         let open = copy.open.iter().filter(|o| o.node.is_some()).count();
         copy.finish();
         (copy, open)
@@ -459,6 +529,7 @@ impl Profile {
         let mut nested = false;
         let mut edge = None;
         if let Some(id) = node {
+            self.named_open += 1;
             let (parent, via) = self.parent();
             let i = self.edge_index(parent, id, via);
             self.nodes[parent].out[i].2.calls += 1;
@@ -497,6 +568,7 @@ impl Profile {
             // above it as they closed, and its own span is nobody's.
             return;
         };
+        self.named_open = self.named_open.saturating_sub(1);
         let threshold = self.threshold;
         let span = {
             let n = &mut self.nodes[id];
@@ -590,7 +662,14 @@ impl Profile {
     pub fn mark_failure(&mut self, reason: &str) {
         match &self.failed_in {
             Some((_, kept)) if reason.contains(kept.as_str()) => {}
-            _ => self.failed_in = Some((self.parent().0, reason.to_string())),
+            _ => {
+                self.failed_in = Some((self.parent().0, reason.to_string()));
+                // The trace says where, once per failure, as the mark is.
+                if self.trace.is_some() {
+                    let indent = self.named_open * 2;
+                    self.trace_line(&format!("{:indent$}! {reason}", ""));
+                }
+            }
         }
     }
 

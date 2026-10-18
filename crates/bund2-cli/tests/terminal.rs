@@ -276,3 +276,23 @@ fn the_debugger_flag_at_a_terminal_takes_a_fed_line() {
     t.expect("BOB");
     assert_eq!(t.ends(), Some(0));
 }
+
+/// `--debugger` at a terminal reads its commands with the line editor and
+/// keeps them in the history the word-attached console keeps — D191, where
+/// RFC-0008 had left this console without one. Up, then Enter, runs the
+/// line before again.
+#[test]
+fn the_debugger_flag_at_a_terminal_keeps_a_history() {
+    let mut t = Terminal::run("1 2 + println\n", &["--debugger"]);
+    t.command("\"again\" println");
+    t.expect("again\r\n");
+    t.expect(PROMPT);
+    t.type_keys("\x1b[A");
+    t.type_keys("\r");
+    t.expect("again\r\n");
+    t.command("c");
+    t.expect("3");
+    assert_eq!(t.ends(), Some(0));
+    let history = t.history().expect("a history under the config directory");
+    assert!(history.contains("\"again\" println"), "{history}");
+}

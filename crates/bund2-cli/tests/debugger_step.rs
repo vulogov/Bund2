@@ -576,3 +576,92 @@ fn a_watchpoint_fires_on_its_own_stack_and_the_workbench_is_separate() {
         "the workbench hook did not fire:\n{err}"
     );
 }
+
+/// D191's program: a word called five times from a loop, a failure a `?try`
+/// catches, and a word registered twice. It prints 7.
+const D191: &str = ":w { 1 + } register\n\
+:boom { 7 1 list / } register\n\
+0 5 { drop w } times\n\
+?try\n  :try { boom } set\n  :except { drop } set\n!\n\
+:w { 2 + } register\n\
+println\n";
+
+/// **D191: `break w 3` stops at the third hit, once**, and `info` counts.
+#[test]
+fn a_breakpoint_with_a_hit_stops_there_once_and_counts() {
+    let (out, err, code) = session(D191, "break w 3\nc\ninfo\nc\n");
+    assert_eq!(err.matches("breakpoint: w").count(), 1, "{err}");
+    assert!(err.contains("breakpoint: w (hit 3)"), "{err}");
+    assert!(err.contains("break w 3  (hit 3 times)"), "{err}");
+    assert_eq!((out.as_str(), code), ("7\n", Some(0)), "{err}");
+}
+
+/// **D191: `until boom` runs on to the next call of `boom`, stops, and is
+/// gone.**
+#[test]
+fn until_runs_to_the_next_call_and_forgets_it() {
+    let (out, err, _) = session(D191, "until boom\ninfo\nc\n");
+    assert_eq!(err.matches("breakpoint: boom (hit 1)").count(), 1, "{err}");
+    assert!(err.contains("nothing is watched"), "{err}");
+    assert_eq!(out, "7\n");
+}
+
+/// **D191: `catch` stops where the failure is raised, with its frames**,
+/// once although the failure unwinds through more than one loop, and the
+/// program's `?try` then catches it as before.
+#[test]
+fn catch_stops_once_where_a_failure_is_raised_with_its_frames() {
+    let (out, err, code) = session(D191, "catch\nc\nbt\nc\n");
+    assert_eq!(err.matches("caught: ").count(), 1, "{err}");
+    assert!(err.contains("caught: DIV returns error"), "{err}");
+    assert!(
+        err.contains("#0  boom at 4"),
+        "the frames are still there:\n{err}"
+    );
+    assert!(
+        err.contains("the failure unwinds when the program moves on"),
+        "{err}"
+    );
+    assert_eq!((out.as_str(), code), ("7\n", Some(0)), "{err}");
+}
+
+/// **D191: `watch redefine` stops when a bound name is registered again** —
+/// the second `w`, and not the first registration of either word.
+#[test]
+fn watch_redefine_stops_on_the_second_registration_only() {
+    let (out, err, _) = session(D191, "watch redefine\nc\nc\n");
+    assert_eq!(err.matches("redefining: ").count(), 1, "{err}");
+    assert!(err.contains("redefining: w"), "{err}");
+    assert_eq!(out, "7\n");
+}
+
+/// **D191: `watch @main if …` stops only where the condition holds**, and a
+/// condition that cannot read a value says so once, not at every push.
+#[test]
+fn a_conditional_watch_stops_where_it_holds_and_says_a_failure_once() {
+    let (out, err, _) = session(D191, "watch @main if { 3 == }\nc\nc\nc\nc\nc\nc\n");
+    assert!(err.contains("watchpoint: @main"), "{err}");
+    let said: Vec<&str> = err
+        .lines()
+        .filter(|l| l.contains("the condition did not stop"))
+        .collect();
+    let mut distinct = said.clone();
+    distinct.sort_unstable();
+    distinct.dedup();
+    assert_eq!(said.len(), distinct.len(), "a reason repeated:\n{err}");
+    assert_eq!(out, "7\n");
+}
+
+/// **D191: a stop says what changed since the last one.**
+#[test]
+fn a_stop_says_what_changed_since_the_last() {
+    let (out, err, _) = session("1 2 + println\n", "s\ns\ns\nc\n");
+    assert!(err.contains("changed: @main 0 → 1, pushed 1"), "{err}");
+    assert!(err.contains("changed: @main 1 → 2, pushed 2"), "{err}");
+    // `+` took two and left one: popped two, pushed its answer.
+    assert!(
+        err.contains("changed: @main 2 → 1, popped 2, pushed 3"),
+        "{err}"
+    );
+    assert_eq!(out, "3\n");
+}

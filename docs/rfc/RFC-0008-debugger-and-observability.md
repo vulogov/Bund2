@@ -1878,3 +1878,25 @@ decision this RFC rests on is open.
 
 **Accepted** by the repository owner on 2026-10-14, after the rulings:
 D163.
+
+## Amendment, 2026-10-17 — D191: catch, counts, until, changes, watches, the trace, the console's history
+
+On the owner's ruling over a brainstorm. Each item and every choice the
+build made is in D191; this section says what changes here.
+
+- **§D7's trace is built**, as `--trace <file>` (and `BUND2_TRACE` in a
+  bundle), on RFC-0011's record rather than a new hook in the frame loop.
+  D102's deferral is closed; "What this does not do" no longer holds for
+  it. The open question "where the trace and the profiler hook" is
+  answered: in the same place, the record's three hooks.
+- **§D8's history now covers the `--debugger` console** at a terminal;
+  "stays unbuilt" no longer holds. Under a pipe it reads plain lines.
+- **§D3 gains a hit count, a hit to stop at, and `until`**; **§D4 gains
+  conditional watches and `watch redefine`**; a new stop, `catch`,
+  stops where a failure is raised with its frames. Five words join §W1's
+  vocabulary: `debug.catch`, `debug.break.at`, `debug.until`,
+  `debug.watch.if`, `debug.watch.redefine`.
+- **Every stop says what changed** on the current stack and the
+  workbench since the program left the last one.
+- A condition's failure is now said once per distinct reason.
+

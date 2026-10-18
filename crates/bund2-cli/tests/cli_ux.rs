@@ -768,3 +768,53 @@ fn debug_profile_writes_the_run_so_far() {
     );
     assert!(!noio.out.contains("\n5\n"), "the run stopped at the word");
 }
+
+/// D191: `--trace <file>` writes one line per call entered, natives
+/// included, indented by the calls open around it, and marks where a
+/// failure was raised. A file that cannot be made ends the run before it
+/// starts; a missing operand is refused.
+#[test]
+fn trace_writes_one_line_per_call() {
+    let p = program(
+        "traced.bund",
+        ":w { 1 + } register\n:boom { 7 1 list / } register\n0 2 { drop w } times\n?try\n  :try { boom } set\n  :except { drop } set\n!\nprintln\n",
+    );
+    let path = p.to_str().unwrap();
+    let file = p.with_file_name("traced.trace");
+    let file_s = file.to_str().unwrap();
+    let r = bund2(&["script", "--trace", file_s, "--file", path], &[]);
+    assert_eq!(r.code, Some(0), "{}", r.err);
+    // `boom`'s 7 is left on the stack, above the loop's 2.
+    assert_eq!(r.out, "7\n");
+    assert_eq!(r.err, "", "nothing on stderr at the default level");
+    let trace = std::fs::read_to_string(&file).expect("the trace");
+    assert!(trace.starts_with("# bund2 trace of "), "{trace}");
+    let lines: Vec<&str> = trace.lines().skip(1).collect();
+    assert_eq!(
+        &lines[..8],
+        &[
+            "register", "register", "times", "  drop", "  w", "    +", "  drop", "  w"
+        ],
+        "{trace}"
+    );
+    assert!(
+        trace.contains("    boom\n      list\n      /\n        ! DIV returns error"),
+        "{trace}"
+    );
+
+    let bad = bund2(
+        &["script", "--trace", "/no/such/directory/t", "--file", path],
+        &[],
+    );
+    assert_eq!(bad.code, Some(1), "{}", bad.err);
+    assert!(
+        bad.err
+            .contains("--trace: cannot write /no/such/directory/t"),
+        "{}",
+        bad.err
+    );
+    assert_eq!(bad.out, "", "the program did not run");
+
+    let bare = bund2(&["script", "--file", path, "--trace"], &[]);
+    assert_eq!(bare.code, Some(2), "{}", bare.err);
+}

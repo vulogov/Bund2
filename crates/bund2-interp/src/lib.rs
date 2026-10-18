@@ -626,6 +626,10 @@ impl Interp {
             let depth = self.frames.len();
             if let Some(p) = self.profile.as_mut() {
                 p.open_native(name, n.kind, depth);
+                // D191: the trace, named here, where the interner is.
+                if p.tracing() {
+                    p.trace_call(self.registry.interner.name(name));
+                }
             }
         }
         let r = if self.effect_audit.is_none() {
@@ -1070,6 +1074,9 @@ impl Interp {
                     // a failure: the program is over, and there is nothing to
                     // report (D52).
                     if let Err(e) = self.apply_step(v.clone()) {
+                        if self.debug.is_some() {
+                            self.catch_failure(&e);
+                        }
                         if let Some(p) = self.profile.as_mut() {
                             p.mark_failure(&e.0);
                         }
@@ -1243,6 +1250,11 @@ impl Interp {
         // node; an unnamed one is an anonymous entry.
         if let Some(p) = self.profile.as_mut() {
             p.open_frame(who, self.frames.len());
+            if let Some(w) = who
+                && p.tracing()
+            {
+                p.trace_call(self.registry.interner.name(w));
+            }
         }
         Ok(())
     }
@@ -1298,16 +1310,45 @@ impl Interp {
                 Some(Some(c)) => Some(c.to_string()),
             }
         };
-        match cond {
-            None => Some(name),
+        let holds = match cond {
+            None => true,
             Some(src) => {
                 let operands = self.snapshot();
                 let mut d = self.debug.take()?;
                 let holds = d.condition_holds(&src, &operands);
                 self.debug = Some(d);
-                holds.then_some(name)
+                holds
             }
+        };
+        if !holds {
+            return None;
         }
+        // **D191: counted, and stopped on only at its target if it has one.**
+        let hit = self.debug.as_mut()?.count_hit(&name)?;
+        Some(format!("{name} (hit {hit})"))
+    }
+
+    /// **`catch`: a failure is being raised here, its frames still pushed**
+    /// — D191. Called on the error paths before they unwind. One stop per
+    /// failure: the flag it raises is cleared by the program's next step.
+    fn catch_failure(&mut self, e: &Error) {
+        if self.exit_code.is_some() || !self.debug.as_ref().is_some_and(|d| d.catches()) {
+            return;
+        }
+        if let Some(d) = self.debug.as_mut() {
+            d.caught = true;
+        }
+        self.safepoint_for(None, debug::Stop::Error(e.0.clone()));
+    }
+
+    /// What a stop compares with the last one (D191): the current stack's
+    /// name, depth and top values, and the workbench's depth.
+    fn seen(&self) -> debug::Seen {
+        debug::Seen::of(
+            self.stacks.current_name(),
+            &self.snapshot(),
+            Vm::workbench_depth(self),
+        )
     }
 
     /// Attach a debugger. **§D1**, and the only writer of `debug`.
@@ -1354,6 +1395,11 @@ impl Interp {
         let Some(mut d) = self.debug.take() else {
             return;
         };
+        // **The program took a step, so a failure it stopped at is over**
+        // (D191): a later one is a new failure and may stop.
+        if matches!(why, debug::Stop::Stepping) {
+            d.caught = false;
+        }
         // A line typed at a stop is running: its values are not stops.
         if d.busy {
             self.debug = Some(d);
@@ -1381,6 +1427,19 @@ impl Interp {
                 debug::Stop::WatchWorkbench => {
                     format!("watchpoint: workbench\n{}", self.render_position(top))
                 }
+                debug::Stop::Error(reason) => format!(
+                    "caught: {reason}\n{}\n(the failure unwinds when the program moves on)",
+                    self.render_position(top)
+                ),
+                debug::Stop::Redefine(name) => {
+                    format!("redefining: {name}\n{}", self.render_position(top))
+                }
+            };
+            // **D191: what moved since the last stop**, beneath where.
+            let now = self.seen();
+            let at = match d.changes(&now) {
+                Some(line) => format!("{at}\n{line}"),
+                None => at,
             };
             d.stopped(&at);
             loop {
@@ -1434,6 +1493,9 @@ impl Interp {
                     },
                 }
             }
+            // What the next stop compares with: the state the program
+            // resumes in, a typed line's changes included.
+            d.leave(self.seen());
         }
         self.debug = Some(d);
     }
@@ -1610,6 +1672,10 @@ impl Interp {
                 // running every exit action — or frames would leak above it.
                 Ok(()) => {}
                 Err(e) => {
+                    // D191: before the frames go, so a `catch` stop sees them.
+                    if self.debug.is_some() {
+                        self.catch_failure(&e);
+                    }
                     self.note_failure(&e);
                     // The word whose body raised, for the report's `ended`
                     // line; a native that answered the error marked itself
@@ -1690,7 +1756,30 @@ impl Vm for Interp {
         // so the stop shows the stack as it was and the value as "next".
         if self.watch_hit() {
             let name = self.stacks.current_name().to_string();
-            if self.debug.as_ref().is_some_and(|d| d.watches_stack(&name)) {
+            let cond = self
+                .debug
+                .as_ref()
+                .and_then(|d| d.watch_condition(&name))
+                .map(|c| c.map(str::to_string));
+            let stop = match cond {
+                None => false,
+                Some(None) => true,
+                // **D191: the condition sees the value about to land**, on
+                // top of the stack it lands on.
+                Some(Some(src)) => {
+                    let mut operands = self.snapshot();
+                    operands.push(v.clone());
+                    match self.debug.take() {
+                        Some(mut d) => {
+                            let holds = d.condition_holds(&src, &operands);
+                            self.debug = Some(d);
+                            holds
+                        }
+                        None => false,
+                    }
+                }
+            };
+            if stop {
                 self.safepoint_for(None, debug::Stop::Watch(name));
             }
         }
@@ -1965,6 +2054,15 @@ impl Vm for Interp {
     }
 
     fn register_lambda(&mut self, name: &str, body: BundValue) {
+        // **D191: `watch redefine`, before the old body is replaced.**
+        if self
+            .debug
+            .as_ref()
+            .is_some_and(|d| d.watches_redefinition())
+            && (Vm::is_lambda(self, name) || Vm::is_native(self, name))
+        {
+            self.safepoint_for(None, debug::Stop::Redefine(name.to_string()));
+        }
         if self.profile.is_some()
             && (Vm::is_lambda(self, name) || Vm::is_native(self, name))
             && let Some(p) = self.profile.as_mut()
@@ -2073,6 +2171,11 @@ impl Vm for Interp {
                 }));
             }
             D::Break(w) => debug::Command::Break(w),
+            D::BreakAt(w, n) => debug::Command::BreakAt(w, n, None),
+            D::Until(w) => debug::Command::Until(w),
+            D::Catch => debug::Command::Catch,
+            D::WatchIf(s, cond) => debug::Command::WatchIf(s, cond),
+            D::WatchRedefine => debug::Command::WatchRedefine,
             D::BreakIf(w, cond) => debug::Command::BreakIf(w, cond),
             D::Watch(s) => debug::Command::Watch(s),
             D::WatchWorkbench => debug::Command::WatchWorkbench,
@@ -2223,6 +2326,9 @@ impl Vm for Interp {
             let depth = self.frames.len();
             if let Some(p) = self.profile.as_mut() {
                 p.open_method(name, depth);
+                if p.tracing() {
+                    p.trace_call(name);
+                }
             }
         }
         let r = bund2_api::catch_panic(|| f(&mut *self))
@@ -2244,6 +2350,9 @@ impl Vm for Interp {
             let depth = self.frames.len();
             if let Some(p) = self.profile.as_mut() {
                 p.open_conditional(ty, depth);
+                if p.tracing() {
+                    p.trace_call(ty);
+                }
             }
         }
         let r = bund2_api::catch_panic(|| f(&mut *self, c))

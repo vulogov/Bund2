@@ -1183,3 +1183,8 @@ is no wider — the request is a variant, not a method.
 path. `Ok(None)` is a `Vm` that keeps no profile or cannot render one,
 and the word warns; `Ok(Some(text))` names what was written. Nothing is
 attached or armed by it. The trait is no wider.
+
+**Dated note, 2026-10-17 — D191.** `Debugging` gains `BreakAt(String,
+u64)`, `Until(String)`, `Catch`, `WatchIf(String, String)` and
+`WatchRedefine`, each the request of one of D191's words and answered as
+the other arming requests are. The trait is no wider.

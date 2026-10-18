@@ -690,3 +690,31 @@ fn a_breakpoint_armed_beneath_two_compiled_bodies_fires_and_turns_the_tier_off()
         );
     }
 }
+
+/// D191's words, armed from a script with no `--debugger`: each attaches
+/// the console a word gets, which reads the program's input — closed here,
+/// so the first stop is said and the program runs on.
+#[test]
+fn the_d191_words_arm_what_the_console_commands_arm() {
+    let body = ":w { 1 + } register\n:boom { 7 1 list / } register\n";
+    let tail = "0 5 { drop w } times\n?try\n  :try { boom } set\n  :except { drop } set\n!\n:w { 2 + } register\nprintln\n";
+    for (arm, want) in [
+        ("debug.catch", "caught: DIV returns error"),
+        ("\"w\" 2 debug.break.at", "breakpoint: w (hit 2)"),
+        ("\"boom\" debug.until", "breakpoint: boom (hit 1)"),
+        ("\"main\" \"{ 4 == }\" debug.watch.if", "watchpoint: @main"),
+        ("debug.watch.redefine", "redefining: w"),
+    ] {
+        let (out, err, code) = session(&format!("{body}{arm}\n{tail}"), None);
+        assert!(err.contains(want), "`{arm}`:\n{err}");
+        assert_eq!((out.as_str(), code), ("7\n", Some(0)), "`{arm}`:\n{err}");
+    }
+    let (out, _, _) = session(
+        "debug.catch debug.watch.redefine \"w\" 3 debug.break.at \"main\" \"{ 1 == }\" debug.watch.if debug.info\n",
+        None,
+    );
+    assert_eq!(
+        out, "break w 3\nwatch @main if { 1 == }\nwatch redefine\ncatch\n",
+        "what `info` lists"
+    );
+}
