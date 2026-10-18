@@ -450,12 +450,10 @@ mod bench_form_tests {
             let (bstack, bwb) = outcome(&bench).unwrap_or_else(|e| panic!("{bench}: {e}"));
             assert!(wb.is_empty(), "{plain}");
             assert_eq!(bstack, ["7"], "{bench}: the stack beneath moved");
-            // `graph.paths` answers its rows in an order that changes.
-            if word != "graph.paths" {
-                assert_eq!(&stack[1..], &bwb[..], "{bench}");
-            } else {
-                assert_eq!(stack.len() - 1, bwb.len(), "{bench}");
-            }
+            // `graph.paths` once answered in an order that changed between
+            // runs, and was compared by length alone; its rows are in node
+            // order now (F17), so it is compared like the rest.
+            assert_eq!(&stack[1..], &bwb[..], "{bench}");
         }
     }
 

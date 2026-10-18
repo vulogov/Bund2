@@ -1,0 +1,118 @@
+//
+// The graph words Bund2 adds to the reference's seven (D192, RFC-0012),
+// over three small graphs. Run it:
+//
+//   bund2 demo.bund
+//
+// A graph is a MAP of `nodes` and `edges` that `graph!` builds from two
+// lists, edges first. Node names are Title-cased, so `:fetch` answers as
+// `Fetch`. Every answer is in the order of the `nodes` list, so the output
+// is the same on every run.
+//
+
+//
+// 1. Build tasks. An edge [ a b ] says a comes before b. `docs` depends on
+//    nothing and nothing depends on it.
+//
+:tasks
+[
+  [ :fetch :configure ] [ :configure :compile ]
+  [ :compile :link ]    [ :compile :test ]
+  [ :link :package ]    [ :test :package ]
+]
+[ :fetch :configure :compile :link :test :package :docs ]
+graph! var
+
+"-- build tasks" println
+"an order to run them in:   " print :tasks var? graph.toposort println
+"what a change to compile reaches: " print :compile :tasks var? graph.reachable println
+"breadth first from fetch:  " print :fetch :tasks var? graph.bfs println
+"depth first from fetch:    " print :fetch :tasks var? graph.dfs println
+"what compile feeds:        " print :compile :tasks var? graph.neighbors println
+"edges in and out of package: " print :package :tasks var? graph.degree println
+"groups of related tasks:   " print :tasks var? graph.components println
+"a cycle, if there is one:  " print :tasks var? graph.cycle println
+
+//
+// The same tasks with a mistake: packaging is made a step before
+// configuring, which closes a loop. There is no order now, so
+// `graph.toposort` fails, and `?try` catches it.
+//
+:broken
+[
+  [ :fetch :configure ] [ :configure :compile ]
+  [ :compile :link ]    [ :compile :test ]
+  [ :link :package ]    [ :test :package ]
+  [ :package :configure ]
+]
+[ :fetch :configure :compile :link :test :package :docs ]
+graph! var
+
+"" println
+"-- the same tasks, with package before configure" println
+"a cycle:                   " print :broken var? graph.cycle println
+"tasks that wait on each other: " print :broken var? graph.scc println
+?try
+  :try    { :broken var? graph.toposort println } set
+  :except { "no order: " print :context get println } set
+!
+
+//
+// 2. Roads between five towns, each weighed in kilometres. The graph is
+//    directed, so a two-way road is two edges; `graph.mst` reads every edge
+//    both ways and keeps the lightest set that joins every town.
+//
+:roads
+[
+  [ :ashby :brook 7.0 ]  [ :brook :ashby 7.0 ]
+  [ :ashby :cliff 9.0 ]  [ :cliff :ashby 9.0 ]
+  [ :brook :cliff 3.0 ]  [ :cliff :brook 3.0 ]
+  [ :brook :dale 12.0 ]  [ :dale :brook 12.0 ]
+  [ :cliff :dale 4.0 ]   [ :dale :cliff 4.0 ]
+  [ :dale :elm 6.0 ]     [ :elm :dale 6.0 ]
+]
+[ :ashby :brook :cliff :dale :elm ]
+graph! var
+
+"" println
+"-- roads" println
+"the least road that joins every town: " println :roads var? graph.mst println
+// `graph.paths` is the reference's word and looks its start up as given,
+// not Title-cased as every other name is: `:ashby` would be unknown.
+"from Ashby, by Dijkstra (the reference's word): " println "Ashby" :roads var? graph.paths println
+"from Ashby, by Bellman-Ford: " println :ashby :roads var? graph.bellmanford println
+
+//
+// A toll road that pays you to take it is a negative weight, which
+// Dijkstra cannot take and Bellman-Ford can. Two of them in a loop would
+// pay without end, and that is an error naming a town on the loop.
+//
+"with a rebate of 2 on the road from Cliff to Brook: " println
+:ashby
+[ [ :ashby :brook 7.0 ] [ :ashby :cliff 4.0 ] [ :cliff :brook -2.0 ] ]
+[ :ashby :brook :cliff ]
+graph! graph.bellmanford println
+?try
+  :try {
+    :ashby
+    [ [ :ashby :brook 7.0 ] [ :brook :cliff -2.0 ] [ :cliff :brook 1.0 ] ]
+    [ :ashby :brook :cliff ]
+    graph! graph.bellmanford println
+  } set
+  :except { "a loop that pays: " print :context get println } set
+!
+
+//
+// 3. Water mains, each weighed by what it carries a second. How much can
+//    reach the town from the reservoir, and through which mains?
+//
+"" println
+"-- water mains" println
+:town :reservoir
+[
+  [ :reservoir :north 10.0 ] [ :reservoir :south 5.0 ]
+  [ :north :south 15.0 ]     [ :north :town 4.0 ]
+  [ :south :town 10.0 ]
+]
+[ :reservoir :north :south :town ]
+graph! graph.maxflow println

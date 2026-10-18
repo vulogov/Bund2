@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 351 promotable of 360 reached, of 418 fixed-effect natives; 9 reached natives
+# 351 promotable of 360 reached, of 442 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 !=.
@@ -397,10 +397,34 @@ var-
 # not reached: get.,
 # not reached: graph.allpath
 # not reached: graph.allpath.
+# not reached: graph.bellmanford
+# not reached: graph.bellmanford.
+# not reached: graph.bfs
+# not reached: graph.bfs.
+# not reached: graph.components
+# not reached: graph.components.
+# not reached: graph.cycle
+# not reached: graph.cycle.
+# not reached: graph.degree
+# not reached: graph.degree.
+# not reached: graph.dfs
+# not reached: graph.dfs.
+# not reached: graph.maxflow
+# not reached: graph.maxflow.
+# not reached: graph.mst
+# not reached: graph.mst.
+# not reached: graph.neighbors
+# not reached: graph.neighbors.
 # not reached: graph.path
 # not reached: graph.path.
 # not reached: graph.paths
 # not reached: graph.paths.
+# not reached: graph.reachable
+# not reached: graph.reachable.
+# not reached: graph.scc
+# not reached: graph.scc.
+# not reached: graph.toposort
+# not reached: graph.toposort.
 # not reached: graph.transitiveclosure
 # not reached: graph.transitiveclosure.
 # not reached: head.

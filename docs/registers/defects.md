@@ -526,7 +526,15 @@ does not. That is the same "adds a guarantee" argument as F15, but it lands in
 `bund/graph`, which D14 has not ruled on — `graph!` is used by 5 corpus
 programs and the subsystem is otherwise library-shaped.
 - `reference/Bund/src/stdlib/functions/graph/dijkstra.rs:8` and siblings
-- Behavioural. Disposition:
+- Behavioural. Disposition: **FIX** (2026-10-18, D192 §4, the repository
+  owner's ruling). Bund2's `graph.paths`, `graph.allpath` and
+  `graph.transitiveclosure` sort their rows into node order — the order of
+  the `nodes` list — by the first node and then the second for the two
+  pair words. As with F15 this adds an order and deviates from nothing.
+  The oracle still reorders, so the three programs stay in UNSTABLE.txt
+  and a golden still pins counts and single rows; `wb.rs`'s two-operand
+  test, which compared `graph.paths` by length alone, now compares its
+  rows.
 
 ## F18 — depth guards under-declare arity for 14 words
 A word normally opens with `if vm.stack.current_stack_len() < N { bail!("Stack

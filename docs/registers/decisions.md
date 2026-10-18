@@ -3650,6 +3650,120 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D192 — graph algorithms of Bund2's own: twelve words over the graph MAP
+
+**Raised and ruled 2026-10-18** by the repository owner: asked to "develop
+plan for implementing graph algorithms", shown five decisions with their
+options and a recommendation each, and answered "1A 2A 3A 4A 5A". Every
+word added is Bund2's own, as D190's and D191's are, so `conform`,
+`COVERAGE` and `IMPLEMENTED` move by zero. The reference's graph family is
+seven words (`reference/Bund/src/stdlib/functions/graph/mod.rs:113-120`),
+and Bund2 already had all seven (`crates/bund2-stdlib/src/graph.rs`).
+
+- Decided by: repository owner, 2026-10-18
+- Blocks: nothing
+- Depends on: D38 (`algos` pinned; vendored only a module, only if D37
+  forces it), D37, D39 (an internal loop is bounded), D111 and its note of
+  2026-10-07 (the workbench forms, the container family), F17 (whose
+  disposition §4 rules)
+- Status: **RESOLVED — 1A 2A 3A 4A 5A; built the same day.**
+
+### The rulings
+
+1. **Scope, A.** Traversal and structure — `graph.bfs`, `graph.dfs`,
+   `graph.reachable`, `graph.neighbors`, `graph.degree`, `graph.toposort`,
+   `graph.cycle`, `graph.components`, `graph.scc` — and three weighted
+   words, `graph.mst`, `graph.bellmanford`, `graph.maxflow`. Not
+   PageRank, cliques or matching; not the exponential searches (a
+   Hamiltonian path, Held–Karp).
+2. **Whose implementation, A: Bund2's own.** D38's rule, "pin what you
+   cannot faithfully reproduce", has nothing to apply to: these words have
+   no reference behaviour. At the pinned revision `algos` answers in
+   `HashMap` order and several of its modules index without a check. Not
+   `algos` (B), not a new `petgraph` dependency (C).
+3. **How a graph is read, A: as the reference's words read it, directed.**
+   Node names Title-cased (`reference/Bund/src/stdlib/functions/graph/make_graph.rs:9-11`),
+   a weight a FLOAT and 100.0 when an edge has two elements or more than
+   three (`:125-133`), an edge naming an unknown node an error. The two
+   words that read edges both ways, `graph.components` and `graph.mst`,
+   say so. Not integer weights (B): `graph.paths` refuses them, and one
+   graph would mean two things. Not a `directed` key (C): `graph` would
+   print it, and a golden pins `dict graph println`.
+4. **Order, A.** The new words answer in the order of the `nodes` list,
+   and F17 is dispositioned **FIX** the same way: `graph.paths`,
+   `graph.allpath` and `graph.transitiveclosure` sort their rows into node
+   order. It adds an order where the reference has none, F15's argument,
+   and moves no golden: the probe prints counts and single rows.
+5. **Answers and failures, A.** Traversals and `graph.toposort` answer a
+   LIST of names; `graph.components` and `graph.scc` a LIST of LISTs;
+   `graph.mst` a MAP of `edges` and `weight`; `graph.maxflow` a MAP of
+   `flow` and `edges`. A cycle under `graph.toposort`, and a negative
+   cycle under `graph.bellmanford`, are errors a program catches with
+   `?try`, naming a node on the cycle. Not NODATA (B), not `graph.path`'s
+   `found` MAP for every answer (C).
+
+### Built, the same day — and what the build decided that the rulings did not
+
+`crates/bund2-stdlib/src/graph_algorithms.rs`. Each of these can be
+overruled.
+
+- **A repeated edge replaces the earlier one.** `algos`' `Graph::add_edge`
+  removes an edge between the same pair before adding it
+  (`~/.cargo/git/checkouts/algos-9d1538761d16fda1/4c08437/src/cs/graph.rs:108-121`),
+  so under `graph.paths` the last weight given wins. The new reader does
+  the same, so one graph holds the same edges whichever word reads it.
+  `the_reader_agrees_with_build_algos` checks node numbering and every
+  edge's weight against `build_algos` over 300 graphs.
+- **A node operand is Title-cased**, as `graph.path`'s are. `graph.paths`
+  looks its start node up as given, the reference's quirk, which these do
+  not copy.
+- **Operand order follows `graph.paths` and `graph.path`:** the graph on
+  top, a node beneath it, and for `graph.maxflow` the source then the sink
+  — `<sink> <source> <graph> graph.maxflow`. Every word has a workbench
+  form holding the graph (D111's container family, slot 0).
+- **Refusals name the word**, `GRAPH.TOPOSORT: …`, not the reference's
+  `MAKE_GRAPH:` prefix: these are new messages, and the word is what a
+  reader needs.
+- **`graph.reachable` includes its start**, because the reference's
+  closure is reflexive (the probe's `list [ :A ] graph!
+  graph.transitiveclosure` answers the one pair A→A), and
+  `reachable_is_the_transitive_closure_row` holds it to that row.
+- **`graph.degree` answers a MAP of `in` and `out`** over the edges as
+  read, a repeated edge once; a self-loop counts once each way.
+- **`graph.cycle` answers `[ ]` for an acyclic graph** rather than failing:
+  "is there a cycle?" has an answer either way, unlike "what is the order?".
+- **`graph.mst` is a spanning forest** when the graph is disconnected, and
+  takes negative weights. Edges of equal weight are taken in the order the
+  graph lists them.
+- **`graph.bellmanford`'s rows are `graph.paths`' rows** (`node`, `path`
+  or NODATA), so a program can swap one word for the other. The cycle
+  named is the smallest-numbered node on it, so the message does not
+  depend on which edge the last pass relaxed.
+- **`graph.maxflow` is Edmonds–Karp, not Dinic** as the plan said.
+  Shortest augmenting paths need at most nodes × edges rounds, which is
+  the bound D39 asks for, and the search is a plain breadth-first loop.
+  A capacity must be finite and not below zero; a source that is the sink
+  is refused. Each listed edge's share is reported when it carries flow.
+- **The depth-first searches keep their own stacks**, so a graph deep
+  enough to overflow Rust's stack is answered.
+
+### What checks it
+
+Nothing in the oracle can. Seven unit tests run the words through the
+interpreter, and eight cross-checks run the algorithms over seeded random
+graphs of up to seven nodes:
+
+- reachability, BFS and DFS against `algos`' Warshall closure;
+- SCCs against mutual reachability; components against their edges;
+- topological order against every edge, and against the cycle found;
+- Bellman–Ford against `algos`' Dijkstra with non-negative weights, and
+  against a Floyd–Warshall written in the test with negative ones;
+- MST weight against every subset of up to eight edges;
+- max flow against every cut, with capacity and conservation per edge.
+
+`wb.rs`'s two-operand test compared `graph.paths` by length alone because
+its rows reordered; with F17 fixed it is compared like every other word.
+
 ## D191 — the debugger: catch, hit counts, until, what changed, conditional and redefinition watches, the trace, and the console's history
 
 **Raised and ruled 2026-10-17** by the repository owner: shown a

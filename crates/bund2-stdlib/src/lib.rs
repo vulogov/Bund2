@@ -55,6 +55,8 @@ mod stem;
 pub mod check;
 
 pub mod graph;
+// Graph algorithms of Bund2's own, over the same MAP (D192).
+pub mod graph_algorithms;
 
 pub mod singles;
 
@@ -149,6 +151,7 @@ pub fn register_all_with(r: &mut bund2_api::Registry, opts: &host::HostOptions) 
     sysinfo::register(r);
     singles::register(r);
     graph::register(r);
+    graph_algorithms::register(r);
     library::register(r);
     library_string::register(r);
     // After `singles`, which registers `bund.eval-file`, and before
@@ -613,8 +616,12 @@ mod honesty_tests {
     fn no_native_takes_a_stack_name_in_an_operand_the_palette_leaves_at_seven() {
         // Sorted as `declared_effects` sorts. `save.model` is here because of
         // its depth and is not run: it writes a world file (`ACTS_ON_HOST`).
-        const UNVARIED: [&str; 14] = [
+        // `graph.maxflow`'s third operand is its sink, a node's name looked
+        // up in the graph (D192), as `graph.path`'s end is.
+        const UNVARIED: [&str; 16] = [
             "get,",
+            "graph.maxflow",
+            "graph.maxflow.",
             "graph.path",
             "graph.path.",
             "save.model",

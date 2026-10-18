@@ -12,6 +12,7 @@ explains it. They are not part of the conformance corpus; that lives under
 | [`jit_vs_tier0/`](jit_vs_tier0/) | One numeric loop built twice, into a Tier 0 bundle and a Cranelift JIT bundle, and a `make bench` that times the two: ten million iterations in 2.5 s on the interpreter and 0.42 s on the JIT. The example that shows what the JIT is for, and the shapes it does not speed up. |
 | [`csv_stats/`](csv_stats/) | One column of a CSV file, read through the `csv` conditional, and its count, minimum, maximum and mean from the four statistics words, with their `,` forms keeping the list between questions. The example for reading data in. |
 | [`profiler_demo/`](profiler_demo/) | Every feature of `debug.profile`, which writes the profile of the run so far: snapshots at the top level, from deep inside a recursion, and one file rewritten as a run goes on, beside the end-of-run report; a failed write caught by `?try`; the warning without `--profile`, and the stub under `--noio`. The example for profiling. |
+| [`graph_demo/`](graph_demo/) | The twelve graph words Bund2 adds to the reference's seven, over build tasks, roads and water mains: a build order and the cycle that breaks it, the groups a graph falls into, a minimum spanning tree, distances with negative weights, and a maximum flow. Every answer in node order, so two runs print the same. The example for graphs. |
 
 ## Running an example
 
@@ -23,6 +24,7 @@ Any of them runs straight from its source, with `bund2` built:
     cd bund_examples/csv_stats && bund2 stats.bund --column humidity
     cd bund_examples/profiler_demo && mkdir -p profiles && \
         bund2 script --profile profiles/end --file demo.bund -- --out profiles
+    bund2 bund_examples/graph_demo/demo.bund
 
 With the bare path, everything after it belongs to the program. The
 `script --file` form takes the program's arguments after `--`:

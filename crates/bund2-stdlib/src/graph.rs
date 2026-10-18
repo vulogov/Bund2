@@ -12,9 +12,14 @@
 //! do: `graph.path` runs `fast_paths`, while `graph.paths`,
 //! `graph.allpath` and `graph.transitiveclosure` run `algos`' dijkstra,
 //! johnson and warshall, each from the crate and revision the reference links
-//! (D38). Those three build their answer by iterating a `HashMap`, so **the
-//! order of the rows changes from run to run**, in the reference and here alike.
-//! A golden can capture a count or a single row, but not the list as printed.
+//! (D38). Those three get their answer as a `HashMap`, so the reference's
+//! rows come in an order that changes from run to run (F17). **Bund2 sorts
+//! them into node order** — the order of the `nodes` list — which F17's
+//! disposition and D192 §4 rule: it adds an order where the reference has
+//! none, and deviates from nothing. The oracle still reorders, so a golden
+//! can capture a count or a single row, but not the list as printed.
+//!
+//! The words Bund2 adds to the family are in `graph_algorithms.rs`.
 
 use std::collections::HashMap;
 
@@ -33,7 +38,7 @@ fn eff(consumes: u8, produces: u8) -> StackEffect {
 /// The renaming applies to the node list and to both ends of every edge, and
 /// it is what the returned path holds — a program gets Title-cased names back
 /// whatever it put in.
-fn node_name(s: &str) -> String {
+pub(crate) fn node_name(s: &str) -> String {
     s.trim().to_case(Case::Title)
 }
 
@@ -315,7 +320,7 @@ fn graph_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Result<()
 }
 
 /// A node index, its inverse, and the graph `algos` runs on.
-type AlgosBuilt = (
+pub(crate) type AlgosBuilt = (
     HashMap<String, usize>,
     HashMap<usize, String>,
     algos::cs::graph::Graph<usize, f64>,
@@ -328,7 +333,7 @@ type AlgosBuilt = (
 /// weight stays an `f64` (default 100.0) instead of being truncated
 /// (`:125-133`). Every node is also added as a vertex (`:95`), so a node with
 /// no edges still appears in the answers.
-fn build_algos(nodes: &BundValue, edges: &BundValue) -> Result<AlgosBuilt, Error> {
+pub(crate) fn build_algos(nodes: &BundValue, edges: &BundValue) -> Result<AlgosBuilt, Error> {
     let mut ix: HashMap<String, usize> = HashMap::new();
     let mut names: HashMap<usize, String> = HashMap::new();
     let mut g: algos::cs::graph::Graph<usize, f64> = algos::cs::graph::Graph::new();
@@ -407,7 +412,10 @@ fn build_algos(nodes: &BundValue, edges: &BundValue) -> Result<AlgosBuilt, Error
 /// The prologue the three `algos` words share: pull the graph, check its
 /// `type`, and default and check `nodes` and `edges`
 /// (`dijkstra.rs`, `allshortpath.rs` and `transitiveclosure.rs` each repeat it).
-fn graph_operand(vm: &mut dyn Vm, prefix: &str) -> Result<(BundValue, BundValue), Error> {
+pub(crate) fn graph_operand(
+    vm: &mut dyn Vm,
+    prefix: &str,
+) -> Result<(BundValue, BundValue), Error> {
     let g = vm
         .pull()
         .ok_or_else(|| Error(format!("{prefix}: NO DATA #1")))?;
@@ -464,6 +472,9 @@ fn graph_paths(vm: &mut dyn Vm) -> Result<(), Error> {
     };
     let found = algos::cs::graph::dijkstra::shortest_paths(&g, start_ix)
         .map_err(|e| Error(format!("GRAPH.PATHS: returned: {e}")))?;
+    // Node order, not the map's (F17).
+    let mut found: Vec<(usize, Option<f64>)> = found.into_iter().collect();
+    found.sort_by_key(|(k, _)| *k);
     let mut rows: Vec<BundValue> = Vec::new();
     for (k, v) in found {
         let name = names
@@ -491,6 +502,9 @@ fn graph_allpath(vm: &mut dyn Vm) -> Result<(), Error> {
     let (_, names, g) = build_algos(&nodes, &edges)?;
     let found = algos::cs::graph::johnson::all_pairs_shortest_paths(&g)
         .map_err(|e| Error(format!("GRAPH.ALLPATH: returned: {e}")))?;
+    // By the first node, then the second, in node order (F17).
+    let mut found: Vec<((usize, usize), Option<f64>)> = found.into_iter().collect();
+    found.sort_by_key(|(pair, _)| *pair);
     let mut rows: Vec<BundValue> = Vec::new();
     for ((from_ix, to_ix), w) in found {
         let Some(w) = w else { continue };
@@ -520,6 +534,8 @@ fn graph_transitiveclosure(vm: &mut dyn Vm) -> Result<(), Error> {
     let (_, names, g) = build_algos(&nodes, &edges)?;
     let found = algos::cs::graph::warshall::transitive_closure(&g)
         .map_err(|e| Error(format!("GRAPH.TRANSITIVECLOSURE: returned: {e}")))?;
+    let mut found: Vec<((usize, usize), bool)> = found.into_iter().collect();
+    found.sort_by_key(|(pair, _)| *pair);
     let mut rows: Vec<BundValue> = Vec::new();
     for ((from_ix, to_ix), connected) in found {
         if !connected {
