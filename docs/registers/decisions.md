@@ -3764,6 +3764,26 @@ graphs of up to seven nodes:
 `wb.rs`'s two-operand test compared `graph.paths` by length alone because
 its rows reordered; with F17 fixed it is compared like every other word.
 
+### Dated note, 2026-10-18 — RFC-0012 back to Draft, and what was untested
+
+Asked "is RFC-0012 ready?", the answer was no, and the owner said to fix
+it and wait for review. Three things here were affected:
+
+- **"The depth-first searches keep their own stacks, so a graph deep
+  enough to overflow Rust's stack is answered"** had no test.
+  `a_deep_graph_does_not_overflow_the_stack` now runs a 200,000-node
+  chain, open and closed, through the searches.
+- **"Every word has a workbench form holding the graph"** was tested for
+  `graph.bfs.` alone. `each_form_holds_the_graph_on_the_workbench` runs
+  all twelve against their plain words, and with a non-graph.
+- **The refusals** were tested for a cycle, a negative cycle, an unknown
+  node operand and one node as both source and sink.
+  `each_refusal_section_s4_names` adds a missing operand, an integer
+  weight, an unknown node in an edge, a short edge, negative and infinite
+  capacities, and the four-element edge that weighs 100.0.
+
+"What checks it" above counted seven unit tests; there are now ten.
+
 ## D191 — the debugger: catch, hit counts, until, what changed, conditional and redefinition watches, the trace, and the console's history
 
 **Raised and ruled 2026-10-17** by the repository owner: shown a

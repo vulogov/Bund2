@@ -536,6 +536,12 @@ programs and the subsystem is otherwise library-shaped.
   test, which compared `graph.paths` by length alone, now compares its
   rows.
 
+  *Note, 2026-10-18:* the paragraph above the disposition says `bund/graph`
+  is where "D14 has not ruled". That was true when written; D14 has since
+  resolved by method B″, and the family is library
+  (`docs/core-words.md:16`). The fix needed no ruling on scope: it adds an
+  order to library words and changes no golden.
+
 ## F18 — depth guards under-declare arity for 14 words
 A word normally opens with `if vm.stack.current_stack_len() < N { bail!("Stack
 is too shallow ...") }`. For 14 words that `N` is smaller than what the word

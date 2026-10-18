@@ -1112,6 +1112,147 @@ mod tests {
         );
     }
 
+    /// The stack beneath, then the workbench, or the refusal's own words.
+    fn outcome(src: &str) -> Result<(Vec<String>, Vec<String>), String> {
+        let mut i = run_src(src).map_err(|e| {
+            e.rsplit_once(" returned error: ")
+                .map_or(e.clone(), |(_, m)| m.to_string())
+        })?;
+        let stack = i.snapshot().iter().map(BundValue::display).collect();
+        let mut bench = Vec::new();
+        while let Some(v) = i.pull_workbench() {
+            bench.push(v.display());
+        }
+        bench.reverse();
+        Ok((stack, bench))
+    }
+
+    /// Every word, with the operands beneath its graph, bottom first.
+    const FORMS: [(&str, &[&str]); 12] = [
+        ("graph.bfs", &[":A"]),
+        ("graph.dfs", &[":A"]),
+        ("graph.reachable", &[":C"]),
+        ("graph.neighbors", &[":A"]),
+        ("graph.degree", &[":D"]),
+        ("graph.bellmanford", &[":A"]),
+        ("graph.maxflow", &[":E", ":A"]),
+        ("graph.toposort", &[]),
+        ("graph.cycle", &[]),
+        ("graph.components", &[]),
+        ("graph.scc", &[]),
+        ("graph.mst", &[]),
+    ];
+
+    /// **Each `.` form holds the graph on the workbench and answers what its
+    /// plain word answers, there**, leaving the stack beneath alone; and
+    /// with a value that is not a graph, both refuse in the same words.
+    /// Swapping the source and sink of `graph.maxflow.` would answer a
+    /// different flow, so the slot is checked as well as the answer.
+    #[test]
+    fn each_form_holds_the_graph_on_the_workbench() {
+        for (word, rest) in FORMS {
+            let rest = rest.join(" ");
+            let plain = outcome(&format!("7 {rest} {DAG} {word}"));
+            let bench = outcome(&format!("7 {DAG} . {rest} {word}."));
+            let (Ok((stack, wb)), Ok((bstack, bwb))) = (&plain, &bench) else {
+                panic!("{word}: plain {plain:?}, workbench {bench:?}");
+            };
+            assert!(wb.is_empty(), "{word}");
+            assert_eq!(bstack, &["7"], "{word}.: the stack beneath moved");
+            assert_eq!(&stack[1..], &bwb[..], "{word}.");
+
+            let plain = outcome(&format!("7 {rest} dict {word}"));
+            let bench = outcome(&format!("7 dict . {rest} {word}."));
+            match (plain, bench) {
+                (Err(a), Err(b)) => {
+                    assert_eq!(a, b, "{word}");
+                    assert!(
+                        a.contains(&format!("{}: MISSED TYPE", word.to_uppercase())),
+                        "{a}"
+                    );
+                }
+                (a, b) => panic!("{word} on a dict: plain {a:?}, workbench {b:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn each_refusal_section_s4_names() {
+        let e = err_of(&format!("{DAG} graph.bfs"));
+        assert!(e.contains("GRAPH.BFS: NO DATA #2"), "{e}");
+        let e = err_of(&format!(":A {DAG} graph.maxflow"));
+        assert!(e.contains("GRAPH.MAXFLOW: NO DATA #3"), "{e}");
+        let e = err_of("[ [ :A :B 2 ] ] [ :A :B ] graph! graph.toposort");
+        assert!(
+            e.contains("GRAPH.TOPOSORT: an edge's weight must be a FLOAT, not"),
+            "{e}"
+        );
+        let e = err_of("[ [ :A :Z ] ] [ :A ] graph! graph.scc");
+        assert!(
+            e.contains("GRAPH.SCC: an edge names unknown nodes: A and Z"),
+            "{e}"
+        );
+        let e = err_of("[ [ :A ] ] [ :A ] graph! graph.cycle");
+        assert!(e.contains("GRAPH.CYCLE: an edge is too small"), "{e}");
+        let e = err_of(":B :A [ [ :A :B -1.0 ] ] [ :A :B ] graph! graph.maxflow");
+        assert!(
+            e.contains(
+                "GRAPH.MAXFLOW: a capacity must be a number not below zero: A -> B weighs -1"
+            ),
+            "{e}"
+        );
+        // Four elements weigh 100.0, as two do (`make_graph.rs:125-133`).
+        let d = top(":B :A [ [ :A :B 1.0 :x ] ] [ :A :B ] graph! graph.maxflow");
+        assert!(d.contains("flow=100.0"), "{d}");
+        // A capacity no Bund literal spells, given to the algorithm directly.
+        let mut n = net(&(
+            list_of(&["A", "B"]),
+            BundValue::list(vec![BundValue::list(vec![
+                BundValue::str("A"),
+                BundValue::str("B"),
+                BundValue::float(1.0),
+            ])]),
+        ));
+        n.edges[0].2 = f64::INFINITY;
+        let e = max_flow(&n, 0, 1, "TEST").map(|f| f.0);
+        assert!(
+            matches!(&e, Err(m) if m.0.contains("not below zero")),
+            "{e:?}"
+        );
+    }
+
+    /// **A graph too deep for a recursive search is answered.** A chain of
+    /// 200,000 nodes, closed into one cycle: a search that recursed once per
+    /// node would overflow a test thread's 2 MiB stack long before the end.
+    #[test]
+    fn a_deep_graph_does_not_overflow_the_stack() {
+        const N: usize = 200_000;
+        let names: Vec<String> = (0..N).map(|k| format!("N{k}")).collect();
+        let open = Net {
+            ix: names
+                .iter()
+                .cloned()
+                .enumerate()
+                .map(|(k, s)| (s, k))
+                .collect(),
+            edges: (1..N).map(|k| (k - 1, k, 1.0)).collect(),
+            out: (0..N)
+                .map(|k| if k + 1 < N { vec![k + 1] } else { vec![] })
+                .collect(),
+            names,
+        };
+        assert_eq!(dfs(&open, 0).len(), N);
+        assert_eq!(scc(&open).len(), N);
+        assert_eq!(find_cycle(&open), None);
+        assert_eq!(toposort(&open).map(|o| o.len()), Ok(N));
+        let mut closed = open;
+        closed.edges.push((N - 1, 0, 1.0));
+        closed.out[N - 1].push(0);
+        assert_eq!(scc(&closed).len(), 1);
+        assert_eq!(find_cycle(&closed).map(|c| c.len()), Some(N));
+        assert_eq!(toposort(&closed), Err(0));
+    }
+
     // ---- Cross-checks over seeded random graphs ----------------------------
 
     /// xorshift64, so the graphs are the same on every run.
