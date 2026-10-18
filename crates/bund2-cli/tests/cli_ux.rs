@@ -672,3 +672,62 @@ fn profile_needs_a_base_and_then_writes_two_files_and_nothing_else() {
     assert!(dot4.contains("\\n~"), "{dot4}");
     assert!(dot4.contains("~: a native timed one call in 16"), "{dot4}");
 }
+
+/// RFC-0011 §S8, `debug.profile`: a mid-run report beside the end-of-run
+/// one, its header saying the run had not ended; without `--profile` a
+/// warning and the program goes on; under `--noio` the word fails as the
+/// other I/O stubs do.
+#[test]
+fn debug_profile_writes_the_run_so_far() {
+    let dir = std::env::temp_dir().join(format!("bund2-cli-ux-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mid = dir.join("midrun");
+    let mid_s = mid.to_str().unwrap();
+    let p = program(
+        "midrun.bund",
+        &format!(":w {{ 1 drop }} register w \"{mid_s}\" debug.profile w 5 println\n"),
+    );
+    let path = p.to_str().unwrap();
+    let end = dir.join("endrun");
+    let end_s = end.to_str().unwrap();
+    let r = bund2(&["script", "--profile", end_s, "--file", path], &[]);
+    assert_eq!(r.code, Some(0), "{}", r.err);
+    assert_eq!(r.out, "5\n");
+    assert_eq!(r.err, "", "nothing on stderr at the default level");
+    let md = std::fs::read_to_string(format!("{mid_s}.profile.md")).expect("the mid-run report");
+    assert!(std::path::Path::new(&format!("{mid_s}.profile.dot")).exists());
+    assert!(
+        md.contains(
+            "| not yet: written mid-run by `debug.profile`, 1 activation still open and counted to that moment |"
+        ),
+        "{md}"
+    );
+    assert!(md.contains("| `w` |  | word | (0, 0) | 1 |"), "{md}");
+    let md_end = std::fs::read_to_string(format!("{end_s}.profile.md")).expect("the end report");
+    assert!(md_end.contains("| normally |"), "{md_end}");
+    assert!(
+        md_end.contains("| `w` |  | word | (0, 0) | 2 |"),
+        "{md_end}"
+    );
+
+    let plain = bund2(&["script", "--file", path], &[]);
+    assert_eq!(plain.code, Some(0), "{}", plain.err);
+    assert_eq!(plain.out, "5\n");
+    assert!(
+        plain
+            .err
+            .contains("DEBUG.PROFILE: this run keeps no profile, so nothing was written"),
+        "{}",
+        plain.err
+    );
+
+    let noio = bund2(&["script", "--noio", "--file", path], &[]);
+    // The error table goes where the reference prints it, to stdout.
+    assert!(
+        noio.out
+            .contains("bund DEBUG.PROFILE functions disabled with --noio"),
+        "{}",
+        noio.out
+    );
+    assert!(!noio.out.contains("\n5\n"), "the run stopped at the word");
+}

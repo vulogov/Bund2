@@ -41,14 +41,21 @@
 //! timed calls stop meeting the rule goes back to exact timing for the rest
 //! of the run. Words are timed on every call: their spans are what the tree
 //! is made of.
+//!
+//! **Written mid-run (`debug.profile`).** [`Profile::snapshot`] copies the
+//! record and closes the copy's open activations at the moment of the copy,
+//! so a report of the run so far has the same arithmetic as one at the end,
+//! and the record itself goes on. The renderers are the embedder's, which
+//! installs them as [`Profile::writer`].
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 /// "No node yet" in the symbol table.
 const NONE: u32 = u32::MAX;
 use std::time::{Duration, Instant};
 
-use bund2_api::{Symbol, WordKind};
+use bund2_api::{Registry, Symbol, WordKind};
 
 /// A leaf's first calls, all timed, before it can be sampled (D189).
 pub const SAMPLE_AFTER: u64 = 64;
@@ -69,6 +76,11 @@ pub enum Timing {
     /// rule at this call, and was timed on every call from then on.
     Returned(u64),
 }
+
+/// Renders a snapshot and writes it under a base path: the snapshot, the
+/// registry its symbols are named in, the base, and how many activations
+/// were open when it was taken. Answers what was written.
+pub type Writer = dyn Fn(&Profile, &Registry, &str, usize) -> Result<String, String>;
 
 /// What kind of word a node is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -220,6 +232,7 @@ pub struct Edge {
 }
 
 /// An open activation on the mirror stack.
+#[derive(Clone)]
 struct Open {
     /// `None` for a body no word names.
     node: Option<usize>,
@@ -247,6 +260,7 @@ struct Open {
 }
 
 /// The record.
+#[derive(Clone)]
 pub struct Profile {
     nodes: Vec<Node>,
     /// Node ids by symbol index, one slot per kind a symbol can be — a
@@ -294,6 +308,10 @@ pub struct Profile {
     /// The native that filed the tail request whose body is about to be
     /// pushed, if one did.
     filed_by: Option<usize>,
+    /// Renders and writes a snapshot for `debug.profile`. Installed by the
+    /// embedder, which owns the renderers; `None` and the word says nothing
+    /// can be written.
+    pub writer: Option<Rc<Writer>>,
 }
 
 impl Profile {
@@ -320,7 +338,19 @@ impl Profile {
             redefined: HashSet::new(),
             filed_by: None,
             failed_in: None,
+            writer: None,
         }
+    }
+
+    /// The record so far, as [`Profile::finish`] would leave it if the run
+    /// ended now: a copy, its open activations closed at this moment. The
+    /// record itself is untouched and goes on. Answers the copy and how
+    /// many activations were open.
+    pub fn snapshot(&self) -> (Profile, usize) {
+        let mut copy = self.clone();
+        let open = copy.open.len();
+        copy.finish();
+        (copy, open)
     }
 
     pub fn nodes(&self) -> &[Node] {

@@ -1177,3 +1177,9 @@ BundValue)`: a safepoint a word offers before a term of a string it is
 evaluating. The VM stops there if stepping says to; with no debugger it is
 nothing. It attaches and arms nothing, unlike the other requests. The trait
 is no wider — the request is a variant, not a method.
+
+**Dated note, 2026-10-17 — `debug.profile` (D190).** `Debugging` gains
+`Profile(String)`: write the profile of the run so far under a base
+path. `Ok(None)` is a `Vm` that keeps no profile or cannot render one,
+and the word warns; `Ok(Some(text))` names what was written. Nothing is
+attached or armed by it. The trait is no wider.

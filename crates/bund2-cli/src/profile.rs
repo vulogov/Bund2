@@ -40,6 +40,9 @@ pub enum Ended {
     Error(String),
     /// The source did not parse, so nothing ran.
     ParseError(String),
+    /// It has not ended: `debug.profile` wrote the record so far, with this
+    /// many activations open and closed, in the copy, at that moment.
+    Running(usize),
 }
 
 /// What the header says about the run beyond what the record knows.
@@ -360,6 +363,13 @@ fn ended_of(p: &Profile, reg: &Registry, meta: &Meta<'_>) -> String {
         Ended::Exit(code) => format!("`bund.exit` {code}{failing}"),
         Ended::Error(what) => format!("error{failing}: {}", cell(what)),
         Ended::ParseError(what) => format!("parse error, nothing ran: {}", cell(what)),
+        Ended::Running(open) => format!(
+            "not yet: written mid-run by `debug.profile`, {} still open and counted to that moment",
+            match open {
+                1 => "1 activation".to_string(),
+                n => format!("{} activations", thousands(*n as u64)),
+            }
+        ),
     }
 }
 

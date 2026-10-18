@@ -615,6 +615,41 @@ fn debug_watch(vm: &mut dyn Vm) -> Result<(), Error> {
     debug_ask(vm, bund2_api::Debugging::Watch(stack), "DEBUG.WATCH")
 }
 
+/// `debug.profile` — write the profile of the run so far, RFC-0011 §S8.
+/// Bund2's own word. A STRING base path: `"/tmp/mid" debug.profile` writes
+/// `/tmp/mid.profile.md` and `/tmp/mid.profile.dot` as `--profile` writes
+/// at the end, the activations still open closed at this moment in the
+/// copy, and the run and its record go on.
+///
+/// **A run that keeps no profile is warned, not stopped.** A program
+/// instrumented with this word is still a program without the flag, and
+/// the warning says what to add. A write that fails is an error the program
+/// can catch. Prints nothing when it succeeds, as the arming words do.
+fn debug_profile(vm: &mut dyn Vm) -> Result<(), Error> {
+    const WHO: &str = "DEBUG.PROFILE";
+    if vm.depth() < 1 {
+        return Err(Error(format!("Stack is too shallow for inline {WHO}")));
+    }
+    let v = vm
+        .pull()
+        .ok_or_else(|| Error(format!("{WHO} returns: NO DATA #1")))?;
+    let base = match v.as_str() {
+        Some(b) if !b.is_empty() => b.to_string(),
+        Some(_) => return Err(Error(format!("{WHO}: the path is empty"))),
+        None => return Err(Error(format!("{WHO}: the path is not a string"))),
+    };
+    match vm.debugging(bund2_api::Debugging::Profile(base)) {
+        Ok(Some(_)) => Ok(()),
+        Ok(None) => {
+            vm.report(bund2_api::diag::Diagnostic::warning(format!(
+                "{WHO}: this run keeps no profile, so nothing was written; run it with `--profile <base>`"
+            )));
+            Ok(())
+        }
+        Err(e) => Err(Error(format!("{WHO}: {}", e.0))),
+    }
+}
+
 /// `debug.watch.workbench` — stop on a push to the workbench.
 fn debug_watch_workbench(vm: &mut dyn Vm) -> Result<(), Error> {
     debug_ask(
@@ -949,6 +984,27 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
         StackEffect::opaque(1),
         WordKind::Sync,
     );
+    // RFC-0011 §S8: the profile so far. It writes two files, so `--noio`
+    // stubs it as it stubs every word that touches the host's files.
+    if opts.noio {
+        r.register_native(
+            "debug.profile",
+            |_vm| {
+                Err(Error(
+                    "bund DEBUG.PROFILE functions disabled with --noio".into(),
+                ))
+            },
+            StackEffect::opaque(1),
+            WordKind::Sync,
+        );
+    } else {
+        r.register_native(
+            "debug.profile",
+            debug_profile,
+            StackEffect::opaque(1),
+            WordKind::Sync,
+        );
+    }
     // Part B: arming and moving. Opaque for the same reason, and because a
     // moving word changes where the *run* goes, which no effect describes.
     for (name, f, n) in [

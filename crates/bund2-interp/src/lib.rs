@@ -2079,6 +2079,20 @@ impl Vm for Interp {
             D::Continue => debug::Command::Continue,
             // A safepoint offered by a word. Nothing is attached or armed by
             // it: with no debugger this is nothing at all.
+            // RFC-0011 §S8: the record so far, rendered by whatever the
+            // embedder installed. Not a debugger request: nothing attaches.
+            D::Profile(base) => {
+                let Some(p) = self.profile.as_ref() else {
+                    return Ok(None);
+                };
+                let Some(writer) = p.writer.clone() else {
+                    return Ok(None);
+                };
+                let (snap, open) = p.snapshot();
+                return writer(&snap, &self.registry, &base, open)
+                    .map(Some)
+                    .map_err(Error);
+            }
             D::Term(i, v) => {
                 if self.debug.is_some() {
                     self.safepoint_for(None, debug::Stop::Term(i, v.summary(48)));

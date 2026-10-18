@@ -3650,6 +3650,68 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D190 — `debug.profile`: the profile of the run so far, written by a word
+
+**Raised and ruled 2026-10-17** by the repository owner: asked "what is
+next?", shown RFC-0011 §S8's "a `?profile` or `debug.profile` word that
+writes the record mid-run" as item 3, and answered "1,2,3". That rules
+that the word exists. It is Bund2's own word, as `debug.run` is (D113's
+note of 2026-10-07), so it is outside the reference's registry and
+`conform`, `COVERAGE` and `IMPLEMENTED` move by zero.
+
+- Blocks: nothing
+- Depends on: RFC-0011 (the record, its renderers, D187's files and
+  their names), D188 (the header), D189 (the snapshot carries its
+  estimates and their marks), D132 (`--noio` stubs a word that touches
+  the host's files), RFC-0002's `Debugging` (the seam a word asks the VM
+  through)
+
+### Built, the same day — and what the build decided that the ruling did not
+
+- **The spelling is `debug.profile`**, not `?profile`. The `debug.`
+  family is where Bund2's own observing words are; a leading `?` in Bund
+  is a query that answers a value (`?key`, `?true*`), and this answers
+  nothing.
+- **`"<base>" debug.profile`**, one STRING operand, writes
+  `<base>.profile.md` and `<base>.profile.dot` with the renderers and the
+  writing `--profile` uses at the end (D187's staging included). The base
+  is the program's choice, so a program can write several snapshots;
+  one equal to `--profile`'s base is overwritten at the end.
+- **A snapshot, and the record goes on.** `Profile::snapshot` clones the
+  record and finishes the clone, which closes its open activations at
+  that moment; the record itself is untouched, so the end-of-run report
+  is the one it would have been, with `debug.profile`'s own call in it,
+  the copy's cost included. The header's `ended` cell reads "not yet:
+  written mid-run by `debug.profile`, N activations still open and
+  counted to that moment".
+- **A run that keeps no profile is warned, not stopped**: "DEBUG.PROFILE:
+  this run keeps no profile, so nothing was written; run it with
+  `--profile <base>`", one line on stderr, and the operand is taken. A
+  program instrumented with the word is still a program without the
+  flag. A bundle has no `--profile`, so in a bundle the word always warns.
+- **A write that fails is an error**, which the program can catch;
+  observation does not usually fail, and when it does the program asked
+  for a file it did not get.
+- **Success prints nothing**, as the arming words do (D113's build
+  note): the files are the answer, and stderr is silent at the default
+  level, as it is for the end-of-run report.
+- **`--noio` stubs it**: "bund DEBUG.PROFILE functions disabled with
+  --noio", the shape of the other stubs. It writes two files.
+- **Plumbing.** `Debugging` gains `Profile(String)` (RFC-0002's dated
+  note); `Interp::debugging` answers `Ok(None)` when no record is kept or
+  no writer is installed. The renderers are the CLI's, so the record
+  carries them: `Profile::writer`, an `Rc` of a function the CLI installs
+  beside the record, handed the snapshot, the registry, the base and the
+  open count. The hot path is untouched.
+- Tests: `debug_profile_writes_a_snapshot_and_the_record_goes_on` and
+  `debug_profile_without_a_record_warns_and_goes_on` in
+  `crates/bund2-stdlib/tests/profile.rs`;
+  `debug_profile_writes_the_run_so_far` in
+  `crates/bund2-cli/tests/cli_ux.rs`, over a mid-run report beside the
+  end one, the warning without the flag, and the `--noio` stub.
+- Status: **RESOLVED** — the word by the owner's "1,2,3"; the six
+  choices above by the build, listed so the owner can overrule any.
+
 ## D189 — a profiled run reads the clock less: which calls are timed, and how a time no reading measured is reported
 
 **Raised 2026-10-17** by the repository owner ("item 3 + ruling on sampling

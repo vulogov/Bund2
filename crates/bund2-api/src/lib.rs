@@ -372,6 +372,11 @@ pub enum Debugging {
     /// is what makes the terms of its string stops — a string's terms reach
     /// the VM through `apply`, where the VM's own loops have no safepoint.
     Term(usize, BundValue),
+    /// **Write the profile of the run so far under this base path** —
+    /// `debug.profile`, RFC-0011 §S8. `Ok(None)` is a run that keeps no
+    /// profile, or a `Vm` that cannot render one; `Ok(Some(text))` says
+    /// what was written.
+    Profile(String),
 }
 
 /// The alternative is two receivers, which is the split the merge exists to

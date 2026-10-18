@@ -1225,7 +1225,7 @@ mod honesty_tests {
     /// descending into subdirectories as criterion 11's does.
     #[test]
     fn every_native_reporting_mid_body_is_named() {
-        const REPORTS: [&str; 10] = [
+        const REPORTS: [&str; 11] = [
             // A notice, when a TRY block left an error the EXCEPT arm runs.
             "conditional.rs: run_error",
             // A warning, when the exit code is not an integer and 0 is taken
@@ -1248,6 +1248,9 @@ mod honesty_tests {
             // Its whole reachable behaviour: Bund2 has no `--distributed`, so the
             // word reports that and returns, as the reference logs and returns.
             "terminal.rs: debug_display_distributed_info",
+            // D190: a run that keeps no profile is warned and goes on.
+            // `StackEffect::opaque`, so no crossing reaches it.
+            "terminal.rs: debug_profile",
         ];
         const QUALIFIERS: [&str; 5] = ["pub", "const", "unsafe", "async", "extern"];
         const REPORTS_AT: [&str; 2] = ["Diagnostic::warning", "Diagnostic::notice"];

@@ -557,6 +557,7 @@ runs no program; `build` and `check` have nothing to profile.
   RFC-0008 §D2's missing IR.
 - Merge worker VMs' records into the main report, one section per VM.
 - A `?profile` or `debug.profile` word that writes the record mid-run.
+  *Built 2026-10-17 as `debug.profile`, **D190**; see the amendment below.*
 - A per-site record, word *at* a call site, once per-value spans exist.
 - Read the clock less: time a native's call every Nth time once it has
   been seen K times, and scale, with the figure marked estimated and the
@@ -847,6 +848,17 @@ On fibonacci the profiled run takes 23.33 G instructions instead of
 28.23 G and 0.84 s instead of 1.04 s, against 0.47 s unprofiled; the
 readings fall from 43.1 M to 10.3 M. The figures, the off path's reading
 and the tests are in D189.
+
+### Amended 2026-10-17 — D190: `debug.profile` writes the run so far
+
+On the owner's "1,2,3". `"<base>" debug.profile` writes the two files of
+§S5 for the record so far, under a base the program names: the record is
+copied, the copy's open activations closed at that moment, and the
+record goes on to the end-of-run report. The header's `ended` cell says
+the run had not ended and how many activations were open. Without
+`--profile` the word warns and the program goes on; under `--noio` it is
+a stub. The spelling and the five other choices the build made are in
+D190.
 
 ## Open questions
 

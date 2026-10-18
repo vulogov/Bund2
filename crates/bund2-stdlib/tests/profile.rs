@@ -423,3 +423,60 @@ fn a_native_over_the_threshold_stays_exact() {
     assert_eq!(plus.estimated, 0);
     assert_eq!(plus.timed, 1000);
 }
+
+/// RFC-0011 §S8, `debug.profile`: the word hands the embedder's writer a
+/// snapshot — the record so far, its open activations closed at that
+/// moment — and the record itself goes on to the end.
+#[test]
+fn debug_profile_writes_a_snapshot_and_the_record_goes_on() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    let mut i = Interp::new();
+    bund2_stdlib::register_all(&mut i.registry);
+    let mut record = Profile::new(Duration::ZERO, Duration::ZERO);
+    // What the writer was handed: the base, the open count, and the calls
+    // `w` had in the snapshot.
+    let seen: Rc<RefCell<Vec<(String, usize, u64)>>> = Rc::default();
+    let into = Rc::clone(&seen);
+    record.writer = Some(Rc::new(
+        move |p: &Profile, reg: &bund2_api::Registry, base: &str, open: usize| {
+            let w = p
+                .nodes()
+                .iter()
+                .find(|n| matches!(&n.key, Key::Sym(s, Kind::Word) if reg.interner.name(*s) == "w"))
+                .map_or(0, |n| n.calls);
+            assert_eq!(p.open_entries(), 0, "the snapshot is finished");
+            assert!(p.wall.is_some(), "the snapshot has a wall");
+            into.borrow_mut().push((base.to_string(), open, w));
+            Ok(format!("{base}.profile.md"))
+        },
+    ));
+    i.profile = Some(Box::new(record));
+    let stream = bund2_syntax::compile(
+        ":w { 1 drop } register w :m { w \"mid\" debug.profile } register m w",
+    )
+    .expect("compiles");
+    i.eval(&stream).expect("runs");
+    let mut p = i.profile.take().unwrap();
+    assert_eq!(p.open_entries(), 0);
+    p.finish();
+    // Written once, from inside `m`: `m` and `debug.profile` were open, and
+    // `w` had been called twice — once at the top, once in `m`.
+    assert_eq!(*seen.borrow(), vec![("mid".to_string(), 2, 2)]);
+    // The record went on: the last `w` is in it.
+    let (_, w) = find(&i, &p, "w").unwrap();
+    assert_eq!(w.calls, 3);
+    let (_, dp) = find(&i, &p, "debug.profile").unwrap();
+    assert_eq!(dp.calls, 1);
+}
+
+/// Without a record there is nothing to write: the word warns and the
+/// program goes on.
+#[test]
+fn debug_profile_without_a_record_warns_and_goes_on() {
+    let mut i = Interp::new();
+    bund2_stdlib::register_all(&mut i.registry);
+    let stream = bund2_syntax::compile("\"mid\" debug.profile 7").expect("compiles");
+    i.eval(&stream).expect("runs");
+    assert_eq!(i.depth(), 1, "the path is taken and 7 is left");
+}

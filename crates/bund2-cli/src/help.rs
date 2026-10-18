@@ -85,7 +85,8 @@ FLAGS
   --profile <base>      Write <base>.profile.md and <base>.profile.dot when
                         the program ends: what each word cost, in time and
                         in steps, and which called which. The run is
-                        interpreted; no tier.
+                        interpreted; no tier. The word debug.profile
+                        writes the run so far.
   --debugger            Stop before every value and take commands on stdin.
   --debug-shell         After a failure, open debug.shell on the VM as the
                         program left it.

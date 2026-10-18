@@ -1804,10 +1804,22 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
     // cost is measured first so the report can print it.
     if args.profile.is_some() {
         let clock = profile::calibrate();
-        vm.profile = Some(Box::new(bund2_interp::profile::Profile::new(
-            clock.cost,
-            clock.resolution,
-        )));
+        let mut record = bund2_interp::profile::Profile::new(clock.cost, clock.resolution);
+        // `debug.profile` renders mid-run with the same two renderers, so
+        // the record carries them; the header says the run had not ended.
+        let program = args.file.clone();
+        let jit_threshold_given = args.jit_threshold.is_some();
+        record.writer = Some(std::rc::Rc::new(move |p, reg, base, open| {
+            let meta = profile::Meta {
+                program: &program,
+                jit_threshold_given,
+                ended: profile::Ended::Running(open),
+            };
+            let dot = profile::render_dot(p, reg);
+            let md = profile::render_markdown(p, reg, &meta);
+            profile::write_both(base, &dot, &md).map(|(dot, md)| format!("{md} and {dot}"))
+        }));
+        vm.profile = Some(Box::new(record));
     }
     ui::configure_colors(args.host.nocolor);
     let mut reporter = bund2_stdlib::report::TextReporter::new(args.dump_stack);
