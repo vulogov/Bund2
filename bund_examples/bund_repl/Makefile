@@ -12,6 +12,7 @@
 # compiler or linker is needed here, only `bund2`.
 
 ROOT   := $(abspath ../..)
+include $(ROOT)/bund_examples/toolchain.mk
 CARGO  ?= cargo
 
 BUND2  := $(ROOT)/target/release/bund2

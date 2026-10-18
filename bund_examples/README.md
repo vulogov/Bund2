@@ -53,13 +53,13 @@ second `bund2` with `--features jit` in its own target directory,
 first and `make bench` in the second time the Tier 0 interpreter and the
 Cranelift JIT on one and the same program.
 
-If `cargo` is managed by `mise`, pass the override through:
-
-    make CARGO="env -u RUSTUP_TOOLCHAIN cargo"
+Every `Makefile` includes `toolchain.mk`, which builds with the Rust
+release `rust-toolchain.toml` pins even when the shell sets its own
+`RUSTUP_TOOLCHAIN`, as `mise` does. No override is needed.
 
 ## Adding one
 
 Make a directory, put the program in it, copy a `Makefile` from a neighbour and
-change the file names, and write a `README.md` that says what the program does
+change the file names (keep its `include` of `toolchain.mk`), and write a `README.md` that says what the program does
 and how it does it. Add the built binary's name to the directory's
 `.gitignore`, as the others do. Then add a row to the table above.

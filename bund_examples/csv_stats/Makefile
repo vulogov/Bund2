@@ -11,6 +11,7 @@
 # the binary: `csv` opens it at run time, relative to where the binary runs.
 
 ROOT   := $(abspath ../..)
+include $(ROOT)/bund_examples/toolchain.mk
 CARGO  ?= cargo
 BUND2  := $(ROOT)/target/release/bund2
 FILE   ?= readings.csv

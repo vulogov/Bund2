@@ -14,6 +14,7 @@
 # default build is left alone.
 
 ROOT       := $(abspath ../..)
+include $(ROOT)/bund_examples/toolchain.mk
 CARGO      ?= cargo
 PYTHON     ?= python3
 N          ?= 30

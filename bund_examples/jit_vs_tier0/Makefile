@@ -14,6 +14,7 @@
 # alone. The two bundles hold the same program byte for byte.
 
 ROOT       := $(abspath ../..)
+include $(ROOT)/bund_examples/toolchain.mk
 CARGO      ?= cargo
 N          ?= 10000000
 
