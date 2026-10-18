@@ -326,6 +326,9 @@ pub struct Interp {
     /// `--profile <base>` and renders it when the program has ended. Boxed
     /// so the branch is on a pointer-sized field.
     pub profile: Option<Box<profile::Profile>>,
+    /// `debug.profile` has been told once that this run keeps no profile;
+    /// later snapshots are skipped without a word (D190's note).
+    profile_unkept_said: bool,
     /// The fixed-effect native running now. Only ever `Some` while the audit
     /// is on, so the checks that read it cost production one branch.
     audit_inside: Option<Symbol>,
@@ -446,6 +449,7 @@ impl Interp {
             debug: None,
             effect_audit: None,
             profile: None,
+            profile_unkept_said: false,
             audit_inside: None,
             audit_native: None,
             stack_floor: tier0_floor(),
@@ -2081,11 +2085,16 @@ impl Vm for Interp {
             // it: with no debugger this is nothing at all.
             // RFC-0011 §S8: the record so far, rendered by whatever the
             // embedder installed. Not a debugger request: nothing attaches.
+            // No record, or none it can render: `Ok(None)` the first time, so
+            // the word warns; an empty answer after, so a program that
+            // snapshots in a loop warns once and not once a round.
             D::Profile(base) => {
-                let Some(p) = self.profile.as_ref() else {
-                    return Ok(None);
-                };
-                let Some(writer) = p.writer.clone() else {
+                let writer = self.profile.as_ref().and_then(|p| p.writer.clone());
+                let (Some(p), Some(writer)) = (self.profile.as_ref(), writer) else {
+                    if self.profile_unkept_said {
+                        return Ok(Some(String::new()));
+                    }
+                    self.profile_unkept_said = true;
                     return Ok(None);
                 };
                 let (snap, open) = p.snapshot();

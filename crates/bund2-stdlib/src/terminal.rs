@@ -621,9 +621,10 @@ fn debug_watch(vm: &mut dyn Vm) -> Result<(), Error> {
 /// at the end, the activations still open closed at this moment in the
 /// copy, and the run and its record go on.
 ///
-/// **A run that keeps no profile is warned, not stopped.** A program
-/// instrumented with this word is still a program without the flag, and
-/// the warning says what to add. A write that fails is an error the program
+/// **A run that keeps no profile is warned, not stopped, and once.** A
+/// program instrumented with this word is still a program without the
+/// flag, and the warning says what to add; a snapshot in a loop would
+/// otherwise say it every round. A write that fails is an error the program
 /// can catch. Prints nothing when it succeeds, as the arming words do.
 fn debug_profile(vm: &mut dyn Vm) -> Result<(), Error> {
     const WHO: &str = "DEBUG.PROFILE";
@@ -642,7 +643,7 @@ fn debug_profile(vm: &mut dyn Vm) -> Result<(), Error> {
         Ok(Some(_)) => Ok(()),
         Ok(None) => {
             vm.report(bund2_api::diag::Diagnostic::warning(format!(
-                "{WHO}: this run keeps no profile, so nothing was written; run it with `--profile <base>`"
+                "{WHO}: this run keeps no profile, so nothing was written; run it with `--profile <base>`. Said once: later snapshots in this run are skipped without a warning"
             )));
             Ok(())
         }

@@ -3726,6 +3726,19 @@ every feature of the word.
   read "DEBUG.PROFILE: --profile: writing …". The prefix moved to the
   end-of-run caller, and the word's error carries its own name alone.
 
+**Dated note, 2026-10-17 — the warning is said once a run; the owner's
+"3" from the list after the demo.** The fourth choice above warned on every
+snapshot, and the demo's unprofiled run printed the same line six times,
+four of them from one loop. The VM now remembers that it has said so:
+`Interp::debugging` answers `Ok(None)` the first time, so the word warns,
+and `Ok(Some(""))` after, so it does not. The warning says that it is said
+once. Per VM, not per thread, so a child VM or a second interpreter on the
+same thread warns for itself. `debug_profile_writes_the_run_so_far` runs
+three snapshots in a loop without `--profile` and counts one warning.
+Also measured that day, and written into nothing else: the snapshot error
+names the path asked for, not the staged name it is first written under
+(`3daba87`).
+
 ## D189 — a profiled run reads the clock less: which calls are timed, and how a time no reading measured is reported
 
 **Raised 2026-10-17** by the repository owner ("item 3 + ruling on sampling

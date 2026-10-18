@@ -374,8 +374,9 @@ pub enum Debugging {
     Term(usize, BundValue),
     /// **Write the profile of the run so far under this base path** —
     /// `debug.profile`, RFC-0011 §S8. `Ok(None)` is a run that keeps no
-    /// profile, or a `Vm` that cannot render one; `Ok(Some(text))` says
-    /// what was written.
+    /// profile, or a `Vm` that cannot render one, and the word warns;
+    /// `Ok(Some(text))` says what was written, and is empty when nothing
+    /// was and the `Vm` has already said why once.
     Profile(String),
 }
 

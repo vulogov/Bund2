@@ -68,17 +68,18 @@ the word in `?try`:
     a snapshot could not be written: Lambda content evaluation returned error: DEBUG.PROFILE: writing /no/such/directory/x.profile.dot: No such file or directory (os error 2). No profile was written.
 
 **No profile is a warning, not an error.** A program instrumented with
-`debug.profile` still runs without `--profile`. Each snapshot prints one
-warning on stderr, nothing is written, and the program goes on:
+`debug.profile` still runs without `--profile`. The first snapshot prints
+one warning on stderr, the rest are skipped without one, nothing is
+written, and the program goes on:
 
     make unprofiled
-    Warning: DEBUG.PROFILE: this run keeps no profile, so nothing was written; run it with `--profile <base>`
+    Warning: DEBUG.PROFILE: this run keeps no profile, so nothing was written; run it with `--profile <base>`. Said once: later snapshots in this run are skipped without a warning
 
 Phase 4 prints nothing then: with nothing to write, nothing failed.
 
 **A bundle always warns.** `make bundle` builds `./profiler_demo` with
 `bund2 build`. A bundle takes no `--profile`, so it keeps no profile and
-every snapshot is the warning above. Profile from source.
+prints the warning above once. Profile from source.
 
 **`--noio` turns it off.** The word writes files, so under `--noio` it is a
 stub that fails, like every other word that touches the host's files. The

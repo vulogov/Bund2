@@ -14,9 +14,9 @@
 //   end                what --profile writes when the program ends
 //
 // and a fourth snapshot, aimed at a directory that does not exist, is caught
-// by `?try` and printed. Run it without --profile and every snapshot is a
-// warning and the program runs on; run it with --noio and the first one is
-// an error.
+// by `?try` and printed. Run it without --profile and the first snapshot
+// warns, once for the run, and the program runs on; run it with --noio and
+// the first one is an error.
 //
 
 //

@@ -744,6 +744,20 @@ fn debug_profile_writes_the_run_so_far() {
     );
     assert!(!rb.out.contains(".bund2-profile-"), "{}", rb.out);
 
+    // Once a run, however many snapshots ask.
+    let looped = program(
+        "midrun-loop.bund",
+        "3 { drop \"x\" debug.profile } times 1 println\n",
+    );
+    let rl = bund2(&["script", "--file", looped.to_str().unwrap()], &[]);
+    assert_eq!(rl.out, "1\n", "{}", rl.err);
+    assert_eq!(
+        rl.err.matches("this run keeps no profile").count(),
+        1,
+        "{}",
+        rl.err
+    );
+
     let noio = bund2(&["script", "--noio", "--file", path], &[]);
     // The error table goes where the reference prints it, to stdout.
     assert!(

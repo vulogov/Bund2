@@ -3,7 +3,7 @@
 #
 #   make             run demo.bund profiled: four reports in profiles/
 #   make graphs      draw each report's .dot as an .svg (needs Graphviz)
-#   make unprofiled  the same program without --profile: a warning per snapshot
+#   make unprofiled  the same program without --profile: one warning, once
 #   make noio        under --noio: the first snapshot is an error
 #   make bundle      build ./profiler_demo; a bundle has no --profile, so it warns
 #   make clean
@@ -12,6 +12,7 @@
 # `bund2 script --profile <base>` keeps one, so the demo runs from source.
 
 ROOT    := $(abspath ../..)
+include $(ROOT)/bund_examples/toolchain.mk
 CARGO   ?= cargo
 BUND2   := $(ROOT)/target/release/bund2
 OUT     ?= profiles
