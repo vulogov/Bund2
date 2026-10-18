@@ -1,0 +1,21 @@
+//
+// Probe: the five forms of tier A of `bund/statistics` that
+// `stat-tier-a.bund` does not run (D175). Coverage listed them as
+// implemented and run by no golden; that golden is not extended, because a
+// golden changes only through `--accept` with a reason, and a new probe
+// needs none.
+//
+// The same readers as there: `,` keeps a LIST with the answer above it,
+// `.` reads the workbench and answers there, and `.,` does both.
+//
+
+"probe: math.min, keeps the list" println
+[ 5 1 3 ] math.min,
+
+"probe: the workbench forms" println
+[ 1 2 3 ] { true } ?. math.min.
+[ 1 2 3 ] { true } ?. stat.mean.arithmetic.
+
+"probe: the workbench forms that keep the list" println
+[ 4 8 2 ] { true } ?. math.max.,
+[ 4 8 2 ] { true } ?. stat.count.,

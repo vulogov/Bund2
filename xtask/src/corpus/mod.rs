@@ -823,6 +823,23 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
         bund2_api::sayln!("  not an instruction to redo finished work.\n");
     }
 
+    // **Words the reference binds only under `--noio` — F150, F152.**
+    //
+    // `stdin`, `stdin.` and `fs.is_file.` are registrations, so they are in
+    // scope, and the reference binds them only in its `--noio` branch, as
+    // the stub that refuses; Bund2 does the same. No default build of either
+    // has them, so they sit in the remainder below for good. Twice they were
+    // offered as work from that remainder (D111's note of 2026-10-07, and
+    // again 2026-10-17), so they are marked there, as the feature-gated
+    // ones are, and the list is checked the same way: only a word in scope
+    // and unregistered is marked.
+    const NOIO_ONLY: [&str; 3] = ["stdin", "stdin.", "fs.is_file."];
+    let noio_only: Vec<&str> = NOIO_ONLY
+        .iter()
+        .copied()
+        .filter(|w| in_scope.contains(w) && !implemented.contains(w))
+        .collect();
+
     // **The other gap, by name — F162.**
     //
     // The section above names what is implemented and unprobed. Until this
@@ -869,6 +886,8 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
                 .map(|w| {
                     if gated.contains(w) {
                         format!("{w} (feature)")
+                    } else if noio_only.contains(w) {
+                        format!("{w} (--noio only)")
                     } else {
                         (*w).to_string()
                     }
@@ -879,7 +898,9 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
         bund2_api::sayln!();
         bund2_api::sayln!("  This is `IMPLEMENTED`'s remainder, by name: in scope, and not");
         bund2_api::sayln!("  registered by the default build. A word marked `(feature)` is");
-        bund2_api::sayln!("  written and off by default. The rest are either unwritten or");
+        bund2_api::sayln!("  written and off by default; one marked `(--noio only)` is bound");
+        bund2_api::sayln!("  by the reference only as `--noio`'s stub, and Bund2 does the same");
+        bund2_api::sayln!("  (F150, F152) -- not work. The rest are either unwritten or");
         bund2_api::sayln!("  bound only by a build this report does not ask -- the registers");
         bund2_api::sayln!("  say which, and why.\n");
     }
