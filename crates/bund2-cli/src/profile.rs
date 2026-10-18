@@ -1012,12 +1012,13 @@ fn place_text(path: &str, text: &str) -> Result<(), String> {
 
 /// §S6 and D187: the `dot` file first and the markdown last, so the
 /// markdown's presence means both are there. Answers the two paths written.
+/// The error names no caller: `--profile` at the end and `debug.profile`
+/// mid-run each put their own name in front of it.
 pub fn write_both(base: &str, dot: &str, md: &str) -> Result<(String, String), String> {
     let dot_path = format!("{base}.profile.dot");
     let md_path = format!("{base}.profile.md");
-    place_text(&dot_path, dot).map_err(|e| format!("--profile: {e}. No profile was written."))?;
-    place_text(&md_path, md).map_err(|e| {
-        format!("--profile: {e}. The graph is at {dot_path}; the report was not written.")
-    })?;
+    place_text(&dot_path, dot).map_err(|e| format!("{e}. No profile was written."))?;
+    place_text(&md_path, md)
+        .map_err(|e| format!("{e}. The graph is at {dot_path}; the report was not written."))?;
     Ok((dot_path, md_path))
 }

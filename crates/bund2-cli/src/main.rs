@@ -2011,7 +2011,7 @@ fn finish_profile(
             code
         }
         Err(e) => {
-            ui::error!("{e}");
+            ui::error!("--profile: {e}");
             if !failed && code.is_none() {
                 Some(1)
             } else {

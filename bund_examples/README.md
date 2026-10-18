@@ -11,6 +11,7 @@ explains it. They are not part of the conformance corpus; that lives under
 | [`bund_repl/`](bund_repl/) | A read–eval–print loop written in Bund: `input*` reads the lines, `bund.eval` runs them in the same VM, `?try` keeps a failing line from ending the session, and a dictionary of lambdas is the command table. |
 | [`jit_vs_tier0/`](jit_vs_tier0/) | One numeric loop built twice, into a Tier 0 bundle and a Cranelift JIT bundle, and a `make bench` that times the two: ten million iterations in 2.5 s on the interpreter and 0.42 s on the JIT. The example that shows what the JIT is for, and the shapes it does not speed up. |
 | [`csv_stats/`](csv_stats/) | One column of a CSV file, read through the `csv` conditional, and its count, minimum, maximum and mean from the four statistics words, with their `,` forms keeping the list between questions. The example for reading data in. |
+| [`profiler_demo/`](profiler_demo/) | Every feature of `debug.profile`, which writes the profile of the run so far: snapshots at the top level, from deep inside a recursion, and one file rewritten as a run goes on, beside the end-of-run report; a failed write caught by `?try`; the warning without `--profile`, and the stub under `--noio`. The example for profiling. |
 
 ## Running an example
 
@@ -20,6 +21,8 @@ Any of them runs straight from its source, with `bund2` built:
     bund2 bund_examples/bund_repl/repl.bund
     bund2 bund_examples/jit_vs_tier0/kernel.bund --n 1000000
     cd bund_examples/csv_stats && bund2 stats.bund --column humidity
+    cd bund_examples/profiler_demo && mkdir -p profiles && \
+        bund2 script --profile profiles/end --file demo.bund -- --out profiles
 
 With the bare path, everything after it belongs to the program. The
 `script --file` form takes the program's arguments after `--`:

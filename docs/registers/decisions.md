@@ -3712,6 +3712,20 @@ note of 2026-10-07), so it is outside the reference's registry and
 - Status: **RESOLVED** — the word by the owner's "1,2,3"; the six
   choices above by the build, listed so the owner can overrule any.
 
+**Dated note, 2026-10-17 — two corrections found writing
+`bund_examples/profiler_demo`.** The demo is the owner's request to show
+every feature of the word.
+
+- **The open count counts named calls only.** It counted every entry on
+  the mirror, so a snapshot at the bottom of a six-deep recursion said 15
+  open where 9 calls were: the other six were the bodies of `if` and
+  `times`, which no word names and which have no node (§S2).
+  `Profile::snapshot` now counts entries with a node.
+- **A failed write no longer says `--profile:`.** `write_both` put the
+  flag's name in front of every error, so a caught `debug.profile` failure
+  read "DEBUG.PROFILE: --profile: writing …". The prefix moved to the
+  end-of-run caller, and the word's error carries its own name alone.
+
 ## D189 — a profiled run reads the clock less: which calls are timed, and how a time no reading measured is reported
 
 **Raised 2026-10-17** by the repository owner ("item 3 + ruling on sampling

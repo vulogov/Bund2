@@ -345,10 +345,11 @@ impl Profile {
     /// The record so far, as [`Profile::finish`] would leave it if the run
     /// ended now: a copy, its open activations closed at this moment. The
     /// record itself is untouched and goes on. Answers the copy and how
-    /// many activations were open.
+    /// many activations of named nodes were open: a body no word names is
+    /// on the mirror too, and is nobody's activation.
     pub fn snapshot(&self) -> (Profile, usize) {
         let mut copy = self.clone();
-        let open = copy.open.len();
+        let open = copy.open.iter().filter(|o| o.node.is_some()).count();
         copy.finish();
         (copy, open)
     }

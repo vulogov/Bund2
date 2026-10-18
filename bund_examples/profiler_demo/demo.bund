@@ -1,0 +1,103 @@
+//
+// Every feature of `debug.profile`, the word that writes the profile of the
+// run so far (RFC-0011 §S8, D190). Run it profiled:
+//
+//   mkdir -p profiles
+//   bund2 script --profile profiles/end --file demo.bund -- --out profiles
+//
+// and it leaves four reports in profiles/, each a .profile.md and a
+// .profile.dot:
+//
+//   1-after-load       at the top level, between two phases
+//   2-deep-in-crunch   from six calls down a recursion, everything open
+//   3-progress         one base written four times, so the last one stands
+//   end                what --profile writes when the program ends
+//
+// and a fourth snapshot, aimed at a directory that does not exist, is caught
+// by `?try` and printed. Run it without --profile and every snapshot is a
+// warning and the program runs on; run it with --noio and the first one is
+// an error.
+//
+
+//
+// Where the snapshots go: `--out <dir>`, the current directory when absent.
+// Kept in a variable, which a bare name does not read; `:demo.out var?` does.
+//
+args.parse :out ?key
+{ drop "." }
+{ :out get car }
+?true*
+:demo.out swap var
+
+//
+// "name" -> "<dir>/name". Bund's `+` takes its right operand first, so
+// `a b +` is b + a: the suffix is put after "/", and that after the dir.
+//
+:demo.base { "/" + :demo.out var? + } register
+
+//
+// The word itself: one STRING, the base path. It writes <base>.profile.md
+// and <base>.profile.dot as --profile does at the end, from a copy of the
+// record whose open calls are closed at this moment. The record goes on.
+//
+:snapshot { demo.base debug.profile } register
+
+//
+// A little arithmetic, stack-neutral, to give the profile something to
+// count. Its natives cost less than the clock that would time them, so
+// after 64 calls each is timed one call in 16 and its figures carry a `~`
+// (D189) — in every snapshot as in the end report.
+//
+:work.one { 1 2 + 3 * drop } register
+// `times` pushes the round's index before each run of its body: dropped.
+:work { { drop work.one } times } register
+
+//
+// Phase 1, then a snapshot at the top level: the only calls open are
+// `snapshot` and `debug.profile` inside it — "2 activations still open".
+//
+:phase.load { 5000 work } register
+
+//
+// Phase 2. A snapshot from the bottom of a recursion: `phase.crunch`,
+// `crunch` at six depths, `snapshot` and `debug.profile` — nine calls open,
+// each counted up to this moment. The end report has the same calls
+// finished.
+//
+// `dup 0 <` asks 0 < n, and `1 swap -` is n - 1, for the reason above.
+//
+:crunch {
+  200 work
+  dup 0 == { "2-deep-in-crunch" snapshot } if
+  dup 0 < { 1 swap - crunch } if
+} register
+:phase.crunch { 5 crunch drop } register
+
+//
+// Phase 3. One base written over and over, as a long run keeps one report
+// current: open profiles/3-progress.profile.md at any moment and it is no
+// older than the last 2000 calls of `work.one`. The last write wins: the
+// file holds the run up to the end of the fourth round.
+//
+:phase.progress {
+  4 { drop 2000 work "3-progress" snapshot } times
+} register
+
+//
+// Phase 4. A write that fails is an error, so a program can catch it. A
+// run that keeps no profile is only a warning, so without --profile this
+// prints nothing: there was nothing to write, and so nothing failed.
+//
+:phase.fail {
+  ?try
+    :try    { "/no/such/directory/x" debug.profile } set
+    :except { "a snapshot could not be written: " print :context get println } set
+  !
+} register
+
+"loading"            println  phase.load
+"1-after-load"       snapshot
+"crunching"          println  phase.crunch
+"progress"           println  phase.progress
+"a write that fails" println  phase.fail
+"done"               println
