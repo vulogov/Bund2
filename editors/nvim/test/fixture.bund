@@ -1,0 +1,11 @@
+#!/usr/bin/env bund2
+// A comment. TODO: one
+:Rect class
+  :w 1.0 set
+  :area { dup :w get swap :h get * } set
+register
+42 -7 3.14 2.5e10 1_000 "a {name} and \"q\"" 'lit'
+@work `print :: ; true nodata ∅ λ ← ≠
+1 2 +// add
+{ 1 println}
+[ :A :B ] ( 1 ) if while dup + math.sqrt graph.path. ?try
