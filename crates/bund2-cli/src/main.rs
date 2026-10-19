@@ -646,12 +646,13 @@ fn run_check(src: &str, file: &str) -> ExitCode {
                 span: None,
             });
         bund2_api::errln!(
-            "Warning: {}:{}:{}: `{}` needs {} value(s); {} can be proven here{}",
+            "Warning: {}:{}:{}: `{}` needs {} value(s){}; {} can be proven here{}",
             where_.file.as_deref().unwrap_or(file),
             where_.line,
             where_.column,
             f.word,
             f.needs,
+            on_bench(f),
             f.have,
             via_of(f)
         );
@@ -694,6 +695,11 @@ fn run_check(src: &str, file: &str) -> ExitCode {
 /// lambda `!` runs, or in a method or constructor, is located at the site
 /// that ran it, and this names the body so the line is not read as the
 /// site's own arity.
+/// RFC-0004 §S1: a finding on the second axis says so.
+fn on_bench(f: &bund2_stdlib::check::Finding) -> &'static str {
+    if f.workbench { " on the workbench" } else { "" }
+}
+
 fn via_of(f: &bund2_stdlib::check::Finding) -> String {
     match &f.via {
         Some(v) => format!(", inside {v}"),
@@ -753,9 +759,10 @@ fn underflow_over(files: &[(&str, &str, bund2_syntax::Lowered)]) -> Underflow {
         .map(|f| {
             let (path, line, column) = place(f.at);
             format!(
-                "{path}:{line}:{column}: `{}` needs {} value(s); {} can be proven here{}",
+                "{path}:{line}:{column}: `{}` needs {} value(s){}; {} can be proven here{}",
                 f.word,
                 f.needs,
+                on_bench(f),
                 f.have,
                 via_of(f)
             )
@@ -1974,6 +1981,7 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
             }
         };
         let lowered = bund2_syntax::lower_with_spans(&terms, text.len());
+        bund2_api::Vm::note_positions(vm, name, text, &lowered.body_places());
         if let Err((i, e)) = vm.eval_indexed(&lowered.values) {
             ui::trace!("value {i} of the included {name} failed: {}", e.0);
             let mut d = bund2_api::diag::Diagnostic::error(e.0);
@@ -2009,6 +2017,9 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
         }
     };
     let lowered = bund2_syntax::lower_with_spans(&terms, src.len());
+    // RFC-0003 §S5: where each lambda's values were written, for a trace,
+    // `bt` and a stop to say.
+    bund2_api::Vm::note_positions(vm, file, src, &lowered.body_places());
     ui::debug!(
         "parsed {} top-level terms, lowered to {} values",
         terms.len(),

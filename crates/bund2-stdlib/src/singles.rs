@@ -428,6 +428,7 @@ pub(crate) fn eval_source(vm: &mut dyn Vm, src: &str) -> Result<(), Error> {
 pub(crate) fn eval_source_named(vm: &mut dyn Vm, label: &str, src: &str) -> Result<(), Error> {
     let terms = bund2_syntax::parse(src).map_err(|e| Error(e.to_string()))?;
     let lowered = bund2_syntax::lower_with_spans(&terms, src.len());
+    vm.note_positions(label, src, &lowered.body_places());
     for (i, word) in lowered.values.iter().enumerate() {
         if word.dt() == bund2_value::NONE {
             continue;

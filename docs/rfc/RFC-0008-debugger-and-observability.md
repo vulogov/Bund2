@@ -1900,3 +1900,37 @@ build made is in D191; this section says what changes here.
   workbench since the program left the last one.
 - A condition's failure is now said once per distinct reason.
 
+## Amendment, 2026-10-19 — §D4's depth watch, §D5's views, criterion 6 in `conform`
+
+On the owner's request "build the debugger items", three of the pieces the
+third review (B3) and D163's acceptance named as specified and not built.
+
+- **§D4's `watch depth > N` is built**: `watch depth > 100` at the console
+  and `debug.watch.depth` as a word, on whichever stack is current. It stops
+  on the crossing — the push that takes the stack from N to N+1 — and not at
+  every push above N, which a stack that stays deep would turn into a stop
+  per push; it fires again once the stack is back down to N. `delete depth`
+  clears it and `info` lists it. The hook is §D4's first: the stack push,
+  behind the same guard, so a session watching nothing pays nothing more.
+- **§D5's `words` and `classes` are built**, as console commands and as
+  `debug.words` and `debug.classes`. `words` is the slot table: each name
+  with every binding its slot holds — so `swap` reads `alias → swap_one,
+  native`, F20 made visible — its generation, and its calls since the
+  debugger attached. The calls are counted where a breakpoint is asked about,
+  which every call reaches when something is attached and no call reaches
+  otherwise. By default it shows the program's lambdas and whatever was
+  called, since the full table is some six hundred lines; `words all` shows
+  every slot and `words <text>` the names containing the text. The tier is
+  said once above the table rather than as a column: §D6 turns it off under a
+  debugger, so a column would read the same on every line. `classes` lists
+  each class's parents, methods (a LAMBDA, or the PTR a built-in class names
+  a native method with) and fields.
+- **Criterion 6's sweep is in `xtask conform`**, as `--stepped`: every case
+  runs plainly and under `s`, `n` and `f`, and standard output and exit code
+  are compared. It prints its own `STEPPED` line and fails the run on a
+  disagreement; it never touches N/M. Refused with `--bundles`, since a
+  bundle is never debugged (D115). Measured: `148/148`.
+
+Still specified and not built: a breakpoint by source location (§D3), which
+needs the positions inside bodies RFC-0003 §S5 describes.
+

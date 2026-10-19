@@ -783,3 +783,18 @@ program does changes.
 
 - Corrected by: repository owner, 2026-09-10, on RFC-0005's fifth review
   (`docs/rfc/reviews/RFC-0005-review-2026-09-10.md`, B3)
+
+## Amendment, 2026-10-19 — §S1's second axis is built (D195)
+
+The gap this RFC was accepted with is closed. `StackEffect` carries the
+workbench's half as `bench: Bench` beside the main-stack pair — one more
+field, where §S1 sketched two `Delta`s, so the `opaque` flag and every
+existing declaration stand. §S2's rule holds on the new axis: the halves are
+what `cargo xtask arity`'s two-axis probe observed against the oracle, held
+to `docs/arity.md` by a test, and a `.` word nobody has measured is `Unknown`
+rather than derived from its name, because F73 shows the family is not
+uniform. `bund2 check` counts the workbench (§S4), infers a Bund word's
+workbench half by composition (§S3), and follows `ifthenelse.`,
+`notifthenelse.`, `while.` and `context`. Measured on the corpus and recorded
+in D195: 3183 sites analysed, 113 abandoned, and one new true positive.
+

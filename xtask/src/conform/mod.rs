@@ -314,6 +314,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // is the code the source run uses, so a difference in the numbers is a
     // difference in meaning and not in how it was measured.
     let bundles = args.iter().any(|a| a == "--bundles");
+    // **RFC-0008 criterion 6's sweep.** Every case is also run under
+    // `--debugger`, stepped to the end with `s`, `n` and `f` in turn, and its
+    // standard output and exit code compared with a plain run's. Its own
+    // line in the report, never the N/M: stepping changes neither, which is
+    // the claim being measured.
+    let stepped = args.iter().any(|a| a == "--stepped");
     // `--accept-deviation <golden> --reason <ref>` records that Bund2 is
     // approved to disagree with a golden, and what it must produce instead.
     let mut accept_deviation: Option<String> = None;
@@ -324,7 +330,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             "--accept-deviation" => accept_deviation = it.next().cloned(),
             "--reason" => reason = it.next().cloned(),
             "--accept" | "-v" | "--verbose" | "--parse-only" | "--blocked-on" | "--bundles"
-            | "--profile" => {}
+            | "--profile" | "--stepped" => {}
             other => return Err(format!("unknown argument `{other}`")),
         }
     }
@@ -336,6 +342,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
     if parse_only {
         return parse_reach(&repo, verbose);
+    }
+    if stepped && bundles {
+        return Err(
+            "--stepped with --bundles: a bundle is never debugged (D115), so there is nothing to step"
+                .into(),
+        );
     }
 
     // The same job list `golden` captures from, so the two cannot disagree
@@ -822,6 +834,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
         None
     };
 
+    let stepped_failure = if stepped {
+        step_sweep(&repo, &bund2, &work, &cases)?
+    } else {
+        None
+    };
+
     // Regression check.
     let baseline = read_baseline(&repo);
     let verdict = match baseline {
@@ -871,10 +889,105 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
     };
     verdict?;
-    match tier_failure {
+    match tier_failure.or(stepped_failure) {
         Some(why) => Err(why),
         None => Ok(()),
     }
+}
+
+/// **RFC-0008 criterion 6 over every case** — `--stepped`.
+///
+/// What `stepping_agrees_with_an_uninterrupted_run_over_the_whole_suite`
+/// (`crates/bund2-cli/tests/debugger_step.rs`) asserts, over the cases this
+/// run holds rather than a set the test derives, so the sweep and the N/M are
+/// over one denominator. Each case runs as the main loop ran it, with the
+/// capture epilogue appended, plainly and then under `s`, `n` and `f`; a
+/// difference in standard output or exit code is named. Spread over the
+/// cores: four runs a case, none depending on another.
+///
+/// Answers the failure line, if any, so the caller fails after the rest of
+/// the report is printed.
+fn step_sweep(
+    repo: &Path,
+    bund2: &Path,
+    work: &Path,
+    cases: &[(String, String, PathBuf, i32, String)],
+) -> Result<Option<String>, String> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let mut files = Vec::with_capacity(cases.len());
+    for (i, (program, _, cwd, _, _)) in cases.iter().enumerate() {
+        let src = std::fs::read_to_string(repo.join(program))
+            .map_err(|e| format!("reading {program}: {e}"))?;
+        let file = work.join(format!("stepped-{i}.bund"));
+        std::fs::write(&file, format!("{src}{}", golden::capture_epilogue(&src)))
+            .map_err(|e| format!("writing {}: {e}", file.display()))?;
+        files.push(relative_to(cwd, &file));
+    }
+    let workers = std::thread::available_parallelism().map_or(4, |n| n.get().min(8));
+    let next = AtomicUsize::new(0);
+    let problems = std::sync::Mutex::new(Vec::<String>::new());
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                while let Some(((_, name, cwd, _, _), file)) =
+                    cases.iter().zip(&files).nth(next.fetch_add(1, Ordering::Relaxed))
+                {
+                    let mut said = Vec::new();
+                    match golden::run_stdout(bund2, file, cwd, None) {
+                        Err(e) => said.push(format!("{name}: the plain run {e}")),
+                        Ok(plain) => {
+                            for cmd in ["s", "n", "f"] {
+                                match golden::run_stdout(bund2, file, cwd, Some(cmd)) {
+                                    Ok(got) if got.status != plain.status => said.push(format!(
+                                        "{name}: `{cmd}` exited {} where the plain run exited {}",
+                                        got.status, plain.status
+                                    )),
+                                    Ok(got) if got.output != plain.output => said.push(format!(
+                                        "{name}: `{cmd}` changed the output\n{}",
+                                        indented(&differing_lines(&got.output, &plain.output))
+                                    )),
+                                    Ok(_) => {}
+                                    Err(e) => said.push(format!("{name}: `{cmd}` {e}")),
+                                }
+                            }
+                        }
+                    }
+                    if !said.is_empty()
+                        && let Ok(mut p) = problems.lock()
+                    {
+                        p.extend(said);
+                    }
+                }
+            });
+        }
+    });
+    let mut problems = problems
+        .into_inner()
+        .map_err(|_| "a stepping worker panicked".to_string())?;
+    problems.sort();
+    let disagreeing = {
+        let mut names: Vec<&str> = problems
+            .iter()
+            .filter_map(|p| p.split(':').next())
+            .collect();
+        names.dedup();
+        names.len()
+    };
+    bund2_api::sayln!(
+        "  STEPPED      {}/{}   agree under s, n and f with a plain run (RFC-0008 criterion 6)",
+        cases.len() - disagreeing,
+        cases.len()
+    );
+    if problems.is_empty() {
+        return Ok(None);
+    }
+    for p in &problems {
+        bund2_api::sayln!("    {p}");
+    }
+    Ok(Some(format!(
+        "STEPPED: {disagreeing} of {} programs changed under the debugger; criterion 6 says none may",
+        cases.len()
+    )))
 }
 
 /// What the tier did over a whole `conform` run — RFC-0005 criterion 2.

@@ -348,6 +348,17 @@ pub enum Debugging {
     Stacks,
     /// What is armed: breakpoints and watches.
     Info,
+    /// **The slot table as a view — RFC-0008 §D5.** Each word's kind, its
+    /// generation and its calls since a debugger attached. `None` shows the
+    /// program's own lambdas and whatever was called; `Some("all")` every
+    /// bound slot; any other text, the names containing it.
+    Words(Option<String>),
+    /// The registered classes, with their parents, methods and fields —
+    /// RFC-0008 §D5.
+    Classes,
+    /// **Stop when a push takes the current stack past this depth** —
+    /// RFC-0008 §D4's `watch depth > N`. Once per crossing.
+    WatchDepth(usize),
     /// Break when a frame for this word is pushed (§D3).
     Break(String),
     /// The same, when this source answers true in a child VM (§D3).
@@ -660,10 +671,24 @@ pub trait Vm {
     /// traceback has nowhere to keep it.
     fn note_source_failure(&mut self, _label: &str, _src: &str, _span: (usize, usize), _e: &Error) {}
 
+    /// **Where each item of these literal bodies was written** — RFC-0003
+    /// §S5. `label` names the source as a location's file does, and `src` is
+    /// its text; each body comes with one byte span per item. A `Vm` keeps
+    /// them beside the bodies, never in them, so a traceback, a backtrace and
+    /// a stop can say where a lambda's value was written. Defaulted to
+    /// nothing.
+    fn note_positions(
+        &mut self,
+        _label: &str,
+        _src: &str,
+        _bodies: &[(BundValue, Vec<(usize, usize)>)],
+    ) {
+    }
+
     /// **`e` was caught, and will not reach a fatal report** — so the
     /// traceback taken for it is kept for the report a handler makes of it,
     /// rather than pinned on a later failure. Defaulted to nothing.
-    fn catch_failure(&mut self, _e: &Error) {}
+    fn failure_caught(&mut self, _e: &Error) {}
 
     /// **Does the reporter want a stack snapshot for this severity?** —
     /// RFC-0005 §S5's reporter rule, D71, F137.
@@ -1197,10 +1222,34 @@ pub enum Leaves {
     Conditional(&'static str),
 }
 
+/// **What a word does to the workbench — RFC-0004 §S1's second axis.**
+///
+/// `consumes` and `produces` are the main stack's; this is the auxiliary
+/// stack's, said apart because D24's `.` contract takes the primary operand
+/// from the workbench and the secondary from the main stack, and a number on
+/// the wrong axis is worse than none: putting `take`'s requirement on the main
+/// stack made `bund2 check` report a program that runs. F73 is why it is
+/// declared per word rather than derived from the `.`: the family does not
+/// agree with itself about where the answer goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Bench {
+    /// The word does not touch the workbench.
+    #[default]
+    Untouched,
+    /// It takes `consumes` from the workbench and leaves `produces` there.
+    Fixed { consumes: u8, produces: u8 },
+    /// It touches the workbench in a way no pair says, or nobody has
+    /// measured it yet. `bund2 check` stops counting the workbench here.
+    Unknown,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StackEffect {
     pub consumes: u8,
     pub produces: u8,
+    /// The workbench's half — RFC-0004 §S1. `Bench::Untouched` unless the
+    /// word is declared to reach it.
+    pub bench: Bench,
     /// What the top of `produces` is — D181. `Leaves::Unknown` unless the
     /// registration site says.
     pub leaves: Leaves,
@@ -1224,9 +1273,15 @@ impl StackEffect {
         Self {
             consumes,
             produces,
+            bench: Bench::Untouched,
             opaque: false,
             leaves: Leaves::Unknown,
         }
+    }
+
+    /// The same main-stack pair, with the workbench's half said.
+    pub const fn on_bench(self, bench: Bench) -> Self {
+        Self { bench, ..self }
     }
 
     /// The same pair, with what it leaves on top said — D181.
@@ -1240,6 +1295,7 @@ impl StackEffect {
         Self {
             consumes: floor,
             produces: 0,
+            bench: Bench::Untouched,
             opaque: true,
             leaves: Leaves::Unknown,
         }
@@ -1880,6 +1936,22 @@ impl Registry {
             self.slots.resize_with(s.index() + 1, Slot::default);
         }
         &mut self.slots[s.index()]
+    }
+
+    /// **Declare the workbench half of a native's effect** — RFC-0004 §S1.
+    /// Its own slot's native only, not an alias's target: an alias reads the
+    /// target's effect already. `false` when `name` binds no native.
+    pub fn set_bench(&mut self, name: &str, bench: Bench) -> bool {
+        let Some((s, _)) = self.interner.lookup_call(name) else {
+            return false;
+        };
+        match self.slot_mut(s).native.as_mut() {
+            Some(n) => {
+                n.effect.bench = bench;
+                true
+            }
+            None => false,
+        }
     }
 
     pub fn slot(&self, s: Symbol) -> Option<&Slot> {

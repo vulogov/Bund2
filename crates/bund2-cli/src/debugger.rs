@@ -92,7 +92,8 @@ impl Stdio {
 const HELP: &str = "bund2: s(tep), n(ext), f(inish), c(ontinue), bt, st, info, \
                     break <word> [<n>] [if <lambda>], until <word>, catch, \
                     watch @stack [if <lambda>], watch workbench, watch redefine, \
-                    delete <word|catch|redefine>. Any other line is run as Bund in the program.";
+                    watch depth > <n>, delete <word|catch|redefine|depth>, \
+                    words [all|<text>], classes. Any other line is run as Bund in the program.";
 
 /// The command vocabulary, long and short forms.
 ///
@@ -176,6 +177,15 @@ fn parse(line: &str) -> Result<Command, String> {
         if rest == "redefine" {
             return Ok(Command::WatchRedefine);
         }
+        // §D4: `watch depth > 100`, on whichever stack is current. The `>`
+        // is optional, since it is the only comparison there is.
+        if let Some(n) = rest.strip_prefix("depth") {
+            let n = n.trim().trim_start_matches('>').trim();
+            return match n.parse::<usize>() {
+                Ok(n) => Ok(Command::WatchDepth(n)),
+                Err(_) => Err("bund2: `watch depth > <n>`, with n a whole number".to_string()),
+            };
+        }
         // D191: `watch @s if <lambda>`, split as `break … if` is.
         if let Some((stack, cond)) = rest.split_once(" if ") {
             let (stack, cond) = (stack.trim().trim_start_matches('@'), cond.trim());
@@ -201,7 +211,15 @@ fn parse(line: &str) -> Result<Command, String> {
         }
         return Ok(Command::Watch(name.to_string()));
     }
+    // §D5's views. Neither is a Bund word, so a line saying one is this.
+    if let Some(rest) = line.strip_prefix("words")
+        && (rest.is_empty() || rest.starts_with(char::is_whitespace))
+    {
+        let rest = rest.trim();
+        return Ok(Command::Words((!rest.is_empty()).then(|| rest.to_string())));
+    }
     match line {
+        "classes" => Ok(Command::Classes),
         "s" | "step" => Ok(Command::Step),
         "n" | "next" => Ok(Command::Next),
         "f" | "finish" => Ok(Command::Finish),
@@ -347,7 +365,8 @@ fn say_stopped(greeted: &mut bool, at: &str) {
             "bund2: stopped. s(tep), n(ext), f(inish), c(ontinue), bt, st, \
              info, break <word> [<n>] [if <lambda>], until <word>, catch, \
              watch @stack [if <lambda>], watch workbench, watch redefine, \
-             delete <word>. Any other line is run as Bund. EOF detaches and runs on."
+             watch depth > <n>, delete <word>, words [all|<text>], classes. \
+             Any other line is run as Bund. EOF detaches and runs on."
         );
     }
     let _ = writeln!(out, "{at}");
@@ -479,6 +498,29 @@ mod tests {
             e.contains("run as Bund"),
             "and what every other line is: {e}"
         );
+    }
+
+    /// RFC-0008 §D4's depth watch and §D5's two views, and the near misses
+    /// that stay Bund.
+    #[test]
+    fn the_depth_watch_and_the_views_parse() {
+        for (text, want) in [
+            ("watch depth > 100", Command::WatchDepth(100)),
+            ("watch depth 3", Command::WatchDepth(3)),
+            ("w depth >0", Command::WatchDepth(0)),
+            ("words", Command::Words(None)),
+            ("words all", Command::Words(Some("all".to_string()))),
+            ("words  sw ", Command::Words(Some("sw".to_string()))),
+            ("classes", Command::Classes),
+            ("wordsmith", Command::Eval("wordsmith".to_string())),
+            ("classes x", Command::Eval("classes x".to_string())),
+        ] {
+            assert_eq!(parse(text), Ok(want), "{text}");
+        }
+        for bad in ["watch depth", "watch depth > x", "watch depth > -1"] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
+        assert!(HELP.contains("watch depth > <n>") && HELP.contains("classes"));
     }
 
     /// **A typo must not advance the program** — and since §W2 a line that is

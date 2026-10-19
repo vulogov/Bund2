@@ -40,6 +40,9 @@ pub enum Stop {
     Watch(String),
     /// A value is about to be pushed to the workbench — §D4's second hook.
     WatchWorkbench,
+    /// A push is about to take this stack past the watched depth — §D4's
+    /// `watch depth > N`.
+    WatchDepth(String, usize),
     /// A stepping stop before a term of the string `debug.run` evaluates: its
     /// index in that string and the value's summary. Not forced — the
     /// stepping mode decides, as it does for [`Stop::Stepping`].
@@ -110,6 +113,16 @@ pub enum Command {
     WatchRedefine,
     /// Render what is being watched.
     Info,
+    /// **Stop when a push takes the current stack past `n` — §D4.** On the
+    /// crossing, not on every push above it: a stack that stays deep would
+    /// otherwise stop at each push. It fires again once the stack has come
+    /// back down to `n`.
+    WatchDepth(usize),
+    /// Render the slot table — §D5. The argument is as
+    /// [`bund2_api::Debugging::Words`]'s.
+    Words(Option<String>),
+    /// Render the registered classes — §D5.
+    Classes,
     /// **A line of Bund, run in the debuggee's own VM — §W2.** What the
     /// reference's `debug` loop does with every line that is not empty
     /// (`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:81-95`).
@@ -213,6 +226,13 @@ pub struct Debug {
     /// Whether the workbench is watched — §D4's *second* hook, separate
     /// because the workbench path writes no stack tag.
     watch_workbench: bool,
+    /// `watch depth > N` on whichever stack is current — §D4.
+    watch_depth: Option<usize>,
+    /// **Calls per word since this debugger attached** — what §D5's `words`
+    /// shows. Counted where a breakpoint is asked about, which every call
+    /// already reaches when something is attached, so a run with no
+    /// debugger counts nothing and pays nothing.
+    calls: std::collections::HashMap<bund2_api::Symbol, u64>,
     /// How many safepoints this run stopped at. The differential in
     /// `the_stepped_run_and_the_plain_run_agree` reads it to show the stepping
     /// happened rather than silently detaching.
@@ -249,6 +269,8 @@ impl Debug {
             seen: None,
             said: std::collections::HashSet::new(),
             watch_workbench: false,
+            watch_depth: None,
+            calls: std::collections::HashMap::new(),
             stops: 0,
             busy: false,
             resume: false,
@@ -361,6 +383,7 @@ impl Debug {
                     "workbench" => self.watch_workbench = false,
                     "catch" => self.catching = false,
                     "redefine" => self.watch_redefine = false,
+                    "depth" => self.watch_depth = None,
                     _ => {}
                 }
                 Next::Render(Render::Info)
@@ -378,6 +401,12 @@ impl Debug {
                 Next::Render(Render::Info)
             }
             Command::Info => Next::Render(Render::Info),
+            Command::WatchDepth(n) => {
+                self.watch_depth = Some(n);
+                Next::Render(Render::Info)
+            }
+            Command::Words(filter) => Next::Render(Render::Words(filter)),
+            Command::Classes => Next::Render(Render::Classes),
             Command::Eval(source) => Next::Eval(source),
         }
     }
@@ -390,7 +419,27 @@ impl Debug {
     }
 
     pub(crate) fn watching_stacks(&self) -> bool {
-        !self.busy && !self.gone && (!self.watches.is_empty() || self.watch_workbench)
+        !self.busy
+            && !self.gone
+            && (!self.watches.is_empty() || self.watch_workbench || self.watch_depth.is_some())
+    }
+
+    /// The depth `watch depth > N` names, if one is set.
+    pub(crate) fn watched_depth(&self) -> Option<usize> {
+        self.watch_depth
+    }
+
+    /// A call to `word` reached the debugger. Not while a typed line runs,
+    /// whose calls are the session's and not the program's.
+    pub(crate) fn count_call(&mut self, word: bund2_api::Symbol) {
+        if !self.busy && !self.gone {
+            *self.calls.entry(word).or_insert(0) += 1;
+        }
+    }
+
+    /// The calls counted for `word` since attaching.
+    pub(crate) fn calls_to(&self, word: bund2_api::Symbol) -> u64 {
+        self.calls.get(&word).copied().unwrap_or(0)
     }
 
     /// The condition on a word, if that word is watched at all.
@@ -474,6 +523,7 @@ impl Debug {
         if self.breaks.is_empty()
             && self.watches.is_empty()
             && !self.watch_workbench
+            && self.watch_depth.is_none()
             && !self.catching
             && !self.watch_redefine
         {
@@ -504,6 +554,9 @@ impl Debug {
         }
         if self.watch_workbench {
             out.push_str("watch workbench\n");
+        }
+        if let Some(n) = self.watch_depth {
+            out.push_str(&format!("watch depth > {n}\n"));
         }
         if self.watch_redefine {
             out.push_str("watch redefine\n");
@@ -636,6 +689,8 @@ pub(crate) enum Render {
     Backtrace,
     Stack,
     Info,
+    Words(Option<String>),
+    Classes,
 }
 
 /// One line of a backtrace: what a frame is running and how far through.
@@ -654,10 +709,10 @@ pub(crate) enum Render {
 /// `by`, and the line reads `#2  a lambda at 8, run by input*`. That is a
 /// fact about the run, not an invented name: the body still has none.
 ///
-/// **There is still no source position**, and §D2 says why: `lower_with_spans`
-/// is top level only, so no value inside a body carries one, and producing
-/// them is the IR RFC-0003 §S5 describes and that does not exist. A backtrace
-/// gives a word and a value index today.
+/// **The source position is not this line's**: the interpreter appends it
+/// where the body was written (RFC-0003 §S5, the places `lower_with_spans`
+/// records beside each literal body), since only it holds the table. A body
+/// built at run time has none, and its line ends at the index.
 pub fn frame_line(
     body: &BundValue,
     ip: usize,

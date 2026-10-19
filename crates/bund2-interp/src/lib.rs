@@ -172,8 +172,9 @@ struct Frame {
     ///
     /// `None` for a body that no word names: a `( … )` scratch context, a
     /// LIST assembled at run time, a lambda a native handed to `eval_lambda`.
-    /// A backtrace says so rather than inventing a caller — D16's consequence,
-    /// and the same reason `bt` cannot give a source location for such a body.
+    /// A backtrace says so rather than inventing a caller — D16's consequence.
+    /// Where the body was *written* is another table's (`positions`, RFC-0003
+    /// §S5), so a nameless lambda still has a place if it was a literal.
     ///
     /// **A frame is pushed per call, so this is the one field RFC-0008 adds to
     /// a hot structure**, and criterion 12 measures it against RFC-0005
@@ -350,6 +351,15 @@ pub struct Interp {
     /// `eval_lambda`, innermost last — beside the frames rather than in them,
     /// so `Frame` keeps the size RFC-0008 criterion 12 measured.
     runners: Vec<(usize, Runner)>,
+    /// **Where each literal body's items were written** — RFC-0003 §S5,
+    /// keyed on the body's `payload_key` and holding a `Weak` to it, as
+    /// D35's caches do: the entry pins nothing, and one whose `Weak` no
+    /// longer upgrades is dead rather than answering for a body at a reused
+    /// address. Read only to say where — a trace, `bt`, a stop.
+    positions: std::collections::HashMap<usize, Placed>,
+    /// The table's size at which dead entries are next swept, so a REPL that
+    /// evaluates line after line does not keep every line's bodies' places.
+    positions_sweep: usize,
     /// **The Tier 0 floor — RFC-0005 §S8, F85.** The lowest stack address at
     /// which a native may still re-enter evaluation. Below it,
     /// `Vm::eval_lambda`, `Vm::apply` and `Vm::scoped_call` refuse with
@@ -470,6 +480,8 @@ impl Interp {
             naming: false,
             running: None,
             runners: Vec::new(),
+            positions: std::collections::HashMap::new(),
+            positions_sweep: Self::POSITIONS_SWEEP,
             stack_floor: tier0_floor(),
             exit_code: None,
             observations: std::cell::RefCell::new(Vec::new()),
@@ -1325,8 +1337,12 @@ impl Interp {
     /// program and nothing could clear it.
     fn breakpoint_hit(&mut self, who: Option<Symbol>) -> Option<String> {
         // Two cheap guards before any lookup: nothing attached, or attached
-        // and watching no word.
-        let d = self.debug.as_ref()?;
+        // and watching no word. The call is counted between them, for §D5's
+        // `words`, since every call that reaches a debugger passes here.
+        let d = self.debug.as_mut()?;
+        if let Some(w) = who {
+            d.count_call(w);
+        }
         if !d.watching_words() {
             return None;
         }
@@ -1456,6 +1472,10 @@ impl Interp {
                 debug::Stop::WatchWorkbench => {
                     format!("watchpoint: workbench\n{}", self.render_position(top))
                 }
+                debug::Stop::WatchDepth(s, n) => format!(
+                    "watchpoint: @{s} depth > {n}\n{}",
+                    self.render_position(top)
+                ),
                 debug::Stop::Error(reason) => format!(
                     "caught: {reason}\n{}\n(the failure unwinds when the program moves on)",
                     self.render_position(top)
@@ -1487,6 +1507,10 @@ impl Interp {
                                 debug::Render::Backtrace => self.render_backtrace(),
                                 debug::Render::Stack => self.render_debug_stack(),
                                 debug::Render::Info => d.render_watched(),
+                                debug::Render::Words(filter) => {
+                                    self.render_words(filter.as_deref(), Some(&d))
+                                }
+                                debug::Render::Classes => self.render_classes(),
                             };
                             d.answer(&text);
                         }
@@ -1560,6 +1584,131 @@ impl Interp {
         }
     }
 
+    /// **The slot table as a view — RFC-0008 §D5.** One line a word: its
+    /// name, what is bound in its slot, its generation, and its calls since
+    /// the debugger attached.
+    ///
+    /// **Every binding in the slot, not the one dispatch takes**, so a name
+    /// bound twice says so: `swap` reads `alias → swap_one, native` (F20).
+    /// Without a filter the program's own lambdas and whatever was called
+    /// are shown, since the full table is some six hundred lines; `all`
+    /// shows every bound slot, and any other text the names containing it.
+    ///
+    /// The tier is said once, above the table: under a debugger it is off
+    /// (§D6), so a column would say the same thing on every line.
+    fn render_words(&self, filter: Option<&str>, d: Option<&debug::Debug>) -> String {
+        let calls = |s: Symbol| d.map_or(0, |d| d.calls_to(s));
+        let mut out = String::from(match (&self.tier, self.tier_off) {
+            (None, _) => "no tier in this build: every body is interpreted\n",
+            (Some(_), true) => "the tier is off under the debugger (§D6): every body is interpreted\n",
+            (Some(_), false) => "the tier is on: a hot body may run compiled\n",
+        });
+        if d.is_none() {
+            out.push_str("no debugger is attached, so no calls are counted\n");
+        }
+        let mut rows = Vec::new();
+        for (i, name) in self.registry.interner.names().iter().enumerate() {
+            let Some((sym, _)) = self.registry.interner.lookup_call(name) else {
+                continue;
+            };
+            if sym.index() != i {
+                continue;
+            }
+            let Some(slot) = self.registry.slot(sym) else {
+                continue;
+            };
+            let mut kinds = Vec::new();
+            if let Some(a) = slot.alias {
+                kinds.push(format!("alias → {}", self.registry.interner.name(a)));
+            }
+            if slot.lambda.is_some() {
+                kinds.push("lambda".to_string());
+            }
+            if slot.native.is_some() {
+                kinds.push("native".to_string());
+            }
+            if slot.command.is_some() {
+                kinds.push("command".to_string());
+            }
+            if kinds.is_empty() {
+                continue;
+            }
+            let n = calls(sym);
+            let shown = match filter {
+                Some("all") => true,
+                Some(text) => name.contains(text),
+                None => slot.lambda.is_some() || n > 0,
+            };
+            if shown {
+                rows.push((name.as_str(), kinds.join(", "), slot.generation(), n));
+            }
+        }
+        if rows.is_empty() {
+            out.push_str("no word matches; `words all` lists every slot\n");
+            return out;
+        }
+        rows.sort_by(|a, b| a.0.cmp(b.0));
+        let width = rows.iter().map(|r| r.0.chars().count()).max().unwrap_or(0);
+        for (name, kinds, generation, n) in rows {
+            out.push_str(&format!(
+                "  {name:<width$}  {kinds}  gen {generation}  calls {n}\n"
+            ));
+        }
+        out
+    }
+
+    /// **The registered classes — RFC-0008 §D5.** Each with the parents its
+    /// `.super` names, then its members split as the object system splits
+    /// them: a LAMBDA is a method, and so is a PTR, which is how a built-in
+    /// class names a native method (`.format`); anything else is a field.
+    fn render_classes(&self) -> String {
+        let mut names = self.registry.class_names();
+        if names.is_empty() {
+            return "no class is registered\n".to_string();
+        }
+        names.sort();
+        let list = |v: &[String]| {
+            if v.is_empty() {
+                "none".to_string()
+            } else {
+                v.join(" ")
+            }
+        };
+        let mut out = String::new();
+        for name in names {
+            let Some(class) = self.registry.class(&name) else {
+                continue;
+            };
+            let (mut supers, mut methods, mut fields) = (Vec::new(), Vec::new(), Vec::new());
+            if let Some(map) = class.as_map() {
+                for (k, v) in map {
+                    match k.as_str() {
+                        ".super" => {
+                            supers = v
+                                .as_list()
+                                .unwrap_or_default()
+                                .iter()
+                                .map(|p| p.as_str().unwrap_or_else(|| p.summary(24)))
+                                .collect();
+                        }
+                        ".class_name" => {}
+                        _ if matches!(v.dt(), bund2_value::LAMBDA | bund2_value::PTR) => {
+                            methods.push(k.clone())
+                        }
+                        _ => fields.push(k.clone()),
+                    }
+                }
+            }
+            out.push_str(&format!(
+                "{name}\n  super: {}\n  methods: {}\n  fields: {}\n",
+                list(&supers),
+                list(&methods),
+                list(&fields)
+            ));
+        }
+        out
+    }
+
     /// Every stack by name, with its depth and its top value — §W1's
     /// `debug.stacks`. The current one is marked.
     fn render_stacks(&self) -> String {
@@ -1597,7 +1746,11 @@ impl Interp {
                 // `#0`: the innermost frame is `bt`'s first line and the
                 // traceback's (D173), so a stop and the backtrace typed at it
                 // name it alike (F217). It was the outermost frame's index.
-                format!("{}  next: {next}", debug::frame_line(&f.body, f.ip, 0, who, by.as_deref()))
+                format!(
+                    "{}  next: {next}{}",
+                    debug::frame_line(&f.body, f.ip, 0, who, by.as_deref()),
+                    self.place_suffix(&f.body, f.ip)
+                )
             }
             // **The index is the stream's, so it is a position a caller
             // holding `Lowered` can turn into a source span** — the whole of
@@ -1632,6 +1785,7 @@ impl Interp {
                 who,
                 self.runner_of(i).as_deref(),
             ));
+            out.push_str(&self.place_suffix(&f.body, f.ip.saturating_sub(1)));
             out.push('\n');
         }
         out
@@ -1745,8 +1899,44 @@ impl Interp {
             cause: e.0.clone(),
             frames: self.trace_frames(),
             source: None,
+            inner: self.innermost_place(),
         });
     }
+
+    /// Where the item at `i` of `body` was written, if anywhere.
+    fn place_of(&self, body: &BundValue, i: usize) -> Option<bund2_api::diag::Location> {
+        let p = self.positions.get(&body.payload_key()?)?;
+        p.body.upgrade()?;
+        let &(line, column, start, end) = p.at.get(i)?;
+        Some(bund2_api::diag::Location {
+            file: Some(p.file.to_string()),
+            line,
+            column,
+            excerpt: None,
+            span: Some((start, end)),
+        })
+    }
+
+    /// The value each running frame is in the middle of — its `ip` has moved
+    /// past the value being applied — placed, innermost first; the first
+    /// frame with a place answers.
+    fn innermost_place(&self) -> Option<bund2_api::diag::Location> {
+        self.frames
+            .iter()
+            .rev()
+            .find_map(|f| self.place_of(&f.body, f.ip.saturating_sub(1)))
+    }
+
+    /// `"  (p.bund:3:7)"`, or nothing for a body that was not written.
+    fn place_suffix(&self, body: &BundValue, i: usize) -> String {
+        self.place_of(body, i)
+            .map(|l| format!("  ({l})"))
+            .unwrap_or_default()
+    }
+
+    /// Dead entries are swept when the table reaches this size, and the mark
+    /// then moves to twice what survived.
+    const POSITIONS_SWEEP: usize = 4096;
 
     /// The running frames as the traceback's lines, innermost first.
     fn trace_frames(&self) -> Vec<String> {
@@ -1764,15 +1954,44 @@ impl Interp {
                 continue;
             }
             let who = f.who.map(|s| self.registry.interner.name(s));
-            lines.push(debug::frame_line(
-                &f.body,
-                f.ip,
-                depth,
-                who,
-                self.runner_of(i).as_deref(),
-            ));
+            lines.push(
+                debug::frame_line(&f.body, f.ip, depth, who, self.runner_of(i).as_deref())
+                    + &self.place_suffix(&f.body, f.ip.saturating_sub(1)),
+            );
         }
         lines
+    }
+
+    /// **The word a program writes to make a conditional of this type** —
+    /// `?try` for `tryexcept` — read from the effect each word declares
+    /// (D181's `Leaves::Conditional`), so a frame names what the program said
+    /// rather than the runner's registry key. A word with a native of its own
+    /// is preferred to an alias of it, and then the first by name, so the
+    /// answer does not depend on registration order. Asked only while a
+    /// trace is rendered.
+    fn conditional_maker(&self, ty: &str) -> Option<String> {
+        let mut makers: Vec<(bool, &str)> = self
+            .registry
+            .interner
+            .names()
+            .iter()
+            .filter(|n| {
+                self.registry
+                    .effect_of(n)
+                    .is_some_and(|e| matches!(e.leaves, bund2_api::Leaves::Conditional(t) if t == ty))
+            })
+            .map(|n| {
+                let own = self
+                    .registry
+                    .interner
+                    .lookup_call(n)
+                    .and_then(|(s, _)| self.registry.slot(s))
+                    .is_some_and(|slot| slot.native.is_some() && slot.alias.is_none());
+                (!own, n.as_str())
+            })
+            .collect();
+        makers.sort();
+        makers.first().map(|(_, n)| (*n).to_string())
     }
 
     /// What started the body at frame `i`, when a runner handed it to
@@ -1781,7 +2000,9 @@ impl Interp {
         let (_, r) = self.runners.iter().rev().find(|(at, _)| *at == i)?;
         Some(match r {
             Runner::Word(s) => self.registry.interner.name(*s).to_string(),
-            Runner::Conditional(ty) => format!("the {ty} conditional"),
+            Runner::Conditional(ty) => self
+                .conditional_maker(ty)
+                .unwrap_or_else(|| format!("the {ty} conditional")),
             Runner::Method(m) => format!("method {m}"),
         })
     }
@@ -1813,12 +2034,16 @@ struct FailureTrace {
     frames: Vec<String>,
     /// Where in an evaluated string it failed: `(label, text, span)`.
     source: Option<(String, String, (usize, usize))>,
+    /// Where inside a body it failed, if that body was written somewhere
+    /// (RFC-0003 §S5): the innermost frame with a place for its value.
+    inner: Option<bund2_api::diag::Location>,
 }
 
 impl FailureTrace {
     fn attach(self, d: bund2_api::diag::Diagnostic) -> bund2_api::diag::Diagnostic {
         let mut d = d.with_frames(self.frames);
         d.cause = Some(self.cause);
+        d.inner = self.inner;
         if let Some((label, src, (start, end))) = self.source {
             let start = start.min(src.len());
             let before = src.get(..start).unwrap_or_default();
@@ -1831,9 +2056,24 @@ impl FailureTrace {
                 span: Some((start, end.clamp(start, src.len()))),
             });
             d.source = Some(src);
+        } else if d.location.is_none() {
+            // Caught with no string to point into: the place in the body is
+            // the only place there is.
+            d.location = d.inner.take();
         }
         d
     }
+}
+
+/// Where a literal body's items were written — RFC-0003 §S5.
+struct Placed {
+    /// The body, without keeping it alive.
+    body: std::rc::Weak<bund2_value::Payload>,
+    /// The source's name, shared by every body it holds.
+    file: Rc<str>,
+    /// One place per item: `(line, column, start, end)`, the first two
+    /// 1-based, the last two bytes.
+    at: Vec<(usize, usize, usize, usize)>,
 }
 
 impl Vm for Interp {
@@ -1878,6 +2118,13 @@ impl Vm for Interp {
             };
             if stop {
                 self.safepoint_for(None, debug::Stop::Watch(name));
+            } else if let Some(n) = self.debug.as_ref().and_then(|d| d.watched_depth())
+                && self.stacks.current().len() == n
+            {
+                // **§D4's `watch depth > N`, on the crossing.** Exactly `n`
+                // before this push, so a stack that stays deep stops once,
+                // and stops again only after coming back down to `n`.
+                self.safepoint_for(None, debug::Stop::WatchDepth(name, n));
             }
         }
         self.stacks.current_mut().push(v);
@@ -2278,6 +2525,13 @@ impl Vm for Interp {
                     None => "no debugger is attached\n".to_string(),
                 }));
             }
+            D::Words(filter) => {
+                return Ok(Some(
+                    self.render_words(filter.as_deref(), self.debug.as_deref()),
+                ));
+            }
+            D::Classes => return Ok(Some(self.render_classes())),
+            D::WatchDepth(n) => debug::Command::WatchDepth(n),
             D::Break(w) => debug::Command::Break(w),
             D::BreakAt(w, n) => debug::Command::BreakAt(w, n, None),
             D::Until(w) => debug::Command::Until(w),
@@ -2379,12 +2633,51 @@ impl Vm for Interp {
                     cause: e.0.clone(),
                     frames: self.trace_frames(),
                     source: Some((label.to_string(), src.to_string(), span)),
+                    inner: self.innermost_place(),
                 });
             }
         }
     }
 
-    fn catch_failure(&mut self, e: &Error) {
+    fn note_positions(&mut self, label: &str, src: &str, bodies: &[(BundValue, Vec<(usize, usize)>)]) {
+        if bodies.is_empty() {
+            return;
+        }
+        if self.positions.len() >= self.positions_sweep {
+            self.positions.retain(|_, p| p.body.strong_count() > 0);
+            self.positions_sweep = (self.positions.len() * 2).max(Self::POSITIONS_SWEEP);
+        }
+        // Line starts once per source, so each place is a search, not a scan.
+        let starts: Vec<usize> = std::iter::once(0)
+            .chain(src.match_indices('\n').map(|(i, _)| i + 1))
+            .collect();
+        let file: Rc<str> = Rc::from(label);
+        for (body, spans) in bodies {
+            let (Some(key), Some(weak)) = (body.payload_key(), body.payload_weak()) else {
+                continue;
+            };
+            let at = spans
+                .iter()
+                .map(|&(start, end)| {
+                    let start = start.min(src.len());
+                    let line = starts.partition_point(|&s| s <= start);
+                    let line_start = starts.get(line.saturating_sub(1)).copied().unwrap_or(0);
+                    let column = src.get(line_start..start).map_or(1, |t| t.chars().count() + 1);
+                    (line, column, start, end)
+                })
+                .collect();
+            self.positions.insert(
+                key,
+                Placed {
+                    body: weak,
+                    file: Rc::clone(&file),
+                    at,
+                },
+            );
+        }
+    }
+
+    fn failure_caught(&mut self, e: &Error) {
         self.caught = self
             .failure_trace
             .take()
@@ -2406,7 +2699,11 @@ impl Vm for Interp {
         // innermost failure's text, wrapped or not, or the trace is not its.
         let d = if d.severity.is_fatal() {
             match self.failure_trace.take() {
-                Some(t) if d.reason.contains(&t.cause) => d.with_frames(t.frames),
+                Some(t) if d.reason.contains(&t.cause) => {
+                    let mut d = d.with_frames(t.frames);
+                    d.inner = t.inner;
+                    d
+                }
                 _ => d,
             }
         } else {
@@ -3775,6 +4072,23 @@ mod tests {
             never: false,
         }));
         (i, offered)
+    }
+
+    /// **RFC-0003 §S5's table pins nothing and forgets the dead.** Places
+    /// noted for bodies nobody holds are swept once the table reaches its
+    /// mark, and a body still held keeps its place.
+    #[test]
+    fn positions_for_dropped_bodies_are_swept() {
+        let mut i = Interp::new();
+        let kept = BundValue::lambda(vec![BundValue::int(1)]);
+        i.note_positions("p.bund", "1\n", &[(kept.clone(), vec![(0, 1)])]);
+        for _ in 0..Interp::POSITIONS_SWEEP {
+            let gone = BundValue::lambda(vec![BundValue::int(2)]);
+            i.note_positions("p.bund", "2\n", &[(gone, vec![(0, 1)])]);
+        }
+        assert!(i.positions.len() < 16, "swept: {}", i.positions.len());
+        let at = i.place_of(&kept, 0).expect("still placed");
+        assert_eq!((at.line, at.column, at.span), (1, 1, Some((0, 1))));
     }
 
     /// **A declining tier changes nothing.** This is the clause that keeps the

@@ -1068,3 +1068,45 @@ F112 each of the three consults the exit gate after the loop returns, and
 answers the refusal. The frame loop itself is unchanged, and so is every
 criterion here. Only a program that exits from inside a native's body can see
 the difference.
+
+## Amendment, 2026-10-19 — §S5 inside bodies: positions beside the lambda
+
+On the owner's request "source positions for values inside lambdas". §S5
+said the span "rides alongside"; until now it did so for the top-level
+stream only (`Lowered::spans`), so a failure three calls deep was placed at
+the top-level term that started it, and every frame read `a lambda at 3`.
+
+**Beside the body, keyed on it.** A body stays `Vec<BundValue>` (§S3), and
+a position inside a value would make every program differ from the
+reference's, so the places go in a side table. `lower_with_spans` records,
+for each lambda and list literal, a clone of its value and one span per
+item (`Lowered::bodies`); the stream it emits is unchanged, which
+`a_body_s_items_have_their_places` checks against `compile`. The
+interpreter keeps them by the body's `payload_key`, holding a `Weak` to the
+payload as D35's caches do: the table pins nothing, an entry whose `Weak` no
+longer upgrades is dead and never answers for a body at a reused address,
+and dead entries are swept when the table reaches a mark that then moves to
+twice what survived (`Interp::positions`, `note_positions`, `place_of`).
+`dup` shares the payload, so a duplicated lambda keeps its place; a body
+built at run time — `set`, `curry`, `lambda*` — was written nowhere and has
+none.
+
+**Who records.** The CLI, for the program and each included file;
+`eval_source_named`, for what `bund.eval`, `bund.eval-file` and `use` run,
+under the string's or the file's name. Nothing on the hot path reads the
+table: only a traceback, `bt`, a debugger stop and a caught failure's
+report do.
+
+**What it changes.** A frame's line ends with where the value it is in the
+middle of was written: `#0  g at 3  (p.bund:1:13)`. A stop's line adds the
+place of the value it will run next. A traceback, on a terminal or under
+`--report trace`, underlines the failing value inside the lambda and labels
+the top-level step "reached from this step"
+(`Diagnostic::inner`); the reference's table on a pipe keeps the top-level
+`Location` row it always had, so no golden moves. A failure a `?try` caught
+inside a program's lambda is drawn at the place in the lambda.
+
+**Not built on it yet:** a breakpoint by file and line (RFC-0008 §D3),
+per-call-site profiles, and recording where a word was registered — each
+now has the places it needs.
+

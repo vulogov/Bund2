@@ -111,6 +111,11 @@ pub struct Diagnostic {
     /// the reporter holds — a string `bund.eval` ran, say. The location's
     /// `file` then names it.
     pub source: Option<String>,
+    /// **Where inside a body the failure was** — RFC-0003 §S5. `location`
+    /// stays the top-level step that led there, which is what the reference's
+    /// table shows and the goldens hold; this is the place in the lambda,
+    /// for a renderer that can show both.
+    pub inner: Option<Location>,
 }
 
 impl Diagnostic {
@@ -125,6 +130,7 @@ impl Diagnostic {
             frames: None,
             cause: None,
             source: None,
+            inner: None,
         }
     }
 

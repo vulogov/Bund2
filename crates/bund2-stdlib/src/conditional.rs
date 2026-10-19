@@ -257,7 +257,7 @@ fn run_tryexcept(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
     if let Err(e) = vm.eval_lambda(&try_l) {
         // Caught, so its traceback goes to the `except` block's report of it
         // rather than to a later failure (D173).
-        vm.catch_failure(&e);
+        vm.failure_caught(&e);
         let err_c = new_conditional("error")
             .set("associated", associated)
             .set("context", BundValue::str(e.0));
@@ -549,7 +549,8 @@ mod tests {
     }
 
     /// **A lambda no word names is named by what ran it** — `map`'s body,
-    /// `?try`'s `try` slot — and a word's frame keeps its own name.
+    /// `?try`'s `try` slot, named by the word that made the conditional and
+    /// not its type — and a word's frame keeps its own name.
     #[test]
     fn anonymous_frames_are_named_by_what_ran_them() {
         let src = ":f { [ 1 ] { 0 1 / } map } register\n?try :try { f } set :except { ! } set !\n";
@@ -560,10 +561,30 @@ mod tests {
         let frames = d.frames.as_ref().expect("frames");
         assert!(frames[0].ends_with(", run by map"), "{frames:?}");
         assert!(frames[1].contains("f at"), "{frames:?}");
-        assert!(
-            frames[2].ends_with(", run by the tryexcept conditional"),
-            "{frames:?}"
-        );
+        assert!(frames[2].ends_with(", run by ?try"), "{frames:?}");
+    }
+
+    /// **RFC-0003 §S5: a caught failure inside a lambda is placed** at the
+    /// value, in the file the lambda was written in, and so is each frame.
+    #[test]
+    fn a_caught_failure_in_a_lambda_is_placed_where_it_was_written() {
+        let src = ":g { 0\n  1 / } register\n?try :try { g } set :except { ! } set !\n";
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut i = Interp::new();
+        crate::register_all(&mut i.registry);
+        i.reporter = Box::new(Tracing(std::rc::Rc::clone(&seen), true));
+        let terms = bund2_syntax::parse(src).expect("parses");
+        let lowered = bund2_syntax::lower_with_spans(&terms, src.len());
+        i.note_positions("p.bund", src, &lowered.body_places());
+        i.eval(&lowered.values).expect("caught");
+        let seen = seen.take();
+        let [d] = seen.as_slice() else {
+            panic!("one report: {seen:?}");
+        };
+        let at = d.location.as_ref().expect("placed");
+        assert_eq!((at.file.as_deref(), at.line, at.column), (Some("p.bund"), 2, 5));
+        let frames = d.frames.as_ref().expect("frames");
+        assert!(frames[0].starts_with("#0  g at 3") && frames[0].ends_with("(p.bund:2:5)"), "{frames:?}");
     }
 
     /// A reporter that draws no traceback gets the line it always got.

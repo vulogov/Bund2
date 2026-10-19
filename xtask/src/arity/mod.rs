@@ -59,6 +59,11 @@ struct Row {
     declared_workbench: Option<usize>,
     /// Probed (consumed, produced) and the sentinel type that worked.
     probed: Option<(usize, usize, &'static str)>,
+    /// **Both axes, for a word that touches the workbench** — RFC-0004 §S1's
+    /// second axis: (stack consumed, stack produced, workbench consumed,
+    /// workbench produced) and the sentinel type that worked. Probed with the
+    /// workbench seeded, which [`probe_word`] never does.
+    probed_bench: Option<(usize, usize, usize, usize, &'static str)>,
     /// Adding operands did not change what the word left behind, so `probed`'s
     /// `consumed` is a **floor** and not an arity. See [`probe_word`] for what
     /// this does and does not prove.
@@ -298,6 +303,55 @@ fn probe_word(
     (None, false, last_note)
 }
 
+/// Deepest sentinel workbench the two-axis probe builds. D24's `.` contract
+/// takes one operand from the workbench, and no guard asks for more than one.
+const MAX_BENCH: usize = 2;
+
+/// **The two-axis probe — RFC-0004 §S1.** [`probe_word`] runs a word on a
+/// stack alone, so a `.` word, which takes its primary operand from the
+/// workbench (D24), refuses every depth it is offered. This seeds the
+/// workbench with `<sentinel> .` — `.` is an alias of `return`, which moves
+/// the stack's top to the workbench
+/// (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:4`) — and
+/// reads both stacks back, the workbench after a marker line.
+///
+/// Pairs are tried smallest total first, and the workbench before the stack
+/// within a total, so the first pair the word accepts is its least demand on
+/// both. What it left on each is then what it produced there, by the same
+/// argument [`probe_word`] makes for one axis: every operand offered at the
+/// least accepted pair was taken. F73 is why this is measured per word: the
+/// `.` family does not agree with itself about where the answer goes.
+fn probe_bench(
+    oracle: &Path,
+    scratch: &Path,
+    word: &str,
+) -> Option<(usize, usize, usize, usize, &'static str)> {
+    const MARK: &str = "--arity-workbench--";
+    let mut pairs: Vec<(usize, usize)> = (0..=MAX_BENCH)
+        .flat_map(|b| (0..=MAX_DEPTH).map(move |k| (b, k)))
+        .collect();
+    pairs.sort_by_key(|&(b, k)| (b + k, std::cmp::Reverse(b)));
+    for (tyname, lit) in SENTINELS {
+        for &(b, k) in &pairs {
+            let bench = vec![format!("{lit} ."); b].join(" ");
+            let stack = vec![*lit; k].join(" ");
+            let program = format!(
+                "{bench}\n{stack}\n{word}\ndebug.display_stack\n\"{MARK}\" println\ndebug.display_workbench\n"
+            );
+            let out = run_probe(oracle, scratch, &program)?;
+            if errored(&out) {
+                if too_shallow(&out) {
+                    continue;
+                }
+                break;
+            }
+            let (on_stack, on_bench) = out.split_once(MARK)?;
+            return Some((k, count_values(on_stack), b, count_values(on_bench), tyname));
+        }
+    }
+    None
+}
+
 pub fn run(args: &[String]) -> Result<(), String> {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -372,6 +426,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
             skipped_unsafe += 1;
         }
 
+        // A `.` word, or one whose own guard reads the workbench, is probed
+        // on both axes too.
+        let probed_bench = if have_oracle && safe && (word.ends_with('.') || dw.is_some()) {
+            probe_bench(&oracle, &scratch, word)
+        } else {
+            None
+        };
         let (probed, depth_insensitive, note) = if have_oracle && safe {
             probe_word(&oracle, &scratch, word)
         } else if !safe {
@@ -390,6 +451,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             declared_stack: ds,
             declared_workbench: dw,
             probed,
+            probed_bench,
             depth_insensitive,
             note,
         });
@@ -406,6 +468,7 @@ fn report(
 ) -> Result<(), String> {
     let with_declared = rows.iter().filter(|r| r.declared_stack.is_some()).count();
     let with_probe = rows.iter().filter(|r| r.probed.is_some()).count();
+    let with_bench = rows.iter().filter(|r| r.probed_bench.is_some()).count();
 
     // Disagreement: declared says it needs N, the probe succeeded shallower.
     let mut disagree: Vec<&Row> = Vec::new();
@@ -428,6 +491,7 @@ fn report(
         with_declared
     );
     bund2_api::sayln!("  {:<34}{:>5}", "probed successfully", with_probe);
+    bund2_api::sayln!("  {:<34}{:>5}", "probed on both axes", with_bench);
     bund2_api::sayln!(
         "  {:<34}{:>5}",
         "not probed (unsafe to run)",
@@ -511,8 +575,11 @@ fn report(
     if !probed_ran {
         s.push_str("**This run was static only — no oracle was available.**\n\n");
     }
-    s.push_str("| word | declared | wb | consumed | produced | via | site | note |\n");
-    s.push_str("|---|---|---|---|---|---|---|---|\n");
+    s.push_str("`wb in`/`wb out` and the stack pair beside them, `in`/`out`, are the\n");
+    s.push_str("two-axis probe (RFC-0004 §S1): the word run with the workbench seeded\n");
+    s.push_str("too, at the least pair of depths it accepts.\n\n");
+    s.push_str("| word | declared | wb | consumed | produced | via | in | out | wb in | wb out | site | note |\n");
+    s.push_str("|---|---|---|---|---|---|---|---|---|---|---|---|\n");
     for r in rows {
         let (c, p, t) = match r.probed {
             // A floor, not an arity, so it is written `2+` rather than `2`.
@@ -522,8 +589,14 @@ fn report(
             Some((c, p, t)) => (c.to_string(), p.to_string(), t.to_string()),
             None => (String::new(), String::new(), String::new()),
         };
+        let two = |f: fn(&(usize, usize, usize, usize, &'static str)) -> usize| {
+            r.probed_bench
+                .as_ref()
+                .map(|b| f(b).to_string())
+                .unwrap_or_default()
+        };
         s.push_str(&format!(
-            "| `{}` | {} | {} | {} | {} | {} | {} | {} |\n",
+            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
             r.word,
             r.declared_stack.map(|n| n.to_string()).unwrap_or_default(),
             r.declared_workbench
@@ -532,6 +605,10 @@ fn report(
             c,
             p,
             t,
+            two(|b| b.0),
+            two(|b| b.1),
+            two(|b| b.2),
+            two(|b| b.3),
             r.site,
             r.note,
         ));

@@ -711,6 +711,12 @@ pub struct Lowered {
     /// `spans[i]` is where `values[i]` was written. The trailing EXIT gets the
     /// end of the source.
     pub spans: Vec<Span>,
+    /// **Where each item of every lambda and list literal was written** —
+    /// RFC-0003 §S5, inside bodies. Each entry is the literal's value, a
+    /// clone sharing the payload the stream holds, so its `payload_key` is the
+    /// body's, and one span per item of it. A body built at run time has
+    /// none: only what was written has a place to point at.
+    pub bodies: Vec<(BundValue, Vec<Span>)>,
 }
 
 impl Lowered {
@@ -718,20 +724,32 @@ impl Lowered {
     pub fn span_of(&self, i: usize) -> Option<Span> {
         self.spans.get(i).copied()
     }
+
+    /// [`Lowered::bodies`] as `Vm::note_positions` takes them: byte ranges,
+    /// since the VM's crates do not know this one's `Span`.
+    pub fn body_places(&self) -> Vec<(BundValue, Vec<(usize, usize)>)> {
+        self.bodies
+            .iter()
+            .map(|(v, at)| (v.clone(), at.iter().map(|s| (s.start, s.end)).collect()))
+            .collect()
+    }
 }
 
 /// Lower, keeping a span per emitted value.
 ///
-/// **Top level only.** A value inside a lambda body carries no span, so a
-/// failure three calls deep is reported at the top-level term that started it.
-/// That is the honest limit of a `Vec<BundValue>` stream: positions for nested
-/// values need the IR RFC-0003 §S5 describes, which does not exist yet.
+/// **The stream's spans are top level**, one per value; **a body's are in
+/// [`Lowered::bodies`]**, beside the stream rather than inside a value —
+/// RFC-0003 §S5. A position inside a `BundValue` would make every program
+/// differ from the reference's, and a body is a `Vec<BundValue>` that Bund
+/// code builds too (§S3), so the positions are keyed on the body instead.
 pub fn lower_with_spans(terms: &[Term], src_len: usize) -> Lowered {
     let mut values = Vec::new();
     let mut spans = Vec::new();
+    let mut bodies = Vec::new();
+    let mut inner = Vec::new();
     for t in terms {
         let before = values.len();
-        lower_into(t, &mut values);
+        lower_spanned(t, &mut values, &mut inner, &mut bodies);
         // A `( … )` lowers to several values; they all point at the whole
         // parenthesis, which is the term the reader wrote.
         for _ in before..values.len() {
@@ -743,12 +761,95 @@ pub fn lower_with_spans(terms: &[Term], src_len: usize) -> Lowered {
         start: src_len,
         end: src_len,
     });
-    Lowered { values, spans }
+    Lowered {
+        values,
+        spans,
+        bodies,
+    }
+}
+
+/// [`lower_into`], with a span for each value it emits and each literal body
+/// recorded in `bodies`. The values are `lower_into`'s, built by the same
+/// constructors in the same order; a test holds the two streams equal.
+fn lower_spanned(
+    t: &Term,
+    out: &mut Vec<BundValue>,
+    spans: &mut Vec<Span>,
+    bodies: &mut Vec<(BundValue, Vec<Span>)>,
+) {
+    match t {
+        Term::Lambda(inner, s) | Term::List(inner, s) => {
+            let mut items = Vec::new();
+            let mut at = Vec::new();
+            for i in inner {
+                lower_spanned(i, &mut items, &mut at, bodies);
+            }
+            let v = if matches!(t, Term::Lambda(..)) {
+                BundValue::lambda(items)
+            } else {
+                BundValue::list(items)
+            };
+            bodies.push((v.clone(), at));
+            out.push(v);
+            spans.push(*s);
+        }
+        // In place, as `lower_into` puts it: the opening and the closing are
+        // the parenthesis, and what is inside has its own places.
+        Term::Ctx(inner, s) => {
+            out.push(BundValue::context());
+            spans.push(*s);
+            for i in inner {
+                lower_spanned(i, out, spans, bodies);
+            }
+            out.push(BundValue::call("endcontext"));
+            spans.push(*s);
+        }
+        other => {
+            lower_into(other, out);
+            spans.push(other.span());
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **RFC-0003 §S5 inside bodies.** The stream is `lower`'s, and every
+    /// literal body has one span per item, at the item: `/` in the inner
+    /// lambda is the 13th byte.
+    #[test]
+    fn a_body_s_items_have_their_places() {
+        let src = ":f { 1 { 0 / } ( 2 ) [ 3 ] } register\n";
+        let terms = parse(src).expect("parses");
+        let lowered = lower_with_spans(&terms, src.len());
+        // Structurally, since `==` compares identities (D1) and a scratch
+        // context's name is fresh per lowering: the tags, and every summary
+        // but a context's.
+        let shape = |vs: &[BundValue]| -> Vec<(u16, String)> {
+            vs.iter()
+                .map(|v| (v.dt(), if v.dt() == bund2_value::CONTEXT { String::new() } else { v.summary(4096) }))
+                .collect()
+        };
+        assert_eq!(
+            shape(&lowered.values),
+            shape(&compile(src).expect("compiles"))
+        );
+        let inner = lowered
+            .bodies
+            .iter()
+            .find(|(v, at)| v.dt() == bund2_value::LAMBDA && at.len() == 2)
+            .expect("the inner lambda");
+        assert_eq!(&src[inner.1[1].start..inner.1[1].end], "/");
+        let outer = lowered.bodies.last().expect("the outer lambda, last");
+        let words: Vec<&str> = outer.1.iter().map(|s| &src[s.start..s.end]).collect();
+        assert_eq!(words, ["1", "{ 0 / }", "( 2 )", "2", "( 2 )", "[ 3 ]"]);
+        assert_eq!(
+            outer.0.payload_key(),
+            lowered.values[1].payload_key(),
+            "the record shares the stream's body"
+        );
+    }
 
     /// `"a\nb"` as it appears in a source file: quote, a, backslash, n, b, quote.
     const BACKSLASH_N_SRC: &str = "\u{22}a\u{5c}nb\u{22}";

@@ -442,6 +442,75 @@ pub(crate) fn run_artifact_once(
     drain(child)
 }
 
+/// **A program's standard output alone, plainly or stepped** — RFC-0008
+/// criterion 6, for `conform --stepped`.
+///
+/// Standard output only, where [`run_once`] merges both streams: a debugged
+/// run's session writes to standard error, and the criterion is that the
+/// program's own output does not change. With `step`, the run is under
+/// `--debugger` and that command is fed until the program exits — a finite
+/// script would reach the end of input, detach, and let the rest run
+/// uninterrupted, which would pass by not stepping at all.
+pub(crate) fn run_stdout(
+    exe: &Path,
+    program_file: &Path,
+    cwd: &Path,
+    step: Option<&'static str>,
+) -> Result<Run, String> {
+    use std::io::{Read, Write};
+    let mut cmd = std::process::Command::new(exe);
+    if step.is_some() {
+        cmd.arg("--debugger");
+    }
+    let mut child = cmd
+        .arg("script")
+        .arg("--file")
+        .arg(program_file)
+        .envs(PINNED_HOST)
+        .current_dir(cwd)
+        .stdin(if step.is_some() {
+            std::process::Stdio::piped()
+        } else {
+            std::process::Stdio::null()
+        })
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("spawning bund2: {e}"))?;
+    if let (Some(command), Some(mut pipe)) = (step, child.stdin.take()) {
+        std::thread::spawn(move || {
+            let line = format!("{command}\n");
+            while pipe.write_all(line.as_bytes()).is_ok() && pipe.flush().is_ok() {}
+        });
+    }
+    let mut out_pipe = child.stdout.take().ok_or("no stdout pipe")?;
+    let out_handle = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = out_pipe.read_to_end(&mut buf);
+        buf
+    });
+    let start = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break st,
+            Ok(None) => {
+                if start.elapsed() > RUN_TIMEOUT {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err("timed out".into());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(e) => return Err(format!("waiting on bund2: {e}")),
+        }
+    };
+    let drained = out_handle.join().unwrap_or_default();
+    Ok(Run {
+        output: normalise(&String::from_utf8_lossy(&drained)),
+        status: status.code().unwrap_or(-1),
+    })
+}
+
 /// Drain both pipes, wait, normalise. Shared so that a bundle's output is
 /// compared after exactly the transformations a source run's output is.
 fn drain(mut child: std::process::Child) -> Result<Run, String> {

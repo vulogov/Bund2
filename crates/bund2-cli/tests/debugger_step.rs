@@ -682,3 +682,47 @@ fn a_stop_says_what_changed_since_the_last() {
     );
     assert_eq!(out, "3\n");
 }
+
+/// **RFC-0008 §D4: `watch depth > N` stops on the crossing**, once: the
+/// stack goes past 2 at the third push, stays past it for three more, and
+/// is never back down to 2, so there is one stop.
+#[test]
+fn a_depth_watch_stops_once_where_the_stack_goes_past_it() {
+    let (out, err, _) = session("1 2 3 4 5 6\n\"done\" println\n", "watch depth > 2\nc\nc\n");
+    assert_eq!(err.matches("watchpoint: @main depth > 2").count(), 1, "{err}");
+    assert!(err.contains("changed: @main 0 → 2"), "stopped before the third push:\n{err}");
+    assert_eq!(out, "done\n");
+}
+
+/// **And again after the stack has come back down to N.**
+#[test]
+fn a_depth_watch_fires_again_after_the_stack_comes_back_down() {
+    let (_, err, _) = session("1 2 3 drop 4\n", "watch depth > 2\nc\nc\nc\n");
+    assert_eq!(err.matches("watchpoint: @main depth > 2").count(), 2, "{err}");
+}
+
+/// **RFC-0008 §D5: `words` is the slot table, with calls since attaching,
+/// and `classes` the class table.** `swap` shows both of its bindings (F20),
+/// and a class shows its parents, methods and fields.
+#[test]
+fn the_words_and_classes_views_show_the_tables() {
+    let src = ":Base class :greet { 1 } set register\n\
+               :Kid class :.super [ :Base ] set :x 1 set register\n\
+               :w { 7 } register\nw w 1 2 swap\n\"done\" println\n";
+    let (out, err, _) = session(src, "until println\nwords\nwords swap\nclasses\nc\n");
+    let calls = |name: &str| {
+        err.lines()
+            .find(|l| l.trim_start().starts_with(&format!("{name} ")))
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert!(calls("w").contains("lambda") && calls("w").ends_with("calls 2"), "{err}");
+    assert!(calls("swap").contains("alias → swap_one, native"), "{err}");
+    assert!(err.contains("swap_one"), "the filter shows every name with swap:\n{err}");
+    assert!(
+        err.contains("Kid\n  super: Base\n  methods: none\n  fields: x\n"),
+        "{err}"
+    );
+    assert!(err.contains("Base\n  super: none\n  methods: greet\n"), "{err}");
+    assert_eq!(out, "done\n");
+}

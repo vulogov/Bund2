@@ -26,7 +26,7 @@
 use std::ops::Range;
 
 use ariadne::{Color, Config, IndexType, Label, Report, ReportKind, Source};
-use bund2_api::diag::{Diagnostic, Reporter, Severity};
+use bund2_api::diag::{Diagnostic, Location, Reporter, Severity};
 use bund2_stdlib::report::{TextReporter, stack_box};
 
 /// How a fatal report is drawn.
@@ -120,8 +120,9 @@ impl TraceReporter {
         if let Some(text) = self.draw(d, ReportKind::Custom("Caught", Color::Cyan), colour) {
             return Some(text);
         }
-        // No position to underline — a body in the program's file failed, and
-        // positions inside bodies do not exist yet: the reason and the frames.
+        // No position to underline — the failing body was built at run time,
+        // so nothing was written where it could point: the reason and the
+        // frames.
         let frames = d.frames.as_ref().filter(|f| !f.is_empty())?;
         let label = console::style("Caught").for_stderr().bold().cyan();
         Some(format!(
@@ -136,13 +137,30 @@ impl TraceReporter {
             (Some(text), Some(name)) => (name.as_str(), text.as_str()),
             _ => self.source_for(loc.file.as_deref()),
         };
-        let span = loc
-            .span
-            .map(|(s, e)| s..e)
-            .unwrap_or_else(|| guess_span(src, loc.line, loc.column));
-        let start = span.start.min(src.len());
-        let end = span.end.clamp(start, src.len());
-        let mut report = Report::build(kind, (id, start..end))
+        let range = |l: &Location| {
+            let span = l
+                .span
+                .map(|(s, e)| s..e)
+                .unwrap_or_else(|| guess_span(src, l.line, l.column));
+            let start = span.start.min(src.len());
+            start..span.end.clamp(start, src.len())
+        };
+        let at = range(loc);
+        // **RFC-0003 §S5: the value inside the lambda, when it was written
+        // in the text drawn here.** It is underlined as what failed, and the
+        // top-level step becomes what reached it; a place in another file
+        // than the one drawn is left to the frames' lines, which name it.
+        let inner = d
+            .inner
+            .as_ref()
+            .filter(|i| i.file.as_deref() == Some(id))
+            .map(range)
+            .filter(|r| *r != at);
+        let (primary, message) = match &inner {
+            Some(r) => (r.clone(), "the value that failed, in the lambda"),
+            None => (at.clone(), "the step that failed began here"),
+        };
+        let mut report = Report::build(kind, (id, primary.clone()))
             .with_config(
                 Config::default()
                     .with_color(colour)
@@ -150,10 +168,17 @@ impl TraceReporter {
             )
             .with_message(d.cause.as_deref().unwrap_or(&d.reason))
             .with_label(
-                Label::new((id, start..end))
-                    .with_message("the step that failed began here")
+                Label::new((id, primary))
+                    .with_message(message)
                     .with_color(Color::Red),
             );
+        if inner.is_some() {
+            report = report.with_label(
+                Label::new((id, at))
+                    .with_message("reached from this step")
+                    .with_color(Color::Yellow),
+            );
+        }
         if let Some(name) = &d.stack_name {
             report = report.with_note(format!("on stack `{name}`"));
         }
@@ -254,7 +279,6 @@ impl Reporter for TraceReporter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bund2_api::diag::Location;
 
     fn reporter(src: &str, trace: bool) -> TraceReporter {
         TraceReporter::new(TextReporter::new(true), src, "p.bund", trace)
@@ -327,6 +351,34 @@ mod tests {
         assert!(text.starts_with("Caught: DIV") && text.contains("#0  a lambda at 1"), "{text}");
         d.cause = None;
         assert!(reporter("f\n", true).render_caught(&d).is_none());
+    }
+
+    /// RFC-0003 §S5: with a place inside a lambda, that is what is
+    /// underlined, and the top-level step is what reached it.
+    #[test]
+    fn a_failure_in_a_lambda_is_underlined_there_and_reached_from_the_step() {
+        console::set_colors_enabled(false);
+        let src = ":g { 1 list / } register\n:f { 7 g } register\nf\n";
+        let mut d = failing_at(3, 1, Some((45, 46)));
+        d.inner = Some(Location {
+            file: Some("p.bund".into()),
+            line: 1,
+            column: 13,
+            excerpt: None,
+            span: Some((12, 13)),
+        });
+        let text = reporter(src, true).render(&d).expect("rendered");
+        assert!(text.contains("p.bund:1:13"), "{text}");
+        assert!(text.contains("the value that failed, in the lambda"), "{text}");
+        assert!(text.contains("reached from this step"), "{text}");
+        // A place in a file this reporter was not given is not drawn over
+        // the wrong text.
+        d.inner = d.inner.map(|mut l| {
+            l.file = Some("other.bund".into());
+            l
+        });
+        let text = reporter(src, true).render(&d).expect("rendered");
+        assert!(text.contains("the step that failed began here"), "{text}");
     }
 
     #[test]

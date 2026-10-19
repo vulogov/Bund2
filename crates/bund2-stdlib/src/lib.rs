@@ -53,6 +53,8 @@ pub mod promotable;
 mod stem;
 
 pub mod check;
+// RFC-0004 §S1: the workbench half of the natives' effects.
+pub mod bench;
 
 pub mod graph;
 // Graph algorithms of Bund2's own, over the same MAP (D192).
@@ -164,6 +166,8 @@ pub fn register_all_with(r: &mut bund2_api::Registry, opts: &host::HostOptions) 
     if opts.noeval {
         host::register_noeval_stubs(r);
     }
+    // After every registration and stub, so each is declared.
+    bench::declare(r);
 }
 
 /// **What RFC-0005 §S5's promotion trusts about natives, checked rather than

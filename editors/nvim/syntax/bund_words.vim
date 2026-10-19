@@ -21,12 +21,13 @@ syn keyword bundBuiltin convert.to_list. convert.to_matrix convert.to_matrix.
 syn keyword bundBuiltin convert.to_string convert.to_string. convert.to_textbuffer
 syn keyword bundBuiltin convert.to_textbuffer. cp csv csv. current curry curry. cwd debug
 syn keyword bundBuiltin debug.backtrace debug.break debug.break.at debug.break.if debug.catch
-syn keyword bundBuiltin debug.continue debug.delete debug.display_distributed_info
-syn keyword bundBuiltin debug.display_hostinfo debug.display_memstat debug.display_stack
-syn keyword bundBuiltin debug.display_workbench debug.dump debug.feed debug.finish debug.info
-syn keyword bundBuiltin debug.next debug.profile debug.run debug.shell debug.stacks
-syn keyword bundBuiltin debug.step debug.until debug.watch debug.watch.if
-syn keyword bundBuiltin debug.watch.redefine debug.watch.workbench decode.base64
+syn keyword bundBuiltin debug.classes debug.continue debug.delete
+syn keyword bundBuiltin debug.display_distributed_info debug.display_hostinfo
+syn keyword bundBuiltin debug.display_memstat debug.display_stack debug.display_workbench
+syn keyword bundBuiltin debug.dump debug.feed debug.finish debug.info debug.next
+syn keyword bundBuiltin debug.profile debug.run debug.shell debug.stacks debug.step
+syn keyword bundBuiltin debug.until debug.watch debug.watch.depth debug.watch.if
+syn keyword bundBuiltin debug.watch.redefine debug.watch.workbench debug.words decode.base64
 syn keyword bundBuiltin decode.base64. dict display do do. drop drop_in drop_stack
 syn keyword bundBuiltin drop_stacks dup dup_many dup_many_in dup_one dup_one_in encode.base64
 syn keyword bundBuiltin encode.base64. endcontext ensure_stack ensure_stack_with_capacity

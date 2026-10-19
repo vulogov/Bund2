@@ -3653,6 +3653,102 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D195 — `check` counts the workbench: RFC-0004 §S1's second axis, the `.` forms, and `context`
+
+**Raised 2026-10-19** by the repository owner: "the check command's remaining
+blind spots", which D184's "Not built" names — `while.`, `ifthenelse.` and
+`notifthenelse.`, the workbench as a second axis, and `context`. RFC-0004 §S1
+specified the axis and was accepted without it, "the property of whoever
+extends `StackEffect`".
+
+- Blocks: nothing
+- Depends on: RFC-0004 §S1 and §S2 (annotate from the probe, never the
+  guard; F18), D24 (the `.` contract), F73 (the `.` family does not agree
+  about where the answer goes), D180–D184 (the walk's rules, applied here on
+  the second axis), D182 (stack switches, which `context` uses)
+- What the reference does, measured: `.` is an alias of `return`
+  (`reference/rust_multistackvm/src/stdlib/create_aliases.rs:4`), which moves
+  the stack's top to the workbench and fails on an empty stack; `take` moves
+  it back and fails on an empty workbench, as `return_to` does
+  (`reference/rust_multistack/src/ts_workbench.rs:29-35,45-58`). `ifthenelse.`
+  takes its two branches from the stack and its condition from the workbench
+  (`reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:19-26,28-50`);
+  `while.` pulls a condition from the workbench before each run
+  (`reference/rust_multistackvm/src/stdlib/logic/while_fun.rs:54-58`); `for.`
+  and `*loop.` read the stack only (`for_fun.rs:56,62`, `loop_fun.rs:116`).
+- Status: **RESOLVED** by the repository owner, 2026-10-19, as the request
+  above. Built the same day.
+
+### Built
+
+- **The type.** `StackEffect` gains `bench: Bench` — `Untouched`,
+  `Fixed { consumes, produces }` or `Unknown` — with `on_bench` and
+  `Registry::set_bench` (`crates/bund2-api/src/lib.rs`). §S1's own sketch was
+  two `Delta`s; one more field keeps the main-stack pair, its `opaque` flag
+  and every existing declaration as they are.
+- **The measurement.** `cargo xtask arity` gains a two-axis probe: each `.`
+  word, and each word whose guard reads the workbench, run with the workbench
+  seeded by `<sentinel> .` at the least pair of depths it accepts
+  (`probe_bench`, `xtask/src/arity/mod.rs`; columns `in`, `out`, `wb in`,
+  `wb out` of `docs/arity.md`). 68 words were measured. For every one Bund2
+  declares, the probe's main-stack pair is the declared one.
+- **The declarations.** `crates/bund2-stdlib/src/bench.rs`: the 61 measured
+  rows whose main-stack pair Bund2 declares, held to `docs/arity.md` by
+  `the_table_is_what_the_probe_measured`; `return`, `take`, `return_from`
+  and `return_to` from their source; `for.` and `*loop.` untouched; every
+  other `.` native `Unknown` — unmeasured, so not guessed. `format.` is among
+  those on purpose: its stack half depends on its template (D178).
+- **The walk** (`crates/bund2-stdlib/src/check.rs`). One abstract workbench
+  for the whole program, empty where it starts and unchanged by a stack
+  switch; a word that takes more than it holds is a finding `on the
+  workbench`, reported as such by `bund2 check` and the build's `--check`.
+  `Unknown` stops the workbench count and nothing else. A body's workbench
+  half is inferred as its stack half is, from what it takes beneath an empty
+  start, so `:w { take } register 1 . w w` is a finding at the second `w`.
+  A body run some number of times keeps the workbench only where one run
+  leaves it as deep, branches are joined, a `try` that touches it leaves it
+  unknown, and `endcontext` moves the closing stack's top onto it.
+- **The forms.** `ifthenelse.`, `notifthenelse.` and their aliases `?true*.`
+  and `?false*.` are joined as their stack forms are, with the condition
+  taken from the workbench; `while.` is `while` with each condition pulled
+  from the workbench, an underflow said once.
+- **`context`** is followed: its stack name is recorded when the word makes
+  the conditional, and `!` on it takes the slot name from the stack, switches
+  to the named stack, walks `<n>.pre`, `<n>` and `<n>.post`, and switches
+  back — Bund2's `run_context`. A finding inside says `inside `context` on
+  @T`.
+- **On the corpus** — every `.bund` under `reference/Bund/examples` and
+  `tests/probes`, one `bund2 check` each, before and after this change on
+  the same day. The set is not D184's 224 programs, so its numbers are not
+  compared with D184's table:
+
+  | | before | after |
+  |---|---|---|
+  | sites analysed | 3150 | 3183 |
+  | abandonments | 115 | 113 |
+  | findings | not counted | 6 |
+
+  Four of the six are on the main stack — `json_answer.bund` twice,
+  `hello_distributed_world_with_value.bund`, `make_xy.bund` — and the
+  workbench count cannot have made them. The two on the workbench are one
+  true positive at two sites:
+  `reference/Bund/examples/ai/make_perceptron.bund:22:15` and `:23:15` take X
+  and Y "from WORKBENCH", which nothing in the program put there; the oracle
+  fails at the first `take`. The context demos
+  (`context_executuion_demo1.bund`, `…demo2.bund`) are followed end to end
+  where they stopped at "a stack switch". `xtask effects` reports the same
+  five disagreements with `docs/arity.md` as before the table was
+  regenerated.
+- **Tests**: `the_workbench_is_counted`,
+  `a_word_s_workbench_half_is_inferred`,
+  `the_workbench_forms_of_the_branches_and_while_are_followed`,
+  `a_context_is_followed_on_its_stack`, `the_table_is_what_the_probe_measured`,
+  `the_halves_are_declared`.
+- **Not built**: the 140-odd `.` natives the probe could not run — effectful,
+  out of scope, or refusing every sentinel type — stay `Unknown` until a probe
+  that can feed them is written. And the `IMAGE` class and the natives with
+  no effect remain words to implement rather than rules to add.
+
 ## D194 — a program that does not parse exits 1
 
 **Raised 2026-10-19** by the repository owner: "`bund2 script` exits 0 on a
@@ -4626,6 +4722,9 @@ opaque beside it.
   the condition from the workbench; the workbench as a second axis,
   `context`; the `IMAGE` class and the natives with no effect, which are
   words to implement rather than rules to add.
+**Note, 2026-10-19.** The "Not built" above — `while.`, `ifthenelse.`,
+`notifthenelse.`, the workbench as a second axis, and `context` — is built:
+D195.
 
 ## D183 — `check` follows `?try` where a `raise` places the failure
 
@@ -5526,7 +5625,7 @@ traceback". Before, `?try` dropped the trace by the text test above; worse, a
 trace left behind kept the next failure in the same stream from taking its
 own. Now:
 
-- `?try` hands the failure to `Vm::catch_failure`, which moves its trace aside
+- `?try` hands the failure to `Vm::failure_caught`, which moves its trace aside
   (`crates/bund2-stdlib/src/conditional.rs`, `run_tryexcept`), and the report
   the `except` block makes of it — `!` on the `error` conditional reports its
   `context` as a `Notice` — gets it back by the same text test
@@ -5564,6 +5663,16 @@ so a native that compiled code calls directly, past `call_native`, finds none
 and its body reads `a lambda` as before, rather than borrowing an outer
 runner's name. Pinned by `anonymous_frames_are_named_by_what_ran_them` and
 `a_frame_line_names_the_word_when_a_word_named_it`.
+**Note, 2026-10-19, third — positions inside lambdas, and `?try` by name.**
+A frame's line now ends with where its value was written, and the traceback
+underlines the failing value inside the lambda with the top-level step as
+"reached from this step" (RFC-0003's amendment of 2026-10-19); the table on
+a pipe is unchanged. A conditional's lambda is named by the word that makes
+the conditional, read from D181's declared `Leaves::Conditional`: `run by
+?try`, not `run by the tryexcept conditional` (`Interp::conditional_maker`).
+The hook `?try` calls is `Vm::failure_caught`; it was first written
+`catch_failure`, the name of `Interp`'s own debugger hook for `catch`, and
+renamed so the two are not confused.
 
 ## D172 — `json.from_value` refuses a value nested deeper than the parser's limit
 
@@ -6121,6 +6230,11 @@ line editor can be made; whether `debug` accepts the reference's CALL and
 PTR operands; a forged value at the words that render one (F207); the
 Ctrl-C rows at a real terminal; and four assumptions the third review
 listed (6, 8, 9, 10).
+**Note, 2026-10-19.** Of "still specified and not built" above: §D7's
+trace and the console's history were built by D191; `watch depth > 100`
+(§D4), `words` and `classes` (§D5), and criterion 6's sweep in
+`xtask conform` (`--stepped`) are built now — RFC-0008's amendment of
+2026-10-19. A breakpoint by source location (§D3) remains, on RFC-0003 §S5.
 
 ## D162 — `--debug-shell` after a `--debugger` failure
 

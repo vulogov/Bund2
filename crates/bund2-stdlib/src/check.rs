@@ -89,7 +89,7 @@
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use bund2_api::{Leaves, MethodEffect, Registry, StackEffect};
+use bund2_api::{Bench, Leaves, MethodEffect, Registry, StackEffect};
 use bund2_value::{
     BOOL, BundValue, CALL, CLASS, CONDITIONAL, CONTEXT, FLOAT, INTEGER, LAMBDA, LIST, MAP, NODATA,
     OBJECT, PTR, STRING,
@@ -109,6 +109,9 @@ pub struct Finding {
     pub have: i64,
     /// The body the finding is inside, when it is not at `at` itself — D179.
     pub via: Option<String>,
+    /// The values are wanted on the **workbench**, not the stack in play —
+    /// RFC-0004 §S1's second axis.
+    pub workbench: bool,
 }
 
 /// What a walk learned.
@@ -519,6 +522,16 @@ struct Walker<'a> {
     /// A `raise` inside `try` has ended the path the walk is on: every
     /// enclosing body stops, up to the `?try` that reads this.
     halted: bool,
+    /// **The workbench — RFC-0004 §S1's second axis.** One for the whole
+    /// program: a stack switch does not change it. Empty where a program
+    /// starts, as the run's is; `None` once something the walk cannot count
+    /// has touched it, after which no workbench finding is made and the
+    /// stack in play is tracked as before.
+    bench: Option<Stack>,
+    /// Something touched the workbench since this was last cleared — read
+    /// where a body's effect is inferred, and where a body runs a number of
+    /// times or ends where a `raise` placed it.
+    touched_bench: bool,
 }
 
 /// What the `raise`s reached so far inside a `try` leave on the stack.
@@ -551,7 +564,63 @@ impl<'a> Walker<'a> {
             may_switch: true,
             raised: None,
             halted: false,
+            bench: (mode == Mode::Program).then(Stack::default),
+            touched_bench: false,
         }
+    }
+
+    /// A word's workbench half, applied — RFC-0004 §S1. In `Program` mode a
+    /// workbench holding fewer than the word takes is a finding, as a short
+    /// stack is, and the workbench is then emptied so one underflow does not
+    /// report again at the next term.
+    fn apply_bench(&mut self, word: &str, bench: Bench, at: usize, via: Option<&str>) {
+        let (consumes, produces) = match bench {
+            Bench::Untouched => return,
+            Bench::Unknown => {
+                self.touched_bench = true;
+                self.bench = None;
+                return;
+            }
+            Bench::Fixed { consumes, produces } => (consumes, produces),
+        };
+        self.touched_bench = true;
+        let Some(mut b) = self.bench.take() else {
+            return;
+        };
+        if self.mode == Mode::Program && b.items.len() < usize::from(consumes) {
+            self.report.findings.push(Finding {
+                at,
+                word: word.to_string(),
+                needs: consumes,
+                have: b.items.len() as i64,
+                via: via.map(str::to_string),
+                workbench: true,
+            });
+            b.items.clear();
+        } else {
+            for _ in 0..consumes {
+                b.pop();
+            }
+        }
+        b.push_unknown(produces);
+        self.bench = Some(b);
+    }
+
+    /// After a body run some number of times, or a branch the walk cannot
+    /// choose: the workbench is kept only where it is as deep as it was,
+    /// with what is known about its values forgotten, and is unknown
+    /// otherwise — the stack's own rule (D180), on the second axis.
+    fn settle_bench(&mut self, before: Option<(usize, i64)>) {
+        match (&mut self.bench, before) {
+            (Some(b), Some((len, dip))) if b.items.len() == len && b.dip == dip => b.forget_tags(),
+            _ => self.bench = None,
+        }
+    }
+
+    /// The workbench's depth and what was taken from beneath it, for
+    /// [`Walker::settle_bench`].
+    fn bench_mark(&self) -> Option<(usize, i64)> {
+        self.bench.as_ref().map(|b| (b.items.len(), b.dip))
     }
 
     /// Switch the walk to the stack called `name`, saving the current one —
@@ -624,6 +693,7 @@ impl<'a> Walker<'a> {
                 needs: n,
                 have: stack.items.len() as i64,
                 via: via.map(str::to_string),
+                workbench: false,
             });
             stack.items.clear();
             return None;
@@ -643,6 +713,7 @@ impl<'a> Walker<'a> {
     ) {
         self.report.analysed += 1;
         let _ = self.take(stack, eff.consumes, word, at, via);
+        self.apply_bench(word, eff.bench, at, via);
         if eff.produces == 0 {
             return;
         }
@@ -800,9 +871,17 @@ impl<'a> Walker<'a> {
         // A body inferred for its pair is not on a `try`'s path: a `raise`
         // in it is the pair `raise` declares, not a failure to place.
         let saved_raised = self.raised.take();
+        // The workbench is inferred as the stack is: from empty, counting
+        // what the body takes from beneath it — RFC-0004 §S3 on §S1's second
+        // axis. A body that touched it in a way the walk could not count
+        // leaves it unknown.
+        let saved_bench = self.bench.replace(Stack::default());
+        let saved_touched = std::mem::replace(&mut self.touched_bench, false);
         self.mode = Mode::Infer;
         let mut st = Stack::default();
         let went = self.walk(body, &mut st, Some(0), None, level);
+        let touched = std::mem::replace(&mut self.touched_bench, saved_touched);
+        let inferred_bench = std::mem::replace(&mut self.bench, saved_bench);
         let why = std::mem::replace(&mut self.why, saved_why)
             .into_iter()
             .max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(&a.0)))
@@ -815,7 +894,15 @@ impl<'a> Walker<'a> {
         }
         let consumes = st.dip.clamp(0, i64::from(u8::MAX)) as u8;
         let produces = st.items.len().min(usize::from(u8::MAX)) as u8;
-        (StackEffect::fixed(consumes, produces), None)
+        let bench = match (touched, inferred_bench) {
+            (false, _) => Bench::Untouched,
+            (true, Some(b)) => Bench::Fixed {
+                consumes: b.dip.clamp(0, i64::from(u8::MAX)) as u8,
+                produces: b.items.len().min(usize::from(u8::MAX)) as u8,
+            },
+            (true, None) => Bench::Unknown,
+        };
+        (StackEffect::fixed(consumes, produces).on_bench(bench), None)
     }
 
     /// The words whose meaning the walk reads, beyond a pair: the three that
@@ -961,12 +1048,31 @@ impl<'a> Walker<'a> {
                 };
                 self.join_branches(name, &then_b, &else_b, stack, at, level)
             }
+            // The workbench forms: the two branches from the stack, the
+            // condition from the workbench
+            // (`reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:19-26,28-50`);
+            // `?true*.` and `?false*.` are their aliases (`create_aliases.rs:13,17`).
+            "ifthenelse." | "?true*." | "notifthenelse." | "?false*." => {
+                self.report.analysed += 1;
+                let Some(mut t) = self.take(stack, 2, name, at, via) else {
+                    return Some(self.abandon(format!("`{name}` with nothing beneath it to run")));
+                };
+                self.apply_bench(name, Bench::Fixed { consumes: 1, produces: 0 }, at, via);
+                let (Abs::Lambda(then_b), Abs::Lambda(else_b)) = (t.remove(0), t.remove(0)) else {
+                    return Some(
+                        self.abandon(format!("`{name}` with a branch the walk cannot see")),
+                    );
+                };
+                self.join_branches(name, &then_b, &else_b, stack, at, level)
+            }
             // `while_fun.rs:5-47`: the lambda on top, then a condition pulled
             // before every run, so the body leaves the next one; `for_fun.rs:5-50`:
             // the lambda on top, the body runs first and leaves the condition
             // pulled after it. Either way one run nets zero against the
             // stack it found, or the depth after depends on the runs — D184.
-            "while" | "for" | "for." => {
+            // `while.` is `while` with each condition pulled from the
+            // workbench instead (`while_fun.rs:50-93`).
+            "while" | "while." | "for" | "for." => {
                 self.report.analysed += 1;
                 let Some(mut t) = self.take(stack, 1, name, at, via) else {
                     return Some(self.abandon(format!("`{name}` with nothing beneath it to run")));
@@ -996,11 +1102,13 @@ impl<'a> Walker<'a> {
             }
             // `curry` takes its name first (`conditional_curry.rs`, through
             // `named`) and `!` on it registers a word — D181.
-            "curry" => {
+            // `context` takes the name of the stack it will run on the same
+            // way (`conditional.rs`, `named`).
+            "curry" | "context" => {
                 self.report.analysed += 1;
                 match self.take(stack, 1, name, at, via) {
                     Some(mut t) => {
-                        let mut m = ClassModel::kind("curry");
+                        let mut m = ClassModel::kind(name);
                         m.slots.insert("name".into(), t.remove(0));
                         stack.push(Abs::Cond(Rc::new(m)));
                     }
@@ -1159,11 +1267,15 @@ impl<'a> Walker<'a> {
         }
         let inside = format!("the body `{name}` runs");
         let outer = std::mem::replace(&mut self.may_switch, false);
+        let bench_before = self.bench_mark();
         let went = self.walk(body, &mut once, Some(at), Some(&inside), level + 1);
         self.may_switch = outer;
         if !went {
             return false;
         }
+        // Any number of runs, zero included: the workbench is known after
+        // only if one run leaves it as deep as it was.
+        self.settle_bench(bench_before);
         // The run reached a `raise`: that run ends in `except`, which has
         // the stack it left, and the path that goes on past `{name}` is the
         // one where the body does not run — D183.
@@ -1195,13 +1307,22 @@ impl<'a> Walker<'a> {
         let mut then_s = stack.copy();
         let mut else_s = stack.copy();
         let outer = std::mem::replace(&mut self.may_switch, false);
+        // Each branch from the same workbench, joined as the stacks are.
+        let bench_before = self.bench.as_ref().map(Stack::copy);
         let inside = format!("the `then` of `{word}`");
         let went_then = self.walk(then_b, &mut then_s, Some(at), Some(&inside), level + 1);
         let then_raised = std::mem::take(&mut self.halted);
+        let then_bench = std::mem::replace(&mut self.bench, bench_before);
         let inside = format!("the `else` of `{word}`");
         let went_else = self.walk(else_b, &mut else_s, Some(at), Some(&inside), level + 1);
         let else_raised = std::mem::take(&mut self.halted);
+        let else_bench = self.bench.take();
         self.may_switch = outer;
+        self.bench = match (then_raised, else_raised, then_bench, else_bench) {
+            (true, false, _, b) | (false, true, b, _) => b,
+            (_, _, Some(t), Some(e)) => Stack::join(t, &e),
+            _ => None,
+        };
         if !(went_then && went_else) {
             return false;
         }
@@ -1247,11 +1368,23 @@ impl<'a> Walker<'a> {
         via: Option<&str>,
         level: u8,
     ) -> Went {
-        let before = name == "while";
+        let on_bench = name == "while.";
+        let before = name == "while" || on_bench;
+        let pull_bench = Bench::Fixed {
+            consumes: 1,
+            produces: 0,
+        };
         let mut once = stack.copy();
         let inside = format!("the body `{name}` runs");
         let outer = std::mem::replace(&mut self.may_switch, false);
-        let went = if before {
+        let bench_before = self.bench_mark();
+        // A first pull that found the workbench short is the one finding:
+        // the pull that ends the loop is the same failure, not another.
+        let found = self.report.findings.len();
+        let went = if on_bench {
+            self.apply_bench(name, pull_bench, at, via);
+            self.walk(body, &mut once, Some(at), Some(&inside), level + 1)
+        } else if before {
             if self.take(&mut once, 1, name, at, via).is_none() {
                 self.may_switch = outer;
                 return self.abandon(format!("`{name}` with no condition beneath its body"));
@@ -1269,8 +1402,11 @@ impl<'a> Walker<'a> {
         if !went {
             return false;
         }
+        self.settle_bench(bench_before);
         if std::mem::take(&mut self.halted) {
-            if before {
+            if on_bench {
+                self.apply_bench(name, pull_bench, at, via);
+            } else if before {
                 // The condition the loop found may be false: that path takes
                 // it and runs nothing.
                 let _ = self.take(stack, 1, name, at, via);
@@ -1286,7 +1422,15 @@ impl<'a> Walker<'a> {
             ));
         }
         stack.keep_what_agrees(&once);
-        if before {
+        let short = self
+            .report
+            .findings
+            .iter()
+            .skip(found)
+            .any(|f| f.workbench && f.word == name);
+        if on_bench && !short {
+            self.apply_bench(name, pull_bench, at, via);
+        } else if before && !on_bench {
             let _ = self.take(stack, 1, name, at, via);
         }
         true
@@ -1387,6 +1531,9 @@ impl<'a> Walker<'a> {
         let mut ok = stack.copy();
         let outer = std::mem::replace(&mut self.may_switch, false);
         let saved = self.raised.replace(Raised::Nowhere);
+        // A `raise` may end `try` anywhere in it, so a `try` that touched the
+        // workbench leaves it at a depth that depends on where: unknown.
+        let touched_outside = std::mem::replace(&mut self.touched_bench, false);
         let went = self.walk(
             &body,
             &mut ok,
@@ -1396,6 +1543,10 @@ impl<'a> Walker<'a> {
         );
         let raised = std::mem::replace(&mut self.raised, saved);
         let try_ended = std::mem::take(&mut self.halted);
+        if self.touched_bench {
+            self.bench = None;
+        }
+        self.touched_bench |= touched_outside;
         if !went {
             self.may_switch = outer;
             return false;
@@ -1578,12 +1729,62 @@ impl<'a> Walker<'a> {
                 self.lambdas.insert(n.to_string(), Rc::from(body));
                 true
             }
-            "context" => self.abandon("a stack switch".into()),
+            "context" => self.run_context(m, stack, at, via, level),
             "fmt" => self.abandon("`fmt`, whose message pulls what its template names".into()),
             other => self.abandon(format!(
                 "`!` on a CONDITIONAL of type `{other}`, which the walk does not follow"
             )),
         }
+    }
+
+    /// `!` on a `context` conditional: the slot name pulled from the current
+    /// stack, then `<n>.pre`, `<n>` and `<n>.post` run as one body on the
+    /// stack the conditional names, and the walk back where it was — Bund2's
+    /// `run_context` (`conditional.rs`), one scoped call whose frame returns
+    /// on success and failure alike (F57). Followed with D182's switches, so
+    /// what the bodies leave on the named stack stays there for a later
+    /// switch to find. A computed stack name or slot name, or a context in a
+    /// body run some number of times, is an abandonment.
+    fn run_context(
+        &mut self,
+        m: &Rc<ClassModel>,
+        stack: &mut Stack,
+        at: usize,
+        via: Option<&str>,
+        level: u8,
+    ) -> Went {
+        let Some(Abs::Name(_, target)) = m.slots.get("name") else {
+            return self.abandon("`context` whose stack name is not a literal".into());
+        };
+        let target = target.to_string();
+        self.report.analysed += 1;
+        let Some(mut t) = self.take(stack, 1, "context", at, via) else {
+            return self.abandon("`context` with no slot name beneath it".into());
+        };
+        let Abs::Name(_, key) = t.remove(0) else {
+            return self.abandon("`context` whose slot name is not a literal".into());
+        };
+        let mut body: Vec<BundValue> = Vec::new();
+        for slot in [format!("{key}.pre"), key.to_string(), format!("{key}.post")] {
+            match Self::slot(m, &slot) {
+                Slot::Lambda(b) => body.extend(b.iter().cloned()),
+                Slot::Absent => {}
+                Slot::Unseen => {
+                    return self.abandon(format!(
+                        "the `{slot}` slot of `context`, which is not a literal lambda"
+                    ));
+                }
+            }
+        }
+        let back = self.current.clone();
+        if !self.switch_to(&target, stack) {
+            return false;
+        }
+        let inside = format!("`context` on @{target}");
+        if !self.walk(&body, stack, Some(at), Some(&inside), level + 1) {
+            return false;
+        }
+        self.switch_to(&back, stack)
     }
 
     /// `endcontext` — the top to the workbench if there is one, the current
@@ -1599,7 +1800,12 @@ impl<'a> Walker<'a> {
         };
         self.report.analysed += 1;
         if !stack.items.is_empty() {
-            stack.pop();
+            // The top moves to the workbench — the second axis counts it.
+            let top = stack.pop();
+            if let Some(b) = self.bench.as_mut() {
+                b.push(top);
+            }
+            self.touched_bench = true;
         }
         let dropped = std::mem::take(&mut self.current);
         self.stacks.remove(&dropped);
@@ -1981,6 +2187,99 @@ mod tests {
         let r = reg();
         let stream = bund2_syntax::compile(src).expect("compiles");
         check(&stream, &r, 0)
+    }
+
+    /// The workbench findings of a report, as `(word, needs, have)`.
+    fn on_bench(rep: &Report) -> Vec<(String, u8, i64)> {
+        rep.findings
+            .iter()
+            .filter(|f| f.workbench)
+            .map(|f| (f.word.clone(), f.needs, f.have))
+            .collect()
+    }
+
+    /// **RFC-0004 §S1's second axis.** A word that takes from an empty
+    /// workbench is a finding there, and not on the stack; what `.` puts
+    /// there `take` and the `.` words take back. Each program here was run:
+    /// the ones with a finding fail where it says, the rest run.
+    #[test]
+    fn the_workbench_is_counted() {
+        assert_eq!(on_bench(&check_src("take")), [("take".into(), 1, 0)]);
+        assert_eq!(on_bench(&check_src("1 . take take")), [("take".into(), 1, 0)]);
+        assert_eq!(on_bench(&check_src("1 2 +.")), [("+.".into(), 1, 0)]);
+        // `println.` takes from both: the probe says so, and `1 . println.`
+        // fails with `Stack is too shallow for inline PRINTLN.`.
+        assert_eq!(
+            check_src("1 . println.")
+                .findings
+                .iter()
+                .map(|f| (f.word.as_str(), f.workbench))
+                .collect::<Vec<_>>(),
+            [("println.", false)]
+        );
+        for ok in ["1 . take", "1 . 2 +. take println", "\"x\" 1 . println.", "( 1 2 + ) take println"] {
+            let rep = check_src(ok);
+            assert!(rep.findings.is_empty() && rep.abandoned == 0, "{ok}: {rep:?}");
+        }
+        // A counter kept on the workbench across a loop: one run takes it
+        // and puts it back, so the depth after is known.
+        let rep = check_src("0 . true { 1 +. take dup . 42 > } while take println");
+        assert!(rep.findings.is_empty() && rep.abandoned == 0, "{rep:?}");
+        // An unmeasured `.` word: the workbench is not counted past it, and
+        // nothing about it is claimed.
+        let rep = check_src("1 . \"{A}\" . format. take take");
+        assert!(on_bench(&rep).is_empty(), "{rep:?}");
+    }
+
+    /// A Bund word's workbench half is inferred as its stack half is: `w`
+    /// takes one, so the second call finds none.
+    #[test]
+    fn a_word_s_workbench_half_is_inferred() {
+        let e = eff_of("take");
+        assert_eq!(e.bench, Bench::Fixed { consumes: 1, produces: 0 });
+        let e = eff_of("1 .");
+        assert_eq!(e.bench, Bench::Fixed { consumes: 0, produces: 1 });
+        assert_eq!(eff_of("1 2 +").bench, Bench::Untouched);
+        assert_eq!(
+            on_bench(&check_src(":w { take } register 1 . w w")),
+            [("w".into(), 1, 0)]
+        );
+        assert!(check_src(":w { take } register 1 . w").findings.is_empty());
+    }
+
+    /// D184's workbench forms: `ifthenelse.` and `notifthenelse.` take their
+    /// condition from the workbench, `while.` each one.
+    #[test]
+    fn the_workbench_forms_of_the_branches_and_while_are_followed() {
+        let rep = check_src("true . { 1 } { 2 } ifthenelse. println");
+        assert!(rep.findings.is_empty() && rep.abandoned == 0, "{rep:?}");
+        assert_eq!(
+            on_bench(&check_src("{ 1 } { 2 } ifthenelse. println")),
+            [("ifthenelse.".into(), 1, 0)]
+        );
+        let rep = check_src("false . { 1 } { 2 } ?false*. println");
+        assert!(rep.findings.is_empty() && rep.abandoned == 0, "{rep:?}");
+        let rep = check_src("3 . true . { take 1 - dup . 0 > . } while. take println");
+        assert!(rep.findings.is_empty() && rep.abandoned == 0, "{rep:?}");
+        assert_eq!(
+            on_bench(&check_src("{ 1 println } while.")),
+            [("while.".into(), 1, 0)],
+            "once, not again at the pull that would end the loop"
+        );
+    }
+
+    /// D184's `context`: the bodies run on the stack it names, and a
+    /// finding there says so.
+    #[test]
+    fn a_context_is_followed_on_its_stack() {
+        let rep = check_src(":run :T context :run { + } set !");
+        let [f] = rep.findings.as_slice() else {
+            panic!("one finding: {rep:?}");
+        };
+        assert_eq!((f.word.as_str(), f.needs, f.have), ("+", 2, 0));
+        assert_eq!(f.via.as_deref(), Some("`context` on @T"));
+        let rep = check_src("@T 1 2 @main :run :T context :run { + } set :run.post { println } set !");
+        assert!(rep.findings.is_empty() && rep.abandoned == 0, "{rep:?}");
     }
 
     /// F62: `check` names a lambda registered as `endcontext`, once per site,

@@ -718,6 +718,37 @@ fn debug_profile(vm: &mut dyn Vm) -> Result<(), Error> {
     }
 }
 
+/// `debug.watch.depth` — stop when a push takes the current stack past this
+/// depth: RFC-0008 §D4's `watch depth > N`, once per crossing. Bund2's own
+/// word.
+fn debug_watch_depth(vm: &mut dyn Vm) -> Result<(), Error> {
+    const WHO: &str = "DEBUG.WATCH.DEPTH";
+    if vm.depth() < 1 {
+        return Err(Error(format!("Stack is too shallow for inline {WHO}")));
+    }
+    let v = vm
+        .pull()
+        .ok_or_else(|| Error(format!("{WHO} returns: NO DATA #1")))?;
+    let n = v
+        .as_int()
+        .and_then(|n| usize::try_from(n).ok())
+        .ok_or_else(|| Error(format!("{WHO}: the depth is not a whole number")))?;
+    debug_ask(vm, bund2_api::Debugging::WatchDepth(n), WHO)
+}
+
+/// `debug.words` — the slot table as a view: each of the program's lambdas,
+/// and every word called since a debugger attached, with what its slot binds,
+/// its generation and its calls. RFC-0008 §D5. Bund2's own word.
+fn debug_words(vm: &mut dyn Vm) -> Result<(), Error> {
+    debug_view(vm, bund2_api::Debugging::Words(None), "DEBUG.WORDS")
+}
+
+/// `debug.classes` — the registered classes, with their parents, methods and
+/// fields. RFC-0008 §D5. Bund2's own word.
+fn debug_classes(vm: &mut dyn Vm) -> Result<(), Error> {
+    debug_view(vm, bund2_api::Debugging::Classes, "DEBUG.CLASSES")
+}
+
 /// `debug.watch.workbench` — stop on a push to the workbench.
 fn debug_watch_workbench(vm: &mut dyn Vm) -> Result<(), Error> {
     debug_ask(
@@ -1046,6 +1077,19 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
         StackEffect::opaque(0),
         WordKind::Sync,
     );
+    // §D5's two views.
+    r.register_native(
+        "debug.words",
+        debug_words,
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
+    r.register_native(
+        "debug.classes",
+        debug_classes,
+        StackEffect::opaque(0),
+        WordKind::Sync,
+    );
     r.register_native(
         "debug.feed",
         debug_feed,
@@ -1085,6 +1129,7 @@ pub fn register(r: &mut Registry, opts: &HostOptions) {
         ("debug.watch.redefine", debug_watch_redefine, 0),
         ("debug.watch", debug_watch, 1),
         ("debug.watch.workbench", debug_watch_workbench, 0),
+        ("debug.watch.depth", debug_watch_depth, 1),
         ("debug.delete", debug_delete, 1),
         ("debug.step", debug_step, 0),
         ("debug.run", debug_run, 1),

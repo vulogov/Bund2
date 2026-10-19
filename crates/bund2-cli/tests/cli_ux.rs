@@ -116,14 +116,23 @@ fn report_trace_draws_the_traceback_with_the_frames() {
     assert_eq!(r.code, Some(0));
     assert!(r.out.starts_with("hello\n"), "{}", r.out);
     assert!(r.out.contains("Error: DIV returns error"), "{}", r.out);
-    assert!(r.out.contains(&format!("{}:4:1", p.display())), "{}", r.out);
+    // RFC-0003 §S5: the report is at the `/` inside `g`, and the top-level
+    // `f` on line 4 is what reached it.
+    assert!(r.out.contains(&format!("{}:1:13", p.display())), "{}", r.out);
     assert!(
-        r.out.contains("the step that failed began here"),
+        r.out.contains("the value that failed, in the lambda"),
         "{}",
         r.out
     );
-    let g = r.out.find("#0  g at 3").expect("innermost frame");
-    let f = r.out.find("#1  f at 2").expect("outer frame");
+    assert!(r.out.contains("reached from this step"), "{}", r.out);
+    let g = r
+        .out
+        .find(&format!("#0  g at 3  ({}:1:13)", p.display()))
+        .expect("innermost frame, placed");
+    let f = r
+        .out
+        .find(&format!("#1  f at 2  ({}:2:8)", p.display()))
+        .expect("outer frame, placed");
     assert!(g < f, "innermost first:\n{}", r.out);
     assert!(r.out.contains("on stack `main`"), "{}", r.out);
     assert!(r.out.contains("[BUND]  Content of the stack"), "{}", r.out);
