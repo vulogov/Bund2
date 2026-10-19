@@ -111,8 +111,9 @@ syn keyword bundBuiltin system.path.split system.path.split. system.setproctitle
 syn keyword bundBuiltin system.setproctitle. system.shell system.shell. tag tag. tail tail.
 syn keyword bundBuiltin take text time.now time.timestamp time.timestamp. times times.
 syn keyword bundBuiltin to_current to_stack true type type. type.of type.of. unalias unfold
-syn keyword bundBuiltin unfold. unique unique. unregister unwrap unwrap. url url. use use.
-syn keyword bundBuiltin valuemap var var- var? var?. version while while. wrap wrap. \|
+syn keyword bundBuiltin unfold. unique unique. unregister unregister.class unwrap unwrap. url
+syn keyword bundBuiltin url. use use. valuemap var var- var? var?. version while while. wrap
+syn keyword bundBuiltin wrap. \|
 
 syn match bundBuiltin '\%(^\|[[:space:]\[{(]\)\@1<=\VΛ\m\ze\%(\s\|$\)'
 syn match bundBuiltin '\%(^\|[[:space:]\[{(]\)\@1<=\VΣ\m\ze\%(\s\|$\)'

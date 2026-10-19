@@ -236,6 +236,33 @@ fn unregister(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// `unregister.class` — remove a class from the class registry (F1).
+///
+/// The reference writes this word as `stdlib_class_unregister` and binds it to
+/// `unregister`, one line after the lambda variant, so it shadows that one and
+/// is the `unregister` a program reaches
+/// (`reference/rust_multistackvm/src/stdlib/lambdas/registry.rs:63-83,89-90`).
+/// Bund2's `unregister` removes a lambda, which left classes with no way out.
+/// F1's FIX gives the two distinct names, and this one takes the name the
+/// reference's own guard uses (`:65`).
+///
+/// A name with no class is not an error, as in the reference
+/// (`reference/rust_multistackvm/src/multistackvm_classes.rs:22-27`).
+fn unregister_class(vm: &mut dyn Vm) -> Result<(), Error> {
+    if vm.depth() < 1 {
+        return Err(Error("Stack is too shallow for inline unregister.class".into()));
+    }
+    let name_val = crate::pull::operand(vm, "UNREGISTER.CLASS", 1)?;
+    let name = name_val.as_str().ok_or_else(|| {
+        Error(
+            "UNREGISTER.CLASS expecting lanbda name to be string: This Dynamic type is not string"
+                .into(),
+        )
+    })?;
+    vm.unregister_class(&name);
+    Ok(())
+}
+
 /// `lambda!` — a LIST becomes a LAMBDA
 /// (`reference/Bund/src/stdlib/functions/bund/bund_fun.rs:163-186`).
 fn to_lambda(vm: &mut dyn Vm) -> Result<(), Error> {
@@ -668,6 +695,7 @@ pub fn register_words(r: &mut Registry) {
     crate::wb::bench!(r, "?key", has_key, 2, 1);
     r.register_native("register", register, eff(2, 0), WordKind::Sync);
     r.register_native("unregister", unregister, eff(1, 0), WordKind::Sync);
+    r.register_native("unregister.class", unregister_class, eff(1, 0), WordKind::Sync);
     r.register_native("lambda!", to_lambda, eff(1, 1), WordKind::Sync);
     crate::wb::bench!(r, "lambda!", to_lambda);
     // Opaque: folds the **whole stack** into a LAMBDA, so its consumption is
@@ -835,6 +863,28 @@ mod tests {
             vec![(Severity::Warning, ENDCONTEXT_SHADOWED.to_string())]
         );
         assert_eq!(i.peek().and_then(|v| v.as_int()), Some(42), "the lambda closed the context");
+    }
+
+    /// F1: `unregister.class` removes a class and leaves a lambda of the same
+    /// name alone; `unregister` does the opposite. An unknown name is not an
+    /// error.
+    #[test]
+    fn unregister_class_removes_the_class_and_only_the_class() {
+        let i = run(":Foo class register\n:Foo { 1 } register\n:Foo unregister.class\n:Foo ?class\n:Nobody unregister.class")
+            .expect("runs");
+        assert!(matches!(i.peek(), Some(BundValue::Bool(false, _))));
+        assert!(i.registry.lambda_value("Foo").is_some(), "the lambda is untouched");
+        let j = run(":Foo class register\n:Foo unregister\n:Foo ?class").expect("runs");
+        assert!(matches!(j.peek(), Some(BundValue::Bool(true, _))));
+        for (src, want) in [
+            ("unregister.class", "Stack is too shallow for inline unregister.class"),
+            ("1 unregister.class", "UNREGISTER.CLASS expecting lanbda name to be string"),
+        ] {
+            match run(src) {
+                Err(e) => assert!(e.contains(want), "{src}: {e}"),
+                Ok(_) => panic!("{src} must be refused"),
+            }
+        }
     }
 
     /// The corpus's documented way to define a word, end to end through the
@@ -1025,6 +1075,7 @@ execute.")
             "?key",
             "register",
             "unregister",
+            "unregister.class",
             "lambda!",
             "lambda*",
             "make.call",

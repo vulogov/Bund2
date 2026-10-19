@@ -22,6 +22,7 @@ unreachable by name. The class one is presumably meant to be `unregister.class`.
   first from the source; F32 found it again while reading the registration
   mechanism for RFC-0002 and confirmed it by probe.
 - **Status 2026-10-19:** **the FIX is not built.** `unregister` (`crates/bund2-stdlib/src/values.rs`) removes a lambda through `Registry::unregister_lambda`, and no word unregisters a class: there is no `unregister.class`, the name the reference's own guard uses (`reference/rust_multistackvm/src/stdlib/lambdas/registry.rs:63-65`). Since the reference's reachable `unregister` is the class one (`:90`), `:Foo class register :Foo unregister :Foo ?class` answers `false` on the oracle and `true` on Bund2. Confirmed on both engines.
+- **Built 2026-10-19**, on the repository owner's instruction: `unregister.class` (`crates/bund2-stdlib/src/values.rs`, `unregister_class`) removes a class from the class registry, and `unregister` keeps removing a lambda. The name and messages are the reference's own (`reference/rust_multistackvm/src/stdlib/lambdas/registry.rs:63-83`), and an unknown name is not an error, as `multistackvm_classes.rs:22-27` has it. A program that wrote the reference's `:Foo unregister` to drop a class now writes `:Foo unregister.class`; both answer `false` to `:Foo ?class` afterwards. Pinned by `unregister_class_removes_the_class_and_only_the_class`.
 
 ## F2 — `if.false.in_workbench` uses the wrong stack
 `stdlib_logic_if_false_in_workbench` passes `StackOps::FromStack`, not
@@ -1171,6 +1172,7 @@ Confirmed against the oracle. Registering a lambda named `println`, calling
   visible — before it, the golden failed on an unregistered word and the
   disagreement was hidden behind that.
 - **Status 2026-10-19:** built as neither option: `unregister` unregisters lambdas only (`crates/bund2-stdlib/src/values.rs`; `Registry::unregister_lambda`, test `a_lambda_can_be_unregistered`), and no word reaches class unregistration. See F1's status.
+- **Built 2026-10-19** as this disposition's first option, distinct names: see F1.
 
 ## F33 — `PartialEq` is asymmetric across int/float, and `impl Eq` asserts otherwise
 Comparing an integer to a float truncates; comparing a float to an integer
