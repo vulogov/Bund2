@@ -548,6 +548,24 @@ mod tests {
         assert!(d.frames.as_ref().is_some_and(|f| !f.is_empty()), "{d:?}");
     }
 
+    /// **A lambda no word names is named by what ran it** — `map`'s body,
+    /// `?try`'s `try` slot — and a word's frame keeps its own name.
+    #[test]
+    fn anonymous_frames_are_named_by_what_ran_them() {
+        let src = ":f { [ 1 ] { 0 1 / } map } register\n?try :try { f } set :except { ! } set !\n";
+        let seen = reports_of(src, true);
+        let [d] = seen.as_slice() else {
+            panic!("one report: {seen:?}");
+        };
+        let frames = d.frames.as_ref().expect("frames");
+        assert!(frames[0].ends_with(", run by map"), "{frames:?}");
+        assert!(frames[1].contains("f at"), "{frames:?}");
+        assert!(
+            frames[2].ends_with(", run by the tryexcept conditional"),
+            "{frames:?}"
+        );
+    }
+
     /// A reporter that draws no traceback gets the line it always got.
     #[test]
     fn a_caught_failure_without_a_traceback_is_one_line() {

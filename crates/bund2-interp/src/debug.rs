@@ -649,13 +649,22 @@ pub(crate) enum Render {
 /// shortfall.** A `( … )` scratch context, a LIST assembled at run time and a
 /// lambda a native handed to `eval_lambda` belong to no symbol — D16's
 /// consequence — so the line says what the body *is* rather than inventing a
-/// caller for it.
+/// caller for it. **What it can say is what started it** (D173, 2026-10-19):
+/// the word, conditional or method that handed the lambda to `eval_lambda` is
+/// `by`, and the line reads `#2  a lambda at 8, run by input*`. That is a
+/// fact about the run, not an invented name: the body still has none.
 ///
 /// **There is still no source position**, and §D2 says why: `lower_with_spans`
 /// is top level only, so no value inside a body carries one, and producing
 /// them is the IR RFC-0003 §S5 describes and that does not exist. A backtrace
 /// gives a word and a value index today.
-pub fn frame_line(body: &BundValue, ip: usize, depth: usize, who: Option<&str>) -> String {
+pub fn frame_line(
+    body: &BundValue,
+    ip: usize,
+    depth: usize,
+    who: Option<&str>,
+    by: Option<&str>,
+) -> String {
     match who {
         Some(name) => format!("#{depth}  {name} at {ip}"),
         None => {
@@ -664,7 +673,10 @@ pub fn frame_line(body: &BundValue, ip: usize, depth: usize, who: Option<&str>) 
                 bund2_value::LIST => "a body assembled at run time",
                 _ => "a body",
             };
-            format!("#{depth}  {what} at {ip}")
+            match by {
+                Some(runner) => format!("#{depth}  {what} at {ip}, run by {runner}"),
+                None => format!("#{depth}  {what} at {ip}"),
+            }
         }
     }
 }
@@ -999,11 +1011,20 @@ mod tests {
     #[test]
     fn a_frame_line_names_the_word_when_a_word_named_it() {
         let lam = BundValue::lambda(vec![]);
-        assert_eq!(frame_line(&lam, 3, 0, Some("w")), "#0  w at 3");
-        assert_eq!(frame_line(&lam, 3, 0, None), "#0  a lambda at 3");
+        assert_eq!(frame_line(&lam, 3, 0, Some("w"), None), "#0  w at 3");
+        assert_eq!(frame_line(&lam, 3, 0, None, None), "#0  a lambda at 3");
+        assert_eq!(
+            frame_line(&lam, 8, 2, None, Some("input*")),
+            "#2  a lambda at 8, run by input*"
+        );
+        assert_eq!(
+            frame_line(&lam, 3, 0, Some("w"), Some("map")),
+            "#0  w at 3",
+            "a word's own name wins"
+        );
         let list = BundValue::list(vec![]);
         assert_eq!(
-            frame_line(&list, 0, 2, None),
+            frame_line(&list, 0, 2, None, None),
             "#2  a body assembled at run time at 0"
         );
     }

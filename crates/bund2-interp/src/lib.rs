@@ -340,6 +340,16 @@ pub struct Interp {
     /// while the audit is on. A report at `Error` severity made while one runs
     /// is a breach: RFC-0005 criterion 25's run-time half.
     audit_native: Option<Symbol>,
+    /// **Whether anonymous bodies are named for a traceback** — D173. Read
+    /// at each top-level stream: the reporter wants frames, or a debugger is
+    /// attached. Off on a pipe, so the two fields below cost one branch.
+    naming: bool,
+    /// The word, conditional or method running now, while `naming`.
+    running: Option<Runner>,
+    /// `(frame index, runner)` for each body a runner handed to
+    /// `eval_lambda`, innermost last — beside the frames rather than in them,
+    /// so `Frame` keeps the size RFC-0008 criterion 12 measured.
+    runners: Vec<(usize, Runner)>,
     /// **The Tier 0 floor — RFC-0005 §S8, F85.** The lowest stack address at
     /// which a native may still re-enter evaluation. Below it,
     /// `Vm::eval_lambda`, `Vm::apply` and `Vm::scoped_call` refuse with
@@ -457,6 +467,9 @@ impl Interp {
             profile_unkept_said: false,
             audit_inside: None,
             audit_native: None,
+            naming: false,
+            running: None,
+            runners: Vec::new(),
             stack_floor: tier0_floor(),
             exit_code: None,
             observations: std::cell::RefCell::new(Vec::new()),
@@ -637,6 +650,12 @@ impl Interp {
                 }
             }
         }
+        let named = self.naming;
+        let outer = if named {
+            self.running.replace(Runner::Word(name))
+        } else {
+            None
+        };
         let r = if self.effect_audit.is_none() {
             self.invoke(name, n)
         } else {
@@ -652,6 +671,9 @@ impl Interp {
             self.audit_native = outer_native;
             r
         };
+        if named {
+            self.running = outer;
+        }
         if profiled && let Some(p) = self.profile.as_mut() {
             if let Err(e) = &r {
                 p.mark_failure(&e.0);
@@ -1054,6 +1076,7 @@ impl Interp {
         // stream's (D173).
         self.failure_trace = None;
         self.caught = None;
+        self.naming = self.reporter.wants_frames() || self.debug.is_some();
         for (i, v) in stream.iter().enumerate() {
             match v.dt() {
                 bund2_value::NONE => continue,
@@ -1566,6 +1589,7 @@ impl Interp {
         match self.frames.last() {
             Some(f) => {
                 let who = f.who.map(|s| self.registry.interner.name(s));
+                let by = self.runner_of(self.frames.len() - 1);
                 let next = frame_items(&f.body)
                     .and_then(|items| items.get(f.ip))
                     .map(|v| v.summary(48))
@@ -1573,7 +1597,7 @@ impl Interp {
                 // `#0`: the innermost frame is `bt`'s first line and the
                 // traceback's (D173), so a stop and the backtrace typed at it
                 // name it alike (F217). It was the outermost frame's index.
-                format!("{}  next: {next}", debug::frame_line(&f.body, f.ip, 0, who))
+                format!("{}  next: {next}", debug::frame_line(&f.body, f.ip, 0, who, by.as_deref()))
             }
             // **The index is the stream's, so it is a position a caller
             // holding `Lowered` can turn into a source span** — the whole of
@@ -1606,6 +1630,7 @@ impl Interp {
                 f.ip,
                 self.frames.len() - 1 - i,
                 who,
+                self.runner_of(i).as_deref(),
             ));
             out.push('\n');
         }
@@ -1739,9 +1764,26 @@ impl Interp {
                 continue;
             }
             let who = f.who.map(|s| self.registry.interner.name(s));
-            lines.push(debug::frame_line(&f.body, f.ip, depth, who));
+            lines.push(debug::frame_line(
+                &f.body,
+                f.ip,
+                depth,
+                who,
+                self.runner_of(i).as_deref(),
+            ));
         }
         lines
+    }
+
+    /// What started the body at frame `i`, when a runner handed it to
+    /// `eval_lambda` while naming was on.
+    fn runner_of(&self, i: usize) -> Option<String> {
+        let (_, r) = self.runners.iter().rev().find(|(at, _)| *at == i)?;
+        Some(match r {
+            Runner::Word(s) => self.registry.interner.name(*s).to_string(),
+            Runner::Conditional(ty) => format!("the {ty} conditional"),
+            Runner::Method(m) => format!("method {m}"),
+        })
     }
 
     const TRACE_INNER: usize = 24;
@@ -1752,6 +1794,15 @@ impl Interp {
         self.take_pending()?;
         self.run_to(0)
     }
+}
+
+/// What handed a body to `eval_lambda` — D173's name for a lambda no word
+/// names.
+#[derive(Clone)]
+enum Runner {
+    Word(Symbol),
+    Conditional(String),
+    Method(String),
 }
 
 /// The traceback taken for one failure — D173.
@@ -2087,16 +2138,27 @@ impl Vm for Interp {
         // hot body failing under `map` or `?try` lost the wrapper an
         // interpreted one carries, and `?try`'s `context` slot differed by
         // tier.
+        // **Named by what started it, while naming (D173).** The runner is
+        // taken for the body's run, so a native that compiled code calls
+        // directly, past `call_native`, finds none rather than this one.
+        let by = if self.naming { self.running.take() } else { None };
+        if let Some(r) = &by {
+            self.runners.push((floor, r.clone()));
+        }
         let started = self.push_frame(lambda.clone(), None, None);
+        let done = started
+            .and_then(|()| self.run_to(floor))
+            .and_then(|()| self.exit_gate());
+        if by.is_some() {
+            self.runners.pop();
+            self.running = by;
+        }
         // **F112.** `run_to` pops a finished frame without the gate, so a body
         // whose last word is `bund.exit` returns `Ok`, and the native that ran
         // it went on: `map` collected, `input*` read another line. D52 says
         // nothing more runs, so the refusal comes here, at the return to Rust,
         // as it would have at the body's next step.
-        started
-            .and_then(|()| self.run_to(floor))
-            .and_then(|()| self.exit_gate())
-            .map_err(|e| e.context("Lambda content evaluation returned error: "))
+        done.map_err(|e| e.context("Lambda content evaluation returned error: "))
     }
 
     fn register_lambda(&mut self, name: &str, body: BundValue) {
@@ -2417,8 +2479,17 @@ impl Vm for Interp {
                 }
             }
         }
+        let named = self.naming;
+        let outer = if named {
+            self.running.replace(Runner::Method(name.to_string()))
+        } else {
+            None
+        };
         let r = bund2_api::catch_panic(|| f(&mut *self))
             .unwrap_or_else(|msg| Err(bund2_api::panicked(&format!("method `{name}`"), &msg)));
+        if named {
+            self.running = outer;
+        }
         if profiled && let Some(p) = self.profile.as_mut() {
             if let Err(e) = &r {
                 p.mark_failure(&e.0);
@@ -2441,8 +2512,17 @@ impl Vm for Interp {
                 }
             }
         }
+        let named = self.naming;
+        let outer = if named {
+            self.running.replace(Runner::Conditional(ty.to_string()))
+        } else {
+            None
+        };
         let r = bund2_api::catch_panic(|| f(&mut *self, c))
             .unwrap_or_else(|msg| Err(bund2_api::panicked(&format!("conditional `{ty}`"), &msg)));
+        if named {
+            self.running = outer;
+        }
         if profiled && let Some(p) = self.profile.as_mut() {
             if let Err(e) = &r {
                 p.mark_failure(&e.0);

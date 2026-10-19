@@ -5546,6 +5546,24 @@ own. Now:
   Pinned by `a_caught_failure_is_reported_with_its_traceback`,
   `each_caught_failure_keeps_its_own_trace` and
   `a_caught_failure_is_one_line_on_a_pipe_and_a_traceback_under_trace`.
+**Note, later 2026-10-19 — an anonymous lambda's frame names what ran it**,
+on the owner's request "name frames of anonymous lambdas in the traceback".
+A body no word names still has no name, so none is invented; the line says
+what started it: `#0  a lambda at 3, run by map`, `#1  a lambda at 1, run by
+the tryexcept conditional`, `#2  a lambda at 8, run by input*`, and `method m`
+for a method. A word's frame keeps its own name. The same lines reach `bt`
+and a debugger stop, through `debug::frame_line`'s new `by`.
+
+The runner is kept beside the frames, not in them
+(`crates/bund2-interp/src/lib.rs`, `Runner`, `runners`, `runner_of`), so
+`Frame` keeps the size RFC-0008 criterion 12 measured. It is tracked only
+while `naming` holds — the reporter wants frames or a debugger is attached,
+read at each top-level stream — so a run on a pipe pays one branch per native
+call and per `eval_lambda`. `eval_lambda` takes the runner for the body's run,
+so a native that compiled code calls directly, past `call_native`, finds none
+and its body reads `a lambda` as before, rather than borrowing an outer
+runner's name. Pinned by `anonymous_frames_are_named_by_what_ran_them` and
+`a_frame_line_names_the_word_when_a_word_named_it`.
 
 ## D172 — `json.from_value` refuses a value nested deeper than the parser's limit
 
