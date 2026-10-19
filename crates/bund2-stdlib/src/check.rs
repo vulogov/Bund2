@@ -122,6 +122,10 @@ pub struct Report {
     pub abandoned: usize,
     /// Why it gave up, most common first. For the report's prose.
     pub reasons: Vec<(String, usize)>,
+    /// Sites that are not underflows but change what the program means, as
+    /// `(index into the stream, message)`, one per site. Today only F62's: a
+    /// lambda registered as `endcontext`.
+    pub hazards: Vec<(usize, String)>,
 }
 
 /// Bind the words a program registers with a **literal** body, before walking.
@@ -883,6 +887,14 @@ impl<'a> Walker<'a> {
                     let (body, who) = (t.remove(0), t.remove(0));
                     match (body, who) {
                         (Abs::Lambda(b), Abs::Name(_, n)) => {
+                            if &*n == "endcontext"
+                                && !self.report.hazards.iter().any(|(a, _)| *a == at)
+                            {
+                                self.report.hazards.push((
+                                    at,
+                                    crate::values::ENDCONTEXT_SHADOWED.to_string(),
+                                ));
+                            }
                             self.lambdas.insert(n.to_string(), b);
                         }
                         (Abs::Class(m), Abs::Name(_, n)) => {
@@ -1969,6 +1981,16 @@ mod tests {
         let r = reg();
         let stream = bund2_syntax::compile(src).expect("compiles");
         check(&stream, &r, 0)
+    }
+
+    /// F62: `check` names a lambda registered as `endcontext`, once per site,
+    /// and does not count it as an underflow.
+    #[test]
+    fn a_lambda_named_endcontext_is_a_hazard() {
+        let rep = check_src(":endcontext { 42 } register\n( 7 )");
+        assert_eq!(rep.hazards.len(), 1);
+        assert!(rep.findings.is_empty());
+        assert!(check_src(":other { 1 } register").hazards.is_empty());
     }
 
     fn clean(rep: &Report) -> bool {

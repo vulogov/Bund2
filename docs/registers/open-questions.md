@@ -60,6 +60,23 @@ column says.
 | Q22 | resolved — three answered, one unprobeable, one defect (2026-09-11 note: not the Q22 the RFCs cite; that is the compiled-cache question further down, "Q22 (cache)". Numbers are not reassigned.) | Of the five words that could not be probed: `stacks_left`, `<-` and `←` are **F71** — unreachable in the reference, so there is no oracle answer to capture. `drop_stack` removes the current stack and the reference names the next one with a fresh nanoid, so a capture is unreproducible by construction. `endcontext` is **F72**: its guard `stacks_stack.len() < 1` (`reference/rust_multistackvm/src/stdlib/ctx.rs:6`) can never fire, because the deque is seeded with `"main"` (`multistackvm.rs:38`) and `pop_stacks` refuses to empty it (`multistackvm_stacks_stack.rs:11-15`) — so closing a context that was never opened does not error, it **drops the current stack** and puts its top on the workbench. Bund2 keeps the guard the author wrote |
 | Q21 | resolved — three Bund2 defects and one reference defect | Bund2's `move`, `move_from` and `to_current` were each a different word from the reference's. `move` moved one value where the reference **drains** the current stack (`ts_move.rs:17-31`); `move_from` took one name and moved to the current stack where the reference takes **two names** and drains between them (`stack_move.rs:65-71`); `to_current` was byte-identical to `to_stack`, which is what made the pair indistinguishable. All three now agree with the oracle, pinned by `tests/probes/named-stacks.bund`. **The reference defect is F70**: draining into a stack that does not exist yet never terminates, because creating a stack makes it current (`ts_current.rs:7` reads `stacks.back()`) and the loop then feeds itself — `1 2 3 :box move` hangs the oracle. Two method notes worth keeping: the `to_current` fix was itself wrong first, because `ts_move.rs::move_to_current` has a matching name and **no word registers it** — CLAUDE.md's "follow the call one level further", committed while investigating a divergence caused by the same habit. And `cargo xtask effects` had flagged `move_from`'s arity correctly, and `tests/golden/EFFECTS.txt` had explained it away as a probe artefact; the probe was right |
 | Q16 | implemented | `golden::capture_jobs` collects `tests/probes/*.bund` alongside the corpus (`xtask/src/golden/mod.rs`); the probe goldens carry captured output, and conform's 64 is 57 suite + 7 probes. The question was recorded before the capture landed and was stale, not open |
+| Q22 (cache) | answered — closed on RFC-0005's acceptance (D154, 2026-10-13) | RFC-0005 §S7: threshold 1024 (D74), the 1024-body cap |
+| Q26 | answered — policy, folded into Q25's amendment | RFC-0001 "One policy for the Rc and the identity slot (D13)"; D41 |
+| Q29 | resolved and implemented | **D41**, as Q25 |
+| Q30 | answered — no line citations into live code | F79; `cargo xtask cite` (`xtask/src/cite/mod.rs`) |
+| Q31 | answered — toolchain raised to 1.95.0 | F80; `rust-toolchain.toml` |
+| Q32 | answered — A, the cache holds a `Weak` | D35 as amended |
+| Q33 | answered — A; promotion is the prize, inlining its prerequisite | D9's amendment; RFC-0005 §S6 |
+| Q34 | promoted | D55 — the observing set derived by audit; D45 narrows the reporter case |
+| Q35 | answered — A | D32 as amended |
+| Q36 | promoted and implemented | D42 — `eval_lambda`/`tail_lambda` |
+| Q37 | promoted and implemented | D43, built 2026-09-12 (8fb31f4) |
+| Q38 | promoted | D76 — `use` in a built artefact fetches at run time |
+| Q39 | promoted | D68 — crossing only when the callee produces nothing (withdrawn from use by D75) |
+| Q40 | resolved by measurement; its follow-up by D81 | RFC-0006 §B1; D81 (`codesign` permitted). Developer-ID and ELF/PE unmeasured |
+| Q41 | answered by building | D113's dated notes; RFC-0008 "A breakpoint on a native, and on an alias" |
+| Q42 | promoted | D134 — the feature is `relocation-test`, not recorded in a bundle |
+| Q43 | grounded in place, 2026-10-16 (0660a1b) | RFC-0005, the dated notes under its three [UNGROUNDED] markers |
 
 
 ---
@@ -72,7 +89,7 @@ below.
 
 **This section reports evidence and resolves nothing.** The decisions it feeds
 are recorded in `decisions.md`; of those it was gathered for, D1, D2, D5 and
-D12 are now RESOLVED and D3 and D14 remain OPEN. In particular, no core word
+D12 are now RESOLVED and D3 and D14 remain OPEN *(2026-10-19: both since RESOLVED — D3 as no eval-specific tier rule, D14 as method B″)*. In particular, no core word
 list is proposed here: the frequency tables below are input to D14, not an
 answer to it.
 
@@ -1030,7 +1047,7 @@ but the disagreement is worth recording, and three are recorded below.
   against `classify::subsystem`, which derives the same three from the
   registration path: **96 agree, 0 disagree, 3 unticked** (`dup_one_in`,
   `use`, `use.`). Two independent sources for D14's axis, in complete
-  agreement. Note this settles the *axis*, not the *cut* — D14 stays OPEN.
+  agreement. Note this settles the *axis*, not the *cut* — D14 stays OPEN *(2026-10-19: since RESOLVED, method B″)*.
 - **The effect audit did not miss a hazard.** 18 pages carry a `#danger`
   warning written by hand. The audit derives hazard from the registration
   path. 13 of the 18 come out non-hermetic, and none of those 13 appears in
@@ -1084,7 +1101,7 @@ This is decisive for **D29**, which asks whether to revive or drop the four
 dead words, and it splits them cleanly: `stacks_left` is documented as part of
 the language and has two aliases pointing at it; `dup_in`, `from_workbench`
 and `push_to` have no page, no alias, and no corpus use. D29 stays OPEN — the
-call is the owner's — but the two groups are no longer symmetric.
+call is the owner's *(2026-10-19: ruled — D29 RESOLVED, revive `stacks_left` alone)* — but the two groups are no longer symmetric.
 | Q21 | open | Does the frame loop reproduce the nested `bail!` concatenation that `?try` files into its `context` slot? Today `err.ctx` is assembled by `bail!` at every level a failure passed through (`reference/rust_multistackvm/src/multistackvm_lambda_eval.rs:17`, `reference/rust_multistackvm/src/stdlib/execute.rs:45`, `reference/bundcore/src/bundcore_eval.rs:33`), so the string encodes the Rust call nesting. RFC-0003 replaces that nesting with a frame stack and does not say which frame the unwinder stops at or how the text is rebuilt. Raised by RFC-0003's first review as P2 |
 | Q22 | answered in Draft by RFC-0005 §S7 (2026-09-11 note: **two entries share the number Q22**, this one and the probe-coverage one near the top of this file; `docs/rfc/RFC-0003-syntax-ir-and-tier0.md:954` and `docs/rfc/RFC-0005-cranelift-tier.md:1417` mean this one, the compiled-cache question. Numbers are not reassigned, so cite it as "Q22 (cache)". It closes when RFC-0005 is Accepted.) | What is the compiled-cache promotion threshold and cap, and where are they stated? D3's amended resolution makes eval's tier eligibility a consequence of identity keying rather than a rule, which presumes a threshold and a bound that RFC-0005 owns. RFC-0005 must state them as load-bearing for D3, not as tuning. Raised by RFC-0003's first review |
 

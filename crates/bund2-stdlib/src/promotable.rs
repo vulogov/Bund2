@@ -135,8 +135,12 @@ const LIST: &str = include_str!("../../../tests/golden/PROMOTABLE.txt");
 /// for a word that runs a body, and it is the same assumption `PROMOTABLE.txt`
 /// already rests on (D55). Stated here because it is load-bearing rather than
 /// obvious.
-const REPORTS_MID_BODY: [&str; 7] = [
+const REPORTS_MID_BODY: [&str; 8] = [
     "alias",
+    // **F62.** `eff(2, 0)`, and it warns when the name it binds is
+    // `endcontext`. Listed whatever the name: which name arrives is a run-time
+    // fact, and this table is built at registration.
+    "register",
     // **D90's five.** Each has a *fixed* effect — `eff(1, 0)` — so nothing
     // else keeps promotion from crossing them, and each reports a `Warning`
     // or `Notice` through `Vm::report` when its level passes the filter.

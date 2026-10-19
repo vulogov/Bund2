@@ -568,12 +568,23 @@ fn pull_object(vm: &mut dyn Vm, prefix: &str) -> Result<BundValue, Error> {
 ///
 /// **A plain `set`, not `set_in_object`.** This is the object that *owns*
 /// `.data`; the slot comes into existence here.
+///
+/// **The OBJECT guard is written as the author meant it** (F11). The
+/// reference's `if ! value.type_of() == OBJECT` complements the tag before
+/// comparing, so it never fires (`value_class.rs:59-61`). Nothing observable
+/// changes: only method dispatch reaches this, and it always has an object on
+/// top.
 fn method_value_init(vm: &mut dyn Vm) -> Result<(), Error> {
     let Some(obj) = vm.pull() else {
         return Err(Error(
             "Stack is empty for method '.init' of object Value".into(),
         ));
     };
+    if obj.dt() != OBJECT {
+        return Err(Error(
+            "Object is expected in the stack for '.init' method of object Value".into(),
+        ));
+    }
     let Some(data) = vm.pull() else {
         return Err(Error("Object(Value) NO DATA #1".into()));
     };
@@ -1260,6 +1271,23 @@ mod tests {
         let stream = bund2_syntax::compile(src).map_err(|e| e.render(src))?;
         i.eval(&stream).map_err(|e| e.0)?;
         Ok(i)
+    }
+
+    /// F11: the guard the reference meant to write. Reached directly, since no
+    /// program can reach `.value_init` without an object on top.
+    #[test]
+    fn value_init_refuses_a_receiver_that_is_not_an_object() {
+        let mut i = Interp::new();
+        i.push(BundValue::int(1));
+        i.push(BundValue::int(2));
+        match method_value_init(&mut i) {
+            Err(e) => assert_eq!(
+                e.0,
+                "Object is expected in the stack for '.init' method of object Value"
+            ),
+            Ok(()) => panic!("a non-object receiver must be refused"),
+        }
+        assert!(run_src("5 :Value object").is_ok(), "an object still constructs");
     }
 
     fn err_of(src: &str) -> String {

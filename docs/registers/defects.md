@@ -21,12 +21,14 @@ unreachable by name. The class one is presumably meant to be `unregister.class`.
   oracle there. Bund2 gives the two words distinct names. This entry found it
   first from the source; F32 found it again while reading the registration
   mechanism for RFC-0002 and confirmed it by probe.
+- **Status 2026-10-19:** **the FIX is not built.** `unregister` (`crates/bund2-stdlib/src/values.rs`) removes a lambda through `Registry::unregister_lambda`, and no word unregisters a class: there is no `unregister.class`, the name the reference's own guard uses (`reference/rust_multistackvm/src/stdlib/lambdas/registry.rs:63-65`). Since the reference's reachable `unregister` is the class one (`:90`), `:Foo class register :Foo unregister :Foo ?class` answers `false` on the oracle and `true` on Bund2. Confirmed on both engines.
 
 ## F2 — `if.false.in_workbench` uses the wrong stack
 `stdlib_logic_if_false_in_workbench` passes `StackOps::FromStack`, not
 `FromWorkBench`.
 - `reference/rust_multistackvm/src/stdlib/logic/if_fun.rs`
 - Behavioural. Disposition:
+- **Status 2026-10-19:** superseded by F78, which records this defect with disposition PRESERVE. `if.false.in_workbench` / `?false.` reads the current stack (`crates/bund2-stdlib/src/control.rs`, `if_false_wb`, `Side::Stack`); pinned by `tests/probes/if-workbench-variants.bund`. The disposition above stays empty until the owner ratifies F78's.
 
 ## F3 — `stdlib_math_op_inline` checks the wrong stack
 The `FromWorkBench` arm checks `current_stack_len()` before separately checking
@@ -38,23 +40,27 @@ The `FromWorkBench` arm checks `current_stack_len()` before separately checking
 Clones an owned value, pushes the clone, drops the original.
 - `reference/rust_multistack/src/ts_workbench.rs`
 - Performance only. Disposition: FIX
+- **Status 2026-10-19:** built. `Interp::push_workbench` (`crates/bund2-interp/src/lib.rs`) moves the owned value onto the workbench without a clone.
 
 ## F5 — `_inline` suffix rebuilt three times per call
 `is_inline` formats it once; `get_inline` formats it again for `contains_key`
 and a third time for `get`.
 - `reference/rust_multistackvm/src/multistackvm_inline.rs`
 - Performance only. Disposition: FIX
+- **Status 2026-10-19:** built structurally. Words live in `Registry`'s slot table, indexed by interned `Symbol` (`crates/bund2-api/src/lib.rs`); no `_inline` key is formatted on any call. Pinned by `a_symbol_indexes_and_round_trips_to_its_name`.
 
 ## F6 — alias resolved twice per CALL
 Once in `apply`, again in `i()`.
 - `reference/rust_multistackvm/src/multistackvm_apply.rs`, `multistackvm_inline.rs`
 - Performance only. Disposition: FIX
+- **Status 2026-10-19:** built. `Registry::follow` (`crates/bund2-api/src/lib.rs`) resolves an alias once per call, to a fixed point, inside `resolve_to`. The fixed point is also a behavioural deviation for two-link chains, recorded at F26.
 
 ## F7 — instrumentation in the dispatch path
 `time_graph::instrument` on `apply`, `i`, `i_direct`, `call`, `lambda_eval`,
 `stdlib_execute_base_inline`, `stdlib_logic_if_base`, `stdlib_logic_times`.
 Must be removed or feature-gated before any baseline measurement.
 - Performance only. Disposition: FIX
+- **Status 2026-10-19:** built by omission. No crate in the workspace depends on `time_graph`.
 
 ## F8 — unbounded inter-crate version pins
 `">=0.*.*"` between the five library crates: a `Value` layout change propagates
@@ -66,16 +72,27 @@ The `ctx` rule mutates the caller's `state` vector rather than returning a
 subtree, which makes `( ... )` unanalysable.
 - `reference/bund_language_parser/src/vm/ctx.rs`
 - Structural. Disposition: FIX (scoped block node, RFC-0003)
+- **Status 2026-10-19:** built. `( … )` parses to `Term::Ctx` and lowers in place (`crates/bund2-syntax/src/lib.rs`, `lower_into`); nothing is written to a caller's state vector. The behavioural consequence is F58, approved under D34.
 
 ## F10 — debugger history written to the working directory
 - `reference/Bund/src/stdlib/functions/debug_fun/`
 - Cosmetic. Disposition: FIX
+- **Status 2026-10-19:** built. `history_path` (`crates/bund2-stdlib/src/terminal.rs`) puts both history files under `bund2/` in the platform's config directory, never the working directory. Pinned by `history_goes_to_the_platforms_config_directory`.
 
 ## F11 — inverted guard in `register_method_value_init`
 `if ! value.type_of() == OBJECT` parses as `(!value.type_of()) == OBJECT`; the
 guard never fires as intended.
 - `reference/Bund/src/stdlib/functions/oop/value_class.rs`
-- Behavioural. Disposition:
+- Behavioural. Disposition: **Bund2 writes the guard as intended.** Ruled by
+  the repository owner, 2026-10-19, on F69's precedent. The guard is
+  `value_class.rs:59-61`. `.value_init` is reached only through method
+  dispatch, which always has an object on top, so the dead guard is latent
+  and the fix is not observable. Neither `1 2 .value_init` nor
+  `` 1 2 `.value_init ! `` reaches it, on either engine: both report the name
+  as not registered. `method_value_init` (`crates/bund2-stdlib/src/oop.rs`)
+  now refuses a receiver that is not an OBJECT with the reference's own
+  message, `Object is expected in the stack for '.init' method of object
+  Value`.
 
 ## F72 — `endcontext`'s guard is dead, so closing a context that was never opened destroys a stack
 
@@ -129,6 +146,7 @@ No corpus program calls `endcontext`.
   stack named by a fresh nanoid, so `cargo xtask golden` would refuse the
   capture as unreproducible — the same reason `drop_stack` cannot be probed.
   `tests/probes/remaining-vocabulary.bund` names both exclusions.
+- **Status 2026-10-19:** built, and the same defect as F60. `endcontext` (`crates/bund2-stdlib/src/conditional.rs`) refuses with `Context is empty` when no context is open, and otherwise returns to the stack `Vm::pop_context` hands back. Pinned by `a_bare_endcontext_refuses`.
 
 ## F71 — `stacks_left` is registered only as a function, so the word is unreachable
 
@@ -168,6 +186,7 @@ No corpus program calls any of them.
   pinned by `tests/probes/stack-navigation.bund`, which exercises the
   right-hand spellings the oracle can run and states why the left-hand ones are
   absent.
+- **Status 2026-10-19:** built. `stacks_left` is registered in `crates/bund2-stdlib/src/stack.rs`, with `<-` and `←` as aliases; all three run. Pinned by `stacks_left_and_its_aliases_resolve`. The probe above still omits them, because the oracle errors.
 
 ## F70 — `move` to a stack that does not exist yet never terminates
 
@@ -326,6 +345,7 @@ a path the reference has, even though no golden covers it.
   are ordered by random id whenever that word runs — measured, and recorded
   as F164. "Unreachable through `sort`" was true and was the only path this
   entry checked. The disposition stands and is what D100 applies.
+- **Status 2026-10-19:** built, in a different form than drafted. `BundValue` has no `Ord` impl at all, so there is no id fallback; ordering is `order`/`float_order` in `crates/bund2-stdlib/src/sort.rs` (D100, D106, D108), floats by value with NaN last. Pinned by `unique_on_floats_is_deterministic_where_the_reference_is_not` (F164).
 
 ## F13 — `dup` deep-copies through a bincode round-trip
 `Value::dup` serialises the value to bytes and deserialises it back, then
@@ -380,6 +400,7 @@ Two consequences beyond speed:
   could not keep the round trip's failure without keeping the round trip.
   The `many` family (`ts_stack_op.rs:70-90`) is the same call, and is not
   measured here.)*
+- **Status 2026-10-19:** built. `BundValue::dup` (`crates/bund2-value/src/lib.rs`) copies the header with a cleared identity and shares the payload; there is no serialisation round trip. Pinned in `crates/bund2-stdlib/src/fragments.rs` and `crates/bund2-jit/src/lower.rs`.
 
 ## F14 — error text embeds a value's `id` and `stamp`, so it cannot reproduce
 `reference/Bund/src/stdlib/helpers/eval.rs:33` formats the failing value with
@@ -415,6 +436,7 @@ fields purely to print them.
   capture must normalise `id: "..."` and `stamp: N` before recording, and
   compare normalised. Verified empirically — normalising those two fields (and
   F15's member order) makes **15 of the 18 unstable programs reproduce**.
+- **Status 2026-10-19:** built for the run path. A failed program reports the bare reason with its Bund source span, and the end-of-run stack dump uses `BundValue::summary` (D36); `--raw-values` gives the Debug form. The reference's `Attempt to evaluate value {Debug} …` text is kept on two paths, `Interp::eval` (`crates/bund2-interp/src/lib.rs`, used by `infer`) and the `debug` word's loop (`crates/bund2-stdlib/src/terminal.rs`); `norm_msg` in `crates/bund2-runtime/src/tier.rs` normalises it.
 
 ## F15 — dictionary and tag iteration order is unspecified
 Printing a dict emits members in `HashMap` iteration order, which differs
@@ -458,6 +480,7 @@ territory and interacts with D13.
   members were sorted. Same defect, same fix; it simply has two rendering
   paths, and a normaliser that handles only one recovers none of these
   programs.
+- **Status 2026-10-19:** built. Dict members are a `BTreeMap` (`Payload::Map`) and tags a `Tags` kept sorted by key (D170), both in `crates/bund2-value/src/lib.rs`.
 
 ## F16 — `!` on a CLASS always fails
 `execute`'s CLASS arm (`reference/rust_multistackvm/src/stdlib/execute.rs:86-88`)
@@ -504,6 +527,7 @@ no golden covers it.
 
   `tests/probes/execute-arm-class.bund` currently pins the failure and becomes
   the proof of the fix.
+- **Status 2026-10-19:** built. `execute_one`'s CLASS arm (`crates/bund2-stdlib/src/values.rs`) calls `oop::construct_from_value`, per D23/D25. Pinned by `executing_a_class_value_constructs`; `probes/execute-arm-class.golden` is an approved deviation in `tests/golden/DEVIATIONS.txt` under F16/D23/D25.
 
 ## F17 — graph algorithm results are returned in `HashMap` order
 `reference/Bund/examples/graph_algorithms/simple_graph_dijkstra.bund`,
@@ -617,6 +641,7 @@ No corpus program hits any of these paths, so no golden covers them.
   None of the fourteen is reached by a corpus program, so no golden covers
   them and `conform` cannot move. But the deviation to record in RFC-0002 is
   *residual stack and message*, not message alone.
+- **Status 2026-10-19:** built for the fourteen: they guard at the arity they consume and leave the operand (`crates/bund2-stdlib/src/singles.rs`; `f18_words_guard_before_pulling`, `f18_words_leave_the_operand`; `tests/probes/f18-arity-words.bund`). Not extended to the `.` siblings of `string.distance.*`: `distance_wb` (`crates/bund2-stdlib/src/library_string.rs`) keeps the reference's guard of one for a word that pulls two.
 
 ## F19 — the stack layer's `functions` table is dead code
 `rust_multistack` keeps a fourth name-keyed table alongside the two inline
@@ -738,6 +763,7 @@ which is a fix rather than a removal.
 - `reference/rust_multistack/src/stdlib/rotate.rs:93`,
   `reference/rust_multistackvm/src/stdlib/create_aliases.rs:22,23`
 - Behavioural. Disposition:
+- **Status 2026-10-19:** fixed per D29, which the owner resolved: `stacks_left` is registered and `<-` and `←` resolve to it (`crates/bund2-stdlib/src/stack.rs`). The disposition above stays empty until the owner ratifies it as D29's FIX.
 
 ## F23 — `rotate_stack_right` rotates left
 `stdlib_stack_right_inline` (`reference/rust_multistack/src/stdlib/rotate.rs:83-89`)
@@ -785,6 +811,7 @@ so it is a decision rather than a disposition: **D29**.
 - `reference/rust_multistack/src/stdlib/dup.rs`, `workbench.rs`, `push.rs`,
   `rotate.rs`; `reference/Bund/src/stdlib/functions/values/push.rs:74`
 - Behavioural. Disposition:
+- **Status 2026-10-19:** per D29, `stacks_left` is revived (`crates/bund2-stdlib/src/stack.rs`) and `dup_in`, `from_workbench` and `push_to` are not registered; `push` is bound once, to the list push the reference's dispatch reaches (`crates/bund2-stdlib/src/singles.rs`, `push_list`). The disposition above stays empty until the owner ratifies it as D29's resolution.
 
 ## F25 — a dead dispatch cluster holds a second, divergent resolution order
 `apply_in`, `call_in` and `lambda_eval_in`
@@ -968,6 +995,7 @@ covers it.
 - Found by: reading `rust_multistack` for RFC-0001
 - Disposition: Bund2 fixes it — use the named stack's length. A golden cannot
   disagree, because none exercises it. Record the divergence in RFC-0001.
+- **Status 2026-10-19:** built. `Stack::push` (`crates/bund2-interp/src/stacks.rs`) evicts against the target stack's own length and capacity, and `Interp::push_to` pushes through it. No test pins it.
 
 ## F29 — `valuemap` is write-only: nothing can read a `Val::ValueMap` back
 `valuemap` is a registered inline word
@@ -1089,7 +1117,7 @@ pattern dropped it, which is why the defect is invisible for VM-layer words.
   bug is not expressible — there is no suffix and no second table to disagree
   with. No golden covers `resolve`, so conformance cannot move; record the
   divergence in RFC-0002.
-
+- **Status 2026-10-19:** built. One interned slot table with no suffix (`crates/bund2-api/src/lib.rs`); `resolve` finds every stack-layer word. Pinned by `resolve_finds_every_stack_layer_word` (`crates/bund2-stdlib/src/stack.rs`) over all 31.
 
 ## F32 — `unregister` is registered twice, so no lambda can be unregistered
 `init_stdlib` in the lambda registry binds the same name twice in consecutive
@@ -1142,6 +1170,7 @@ Confirmed against the oracle. Registering a lambda named `println`, calling
   Found by implementing `not`, which is the word that made the divergence
   visible — before it, the golden failed on an unregistered word and the
   disagreement was hidden behind that.
+- **Status 2026-10-19:** built as neither option: `unregister` unregisters lambdas only (`crates/bund2-stdlib/src/values.rs`; `Registry::unregister_lambda`, test `a_lambda_can_be_unregistered`), and no word reaches class unregistration. See F1's status.
 
 ## F33 — `PartialEq` is asymmetric across int/float, and `impl Eq` asserts otherwise
 Comparing an integer to a float truncates; comparing a float to an integer
@@ -1214,6 +1243,7 @@ value silently changes type.
   `raw_value.dt = self.dt`), so a `RESULT` stays a `RESULT`.
   The asymmetry between `set` restoring the tag and `push` not is the defect.
   No corpus program pushes to a `RESULT`, so no golden covers it.
+- **Status 2026-10-19:** not built, because nothing can reach it. Bund2 has no RESULT `dt` (`crates/bund2-value/src/lib.rs`), and the reference's `push` word converts its receiver with `conv(LIST)` first (`reference/Bund/src/stdlib/functions/values/push.rs:33-36`), so `Value::push`'s RESULT arm never decides the word's result. F42 found the same about `set`.
 
 ## F36 — four `dt` constants are readable but have no writer
 `ASSOCIATION` (`reference/rust_dynamic/src/types.rs:51`) appears in eight
@@ -1240,6 +1270,7 @@ of which is how `PAIR` and `MESSAGE` are set
   with no values carries no behaviour. Record the omission in RFC-0001's tag
   table, and note that it makes the tag count 38 live constants of 42
   declared.
+- **Status 2026-10-19:** built. `crates/bund2-value/src/lib.rs` defines none of LITERAL, LARGE_FLOAT, ASSOCIATION or TOKEN.
 
 ## F37 — `stdlib/classes/registry.rs` is source that is never compiled
 `reference/rust_multistackvm/src/stdlib/classes/registry.rs` defines
@@ -1287,7 +1318,7 @@ one cannot.
   unsatisfiable as written. It now asks for nineteen.
 - Disposition: Bund2 omits the arm unless a writer is found. An arm with no
   constructor carries no behaviour.
-
+- **Status 2026-10-19:** built in memory: `Payload` has no Token arm (`crates/bund2-value/src/lib.rs`). The wire enum `Val` (`crates/bund2-value/src/wire.rs`) keeps `Token` and `Error` as placeholders holding bincode indices 2 and 3, and refuses a decoded value holding one by name.
 
 ## F39 — a caller search that stops at four crates finds phantom dead code
 `Value::exit` was reported as having zero callers by RFC-0001's fourth review
@@ -1888,6 +1919,7 @@ the `except` lambda then runs against a stack the program did not choose.
   context is a frame with an exit action, and unwinding runs it. The
   reference's shape cannot express that because the restore is a statement
   after three early returns.
+- **Status 2026-10-19:** built. `run_context` (`crates/bund2-stdlib/src/conditional.rs`) runs pre, body and post as one `Vm::scoped_call`; `Interp::scoped_call` (`crates/bund2-interp/src/lib.rs`) pushes the frame with `ExitAction::ToStack(prev)`, so the unwinder restores the previous stack on failure as the loop does on success. Pinned by `a_failing_context_still_restores_the_stack`.
 
 ## F58 — `( … )` inside a block hoists out of it
 
@@ -2054,7 +2086,7 @@ The root cause is that the invariant the guard wants is not represented.
   F60 is what remains: `endcontext` is a registered inline
   (`reference/rust_multistackvm/src/stdlib/ctx.rs:31`) and so callable by hand,
   balanced or not.
-
+- **Status 2026-10-19:** built. `endcontext` (`crates/bund2-stdlib/src/conditional.rs`) refuses with `Context is empty` when `Vm::context_depth()` is zero, leaving the stack intact. Pinned by `a_bare_endcontext_refuses`. F72 is the same defect found again by probing.
 
 ## F61 — a comment marker abutting a word is swallowed into the word
 
@@ -2111,6 +2143,18 @@ why it is worth recording now.
   it. The first is cleanest for D34 but removes a hook that metaprogramming
   might legitimately want, and this language's whole posture is that the word
   table is open (D16). Not decided here.
+- **Ruled 2026-10-19 by the repository owner: preserve, and warn.** The
+  binding goes ahead as the reference's does, so `( 7 )` after
+  `:endcontext { … } register` still closes through the lambda; behaviour and
+  goldens are unchanged. Two things now say so:
+  - `register` reports a `Warning` when it binds a lambda to `endcontext`
+    (`ENDCONTEXT_SHADOWED`, `crates/bund2-stdlib/src/values.rs`). Reporting
+    mid-body puts it in D71's set and in `promotable::REPORTS_MID_BODY`
+    beside `alias`, so a JIT crossing never holds values across it.
+  - `bund2 check` reports the site as
+    `Warning: <file>:<line>:<col>: …`, and so does the build's `--check`. It is
+    a hazard, not an underflow, so it is not counted among the findings and
+    `--strict` does not refuse on it.
 
 ## F63 — `:atom` cannot name a word that `name` can spell
 
@@ -2170,6 +2214,7 @@ deliberate", and dispositioned PRESERVE on that guess. The guess was wrong.
 
   No golden is at risk: a program using `:my-word` cannot exist in the corpus,
   since it would not parse.
+- **Status 2026-10-19:** built: `colon_or_atom` (`crates/bund2-syntax/src/lib.rs`) takes every non-whitespace character as the atom's content; pinned by `an_atom_admits_what_a_name_admits`. **Not as stated above:** `}` is not whitespace, so `:foo} println` prints `foo}` in Bund2 where the oracle reports a parse error at 1:1, while `println}` still fails in both. The atom's terminator therefore differs from a name's, and which of the code and the sentence above holds awaits the owner's ruling.
 
 ## F65 — `conditional_try` is defined and never registered
 
@@ -2351,6 +2396,7 @@ hierarchy.
   a message-only change on a path that already fails. If a golden pins the
   text it needs `--accept-deviation` under this F-number; none does today,
   because no corpus program constructs a class with an unregistered parent.
+- **Status 2026-10-19:** built. `make_object` (`crates/bund2-stdlib/src/oop.rs`) names the missing parent, so the example reports `OBJECT class A not registered` where the oracle says `B`. Pinned by `a_class_registers_without_its_parents_and_fails_at_construction`.
 
 ## F73 — the `.` suffix does not agree with itself about where the answer goes
 

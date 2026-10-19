@@ -655,6 +655,16 @@ fn run_check(src: &str, file: &str) -> ExitCode {
             via_of(f)
         );
     }
+    // F62's hazard: not an underflow, so not counted among the findings.
+    for (at, what) in &report.hazards {
+        let where_ = lowered.span_of(*at).map(|sp| locate(src, file, sp));
+        bund2_api::errln!(
+            "Warning: {}:{}:{}: {what}",
+            file,
+            where_.as_ref().map_or(0, |l| l.line),
+            where_.as_ref().map_or(0, |l| l.column)
+        );
+    }
 
     // **Criterion 5**: say how much was skipped, always — including when
     // nothing was found, which is exactly when a silent report misleads.
@@ -694,6 +704,8 @@ fn via_of(f: &bund2_stdlib::check::Finding) -> String {
 struct Underflow {
     /// One line per finding, `file:line:col: …`, in stream order.
     findings: Vec<String>,
+    /// F62's hazards, in the same form. Warnings, never a `--strict` refusal.
+    hazards: Vec<String>,
     /// The one-line count, `check`'s own wording.
     summary: String,
     /// Where the analysis stopped, for `--check`'s report.
@@ -712,21 +724,33 @@ fn underflow_over(files: &[(&str, &str, bund2_syntax::Lowered)]) -> Underflow {
     let mut i = Interp::new();
     bund2_stdlib::register_all(&mut i.registry);
     let report = bund2_stdlib::check::check(&stream, &i.registry, 0);
+    // The file whose range holds a site, the last start at or before it, and
+    // the site's line and column there.
+    let place = |at: usize| {
+        let k = starts.iter().rposition(|s| *s <= at).unwrap_or(0);
+        let (path, text, lowered) = &files[k];
+        let (line, column) = lowered
+            .span_of(at - starts[k])
+            .map(|sp| {
+                let l = locate(text, path, sp);
+                (l.line, l.column)
+            })
+            .unwrap_or((0, 0));
+        (*path, line, column)
+    };
+    let hazards = report
+        .hazards
+        .iter()
+        .map(|(at, what)| {
+            let (path, line, column) = place(*at);
+            format!("{path}:{line}:{column}: {what}")
+        })
+        .collect();
     let findings = report
         .findings
         .iter()
         .map(|f| {
-            // The file whose range holds the finding: the last start at or
-            // before it.
-            let k = starts.iter().rposition(|s| *s <= f.at).unwrap_or(0);
-            let (path, text, lowered) = &files[k];
-            let (line, column) = lowered
-                .span_of(f.at - starts[k])
-                .map(|sp| {
-                    let l = locate(text, path, sp);
-                    (l.line, l.column)
-                })
-                .unwrap_or((0, 0));
+            let (path, line, column) = place(f.at);
             format!(
                 "{path}:{line}:{column}: `{}` needs {} value(s); {} can be proven here{}",
                 f.word,
@@ -761,6 +785,7 @@ fn underflow_over(files: &[(&str, &str, bund2_syntax::Lowered)]) -> Underflow {
     }
     Underflow {
         findings,
+        hazards,
         summary,
         detail,
     }
@@ -1152,7 +1177,7 @@ fn build(args: &[String]) -> ExitCode {
     let underflow = underflow_over(&parsed);
     drop(parsed);
     bar.finish_and_clear();
-    for line in &underflow.findings {
+    for line in underflow.findings.iter().chain(&underflow.hazards) {
         ui::warning!("{line}");
     }
     if check_only {

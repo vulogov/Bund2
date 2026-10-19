@@ -179,11 +179,21 @@ fn has_key(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// What `register` and `bund2 check` say when a program binds a lambda to
+/// `endcontext` — F62.
+pub const ENDCONTEXT_SHADOWED: &str = "`endcontext` is now a lambda: every `( … )` after this closes through it, and a context the lambda does not end stays open (F62)";
+
 /// `register` — bind a name to a LAMBDA or a CLASS
 /// (`reference/rust_multistackvm/src/stdlib/lambdas/registry.rs:5-38`).
 ///
 /// `:Name { … } register` is the documented way to define a word, so this and
 /// the parser's block form are what make the corpus's own idiom expressible.
+///
+/// **A lambda named `endcontext` is bound, and warned about** (F62). `( … )`
+/// closes through a call to that name
+/// (`reference/bund_language_parser/src/vm/ctx.rs:8-20`), so the lambda
+/// replaces the closing half of every parenthesis. The word table stays open
+/// (D16), so the binding goes ahead as the reference's does.
 fn register(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 2 {
         return Err(Error("Stack is too shallow for inline register".into()));
@@ -198,6 +208,9 @@ fn register(vm: &mut dyn Vm) -> Result<(), Error> {
     // reports `Probe not registered` — the class is filed, just not as a word.
     match body.dt() {
         LAMBDA => {
+            if name == "endcontext" {
+                vm.report(bund2_api::diag::Diagnostic::warning(ENDCONTEXT_SHADOWED));
+            }
             vm.register_lambda(&name, body);
             Ok(())
         }
@@ -797,6 +810,31 @@ mod tests {
         let stream = bund2_syntax::compile(src).map_err(|e| e.render(src))?;
         i.eval(&stream).map_err(|e| e.0)?;
         Ok(i)
+    }
+
+    /// F62: a lambda registered as `endcontext` is bound — the parenthesis
+    /// closes through it, as the reference's does — and warned about once.
+    #[test]
+    fn registering_endcontext_warns_and_still_binds() {
+        use bund2_api::diag::{Diagnostic, Reporter, Severity};
+        #[derive(Default)]
+        struct Kept(std::rc::Rc<std::cell::RefCell<Vec<(Severity, String)>>>);
+        impl Reporter for Kept {
+            fn report(&mut self, d: &Diagnostic) {
+                self.0.borrow_mut().push((d.severity, d.reason.clone()));
+            }
+        }
+        let kept = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut i = vm();
+        i.reporter = Box::new(Kept(std::rc::Rc::clone(&kept)));
+        let src = ":endcontext { 42 } register\n( 7 )\n:other { 1 } register";
+        let stream = bund2_syntax::compile(src).expect("compiles");
+        i.eval(&stream).expect("runs");
+        assert_eq!(
+            *kept.borrow(),
+            vec![(Severity::Warning, ENDCONTEXT_SHADOWED.to_string())]
+        );
+        assert_eq!(i.peek().and_then(|v| v.as_int()), Some(42), "the lambda closed the context");
     }
 
     /// The corpus's documented way to define a word, end to end through the

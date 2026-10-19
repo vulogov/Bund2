@@ -461,7 +461,8 @@ fn not(vm: &mut dyn Vm) -> Result<(), Error> {
 /// would pin it.
 ///
 /// A string that is no boolean spelling panics the reference inside
-/// `string_to_bool` (F68). Here the conversion returns an error instead (D37).
+/// `string_to_bool` (F68). Here the conversion answers `false`, as
+/// `convert.to_bool` does, so `"maybe" true and` is `false`.
 fn and_word(vm: &mut dyn Vm) -> Result<(), Error> {
     bool_pair(vm, |a, b| a & b)
 }

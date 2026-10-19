@@ -75,7 +75,7 @@ draft. **D20** — serialisation is a materialisation point — is what lets
 `Symbol` be internal while names cross the wire. **D28** is the whole basis of
 the D-1 handoff below. And **D27** rules the world file is **redb**, which
 criterion 7 rides on: a lambda saved in one process and reloaded in another
-crosses that format. D27 is RESOLVED but **gated on D31, which is OPEN** — if
+crosses that format. D27 is RESOLVED but **gated on D31, which is OPEN** *(2026-10-19: D31 RESOLVED 2026-09-11, no external readers; the gate is discharged)* — if
 an external reader of the world file exists, redb is a breaking format change.
 So criterion 7 is checkable only once D31 rules, and the Design's description
 of the reference's world file as SQLite is a statement about the reference,
@@ -712,7 +712,7 @@ resolution and its cycle bound, and command-before-everything.
    another, with the `CALL` names intact. **Tool:** a Bund2 integration test.
    This is the criterion that `Symbol`-in-the-payload would have failed.
    **It rides on D27** — the world file is redb, not the reference's SQLite —
-   and D27 is gated on **D31**, which is OPEN. Until D31 rules on whether an
+   and D27 is gated on **D31**, which is OPEN *(2026-10-19: RESOLVED 2026-09-11; the gate is discharged and criterion 7 is checkable)*. Until D31 rules on whether an
    external reader of the world file exists, this criterion tests a format
    that may still change. D31's recommended resolution is a feature-gated
    one-way importer, which would discharge the condition without requiring an

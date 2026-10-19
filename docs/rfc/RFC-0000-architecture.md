@@ -319,9 +319,9 @@ so conformance can read 100% with three quarters of the language untested.
 Three files are the shared state between sessions, and this RFC does not
 duplicate them:
 
-- `docs/registers/decisions.md` — 187 entries, **none OPEN**. Append-only; a status may
+- `docs/registers/decisions.md` — 193 entries, **none OPEN**. Append-only; a status may
   change, an entry may not be deleted or renumbered.
-- `docs/registers/defects.md` — 213 entries. The roadmap's §5 listed eleven;
+- `docs/registers/defects.md` — 219 entries. The roadmap's §5 listed eleven;
   the rest were found by running the oracle rather than reading it. F14, F15 and
   F17 are why 18 of 77 hermetic programs could not be captured, and
   `tests/golden/UNSTABLE.txt` tags each row with which: **13 F14, 2 F15, 3
@@ -402,7 +402,7 @@ discovered during M1.
 **The world file container changes** from SQLite to redb (D27). The contained
 values do not: they remain bincode-serialised `Value`s, and D20's rule that
 serialisation materialises lazy identity is unaffected. This is a format
-change gated on **D31**, which is OPEN — not on D11, which asks the same
+change gated on **D31**, which was OPEN (RESOLVED 2026-09-11: no external readers, so D27 holds unconditionally) — not on D11, which asks the same
 question about the *object* format and is now RESOLVED on evidence that does
 not transfer to the world file.
 
@@ -515,6 +515,8 @@ None of these blocks acceptance. All three are real and none is fixed here.
   health number is not yet independent of the first. Residue of Q5.
 - **B2's denominator has two open decisions under it.** D14 (library scope)
   and D29 (the four dead words) each move it, the latter by four either way.
+  *(2026-10-19: both since resolved — D14 as method B″, core 286 of 497; D29
+  as reviving `stacks_left` alone.)*
 
 ### Provenance of both denominators
 
@@ -545,7 +547,7 @@ The full narrowing is regenerated into `tests/golden/HERMETIC.txt` on every
   is a `bund2` to run.
 - **Q15** — `cargo xtask unblock` needs redesigning before it can order M6
   work; as specified it can only see the words the goldens touch.
-- **D31** is OPEN and gates D27, and through it RFC-0002's criterion 7. If an
+- **D31** is OPEN and gates D27, and through it RFC-0002's criterion 7. *(2026-10-19: RESOLVED 2026-09-11, no external readers; the gate is discharged.)* If an
   external reader of the world file exists, the redb change is breaking. It
   was recorded against D11 until D11 was split: D11 asks about the object
   format, which has no producer reachable from Bund and is therefore RESOLVED,
@@ -586,7 +588,7 @@ The full narrowing is regenerated into `tests/golden/HERMETIC.txt` on every
   guide` cross-references it on every run: the guide's own three-layer
   attribution agrees with `classify::subsystem` on **96 words with 0
   disagreements**, which is D14's axis confirmed from an independent source
-  (the axis, not the cut — D14 stays OPEN); the effect audit catches every one
+  (the axis, not the cut — D14 stayed OPEN, later resolved as method B″); the effect audit catches every one
   of the author's 18 hand-flagged hazards and 12 more he did not flag; and the
   guide documents one word, `stacks_left`, that cannot be called at all, which
   is why D29's four are no longer symmetric. The full reading is in

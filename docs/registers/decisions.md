@@ -1200,7 +1200,8 @@ Two side findings from the audit that do stand:
   reject every sentinel type on type grounds are recorded as
   type-constrained rather than guessed at, so the table marks its own
   uncertainty.
-- Status: RESOLVED (application deferred until the arity table is reviewed)
+- Status: RESOLVED; applied by D111, built 2026-10-07.
+- **Status 2026-10-19:** applied by D111 from `docs/arity.md` (`cargo xtask arity`, `xtask/src/arity/`): one-operand forms in 8d96ffb, two- and three-operand forms in 390cc8e, 2026-10-07. A word still without a `.` form is without one by D24, by D111's note, or because it is opaque.
 
 ## D25 — an anonymous class must name itself
 Resolves Q13. When `<class> !` (D23) builds an object from a CLASS value, the
@@ -1302,13 +1303,14 @@ encoding is unchanged. Only the container changes.
 - Decided by: repository owner
 - Blocks: nothing; informs RFC-0003 and D10
 - Depends on: D31
-- Status: RESOLVED (conditional on D31)
+- Status: RESOLVED (conditional on D31; D31 resolved 2026-09-11, so the condition is discharged)
 
 **Dated note, 2026-09-11 — the condition is met.** D31 resolved "no": nothing
 outside Bund reads a world file. D27 therefore holds without condition. This
 unblocks `save.model` and `load.model`, which D51 deferred to this point. They
 also need the conversion between `bund2_value::wire` and `BundValue` that F109
 names.
+- **Status 2026-10-19:** D31 resolved 2026-09-11 (5a6407e): no external readers, so D27 holds unconditionally.
 
 ## D28 — only essential features in the default build
 Bund2's default build enables only what the language needs. The heavyweight
@@ -3188,6 +3190,7 @@ D27 depends on D31. Decided by the repository owner, 2026-09-11.
 - Blocks: nothing
 - Depends on: D10, D40 (the toolchain rule); D27 and D31 (for the model words)
 - Status: **RESOLVED**
+- **Status 2026-10-19:** built 2026-09-11 — `file` and the host words in 10ffe45, `csv` on the csv crate in e1ce685, `sqlite` on graphitesql in 3f33bea, `file` through the `file://` fetch in 5a6407e. `save.model`/`load.model`, deferred above until D31, were built on a redb world in c563036 the same day (`crates/bund2-stdlib/src/world.rs`), once D31 resolved.
 
 ## D52 — `bund.exit` is a request the embedder honours
 
@@ -4920,6 +4923,7 @@ family.
 - **Not built**: `while`, whose two bodies are a condition and a step
   (17 occurrences), `*loop`, which runs until the stack empties, and
   `for`; the literal-count unrolling of option C.
+- **Status 2026-10-19:** `while`, `for` and `*loop` followed under D184 (64881d2, 2026-10-17; `crates/bund2-stdlib/src/check.rs`). Option C's unrolling remains unbuilt.
 
 ## D179 — `check` tracks tags: `!` takes the arm the run would take, `object` follows construction, and a method native declares what it does to its receiver
 
@@ -10032,7 +10036,7 @@ D37 treatment — a report where the reference panics — and not a new deviatio
 
 - Blocks: nothing
 - Depends on: D94 (RFC-0008 Proposed), F10, F165
-- Status: **RESOLVED**; the first two parts built 2026-10-06.
+- Status: **RESOLVED**; the first two parts built 2026-10-06, the third (§D7's trace) under D191, 2026-10-17.
 
 Three pieces of RFC-0008 were unbuilt or unfinished, and they are not alike.
 
@@ -10046,6 +10050,7 @@ Three pieces of RFC-0008 were unbuilt or unfinished, and they are not alike.
    flag, emitting a stream nothing reads. It has no criterion over it (D94
    says so) and no consumer; building it now would be designing an interface
    for a user who does not exist yet.
+- **Status 2026-10-19:** §D7's trace built under D191 — `--trace <file>` (`crates/bund2-cli/src/trace.rs`), and `BUND2_TRACE` in a bundle (`crates/bund2-cli/src/main.rs`), on RFC-0011's frame-loop hooks (383c357, 6bf55dc).
 
 ## D101 — the input seam waits for its second implementor
 
@@ -10054,7 +10059,7 @@ options.
 
 - Blocks: nothing
 - Depends on: D99, D36, F158, F165
-- Status: **RESOLVED — deferred**, with a named trigger.
+- Status: **RESOLVED — deferred**, with a named trigger; the trigger fired and D112 built the seam, 2026-10-07.
 
 ### The decision
 
@@ -10086,6 +10091,7 @@ RFC-0002 should be designed together with it rather than beside it.
 
 **Dated note, 2026-10-07 — the deferral is ended by D112.** The owner took the
 minimal seam, shaped by F165 as this entry said it should be.
+- **Status 2026-10-19:** the seam is `bund2-api`'s `Input`, beside `Reporter` (`crates/bund2-api/src/lib.rs`), with `read_line`, `remember_line` and `read_secret` on the VM; built in dff32be, 2026-10-07, under D112.
 
 ## D100 — `unique` gets a comparator of its own, and one answer where the reference has several
 
@@ -10213,6 +10219,7 @@ needs the same for input, since a word that calls `rustyline` on raw standard
 input cannot run inside one. This decision does not build it. The two helpers
 are the consolidation it needs — five call sites reduced to two — and where it
 would plug in. It will be an amendment to RFC-0002 when it is taken up.
+- **Status 2026-10-19:** the owed input seam was built under D112 (dff32be, 2026-10-07), ending D101's deferral.
 
 ## D98 — `io.textfile` reports where the reference aborts, and truncates where it truncates
 
@@ -10524,6 +10531,7 @@ That is the pattern this RFC is the clearest instance of: the criteria were
 written from the design, and the design was right about mechanism and wrong
 about measurement four times. **A criterion that has not been run is a claim,
 not a check.**
+- **Status 2026-10-19:** RFC-0008 Accepted by D163 (2026-10-14). Criterion 6's suite-wide sweep and §D8's history built under D102 (2026-10-06); §D7's trace built under D191 as `--trace <file>` (`crates/bund2-cli/src/trace.rs`) and, in a bundle, `BUND2_TRACE` (`crates/bund2-cli/src/main.rs`) (383c357, 6bf55dc, 2026-10-17).
 
 ## D93 — RFC-0007 is Proposed
 
@@ -11675,6 +11683,7 @@ after that.
   cases.
 - `cargo xtask bundle` is outside `cargo test` and outside `conform`, so its
   finding-power depends on someone running it.
+- **Status 2026-10-19:** `--emit=native` is withdrawn (D83, 2026-09-30); parse-at-build is ratified as built (D116, 2026-10-08); RFC-0006 is Accepted (D138, 2026-10-10). Q40's Developer-ID and ELF/PE limits remain unmeasured.
 
 ## D81 — `bund2 build` may invoke `codesign` on macOS
 
@@ -12837,6 +12846,7 @@ does not block it.
 - `PROMOTABLE.txt`'s audit gains the check, or the lowering reads `produces`
   from the callee's slot at compile time. The latter is cheaper and needs no
   file change.
+- **Status 2026-10-19:** the reporter gate was built under D71 the same day (F137 RESOLVED 2026-09-16; `REPORTS_MID_BODY` in `crates/bund2-stdlib/src/promotable.rs`). Crossing itself is withdrawn from the shipped runtime by D75.
 
 ## D67 — the residual path applies the rest of the body, and never rejoins
 
@@ -12967,6 +12977,7 @@ number for a claim it never made would be adopting a measurement by analogy.
 
 Conform is unmoved at **106/114, ceiling 106/114**, identical with `--features
 jit` and without. Coverage 383/497, implemented 391/497.
+- **Status 2026-10-19:** assumption 38's resume index and §S5's residual were built under D67 (b0ed7d3, 2026-09-14; `crates/bund2-jit/src/lower.rs`).
 
 ## D65 — the cells have a guaranteed layout, and a lowering is given their address
 
@@ -13004,6 +13015,7 @@ criterion 17 would pass on it vacuously — the exact failure the fifth review's
 B1 had it rewritten to prevent. They land with fragment inlining.
 
 Conform is unmoved at 106/114, ceiling 106/114.
+- **Status 2026-10-19:** the generation and `autoadd` guards landed with §S6's inlining join (bd156b5, 2026-09-14; `crates/bund2-jit/src/lower.rs`); the epoch compare after a crossed call landed with D73 (2026-09-23).
 
 ## D64 — the drain helper is a `Vm` method, and tail position reaches the adapter through its thunk
 
@@ -13370,3 +13382,5 @@ reader until a drain helper exists, so "clears both" is, today, "clears the one
 that exists". `every_writer_of_the_request_cell_is_named` still derives four
 writers and still passes: the adapter writes `pending_tail` through the trait,
 not directly.
+- **Status 2026-10-19:** the mirror exists. §S6's cells (f7f4772) and `Vm::drain_tail_request` (2d2f575) landed 2026-09-13; `Interp::clear_tail_request` clears both `pending_tail` and the request cell (`crates/bund2-interp/src/lib.rs`), and `jit_call_native` calls it on error (`crates/bund2-jit/src/lower.rs`).
+

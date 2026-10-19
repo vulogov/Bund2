@@ -1232,7 +1232,7 @@ mod honesty_tests {
     /// descending into subdirectories as criterion 11's does.
     #[test]
     fn every_native_reporting_mid_body_is_named() {
-        const REPORTS: [&str; 11] = [
+        const REPORTS: [&str; 12] = [
             // A notice, when a TRY block left an error the EXCEPT arm runs.
             "conditional.rs: run_error",
             // A warning, when the exit code is not an integer and 0 is taken
@@ -1246,6 +1246,9 @@ mod honesty_tests {
             // D90: the five `log.*` words all construct their diagnostic here.
             "logging.rs: diagnostic",
             "singles.rs: alias",
+            // F62: a lambda bound to `endcontext` is warned about. In
+            // `promotable::REPORTS_MID_BODY` beside `alias`.
+            "values.rs: register",
             // The two debug REPLs report a failing line and keep going -- the
             // reference prints it and keeps going, and D36 says a word reports
             // rather than printing. `Warning`, because the session has not
