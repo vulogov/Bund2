@@ -28,14 +28,22 @@ unreachable by name. The class one is presumably meant to be `unregister.class`.
 `stdlib_logic_if_false_in_workbench` passes `StackOps::FromStack`, not
 `FromWorkBench`.
 - `reference/rust_multistackvm/src/stdlib/logic/if_fun.rs`
-- Behavioural. Disposition:
+- Behavioural. Disposition: **PRESERVE, as F78.** Ruled by the repository owner, 2026-10-19, ratifying F78's
+  disposition for this entry too: `if.false.in_workbench` reads the current
+  stack, as the reference's does.
 - **Status 2026-10-19:** superseded by F78, which records this defect with disposition PRESERVE. `if.false.in_workbench` / `?false.` reads the current stack (`crates/bund2-stdlib/src/control.rs`, `if_false_wb`, `Side::Stack`); pinned by `tests/probes/if-workbench-variants.bund`. The disposition above stays empty until the owner ratifies F78's.
 
 ## F3 — `stdlib_math_op_inline` checks the wrong stack
 The `FromWorkBench` arm checks `current_stack_len()` before separately checking
 `workbench.len()`.
 - `reference/rust_multistackvm/src/stdlib/math/math_op.rs`
-- Behavioural. Disposition:
+- Behavioural. Disposition: **PRESERVE.** Ruled by the repository owner, 2026-10-19. The `FromWorkBench` arm
+  refuses when the main stack is below the word's depth or the workbench is
+  empty (`reference/rust_multistackvm/src/stdlib/math/math_op.rs:29-36`), and
+  the operands are in fact pulled from those two stacks (`:41`, `:45`), so
+  the main-stack check is not wrong in effect. Bund2's `run_workbench`
+  (`crates/bund2-stdlib/src/math.rs`) guards the same two stacks, so the
+  ruling ratifies the code as built.
 
 ## F4 — redundant clone in `push_to_workbench`
 Clones an owned value, pushes the clone, drops the original.
@@ -707,7 +715,12 @@ different arity, not two spellings of one.
 
 - `reference/rust_multistack/src/stdlib/swap.rs:98,100`,
   `reference/rust_multistackvm/src/stdlib/create_aliases.rs:19`
-- Behavioural. Disposition:
+- Behavioural. Disposition: **PRESERVE.** Ruled by the repository owner, 2026-10-19. `swap` resolves through its
+  alias to `swap_one`, as in the reference; the slot's own native stays bound
+  and unreachable by name. Bund2 keys the JIT arm by `swap_one`'s registration
+  for that reason (`crates/bund2-stdlib/src/fragments.rs`,
+  `the_swap_arm_is_keyed_by_the_native_the_alias_reaches`), and `1 2 3 swap`
+  leaves `1 3 2` in Bund2 as in the oracle.
 
 ## F21 — the oracle is not built from the pinned submodules
 `reference/Bund/Cargo.toml:13,14,23,24,43` are **registry** dependencies and
@@ -763,7 +776,8 @@ table also drops `<-` and `←` unless `stacks_left` is re-registered inline,
 which is a fix rather than a removal.
 - `reference/rust_multistack/src/stdlib/rotate.rs:93`,
   `reference/rust_multistackvm/src/stdlib/create_aliases.rs:22,23`
-- Behavioural. Disposition:
+- Behavioural. Disposition: **FIX, per D29.** Ruled by the repository owner, 2026-10-19, ratifying D29's
+  resolution as built: `stacks_left` is registered and `<-` and `←` reach it.
 - **Status 2026-10-19:** fixed per D29, which the owner resolved: `stacks_left` is registered and `<-` and `←` resolve to it (`crates/bund2-stdlib/src/stack.rs`). The disposition above stays empty until the owner ratifies it as D29's FIX.
 
 ## F23 — `rotate_stack_right` rotates left
@@ -811,7 +825,9 @@ Whether Bund2 revives or omits them is a preservation deviation either way,
 so it is a decision rather than a disposition: **D29**.
 - `reference/rust_multistack/src/stdlib/dup.rs`, `workbench.rs`, `push.rs`,
   `rotate.rs`; `reference/Bund/src/stdlib/functions/values/push.rs:74`
-- Behavioural. Disposition:
+- Behavioural. Disposition: **As D29 resolved it.** Ruled by the repository owner, 2026-10-19: `stacks_left` is
+  revived, `dup_in`, `from_workbench` and `push_to` stay unregistered, and
+  `push` is bound once, to the list push the reference's dispatch reaches.
 - **Status 2026-10-19:** per D29, `stacks_left` is revived (`crates/bund2-stdlib/src/stack.rs`) and `dup_in`, `from_workbench` and `push_to` are not registered; `push` is bound once, to the list push the reference's dispatch reaches (`crates/bund2-stdlib/src/singles.rs`, `push_list`). The disposition above stays empty until the owner ratifies it as D29's resolution.
 
 ## F25 — a dead dispatch cluster holds a second, divergent resolution order
@@ -2217,6 +2233,16 @@ deliberate", and dispositioned PRESERVE on that guess. The guess was wrong.
   No golden is at risk: a program using `:my-word` cannot exist in the corpus,
   since it would not parse.
 - **Status 2026-10-19:** built: `colon_or_atom` (`crates/bund2-syntax/src/lib.rs`) takes every non-whitespace character as the atom's content; pinned by `an_atom_admits_what_a_name_admits`. **Not as stated above:** `}` is not whitespace, so `:foo} println` prints `foo}` in Bund2 where the oracle reports a parse error at 1:1, while `println}` still fails in both. The atom's terminator therefore differs from a name's, and which of the code and the sentence above holds awaits the owner's ruling.
+- **Ruled 2026-10-19 by the repository owner: keep the code.** The atom's
+  content runs to the next whitespace, `}` and every other closer included, so
+  `:foo} println` prints `foo}`, and the sentence in the disposition above
+  that says `:foo}` "still fails exactly as `println}` does" no longer holds:
+  an atom ends at whitespace alone, not where a name ends. This widens the
+  disposition rather than reversing it. The reference rejects `:foo}` as a
+  parse error, so no program it accepts changes meaning and no golden is at
+  risk. The consequence a reader should know is that a closer written flush
+  against an atom is part of it: `{ :foo} println` reports `unclosed block,
+  expected }` at 1:2 in Bund2, so an atom needs a space before the `}`.
 
 ## F65 — `conditional_try` is defined and never registered
 
