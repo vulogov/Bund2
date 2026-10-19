@@ -1174,7 +1174,10 @@ impl BundValue {
     /// Four behaviours, and three of them are not "insert into a map":
     ///
     /// - `LIST` **discards the container and the key**, returning a one-element
-    ///   list (`:7-9`). That is F42, preserved.
+    ///   list (`:7-9`). That is F42, which the `set` *word* fixes through
+    ///   `set_element`; this arm keeps the reference's answer for the words
+    ///   that call `set` on whatever they were handed — `graph` on a LIST
+    ///   wraps it, and `tests/probes/list-words-other-kinds.bund` pins that.
     /// - `LAMBDA` replaces the whole body with one element (`:10-12`), which is
     ///   what D5 relies on for bodies being write-once — the original is
     ///   untouched and a new value comes back.
@@ -1194,6 +1197,20 @@ impl BundValue {
             }
             _ => value.with_q(self.q()),
         }
+    }
+
+    /// A LIST with the element at one-based `index` replaced — F42's fix.
+    ///
+    /// The index is the key as `set` casts it, a string, read as an integer
+    /// and counted from one as `at` counts. `None` when the receiver is not a
+    /// LIST or the index names no element; the list is never grown.
+    pub fn set_element(&self, index: &str, value: BundValue) -> Option<BundValue> {
+        let items = self.as_list().filter(|_| self.dt() == LIST)?;
+        let n: usize = index.trim().parse().ok()?;
+        let slot = n.checked_sub(1).filter(|i| *i < items.len())?;
+        let mut next = items.to_vec();
+        next[slot] = value;
+        Some(self.rebuilt(LIST, Payload::List(next)))
     }
 
     /// `set` for a **`valuemap`**, whose key is a whole value rather than a

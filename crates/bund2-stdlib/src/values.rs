@@ -78,6 +78,11 @@ fn nodata(vm: &mut dyn Vm) -> Result<(), Error> {
 /// value first, then the key, then the receiver
 /// (`reference/rust_multistackvm/src/stdlib/values/value_dict.rs:10-16`). What
 /// happens next is `BundValue::set`'s four arms, which are not all "insert".
+///
+/// **A LIST sets one element** (F42, fixed): the key is a one-based index, as
+/// `at` takes one, and an index that names no element is refused rather than
+/// answered with a one-element list as the reference does
+/// (`reference/rust_dynamic/src/set.rs:7-9`).
 fn set(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 3 {
         return Err(Error("Stack is too shallow for inline set".into()));
@@ -96,6 +101,17 @@ fn set(vm: &mut dyn Vm) -> Result<(), Error> {
     let key = key_val
         .as_str()
         .ok_or_else(|| Error("SET key expected to be string".into()))?;
+    if receiver.dt() == LIST {
+        let len = receiver.as_list().map_or(0, |l| l.len());
+        let Some(next) = receiver.set_element(&key, d_val) else {
+            return Err(Error(format!(
+                "SET returns error: {} names no element of a list of {len}",
+                key.trim()
+            )));
+        };
+        vm.push(next);
+        return Ok(());
+    }
     vm.push(receiver.set(&key, d_val));
     Ok(())
 }
@@ -805,15 +821,41 @@ mod tests {
         );
     }
 
-    /// F42, preserved: `set` on a LIST throws the container and the key away.
+    /// F42, fixed in the word: `set_element` replaces the element its
+    /// one-based key names and keeps the rest; a key naming no element is
+    /// `None`. `BundValue::set` keeps the reference's arm for internal callers.
     #[test]
-    fn set_on_a_list_discards_the_container() {
-        let l = BundValue::list(vec![
-            BundValue::Int(1, bund2_value::StackSym::NONE),
-            BundValue::Int(2, bund2_value::StackSym::NONE),
-        ]);
-        let after = l.set("k", BundValue::Int(9, bund2_value::StackSym::NONE));
-        assert_eq!(after.as_list().map(|v| v.len()), Some(1));
+    fn set_element_sets_one_element() {
+        let int = |n| BundValue::Int(n, bund2_value::StackSym::NONE);
+        let l = BundValue::list(vec![int(1), int(2), int(3)]);
+        let Some(after) = l.set_element("2", int(9)) else {
+            panic!("2 names an element");
+        };
+        let got: Vec<_> = after
+            .as_list()
+            .map(|v| v.iter().filter_map(|x| x.as_int()).collect())
+            .unwrap_or_default();
+        assert_eq!(got, vec![1, 9, 3]);
+        assert_eq!(after.dt(), LIST);
+        for bad in ["0", "4", "k", "-1"] {
+            assert!(l.set_element(bad, int(9)).is_none(), "{bad}");
+        }
+        assert_eq!(l.set("k", int(9)).as_list().map(|v| v.len()), Some(1));
+    }
+
+    /// The word refuses a key that names no element, and says which.
+    #[test]
+    fn set_word_refuses_a_list_index_out_of_range() {
+        let i = run("[ 1 2 3 ] \"2\" 9 set").expect("runs");
+        let got: Vec<_> = i
+            .peek()
+            .and_then(|v| v.as_list().map(|l| l.iter().filter_map(|x| x.as_int()).collect()))
+            .unwrap_or_default();
+        assert_eq!(got, vec![1, 9, 3]);
+        match run("[ 1 2 ] \"3\" 9 set") {
+            Err(e) => assert!(e.to_string().contains("3 names no element of a list of 2"), "{e}"),
+            Ok(_) => panic!("an index past the end must be refused"),
+        }
     }
 
     /// D5's citation: `set` on a LAMBDA replaces the body and returns a new

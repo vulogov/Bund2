@@ -1153,13 +1153,12 @@ fn count_arg_named(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Resu
 /// `complex` — a CINTEGER from two numbers
 /// (`reference/rust_multistackvm/src/stdlib/artefacts.rs:25-50`).
 ///
-/// F18's word with the **wrong guard message**: it says `pair()` (`:27`),
-/// because the function was copied from `pair` and the string was not changed.
-/// That is F40's shape as well as F18's, and both are reproduced — the message
-/// is what a program catching it would see.
+/// The reference's guard message says `pair()` (`:27`), because the function
+/// was copied from `pair` and the string was not changed. That is F40, and it
+/// is fixed: the message names `complex`.
 fn complex(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 2 {
-        return Err(Error("Stack is too shallow for inline pair()".into()));
+        return Err(Error("Stack is too shallow for inline complex()".into()));
     }
     let re = crate::pull::operand(vm, "COMPLEX", 1)?;
     let im = crate::pull::operand(vm, "COMPLEX", 2)?;
@@ -1921,7 +1920,7 @@ mod f18_tests {
             ("[ 1 ] head", "HEAD()"),
             ("[ 1 ] tail", "TAIL()"),
             ("[ 1 ] at", "AT()"),
-            ("1.0 complex", "pair()"),
+            ("1.0 complex", "complex()"),
             ("\"a\" string.distance", "STRING.DISTANCE"),
             (
                 "\"a\" string.distance.levenshtein",

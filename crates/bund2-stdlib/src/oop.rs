@@ -955,16 +955,16 @@ fn is_word(vm: &mut dyn Vm) -> Result<(), Error> {
 /// **The operands are object-on-top, value-beneath** — the opposite of
 /// construction, which is why `wrap_unwrap_demo.bund` needs a `swap` first.
 ///
-/// The reference's depth guard and its error strings both say `UNWRAP`
-/// (`:85`, `:91`, `:93`); only the two later messages say `WRAP`. Preserved:
-/// the text is what a `?try` handler reads.
+/// The reference's depth guard and its first two refusals say `UNWRAP`
+/// (`:85`, `:91`, `:93`), copied from `unwrap` below it. That is F40, and it
+/// is fixed: every message here names `WRAP`.
 fn wrap_word(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 2 {
-        return Err(Error("Stack is too shallow for inline UNWRAP".into()));
+        return Err(Error("Stack is too shallow for inline WRAP".into()));
     }
     // This one's two refusals have no colon (`value_class.rs:91,93`), where
     // `unwrap`'s own have one (`:116,118`).
-    let obj = pull_object(vm, "UNWRAP").map_err(|e| Error(e.0.replacen("UNWRAP:", "UNWRAP", 1)))?;
+    let obj = pull_object(vm, "WRAP").map_err(|e| Error(e.0.replacen("WRAP:", "WRAP", 1)))?;
     // Checked *before* the write, because `set_in_object` cannot report that it
     // found no owner for the slot — it returns the object unchanged.
     if locate(&obj, ".data").is_none() {
@@ -1622,15 +1622,15 @@ mod tests {
     }
 
     /// Every one of these is reported rather than asserted, and each message is
-    /// the reference's — including `wrap`'s guard, which says `UNWRAP`
-    /// (`value_class.rs:85`) because the reference's does.
+    /// the reference's except `wrap`'s, which names `WRAP` where the
+    /// reference's says `UNWRAP` (`value_class.rs:85,91`) — F40, fixed.
     #[test]
     fn the_wrapped_value_words_report_their_misuse() {
         for (src, want) in [
             ("unwrap", "Stack is too shallow for inline UNWRAP"),
             ("is", "Stack is too shallow for inline IS"),
-            ("wrap", "Stack is too shallow for inline UNWRAP"),
-            ("1 2 wrap", "UNWRAP NO OBJECT IN #1"),
+            ("wrap", "Stack is too shallow for inline WRAP"),
+            ("1 2 wrap", "WRAP NO OBJECT IN #1"),
             ("42 unwrap", "UNWRAP: NO OBJECT IN #1"),
             ("42 is", "IS: NO OBJECT IN #1"),
             ("1 2 #", "# NO LAMBDA or PTR IN #1"),

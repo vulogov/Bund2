@@ -759,7 +759,10 @@ another instance of the F24 pattern.
 No corpus program uses `rotate_stack_right`, `rotate_stack_left`, `->` or
 `<-`, so no golden covers it.
 - `reference/rust_multistack/src/stdlib/rotate.rs:83-89,101,102`
-- Behavioural. Disposition:
+- Behavioural. Disposition: **FIX, kept.** Ruled by the repository owner,
+  2026-10-19. Bund2 had already fixed it (`crates/bund2-stdlib/src/stack.rs`,
+  "F23 is fixed here") with the disposition left empty, so the deviation
+  shipped without a ruling; the ruling ratifies it as built.
 
 ## F24 — four names exist only in the dead table, and `push` is registered twice
 Comparing every `register_function` name against every `register_inline` name
@@ -1345,6 +1348,21 @@ along with the guard they sit under.
   recorded separately because it is a distinct defect that would survive a
   fix addressing only the arity.
 
+- **Built 2026-10-19**, on the repository owner's ruling that the FIX stands.
+  Bund2 had reproduced both messages. Now `complex`'s guard says
+  `Stack is too shallow for inline complex()`
+  (`crates/bund2-stdlib/src/singles.rs`), and `wrap`'s guard and first two
+  refusals say `WRAP` where the reference says `UNWRAP`
+  (`reference/Bund/src/stdlib/functions/oop/value_class.rs:85,91,93`;
+  `crates/bund2-stdlib/src/oop.rs`). No golden pins either text; conformance
+  stays 136/148.
+
+  **Scope: the per-word copies, not the shared functions.** `FLOAT_OP` for the
+  `math.*` families and the stack layer's `rotate_stack_left` inside
+  `rotate_stack_right` are the same shape. D105 matched them deliberately,
+  owner-authorised, because the text comes from shared code. They are left
+  under D105, and this entry does not overrule it.
+
 ## F41 — a scripted edit whose target does not match silently does nothing
 RFC-0001's fourth revision reported that `Payload` had been defined, that
 `curr` had been changed from a `Cell` to a plain field, and that F15's
@@ -1391,6 +1409,20 @@ container. Neither is reached by a corpus program.
 - Disposition: **FIX**, with F35. `set` on a list sets an element and
   preserves the `dt`, as the map arm already preserves it. No golden covers
   it, so `conform` cannot move.
+
+- **Built 2026-10-19**, on the repository owner's ruling that the FIX stands.
+  Bund2 had preserved it. Now the `set` word on a LIST takes the key as a
+  one-based index, counted as `at` counts, and replaces that element:
+  `[ 1 2 3 ] "2" 9 set` is `[ 1 9 3 ]`. A key naming no element is refused
+  (`SET returns error: 3 names no element of a list of 2`); the list is never
+  grown. The `dt` half has nothing to act on, because Bund2 has no `RESULT`.
+
+  **The value-level arm is unchanged.** `BundValue::set` still answers the
+  reference's one-element list, because words other than `set` call it on
+  whatever they are handed. `graph` on a LIST wraps it that way, and
+  `tests/probes/list-words-other-kinds.bund` pins it. So the claim above that
+  no golden covers this was true of the word and false of the arm. Fixing the
+  arm moved conformance to 135. Fixing the word moves nothing.
 
 ## F43 — the golden capture deadlocks on any program over the pipe buffer
 `run_once` in `xtask/src/golden/mod.rs` spawned the oracle with
@@ -1797,6 +1829,10 @@ operation still fails, naming the wrong layer.
   behaviour changes only in the text of an error on an already-failing path.
   If a golden pins that text it needs `--accept` under this F-number, and F48
   applies.
+- **Superseded 2026-10-19: reproduce.** The repository owner ruled for F108's
+  disposition over this one. The two entries describe the same guard
+  (`reference/Bund/src/stdlib/functions/io/input.rs:91`), and the code already
+  followed F108 (`crates/bund2-stdlib/src/terminal.rs`).
 
 ## F56 — the `$` alias is unreachable, because `$` is also the sigil
 
