@@ -234,8 +234,12 @@ pub struct Interp {
     /// with that failure's text — the Bund traceback (D173). Taken at
     /// `run_to`'s error arm before the frames unwind, only when the reporter
     /// wants it, and handed to the fatal report whose reason carries the
-    /// text; a trace a `?try` swallowed is discarded by that test.
-    failure_trace: Option<(String, Vec<String>)>,
+    /// text. A `?try` that catches the failure moves it to `caught`.
+    failure_trace: Option<FailureTrace>,
+    /// **The trace of the failure a `?try` caught** — handed to the report
+    /// its `except` block makes of it, matched by the same text test, so a
+    /// caught failure is drawn as a traceback too.
+    caught: Option<FailureTrace>,
     /// Where a word's line comes from — D112. [`bund2_api::input::NoInput`]
     /// by default, so an `Interp` nobody has given an input never waits on
     /// one; the CLI swaps in the terminal, a debugged session keeps the
@@ -432,6 +436,7 @@ impl Interp {
             contexts: Vec::new(),
             reporter: Box::new(bund2_api::diag::SilentReporter),
             failure_trace: None,
+            caught: None,
             input: Box::new(bund2_api::input::NoInput),
             fed: VecDeque::new(),
             evaluator: None,
@@ -1048,6 +1053,7 @@ impl Interp {
         // A trace left by a failure an earlier stream caught is not this
         // stream's (D173).
         self.failure_trace = None;
+        self.caught = None;
         for (i, v) in stream.iter().enumerate() {
             match v.dt() {
                 bund2_value::NONE => continue,
@@ -1710,6 +1716,15 @@ impl Interp {
         if self.failure_trace.is_some() || !self.reporter.wants_frames() {
             return;
         }
+        self.failure_trace = Some(FailureTrace {
+            cause: e.0.clone(),
+            frames: self.trace_frames(),
+            source: None,
+        });
+    }
+
+    /// The running frames as the traceback's lines, innermost first.
+    fn trace_frames(&self) -> Vec<String> {
         let n = self.frames.len();
         let mut lines = Vec::new();
         for (i, f) in self.frames.iter().enumerate().rev() {
@@ -1726,7 +1741,7 @@ impl Interp {
             let who = f.who.map(|s| self.registry.interner.name(s));
             lines.push(debug::frame_line(&f.body, f.ip, depth, who));
         }
-        self.failure_trace = Some((e.0.clone(), lines));
+        lines
     }
 
     const TRACE_INNER: usize = 24;
@@ -1736,6 +1751,37 @@ impl Interp {
     fn drain_frames(&mut self) -> Result<(), Error> {
         self.take_pending()?;
         self.run_to(0)
+    }
+}
+
+/// The traceback taken for one failure — D173.
+struct FailureTrace {
+    /// The innermost failure's own text, before anything wrapped it.
+    cause: String,
+    /// The running frames, innermost first.
+    frames: Vec<String>,
+    /// Where in an evaluated string it failed: `(label, text, span)`.
+    source: Option<(String, String, (usize, usize))>,
+}
+
+impl FailureTrace {
+    fn attach(self, d: bund2_api::diag::Diagnostic) -> bund2_api::diag::Diagnostic {
+        let mut d = d.with_frames(self.frames);
+        d.cause = Some(self.cause);
+        if let Some((label, src, (start, end))) = self.source {
+            let start = start.min(src.len());
+            let before = src.get(..start).unwrap_or_default();
+            let line_start = before.rfind('\n').map_or(0, |i| i + 1);
+            d.location = Some(bund2_api::diag::Location {
+                file: Some(label),
+                line: before.matches('\n').count() + 1,
+                column: before.get(line_start..).unwrap_or_default().chars().count() + 1,
+                excerpt: None,
+                span: Some((start, end.clamp(start, src.len()))),
+            });
+            d.source = Some(src);
+        }
+        d
     }
 }
 
@@ -2253,6 +2299,36 @@ impl Vm for Interp {
         self.input.secret(prompt)
     }
 
+    fn note_source_failure(&mut self, label: &str, src: &str, span: (usize, usize), e: &Error) {
+        if !self.reporter.wants_frames() {
+            return;
+        }
+        match &mut self.failure_trace {
+            // Innermost wins: a body this string called failed first, and the
+            // string is where that body was reached from, so it is the place
+            // to underline unless an inner string already took it.
+            Some(t) if e.0.contains(&t.cause) => {
+                if t.source.is_none() {
+                    t.source = Some((label.to_string(), src.to_string(), span));
+                }
+            }
+            _ => {
+                self.failure_trace = Some(FailureTrace {
+                    cause: e.0.clone(),
+                    frames: self.trace_frames(),
+                    source: Some((label.to_string(), src.to_string(), span)),
+                });
+            }
+        }
+    }
+
+    fn catch_failure(&mut self, e: &Error) {
+        self.caught = self
+            .failure_trace
+            .take()
+            .filter(|t| e.0.contains(&t.cause));
+    }
+
     fn report(&mut self, d: bund2_api::diag::Diagnostic) {
         // RFC-0005 criterion 25's run-time half: natives return errors, they
         // do not report them, because a mid-body `Error` report would take a
@@ -2266,11 +2342,21 @@ impl Vm for Interp {
         // text test is what keeps a trace a `?try` swallowed from being pinned
         // on a later, unrelated error: the reported reason carries the
         // innermost failure's text, wrapped or not, or the trace is not its.
-        let d = match self.failure_trace.take() {
-            Some((inner, frames)) if d.severity.is_fatal() && d.reason.contains(&inner) => {
-                d.with_frames(frames)
+        let d = if d.severity.is_fatal() {
+            match self.failure_trace.take() {
+                Some(t) if d.reason.contains(&t.cause) => d.with_frames(t.frames),
+                _ => d,
             }
-            _ => d,
+        } else {
+            // A caught failure's report: the `except` block hands on the
+            // text `?try` stored, so the same test finds its trace.
+            match self.caught.take() {
+                Some(t) if d.reason.contains(&t.cause) => t.attach(d),
+                other => {
+                    self.caught = other;
+                    d
+                }
+            }
         };
         // Collect the stacks only if something will show them, for a
         // diagnostic of this severity (D45).

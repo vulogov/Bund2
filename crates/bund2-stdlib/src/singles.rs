@@ -401,7 +401,7 @@ fn bund_eval_file_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> 
     let Some(src) = crate::host::fetch_uri(&format!("file://{path}")) else {
         return Err(Error(format!("{prefix} can not get code from file {path}")));
     };
-    eval_source(vm, &src)
+    eval_source_named(vm, &path, &src)
 }
 
 fn bund_eval_file(vm: &mut dyn Vm) -> Result<(), Error> {
@@ -416,18 +416,32 @@ fn bund_eval_file_wb(vm: &mut dyn Vm) -> Result<(), Error> {
 /// `bund_compile_and_eval` does (`reference/Bund/src/stdlib/helpers/eval.rs:7-37`).
 /// `bund.eval` and `use` both come here.
 pub(crate) fn eval_source(vm: &mut dyn Vm, src: &str) -> Result<(), Error> {
-    let stream = bund2_syntax::compile(src).map_err(|e| Error(e.to_string()))?;
-    for word in stream {
+    eval_source_named(vm, "bund.eval", src)
+}
+
+/// [`eval_source`], with `label` naming the string in a traceback (D173) —
+/// the path `bund.eval-file` read, or the address `use` fetched.
+///
+/// The spans ride beside the stream and change nothing in it
+/// ([`bund2_syntax::Lowered`]); they are read only when a value fails, to tell
+/// the interpreter where in this string that was.
+pub(crate) fn eval_source_named(vm: &mut dyn Vm, label: &str, src: &str) -> Result<(), Error> {
+    let terms = bund2_syntax::parse(src).map_err(|e| Error(e.to_string()))?;
+    let lowered = bund2_syntax::lower_with_spans(&terms, src.len());
+    for (i, word) in lowered.values.iter().enumerate() {
         if word.dt() == bund2_value::NONE {
             continue;
         }
         if word.dt() == EXIT {
             break;
         }
-        let shown = word.render(false);
-        vm.apply(word).map_err(|e| {
+        vm.apply(word.clone()).map_err(|e| {
+            if let Some(span) = lowered.span_of(i) {
+                vm.note_source_failure(label, src, (span.start, span.end), &e);
+            }
             e.context(format!(
-                "Attempt to evaluate value {shown} returned error: "
+                "Attempt to evaluate value {} returned error: ",
+                word.render(false)
             ))
         })?;
     }

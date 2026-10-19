@@ -17,7 +17,11 @@
 //!
 //! A diagnostic with no location falls back to the table, since there is
 //! nothing to underline. Warnings and notices stay one line on standard
-//! error, coloured where that is a terminal.
+//! error, coloured where that is a terminal — except **a failure a `?try`
+//! caught**, which the interpreter hands on with its frames and, for a string
+//! `bund.eval` ran, the string and where in it. That draws as a traceback on
+//! standard error, led by the failure's own text rather than the reference's
+//! wrappers, which embed each value's raw rendering.
 
 use std::ops::Range;
 
@@ -105,21 +109,46 @@ impl TraceReporter {
     /// the caller then draws the table, so a failure to report never hides
     /// the failure being reported.
     fn render(&self, d: &Diagnostic) -> Option<String> {
+        self.draw(d, ReportKind::Error, console::colors_enabled())
+    }
+
+    /// A caught failure's report, or `None` where it carries nothing a
+    /// traceback would add: no frames and no position.
+    fn render_caught(&self, d: &Diagnostic) -> Option<String> {
+        let cause = d.cause.as_deref()?;
+        let colour = console::colors_enabled_stderr();
+        if let Some(text) = self.draw(d, ReportKind::Custom("Caught", Color::Cyan), colour) {
+            return Some(text);
+        }
+        // No position to underline — a body in the program's file failed, and
+        // positions inside bodies do not exist yet: the reason and the frames.
+        let frames = d.frames.as_ref().filter(|f| !f.is_empty())?;
+        let label = console::style("Caught").for_stderr().bold().cyan();
+        Some(format!(
+            "{label}: {cause}\n  traceback, innermost first:\n    {}\n",
+            frames.join("\n    ")
+        ))
+    }
+
+    fn draw(&self, d: &Diagnostic, kind: ReportKind<'_>, colour: bool) -> Option<String> {
         let loc = d.location.as_ref()?;
-        let (id, src) = self.source_for(loc.file.as_deref());
+        let (id, src) = match (&d.source, &loc.file) {
+            (Some(text), Some(name)) => (name.as_str(), text.as_str()),
+            _ => self.source_for(loc.file.as_deref()),
+        };
         let span = loc
             .span
             .map(|(s, e)| s..e)
             .unwrap_or_else(|| guess_span(src, loc.line, loc.column));
         let start = span.start.min(src.len());
         let end = span.end.clamp(start, src.len());
-        let mut report = Report::build(ReportKind::Error, (id, start..end))
+        let mut report = Report::build(kind, (id, start..end))
             .with_config(
                 Config::default()
-                    .with_color(console::colors_enabled())
+                    .with_color(colour)
                     .with_index_type(IndexType::Byte),
             )
-            .with_message(&d.reason)
+            .with_message(d.cause.as_deref().unwrap_or(&d.reason))
             .with_label(
                 Label::new((id, start..end))
                     .with_message("the step that failed began here")
@@ -184,6 +213,12 @@ impl Reporter for TraceReporter {
     fn report(&mut self, d: &Diagnostic) {
         if !d.severity.is_fatal() {
             if self.inner.quiet && d.severity == Severity::Warning {
+                return;
+            }
+            if self.trace
+                && let Some(text) = self.render_caught(d)
+            {
+                bund2_api::err!("{text}");
                 return;
             }
             // Plain where standard error is not a terminal: the bytes are
@@ -254,6 +289,44 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("the step that failed began here"), "{text}");
+    }
+
+    /// A caught failure is drawn over the string it failed in, led by its own
+    /// text: the reference's wrappers, and the raw value they embed, are not
+    /// in it.
+    #[test]
+    fn a_caught_failure_is_drawn_over_its_string() {
+        console::set_colors_enabled_stderr(false);
+        let mut d = Diagnostic::notice(
+            "Lambda content evaluation returned error: Attempt to evaluate value \
+             Value { id: \"x\" } returned error: DIV returns error: Integer division to 0.0",
+        )
+        .at(Location {
+            file: Some("bund.eval".into()),
+            line: 1,
+            column: 5,
+            excerpt: None,
+            span: Some((4, 5)),
+        })
+        .with_frames(vec!["#0  a lambda at 1".into()]);
+        d.cause = Some("DIV returns error: Integer division to 0.0".into());
+        d.source = Some("0 1 /".into());
+        let text = reporter(":other { } register\n", true)
+            .render_caught(&d)
+            .expect("drawn");
+        assert!(text.contains("Caught"), "{text}");
+        assert!(text.contains("bund.eval:1:5") && text.contains("0 1 /"), "{text}");
+        assert!(text.contains("Integer division to 0.0"), "{text}");
+        assert!(!text.contains("Value {"), "{text}");
+        assert!(text.contains("#0  a lambda at 1"), "{text}");
+
+        // Without a position, the cause and the frames; without a cause, the
+        // one line the table reporter writes.
+        d.location = None;
+        let text = reporter("f\n", true).render_caught(&d).expect("drawn");
+        assert!(text.starts_with("Caught: DIV") && text.contains("#0  a lambda at 1"), "{text}");
+        d.cause = None;
+        assert!(reporter("f\n", true).render_caught(&d).is_none());
     }
 
     #[test]

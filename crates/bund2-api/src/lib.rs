@@ -653,6 +653,18 @@ pub trait Vm {
     /// only if the reporter asks for one.
     fn report(&mut self, d: diag::Diagnostic);
 
+    /// **A string being evaluated failed at `span`** — D173's traceback, for
+    /// source that is not the program's file. `label` names the string, as a
+    /// location's file would. Called before the failure is wrapped, so `e` is
+    /// the word's own text. Defaulted to nothing: a `Vm` that draws no
+    /// traceback has nowhere to keep it.
+    fn note_source_failure(&mut self, _label: &str, _src: &str, _span: (usize, usize), _e: &Error) {}
+
+    /// **`e` was caught, and will not reach a fatal report** — so the
+    /// traceback taken for it is kept for the report a handler makes of it,
+    /// rather than pinned on a later failure. Defaulted to nothing.
+    fn catch_failure(&mut self, _e: &Error) {}
+
     /// **Does the reporter want a stack snapshot for this severity?** —
     /// RFC-0005 §S5's reporter rule, D71, F137.
     ///

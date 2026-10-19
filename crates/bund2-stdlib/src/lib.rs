@@ -1472,7 +1472,7 @@ mod honesty_tests {
             // `do` runs its lambda in a loop until the stack empties, and
             // `resolve` applies a PTR to whatever it found.
             "singles.rs: do_base",
-            "singles.rs: eval_source",
+            "singles.rs: eval_source_named",
             "singles.rs: resolve_word",
             // `debug.run` is `bund.eval` with a safepoint offered before each
             // term (D113.5).

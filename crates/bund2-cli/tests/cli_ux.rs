@@ -66,6 +66,46 @@ fn a_pipe_still_sees_the_reference_s_table() {
 /// `--report trace` draws the traceback: the file and position, the term
 /// underlined, the frames innermost first, the stack name, then the stack
 /// box the table would have drawn too.
+/// D194: a program that does not parse exits 1, and one that fails while
+/// running still exits 0, as the reference's does.
+#[test]
+fn a_parse_error_exits_1_and_a_runtime_error_exits_0() {
+    let p = program("unparsed.bund", "{ :foo} println\n");
+    let r = bund2(&["script", "--file", p.to_str().unwrap()], &[]);
+    assert_eq!(r.code, Some(1), "{}", r.out);
+    assert!(r.out.contains("unclosed block"), "{}", r.out);
+    let p = program("bare.bund", "1 2 +\n\"oops\n");
+    let r = bund2(&[p.to_str().unwrap()], &[]);
+    assert_eq!(r.code, Some(1), "a bare path too:\n{}", r.out);
+    let p = program("runtime.bund", FAILING);
+    let r = bund2(&["script", "--file", p.to_str().unwrap()], &[]);
+    assert_eq!(r.code, Some(0));
+}
+
+/// A failure a `?try` caught keeps the one line it had on a pipe, and under
+/// `--report trace` is drawn over the string it failed in.
+#[test]
+fn a_caught_failure_is_one_line_on_a_pipe_and_a_traceback_under_trace() {
+    let p = program(
+        "caught.bund",
+        "?try :try { \"0 1 /\" bund.eval } set :except { ! } set !\n",
+    );
+    let r = bund2(&["script", "--file", p.to_str().unwrap()], &[]);
+    assert_eq!(r.code, Some(0));
+    assert!(
+        r.err.starts_with("Notice: Lambda content evaluation returned error:"),
+        "{}",
+        r.err
+    );
+    let r = bund2(
+        &["script", "--report", "trace", "--file", p.to_str().unwrap()],
+        &[],
+    );
+    assert!(r.err.contains("Caught"), "{}", r.err);
+    assert!(r.err.contains("bund.eval:1:5"), "{}", r.err);
+    assert!(!r.err.contains("Value {"), "{}", r.err);
+}
+
 #[test]
 fn report_trace_draws_the_traceback_with_the_frames() {
     let p = program("trace.bund", FAILING);

@@ -3653,6 +3653,42 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D194 — a program that does not parse exits 1
+
+**Raised 2026-10-19** by the repository owner: "`bund2 script` exits 0 on a
+parse error". It did, faithfully. The reference's `script` hands the source to
+`run_snippet_for_script`, whose `bc.eval` parses it
+(`reference/bundcore/src/bundcore_eval.rs:7-9`); any error, the parse's
+included, is printed and the function returns
+(`reference/Bund/src/stdlib/helpers/run_snippet.rs:85-92`), and `run` returns
+after it (`reference/Bund/src/cmd/bund_script.rs:46`), so the process exits 0.
+Confirmed against the oracle: `{ :foo} println` reports a parse error and exits
+0, as `0 1 /` reports a runtime error and exits 0. A caller — a shell script,
+a CI step, `make` — cannot tell either from success.
+
+The goldens record exit status (`xtask/src/golden/mod.rs`, `## exit`). Of the
+136, none fails to parse and 4 end in a runtime error with exit 0 recorded.
+
+- Blocks: nothing
+- Depends on: D52 (`bund.exit` sets the code), F66 (the reference's report and
+  its exit 0)
+- Options:
+  - **A.** A parse error exits 1; a runtime error stays 0. No golden moves.
+  - **B.** Every error exits 1. Four goldens deviate.
+  - **C.** Keep 0 for both.
+  - **D.** 0 by default, 1 behind a flag.
+- Status: **RESOLVED — A**, by the repository owner, 2026-10-19. A deviation
+  from the reference with no golden to accept: no program in the corpus fails
+  to parse, so `conform` cannot move. Nothing of a program that does not parse
+  ran, so no status of its own is overridden.
+
+### Built, the same day
+
+`PARSE_FAILED` (`crates/bund2-cli/src/main.rs`) is the code both parse sites in
+`run_with_prelude` return — the program's and an included file's (D176) — so
+`bund2 script`, a bare path, and a bundle all exit 1. `check` already exited 2
+on a parse error and is unchanged.
+
 ## D193 — RFC-0012's second review: exact max flow, the Bellman–Ford rule as built, finite weights, and `graph.path`'s crash
 
 **Raised and ruled 2026-10-18** by the repository owner. The second
@@ -5481,6 +5517,35 @@ as a word and fails to evaluate it (`Attempt to evaluate value … "#!/usr/bin/e
 so no program that ran there reads differently here; one that could not
 run there now can. Applied to `script`, `build`, `check` and `infer`
 alike, so a bundle built from such a file carries the same text.
+**Note, 2026-10-19 — a caught failure is drawn too**, on the owner's finding
+that the REPL `reference/Bund/examples/code_snippets/bund_shell.bund` writes
+(`bund.eval` under `?try`, `!` on what `except` receives, `:21-29`) showed a
+division by zero as one line of nested wrappers with the raw `Value { id: …,
+stamp: … }` in the middle, and the ruling "if it caught error, display nice
+traceback". Before, `?try` dropped the trace by the text test above; worse, a
+trace left behind kept the next failure in the same stream from taking its
+own. Now:
+
+- `?try` hands the failure to `Vm::catch_failure`, which moves its trace aside
+  (`crates/bund2-stdlib/src/conditional.rs`, `run_tryexcept`), and the report
+  the `except` block makes of it — `!` on the `error` conditional reports its
+  `context` as a `Notice` — gets it back by the same text test
+  (`crates/bund2-interp/src/lib.rs`, `FailureTrace::attach`).
+- A string being evaluated tells the interpreter where in it a value failed
+  (`Vm::note_source_failure`, from `eval_source_named` in
+  `crates/bund2-stdlib/src/singles.rs`), so `bund.eval`, `bund.eval-file` and
+  `use` failures carry the string, the position and the span. The stream is
+  lowered with spans beside it and is otherwise unchanged.
+- `Diagnostic` gained `cause`, the innermost failure's own text, and `source`,
+  the text the location points into. The reason keeps the reference's wording,
+  which a program reads as data through `context`.
+- On a terminal, or under `--report trace`, `TraceReporter` draws such a
+  notice as a `Caught` report on standard error, led by `cause`, with the
+  string underlined and the frames; with no position, the cause and the
+  frames. On a pipe nothing changed: the one `Notice:` line, byte for byte.
+  Pinned by `a_caught_failure_is_reported_with_its_traceback`,
+  `each_caught_failure_keeps_its_own_trace` and
+  `a_caught_failure_is_one_line_on_a_pipe_and_a_traceback_under_trace`.
 
 ## D172 — `json.from_value` refuses a value nested deeper than the parser's limit
 

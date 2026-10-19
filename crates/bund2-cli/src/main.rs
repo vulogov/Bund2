@@ -313,8 +313,9 @@ fn run_cli() -> ExitCode {
     };
     bund2_stdlib::host::set_args(args.script_args.clone());
     // Exit 0 unless the program asked otherwise: a Bund failure is reported,
-    // not signalled. Only `bund.exit` (D52) and a failure to *start* — bad
-    // arguments, an unreadable file — set an exit code.
+    // not signalled. Only `bund.exit` (D52), a failure to *start* — bad
+    // arguments, an unreadable file — and a program that does not parse
+    // (D194) set an exit code.
     match run(&src, &args) {
         // Unix keeps the low 8 bits of `exit`'s argument, and the reference
         // passes its code straight to `process::exit`.
@@ -1818,6 +1819,11 @@ fn shell_after_a_failure(vm: &mut bund2_interp::Interp, args: &Args) {
 /// (`reference/Bund/src/stdlib/helpers/run_snippet.rs:85-90` sets no code), and
 /// every golden capturing a failing program pins that. Changing it would be a
 /// deviation nobody has asked for.
+/// **A program that does not parse exits 1 — D194.** Nothing of it ran, so
+/// no exit status of the program's own is being overridden; a runtime failure
+/// still exits 0, as the reference's does, since the goldens record it.
+const PARSE_FAILED: i32 = 1;
+
 fn run(src: &str, args: &Args) -> Option<i32> {
     run_with_prelude(&[], src, args)
 }
@@ -1964,7 +1970,7 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
                     print_stats(&rt, args.tier_declined());
                 }
                 let ended = profile::Ended::ParseError(e.what.clone());
-                return finish_profile(&mut rt, args, ended, None);
+                return finish_profile(&mut rt, args, ended, Some(PARSE_FAILED));
             }
         };
         let lowered = bund2_syntax::lower_with_spans(&terms, text.len());
@@ -1999,7 +2005,7 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
                 print_stats(&rt, args.tier_declined());
             }
             let ended = profile::Ended::ParseError(e.what.clone());
-            return finish_profile(&mut rt, args, ended, None);
+            return finish_profile(&mut rt, args, ended, Some(PARSE_FAILED));
         }
     };
     let lowered = bund2_syntax::lower_with_spans(&terms, src.len());

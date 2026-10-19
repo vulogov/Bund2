@@ -255,6 +255,9 @@ fn run_tryexcept(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
         .unwrap_or_else(|| BundValue::lambda(Vec::new()));
 
     if let Err(e) = vm.eval_lambda(&try_l) {
+        // Caught, so its traceback goes to the `except` block's report of it
+        // rather than to a later failure (D173).
+        vm.catch_failure(&e);
         let err_c = new_conditional("error")
             .set("associated", associated)
             .set("context", BundValue::str(e.0));
@@ -496,6 +499,78 @@ mod tests {
             Ok(_) => panic!("{src} was expected to fail"),
             Err(e) => e,
         }
+    }
+
+    /// Keeps what it is given, and asks for frames as a terminal's
+    /// traceback does — or not, as a pipe's table does.
+    struct Tracing(std::rc::Rc<std::cell::RefCell<Vec<bund2_api::diag::Diagnostic>>>, bool);
+    impl bund2_api::diag::Reporter for Tracing {
+        fn report(&mut self, d: &bund2_api::diag::Diagnostic) {
+            self.0.borrow_mut().push(d.clone());
+        }
+        fn wants_frames(&self) -> bool {
+            self.1
+        }
+    }
+
+    fn reports_of(src: &str, frames: bool) -> Vec<bund2_api::diag::Diagnostic> {
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut i = Interp::new();
+        crate::register_all(&mut i.registry);
+        i.reporter = Box::new(Tracing(std::rc::Rc::clone(&seen), frames));
+        let stream = bund2_syntax::compile(src).expect("parses");
+        i.eval(&stream).expect("the failure is caught");
+        seen.take()
+    }
+
+    /// The REPL `bund_shell.bund` writes: a line through `bund.eval` under
+    /// `?try`, and `!` on what `except` receives.
+    const CAUGHT: &str = "?try :try { \"0 1 /\" bund.eval } set :except { ! } set !\n";
+
+    /// **D173, for a failure a `?try` caught.** The report `except` makes of
+    /// it keeps the reference's wrapped text as its reason, and carries the
+    /// failure's own text, the string it failed in, where, and the frames.
+    #[test]
+    fn a_caught_failure_is_reported_with_its_traceback() {
+        let seen = reports_of(CAUGHT, true);
+        let [d] = seen.as_slice() else {
+            panic!("one report: {seen:?}");
+        };
+        assert!(d.reason.contains("Attempt to evaluate value"), "{d:?}");
+        assert_eq!(
+            d.cause.as_deref(),
+            Some("DIV returns error: Integer division to 0.0")
+        );
+        assert_eq!(d.source.as_deref(), Some("0 1 /"));
+        let at = d.location.as_ref().expect("a position in the string");
+        assert_eq!((at.file.as_deref(), at.line, at.column), (Some("bund.eval"), 1, 5));
+        assert_eq!(at.span, Some((4, 5)));
+        assert!(d.frames.as_ref().is_some_and(|f| !f.is_empty()), "{d:?}");
+    }
+
+    /// A reporter that draws no traceback gets the line it always got.
+    #[test]
+    fn a_caught_failure_without_a_traceback_is_one_line() {
+        let seen = reports_of(CAUGHT, false);
+        let [d] = seen.as_slice() else {
+            panic!("one report: {seen:?}");
+        };
+        assert!(d.cause.is_none() && d.source.is_none() && d.location.is_none());
+        assert!(d.frames.is_none());
+    }
+
+    /// The second of two caught failures has its own trace, not the first's
+    /// left behind.
+    #[test]
+    fn each_caught_failure_keeps_its_own_trace() {
+        let twice = format!("{CAUGHT}?try :try {{ \"1 2 3 list /\" bund.eval }} set :except {{ ! }} set !\n");
+        let seen = reports_of(&twice, true);
+        let [_, second] = seen.as_slice() else {
+            panic!("two reports: {seen:?}");
+        };
+        let cause = second.cause.as_deref().expect("its own cause");
+        assert!(!cause.contains("division to 0"), "{cause}");
+        assert_eq!(second.source.as_deref(), Some("1 2 3 list /"));
     }
 
     /// `testing_tryexcept.bund`, verbatim from the corpus. `raise` fails inside

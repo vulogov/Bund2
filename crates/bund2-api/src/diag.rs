@@ -101,6 +101,16 @@ pub struct Diagnostic {
     /// renders it at the failure, before the frames unwind, and a program
     /// that catches errors in a loop would pay for every one.
     pub frames: Option<Vec<String>>,
+    /// **The failure a `?try` caught, by its own text** — set on the report
+    /// the `except` block makes of it, when the reporter wanted frames. The
+    /// reason keeps the reference's wording, wrappers and all, because a
+    /// program reads it as data; this is the innermost failure without them,
+    /// which is what a traceback leads with.
+    pub cause: Option<String>,
+    /// The text [`Diagnostic::location`] points into, when that is not a file
+    /// the reporter holds — a string `bund.eval` ran, say. The location's
+    /// `file` then names it.
+    pub source: Option<String>,
 }
 
 impl Diagnostic {
@@ -113,6 +123,8 @@ impl Diagnostic {
             workbench: None,
             stack_name: None,
             frames: None,
+            cause: None,
+            source: None,
         }
     }
 
