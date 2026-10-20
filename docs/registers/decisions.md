@@ -3653,6 +3653,88 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D200 — `graph.allpath`'s dependence on the last node is preserved (F220)
+
+**Raised 2026-10-20** by the third RFC-0012 review (finding 2). `algos`'
+Johnson replaces the last-listed node's own out-edges with its zero-weight
+source edges, so a negative one there makes Johnson drop that node's rows
+without a word, and `graph.allpath`'s answer depends on how `nodes` is
+ordered (F220).
+
+- Blocks: RFC-0012's acceptance
+- Depends on: D14 (the family is core, so its words are preserved 100%),
+  F17 (node order for the rows), D192 §3 (`graph.bellmanford` for negative
+  weights)
+- Options:
+  - **A. Preserve.** Answer as the reference does; record the defect;
+    `graph.bellmanford` is the word for negative weights.
+  - **B. Fix.** Give Johnson a true extra vertex, or refuse negative
+    weights in `graph.allpath`; either is a deviation in a core word.
+- Status: **RESOLVED** by the repository owner, 2026-10-20: A ("take
+  those three defaults", the review's recommendation being to preserve).
+  Built the same day: nothing in the word changes; F220 records it,
+  RFC-0012 states it under "Current behaviour" and in its preservation
+  analysis, and
+  `allpath_with_a_negative_edge_out_of_the_last_node_answers_nothing`
+  pins both answers.
+
+## D199 — a sum of finite weights that overflows is refused
+
+**Raised 2026-10-20** by the third RFC-0012 review (finding 4). D193 §3
+refuses a weight that is not finite, since no answer over one means
+anything; a sum of finite weights can overflow just the same, and nothing
+guarded it. `graph.bellmanford`, `graph.mst` and `graph.maxflow` answered
+`inf` from finite weights, and one case was a wrong answer: with `A ↔ B`
+at `-1.0e308` each and an unrelated node `C` listed, a distance reached
+`-inf`, `-inf + w < -inf` is false, the last pass relaxed nothing, and the
+negative cycle went unreported — while without `C` it was reported.
+
+- Blocks: RFC-0012's acceptance
+- Depends on: D193 §3, RFC-0012 S4 ("an impossible question is an
+  error")
+- Options:
+  - **A. Refuse**, as D193 §3 refuses a weight: an error by the word that
+    summed, naming what overflowed.
+  - **B. Answer `inf`**, and specify it — leaving the unreported cycle.
+- Status: **RESOLVED** by the repository owner, 2026-10-20: A.
+
+### Built
+
+`bellman_ford` checks each relaxation's sum and answers
+`NoDistances::Overflow(from, to)` at the first that is not finite:
+`GRAPH.BELLMANFORD: a distance overflows: B -> C`. `graph.mst` refuses a
+total that is not: `GRAPH.MST: the total weight overflows`. `max_flow`
+checks the total after each augmentation — each reverse arc holds at most
+its forward edge's finite capacity, so only the total can overflow —
+`GRAPH.MAXFLOW: the flow overflows: S -> T`
+(`crates/bund2-stdlib/src/graph_algorithms.rs`). The `-1.0e308` cycle is
+refused as an overflow with `C` listed and without. The seven reference
+words still answer `inf`, as the reference does. Test:
+`a_sum_that_overflows_is_refused`.
+
+## D198 — `graph.path` from a node to itself is the path of that node
+
+**Raised 2026-10-20** by the third RFC-0012 review (finding 3). F219's fix
+(D193 §5) answers `found=false` for a node past `fast_paths`' size, on the
+ground that no kept edge reaches it. That does not hold from a node to
+itself: the path of one node always exists, and for a node inside the size
+`fast_paths` answers it — `:C :C [ [ :A :B 1.0 ] ] [ :C :A :B ] graph!
+graph.path` answers `{ found=true, path=[ C ], weight=0.0 }` in both
+engines, and the same graph listed `[ :A :B :C ]` answered `found=false`
+in Bund2, where the oracle panics.
+
+- Blocks: RFC-0012's acceptance
+- Depends on: D193 §5, F219
+- Options:
+  - **A.** The path of one node, weight 0.0, wherever the node is listed —
+    what `fast_paths` answers inside its size.
+  - **B.** Keep `found=false` for a node past the size.
+- Status: **RESOLVED** by the repository owner, 2026-10-20: A. Built the
+  same day in `graph_path` (`crates/bund2-stdlib/src/graph.rs`), before
+  the size check; a start and end that differ still answer `found=false`
+  past the size. Test:
+  `graph_path_from_a_node_to_itself_is_found_wherever_it_is_listed`.
+
 ## D197 — an unknown word is reported in the reference's words
 
 **Raised 2026-10-20** by the owner's ruling on D196, of which it is the part

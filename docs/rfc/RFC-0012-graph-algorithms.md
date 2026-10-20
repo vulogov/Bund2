@@ -9,13 +9,19 @@
   not finite, and a `graph.path` crash in the reference; the owner ruled
   on all four in **D193** ("1A 2A 3A 5A"). Every other finding of both is
   answered in place. *(First written as Proposed, which skipped review;
-  back to Draft the same day.)*
+  back to Draft the same day.)* The third review
+  (`RFC-0012-review-2026-10-20.md`, "Not ready for Accepted") found the
+  family core, not library; `graph.allpath`'s answer turning on the node
+  listed last (F220); a one-node path F219's fix refused; and sums that
+  overflow, one hiding a negative cycle. The owner ruled on the last three
+  in **D198**, **D199** and **D200**; the rest is answered in place, and
+  the review's answers are listed at the end.
 - Depends on: RFC-0002 (natives and their declared effects), RFC-0004
   (the effects `bund2 check` reads, and the residual stack), RFC-0005
   (which natives Tier 1 promotes)
-- Decisions consumed: D192 (and its notes of 2026-10-18), D193, D14,
-  D18, D24, D111 (and its note of 2026-10-07), D37, D38, D39, D48, D49,
-  D55; the dispositions of F17, F218 and F219
+- Decisions consumed: D192 (and its notes of 2026-10-18), D193, D198,
+  D199, D200, D14, D18, D24, D111 (and its note of 2026-10-07), D37, D38,
+  D39, D48, D49, D55; the dispositions of F17, F218, F219 and F220
 - Registers searched by subject ("graph", the nineteen word names,
   `graph.rs`, `make_graph`, `fast_paths`, `calc_path`, `algos`, "Title",
   "NaN"): D14, D18, D24, D37, D38, D39, D48, D49, D55, D111, D192, D193,
@@ -64,8 +70,8 @@ reproducibly.
   fewer is refused (`make_graph.rs:68-69`, `:134-135`). Exactly three take
   the third as the weight, cast to FLOAT, and a failed cast is refused
   (`:59-63`, `:125-129`); two, or four and more, weigh 100 (`:66-67`,
-  `:131-133`; F101). An edge naming an unknown node is refused
-  (`:114-116`).
+  `:131-133`; F101). An edge naming an unknown node is refused by both
+  (`make_fast_graph`'s `:48-50`, `make_graph`'s `:114-116`).
 - There are **two readers**, and they disagree:
 
   | | `graph.path` (`make_fast_graph`, then `fast_paths`) | `graph.paths`, `.allpath`, `.transitiveclosure` (`make_graph`, then `algos`) |
@@ -88,18 +94,33 @@ reproducibly.
 - **A weight that is not finite reaches the `algos` words.** Programs make
   one in both engines (`-1.0 math.sqrt` is NaN; `1.0e200 1.0e200 *` is
   inf), and `graph.paths` answers a row `path=NaN` over a NaN edge, in the
-  oracle and in Bund2.
+  oracle and in Bund2: `make_graph` takes any FLOAT as a weight
+  (`make_graph.rs:126-130`), and `algos`' Dijkstra refuses only one below
+  zero (`algos/…/src/cs/graph/dijkstra.rs:104-108`), which NaN is not.
 - `graph.paths` iterates the `HashMap` Dijkstra answers to build its rows
   (`dijkstra.rs:60-80`), so their order is the map's; `graph.allpath` and
   `graph.transitiveclosure` do the same over Johnson's and Warshall's.
   `algos`' Dijkstra refuses a negative weight it meets
   (`algos/…/src/cs/graph/dijkstra.rs:105-109`).
-- The family is **library**, not core, under D14's partition
-  (`docs/core-words.md:16`), so it is outside the 100% preservation that
-  core words carry.
+- **`graph.allpath`'s answer turns on the node listed last** (F220).
+  `algos`' Johnson takes the largest vertex — the last node listed — as its
+  extra source (`algos/…/src/cs/graph/johnson.rs:41-44`), and `add_edge`
+  replaces that node's own out-edges with its zero-weight ones
+  (`johnson.rs:45-47`, `graph.rs:108-113`). A negative edge out of it then
+  reweighs below zero, Dijkstra refuses it, and Johnson drops that source's
+  rows without a word (`johnson.rs:71-74`): `[ [ :A :B 1.0 ] [ :B :C 1.0 ]
+  [ :C :A -0.5 ] ] [ :A :B :C ] graph! graph.allpath` answers `[]` in both
+  engines, and all nine rows with the nodes listed `[ :C :A :B ]`.
+- The family is **core** under D14's partition: `bund/graph` is listed
+  under `## core` (`docs/core-words.md:9`, the line at `:16`), not under
+  `## library` (`:43`). So all seven words carry D14's 100% preservation,
+  and each change below to one of them is a deviation in a core word.
+  *(Until the third review this said "library", citing the same line; F17's
+  note of 2026-10-18 had the same misreading.)*
 - Bund2 reproduces all seven words (`crates/bund2-stdlib/src/graph.rs`),
   `graph.path`'s operand lookup since F218, and with F219's crash answered
-  `found=false`.
+  `found=false` — or, from a node to itself, the path of that one node
+  (D198).
 
 ## Design
 
@@ -118,8 +139,8 @@ The graph is on top; a node operand beneath it.
 | `graph.cycle` | `<graph>` | LIST of names around one cycle, or `[ ]` |
 | `graph.components` | `<graph>` | LIST of LISTs, edges read both ways |
 | `graph.scc` | `<graph>` | LIST of LISTs, each mutually reachable |
-| `graph.mst` | `<graph>` | MAP `edges` (`[ from to weight ]`), `weight`; edges read both ways, self-loops never chosen (`graph_algorithms.rs`, `mst`), negative weights taken; a forest when the graph is not connected |
-| `graph.bellmanford` | `<start> <graph>` | `graph.paths`' rows (`dijkstra.rs:69-76`): `node`, `path` or NODATA |
+| `graph.mst` | `<graph>` | MAP `edges` (`[ from to weight ]`), `weight`; edges read both ways, self-loops never chosen (`graph_algorithms.rs`, `mst`), negative weights taken; a forest when the graph is not connected; a total that overflows is refused (S4) |
+| `graph.bellmanford` | `<start> <graph>` | `graph.paths`' rows (`dijkstra.rs:69-76`): `node`, `path` or NODATA, never an infinite distance (S4) |
 | `graph.maxflow` | `<sink> <source> <graph>` | MAP `flow`, `edges` (`[ from to share ]`, every edge whose share is above 0.0); every capacity above 0.0 counts, however small beside the largest (D193 §1); a sink the source cannot reach answers `flow` 0.0 |
 
 Over the empty graph, `graph.toposort`, `graph.components` and
@@ -172,7 +193,9 @@ alphabet:
 - `graph.cycle` answers the first cycle a depth-first search in node order
   closes, starting where the search entered it;
 - `graph.mst` answers its edges lightest first, equal weights in the order
-  the graph lists its edges, and `graph.maxflow` its `edges` in that order;
+  the graph lists its edges — equal by `==`, so `-0.0` and `0.0` are
+  equal and keep that order — and `graph.maxflow` its `edges` in that
+  order;
 - F17's three words sort their rows the same way: `graph.paths` by node,
   `graph.allpath` and `graph.transitiveclosure` by `from` and then `to`.
 
@@ -187,8 +210,14 @@ An impossible question is an error a program catches with `?try`
   smallest-numbered node of the negative cycle the search finds by walking
   back from the last edge it relaxed. With two reachable negative cycles,
   which one that is depends on the order of the edges, so `B` need not be
-  the smallest node on any cycle; for one program it is the same on every
-  run (D193 §2);
+  the smallest node of all the reachable cycles; for one program it is the
+  same on every run (D193 §2);
+- `GRAPH.BELLMANFORD: a distance overflows: A -> C`, naming the edge
+  whose sum first stopped being finite; `GRAPH.MST: the total weight
+  overflows`; `GRAPH.MAXFLOW: the flow overflows: S -> T` (D199). Every
+  weight is finite, so a sum that is not overflowed. Refusing it is also
+  what keeps a negative cycle from going unreported: a distance at `-inf`
+  stops relaxing, so the cycle's last pass found nothing.
 - `GRAPH.MAXFLOW: the source and the sink are one node: A`, checked before
   any capacity;
 - `GRAPH.MAXFLOW: a capacity must not be below zero: A -> B weighs -1`,
@@ -242,7 +271,10 @@ Nothing panics, and nothing answers a plausible value where an invariant
 breaks (D37): a node index out of range when a name is asked for,
 `toposort` stalling with no cycle to name, Bellman–Ford's walk back
 reaching a node no edge relaxed, and `graph.maxflow` handed a capacity the
-reader refuses are each `Error::internal`.
+reader refuses are each `Error::internal`. A sum that overflows is not an
+invariant broken but the program's numbers, so it is an ordinary error
+(S4, D199). In `graph.maxflow` only the total can overflow: each reverse
+arc holds at most its forward edge's capacity, which is finite.
 
 `graph.maxflow` is Edmonds–Karp. Its bound, at most nodes × edges
 augmenting rounds (Edmonds and Karp, 1972), rests on two facts about the
@@ -277,12 +309,15 @@ meaning.
 ## Which points are rulings
 
 Accepting this RFC accepts the following. The owner ruled on these
-(D192, D193): the twelve words and nothing more; Bund2's own
-implementation; the graph read as `graph.paths` reads it, directed; node
-order everywhere, and F17 fixed by it; values for answers and errors for
-impossible questions; no tolerance in `graph.maxflow`; the Bellman–Ford
-rule as built; weights that are not finite refused; F218 fixed; and
-`graph.path` answering `found=false` where the reference crashes (F219).
+(D192, D193, D198, D199, D200): the twelve words and nothing more;
+Bund2's own implementation; the graph read as `graph.paths` reads it,
+directed; node order everywhere, and F17 fixed by it; values for answers
+and errors for impossible questions; no tolerance in `graph.maxflow`; the
+Bellman–Ford rule as built; weights that are not finite refused, and sums
+that overflow refused (D199); F218 fixed; `graph.path` answering
+`found=false` where the reference crashes (F219), and the path of one node
+from a node to itself (D198); and `graph.allpath`'s dependence on the last
+node preserved (F220, D200).
 
 These are D192's build choices, which D192 says can be overruled, and
 which acceptance would ratify:
@@ -298,12 +333,23 @@ which acceptance would ratify:
 
 ## Preservation analysis
 
-- **The seven reference words**: preserved exactly, with three stated
-  exceptions. F17's order is **deliberately changed** from unspecified to
-  node order — an added guarantee, D192 §4. `graph.path`'s crash on a node
-  no kept edge reaches is **deliberately changed** to `found=false` (F219,
-  D193 §5). `graph.path`'s operands are looked up as given again (F218, a
-  Bund2 defect fixed, not a deviation). No golden moves.
+- **The seven reference words** are core (D14), so each exception below
+  is a deviation in a guaranteed word, approved by the ruling named.
+  Preserved exactly, with three stated exceptions. F17's order is
+  **deliberately changed** from unspecified to node order — an added
+  guarantee, D192 §4, which deviates from nothing because the reference's
+  order is unspecified. `graph.path`'s crash on a node no kept edge
+  reaches is **deliberately changed** to `found=false` (F219, D193 §5), or
+  to the path of one node when the start is the end (D198), which is what
+  `fast_paths` answers for a node inside its size. `graph.path`'s operands
+  are looked up as given again (F218, a Bund2 defect fixed, not a
+  deviation). No golden moves.
+- **Preserved, and a defect** (F220, D200): `graph.allpath` answers no
+  rows from a node whose Johnson reweighting fails, which happens when the
+  node listed last has a negative out-edge — so with negative weights its
+  answer depends on how `nodes` is ordered, and with a negative cycle it
+  answers `[]` rather than refusing. Bund2 runs the same `algos` revision
+  and keeps this; `graph.bellmanford` is the word for negative weights.
 - **The twelve new words**: no reference behaviour exists. `conform`,
   `IMPLEMENTED` and `COVERAGE` move by zero. Nothing in `wb.rs`'s `ADDED`
   list pins their `.` forms; `each_form_holds_the_graph_on_the_workbench`
@@ -317,9 +363,11 @@ which acceptance would ratify:
     words refuse the graph (D193 §3);
   - **operand casing**: the new words Title-case a node operand and the
     seven do not (S2);
-  - **negative weights**: `graph.paths` refuses one Dijkstra meets, and
-    `graph.bellmanford` takes it, so a swap from one to the other works
-    one way;
+  - **negative weights**: `graph.paths` refuses one Dijkstra meets,
+    `graph.allpath` drops rows as F220 says, and `graph.bellmanford` takes
+    it and refuses a negative cycle, so a swap to it works one way;
+  - **overflow**: the seven answer `inf` where a sum overflows, and the
+    new words refuse it (D199);
   - **edge order**: a re-given edge keeps its first place (S2);
   - **the `.` forms** answer to the workbench and refuse a missing operand
     as `Stack is too shallow …`, where the plain forms say `NO DATA #n`.
@@ -360,8 +408,10 @@ F219 instead of `found=false`.
    `scc_is_mutual_reachability`, `components_join_what_any_edge_joins`,
    `toposort_and_cycle_agree`, `bellman_ford_agrees_with_dijkstra`,
    `bellman_ford_agrees_with_floyd_warshall` (also: the node named is
-   reachable from the start and the smallest of a negative cycle through
-   it, the rule of S4), `mst_is_minimal` (at least 100 of its 200 graphs
+   reachable from the start and is the least node of some negative cycle,
+   among the nodes not below it — consistent with S4's rule, and weaker,
+   since it does not check that the cycle is the one the walk back found),
+   `mst_is_minimal` (at least 100 of its 200 graphs
    checked exhaustively), `max_flow_is_the_min_cut` (every source and
    sink) and `max_flow_is_the_min_cut_across_magnitudes` (whole capacities
    over thirteen orders of magnitude, flow equal to the cut exactly).
@@ -389,13 +439,22 @@ F219 instead of `found=false`.
    pre-checks.
 8. **F218 and F219**: `graph_path_looks_its_nodes_up_as_given`;
    `graph_path_answers_no_path_for_a_node_no_kept_edge_reaches` (the five
-   graphs that crash the oracle); and
+   graphs that crash the oracle);
+   `graph_path_from_a_node_to_itself_is_found_wherever_it_is_listed`
+   (D198); and
    `graph_path_drops_an_edge_under_one_before_the_lowest_is_kept`.
-9. **Depth**: a 200,000-node chain read by `read`, open and closed into a
-   cycle, through `dfs`, `scc`, `find_cycle` and `toposort` on a thread
-   whose stack is set to 2 MiB (`a_deep_graph_does_not_overflow_the_stack`).
-10. `cargo xtask conform` unchanged at 136/148, ceiling 136/148; clippy
-    clean; the workspace's tests pass.
+9. **Depth**: a 200,000-node chain read by `read`, and the same chain
+   closed into a cycle by adding the closing edge to the `Net` directly,
+   through `dfs`, `scc`, `find_cycle` and `toposort` called directly, on
+   a thread whose stack is set to 2 MiB
+   (`a_deep_graph_does_not_overflow_the_stack`).
+10. `cargo xtask conform` moves by zero across this RFC's commits — it
+    read 136/148 when the RFC was drafted and 137/149 after an unrelated
+    probe was added (c974e36); clippy clean; the workspace's tests pass.
+11. **Overflow, F220 and `-0.0`**: `a_sum_that_overflows_is_refused`
+    (the three words, and the negative cycle at `-1.0e308` with and
+    without an unrelated node), `allpath_with_a_negative_edge_out_of_the_last_node_answers_nothing`,
+    and `mst_keeps_equal_weights_in_listed_order_negative_zero_included`.
 
 ## Open questions
 
@@ -404,3 +463,15 @@ F219 instead of `found=false`.
   word look its operands up as given.
 - **Caching a read graph** (S5): not proposed; it would need a derived
   form that a `set` on the MAP invalidates.
+
+## The third review, answered (2026-10-20)
+
+| Finding | Answer |
+|---|---|
+| 1. The family is core | Corrected under "Current behaviour" and in the preservation analysis; a dated note on F17 |
+| 2. `graph.allpath` and the last node | F220; preserved by the owner's ruling (D200), stated under "Current behaviour" and in the preservation analysis; test in criterion 11 |
+| 3. A node to itself | D198: the path of one node, weight 0.0, wherever the node is listed; criterion 8 |
+| 4. Overflow | D199: the three summing words refuse, naming what overflowed; S4, S5, criterion 11 |
+| 5. `-0.0` in `graph.mst` | Sorted by `partial_cmp`, so equal weights keep the graph's order; S3, criterion 11 |
+| 6. Criterion 10 | Restated as a move of zero |
+| 7. Smaller points | S4's wording on the cycle node; `make_fast_graph`'s citation; criteria 3 and 9 describe what they check; the NaN claim cited |

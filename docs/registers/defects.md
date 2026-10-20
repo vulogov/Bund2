@@ -575,6 +575,13 @@ programs and the subsystem is otherwise library-shaped.
   (`docs/core-words.md:16`). The fix needed no ruling on scope: it adds an
   order to library words and changes no golden.
 
+  *Note, 2026-10-20:* the note above misreads `docs/core-words.md:16`.
+  That line is under `## core` (`:9`); `## library` begins at `:43`. The
+  family is **core**, so the seven words carry D14's 100% preservation (the
+  third RFC-0012 review, finding 1). The fix stands on its own ground: the
+  reference's order is unspecified, so node order deviates from nothing,
+  whatever the family's scope.
+
 ## F18 — depth guards under-declare arity for 14 words
 A word normally opens with `if vm.stack.current_stack_len() < N { bail!("Stack
 is too shallow ...") }`. For 14 words that `N` is smaller than what the word
@@ -4207,6 +4214,42 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F220 — `graph.allpath` answers no rows when the node listed last has a negative out-edge
+
+**An original-implementation defect; found 2026-10-20 by the third
+RFC-0012 review (finding 2).** `graph.allpath` calls `algos`' Johnson
+(`crates/bund2-stdlib/src/graph.rs`, the `allpath` arm; the reference's
+`allshortpath.rs`). Johnson does not add a new vertex: it takes the
+largest existing one as its source `q`
+(`~/.cargo/git/checkouts/algos-9d1538761d16fda1/4c08437/src/cs/graph/johnson.rs:41-44`)
+and adds a zero-weight edge from `q` to every vertex (`:45-47`), and
+`add_edge` first removes any edge `q` already has to that vertex
+(`src/cs/graph.rs:108-113`). So the potentials come from a graph in which
+the last-listed node's own out-edges are gone. When one of them is
+negative, its reweighted weight `w + h_u - h_v` (`johnson.rs:61-65`) is
+below zero, Dijkstra refuses the reweighted graph, and Johnson skips that
+source's rows without a word (`:71-74`, `Err(_) => continue`).
+
+Run on the oracle and on Bund2, 2026-10-20:
+
+    [ [ :A :B 1.0 ] [ :B :C 1.0 ] [ :C :A -0.5 ] ] [ :A :B :C ] graph! graph.allpath   → []
+    [ [ :A :B 1.0 ] [ :B :C 1.0 ] [ :C :A -0.5 ] ] [ :C :A :B ] graph! graph.allpath   → nine rows
+
+The graph has no negative cycle and every pair is connected. With `-5.0`
+in place of `-0.5` there is one, and the answer is still `[]` rather than
+an error. So the order of `nodes` changes the answer, not only the order of
+its rows, which F17's fix assumed it never does.
+
+- `~/.cargo/git/checkouts/algos-9d1538761d16fda1/4c08437/src/cs/graph/johnson.rs:41-47,61-74`,
+  `src/cs/graph.rs:108-113`
+- Behavioural, in a core word (D14; `docs/core-words.md:16`, under
+  `## core` at `:9`). Disposition: **PRESERVE** (2026-10-20, D200, the
+  repository owner's ruling): Bund2 runs the same `algos` revision and
+  answers as the reference does. `graph.bellmanford` takes negative weights
+  and refuses a negative cycle. Test:
+  `allpath_with_a_negative_edge_out_of_the_last_node_answers_nothing`
+  (`crates/bund2-stdlib/src/graph_algorithms.rs`).
+
 ## F219 — `graph.path` panics on a node no kept edge reaches
 
 **An original-implementation defect; found 2026-10-18 by the second
@@ -4239,6 +4282,14 @@ it cannot reach (`getpath.rs:76`). A deviation from the reference, which
 crashes; no golden runs these graphs, so conformance does not move.
 Checked by `graph_path_answers_no_path_for_a_node_no_kept_edge_reaches`
 in `crates/bund2-stdlib/src/graph.rs`.
+
+*Note, 2026-10-20 — from a node to itself.* The third RFC-0012 review
+(finding 3) showed the fix above answering `found=false` for `:C :C` when
+the isolated `C` is listed last, where the same graph with `C` listed first
+answers the path `[ C ]`, weight 0.0, in both engines: the path of one node
+always exists. D198, the owner's ruling, answers that path wherever the
+node is listed. Test:
+`graph_path_from_a_node_to_itself_is_found_wherever_it_is_listed`.
 
 ## F218 — `graph.path` Title-cased its node operands, where the reference looks them up as given
 

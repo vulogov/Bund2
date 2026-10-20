@@ -254,7 +254,21 @@ fn graph_path(vm: &mut dyn Vm) -> Result<(), Error> {
     // `calc_path` asserts both nodes are inside that size
     // (`path_calculator.rs:77-82`), so the reference panics on a node past
     // it. No kept edge reaches such a node, so there is no path (F219, D193).
+    //
+    // **Except from a node to itself** (D198): the path of one node always
+    // exists, and `fast_paths` answers it, weight 0, for a node inside its
+    // size — so a node past the size answers the same, and where a node is
+    // listed does not change the answer.
     let size = prepared.get_num_nodes();
+    if start_ix == end_ix && start_ix >= size {
+        vm.push(
+            BundValue::map(Default::default())
+                .set("path", BundValue::list(vec![BundValue::str(start.clone())]))
+                .set("weight", BundValue::float(0.0))
+                .set("found", BundValue::boolean(true)),
+        );
+        return Ok(());
+    }
     if start_ix >= size || end_ix >= size {
         vm.push(BundValue::map(Default::default()).set("found", BundValue::boolean(false)));
         return Ok(());
@@ -672,6 +686,28 @@ mod tests {
             let found = top_text(&format!("{g} graph.path"));
             assert!(
                 found.contains("found=false") && !found.contains("path="),
+                "{g}: {found}"
+            );
+        }
+    }
+
+    /// **D198: a node to itself is a path of one node, wherever the node is
+    /// listed.** Inside `fast_paths`' size it answers so itself; past it —
+    /// an isolated node listed last — Bund2 answers the same, where F219's
+    /// first fix answered `found=false` and the reference panics.
+    #[test]
+    fn graph_path_from_a_node_to_itself_is_found_wherever_it_is_listed() {
+        for g in [
+            ":C :C [ [ :A :B 1.0 ] ] [ :C :A :B ] graph!",
+            ":C :C [ [ :A :B 1.0 ] ] [ :A :B :C ] graph!",
+            ":A :A list [ :A ] graph!",
+        ] {
+            let found = top_text(&format!("{g} graph.path"));
+            let node = &g[1..2];
+            assert!(
+                found.contains("found=true")
+                    && found.contains(&format!("path=[ {node} :: ]"))
+                    && found.contains("weight=0.0"),
                 "{g}: {found}"
             );
         }

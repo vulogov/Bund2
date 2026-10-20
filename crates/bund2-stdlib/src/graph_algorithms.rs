@@ -503,10 +503,15 @@ pub(crate) fn scc(net: &Net) -> Vec<Vec<usize>> {
 /// A minimum spanning forest by Kruskal, every edge read both ways and
 /// self-loops left out. Edges of equal weight are taken in the order the
 /// graph lists them, so the forest chosen is the same on every run.
+///
+/// **Equal by `==`, not by `total_cmp`**, which puts `-0.0` before `0.0`:
+/// the two weigh the same, so they keep the order the graph lists them in,
+/// as the rule says (RFC-0012's third review, finding 5). The reader admits
+/// only finite weights, so no comparison is undefined.
 pub(crate) fn mst(net: &Net) -> Vec<(usize, usize, f64)> {
     let mut order: Vec<&(usize, usize, f64)> =
         net.edges.iter().filter(|(f, t, _)| f != t).collect();
-    order.sort_by(|a, b| a.2.total_cmp(&b.2));
+    order.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
     let mut parent: Vec<usize> = (0..net.len()).collect();
     let mut chosen = Vec::new();
     for &&(f, t, w) in &order {
@@ -521,31 +526,55 @@ pub(crate) fn mst(net: &Net) -> Vec<(usize, usize, f64)> {
     chosen
 }
 
+/// Why [`bellman_ford`] has no distances to answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NoDistances {
+    /// A negative cycle `s` reaches, by its smallest-numbered node.
+    Cycle(usize),
+    /// A distance through this edge, `from` then `to`, is not finite — the
+    /// sum of finite weights overflowed (D199).
+    Overflow(usize, usize),
+}
+
 /// Shortest distances from `s` by Bellman–Ford, which takes negative
-/// weights. The inner `Err` names a node on a negative cycle reachable from
-/// `s`: the smallest-numbered node of the one cycle the walk back finds,
-/// which depends on the order of the edges when two cycles are reachable
-/// (D193). The outer `Err` is a defect in the walk.
-pub(crate) fn bellman_ford(net: &Net, s: usize) -> Result<Result<Vec<Option<f64>>, usize>, Error> {
+/// weights. The inner `Err` says why there are none: a negative cycle
+/// reachable from `s`, named by the smallest-numbered node of the one cycle
+/// the walk back finds, which depends on the order of the edges when two
+/// cycles are reachable (D193); or a distance that overflowed, which would
+/// otherwise stop relaxation at `-inf` and hide such a cycle (D199). The
+/// outer `Err` is a defect in the walk.
+pub(crate) fn bellman_ford(
+    net: &Net,
+    s: usize,
+) -> Result<Result<Vec<Option<f64>>, NoDistances>, Error> {
     let n = net.len();
     let mut dist: Vec<Option<f64>> = vec![None; n];
     let mut pred: Vec<Option<usize>> = vec![None; n];
     if let Some(d) = dist.get_mut(s) {
         *d = Some(0.0);
     }
-    let relax = |dist: &mut Vec<Option<f64>>, pred: &mut Vec<Option<usize>>| -> Option<usize> {
+    // `Ok(Some(t))`: the last node relaxed; `Err`: an edge whose sum is
+    // not finite. Every weight is finite (the reader refuses one that is
+    // not), so a sum that is not finite overflowed.
+    let relax = |dist: &mut Vec<Option<f64>>,
+                 pred: &mut Vec<Option<usize>>|
+     -> Result<Option<usize>, (usize, usize)> {
         let mut last = None;
         for &(f, t, w) in &net.edges {
             let Some(df) = dist.get(f).copied().flatten() else {
                 continue;
             };
+            let via = df + w;
+            if !via.is_finite() {
+                return Err((f, t));
+            }
             let better = match dist.get(t).copied().flatten() {
                 None => true,
-                Some(dt) => df + w < dt,
+                Some(dt) => via < dt,
             };
             if better {
                 if let Some(d) = dist.get_mut(t) {
-                    *d = Some(df + w);
+                    *d = Some(via);
                 }
                 if let Some(p) = pred.get_mut(t) {
                     *p = Some(f);
@@ -553,15 +582,19 @@ pub(crate) fn bellman_ford(net: &Net, s: usize) -> Result<Result<Vec<Option<f64>
                 last = Some(t);
             }
         }
-        last
+        Ok(last)
     };
     for _ in 1..n.max(1) {
-        if relax(&mut dist, &mut pred).is_none() {
-            return Ok(Ok(dist));
+        match relax(&mut dist, &mut pred) {
+            Err((f, t)) => return Ok(Err(NoDistances::Overflow(f, t))),
+            Ok(None) => return Ok(Ok(dist)),
+            Ok(Some(_)) => {}
         }
     }
-    let Some(mut v) = relax(&mut dist, &mut pred) else {
-        return Ok(Ok(dist));
+    let mut v = match relax(&mut dist, &mut pred) {
+        Err((f, t)) => return Ok(Err(NoDistances::Overflow(f, t))),
+        Ok(None) => return Ok(Ok(dist)),
+        Ok(Some(v)) => v,
     };
     // Every node the walk visits was relaxed, so it has a predecessor.
     let back = |u: usize| -> Result<usize, Error> {
@@ -590,7 +623,7 @@ pub(crate) fn bellman_ford(net: &Net, s: usize) -> Result<Result<Vec<Option<f64>
         least = least.min(u);
         u = back(u)?;
     }
-    Ok(Err(least))
+    Ok(Err(NoDistances::Cycle(least)))
 }
 
 /// The maximum flow from `s` to `t`, each edge's weight its capacity, by
@@ -724,6 +757,15 @@ pub(crate) fn max_flow(
             }
         }
         flow += b;
+        // Each capacity is finite and every reverse arc holds at most its
+        // forward edge's, so only the total can overflow (D199).
+        if !flow.is_finite() {
+            return Err(Error(format!(
+                "{word}: the flow overflows: {} -> {}",
+                net.name(s)?,
+                net.name(t)?
+            )));
+        }
     }
     let shares = listed
         .into_iter()
@@ -862,6 +904,10 @@ fn graph_mst(vm: &mut dyn Vm) -> Result<(), Error> {
     let net = operand(vm, "GRAPH.MST")?;
     let chosen = mst(&net);
     let total: f64 = chosen.iter().map(|e| e.2).sum();
+    // Every weight is finite, so a total that is not overflowed (D199).
+    if !total.is_finite() {
+        return Err(Error("GRAPH.MST: the total weight overflows".into()));
+    }
     vm.push(
         BundValue::map(Default::default())
             .set("edges", edge_rows(&net, &chosen)?)
@@ -880,11 +926,18 @@ fn graph_bellmanford(vm: &mut dyn Vm) -> Result<(), Error> {
     let s = node_operand(vm, &net, "GRAPH.BELLMANFORD", "start", 2)?;
     let dist = match bellman_ford(&net, s)? {
         Ok(dist) => dist,
-        Err(u) => {
+        Err(NoDistances::Cycle(u)) => {
             return Err(Error(format!(
                 "GRAPH.BELLMANFORD: {} reaches a negative cycle through {}",
                 net.name(s)?,
                 net.name(u)?
+            )));
+        }
+        Err(NoDistances::Overflow(f, t)) => {
+            return Err(Error(format!(
+                "GRAPH.BELLMANFORD: a distance overflows: {} -> {}",
+                net.name(f)?,
+                net.name(t)?
             )));
         }
     };
@@ -1577,6 +1630,70 @@ mod tests {
         (stack, bench, err)
     }
 
+    /// **D199: a sum of finite weights that overflows is refused**, as D193
+    /// refuses a weight that is not finite — by the word that summed, naming
+    /// what overflowed.
+    #[test]
+    fn a_sum_that_overflows_is_refused() {
+        // D199: each weight is finite, the sum is not.
+        for (src, says) in [
+            (
+                ":A [ [ :A :B 1.0e308 ] [ :B :C 1.0e308 ] ] [ :A :B :C ] graph! graph.bellmanford",
+                "GRAPH.BELLMANFORD: a distance overflows: B -> C",
+            ),
+            (
+                "[ [ :A :B 1.0e308 ] [ :B :C 1.0e308 ] ] [ :A :B :C ] graph! graph.mst",
+                "GRAPH.MST: the total weight overflows",
+            ),
+            (
+                ":T :S [ [ :S :T 1.0e308 ] [ :S :M 1.0e308 ] [ :M :T 1.0e308 ] ] [ :S :M :T ] graph! graph.maxflow",
+                "GRAPH.MAXFLOW: the flow overflows: S -> T",
+            ),
+            // The case that was a wrong answer: `-inf` stopped relaxation,
+            // and the cycle went unreported once an unrelated node was
+            // listed. Now the overflow is the answer, with C or without.
+            (
+                ":A [ [ :A :B -1.0e308 ] [ :B :A -1.0e308 ] ] [ :A :B :C ] graph! graph.bellmanford",
+                "GRAPH.BELLMANFORD: a distance overflows: B -> A",
+            ),
+            (
+                ":A [ [ :A :B -1.0e308 ] [ :B :A -1.0e308 ] ] [ :A :B ] graph! graph.bellmanford",
+                "GRAPH.BELLMANFORD: a distance overflows: B -> A",
+            ),
+        ] {
+            match run_src(src) {
+                Ok(i) => panic!("{src} answered {:?}", i.peek().map(|v| v.display())),
+                Err(e) => assert!(e.contains(says), "{src}: {e}"),
+            }
+        }
+    }
+
+    /// **`-0.0` and `0.0` weigh the same**, so `graph.mst` keeps them in the
+    /// order the graph lists them (RFC-0012 §S3; the third review's finding
+    /// 5): `A–B` is listed first and taken first.
+    #[test]
+    fn mst_keeps_equal_weights_in_listed_order_negative_zero_included() {
+        let got =
+            top("[ [ :A :B 0.0 ] [ :B :C -0.0 ] [ :A :C 0.0 ] ] [ :A :B :C ] graph! graph.mst");
+        let (ab, bc) = (got.find("[ A "), got.find("[ B "));
+        assert!(ab.is_some() && bc.is_some() && ab < bc, "{got}");
+    }
+
+    /// **F220, preserved (D200): `graph.allpath`'s answer
+    /// depends on which node is listed last.** `algos`' Johnson takes the
+    /// last node as its extra source and replaces that node's own
+    /// out-edges, so a negative one there drops every row. The reference
+    /// answers so; Bund2 runs the same crate and keeps it.
+    #[test]
+    fn allpath_with_a_negative_edge_out_of_the_last_node_answers_nothing() {
+        let last =
+            top("[ [ :A :B 1.0 ] [ :B :C 1.0 ] [ :C :A -0.5 ] ] [ :A :B :C ] graph! graph.allpath");
+        assert_eq!(last, "[]", "{last}");
+        let first =
+            top("[ [ :A :B 1.0 ] [ :B :C 1.0 ] [ :C :A -0.5 ] ] [ :C :A :B ] graph! graph.allpath");
+        assert!(first.contains("-0.5"), "{first}");
+    }
+
     /// **What a refusal leaves** (§S4, RFC-0004's residual): the values a
     /// word pulled before it refused are gone, the rest are where they were,
     /// and a `.` form moves what its word left to the workbench.
@@ -1692,7 +1809,11 @@ mod tests {
     }
 
     fn bf(n: &Net, s: usize) -> Result<Vec<Option<f64>>, usize> {
-        bellman_ford(n, s).unwrap_or_else(|e| panic!("{}", e.0))
+        match bellman_ford(n, s).unwrap_or_else(|e| panic!("{}", e.0)) {
+            Ok(d) => Ok(d),
+            Err(NoDistances::Cycle(u)) => Err(u),
+            Err(NoDistances::Overflow(f, t)) => panic!("{f} -> {t} overflowed in a test's range"),
+        }
     }
 
     fn net(g: &(BundValue, BundValue)) -> Net {
