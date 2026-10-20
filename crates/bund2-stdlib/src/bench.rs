@@ -39,10 +39,14 @@ pub const MEASURED: &[(&str, u8, u8)] = &[
     ("convert.to_matrix.", 1, 1),
     ("convert.to_string.", 1, 1),
     ("convert.to_textbuffer.", 1, 1),
+    // The sample pass's: a value `encode.base64` made.
+    ("decode.base64.", 1, 1),
     ("encode.base64.", 1, 1),
     ("graph.", 1, 1),
     ("head.", 2, 1),
     ("io.banner.", 1, 0),
+    // The sample pass's: a list of floats; the drawing goes to the stack.
+    ("io.graph.", 1, 0),
     ("make.call.", 1, 1),
     ("math.max.", 1, 1),
     ("math.min.", 1, 1),
@@ -64,6 +68,9 @@ pub const MEASURED: &[(&str, u8, u8)] = &[
     ("string.distance.jarowinkler.", 1, 1),
     ("string.distance.levenshtein.", 1, 1),
     ("string.distance.sift3.", 1, 1),
+    // The sample pass's: the expression on the workbench, the text on the
+    // stack, the answer back on the workbench.
+    ("string.expressionmatch.", 1, 1),
     ("string.fuzzymatch.", 1, 1),
     ("string.prefix.", 1, 0),
     ("string.regex.", 1, 0),

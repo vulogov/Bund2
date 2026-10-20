@@ -1082,9 +1082,41 @@ impl<'a> Walker<'a> {
                 level,
             ),
             "loop" => self.repeat(name, Some(Abs::Unknown), "the list", stack, at, via, level),
-            "if" | "?true" | "if.false" | "?false" => {
+            // `if.false.in_workbench`, and `?false.` with it, passes
+            // `StackOps::FromStack` (`if_fun.rs:103-105`), so despite the
+            // name its condition comes from the stack — F2.
+            "if" | "?true" | "if.false" | "?false" | "?false." | "if.false.in_workbench" => {
                 self.repeat(name, None, "the condition", stack, at, via, level)
             }
+            // The workbench forms: the body from the stack, then what governs
+            // it from the workbench — `times.` (`times_fun.rs:48-62`), `loop.`
+            // (`loop_fun.rs:5-23`, registered at `:121`), and `if.`
+            // (`if_fun.rs:12-66,95-97`; the aliases are
+            // `create_aliases.rs:8,12`).
+            "times." => self.repeat_bench(
+                name,
+                Some(Abs::Tagged(INTEGER)),
+                "the count",
+                stack,
+                at,
+                via,
+                level,
+            ),
+            "loop." => {
+                self.repeat_bench(name, Some(Abs::Unknown), "the list", stack, at, via, level)
+            }
+            "if." | "?true." | "if.in_workbench" => {
+                self.repeat_bench(name, None, "the condition", stack, at, via, level)
+            }
+            // `map_fun.rs:6-46`: the lambda, then the list — from the stack,
+            // or for `map.` from the workbench; each element pushed, the body
+            // run, one value pulled as its outcome, and the outcomes pushed
+            // back where the list came from as one value.
+            "map" | "map." => self.map(name, stack, at, via, level),
+            // `execute.rs:7-99`: `execute.` pulls what it runs from the
+            // workbench, and a LAMBDA runs on the stack (`:97-99`); `!.` is
+            // its alias (`create_aliases.rs:6`).
+            "execute." | "!." => self.execute_bench(name, stack, at, via, level),
             // `ifthenelse_fun.rs:28-71`: the `then` lambda on top, the `else`
             // beneath it, the condition beneath both; one of the two runs.
             // `notifthenelse` runs the other one, which the walk need not
@@ -1269,6 +1301,31 @@ impl<'a> Walker<'a> {
                 self.object_word(stack, at, via, level)
             }
             "!" | "execute" => self.execute(stack, at, via, level),
+            // `.` moves the stack's top to the workbench and `take` moves the
+            // workbench's top back (`reference/rust_multistack/src/ts_workbench.rs:29-35,45-50`;
+            // `.` is `return`'s alias, `create_aliases.rs:4`), so what moved is
+            // what the walk knew of it — a lambda put there for `execute.` is
+            // still a lambda when it is run.
+            "." | "return" => {
+                self.report.analysed += 1;
+                let v = self
+                    .take(stack, 1, name, at, via)
+                    .and_then(|mut t| t.pop())
+                    .unwrap_or(Abs::Unknown);
+                self.apply_bench(name, Bench::Fixed { consumes: 0, produces: 1 }, at, via);
+                if let Some(b) = self.bench.as_mut() {
+                    b.pop();
+                    b.push(v);
+                }
+                true
+            }
+            "take" => {
+                self.report.analysed += 1;
+                let top = self.bench.as_ref().and_then(|b| b.items.last().cloned());
+                self.apply_bench(name, Bench::Fixed { consumes: 1, produces: 0 }, at, via);
+                stack.push(top.unwrap_or(Abs::Unknown));
+                true
+            }
             _ => return None,
         };
         Some(went)
@@ -1307,6 +1364,108 @@ impl<'a> Walker<'a> {
             return self.abandon(format!("`{name}` with a body the walk cannot see"));
         };
         self.run_repeatedly(name, each, governs, &b, stack, at, level)
+    }
+
+    /// [`Walker::repeat`] for a workbench form: the body from the stack, what
+    /// governs it from the workbench.
+    #[allow(clippy::too_many_arguments)]
+    fn repeat_bench(
+        &mut self,
+        name: &str,
+        each: Option<Abs>,
+        governs: &str,
+        stack: &mut Stack,
+        at: usize,
+        via: Option<&str>,
+        level: u8,
+    ) -> Went {
+        self.report.analysed += 1;
+        let Some(mut t) = self.take(stack, 1, name, at, via) else {
+            return self.abandon(format!("`{name}` with nothing beneath it to run"));
+        };
+        self.apply_bench(name, Bench::Fixed { consumes: 1, produces: 0 }, at, via);
+        let Abs::Lambda(b) = t.remove(0) else {
+            return self.abandon(format!("`{name}` with a body the walk cannot see"));
+        };
+        self.run_repeatedly(name, each, governs, &b, stack, at, level)
+    }
+
+    /// `map` and `map.`: a run is an element pushed, the body, and one value
+    /// pulled, so a body that leaves its element replaced by one value nets
+    /// zero, and the outcomes are one value where the list was.
+    fn map(&mut self, name: &str, stack: &mut Stack, at: usize, via: Option<&str>, level: u8) -> Went {
+        self.report.analysed += 1;
+        let on_bench = name == "map.";
+        let Some(mut t) = self.take(stack, if on_bench { 1 } else { 2 }, name, at, via) else {
+            return self.abandon(format!("`{name}` with nothing beneath it to run"));
+        };
+        if on_bench {
+            self.apply_bench(name, Bench::Fixed { consumes: 1, produces: 0 }, at, via);
+        }
+        let Abs::Lambda(b) = t.remove(0) else {
+            return self.abandon(format!("`{name}` with a body the walk cannot see"));
+        };
+        let mut once = stack.copy();
+        once.push(Abs::Unknown);
+        let inside = format!("the body `{name}` runs");
+        let outer = std::mem::replace(&mut self.may_switch, false);
+        let bench_before = self.bench_mark();
+        let went = self.walk(&b, &mut once, Some(at), Some(&inside), level + 1);
+        self.may_switch = outer;
+        if !went {
+            return false;
+        }
+        self.settle_bench(bench_before);
+        if std::mem::take(&mut self.halted) {
+            return true;
+        }
+        // The outcome `map` pulls after each run.
+        once.pop();
+        let net = once.net_against(stack);
+        if net != 0 {
+            return self.abandon(format!(
+                "`{name}` with a body that leaves {:+} value(s) per element beyond its outcome, so the depth after depends on the list",
+                net
+            ));
+        }
+        stack.keep_what_agrees(&once);
+        // A LIST from a list, a MATRIX from a matrix (`map_fun.rs:80-81`).
+        if on_bench {
+            self.apply_bench(name, Bench::Fixed { consumes: 0, produces: 1 }, at, via);
+        } else {
+            stack.push(Abs::Unknown);
+        }
+        true
+    }
+
+    /// `execute.`: the value it runs is the workbench's top, which the walk
+    /// knows when a `.` put a lambda or a name there.
+    fn execute_bench(
+        &mut self,
+        name: &str,
+        stack: &mut Stack,
+        at: usize,
+        via: Option<&str>,
+        level: u8,
+    ) -> Went {
+        let known = self.bench.is_some();
+        let top = self.bench.as_ref().and_then(|b| b.items.last().cloned());
+        self.apply_bench(name, Bench::Fixed { consumes: 1, produces: 0 }, at, via);
+        match top {
+            Some(Abs::Lambda(b)) => {
+                self.report.analysed += 1;
+                let inside = format!("the lambda `{name}` runs");
+                self.walk(&b, stack, Some(at), Some(&inside), level + 1)
+            }
+            Some(Abs::Name(_, n)) => self.call(&n, None, stack, at, via, level),
+            // A workbench known to be empty: the finding is made, and the
+            // program stops there.
+            None if known => {
+                self.report.analysed += 1;
+                true
+            }
+            _ => self.abandon(format!("`{name}` on a workbench value the walk cannot see")),
+        }
     }
 
     /// `body` run with `each` pushed first, zero or more times, on `stack`:
@@ -2354,6 +2513,45 @@ mod tests {
             [("while.".into(), 1, 0)],
             "once, not again at the pull that would end the loop"
         );
+    }
+
+    /// The workbench forms of the words that run a body — `times.`,
+    /// `loop.`, `if.`, `map.`, `execute.` — and `map` itself: the body from
+    /// the stack, what governs it from the workbench, and the walk goes on
+    /// past them where it used to stop.
+    #[test]
+    fn the_workbench_forms_of_the_body_runners_are_followed() {
+        let clean = |src: &str| {
+            let rep = check_src(src);
+            assert!(rep.findings.is_empty() && rep.abandoned == 0, "{src}: {rep:?}");
+        };
+        clean("3 . { drop } times. 1 println");
+        clean("[ 1 2 ] . { drop } loop. 1 println");
+        clean("true . { \"x\" println } if. 1 println");
+        // F2: `?false.` reads its condition from the stack.
+        clean("false { \"x\" println } ?false. 1 println");
+        let rep = check_src("false . { \"x\" println } ?false.");
+        assert_eq!(rep.findings.len(), 1, "{rep:?}");
+        assert!(!rep.findings[0].workbench, "{rep:?}");
+        clean("[ 1 2 ] . { 1 + } map. take println");
+        clean("[ 1 2 ] { 1 + } map println");
+        clean("{ 1 2 + } . execute. println");
+        clean("{ 1 2 + } . !. println");
+        // A body that leaves its counter behind leaves a depth that depends
+        // on the count.
+        assert_eq!(check_src("3 . { 1 drop } times. println").abandoned, 1);
+        // A body that drops its element leaves no outcome to pull.
+        assert_eq!(check_src("[ 1 2 ] { drop } map println").abandoned, 1);
+        // Nothing on the workbench to govern or to run.
+        assert_eq!(
+            on_bench(&check_src("{ drop } times.")),
+            [("times.".into(), 1, 0)]
+        );
+        assert_eq!(on_bench(&check_src("execute.")), [("execute.".into(), 1, 0)]);
+        // Inside the lambda `execute.` runs, a finding is the body's.
+        let rep = check_src("{ + } . execute.");
+        assert_eq!(rep.findings.len(), 1, "{rep:?}");
+        assert_eq!(rep.findings[0].word, "+");
     }
 
     /// D184's `context`: the bodies run on the stack it names, and a

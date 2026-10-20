@@ -451,7 +451,16 @@ impl JitTier {
             if !self.tiering.try_borrow().is_ok_and(|t| t.has_room()) {
                 return None;
             }
-            match compiler.compile_word(&values, LastCall::Ordinary, cells, vm) {
+            // **§S5's tail position, claimed where it costs nothing** — a
+            // body whose last value is a dispatched `CALL` hands what that
+            // call files back to its entry, so a word that ends by calling a
+            // word does not nest a Rust frame per level.
+            let last = if compiler.claims_tail(&values, vm) {
+                LastCall::Tail
+            } else {
+                LastCall::Ordinary
+            };
+            match compiler.compile_word(&values, last, cells, vm) {
                 Ok(code) => {
                     self.tiering.try_borrow_mut().ok()?.insert(body, code);
                 }
@@ -3239,6 +3248,12 @@ mod tests {
     /// one starts below the Tier 1 floor, declines, and is interpreted; from
     /// there the recursion is on the heap, as RFC-0003's frame loop has it.
     ///
+    /// *(2026-10-20: the recursive call is not the branch's last value — `0
+    /// drop` follows it. A last call is in tail position now and hands its
+    /// body back rather than nesting (§S5), which
+    /// `a_compiled_tail_recursion_does_not_reach_the_floor` holds; the floor
+    /// is for a call something follows.)*
+    ///
     /// **On a thread of its own, with a stack the share is really inside.**
     /// `declare_share` tells the runtime this thread has 8 MiB; a test thread
     /// has 2, and a recursion that trusts the declaration would run off it.
@@ -3267,7 +3282,7 @@ mod tests {
                 // `1 2 + drop` is the site F136 asks for. The comparison and
                 // the subtraction take the top as their first operand, as the
                 // test below this one explains.
-                r.eval_str(":down { 1 2 + drop dup 0 < { 1 swap - down } if } register\n")
+                r.eval_str(":down { 1 2 + drop dup 0 < { 1 swap - down 0 drop } if } register\n")
                     .expect("defines");
                 r.eval_str("3 down drop")
                     .expect("the entry that compiles it");
@@ -3304,6 +3319,37 @@ mod tests {
         assert!(
             usize::try_from(LEVELS).is_ok_and(|n| entries < n),
             "and the floor must have turned it back before the last level: {entries}"
+        );
+    }
+
+    /// **A compiled tail recursion stays off the machine stack** — RFC-0005
+    /// §S5's hand-back. `down`'s branch ends by calling `down`, so each
+    /// compiled level returns with the next filed and its entry takes it:
+    /// the levels run one after another, on the same 2 MiB a test thread has,
+    /// and none is turned back at the floor.
+    #[test]
+    fn a_compiled_tail_recursion_does_not_reach_the_floor() {
+        const LEVELS: i64 = 200_000;
+        declare_share();
+        let mut r = inlining_runtime_with(1);
+        r.eval_str(":down { 1 2 + drop dup 0 < { 1 swap - down } if } register\n")
+            .expect("defines");
+        r.eval_str("3 down drop").expect("the entry that compiles it");
+        r.eval_str(&format!("{LEVELS} down")).expect("recurses and returns");
+        assert_eq!(
+            r.interp.snapshot().last().and_then(BundValue::as_int),
+            Some(0),
+            "counted down to zero"
+        );
+        let entries = r.compiled_entries().unwrap_or(0);
+        assert!(
+            usize::try_from(LEVELS).is_ok_and(|n| entries > n),
+            "every level ran compiled: {entries}"
+        );
+        assert_eq!(
+            r.floor_declines().map(|(n, _)| n),
+            Some(0),
+            "and none was declined at the floor"
         );
     }
 

@@ -1142,3 +1142,27 @@ deeper than the call. A label and text placed once keep their key, so a
 `use` in a loop places its file once. `bund.eval`'s string is not placed: it
 is built or typed, often in a loop, and has no line to name. A stop at the
 top level of any placed stream now says where, as a stop in a body does.
+
+## Amendment, 2026-10-20 — §S8's inline cache is built, on the name
+
+A `CALL` already kept its symbol (`call_memo`); what each call still paid
+was `Registry::resolve_to` — the command test, the alias chain, the target's
+bindings. That answer is now cached on the slot (`Slot::resolved`) with the
+registry's binding epoch, which `Registry::touch` advances — the one function
+every binding change goes through, held so by
+`every_writer_of_a_slot_generation_is_named`. On the name rather than the
+site, because a resolution depends on the symbol alone, so one entry is a
+monomorphic cache for every site calling it, and the call memo's 64 bits have
+no room for a target. Registry-wide rather than per slot, because an alias
+resolves through another slot: rebinding `dup_one` changes `dup` without
+touching it.
+
+The three concerns this RFC's review left with §S8 are met by that shape.
+RFC-0002's generation overflow does not arise: the epoch is a `u64`, and the
+per-slot generation keeps its own saturating rule for the tier. `$name` is
+not cached and resolves afresh, so F26 is as it was. A curried word's final
+`!` is invalidated by any alias change, which bumps the epoch. Measured with
+the cache switched off and on in turn, three rounds each: about 0.5 ns per
+plain call (`dispatch_isolated/resolved/w1000`, 31.0 → 30.5 µs) and 1 to 1.5
+ns per aliased word (`dispatch/dup_drop/w3000`, 64.5–68.6 → 63.3–63.8 µs),
+with the uncached control flat. Test: `a_cached_resolution_follows_every_rebinding`.

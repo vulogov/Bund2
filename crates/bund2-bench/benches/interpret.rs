@@ -346,6 +346,29 @@ fn warm_eval(
     });
 }
 
+/// [`warm_eval`] with `input` pushed by the caller before each entry, so the
+/// body's first operand is not a constant the compiler can see.
+fn warm_eval_on(
+    g: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+    name: &str,
+    input: &str,
+    body: &str,
+) {
+    let setup = compiled(&format!(":w {{ {body} clear }} register"));
+    let call = compiled(&format!("{input} w"));
+    g.bench_function(name, |b| {
+        let mut i = interp();
+        if i.eval(&setup).is_err() {
+            bund2_api::errln!("bench: warm_eval_on setup failed for {name}; measuring nothing");
+        }
+        for _ in 0..(bund2_runtime_threshold() + 8) {
+            let _ = i.eval(&call);
+        }
+        debug_assert_eq!(i.depth(), 0, "the body must be stack-balanced");
+        b.iter(|| black_box(i.eval(black_box(&call))).is_ok());
+    });
+}
+
 /// Arithmetic, the classic JIT target: no allocation, all in the value layer.
 ///
 /// **Restated 2026-09-15 to measure what a session does.** Each program now runs
@@ -379,6 +402,15 @@ fn arith(c: &mut Criterion) {
     warm_eval(&mut g, "int_add/1000", &int_add);
     warm_eval(&mut g, "float_mul/1000", &float_mul);
     warm_eval(&mut g, "times_body/1000", times_body);
+    // **The non-foldable row `int_add` owed** (RFC-0005, F133's note): 500
+    // steps of a linear congruential generator, `x * a + c`, 1000 inlined
+    // sites, on an `x` the caller pushes, so the compiled body has no
+    // constant to start from. Wrapping keeps it bounded (`int_mul` is
+    // `wrapping_mul`), and Cranelift folds a chain of `+ k` or of `* k`
+    // but does not distribute a multiply over an add, so the chain is not
+    // collapsed.
+    let lcg = "6364136223846793005 * 1442695040888963407 + ".repeat(500);
+    warm_eval_on(&mut g, "int_lcg/1000", "7", &lcg);
 
     timed_eval(&mut g, "int_add/1000/cold", &int_add);
     timed_eval(&mut g, "float_mul/1000/cold", &float_mul);

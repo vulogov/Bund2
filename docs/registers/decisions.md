@@ -3653,6 +3653,45 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D197 — an unknown word is reported in the reference's words
+
+**Raised 2026-10-20** by the owner's ruling on D196, of which it is the part
+taken from option A. A call to a name nothing binds failed with `<name> not
+registered`; the reference's text is `i(<name>) for stack returned: Inline
+<name> not registered`. The text reaches a program through `?try`'s
+`context` slot and a reader through every uncaught report, so it is
+observable output, and the golden `probes/workbench-forms-added` records
+the reference's form.
+
+- Blocks: nothing
+- Depends on: D196 (the wrapper, kept at one), F66 (the Rust locations the
+  reference appends, still a deviation), RFC-0002's fixed-point alias
+  resolution
+- What the reference does: every unknown call ends in `VM::i`, which reaches
+  `i_direct` and the stack layer's `get_inline`. That bails `Inline <name>
+  not registered` (`reference/rust_multistack/src/ts_inline.rs:39`), and
+  `i_direct` wraps it as `i(<name>) for stack returned: `
+  (`reference/rust_multistackvm/src/multistackvm_inline.rs:62-64`). A plain
+  call reaches it after one alias step in `apply` and one in `i`
+  (`reference/rust_multistackvm/src/multistackvm_apply.rs:39-59`), `$name`
+  with its `$` cut off (`multistackvm_call_internal_word.rs:6-8`), and
+  `execute` on a string through `VM::call` (`multistackvm_call.rs:7-8`). So
+  the name in the text is the one the alias chain ended at, without a `$`.
+- Status: **RESOLVED** by the repository owner, 2026-10-20, with D196.
+
+### Built
+
+`unregistered` (`crates/bund2-interp/src/lib.rs`) writes the text, and the
+three places a call can miss use it: a symbol bound to nothing (`dispatch`,
+naming the alias chain's last link, as `real_name` is named), a name never
+interned (`apply_step`), and a name dispatched from a string
+(`dispatch_name`). Measured against the oracle: `$nosuch` and `{ { {
+nosuchword } execute } execute }` under `?try` give the reference's text,
+the second still with one wrapper (D196). Conformance is unchanged,
+136/148. The debugger's console says a mistyped command the same way, since
+it is a call to an unknown word; two tests in
+`crates/bund2-cli/tests/debugger_words.rs` read the new text.
+
 ## D196 — the text `?try` files in `context`: one wrapper, or one per body the failure left
 
 **Raised 2026-10-19** by answering Q21 against the oracle. RFC-0003 replaced
@@ -3716,7 +3755,10 @@ the choice of what it should be.
 
 Default for planning: **B**, the text as built — not adopted.
 
-- Status: **OPEN**.
+- Status: **RESOLVED** by the repository owner, 2026-10-20: "B, plus a
+  small part of A: the unknown-word wording only". The wrapper is written
+  once, as built; the wording is **D197**, recorded on its own because it
+  reaches past `?try` — an uncaught report carries the same text.
 
 ## D195 — `check` counts the workbench: RFC-0004 §S1's second axis, the `.` forms, and `context`
 
@@ -3831,6 +3873,29 @@ nothing is not their effect, and they stay `Unknown`; `ifthenelse.`,
 `notifthenelse.` and `while.` are followed by `check` as above. The probe
 also now counts the reference's parse failure as a failure, which it had
 read as a word that left nothing. The 61 measured rows are 62.
+
+**Note, 2026-10-20 — the body-runners followed, and per-word operands.**
+`check` follows the workbench forms of the words that run a body, and `map`:
+`times.`, `loop.`, `if.` (and `?true.`, `if.in_workbench`), `map` and `map.`,
+`execute.` and `!.`, each with its body from the stack and what governs it
+from the workbench, as the reference has them (`times_fun.rs:48-62`,
+`loop_fun.rs:5-23`, `if_fun.rs:12-66,95-97`, `map_fun.rs:6-46`,
+`execute.rs:7-99`). `?false.` and `if.false.in_workbench` read their
+condition from the stack (`if_fun.rs:103-105`, F2), which the first draft of
+these arms got wrong and the corpus caught: a false finding in
+`tests/probes/if-workbench-variants.bund`. `.` and `take` now carry the value
+they move, so a lambda put on the workbench is still a lambda when `execute.`
+runs it. On the same corpus as above: 3285 sites analysed (3183), 110
+abandoned (113), the same six findings.
+
+The probe's third pass gives a word its own operands where no pairing of
+kinds will do — an expression `srch` parses, a value `encode.base64` made, a
+condition that ends `while.` (`SAMPLES`, `xtask/src/arity/mod.rs`) — and
+accepts a reading only if dropping the bottom value of either axis makes the
+word fail. Eleven more measured; three are declared, `decode.base64.`,
+`io.graph.` and `string.expressionmatch.`, the others running code, varying
+with a list's length (`pull.`), or already declared from source (`.`). 65
+rows.
 
 ## D194 — a program that does not parse exits 1
 

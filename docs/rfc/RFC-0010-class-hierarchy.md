@@ -382,3 +382,16 @@ reader does not take its absence for an oversight.
 - **Should `Integer` and `Float` get constructor words?** They have classes and
   no way to build one. Adding them is additive, but it would make the
   `Magnitude` question observable where S2 says it currently is not.
+
+## Amendment, 2026-10-20 — the multiple-inheritance order is pinned
+
+The open question's first half — "the order is untested" — is answered by
+`tests/probes/oop-multiple-inheritance.bund`, captured from the oracle and
+passed by Bund2. A slot is found in the left parent first, each parent is
+searched to the top before the next, and the right parent is still reached
+for what only it has (`reference/Bund/src/stdlib/functions/oop/value_class.rs:10-29`).
+The case that matters is the diamond: `D` below `L` and `R`, both below
+`Base`, with only `R` overriding `m` — `D` answers `Base`'s `m`, reached
+through `L`, where C3 linearisation would answer `R`'s. Swapping the parents
+swaps the answer. Whether the language should encourage multiple parents
+stays the owner's question.

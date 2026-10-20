@@ -102,6 +102,10 @@ pub struct Ctx<'a> {
     /// join lands — and for a fragment arm, whose single fragment *is* the
     /// whole of it and needs no table.
     sites: &'a [Fragment],
+    /// **The body was compiled with [`LastCall::Tail`]**, so its last value
+    /// files what it calls rather than draining it — §S5's hand-back. Read
+    /// by [`jit_apply`] at the last index alone.
+    tail: bool,
 }
 
 /// A helper's status: `0` success, `1` error parked in [`Ctx::err`].
@@ -933,7 +937,15 @@ extern "C" fn jit_apply(c: *mut Ctx<'_>, index: usize) -> i32 {
     };
     // D139: Tier 0's frame has stepped past a value by the time it runs.
     c.vm.tier_at(index.saturating_add(1));
-    let r = c.vm.apply(v);
+    // **§S5's hand-back.** The last value of a body compiled for tail
+    // position is reached by `return_call_indirect`, and nothing of this body
+    // runs after it, so a body it calls is left filed for the entry to take
+    // rather than drained here, a Rust frame deeper.
+    let r = if c.tail && index.saturating_add(1) == c.body.len() {
+        c.vm.apply_filing(v)
+    } else {
+        c.vm.apply(v)
+    };
     // Same helper, same two obligations. `Vm::apply` is `Interp::apply`, which
     // already consults the exit gate after `run_to` (F112), so a value that
     // ended the program arrives here as an `Err` and passes through unchanged.
@@ -1063,6 +1075,7 @@ impl Compiled {
             // Its guard is asked by Rust before entry, so the arm needs no
             // site table of its own.
             sites: &[],
+            tail: false,
         };
         // SAFETY: the entry is the address `finalize_definitions` published for
         // a function this module emitted under the host's own calling
@@ -1358,6 +1371,7 @@ impl CompiledBody {
             natives,
             body: &[],
             sites: &[],
+            tail: false,
         };
         // SAFETY: the entry is the trampoline's published address, under the
         // platform's convention, and `&mut c` is live for the whole call. The
@@ -2296,6 +2310,19 @@ impl Compiler {
         (plan, sites)
     }
 
+    /// **Should this body claim tail position for its last value?** —
+    /// RFC-0005 §S5. Only when that value is a `CALL` the plan dispatches:
+    /// a tail-position value is never inlined and never promoted, so a body
+    /// ending in an inlined `+` or a literal would lose that to save a frame
+    /// it does not need — nothing it calls files a body.
+    pub fn claims_tail(&self, body: &[BundValue], vm: &mut dyn Vm) -> bool {
+        if body.last().is_none_or(|v| v.dt() != bund2_value::CALL) {
+            return false;
+        }
+        let (plan, _) = self.plan_body(body, vm);
+        matches!(plan.last(), Some(Plan::Call { .. }))
+    }
+
     /// **Would compiling this body buy anything at all?** — F133.
     ///
     /// A compiled body runs every value that is *not* an inlined site through
@@ -2390,6 +2417,7 @@ impl Compiler {
             // The word's own fragments, so `jit_admits` can ask each site's
             // guard against the stack as it stands.
             sites: &w.sites,
+            tail: w.last == LastCall::Tail,
         };
         // SAFETY: as `CompiledBody::run`'s — the trampoline's published address
         // under the platform's convention, with `&mut c` live for the call. The
@@ -5221,6 +5249,7 @@ mod tests {
             natives: &[],
             body: &[],
             sites,
+            tail: false,
         };
         jit_admits(&raw mut c, site)
     }

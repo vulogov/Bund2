@@ -778,3 +778,42 @@ fn a_line_breakpoint_stops_in_an_included_files_top_level() {
     );
     assert_eq!(out, "20\ndone\n");
 }
+
+/// **`bt` names the streams between the frames.** A word runs
+/// `bund.eval-file`, whose file's top level calls a word: the backtrace
+/// reads the inner word, the file's stream at the value that called it, the
+/// outer word, and the program's stream — each placed.
+#[test]
+fn a_backtrace_interleaves_an_included_files_stream() {
+    let lib = scratch("lib2");
+    std::fs::write(&lib, ":inner {\n  1 2 + drop\n} register\ninner\n").expect("lib");
+    let src = format!(":w {{ \"{}\" bund.eval-file }} register\nw\n", lib.display());
+    let (_, err, _) = session(&src, "break lib2.bund:2\nc\nbt\nc\n");
+    let bt: Vec<String> = err
+        .lines()
+        .skip_while(|l| !l.starts_with("(bund2) #0  inner"))
+        .take(4)
+        .map(|l| {
+            let l = l.trim_start_matches("(bund2) ");
+            match l.split_once("  (") {
+                Some((head, place)) => {
+                    // File and line: a column after the path moves with it.
+                    let file = place.rsplit('/').next().unwrap_or(place);
+                    let line = file.rsplit_once(':').map_or(file, |(l, _)| l);
+                    format!("{head}  ({line})")
+                }
+                None => l.to_string(),
+            }
+        })
+        .collect();
+    assert_eq!(
+        bt,
+        [
+            "#0  inner at 0  (lib2.bund:2)",
+            "#1  the top-level stream at 3  (lib2.bund:4)",
+            "#2  w at 2  (s.bund:1)",
+            "#3  the top-level stream at 3  (s.bund:2)",
+        ],
+        "{err}"
+    );
+}

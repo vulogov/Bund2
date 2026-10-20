@@ -588,6 +588,15 @@ pub trait Vm {
     /// Draining when nothing is filed does nothing and answers `Ok`.
     fn drain_tail_request(&mut self) -> Result<(), Error>;
 
+    /// **Apply one value and leave what it filed pending** — RFC-0005 §S5's
+    /// tail position. A compiled body's last value comes here rather than to
+    /// [`Vm::apply`], so a body it calls is handed back to whatever entered
+    /// the compiled body instead of run beneath it on the machine stack.
+    /// Defaulted to [`Vm::apply`], which drains: correct, and only deeper.
+    fn apply_filing(&mut self, v: BundValue) -> Result<(), Error> {
+        self.apply(v)
+    }
+
     /// Run `body` on `stack`, returning to the current stack **however the
     /// body leaves** — RFC-0003 §S4's exit action.
     ///
@@ -1438,6 +1447,13 @@ pub struct Slot {
     pub alias: Option<Symbol>,
     pub lambda: Option<BundValue>,
     pub native: Option<Native>,
+    /// **RFC-0003 §S8's inline cache**, kept on the name rather than the call
+    /// site: what [`Registry::resolve_to`] answered for a plain call, and the
+    /// [`Registry`]'s binding epoch it answered at. A resolution depends on
+    /// the symbol alone, so one entry per name is a monomorphic cache for
+    /// every site that calls it, and a `CALL` value's memo — 64 bits, 33 of
+    /// them the interner's — has no room for a target besides.
+    resolved: std::cell::Cell<Option<(u64, Resolved, Symbol)>>,
 }
 
 impl Slot {
@@ -1475,7 +1491,7 @@ impl Slot {
 }
 
 /// What a name resolved to, and by which binding.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Resolved {
     Command,
     Lambda,
@@ -1680,6 +1696,12 @@ pub struct Registry {
     /// dispatch cache keyed on a class needs its own.
     class_generation: u32,
     method_generation: u32,
+    /// **The binding epoch** — advanced by [`Registry::touch`], the one
+    /// place a binding changes, so every [`Slot`]'s cached resolution is
+    /// stale at once. Registry-wide rather than per slot because an alias
+    /// resolves through other slots: rebinding `dup_one` changes what `dup`
+    /// resolves to without touching `dup`.
+    bindings: u64,
     /// **The generation mirror — D43, RFC-0005 §S6.** One `Cell` per symbol,
     /// in fixed-size chunks so an address survives later registrations. See
     /// [`Registry::generation_cell`].
@@ -2064,6 +2086,9 @@ impl Registry {
     /// holds the set to this one function.
     fn touch(&mut self, s: Symbol) {
         self.slot_mut(s).bump();
+        // Every cached resolution, stale. 2^64 rebindings cannot be reached,
+        // so the counter is not guarded against wrapping.
+        self.bindings = self.bindings.wrapping_add(1);
         // The mirror, written here and nowhere else — D43, built 2026-09-12.
         // One function, both writes, which is what makes the invariant
         // structural rather than a list to keep in step.
@@ -2245,6 +2270,23 @@ impl Registry {
     /// made two; `dispatch` reaches `dup_one` through `dup` on every `dup`,
     /// and walked it twice per call.
     pub fn resolve_to(&self, s: Symbol, sigil: bool) -> (Resolved, Symbol) {
+        // **RFC-0003 §S8.** A plain call's answer, cached on the name until a
+        // binding changes anywhere; `$name` is rare and resolves afresh.
+        let slot = self.slots.get(s.index());
+        if !sigil
+            && let Some((at, r, t)) = slot.and_then(|sl| sl.resolved.get())
+            && at == self.bindings
+        {
+            return (r, t);
+        }
+        let answer = self.resolve_uncached(s, sigil);
+        if !sigil && let Some(sl) = slot {
+            sl.resolved.set(Some((self.bindings, answer.0, answer.1)));
+        }
+        answer
+    }
+
+    fn resolve_uncached(&self, s: Symbol, sigil: bool) -> (Resolved, Symbol) {
         if let Some(slot) = self.slots.get(s.index())
             && slot.command.is_some()
         {
@@ -2630,6 +2672,28 @@ mod tests {
             found, named,
             "a slot's generation is written outside `Registry::touch` and `Slot::bump`"
         );
+    }
+
+    /// **RFC-0003 §S8: a cached resolution goes stale with any binding it
+    /// went through**, not only its own name's. `b` is an alias of `a`;
+    /// rebinding `a` changes what `b` resolves to without touching `b`.
+    #[test]
+    fn a_cached_resolution_follows_every_rebinding() {
+        let mut r = Registry::new();
+        native(&mut r, "a");
+        let b = r.register_alias("b", "a");
+        let Some(a) = r.interner.lookup_call("a").map(|(s, _)| s) else {
+            panic!("a is interned");
+        };
+        assert_eq!(r.resolve_to(b, false), (Resolved::Native, a));
+        assert_eq!(r.resolve_to(b, false), (Resolved::Native, a), "cached");
+        r.register_lambda("a", BundValue::lambda(vec![BundValue::int(1)]));
+        assert_eq!(r.resolve_to(b, false), (Resolved::Lambda, a), "a rebound");
+        r.unregister_alias("b");
+        assert_eq!(r.resolve_to(b, false).0, Resolved::Unbound, "b unbound");
+        // `$b` is never cached, and agrees.
+        r.register_alias("b", "a");
+        assert_eq!(r.resolve_to(b, true), (Resolved::Native, a));
     }
 
     /// The deviation RFC-0002 records: fixed-point resolution, where the

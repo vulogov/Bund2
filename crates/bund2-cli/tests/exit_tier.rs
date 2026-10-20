@@ -324,6 +324,11 @@ fn number_before(line: &str, after: &str) -> Option<usize> {
 /// figures count two bodies per level. It was `{ 1 swap - down }` until
 /// 2026-10-15, when `-` gained an arm; the decrement now sits in `down`'s
 /// own body, ahead of the test, and the lambda is the bare recursive call.
+///
+/// **`if` is not `down`'s last value** — `0 drop` follows it. Since
+/// 2026-10-20 a body whose last value is a dispatched call hands what it
+/// files back to its entry (RFC-0005 §S5), so a recursion through a last
+/// `if` no longer nests and never meets the floor.
 #[test]
 fn stats_counts_what_the_tier_one_floor_declined() {
     let dir = std::env::temp_dir().join(format!("bund2-declines-{}", std::process::id()));
@@ -331,7 +336,7 @@ fn stats_counts_what_the_tier_one_floor_declined() {
     let script = dir.join("declines.bund");
     std::fs::write(
         &script,
-        ":down { 1 2 + drop 1 swap - dup 0 < { down } if } register\n20001 down drop\n",
+        ":down { 1 2 + drop 1 swap - dup 0 < { down } if 0 drop } register\n20001 down drop\n",
     )
     .expect("the program");
 

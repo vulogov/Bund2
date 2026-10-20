@@ -57,6 +57,26 @@ const SENTINELS: &[(&str, &str)] = &[
 /// `{ }`: the reference's grammar refuses an empty lambda.
 const BENCH_EXTRA: &[(&str, &str)] = &[("bool", "true"), ("lambda", "{ 1 drop }")];
 
+/// **Operands for the words no pairing of kinds satisfies** — a value of a
+/// particular shape rather than of a kind: an expression `srch` parses, a
+/// value `encode.base64` made, a condition that ends `while.`. Each is
+/// `(word, workbench, stack)`, every entry one value, bottom first; the
+/// workbench's are put there with `.`. Found by running each against the
+/// oracle; [`probe_sample`] checks every axis it was given was needed.
+const SAMPLES: &[(&str, &[&str], &[&str])] = &[
+    (".", &[], &["1"]),
+    ("?.", &[], &["1", "{ true }"]),
+    ("?false.", &[], &["false", "{ 1 drop }"]),
+    ("while.", &["false"], &["{ 1 drop }"]),
+    ("decode.base64.", &["1 encode.base64"], &[]),
+    ("bund.eval.", &["\"1 2 +\""], &[]),
+    ("string.expressionmatch.", &["'contains \"4\"'"], &["\"42\""]),
+    ("#.", &["1 \"Value\" object"], &["{ 1 drop }"]),
+    ("pull.", &["[ \"a\" ]"], &["1"]),
+    ("pull.workbench.", &["1", "[ \"a\" ]"], &[]),
+    ("io.graph.", &["[ 1.0 2.0 ]"], &[]),
+];
+
 /// Words the mixed pass probes at once. Each probe is a process, and
 /// most of a probe's time is the oracle starting.
 const BENCH_WORKERS: usize = 8;
@@ -383,6 +403,43 @@ fn probe_bench_mixed(oracle: &Path, scratch: &Path, word: &str) -> Option<Bench2
     None
 }
 
+/// **A word run on its [`SAMPLES`] operands.** Accepted only if it ran,
+/// and if dropping the bottom value of either axis it was given makes it
+/// fail — so every value offered was one it needed, and what it left is
+/// what it produced.
+fn probe_sample(oracle: &Path, scratch: &Path, word: &str) -> Option<Bench2> {
+    const MARK: &str = "--arity-workbench--";
+    let &(_, bench, stack) = SAMPLES.iter().find(|(w, _, _)| *w == word)?;
+    let program = |bench: &[&str], stack: &[&str]| {
+        let bench: Vec<String> = bench.iter().map(|v| format!("{v} .")).collect();
+        format!(
+            "{}\n{}\n{word}\ndebug.display_stack\n\"{MARK}\" println\ndebug.display_workbench\n",
+            bench.join(" "),
+            stack.join(" ")
+        )
+    };
+    let out = run_probe(oracle, scratch, &program(bench, stack))?;
+    if errored(&out) {
+        return None;
+    }
+    let (on_stack, on_bench) = out.split_once(MARK)?;
+    let fewer_bench = bench.get(1..).map(|b| program(b, stack));
+    let fewer_stack = stack.get(1..).map(|k| program(bench, k));
+    for fewer in [fewer_bench, fewer_stack].into_iter().flatten() {
+        if !errored(&run_probe(oracle, scratch, &fewer)?) {
+            return None;
+        }
+    }
+    Some((
+        stack.len(),
+        count_values(on_stack),
+        bench.len(),
+        count_values(on_bench),
+        "sample",
+        "sample",
+    ))
+}
+
 enum Tried {
     Accepted(Bench2),
     Refused,
@@ -563,7 +620,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
                         let Some(word) = rows.get(i).map(|r| r.word.clone()) else {
                             continue;
                         };
-                        if let Some(b) = probe_bench_mixed(&oracle, &scratch, &word)
+                        let measured = probe_bench_mixed(&oracle, &scratch, &word)
+                            .or_else(|| probe_sample(&oracle, &scratch, &word));
+                        if let Some(b) = measured
                             && let Ok(mut f) = found.lock()
                         {
                             f.push((i, b));
@@ -733,6 +792,10 @@ fn report(
             two(|b| b.3),
             r.site,
             match r.probed_bench {
+                Some((.., "sample", _)) => {
+                    let sep = if r.note.is_empty() { "" } else { "; " };
+                    format!("{}{sep}both axes: the operands `SAMPLES` gives it", r.note)
+                }
                 Some((.., bt, st)) if bt != st => {
                     let sep = if r.note.is_empty() { "" } else { "; " };
                     format!("{}{sep}both axes: workbench {bt}, stack {st}", r.note)

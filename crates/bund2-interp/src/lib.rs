@@ -379,6 +379,10 @@ pub struct Interp {
     /// frame depth a stepping command records, so `next` over `use` steps
     /// over the file's top level as it does over a body.
     nest: usize,
+    /// The streams a placed one runs inside, outermost first, each as
+    /// `(stream_key, top_at, stream_floor)` — what `bt` interleaves with the
+    /// frames.
+    stream_outer: Vec<(Option<usize>, usize, usize)>,
     /// A placed string's key by its label and text, so a `use` in a loop
     /// places its file once.
     stream_seen: std::collections::HashMap<(Rc<str>, u64), usize>,
@@ -514,6 +518,7 @@ impl Interp {
             top_at: 0,
             stream_floor: 0,
             nest: 0,
+            stream_outer: Vec::new(),
             stream_seen: std::collections::HashMap::new(),
             definitions: std::collections::HashMap::new(),
             stack_floor: tier0_floor(),
@@ -916,10 +921,9 @@ impl Interp {
                     })?;
                 self.call_native(target, n)
             }
-            Resolved::Unbound => Err(Error(format!(
-                "{} not registered",
-                self.registry.interner.name(s)
-            ))),
+            // The name the alias chain ended at, as the reference's `i`
+            // names `real_name`.
+            Resolved::Unbound => Err(unregistered(self.registry.interner.name(target))),
         }
     }
 
@@ -950,7 +954,7 @@ impl Interp {
     pub fn dispatch_name(&mut self, name: &str) -> Result<(), Error> {
         match self.registry.interner.lookup_call(name) {
             Some((s, sigil)) => self.dispatch(s, sigil),
-            None => Err(Error(format!("{name} not registered"))),
+            None => Err(unregistered(name)),
         }
     }
 
@@ -1023,7 +1027,7 @@ impl Interp {
                         v.set_call_memo(self.registry.interner.memo_for(s, sigil));
                         self.dispatch(s, sigil)
                     }
-                    None => Err(Error(format!("{name} not registered"))),
+                    None => Err(unregistered(name)),
                 }
             }
             bund2_value::CONTEXT => {
@@ -1247,11 +1251,48 @@ impl Interp {
     /// Returns `Err` when a tier ran the body and it failed, or when the OOM
     /// guard has tripped; an interpreted body's failure comes later, from
     /// `run_to`.
+    ///
+    /// **RFC-0005 §S5's hand-back is taken here.** A body compiled for tail
+    /// position returns with the body its last value called still filed, so
+    /// that call is not made a Rust frame deeper; this takes it at once, and
+    /// the next one that hands back, until a body is interpreted or nothing
+    /// is filed. Every entry starts a body here, so every entry takes the
+    /// hand-back. A request filed before this was called is the caller's,
+    /// and is left alone.
+    ///
+    /// **The compiled body's frame stays, finished, beneath the one it
+    /// handed back** — D139: a word that reads the frame list reads Tier 0's,
+    /// and Tier 0 keeps a caller's frame until its last callee returns. So
+    /// the frames grow on the heap per level as Tier 0's do, and the machine
+    /// stack does not; the caller's `run_to` pops them in order.
     fn push_frame(
         &mut self,
         body: BundValue,
         exit: Option<ExitAction>,
         who: Option<Symbol>,
+    ) -> Result<(), Error> {
+        let theirs = self.pending_tail.is_some();
+        let (mut body, mut exit, mut who) = (body, exit, who);
+        loop {
+            self.push_frame_once(body, exit, who, !theirs)?;
+            if theirs {
+                return Ok(());
+            }
+            let Some(next) = self.pending_tail.take() else {
+                return Ok(());
+            };
+            who = self.pending_who.take();
+            self.cells.set_request(false);
+            (body, exit) = (next, None);
+        }
+    }
+
+    fn push_frame_once(
+        &mut self,
+        body: BundValue,
+        exit: Option<ExitAction>,
+        who: Option<Symbol>,
+        may_hand_back: bool,
     ) -> Result<(), Error> {
         // **D171's OOM guard.** Every body starts here, so a program that
         // grows by calling — a word that calls itself forever, a loop pushing
@@ -1308,7 +1349,10 @@ impl Interp {
             let outer_entry = self.tier_entry.replace(who);
             let outer_shadow = self.tier_shadow.take();
             let answered = tier.enter(&body, self);
-            if self.tier_shadow.take().is_some() {
+            let handed_back = may_hand_back
+                && matches!(answered, Some(Ok(())))
+                && self.pending_tail.is_some();
+            if self.tier_shadow.take().is_some() && !handed_back {
                 self.frames.truncate(depth);
                 self.profile_frames_popped();
             }
@@ -1977,21 +2021,48 @@ impl Interp {
     /// §D2's field is what makes it a name, and a source position needs the
     /// per-value spans RFC-0003 §S5 describes.
     fn render_backtrace(&self) -> String {
-        if self.frames.is_empty() {
-            return "#0  the top-level stream\n".to_string();
-        }
+        // **The streams interleave with the frames.** A file `use` ran is a
+        // stream whose top level sits at the depth `use` was called at, so
+        // its line goes below the frames it entered and above the frame that
+        // ran `use` (RFC-0003 §S5).
+        let mut levels = vec![(self.stream_key, self.top_at, self.stream_floor)];
+        levels.extend(self.stream_outer.iter().rev().copied());
+        let mut levels = levels.into_iter().peekable();
         let mut out = String::new();
+        let mut n = 0;
+        let stream_line = |n: usize, (key, at, _): (Option<usize>, usize, usize)| match key {
+            Some(k) => {
+                let place = self
+                    .place_of_site((k, at))
+                    .map(|l| format!("  ({l})"))
+                    .unwrap_or_default();
+                format!("#{n}  the top-level stream at {at}{place}\n")
+            }
+            None => format!("#{n}  the top-level stream\n"),
+        };
         for (i, f) in self.frames.iter().enumerate().rev() {
+            while let Some(l) = levels.next_if(|l| i < l.2) {
+                out.push_str(&stream_line(n, l));
+                n += 1;
+            }
             let who = f.who.map(|s| self.registry.interner.name(s));
             out.push_str(&debug::frame_line(
                 &f.body,
                 f.ip,
-                self.frames.len() - 1 - i,
+                n,
                 who,
                 self.runner_of(i).as_deref(),
             ));
             out.push_str(&self.place_suffix(&f.body, f.ip.saturating_sub(1)));
             out.push('\n');
+            n += 1;
+        }
+        // The program's own stream, and any whose floor was the bottom.
+        if n == 0 || self.nest > 0 {
+            for l in levels {
+                out.push_str(&stream_line(n, l));
+                n += 1;
+            }
         }
         out
     }
@@ -2220,6 +2291,22 @@ impl Interp {
         self.take_pending()?;
         self.run_to(0)
     }
+}
+
+/// **A call to a name nothing binds, in the reference's words — D197.**
+///
+/// Every unknown call there ends in `VM::i`, which reaches `i_direct` and
+/// the stack layer's `get_inline`: `Inline <name> not registered`
+/// (`reference/rust_multistack/src/ts_inline.rs:39`), wrapped as
+/// `i(<name>) for stack returned: ` (`reference/rust_multistackvm/src/multistackvm_inline.rs:62-64`).
+/// A plain call, `$name` and `execute` on a string all arrive there
+/// (`multistackvm_apply.rs:39-59`, `multistackvm_call_internal_word.rs:6-8`,
+/// `multistackvm_call.rs:7-8`), with the name after alias resolution and
+/// without its `$`. The text is the program's to see: `?try` files it in
+/// `context`.
+fn unregistered(name: &str) -> Error {
+    let name = name.strip_prefix('$').unwrap_or(name);
+    Error(format!("i({name}) for stack returned: Inline {name} not registered"))
 }
 
 /// What handed a body to `eval_lambda` — D173's name for a lambda no word
@@ -2578,6 +2665,16 @@ impl Vm for Interp {
     /// **Writes no `pending_tail` of its own** — `take_pending` and
     /// `clear_tail_request` do, and both are already in RFC-0005 assumption
     /// 33's named set, so the mirror stays paired without widening it.
+    /// `Interp::apply` without the drain: the Tier 0 floor, the step, and
+    /// the exit gate. What the value filed is left for the entry to take.
+    fn apply_filing(&mut self, v: BundValue) -> Result<(), Error> {
+        if !self.stack_ok() {
+            return Err(Error::stack_exhausted());
+        }
+        self.apply_step(v)?;
+        self.exit_gate()
+    }
+
     fn drain_tail_request(&mut self) -> Result<(), Error> {
         if self.pending_tail.is_none() {
             return Ok(());
@@ -2949,6 +3046,7 @@ impl Vm for Interp {
             return Interp::apply(self, v);
         };
         let outer = (self.stream_key, self.top_at, self.stream_floor);
+        self.stream_outer.push(outer);
         (self.stream_key, self.top_at, self.stream_floor) = (Some(key), i, self.frames.len());
         self.nest += 1;
         if self.debug.is_some() {
@@ -2956,6 +3054,7 @@ impl Vm for Interp {
         }
         let r = Interp::apply(self, v);
         self.nest -= 1;
+        self.stream_outer.pop();
         (self.stream_key, self.top_at, self.stream_floor) = outer;
         r
     }
@@ -3957,7 +4056,7 @@ mod tests {
         // leaves the mirror behind Tier 0 with nothing to notice. The RFC
         // stated this set wrongly twice, so it is derived here, in the shape
         // criterion 25's scan and criterion 11's path set already use.
-        const WRITERS: [&str; 5] = [
+        const WRITERS: [&str; 6] = [
             // **RFC-0008 §W2, D113.** A line typed at a debugger stop sets the
             // request aside and puts it back, so the line can neither take
             // nor discard the body a stopped native filed. It writes the
@@ -3973,6 +4072,9 @@ mod tests {
             // RFC-0005's assumption 33 is corrected to match.
             "request_tail_for",
             "take_pending",
+            // RFC-0005 §S5's hand-back: takes a body a compiled one left
+            // filed, as `take_pending` does, and clears the mirror with it.
+            "push_frame",
         ];
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs");
         let text = std::fs::read_to_string(&path).expect("reads");

@@ -329,7 +329,7 @@ fn a_failing_line_stays_stopped_and_an_exiting_line_ends_the_program() {
     let src = "\"end\" println\n";
     let (out, err, code) = session(src, Some("stpe\nst\nc\n"));
     assert!(
-        err.contains("bund2: stpe not registered"),
+        err.contains("bund2: i(stpe) for stack returned: Inline stpe not registered"),
         "the failure is said:\n{err}"
     );
     assert!(
@@ -553,7 +553,7 @@ fn debug_run_inside_a_word_and_on_a_failing_term() {
     assert_eq!(out, "1\n");
 
     let (out, err, _) = scripted("\"1 nosuch\" debug.run \"after\" println\n", "c\n", &[]);
-    assert!(out.contains("nosuch not registered"), "{out}\n{err}");
+    assert!(out.contains("Inline nosuch not registered"), "{out}\n{err}");
     assert!(
         !out.contains("after\n"),
         "the program stopped at the failure:\n{out}"

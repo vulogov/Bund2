@@ -4594,7 +4594,9 @@ is stated here, with the place that enforces or decides it.
     (the sixteenth review's §4.3).
 33. **No code writes `pending_tail` outside the named set.** The set is
     `request_tail`, `take_pending`, `Interp::invoke` (F96) and
-    `Vm::clear_tail_request` (D56), and §S6's *Addressing* requires the
+    `Vm::clear_tail_request` (D56), and *(2026-10-20)* `Interp::push_frame`,
+    which takes a body a compiled one handed back (see the amendment of that
+    date) and writes the mirror with it; and §S6's *Addressing* requires the
     compiled mirror to be written wherever `pending_tail` is. A write from
     anywhere else would leave the mirror behind Tier 0 with nothing to
     notice. This is derived rather than asserted:
@@ -9891,3 +9893,62 @@ The owner accepted this RFC on 2026-10-13 (D154), after `ci` passed on the
 tree that holds the answers to the twenty-sixth review. Those answers have
 not been reviewed. D154 lists what the acceptance does not claim; the "Not
 done" paragraph above stands as written.
+
+## Amendment, 2026-10-20 — §S5's tail position is claimed in the shipped tier
+
+Assumption 44 and the twenty-third review's B6 said no shipped body
+tail-calls. One does now, where it costs nothing: `JitTier` compiles a body
+with `LastCall::Tail` when its last value is a `CALL` the plan dispatches
+(`Compiler::claims_tail`), since a tail-position value is never inlined or
+promoted and a body ending in an inlined `+` would lose that to save a frame
+it does not need.
+
+The lowering alone would have saved one machine frame and no more, because
+the last value reaches `jit_apply`, which called `Vm::apply`, which drains —
+the recursion still nested, a Rust frame per level, until §S8's floor
+declined it. Two pieces make it the hand-back §S5 describes:
+
+- **`Vm::apply_filing`** applies one value and leaves what it filed
+  pending: the Tier 0 floor, `apply_step`, the exit gate. `jit_apply` calls
+  it for the last value of a body compiled for tail position (`Ctx::tail`).
+- **`Interp::push_frame` takes the hand-back.** It is where every body
+  starts, so every entry — the frame loop, `Vm::apply`, `eval_lambda`, the
+  drain helper — takes a body a compiled one handed back, and the next, until
+  a body is interpreted or nothing is filed. A request filed before the call
+  is the caller's and is left alone.
+
+**D139 holds.** Tier 0 keeps a caller's frame, finished, until its last
+callee returns, so a word that reads the frame list sees it. The compiled
+body's frame — `Vm::tier_frame`'s — is kept likewise beneath the body it
+handed back, and the caller's `run_to` pops both in order;
+`a_backtrace_from_under_a_compiled_body_names_it` passes unchanged. So a
+compiled tail recursion grows frames on the heap as Tier 0's does and leaves
+the machine stack where it was: `0 up` with `:up { dup 2000000 > { 1 + up }
+if }` peaks at 494 MB compiled and 492 MB interpreted, and no entry is
+declined at the Tier 1 floor. `cargo xtask depth --features jit`'s
+`compiled` axis completes at 100,000 levels with none declined, where §S8's
+note above recorded the first decline at 5,705. A runaway tail recursion
+therefore ends as Tier 0's does, at D171's guard.
+
+**What the floor is for now** is a recursive call something follows:
+`a_compiled_recursion_stops_at_the_floor_and_goes_on_at_tier_zero` puts
+`0 drop` after the call, and `a_compiled_tail_recursion_does_not_reach_the_floor`
+holds the tail case at 200,000 levels on a test thread's 2 MiB. Conformance
+under the tier is unchanged, 136/148 at threshold 1 and at the default.
+
+## Amendment, 2026-10-20 (second) — the non-foldable arithmetic row
+
+The row `int_add`'s note above said was owed is `arith/int_lcg/1000`
+(`crates/bund2-bench/benches/interpret.rs`): 500 steps of `x * a + c`, a
+linear congruential generator, on an `x` the caller pushes before each
+entry. 1000 sites are inlined and the 1000 literals promoted (`--stats`),
+and the compiled and interpreted answers agree. Nothing in it is constant to
+the compiled body, wrapping keeps it bounded, and Cranelift folds a chain of
+`+ k` or `* k` but does not distribute a multiply over an add.
+
+Measured on aarch64, the feature off as baseline and then on, one run each:
+**24.6 µs → 1.29 µs, −94.7%**. Beside it `int_add/1000`, which folds, reads
+23.9 µs → 1.00 µs; the difference, about 0.29 µs for 1000 operations, is the
+arithmetic the folded row never did, and the rest of each compiled figure is
+the entry. So the tier's arithmetic throughput is now measured, by one row
+on one host; the x86-64 figure is still owed with the ±2 GB check.

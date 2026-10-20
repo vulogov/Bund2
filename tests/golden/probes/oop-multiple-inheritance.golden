@@ -1,0 +1,21 @@
+# golden for tests/probes/oop-multiple-inheritance.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: the left parent is searched first
+who from A
+probe: depth first, so A's parent before B
+deep from A0
+probe: the right parent is still reached
+only in B
+probe: a diamond answers the shared base through the left parent
+m from Base
+probe: and the right parent's override when it is on the left
+m from R
+╭╮
+╰╯
+╭╮
+╰╯

@@ -1,0 +1,40 @@
+//
+// PROBE: multiple inheritance — RFC-0010's open question, "the order is
+// untested".
+//
+// `.super` is a LIST, and a slot is looked up in the object, then in each
+// parent in list order, each parent searched all the way up before the next
+// is tried: depth-first, left to right, first match wins
+// (reference/Bund/src/stdlib/functions/oop/value_class.rs:10-29). No built-in
+// class has two parents, so nothing exercised it.
+//
+// **The diamond is the case worth pinning.** With `D` below both `L` and `R`,
+// and both of those below `Base`, `R` overrides `m` and `L` does not. A
+// depth-first search reaches `Base` through `L` before it reaches `R`, so `D`
+// answers Base's `m` — where a C3 linearisation, as Python's, would answer
+// R's. Swapping the parents swaps the answer.
+//
+// The setter beside the lookup (`value_class.rs:31-50`) writes a slot into
+// every parent that has it rather than the first. Only the built-in classes'
+// `.init` reaches it, on `.data`, and the lookup takes the first match
+// whichever were written, so a program cannot tell; it is not probed.
+//
+:A0 class :.super [ :Object ] set :deep { "deep from A0" } set register
+:A class :.super [ :A0 ] set :who { "who from A" } set register
+:B class :.super [ :Object ] set :who { "who from B" } set :deep { "deep from B" } set :only_b { "only in B" } set register
+:C class :.super [ :A :B ] set register
+"probe: the left parent is searched first" println
+:who :C object ! println drop
+"probe: depth first, so A's parent before B" println
+:deep :C object ! println drop
+"probe: the right parent is still reached" println
+:only_b :C object ! println drop
+:Base class :.super [ :Object ] set :m { "m from Base" } set register
+:L class :.super [ :Base ] set register
+:R class :.super [ :Base ] set :m { "m from R" } set register
+:D class :.super [ :L :R ] set register
+:E class :.super [ :R :L ] set register
+"probe: a diamond answers the shared base through the left parent" println
+:m :D object ! println drop
+"probe: and the right parent's override when it is on the left" println
+:m :E object ! println drop

@@ -22,7 +22,7 @@ too, at the least pair of depths it accepts.
 | `!.` |  | 1 |  |  |  | 1 | 1 | 1 | 0 | reference/rust_multistackvm/src/stdlib/execute.rs:125 | no sentinel type accepted; both axes: workbench lambda, stack int |
 | `!=` | 2 |  | 2 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:237 |  |
 | `#` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/oop/object_execute.rs:59 | type-constrained: list rejected |
-| `#.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/oop/object_execute.rs:60 | type-constrained: list rejected |
+| `#.` |  |  |  |  |  | 1 | 1 | 1 | 0 | reference/Bund/src/stdlib/functions/oop/object_execute.rs:60 | type-constrained: list rejected; both axes: the operands `SAMPLES` gives it |
 | `$` |  |  |  |  |  |  |  |  |  | reference/rust_multistack/src/stdlib/workbench.rs:81 | type-constrained: list rejected |
 | `*` |  |  | 2 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/mul.rs:23 |  |
 | `**` |  |  | 2+ | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/mul.rs:25 |  |
@@ -47,7 +47,7 @@ too, at the least pair of depths it accepts.
 | `-->` |  |  | 0 | 0 | int |  |  |  |  | reference/rust_multistack/src/stdlib/rotate.rs:98 |  |
 | `-.` |  |  |  |  |  | 1 | 0 | 1 | 1 | reference/rust_multistackvm/src/stdlib/math/sub.rs:24 | no sentinel type accepted |
 | `->` |  |  | 0 | 0 | int |  |  |  |  | reference/rust_multistack/src/stdlib/rotate.rs:94 |  |
-| `.` |  |  |  |  |  |  |  |  |  | reference/rust_multistack/src/stdlib/workbench.rs:75 | type-constrained: list rejected |
+| `.` |  |  |  |  |  | 1 | 0 | 0 | 1 | reference/rust_multistack/src/stdlib/workbench.rs:75 | type-constrained: list rejected; both axes: the operands `SAMPLES` gives it |
 | `/` |  |  | 2 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/div.rs:23 |  |
 | `/.` |  |  |  |  |  | 1 | 0 | 1 | 1 | reference/rust_multistackvm/src/stdlib/math/div.rs:24 | no sentinel type accepted |
 | `<` | 2 |  | 2 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:239 |  |
@@ -58,14 +58,14 @@ too, at the least pair of depths it accepts.
 | `>` | 2 |  | 2 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:238 |  |
 | `>=` | 2 |  | 2 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:240 |  |
 | `?` |  |  | 0 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:141 |  |
-| `?.` | 2 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/stackop/conditional_move.rs:91 | type-constrained: list rejected |
+| `?.` | 2 |  |  |  |  | 2 | 0 | 0 | 1 | reference/rust_multistackvm/src/stdlib/stackop/conditional_move.rs:91 | type-constrained: list rejected; both axes: the operands `SAMPLES` gives it |
 | `?alias` | 1 |  | 1 | 1 | string |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:212 |  |
 | `?class` | 1 |  | 1 | 1 | string |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_class.rs:61 |  |
 | `?error` |  |  | 0 | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:38 |  |
 | `?false` | 2 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:147 | type-constrained: list rejected |
 | `?false*` | 3 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:105 | type-constrained: list rejected |
 | `?false*.` | 2 | 1 |  |  |  | 2 | 0 | 1 | 0 | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:106 | no sentinel type accepted; both axes: workbench bool, stack lambda |
-| `?false.` | 1 | 1 |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:148 | type-constrained: list rejected |
+| `?false.` | 1 | 1 |  |  |  | 2 | 0 | 0 | 0 | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:148 | type-constrained: list rejected; both axes: the operands `SAMPLES` gives it |
 | `?global` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/bus/globals.rs:111 | not probed: effectful, out of scope, or terminates |
 | `?ifthenelse` |  |  | 0 | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:36 |  |
 | `?key` | 2 |  | 2 | 2 | string |  |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_dict.rs:122 |  |
@@ -100,7 +100,7 @@ too, at the least pair of depths it accepts.
 | `bund.eval` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:124 | type-constrained: list rejected |
 | `bund.eval-file` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:126 | type-constrained: list rejected |
 | `bund.eval-file.` |  | 1 |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:127 | no sentinel type accepted |
-| `bund.eval.` |  | 1 |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:125 | no sentinel type accepted |
+| `bund.eval.` |  | 1 |  |  |  | 0 | 1 | 1 | 0 | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:125 | no sentinel type accepted; both axes: the operands `SAMPLES` gives it |
 | `bund.exit` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_exit.rs:41 | not probed: effectful, out of scope, or terminates |
 | `bund.prompt` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/io/input.rs:145 | not probed: effectful, out of scope, or terminates |
 | `bus.data` | 2 |  | 1 | 1 | string |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:225 |  |
@@ -180,7 +180,7 @@ too, at the least pair of depths it accepts.
 | `debug.dump` |  |  | 1 | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/debug_fun/debug_dump.rs:74 |  |
 | `debug.shell` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/debug_fun/debug_shell.rs:67 | not probed: effectful, out of scope, or terminates |
 | `decode.base64` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/encoding/base64.rs:123 | type-constrained: list rejected |
-| `decode.base64.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/encoding/base64.rs:124 | no sentinel type accepted |
+| `decode.base64.` |  |  |  |  |  | 0 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/encoding/base64.rs:124 | no sentinel type accepted; both axes: the operands `SAMPLES` gives it |
 | `deepseek.token` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/ai/deepseek.rs:160 | not probed: effectful, out of scope, or terminates |
 | `dict` |  |  | 0 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:140 |  |
 | `display` | 1 |  | 1 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/system/display.rs:88 |  |
@@ -286,7 +286,7 @@ too, at the least pair of depths it accepts.
 | `io.banner` | 1 |  | 1 | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/io/banner.rs:86 |  |
 | `io.banner.` |  | 1 |  |  |  | 0 | 1 | 1 | 0 | reference/Bund/src/stdlib/functions/io/banner.rs:87 | no sentinel type accepted |
 | `io.graph` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/io/graph.rs:80 | type-constrained: list rejected |
-| `io.graph.` |  | 1 |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/io/graph.rs:81 | no sentinel type accepted |
+| `io.graph.` |  | 1 |  |  |  | 0 | 1 | 1 | 0 | reference/Bund/src/stdlib/functions/io/graph.rs:81 | no sentinel type accepted; both axes: the operands `SAMPLES` gives it |
 | `io.textfile` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/io/textfile.rs:102 | not probed: effectful, out of scope, or terminates |
 | `io.textfile.` |  | 1 |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/io/textfile.rs:103 | not probed: effectful, out of scope, or terminates |
 | `is` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/oop/value_class.rs:170 | type-constrained: list rejected |
@@ -398,9 +398,9 @@ too, at the least pair of depths it accepts.
 | `println.` | 1 |  |  |  |  | 1 | 1 | 1 | 0 | reference/rust_multistackvm/src/stdlib/print.rs:66 | no sentinel type accepted |
 | `ptr` | 1 |  | 1 | 1 | string |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:136 |  |
 | `pull` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/values/pull.rs:121 | type-constrained: list rejected |
-| `pull.` |  | 1 |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/values/pull.rs:122 | no sentinel type accepted |
+| `pull.` |  | 1 |  |  |  | 1 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/values/pull.rs:122 | no sentinel type accepted; both axes: the operands `SAMPLES` gives it |
 | `pull.workbench` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/values/pull.rs:123 | type-constrained: list rejected |
-| `pull.workbench.` |  | 1 |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/values/pull.rs:124 | no sentinel type accepted |
+| `pull.workbench.` |  | 1 |  |  |  | 0 | 0 | 2 | 1 | reference/Bund/src/stdlib/functions/values/pull.rs:124 | no sentinel type accepted; both axes: the operands `SAMPLES` gives it |
 | `push` | 2 |  | 2 | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/values/push.rs:74 |  |
 | `push.` | 1 | 1 |  |  |  | 1 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/values/push.rs:75 | no sentinel type accepted |
 | `raise` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:44 | type-constrained: list rejected |
@@ -508,7 +508,7 @@ too, at the least pair of depths it accepts.
 | `string.distance.sift3` | 1 |  | 2 | 1 | string |  |  |  |  | reference/Bund/src/stdlib/functions/string/distance.rs:145 |  |
 | `string.distance.sift3.` | 1 | 1 |  |  |  | 1 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/string/distance.rs:146 | no sentinel type accepted |
 | `string.expressionmatch` | 2 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/string/textexpr_match.rs:91 | type-constrained: list rejected |
-| `string.expressionmatch.` | 1 | 1 |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/string/textexpr_match.rs:92 | no sentinel type accepted |
+| `string.expressionmatch.` | 1 | 1 |  |  |  | 1 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/string/textexpr_match.rs:92 | no sentinel type accepted; both axes: the operands `SAMPLES` gives it |
 | `string.fuzzymatch` | 2 |  | 2 | 1 | string |  |  |  |  | reference/Bund/src/stdlib/functions/string/fuzzy_match.rs:92 |  |
 | `string.fuzzymatch.` | 1 | 1 |  |  |  | 1 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/string/fuzzy_match.rs:93 | no sentinel type accepted |
 | `string.grok` | 2 |  | 2 | 1 | string |  |  |  |  | reference/Bund/src/stdlib/functions/string/grok.rs:106 |  |
@@ -619,7 +619,7 @@ too, at the least pair of depths it accepts.
 | `var?` | 1 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/vars/resolve.rs:35 | type-constrained: list rejected |
 | `version` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/sysinfo/host.rs:69 | not probed: effectful, out of scope, or terminates |
 | `while` | 2 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/while_fun.rs:96 | type-constrained: list rejected |
-| `while.` | 1 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/while_fun.rs:97 | type-constrained: list rejected |
+| `while.` | 1 |  |  |  |  | 1 | 0 | 1 | 0 | reference/rust_multistackvm/src/stdlib/logic/while_fun.rs:97 | type-constrained: list rejected; both axes: the operands `SAMPLES` gives it |
 | `wrap` | 2 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/oop/value_class.rs:168 | type-constrained: list rejected |
 | `|` |  |  | 0 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:139 |  |
 | `Λ` |  |  | 0 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:135 |  |
