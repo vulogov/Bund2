@@ -9988,3 +9988,20 @@ on one host; the x86-64 figure is still owed with the ±2 GB check.
 x86-64 figure is asked of a hosted runner by `.github/workflows/bench-reading.yml`,
 three alternating rounds of both rows with the tier off and on; it is
 recorded here when that run has read it.)*
+*(2026-10-20, later: read. `bench-reading`, run 39492805435 at `088f2f5`,
+Linux x86-64 on a hosted runner, three rounds, the tier off then on in
+each, criterion's mean:*
+
+| | off, rounds 1–3 | on, rounds 1–3 | change |
+|---|---|---|---|
+| `int_lcg/1000` | 76.76, 76.74, 76.66 µs | 2.865, 2.867, 2.871 µs | **−96.3%** |
+| `int_add/1000` | 77.03, 76.92, 78.11 µs | 2.900, 2.927, 2.929 µs | −96.2% |
+
+*Each figure lies within 0.2% of its configuration's other rounds except
+`int_add` off's third, 1.5% over, so the change is the machine's and not
+the runner's drift. On this host the row that cannot fold is no slower
+than the row that folds — 2.87 µs against 2.92 µs — where on aarch64 it
+was 0.29 µs slower: the 1000 operations cost less than the rounds'
+spread, and both compiled figures are almost all the entry. So the
+arithmetic is not what an x86-64 entry spends its time on; the boundary
+is.)*
