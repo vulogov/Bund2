@@ -448,8 +448,12 @@ enum Scan {
 /// Found by diffing twelve file shapes against the oracle, eight of which
 /// disagreed.
 ///
-/// A directory answers an **empty list** — `File::open` succeeds on one and
-/// the first read fails. An empty file is the crate's own `Empty file`.
+/// A directory is the host's: `File::open` succeeds on one, and
+/// `EasyReader::new` seeks to its end. macOS allows the seek, the first read
+/// fails and the answer is an **empty list**; Linux refuses it with EINVAL,
+/// reported as the reference reports it
+/// (`reference/Bund/src/stdlib/functions/io/textfile.rs:46,60-61`). An empty
+/// file is the crate's own `Empty file`.
 fn io_textfile(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
     guard(vm, side, prefix)?;
     let v = side
@@ -2410,8 +2414,21 @@ mod tests {
         assert_eq!(lines(&write("e", b"solo\n")), ["solo", ""]);
         // Blank lines in the middle and at the end are data.
         assert_eq!(lines(&write("f", b"x\n\n\ny")), ["x", "", "", "y"]);
-        // A directory opens and reads nothing.
-        assert!(lines(&d).is_empty());
+        // A directory opens; what follows is the host's. `EasyReader::new`
+        // seeks to the end first, which macOS allows on a directory -- the
+        // first read then fails and the answer is empty -- and Linux refuses
+        // with EINVAL, which the reference reports as Bund2 does.
+        if cfg!(target_os = "linux") {
+            let mut i = interp(HostOptions::default());
+            let e = run(&mut i, &format!("\"{}\" io.textfile", d.display()))
+                .expect_err("Linux refuses the seek");
+            assert!(
+                e.ends_with("IO.TEXTFILE returns error: Invalid argument (os error 22)"),
+                "{e}"
+            );
+        } else {
+            assert!(lines(&d).is_empty());
+        }
 
         let failure = |p: &std::path::Path| -> String {
             let mut i = interp(HostOptions::default());
