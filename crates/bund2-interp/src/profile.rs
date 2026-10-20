@@ -239,6 +239,22 @@ pub struct Edge {
     pub steps: u64,
 }
 
+/// **Where a call was made from** — RFC-0011 §S8's per-site record: the
+/// written body's `payload_key` (or a top-level stream's key) and the index of
+/// the calling value in it. Kept raw on the hot path and turned into
+/// `file:line:col` once, when the record is written ([`Profile::site_labels`]).
+pub type Site = (usize, usize);
+
+/// One word's figures at one call site.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SiteStat {
+    pub calls: u64,
+    /// The word's outermost spans from this site: a recursive call nested
+    /// inside one from here is counted in `calls` and not again in the time.
+    pub time: Duration,
+    pub steps: u64,
+}
+
 /// An open activation on the mirror stack.
 #[derive(Clone)]
 struct Open {
@@ -265,6 +281,9 @@ struct Open {
     /// edge this activation was entered along, so the span is added to the
     /// same edge on the way out.
     edge: Option<(usize, usize)>,
+    /// For a named node: the site it was called from, when the interpreter
+    /// could say.
+    site: Option<Site>,
 }
 
 /// The record.
@@ -313,6 +332,16 @@ pub struct Profile {
     pub console_attached: bool,
     /// Names registered more than once while the record was kept.
     pub redefined: HashSet<String>,
+    /// **Per node, per call site** — RFC-0011 §S8, now that values have
+    /// places (RFC-0003 §S5). Keyed `(node, site)`.
+    sites: HashMap<(usize, Site), SiteStat>,
+    /// Each site as `file:line:col`, filled by the interpreter before the
+    /// record is written; a site it could not place is absent.
+    pub site_labels: HashMap<Site, String>,
+    /// **Where each word the program registered was registered**, as
+    /// `file:line:col` of the `register` that bound it, the last one for a
+    /// name bound twice — RFC-0011 §S8's "say where a word came from".
+    pub defined: HashMap<String, String>,
     /// The native that filed the tail request whose body is about to be
     /// pushed, if one did.
     filed_by: Option<usize>,
@@ -352,6 +381,9 @@ impl Profile {
             threshold: (reading_cost * 2 + resolution) * 4,
             console_attached: false,
             redefined: HashSet::new(),
+            sites: HashMap::new(),
+            site_labels: HashMap::new(),
+            defined: HashMap::new(),
             filed_by: None,
             failed_in: None,
             writer: None,
@@ -446,6 +478,19 @@ impl Profile {
             .flat_map(|(a, n)| n.out.iter().map(move |(b, v, e)| (a, *b, *v, e)))
     }
 
+    /// Every site record as `(node, site, figures)`.
+    pub fn sites(&self) -> impl Iterator<Item = (usize, Site, &SiteStat)> {
+        self.sites.iter().map(|(&(n, s), st)| (n, s, st))
+    }
+
+    /// The sites the record holds, for the interpreter to label.
+    pub fn site_keys(&self) -> Vec<Site> {
+        let mut keys: Vec<Site> = self.sites.keys().map(|(_, s)| *s).collect();
+        keys.sort_unstable();
+        keys.dedup();
+        keys
+    }
+
     /// The node for a symbol of one kind, made on first sight.
     fn sym_node(&mut self, sym: Symbol, kind: Kind) -> usize {
         let slot = usize::from(kind == Kind::Word);
@@ -504,7 +549,19 @@ impl Profile {
         self.open.last().filter(|o| o.leaf).and_then(|o| o.node)
     }
 
-    fn enter(&mut self, node: Option<usize>, depth: usize, leaf: bool, via: Option<usize>) {
+    fn enter(
+        &mut self,
+        node: Option<usize>,
+        depth: usize,
+        leaf: bool,
+        via: Option<usize>,
+        site: Option<Site>,
+    ) {
+        // The site's count before the clock is read, so the hash it costs is
+        // not inside the span it is counting (D189 samples on those spans).
+        if let (Some(id), Some(at)) = (node, site) {
+            self.sites.entry((id, at)).or_default().calls += 1;
+        }
         // A sampled leaf reads the clock one call in `SAMPLE_EVERY` (D189);
         // everything else on every call.
         let timed = match node {
@@ -551,6 +608,7 @@ impl Profile {
             leaf,
             via,
             edge,
+            site: site.filter(|_| node.is_some()),
         });
     }
 
@@ -636,6 +694,13 @@ impl Profile {
                 self.root_children_steps += span_steps;
             }
         }
+        if let Some(at) = o.site
+            && !o.nested
+            && let Some(st) = self.sites.get_mut(&(id, at))
+        {
+            st.time += span;
+            st.steps += span_steps;
+        }
         if let Some((parent, i)) = o.edge
             && parent != id
         {
@@ -674,22 +739,23 @@ impl Profile {
     }
 
     /// Hook 1: a registered native is about to run, `depth` frames deep.
-    pub fn open_native(&mut self, sym: Symbol, kind: WordKind, depth: usize) {
+    /// `site` is where it was called from, when the interpreter can say.
+    pub fn open_native(&mut self, sym: Symbol, kind: WordKind, depth: usize, site: Option<Site>) {
         let id = self.sym_node(sym, Kind::Native);
         self.nodes[id].word_kind = Some(kind);
-        self.enter(Some(id), depth, true, None);
+        self.enter(Some(id), depth, true, None, site);
     }
 
     /// Hook 2: a method native is about to run.
-    pub fn open_method(&mut self, name: &str, depth: usize) {
+    pub fn open_method(&mut self, name: &str, depth: usize, site: Option<Site>) {
         let id = self.name_node(name, Kind::Method);
-        self.enter(Some(id), depth, true, None);
+        self.enter(Some(id), depth, true, None, site);
     }
 
     /// Hook 2: a conditional runner is about to run.
-    pub fn open_conditional(&mut self, ty: &str, depth: usize) {
+    pub fn open_conditional(&mut self, ty: &str, depth: usize, site: Option<Site>) {
         let id = self.name_node(ty, Kind::Conditional);
-        self.enter(Some(id), depth, true, None);
+        self.enter(Some(id), depth, true, None, site);
     }
 
     /// The native, method or runner opened last has returned.
@@ -710,14 +776,14 @@ impl Profile {
     /// Hook 3: a frame was pushed, so the frames are now `depth` deep. A
     /// named frame opens its word's node; an unnamed one opens an anonymous
     /// entry that remembers which native filed it, if one did.
-    pub fn open_frame(&mut self, who: Option<Symbol>, depth: usize) {
+    pub fn open_frame(&mut self, who: Option<Symbol>, depth: usize, site: Option<Site>) {
         let via = self.filed_by.take();
         match who {
             Some(w) => {
                 let id = self.sym_node(w, Kind::Word);
-                self.enter(Some(id), depth, false, None);
+                self.enter(Some(id), depth, false, None, site);
             }
-            None => self.enter(None, depth, false, via),
+            None => self.enter(None, depth, false, via, None),
         }
     }
 

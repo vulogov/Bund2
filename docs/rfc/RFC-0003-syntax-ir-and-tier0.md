@@ -1110,3 +1110,20 @@ inside a program's lambda is drawn at the place in the lambda.
 per-call-site profiles, and recording where a word was registered — each
 now has the places it needs.
 
+## Amendment, 2026-10-19 (second) — positions wherever a failure is told
+
+- **A fatal failure inside `bund.eval`** is drawn at its place in the string
+  as well as at the program's step that ran it, each in its own text; a
+  fatal traceback now leads with the failure's own text, as a caught one
+  does. `Diagnostic::source` names the text it carries, so a renderer reads
+  each location against the right one. The table on a pipe is unchanged.
+- **A line typed at a debugger stop** that fails ends with the line and a
+  caret under the term that failed (`eval_line`), and its lambdas are placed
+  under the name `console`.
+- **`bund2 check`** places a finding inside a body at the item itself —
+  `Finding::place`, the written body's `payload_key` and the index, which the
+  CLI resolves through `Lowered::bodies` — and names the top-level step that
+  reached it: `p.bund:2:3: \`+\` needs 2 value(s); … reached from p.bund:2:11`.
+  The walk maps each copy of a literal body back to the body written, holding
+  a `Weak`, so an address is an answer only while the copy is alive. A
+  `context`'s three slots are walked each as itself so each keeps its place.

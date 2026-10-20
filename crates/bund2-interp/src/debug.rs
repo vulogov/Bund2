@@ -87,6 +87,10 @@ pub enum Command {
     /// stacks, rebind a word, and call `bund.exit`, whose cell is
     /// `get_or_insert` and cannot be cleared.
     BreakIf(String, String),
+    /// **Break at a line — RFC-0008 §D3's breakpoint by source location.**
+    /// The file, if one was named, and the 1-based line: the program stops
+    /// before the first value of that line each time a body reaches it.
+    BreakLine(Option<String>, usize),
     /// Stop watching a word.
     Delete(String),
     /// **Watch a named stack — §D4.** Stops on a push to that stack and no
@@ -228,6 +232,9 @@ pub struct Debug {
     watch_workbench: bool,
     /// `watch depth > N` on whichever stack is current — §D4.
     watch_depth: Option<usize>,
+    /// Lines to break at — §D3 by source location: an optional file and a
+    /// line.
+    line_breaks: std::collections::BTreeSet<(Option<String>, usize)>,
     /// **Calls per word since this debugger attached** — what §D5's `words`
     /// shows. Counted where a breakpoint is asked about, which every call
     /// already reaches when something is attached, so a run with no
@@ -270,6 +277,7 @@ impl Debug {
             said: std::collections::HashSet::new(),
             watch_workbench: false,
             watch_depth: None,
+            line_breaks: std::collections::BTreeSet::new(),
             calls: std::collections::HashMap::new(),
             stops: 0,
             busy: false,
@@ -376,7 +384,14 @@ impl Debug {
                 self.watch_redefine = true;
                 Next::Render(Render::Info)
             }
+            Command::BreakLine(file, line) => {
+                self.line_breaks.insert((file, line));
+                Next::Render(Render::Info)
+            }
             Command::Delete(w) => {
+                if let Some(at) = line_spec(&w) {
+                    self.line_breaks.remove(&at);
+                }
                 self.breaks.remove(&w);
                 self.watches.remove(&w);
                 match w.as_str() {
@@ -422,6 +437,22 @@ impl Debug {
         !self.busy
             && !self.gone
             && (!self.watches.is_empty() || self.watch_workbench || self.watch_depth.is_some())
+    }
+
+    /// Whether a line breakpoint is armed. **Read at every step** while
+    /// attached, so an emptiness check and nothing more.
+    pub(crate) fn watching_lines(&self) -> bool {
+        !self.busy && !self.gone && !self.line_breaks.is_empty()
+    }
+
+    /// Whether `line` of `file` is a line breakpoint: one naming that line
+    /// and no file, or a file that is `file` or its tail after a `/`.
+    pub(crate) fn breaks_at(&self, file: &str, line: usize) -> Option<String> {
+        self.line_breaks.iter().find_map(|(f, l)| {
+            let matches = *l == line
+                && f.as_deref().is_none_or(|f| file == f || file.ends_with(&format!("/{f}")));
+            matches.then(|| format!("{file}:{line}"))
+        })
     }
 
     /// The depth `watch depth > N` names, if one is set.
@@ -521,6 +552,7 @@ impl Debug {
     /// so a fresh `break w` still reads `break w`.
     pub(crate) fn render_watched(&self) -> String {
         if self.breaks.is_empty()
+            && self.line_breaks.is_empty()
             && self.watches.is_empty()
             && !self.watch_workbench
             && self.watch_depth.is_none()
@@ -545,6 +577,12 @@ impl Debug {
                 n => out.push_str(&format!("  (hit {n} times)")),
             }
             out.push('\n');
+        }
+        for (f, l) in &self.line_breaks {
+            match f {
+                Some(f) => out.push_str(&format!("break {f}:{l}\n")),
+                None => out.push_str(&format!("break {l}\n")),
+            }
         }
         for (s, cond) in &self.watches {
             match cond {
@@ -693,6 +731,20 @@ pub(crate) enum Render {
     Classes,
 }
 
+/// **A source location to break at** — RFC-0008 §D3: `12` is line 12 of any
+/// file, `p.bund:12` line 12 of `p.bund`. A word cannot be all digits — a
+/// run of digits lexes as a number — and no word ends in `:` and digits, so
+/// neither form shadows a word.
+pub fn line_spec(s: &str) -> Option<(Option<String>, usize)> {
+    let s = s.trim();
+    if let Ok(n) = s.parse::<usize>() {
+        return (n > 0).then_some((None, n));
+    }
+    let (file, line) = s.rsplit_once(':')?;
+    let n: usize = line.parse().ok().filter(|n| *n > 0)?;
+    (!file.is_empty()).then(|| (Some(file.to_string()), n))
+}
+
 /// One line of a backtrace: what a frame is running and how far through.
 ///
 /// **§D2's field is what makes this a name.** A `Frame` carries a body, an
@@ -739,6 +791,17 @@ pub fn frame_line(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// RFC-0008 §D3 by source location: the two forms, and what is a word.
+    #[test]
+    fn a_line_spec_is_a_line_or_a_file_and_a_line() {
+        assert_eq!(line_spec("12"), Some((None, 12)));
+        assert_eq!(line_spec("p.bund:12"), Some((Some("p.bund".into()), 12)));
+        assert_eq!(line_spec("/a/b/p.bund:3"), Some((Some("/a/b/p.bund".into()), 3)));
+        for word in ["dup", "0", ":12", "p.bund:", "p.bund:x", "a:0"] {
+            assert_eq!(line_spec(word), None, "{word}");
+        }
+    }
 
     /// D191: what a stop says changed, over the cases that matter.
     #[test]

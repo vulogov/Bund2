@@ -106,18 +106,44 @@ pub mod encoding;
 /// `eval_source` prefixes the reference's `Attempt to evaluate value …`, which
 /// carries the raw rendering of the value; that is `bund.eval`'s contract and
 /// noise at a prompt where the person has just typed the line.
+///
+/// **It ends with the line and a caret under the term that failed** —
+/// RFC-0003 §S5 at the console, where the place is the one thing the person
+/// can act on. The line's lambdas are placed under the name `console`, so a
+/// frame of one says where in the line it was written.
 pub fn eval_line(vm: &mut dyn bund2_api::Vm, src: &str) -> Result<(), bund2_api::Error> {
-    let stream = bund2_syntax::compile(src).map_err(|e| bund2_api::Error(e.render(src)))?;
-    for word in stream {
+    let terms = bund2_syntax::parse(src).map_err(|e| bund2_api::Error(e.render(src)))?;
+    let lowered = bund2_syntax::lower_with_spans(&terms, src.len());
+    vm.note_positions("console", src, &lowered.body_places());
+    for (i, word) in lowered.values.iter().enumerate() {
         if word.dt() == bund2_value::NONE {
             continue;
         }
         if word.dt() == bund2_value::EXIT {
             break;
         }
-        vm.apply(word)?;
+        vm.apply(word.clone()).map_err(|e| match lowered.span_of(i) {
+            Some(span) => bund2_api::Error(format!("{}\n{}", e.0, caret(src, span))),
+            None => e,
+        })?;
     }
     Ok(())
+}
+
+/// The line `span` starts on, and a caret under the span: what a console
+/// shows beneath a failure.
+fn caret(src: &str, span: bund2_syntax::Span) -> String {
+    let start = span.start.min(src.len());
+    let line_start = src.get(..start).and_then(|b| b.rfind('\n')).map_or(0, |i| i + 1);
+    let line = src
+        .get(line_start..)
+        .and_then(|rest| rest.lines().next())
+        .unwrap_or_default();
+    let pad = src.get(line_start..start).map_or(0, |b| b.chars().count());
+    let width = src
+        .get(start..span.end.clamp(start, src.len()))
+        .map_or(1, |t| t.chars().count().max(1));
+    format!("  {line}\n  {}{}", " ".repeat(pad), "^".repeat(width))
 }
 
 /// Register everything this crate provides.

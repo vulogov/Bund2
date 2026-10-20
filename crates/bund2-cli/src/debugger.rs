@@ -90,7 +90,7 @@ impl Stdio {
 /// What `?` answers. The short forms are the session's; every other line is
 /// Bund.
 const HELP: &str = "bund2: s(tep), n(ext), f(inish), c(ontinue), bt, st, info, \
-                    break <word> [<n>] [if <lambda>], until <word>, catch, \
+                    break <word> [<n>] [if <lambda>], break [<file>:]<line>, until <word>, catch, \
                     watch @stack [if <lambda>], watch workbench, watch redefine, \
                     watch depth > <n>, delete <word|catch|redefine|depth>, \
                     words [all|<text>], classes. Any other line is run as Bund in the program.";
@@ -123,6 +123,13 @@ fn parse(line: &str) -> Result<Command, String> {
         };
         if head.is_empty() {
             return Err("bund2: `break` needs a word".to_string());
+        }
+        // RFC-0008 §D3 by source location: `break 12`, `break p.bund:12`.
+        if let Some((file, line)) = bund2_interp::debug::line_spec(head) {
+            if cond.is_some() {
+                return Err("bund2: a line breakpoint takes no condition".to_string());
+            }
+            return Ok(Command::BreakLine(file, line));
         }
         // **D191: `break w 100` stops at the hundredth hit, once.** A word
         // has no spaces, so a second token is the hit.
@@ -363,8 +370,8 @@ fn say_stopped(greeted: &mut bool, at: &str) {
         let _ = writeln!(
             out,
             "bund2: stopped. s(tep), n(ext), f(inish), c(ontinue), bt, st, \
-             info, break <word> [<n>] [if <lambda>], until <word>, catch, \
-             watch @stack [if <lambda>], watch workbench, watch redefine, \
+             info, break <word> [<n>] [if <lambda>], break [<file>:]<line>, until <word>, \
+             catch, watch @stack [if <lambda>], watch workbench, watch redefine, \
              watch depth > <n>, delete <word>, words [all|<text>], classes. \
              Any other line is run as Bund. EOF detaches and runs on."
         );
@@ -509,6 +516,8 @@ mod tests {
             ("watch depth 3", Command::WatchDepth(3)),
             ("w depth >0", Command::WatchDepth(0)),
             ("words", Command::Words(None)),
+            ("break 12", Command::BreakLine(None, 12)),
+            ("b p.bund:3", Command::BreakLine(Some("p.bund".into()), 3)),
             ("words all", Command::Words(Some("all".to_string()))),
             ("words  sw ", Command::Words(Some("sw".to_string()))),
             ("classes", Command::Classes),
@@ -517,7 +526,12 @@ mod tests {
         ] {
             assert_eq!(parse(text), Ok(want), "{text}");
         }
-        for bad in ["watch depth", "watch depth > x", "watch depth > -1"] {
+        for bad in [
+            "watch depth",
+            "watch depth > x",
+            "watch depth > -1",
+            "break 12 if { true }",
+        ] {
             assert!(parse(bad).is_err(), "{bad}");
         }
         assert!(HELP.contains("watch depth > <n>") && HELP.contains("classes"));

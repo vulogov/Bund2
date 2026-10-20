@@ -541,7 +541,7 @@ mod tests {
             d.cause.as_deref(),
             Some("DIV returns error: Integer division to 0.0")
         );
-        assert_eq!(d.source.as_deref(), Some("0 1 /"));
+        assert_eq!(d.source.as_ref().map(|(_, t)| t.as_str()), Some("0 1 /"));
         let at = d.location.as_ref().expect("a position in the string");
         assert_eq!((at.file.as_deref(), at.line, at.column), (Some("bund.eval"), 1, 5));
         assert_eq!(at.span, Some((4, 5)));
@@ -609,7 +609,10 @@ mod tests {
         };
         let cause = second.cause.as_deref().expect("its own cause");
         assert!(!cause.contains("division to 0"), "{cause}");
-        assert_eq!(second.source.as_deref(), Some("1 2 3 list /"));
+        assert_eq!(
+            second.source.as_ref().map(|(_, t)| t.as_str()),
+            Some("1 2 3 list /")
+        );
     }
 
     /// `testing_tryexcept.bund`, verbatim from the corpus. `raise` fails inside

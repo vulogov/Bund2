@@ -717,6 +717,8 @@ fn the_words_and_classes_views_show_the_tables() {
             .to_string()
     };
     assert!(calls("w").contains("lambda") && calls("w").ends_with("calls 2"), "{err}");
+    // RFC-0011 §S8: where it was registered — line 3, at its `register`.
+    assert!(calls("w").contains("registered at ") && calls("w").contains(":3:"), "{err}");
     assert!(calls("swap").contains("alias → swap_one, native"), "{err}");
     assert!(err.contains("swap_one"), "the filter shows every name with swap:\n{err}");
     assert!(
@@ -725,4 +727,25 @@ fn the_words_and_classes_views_show_the_tables() {
     );
     assert!(err.contains("Base\n  super: none\n  methods: greet\n"), "{err}");
     assert_eq!(out, "done\n");
+}
+
+/// **RFC-0008 §D3 by source location.** `break <line>` stops before the
+/// first value of the line each time a body reaches it — at the top level,
+/// inside a word on each call, and inside a loop's body on each run — and
+/// `break <file>:<line>` names the file by its tail.
+#[test]
+fn a_line_breakpoint_stops_where_the_line_begins() {
+    let src = ":g {\n  1 2 +\n  println\n} register\n\"start\" println\ng g\n2 { 0 drop } times\n";
+    let (out, err, _) = session(src, "break 3\nbreak s.bund:7\nc\nc\nc\nc\nc\nc\nc\n");
+    let stops: Vec<&str> = err
+        .lines()
+        .filter_map(|l| l.split("breakpoint: ").nth(1))
+        .map(|at| at.rsplit('/').next().unwrap_or(at))
+        .collect();
+    assert_eq!(
+        stops,
+        ["s.bund:3", "s.bund:3", "s.bund:7", "s.bund:7", "s.bund:7"],
+        "{err}"
+    );
+    assert_eq!(out, "start\n3\n3\n");
 }

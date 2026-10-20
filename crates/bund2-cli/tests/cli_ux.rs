@@ -66,6 +66,33 @@ fn a_pipe_still_sees_the_reference_s_table() {
 /// `--report trace` draws the traceback: the file and position, the term
 /// underlined, the frames innermost first, the stack name, then the stack
 /// box the table would have drawn too.
+/// **RFC-0011 §S8: the profile says where a word was registered and where
+/// it was called from**, once values have places (RFC-0003 §S5).
+#[test]
+fn the_profile_names_call_sites_and_where_words_were_registered() {
+    let p = program(
+        "sites.bund",
+        ":sq {\n  dup *\n} register\n:f {\n  3 sq drop\n} register\n100 { f } times\n5 sq println\n",
+    );
+    let base = p.with_extension("");
+    let r = bund2(
+        &[
+            "script",
+            "--file",
+            p.to_str().unwrap(),
+            "--profile",
+            base.to_str().unwrap(),
+        ],
+        &[],
+    );
+    assert_eq!(r.code, Some(0), "{}", r.err);
+    let md = std::fs::read_to_string(base.with_extension("profile.md")).expect("the report");
+    let at = |l: &str| format!("{}:{l}", p.display());
+    assert!(md.contains(&format!("### `sq` — registered at {}", at("3:3"))), "{md}");
+    assert!(md.contains(&format!("| {} | 100 |", at("5:5"))), "{md}");
+    assert!(md.contains(&format!("| {} | 1 |", at("8:3"))), "{md}");
+}
+
 /// D194: a program that does not parse exits 1, and one that fails while
 /// running still exits 0, as the reference's does.
 #[test]
@@ -120,7 +147,7 @@ fn report_trace_draws_the_traceback_with_the_frames() {
     // `f` on line 4 is what reached it.
     assert!(r.out.contains(&format!("{}:1:13", p.display())), "{}", r.out);
     assert!(
-        r.out.contains("the value that failed, in the lambda"),
+        r.out.contains("the value that failed, inside"),
         "{}",
         r.out
     );
@@ -537,9 +564,16 @@ fn profile_needs_a_base_and_then_writes_two_files_and_nothing_else() {
         ),
         "{md}"
     );
-    assert!(md.contains("### `inc`"), "{md}");
+    // Read within that section: the call-sites section heads each hot
+    // word, `println` among them, and is not what this is about.
+    let callers = md
+        .split("## Callers and callees")
+        .nth(1)
+        .and_then(|rest| rest.split("\n## ").next())
+        .unwrap_or_default();
+    assert!(callers.contains("### `inc`"), "{md}");
     assert!(
-        !md.contains("### `println`"),
+        !callers.contains("### `println`"),
         "a single-caller leaf has no section: {md}"
     );
     // The legend is the graph's own label, pinned bottom left.

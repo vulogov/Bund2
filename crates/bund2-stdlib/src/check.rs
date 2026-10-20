@@ -112,6 +112,12 @@ pub struct Finding {
     /// The values are wanted on the **workbench**, not the stack in play —
     /// RFC-0004 §S1's second axis.
     pub workbench: bool,
+    /// **Where inside a body the finding is** — RFC-0003 §S5: the body's
+    /// `payload_key` and the item's index in it, for a caller holding the
+    /// lowered program's `bodies` to turn into a line and a column. `None`
+    /// at the top level, where `at` says it, and in a body built at run time,
+    /// which was written nowhere.
+    pub place: Option<(usize, usize)>,
 }
 
 /// What a walk learned.
@@ -532,6 +538,15 @@ struct Walker<'a> {
     /// where a body's effect is inferred, and where a body runs a number of
     /// times or ends where a `raise` placed it.
     touched_bench: bool,
+    /// The literal bodies seen, by the address of the copy the walk holds,
+    /// to the `payload_key` of the body the program wrote — so a walk into a
+    /// copy can still say which written body it is in (RFC-0003 §S5). The
+    /// `Weak` is what makes an address an answer: while it upgrades, no other
+    /// body can be at that address.
+    body_keys: std::collections::HashMap<usize, (std::rc::Weak<[BundValue]>, usize)>,
+    /// The written body and the index in it of the item being walked, when
+    /// the walk is inside one.
+    here: Option<(usize, usize)>,
 }
 
 /// What the `raise`s reached so far inside a `try` leave on the stack.
@@ -566,6 +581,8 @@ impl<'a> Walker<'a> {
             halted: false,
             bench: (mode == Mode::Program).then(Stack::default),
             touched_bench: false,
+            body_keys: std::collections::HashMap::new(),
+            here: None,
         }
     }
 
@@ -595,6 +612,7 @@ impl<'a> Walker<'a> {
                 have: b.items.len() as i64,
                 via: via.map(str::to_string),
                 workbench: true,
+                place: self.here,
             });
             b.items.clear();
         } else {
@@ -694,6 +712,7 @@ impl<'a> Walker<'a> {
                 have: stack.items.len() as i64,
                 via: via.map(str::to_string),
                 workbench: false,
+                place: self.here,
             });
             stack.items.clear();
             return None;
@@ -727,6 +746,11 @@ impl<'a> Walker<'a> {
 
     /// Walk one stream on one stack. `site` is the top-level index a nested
     /// walk's findings are charged to; `via` names the body.
+    ///
+    /// Where the walk is, for a finding's [`Finding::place`], is the item of
+    /// the written body this stream is a copy of, if it is one; it is put
+    /// back on the way out, so a finding the caller makes after this walk
+    /// returns is placed at the caller's item.
     fn walk(
         &mut self,
         stream: &[BundValue],
@@ -735,11 +759,32 @@ impl<'a> Walker<'a> {
         via: Option<&str>,
         level: u8,
     ) -> Went {
+        let key = self
+            .body_keys
+            .get(&(stream.as_ptr() as usize))
+            .filter(|(alive, _)| alive.strong_count() > 0)
+            .map(|(_, k)| *k);
+        let outer = self.here;
+        let went = self.walk_items(stream, stack, site, via, level, key);
+        self.here = outer;
+        went
+    }
+
+    fn walk_items(
+        &mut self,
+        stream: &[BundValue],
+        stack: &mut Stack,
+        site: Option<usize>,
+        via: Option<&str>,
+        level: u8,
+        key: Option<usize>,
+    ) -> Went {
         if level >= MAX_INFER_DEPTH {
             return self.abandon("a body nested deeper than the analysis follows".into());
         }
         for (i, v) in stream.iter().enumerate() {
             let at = site.unwrap_or(i);
+            self.here = key.map(|k| (k, i));
             match v.dt() {
                 // `@name` and `( … )` switch stacks — D182: the current one
                 // is saved under its name, the target is restored or created
@@ -766,8 +811,16 @@ impl<'a> Walker<'a> {
                     }
                 }
                 // Everything else is a value the stream pushes: a literal, a
-                // string, a PTR, a lowered `{ … }` block or `[ … ]` list.
-                _ => stack.push(Abs::of_literal(v)),
+                // string, a PTR, a lowered `{ … }` block or `[ … ]` list. A
+                // block's copy is remembered as the body it was written as.
+                _ => {
+                    let a = Abs::of_literal(v);
+                    if let (Abs::Lambda(b) | Abs::List(b), Some(k)) = (&a, v.payload_key()) {
+                        self.body_keys
+                            .insert(b.as_ptr() as usize, (Rc::downgrade(b), k));
+                    }
+                    stack.push(a);
+                }
             }
             if self.halted {
                 return true;
@@ -1764,10 +1817,12 @@ impl<'a> Walker<'a> {
         let Abs::Name(_, key) = t.remove(0) else {
             return self.abandon("`context` whose slot name is not a literal".into());
         };
-        let mut body: Vec<BundValue> = Vec::new();
+        // Each slot walked as itself, not joined into one: the run is the
+        // same, and each stays the body it was written as (§S5).
+        let mut bodies: Vec<Rc<[BundValue]>> = Vec::new();
         for slot in [format!("{key}.pre"), key.to_string(), format!("{key}.post")] {
             match Self::slot(m, &slot) {
-                Slot::Lambda(b) => body.extend(b.iter().cloned()),
+                Slot::Lambda(b) => bodies.push(b),
                 Slot::Absent => {}
                 Slot::Unseen => {
                     return self.abandon(format!(
@@ -1781,8 +1836,10 @@ impl<'a> Walker<'a> {
             return false;
         }
         let inside = format!("`context` on @{target}");
-        if !self.walk(&body, stack, Some(at), Some(&inside), level + 1) {
-            return false;
+        for body in &bodies {
+            if !self.walk(body, stack, Some(at), Some(&inside), level + 1) {
+                return false;
+            }
         }
         self.switch_to(&back, stack)
     }
@@ -2187,6 +2244,29 @@ mod tests {
         let r = reg();
         let stream = bund2_syntax::compile(src).expect("compiles");
         check(&stream, &r, 0)
+    }
+
+    /// **RFC-0003 §S5: a finding inside a body names the body and the
+    /// item**, and the lowered program's `bodies` turn that into the item's
+    /// span; a top-level finding has no place, and `at` says where.
+    #[test]
+    fn a_finding_inside_a_body_is_placed_at_its_item() {
+        let src = "{ 1 . take take } !\nclear +\n";
+        let terms = bund2_syntax::parse(src).expect("parses");
+        let lowered = bund2_syntax::lower_with_spans(&terms, src.len());
+        let rep = check(&lowered.values, &reg(), 0);
+        let [inner, top] = rep.findings.as_slice() else {
+            panic!("two findings: {rep:?}");
+        };
+        let (key, i) = inner.place.expect("placed inside");
+        let (_, spans) = lowered
+            .bodies
+            .iter()
+            .find(|(v, _)| v.payload_key() == Some(key))
+            .expect("a written body");
+        let span = spans[i];
+        assert_eq!((&src[span.start..span.end], span.start), ("take", 11));
+        assert_eq!(top.place, None);
     }
 
     /// The workbench findings of a report, as `(word, needs, have)`.

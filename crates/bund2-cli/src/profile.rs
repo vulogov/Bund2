@@ -89,6 +89,11 @@ const TREE_DEPTH: usize = 6;
 /// those the tree does not already say everything about, which is a word
 /// with more than one caller or with any callee.
 const DETAILED: usize = 10;
+
+/// How many of the hottest words the call-site section lists, and how many
+/// sites each.
+const SITE_WORDS: usize = 10;
+const SITES_PER_WORD: usize = 8;
 /// The dot file folds words under this share of the wall, inclusive and
 /// exclusive, into one node — but only when the graph has more than
 /// `DOT_FOLD_ABOVE` nodes, since a small graph is readable whole.
@@ -574,6 +579,70 @@ pub fn render_markdown(p: &Profile, reg: &Registry, meta: &Meta<'_>) -> String {
     let mut path = vec![0usize];
     tree(p, reg, 0, 1, &mut path, &mut out);
     out.push('\n');
+
+    // --- call sites -----------------------------------------------------------
+    // RFC-0011 §S8, now that values have places (RFC-0003 §S5): for the
+    // hottest words, where each was registered and the sites it was called
+    // from most, with the time spent in it from each. A site in a body built
+    // at run time, or dropped before the record was written, has no place
+    // and is counted on the line that says how many were not placed.
+    let _ = writeln!(out, "## Call sites of the hottest words
+");
+    let mut by_node: std::collections::HashMap<usize, Vec<(u64, Duration, u64, String)>> =
+        std::collections::HashMap::new();
+    let mut unplaced: std::collections::HashMap<usize, u64> = std::collections::HashMap::new();
+    for (node, site, st) in p.sites() {
+        match p.site_labels.get(&site) {
+            Some(label) => by_node
+                .entry(node)
+                .or_default()
+                .push((st.calls, st.time, st.steps, label.clone())),
+            None => *unplaced.entry(node).or_default() += st.calls,
+        }
+    }
+    let mut any_site = false;
+    for (id, n) in ranked.iter().filter(|(id, _)| *id != 0).take(SITE_WORDS) {
+        let name = name_of(n, reg);
+        let defined = p.defined.get(&name);
+        let Some(mut sites) = by_node.remove(id) else {
+            continue;
+        };
+        any_site = true;
+        sites.sort_by(|a, b| b.0.cmp(&a.0).then(a.3.cmp(&b.3)));
+        match defined {
+            Some(at) => {
+                let _ = writeln!(out, "### `{name}` — registered at {at}\n");
+            }
+            None => {
+                let _ = writeln!(out, "### `{name}`\n");
+            }
+        }
+        let _ = writeln!(out, "| called from | calls | time | steps |");
+        let _ = writeln!(out, "|---|---|---|---|");
+        for (calls, time, steps, at) in sites.iter().take(SITES_PER_WORD) {
+            let _ = writeln!(
+                out,
+                "| {at} | {} | {} | {} |",
+                thousands(*calls),
+                dur(*time),
+                thousands(*steps)
+            );
+        }
+        if sites.len() > SITES_PER_WORD {
+            let _ = writeln!(out, "\n…and {} more sites.", sites.len() - SITES_PER_WORD);
+        }
+        if let Some(n) = unplaced.get(id) {
+            let _ = writeln!(
+                out,
+                "\n{} call(s) from a body built at run time, which has no place.",
+                thousands(*n)
+            );
+        }
+        out.push('\n');
+    }
+    if !any_site {
+        let _ = writeln!(out, "- none placed: the program was not read from a file.\n");
+    }
 
     // --- callers and callees -------------------------------------------------
     // The tree above already says everything about a word with one caller

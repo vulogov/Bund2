@@ -645,17 +645,14 @@ fn run_check(src: &str, file: &str) -> ExitCode {
                 excerpt: None,
                 span: None,
             });
-        bund2_api::errln!(
-            "Warning: {}:{}:{}: `{}` needs {} value(s){}; {} can be proven here{}",
+        let top = format!(
+            "{}:{}:{}",
             where_.file.as_deref().unwrap_or(file),
             where_.line,
-            where_.column,
-            f.word,
-            f.needs,
-            on_bench(f),
-            f.have,
-            via_of(f)
+            where_.column
         );
+        let inner = inside(&[(file, src, &lowered)], f);
+        bund2_api::errln!("Warning: {}", finding_line(top, inner, f));
     }
     // F62's hazard: not an underflow, so not counted among the findings.
     for (at, what) in &report.hazards {
@@ -695,6 +692,43 @@ fn run_check(src: &str, file: &str) -> ExitCode {
 /// lambda `!` runs, or in a method or constructor, is located at the site
 /// that ran it, and this names the body so the line is not read as the
 /// site's own arity.
+/// **Where inside a written body a finding is** — RFC-0003 §S5: the body
+/// whose `payload_key` the finding names, found among the files' literal
+/// bodies, and the item's span in it, as `path:line:col`.
+fn inside(files: &[(&str, &str, &bund2_syntax::Lowered)], f: &bund2_stdlib::check::Finding) -> Option<String> {
+    let (key, i) = f.place?;
+    files.iter().find_map(|(path, text, lowered)| {
+        let (_, spans) = lowered
+            .bodies
+            .iter()
+            .find(|(v, _)| v.payload_key() == Some(key))?;
+        let l = locate(text, path, *spans.get(i)?);
+        Some(format!("{path}:{}:{}", l.line, l.column))
+    })
+}
+
+/// A finding's line: at the place inside a body when there is one, with the
+/// top-level step that reached it after; at the step otherwise.
+fn finding_line(top: String, inner: Option<String>, f: &bund2_stdlib::check::Finding) -> String {
+    let what = format!(
+        "`{}` needs {} value(s){}; {} can be proven here{}",
+        f.word,
+        f.needs,
+        on_bench(f),
+        f.have,
+        via_of(f)
+    );
+    match inner {
+        Some(at) => format!("{at}: {what}, reached from {top}"),
+        None => format!("{top}: {what}"),
+    }
+}
+
+/// The top-level stream's spans as byte ranges, for `Interp::place_stream`.
+fn stream_spans(lowered: &bund2_syntax::Lowered) -> Vec<(usize, usize)> {
+    lowered.spans.iter().map(|s| (s.start, s.end)).collect()
+}
+
 /// RFC-0004 §S1: a finding on the second axis says so.
 fn on_bench(f: &bund2_stdlib::check::Finding) -> &'static str {
     if f.workbench { " on the workbench" } else { "" }
@@ -758,14 +792,9 @@ fn underflow_over(files: &[(&str, &str, bund2_syntax::Lowered)]) -> Underflow {
         .iter()
         .map(|f| {
             let (path, line, column) = place(f.at);
-            format!(
-                "{path}:{line}:{column}: `{}` needs {} value(s){}; {} can be proven here{}",
-                f.word,
-                f.needs,
-                on_bench(f),
-                f.have,
-                via_of(f)
-            )
+            let all: Vec<(&str, &str, &bund2_syntax::Lowered)> =
+                files.iter().map(|(p, t, l)| (*p, *t, l)).collect();
+            finding_line(format!("{path}:{line}:{column}"), inside(&all, f), f)
         })
         .collect();
     let what = if files.len() == 1 {
@@ -1982,6 +2011,7 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
         };
         let lowered = bund2_syntax::lower_with_spans(&terms, text.len());
         bund2_api::Vm::note_positions(vm, name, text, &lowered.body_places());
+        vm.place_stream(name, text, &stream_spans(&lowered));
         if let Err((i, e)) = vm.eval_indexed(&lowered.values) {
             ui::trace!("value {i} of the included {name} failed: {}", e.0);
             let mut d = bund2_api::diag::Diagnostic::error(e.0);
@@ -2020,6 +2050,7 @@ fn run_with_prelude(prelude: &[(String, String)], src: &str, args: &Args) -> Opt
     // RFC-0003 §S5: where each lambda's values were written, for a trace,
     // `bt` and a stop to say.
     bund2_api::Vm::note_positions(vm, file, src, &lowered.body_places());
+    vm.place_stream(file, src, &stream_spans(&lowered));
     ui::debug!(
         "parsed {} top-level terms, lowered to {} values",
         terms.len(),
@@ -2072,6 +2103,8 @@ fn finish_profile(
     ended: profile::Ended,
     code: Option<i32>,
 ) -> Option<i32> {
+    // RFC-0011 §S8: the sites labelled while the positions are to hand.
+    rt.interp.label_profile_sites();
     let Some(mut record) = rt.interp.profile.take() else {
         return code;
     };

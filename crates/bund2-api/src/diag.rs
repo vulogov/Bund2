@@ -107,10 +107,10 @@ pub struct Diagnostic {
     /// program reads it as data; this is the innermost failure without them,
     /// which is what a traceback leads with.
     pub cause: Option<String>,
-    /// The text [`Diagnostic::location`] points into, when that is not a file
-    /// the reporter holds — a string `bund.eval` ran, say. The location's
-    /// `file` then names it.
-    pub source: Option<String>,
+    /// **A text a location here points into that the reporter does not
+    /// hold** — a string `bund.eval` ran, say — as `(name, text)`. A
+    /// location whose `file` is that name is read against this text.
+    pub source: Option<(String, String)>,
     /// **Where inside a body the failure was** — RFC-0003 §S5. `location`
     /// stays the top-level step that led there, which is what the reference's
     /// table shows and the goldens hold; this is the place in the lambda,

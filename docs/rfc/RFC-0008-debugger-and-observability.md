@@ -1934,3 +1934,21 @@ third review (B3) and D163's acceptance named as specified and not built.
 Still specified and not built: a breakpoint by source location (§D3), which
 needs the positions inside bodies RFC-0003 §S5 describes.
 
+## Amendment, 2026-10-19 (second) — §D3 by source location
+
+The last of §D3 is built, on the positions RFC-0003's amendment of
+2026-10-19 put beside each body. `break 12` at the console stops before the
+first value of line 12 of any file each time a body reaches it, and `break
+p.bund:12` names the file — by its whole name or its tail after a `/`; the
+same strings to `debug.break` arm the same breakpoint, and `delete 12` and
+`info` treat it as any other. A line in a loop's body stops on each run, and
+in a word on each call. The top-level stream is placed too: the CLI hands the
+interpreter its spans (`Interp::place_stream`), so line 5 of the program
+stops where line 5 begins. Nothing is looked up unless a line breakpoint is
+armed (`Debug::watching_lines`). `words` now also says where each lambda was
+registered (RFC-0011's amendment of the same day). Pinned by
+`a_line_breakpoint_stops_where_the_line_begins`,
+`a_line_spec_is_a_line_or_a_file_and_a_line` and the parser's cases.
+
+§D3 is now built in all three forms, and "still specified and not built" no
+longer lists anything from §D3.

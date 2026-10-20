@@ -25,7 +25,7 @@
 
 use std::ops::Range;
 
-use ariadne::{Color, Config, IndexType, Label, Report, ReportKind, Source};
+use ariadne::{Color, Config, IndexType, Label, Report, ReportKind};
 use bund2_api::diag::{Diagnostic, Location, Reporter, Severity};
 use bund2_stdlib::report::{TextReporter, stack_box};
 
@@ -131,13 +131,29 @@ impl TraceReporter {
         ))
     }
 
+    /// The text a location points into: the string the diagnostic carries
+    /// when the location names it, else a file this reporter holds by that
+    /// exact name. `None` for a file it was not given, which is never drawn
+    /// over another file's text.
+    fn text_of<'a>(&'a self, d: &'a Diagnostic, l: &Location) -> Option<(&'a str, &'a str)> {
+        let file = l.file.as_deref()?;
+        if let Some((name, text)) = &d.source
+            && name == file
+        {
+            return Some((name.as_str(), text.as_str()));
+        }
+        self.sources
+            .iter()
+            .find(|(name, _)| name == file)
+            .map(|(name, text)| (name.as_str(), text.as_str()))
+    }
+
     fn draw(&self, d: &Diagnostic, kind: ReportKind<'_>, colour: bool) -> Option<String> {
         let loc = d.location.as_ref()?;
-        let (id, src) = match (&d.source, &loc.file) {
-            (Some(text), Some(name)) => (name.as_str(), text.as_str()),
-            _ => self.source_for(loc.file.as_deref()),
-        };
-        let range = |l: &Location| {
+        let (id, src) = self
+            .text_of(d, loc)
+            .unwrap_or_else(|| self.source_for(loc.file.as_deref()));
+        let range = |l: &Location, src: &str| {
             let span = l
                 .span
                 .map(|(s, e)| s..e)
@@ -145,22 +161,22 @@ impl TraceReporter {
             let start = span.start.min(src.len());
             start..span.end.clamp(start, src.len())
         };
-        let at = range(loc);
-        // **RFC-0003 §S5: the value inside the lambda, when it was written
-        // in the text drawn here.** It is underlined as what failed, and the
-        // top-level step becomes what reached it; a place in another file
-        // than the one drawn is left to the frames' lines, which name it.
+        let at = range(loc, src);
+        // **RFC-0003 §S5: the value inside — a lambda's, or a string's that
+        // `bund.eval` ran — when its text is to hand.** It is underlined as
+        // what failed, and the top-level step becomes what reached it, in
+        // its own file when that is another. A place whose text this
+        // reporter does not have is left to the frames' lines, which name it.
         let inner = d
             .inner
             .as_ref()
-            .filter(|i| i.file.as_deref() == Some(id))
-            .map(range)
-            .filter(|r| *r != at);
-        let (primary, message) = match &inner {
-            Some(r) => (r.clone(), "the value that failed, in the lambda"),
-            None => (at.clone(), "the step that failed began here"),
+            .and_then(|i| self.text_of(d, i).map(|(iid, isrc)| (iid, isrc, range(i, isrc))))
+            .filter(|(iid, _, r)| *iid != id || *r != at);
+        let (pid, primary, message) = match &inner {
+            Some((iid, _, r)) => (*iid, r.clone(), "the value that failed, inside"),
+            None => (id, at.clone(), "the step that failed began here"),
         };
-        let mut report = Report::build(kind, (id, primary.clone()))
+        let mut report = Report::build(kind, (pid.to_string(), primary.clone()))
             .with_config(
                 Config::default()
                     .with_color(colour)
@@ -168,16 +184,20 @@ impl TraceReporter {
             )
             .with_message(d.cause.as_deref().unwrap_or(&d.reason))
             .with_label(
-                Label::new((id, primary))
+                Label::new((pid.to_string(), primary))
                     .with_message(message)
                     .with_color(Color::Red),
             );
-        if inner.is_some() {
+        let mut texts = vec![(id.to_string(), src.to_string())];
+        if let Some((iid, isrc, _)) = &inner {
             report = report.with_label(
-                Label::new((id, at))
+                Label::new((id.to_string(), at))
                     .with_message("reached from this step")
                     .with_color(Color::Yellow),
             );
+            if *iid != id {
+                texts.push((iid.to_string(), isrc.to_string()));
+            }
         }
         if let Some(name) = &d.stack_name {
             report = report.with_note(format!("on stack `{name}`"));
@@ -193,7 +213,7 @@ impl TraceReporter {
         let mut out = Vec::new();
         report
             .finish()
-            .write((id, Source::from(src)), &mut out)
+            .write(ariadne::sources(texts), &mut out)
             .ok()?;
         Some(String::from_utf8_lossy(&out).into_owned())
     }
@@ -334,7 +354,7 @@ mod tests {
         })
         .with_frames(vec!["#0  a lambda at 1".into()]);
         d.cause = Some("DIV returns error: Integer division to 0.0".into());
-        d.source = Some("0 1 /".into());
+        d.source = Some(("bund.eval".into(), "0 1 /".into()));
         let text = reporter(":other { } register\n", true)
             .render_caught(&d)
             .expect("drawn");
@@ -369,7 +389,7 @@ mod tests {
         });
         let text = reporter(src, true).render(&d).expect("rendered");
         assert!(text.contains("p.bund:1:13"), "{text}");
-        assert!(text.contains("the value that failed, in the lambda"), "{text}");
+        assert!(text.contains("the value that failed, inside"), "{text}");
         assert!(text.contains("reached from this step"), "{text}");
         // A place in a file this reporter was not given is not drawn over
         // the wrong text.

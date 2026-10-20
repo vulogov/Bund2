@@ -3748,6 +3748,9 @@ extends `StackEffect`".
   out of scope, or refusing every sentinel type — stay `Unknown` until a probe
   that can feed them is written. And the `IMAGE` class and the natives with
   no effect remain words to implement rather than rules to add.
+**Note, later 2026-10-19.** A finding inside a body is now placed at the
+item, with the top-level step that reached it after (RFC-0003's second
+amendment of 2026-10-19).
 
 ## D194 — a program that does not parse exits 1
 

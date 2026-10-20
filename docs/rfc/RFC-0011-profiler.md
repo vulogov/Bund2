@@ -882,3 +882,24 @@ D190.
 
 All three questions are ruled, each by its own entry, as D96 did for
 RFC-0010.
+
+## Amendment, 2026-10-19 — §S8's per-site record and "where a word came from"
+
+Both were waiting on per-value spans, which RFC-0003's amendment of
+2026-10-19 supplies.
+
+- **Per site.** Every named activation records where it was called from —
+  the calling value, as the innermost frame's body and the index its `ip`
+  has just passed, or the placed top-level stream and its index — and the
+  record keeps calls, outermost time and steps per `(word, site)` beside the
+  edges (`profile::Site`, `SiteStat`). The key is two loads on the profiled
+  path; it becomes `file:line:col` once, when the record is written
+  (`Interp::label_profile_sites`, before the end-of-run report and before
+  `debug.profile`'s snapshot). The report gains **Call sites of the hottest
+  words**: for each of the ten hottest, its busiest eight sites, and a line
+  counting calls from a body built at run time, which has no place.
+- **Where a word came from.** `register` records the place of the `register`
+  that bound a name, the last for a name bound twice, and the report heads
+  that word's sites with it; §D5's `words` shows it too. The package field
+  on `Native` stays §S8's: it is RFC-0002's ABI.
+- Pinned by `the_profile_names_call_sites_and_where_words_were_registered`.

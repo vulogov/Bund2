@@ -360,6 +360,20 @@ pub struct Interp {
     /// The table's size at which dead entries are next swept, so a REPL that
     /// evaluates line after line does not keep every line's bodies' places.
     positions_sweep: usize,
+    /// The top-level streams' places, by the key [`Interp::place_stream`]
+    /// gave each — a key no body's `payload_key` can be, since its top bit
+    /// is set.
+    stream_places: std::collections::HashMap<usize, (Rc<str>, Vec<Place>)>,
+    /// The key of the top-level stream running now, if it was placed.
+    stream_key: Option<usize>,
+    /// The key the next top-level stream takes.
+    next_stream: Option<usize>,
+    /// The index of the top-level value running now.
+    top_at: usize,
+    /// **Where each word was registered** — the `register` that bound it,
+    /// the last for a name bound twice. RFC-0011 §S8's "where a word came
+    /// from", read by §D5's `words` and the profile.
+    definitions: std::collections::HashMap<String, bund2_api::diag::Location>,
     /// **The Tier 0 floor — RFC-0005 §S8, F85.** The lowest stack address at
     /// which a native may still re-enter evaluation. Below it,
     /// `Vm::eval_lambda`, `Vm::apply` and `Vm::scoped_call` refuse with
@@ -482,6 +496,11 @@ impl Interp {
             runners: Vec::new(),
             positions: std::collections::HashMap::new(),
             positions_sweep: Self::POSITIONS_SWEEP,
+            stream_places: std::collections::HashMap::new(),
+            stream_key: None,
+            next_stream: None,
+            top_at: 0,
+            definitions: std::collections::HashMap::new(),
             stack_floor: tier0_floor(),
             exit_code: None,
             observations: std::cell::RefCell::new(Vec::new()),
@@ -654,8 +673,9 @@ impl Interp {
         let profiled = self.profile.is_some();
         if profiled {
             let depth = self.frames.len();
+            let site = self.call_site();
             if let Some(p) = self.profile.as_mut() {
-                p.open_native(name, n.kind, depth);
+                p.open_native(name, n.kind, depth, site);
                 // D191: the trace, named here, where the interner is.
                 if p.tracing() {
                     p.trace_call(self.registry.interner.name(name));
@@ -1079,7 +1099,23 @@ impl Interp {
 
     /// [`Interp::eval`] with a per-word observer. The debugger's copy is this
     /// with a printing, stepping observer.
+    ///
+    /// The stream is the one [`Interp::place_stream`] last placed, if that
+    /// placing has not been taken by another stream yet; the outer stream's
+    /// key and position are put back when this one ends.
     pub fn eval_observed(
+        &mut self,
+        stream: &[BundValue],
+        observe: &mut dyn FnMut(&BundValue),
+    ) -> Result<(), (usize, Error)> {
+        let outer = (self.stream_key, self.top_at);
+        self.stream_key = self.next_stream.take();
+        let r = self.eval_stream(stream, observe);
+        (self.stream_key, self.top_at) = outer;
+        r
+    }
+
+    fn eval_stream(
         &mut self,
         stream: &[BundValue],
         observe: &mut dyn FnMut(&BundValue),
@@ -1090,6 +1126,7 @@ impl Interp {
         self.caught = None;
         self.naming = self.reporter.wants_frames() || self.debug.is_some();
         for (i, v) in stream.iter().enumerate() {
+            self.top_at = i;
             match v.dt() {
                 bund2_value::NONE => continue,
                 bund2_value::EXIT => break,
@@ -1281,6 +1318,12 @@ impl Interp {
         if let Some(name) = self.breakpoint_hit(who) {
             self.safepoint_for(None, debug::Stop::Breakpoint(name));
         }
+        // The calling value, read before the callee's frame is on top.
+        let site = if self.profile.is_some() {
+            self.call_site()
+        } else {
+            None
+        };
         self.frames.push(Frame {
             body,
             ip: 0,
@@ -1290,7 +1333,7 @@ impl Interp {
         // **RFC-0011 §S2, hook 3's open.** A named frame opens its word's
         // node; an unnamed one is an anonymous entry.
         if let Some(p) = self.profile.as_mut() {
-            p.open_frame(who, self.frames.len());
+            p.open_frame(who, self.frames.len(), site);
             if let Some(w) = who
                 && p.tracing()
             {
@@ -1427,7 +1470,118 @@ impl Interp {
     /// one safepoint rather than two steps.
     #[inline(never)]
     fn safepoint(&mut self, top: Option<(usize, &BundValue)>) {
-        self.safepoint_for(top, debug::Stop::Stepping);
+        match self.line_break_hit(top) {
+            Some(at) => self.safepoint_for(top, debug::Stop::Breakpoint(at)),
+            None => self.safepoint_for(top, debug::Stop::Stepping),
+        }
+    }
+
+    /// **RFC-0008 §D3 by source location.** The value about to run is the
+    /// first of a line a line breakpoint names — its predecessor in the same
+    /// body, or in the top-level stream, is on another line or there is none
+    /// — so a body that reaches the line stops once each time, at the line's
+    /// first value. Nothing is looked up unless a line breakpoint is armed.
+    fn line_break_hit(&self, top: Option<(usize, &BundValue)>) -> Option<String> {
+        let d = self.debug.as_ref()?;
+        if !d.watching_lines() {
+            return None;
+        }
+        let (next, prev) = match self.frames.last() {
+            Some(f) => (
+                self.place_of(&f.body, f.ip)?,
+                f.ip.checked_sub(1).and_then(|i| self.place_of(&f.body, i)),
+            ),
+            None => {
+                let (i, _) = top?;
+                (
+                    self.stream_place(i)?,
+                    i.checked_sub(1).and_then(|i| self.stream_place(i)),
+                )
+            }
+        };
+        if prev.is_some_and(|p| p.file == next.file && p.line == next.line) {
+            return None;
+        }
+        d.breaks_at(next.file.as_deref()?, next.line)
+    }
+
+    /// Where the top-level stream's value at `i` was written, if the
+    /// embedder said ([`Interp::place_stream`]).
+    fn stream_place(&self, i: usize) -> Option<bund2_api::diag::Location> {
+        let (file, at) = self.stream_places.get(&self.stream_key?)?;
+        let &(line, column, start, end) = at.get(i)?;
+        Some(bund2_api::diag::Location {
+            file: Some(file.to_string()),
+            line,
+            column,
+            excerpt: None,
+            span: Some((start, end)),
+        })
+    }
+
+    /// **Where each value of the next top-level stream was written** — the
+    /// stream's own spans, beside the bodies' (RFC-0003 §S5), so a line
+    /// breakpoint can stop at the top level too. The embedder that lowered
+    /// the stream says it before running it.
+    pub fn place_stream(&mut self, label: &str, src: &str, spans: &[(usize, usize)]) {
+        let key = STREAM_KEY | self.stream_places.len();
+        self.stream_places
+            .insert(key, (Rc::from(label), places(src, spans)));
+        self.next_stream = Some(key);
+    }
+
+    /// **The value being applied now, as a site** — RFC-0011 §S8: the
+    /// innermost frame's body and the index its `ip` has just moved past, or
+    /// the placed top-level stream and its index. Cheap: two loads and no
+    /// lookup, so a profiled run can take it at every call.
+    fn call_site(&self) -> Option<(usize, usize)> {
+        match self.frames.last() {
+            Some(f) => Some((f.body.payload_key()?, f.ip.saturating_sub(1))),
+            None => Some((self.stream_key?, self.top_at)),
+        }
+    }
+
+    /// Where a site was written, for a body or a placed stream.
+    fn place_of_site(&self, (key, i): (usize, usize)) -> Option<bund2_api::diag::Location> {
+        let (file, at) = match self.positions.get(&key) {
+            Some(p) if p.body.strong_count() > 0 => (&p.file, &p.at),
+            Some(_) => return None,
+            None => {
+                let (file, at) = self.stream_places.get(&key)?;
+                (file, at)
+            }
+        };
+        let &(line, column, start, end) = at.get(i)?;
+        Some(bund2_api::diag::Location {
+            file: Some(file.to_string()),
+            line,
+            column,
+            excerpt: None,
+            span: Some((start, end)),
+        })
+    }
+
+    /// **Label the profile's sites** — before a record is written, so a
+    /// renderer, which has no positions, can say `file:line:col`. A body
+    /// dropped since its call cannot be placed and stays unlabelled.
+    pub fn label_profile_sites(&mut self) {
+        let Some(p) = self.profile.as_ref() else {
+            return;
+        };
+        let labels: Vec<((usize, usize), String)> = p
+            .site_keys()
+            .into_iter()
+            .filter_map(|k| self.place_of_site(k).map(|l| (k, l.to_string())))
+            .collect();
+        if let Some(p) = self.profile.as_mut() {
+            p.site_labels.extend(labels);
+        }
+    }
+
+    /// Where `name` was registered, if the `register` that bound it was in
+    /// placed source.
+    pub fn defined_at(&self, name: &str) -> Option<&bund2_api::diag::Location> {
+        self.definitions.get(name)
     }
 
     /// One safepoint, with the reason it was reached.
@@ -1640,7 +1794,15 @@ impl Interp {
                 None => slot.lambda.is_some() || n > 0,
             };
             if shown {
-                rows.push((name.as_str(), kinds.join(", "), slot.generation(), n));
+                // RFC-0011 §S8: where a lambda came from, when it was
+                // registered in placed source.
+                let mut kinds = kinds.join(", ");
+                if slot.lambda.is_some()
+                    && let Some(at) = self.definitions.get(name)
+                {
+                    kinds.push_str(&format!(", registered at {at}"));
+                }
+                rows.push((name.as_str(), kinds, slot.generation(), n));
             }
         }
         if rows.is_empty() {
@@ -2040,22 +2202,53 @@ struct FailureTrace {
 }
 
 impl FailureTrace {
-    fn attach(self, d: bund2_api::diag::Diagnostic) -> bund2_api::diag::Diagnostic {
-        let mut d = d.with_frames(self.frames);
-        d.cause = Some(self.cause);
-        d.inner = self.inner;
-        if let Some((label, src, (start, end))) = self.source {
-            let start = start.min(src.len());
-            let before = src.get(..start).unwrap_or_default();
-            let line_start = before.rfind('\n').map_or(0, |i| i + 1);
-            d.location = Some(bund2_api::diag::Location {
-                file: Some(label),
+    /// Where in the evaluated string it failed, as a location naming the
+    /// string, and the string as `(name, text)`.
+    fn in_source(&self) -> Option<(bund2_api::diag::Location, (String, String))> {
+        let (label, src, (start, end)) = self.source.as_ref()?;
+        let start = (*start).min(src.len());
+        let before = src.get(..start).unwrap_or_default();
+        let line_start = before.rfind('\n').map_or(0, |i| i + 1);
+        Some((
+            bund2_api::diag::Location {
+                file: Some(label.clone()),
                 line: before.matches('\n').count() + 1,
                 column: before.get(line_start..).unwrap_or_default().chars().count() + 1,
                 excerpt: None,
-                span: Some((start, end.clamp(start, src.len()))),
-            });
-            d.source = Some(src);
+                span: Some((start, (*end).clamp(start, src.len()))),
+            },
+            (label.clone(), src.clone()),
+        ))
+    }
+
+    /// **For a fatal report**: the frames, and the place inside — a body's,
+    /// or else the evaluated string's, with its text. The location stays the
+    /// top-level step the caller placed, which is what the table shows.
+    fn attach_fatal(self, d: bund2_api::diag::Diagnostic) -> bund2_api::diag::Diagnostic {
+        let in_source = self.in_source();
+        let mut d = d.with_frames(self.frames);
+        // The traceback leads with the failure's own text; the reason keeps
+        // the reference's wrappers for the table that shows it.
+        d.cause = Some(self.cause);
+        d.inner = self.inner;
+        if let Some((at, text)) = in_source {
+            let same_file = d.inner.as_ref().is_some_and(|i| i.file == at.file);
+            if d.inner.is_none() || same_file {
+                d.inner = d.inner.or(Some(at));
+            }
+            d.source = Some(text);
+        }
+        d
+    }
+
+    fn attach(self, d: bund2_api::diag::Diagnostic) -> bund2_api::diag::Diagnostic {
+        let in_source = self.in_source();
+        let mut d = d.with_frames(self.frames);
+        d.cause = Some(self.cause);
+        d.inner = self.inner;
+        if let Some((at, text)) = in_source {
+            d.location = Some(at);
+            d.source = Some(text);
         } else if d.location.is_none() {
             // Caught with no string to point into: the place in the body is
             // the only place there is.
@@ -2063,6 +2256,32 @@ impl FailureTrace {
         }
         d
     }
+}
+
+/// One placed value: `(line, column, start, end)`, the first two 1-based,
+/// the last two bytes.
+type Place = (usize, usize, usize, usize);
+
+/// The top bit, marking a key as a top-level stream's rather than a body's
+/// `payload_key`, which is an address and never has it set.
+const STREAM_KEY: usize = 1 << (usize::BITS - 1);
+
+/// `(line, column, start, end)` for each span of `src`, line and column
+/// 1-based. Line starts are found once, so each place is a search.
+fn places(src: &str, spans: &[(usize, usize)]) -> Vec<(usize, usize, usize, usize)> {
+    let starts: Vec<usize> = std::iter::once(0)
+        .chain(src.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
+    spans
+        .iter()
+        .map(|&(start, end)| {
+            let start = start.min(src.len());
+            let line = starts.partition_point(|&s| s <= start);
+            let line_start = starts.get(line.saturating_sub(1)).copied().unwrap_or(0);
+            let column = src.get(line_start..start).map_or(1, |t| t.chars().count() + 1);
+            (line, column, start, end)
+        })
+        .collect()
 }
 
 /// Where a literal body's items were written — RFC-0003 §S5.
@@ -2424,6 +2643,13 @@ impl Vm for Interp {
         {
             p.redefined(name);
         }
+        // RFC-0011 §S8: where this `register` is, for `words` and the profile.
+        if let Some(at) = self.call_site().and_then(|s| self.place_of_site(s)) {
+            if let Some(p) = self.profile.as_mut() {
+                p.defined.insert(name.to_string(), at.to_string());
+            }
+            self.definitions.insert(name.to_string(), at);
+        }
         self.registry.register_lambda(name, body);
     }
 
@@ -2532,7 +2758,11 @@ impl Vm for Interp {
             }
             D::Classes => return Ok(Some(self.render_classes())),
             D::WatchDepth(n) => debug::Command::WatchDepth(n),
-            D::Break(w) => debug::Command::Break(w),
+            // `debug.break "p.bund:12"` is the line form, as at the console.
+            D::Break(w) => match debug::line_spec(&w) {
+                Some((file, line)) => debug::Command::BreakLine(file, line),
+                None => debug::Command::Break(w),
+            },
             D::BreakAt(w, n) => debug::Command::BreakAt(w, n, None),
             D::Until(w) => debug::Command::Until(w),
             D::Catch => debug::Command::Catch,
@@ -2554,6 +2784,7 @@ impl Vm for Interp {
             // the word warns; an empty answer after, so a program that
             // snapshots in a loop warns once and not once a round.
             D::Profile(base) => {
+                self.label_profile_sites();
                 let writer = self.profile.as_ref().and_then(|p| p.writer.clone());
                 let (Some(p), Some(writer)) = (self.profile.as_ref(), writer) else {
                     if self.profile_unkept_said {
@@ -2647,25 +2878,12 @@ impl Vm for Interp {
             self.positions.retain(|_, p| p.body.strong_count() > 0);
             self.positions_sweep = (self.positions.len() * 2).max(Self::POSITIONS_SWEEP);
         }
-        // Line starts once per source, so each place is a search, not a scan.
-        let starts: Vec<usize> = std::iter::once(0)
-            .chain(src.match_indices('\n').map(|(i, _)| i + 1))
-            .collect();
         let file: Rc<str> = Rc::from(label);
         for (body, spans) in bodies {
             let (Some(key), Some(weak)) = (body.payload_key(), body.payload_weak()) else {
                 continue;
             };
-            let at = spans
-                .iter()
-                .map(|&(start, end)| {
-                    let start = start.min(src.len());
-                    let line = starts.partition_point(|&s| s <= start);
-                    let line_start = starts.get(line.saturating_sub(1)).copied().unwrap_or(0);
-                    let column = src.get(line_start..start).map_or(1, |t| t.chars().count() + 1);
-                    (line, column, start, end)
-                })
-                .collect();
+            let at = places(src, spans);
             self.positions.insert(
                 key,
                 Placed {
@@ -2699,11 +2917,7 @@ impl Vm for Interp {
         // innermost failure's text, wrapped or not, or the trace is not its.
         let d = if d.severity.is_fatal() {
             match self.failure_trace.take() {
-                Some(t) if d.reason.contains(&t.cause) => {
-                    let mut d = d.with_frames(t.frames);
-                    d.inner = t.inner;
-                    d
-                }
+                Some(t) if d.reason.contains(&t.cause) => t.attach_fatal(d),
                 _ => d,
             }
         } else {
@@ -2769,8 +2983,9 @@ impl Vm for Interp {
         let profiled = self.profile.is_some();
         if profiled {
             let depth = self.frames.len();
+            let site = self.call_site();
             if let Some(p) = self.profile.as_mut() {
-                p.open_method(name, depth);
+                p.open_method(name, depth, site);
                 if p.tracing() {
                     p.trace_call(name);
                 }
@@ -2802,8 +3017,9 @@ impl Vm for Interp {
         let profiled = self.profile.is_some();
         if profiled {
             let depth = self.frames.len();
+            let site = self.call_site();
             if let Some(p) = self.profile.as_mut() {
-                p.open_conditional(ty, depth);
+                p.open_conditional(ty, depth, site);
                 if p.tracing() {
                     p.trace_call(ty);
                 }
