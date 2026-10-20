@@ -3,8 +3,11 @@ name: bench-reading
 # RFC-0005: "the tier's arithmetic throughput is now measured, by one row on
 # one host; the x86-64 figure is still owed". This is that figure:
 # `arith/int_lcg/1000`, which nothing folds, beside `arith/int_add/1000`,
-# which Cranelift folds, with the tier off and on, on a hosted Linux x86-64
-# runner.
+# which Cranelift folds, with the tier off and on, on hosted runners.
+#
+# Three hosts since 2026-10-20. D154: "There is no reading on aarch64 Linux
+# or on x86-64 macOS." Linux x86-64 is the first reading's host, kept so the
+# three are read in one run; the other two are the ones D154 names.
 #
 # A shared runner drifts, so the two configurations alternate, three rounds
 # each, and every round is printed: a figure is read from the spread of its
@@ -21,7 +24,11 @@ env:
 
 jobs:
   arith:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
       # The `interpret` bench includes corpus programs from `reference/`.
@@ -33,8 +40,19 @@ jobs:
         run: |
           uname -a
           rustc --version
-          nproc
-          grep -m1 'model name' /proc/cpuinfo
+          if [ -r /proc/cpuinfo ]; then
+            nproc
+            grep -m1 -E 'model name|CPU part' /proc/cpuinfo || true
+          else
+            sysctl -n hw.ncpu machdep.cpu.brand_string
+          fi
+      # F204's instruction comparison read from the host's own code, which
+      # needs an aarch64 host: this runner is the one that has one.
+      - name: F204's comparison on the host's aarch64 code
+        if: matrix.runner == 'ubuntu-24.04-arm'
+        run: |
+          cargo test -p bund2-jit --features jit,relocation-test --lib \
+            relocations:: -- --nocapture
       - name: build both configurations
         run: |
           cargo bench -p bund2-bench --bench interpret --no-run

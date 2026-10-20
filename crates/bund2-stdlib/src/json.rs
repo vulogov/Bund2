@@ -13,7 +13,7 @@
 //! `tests/probes/q-observable.bund` exists to pin exactly that.
 
 use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
-use bund2_value::{BOOL, BundValue, FLOAT, INTEGER, JSON, LIST, MAP};
+use bund2_value::{BundValue, JSON, LIST, MAP};
 
 fn eff(consumes: u8, produces: u8) -> StackEffect {
     StackEffect::fixed(consumes, produces)
@@ -153,80 +153,11 @@ fn json_to_value(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
-/// **`cast_value_to_json`'s accepted set, which is not every value.**
-///
-/// INTEGER, FLOAT, BOOL, NONE, LIST and MAP, the containers recursively —
-/// and **a STRING is refused** (`reference/rust_dynamic/src/cast_value_to_json.rs`),
-/// which is the thing no reading of `json.from_value` would predict. Measured:
-/// `"x" json.from_value` answers `This Dynamic type is not supported for
-/// JSON: 4`.
-///
-/// Deliberately not `BundValue::as_json_operand`, which is `push`'s
-/// conversion and *does* take a string. The two were briefly merged on a "one
-/// function, one answer" argument; this word is the counterexample — they are
-/// two questions with two answers, and the merge made `"x" json.from_value`
-/// succeed where the oracle fails.
-fn value_to_json(v: &BundValue) -> Result<serde_json::Value, Error> {
-    let fail = || {
-        Error(format!(
-            "This Dynamic type is not supported for JSON: {}",
-            v.dt()
-        ))
-    };
-    match v.dt() {
-        INTEGER => v
-            .as_int()
-            .map(serde_json::Value::from)
-            .ok_or_else(|| Error("Error casting INTEGER: This Dynamic type is not integer".into())),
-        FLOAT => match v.unboxed() {
-            BundValue::Float(f, _) => serde_json::Number::from_f64(*f)
-                .map(serde_json::Value::Number)
-                .ok_or_else(|| Error("Error casting FLOAT: not representable in JSON".into())),
-            _ => Err(Error(
-                "Error casting FLOAT: This Dynamic type is not float".into(),
-            )),
-        },
-        BOOL => match v.unboxed() {
-            BundValue::Bool(b, _) => Ok(serde_json::Value::Bool(*b)),
-            _ => Err(Error(
-                "Error casting BOOL: This Dynamic type is not bool".into(),
-            )),
-        },
-        bund2_value::NONE => Ok(serde_json::Value::Null),
-        LIST => {
-            let mut out = Vec::new();
-            for item in v.as_list().unwrap_or(&[]) {
-                out.push(
-                    value_to_json(item)
-                        .map_err(|e| Error(format!("Error casting LIST: {}", e.0)))?,
-                );
-            }
-            Ok(serde_json::Value::Array(out))
-        }
-        MAP => {
-            let mut out = serde_json::Map::new();
-            for (k, item) in v
-                .as_map()
-                .map(|m| m.iter().collect::<Vec<_>>())
-                .unwrap_or_default()
-            {
-                out.insert(
-                    k.clone(),
-                    value_to_json(item)
-                        .map_err(|e| Error(format!("Error casting DICT: {}", e.0)))?,
-                );
-            }
-            Ok(serde_json::Value::Object(out))
-        }
-        _ => Err(fail()),
-    }
-}
-
 /// How many container levels `v` holds: a scalar is 0, `list` is 1, a list
 /// holding a list is 2. Walked from a worklist, not by recursion, because
 /// the point of asking is that the value may be too deep to recurse over.
 /// Only LIST and DICT are descended, which are the containers
-/// `value_to_json` descends; anything else is a leaf to it.
+/// `BundValue::to_json` descends; anything else is a leaf to it.
 fn nesting(v: &BundValue) -> usize {
     let mut deepest = 0;
     let mut work: Vec<(&BundValue, usize)> = vec![(v, 0)];
@@ -277,7 +208,12 @@ fn json_from_value(vm: &mut dyn Vm) -> Result<(), Error> {
              which Bund2 will not convert to JSON"
         )));
     }
-    let j = value_to_json(&v).map_err(|e| Error(format!("Error casting JSON value: {}", e.0)))?;
+    // `cast_value_to_json`, which a push onto a JSON array also uses; a
+    // STRING is refused (`"x" json.from_value` answers `This Dynamic type is
+    // not supported for JSON: 4`), which no reading of this word predicts.
+    let j = v
+        .to_json()
+        .map_err(|e| Error(format!("Error casting JSON value: {e}")))?;
     vm.push(BundValue::json(j));
     Ok(())
 }
@@ -363,6 +299,20 @@ mod tests {
     }
 
     /// JSON prints as compact `serde_json` text (`conv.rs:677`).
+    /// **Collecting onto a JSON array, as the oracle does.** Under `:` a
+    /// literal is pushed into the value beneath, and onto a JSON array
+    /// that push converts as `json.from_value` does: the string and the
+    /// call's name `true` are refused and left out, and the list goes in.
+    /// Measured against the oracle on 2026-10-20: `[1,2.5,[1,2]]`.
+    #[test]
+    fn collecting_onto_a_json_array_converts_as_json_from_value_does() {
+        let i = run_src("list json.from_value : 1 \"a\" 2.5 true [ 1 2 ] { 3 } ;").expect("runs");
+        assert_eq!(
+            i.peek().map(|v| v.display()).as_deref(),
+            Some("[1,2.5,[1,2]]")
+        );
+    }
+
     #[test]
     fn json_prints_compact() {
         let i = run_src("'$.a[*]' '{\"a\": [1, 2]}' json json.path").expect("runs");

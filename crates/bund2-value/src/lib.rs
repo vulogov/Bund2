@@ -852,8 +852,8 @@ impl BundValue {
                 text.push_str(&value.render_for_concat());
                 BundValue::textbuffer(text)
             }
-            JSON => match (self.as_json(), value.as_json_operand()) {
-                (Some(serde_json::Value::Array(mut items)), Some(j)) => {
+            JSON => match (self.as_json(), value.to_json()) {
+                (Some(serde_json::Value::Array(mut items)), Ok(j)) => {
                     items.push(j);
                     BundValue::json(serde_json::Value::Array(items))
                 }
@@ -933,26 +933,72 @@ impl BundValue {
         }
     }
 
-    /// The operand as JSON, for the JSON arm's `cast_value_to_json`.
+    /// **The value as JSON: the reference's `cast_value_to_json`**
+    /// (`reference/rust_dynamic/src/cast_value_to_json.rs:5-88`), which is
+    /// one function there with two callers, `json.from_value` and a push onto
+    /// a JSON array (`reference/rust_dynamic/src/push.rs:15`). So it is one
+    /// here.
     ///
-    /// **Not the same conversion `json.from_value` wants, and that was
-    /// learned the hard way.** This one is `push`'s, and it accepts a string;
-    /// the reference's `cast_value_to_json` refuses one and takes INTEGER,
-    /// FLOAT, BOOL, NONE, LIST and MAP only. The two were briefly merged on a
-    /// "one function, one answer" argument, and `"x" json.from_value` showed
-    /// they are two questions: `bund2_stdlib::json`'s `value_to_json` is the
-    /// other.
-    fn as_json_operand(&self) -> Option<serde_json::Value> {
-        if let Some(j) = self.as_json() {
-            return Some(j);
+    /// INTEGER, FLOAT, BOOL and NONE convert, and LIST and MAP convert
+    /// element by element, failing if any element does. **Everything else is
+    /// refused**: a STRING (`:84`), which no reading of either caller
+    /// predicts, and a JSON value, refused first and by a message of its own
+    /// (`:6-8`), so a JSON array is never pushed into another whole. The
+    /// messages are the reference's.
+    ///
+    /// Until 2026-10-20 the push had a conversion of its own, written for
+    /// F84 and never measured, that took a string, a call's name and a JSON
+    /// value and refused a LIST and a MAP — the opposite of the reference on
+    /// each. `: 1 "a" 2.5 true [ 1 2 ] ;` onto a JSON array answered
+    /// `[1,"a",2.5,"true"]`, where the oracle answers `[1,2.5,[1,2]]`.
+    ///
+    /// It recurses once a level, as the reference does. `json.from_value`
+    /// measures the nesting first and refuses past the parser's limit
+    /// (D172); a push's operand is not measured (D172's dated note of
+    /// 2026-10-20).
+    pub fn to_json(&self) -> Result<serde_json::Value, String> {
+        let dt = self.dt();
+        if dt == JSON {
+            return Err(format!("This Dynamic type is already json: {dt}"));
         }
-        match self {
-            BundValue::Int(i, _) => Some(serde_json::Value::from(*i)),
-            BundValue::Float(f, _) => {
-                serde_json::Number::from_f64(*f).map(serde_json::Value::Number)
+        match dt {
+            INTEGER => self
+                .as_int()
+                .map(serde_json::Value::from)
+                .ok_or_else(|| "Error casting INTEGER: This Dynamic type is not integer".into()),
+            FLOAT => match self.unboxed() {
+                BundValue::Float(f, _) => serde_json::Number::from_f64(*f)
+                    .map(serde_json::Value::Number)
+                    .ok_or_else(|| "Error casting FLOAT: not representable in JSON".into()),
+                _ => Err("Error casting FLOAT: This Dynamic type is not float".into()),
+            },
+            BOOL => match self.unboxed() {
+                BundValue::Bool(b, _) => Ok(serde_json::Value::Bool(*b)),
+                _ => Err("Error casting BOOL: This Dynamic type is not bool".into()),
+            },
+            NONE => Ok(serde_json::Value::Null),
+            LIST => {
+                let mut out = Vec::new();
+                for item in self.as_list().unwrap_or(&[]) {
+                    out.push(
+                        item.to_json()
+                            .map_err(|e| format!("Error casting LIST: {e}"))?,
+                    );
+                }
+                Ok(serde_json::Value::Array(out))
             }
-            BundValue::Bool(b, _) => Some(serde_json::Value::Bool(*b)),
-            _ => self.as_str().map(serde_json::Value::String),
+            MAP => {
+                let mut out = serde_json::Map::new();
+                for (k, item) in self.as_map().into_iter().flatten() {
+                    out.insert(
+                        k.clone(),
+                        item.to_json()
+                            .map_err(|e| format!("Error casting DICT: {e}"))?,
+                    );
+                }
+                Ok(serde_json::Value::Object(out))
+            }
+            _ => Err(format!("This Dynamic type is not supported for JSON: {dt}")),
         }
     }
 
@@ -3230,5 +3276,43 @@ mod payload_weak_tests {
         let v = BundValue::int(1);
         assert_eq!(v.payload_key(), None);
         assert!(v.payload_weak().is_none());
+    }
+}
+
+#[cfg(test)]
+mod json_push_tests {
+    use super::*;
+
+    /// **A push onto a JSON array converts as `json.from_value` does** — one
+    /// function, `cast_value_to_json`, in the reference
+    /// (`reference/rust_dynamic/src/push.rs:15`). A STRING, a call's name
+    /// and a JSON value are refused, and a refused operand leaves the
+    /// receiver as it was; a LIST and a MAP convert.
+    #[test]
+    fn a_push_onto_a_json_array_converts_as_cast_value_to_json_does() {
+        let arr = || BundValue::json(serde_json::json!([]));
+        let pushed = |v: BundValue| arr().push(v).as_json();
+        assert_eq!(pushed(BundValue::int(1)), Some(serde_json::json!([1])));
+        assert_eq!(pushed(BundValue::none()), Some(serde_json::json!([null])));
+        assert_eq!(
+            pushed(BundValue::list(vec![
+                BundValue::int(1),
+                BundValue::float(2.5)
+            ])),
+            Some(serde_json::json!([[1, 2.5]]))
+        );
+        for refused in [
+            BundValue::str("a"),
+            BundValue::call("true"),
+            BundValue::json(serde_json::json!([1])),
+            BundValue::list(vec![BundValue::str("a")]),
+        ] {
+            assert_eq!(
+                pushed(refused.clone()),
+                Some(serde_json::json!([])),
+                "{} is refused, and the receiver is unchanged",
+                refused.summary(40)
+            );
+        }
     }
 }

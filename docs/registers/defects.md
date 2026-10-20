@@ -4214,6 +4214,58 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F221 — collecting onto a JSON array converted what the reference refuses, and refused what it converts
+
+**A Bund2 defect; found 2026-10-20** while checking D172's note that a push
+onto a JSON array could nest a JSON value past the parser's limit.
+
+The reference's `push` onto a JSON array converts its operand with
+`cast_value_to_json` (`reference/rust_dynamic/src/push.rs:15`), the same
+function `json.from_value` uses. That function refuses a JSON value first
+(`reference/rust_dynamic/src/cast_value_to_json.rs:6-8`). It converts
+INTEGER, FLOAT, BOOL and NONE, and a LIST or MAP element by element. It
+refuses everything else, a STRING included (`:84`). A refused operand leaves
+the receiver as it was (`push.rs:28-30`).
+
+Bund2 gave the push a conversion of its own, `as_json_operand`, written with
+F84's fix (9da51c0) and never measured. It did the opposite of the reference
+on each point: it took a JSON value whole, took a STRING and a call's name
+as JSON strings, and refused a LIST and a MAP. Run 2026-10-20:
+
+    list json.from_value : 1 "a" 2.5 true [ 1 2 ] { 3 } ;
+      oracle  [1,2.5,[1,2]]
+      Bund2   [1,"a",2.5,"true"]
+
+**What reaches it.** The `push` word does not. It converts both operands to
+a LIST first (`reference/Bund/src/stdlib/functions/values/push.rs:34,43`),
+which a JSON value fails, and Bund2 does the same. What reaches it is
+collecting under `:` … `;`, which pushes each literal and each call's name
+into the value beneath (`reference/rust_multistackvm/src/multistackvm_apply.rs:19-23,89-97`;
+`Interp`'s two `autoadd` arms in `crates/bund2-interp/src/lib.rs`). No corpus
+program collects onto a JSON value, so no golden saw it.
+
+`crates/bund2-stdlib/src/json.rs` repeated the error, saying the push's
+conversion "*does* take a string" and that the two were "two questions with
+two answers". In the reference they are one function.
+
+**Disposition: FIXED 2026-10-20**, a Bund2 bug. `BundValue::to_json`
+(`crates/bund2-value/src/lib.rs`) is `cast_value_to_json`, with its accepted
+set and its messages, and both callers use it: the JSON arm of
+`BundValue::push`, and `json.from_value`, which keeps its own checks first
+(D172's depth, and its own message for a JSON operand). The tests are
+`a_push_onto_a_json_array_converts_as_cast_value_to_json_does` in
+`bund2-value` and `collecting_onto_a_json_array_converts_as_json_from_value_does`
+in `bund2-stdlib`. The second runs the program above and expects the oracle's
+answer, which the rebuilt `bund2` prints. Conformance does not move.
+
+**What the fix changes about D172's note.** A JSON value is now refused as an
+operand, so a JSON value is never pushed into another whole, and the nesting
+that note feared cannot be built this way. A LIST now converts by recursion,
+as the reference's does. A collected literal is bounded by the parser's
+nesting limit. A value built at run time and carried in a body that is then
+evaluated under `:` is not measured; D172's dated note of this date records
+it.
+
 ## F220 — `graph.allpath` answers no rows when the node listed last has a negative out-edge
 
 **An original-implementation defect; found 2026-10-20 by the third
@@ -4719,6 +4771,37 @@ said so. `the_shipped_settings_change_no_instruction_of_a_body_on_aarch64`
 differs. On aarch64 the fix is therefore a change to no emitted code, and
 RFC-0005's cost figures, all taken there before it, stand. On x86-64 it
 changes the code, and nothing has measured by how much.
+
+*Dated note, 2026-10-20 — on any host, and x86-64 measured.* Two tests
+were added beside the one above, in the same module, each reading an object
+emitted for a target named by its triple, so both run on CI's Linux x86-64
+runner. The two follow; the first sentence of the note above, about x86-64,
+was wrong for every body but a tail call.
+
+- `the_shipped_settings_change_no_instruction_of_a_named_aarch64_body`
+  makes the aarch64 comparison for `aarch64-unknown-linux-gnu` with the
+  triple's defaults, and for `aarch64-apple-darwin` with the seven features
+  `cranelift_native` enables on an Apple host that has them, B-key
+  return-address signing included (`cranelift-native` 0.135.0,
+  `src/lib.rs:111-138`). It asserts that the second signs prologues and the
+  first does not. No instruction differs in either. That is D154's "runs in
+  no workflow and has run on one machine", answered for the code; the host
+  test still needs an aarch64 host, since it reads what that host detects.
+- `on_x86_64_the_shipped_settings_change_no_instruction_of_an_ordinary_body`
+  answers this note's last sentence. Without the setting x86-64 cannot
+  lower the fourth probe body's tail call, so both objects end that body in
+  an ordinary call. Measured: the sixteen functions have the same lengths,
+  1804 bytes of text in all. The only bytes that differ are one `movabs`
+  immediate, an address, which differed in one byte on one run and five on
+  another.
+
+So **on x86-64 the setting changes no instruction of a body that does not
+end in a tail call**, for the reason it changes none on aarch64: every
+function the module emits makes a call and keeps its frame already. A tail
+call it does change, from a panic to code. The tier compiles every body with
+`LastCall::Ordinary` (assumption 44), so the code that ships on x86-64 is
+the code it was before the fix. The dev-dependency `cranelift-codegen`
+gains the `arm64` feature beside `x86`. It is test-only, as `x86` is.
 
 ## F203 — a body queued beneath a compiled body was compiled after the tier was turned off
 

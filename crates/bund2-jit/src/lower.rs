@@ -2668,7 +2668,10 @@ fn emit_body(
 /// function this module emits makes a call and so keeps its frame record
 /// already, which
 /// `the_shipped_settings_change_no_instruction_of_a_body_on_aarch64` reads
-/// from the emitted code.
+/// from the emitted code, and
+/// `the_shipped_settings_change_no_instruction_of_a_named_aarch64_body` on
+/// any host. On x86-64 the same holds of every body that does not end in a
+/// tail call (`on_x86_64_the_shipped_settings_change_no_instruction_of_an_ordinary_body`).
 const BODY_FLAGS: &[(&str, &str)] = &[("preserve_frame_pointers", "true")];
 
 /// **The host's code generator, as a module of bodies is given it**: the
@@ -3925,10 +3928,11 @@ mod relocations {
         /// with no relocation, so this is what the relocations cannot show.
         slot_callees: Vec<String>,
         /// The machine code of all four bodies and what they were emitted
-        /// with: every byte of the object's text section. Read by one test,
-        /// which is aarch64's alone.
-        #[cfg_attr(not(target_arch = "aarch64"), allow(dead_code))]
+        /// with: every byte of the object's text section.
         text: Vec<u8>,
+        /// Each defined function's length in bytes, by name: to the next
+        /// function, or to the end of the text for the last.
+        extents: Vec<(String, u64)>,
     }
 
     fn probe() -> Result<Probe, String> {
@@ -3977,26 +3981,52 @@ mod relocations {
         triple: &str,
         settings: &[(&str, &str)],
     ) -> Result<cranelift_codegen::isa::OwnedTargetIsa, String> {
-        cranelift_codegen::isa::lookup_by_name(triple)
-            .map_err(|e| format!("no isa: {e}"))?
-            .finish(cranelift_codegen::settings::Flags::new({
-                // The settings a shipped module of bodies is built with (F204):
-                // the fourth probe body ends in a tail call.
-                use cranelift_codegen::settings::Configurable;
-                let mut flags = cranelift_codegen::settings::builder();
-                for (name, value) in settings {
-                    flags
-                        .set(name, value)
-                        .map_err(|e| format!("flag {name}: {e}"))?;
-                }
+        isa_with(triple, &[], settings)
+    }
+
+    /// `triple` with the instruction-set `features` enabled, as
+    /// `cranelift_native` enables a host's, and `settings`.
+    fn isa_with(
+        triple: &str,
+        features: &[&str],
+        settings: &[(&str, &str)],
+    ) -> Result<cranelift_codegen::isa::OwnedTargetIsa, String> {
+        use cranelift_codegen::settings::Configurable;
+        let mut isa =
+            cranelift_codegen::isa::lookup_by_name(triple).map_err(|e| format!("no isa: {e}"))?;
+        for feature in features {
+            isa.enable(feature)
+                .map_err(|e| format!("feature {feature}: {e}"))?;
+        }
+        isa.finish(cranelift_codegen::settings::Flags::new({
+            // The settings a shipped module of bodies is built with (F204):
+            // the fourth probe body ends in a tail call.
+            let mut flags = cranelift_codegen::settings::builder();
+            for (name, value) in settings {
                 flags
-            }))
-            .map_err(|e| format!("isa flags: {e}"))
+                    .set(name, value)
+                    .map_err(|e| format!("flag {name}: {e}"))?;
+            }
+            flags
+        }))
+        .map_err(|e| format!("isa flags: {e}"))
     }
 
     fn probe_built_for(
         isa: cranelift_codegen::isa::OwnedTargetIsa,
         sites: &[Fragment],
+    ) -> Result<Probe, String> {
+        probe_ending(isa, sites, LastCall::Tail)
+    }
+
+    /// The four probe bodies, the fourth's last call lowered as `fourth`
+    /// says: [`LastCall::Tail`] as the probe has it, or
+    /// [`LastCall::Ordinary`] for a target that cannot lower a tail call
+    /// under the settings asked for (F204).
+    fn probe_ending(
+        isa: cranelift_codegen::isa::OwnedTargetIsa,
+        sites: &[Fragment],
+        fourth: LastCall,
     ) -> Result<Probe, String> {
         let builder = ObjectBuilder::new(isa, "bund2_reloc_probe", default_libcall_names())
             .map_err(|e| format!("object builder: {e}"))?;
@@ -4080,7 +4110,7 @@ mod relocations {
             3,
             &plan0,
             &[],
-            LastCall::Tail,
+            fourth,
             Adapter::Apply,
             cells,
         )?);
@@ -4144,11 +4174,22 @@ mod relocations {
                 out.push((containing(base + offset), target));
             }
         }
-        let text = file
+        let text: Vec<u8> = file
             .sections()
             .filter(|s| s.kind() == object::SectionKind::Text)
             .filter_map(|s| s.data().ok())
             .flat_map(|d| d.iter().copied())
+            .collect();
+        // One text section, so a function's address is its offset in it.
+        let ends = defined
+            .iter()
+            .skip(1)
+            .map(|(a, _)| *a)
+            .chain(std::iter::once(text.len() as u64));
+        let extents = defined
+            .iter()
+            .zip(ends)
+            .map(|((a, n), end)| (n.clone(), end.saturating_sub(*a)))
             .collect();
         Ok(Probe {
             relocs: out,
@@ -4156,6 +4197,7 @@ mod relocations {
             defined: defined.into_iter().map(|(_, n)| n).collect(),
             slot_callees,
             text,
+            extents,
         })
     }
 
@@ -4182,11 +4224,135 @@ mod relocations {
     /// instruction fewer.) A frame record is `stp`, `mov` and
     /// `ldp` on the frame pointer, which is none of what is left out.
     ///
-    /// aarch64 only: with no settings the x86-64 backend panics on the fourth
-    /// body, which is F204, and with them its code does differ.
+    /// aarch64 only, since it reads the host's code: with no settings the
+    /// x86-64 backend panics on the fourth body, which is F204. The named
+    /// aarch64 targets below make the same comparison on any host, and
+    /// x86-64's ordinary bodies are compared after them.
     #[cfg(target_arch = "aarch64")]
     #[test]
     fn the_shipped_settings_change_no_instruction_of_a_body_on_aarch64() {
+        let sites = published_sites().expect("the published arms");
+        let shipped = host_isa(BODY_FLAGS)
+            .and_then(|isa| probe_built_for(isa, &sites))
+            .expect("the shipped settings");
+        let default = host_isa(&[])
+            .and_then(|isa| probe_built_for(isa, &sites))
+            .expect("no settings");
+        assert_no_instruction_differs(&shipped, &default);
+        // And it is of the host's code: on macOS some prologues sign the
+        // return address, with `pacibsp`, where a target named by its triple
+        // emits none. Measured 2026-10-13 on an M-series host: 4 of the 16
+        // functions' prologues. Which four was not looked into.
+        if cfg!(target_os = "macos") {
+            assert!(
+                signed_prologues(&shipped) > 0,
+                "no prologue signs its return address"
+            );
+        }
+    }
+
+    /// **The same on any host, for two aarch64 targets named by triple** —
+    /// D154: "the test that shows F204's setting changes no emitted
+    /// instruction on aarch64 runs in no workflow and has run on one
+    /// machine". The host test above needs an aarch64 host, and CI's is
+    /// x86-64.
+    ///
+    /// The two are Linux with the triple's defaults, and macOS with every
+    /// feature `cranelift_native` enables on an Apple host that has them —
+    /// the five it detects and the two it sets for macOS whatever it
+    /// detects, B-key return-address signing among them
+    /// (`cranelift-native` 0.135.0, `src/lib.rs:111-138`). That second set
+    /// is what the twenty-sixth review's B2 found a triple named by hand to
+    /// lack, so it is enabled here and its signing asserted present; the
+    /// Linux target is asserted to sign nothing, so the two are different
+    /// code. Neither replaces the host test, which reads what the host
+    /// actually detects.
+    #[test]
+    fn the_shipped_settings_change_no_instruction_of_a_named_aarch64_body() {
+        const APPLE: &[&str] = &[
+            "has_lse",
+            "has_pauth",
+            "has_fp16",
+            "has_dotprod",
+            "has_i8mm",
+            "sign_return_address",
+            "sign_return_address_with_bkey",
+        ];
+        let sites = published_sites().expect("the published arms");
+        for (triple, features, signs) in [
+            ("aarch64-unknown-linux-gnu", &[][..], false),
+            ("aarch64-apple-darwin", APPLE, true),
+        ] {
+            let built = |settings: &[(&str, &str)]| {
+                isa_with(triple, features, settings)
+                    .and_then(|isa| probe_built_for(isa, &sites))
+                    .unwrap_or_else(|e| panic!("{triple}: {e}"))
+            };
+            let shipped = built(BODY_FLAGS);
+            let default = built(&[]);
+            assert_no_instruction_differs(&shipped, &default);
+            assert_eq!(
+                signed_prologues(&shipped) > 0,
+                signs,
+                "{triple}: {} prologues sign their return address",
+                signed_prologues(&shipped)
+            );
+        }
+    }
+
+    /// **What F204's setting changes on x86-64, read from the code** —
+    /// F204's note of 2026-10-13: "On x86-64 it changes the code, and nothing
+    /// has measured by how much." Without the setting the x86-64 backend
+    /// cannot lower the fourth probe body's tail call at all (F204), so both
+    /// objects here end that body in an ordinary call, and the rest is
+    /// compared as the aarch64 tests compare theirs.
+    ///
+    /// **Nothing else changes.** Measured 2026-10-20: the sixteen functions
+    /// are the same length with and without the setting, 1804 bytes of text
+    /// in all, and the only bytes that differ are the immediate of one
+    /// `movabs`, an address that differed between two runs of this test in
+    /// one byte and in five. Every function this module emits makes a call
+    /// and keeps its frame already, as on aarch64. So on x86-64 the setting
+    /// is what lets a tail call be lowered, and costs an ordinary body
+    /// nothing.
+    #[test]
+    fn on_x86_64_the_shipped_settings_change_no_instruction_of_an_ordinary_body() {
+        let sites = published_sites().expect("the published arms");
+        let built = |settings: &[(&str, &str)]| {
+            isa_for("x86_64-unknown-linux-gnu", settings)
+                .and_then(|isa| probe_ending(isa, &sites, LastCall::Ordinary))
+                .expect("x86-64, no tail call")
+        };
+        let shipped = built(BODY_FLAGS);
+        let default = built(&[]);
+        assert!(shipped.text.len() > 1000, "{} bytes", shipped.text.len());
+        assert_eq!(shipped.extents, default.extents, "each function's length");
+        // A byte that differs must lie in the eight-byte immediate of a
+        // `movabs` — REX.W, then `b8`+register — which carries an address.
+        let in_movabs_immediate = |i: usize| {
+            (0..8).any(|k| {
+                i.checked_sub(k + 2).is_some_and(|op| {
+                    let t = &shipped.text;
+                    matches!(t[op], 0x48 | 0x49)
+                        && (0xb8..=0xbf).contains(&t[op + 1])
+                        && t[op..op + 2] == default.text[op..op + 2]
+                })
+            })
+        };
+        let differing: Vec<String> = shipped
+            .text
+            .iter()
+            .zip(&default.text)
+            .enumerate()
+            .filter(|(i, (a, b))| a != b && !in_movabs_immediate(*i))
+            .map(|(i, (a, b))| format!("{i:#x}: {a:02x} / {b:02x}"))
+            .collect();
+        assert!(differing.is_empty(), "instructions differ: {differing:#?}");
+    }
+
+    /// The two probes' text compared whole, less a wide move's constant, and
+    /// a frame record in every function of the first.
+    fn assert_no_instruction_differs(shipped: &Probe, default: &Probe) {
         /// The instruction with a wide move's immediate cleared.
         fn less_its_constant(word: &[u8]) -> u32 {
             let w = word
@@ -4199,13 +4365,6 @@ mod relocations {
                 _ => w,
             }
         }
-        let sites = published_sites().expect("the published arms");
-        let shipped = host_isa(BODY_FLAGS)
-            .and_then(|isa| probe_built_for(isa, &sites))
-            .expect("the shipped settings");
-        let default = host_isa(&[])
-            .and_then(|isa| probe_built_for(isa, &sites))
-            .expect("no settings");
         assert!(shipped.text.len() > 1000, "{} bytes", shipped.text.len());
         assert_eq!(shipped.text.len(), default.text.len(), "the text's length");
         let differing: Vec<String> = shipped
@@ -4229,18 +4388,14 @@ mod relocations {
             "{frame_records} frame records in {} functions",
             shipped.defined.len()
         );
-        // And it is of the host's code: on macOS some prologues sign the
-        // return address, with `pacibsp`, where a target named by its triple
-        // emits none. Measured 2026-10-13 on an M-series host: 4 of the 16
-        // functions' prologues. Which four was not looked into.
-        if cfg!(target_os = "macos") {
-            let signed = shipped
-                .text
-                .chunks(4)
-                .filter(|w| *w == [0x7f, 0x23, 0x03, 0xd5])
-                .count();
-            assert!(signed > 0, "no prologue signs its return address");
-        }
+    }
+
+    /// Prologues that sign the return address with the B key: `pacibsp`.
+    fn signed_prologues(p: &Probe) -> usize {
+        p.text
+            .chunks(4)
+            .filter(|w| *w == [0x7f, 0x23, 0x03, 0xd5])
+            .count()
     }
 
     /// **RFC-0005's assumption 46: one compiled body never calls another

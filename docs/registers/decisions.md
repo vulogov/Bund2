@@ -6005,11 +6005,35 @@ boundary and a 100,000-deep value. No golden can see the difference, since
 no golden can hold a value that deep.
 
 **What it does not cover.** `push` on a JSON array takes a JSON operand
-whole (`crates/bund2-value/src/lib.rs`, `as_json_operand`), so `j j push`
+whole (`as_json_operand` in `bund2-value`, removed by F221), so `j j push`
 repeated builds a JSON value one level deeper each time, past this bound,
 and `serde_json` drops it by recursion. That path was not in F209 and is
 not changed by this ruling; it is recorded here so it is not mistaken for
 covered.
+
+**Note, 2026-10-20 — that path could not be reached, and the conversion
+under it was wrong (F221).** *(The paragraph above cited
+`as_json_operand` with its file. F221 removed the function, so the
+citation now names it without the path, as F79's conversions did for code
+that moved. Nothing else in it is changed.)* The `push` word converts both operands to a
+LIST before it pushes (`reference/Bund/src/stdlib/functions/values/push.rs:34,43`),
+and a JSON value fails that, in the reference and in Bund2. So `j j push`
+answers an error and nests nothing. The only way to the JSON arm is
+collecting under `:` … `;`, which pushes literals and call names, and a
+literal is never a JSON value. Checking that found that the arm's
+conversion was the reverse of the reference's. F221 has the account and
+the fix. The push now uses `cast_value_to_json` as `json.from_value` does,
+through one function, `BundValue::to_json`, and that function refuses a
+JSON operand. **So the nesting this paragraph feared cannot be built by a
+push**, now by construction as well as by reach.
+
+What the fix opens instead: a LIST operand now converts, by recursion, as
+the reference's does. A literal's depth is bounded by the parser. A deeper
+value would have to be built at run time, placed in a body, and that body
+evaluated with `:` open. That was not tried, and the push does not measure
+depth as `json.from_value` does. Whether it should is this decision's
+question asked of a second caller, and is the owner's. Applying the limit
+there would refuse what the reference converts, as it does here.
 
 ## D171 — an OOM guard: a program driving the host out of memory fails with a run-time error
 
@@ -6856,6 +6880,24 @@ F205, D150 and D152 changed the Rust around the emitted code. The test
 that shows F204's setting changes no emitted instruction on aarch64 runs
 in no workflow and has run on one machine. There is no reading on aarch64
 Linux or on x86-64 macOS. D145's stage 2 is not built.
+
+**Note, 2026-10-20 — three of the six above, taken up.**
+- *RFC-0009 cited.* A dated note under §S8's re-entering set says which
+  four of `REENTERING`'s 28 are RFC-0009's and RFC-0010's, which call each
+  re-enters through, and that none is a path of its own for criterion 11.
+- *F204's comparison runs in CI.* The same comparison is now also made for
+  two aarch64 targets named by triple, and for x86-64's ordinary bodies.
+  Those tests read objects and need no aarch64 host, so CI's
+  `jit,relocation-test` step runs them. On x86-64 the setting changes no
+  instruction of a body that does not end in a tail call. F204's dated
+  note has the reading. The host test itself runs on an aarch64 Linux
+  runner in `bench-reading`.
+- *aarch64 Linux and x86-64 macOS.* `bench-reading` asks both, beside Linux
+  x86-64, on its next run. **No figure is recorded here until that run has
+  been read.**
+
+Not taken up: criteria 7, 10 and 17 on another host, D117's count, and
+D145's stage 2.
 
 
 ## D153 — `bincode` is unmaintained and `bund2-value` depends on it directly

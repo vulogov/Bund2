@@ -50,9 +50,10 @@ bund2-interp.workspace = true
 object = "0.37"
 # Study §3.2d's range question is asked of x86-64 code, so the relocation test
 # emits it on every host, which needs that backend compiled in where the host
-# is not x86-64. A test-only feature: dev-dependency features do not reach a
-# normal build.
-cranelift-codegen = { workspace = true, features = ["x86"] }
+# is not x86-64; F204's instruction comparison is asked of aarch64 code on
+# every host for the same reason, and needs that one. Test-only features:
+# dev-dependency features do not reach a normal build.
+cranelift-codegen = { workspace = true, features = ["x86", "arm64"] }
 # A body lowering is tested against real words — `{ 1 2 + }` needs `+`
 # registered — so the differential has a vocabulary to run against. The
 # permitted direction: §S6 has `bund2-jit` depending on `bund2-stdlib` (D9

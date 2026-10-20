@@ -4248,6 +4248,47 @@ axis, in which compiled frames do hold the share when the rest of the recursion
 nests at Tier 0, and which completes at 100,000 levels in both builds. That
 shows the case does not abort. It measures no `c`, no `δ` and no margin.)*
 
+*(2026-10-20 — whose four of the set are: RFC-0009's, and one of them
+RFC-0010's. The twenty-fourth, twenty-fifth and twenty-sixth reviews (S7, S7,
+S6) found RFC-0009 cited nowhere in this document, though four of
+`REENTERING`'s 28 exist because of it. Each is in
+`crates/bund2-stdlib/src/oop.rs`:*
+
+- *`run_init` evaluates an object's `.init` with `Vm::eval_lambda` when it is
+  a LAMBDA. That is RFC-0009 §S3's re-entrant construction, the "`.init`
+  evaluations and the stack inspection between them". `make_object` calls it
+  once for each parent, between levels of its own Rust recursion, and
+  `push_and_init` calls it for the object built, after `object_word` or
+  `construct_from_value`. So a hierarchy's depth is bounded twice.
+  RFC-0009's budget bounds `make_object`: 512 levels, which both callers,
+  `object_word` and `construct_from_value`, pass. Each `.init` the recursion
+  runs is a re-entry of the kind this section bounds.*
+- *`dispatch_method` evaluates a method slot that holds a LAMBDA with
+  `Vm::eval_lambda`. That is RFC-0009 §S5's `m()`, as the reference's `m`
+  does with `lambda_eval`
+  (`reference/rust_multistackvm/src/multistackvm_object.rs:77-78`). `!` on
+  an object reaches it through `execute_object`. A slot holding a PTR is a
+  method native, called through `Vm::call_method` (D49), which evaluates
+  nothing.*
+- *`bool_object`, for `True` and `False`, applies a CALL to `object` with
+  `Vm::apply`, so a rebound `object` is reached as the reference reaches it.
+  `True` and `False` are in RFC-0009's word surface (*Current behaviour*,
+  §6). The `Bool` class those two construct
+  registers `.bool_init` as a PTR `.init`
+  (`reference/Bund/src/stdlib/functions/oop/bool_class.rs:32,38`), so
+  construction there calls a native and does not evaluate.*
+- *`empty_of`, for `List`, `Floats` and `Intervals`, does the same for its
+  reason. It is RFC-0010 §S1's, which this document did not cite either.*
+
+*None of the four is a path of its own in criterion 11's sense. Each
+re-enters through `Vm::eval_lambda` or `Vm::apply`, whose `c_p` and `δ_p`
+criterion 11 already reports, and none adds a loop or a parse as
+`eval_source` does. `bool_object` and `empty_of` add one Rust frame and
+`make_object`'s recursion. `dispatch_method` adds its own frame, and
+`execute_object`'s when it is reached by `!`. Neither cost was measured,
+which leaves them where criterion 11's note above leaves every path: shown
+not to abort, with no margin measured.)*
+
 **§S5's residual path is bounded the same way.** It applies the rest of a body
 through `Vm::apply`, which is synchronous. Each value there that runs a body
 costs a Rust frame, as any native re-entering evaluation does. So recursion
