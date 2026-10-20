@@ -56,6 +56,8 @@ pub const MEASURED: &[(&str, u8, u8)] = &[
     ("print.", 1, 0),
     ("println.", 1, 0),
     ("push.", 1, 1),
+    // The sample pass's: a pipe made by a `send`, its name on the workbench.
+    ("recv.", 1, 0),
     ("send.", 1, 0),
     ("send.quick.", 1, 0),
     ("sort.", 1, 1),
@@ -122,10 +124,7 @@ pub fn declare(r: &mut Registry) {
         .names()
         .iter()
         .filter(|n| n.len() > 1 && n.ends_with('.') && !STACK_ONLY.contains(&n.as_str()))
-        .filter(|n| {
-            r.effect_of(n)
-                .is_some_and(|e| e.bench == Bench::Untouched)
-        })
+        .filter(|n| r.effect_of(n).is_some_and(|e| e.bench == Bench::Untouched))
         .cloned()
         .collect();
     for n in unmeasured {
@@ -165,10 +164,34 @@ mod tests {
         let mut i = bund2_interp::Interp::new();
         crate::register_all(&mut i.registry);
         let bench = |w: &str| i.registry.effect_of(w).map(|e| e.bench);
-        assert_eq!(bench("+."), Some(Bench::Fixed { consumes: 1, produces: 1 }));
-        assert_eq!(bench("println."), Some(Bench::Fixed { consumes: 1, produces: 0 }));
-        assert_eq!(bench("take"), Some(Bench::Fixed { consumes: 1, produces: 0 }));
-        assert_eq!(bench("."), Some(Bench::Fixed { consumes: 0, produces: 1 }));
+        assert_eq!(
+            bench("+."),
+            Some(Bench::Fixed {
+                consumes: 1,
+                produces: 1
+            })
+        );
+        assert_eq!(
+            bench("println."),
+            Some(Bench::Fixed {
+                consumes: 1,
+                produces: 0
+            })
+        );
+        assert_eq!(
+            bench("take"),
+            Some(Bench::Fixed {
+                consumes: 1,
+                produces: 0
+            })
+        );
+        assert_eq!(
+            bench("."),
+            Some(Bench::Fixed {
+                consumes: 0,
+                produces: 1
+            })
+        );
         assert_eq!(bench("format."), Some(Bench::Unknown));
         assert_eq!(bench("+"), Some(Bench::Untouched));
     }

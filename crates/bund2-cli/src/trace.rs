@@ -170,7 +170,10 @@ impl TraceReporter {
         let inner = d
             .inner
             .as_ref()
-            .and_then(|i| self.text_of(d, i).map(|(iid, isrc)| (iid, isrc, range(i, isrc))))
+            .and_then(|i| {
+                self.text_of(d, i)
+                    .map(|(iid, isrc)| (iid, isrc, range(i, isrc)))
+            })
             .filter(|(iid, _, r)| *iid != id || *r != at);
         let (pid, primary, message) = match &inner {
             Some((iid, _, r)) => (*iid, r.clone(), "the value that failed, inside"),
@@ -359,7 +362,10 @@ mod tests {
             .render_caught(&d)
             .expect("drawn");
         assert!(text.contains("Caught"), "{text}");
-        assert!(text.contains("bund.eval:1:5") && text.contains("0 1 /"), "{text}");
+        assert!(
+            text.contains("bund.eval:1:5") && text.contains("0 1 /"),
+            "{text}"
+        );
         assert!(text.contains("Integer division to 0.0"), "{text}");
         assert!(!text.contains("Value {"), "{text}");
         assert!(text.contains("#0  a lambda at 1"), "{text}");
@@ -368,7 +374,10 @@ mod tests {
         // one line the table reporter writes.
         d.location = None;
         let text = reporter("f\n", true).render_caught(&d).expect("drawn");
-        assert!(text.starts_with("Caught: DIV") && text.contains("#0  a lambda at 1"), "{text}");
+        assert!(
+            text.starts_with("Caught: DIV") && text.contains("#0  a lambda at 1"),
+            "{text}"
+        );
         d.cause = None;
         assert!(reporter("f\n", true).render_caught(&d).is_none());
     }

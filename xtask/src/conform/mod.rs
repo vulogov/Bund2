@@ -929,8 +929,10 @@ fn step_sweep(
     std::thread::scope(|scope| {
         for _ in 0..workers {
             scope.spawn(|| {
-                while let Some(((_, name, cwd, _, _), file)) =
-                    cases.iter().zip(&files).nth(next.fetch_add(1, Ordering::Relaxed))
+                while let Some(((_, name, cwd, _, _), file)) = cases
+                    .iter()
+                    .zip(&files)
+                    .nth(next.fetch_add(1, Ordering::Relaxed))
                 {
                     let mut said = Vec::new();
                     match golden::run_stdout(bund2, file, cwd, None) {

@@ -522,6 +522,13 @@ struct Walker<'a> {
     /// False while a body runs on a copy of the stack, where a switch would
     /// move the copy under another name.
     may_switch: bool,
+    /// **What `var` stored, by name**, while the walk is sure of it — so
+    /// `:door var?` hands back the object `:door … var` kept, and a method
+    /// call on it can be followed. Kept only for a `var` the program is
+    /// certain to have run: one inside a body run some number of times, or a
+    /// branch, forgets the name, and a call to a word the walk infers rather
+    /// than walks forgets them all, since it may write any of them.
+    vars: BTreeMap<String, Abs>,
     /// `Some` while the `try` slot of a `?try` is walked — D183: what the
     /// `raise`s reached in it leave for `except`. `None` outside one.
     raised: Option<Raised>,
@@ -577,6 +584,7 @@ impl<'a> Walker<'a> {
             current: "main".to_string(),
             nesting: Vec::new(),
             may_switch: true,
+            vars: BTreeMap::new(),
             raised: None,
             halted: false,
             bench: (mode == Mode::Program).then(Stack::default),
@@ -855,6 +863,10 @@ impl<'a> Walker<'a> {
         {
             return went;
         }
+        // A word the walk infers rather than walks may write any variable.
+        if !self.is_native(name) {
+            self.vars.clear();
+        }
         match self.effect_of_name(name, level) {
             Some(e) if e.opaque => {
                 self.abandon(format!("`{name}`, whose effect is not a fixed pair"))
@@ -1030,10 +1042,9 @@ impl<'a> Walker<'a> {
                             if &*n == "endcontext"
                                 && !self.report.hazards.iter().any(|(a, _)| *a == at)
                             {
-                                self.report.hazards.push((
-                                    at,
-                                    crate::values::ENDCONTEXT_SHADOWED.to_string(),
-                                ));
+                                self.report
+                                    .hazards
+                                    .push((at, crate::values::ENDCONTEXT_SHADOWED.to_string()));
                             }
                             self.lambdas.insert(n.to_string(), b);
                         }
@@ -1059,6 +1070,14 @@ impl<'a> Walker<'a> {
                             (Abs::Cond(m), Abs::Name(_, k)) => {
                                 stack.push(Abs::Cond(Rc::new(m.with(&k, value))));
                             }
+                            // An OBJECT stays an OBJECT, with the key added
+                            // (`reference/rust_dynamic/src/set.rs:14-23`) —
+                            // which is how a constructor fills in fields and
+                            // hands the object back.
+                            (Abs::Object(m), Abs::Name(_, k)) => {
+                                stack.push(Abs::Object(Rc::new(m.with(&k, value))));
+                            }
+                            (Abs::Object(m), _) => stack.push(Abs::Object(m)),
                             _ => stack.push(Abs::Unknown),
                         }
                     }
@@ -1142,7 +1161,15 @@ impl<'a> Walker<'a> {
                 let Some(mut t) = self.take(stack, 2, name, at, via) else {
                     return Some(self.abandon(format!("`{name}` with nothing beneath it to run")));
                 };
-                self.apply_bench(name, Bench::Fixed { consumes: 1, produces: 0 }, at, via);
+                self.apply_bench(
+                    name,
+                    Bench::Fixed {
+                        consumes: 1,
+                        produces: 0,
+                    },
+                    at,
+                    via,
+                );
                 let (Abs::Lambda(then_b), Abs::Lambda(else_b)) = (t.remove(0), t.remove(0)) else {
                     return Some(
                         self.abandon(format!("`{name}` with a branch the walk cannot see")),
@@ -1301,6 +1328,48 @@ impl<'a> Walker<'a> {
                 self.object_word(stack, at, via, level)
             }
             "!" | "execute" => self.execute(stack, at, via, level),
+            // `var` takes the value from the top and the name beneath it
+            // (`reference/rust_multistackvm/src/stdlib/vars/registry.rs:4-30`);
+            // `var?` pushes what the name holds (`vars/resolve.rs:4-25`); `var-`
+            // forgets it.
+            "var" => {
+                self.report.analysed += 1;
+                if let Some(mut t) = self.take(stack, 2, name, at, via) {
+                    let (value, key) = (t.remove(0), t.remove(0));
+                    match key {
+                        Abs::Name(_, n) if self.mode == Mode::Program && self.may_switch => {
+                            self.vars.insert(n.to_string(), value);
+                        }
+                        Abs::Name(_, n) => {
+                            self.vars.remove(&*n);
+                        }
+                        // A computed name may be any of them.
+                        _ => self.vars.clear(),
+                    }
+                }
+                true
+            }
+            "var?" => {
+                self.report.analysed += 1;
+                let held = match self.take(stack, 1, name, at, via).as_deref() {
+                    Some([Abs::Name(_, n)]) if self.mode == Mode::Program && self.may_switch => {
+                        self.vars.get(&**n).cloned()
+                    }
+                    _ => None,
+                };
+                stack.push(held.unwrap_or(Abs::Unknown));
+                true
+            }
+            "var-" => {
+                self.report.analysed += 1;
+                match self.take(stack, 1, name, at, via).as_deref() {
+                    Some([Abs::Name(_, n)]) => {
+                        self.vars.remove(&**n);
+                    }
+                    _ => self.vars.clear(),
+                }
+                true
+            }
             // `.` moves the stack's top to the workbench and `take` moves the
             // workbench's top back (`reference/rust_multistack/src/ts_workbench.rs:29-35,45-50`;
             // `.` is `return`'s alias, `create_aliases.rs:4`), so what moved is
@@ -1312,7 +1381,15 @@ impl<'a> Walker<'a> {
                     .take(stack, 1, name, at, via)
                     .and_then(|mut t| t.pop())
                     .unwrap_or(Abs::Unknown);
-                self.apply_bench(name, Bench::Fixed { consumes: 0, produces: 1 }, at, via);
+                self.apply_bench(
+                    name,
+                    Bench::Fixed {
+                        consumes: 0,
+                        produces: 1,
+                    },
+                    at,
+                    via,
+                );
                 if let Some(b) = self.bench.as_mut() {
                     b.pop();
                     b.push(v);
@@ -1322,7 +1399,15 @@ impl<'a> Walker<'a> {
             "take" => {
                 self.report.analysed += 1;
                 let top = self.bench.as_ref().and_then(|b| b.items.last().cloned());
-                self.apply_bench(name, Bench::Fixed { consumes: 1, produces: 0 }, at, via);
+                self.apply_bench(
+                    name,
+                    Bench::Fixed {
+                        consumes: 1,
+                        produces: 0,
+                    },
+                    at,
+                    via,
+                );
                 stack.push(top.unwrap_or(Abs::Unknown));
                 true
             }
@@ -1383,7 +1468,15 @@ impl<'a> Walker<'a> {
         let Some(mut t) = self.take(stack, 1, name, at, via) else {
             return self.abandon(format!("`{name}` with nothing beneath it to run"));
         };
-        self.apply_bench(name, Bench::Fixed { consumes: 1, produces: 0 }, at, via);
+        self.apply_bench(
+            name,
+            Bench::Fixed {
+                consumes: 1,
+                produces: 0,
+            },
+            at,
+            via,
+        );
         let Abs::Lambda(b) = t.remove(0) else {
             return self.abandon(format!("`{name}` with a body the walk cannot see"));
         };
@@ -1393,14 +1486,29 @@ impl<'a> Walker<'a> {
     /// `map` and `map.`: a run is an element pushed, the body, and one value
     /// pulled, so a body that leaves its element replaced by one value nets
     /// zero, and the outcomes are one value where the list was.
-    fn map(&mut self, name: &str, stack: &mut Stack, at: usize, via: Option<&str>, level: u8) -> Went {
+    fn map(
+        &mut self,
+        name: &str,
+        stack: &mut Stack,
+        at: usize,
+        via: Option<&str>,
+        level: u8,
+    ) -> Went {
         self.report.analysed += 1;
         let on_bench = name == "map.";
         let Some(mut t) = self.take(stack, if on_bench { 1 } else { 2 }, name, at, via) else {
             return self.abandon(format!("`{name}` with nothing beneath it to run"));
         };
         if on_bench {
-            self.apply_bench(name, Bench::Fixed { consumes: 1, produces: 0 }, at, via);
+            self.apply_bench(
+                name,
+                Bench::Fixed {
+                    consumes: 1,
+                    produces: 0,
+                },
+                at,
+                via,
+            );
         }
         let Abs::Lambda(b) = t.remove(0) else {
             return self.abandon(format!("`{name}` with a body the walk cannot see"));
@@ -1431,7 +1539,15 @@ impl<'a> Walker<'a> {
         stack.keep_what_agrees(&once);
         // A LIST from a list, a MATRIX from a matrix (`map_fun.rs:80-81`).
         if on_bench {
-            self.apply_bench(name, Bench::Fixed { consumes: 0, produces: 1 }, at, via);
+            self.apply_bench(
+                name,
+                Bench::Fixed {
+                    consumes: 0,
+                    produces: 1,
+                },
+                at,
+                via,
+            );
         } else {
             stack.push(Abs::Unknown);
         }
@@ -1450,7 +1566,15 @@ impl<'a> Walker<'a> {
     ) -> Went {
         let known = self.bench.is_some();
         let top = self.bench.as_ref().and_then(|b| b.items.last().cloned());
-        self.apply_bench(name, Bench::Fixed { consumes: 1, produces: 0 }, at, via);
+        self.apply_bench(
+            name,
+            Bench::Fixed {
+                consumes: 1,
+                produces: 0,
+            },
+            at,
+            via,
+        );
         match top {
             Some(Abs::Lambda(b)) => {
                 self.report.analysed += 1;
@@ -2452,7 +2576,10 @@ mod tests {
     #[test]
     fn the_workbench_is_counted() {
         assert_eq!(on_bench(&check_src("take")), [("take".into(), 1, 0)]);
-        assert_eq!(on_bench(&check_src("1 . take take")), [("take".into(), 1, 0)]);
+        assert_eq!(
+            on_bench(&check_src("1 . take take")),
+            [("take".into(), 1, 0)]
+        );
         assert_eq!(on_bench(&check_src("1 2 +.")), [("+.".into(), 1, 0)]);
         // `println.` takes from both: the probe says so, and `1 . println.`
         // fails with `Stack is too shallow for inline PRINTLN.`.
@@ -2464,9 +2591,17 @@ mod tests {
                 .collect::<Vec<_>>(),
             [("println.", false)]
         );
-        for ok in ["1 . take", "1 . 2 +. take println", "\"x\" 1 . println.", "( 1 2 + ) take println"] {
+        for ok in [
+            "1 . take",
+            "1 . 2 +. take println",
+            "\"x\" 1 . println.",
+            "( 1 2 + ) take println",
+        ] {
             let rep = check_src(ok);
-            assert!(rep.findings.is_empty() && rep.abandoned == 0, "{ok}: {rep:?}");
+            assert!(
+                rep.findings.is_empty() && rep.abandoned == 0,
+                "{ok}: {rep:?}"
+            );
         }
         // A counter kept on the workbench across a loop: one run takes it
         // and puts it back, so the depth after is known.
@@ -2483,9 +2618,21 @@ mod tests {
     #[test]
     fn a_word_s_workbench_half_is_inferred() {
         let e = eff_of("take");
-        assert_eq!(e.bench, Bench::Fixed { consumes: 1, produces: 0 });
+        assert_eq!(
+            e.bench,
+            Bench::Fixed {
+                consumes: 1,
+                produces: 0
+            }
+        );
         let e = eff_of("1 .");
-        assert_eq!(e.bench, Bench::Fixed { consumes: 0, produces: 1 });
+        assert_eq!(
+            e.bench,
+            Bench::Fixed {
+                consumes: 0,
+                produces: 1
+            }
+        );
         assert_eq!(eff_of("1 2 +").bench, Bench::Untouched);
         assert_eq!(
             on_bench(&check_src(":w { take } register 1 . w w")),
@@ -2523,7 +2670,10 @@ mod tests {
     fn the_workbench_forms_of_the_body_runners_are_followed() {
         let clean = |src: &str| {
             let rep = check_src(src);
-            assert!(rep.findings.is_empty() && rep.abandoned == 0, "{src}: {rep:?}");
+            assert!(
+                rep.findings.is_empty() && rep.abandoned == 0,
+                "{src}: {rep:?}"
+            );
         };
         clean("3 . { drop } times. 1 println");
         clean("[ 1 2 ] . { drop } loop. 1 println");
@@ -2547,11 +2697,46 @@ mod tests {
             on_bench(&check_src("{ drop } times.")),
             [("times.".into(), 1, 0)]
         );
-        assert_eq!(on_bench(&check_src("execute.")), [("execute.".into(), 1, 0)]);
+        assert_eq!(
+            on_bench(&check_src("execute.")),
+            [("execute.".into(), 1, 0)]
+        );
         // Inside the lambda `execute.` runs, a finding is the body's.
         let rep = check_src("{ + } . execute.");
         assert_eq!(rep.findings.len(), 1, "{rep:?}");
         assert_eq!(rep.findings[0].word, "+");
+    }
+
+    /// **`var` and `var?`**: an object kept in a variable is the object when
+    /// it comes back, so a method call on it is followed — and a variable
+    /// written where the walk cannot be sure it ran is not trusted.
+    #[test]
+    fn a_variable_hands_back_what_it_kept() {
+        let src = ":P class :.super [ :Object ] set :size { dup :n get } set :n 3 set register\n\
+                   :p :P object var\n:size :p var? ! println drop";
+        let rep = check_src(src);
+        assert!(rep.findings.is_empty() && rep.abandoned == 0, "{rep:?}");
+        // Unknown when written in a branch: the call cannot be followed.
+        let rep = check_src(
+            ":P class :.super [ :Object ] set :size { dup :n get } set register\n\
+             true { :p :P object var } if\n:size :p var? ! println drop",
+        );
+        assert_eq!(rep.abandoned, 1, "{rep:?}");
+        // A constructor that fills a field with `set` hands back an object
+        // of its class, so the object kept is still one.
+        let rep = check_src(
+            ":R class :.super [ :Object ] set :w 1.0 set \
+             :.init { swap :w swap set } set :area { dup :w get } set register\n\
+             :d 2.0 :R object var\n:area :d var? ! println drop",
+        );
+        assert!(rep.findings.is_empty() && rep.abandoned == 0, "{rep:?}");
+        // A lambda in a variable is run.
+        let rep = check_src(":f { + } var\n:f var? !");
+        assert_eq!(rep.findings.len(), 1, "{rep:?}");
+        assert_eq!(rep.findings[0].word, "+");
+        // A word the walk infers may have rebound it.
+        let rep = check_src(":g { :f { 1 } var } register\n:f { + } var\ng\n:f var? !");
+        assert!(rep.findings.is_empty(), "{rep:?}");
     }
 
     /// D184's `context`: the bodies run on the stack it names, and a
@@ -2564,7 +2749,8 @@ mod tests {
         };
         assert_eq!((f.word.as_str(), f.needs, f.have), ("+", 2, 0));
         assert_eq!(f.via.as_deref(), Some("`context` on @T"));
-        let rep = check_src("@T 1 2 @main :run :T context :run { + } set :run.post { println } set !");
+        let rep =
+            check_src("@T 1 2 @main :run :T context :run { + } set :run.post { println } set !");
         assert!(rep.findings.is_empty() && rep.abandoned == 0, "{rep:?}");
     }
 

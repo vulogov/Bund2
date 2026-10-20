@@ -696,7 +696,10 @@ fn run_check(src: &str, file: &str) -> ExitCode {
 /// **Where inside a written body a finding is** — RFC-0003 §S5: the body
 /// whose `payload_key` the finding names, found among the files' literal
 /// bodies, and the item's span in it, as `path:line:col`.
-fn inside(files: &[(&str, &str, &bund2_syntax::Lowered)], f: &bund2_stdlib::check::Finding) -> Option<String> {
+fn inside(
+    files: &[(&str, &str, &bund2_syntax::Lowered)],
+    f: &bund2_stdlib::check::Finding,
+) -> Option<String> {
     let (key, i) = f.place?;
     files.iter().find_map(|(path, text, lowered)| {
         let (_, spans) = lowered

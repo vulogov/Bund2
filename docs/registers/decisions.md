@@ -3897,6 +3897,28 @@ word fail. Eleven more measured; three are declared, `decode.base64.`,
 with a list's length (`pull.`), or already declared from source (`.`). 65
 rows.
 
+**Note, 2026-10-20 (later) — variables, and an object through its
+constructor.** `check` keeps what a `var` with a literal name stored and
+hands it back at `var?` (`reference/rust_multistackvm/src/stdlib/vars/registry.rs:4-30`,
+`vars/resolve.rs:4-25`), so `:door var? !` is a method call on the object
+`:door … var` kept. A `var` the walk cannot be sure ran — in a branch, or in
+a body run some number of times — forgets the name, a `var?` there answers
+unknown, and a call to a word the walk infers rather than walks forgets
+them all; forgetting costs precision and never makes a finding. `set` on an
+OBJECT answers an OBJECT of the same class with the key added
+(`reference/rust_dynamic/src/set.rs:14-23`), so a constructor that fills
+its fields with `set` hands back an object the walk still knows. On
+`bund_examples/object_oriented/demo.bund` the walk went from 38 sites to
+287, stopping at `.format`, whose template decides its effect; on the
+corpus, 3285 sites to 3344, the same six findings and no new abandonment.
+
+The last two `.` words a sandbox could reach are measured: `recv.`, on a
+pipe a `send` in the setup made, takes the pipe's name from the workbench
+and pushes what it received — declared, `1 -> 0` on the workbench, 66 rows;
+and `bund.eval-file.`, on a one-line file the probe writes first, which runs
+code and stays `Unknown`. Of the `.` words, only `for.`, declared from
+source, and the effectful ones the probe does not run are unmeasured.
+
 ## D194 — a program that does not parse exits 1
 
 **Raised 2026-10-19** by the repository owner: "`bund2 script` exits 0 on a

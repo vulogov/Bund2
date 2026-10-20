@@ -828,7 +828,16 @@ mod tests {
         // but a context's.
         let shape = |vs: &[BundValue]| -> Vec<(u16, String)> {
             vs.iter()
-                .map(|v| (v.dt(), if v.dt() == bund2_value::CONTEXT { String::new() } else { v.summary(4096) }))
+                .map(|v| {
+                    (
+                        v.dt(),
+                        if v.dt() == bund2_value::CONTEXT {
+                            String::new()
+                        } else {
+                            v.summary(4096)
+                        },
+                    )
+                })
                 .collect()
         };
         assert_eq!(

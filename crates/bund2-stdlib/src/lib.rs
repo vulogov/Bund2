@@ -122,10 +122,11 @@ pub fn eval_line(vm: &mut dyn bund2_api::Vm, src: &str) -> Result<(), bund2_api:
         if word.dt() == bund2_value::EXIT {
             break;
         }
-        vm.apply(word.clone()).map_err(|e| match lowered.span_of(i) {
-            Some(span) => bund2_api::Error(format!("{}\n{}", e.0, caret(src, span))),
-            None => e,
-        })?;
+        vm.apply(word.clone())
+            .map_err(|e| match lowered.span_of(i) {
+                Some(span) => bund2_api::Error(format!("{}\n{}", e.0, caret(src, span))),
+                None => e,
+            })?;
     }
     Ok(())
 }
@@ -134,7 +135,10 @@ pub fn eval_line(vm: &mut dyn bund2_api::Vm, src: &str) -> Result<(), bund2_api:
 /// shows beneath a failure.
 fn caret(src: &str, span: bund2_syntax::Span) -> String {
     let start = span.start.min(src.len());
-    let line_start = src.get(..start).and_then(|b| b.rfind('\n')).map_or(0, |i| i + 1);
+    let line_start = src
+        .get(..start)
+        .and_then(|b| b.rfind('\n'))
+        .map_or(0, |i| i + 1);
     let line = src
         .get(line_start..)
         .and_then(|rest| rest.lines().next())

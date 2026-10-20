@@ -1287,7 +1287,10 @@ mod tests {
             ),
             Ok(()) => panic!("a non-object receiver must be refused"),
         }
-        assert!(run_src("5 :Value object").is_ok(), "an object still constructs");
+        assert!(
+            run_src("5 :Value object").is_ok(),
+            "an object still constructs"
+        );
     }
 
     fn err_of(src: &str) -> String {

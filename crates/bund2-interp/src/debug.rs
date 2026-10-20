@@ -450,7 +450,8 @@ impl Debug {
     pub(crate) fn breaks_at(&self, file: &str, line: usize) -> Option<String> {
         self.line_breaks.iter().find_map(|(f, l)| {
             let matches = *l == line
-                && f.as_deref().is_none_or(|f| file == f || file.ends_with(&format!("/{f}")));
+                && f.as_deref()
+                    .is_none_or(|f| file == f || file.ends_with(&format!("/{f}")));
             matches.then(|| format!("{file}:{line}"))
         })
     }
@@ -797,7 +798,10 @@ mod tests {
     fn a_line_spec_is_a_line_or_a_file_and_a_line() {
         assert_eq!(line_spec("12"), Some((None, 12)));
         assert_eq!(line_spec("p.bund:12"), Some((Some("p.bund".into()), 12)));
-        assert_eq!(line_spec("/a/b/p.bund:3"), Some((Some("/a/b/p.bund".into()), 3)));
+        assert_eq!(
+            line_spec("/a/b/p.bund:3"),
+            Some((Some("/a/b/p.bund".into()), 3))
+        );
         for word in ["dup", "0", ":12", "p.bund:", "p.bund:x", "a:0"] {
             assert_eq!(line_spec(word), None, "{word}");
         }

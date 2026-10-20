@@ -678,7 +678,8 @@ pub trait Vm {
     /// location's file would. Called before the failure is wrapped, so `e` is
     /// the word's own text. Defaulted to nothing: a `Vm` that draws no
     /// traceback has nowhere to keep it.
-    fn note_source_failure(&mut self, _label: &str, _src: &str, _span: (usize, usize), _e: &Error) {}
+    fn note_source_failure(&mut self, _label: &str, _src: &str, _span: (usize, usize), _e: &Error) {
+    }
 
     /// **Where each item of these literal bodies was written** — RFC-0003
     /// §S5. `label` names the source as a location's file does, and `src` is
@@ -706,7 +707,12 @@ pub trait Vm {
     /// [`Vm::apply`] for value `i` of a stream [`Vm::place_top`] placed, so a
     /// line breakpoint, a stop and a profile's site can say where the value
     /// was written. `None` is a plain `apply`, which is the default.
-    fn apply_placed(&mut self, _stream: Option<usize>, _i: usize, v: BundValue) -> Result<(), Error> {
+    fn apply_placed(
+        &mut self,
+        _stream: Option<usize>,
+        _i: usize,
+        v: BundValue,
+    ) -> Result<(), Error> {
         self.apply(v)
     }
 

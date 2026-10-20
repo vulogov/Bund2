@@ -586,17 +586,22 @@ pub fn render_markdown(p: &Profile, reg: &Registry, meta: &Meta<'_>) -> String {
     // from most, with the time spent in it from each. A site in a body built
     // at run time, or dropped before the record was written, has no place
     // and is counted on the line that says how many were not placed.
-    let _ = writeln!(out, "## Call sites of the hottest words
-");
+    let _ = writeln!(
+        out,
+        "## Call sites of the hottest words
+"
+    );
     let mut by_node: std::collections::HashMap<usize, Vec<(u64, Duration, u64, String)>> =
         std::collections::HashMap::new();
     let mut unplaced: std::collections::HashMap<usize, u64> = std::collections::HashMap::new();
     for (node, site, st) in p.sites() {
         match p.site_labels.get(&site) {
-            Some(label) => by_node
-                .entry(node)
-                .or_default()
-                .push((st.calls, st.time, st.steps, label.clone())),
+            Some(label) => {
+                by_node
+                    .entry(node)
+                    .or_default()
+                    .push((st.calls, st.time, st.steps, label.clone()))
+            }
             None => *unplaced.entry(node).or_default() += st.calls,
         }
     }
@@ -641,7 +646,10 @@ pub fn render_markdown(p: &Profile, reg: &Registry, meta: &Meta<'_>) -> String {
         out.push('\n');
     }
     if !any_site {
-        let _ = writeln!(out, "- none placed: the program was not read from a file.\n");
+        let _ = writeln!(
+            out,
+            "- none placed: the program was not read from a file.\n"
+        );
     }
 
     // --- callers and callees -------------------------------------------------

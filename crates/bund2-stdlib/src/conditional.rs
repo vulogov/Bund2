@@ -503,7 +503,10 @@ mod tests {
 
     /// Keeps what it is given, and asks for frames as a terminal's
     /// traceback does — or not, as a pipe's table does.
-    struct Tracing(std::rc::Rc<std::cell::RefCell<Vec<bund2_api::diag::Diagnostic>>>, bool);
+    struct Tracing(
+        std::rc::Rc<std::cell::RefCell<Vec<bund2_api::diag::Diagnostic>>>,
+        bool,
+    );
     impl bund2_api::diag::Reporter for Tracing {
         fn report(&mut self, d: &bund2_api::diag::Diagnostic) {
             self.0.borrow_mut().push(d.clone());
@@ -543,7 +546,10 @@ mod tests {
         );
         assert_eq!(d.source.as_ref().map(|(_, t)| t.as_str()), Some("0 1 /"));
         let at = d.location.as_ref().expect("a position in the string");
-        assert_eq!((at.file.as_deref(), at.line, at.column), (Some("bund.eval"), 1, 5));
+        assert_eq!(
+            (at.file.as_deref(), at.line, at.column),
+            (Some("bund.eval"), 1, 5)
+        );
         assert_eq!(at.span, Some((4, 5)));
         assert!(d.frames.as_ref().is_some_and(|f| !f.is_empty()), "{d:?}");
     }
@@ -582,9 +588,15 @@ mod tests {
             panic!("one report: {seen:?}");
         };
         let at = d.location.as_ref().expect("placed");
-        assert_eq!((at.file.as_deref(), at.line, at.column), (Some("p.bund"), 2, 5));
+        assert_eq!(
+            (at.file.as_deref(), at.line, at.column),
+            (Some("p.bund"), 2, 5)
+        );
         let frames = d.frames.as_ref().expect("frames");
-        assert!(frames[0].starts_with("#0  g at 3") && frames[0].ends_with("(p.bund:2:5)"), "{frames:?}");
+        assert!(
+            frames[0].starts_with("#0  g at 3") && frames[0].ends_with("(p.bund:2:5)"),
+            "{frames:?}"
+        );
     }
 
     /// A reporter that draws no traceback gets the line it always got.
@@ -602,7 +614,9 @@ mod tests {
     /// left behind.
     #[test]
     fn each_caught_failure_keeps_its_own_trace() {
-        let twice = format!("{CAUGHT}?try :try {{ \"1 2 3 list /\" bund.eval }} set :except {{ ! }} set !\n");
+        let twice = format!(
+            "{CAUGHT}?try :try {{ \"1 2 3 list /\" bund.eval }} set :except {{ ! }} set !\n"
+        );
         let seen = reports_of(&twice, true);
         let [_, second] = seen.as_slice() else {
             panic!("two reports: {seen:?}");

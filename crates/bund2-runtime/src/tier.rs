@@ -3334,8 +3334,10 @@ mod tests {
         let mut r = inlining_runtime_with(1);
         r.eval_str(":down { 1 2 + drop dup 0 < { 1 swap - down } if } register\n")
             .expect("defines");
-        r.eval_str("3 down drop").expect("the entry that compiles it");
-        r.eval_str(&format!("{LEVELS} down")).expect("recurses and returns");
+        r.eval_str("3 down drop")
+            .expect("the entry that compiles it");
+        r.eval_str(&format!("{LEVELS} down"))
+            .expect("recurses and returns");
         assert_eq!(
             r.interp.snapshot().last().and_then(BundValue::as_int),
             Some(0),

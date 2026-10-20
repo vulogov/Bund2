@@ -1349,9 +1349,8 @@ impl Interp {
             let outer_entry = self.tier_entry.replace(who);
             let outer_shadow = self.tier_shadow.take();
             let answered = tier.enter(&body, self);
-            let handed_back = may_hand_back
-                && matches!(answered, Some(Ok(())))
-                && self.pending_tail.is_some();
+            let handed_back =
+                may_hand_back && matches!(answered, Some(Ok(()))) && self.pending_tail.is_some();
             if self.tier_shadow.take().is_some() && !handed_back {
                 self.frames.truncate(depth);
                 self.profile_frames_popped();
@@ -1834,7 +1833,9 @@ impl Interp {
         let calls = |s: Symbol| d.map_or(0, |d| d.calls_to(s));
         let mut out = String::from(match (&self.tier, self.tier_off) {
             (None, _) => "no tier in this build: every body is interpreted\n",
-            (Some(_), true) => "the tier is off under the debugger (§D6): every body is interpreted\n",
+            (Some(_), true) => {
+                "the tier is off under the debugger (§D6): every body is interpreted\n"
+            }
             (Some(_), false) => "the tier is on: a hot body may run compiled\n",
         });
         if d.is_none() {
@@ -2252,9 +2253,9 @@ impl Interp {
             .names()
             .iter()
             .filter(|n| {
-                self.registry
-                    .effect_of(n)
-                    .is_some_and(|e| matches!(e.leaves, bund2_api::Leaves::Conditional(t) if t == ty))
+                self.registry.effect_of(n).is_some_and(
+                    |e| matches!(e.leaves, bund2_api::Leaves::Conditional(t) if t == ty),
+                )
             })
             .map(|n| {
                 let own = self
@@ -2306,7 +2307,9 @@ impl Interp {
 /// `context`.
 fn unregistered(name: &str) -> Error {
     let name = name.strip_prefix('$').unwrap_or(name);
-    Error(format!("i({name}) for stack returned: Inline {name} not registered"))
+    Error(format!(
+        "i({name}) for stack returned: Inline {name} not registered"
+    ))
 }
 
 /// What handed a body to `eval_lambda` — D173's name for a lambda no word
@@ -2408,7 +2411,9 @@ fn places(src: &str, spans: &[(usize, usize)]) -> Vec<(usize, usize, usize, usiz
             let start = start.min(src.len());
             let line = starts.partition_point(|&s| s <= start);
             let line_start = starts.get(line.saturating_sub(1)).copied().unwrap_or(0);
-            let column = src.get(line_start..start).map_or(1, |t| t.chars().count() + 1);
+            let column = src
+                .get(line_start..start)
+                .map_or(1, |t| t.chars().count() + 1);
             (line, column, start, end)
         })
         .collect()
@@ -2747,7 +2752,11 @@ impl Vm for Interp {
         // **Named by what started it, while naming (D173).** The runner is
         // taken for the body's run, so a native that compiled code calls
         // directly, past `call_native`, finds none rather than this one.
-        let by = if self.naming { self.running.take() } else { None };
+        let by = if self.naming {
+            self.running.take()
+        } else {
+            None
+        };
         if let Some(r) = &by {
             self.runners.push((floor, r.clone()));
         }
@@ -3010,7 +3019,12 @@ impl Vm for Interp {
         }
     }
 
-    fn note_positions(&mut self, label: &str, src: &str, bodies: &[(BundValue, Vec<(usize, usize)>)]) {
+    fn note_positions(
+        &mut self,
+        label: &str,
+        src: &str,
+        bodies: &[(BundValue, Vec<(usize, usize)>)],
+    ) {
         if bodies.is_empty() {
             return;
         }
@@ -3060,10 +3074,7 @@ impl Vm for Interp {
     }
 
     fn failure_caught(&mut self, e: &Error) {
-        self.caught = self
-            .failure_trace
-            .take()
-            .filter(|t| e.0.contains(&t.cause));
+        self.caught = self.failure_trace.take().filter(|t| e.0.contains(&t.cause));
     }
 
     fn report(&mut self, d: bund2_api::diag::Diagnostic) {

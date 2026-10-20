@@ -99,7 +99,7 @@ too, at the least pair of depths it accepts.
 | `bootstrap` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_load.rs:203 | not probed: effectful, out of scope, or terminates |
 | `bund.eval` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:124 | type-constrained: list rejected |
 | `bund.eval-file` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:126 | type-constrained: list rejected |
-| `bund.eval-file.` |  | 1 |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:127 | no sentinel type accepted |
+| `bund.eval-file.` |  | 1 |  |  |  | 0 | 1 | 1 | 0 | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:127 | no sentinel type accepted; both axes: the operands `SAMPLES` gives it |
 | `bund.eval.` |  | 1 |  |  |  | 0 | 1 | 1 | 0 | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:125 | no sentinel type accepted; both axes: the operands `SAMPLES` gives it |
 | `bund.exit` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_exit.rs:41 | not probed: effectful, out of scope, or terminates |
 | `bund.prompt` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/io/input.rs:145 | not probed: effectful, out of scope, or terminates |
@@ -405,7 +405,7 @@ too, at the least pair of depths it accepts.
 | `push.` | 1 | 1 |  |  |  | 1 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/values/push.rs:75 | no sentinel type accepted |
 | `raise` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:44 | type-constrained: list rejected |
 | `recv` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:222 | type-constrained: list rejected |
-| `recv.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/bus/crossbus.rs:223 | no sentinel type accepted |
+| `recv.` |  |  |  |  |  | 0 | 1 | 1 | 0 | reference/Bund/src/stdlib/functions/bus/crossbus.rs:223 | no sentinel type accepted; both axes: the operands `SAMPLES` gives it |
 | `register` | 2 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/lambdas/registry.rs:88 | type-constrained: list rejected |
 | `resolve` | 1 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/lambdas/resolve.rs:70 | type-constrained: list rejected |
 | `resolve.class` | 1 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/lambdas/resolve.rs:71 | type-constrained: list rejected |

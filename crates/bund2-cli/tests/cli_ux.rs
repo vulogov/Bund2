@@ -88,7 +88,10 @@ fn the_profile_names_call_sites_and_where_words_were_registered() {
     assert_eq!(r.code, Some(0), "{}", r.err);
     let md = std::fs::read_to_string(base.with_extension("profile.md")).expect("the report");
     let at = |l: &str| format!("{}:{l}", p.display());
-    assert!(md.contains(&format!("### `sq` — registered at {}", at("3:3"))), "{md}");
+    assert!(
+        md.contains(&format!("### `sq` — registered at {}", at("3:3"))),
+        "{md}"
+    );
     assert!(md.contains(&format!("| {} | 100 |", at("5:5"))), "{md}");
     assert!(md.contains(&format!("| {} | 1 |", at("8:3"))), "{md}");
 }
@@ -120,7 +123,8 @@ fn a_caught_failure_is_one_line_on_a_pipe_and_a_traceback_under_trace() {
     let r = bund2(&["script", "--file", p.to_str().unwrap()], &[]);
     assert_eq!(r.code, Some(0));
     assert!(
-        r.err.starts_with("Notice: Lambda content evaluation returned error:"),
+        r.err
+            .starts_with("Notice: Lambda content evaluation returned error:"),
         "{}",
         r.err
     );
@@ -145,12 +149,12 @@ fn report_trace_draws_the_traceback_with_the_frames() {
     assert!(r.out.contains("Error: DIV returns error"), "{}", r.out);
     // RFC-0003 §S5: the report is at the `/` inside `g`, and the top-level
     // `f` on line 4 is what reached it.
-    assert!(r.out.contains(&format!("{}:1:13", p.display())), "{}", r.out);
     assert!(
-        r.out.contains("the value that failed, inside"),
+        r.out.contains(&format!("{}:1:13", p.display())),
         "{}",
         r.out
     );
+    assert!(r.out.contains("the value that failed, inside"), "{}", r.out);
     assert!(r.out.contains("reached from this step"), "{}", r.out);
     let g = r
         .out

@@ -689,8 +689,15 @@ fn a_stop_says_what_changed_since_the_last() {
 #[test]
 fn a_depth_watch_stops_once_where_the_stack_goes_past_it() {
     let (out, err, _) = session("1 2 3 4 5 6\n\"done\" println\n", "watch depth > 2\nc\nc\n");
-    assert_eq!(err.matches("watchpoint: @main depth > 2").count(), 1, "{err}");
-    assert!(err.contains("changed: @main 0 → 2"), "stopped before the third push:\n{err}");
+    assert_eq!(
+        err.matches("watchpoint: @main depth > 2").count(),
+        1,
+        "{err}"
+    );
+    assert!(
+        err.contains("changed: @main 0 → 2"),
+        "stopped before the third push:\n{err}"
+    );
     assert_eq!(out, "done\n");
 }
 
@@ -698,7 +705,11 @@ fn a_depth_watch_stops_once_where_the_stack_goes_past_it() {
 #[test]
 fn a_depth_watch_fires_again_after_the_stack_comes_back_down() {
     let (_, err, _) = session("1 2 3 drop 4\n", "watch depth > 2\nc\nc\nc\n");
-    assert_eq!(err.matches("watchpoint: @main depth > 2").count(), 2, "{err}");
+    assert_eq!(
+        err.matches("watchpoint: @main depth > 2").count(),
+        2,
+        "{err}"
+    );
 }
 
 /// **RFC-0008 §D5: `words` is the slot table, with calls since attaching,
@@ -716,16 +727,28 @@ fn the_words_and_classes_views_show_the_tables() {
             .unwrap_or_default()
             .to_string()
     };
-    assert!(calls("w").contains("lambda") && calls("w").ends_with("calls 2"), "{err}");
+    assert!(
+        calls("w").contains("lambda") && calls("w").ends_with("calls 2"),
+        "{err}"
+    );
     // RFC-0011 §S8: where it was registered — line 3, at its `register`.
-    assert!(calls("w").contains("registered at ") && calls("w").contains(":3:"), "{err}");
+    assert!(
+        calls("w").contains("registered at ") && calls("w").contains(":3:"),
+        "{err}"
+    );
     assert!(calls("swap").contains("alias → swap_one, native"), "{err}");
-    assert!(err.contains("swap_one"), "the filter shows every name with swap:\n{err}");
+    assert!(
+        err.contains("swap_one"),
+        "the filter shows every name with swap:\n{err}"
+    );
     assert!(
         err.contains("Kid\n  super: Base\n  methods: none\n  fields: x\n"),
         "{err}"
     );
-    assert!(err.contains("Base\n  super: none\n  methods: greet\n"), "{err}");
+    assert!(
+        err.contains("Base\n  super: none\n  methods: greet\n"),
+        "{err}"
+    );
     assert_eq!(out, "done\n");
 }
 
@@ -787,7 +810,10 @@ fn a_line_breakpoint_stops_in_an_included_files_top_level() {
 fn a_backtrace_interleaves_an_included_files_stream() {
     let lib = scratch("lib2");
     std::fs::write(&lib, ":inner {\n  1 2 + drop\n} register\ninner\n").expect("lib");
-    let src = format!(":w {{ \"{}\" bund.eval-file }} register\nw\n", lib.display());
+    let src = format!(
+        ":w {{ \"{}\" bund.eval-file }} register\nw\n",
+        lib.display()
+    );
     let (_, err, _) = session(&src, "break lib2.bund:2\nc\nbt\nc\n");
     let bt: Vec<String> = err
         .lines()

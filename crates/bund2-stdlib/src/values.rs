@@ -250,7 +250,9 @@ fn unregister(vm: &mut dyn Vm) -> Result<(), Error> {
 /// (`reference/rust_multistackvm/src/multistackvm_classes.rs:22-27`).
 fn unregister_class(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 1 {
-        return Err(Error("Stack is too shallow for inline unregister.class".into()));
+        return Err(Error(
+            "Stack is too shallow for inline unregister.class".into(),
+        ));
     }
     let name_val = crate::pull::operand(vm, "UNREGISTER.CLASS", 1)?;
     let name = name_val.as_str().ok_or_else(|| {
@@ -695,7 +697,12 @@ pub fn register_words(r: &mut Registry) {
     crate::wb::bench!(r, "?key", has_key, 2, 1);
     r.register_native("register", register, eff(2, 0), WordKind::Sync);
     r.register_native("unregister", unregister, eff(1, 0), WordKind::Sync);
-    r.register_native("unregister.class", unregister_class, eff(1, 0), WordKind::Sync);
+    r.register_native(
+        "unregister.class",
+        unregister_class,
+        eff(1, 0),
+        WordKind::Sync,
+    );
     r.register_native("lambda!", to_lambda, eff(1, 1), WordKind::Sync);
     crate::wb::bench!(r, "lambda!", to_lambda);
     // Opaque: folds the **whole stack** into a LAMBDA, so its consumption is
@@ -862,7 +869,11 @@ mod tests {
             *kept.borrow(),
             vec![(Severity::Warning, ENDCONTEXT_SHADOWED.to_string())]
         );
-        assert_eq!(i.peek().and_then(|v| v.as_int()), Some(42), "the lambda closed the context");
+        assert_eq!(
+            i.peek().and_then(|v| v.as_int()),
+            Some(42),
+            "the lambda closed the context"
+        );
     }
 
     /// F1: `unregister.class` removes a class and leaves a lambda of the same
@@ -873,12 +884,21 @@ mod tests {
         let i = run(":Foo class register\n:Foo { 1 } register\n:Foo unregister.class\n:Foo ?class\n:Nobody unregister.class")
             .expect("runs");
         assert!(matches!(i.peek(), Some(BundValue::Bool(false, _))));
-        assert!(i.registry.lambda_value("Foo").is_some(), "the lambda is untouched");
+        assert!(
+            i.registry.lambda_value("Foo").is_some(),
+            "the lambda is untouched"
+        );
         let j = run(":Foo class register\n:Foo unregister\n:Foo ?class").expect("runs");
         assert!(matches!(j.peek(), Some(BundValue::Bool(true, _))));
         for (src, want) in [
-            ("unregister.class", "Stack is too shallow for inline unregister.class"),
-            ("1 unregister.class", "UNREGISTER.CLASS expecting lanbda name to be string"),
+            (
+                "unregister.class",
+                "Stack is too shallow for inline unregister.class",
+            ),
+            (
+                "1 unregister.class",
+                "UNREGISTER.CLASS expecting lanbda name to be string",
+            ),
         ] {
             match run(src) {
                 Err(e) => assert!(e.contains(want), "{src}: {e}"),
@@ -937,11 +957,17 @@ mod tests {
         let i = run("[ 1 2 3 ] \"2\" 9 set").expect("runs");
         let got: Vec<_> = i
             .peek()
-            .and_then(|v| v.as_list().map(|l| l.iter().filter_map(|x| x.as_int()).collect()))
+            .and_then(|v| {
+                v.as_list()
+                    .map(|l| l.iter().filter_map(|x| x.as_int()).collect())
+            })
             .unwrap_or_default();
         assert_eq!(got, vec![1, 9, 3]);
         match run("[ 1 2 ] \"3\" 9 set") {
-            Err(e) => assert!(e.to_string().contains("3 names no element of a list of 2"), "{e}"),
+            Err(e) => assert!(
+                e.to_string().contains("3 names no element of a list of 2"),
+                "{e}"
+            ),
             Ok(_) => panic!("an index past the end must be refused"),
         }
     }

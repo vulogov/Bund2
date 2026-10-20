@@ -5,7 +5,8 @@ class trees and the built-in classes:
 - defining and registering a class, and making objects from it;
 - fields and methods;
 - constructors, and the order they run in;
-- inheritance, multiple inheritance included, where the first match wins;
+- inheritance, multiple inheritance included, where the first match wins
+  and a diamond is searched depth first;
 - a method written once that asks each object for its own answer;
 - the base classes every object can reach;
 - the classes that wrap one value;
@@ -71,6 +72,16 @@ comes first.
 - **Multiple inheritance.** A `Duck` is a `Swimmer` and then a `Flyer`.
   Both say how it moves, and the `Swimmer` is listed first, so it swims.
   The wings come from the `Flyer`, and the quack is the Duck's own.
+- **A diamond is searched depth first, not nearest first.** `Left` and
+  `Right` both descend from `Base`, and only `Right` overrides `greet`.
+  With `Left` listed first, `Left` is searched all the way up to `Base`
+  before `Right` is looked at, so `Base` answers:
+
+      Left listed first:  hello from Base
+      Right listed first: hello from Right
+
+  Python's rule (C3) would answer `Right`'s in both. The order is pinned
+  against the reference by `tests/probes/oop-multiple-inheritance.bund`.
 - **Constructors run parents first.** `A`'s parents are `B` and `E`, and
   `B`'s are `C` and `D`. Each constructor prints its class:
 
@@ -140,15 +151,19 @@ Each of these is an error the demo catches with `?try`:
     a class never registered: … OBJECT class Oval not registered
     a slot no class has:      … VM no method colour has been registered
     a parent never registered: … OBJECT class Nobody not registered
+    a misspelled word:        … i(Lsit) for stack returned: Inline Lsit not registered
     ?is on a number:          … ?IS: NO OBJECT IN #2
 
 - **A missing parent is named.** The reference names the child instead,
   `Orphan`, which is registered (F67).
+- **A misspelled word is reported in the reference's words** (D197), the
+  name it could not find twice over.
 - **A failed call leaves its object on the stack.** Dispatch looks at the
   object without taking it, so the demo's handler drops the door.
 
 Every other line the demo prints is what the reference prints for the
-same program. The exceptions are the words Bund2 adds and the missing
+same program, less the Rust source paths the reference adds to an error's
+text (F66). The exceptions are the words Bund2 adds and the missing
 parent's name.
 
 ## Writing Bund like this

@@ -70,11 +70,21 @@ const SAMPLES: &[(&str, &[&str], &[&str])] = &[
     ("while.", &["false"], &["{ 1 drop }"]),
     ("decode.base64.", &["1 encode.base64"], &[]),
     ("bund.eval.", &["\"1 2 +\""], &[]),
-    ("string.expressionmatch.", &["'contains \"4\"'"], &["\"42\""]),
+    (
+        "string.expressionmatch.",
+        &["'contains \"4\"'"],
+        &["\"42\""],
+    ),
     ("#.", &["1 \"Value\" object"], &["{ 1 drop }"]),
     ("pull.", &["[ \"a\" ]"], &["1"]),
     ("pull.workbench.", &["1", "[ \"a\" ]"], &[]),
     ("io.graph.", &["[ 1.0 2.0 ]"], &[]),
+    // A pipe exists once something is sent to it; `send` leaves `true`,
+    // which the setup drops so it is not counted as the word's.
+    ("recv.", &["\"q\" 1 send drop \"q\""], &[]),
+    // `{scratch}` is the probe's scratch directory, where [`probe_sample`]
+    // writes `sample.bund` first.
+    ("bund.eval-file.", &["\"{scratch}/sample.bund\""], &[]),
 ];
 
 /// Words the mixed pass probes at once. Each probe is a process, and
@@ -235,10 +245,7 @@ fn run_probe(oracle: &Path, scratch: &Path, program: &str) -> Option<String> {
     // Per thread too, for the mixed pass's workers.
     let thread = format!("{:?}", std::thread::current().id());
     let thread: String = thread.chars().filter(char::is_ascii_digit).collect();
-    let file = scratch.join(format!(
-        "arity_probe_{}_{thread}.bund",
-        std::process::id()
-    ));
+    let file = scratch.join(format!("arity_probe_{}_{thread}.bund", std::process::id()));
     std::fs::write(&file, program).ok()?;
     let mut child = std::process::Command::new(oracle)
         .arg("script")
@@ -410,8 +417,13 @@ fn probe_bench_mixed(oracle: &Path, scratch: &Path, word: &str) -> Option<Bench2
 fn probe_sample(oracle: &Path, scratch: &Path, word: &str) -> Option<Bench2> {
     const MARK: &str = "--arity-workbench--";
     let &(_, bench, stack) = SAMPLES.iter().find(|(w, _, _)| *w == word)?;
+    std::fs::write(scratch.join("sample.bund"), "1 2 +\n").ok()?;
+    let dir = scratch.display().to_string();
     let program = |bench: &[&str], stack: &[&str]| {
-        let bench: Vec<String> = bench.iter().map(|v| format!("{v} .")).collect();
+        let bench: Vec<String> = bench
+            .iter()
+            .map(|v| format!("{} .", v.replace("{scratch}", &dir)))
+            .collect();
         format!(
             "{}\n{}\n{word}\ndebug.display_stack\n\"{MARK}\" println\ndebug.display_workbench\n",
             bench.join(" "),
@@ -480,14 +492,7 @@ fn bench_pairs(
         let Some((on_stack, on_bench)) = out.split_once(MARK) else {
             return Tried::Refused;
         };
-        return Tried::Accepted((
-            k,
-            count_values(on_stack),
-            b,
-            count_values(on_bench),
-            bt,
-            st,
-        ));
+        return Tried::Accepted((k, count_values(on_stack), b, count_values(on_bench), bt, st));
     }
     Tried::Refused
 }

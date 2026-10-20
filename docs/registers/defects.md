@@ -4312,7 +4312,7 @@ with backtraces on, resolves the test binary's symbols. The VM's
 `Finish` guard, which wakes the waiter, runs only after the hook
 returns. Meanwhile the first native call on any other thread runs
 `catch_panic`'s one-time install of the quiet hook
-(`crates/bund2-api/src/lib.rs:87-99`, `take_hook` then `set_hook`),
+(`catch_panic` in `crates/bund2-api/src/lib.rs`, `take_hook` then `set_hook`),
 which waits while a hook is running, so the ping-pong VMs in the same
 process stalled behind it. That the standard library holds the hook's
 lock across the hook is inferred from the stall, not read in its source,

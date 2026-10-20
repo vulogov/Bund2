@@ -111,6 +111,24 @@ register
 "what it says:   " print :sound :duck var? ! println drop
 
 //
+// A diamond. Left and Right both descend from Base; only Right has its own
+// `greet`. Depth first means Left is searched all the way up, to Base,
+// before Right is looked at, so with Left listed first Base answers, even
+// though Right overrides it. Python's rule (C3) would answer Right's. List
+// Right first and Right answers.
+//
+:Base       class :.super [ :Object ] set :greet "hello from Base" set register
+:Left       class :.super [ :Base ] set register
+:Right      class :.super [ :Base ] set :greet "hello from Right" set register
+:LeftFirst  class :.super [ :Left :Right ] set register
+:RightFirst class :.super [ :Right :Left ] set register
+
+"" println
+"-- a diamond: depth first, not nearest first" println
+"Left listed first:  " print :greet :LeftFirst object ! println drop
+"Right listed first: " print :greet :RightFirst object ! println drop
+
+//
 // Constructors run parents first. Making an A makes its parents, B then
 // E; making B makes C and D first. Each constructor runs as soon as its
 // own parents are made, and A's runs last.
@@ -249,6 +267,12 @@ class :.class_name "Point" set :x 3 set :y 4 set ! :x swap ! print " " print :y 
 ?try
   :try    { :Orphan object } set
   :except { "a parent never registered: " print :context get println } set
+!
+// A misspelled word is a call to a name nothing binds, and says so in the
+// reference's words (D197).
+?try
+  :try    { Lsit } set
+  :except { "a misspelled word:        " print :context get println } set
 !
 ?try
   :try    { 42 "Object" ?is } set
