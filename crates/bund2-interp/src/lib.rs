@@ -370,6 +370,18 @@ pub struct Interp {
     next_stream: Option<usize>,
     /// The index of the top-level value running now.
     top_at: usize,
+    /// **The frame depth the running stream's top level sits at** — `0` for
+    /// the program's stream, and the depth `use` or `bund.eval-file` was
+    /// called at for a string it runs, so a frame below it is not the
+    /// stream's and the stream's own place is read instead.
+    stream_floor: usize,
+    /// How many placed streams are running inside another — added to the
+    /// frame depth a stepping command records, so `next` over `use` steps
+    /// over the file's top level as it does over a body.
+    nest: usize,
+    /// A placed string's key by its label and text, so a `use` in a loop
+    /// places its file once.
+    stream_seen: std::collections::HashMap<(Rc<str>, u64), usize>,
     /// **Where each word was registered** — the `register` that bound it,
     /// the last for a name bound twice. RFC-0011 §S8's "where a word came
     /// from", read by §D5's `words` and the profile.
@@ -500,6 +512,9 @@ impl Interp {
             stream_key: None,
             next_stream: None,
             top_at: 0,
+            stream_floor: 0,
+            nest: 0,
+            stream_seen: std::collections::HashMap::new(),
             definitions: std::collections::HashMap::new(),
             stack_floor: tier0_floor(),
             exit_code: None,
@@ -1486,7 +1501,7 @@ impl Interp {
         if !d.watching_lines() {
             return None;
         }
-        let (next, prev) = match self.frames.last() {
+        let (next, prev) = match self.body_frame() {
             Some(f) => (
                 self.place_of(&f.body, f.ip)?,
                 f.ip.checked_sub(1).and_then(|i| self.place_of(&f.body, i)),
@@ -1524,10 +1539,31 @@ impl Interp {
     /// breakpoint can stop at the top level too. The embedder that lowered
     /// the stream says it before running it.
     pub fn place_stream(&mut self, label: &str, src: &str, spans: &[(usize, usize)]) {
+        self.next_stream = Some(self.stream_place_key(label, src, spans));
+    }
+
+    /// A key for this stream's places, the one it was given before if this
+    /// label and text were placed already.
+    fn stream_place_key(&mut self, label: &str, src: &str, spans: &[(usize, usize)]) -> usize {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        src.hash(&mut h);
+        let seen = (Rc::from(label), h.finish());
+        if let Some(&key) = self.stream_seen.get(&seen) {
+            return key;
+        }
         let key = STREAM_KEY | self.stream_places.len();
         self.stream_places
-            .insert(key, (Rc::from(label), places(src, spans)));
-        self.next_stream = Some(key);
+            .insert(key, (Rc::clone(&seen.0), places(src, spans)));
+        self.stream_seen.insert(seen, key);
+        key
+    }
+
+    /// The innermost frame, if it is above the running stream's top level.
+    fn body_frame(&self) -> Option<&Frame> {
+        self.frames
+            .last()
+            .filter(|_| self.frames.len() > self.stream_floor)
     }
 
     /// **The value being applied now, as a site** — RFC-0011 §S8: the
@@ -1535,7 +1571,7 @@ impl Interp {
     /// the placed top-level stream and its index. Cheap: two loads and no
     /// lookup, so a profiled run can take it at every call.
     fn call_site(&self) -> Option<(usize, usize)> {
-        match self.frames.last() {
+        match self.body_frame() {
             Some(f) => Some((f.body.payload_key()?, f.ip.saturating_sub(1))),
             None => Some((self.stream_key?, self.top_at)),
         }
@@ -1604,7 +1640,7 @@ impl Interp {
             self.debug = Some(d);
             return;
         }
-        let depth = self.frames.len();
+        let depth = self.frames.len() + self.nest;
         let forced = !matches!(why, debug::Stop::Stepping | debug::Stop::Term(..));
         if forced || d.should_stop(depth) {
             d.stops += 1;
@@ -1897,7 +1933,7 @@ impl Interp {
     /// frame's `ip` is where execution resumes, and that is what a stepping
     /// host needs to see.
     fn render_position(&self, top: Option<(usize, &BundValue)>) -> String {
-        match self.frames.last() {
+        match self.body_frame() {
             Some(f) => {
                 let who = f.who.map(|s| self.registry.interner.name(s));
                 let by = self.runner_of(self.frames.len() - 1);
@@ -1920,7 +1956,14 @@ impl Interp {
             // `eval_indexed` hands back on a failure.
             None => match top {
                 Some((i, v)) => {
-                    format!("#0  the top-level stream at {i}  next: {}", v.summary(48))
+                    let at = self
+                        .stream_place(i)
+                        .map(|l| format!("  ({l})"))
+                        .unwrap_or_default();
+                    format!(
+                        "#0  the top-level stream at {i}  next: {}{at}",
+                        v.summary(48)
+                    )
                 }
                 None => "#0  the top-level stream".to_string(),
             },
@@ -2893,6 +2936,28 @@ impl Vm for Interp {
                 },
             );
         }
+    }
+
+    fn place_top(&mut self, label: &str, src: &str, spans: &[(usize, usize)]) -> Option<usize> {
+        Some(self.stream_place_key(label, src, spans))
+    }
+
+    /// The included stream's value runs as the program's would: its place is
+    /// the running stream's for the call, and a debugger may stop before it.
+    fn apply_placed(&mut self, stream: Option<usize>, i: usize, v: BundValue) -> Result<(), Error> {
+        let Some(key) = stream else {
+            return Interp::apply(self, v);
+        };
+        let outer = (self.stream_key, self.top_at, self.stream_floor);
+        (self.stream_key, self.top_at, self.stream_floor) = (Some(key), i, self.frames.len());
+        self.nest += 1;
+        if self.debug.is_some() {
+            self.safepoint(Some((i, &v)));
+        }
+        let r = Interp::apply(self, v);
+        self.nest -= 1;
+        (self.stream_key, self.top_at, self.stream_floor) = outer;
+        r
     }
 
     fn failure_caught(&mut self, e: &Error) {

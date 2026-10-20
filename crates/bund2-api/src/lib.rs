@@ -685,6 +685,22 @@ pub trait Vm {
     ) {
     }
 
+    /// **A string's own top level, placed** — RFC-0003 §S5 for the stream
+    /// `use` and `bund.eval-file` run, beside [`Vm::note_positions`]'s bodies.
+    /// `spans` holds one byte span per top-level value; the answer is a key
+    /// for [`Vm::apply_placed`]. Defaulted to `None`: a `Vm` that keeps no
+    /// positions has nothing to place.
+    fn place_top(&mut self, _label: &str, _src: &str, _spans: &[(usize, usize)]) -> Option<usize> {
+        None
+    }
+
+    /// [`Vm::apply`] for value `i` of a stream [`Vm::place_top`] placed, so a
+    /// line breakpoint, a stop and a profile's site can say where the value
+    /// was written. `None` is a plain `apply`, which is the default.
+    fn apply_placed(&mut self, _stream: Option<usize>, _i: usize, v: BundValue) -> Result<(), Error> {
+        self.apply(v)
+    }
+
     /// **`e` was caught, and will not reach a fatal report** — so the
     /// traceback taken for it is kept for the report a handler makes of it,
     /// rather than pinned on a later failure. Defaulted to nothing.

@@ -238,7 +238,8 @@ fn run_cli() -> ExitCode {
         let mut i = Interp::new();
         bund2_stdlib::register_all(&mut i.registry);
         for (name, e) in i.registry.declared_effects() {
-            bund2_api::sayln!("{name}\t{}\t{}", e.consumes, e.produces);
+            let opaque = if e.opaque { "\topaque" } else { "" };
+            bund2_api::sayln!("{name}\t{}\t{}{opaque}", e.consumes, e.produces);
         }
         return ExitCode::SUCCESS;
     }

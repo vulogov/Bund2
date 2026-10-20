@@ -35,6 +35,19 @@
 //! belongs in `tests/golden/EFFECTS.txt` with a reason — the same shape as
 //! `DEVIATIONS.txt`, and for the same reason: an exclusion hides a regression,
 //! a recorded reason does not.
+//!
+//! # An opaque declaration is a floor, not a pair
+//!
+//! `StackEffect::opaque(n)` says the word *has* no pair: `n` is the depth it
+//! needs before it can run, and the `0` beside it is a placeholder. Comparing
+//! that `0` against the probe reported `True`, `False`, `List`, `Floats` and
+//! `Intervals` as defects, where each applies `object` by name to a class a
+//! program may re-register (`multistackvm_classes.rs:11-13`), so the probe's
+//! `0 -> 1` is the stock class's and not the word's. The same reason `N+` is
+//! skipped on the probed side: only the floor is compared — a probe that ran
+//! the word on fewer values than the floor contradicts it — and the probed
+//! pair is listed in its own section, so a word opaque without cause is in
+//! view rather than counted as agreement.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -48,7 +61,10 @@ struct Row {
     probed: (u32, u32),
 }
 
-fn bund2_effects(repo: &Path) -> Result<BTreeMap<String, (u32, u32)>, String> {
+/// A declared effect: the pair, and whether it is `opaque` — a floor.
+type Declared = ((u32, u32), bool);
+
+fn bund2_effects(repo: &Path) -> Result<BTreeMap<String, Declared>, String> {
     let exe = crate::buildcli::bund2(repo, false, "")?;
     let out = std::process::Command::new(&exe)
         .arg("effects")
@@ -61,7 +77,7 @@ fn bund2_effects(repo: &Path) -> Result<BTreeMap<String, (u32, u32)>, String> {
             continue;
         };
         if let (Ok(c), Ok(p)) = (c.parse(), p.parse()) {
-            map.insert(n.to_string(), (c, p));
+            map.insert(n.to_string(), ((c, p), it.next() == Some("opaque")));
         }
     }
     Ok(map)
@@ -123,9 +139,15 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     let mut agree = 0usize;
     let mut diverge: Vec<Row> = Vec::new();
     let mut not_in_table: Vec<&String> = Vec::new();
-    for (word, d) in &declared {
+    let mut opaque: Vec<Row> = Vec::new();
+    for (word, (d, is_opaque)) in &declared {
         match probed.get(word) {
             None => not_in_table.push(word),
+            Some(p) if *is_opaque && p.0 >= d.0 => opaque.push(Row {
+                word: word.clone(),
+                declared: *d,
+                probed: *p,
+            }),
             Some(p) if p == d => agree += 1,
             Some(p) => diverge.push(Row {
                 word: word.clone(),
@@ -153,10 +175,11 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     bund2_api::sayln!(
         "  {:<34}{:>5}",
         "comparable against the table",
-        agree + diverge.len()
+        agree + diverge.len() + opaque.len()
     );
     bund2_api::sayln!("  {:<34}{:>5}", "agree", agree);
     bund2_api::sayln!("  {:<34}{:>5}", "recorded as an arm", arms.len());
+    bund2_api::sayln!("  {:<34}{:>5}", "opaque, floor met", opaque.len());
     bund2_api::sayln!("  {:<34}{:>5}", "DISAGREE", defects.len());
     bund2_api::sayln!("  {:<34}{:>5}", "not in the table", not_in_table.len());
     bund2_api::sayln!();
@@ -190,6 +213,26 @@ pub fn run(_args: &[String]) -> Result<(), String> {
                 r.word,
                 r.declared.0,
                 r.declared.1,
+                r.probed.0,
+                r.probed.1
+            );
+        }
+        bund2_api::sayln!();
+    }
+
+    if !opaque.is_empty() {
+        bund2_api::sayln!("## opaque, floor met\n");
+        bund2_api::sayln!("  Declared opaque: the word has no pair, and the first number is");
+        bund2_api::sayln!("  the depth it needs. The probe ran it on no fewer, so nothing");
+        bund2_api::sayln!("  contradicts the floor. The pair the probe read is shown because");
+        bund2_api::sayln!("  it is true of one run, and a word opaque without cause would show");
+        bund2_api::sayln!("  here with a pair that never varies.\n");
+        for r in &opaque {
+            let why = approved.get(&r.word).map(String::as_str).unwrap_or("");
+            bund2_api::sayln!(
+                "  {:<30} floor {}          probed {}->{}   {why}",
+                r.word,
+                r.declared.0,
                 r.probed.0,
                 r.probed.1
             );

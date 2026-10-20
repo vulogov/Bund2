@@ -798,3 +798,23 @@ workbench half by composition (§S3), and follows `ifthenelse.`,
 `notifthenelse.`, `while.` and `context`. Measured on the corpus and recorded
 in D195: 3183 sites analysed, 113 abandoned, and one new true positive.
 
+
+## Amendment, 2026-10-19 (second) — criterion 2 compares an opaque effect by its floor
+
+`cargo xtask effects` compared every declaration as a pair, so an `opaque(n)`
+declaration was read as `n -> 0` — a placeholder §S1 gives no meaning. That
+reported `True`, `False`, `List`, `Floats` and `Intervals` as disagreeing
+with the probe's `0 -> 1`. They are opaque for `object`'s reason: each
+applies `object` by name to its class (`reference/Bund/src/stdlib/functions/oop/bool_class.rs:42-52`,
+`list_class.rs:71-75`), so what it leaves is what the class's `.init` chain
+leaves, and `register_class` replaces a class of the same name outright
+(`reference/rust_multistackvm/src/multistackvm_classes.rs:11-13`). The
+probe ran the stock classes.
+
+An opaque declaration is now compared by its floor alone — a probe that ran
+the word on fewer values than the floor contradicts it — and listed with the
+probe's pair in a section of its own, so a word opaque without cause stays
+in view rather than being counted as agreement. `bund2 effects` marks an
+opaque declaration in a fourth column. `bund2 check` follows `List`,
+`Floats` and `Intervals` as `[ ] "<class>" object`, as it already followed
+`True` and `False`.

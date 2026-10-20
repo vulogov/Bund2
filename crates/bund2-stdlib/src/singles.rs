@@ -401,7 +401,7 @@ fn bund_eval_file_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> 
     let Some(src) = crate::host::fetch_uri(&format!("file://{path}")) else {
         return Err(Error(format!("{prefix} can not get code from file {path}")));
     };
-    eval_source_named(vm, &path, &src)
+    eval_source_placed(vm, &path, &src)
 }
 
 fn bund_eval_file(vm: &mut dyn Vm) -> Result<(), Error> {
@@ -426,9 +426,28 @@ pub(crate) fn eval_source(vm: &mut dyn Vm, src: &str) -> Result<(), Error> {
 /// ([`bund2_syntax::Lowered`]); they are read only when a value fails, to tell
 /// the interpreter where in this string that was.
 pub(crate) fn eval_source_named(vm: &mut dyn Vm, label: &str, src: &str) -> Result<(), Error> {
+    eval_source_in(vm, label, src, false)
+}
+
+/// [`eval_source_named`] for a **file**, whose top level is placed as the
+/// program's is (RFC-0003 §S5): `break lib.bund:4` stops at a top-level
+/// value of a file `use` loaded, and a profile's site there is placed. A
+/// `bund.eval` string is not: it is typed or built, often in a loop, and has
+/// no line a breakpoint could name.
+pub(crate) fn eval_source_placed(vm: &mut dyn Vm, label: &str, src: &str) -> Result<(), Error> {
+    eval_source_in(vm, label, src, true)
+}
+
+fn eval_source_in(vm: &mut dyn Vm, label: &str, src: &str, place: bool) -> Result<(), Error> {
     let terms = bund2_syntax::parse(src).map_err(|e| Error(e.to_string()))?;
     let lowered = bund2_syntax::lower_with_spans(&terms, src.len());
     vm.note_positions(label, src, &lowered.body_places());
+    let stream = if place {
+        let spans: Vec<(usize, usize)> = lowered.spans.iter().map(|s| (s.start, s.end)).collect();
+        vm.place_top(label, src, &spans)
+    } else {
+        None
+    };
     for (i, word) in lowered.values.iter().enumerate() {
         if word.dt() == bund2_value::NONE {
             continue;
@@ -436,7 +455,7 @@ pub(crate) fn eval_source_named(vm: &mut dyn Vm, label: &str, src: &str) -> Resu
         if word.dt() == EXIT {
             break;
         }
-        vm.apply(word.clone()).map_err(|e| {
+        vm.apply_placed(stream, i, word.clone()).map_err(|e| {
             if let Some(span) = lowered.span_of(i) {
                 vm.note_source_failure(label, src, (span.start, span.end), &e);
             }

@@ -49,6 +49,22 @@ const SENTINELS: &[(&str, &str)] = &[
     ("list", "[ 1 ]"),
 ];
 
+/// **Operands only the two-axis probe's second pass offers.** A `.` word
+/// often wants different kinds on its two axes — `map.` a LIST on the
+/// workbench and a LAMBDA on the stack — which one sentinel type for both
+/// cannot give it. The LAMBDA leaves what it found, so what a word that runs
+/// it left is the word's own effect around a body that did nothing. Not
+/// `{ }`: the reference's grammar refuses an empty lambda.
+const BENCH_EXTRA: &[(&str, &str)] = &[("bool", "true"), ("lambda", "{ 1 drop }")];
+
+/// Words the mixed pass probes at once. Each probe is a process, and
+/// most of a probe's time is the oracle starting.
+const BENCH_WORKERS: usize = 8;
+
+/// Stack consumed and produced, workbench consumed and produced, and the
+/// sentinel types offered on the workbench and on the stack.
+type Bench2 = (usize, usize, usize, usize, &'static str, &'static str);
+
 #[derive(Debug, Clone)]
 struct Row {
     word: String,
@@ -61,9 +77,10 @@ struct Row {
     probed: Option<(usize, usize, &'static str)>,
     /// **Both axes, for a word that touches the workbench** — RFC-0004 §S1's
     /// second axis: (stack consumed, stack produced, workbench consumed,
-    /// workbench produced) and the sentinel type that worked. Probed with the
-    /// workbench seeded, which [`probe_word`] never does.
-    probed_bench: Option<(usize, usize, usize, usize, &'static str)>,
+    /// workbench produced) and the sentinel types that worked, the
+    /// workbench's then the stack's. Probed with the workbench seeded, which
+    /// [`probe_word`] never does.
+    probed_bench: Option<Bench2>,
     /// Adding operands did not change what the word left behind, so `probed`'s
     /// `consumed` is a **floor** and not an arity. See [`probe_word`] for what
     /// this does and does not prove.
@@ -168,8 +185,11 @@ fn count_values(out: &str) -> usize {
     out.lines().filter(|l| l.contains("Value {")).count()
 }
 
+/// A failure, the program's or the parser's. The parser's is not a table:
+/// the reference prints `Error occured` and runs nothing, so a probe that
+/// did not parse would otherwise read as a word that left nothing.
 fn errored(out: &str) -> bool {
-    out.contains("returned error") || out.contains("│ Error")
+    out.contains("returned error") || out.contains("│ Error") || out.contains("Error occured")
 }
 
 fn too_shallow(out: &str) -> bool {
@@ -192,7 +212,13 @@ fn run_probe(oracle: &Path, scratch: &Path, program: &str) -> Option<String> {
     // plausible wrong number. Observed: `!=` reported `probed 0->3`, which is
     // impossible for a word probed against an empty stack, alongside a probed
     // count that moved by 14 between runs of an otherwise deterministic tool.
-    let file = scratch.join(format!("arity_probe_{}.bund", std::process::id()));
+    // Per thread too, for the mixed pass's workers.
+    let thread = format!("{:?}", std::thread::current().id());
+    let thread: String = thread.chars().filter(char::is_ascii_digit).collect();
+    let file = scratch.join(format!(
+        "arity_probe_{}_{thread}.bund",
+        std::process::id()
+    ));
     std::fs::write(&file, program).ok()?;
     let mut child = std::process::Command::new(oracle)
         .arg("script")
@@ -321,35 +347,92 @@ const MAX_BENCH: usize = 2;
 /// argument [`probe_word`] makes for one axis: every operand offered at the
 /// least accepted pair was taken. F73 is why this is measured per word: the
 /// `.` family does not agree with itself about where the answer goes.
-fn probe_bench(
-    oracle: &Path,
-    scratch: &Path,
-    word: &str,
-) -> Option<(usize, usize, usize, usize, &'static str)> {
-    const MARK: &str = "--arity-workbench--";
-    let mut pairs: Vec<(usize, usize)> = (0..=MAX_BENCH)
-        .flat_map(|b| (0..=MAX_DEPTH).map(move |k| (b, k)))
-        .collect();
-    pairs.sort_by_key(|&(b, k)| (b + k, std::cmp::Reverse(b)));
+fn probe_bench(oracle: &Path, scratch: &Path, word: &str) -> Option<Bench2> {
     for (tyname, lit) in SENTINELS {
-        for &(b, k) in &pairs {
-            let bench = vec![format!("{lit} ."); b].join(" ");
-            let stack = vec![*lit; k].join(" ");
-            let program = format!(
-                "{bench}\n{stack}\n{word}\ndebug.display_stack\n\"{MARK}\" println\ndebug.display_workbench\n"
-            );
-            let out = run_probe(oracle, scratch, &program)?;
-            if errored(&out) {
-                if too_shallow(&out) {
-                    continue;
-                }
-                break;
-            }
-            let (on_stack, on_bench) = out.split_once(MARK)?;
-            return Some((k, count_values(on_stack), b, count_values(on_bench), tyname));
+        match bench_pairs(oracle, scratch, word, (tyname, lit), (tyname, lit), 0) {
+            Tried::Accepted(found) => return Some(found),
+            Tried::Refused => continue,
+            Tried::TimedOut => return None,
         }
     }
     None
+}
+
+/// **The second pass: a different kind on each axis.** Run only for a word
+/// [`probe_bench`] could not measure. Every pairing of the sentinels and
+/// [`BENCH_EXTRA`] is tried, workbench kind first, except the uniform ones
+/// the first pass tried; the workbench is offered at least one value, since
+/// a word that needed none was measured there. The first pairing the word
+/// accepts is reported with its two kinds, so `docs/arity.md` says what the
+/// word was given. A pairing that times out — an empty body run forever by
+/// `loop.` — is passed over rather than ending the word's probe.
+fn probe_bench_mixed(oracle: &Path, scratch: &Path, word: &str) -> Option<Bench2> {
+    let kinds: Vec<&(&'static str, &'static str)> = SENTINELS.iter().chain(BENCH_EXTRA).collect();
+    for &&(bt, bl) in &kinds {
+        for &&(st, sl) in &kinds {
+            if bt == st && SENTINELS.iter().any(|(t, _)| *t == bt) {
+                continue;
+            }
+            if let Tried::Accepted(found) =
+                bench_pairs(oracle, scratch, word, (&bt, &bl), (&st, &sl), 1)
+            {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+enum Tried {
+    Accepted(Bench2),
+    Refused,
+    TimedOut,
+}
+
+/// One pairing of kinds at every pair of depths, smallest total first and
+/// the workbench before the stack within a total — `min_bench` values on the
+/// workbench at least. Refused on the first objection that is not depth.
+fn bench_pairs(
+    oracle: &Path,
+    scratch: &Path,
+    word: &str,
+    (bt, bl): (&&'static str, &&str),
+    (st, sl): (&&'static str, &&str),
+    min_bench: usize,
+) -> Tried {
+    const MARK: &str = "--arity-workbench--";
+    let mut pairs: Vec<(usize, usize)> = (min_bench..=MAX_BENCH)
+        .flat_map(|b| (0..=MAX_DEPTH).map(move |k| (b, k)))
+        .collect();
+    pairs.sort_by_key(|&(b, k)| (b + k, std::cmp::Reverse(b)));
+    for &(b, k) in &pairs {
+        let bench = vec![format!("{bl} ."); b].join(" ");
+        let stack = vec![*sl; k].join(" ");
+        let program = format!(
+            "{bench}\n{stack}\n{word}\ndebug.display_stack\n\"{MARK}\" println\ndebug.display_workbench\n"
+        );
+        let Some(out) = run_probe(oracle, scratch, &program) else {
+            return Tried::TimedOut;
+        };
+        if errored(&out) {
+            if too_shallow(&out) {
+                continue;
+            }
+            return Tried::Refused;
+        }
+        let Some((on_stack, on_bench)) = out.split_once(MARK) else {
+            return Tried::Refused;
+        };
+        return Tried::Accepted((
+            k,
+            count_values(on_stack),
+            b,
+            count_values(on_bench),
+            bt,
+            st,
+        ));
+    }
+    Tried::Refused
 }
 
 pub fn run(args: &[String]) -> Result<(), String> {
@@ -455,6 +538,45 @@ pub fn run(args: &[String]) -> Result<(), String> {
             depth_insensitive,
             note,
         });
+    }
+
+    // The mixed pass, for the `.` words the uniform one could not measure.
+    if have_oracle {
+        let todo: Vec<usize> = rows
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| {
+                r.probed_bench.is_none()
+                    && r.word.ends_with('.')
+                    && !r.note.starts_with("not probed")
+            })
+            .map(|(i, _)| i)
+            .collect();
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let found: std::sync::Mutex<Vec<(usize, Bench2)>> = std::sync::Mutex::new(Vec::new());
+        std::thread::scope(|sc| {
+            for _ in 0..BENCH_WORKERS {
+                sc.spawn(|| {
+                    while let Some(&i) =
+                        todo.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+                    {
+                        let Some(word) = rows.get(i).map(|r| r.word.clone()) else {
+                            continue;
+                        };
+                        if let Some(b) = probe_bench_mixed(&oracle, &scratch, &word)
+                            && let Ok(mut f) = found.lock()
+                        {
+                            f.push((i, b));
+                        }
+                    }
+                });
+            }
+        });
+        for (i, b) in found.into_inner().unwrap_or_default() {
+            if let Some(r) = rows.get_mut(i) {
+                r.probed_bench = Some(b);
+            }
+        }
     }
 
     report(&repo, &rows, have_oracle, skipped_unsafe)
@@ -589,7 +711,7 @@ fn report(
             Some((c, p, t)) => (c.to_string(), p.to_string(), t.to_string()),
             None => (String::new(), String::new(), String::new()),
         };
-        let two = |f: fn(&(usize, usize, usize, usize, &'static str)) -> usize| {
+        let two = |f: fn(&Bench2) -> usize| {
             r.probed_bench
                 .as_ref()
                 .map(|b| f(b).to_string())
@@ -610,7 +732,13 @@ fn report(
             two(|b| b.2),
             two(|b| b.3),
             r.site,
-            r.note,
+            match r.probed_bench {
+                Some((.., bt, st)) if bt != st => {
+                    let sep = if r.note.is_empty() { "" } else { "; " };
+                    format!("{}{sep}both axes: workbench {bt}, stack {st}", r.note)
+                }
+                _ => r.note.clone(),
+            },
         ));
     }
     std::fs::write(&path, s).map_err(|e| format!("writing {}: {e}", path.display()))?;

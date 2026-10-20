@@ -1127,3 +1127,18 @@ now has the places it needs.
   The walk maps each copy of a literal body back to the body written, holding
   a `Weak`, so an address is an answer only while the copy is alive. A
   `context`'s three slots are walked each as itself so each keeps its place.
+
+## Amendment, 2026-10-19 (third) — an included file's top level is placed
+
+A file `use` or `bund.eval-file` runs had its bodies placed and its own top
+level not, so a line breakpoint in it stopped only inside a lambda. Its
+top-level values are now placed as the program's are: `Vm::place_top` keeps
+the stream's spans under a key and `Vm::apply_placed` runs each value as
+that stream's, with the frame depth it was called at as the stream's floor —
+so `break lib.bund:3` stops at a top-level value there, a stop says
+`(lib.bund:3:1)`, and a profile's site there is placed. `next` from the
+call steps over the file, because a placed stream's values count one level
+deeper than the call. A label and text placed once keep their key, so a
+`use` in a loop places its file once. `bund.eval`'s string is not placed: it
+is built or typed, often in a loop, and has no line to name. A stop at the
+top level of any placed stream now says where, as a stop in a body does.

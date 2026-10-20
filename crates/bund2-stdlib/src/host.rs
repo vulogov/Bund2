@@ -1512,7 +1512,7 @@ fn use_word(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
         .as_str()
         .ok_or_else(|| Error(format!("{prefix} returns: This Dynamic type is not string")))?;
     let src = fetch_uri(&addr).ok_or_else(|| Error(format!("{prefix} can not get from {addr}")))?;
-    crate::singles::eval_source_named(vm, &addr, &src)
+    crate::singles::eval_source_placed(vm, &addr, &src)
 }
 
 /// `--noio`: the four words that read a file or a URL in order to run it

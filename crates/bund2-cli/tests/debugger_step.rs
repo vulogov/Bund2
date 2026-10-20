@@ -749,3 +749,32 @@ fn a_line_breakpoint_stops_where_the_line_begins() {
     );
     assert_eq!(out, "start\n3\n3\n");
 }
+
+/// **RFC-0003 §S5 for an included file's top level.** `bund.eval-file` runs
+/// the file's values one by one; each is placed as the program's own are,
+/// so `break lib.bund:3` stops at a top-level value there and the stop says
+/// where. `next` from the call steps over the whole file, as over a body.
+#[test]
+fn a_line_breakpoint_stops_in_an_included_files_top_level() {
+    let lib = scratch("lib");
+    std::fs::write(&lib, ":inlib { 1 2 + } register\n10\n20 println\n").expect("lib");
+    let lib = lib.display().to_string();
+    let src = format!("\"{lib}\" bund.eval-file\n\"done\" println\n");
+    let (out, err, _) = session(&src, "break lib.bund:3\nc\nc\n");
+    let stops: Vec<&str> = err
+        .lines()
+        .filter_map(|l| l.split("breakpoint: ").nth(1))
+        .map(|at| at.rsplit('/').next().unwrap_or(at))
+        .collect();
+    assert_eq!(stops, ["lib.bund:3"], "{err}");
+    assert!(err.contains("the top-level stream at 4  next: 20"), "{err}");
+    assert!(err.contains("lib.bund:3:1)"), "{err}");
+    assert_eq!(out, "20\ndone\n");
+
+    let (out, err, _) = session(&src, "n\nn\nc\n");
+    assert!(
+        !err.contains("lib.bund:"),
+        "next steps over the file's top level: {err}"
+    );
+    assert_eq!(out, "20\ndone\n");
+}

@@ -1502,7 +1502,7 @@ mod honesty_tests {
             // `do` runs its lambda in a loop until the stack empties, and
             // `resolve` applies a PTR to whatever it found.
             "singles.rs: do_base",
-            "singles.rs: eval_source_named",
+            "singles.rs: eval_source_in",
             "singles.rs: resolve_word",
             // `debug.run` is `bund.eval` with a safepoint offered before each
             // term (D113.5).
@@ -1521,9 +1521,12 @@ mod honesty_tests {
             "values.rs: register_words",
         ];
         const QUALIFIERS: [&str; 5] = ["pub", "const", "unsafe", "async", "extern"];
-        const CALLS: [&str; 6] = [
+        // `.apply_placed(` is `.apply(` for an included file's top level.
+        const CALLS: [&str; 8] = [
             ".eval_lambda(",
             ".apply(",
+            ".apply_placed(",
+            "::apply_placed(",
             ".scoped_call(",
             "::eval_lambda(",
             "::apply(",

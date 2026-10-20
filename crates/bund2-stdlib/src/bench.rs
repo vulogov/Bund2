@@ -75,6 +75,8 @@ pub const MEASURED: &[(&str, u8, u8)] = &[
     ("string.tokenize.stemmed.", 1, 0),
     ("string.tokenize.unique.", 1, 0),
     ("string.wildcard.", 1, 0),
+    // The mixed pass's: the string on the workbench, the width on the stack.
+    ("string.wrap.english.", 1, 1),
     ("system.path.filename.", 1, 1),
     ("system.path.split.", 1, 1),
     ("tail.", 2, 1),

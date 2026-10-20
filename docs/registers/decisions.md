@@ -3653,6 +3653,71 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D196 — the text `?try` files in `context`: one wrapper, or one per body the failure left
+
+**Raised 2026-10-19** by answering Q21 against the oracle. RFC-0003 replaced
+the Rust nesting that builds the reference's error text with a frame stack
+and left open what the text becomes; this is what it became, measured, and
+the choice of what it should be.
+
+- Blocks: Q21's closure; a probe of `?try`'s `context` (none exists — no
+  probe and no corpus program prints `context` from a nested failure)
+- Depends on: F66 (the `bail!` location suffixes are a deviation already),
+  F189 (`eval_lambda`'s wrapper, which is the one Bund2 writes), D173 (the
+  traceback, which already says where the failure was)
+- What the reference does: `lambda_eval` wraps a failing value's error in
+  `Lambda content evaluation returned error: ` and `bail!`s it upward
+  (`reference/rust_multistackvm/src/multistackvm_lambda_eval.rs:13-18`), so
+  every lambda a failure leaves adds one wrapper — the `try` body, each
+  word's body and each lambda `execute` ran. An unknown word fails as
+  `Inline <name> not registered` (`reference/rust_multistack/src/ts_inline.rs:39`),
+  wrapped by `i(<name>) for stack returned: `
+  (`reference/rust_multistackvm/src/multistackvm_inline.rs:64`). Each `bail!`
+  appends a Rust location, which is F66's.
+- Measured, the oracle against Bund2, with `:except { :context get println drop }`:
+
+      :inner { "deep" raise } register
+      :middle { 1 inner 2 } register
+      :outer { { middle } execute } register
+      ?try :try { outer } set …
+
+  oracle: `Lambda content evaluation returned error: ` five times, then
+  `deep`, then four Rust locations. Bund2: the wrapper once, then `deep`.
+
+      ?try :try { { { nosuchword } execute } execute } set …
+
+  oracle: the wrapper three times, then `i(nosuchword) for stack returned:
+  Inline nosuchword not registered` and four locations. Bund2: the wrapper
+  once, then `nosuchword not registered`.
+
+  A failure in `except` agrees in shape on both: `Lambda content evaluation
+  returned error: TRYEXCEPT EXCEPT lambda returns: Lambda content evaluation
+  returned error: x`, the oracle's with its locations.
+
+- Why Bund2 writes one: a body runs as a frame, not a Rust call, so nothing
+  wraps on the way out of it. `eval_lambda` wraps once, at the boundary the
+  native re-entered through (F189), and that is the `try` body's.
+
+### Options
+
+- **A — one per body left.** The unwind counts the frames it discards
+  between the failure and the handler's floor and writes the wrapper that
+  many times, plus once for the `try` body. The reference's text less its
+  locations (F66); the cost is a count kept on the unwind path, which only
+  a failure takes. The unknown-word text would follow: `i(<name>) for stack
+  returned: Inline <name> not registered`.
+- **B — one, as built.** The text says what failed, once; where it failed is
+  the traceback's (D173), which a program that catches can still report. A
+  program that compares `context` against the reference's full string
+  already cannot match it, because of the locations; one that searches it
+  for the message works under both.
+- **C — A for the wrapper count, B for the unknown-word text**, or the
+  converse — the two are separable, and only the first depends on depth.
+
+Default for planning: **B**, the text as built — not adopted.
+
+- Status: **OPEN**.
+
 ## D195 — `check` counts the workbench: RFC-0004 §S1's second axis, the `.` forms, and `context`
 
 **Raised 2026-10-19** by the repository owner: "the check command's remaining
@@ -3751,6 +3816,21 @@ extends `StackEffect`".
 **Note, later 2026-10-19.** A finding inside a body is now placed at the
 item, with the top-level step that reached it after (RFC-0003's second
 amendment of 2026-10-19).
+
+**Note, later still 2026-10-19 — the probe that can feed them.** Of the
+`.` natives above, 28 are safe to run and were refused because the probe
+offered one sentinel kind on both axes. A second pass pairs a workbench kind
+with a stack kind, adding `true` and `{ 1 drop }` to the four (`{ }` does
+not parse in the reference), and runs only for the words the first pass
+could not measure (`probe_bench_mixed`, `xtask/src/arity/mod.rs`). It
+measured 14; `docs/arity.md` says for each which two kinds it was given.
+One is declared from it — `string.wrap.english.`, `1 -> 1` on the workbench,
+whose probed stack pair is the declared one. The other thirteen run a lambda
+(`map.`, `times.`, `if.`, …), so what they did around a body that did
+nothing is not their effect, and they stay `Unknown`; `ifthenelse.`,
+`notifthenelse.` and `while.` are followed by `check` as above. The probe
+also now counts the reference's parse failure as a failure, which it had
+read as a word that left nothing. The 61 measured rows are 62.
 
 ## D194 — a program that does not parse exits 1
 

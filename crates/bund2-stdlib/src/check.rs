@@ -1260,6 +1260,14 @@ impl<'a> Walker<'a> {
                 stack.push(Abs::Name(STRING, Rc::from("Bool")));
                 self.object_word(stack, at, via, level)
             }
+            // The three constructors are `[ ] "List" object` and its two
+            // siblings (`reference/Bund/src/stdlib/functions/oop/list_class.rs:71-75`,
+            // `floatlist_class.rs:80-84`, `intervals_class.rs:213-217`).
+            "List" | "Floats" | "Intervals" => {
+                stack.push(Abs::Tagged(LIST));
+                stack.push(Abs::Name(STRING, Rc::from(name)));
+                self.object_word(stack, at, via, level)
+            }
             "!" | "execute" => self.execute(stack, at, via, level),
             _ => return None,
         };
@@ -2546,6 +2554,10 @@ mod tests {
 
         // `:push List !` — `List` is `[ ] "List" object`, a word; `push`
         // rebuilds the receiver.
+        assert!(clean(&check_src("42 :push List ! println")));
+        assert!(clean(&check_src("1.5 :push Floats ! println")));
+        let rep = check_src(":push List ! println");
+        assert_eq!(rep.findings.len(), 1, "{rep:?}");
         assert!(clean(&check_src(
             "42 :push [ 1 ] \"List\" object ! println"
         )));

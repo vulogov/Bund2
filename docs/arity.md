@@ -19,7 +19,7 @@ too, at the least pair of depths it accepts.
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | `!` | 1 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/execute.rs:124 | type-constrained: list rejected |
 | `!!` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_eval.rs:124 | type-constrained: list rejected |
-| `!.` |  | 1 |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/execute.rs:125 | no sentinel type accepted |
+| `!.` |  | 1 |  |  |  | 1 | 1 | 1 | 0 | reference/rust_multistackvm/src/stdlib/execute.rs:125 | no sentinel type accepted; both axes: workbench lambda, stack int |
 | `!=` | 2 |  | 2 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_compare_fun.rs:237 |  |
 | `#` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/oop/object_execute.rs:59 | type-constrained: list rejected |
 | `#.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/oop/object_execute.rs:60 | type-constrained: list rejected |
@@ -35,7 +35,7 @@ too, at the least pair of depths it accepts.
 | `*/` |  |  | 2+ | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/div.rs:25 |  |
 | `*/.` |  |  |  |  |  | 1 | 0 | 1 | 1 | reference/rust_multistackvm/src/stdlib/math/div.rs:26 | no sentinel type accepted |
 | `*loop` | 1 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:122 | type-constrained: list rejected |
-| `*loop.` |  | 1 |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:123 | type-constrained: list rejected |
+| `*loop.` |  | 1 |  |  |  | 1 | 0 | 1 | 1 | reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:123 | type-constrained: list rejected; both axes: workbench int, stack lambda |
 | `+` |  |  | 2 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/add.rs:23 |  |
 | `++` | 2 |  | 2 | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/values/merge.rs:123 |  |
 | `+++` | 2 |  | 2 | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/values/push.rs:74 |  |
@@ -64,7 +64,7 @@ too, at the least pair of depths it accepts.
 | `?error` |  |  | 0 | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:38 |  |
 | `?false` | 2 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:147 | type-constrained: list rejected |
 | `?false*` | 3 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:105 | type-constrained: list rejected |
-| `?false*.` | 2 | 1 |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:106 | no sentinel type accepted |
+| `?false*.` | 2 | 1 |  |  |  | 2 | 0 | 1 | 0 | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:106 | no sentinel type accepted; both axes: workbench bool, stack lambda |
 | `?false.` | 1 | 1 |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:148 | type-constrained: list rejected |
 | `?global` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/bus/globals.rs:111 | not probed: effectful, out of scope, or terminates |
 | `?ifthenelse` |  |  | 0 | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:36 |  |
@@ -76,8 +76,8 @@ too, at the least pair of depths it accepts.
 | `?stdlib` | 1 |  | 1 | 1 | string |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:214 |  |
 | `?true` | 2 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:145 | type-constrained: list rejected |
 | `?true*` | 3 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:103 | type-constrained: list rejected |
-| `?true*.` | 2 | 1 |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:104 | no sentinel type accepted |
-| `?true.` | 1 | 1 |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:146 | no sentinel type accepted |
+| `?true*.` | 2 | 1 |  |  |  | 2 | 0 | 1 | 0 | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:104 | no sentinel type accepted; both axes: workbench bool, stack lambda |
+| `?true.` | 1 | 1 |  |  |  | 1 | 0 | 1 | 0 | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:146 | no sentinel type accepted; both axes: workbench bool, stack lambda |
 | `?try` |  |  | 0 | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:37 |  |
 | `?type` | 2 |  | 2 | 2 | string |  |  |  |  | reference/rust_multistackvm/src/stdlib/values/value_types.rs:67 |  |
 | `?word` | 1 |  | 1 | 1 | string |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_fun.rs:215 |  |
@@ -185,7 +185,7 @@ too, at the least pair of depths it accepts.
 | `dict` |  |  | 0 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:140 |  |
 | `display` | 1 |  | 1 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/system/display.rs:88 |  |
 | `do` | 1 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/do_fun.rs:67 | type-constrained: list rejected |
-| `do.` |  | 1 |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/do_fun.rs:68 | no sentinel type accepted |
+| `do.` |  | 1 |  |  |  | 0 | 0 | 1 | 0 | reference/rust_multistackvm/src/stdlib/logic/do_fun.rs:68 | no sentinel type accepted; both axes: workbench lambda, stack int |
 | `drop` |  |  |  |  |  |  |  |  |  | reference/rust_multistack/src/stdlib/drop.rs:71 | type-constrained: list rejected |
 | `drop_in` | 1 |  |  |  |  |  |  |  |  | reference/rust_multistack/src/stdlib/drop.rs:73 | type-constrained: list rejected |
 | `drop_stack` |  |  | 0+ | 0 | int |  |  |  |  | reference/rust_multistack/src/stdlib/drop.rs:75 |  |
@@ -201,7 +201,7 @@ too, at the least pair of depths it accepts.
 | `ensure_stack` | 1 |  | 1+ | 0 | string |  |  |  |  | reference/rust_multistack/src/stdlib/ensure_stack.rs:95 |  |
 | `ensure_stack_with_capacity` | 2 |  |  |  |  |  |  |  |  | reference/rust_multistack/src/stdlib/ensure_stack.rs:96 | type-constrained: list rejected |
 | `execute` | 1 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/execute.rs:124 | type-constrained: list rejected |
-| `execute.` |  | 1 |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/execute.rs:125 | no sentinel type accepted |
+| `execute.` |  | 1 |  |  |  | 1 | 1 | 1 | 0 | reference/rust_multistackvm/src/stdlib/execute.rs:125 | no sentinel type accepted; both axes: workbench lambda, stack int |
 | `exit` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_exit.rs:41 | not probed: effectful, out of scope, or terminates |
 | `false` |  |  | 0 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:138 |  |
 | `file` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/file.rs:100 | not probed: effectful, out of scope, or terminates |
@@ -269,13 +269,13 @@ too, at the least pair of depths it accepts.
 | `id.ulid` |  |  | 0 | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/string/any_id.rs:36 |  |
 | `id.uuid` |  |  | 0 | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/string/any_id.rs:35 |  |
 | `if` | 2 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:145 | type-constrained: list rejected |
-| `if.` | 1 | 1 |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:146 | no sentinel type accepted |
+| `if.` | 1 | 1 |  |  |  | 1 | 0 | 1 | 0 | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:146 | no sentinel type accepted; both axes: workbench bool, stack lambda |
 | `if.false` | 2 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:147 | type-constrained: list rejected |
 | `if.false.in_workbench` | 2 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:148 | type-constrained: list rejected |
 | `if.in_workbench` | 2 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:146 | no sentinel type accepted |
 | `if.stack` | 2 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/if_fun.rs:149 | type-constrained: list rejected |
 | `ifthenelse` | 3 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:103 | type-constrained: list rejected |
-| `ifthenelse.` | 2 | 1 |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:104 | no sentinel type accepted |
+| `ifthenelse.` | 2 | 1 |  |  |  | 2 | 0 | 1 | 0 | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:104 | no sentinel type accepted; both axes: workbench bool, stack lambda |
 | `image.print` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/image/print_image.rs:46 | not probed: effectful, out of scope, or terminates |
 | `input` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/io/input.rs:142 | not probed: effectful, out of scope, or terminates |
 | `input*` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/io/input.rs:144 | not probed: effectful, out of scope, or terminates |
@@ -314,13 +314,13 @@ too, at the least pair of depths it accepts.
 | `log.trace` |  |  | 1 | 0 | string |  |  |  |  | reference/Bund/src/stdlib/functions/debug_fun/debug_trace.rs:65 |  |
 | `log.warning` |  |  | 1 | 0 | string |  |  |  |  | reference/Bund/src/stdlib/functions/debug_fun/debug_trace.rs:62 |  |
 | `loop` |  |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:120 | type-constrained: list rejected |
-| `loop.` |  |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:121 | type-constrained: list rejected |
+| `loop.` |  |  |  |  |  | 1 | 1 | 1 | 0 | reference/rust_multistackvm/src/stdlib/logic/loop_fun.rs:121 | type-constrained: list rejected; both axes: workbench list, stack lambda |
 | `ls` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/ls.rs:114 | not probed: effectful, out of scope, or terminates |
 | `ls.` |  | 1 |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/ls.rs:115 | not probed: effectful, out of scope, or terminates |
 | `make.call` | 1 |  | 1 | 1 | string |  |  |  |  | reference/Bund/src/stdlib/functions/values/make_call_value.rs:61 |  |
 | `make.call.` |  | 1 |  |  |  | 0 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/values/make_call_value.rs:62 | no sentinel type accepted |
 | `map` |  |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/map_fun.rs:118 | type-constrained: list rejected |
-| `map.` |  |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/map_fun.rs:119 | type-constrained: list rejected |
+| `map.` |  |  |  |  |  | 1 | 0 | 1 | 1 | reference/rust_multistackvm/src/stdlib/logic/map_fun.rs:119 | type-constrained: list rejected; both axes: workbench list, stack lambda |
 | `match` |  |  | 0 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:147 |  |
 | `math.abs` |  |  | 1 | 1 | float |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float_math.rs:172 |  |
 | `math.acos` |  |  | 1 | 1 | float |  |  |  |  | reference/rust_multistackvm/src/stdlib/math/float_math.rs:183 |  |
@@ -380,7 +380,7 @@ too, at the least pair of depths it accepts.
 | `nodata` |  |  | 0 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:139 |  |
 | `not` | 1 |  | 1 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_ops_fun.rs:132 |  |
 | `notifthenelse` | 3 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:105 | type-constrained: list rejected |
-| `notifthenelse.` | 2 | 1 |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:106 | no sentinel type accepted |
+| `notifthenelse.` | 2 | 1 |  |  |  | 2 | 0 | 1 | 0 | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:106 | no sentinel type accepted; both axes: workbench bool, stack lambda |
 | `object` | 1 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/bund_object.rs:192 | type-constrained: list rejected |
 | `or` | 2 |  | 2 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_ops_fun.rs:134 |  |
 | `outlier.detect` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/outliers.rs:57 | not probed: effectful, out of scope, or terminates |
@@ -554,7 +554,7 @@ too, at the least pair of depths it accepts.
 | `string.wildcard` | 1 |  | 2 | 1 | string |  |  |  |  | reference/Bund/src/stdlib/functions/string/wildmatch.rs:89 |  |
 | `string.wildcard.` | 1 | 1 |  |  |  | 1 | 1 | 1 | 0 | reference/Bund/src/stdlib/functions/string/wildmatch.rs:90 | no sentinel type accepted |
 | `string.wrap.english` | 2 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/string/textwrap.rs:102 | type-constrained: list rejected |
-| `string.wrap.english.` | 1 | 1 |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/string/textwrap.rs:103 | no sentinel type accepted |
+| `string.wrap.english.` | 1 | 1 |  |  |  | 1 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/string/textwrap.rs:103 | no sentinel type accepted; both axes: workbench string, stack int |
 | `swap` | 2 |  | 2 | 2 | int |  |  |  |  | reference/rust_multistack/src/stdlib/swap.rs:100 |  |
 | `swap_in` | 2 |  |  |  |  |  |  |  |  | reference/rust_multistack/src/stdlib/swap.rs:99 | type-constrained: list rejected |
 | `swap_one` | 2 |  | 2 | 2 | int |  |  |  |  | reference/rust_multistack/src/stdlib/swap.rs:100 |  |
@@ -596,7 +596,7 @@ too, at the least pair of depths it accepts.
 | `time.now` |  |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/time/timestamp.rs:35 | not probed: effectful, out of scope, or terminates |
 | `time.timestamp` | 1 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/time/timestamp.rs:36 | not probed: effectful, out of scope, or terminates |
 | `times` | 2 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/times_fun.rs:92 | type-constrained: list rejected |
-| `times.` | 1 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/times_fun.rs:93 | type-constrained: list rejected |
+| `times.` | 1 |  |  |  |  | 1 | 1 | 1 | 0 | reference/rust_multistackvm/src/stdlib/logic/times_fun.rs:93 | type-constrained: list rejected; both axes: workbench int, stack lambda |
 | `to_current` | 1 |  |  |  |  |  |  |  |  | reference/rust_multistack/src/stdlib/current.rs:72 | type-constrained: list rejected |
 | `to_stack` | 1 |  | 1+ | 0 | string |  |  |  |  | reference/rust_multistack/src/stdlib/current.rs:74 |  |
 | `true` |  |  | 0 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:137 |  |
