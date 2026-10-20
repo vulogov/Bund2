@@ -2974,7 +2974,9 @@ mod tests {
         // `format.` finds it empty, which is a workbench finding.
         let rep = check_src("1 \"x={A}\" . format. format.");
         assert!(
-            rep.findings.iter().any(|f| f.word == "format." && f.workbench),
+            rep.findings
+                .iter()
+                .any(|f| f.word == "format." && f.workbench),
             "{rep:?}"
         );
 

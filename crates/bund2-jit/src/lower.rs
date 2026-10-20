@@ -3979,19 +3979,19 @@ mod relocations {
     ) -> Result<cranelift_codegen::isa::OwnedTargetIsa, String> {
         cranelift_codegen::isa::lookup_by_name(triple)
             .map_err(|e| format!("no isa: {e}"))?
-        .finish(cranelift_codegen::settings::Flags::new({
-            // The settings a shipped module of bodies is built with (F204):
-            // the fourth probe body ends in a tail call.
-            use cranelift_codegen::settings::Configurable;
-            let mut flags = cranelift_codegen::settings::builder();
-            for (name, value) in settings {
+            .finish(cranelift_codegen::settings::Flags::new({
+                // The settings a shipped module of bodies is built with (F204):
+                // the fourth probe body ends in a tail call.
+                use cranelift_codegen::settings::Configurable;
+                let mut flags = cranelift_codegen::settings::builder();
+                for (name, value) in settings {
+                    flags
+                        .set(name, value)
+                        .map_err(|e| format!("flag {name}: {e}"))?;
+                }
                 flags
-                    .set(name, value)
-                    .map_err(|e| format!("flag {name}: {e}"))?;
-            }
-            flags
-        }))
-        .map_err(|e| format!("isa flags: {e}"))
+            }))
+            .map_err(|e| format!("isa flags: {e}"))
     }
 
     fn probe_built_for(
@@ -4358,7 +4358,10 @@ mod relocations {
         }
         // Not vacuous: the probe's helpers are imports, and each entry calls
         // its body.
-        eprintln!("{imports} imports, {local_relative} local PC-relative: {:?}", p.kinds);
+        eprintln!(
+            "{imports} imports, {local_relative} local PC-relative: {:?}",
+            p.kinds
+        );
         assert!(imports > 0, "no import among {:?}", p.kinds);
         assert!(local_relative > 0, "no local call among {:?}", p.kinds);
     }

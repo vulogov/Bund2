@@ -24,7 +24,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
+      # The `interpret` bench includes corpus programs from `reference/`.
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - name: the host
         run: |
