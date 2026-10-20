@@ -746,18 +746,37 @@ fn profile_needs_a_base_and_then_writes_two_files_and_nothing_else() {
     assert_eq!(r4.out, "5000\n");
     let md4 = std::fs::read_to_string(format!("{base4_s}.profile.md")).expect("the report");
     let dot4 = std::fs::read_to_string(format!("{base4_s}.profile.dot")).expect("the graph");
-    assert!(
-        md4.contains("**Some calls were estimated, not measured (D189).**"),
-        "{md4}"
-    );
-    assert!(
-        md4.contains("| `+` |  | native | (2, 1) | 5 000 | 0 | 0.0 | ~"),
-        "{md4}"
-    );
-    assert!(md4.contains("| `+` | 5 000 | 372 | 4 628 | "), "{md4}");
-    assert!(md4.contains("| sampled to the end |"), "{md4}");
-    assert!(dot4.contains("\\n~"), "{dot4}");
-    assert!(dot4.contains("~: a native timed one call in 16"), "{dot4}");
+    // Whether `+` is sampled is the host's clock's to say: the threshold is
+    // four times the measured floor, and a shared runner's `+` can sit over
+    // it (CI's Linux runner did, at 680 ns against 708 ns, with outliers).
+    // The rule is pinned host-independently by the stdlib's
+    // `a_cheap_native_is_sampled_and_its_counts_stay_exact`; here the report
+    // must say whichever happened, consistently.
+    if md4.contains("| sampled") {
+        assert!(
+            md4.contains("**Some calls were estimated, not measured (D189).**"),
+            "{md4}"
+        );
+        assert!(
+            md4.contains("| `+` |  | native | (2, 1) | 5 000 | 0 | 0.0 | ~"),
+            "{md4}"
+        );
+        assert!(md4.contains("| `+` | 5 000 | 372 | 4 628 | "), "{md4}");
+        assert!(md4.contains("| sampled to the end |"), "{md4}");
+        assert!(dot4.contains("\\n~"), "{dot4}");
+        assert!(dot4.contains("~: a native timed one call in 16"), "{dot4}");
+    } else {
+        assert!(
+            md4.contains("## Timing\n\n- every call was timed."),
+            "{md4}"
+        );
+        assert!(!md4.contains("estimated, not measured"), "{md4}");
+        assert!(
+            md4.contains("| `+` |  | native | (2, 1) | 5 000 | 0 | 0.0 | "),
+            "{md4}"
+        );
+        assert!(!dot4.contains("\\n~"), "{dot4}");
+    }
 }
 
 /// RFC-0011 §S8, `debug.profile`: a mid-run report beside the end-of-run
