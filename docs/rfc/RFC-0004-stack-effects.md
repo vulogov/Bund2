@@ -356,6 +356,14 @@ rule moved the sites analysed from 2259 to 2402 over 224 programs with no
 new finding. A computed template is as opaque as before; nothing here
 touches the four barriers above.)*
 
+*(2026-10-20, D178's note of this date: the same reading for the two other
+words a template drives. `format.` reads its template off the workbench,
+which the walk carries since D195, and `.format` and `.display` read an
+object's own `.template`, which D179's model holds; each counts the keys
+with the parser the word runs, and each is left opaque where the walk does
+not know the template or every key the object has. 3631 → 3704 sites over
+215 programs, no new finding.)*
+
 *(2026-10-16, D179: barrier 1 is now a barrier only where the walk does not
 know the tag. The abstract stack holds a slot per value — tag, literal
 name, literal body, class, object — and `!` on a known slot takes the arm

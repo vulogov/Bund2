@@ -49,7 +49,10 @@
 //! parser the word runs gives the count. `format` was the barrier the corpus
 //! hit most — 134 sites, nearly all with a literal template — and a tracked
 //! region now runs through them. A computed template, or one `leon` refuses,
-//! leaves `format` as opaque as before.
+//! leaves `format` as opaque as before. `format.` takes its template from the
+//! workbench and its values from the stack (`format.rs:72-120`), so the same
+//! count applies when the workbench's top is a template the walk saw put
+//! there — `"a={A}" . format.` is one off the workbench and `1 -> 1`.
 //!
 //! # Tags, and the arms of `!` they open — D179
 //!
@@ -83,8 +86,10 @@
 //!
 //! Nothing is guessed. A computed class name, a computed method name, a slot
 //! the class does not have, a parent neither the program nor Bund2 defines,
-//! a LIST or CONDITIONAL under `!`, and `.format`'s template-driven arity are
-//! each an abandonment with its own reason.
+//! a LIST or CONDITIONAL under `!`, a `format.` whose template the walk did
+//! not see put on the workbench, and a `.format` on an object whose
+//! `.template` or keys it does not know are each an abandonment with its own
+//! reason.
 
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -179,9 +184,9 @@ fn prebind(stream: &[BundValue], registry: &Registry) -> Registry {
 ///
 /// Nothing is said about a template that is computed, or one `leon` does not
 /// parse: the run refuses the second with `FORMAT error parsing template`, and
-/// that is the run's report to make, not this one's. Only `format` — `format.`
-/// takes its template from the workbench, where no literal in this stream
-/// puts it.
+/// that is the run's report to make, not this one's. `format.` takes its
+/// template from the workbench, where no literal in this stream puts it; the
+/// walk reads it there instead, in [`Walker::call`].
 fn literal_operand_effect(prev: Option<&BundValue>, name: &str) -> Option<StackEffect> {
     if name != "format" {
         return None;
@@ -191,10 +196,17 @@ fn literal_operand_effect(prev: Option<&BundValue>, name: &str) -> Option<StackE
         return None;
     }
     let tpl = prev.as_str()?;
-    let template = leon::Template::parse(tpl.as_str()).ok()?;
+    let values = template_values(&tpl)?;
+    Some(StackEffect::fixed(values.saturating_add(1), 1))
+}
+
+/// How many values a `format` template pulls: one per distinct key, a
+/// repeated key filled once (`format.rs:24-27`). `None` for a template `leon`
+/// refuses, which the run reports.
+fn template_values(tpl: &str) -> Option<u8> {
+    let template = leon::Template::parse(tpl).ok()?;
     let keys: std::collections::BTreeSet<&str> = template.keys().copied().collect();
-    let consumes = (1 + keys.len()).min(usize::from(u8::MAX)) as u8;
-    Some(StackEffect::fixed(consumes, 1))
+    Some(keys.len().min(usize::from(u8::MAX - 1)) as u8)
 }
 
 /// How deep the walk follows bodies into bodies before it gives up.
@@ -294,6 +306,11 @@ fn tag_name(t: u16) -> String {
 struct ClassModel {
     name: Option<Rc<str>>,
     slots: BTreeMap<String, Abs>,
+    /// A key was added that the walk could not name — a `set` with a
+    /// computed key, or a method native that rebuilds its receiver — so
+    /// `slots` may not be every key the value has. Only `.format` asks:
+    /// it pulls one value for each key the object lacks.
+    open: bool,
 }
 
 impl ClassModel {
@@ -309,6 +326,7 @@ impl ClassModel {
         Self {
             name: Some(Rc::from(name)),
             slots,
+            open: false,
         }
     }
 
@@ -317,13 +335,18 @@ impl ClassModel {
         Self {
             name: Some(Rc::from(ty)),
             slots: BTreeMap::new(),
+            open: false,
         }
     }
 
     fn bare() -> Self {
         let mut slots = BTreeMap::new();
         slots.insert(".super".to_string(), Abs::List(Rc::from(Vec::new())));
-        Self { name: None, slots }
+        Self {
+            name: None,
+            slots,
+            open: false,
+        }
     }
 
     fn with(&self, key: &str, value: Abs) -> Self {
@@ -332,6 +355,7 @@ impl ClassModel {
         Self {
             name: self.name.clone(),
             slots,
+            open: self.open,
         }
     }
 
@@ -339,7 +363,42 @@ impl ClassModel {
         Self {
             name: Some(Rc::from(name)),
             slots: self.slots.clone(),
+            open: self.open,
         }
+    }
+
+    /// The same model, with a key added that the walk could not name.
+    fn opened(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            slots: self.slots.clone(),
+            open: true,
+        }
+    }
+
+    /// How many values `.format` pulls from beneath an object of this
+    /// model: one per distinct key of its `.template` the object's own map
+    /// lacks (`reference/Bund/src/stdlib/functions/oop/display_class.rs:36-46`).
+    /// The map is the class's, with `.class_name` set at construction
+    /// (`reference/rust_multistackvm/src/stdlib/bund_object.rs:30-36`), and
+    /// it is the object's own: `get` reads no parent
+    /// (`reference/rust_dynamic/src/get.rs:7-13`). `None` when a key may be
+    /// missing from the model, or the template is not a STRING literal or
+    /// does not parse, which are the run's to report (`display_class.rs:22-34`).
+    fn format_pulls(&self) -> Option<u8> {
+        if self.open {
+            return None;
+        }
+        let Some(Abs::Name(STRING, tpl)) = self.slots.get(".template") else {
+            return None;
+        };
+        let template = leon::Template::parse(tpl).ok()?;
+        let lacking: std::collections::BTreeSet<&str> = template
+            .keys()
+            .copied()
+            .filter(|k| *k != ".class_name" && !self.slots.contains_key(*k))
+            .collect();
+        Some(lacking.len().min(usize::from(u8::MAX - 1)) as u8)
     }
 
     fn display_name(&self) -> String {
@@ -858,6 +917,42 @@ impl<'a> Walker<'a> {
             self.apply_fixed(stack, name, eff, at, via);
             return true;
         }
+        // `format.`: the template is the workbench's top
+        // (`format.rs:76`), and the walk knows it when `.` put a literal
+        // there; the values come from the stack (`:91`) and the answer goes
+        // to it (`:120`).
+        if name == "format."
+            && let Some(values) = self
+                .bench
+                .as_ref()
+                .and_then(|b| b.items.last())
+                .and_then(|top| match top {
+                    Abs::Name(t, tpl) if *t == STRING => template_values(tpl),
+                    _ => None,
+                })
+        {
+            let eff = StackEffect::fixed(values, 1).on_bench(Bench::Fixed {
+                consumes: 1,
+                produces: 0,
+            });
+            self.apply_fixed(stack, name, eff, at, via);
+            return true;
+        }
+        // A workbench known to be empty: the finding is made, and the program
+        // stops there, as `execute.` has it.
+        if name == "format." && self.bench.as_ref().is_some_and(|b| b.items.is_empty()) {
+            self.report.analysed += 1;
+            self.apply_bench(
+                name,
+                Bench::Fixed {
+                    consumes: 1,
+                    produces: 0,
+                },
+                at,
+                via,
+            );
+            return true;
+        }
         if self.is_native(name)
             && let Some(went) = self.structural(name, stack, at, via, level)
         {
@@ -1077,7 +1172,7 @@ impl<'a> Walker<'a> {
                             (Abs::Object(m), Abs::Name(_, k)) => {
                                 stack.push(Abs::Object(Rc::new(m.with(&k, value))));
                             }
-                            (Abs::Object(m), _) => stack.push(Abs::Object(m)),
+                            (Abs::Object(m), _) => stack.push(Abs::Object(Rc::new(m.opened()))),
                             _ => stack.push(Abs::Unknown),
                         }
                     }
@@ -2288,6 +2383,22 @@ impl<'a> Walker<'a> {
         at: usize,
         via: Option<&str>,
     ) -> Went {
+        // `.format` and `.display` are `Opaque` because the template decides
+        // how many values they pull; an object whose template and keys the
+        // walk knows decides it here. Both put the object back
+        // (`display_class.rs:69`); `.format` pushes the text over it (`:70`)
+        // and `.display` prints it (`:87-94`).
+        if (mname == ".format" || mname == ".display")
+            && let Some(pulls) = m.format_pulls()
+        {
+            self.report.analysed += 1;
+            let _ = self.take(stack, pulls.saturating_add(1), mname, at, via);
+            stack.push(Abs::Object(m.clone()));
+            if mname == ".format" {
+                stack.push(Abs::Tagged(STRING));
+            }
+            return true;
+        }
         match e {
             MethodEffect::Peek { produces } => {
                 self.report.analysed += 1;
@@ -2300,7 +2411,7 @@ impl<'a> Walker<'a> {
             MethodEffect::Rebuild { below } => {
                 self.report.analysed += 1;
                 let _ = self.take(stack, below.saturating_add(1), mname, at, via);
-                stack.push(Abs::Object(m.clone()));
+                stack.push(Abs::Object(Rc::new(m.opened())));
                 true
             }
             MethodEffect::Consume { below, produces } => {
@@ -2608,8 +2719,9 @@ mod tests {
         let rep = check_src("0 . true { 1 +. take dup . 42 > } while take println");
         assert!(rep.findings.is_empty() && rep.abandoned == 0, "{rep:?}");
         // An unmeasured `.` word: the workbench is not counted past it, and
-        // nothing about it is claimed.
-        let rep = check_src("1 . \"{A}\" . format. take take");
+        // nothing about it is claimed. (This was `format.` until the walk
+        // learned to read its template off the workbench.)
+        let rep = check_src("1 . \"x\" fs_is_file. take take");
         assert!(on_bench(&rep).is_empty(), "{rep:?}");
     }
 
@@ -2835,6 +2947,41 @@ mod tests {
         assert!(clean(&rep), "{rep:?}");
     }
 
+    /// `format.` reads its template from the workbench (`format.rs:76`), so
+    /// a literal `.` put there fixes its arity as a literal before `format`
+    /// does: the template off the workbench, one value per distinct key off
+    /// the stack. A template the walk did not see put there is still an
+    /// abandonment.
+    #[test]
+    fn a_template_on_the_workbench_fixes_format_dots_arity() {
+        let rep = check_src("1 2 \"x={A} y={B} x={A}\" . format. println");
+        assert!(clean(&rep), "{rep:?}");
+
+        let rep = check_src("\"x={A} y={B}\" . 1 format. println");
+        assert_eq!(rep.abandoned, 0, "{:?}", rep.reasons);
+        assert_eq!(rep.findings.len(), 1, "{:?}", rep.findings);
+        assert_eq!(
+            (
+                rep.findings[0].word.as_str(),
+                rep.findings[0].needs,
+                rep.findings[0].have,
+                rep.findings[0].workbench
+            ),
+            ("format.", 2, 1, false)
+        );
+
+        // The template is gone from the workbench afterwards: a second
+        // `format.` finds it empty, which is a workbench finding.
+        let rep = check_src("1 \"x={A}\" . format. format.");
+        assert!(
+            rep.findings.iter().any(|f| f.word == "format." && f.workbench),
+            "{rep:?}"
+        );
+
+        let rep = check_src("1 \"x={A}\" \"\" + . format. println");
+        assert!(rep.abandoned > 0, "a computed template: {rep:?}");
+    }
+
     /// Composition saturates: one unknown term makes the whole unknown,
     /// because every depth after it is unknown too.
     #[test]
@@ -2964,6 +3111,43 @@ mod tests {
         let rep = check_src(":nosuchslot 42 :Value object !");
         assert_eq!(rep.abandoned, 1, "{rep:?}");
         assert!(rep.reasons[0].0.contains("no slot"), "{:?}", rep.reasons);
+    }
+
+    /// `.format` on an object whose `.template` the walk knows pulls one
+    /// value per distinct key the object lacks, and puts the object back
+    /// under the text (`display_class.rs:36-46,69-70`); `.display` leaves
+    /// the object alone. Measured against the oracle: with nothing beneath,
+    /// both fail with `'.format' can not resolve y`. A key added under a
+    /// computed name leaves the walk unsure which keys there are, and the
+    /// call is abandoned as before.
+    #[test]
+    fn a_known_template_fixes_dot_formats_arity() {
+        let class = ":P class :.super [ :Display ] set :.template \"x={x} y={y} x={x}\" set \
+                     :x 1 set register ";
+        let rep = check_src(&format!("{class} 5 :format :P object ! println drop"));
+        assert!(clean(&rep), "{rep:?}");
+        let rep = check_src(&format!("{class} 5 :display :P object ! drop"));
+        assert!(clean(&rep), "{rep:?}");
+
+        let rep = check_src(&format!("{class} :format :P object ! println drop"));
+        assert_eq!(rep.abandoned, 0, "{:?}", rep.reasons);
+        assert_eq!(rep.findings.len(), 1, "{:?}", rep.findings);
+        assert_eq!(
+            (
+                rep.findings[0].word.as_str(),
+                rep.findings[0].needs,
+                rep.findings[0].have
+            ),
+            (".format", 2, 1)
+        );
+
+        let rep = check_src(&format!(
+            "{class} :format :P object \"y\" \"\" + 7 set ! println drop"
+        ));
+        assert!(
+            rep.reasons.iter().any(|(r, _)| r.contains(".format")),
+            "{rep:?}"
+        );
     }
 
     /// **D180.** A body `times`, `loop` or `if` runs is walked once; the

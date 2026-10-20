@@ -1668,6 +1668,38 @@ asks for is owed in full, and no register tracks it. Whether an imported
 helper call on x86-64 can fall outside the ±2 GB range at Cranelift 0.135.0
 has not been checked; the only machine this tier has run on is aarch64.)*
 
+*(2026-10-20: checked, and both halves now hold — one as it was, one built.
+**The helper half needs no table.** A runtime helper is a symbol the module
+imports, `Linkage::Import`, and `cranelift-module` 0.135.0 marks a callee
+colocated exactly when its linkage is final — `Local`, `Hidden` or `Export`
+(`Linkage::is_final`, read where `declare_func_in_func` sets `colocated`).
+On x86-64 a call to a callee that is not colocated is lowered as `movabsq`
+of the whole address with an `Abs8` relocation, and only a colocated one
+gets the 32-bit PC-relative `X86CallPCRel4` (`cranelift-codegen` 0.135.0,
+`isa/x64/inst/emit.rs`, `Inst::LoadExtName`). So no helper call has a range
+to fall outside, which is what the study asked the table for.
+`on_x86_64_a_32_bit_relocation_names_only_the_modules_own_code` reads it
+from the four probe bodies emitted for x86-64 on any host: 24 relocations
+name imports and every one is absolute and 64 bits wide; the four
+PC-relative ones are each entry trampoline's call to its own body.
+**The arena half was the gap, and was a panic.** `cranelift-jit`'s default
+provider maps each function on its own ("TODO: Allocate more at a time",
+`memory/system.rs`), so a trampoline and its body were as far apart as
+`mmap` put them, and `cranelift-jit` applies `X86CallPCRel4` with
+`i32::try_from(..).unwrap()` (`compiled_blob.rs`): a distance past 2 GB
+would have been a panic inside the tier. Every module is now made with an
+`ArenaMemoryProvider` — 256 MiB for a `Compiler`'s module
+(`MODULE_RESERVE`), 4 MiB for one made for a single body — which reserves
+address space and places all of the module's code inside it, so the
+distance is under the reservation by construction. A spent reservation is
+`cranelift-jit`'s allocation error, which the tier reports once and answers
+by interpreting the body; `a_spent_reservation_declines_rather_than_panics`
+spends 1 MiB and finds 64 bodies of `1 2 +` fit on aarch64 macOS — one
+16 KiB page each, so 256 MiB holds about 16 000 bodies there and about
+65 000 with 4 KiB pages. On Windows `region` commits what it reserves
+(`memory/arena.rs`), so a reservation there costs memory as well as address
+space; no Windows build of the tier has been run.)*
+
 **D16 also forecloses static devirtualisation of `!`.** Speculation behind a
 guard with a full-resolution fallback is permitted, because that is speed and
 not meaning — but the health metric must still move by zero.
@@ -9952,3 +9984,7 @@ Measured on aarch64, the feature off as baseline and then on, one run each:
 arithmetic the folded row never did, and the rest of each compiled figure is
 the entry. So the tier's arithmetic throughput is now measured, by one row
 on one host; the x86-64 figure is still owed with the ±2 GB check.
+*(2026-10-20: the ±2 GB check is answered at §3.2d's note of this date. The
+x86-64 figure is asked of a hosted runner by `.github/workflows/bench-reading.yml`,
+three alternating rounds of both rows with the tier off and on; it is
+recorded here when that run has read it.)*

@@ -1098,8 +1098,7 @@ impl Compiled {
 /// is a defect in Bund2 or an op this module has not learned, and shipped code
 /// may not `expect` (D37).
 pub fn compile(fragment: &Fragment) -> Result<Compiled, String> {
-    let mut builder =
-        JITBuilder::new(default_libcall_names()).map_err(|e| format!("JIT builder: {e}"))?;
+    let mut builder = reserved_builder(host_isa(&[])?, ONE_BODY_RESERVE)?;
     builder.symbol("jit_pop_int", jit_pop_int as *const u8);
     builder.symbol("jit_push_int", jit_push_int as *const u8);
     builder.symbol("jit_dup_top", jit_dup_top as *const u8);
@@ -2003,9 +2002,19 @@ impl Compiler {
         table: Vec<(bund2_api::RegistrationId, Fragment)>,
         crossable: std::collections::BTreeSet<bund2_api::RegistrationId>,
     ) -> Result<Self, String> {
+        Self::reserving(table, crossable, MODULE_RESERVE)
+    }
+
+    /// [`Compiler::with_crossable`] with a reservation of `reserve` bytes for
+    /// the module's code, where a test wants one small enough to spend.
+    fn reserving(
+        table: Vec<(bund2_api::RegistrationId, Fragment)>,
+        crossable: std::collections::BTreeSet<bund2_api::RegistrationId>,
+        reserve: usize,
+    ) -> Result<Self, String> {
         Ok(Self {
             emitter: Emitter {
-                module: new_module(Adapter::Apply)?,
+                module: new_module(Adapter::Apply, reserve)?,
                 thunks: Thunks::default(),
                 meaning_guards: true,
                 request_checks: true,
@@ -2613,7 +2622,7 @@ fn emit_body(
     cells: i64,
 ) -> Result<CompiledBody, String> {
     let mut emitter = Emitter {
-        module: new_module(adapter)?,
+        module: new_module(adapter, ONE_BODY_RESERVE)?,
         meaning_guards: true,
         request_checks: true,
         floor_check: true,
@@ -2692,15 +2701,59 @@ fn host_isa(settings: &[(&str, &str)]) -> Result<cranelift_codegen::isa::OwnedTa
         .map_err(|e| format!("JIT target: {e}"))
 }
 
-/// A fresh module with `adapter`'s symbol bound.
+/// **What a [`Compiler`]'s module reserves for its code** — study §3.2d.
+///
+/// On x86-64 a call from one function of a module to another is a 32-bit
+/// PC-relative call: Cranelift lowers a call to a colocated callee as
+/// `X86CallPCRel4` and any other as a 64-bit absolute address in a register
+/// (`cranelift-codegen` 0.135.0, `isa/x64/inst/emit.rs`, `LoadExtName`), and
+/// `cranelift-module` makes colocated exactly the functions a module defines
+/// (`Linkage::is_final`). So the runtime helpers, which are imports, have no
+/// range to fall outside, and the entry trampoline's call to its body does.
+/// `cranelift-jit`'s default provider maps each function separately ("TODO:
+/// Allocate more at a time", `memory/system.rs`), which leaves the distance
+/// between a trampoline and its body to the system's `mmap`, and a distance
+/// over 2 GB is a panic inside `cranelift-jit` when it applies the relocation
+/// (`compiled_blob.rs`, `i32::try_from(..).unwrap()`).
+///
+/// An `ArenaMemoryProvider` reserves the region up front, address space and
+/// no memory, and places every function of the module inside it, so the
+/// distance is under the reservation by construction. A spent reservation is
+/// `cranelift-jit`'s allocation error, which the tier reports once and
+/// answers by interpreting the body (`tier.rs`, `compile_failed`).
+///
+/// 256 MiB: a body and its trampoline take whole pages per finalisation, so
+/// this holds some thousands of bodies on a host with 16 KiB pages, and
+/// `a_spent_reservation_declines_rather_than_panics` measures how many.
+const MODULE_RESERVE: usize = 256 << 20;
+
+/// What a module made for one body and thrown away reserves: the fragment
+/// lowering ([`compile`]) and the native-calling one ([`compile_body`]).
+const ONE_BODY_RESERVE: usize = 4 << 20;
+
+/// A builder for `isa` whose module places all of its code in one reservation
+/// of `reserve` bytes — see [`MODULE_RESERVE`].
+fn reserved_builder(
+    isa: cranelift_codegen::isa::OwnedTargetIsa,
+    reserve: usize,
+) -> Result<JITBuilder, String> {
+    let arena = cranelift_jit::ArenaMemoryProvider::new_with_size(reserve)
+        .map_err(|e| format!("reserving {} MiB for compiled code: {e}", reserve >> 20))?;
+    let mut builder = JITBuilder::with_isa(isa, default_libcall_names());
+    builder.memory_provider(Box::new(arena));
+    Ok(builder)
+}
+
+/// A fresh module with `adapter`'s symbol bound, its code in one reservation
+/// of `reserve` bytes.
 ///
 /// The symbol must be bound on the *builder*, before the module exists, which
 /// is why an adapter is chosen once per module rather than once per body: every
 /// body emitted into a module shares its adapter.
-fn new_module(adapter: Adapter) -> Result<JITModule, String> {
+fn new_module(adapter: Adapter, reserve: usize) -> Result<JITModule, String> {
     let (name, ptr) = adapter.symbol();
     let (drain_name, drain_ptr) = Adapter::drain_symbol();
-    let mut builder = JITBuilder::with_isa(host_isa(BODY_FLAGS)?, default_libcall_names());
+    let mut builder = reserved_builder(host_isa(BODY_FLAGS)?, reserve)?;
     builder.symbol(name, ptr);
     // §S5's drain helper, which the body reaches through its own slot when the
     // request cell is set.
@@ -3862,6 +3915,9 @@ mod relocations {
     struct Probe {
         /// Every relocation, as (containing function, target symbol).
         relocs: Vec<(String, String)>,
+        /// Every relocation's target with its kind and width in bits: what
+        /// study §3.2d's range question is about.
+        kinds: Vec<(String, object::RelocationKind, u8)>,
         /// Every symbol the object defines: the emitted functions.
         defined: Vec<String>,
         /// The function each call slot is filled from, by linkage name, for
@@ -3901,8 +3957,8 @@ mod relocations {
     fn named_isa(
         settings: &[(&str, &str)],
     ) -> Result<cranelift_codegen::isa::OwnedTargetIsa, String> {
-        cranelift_codegen::isa::lookup_by_name(&std::env::var("BUND2_RELOC_TRIPLE").unwrap_or_else(
-            |_| {
+        isa_for(
+            &std::env::var("BUND2_RELOC_TRIPLE").unwrap_or_else(|_| {
                 // The host, named explicitly: this test reads an object file
                 // rather than running it, so any supported triple would do,
                 // and naming the host keeps the shape closest to what ships.
@@ -3911,9 +3967,18 @@ mod relocations {
                 } else {
                     "x86_64-unknown-linux-gnu".to_string()
                 }
-            },
-        ))
-        .map_err(|e| format!("no isa: {e}"))?
+            }),
+            settings,
+        )
+    }
+
+    /// `triple` with `settings` and the triple's default features.
+    fn isa_for(
+        triple: &str,
+        settings: &[(&str, &str)],
+    ) -> Result<cranelift_codegen::isa::OwnedTargetIsa, String> {
+        cranelift_codegen::isa::lookup_by_name(triple)
+            .map_err(|e| format!("no isa: {e}"))?
         .finish(cranelift_codegen::settings::Flags::new({
             // The settings a shipped module of bodies is built with (F204):
             // the fourth probe body ends in a tail call.
@@ -4063,6 +4128,7 @@ mod relocations {
         };
 
         let mut out = Vec::new();
+        let mut kinds = Vec::new();
         for section in file.sections() {
             let base = section.address();
             for (offset, reloc) in section.relocations() {
@@ -4074,6 +4140,7 @@ mod relocations {
                         .unwrap_or_else(|| format!("symbol#{}", i.0)),
                     other => format!("{other:?}"),
                 };
+                kinds.push((target.clone(), reloc.kind(), reloc.size()));
                 out.push((containing(base + offset), target));
             }
         }
@@ -4085,6 +4152,7 @@ mod relocations {
             .collect();
         Ok(Probe {
             relocs: out,
+            kinds,
             defined: defined.into_iter().map(|(_, n)| n).collect(),
             slot_callees,
             text,
@@ -4243,6 +4311,56 @@ mod relocations {
                 "a slot would hold compiled body code: {name}"
             );
         }
+    }
+
+    /// **On x86-64 a 32-bit relocation names only the module's own code** —
+    /// study §3.2d, read from the object rather than assumed.
+    ///
+    /// x86-64 calls reach ±2 GB. The study asked for two things: runtime
+    /// helpers reached so that their addresses are "never a relocation-range
+    /// problem", and the module's own code in one contiguous region. The
+    /// first holds without a table because a helper is an import and
+    /// Cranelift loads an import's whole 64-bit address; the second is
+    /// [`MODULE_RESERVE`]'s arena. This reads the four probe bodies emitted
+    /// for x86-64 — on any host, since it reads an object and runs nothing —
+    /// and asserts both halves of that: every relocation naming a symbol the
+    /// object does not define is absolute and 64 bits wide, and every
+    /// PC-relative one names a function the object defines.
+    #[test]
+    fn on_x86_64_a_32_bit_relocation_names_only_the_modules_own_code() {
+        let isa = isa_for("x86_64-unknown-linux-gnu", BODY_FLAGS).expect("x86-64");
+        let p = probe_built_for(isa, &published_sites().expect("the sites"))
+            .expect("the object is emitted and parsed");
+        let (mut imports, mut local_relative) = (0, 0);
+        for (target, kind, size) in &p.kinds {
+            let local = p.defined.iter().any(|d| d == target);
+            match kind {
+                object::RelocationKind::Absolute => assert_eq!(*size, 64, "{target}"),
+                object::RelocationKind::Relative | object::RelocationKind::PltRelative => {
+                    assert!(
+                        local,
+                        "a PC-relative relocation names {target}, which this \
+                         module does not define: {:?}",
+                        p.kinds
+                    );
+                    local_relative += 1;
+                }
+                other => panic!("{target}: a relocation of kind {other:?}"),
+            }
+            if !local {
+                assert_eq!(
+                    (*kind, *size),
+                    (object::RelocationKind::Absolute, 64),
+                    "an import is reached by its whole address: {target}"
+                );
+                imports += 1;
+            }
+        }
+        // Not vacuous: the probe's helpers are imports, and each entry calls
+        // its body.
+        eprintln!("{imports} imports, {local_relative} local PC-relative: {:?}", p.kinds);
+        assert!(imports > 0, "no import among {:?}", p.kinds);
+        assert!(local_relative > 0, "no local call among {:?}", p.kinds);
     }
 
     #[test]
@@ -6250,6 +6368,52 @@ mod tests {
             .run(word, &mut vm, &[BundValue::int(1)])
             .expect_err("length mismatch");
         assert!(e.is_internal(), "{}", e.0);
+    }
+
+    /// **A spent reservation is an error, and the code already in it runs** —
+    /// study §3.2d, [`MODULE_RESERVE`].
+    ///
+    /// A module's code lies in one reservation so that a trampoline's 32-bit
+    /// call to its body is in range by construction; the cost is that the
+    /// reservation can be spent. This spends a small one: the compile that
+    /// does not fit fails with `cranelift-jit`'s allocation error, which the
+    /// tier answers by interpreting the body, and every word compiled before
+    /// it still runs and agrees with Tier 0. The count is printed, so a run
+    /// with `--nocapture` reads how many bodies a page size buys.
+    #[test]
+    fn a_spent_reservation_declines_rather_than_panics() {
+        let (mut vm, table) = with_fragments();
+        let reserve = 1 << 20;
+        let mut c = Compiler::reserving(table, Default::default(), reserve).expect("a compiler");
+        let body = add_body();
+        let cells = vm.cells().base();
+        let mut fitted = Vec::new();
+        let e = loop {
+            match c.compile_word(&body, LastCall::Ordinary, cells, &mut vm) {
+                Ok(w) => fitted.push(w),
+                Err(e) => break e,
+            }
+            assert!(fitted.len() < 100_000, "1 MiB never ran out");
+        };
+        eprintln!(
+            "{} bodies of `1 2 +` in {} KiB",
+            fitted.len(),
+            reserve >> 10
+        );
+        assert!(
+            e.contains("pre-allocated jit memory region exhausted"),
+            "{e}"
+        );
+        assert!(!fitted.is_empty(), "nothing fitted in 1 MiB: {e}");
+        // The first word and the last, on the machine they were compiled
+        // against (a body holds its cells' address), and the body twice
+        // under Tier 0.
+        let mut tier0 = with_stdlib();
+        for w in [fitted[0], fitted[fitted.len() - 1]] {
+            assert_eq!(c.run(w, &mut vm, &body), Ok(true), "the word ran");
+            tier0.eval(&body).expect("Tier 0 runs the same body");
+        }
+        assert_eq!(vm.snapshot(), tier0.snapshot());
     }
 
     #[test]

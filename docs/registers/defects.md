@@ -7838,6 +7838,18 @@ was being made at all.
   the same way.
 - Depends on: criterion 28 (the palette), D55 (the audit), D48 (the list)
 
+**Note, 2026-10-20 — the shape that hid it is bounded in CI.** The
+disposition's last sentence, "Nothing here bounds a test's runtime", is
+answered where it can be without changing what `cargo test` does: CI runs
+both suites under `cargo nextest` with `.config/nextest.toml`'s `ci`
+profile, which names a test still running after a minute and kills one
+still running after fifteen, reporting it by name as a failure; the doc
+tests, which nextest does not run, keep `cargo test --doc`. Every CI job has
+a `timeout-minutes`. The fifteen minutes are read from CI's own log: tests
+there run past a minute (`both_floors_hold_for_every_word_they_name` among
+them), and the slowest binary, 37 tests, took 606 s. A local `cargo test`
+is still unbounded; F158's stdin was its cause and is fixed.
+
 ## F140 — a promoted value crossing `stacks_left` is synced to the wrong stack
 
 **A Bund2 defect in shipped code, and it gives wrong answers silently.** Found

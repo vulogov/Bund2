@@ -1,0 +1,50 @@
+name: bench-reading
+
+# RFC-0005: "the tier's arithmetic throughput is now measured, by one row on
+# one host; the x86-64 figure is still owed". This is that figure:
+# `arith/int_lcg/1000`, which nothing folds, beside `arith/int_add/1000`,
+# which Cranelift folds, with the tier off and on, on a hosted Linux x86-64
+# runner.
+#
+# A shared runner drifts, so the two configurations alternate, three rounds
+# each, and every round is printed: a figure is read from the spread of its
+# rounds, never from one. Not a gate. Like `linux-reading`, it wakes on a push
+# that touches this file, which is how a reading is asked for.
+on:
+  push:
+    branches: [development/0.52.0]
+    paths:
+      - .github/workflows/bench-reading.yml
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  arith:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: the host
+        run: |
+          uname -a
+          rustc --version
+          nproc
+          grep -m1 'model name' /proc/cpuinfo
+      - name: build both configurations
+        run: |
+          cargo bench -p bund2-bench --bench interpret --no-run
+          cargo bench -p bund2-bench --bench interpret --features jit --no-run
+      - name: the rows, off and on, alternating
+        run: |
+          for round in 1 2 3; do
+            for tier in off on; do
+              echo "== round $round, tier $tier"
+              features=""
+              if [ "$tier" = on ]; then features="--features jit"; fi
+              cargo bench -p bund2-bench --bench interpret $features -- \
+                --noplot '^arith/int_(add|lcg)/1000$' 2>&1 \
+                | grep -E '^arith/|time:'
+            done
+          done

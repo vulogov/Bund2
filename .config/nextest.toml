@@ -1,0 +1,10 @@
+# F141: "Nothing here bounds a test's runtime, so the next test that blocks
+# will hide the same way." Under this profile a test still running after
+# fifteen minutes is killed and reported by name, as a failure; one past a
+# minute is named as SLOW with its time, which is how the bound's margin is
+# read. The slowest test CI had run when this was written passed a minute
+# and finished inside ten (the `bund2-cli` binary that holds it took 606 s
+# for 37 tests). `cargo test` is unchanged and reads none of this.
+[profile.ci]
+slow-timeout = { period = "60s", terminate-after = 15 }
+fail-fast = false

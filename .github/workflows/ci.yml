@@ -14,8 +14,13 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
+  # Every job is bounded, and every test in it (F141): a hang is a failure
+  # with a name, not a run that never reports. Fifteen minutes a test is
+  # `.config/nextest.toml`'s `ci` profile; the job's bound is about twice
+  # the longest run so far.
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,9 +28,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets
-      - run: cargo test --workspace
+      - name: the suite, each test bounded
+        run: cargo nextest run --workspace --profile ci
+      - name: the doc tests, which nextest does not run
+        run: cargo test --workspace --doc
       - name: citations resolve at the pinned SHAs
         # Needs only the submodule sources, not a built oracle, so it belongs
         # here rather than in the conformance job. Gates RFC-0000 criterion 6
@@ -50,7 +61,7 @@ jobs:
       # (the twenty-third review's S11). `relocation-test` gates criterion 4's
       # module, which `--features jit` alone does not build.
       - name: the tier's own tests
-        run: cargo test --workspace --features jit,relocation-test
+        run: cargo nextest run --workspace --features jit,relocation-test --profile ci
       # RFC-0005 criterion 15, asserted "so a later change cannot invert it
       # quietly": the mandatory vocabulary must not reach the optional tier or
       # the code generator, by any feature.
@@ -64,6 +75,7 @@ jobs:
 
   conformance:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -88,6 +100,7 @@ jobs:
   # it ignores is named there with its reason.
   deny:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2

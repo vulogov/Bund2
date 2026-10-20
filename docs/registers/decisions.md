@@ -5511,6 +5511,43 @@ computed, and no inline walk reaches them.
   *(2026-10-16, later: C built as D179, and B with it — a literal `{ … }`
   under `!` is one of the arms a tracked tag opens.)*
 
+**Note, 2026-10-20 — two more template readers, asked for by the
+repository owner ("`check` handling `.format` with a literal template").**
+Option A's exclusion of `format.` — "no literal in the stream puts it
+there" — was true when it was written and stopped being true with D195:
+the walk now carries the workbench, and `.` moves the value it knew
+(`check.rs`, the `.` arm). So:
+
+- **`format.`** takes its template from the workbench and its values from
+  the stack (`reference/rust_multistackvm/src/stdlib/string/format.rs:76,91,120`).
+  When the workbench's top is a STRING the walk saw put there, the call is
+  one off the workbench and *k* → 1 on the stack, *k* counted by the same
+  `template_values` as `format`. A workbench known to be empty is a
+  finding, as `execute.` makes one.
+- **`.format`** and **`.display`**, the method natives, render an object's
+  own `.template` and pull one value from the stack for each distinct key
+  the object's own map lacks
+  (`reference/Bund/src/stdlib/functions/oop/display_class.rs:22-46,69-70`;
+  `get` reads no parent, `reference/rust_dynamic/src/get.rs:7-13`). An
+  object's map is its class's with `.class_name` set at construction
+  (`reference/rust_multistackvm/src/stdlib/bund_object.rs:30-36`), which
+  D179's model already holds. The model gains `open`, set when a key is
+  added under a name the walk cannot read — a `set` with a computed key, or
+  a method native that rebuilds its receiver — and an open model leaves
+  `.format` abandoned as before. Checked against the oracle: a class whose
+  template names one key it has and one it lacks answers `x=1 y=5` with `5`
+  beneath it, and fails `'.format' can not resolve y` without; `check`
+  predicted the second, "`.format` needs 2 value(s); 1 can be proven here".
+- **On the corpus**, every `.bund` under `reference/Bund/examples` and
+  `tests/probes` and `bund_examples/object_oriented/demo.bund`, 215
+  programs, one `bund2 check` each before and after: sites analysed 3631 →
+  3704, abandonments 111 → 110, findings 6 → 6 and none new.
+  `class_display_demo.bund` is walked to its end; `demo.bund` goes from 287
+  sites to 359 and now stops at `#`.
+- **Tests**: `a_template_on_the_workbench_fixes_format_dots_arity` and
+  `a_known_template_fixes_dot_formats_arity`. The workbench test's example
+  of an unmeasured `.` word was `format.`, and is now `fs_is_file.`.
+
 ## D177 — `bund2 build` checks before it writes: the parse, the underflow analysis, `--check` and `--strict`
 
 **Raised 2026-10-16** by the repository owner: "perform syntax check during
