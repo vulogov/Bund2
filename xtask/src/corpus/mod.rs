@@ -1005,7 +1005,7 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
     }
     bund2_api::sayln!();
 
-    probes(&repo, &reg, &covered_set);
+    probes(&repo, &reg, &covered_set, &implemented_set);
 
     Ok(())
 }
@@ -1013,7 +1013,7 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
 /// Authored probes (D21). Structurally checked here so a malformed probe is
 /// caught before the oracle is involved; their goldens are counted once
 /// `cargo xtask golden` can capture them.
-fn probes(repo: &Path, reg: &Registry, covered: &BTreeSet<&str>) {
+fn probes(repo: &Path, reg: &Registry, covered: &BTreeSet<&str>, bund2: &BTreeSet<&str>) {
     let dir = repo.join("tests/probes");
     let mut files = Vec::new();
     collect_bund(&dir, &mut files, false);
@@ -1056,18 +1056,21 @@ fn probes(repo: &Path, reg: &Registry, covered: &BTreeSet<&str>) {
             captured += 1;
         }
         // A probe naming a word that resolves nowhere is almost always a typo
-        // or a word the probe itself defines; flag the former.
+        // or a word the probe itself defines; flag the former. "Nowhere"
+        // means in neither engine: a word only Bund2 registers is how a
+        // probe pins a deviation already decided (D72, D111), and is listed
+        // apart rather than counted as a problem.
         let atoms: BTreeSet<&str> = lexed
             .tokens
             .iter()
             .filter(|t| t.kind == Kind::Atom)
             .map(|t| t.text.as_str())
             .collect();
-        let unknown: Vec<&str> = words
+        let (only_bund2, unknown): (Vec<&str>, Vec<&str>) = words
             .iter()
             .copied()
             .filter(|w| reg.resolve(w).is_none() && !atoms.contains(w))
-            .collect();
+            .partition(|w| bund2.contains(w));
         let fresh: Vec<&str> = words
             .iter()
             .copied()
@@ -1089,6 +1092,9 @@ fn probes(repo: &Path, reg: &Registry, covered: &BTreeSet<&str>) {
         for a in &lexed.anomalies {
             anomalies += 1;
             bund2_api::sayln!("      LEX ANOMALY {a}");
+        }
+        if !only_bund2.is_empty() {
+            bund2_api::sayln!("      Bund2-only words: {}", only_bund2.join(" "));
         }
         if !unknown.is_empty() {
             anomalies += 1;

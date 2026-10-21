@@ -35,6 +35,11 @@
   *(2026-10-14, the fourth review: since `--debug-shell` was built,
   **two** of the four flags are not parsed: `--profile` and `-d`.)*
 
+  *(2026-10-21: of the three the B3 note lists as specified and not built,
+  none is now. A breakpoint by source location is the amendment "§D3 by
+  source location" of 2026-10-19; `watch depth > 100`, `words` and
+  `classes` are the amendment of 2026-10-19 before it.)*
+
   **Two things the criteria record as owed rather than met.** Criterion 6 says
   "every suite program" and four were used — the sweep belongs in `xtask
   conform`. And §D2's span half is withdrawn from criterion 12: a frame carries
@@ -1545,6 +1550,11 @@ construction: its stepped and plain runs are different programs.
 §D7's trace stays deferred (D102). §D8's history for the `--debugger` console
 stays unbuilt. Source-location breakpoints stay blocked on RFC-0003 §S5's
 spans (§D2). `words` and `classes` stay §D5's.
+
+*(2026-10-21: none of these stays. §D7's trace and §D8's console history
+were built by D191, `words` and `classes` by the amendment of 2026-10-19,
+and a breakpoint by source location by that day's second amendment, "§D3 by
+source location", once RFC-0003 §S5 put positions beside each body.)*
 
 ### What building Part A changed
 

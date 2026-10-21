@@ -3653,6 +3653,41 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D201 — `cargo xtask unblock`: retire it, or rank what is left (Q15)
+
+**Raised 2026-10-21** in a review of deferred items. `unblock` was specified
+as the M6 work queue: "for each unimplemented word, count hermetic examples
+it alone gates; sort descending". Q15 found that ranking could see only the
+words the goldens touch, and the command was left refusing — it exits 70
+with "not implemented yet" (`xtask/src/main.rs`), its help marked NEEDS
+REDESIGN.
+
+The queue it was to order is now nearly empty. `cargo xtask coverage` on
+2026-10-21 reads IMPLEMENTED 516/521 and COVERAGE 505/521, and names the
+remainder of both: the five not implemented are `fs.is_file.`, `stdin` and
+`stdin.` (bound by the reference only as `--noio`'s stub, which Bund2 does
+the same, F150 and F152) and `string.grok` and `string.grok.` (written, and
+off by default under D10 and D40); the eleven implemented and unrun are
+listed with the reason no golden can hold each. "Probes still to write: 0."
+So the report Q15 asked `unblock` to become already exists, as
+`coverage`'s remainder sections, and it ranks nothing because there is
+nothing left to rank.
+
+- Blocks: nothing
+- Depends on: Q15, D95 (coverage asks the binary), D14 (the in-scope set)
+- Options:
+  - **A. Retire it.** Remove `unblock` from xtask and its help; close Q15
+    as superseded by `coverage`'s remainder sections. RFC-0000's and
+    RFC-0002's mentions of Q15 get dated notes.
+  - **B. Build it against the coverage denominator**, as Q15 sketched: rank
+    in-scope words that are unimplemented or unrun by the programs that
+    name them. Today it would list sixteen words, every one already
+    explained by `coverage`.
+  - **C. Leave it** refusing, with its help text, until a new scope (a
+    D14 change, or a library re-implemented out of tree) gives it a queue.
+- Default for planning: A. Not adopted.
+- Status: **OPEN**
+
 ## D200 — `graph.allpath`'s dependence on the last node is preserved (F220)
 
 **Raised 2026-10-20** by the third RFC-0012 review (finding 2). `algos`'
@@ -6548,6 +6583,10 @@ trace and the console's history were built by D191; `watch depth > 100`
 (§D4), `words` and `classes` (§D5), and criterion 6's sweep in
 `xtask conform` (`--stepped`) are built now — RFC-0008's amendment of
 2026-10-19. A breakpoint by source location (§D3) remains, on RFC-0003 §S5.
+**Note, 2026-10-21.** The one that remained is built: RFC-0008's second
+amendment of 2026-10-19, "§D3 by source location" (92dd407), on the
+positions RFC-0003's amendment of the same day put beside each body. Nothing
+specified in RFC-0008 now stands unbuilt for want of spans.
 
 ## D162 — `--debug-shell` after a `--debugger` failure
 

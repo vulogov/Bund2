@@ -4214,6 +4214,39 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F222 — a method slot naming no method was refused in Bund2's words, not the reference's
+
+**A Bund2 defect; found 2026-10-20** in a review of deferred items, and
+confirmed on both engines 2026-10-21.
+
+When dispatch finds a PTR in a method slot, the reference asks `is_method`
+for the PTR's name (`reference/rust_multistackvm/src/multistackvm_methods.rs:24-29`)
+and, when nothing is registered under it, refuses with
+`VM Method <name> not registered`, naming the method and not the slot
+(`reference/rust_multistackvm/src/multistackvm_object.rs:58,71`). Its
+`m(<slot>) returned: …` wrapping is only for a method that is registered
+and then not found (`:67`), which `get_method` cannot do once `is_method`
+has said yes. Bund2's `dispatch_method` (`crates/bund2-stdlib/src/oop.rs`)
+had joined the two since RFC-0009 was built (87ca647):
+
+    :P class :.super [ :Object ] set :m "nosuch" ptr set register
+    :m :P object !
+      oracle  VM Method nosuch not registered
+      Bund2   m(m) returned: method nosuch not registered
+
+**What reaches it.** `ptr` makes a PTR from any string without calling it
+(`reference/rust_multistackvm/src/stdlib/artefacts.rs:80-99`), so a class may
+carry one that names nothing. The built-in classes' PTRs all name registered
+methods, which is why no corpus program saw it.
+
+**Disposition: FIXED 2026-10-21**, a Bund2 bug. `dispatch_method` refuses
+with the reference's text. Pinned by
+`a_ptr_naming_no_method_is_refused_as_the_reference_refuses_it`, and by the
+probe `tests/probes/method-ptr-unregistered.bund`, whose golden the oracle
+captured. That golden is an error report, so it is recorded under
+F66/D36 as every such golden is; the reason line inside it is the
+reference's.
+
 ## F221 — collecting onto a JSON array converted what the reference refuses, and refused what it converts
 
 **A Bund2 defect; found 2026-10-20** while checking D172's note that a push

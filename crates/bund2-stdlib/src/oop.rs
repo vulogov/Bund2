@@ -268,12 +268,12 @@ pub fn dispatch_method(vm: &mut dyn Vm, name: &str) -> Result<(), Error> {
                 .as_str()
                 .ok_or_else(|| Error::internal("a PTR slot carried no name"))?;
             // D49: a method native is a native; the VM calls it, under its
-            // catch, where a profiler sees it (RFC-0011 §S2).
+            // catch, where a profiler sees it (RFC-0011 §S2). A name with no
+            // method is refused before any lookup, as `is_method` refuses it
+            // in the reference (F222).
             match vm.call_method(&mname) {
                 Some(r) => r,
-                None => Err(Error(format!(
-                    "m({name}) returned: method {mname} not registered"
-                ))),
+                None => Err(Error(format!("VM Method {mname} not registered"))),
             }
         }
         LAMBDA => {
@@ -1465,6 +1465,21 @@ mod tests {
         assert!(
             e.contains("class A not registered"),
             "names the parent: {e}"
+        );
+    }
+
+    /// **A PTR naming no method is refused in the reference's words** (F222):
+    /// `VM Method <name> not registered`, the method's name and not the
+    /// slot's (`reference/rust_multistackvm/src/multistackvm_object.rs:71`).
+    #[test]
+    fn a_ptr_naming_no_method_is_refused_as_the_reference_refuses_it() {
+        let e = err_of(
+            ":P class :.super [ :Object ] set :m \"nosuch\" ptr set register\n\
+             :m :P object !",
+        );
+        assert!(
+            e.ends_with("returned error: VM Method nosuch not registered"),
+            "{e}"
         );
     }
 

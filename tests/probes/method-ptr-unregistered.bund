@@ -1,0 +1,15 @@
+//
+// PROBE: F222 — a method slot holding a PTR that names no method.
+//
+// `ptr` makes a PTR from a string without calling it, so a class may carry one
+// whose name nothing registers. Dispatch finds the slot, and the reference
+// refuses the call with `VM Method <name> not registered`, naming the method
+// and not the slot (reference/rust_multistackvm/src/multistackvm_object.rs:71).
+// Bund2 once said `m(<slot>) returned: method <name> not registered`.
+//
+// The program ends in that refusal, so the stack the capture dumps is what was
+// left when it was made.
+
+:P class :.super [ :Object ] set :m "nosuch" ptr set register
+"probe: a PTR slot naming no method" println
+:m :P object !
