@@ -3653,6 +3653,86 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D202 — refuse a sum that overflows only when the answer does
+
+**Raised 2026-10-21** by the fourth RFC-0012 review
+(`docs/rfc/reviews/RFC-0012-review-2026-10-21.md`, findings 1 and 2). D199
+ruled on sums of finite weights that made an answer `inf`. As built, it
+refuses more than that. Both cases were run under Bund2 on this date; the
+reference has neither word.
+
+- **`graph.bellmanford` refuses a graph whose every distance is finite.**
+  `bellman_ford` checks every candidate sum and refuses at the first that
+  is not finite, before it asks whether the sum improves anything. So
+  `:A [ [ :A :C 1.0 ] [ :A :B 1.0e308 ] [ :B :C 1.0e308 ] ] [ :A :B :C ]
+  graph! graph.bellmanford` answers `a distance overflows: B -> C`, though
+  the distances are A 0.0, B 1e308 and C 1.0. `graph.paths` answers those
+  three rows in both engines. Checking only sums that improve is not enough
+  on its own: listed `[ :A :B … ] [ :B :C … ] [ :A :C 1.0 ]`, the first pass
+  meets B → C while C has no distance, and the infinite sum is an
+  improvement then. Which graphs are refused would turn on the order of the
+  edges.
+- **`graph.mst` refuses a total that is representable.** It sums the chosen
+  edges lightest first, so every negative weight is added before any
+  positive one. `[ [ :A :B -1.0e308 ] [ :B :C -1.0e308 ] [ :C :D 1.0e308 ]
+  [ :D :E 1.0e308 ] ]`, a path whose tree is all four edges, totals exactly
+  0.0 and is refused as `the total weight overflows`.
+
+- Blocks: RFC-0012's acceptance
+- Depends on: D199, D193 §2 and §3, RFC-0012 S4 and S5
+- Options:
+  - **A. Refuse only what cannot be answered.** In `graph.bellmanford` a
+    sum that is not finite is never taken as a distance where a finite one
+    can be, so the passes do not take it. The word refuses only when a
+    distance it must answer cannot be represented, and reports a negative
+    cycle as a cycle when the extra pass finds one. In `graph.mst` the
+    total is summed in an order that keeps every partial sum in range
+    (a positive weight when the running sum is not above zero, a negative
+    one otherwise), so it is refused only when the total itself overflows.
+    More code in both, and the "first sum that stopped being finite" in
+    S4's message changes to the distance or total that cannot be
+    represented.
+  - **B. Keep the build, and say what it refuses.** S4 becomes "a path's
+    sum overflows" and "the running total, lightest first, overflows", and
+    the preservation analysis lists both as refusals where `graph.paths`
+    answers.
+  - **C. A for `graph.mst`, B for `graph.bellmanford`.** The total is a
+    contained change; the relaxation rule is the larger one.
+- Recommendation: **A.** Both words refuse questions that have answers, and
+  `graph.bellmanford` is offered as `graph.paths`' drop-in for negative
+  weights (RFC-0012 S1), which this breaks with non-negative ones.
+- Default for planning: A. Not adopted.
+- Status: **RESOLVED** by the repository owner, 2026-10-21: A ("D202: A").
+
+### Built
+
+`bellman_ford` relaxes the graph as given first, and that is the answer
+whenever no sum it forms overflows, so every graph answered before this
+ruling is answered alike. On an overflow it relaxes the graph again with
+every weight divided by `2^k`, `k` chosen so that no sum the run can form
+(at most `nodes × edges` relaxations) comes near the limit. Dividing by a
+power of two is exact, and an addition whose result is subnormal is exact
+too, so the scaled run makes every comparison an unbounded one would. A
+cycle is found as a cycle, `GRAPH.BELLMANFORD: A reaches a negative cycle
+through A`, for the `-1.0e308` cycle D199 met. Each distance scaled back is
+the answer, or not finite and refused by its node: `GRAPH.BELLMANFORD: the
+distance to C overflows`. The message names a node now, not an edge. One
+case keeps D199's refusal: a weight so small that dividing it would lose
+bits makes the scaling inexact, and the graph is refused by the node of
+the first sum that overflowed.
+
+`graph.mst` sums its forest lightest first, as before, and answers that sum
+when it is finite. Otherwise it sums again in an order that keeps the
+running sum within the largest weight's magnitude: a positive weight while
+the sum is not above zero, a negative one while it is. It refuses only when
+that total overflows (`mst_total`). The empty forest totals 0.0, not
+`-0.0`, which the same review's finding 3 found.
+
+Tests: `only_an_answer_that_cannot_be_represented_is_refused`,
+`mst_total_keeps_its_partial_sums_in_range`, and
+`a_sum_that_overflows_is_refused` with its messages changed
+(`crates/bund2-stdlib/src/graph_algorithms.rs`).
+
 ## D201 — `cargo xtask unblock`: retire it, or rank what is left (Q15)
 
 **Raised 2026-10-21** in a review of deferred items. `unblock` was specified
@@ -3752,6 +3832,11 @@ its forward edge's finite capacity, so only the total can overflow —
 refused as an overflow with `C` listed and without. The seven reference
 words still answer `inf`, as the reference does. Test:
 `a_sum_that_overflows_is_refused`.
+
+**Note, 2026-10-21.** The "Built" paragraph refused more than this ruling
+asked: every relaxation's sum that was not finite, and `graph.mst`'s running
+total. **D202** narrows both to an answer that cannot be represented, and
+the `-1.0e308` cycle is now reported as a negative cycle, not an overflow.
 
 ## D198 — `graph.path` from a node to itself is the path of that node
 
@@ -4324,6 +4409,12 @@ Bellman–Ford cross-check now also asks that the node named be reachable
 from the start and the smallest on its cycle, the MST cross-check that the
 forest come lightest first with ties in the graph's order, and the flow
 cross-check every source and sink.
+
+**Note, 2026-10-21.** The note above names a test,
+`a_capacity_that_is_not_finite_is_refused_through_the_word`, that does not
+exist in `graph_algorithms.rs` (the fourth RFC-0012 review). What it would
+have checked is covered by `a_weight_that_is_not_finite_is_refused`, all
+twelve words, and `each_refusal_section_s4_names`.
 
 ## D191 — the debugger: catch, hit counts, until, what changed, conditional and redefinition watches, the trace, and the console's history
 

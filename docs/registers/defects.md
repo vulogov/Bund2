@@ -4440,6 +4440,26 @@ its rows, which F17's fix assumed it never does.
   `allpath_with_a_negative_edge_out_of_the_last_node_answers_nothing`
   (`crates/bund2-stdlib/src/graph_algorithms.rs`).
 
+- **Note, 2026-10-21 — the condition is narrower than the title, and one
+  consequence above does not hold** (the fourth RFC-0012 review, finding 4,
+  run in both engines). `q` is the last *distinct* name: nodes are numbered
+  at first appearance after Title-casing
+  (`reference/Bund/src/stdlib/functions/graph/make_graph.rs:92-97`), so
+  `[ :C :A :B :C ]` makes `q` `B`, and this entry's graph answers all nine
+  rows. An edge `q → v` is reweighed as `w + h_q - h_v` with `h_q` = 0
+  (`johnson.rs:61-65`), which is below zero only when `w < h_v`. A negative
+  `w` is not enough: `[ [ :B :A -2.0 ] [ :C :A -1.0 ] ]` over `[ :A :B :C ]`
+  answers in full. The rows dropped are those of every source whose
+  Dijkstra meets such an edge (`johnson.rs:71-74`), not only `q`'s: over
+  `[ :A :B :C :D ]`, `[ [ :D :A -0.5 ] [ :A :B 1.0 ] ]` drops D's rows and
+  keeps the other four. And a negative cycle is mostly refused, not
+  answered `[]`: the potentials' Bellman–Ford finds every cycle that does
+  not run through `q`'s replaced out-edges (`johnson.rs:50-53`,
+  `bellman_ford.rs:91-101`), and `[ [ :A :B 1.0 ] [ :B :A -5.0 ] ]` over
+  `[ :A :B :C ]` answers `GRAPH.ALLPATH: returned: negative cycle detected
+  in graph`. D200's ruling, to preserve, is unaffected. RFC-0012 states the
+  condition under "Current behaviour".
+
 ## F219 — `graph.path` panics on a node no kept edge reaches
 
 **An original-implementation defect; found 2026-10-18 by the second

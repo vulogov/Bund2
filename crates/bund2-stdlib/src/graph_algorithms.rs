@@ -526,27 +526,127 @@ pub(crate) fn mst(net: &Net) -> Vec<(usize, usize, f64)> {
     chosen
 }
 
+/// The total weight of a forest [`mst`] chose, refused by its caller only
+/// when the total itself cannot be represented (D202).
+///
+/// Summed lightest first, the order the edges were chosen in, which is the
+/// answer whenever that sum is finite, so every total answered before D202 is
+/// answered alike. From 0.0, not `sum`: the sum of no `f64`s is `-0.0`, which
+/// `println` shows, and the empty graph's total is 0.0 (RFC-0012 S1).
+///
+/// Lightest first adds every negative weight before any positive one, so the
+/// running sum can overflow where the total does not. Then the sum is taken
+/// again in an order that keeps it in range: a positive weight while the
+/// running sum is not above zero, a negative one while it is. Until one sign
+/// runs out, each step lands between the running sum and the weight added,
+/// so the sum never exceeds the largest weight in magnitude; after that it
+/// moves only toward the total. So a sum that still overflows is the total's.
+pub(crate) fn mst_total(chosen: &[(usize, usize, f64)]) -> f64 {
+    let lightest_first = chosen.iter().fold(0.0, |s, e| s + e.2);
+    if lightest_first.is_finite() {
+        return lightest_first;
+    }
+    let mut ups = chosen.iter().map(|e| e.2).filter(|&w| w > 0.0);
+    let mut downs = chosen.iter().map(|e| e.2).filter(|&w| w <= 0.0);
+    let mut total = 0.0;
+    loop {
+        let next = if total <= 0.0 {
+            ups.next().or_else(|| downs.next())
+        } else {
+            downs.next().or_else(|| ups.next())
+        };
+        match next {
+            Some(w) => total += w,
+            None => return total,
+        }
+    }
+}
+
 /// Why [`bellman_ford`] has no distances to answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NoDistances {
     /// A negative cycle `s` reaches, by its smallest-numbered node.
     Cycle(usize),
-    /// A distance through this edge, `from` then `to`, is not finite — the
-    /// sum of finite weights overflowed (D199).
-    Overflow(usize, usize),
+    /// The distance to this node cannot be represented: its shortest path's
+    /// finite weights sum past `f64` (D199, D202).
+    Overflow(usize),
 }
 
 /// Shortest distances from `s` by Bellman–Ford, which takes negative
 /// weights. The inner `Err` says why there are none: a negative cycle
 /// reachable from `s`, named by the smallest-numbered node of the one cycle
 /// the walk back finds, which depends on the order of the edges when two
-/// cycles are reachable (D193); or a distance that overflowed, which would
-/// otherwise stop relaxation at `-inf` and hide such a cycle (D199). The
-/// outer `Err` is a defect in the walk.
-pub(crate) fn bellman_ford(
-    net: &Net,
-    s: usize,
-) -> Result<Result<Vec<Option<f64>>, NoDistances>, Error> {
+/// cycles are reachable (D193); or a distance that cannot be represented
+/// (D199). The outer `Err` is a defect in the walk.
+///
+/// **Only an answer that cannot be represented is refused** (D202). The
+/// graph is first relaxed as given, and that is the answer whenever no sum
+/// it forms overflows, so every graph answered before D202 is answered
+/// alike. A sum that overflows need not be a distance: `A → C` at 1.0 beside
+/// `A → B → C` at 1e308 each overflows on the way to a finite answer. So
+/// then the graph is relaxed again with every weight divided by `2^k`, `k`
+/// chosen so that no sum the run can form is near the limit — a run is at
+/// most `nodes × edges` relaxations, each adding one weight. Dividing by a
+/// power of two is exact, so the scaled run makes every comparison the
+/// unscaled one would have made with unbounded range: it finds a cycle as a
+/// cycle, the `-1.0e308` one D199 met included, and each distance scaled back
+/// is the distance, or not finite and refused by its node. A weight so small
+/// that dividing it would lose bits makes the scaling inexact, and the graph
+/// is refused as before, by the first edge whose sum overflowed.
+pub(crate) fn bellman_ford(net: &Net, s: usize) -> Result<Distances, Error> {
+    let first = match bellman_ford_as_given(net, s)? {
+        Ok(found) => return Ok(found),
+        Err(first) => first,
+    };
+    let relaxations = net.len().max(1).saturating_mul(net.edges.len().max(1)) as f64;
+    // Half the range is left over for the sum in hand and a comparison.
+    let k = (2.0 * relaxations).log2().ceil() as i32 + 1;
+    let scale = 2f64.powi(k);
+    let exact = net
+        .edges
+        .iter()
+        .all(|&(_, _, w)| (w / scale) * scale == w && (w == 0.0 || w / scale != 0.0));
+    if !exact || !scale.is_finite() {
+        return Ok(Err(NoDistances::Overflow(first.1)));
+    }
+    let scaled = Net {
+        names: net.names.clone(),
+        ix: net.ix.clone(),
+        edges: net
+            .edges
+            .iter()
+            .map(|&(f, t, w)| (f, t, w / scale))
+            .collect(),
+        out: net.out.clone(),
+    };
+    let dist = match bellman_ford_as_given(&scaled, s)? {
+        Ok(Ok(dist)) => dist,
+        Ok(Err(cycle)) => return Ok(Err(cycle)),
+        Err((f, t)) => {
+            return Err(Error::internal(format!(
+                "graph.bellmanford's scaled run overflowed at {f} -> {t}, which its scale rules out"
+            )));
+        }
+    };
+    let mut back = Vec::with_capacity(dist.len());
+    for (u, d) in dist.into_iter().enumerate() {
+        let d = d.map(|d| d * scale);
+        if d.is_some_and(|d| !d.is_finite()) {
+            return Ok(Err(NoDistances::Overflow(u)));
+        }
+        back.push(d);
+    }
+    Ok(Ok(back))
+}
+
+/// What [`bellman_ford`] answers: the distances, or why there are none.
+type Distances = Result<Vec<Option<f64>>, NoDistances>;
+
+/// [`bellman_ford`] over the weights as given. The outermost `Err` is the
+/// first edge, `from` then `to`, whose sum was not finite: every weight is
+/// finite (the reader refuses one that is not), so that sum overflowed, and
+/// relaxation would stop at `-inf` and could hide a cycle (D199).
+fn bellman_ford_as_given(net: &Net, s: usize) -> Result<Result<Distances, (usize, usize)>, Error> {
     let n = net.len();
     let mut dist: Vec<Option<f64>> = vec![None; n];
     let mut pred: Vec<Option<usize>> = vec![None; n];
@@ -586,14 +686,14 @@ pub(crate) fn bellman_ford(
     };
     for _ in 1..n.max(1) {
         match relax(&mut dist, &mut pred) {
-            Err((f, t)) => return Ok(Err(NoDistances::Overflow(f, t))),
-            Ok(None) => return Ok(Ok(dist)),
+            Err(edge) => return Ok(Err(edge)),
+            Ok(None) => return Ok(Ok(Ok(dist))),
             Ok(Some(_)) => {}
         }
     }
     let mut v = match relax(&mut dist, &mut pred) {
-        Err((f, t)) => return Ok(Err(NoDistances::Overflow(f, t))),
-        Ok(None) => return Ok(Ok(dist)),
+        Err(edge) => return Ok(Err(edge)),
+        Ok(None) => return Ok(Ok(Ok(dist))),
         Ok(Some(v)) => v,
     };
     // Every node the walk visits was relaxed, so it has a predecessor.
@@ -623,7 +723,7 @@ pub(crate) fn bellman_ford(
         least = least.min(u);
         u = back(u)?;
     }
-    Ok(Err(NoDistances::Cycle(least)))
+    Ok(Ok(Err(NoDistances::Cycle(least))))
 }
 
 /// The maximum flow from `s` to `t`, each edge's weight its capacity, by
@@ -903,7 +1003,7 @@ fn edge_rows(net: &Net, edges: &[(usize, usize, f64)]) -> Result<BundValue, Erro
 fn graph_mst(vm: &mut dyn Vm) -> Result<(), Error> {
     let net = operand(vm, "GRAPH.MST")?;
     let chosen = mst(&net);
-    let total: f64 = chosen.iter().map(|e| e.2).sum();
+    let total = mst_total(&chosen);
     // Every weight is finite, so a total that is not overflowed (D199).
     if !total.is_finite() {
         return Err(Error("GRAPH.MST: the total weight overflows".into()));
@@ -933,11 +1033,10 @@ fn graph_bellmanford(vm: &mut dyn Vm) -> Result<(), Error> {
                 net.name(u)?
             )));
         }
-        Err(NoDistances::Overflow(f, t)) => {
+        Err(NoDistances::Overflow(u)) => {
             return Err(Error(format!(
-                "GRAPH.BELLMANFORD: a distance overflows: {} -> {}",
-                net.name(f)?,
-                net.name(t)?
+                "GRAPH.BELLMANFORD: the distance to {} overflows",
+                net.name(u)?
             )));
         }
     };
@@ -1183,6 +1282,36 @@ mod tests {
         assert!(f.contains("flow=2.0"), "{f}");
         let e = err_of(&format!(":A :A {DAG} graph.maxflow"));
         assert!(e.contains("the source and the sink are one node: A"), "{e}");
+    }
+
+    /// **RFC-0012 S1's empty graph**, all five of its claims — the fourth
+    /// review's finding 3, which found no test of the paragraph and
+    /// `graph.mst` answering `weight=-0.0`. A graph whose only edges are
+    /// self-loops chooses no edge either, so it answers the same total.
+    #[test]
+    fn the_empty_graph_answers_as_s1_says() {
+        const EMPTY: &str = "list list graph!";
+        for word in ["graph.toposort", "graph.components", "graph.scc"] {
+            assert_eq!(top(&format!("{EMPTY} {word}")), "[]", "{word}");
+        }
+        for g in [EMPTY, "[ [ :A :A 1.0 ] ] [ :A ] graph!"] {
+            let m = top(&format!("{g} graph.mst"));
+            assert!(m.contains("edges=[]"), "{m}");
+            assert!(m.contains("weight=0.0") && !m.contains("-0.0"), "{m}");
+        }
+        for (word, below, role) in [
+            ("graph.bfs", "", "start "),
+            ("graph.dfs", "", "start "),
+            ("graph.reachable", "", "start "),
+            ("graph.neighbors", "", ""),
+            ("graph.degree", "", ""),
+            ("graph.bellmanford", "", "start "),
+            ("graph.maxflow", ":E ", "source "),
+        ] {
+            let e = err_of(&format!("{below}:A {EMPTY} {word}"));
+            let w = word.to_uppercase();
+            assert!(e.contains(&format!("{w}: unknown {role}node: A")), "{e}");
+        }
     }
 
     /// A second edge between the same pair replaces the first, as `algos`'
@@ -1635,11 +1764,12 @@ mod tests {
     /// what overflowed.
     #[test]
     fn a_sum_that_overflows_is_refused() {
-        // D199: each weight is finite, the sum is not.
+        // D199: each weight is finite, the sum is not — and since D202, the
+        // sum that is not is the answer's.
         for (src, says) in [
             (
                 ":A [ [ :A :B 1.0e308 ] [ :B :C 1.0e308 ] ] [ :A :B :C ] graph! graph.bellmanford",
-                "GRAPH.BELLMANFORD: a distance overflows: B -> C",
+                "GRAPH.BELLMANFORD: the distance to C overflows",
             ),
             (
                 "[ [ :A :B 1.0e308 ] [ :B :C 1.0e308 ] ] [ :A :B :C ] graph! graph.mst",
@@ -1651,14 +1781,20 @@ mod tests {
             ),
             // The case that was a wrong answer: `-inf` stopped relaxation,
             // and the cycle went unreported once an unrelated node was
-            // listed. Now the overflow is the answer, with C or without.
+            // listed. D199 refused it as an overflow; since D202 the scaled
+            // run finds it, and it is the cycle it is, with C or without.
             (
                 ":A [ [ :A :B -1.0e308 ] [ :B :A -1.0e308 ] ] [ :A :B :C ] graph! graph.bellmanford",
-                "GRAPH.BELLMANFORD: a distance overflows: B -> A",
+                "GRAPH.BELLMANFORD: A reaches a negative cycle through A",
             ),
             (
                 ":A [ [ :A :B -1.0e308 ] [ :B :A -1.0e308 ] ] [ :A :B ] graph! graph.bellmanford",
-                "GRAPH.BELLMANFORD: a distance overflows: B -> A",
+                "GRAPH.BELLMANFORD: A reaches a negative cycle through A",
+            ),
+            // A path whose true distance is below the range, with no cycle.
+            (
+                ":A [ [ :A :B -1.0e308 ] [ :B :C -1.0e308 ] ] [ :A :B :C ] graph! graph.bellmanford",
+                "GRAPH.BELLMANFORD: the distance to C overflows",
             ),
         ] {
             match run_src(src) {
@@ -1666,6 +1802,65 @@ mod tests {
                 Err(e) => assert!(e.contains(says), "{src}: {e}"),
             }
         }
+    }
+
+    /// **D202: a sum that overflows is refused only when the answer does** —
+    /// the fourth RFC-0012 review's findings 1 and 2. Each graph here formed
+    /// a sum that overflowed and was refused before D202.
+    #[test]
+    fn only_an_answer_that_cannot_be_represented_is_refused() {
+        // A finite distance beside a path whose sum overflows, in both edge
+        // orders: the second meets B -> C before C has any distance.
+        for edges in [
+            "[ [ :A :C 1.0 ] [ :A :B 1.0e308 ] [ :B :C 1.0e308 ] ]",
+            "[ [ :A :B 1.0e308 ] [ :B :C 1.0e308 ] [ :A :C 1.0 ] ]",
+        ] {
+            let b = top(&format!(":A {edges} [ :A :B :C ] graph! graph.bellmanford"));
+            assert!(b.contains("node=A ::  path=0.0"), "{b}");
+            assert!(b.contains("node=B ::  path=1e308"), "{b}");
+            assert!(b.contains("node=C ::  path=1.0"), "{b}");
+        }
+        // A distance near the bottom of the range that is representable.
+        let b = top(
+            ":A [ [ :A :B -1.0e308 ] [ :B :C 1.0e308 ] [ :C :D -1.0e308 ] ] [ :A :B :C :D ] graph! graph.bellmanford",
+        );
+        assert!(b.contains("node=C ::  path=0.0"), "{b}");
+        assert!(b.contains("node=D ::  path=-1e308"), "{b}");
+        // A path of four whose total is exactly 0.0: lightest first meets
+        // -2e308 on the way.
+        let m = top(
+            "[ [ :A :B -1.0e308 ] [ :B :C -1.0e308 ] [ :C :D 1.0e308 ] [ :D :E 1.0e308 ] ] [ :A :B :C :D :E ] graph! graph.mst",
+        );
+        assert!(m.contains("weight=0.0") && !m.contains("-0.0"), "{m}");
+        // And one whose total does overflow is still refused, whichever way
+        // round the signs come.
+        let e = err_of(
+            "[ [ :A :B -1.0e308 ] [ :B :C 1.0e308 ] [ :C :D 1.0e308 ] [ :D :E 1.0e308 ] ] [ :A :B :C :D :E ] graph! graph.mst",
+        );
+        assert!(e.contains("GRAPH.MST: the total weight overflows"), "{e}");
+        // A weight too small to scale without losing bits keeps the refusal
+        // D199 made: the scaled run would not be exact (D202, as built).
+        let e = err_of(
+            ":A [ [ :A :C 1.0 ] [ :A :B 1.0e308 ] [ :B :C 1.0e308 ] [ :C :A 5.0e-324 ] ] [ :A :B :C ] graph! graph.bellmanford",
+        );
+        assert!(
+            e.contains("GRAPH.BELLMANFORD: the distance to C overflows"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn mst_total_keeps_its_partial_sums_in_range() {
+        let w = |ws: &[f64]| ws.iter().map(|&w| (0, 1, w)).collect::<Vec<_>>();
+        assert_eq!(mst_total(&w(&[])).to_bits(), 0.0f64.to_bits());
+        assert_eq!(mst_total(&w(&[-1.0e308, -1.0e308, 1.0e308, 1.0e308])), 0.0);
+        assert_eq!(mst_total(&w(&[-1.0e308, 5.0e307, 1.0e308])), 5.0e307);
+        assert!(!mst_total(&w(&[1.0e308, 1.0e308])).is_finite());
+        assert!(!mst_total(&w(&[-1.0e308, -1.0e308])).is_finite());
+        // Lightest first is the answer where it is finite, to the bit.
+        let ws = [0.1, 0.2, 0.3, -0.7];
+        let lf = w(&ws).iter().fold(0.0, |s, e| s + e.2);
+        assert_eq!(mst_total(&w(&ws)).to_bits(), lf.to_bits());
     }
 
     /// **`-0.0` and `0.0` weigh the same**, so `graph.mst` keeps them in the
@@ -1812,7 +2007,9 @@ mod tests {
         match bellman_ford(n, s).unwrap_or_else(|e| panic!("{}", e.0)) {
             Ok(d) => Ok(d),
             Err(NoDistances::Cycle(u)) => Err(u),
-            Err(NoDistances::Overflow(f, t)) => panic!("{f} -> {t} overflowed in a test's range"),
+            Err(NoDistances::Overflow(u)) => {
+                panic!("the distance to {u} overflowed in a test's range")
+            }
         }
     }
 
