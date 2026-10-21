@@ -4836,6 +4836,24 @@ call it does change, from a panic to code. The tier compiles every body with
 the code it was before the fix. The dev-dependency `cranelift-codegen`
 gains the `arm64` feature beside `x86`. It is test-only, as `x86` is.
 
+**Note, 2026-10-21 — the comparison was flaky, and the `movabs` was the
+cause.** CI's run 39521164532, at 79e125d, failed
+`the_shipped_settings_change_no_instruction_of_a_named_aarch64_body` on the
+text's length, 1892 bytes against 1900, at a commit that changed only
+documents. The two probes shared their fragments, cells and generation
+cells, but each body's slot table is allocated by `emit_into`, so each probe
+embedded a heap address of its own for it. An address with a zero
+sixteen-bit part loads in one instruction fewer, and a different constant
+can also change the register allocator's choices after it. Locally the
+module's tests failed about one run in ten. The one differing `movabs` the
+x86-64 measurement above found was the same address.
+
+Fixed in the probe and not in the comparison: `Emitter::slots_at` gives the
+probe a fabricated slot-table base, as it already fabricates the cells, and
+is `None` on both paths that run what they emit. With it the relocation
+tests passed fifty runs in fifty. The x86-64 texts are now the same byte for
+byte, and the test asserts that rather than allowing a `movabs` immediate.
+
 ## F203 — a body queued beneath a compiled body was compiled after the tier was turned off
 
 **A Bund2 defect of speed, not of meaning; found 2026-10-12** while writing

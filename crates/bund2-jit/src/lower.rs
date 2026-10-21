@@ -1950,6 +1950,19 @@ struct Emitter<M> {
     /// the two above — code emitted without it recurses until the machine
     /// stack ends.
     floor_check: bool,
+    /// **Where emitted code believes a body's slot table is**, when not where
+    /// it was allocated. `None` on every path that runs what it emits; set
+    /// only by the relocation probe, whose object is read and never run.
+    ///
+    /// The probe compares two compilations instruction by instruction, and a
+    /// slot table is allocated per body, so each would otherwise embed a
+    /// different heap address — and an address changes more than its own
+    /// bits: one with a zero sixteen-bit part is one `movz`/`movk` shorter,
+    /// and the register allocator's choices after it can differ. F204's
+    /// comparison failed on that in CI (run 39521164532) and locally about
+    /// one run in ten. A fixed address makes the two compilations differ in
+    /// the settings and nothing else, as the probe's cells already do.
+    slots_at: Option<i64>,
     /// **The thunks this module has already emitted, by index** — F130.
     ///
     /// A thunk bakes an index and nothing else, and the index is resolved
@@ -2019,6 +2032,7 @@ impl Compiler {
                 meaning_guards: true,
                 request_checks: true,
                 floor_check: true,
+                slots_at: None,
             },
             words: Vec::new(),
             floor_declines: std::cell::Cell::new(0),
@@ -2626,6 +2640,7 @@ fn emit_body(
         meaning_guards: true,
         request_checks: true,
         floor_check: true,
+        slots_at: None,
         // This path builds a module per body and throws it away, so the cache
         // has nothing to share with: a fresh one, used once.
         thunks: Thunks::default(),
@@ -2834,6 +2849,7 @@ fn emit_into<M: cranelift_module::Module>(
         meaning_guards,
         request_checks,
         floor_check,
+        slots_at,
     } = e;
     let meaning_guards = *meaning_guards;
     let request_check = *request_checks;
@@ -2876,7 +2892,7 @@ fn emit_into<M: cranelift_module::Module>(
     // `jit_admits` through a slot for the same reason a call reaches its
     // adapter through one.
     let slots: Box<[*const u8]> = vec![std::ptr::null(); calls + 1 + inlined].into_boxed_slice();
-    let slots_base = slots.as_ptr() as i64;
+    let slots_base = slots_at.unwrap_or(slots.as_ptr() as i64);
     let drain_slot = calls;
     let admits_slot_base = calls + 1;
 
@@ -4042,6 +4058,11 @@ mod relocations {
             meaning_guards: true,
             request_checks: true,
             floor_check: true,
+            // Fabricated for the reason `cells` is, below, and so that two
+            // probes differ only in what they are asked to differ in
+            // ([`Emitter::slots_at`]). Every body shares it, which nothing
+            // here reads.
+            slots_at: Some(0x0004_0000_7000),
         };
 
         // Body 0 calls a word; body 1 is a bare literal. A direct call would
@@ -4214,15 +4235,18 @@ mod relocations {
     /// (the twenty-sixth review's B2: the comparison was once under a triple
     /// named by hand, which has none of them).
     ///
-    /// **Whole, less the constants.** A body holds addresses as immediates.
-    /// The fragments' are the same in both, since both probes are lent one
-    /// set of them; any other that differed arrives by `movz` and `movk`, so
-    /// the sixteen bits each of those carries are left out of the comparison
-    /// and every other bit of every instruction is in it. (Until 2026-10-13
-    /// each probe built its own fragments, and the test failed in two runs
-    /// of eight on the text's length: an address with a zero part takes one
-    /// instruction fewer.) A frame record is `stp`, `mov` and
-    /// `ldp` on the frame pointer, which is none of what is left out.
+    /// **Whole, less the constants.** A body holds addresses as immediates,
+    /// and the two probes are given the same ones: one set of fragments, and
+    /// fabricated cells and slot table ([`Emitter::slots_at`]). Before the
+    /// slot table was fixed (2026-10-21) each probe embedded its own heap
+    /// address for it, and an address with a zero sixteen-bit part is an
+    /// instruction shorter; that failed CI's x86-64 runner (run 39521164532,
+    /// 1892 bytes against 1900) and about one local run in ten, as separate
+    /// fragments had before 2026-10-13. What a `movz` or `movk` carries is
+    /// still left out, so a constant the settings themselves moved would not
+    /// fail the test; every other bit of every instruction is in it. A frame
+    /// record is `stp`, `mov` and `ldp` on the frame pointer, which is none
+    /// of what is left out.
     ///
     /// aarch64 only, since it reads the host's code: with no settings the
     /// x86-64 backend panics on the fourth body, which is F204. The named
@@ -4309,12 +4333,13 @@ mod relocations {
     ///
     /// **Nothing else changes.** Measured 2026-10-20: the sixteen functions
     /// are the same length with and without the setting, 1804 bytes of text
-    /// in all, and the only bytes that differ are the immediate of one
-    /// `movabs`, an address that differed between two runs of this test in
-    /// one byte and in five. Every function this module emits makes a call
-    /// and keeps its frame already, as on aarch64. So on x86-64 the setting
-    /// is what lets a tail call be lowered, and costs an ordinary body
-    /// nothing.
+    /// in all. The one immediate that then differed, a `movabs`, was each
+    /// body's slot-table base, a heap address of its own in each probe; with
+    /// it fixed ([`Emitter::slots_at`], 2026-10-21) the two texts are the
+    /// same byte for byte, and are asserted so. Every function this module
+    /// emits makes a call and keeps its frame already, as on aarch64. So on
+    /// x86-64 the setting is what lets a tail call be lowered, and costs an
+    /// ordinary body nothing.
     #[test]
     fn on_x86_64_the_shipped_settings_change_no_instruction_of_an_ordinary_body() {
         let sites = published_sites().expect("the published arms");
@@ -4327,27 +4352,15 @@ mod relocations {
         let default = built(&[]);
         assert!(shipped.text.len() > 1000, "{} bytes", shipped.text.len());
         assert_eq!(shipped.extents, default.extents, "each function's length");
-        // A byte that differs must lie in the eight-byte immediate of a
-        // `movabs` — REX.W, then `b8`+register — which carries an address.
-        let in_movabs_immediate = |i: usize| {
-            (0..8).any(|k| {
-                i.checked_sub(k + 2).is_some_and(|op| {
-                    let t = &shipped.text;
-                    matches!(t[op], 0x48 | 0x49)
-                        && (0xb8..=0xbf).contains(&t[op + 1])
-                        && t[op..op + 2] == default.text[op..op + 2]
-                })
-            })
-        };
         let differing: Vec<String> = shipped
             .text
             .iter()
             .zip(&default.text)
             .enumerate()
-            .filter(|(i, (a, b))| a != b && !in_movabs_immediate(*i))
+            .filter(|(_, (a, b))| a != b)
             .map(|(i, (a, b))| format!("{i:#x}: {a:02x} / {b:02x}"))
             .collect();
-        assert!(differing.is_empty(), "instructions differ: {differing:#?}");
+        assert!(differing.is_empty(), "bytes differ: {differing:#?}");
     }
 
     /// The two probes' text compared whole, less a wide move's constant, and
