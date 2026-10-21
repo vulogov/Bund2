@@ -409,6 +409,21 @@ Two consequences beyond speed:
   could not keep the round trip's failure without keeping the round trip.
   The `many` family (`ts_stack_op.rs:70-90`) is the same call, and is not
   measured here.)*
+- **Note, 2026-10-21 — two sentences above are wrong about the reference.**
+  "`?move`/`?.` reach the same code" does not hold: both are
+  `stdlib_stack_conditional_move_base`
+  (`reference/rust_multistackvm/src/stdlib/stackop/conditional_move.rs:11,81-91`).
+  And "the `many` family is the same call" names functions nothing reaches:
+  `many_in_current_stack` and `many_in_stack`
+  (`reference/rust_multistack/src/ts_stack_op.rs:70-92`) are called only by
+  `ts_many_in_current_stack` and `ts_many_in_stack` (`:13-18`), and those by
+  nothing in any `reference/*/src`. The reachable family is the dup words,
+  `dup_many`, `dup_one`, `dup_many_in` and `dup_one_in`
+  (`reference/rust_multistack/src/stdlib/dup.rs:84-91`). Measured on both
+  engines with a JSON value inside a dict, each refuses on the oracle with
+  `Error duplicating data in current stack: dup() returns: Bincode does not
+  support … deserialize_any`, and each copies on Bund2. That is this FIX, as
+  the addendum of 2026-10-14 states it for `dup`; nothing new.
 - **Status 2026-10-19:** built. `BundValue::dup` (`crates/bund2-value/src/lib.rs`) copies the header with a cleared identity and shares the payload; there is no serialisation round trip. Pinned in `crates/bund2-stdlib/src/fragments.rs` and `crates/bund2-jit/src/lower.rs`.
 
 ## F14 — error text embeds a value's `id` and `stamp`, so it cannot reproduce
@@ -4213,6 +4228,96 @@ and D37 gains a stated exception for bytes read from a file Bund2 did not
 write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
+
+## F224 — on today's tree the tier retires more instructions than no tier on three of criterion 7's rows
+
+**A Bund2 defect against RFC-0005's criterion 7; found 2026-10-21** by
+re-taking D117's count, which D154 recorded as not re-taken.
+
+Criterion 7, as D148 ruled it (option A), is decided by D117's method: the
+median of five `instructions retired` from `/usr/bin/time -l bund2 script
+--file <program>`, a release build with no feature against one with `jit`,
+over nine named programs, and a row fails when the `jit` build retires more
+than 5% more. Read on macOS arm64 at `55a8ac5`, raw counts as the criterion's
+table gives them:
+
+| program | no tier | `jit` | change |
+|---|---|---|---|
+| the empty program (`startup`) | 38.63 M | 39.43 M | +2.1% |
+| `300000 { 1 drop } times` | 297.72 M | 321.65 M | **+8.0%** |
+| `300000 { 1 2 3 4 5 6 7 8 drop drop drop drop drop drop drop drop } times` | 1,305.65 M | 758.02 M | −41.9% |
+| `300000 { 1 dup drop } times` | 438.81 M | 506.41 M | **+15.4%** |
+| `300000 { 1 2 + drop } times` | 507.94 M | 332.44 M | −34.6% |
+| `:f { 1 drop } register` then `300000 { f } times` | 417.72 M | 456.54 M | **+9.3%** |
+| `300000 { 1 2 swap clear } times` (refused) | 593.64 M | 598.26 M | +0.8% |
+| `:g { 1 2 swap clear } register` then `300000 { g } times` (refused) | 712.67 M | 722.80 M | +1.4% |
+| `:down { 1 2 + drop dup 0 < { 1 swap - down } if } register` then `200000 down println` | 1,148.26 M | 1,130.34 M | −1.6% |
+
+**Three rows fail.** On 2026-10-12 every row was inside the band, the
+nearest at +3.9%.
+
+**It is not the tier that grew.** The same method on `dff32be`'s two builds,
+taken in the same session, reproduces D117's first reading to within 0.3%,
+so the instrument holds. Against them, empty program subtracted, both of
+today's builds retire fewer instructions on every row, but by different
+amounts. Tier 0 dropped by 46% to 57%: `1 drop` from 476.0 M to 259.1 M. The
+`jit` build dropped by 11% to 46%: `1 drop` from 317.3 M to 282.2 M. Tier 0's
+whole turn of a small body is now cheaper than a compiled entry's fixed
+cost. `--stats` on the three failing rows shows the body compiled in full:
+one body, 298,976 entries, the site inlined, nothing generic on `1 drop`
+and `f`. On `1 drop` a compiled turn retires about 80 instructions more than
+an interpreted one, roughly 944 against 864. Which commits made Tier 0
+cheaper was not bisected.
+
+D117's trace of 2026-10-14 attributes about 188 instructions to each entry
+into a compiled body, 86 of them D139's frame. That cost was the same at
+acceptance; the interpreter's has fallen beneath it.
+
+**Disposition: open — the owner's.** Each way out is a decision:
+
+- *A. Make an entry cheaper.* D117's trace names the parts: D139's frame
+  (86), materialised only when something reads the frame list, which "would
+  be a change to how D139 is built"; `JitTier::enter`'s bookkeeping (44); the
+  save and restore around a nested entry (13).
+- *B. Compile only a body that gains.* `Compiler::would_gain` already
+  declines some bodies. Raising its bar, or the threshold, for a body this
+  small changes which bodies Tier 1 takes.
+- *C. Re-word criterion 7*: for example, measure against a fixed Tier 0
+  baseline, or exempt a body whose whole turn is below some number of
+  instructions. That reopens D148.
+
+## F223 — `debug` runs its first value before it knows it has a line editor
+
+**A Bund2 divergence; found 2026-10-21** while examining RFC-0008's row "`debug`
+when no line editor can be made", which D163 recorded as not examined.
+
+The reference makes its editor before it does anything else. When
+`DefaultEditor::new` fails, it prints the error and returns `Ok`: the snippet
+has been pulled and nothing in it runs
+(`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:39-46`, called
+from `:124-142`). Bund2's `debug_word` (`crates/bund2-stdlib/src/terminal.rs`)
+opens its line source lazily, at the first `Vm::read_line` (D112). So the
+first value's table is printed and the value applied before the open is
+tried, and a failure returns `INPUT line returns: …`, which stops the
+program. Where the reference prints, applies nothing and goes on, Bund2
+applies one value and fails.
+
+**What reaches it.** Almost nothing. In the pinned rustyline 14.0.0 an editor
+on a stdin that is not a terminal falls back to the standard streams and
+does not fail. Its one error path is installing the SIGWINCH handler, which
+runs only when stdin and stdout are both terminals
+(`rustyline-14.0.0/src/tty/unix.rs:1307-1338`, read in the registry source,
+not in `reference/`). Stdin closed, from `/dev/null` and from a pipe all
+agree on both engines. No golden can hold the case and no test can force it.
+
+**Examined beside it, and no divergence.** `debug` takes any value whose
+payload is a string, as `cast_string` does: STRING, CALL (`[ dup ] car`) and
+PTR (`` `dup ``, and `"dup" ptr`) run the same on both engines in all three
+stdin modes. INTEGER is refused with the same reason, in D36's layout.
+
+**Disposition: open — the owner's.** D112 decided the wording of a terminal
+that will not open, not `debug`'s ordering. Making `debug` open its line
+source first would change D112's lazy opening for that word.
 
 ## F222 — a method slot naming no method was refused in Bund2's words, not the reference's
 

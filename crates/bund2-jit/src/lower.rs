@@ -5626,8 +5626,13 @@ mod tests {
         let after = vm.snapshot();
 
         assert_eq!(before.len(), after.len(), "depth unchanged: {after:?}");
+        // Normalised, as every other comparison here is through `norm`: a
+        // stamp is minted when first rendered (D2), so two snapshots of one
+        // value rendered raw differ whenever a millisecond passes between
+        // them. CI's run 39670201183 failed on exactly that, `…626.0` against
+        // `…627.0`.
         for (a, b) in before.iter().zip(after.iter()) {
-            assert_eq!(a.render(false), b.render(false), "value unchanged");
+            assert_eq!(a.render(true), b.render(true), "value unchanged");
         }
     }
 

@@ -23,6 +23,10 @@
   *with*, not one acceptance closes. It is now the property of whoever extends
   `StackEffect`; F73 is fresh evidence that the workbench half of a word's
   contract is neither uniform nor inferable from its sibling.
+  *(2026-10-21: no longer unbuilt. D195 built the second axis on
+  2026-10-19 — `StackEffect::bench`, from `cargo xtask arity`'s two-axis
+  probe — and `check` counts the workbench; see the amendment "§S1's second
+  axis is built (D195)" at the end.)*
 
   When proposed, **all seven acceptance criteria were met
   and each named the tool that decided it** — `cargo xtask effects` (2, 0

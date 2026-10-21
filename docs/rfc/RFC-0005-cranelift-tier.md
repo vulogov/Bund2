@@ -6297,6 +6297,18 @@ criterion.)*
    code is the same on this host; the count was not re-taken, and what it
    would read on this tree is not known.)*
 
+   *(2026-10-21 — **re-taken, and three rows fail: not met on today's
+   tree.** Same method and nine programs, macOS arm64, at `55a8ac5`.
+   `1 drop` reads +8.0%, `1 dup drop` +15.4% and a call to a user's word
+   +9.3%; the other six are inside the band. The tier did not grow. Taken in
+   the same session, `dff32be`'s builds reproduce D117's first reading to
+   within 0.3%. Against them both of today's builds are cheaper, Tier 0 by
+   46–57% and the `jit` build by 11–46%, so the interpreter's turn of a small
+   body is now cheaper than a compiled entry. F224 has the table, and the
+   ways out, each a decision. The other three readings this note's
+   predecessors owed, the clock on other hosts for criteria 7, 10 and 17,
+   are asked of `bench-reading`.)*
+
 8. **`cite` and `lint` clean**, with `cargo xtask cite` resolving every
    `path:line` in this document. **Note what this now checks and did not
    before:** citations into `crates/` were invisible to the extractor until

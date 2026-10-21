@@ -11,6 +11,12 @@
   bundle has been built and run on macOS arm64 only, the write into an ELF
   image has never run, and `ci.yml` has not run on this branch — criterion
   13's "would" is still "would".
+  *(2026-10-21: all three no longer hold. `ci.yml` runs on this branch since
+  D150, and its suite on Linux x86-64 includes `bundle_build`, whose
+  `a_bundle_runs_its_program` and `a_jit_bundle_enters_compiled_code` build
+  a bundle into the runtime's ELF image and run it; they passed in run
+  39521164532 at `79e125d`, among 73 passes of that binary's tests in the
+  two configurations.)*
 - Previously: **Proposed** (2026-09-30, on the owner's authorisation — **D82**),
   after three adversarial reviews of this document and one of the code.
   `--emit=bundle` is **built and reviewed**. **`--emit=native` is withdrawn —

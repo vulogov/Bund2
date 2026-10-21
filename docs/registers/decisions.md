@@ -6273,6 +6273,26 @@ criterion 10 with `declare_region()` removed, criterion 12's twenty runs,
 and D91's RSS figures. Whether `debug.dump` should be exempt from D166 is
 recorded and not raised. No review has read the eighth review's answers.
 
+**Note, 2026-10-21 — the three not re-checked, re-checked, and the one not
+measured, measured.**
+- *Criterion 10 with `declare_region()` removed.* With the call in
+  `Host::spawn` commented out, `every_vm_thread_declares_its_own_region_and_share`
+  fails in both builds, so the test guards what it claims. Two details have
+  moved since the RFC quoted them. The depth it refuses is 128 here, not 256.
+  And under `jit` the depth assertion now fires first, so the RFC's quoted
+  `jit` failure (`entered no compiled body, so its share was not declared`)
+  appears only with that assertion disabled too, which it then does, word for
+  word.
+- *Criterion 12's twenty runs.* `bus_data_is_advisory_once_there_is_more_than_one_vm`
+  passed 20 of 20 in each build, and the whole `bund2-async` suite 20 of 20
+  run in parallel.
+- *D91's RSS figures.* They no longer hold: about 46 KiB a compiled body, not
+  30. See D91's note of this date.
+- *The `many` family on a JSON value inside a container.* The `many`
+  functions are unreachable in the reference; the dup words are the family
+  that runs, and they differ from the oracle exactly as F13's FIX approves.
+  F13's note of this date corrects two of its sentences.
+
 ## D168 — the CLI's `async` feature, which reaches no code
 
 **Raised 2026-10-14** by RFC-0007's seventh review
@@ -6593,6 +6613,11 @@ trace and the console's history were built by D191; `watch depth > 100`
 amendment of 2026-10-19, "§D3 by source location" (92dd407), on the
 positions RFC-0003's amendment of the same day put beside each body. Nothing
 specified in RFC-0008 now stands unbuilt for want of spans.
+**Note, 2026-10-21.** Of "not examined": whether `debug` accepts the
+reference's CALL and PTR operands is examined, and it does, as the
+reference's `cast_string` does, in every stdin mode tried. What `debug` does
+when no line editor can be made is examined too, and differs: **F223**,
+whose disposition is the owner's.
 
 ## D162 — `--debug-shell` after a `--debugger` failure
 
@@ -6948,6 +6973,17 @@ Linux or on x86-64 macOS. D145's stage 2 is not built.
 
 Not taken up: criteria 7, 10 and 17 on another host, D117's count, and
 D145's stage 2.
+
+**Note, 2026-10-21 — the three, taken up.**
+- *D117's count, re-taken* (its fourth reading). Criterion 7 as D148 words it
+  now fails on three rows: **F224**. The tier did not grow; the interpreter
+  got cheaper than a compiled entry.
+- *Criteria 7, 10 and 17 on another host.* `bench-reading` gains a job for
+  each, on its three hosts, each taken as its criterion's note takes it.
+  **No figure is recorded here until that run has been read.**
+- *D145's stage 2.* The reading it waited on is under D145: the memory
+  raises no objection, and the compiler's borrow does. Stage 2 stays
+  unapproved.
 
 
 ## D153 — `bincode` is unmaintained and `bund2-value` depends on it directly
@@ -7852,6 +7888,42 @@ not show.
 unasserted because stage 1's queue compiled the arming word after the tier
 was off. That is fixed, and the test asserts two.
 
+*Note, 2026-10-21: the reading stage 2 waited on.* "What `cranelift-jit` does
+to executable memory during a compilation", read at the pinned
+`cranelift-jit` 0.135.0 with the arena Bund2 gives it (`MODULE_RESERVE`,
+RFC-0005 §3.2d). Paths are into the registry source.
+
+- **Finished code is never written, re-protected or moved.** The arena places
+  each allocation in a page-aligned segment (`src/memory/arena.rs:25-27`). A
+  finished segment reports no free space (`:77-79`), so new code goes to an
+  unfinished segment or a new one past every other (`:141-161`, `:169-184`).
+  `set_rw` is called only on such a segment (`:37`, `:156`), and finishing
+  skips segments already finished (`:48-51`). The reservation is made once,
+  with no access (`:114`), and Bund2 frees none of it.
+- **Nothing finalised is patched.** `finalize_definitions` relocates only
+  what was defined since the last finalisation (`src/backend.rs:328-344`).
+  There is no GOT or PLT: with PIC off those relocation kinds are refused
+  (`src/compiled_blob.rs:146-149`), and `JITModule::new` asserts PIC is off
+  (`src/backend.rs:359-360`).
+- **No per-thread write toggle on macOS arm64.** A no-access reservation gets
+  no `MAP_JIT` (`region-3.0.2/src/os/unix.rs:27-34`). Neither crate calls
+  `pthread_jit_write_protect_np`. The icache is cleared for the new range
+  before it is made executable (`src/memory/mod.rs:51-66`).
+
+So the memory does not stand in stage 2's way: a body compiled while
+another runs lands on fresh pages, and the running body's pages are not
+touched. **What does stand in its way is Bund2's own.** A running entry
+holds a shared borrow of the compiler (`JitTier::enter`), and compiling
+needs an exclusive one, so stage 2 needs either a compiler that adds bodies
+through a shared reference or a second module. Today the borrow is a
+`try_` borrow, so a nested attempt declines rather than fails. Two things
+were not established. That no compiler table emitted code reads by address
+moves when a body is added; slot tables are separate heap allocations owned
+by `CompiledBody`. And whether a hardened-runtime build forbids turning a
+non-`MAP_JIT` page from writable to executable; if it does, stage 1 is
+already affected. Stage 2 stays unapproved; this is the reading it waited
+on.
+
 ## D144 — is RFC-0005 §S9, tier pinning, withdrawn?
 
 **Raised 2026-10-10** by RFC-0005's twenty-third review, B7.
@@ -8234,6 +8306,12 @@ so it has not run on `development/stage2`. Earlier entries in this register
 read the bar for Accepted as a review pass that finds nothing; this pass
 found no blocker and eight should-fix items,
 applied before the ruling and not reviewed again.
+
+**Note, 2026-10-21.** "Built and run on macOS arm64 only" and "the write
+into an ELF image has never run" no longer hold: `ci.yml` runs on the
+working branch since D150, and its Linux x86-64 suite builds a bundle and
+runs it (`a_bundle_runs_its_program`, `a_jit_bundle_enters_compiled_code`;
+run 39521164532 at `79e125d`). RFC-0006's status block has the same note.
 
 ## D137 — `conform`'s baseline is recorded at the ceiling, by the owner
 
@@ -9600,6 +9678,29 @@ a compiled body names it, as with no tier. Nothing here was changed. A
 frame materialised only when something reads the frame list would remove
 most of the 86, and would be a change to how D139 is built; it is not
 proposed by this note.
+
+### The fourth reading, 2026-10-21
+
+D154 recorded that this count "was not re-taken after F203, F205, D150 and
+D152". Re-taken on macOS arm64: four release builds, `dff32be` and `55a8ac5`,
+each with no feature and with `jit`. The five programs are ×300,000, with
+the median of five and the empty program subtracted.
+
+| program | `dff32be` Tier 0 | now Tier 0 | change | `dff32be` `jit` | now `jit` | change |
+|---|---|---|---|---|---|---|
+| `1 drop` | 476.0 M | 259.1 M | −45.6% | 317.3 M | 282.2 M | −11.1% |
+| eight literals, eight `drop` | 2,931.3 M | 1,267.0 M | −56.8% | 1,318.7 M | 718.6 M | −45.5% |
+| `1 dup drop` | 829.0 M | 400.2 M | −51.7% | 711.7 M | 467.0 M | −34.4% |
+| `1 2 + drop` | 950.0 M | 469.3 M | −50.6% | 328.7 M | 293.0 M | −10.9% |
+| `f`, where `:f { 1 drop } register` | 712.2 M | 379.1 M | −46.8% | 590.9 M | 417.1 M | −29.4% |
+
+The empty program: 37.5 M and 38.6 M with no feature, 38.2 M and 39.4 M with
+`jit`. `dff32be`'s figures are within 0.3% of the first reading's, so the
+instrument has not moved.
+
+**Both builds got cheaper, the interpreter by more.** Which commits did it
+was not bisected. On `1 drop`, `1 dup drop` and a user's word, today's `jit` build retires more than today's build with no
+feature. That fails RFC-0005's criterion 7 as D148 words it: **F224**.
 
 ## D116 — `bund2 build` refuses a program that does not parse
 
@@ -11542,6 +11643,24 @@ so the ~30 KiB per compiled body stands until either Bund2 finalises less often
 or `cranelift-jit` changes. The N× this decision is about sits on top of a
 constant nobody here controls, which is an argument for option 4 over options 2
 and 3 that the first version of this entry did not have.
+
+**Note, 2026-10-21 — the floor has moved, and the slope has not.** Re-measured
+by the same method (`BUND2_MEASURE_CODE_MEMORY=1`, the ignored `code_memory`
+test in `bund2-async` with `bund2-runtime/jit`, 200 distinct bodies) on an
+Apple M5 Max that was not quiet. RSS is less sensitive to load than a clock.
+
+| run | per body | recorded above |
+|---|---|---|
+| 1 × `1 2 + drop`, three runs | 46.08, 47.44, 47.52 KiB | 30.08, 30.16, 30.64 KiB |
+| 8 ×, two runs | 52.00, 52.40 KiB | 38.72 KiB |
+| 32 ×, two runs | 71.84, 72.72 KiB | 58.08 KiB |
+
+Each further `1 2 + drop` still costs about 0.8 KiB. The fixed cost per body
+is about 46 KiB, not 30: one 16 KiB page more. The cause was not found.
+RFC-0005 §3.2d's single arena reservation (029d6ec), which came after this
+measurement and changed how code memory is mapped, is the first candidate
+and is not shown. The ruling does not rest on the figure. "Tens" of VMs at
+this floor remain small.
 
 ## D90 — what a `log.*` line looks like, now that the oracle's cannot be reproduced
 

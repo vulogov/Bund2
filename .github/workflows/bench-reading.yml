@@ -13,6 +13,12 @@ name: bench-reading
 # each, and every round is printed: a figure is read from the spread of its
 # rounds, never from one. Not a gate. Like `linux-reading`, it wakes on a push
 # that touches this file, which is how a reading is asked for.
+#
+# Since 2026-10-21, criteria 7, 10 and 17 too, on the same three hosts. D154:
+# "Every cost figure of criteria 7, 10 and 17 is of aarch64 code on macOS",
+# and its note of 2026-10-20 left them "not taken up". Each is taken the way
+# its own note in RFC-0005 takes it; each is a job of its own, so one host's
+# slow criterion keeps no other's log waiting.
 on:
   push:
     branches: [development/0.52.0]
@@ -69,3 +75,82 @@ jobs:
                 | grep -E '^arith/|time:'
             done
           done
+
+  # Criterion 7: the feature does not move what it must not. The groups its
+  # table names, Criterion's baseline taken with the feature off and compared
+  # with it on. A move beyond 5% fails only if Criterion also calls it
+  # significant (D70); `arith`'s `/cold` rows are first-entry evidence (D69).
+  criterion-7:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: off, as the baseline
+        run: |
+          cargo bench -p bund2-bench --bench interpret -- --noplot \
+            --save-baseline off '^(startup|value|dispatch|arith|corpus)/' 2>&1 \
+            | grep -E '^(startup|value|dispatch|arith|corpus)/|time:'
+      - name: on, against it
+        run: |
+          cargo bench -p bund2-bench --bench interpret --features jit -- --noplot \
+            --baseline off '^(startup|value|dispatch|arith|corpus)/' 2>&1 \
+            | grep -E '^(startup|value|dispatch|arith|corpus)/|time:|change:|regressed|improved|No change|within noise'
+
+  # Criterion 10: one compiled body against the same body interpreted, on the
+  # program its note of 2026-10-10 writes down, under the CLI at the shipped
+  # threshold, release. Ten rounds, the two builds alternating, every round
+  # printed; the figure is the ratio of the medians.
+  criterion-10:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: both builds
+        run: |
+          cargo build --release -p bund2-cli --target-dir target/off
+          cargo build --release -p bund2-cli --features jit --target-dir target/on
+      - name: the recorded program, alternating
+        shell: bash
+        run: |
+          printf '%s\n' ':w { 1 2 + drop } register' \
+            '0 { w 1 + dup 1000000 > } for drop' > c10.bund
+          TIMEFORMAT=%R
+          for round in 1 2 3 4 5 6 7 8 9 10; do
+            for b in off on; do
+              s=$( { time target/$b/release/bund2 script --file c10.bund >/dev/null; } 2>&1 )
+              echo "round $round $b $s"
+            done
+          done
+
+  # Criterion 17: what the meaning guards cost a site, and the request check
+  # a call. One binary, two compilers: `unguarded` is the measurement-only
+  # constructor that emits neither, and is never shipped.
+  criterion-17:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: guards and request checks, with and without
+        run: |
+          cargo bench -p bund2-bench --bench interpret --features unguarded -- \
+            --noplot '^(guard_cost|request_cost)/' 2>&1 \
+            | grep -E '^(guard_cost|request_cost)/|time:|bench:'
