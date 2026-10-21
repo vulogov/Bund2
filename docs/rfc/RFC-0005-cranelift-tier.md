@@ -10046,3 +10046,40 @@ was 0.29 µs slower: the 1000 operations cost less than the rounds'
 spread, and both compiled figures are almost all the entry. So the
 arithmetic is not what an x86-64 entry spends its time on; the boundary
 is.)*
+
+*(2026-10-20, later still: three hosts. `bench-reading`, run 39517760663 at
+`ac74a40`, one job each on three hosted runners, read as above. The means
+are of the three rounds' criterion means:*
+
+| host | row | off | on | change |
+|---|---|---|---|---|
+| Linux x86-64, AMD EPYC 9V45 | `int_lcg/1000` | 53.81 µs | 2.298 µs | −95.7% |
+| | `int_add/1000` | 53.34 µs | 2.517 µs | −95.3% |
+| Linux aarch64, CPU part `0xd49` | `int_lcg/1000` | 78.02 µs | 3.152 µs | −96.0% |
+| | `int_add/1000` | 77.48 µs | 2.213 µs | −97.1% |
+| macOS x86-64, Intel i7-8700B | `int_lcg/1000` | 116.1 µs | 4.72 µs | −95.9% |
+| | `int_add/1000` | 88.56 µs | 5.27 µs | −94.0% |
+
+*How far each is to be read:*
+- *Linux aarch64 is the steadiest of all four readings: every
+  configuration's rounds lie within 2.5% of each other, the compiled ones
+  within 0.4%.*
+- *Linux x86-64's rounds lie within 3.2%.*
+- *Intel macOS is not steady. Its rounds spread by 16% (`int_add` off), 44%
+  (`int_lcg` off) and 18% (`int_lcg` on), and criterion's own intervals
+  are as wide as 15%. So its changes are a direction and a size, not a
+  figure to three places. Its order is the same as the other hosts', and
+  its compiled `int_lcg` is below its compiled `int_add` in every round.*
+
+*The x86-64 Linux runner was not the same machine as the note above's.
+That run was on an AMD EPYC 9V74, read from the job's log afterwards. The
+interpreter took 53 µs here and 77 µs there, so the two x86-64 Linux
+readings are two hosts and are not averaged.*
+
+*What the three add to the reading above. **On both x86-64 hosts the row
+that cannot fold is no slower than the row that folds**: 2.30 against
+2.52 µs, and 4.72 against 5.27 µs. **On aarch64 Linux it is slower, by
+0.94 µs**, where macOS aarch64 measured 0.29 µs. The arithmetic's cost is
+seen on aarch64 and not on x86-64, now on two hosts of each. Why was not
+looked into. The change itself is between −94% and −97.1% on every host
+and row.)*

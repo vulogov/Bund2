@@ -6895,6 +6895,11 @@ Linux or on x86-64 macOS. D145's stage 2 is not built.
 - *aarch64 Linux and x86-64 macOS.* `bench-reading` asks both, beside Linux
   x86-64, on its next run. **No figure is recorded here until that run has
   been read.**
+  *(Later the same day: read. Run 39517760663 at `ac74a40`. The tier takes
+  94–97% off both arithmetic rows on every host. The figures, and how
+  steady each host was, are in RFC-0005's note under the arithmetic row.
+  The aarch64 Linux job ran F204's host test, and its seven relocation
+  tests passed there.)*
 
 Not taken up: criteria 7, 10 and 17 on another host, D117's count, and
 D145's stage 2.
