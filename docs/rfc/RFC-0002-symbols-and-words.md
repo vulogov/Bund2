@@ -735,7 +735,8 @@ is how a commitment quietly lapses.
   limits.
 - **Q15** — `cargo xtask unblock` needs redesigning before it can order the
   work this RFC enables. It ranks against the goldens, which see about a
-  quarter of the in-scope words.
+  quarter of the in-scope words. *(2026-10-21: resolved by D201 — `unblock`
+  is retired, and `cargo xtask coverage` names what is left.)*
 - `methods_fun` is **settled**, not open: it is a `method` binding in the
   `Slot` struct, alongside the other five. An earlier draft declared it open
   here while the Design had already placed it, which is the kind of

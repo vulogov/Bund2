@@ -319,7 +319,7 @@ so conformance can read 100% with three quarters of the language untested.
 Three files are the shared state between sessions, and this RFC does not
 duplicate them:
 
-- `docs/registers/decisions.md` — 201 entries, **one OPEN** (D201). Append-only; a status may
+- `docs/registers/decisions.md` — 201 entries, **none OPEN**. Append-only; a status may
   change, an entry may not be deleted or renumbered.
 - `docs/registers/defects.md` — 222 entries. The roadmap's §5 listed eleven;
   the rest were found by running the oracle rather than reading it. F14, F15 and
@@ -547,6 +547,8 @@ The full narrowing is regenerated into `tests/golden/HERMETIC.txt` on every
   is a `bund2` to run.
 - **Q15** — `cargo xtask unblock` needs redesigning before it can order M6
   work; as specified it can only see the words the goldens touch.
+  *(2026-10-21: resolved by D201 — `unblock` is retired, and `cargo xtask
+  coverage` names what is left.)*
 - **D31** is OPEN and gates D27, and through it RFC-0002's criterion 7. *(2026-10-19: RESOLVED 2026-09-11, no external readers; the gate is discharged.)* If an
   external reader of the world file exists, the redb change is breaking. It
   was recorded against D11 until D11 was split: D11 asks about the object

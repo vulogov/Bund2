@@ -3686,7 +3686,13 @@ nothing left to rank.
   - **C. Leave it** refusing, with its help text, until a new scope (a
     D14 change, or a library re-implemented out of tree) gives it a queue.
 - Default for planning: A. Not adopted.
-- Status: **OPEN**
+- Status: **RESOLVED** by the repository owner, 2026-10-21: A ("D201 A").
+  Built the same day: the command is gone from xtask's `main.rs`, its
+  help and its match arm both, so `cargo xtask unblock` is now an unknown
+  command; Q15 is triaged as superseded by `coverage`, and RFC-0000's and
+  RFC-0002's mentions of it carry dated notes. `scaffold-bund2.sh`, the
+  script that first laid out the workspace, still names the command, and is
+  left as the record of what was scaffolded.
 
 ## D200 — `graph.allpath`'s dependence on the last node is preserved (F220)
 

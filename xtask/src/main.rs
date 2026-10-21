@@ -45,11 +45,6 @@ Oracle
                 A golden the oracle does not reproduce on this host is kept
                 as this host's variant, beside the shared one (D150):
                   --variant <name> --reason <decision>
-  unblock       NEEDS REDESIGN (Q15). Ranks unimplemented words by the hermetic
-                examples each alone gates — which can only ever see the 140
-                in-scope words the goldens touch. As specified it would report
-                an empty work queue with 446 words unimplemented. Rank against
-                the coverage denominator instead.
 
   cite          Verify every `reference/...:N` citation across the docs and
                 registers: file exists, line exists, and where the prose quotes
@@ -270,10 +265,6 @@ fn main() -> std::process::ExitCode {
                 std::process::ExitCode::FAILURE
             }
         },
-        "unblock" => {
-            bund2_api::errln!("xtask: `{cmd}` is not implemented yet");
-            std::process::ExitCode::from(70)
-        }
         "" | "-h" | "--help" | "help" => {
             bund2_api::say!("{HELP}");
             std::process::ExitCode::SUCCESS
