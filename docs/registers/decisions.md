@@ -3653,6 +3653,49 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D203 — does D200's ruling cover `graph.allpath` refusing a graph with no cycle?
+
+**Raised 2026-10-21** by the fifth RFC-0012 review
+(`docs/rfc/reviews/RFC-0012-review-2026-10-21-2.md`, finding 1). D200 ruled
+to preserve F220 as F220 then described it: Johnson's extra source replaces
+the last node's own out-edges, and a negative one there makes Johnson drop
+rows without a word. The same construction does something D200 was not
+shown. The potentials come from Bellman–Ford over a graph in which the last
+distinct node `q` has a zero-weight edge to every node
+(`~/.cargo/git/checkouts/algos-9d1538761d16fda1/4c08437/src/cs/graph/johnson.rs:38-47`).
+So any path *into* `q` with a negative total closes a negative cycle
+`q → v ⇝ q` there, and Johnson refuses the graph (`johnson.rs:50-53`,
+`bellman_ford.rs:91-101`). That happens whether the program's graph has a
+cycle or not. Run in both engines on this date:
+
+    [ [ :A :C -1.0 ] ] [ :A :B :C ] graph! graph.allpath
+    [ [ :A :B 1.0 ] [ :B :C -0.5 ] ] [ :A :B :C ] graph! graph.allpath
+    [ [ :C :A 5.0 ] [ :A :C -1.0 ] ] [ :A :B :C ] graph! graph.allpath
+
+Each answers `GRAPH.ALLPATH: returned: negative cycle detected in graph`.
+The first two have no cycle, and the third's one cycle weighs +4.0. The
+first, listed `[ :C :A :B ]`, answers four rows. So on a DAG with any
+negative path into the last distinct node, the commonest way to meet F220
+is this error, and it names a cycle that is not there.
+
+- Blocks: RFC-0012's acceptance
+- Depends on: D200, F220, D14 (the family is core, so its words are
+  preserved 100%), D192 §3 (`graph.bellmanford` for negative weights)
+- Options:
+  - **A. Preserve: D200 covers it.** `graph.allpath` answers as the
+    reference does, error included. F220 and RFC-0012 state it, and
+    `graph.bellmanford` is the word for negative weights. No deviation.
+  - **B. Fix F220 whole.** Give Johnson a true extra vertex, outside the
+    program's nodes, so the potentials never replace a real node's edges.
+    That removes all three faces of F220 at once: the dropped rows, the
+    missed cycle and this false one. It is a deviation in a core word that
+    no golden pins, and it overturns D200.
+- Recommendation: **A**, as D200 chose for the same cause. B is the
+  coherent alternative if the owner would rather fix F220 than preserve
+  it; choosing B for this face alone would leave the other two.
+- Default for planning: A. Not adopted.
+- Status: **OPEN**
+
 ## D202 — refuse a sum that overflows only when the answer does
 
 **Raised 2026-10-21** by the fourth RFC-0012 review
@@ -3733,6 +3776,25 @@ Tests: `only_an_answer_that_cannot_be_represented_is_refused`,
 `a_sum_that_overflows_is_refused` with its messages changed
 (`crates/bund2-stdlib/src/graph_algorithms.rs`).
 
+**Note, 2026-10-21 — built again, without the exception.** The fifth
+RFC-0012 review (finding 2) found that the build above refused, as before,
+any graph with a weight too small to scale without losing bits. That
+included a self-loop or an edge the start never reaches. The refusal named
+a node whose distance was representable, and it reported the `-1.0e308`
+cycle as an overflow. Option A as ruled has no such exception. The scaled
+run is replaced by a run in `Wide`: an `f64` significand with an `i32`
+exponent beside it. A sum rounds as `f64`'s would with unbounded range,
+since what scaling the smaller operand loses lies below half the larger's
+last place. So any weight is taken and the exception is gone. Each distance
+is answered when it fits an `f64`, and refused by its node when it does not.
+`mst_total` now folds from the first weight rather than from 0.0, so a
+forest of `-0.0` edges still totals `-0.0`, as `sum` made it (the same
+review's finding 5); no edges total 0.0. New tests:
+`the_wide_run_scales_with_the_weights` (1,200 seeded graphs with weights
+scaled by `2^1020` and a subnormal self-loop, each answer the plain one
+scaled, to the bit; 228 of the runs need `Wide`) and
+`wide_sums_round_as_unbounded_f64_would`.
+
 ## D201 — `cargo xtask unblock`: retire it, or rank what is left (Q15)
 
 **Raised 2026-10-21** in a review of deferred items. `unblock` was specified
@@ -3798,6 +3860,12 @@ ordered (F220).
   analysis, and
   `allpath_with_a_negative_edge_out_of_the_last_node_answers_nothing`
   pins both answers.
+
+**Note, 2026-10-21.** This ruling was made on F220 as it then read. F220
+also makes `graph.allpath` refuse a graph that has no cycle, as "negative
+cycle detected", when a negative path runs into the last distinct node.
+That was found by the fifth RFC-0012 review and not shown here. Whether
+this ruling covers it is **D203**, open.
 
 ## D199 — a sum of finite weights that overflows is refused
 
@@ -4126,6 +4194,17 @@ and pushes what it received — declared, `1 -> 0` on the workbench, 66 rows;
 and `bund.eval-file.`, on a one-line file the probe writes first, which runs
 code and stays `Unknown`. Of the `.` words, only `for.`, declared from
 source, and the effectful ones the probe does not run are unmeasured.
+
+**Note, 2026-10-21.** RFC-0012's twelve `.` forms are Bund2's own, so there
+is nothing to measure for them, and they were declared `Unknown` by this
+entry's rule. `check` therefore could not see one run with no graph on the
+workbench (the fifth RFC-0012 review, finding 4). They are now declared
+`(1, 1)` from how they are built, as `SOURCED` declares four words from
+their source: `bench_form` takes the graph from the workbench, and each
+plain word leaves one answer (`BUILT`, `crates/bund2-stdlib/src/bench.rs`).
+`:A graph.bfs.` is now a finding. D111's added forms come from the same
+`bench_form` and stay `Unknown`; declaring them the same way is not done
+here.
 
 ## D194 — a program that does not parse exits 1
 
@@ -7072,6 +7151,22 @@ D145's stage 2.
 - *Criteria 7, 10 and 17 on another host.* `bench-reading` gains a job for
   each, on its three hosts, each taken as its criterion's note takes it.
   **No figure is recorded here until that run has been read.**
+  *(Later the same day: read. Run 39682400238 at `0189563`.*
+  - *Criterion 17 holds on both Linux hosts. The request check costs
+    0.32 ns a call on x86-64 and 0.23 ns on aarch64 (32 calls). The meaning
+    guards cost about 0 a site on x86-64 and 0.41–0.88 ns on aarch64. The
+    bound is 2 ns.*
+  - *Criterion 10's stop rule fires on Linux x86-64, at 1.14×, and, re-read
+    here, on macOS arm64, at 1.17×. Linux aarch64 reads 1.35× and Intel
+    macOS 1.23×. **F224**'s note of this date has the table.*
+  - *Criterion 7's clock table is a reading under D148, which cannot fail
+    the criterion. It raises one question:
+    `arith/float_mul/1000` is slower with the tier, by +47.0% on x86-64 and
+    +28.6% on aarch64, both significant. `corpus/mixed` reads +19% on
+    x86-64 (p = 0.02).*
+  - *The Intel macOS runner drifted through both criterion 7 and criterion
+    17. Every row moved 10–40% one way, and an unguarded arm read slower
+    than its guarded one by up to 1 µs. Neither table is a reading.)*
 - *D145's stage 2.* The reading it waited on is under D145: the memory
   raises no objection, and the compiler's borrow does. Stage 2 stays
   unapproved.

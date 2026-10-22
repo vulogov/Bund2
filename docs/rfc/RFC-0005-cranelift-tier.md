@@ -6926,6 +6926,14 @@ criterion.)*
     to buy is the `{ … } if` branch and the recursion's operand kept out of a
     `BundValue`, both decisions and neither built.)*
 
+    *(2026-10-21 — **the stop rule fires on today's tree, on two hosts.**
+    The recorded program, same method: macOS arm64 **1.17×** (0.130 s
+    against 0.111 s), Linux x86-64 **1.14×**, Linux aarch64 1.35×, Intel
+    macOS 1.23× (`bench-reading` run 39682400238). The tier did not slow
+    down: the program without a tier went from 316 ms to 130 ms here. F224
+    has the table and the cause, criterion 7's; reopening §S1's gate, as
+    this criterion asks, is the owner's.)*
+
     *(2026-10-15, later: the `*` and `>` arms touch no site of `fib`'s.
     Re-measured after them, Tier 0 0.47 s, Tier 1 0.59 s.)* *(2026-10-16:
     nor do the `<=`, `>=`, `==` and `!=` arms — `fib` compares with `<`.

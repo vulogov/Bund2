@@ -531,8 +531,10 @@ pub(crate) fn mst(net: &Net) -> Vec<(usize, usize, f64)> {
 ///
 /// Summed lightest first, the order the edges were chosen in, which is the
 /// answer whenever that sum is finite, so every total answered before D202 is
-/// answered alike. From 0.0, not `sum`: the sum of no `f64`s is `-0.0`, which
-/// `println` shows, and the empty graph's total is 0.0 (RFC-0012 S1).
+/// answered alike. From the first weight, as `sum` is in effect (`-0.0 + w`
+/// is `w`), so a forest of `-0.0` edges still totals `-0.0`; and 0.0 for no
+/// edges, where `sum` answers `-0.0`, which `println` shows, and the empty
+/// graph's total is 0.0 (RFC-0012 S1). The fifth review's finding 5.
 ///
 /// Lightest first adds every negative weight before any positive one, so the
 /// running sum can overflow where the total does not. Then the sum is taken
@@ -542,7 +544,11 @@ pub(crate) fn mst(net: &Net) -> Vec<(usize, usize, f64)> {
 /// so the sum never exceeds the largest weight in magnitude; after that it
 /// moves only toward the total. So a sum that still overflows is the total's.
 pub(crate) fn mst_total(chosen: &[(usize, usize, f64)]) -> f64 {
-    let lightest_first = chosen.iter().fold(0.0, |s, e| s + e.2);
+    let mut weights = chosen.iter().map(|e| e.2);
+    let lightest_first = match weights.next() {
+        Some(first) => weights.fold(first, |s, w| s + w),
+        None => 0.0,
+    };
     if lightest_first.is_finite() {
         return lightest_first;
     }
@@ -580,57 +586,31 @@ pub(crate) enum NoDistances {
 /// (D199). The outer `Err` is a defect in the walk.
 ///
 /// **Only an answer that cannot be represented is refused** (D202). The
-/// graph is first relaxed as given, and that is the answer whenever no sum
+/// graph is first relaxed in `f64`, and that is the answer whenever no sum
 /// it forms overflows, so every graph answered before D202 is answered
 /// alike. A sum that overflows need not be a distance: `A → C` at 1.0 beside
 /// `A → B → C` at 1e308 each overflows on the way to a finite answer. So
-/// then the graph is relaxed again with every weight divided by `2^k`, `k`
-/// chosen so that no sum the run can form is near the limit — a run is at
-/// most `nodes × edges` relaxations, each adding one weight. Dividing by a
-/// power of two is exact, so the scaled run makes every comparison the
-/// unscaled one would have made with unbounded range: it finds a cycle as a
-/// cycle, the `-1.0e308` one D199 met included, and each distance scaled back
-/// is the distance, or not finite and refused by its node. A weight so small
-/// that dividing it would lose bits makes the scaling inexact, and the graph
-/// is refused as before, by the first edge whose sum overflowed.
+/// then the graph is relaxed again in [`Wide`], whose exponent has no limit a
+/// run can reach and whose sums round as `f64`'s would with unbounded range.
+/// That run makes every comparison an unbounded one would: it finds a cycle
+/// as a cycle, the `-1.0e308` one D199 met included, and each distance is
+/// the answer when it fits an `f64`, or is refused by its node.
 pub(crate) fn bellman_ford(net: &Net, s: usize) -> Result<Distances, Error> {
-    let first = match bellman_ford_as_given(net, s)? {
-        Ok(found) => return Ok(found),
-        Err(first) => first,
-    };
-    let relaxations = net.len().max(1).saturating_mul(net.edges.len().max(1)) as f64;
-    // Half the range is left over for the sum in hand and a comparison.
-    let k = (2.0 * relaxations).log2().ceil() as i32 + 1;
-    let scale = 2f64.powi(k);
-    let exact = net
-        .edges
-        .iter()
-        .all(|&(_, _, w)| (w / scale) * scale == w && (w == 0.0 || w / scale != 0.0));
-    if !exact || !scale.is_finite() {
-        return Ok(Err(NoDistances::Overflow(first.1)));
+    if let Ok(found) = bellman_ford_in::<f64>(net, s)? {
+        return Ok(found);
     }
-    let scaled = Net {
-        names: net.names.clone(),
-        ix: net.ix.clone(),
-        edges: net
-            .edges
-            .iter()
-            .map(|&(f, t, w)| (f, t, w / scale))
-            .collect(),
-        out: net.out.clone(),
-    };
-    let dist = match bellman_ford_as_given(&scaled, s)? {
+    let dist = match bellman_ford_in::<Wide>(net, s)? {
         Ok(Ok(dist)) => dist,
         Ok(Err(cycle)) => return Ok(Err(cycle)),
         Err((f, t)) => {
             return Err(Error::internal(format!(
-                "graph.bellmanford's scaled run overflowed at {f} -> {t}, which its scale rules out"
+                "graph.bellmanford's wide run overflowed at {f} -> {t}, which a wide sum cannot"
             )));
         }
     };
     let mut back = Vec::with_capacity(dist.len());
     for (u, d) in dist.into_iter().enumerate() {
-        let d = d.map(|d| d * scale);
+        let d = d.map(Wide::to_f64);
         if d.is_some_and(|d| !d.is_finite()) {
             return Ok(Err(NoDistances::Overflow(u)));
         }
@@ -642,21 +622,147 @@ pub(crate) fn bellman_ford(net: &Net, s: usize) -> Result<Distances, Error> {
 /// What [`bellman_ford`] answers: the distances, or why there are none.
 type Distances = Result<Vec<Option<f64>>, NoDistances>;
 
-/// [`bellman_ford`] over the weights as given. The outermost `Err` is the
-/// first edge, `from` then `to`, whose sum was not finite: every weight is
-/// finite (the reader refuses one that is not), so that sum overflowed, and
-/// relaxation would stop at `-inf` and could hide a cycle (D199).
-fn bellman_ford_as_given(net: &Net, s: usize) -> Result<Result<Distances, (usize, usize)>, Error> {
+/// What [`bellman_ford_in`] answers over `T`, or the first edge, `from` then
+/// `to`, whose sum overflowed `T`.
+type DistancesIn<T> = Result<Result<Vec<Option<T>>, NoDistances>, (usize, usize)>;
+
+/// A distance [`bellman_ford_in`] can run over.
+trait Distance: Copy {
+    fn zero() -> Self;
+    /// `self + w`, or `None` when the sum overflowed.
+    fn plus(self, w: f64) -> Option<Self>;
+    fn below(self, other: Self) -> bool;
+}
+
+impl Distance for f64 {
+    fn zero() -> Self {
+        0.0
+    }
+    fn plus(self, w: f64) -> Option<Self> {
+        // Every weight is finite (the reader refuses one that is not), so a
+        // sum that is not finite overflowed.
+        Some(self + w).filter(|v| v.is_finite())
+    }
+    fn below(self, other: Self) -> bool {
+        self < other
+    }
+}
+
+/// A number with an `f64`'s significand and an exponent of its own:
+/// `m × 2^e`, with `m` zero or of magnitude in `[1, 2)` — D202's distances.
+///
+/// **A sum rounds as `f64`'s would with unbounded range.** The larger
+/// operand's significand is added to the smaller's scaled to it, so the one
+/// `f64` addition rounds the exact sum to 53 bits, as an addition in range
+/// does. Where scaling the smaller one loses bits, it lies below 2^-1021 of
+/// a significand of at least 1, so far below half the larger's last place
+/// that the nearest `f64` is the larger alone, as it would be unbounded.
+/// `i32` exponents reach far past what a run's `nodes × edges` additions of
+/// finite weights can.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Wide {
+    m: f64,
+    e: i32,
+}
+
+/// `2^e` as an `f64`, exact where it is representable and zero below that.
+fn pow2(e: i32) -> f64 {
+    if e > 1023 {
+        f64::INFINITY
+    } else if e >= -1022 {
+        f64::from_bits(((e + 1023) as u64) << 52)
+    } else if e >= -1074 {
+        f64::from_bits(1u64 << (e + 1074))
+    } else {
+        0.0
+    }
+}
+
+impl Wide {
+    /// `x` exactly, for any finite `x`.
+    pub(crate) fn of(x: f64) -> Self {
+        if x == 0.0 {
+            return Wide { m: 0.0, e: 0 };
+        }
+        let bits = x.to_bits();
+        let field = ((bits >> 52) & 0x7ff) as i32;
+        if field == 0 {
+            // Subnormal: scaled by 2^64 it is normal, exactly.
+            let w = Wide::of(x * pow2(64));
+            return Wide {
+                m: w.m,
+                e: w.e - 64,
+            };
+        }
+        let m = f64::from_bits((bits & !(0x7ff << 52)) | (1023 << 52));
+        Wide { m, e: field - 1023 }
+    }
+
+    fn sum(self, other: Self) -> Self {
+        if self.m == 0.0 {
+            return other;
+        }
+        if other.m == 0.0 {
+            return self;
+        }
+        let (big, small) = if self.e >= other.e {
+            (self, other)
+        } else {
+            (other, self)
+        };
+        let r = big.m + small.m * pow2(small.e - big.e);
+        let w = Wide::of(r);
+        Wide {
+            m: w.m,
+            e: if w.m == 0.0 { 0 } else { w.e + big.e },
+        }
+    }
+
+    /// The nearest `f64`, rounded once; not finite past `f64`'s range.
+    pub(crate) fn to_f64(self) -> f64 {
+        if self.m == 0.0 {
+            0.0
+        } else if self.e >= -1022 {
+            self.m * pow2(self.e)
+        } else if self.e >= -2022 {
+            // The first product is exact and normal; the second rounds once.
+            (self.m * pow2(self.e + 1000)) * pow2(-1000)
+        } else {
+            0.0 * self.m
+        }
+    }
+}
+
+impl Distance for Wide {
+    fn zero() -> Self {
+        Wide { m: 0.0, e: 0 }
+    }
+    fn plus(self, w: f64) -> Option<Self> {
+        Some(self.sum(Wide::of(w)))
+    }
+    fn below(self, other: Self) -> bool {
+        // The rounded difference has the exact difference's sign.
+        self.sum(Wide {
+            m: -other.m,
+            e: other.e,
+        })
+        .m < 0.0
+    }
+}
+
+/// [`bellman_ford`] over distances of type `T`. The outermost `Err` is the
+/// first edge, `from` then `to`, whose sum overflowed `T`, where relaxation
+/// would stop at `-inf` and could hide a cycle (D199).
+fn bellman_ford_in<T: Distance>(net: &Net, s: usize) -> Result<DistancesIn<T>, Error> {
     let n = net.len();
-    let mut dist: Vec<Option<f64>> = vec![None; n];
+    let mut dist: Vec<Option<T>> = vec![None; n];
     let mut pred: Vec<Option<usize>> = vec![None; n];
     if let Some(d) = dist.get_mut(s) {
-        *d = Some(0.0);
+        *d = Some(T::zero());
     }
-    // `Ok(Some(t))`: the last node relaxed; `Err`: an edge whose sum is
-    // not finite. Every weight is finite (the reader refuses one that is
-    // not), so a sum that is not finite overflowed.
-    let relax = |dist: &mut Vec<Option<f64>>,
+    // `Ok(Some(t))`: the last node relaxed; `Err`: an edge whose sum
+    // overflowed.
+    let relax = |dist: &mut Vec<Option<T>>,
                  pred: &mut Vec<Option<usize>>|
      -> Result<Option<usize>, (usize, usize)> {
         let mut last = None;
@@ -664,13 +770,12 @@ fn bellman_ford_as_given(net: &Net, s: usize) -> Result<Result<Distances, (usize
             let Some(df) = dist.get(f).copied().flatten() else {
                 continue;
             };
-            let via = df + w;
-            if !via.is_finite() {
+            let Some(via) = df.plus(w) else {
                 return Err((f, t));
-            }
+            };
             let better = match dist.get(t).copied().flatten() {
                 None => true,
-                Some(dt) => via < dt,
+                Some(dt) => via.below(dt),
             };
             if better {
                 if let Some(d) = dist.get_mut(t) {
@@ -1838,15 +1943,101 @@ mod tests {
             "[ [ :A :B -1.0e308 ] [ :B :C 1.0e308 ] [ :C :D 1.0e308 ] [ :D :E 1.0e308 ] ] [ :A :B :C :D :E ] graph! graph.mst",
         );
         assert!(e.contains("GRAPH.MST: the total weight overflows"), "{e}");
-        // A weight too small to scale without losing bits keeps the refusal
-        // D199 made: the scaled run would not be exact (D202, as built).
+        // The smallest weight there is, anywhere in the graph — on a path,
+        // unreachable, or a self-loop — changes none of this (the fifth
+        // review's finding 2, against the scaled run D202 was first built
+        // with, which refused here).
+        for extra in [
+            "[ :C :A 5.0e-324 ]",
+            "[ :D :E 5.0e-324 ]",
+            "[ :D :D 5.0e-324 ]",
+        ] {
+            let b = top(&format!(
+                ":A [ [ :A :C 1.0 ] [ :A :B 1.0e308 ] [ :B :C 1.0e308 ] {extra} ] [ :A :B :C :D :E ] graph! graph.bellmanford"
+            ));
+            assert!(b.contains("node=C ::  path=1.0"), "{extra}: {b}");
+        }
         let e = err_of(
-            ":A [ [ :A :C 1.0 ] [ :A :B 1.0e308 ] [ :B :C 1.0e308 ] [ :C :A 5.0e-324 ] ] [ :A :B :C ] graph! graph.bellmanford",
+            ":A [ [ :A :B -1.0e308 ] [ :B :A -1.0e308 ] [ :C :C 5.0e-324 ] ] [ :A :B :C ] graph! graph.bellmanford",
         );
         assert!(
-            e.contains("GRAPH.BELLMANFORD: the distance to C overflows"),
+            e.contains("GRAPH.BELLMANFORD: A reaches a negative cycle through A"),
             "{e}"
         );
+        // A forest of `-0.0` edges totals `-0.0`, as `sum` made it.
+        let m = top("[ [ :A :B -0.0 ] ] [ :A :B ] graph! graph.mst");
+        assert!(m.contains("weight=-0.0"), "{m}");
+    }
+
+    /// **D202's wide run is the plain one, scaled** — the fifth review's
+    /// finding 3. Scaling every weight by `2^1020` scales every distance, to
+    /// the bit, since rounding commutes with a power of two while nothing
+    /// leaves the range; so each answer over the scaled graph must be the
+    /// plain answer times `2^1020`, a refusal by the first node whose scaled
+    /// distance is not finite, or the same cycle node. Most of these graphs
+    /// overflow scaled, so this is mostly the wide run, checked against the
+    /// plain one. A subnormal self-loop is added to the scaled graph: it
+    /// changes no distance, and broke the first build of D202.
+    #[test]
+    fn the_wide_run_scales_with_the_weights() {
+        let scale = pow2(1020);
+        let mut wide_runs = 0;
+        for g in graphs(11, 1200, -3) {
+            let plain = net(&g);
+            let mut big = net(&g);
+            for e in &mut big.edges {
+                e.2 *= scale;
+            }
+            // The reader refuses a weight that is not finite (D193 §3).
+            if big.edges.iter().any(|e| !e.2.is_finite()) {
+                continue;
+            }
+            big.edges.push((0, 0, 5.0e-324));
+            for s in 0..plain.len() {
+                if bellman_ford_in::<f64>(&big, s).is_ok_and(|r| r.is_err()) {
+                    wide_runs += 1;
+                }
+                let got = bellman_ford(&big, s).unwrap_or_else(|e| panic!("{}", e.0));
+                match bf(&plain, s) {
+                    Err(u) => assert_eq!(got, Err(NoDistances::Cycle(u)), "{:?}", plain.edges),
+                    Ok(d) => {
+                        let want: Vec<Option<f64>> =
+                            d.iter().map(|x| x.map(|x| x * scale)).collect();
+                        match want.iter().position(|x| x.is_some_and(|x| !x.is_finite())) {
+                            Some(u) => {
+                                assert_eq!(got, Err(NoDistances::Overflow(u)), "{:?}", plain.edges)
+                            }
+                            None => assert_eq!(got, Ok(want), "{:?}", plain.edges),
+                        }
+                    }
+                }
+            }
+        }
+        assert!(wide_runs > 100, "only {wide_runs} runs needed the wide run");
+    }
+
+    #[test]
+    fn wide_sums_round_as_unbounded_f64_would() {
+        let w = |x: f64| Wide::of(x);
+        for x in [0.0, 1.0, -3.5, 5.0e-324, -2.2e-308, 1.7e308, 0.1] {
+            assert_eq!(w(x).to_f64().to_bits(), x.to_bits(), "{x}");
+        }
+        // In range, a wide sum is the `f64` sum.
+        for (a, b) in [
+            (0.1, 0.2),
+            (1.0e308, -1.0e308),
+            (1.0, 1.0e-300),
+            (5.0e-324, 5.0e-324),
+        ] {
+            assert_eq!(w(a).sum(w(b)).to_f64(), a + b, "{a} + {b}");
+        }
+        // Past it, the sum is kept, and comes back when it fits again.
+        let over = w(1.0e308).sum(w(1.0e308));
+        assert!(over.to_f64().is_infinite());
+        assert_eq!(over.sum(w(-1.5e308)).to_f64(), 0.5e308);
+        assert!(Distance::below(w(-1.0e308).sum(w(-1.0e308)), w(-1.0e308)));
+        // A sum below an `f64`'s reach of the larger operand leaves it.
+        assert_eq!(w(1.0e308).sum(w(5.0e-324)).to_f64(), 1.0e308);
     }
 
     #[test]
@@ -1887,6 +2078,28 @@ mod tests {
         let first =
             top("[ [ :A :B 1.0 ] [ :B :C 1.0 ] [ :C :A -0.5 ] ] [ :C :A :B ] graph! graph.allpath");
         assert!(first.contains("-0.5"), "{first}");
+    }
+
+    /// **F220's commonest face: a graph with no cycle refused as one** —
+    /// the fifth RFC-0012 review's finding 1. Johnson's potentials run over
+    /// the graph with the last node's zero-weight edges to every node, so a
+    /// negative path *into* that node closes a cycle there. Both engines
+    /// answer so; listed with the node elsewhere, the graph answers.
+    #[test]
+    fn allpath_refuses_an_acyclic_graph_with_a_negative_path_into_the_last_node() {
+        for graph in [
+            "[ [ :A :C -1.0 ] ]",
+            "[ [ :A :B 1.0 ] [ :B :C -0.5 ] ]",
+            "[ [ :C :A 5.0 ] [ :A :C -1.0 ] ]",
+        ] {
+            let e = err_of(&format!("{graph} [ :A :B :C ] graph! graph.allpath"));
+            assert!(
+                e.contains("GRAPH.ALLPATH: returned: negative cycle detected in graph"),
+                "{graph}: {e}"
+            );
+        }
+        let elsewhere = top("[ [ :A :C -1.0 ] ] [ :C :A :B ] graph! graph.allpath");
+        assert!(elsewhere.contains("weight=-1.0"), "{elsewhere}");
     }
 
     /// **What a refusal leaves** (§S4, RFC-0004's residual): the values a

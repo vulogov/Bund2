@@ -106,6 +106,28 @@ const SOURCED: &[(&str, u8, u8)] = &[
     ("return_to", 1, 0),
 ];
 
+/// RFC-0012's twelve graph words' forms, Bund2's own, so there is nothing to
+/// measure and nothing for the oracle to say. Their half is known by how they
+/// are built: `bench_form` takes the graph from the workbench and moves what
+/// the plain word left there, and each plain word leaves exactly one answer
+/// (criterion 1, `each_form_holds_the_graph_on_the_workbench`). The fifth
+/// RFC-0012 review's finding 4: declared `Unknown` before, `check` could not
+/// see a form run with no graph on the workbench.
+const BUILT: &[&str] = &[
+    "graph.bfs.",
+    "graph.dfs.",
+    "graph.reachable.",
+    "graph.neighbors.",
+    "graph.degree.",
+    "graph.toposort.",
+    "graph.cycle.",
+    "graph.components.",
+    "graph.scc.",
+    "graph.mst.",
+    "graph.bellmanford.",
+    "graph.maxflow.",
+];
+
 /// Two `.` words that read the main stack and never the workbench, from
 /// their source: `for.` pulls its body and its condition with
 /// `vm.stack.pull()` (`reference/rust_multistackvm/src/stdlib/logic/for_fun.rs:56,62`),
@@ -118,6 +140,15 @@ const STACK_ONLY: &[&str] = &["for.", "*loop."];
 pub fn declare(r: &mut Registry) {
     for &(word, consumes, produces) in MEASURED.iter().chain(SOURCED) {
         r.set_bench(word, Bench::Fixed { consumes, produces });
+    }
+    for word in BUILT {
+        r.set_bench(
+            word,
+            Bench::Fixed {
+                consumes: 1,
+                produces: 1,
+            },
+        );
     }
     let unmeasured: Vec<String> = r
         .interner
@@ -194,5 +225,15 @@ mod tests {
         );
         assert_eq!(bench("format."), Some(Bench::Unknown));
         assert_eq!(bench("+"), Some(Bench::Untouched));
+        for w in BUILT {
+            assert_eq!(
+                bench(w),
+                Some(Bench::Fixed {
+                    consumes: 1,
+                    produces: 1
+                }),
+                "{w}"
+            );
+        }
     }
 }

@@ -2687,6 +2687,13 @@ mod tests {
     #[test]
     fn the_workbench_is_counted() {
         assert_eq!(on_bench(&check_src("take")), [("take".into(), 1, 0)]);
+        // RFC-0012's forms, declared by how they are built (`bench.rs`,
+        // `BUILT`): one graph in, one answer out.
+        assert_eq!(
+            on_bench(&check_src(":A graph.bfs.")),
+            [("graph.bfs.".into(), 1, 0)]
+        );
+        assert!(on_bench(&check_src("list list graph! . :A graph.bfs. take")).is_empty());
         assert_eq!(
             on_bench(&check_src("1 . take take")),
             [("take".into(), 1, 0)]

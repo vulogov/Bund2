@@ -4286,6 +4286,24 @@ acceptance; the interpreter's has fallen beneath it.
   baseline, or exempt a body whose whole turn is below some number of
   instructions. That reopens D148.
 
+**Note, 2026-10-21, later — criterion 10's stop rule fires too, on two
+hosts.** Criterion 10's recorded program (`:w { 1 2 + drop } register` and
+`0 { w 1 + dup 1000000 > } for drop`), run by the release CLI at the
+shipped threshold, ten rounds alternating, medians:
+
+| host | no tier | tier | ratio |
+|---|---|---|---|
+| macOS arm64 (this machine, `55a8ac5`) | 0.130 s | 0.111 s | **1.17×** |
+| Linux x86-64 (`bench-reading`, run 39682400238, `0189563`) | 0.4725 s | 0.414 s | **1.14×** |
+| Linux aarch64 (same run) | 0.451 s | 0.335 s | 1.35× |
+| Intel macOS (same run) | 0.493 s | 0.4005 s | 1.23× |
+
+Every pair on every host favours the tier. On 2026-10-10 this machine read
+1.42×, 316 ms against 222 ms. Since then the program without a tier has
+gone from 316 ms to 130 ms. The criterion says a figure below 1.2× means
+"§S1's gate should be reopened rather than the number explained". Its
+cause is this entry's, and so is its disposition: the owner's.
+
 ## F223 — `debug` runs its first value before it knows it has a line editor
 
 **A Bund2 divergence; found 2026-10-21** while examining RFC-0008's row "`debug`
@@ -4459,6 +4477,17 @@ its rows, which F17's fix assumed it never does.
   `[ :A :B :C ]` answers `GRAPH.ALLPATH: returned: negative cycle detected
   in graph`. D200's ruling, to preserve, is unaffected. RFC-0012 states the
   condition under "Current behaviour".
+
+- **Note, 2026-10-21, later — a third face: a graph with no cycle refused
+  as one** (the fifth RFC-0012 review, finding 1). The potentials'
+  Bellman–Ford runs over the graph in which `q` has a zero-weight edge to
+  every node (`johnson.rs:38-47`). So a negative path into `q` closes a
+  negative cycle there: `[ [ :A :C -1.0 ] ] [ :A :B :C ] graph!
+  graph.allpath` answers `GRAPH.ALLPATH: returned: negative cycle detected
+  in graph` in both engines. Listed `[ :C :A :B ]`, the same graph answers.
+  Pinned by
+  `allpath_refuses_an_acyclic_graph_with_a_negative_path_into_the_last_node`.
+  D200 did not see this face; **D203** asks whether its ruling covers it.
 
 ## F219 — `graph.path` panics on a node no kept edge reaches
 

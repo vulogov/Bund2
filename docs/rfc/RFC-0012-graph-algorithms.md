@@ -21,19 +21,28 @@
   finite, `graph.mst` answering `-0.0` over the empty graph, and F220
   stated more broadly than it holds. The owner ruled on the first two in
   **D202** (A: refuse only an answer that cannot be represented); the rest
-  is answered in place, and listed at the end.
+  is answered in place, and listed at the end. The fifth review
+  (`RFC-0012-review-2026-10-21-2.md`, "Not ready for Accepted") found
+  `graph.allpath` refusing graphs with no cycle (F220's third face, put to
+  the owner as **D203**, open); D202's build keeping an exception the
+  ruling did not grant, and untested by any cross-check (both answered in
+  code); and the `.` forms' workbench half undeclared, which D195 bears on.
+  The rest is answered in place, and listed at the end.
 - Depends on: RFC-0002 (natives and their declared effects), RFC-0004
   (the effects `bund2 check` reads, and the residual stack), RFC-0005
   (which natives Tier 1 promotes)
 - Decisions consumed: D192 (and its notes of 2026-10-18), D193, D198,
   D199, D200, D202, D14, D18, D24, D111 (and its note of 2026-10-07), D37, D38,
-  D39, D48, D49, D55; the dispositions of F17, F218, F219 and F220
+  D39, D48, D49, D55, D195; the dispositions of F17, F218, F219 and F220.
+  **Open: D203** (whether D200 covers F220's third face)
 - Registers searched by subject ("graph", the nineteen word names,
   `graph.rs`, `make_graph`, `fast_paths`, `calc_path`, `algos`, "Title",
   "NaN"): D14, D18, D24, D37, D38, D39, D48, D49, D55, D111, D192, D193,
   F15, F17, F101 (with its 2026-10-18 note on `fast_paths`' skipped
   edges), F218, F219, open-questions' subsystem table (`bund/graph`) and
-  PROMOTABLE.txt. ERRATA has no graph entry.
+  PROMOTABLE.txt. ERRATA has no graph entry. *Since the third review, by
+  "overflow", "allpath", "johnson", "workbench" and "bench" as well:* D195,
+  D198, D199, D200, D202, D203, F220 and its notes.
 - Reference SHA: `reference/Bund` 21b40b0
 - Supersedes: nothing
 
@@ -129,7 +138,14 @@ reproducibly.
   edge notwithstanding. A negative cycle the potentials' Bellman–Ford finds
   is refused, `GRAPH.ALLPATH: returned: negative cycle detected in graph`
   (`johnson.rs:50-53`, `bellman_ford.rs:91-101`); only one through `q`'s
-  replaced out-edges goes unseen. All of these were run in both engines.
+  replaced out-edges goes unseen. **And a graph with no cycle can be
+  refused as one.** That Bellman–Ford runs over the graph in which `q` has
+  a zero-weight edge to every node (`johnson.rs:38-47`), so a negative path
+  into `q` closes a negative cycle there. `[ [ :A :C -1.0 ] ] [ :A :B :C ]
+  graph! graph.allpath` answers `GRAPH.ALLPATH: returned: negative cycle
+  detected in graph`, and four rows when listed `[ :C :A :B ]`. On a DAG
+  this is the commonest way to meet F220. All of these were run in both
+  engines. Whether D200's ruling covers this face is **D203**, open.
 - The family is **core** under D14's partition: `bund/graph` is listed
   under `## core` (`docs/core-words.md:9`, the line at `:16`), not under
   `## library` (`:43`). So all seven words carry D14's 100% preservation,
@@ -173,7 +189,10 @@ choice). It runs the plain word through `bench_form`
 workbench**, the node operands from the stack as before, and **the answer
 goes to the workbench**. `<graph> . :fetch graph.bfs. take` brings it
 back. Its declared effect takes the node operands from the stack and
-leaves nothing there.
+leaves nothing there, and takes the graph from the workbench and leaves the
+answer there: `(1, 1)` on the workbench's axis (RFC-0004 §S1, D195),
+declared from how the form is built, since there is nothing to measure. So
+`bund2 check` reports `:A graph.bfs.` run with no graph on the workbench.
 
 ### S2. Reading a graph
 
@@ -278,8 +297,9 @@ A `.` form checks both sides before it takes anything:
 `Stack is too shallow for inline GRAPH.MAXFLOW.` with too few node
 operands. Neither moves a value (`wb.rs`, `bench_form`).
 
-**What a refusal leaves** (the residual F18 calls the observable part of a
-word's contract, as RFC-0004 applies it): each word pulls the graph,
+**What a refusal leaves** (the residual RFC-0004 calls "what F18 calls
+the observable part", `docs/rfc/RFC-0004-stack-effects.md:544-546`): each
+word pulls the graph,
 then its node operands in turn, and refuses at the first that fails. The
 values already pulled are gone, and everything beneath is untouched: `7
 :E :Z <graph> graph.maxflow` refuses `:Z` and leaves `7 E`, and a graph
@@ -301,18 +321,25 @@ reaching a node no edge relaxed, and `graph.maxflow` handed a capacity the
 reader refuses are each `Error::internal`. A sum that overflows is not an
 invariant broken but the program's numbers, so it is an ordinary error
 (S4, D199). In `graph.maxflow` only the total can overflow: each reverse
-arc holds at most its forward edge's capacity, which is finite.
+arc holds at most its forward edge's capacity, which is finite. And the
+total only grows, by a positive bottleneck each round, so a running total
+that overflows is an answer that does (D202).
 
-Only the answer's overflow is refused (D202), and each word's ordinary
-answer is unchanged by how. `graph.bellmanford` relaxes as given, and only
-if a sum overflows relaxes again with every weight divided by a power of
-two large enough that no sum of a run can overflow. That is exact, so the
-comparisons are the unbounded ones; a distance scaled back that is not
-finite is refused by its node. A weight too small to divide without losing
-bits keeps the refusal, by the node the first overflowing sum reached.
-`graph.mst` sums lightest first and, only if that overflows, again in an
-order whose running sum never exceeds the largest weight in magnitude
-(`bellman_ford`, `mst_total`).
+Only the answer's overflow is refused (D202). An answer that does not reach
+the fallback below is unchanged by it. `graph.bellmanford` relaxes in
+`f64`, and only if a sum overflows relaxes again in `Wide`: an `f64`
+significand with an `i32` exponent beside it, whose sums round as `f64`'s
+would with unbounded range. Where the smaller operand loses bits to the
+scaling, they lie below half the larger's last place, so the nearest
+`f64` is unchanged. So that run's comparisons are the unbounded ones, for
+any weight, and a distance that does not fit an `f64` is refused by its
+node. `the_wide_run_scales_with_the_weights` checks this against the plain
+run over seeded graphs scaled by `2^1020`. `graph.mst` sums lightest first
+from the first weight, so a forest of `-0.0` edges totals `-0.0` and an
+empty one 0.0. Only if that sum overflows does it sum again, in an order
+whose running sum never exceeds the largest weight in magnitude. That
+fallback's total is in a different order, so its last bits are its own
+(`bellman_ford`, `Wide`, `mst_total`).
 
 `graph.maxflow` is Edmonds–Karp. Its bound, at most nodes × edges
 augmenting rounds (Edmonds and Karp, 1972), rests on two facts about the
@@ -337,7 +364,9 @@ The twelve, and their forms, are natives like any other, and nothing in
 Tier 0 or the profiler treats them specially. Tier 1 promotes only the
 natives RFC-0005's criterion 28 palette brings to `Ok` (§S5, D48, D55),
 and syncs its state before any other, "as an embedder's native is"
-(`tests/golden/PROMOTABLE.txt:1-6`). The palette cannot build a graph, so
+(`tests/golden/PROMOTABLE.txt:1-6`). The palette (`KINDS` in
+`crates/bund2-stdlib/src/lib.rs`) cannot build a graph: its `dict` has no
+`type`, which every word that checks one refuses. So
 all 24 of these names, like `graph.path`, `graph.paths`, `graph.allpath`
 and `graph.transitiveclosure` and their forms, are `not reached` there and
 not promotable. `graph` and `graph.`, which only check a MAP, are
@@ -388,9 +417,11 @@ which acceptance would ratify:
   node that Johnson's reweighting leaves below zero ("Current behaviour"
   states the condition) — so with negative weights its answer depends on
   how `nodes` is ordered. A negative cycle is mostly refused; one through
-  that node's replaced out-edges goes unseen. Bund2 runs the same `algos`
-  revision and keeps this; `graph.bellmanford` is the word for negative
-  weights.
+  that node's replaced out-edges goes unseen. And a graph with **no**
+  cycle is refused as "negative cycle detected" when a negative path runs
+  into that node (F220's third face; whether D200 covers it is **D203**,
+  open). Bund2 runs the same `algos` revision and keeps all of this;
+  `graph.bellmanford` is the word for negative weights.
 - **The twelve new words**: no reference behaviour exists. `conform`,
   `IMPLEMENTED` and `COVERAGE` move by zero. Nothing in `wb.rs`'s `ADDED`
   list pins their `.` forms; `each_form_holds_the_graph_on_the_workbench`
@@ -405,8 +436,10 @@ which acceptance would ratify:
   - **operand casing**: the new words Title-case a node operand and the
     seven do not (S2);
   - **negative weights**: `graph.paths` refuses one Dijkstra meets,
-    `graph.allpath` drops rows as F220 says, and `graph.bellmanford` takes
-    it and refuses a negative cycle, so a swap to it works one way;
+    `graph.allpath` drops rows or refuses a graph with no cycle as F220
+    says, and `graph.bellmanford` takes it and refuses only a negative
+    cycle the start reaches, so a swap to it works one way: from an error
+    or missing rows to an answer;
   - **overflow**: `graph.paths` and `graph.allpath`, the two that sum in
     `f64`, answer `inf` where a sum overflows, and the new words refuse it
     (D199), and only there (D202): a graph whose distances are finite is
@@ -507,9 +540,14 @@ F219 instead of `found=false`.
     (the three words; the negative cycle at `-1.0e308`, with and without
     an unrelated node, reported as a cycle; a distance below the range),
     `only_an_answer_that_cannot_be_represented_is_refused` and
-    `mst_total_keeps_its_partial_sums_in_range` (D202),
+    `mst_total_keeps_its_partial_sums_in_range`,
+    `the_wide_run_scales_with_the_weights` and
+    `wide_sums_round_as_unbounded_f64_would` (D202),
     `allpath_with_a_negative_edge_out_of_the_last_node_answers_nothing`,
-    and `mst_keeps_equal_weights_in_listed_order_negative_zero_included`.
+    `allpath_refuses_an_acyclic_graph_with_a_negative_path_into_the_last_node`
+    (F220's third face), and
+    `mst_keeps_equal_weights_in_listed_order_negative_zero_included`. The
+    `.` forms' workbench half: `the_workbench_is_counted` in `check.rs`.
 
 ## Open questions
 
@@ -543,3 +581,14 @@ F219 instead of `found=false`.
 | 6. RFC-0004's drifted citation | Cites F18's residual instead |
 | 7. Smaller points | The Dijkstra citation is `:105-109` both times; "the seven answer `inf`" is the two that sum in `f64`, with `graph.path`'s case; a negative cycle near `-1.0e308` is now reported as a cycle (D202); S2 says trimmed as well as Title-cased; criterion 10 without figures; D192's note corrected in the register |
 | Preservation: the `.` forms' refusals | Listed: every refusal but the two pre-checks is in the plain word's name |
+
+## The fifth review, answered (2026-10-21)
+
+| Finding | Answer |
+|---|---|
+| 1. `graph.allpath` refuses graphs with no cycle | "Current behaviour" and the preservation analysis state it; F220 note; test `allpath_refuses_an_acyclic_graph_with_a_negative_path_into_the_last_node` in both node orders; **D203** asks the owner whether D200 covers it (open) |
+| 2. D202's build kept an exception | Removed: the fallback runs in `Wide`, an exponent beside the `f64`, so any weight is taken; the test that pinned the old message now asserts the answer, for a tiny weight on a path, unreachable and on a self-loop, and the `-1.0e308` cycle with one; D202 note |
+| 3. No cross-check of the fallback | `the_wide_run_scales_with_the_weights`: 1,200 seeded graphs scaled by `2^1020` with a subnormal self-loop, each answer the plain one scaled to the bit; and `wide_sums_round_as_unbounded_f64_would`; criterion 11 |
+| 4. The `.` forms' workbench half | Declared `(1, 1)` from how they are built (`BUILT` in `bench.rs`), so `check` finds `:A graph.bfs.`; S1 cites D195; D195 note |
+| 5. A `-0.0` forest totals 0.0 | `mst_total` folds from the first weight, so it totals `-0.0` again and the empty forest 0.0; tested; S5 |
+| 6. Smaller points | The residual cited to RFC-0004 `:544-546`; the palette cited by `KINDS`; why `graph.maxflow`'s overflow is the answer's; the `graph.mst` fallback's last bits; the registers searched brought up to date; the stale doc comment went with the code it described |
