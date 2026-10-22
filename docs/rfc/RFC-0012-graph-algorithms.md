@@ -1,6 +1,6 @@
 # RFC-0012: Graph algorithms
 
-- Status: **Draft** (2026-10-18), revised after each of six adversarial
+- Status: **Draft** (2026-10-18), revised after each of seven adversarial
   reviews, every one "Not ready for Accepted", and awaiting the next. The
   first review
   (`RFC-0012-review-2026-10-18.md`) found Bund2's `graph.path`
@@ -34,13 +34,20 @@
   `found=false` (**D206**, A: the reference's own no-path error), and
   `graph.bellmanford`'s cycle test decided by rounding in both directions
   (**D207**, C: the relaxation runs exactly). The rest is answered in
-  place, and listed at the end.
+  place, and listed at the end. The seventh review
+  (`RFC-0012-review-2026-10-22-2.md`) found D207's stated consequence
+  wrong, since a left-to-right `f64` sum can differ from the exact one by
+  more than the last bit, whole weights included (a dated note on D207);
+  and `graph.allpath` missing a negative cycle by rounding (F225,
+  preserved by **D208**, A). The rest is answered in place, and listed at
+  the end.
 - Depends on: RFC-0002 (natives and their declared effects), RFC-0004
   (the effects `bund2 check` reads, and the residual stack), RFC-0005
   (which natives Tier 1 promotes)
 - Decisions consumed: D192 (and its notes of 2026-10-18), D193, D198,
-  D199, D200, D202, D203, D206, D207, D14, D18, D24, D111 (and its note of 2026-10-07), D37, D38,
-  D39, D48, D49, D55, D195; the dispositions of F17, F218, F219 and F220.
+  D199, D200, D202, D203, D206, D207, D208, D14, D18, D24, D111 (and its note of 2026-10-07), D37, D38,
+  D39, D48, D49, D55, D195; the dispositions of F17, F218, F219, F220 and
+  F225.
 - Registers searched by subject ("graph", the nineteen word names,
   `graph.rs`, `make_graph`, `fast_paths`, `calc_path`, `algos`, "Title",
   "NaN"): D14, D18, D24, D37, D38, D39, D48, D49, D55, D111, D192, D193,
@@ -50,7 +57,9 @@
   "overflow", "allpath", "johnson", "workbench" and "bench" as well:* D195,
   D198, D199, D200, D202, D203, F220 and its notes. *Since the sixth, by
   "rounding", "tolerance", "found=false", "can not calculate" and "cycle":*
-  D193 again, D206, D207.
+  D193 again, D206, D207. *Since the seventh, by "exact", "last bit",
+  "allpath" and "johnson":* D200, D203, D207 and its note, F220 and its
+  notes; D208 and F225 are new.
 - Reference SHA: `reference/Bund` 21b40b0
 - Supersedes: nothing
 
@@ -145,8 +154,9 @@ reproducibly.
   [ :C :A -1.0 ] ]` over `[ :A :B :C ]` answers in full, `C`'s negative
   edge notwithstanding. A negative cycle the potentials' Bellman–Ford finds
   is refused, `GRAPH.ALLPATH: returned: negative cycle detected in graph`
-  (`johnson.rs:50-53`, `bellman_ford.rs:91-101`); only one through `q`'s
-  replaced out-edges goes unseen. **And a graph with no cycle can be
+  (`johnson.rs:50-53`, `bellman_ford.rs:91-101`), but one through `q`'s
+  replaced out-edges goes unseen, and so does one lighter than the
+  rounding of the distances around it (F225, below). **And a graph with no cycle can be
   refused as one.** That Bellman–Ford runs over the graph in which `q` has
   a zero-weight edge to every node (`johnson.rs:38-47`), so a negative path
   into `q` closes a negative cycle there. `[ [ :A :C -1.0 ] ] [ :A :B :C ]
@@ -154,6 +164,15 @@ reproducibly.
   detected in graph`, and four rows when listed `[ :C :A :B ]`. On a DAG
   this is the commonest way to meet F220. All of these were run in both
   engines. D200's ruling covers this face (**D203**, resolved A).
+- **`graph.allpath` misses a negative cycle its potentials round away**
+  (F225). The potentials' Bellman–Ford tests `new_dist < *dist_v` in `f64`
+  (`bellman_ford.rs:91-97`), so a cycle whose weight is below the rounding
+  of the distances around it relaxes nothing, and its edges reweigh
+  (`johnson.rs:63`) to a value Dijkstra takes. `[ [ :A :B -1.0e20 ] [ :B
+  :C 1.0 ] [ :C :B -1.0000000000000002 ] ] [ :A :B :C :Z ] graph!
+  graph.allpath` answers eight rows in both engines, `B → C` and `C → B`
+  each at `0.0`, though the cycle weighs −2⁻⁵². `q` is `Z`, so F220 plays
+  no part. Preserved (**D208**, A); `graph.bellmanford` reports the cycle.
 - The family is **core** under D14's partition: `bund/graph` is listed
   under `## core` (`docs/core-words.md:9`, the line at `:16`), not under
   `## library` (`:43`). So all seven words carry D14's 100% preservation,
@@ -167,7 +186,7 @@ reproducibly.
   that one node (D198). *(Until D206 F219's case answered `found=false`,
   which the reference never answers: `fast_paths` answers `None` for no
   path (`fast_paths-1.0.0/src/path_calculator.rs:198-199`) and every `Some`
-  it answers is found (`:201-208`, `src/shortest_path.rs:84-86`), so
+  it answers is found (`:201-209`, `src/shortest_path.rs:84-86`), so
   `getpath.rs:76-77` cannot run.)*
 
 ## Design
@@ -354,14 +373,18 @@ that overflows is an answer that does (D202).
 **`graph.bellmanford` relaxes exactly** (D207). Every finite `f64` is a
 whole number of 2^-1074 units below 2^2098, so `Exact` holds a distance as
 that number in two's complement over 2,176 bits, and no sum of up to 2^76
-weights rounds or wraps; a graph that could need more relaxations is an
-`Error::internal`, and none that fits in memory can. Every comparison is
+weights rounds or wraps; a graph that could need more relaxations is
+refused as an ordinary error, since it is the program's graph and not a
+broken invariant, and none that fits in memory can. Every comparison is
 then exact, so a cycle is reported exactly when one is negative, and each
 distance is rounded once, at the end, to the nearest `f64`, ties to even.
-Over whole weights that is the sum `f64` forms; over fractional ones it
-can differ in the last bit from a left-to-right `f64` sum, toward the
-correctly rounded one (`0.1`, `0.2`, `0.3` answer `0.6`, not
-`0.6000000000000001`). It also does what D202's `Wide` fallback did: only a
+Over whole weights whose partial sums stay below 2^53 that is the sum
+`f64` forms. Otherwise a left-to-right `f64` sum, as `graph.paths` forms,
+rounds once per edge and can be off by more than the last bit, and this is
+the correctly rounded one: `0.1`, `0.2`, `0.3` answer `0.6`, not
+`0.6000000000000001`; 2^53, 1.0, 1.0 answer 2^53 + 2, where `graph.paths`
+answers 2^53; and 1.0 followed by ten edges of 1e-16 answers
+`1.000000000000001`, where `graph.paths` answers `1.0` (D207's note). It also does what D202's `Wide` fallback did: only a
 distance whose rounded value does not fit an `f64` is refused (D202), and
 the `-1.0e308` cycle is a cycle. *(From D202 to D207 the relaxation ran in
 `f64`, falling back to `Wide`, an `f64` significand with its own exponent,
@@ -370,7 +393,7 @@ zero-weight cycle 1000.0 from the start was reported and a −2⁻⁵² one 1e20
 away was missed: the sixth review's finding 2.)* **What it costs**:
 measured on macOS arm64, release, the relaxation of a 2,000-node chain
 listed backwards, which needs every pass, takes about 100 ms against about
-7 ms in `f64`; on random graphs of 400 nodes and 4,000 edges the
+7 ms in `f64` (the program, so it can be re-taken, is in D207's note); on random graphs of 400 nodes and 4,000 edges the
 difference is within noise. `the_exact_run_scales_with_the_weights`,
 `exact_sums_round_once_to_the_nearest_f64` and
 `bellman_ford_agrees_with_an_exact_floyd_warshall_over_fractional_weights`
@@ -416,7 +439,7 @@ meaning.
 ## Which points are rulings
 
 Accepting this RFC accepts the following. The owner ruled on these
-(D192, D193, D198, D199, D200, D202, D203, D206, D207): the twelve words
+(D192, D193, D198, D199, D200, D202, D203, D206, D207, D208): the twelve words
 and nothing more;
 Bund2's own implementation; the graph read as `graph.paths` reads it,
 directed; node order everywhere, and F17 fixed by it; values for answers
@@ -427,7 +450,8 @@ overflows (D202); F218 fixed; `graph.path` answering the reference's own
 no-path error where the reference crashes (F219, D206), and the path of
 one node from a node to itself (D198); and `graph.allpath`'s dependence on
 the last node preserved (F220, D200), its refusal of a graph with no cycle
-included (D203).
+included (D203); and its missing a negative cycle by rounding preserved
+(F225, D208).
 
 These are D192's build choices, which D192 says can be overruled, and
 which acceptance would ratify:
@@ -481,11 +505,14 @@ which acceptance would ratify:
     seven do not (S2);
   - **negative weights**: `graph.paths` refuses one Dijkstra meets,
     `graph.allpath` drops rows or refuses a graph with no cycle as F220
-    says, and `graph.bellmanford` takes it and refuses only a negative
-    cycle the start reaches, decided exactly (D207), so a swap to it works
-    one way: from an error or missing rows to an answer. Its distances are
-    correctly rounded sums, so over fractional weights one can differ in
-    the last bit from `graph.paths`' left-to-right sum;
+    says, or answers rows across a negative cycle it rounded away (F225),
+    and `graph.bellmanford` takes it and refuses only a negative cycle the
+    start reaches, decided exactly (D207). So a swap to it gives the exact
+    answer, whichever way that goes: an answer where `graph.allpath`
+    refused or dropped rows, or an error where it answered rows (F225's
+    graph). Its distances are correctly rounded sums, so they can differ
+    from `graph.paths`' left-to-right sum by more than the last bit, over
+    whole weights once a partial sum passes 2^53;
   - **overflow**: `graph.paths` and `graph.allpath`, the two that sum in
     `f64`, answer `inf` where a sum overflows, and the new words refuse it
     (D199), and only there (D202): a graph whose distances are finite is
@@ -598,10 +625,16 @@ reported cycle exactly, against the exact relaxation.
     `mst_total_keeps_its_partial_sums_in_range`,
     `the_exact_run_scales_with_the_weights` and
     `exact_sums_round_once_to_the_nearest_f64` (D202, D207),
+    `exact_rounds_as_ieee_at_both_ends_of_the_range` and
+    `exact_refuses_only_past_its_headroom`,
     `a_cycle_is_negative_exactly_when_its_weights_sum_below_zero` (D207),
+    `a_distance_can_differ_from_graph_paths_by_more_than_the_last_bit`
+    (D207's note),
     `allpath_with_a_negative_edge_out_of_the_last_node_answers_nothing`,
     `allpath_refuses_an_acyclic_graph_with_a_negative_path_into_the_last_node`
-    (F220's third face), and
+    (F220's third face),
+    `allpath_misses_a_negative_cycle_its_potentials_round_away` (F225,
+    D208), and
     `mst_keeps_equal_weights_in_listed_order_negative_zero_included`. The
     `.` forms' workbench half: `the_workbench_is_counted` in `check.rs`.
 
@@ -659,3 +692,12 @@ reported cycle exactly, against the exact relaxation.
 | 4. Smaller points | The Status line restated; the rulings list names D202, D203, D206 and D207; S4 names the first overflowing node in node order, and what a graph operand that is not a MAP is refused as |
 | Assumed: reverse arcs within capacity | Stated in S5 as resting on rounding drift, unproved, with the review's model |
 | Assumed: no word named like the 24 | A program's own definition replaces a native, so `:graph.bfs { "mine" } register` makes `graph.bfs` answer `mine`, as it would for any native; run under `bund2` on this date |
+
+## The seventh review, answered (2026-10-22)
+
+| Finding | Answer |
+|---|---|
+| 1. "Over whole weights … the last bit" is false | S5 and the preservation analysis restated: whole weights answer as `f64` while partial sums stay below 2^53, and otherwise `graph.paths` can be off by a rounding per edge; a dated note on D207 corrects option C; `a_distance_can_differ_from_graph_paths_by_more_than_the_last_bit` pins the review's two programs; criterion 11 |
+| 2. `graph.allpath` misses a negative cycle by rounding | **F225**, preserved by **D208** (A); stated under "Current behaviour"; "a swap works one way" restated as "a swap gives the exact answer"; F220 note; test `allpath_misses_a_negative_cycle_its_potentials_round_away`; criterion 11 |
+| 3. Smaller points | The 2^76 guard is an ordinary error, `exact_refuses_only_past_its_headroom`; the cost's program recorded in D207's note and re-taken; the citation is `:201-209`; `exact_rounds_as_ieee_at_both_ends_of_the_range` checks `Exact` at random near 2^-1074 and `f64::MAX` |
+| Assumed: an exact relaxation's cost stays a constant factor | The factor is per relaxation, so the quadratic worst case scales as `f64`'s did, by about ×14; S5 gives the 2,000-node figure and its program |

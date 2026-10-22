@@ -4229,6 +4229,38 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F225 — `graph.allpath` misses a negative cycle its potentials round away
+
+**An original-implementation defect; found 2026-10-22 by the seventh
+RFC-0012 review (finding 2).** `graph.allpath` runs `algos`' Johnson, whose
+potentials come from an `f64` Bellman–Ford over the graph with the extra
+source `q` (`~/.cargo/git/checkouts/algos-9d1538761d16fda1/4c08437/src/cs/graph/johnson.rs:50-53`).
+That run's cycle test is `new_dist < *dist_v`
+(`src/cs/graph/bellman_ford.rs:91-97`), so a negative cycle whose weight is
+below the rounding of the distances around it relaxes nothing and is not
+reported. Its edges then reweigh, `weight + h_u - h_v` (`johnson.rs:63`),
+to a value Dijkstra takes, and the rows answered treat the cycle as free.
+
+Run on the oracle and on Bund2, 2026-10-22:
+
+    [ [ :A :B -1.0e20 ] [ :B :C 1.0 ] [ :C :B -1.0000000000000002 ] ] [ :A :B :C :Z ] graph! graph.allpath   → eight rows
+
+`B → C` and `C → B` are each answered at `0.0`; the cycle weighs −2⁻⁵², so
+every distance through `B` or `C` is unbounded. `q` is `Z`, whose only
+edges are the zero-weight ones Johnson adds, so F220 plays no part. The
+same mechanism runs the other way: a cycle of weight exactly zero far down
+the potentials can relax by rounding and be refused as negative, the shape
+D207's first program showed for `graph.bellmanford`.
+
+- `~/.cargo/git/checkouts/algos-9d1538761d16fda1/4c08437/src/cs/graph/johnson.rs:50-53,63`,
+  `src/cs/graph/bellman_ford.rs:91-97`
+- Behavioural, in a core word (D14). Disposition: **PRESERVE**
+  (2026-10-22, D208, the repository owner's ruling): Bund2 runs the same
+  `algos` revision and answers as the reference does.
+  `graph.bellmanford`, whose relaxation is exact (D207), reports the
+  cycle. Test: `allpath_misses_a_negative_cycle_its_potentials_round_away`
+  (`crates/bund2-stdlib/src/graph_algorithms.rs`).
+
 ## F224 — on today's tree the tier retires more instructions than no tier on three of criterion 7's rows
 
 **A Bund2 defect against RFC-0005's criterion 7; found 2026-10-21** by
@@ -4507,6 +4539,13 @@ its rows, which F17's fix assumed it never does.
 
 - **Note, 2026-10-21, later.** D203 resolved A: D200's ruling covers the
   third face, which is preserved.
+
+- **Note, 2026-10-22 — "every cycle that does not run through `q`'s
+  replaced out-edges" is found only when rounding allows** (the seventh
+  RFC-0012 review, finding 2). The potentials' Bellman–Ford tests in `f64`
+  (`bellman_ford.rs:91-97`), so a cycle lighter than the rounding of the
+  distances around it is missed with `q` nowhere near it: **F225**,
+  preserved by D208.
 
 ## F219 — `graph.path` panics on a node no kept edge reaches
 

@@ -3653,6 +3653,46 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D208 — F225: `graph.allpath` misses a negative cycle its potentials round away
+
+**Raised 2026-10-22** by RFC-0012's seventh review
+(`docs/rfc/reviews/RFC-0012-review-2026-10-22-2.md`, finding 2), which ran
+what D207 left unchecked. The reference's `graph.allpath` takes Johnson's
+potentials from `algos`' `f64` Bellman–Ford
+(`~/.cargo/git/checkouts/algos-9d1538761d16fda1/4c08437/src/cs/graph/johnson.rs:50-53`),
+whose cycle test is `new_dist < *dist_v` (`bellman_ford.rs:91-97`), the
+test D207 found decided by rounding. Run in both engines on this date:
+
+    [ [ :A :B -1.0e20 ] [ :B :C 1.0 ] [ :C :B -1.0000000000000002 ] ] [ :A :B :C :Z ] graph! graph.allpath
+
+It answers eight rows, `B → C` and `C → B` each at `0.0`, though the cycle
+`B ↔ C` weighs −2⁻⁵² and both distances are unbounded. `h_B` is −1e20, and
+neither `fl(−1e20 + 1.0)` nor `fl(−1e20 − 1.0000000000000002)` moves it, so
+no pass relaxes and the cycle test passes; each cycle edge then reweighs
+to exactly 0.0 (`johnson.rs:63`), which Dijkstra accepts. `q` is `Z`, so
+this is not F220. `:A` over the same graph, `graph.bellmanford`, answers
+`GRAPH.BELLMANFORD: A reaches a negative cycle through B` (D207). Recorded
+as **F225**.
+
+- Blocks: RFC-0012's acceptance
+- Depends on: F225, D14 (the family is core), D200 and D203 (F220
+  preserved for the same crate's behaviour), D207
+- Options:
+  - **A. Preserve.** `graph.allpath` answers as the reference does, by
+    the same `algos` revision. RFC-0012 states it, and
+    `graph.bellmanford` is the exact word for negative weights. No
+    deviation.
+  - **B. Fix.** Confirm Johnson's potentials exactly and refuse a cycle
+    the `f64` run missed. A deviation in a core word, which leaves F220's
+    three faces as they are.
+- Recommendation: **A**, as D200 and D203 chose for the same crate.
+- Default for planning: A. Not adopted.
+- Status: **RESOLVED** by the repository owner, 2026-10-22: A
+  ("A. Preserve"). Nothing in the word changes. F225 and RFC-0012's "Current
+  behaviour" state it, and
+  `allpath_misses_a_negative_cycle_its_potentials_round_away` pins both
+  words' answers over the review's graph.
+
 ## D207 — `graph.bellmanford`'s cycle test depends on rounding
 
 **Raised 2026-10-22** by RFC-0012's sixth review
@@ -3747,6 +3787,45 @@ of seven to ten alternating rounds of `bund2 script`:
   the relaxation went from about 7 ms to about 100 ms.
 - Random graphs of 400 nodes and 4,000 edges, whole or fractional, read
   within noise: 40.4 against 39.6 ms, and 59.1 against 59.3 ms.
+
+**Dated note, 2026-10-22, later — option C's stated consequence was
+wrong** (RFC-0012's seventh review,
+`docs/rfc/reviews/RFC-0012-review-2026-10-22-2.md`, finding 1). Option C
+said "Answers over whole weights do not change. Answers over fractional
+weights can change in the last bit." A left-to-right `f64` sum rounds once
+per edge, and the losses add up, so neither half holds. Run on this date:
+
+    :A [ [ :A :B 9007199254740992.0 ] [ :B :C 1.0 ] [ :C :D 1.0 ] ] [ :A :B :C :D ] graph! graph.bellmanford
+    :A [ [ :A :B 9007199254740992.0 ] [ :B :C 1.0 ] [ :C :D 1.0 ] ] [ :A :B :C :D ] graph! graph.paths
+
+`graph.bellmanford` answers D at `9007199254740994.0`, the exact sum;
+`graph.paths` answers `9007199254740992.0` in both engines, since 2^53 + 1
+rounds to 2^53 twice. And after an edge of 1.0, ten edges of 1e-16 answer
+`1.000000000000001` under `graph.bellmanford` and `1.0` under
+`graph.paths`: five ulps, and the gap grows with the path. What holds is:
+whole weights whose partial sums stay below 2^53 answer as `f64` does;
+otherwise `graph.paths`' sum can be off by a rounding per edge, and
+`graph.bellmanford`'s is the correctly rounded one. The ruling's direction
+is unaffected — the correctly rounded answer is the one C asked for — and
+no golden pins `graph.bellmanford`. Pinned by
+`a_distance_can_differ_from_graph_paths_by_more_than_the_last_bit`.
+
+Answered from the same review:
+- **The 2^76 guard is an ordinary error**, `GRAPH.BELLMANFORD: the graph
+  could need N relaxations, past the 2^76 its exact sums hold`, not
+  `Error::internal`: a graph past `Exact`'s headroom is the program's, not
+  a Bund2 defect. No graph that fits in memory reaches it;
+  `exact_refuses_only_past_its_headroom` checks the boundary.
+- **`Exact` at both ends of the range** is now checked at random as well as
+  by hand: `exact_rounds_as_ieee_at_both_ends_of_the_range` draws 8,000
+  sums in units of 2^-1074 and of 2^901, against the `i128` sum rounded
+  and scaled, with at least 50 subnormal, 50 rounded and 50 infinite.
+- **The cost's program**, so the figure can be re-taken: the start `:N0`,
+  the edges `[ :Ni :Ni+1 1.0 ]` for i from 1,998 down to 0, the nodes
+  `:N0` to `:N1999` in order, `graph! graph.bellmanford`, against the same
+  program ending `graph! drop drop` for the reading alone. Re-taken on
+  this date, macOS arm64, release, median of seven runs of `bund2 script
+  --file`: about 120 ms against about 10 ms.
 
 ## D206 — `graph.path`'s F219 case: the reference's own no-path error, or `found=false`?
 

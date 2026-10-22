@@ -592,19 +592,22 @@ pub(crate) enum NoDistances {
 /// it lies from `s`. In `f64` a zero-weight cycle 1000.0 away was reported
 /// and a cycle of −2⁻⁵² 1e20 away was missed. Each distance is rounded once,
 /// at the end, to the nearest `f64`, so it is the correctly rounded sum of
-/// its path; over whole weights that is the sum `f64` forms.
+/// its path. A left-to-right `f64` sum, as `graph.paths` forms, rounds once
+/// per edge, so the two can differ by more than the last bit, over whole
+/// weights too once a partial sum passes 2^53.
+///
+/// A graph that could need more relaxations than [`Exact`] holds is refused
+/// as an ordinary error: it is the program's graph, not a broken invariant,
+/// though none that fits in memory reaches it.
 ///
 /// **Only an answer that cannot be represented is refused** (D202). A sum
 /// past `f64`'s range on the way to a finite answer is held like any other,
 /// so `A → C` at 1.0 beside `A → B → C` at 1e308 each answers 1.0, and the
 /// `-1.0e308` cycle D199 met is a cycle.
 pub(crate) fn bellman_ford(net: &Net, s: usize) -> Result<Distances, Error> {
-    // [`Exact`]'s headroom: no distance is a sum of more terms than there are
-    // relaxations, and it holds 2^76 of the largest weight.
-    let relaxations = (net.len() as u128).saturating_mul(net.edges.len() as u128 + 1);
-    if relaxations >= 1 << 76 {
-        return Err(Error::internal(format!(
-            "graph.bellmanford was given {relaxations} relaxations, past the 2^76 its exact sums hold"
+    if let Some(relaxations) = past_exact(net.len(), net.edges.len()) {
+        return Err(Error(format!(
+            "GRAPH.BELLMANFORD: the graph could need {relaxations} relaxations, past the 2^76 its exact sums hold"
         )));
     }
     let dist = match bellman_ford_exact(net, s)? {
@@ -620,6 +623,14 @@ pub(crate) fn bellman_ford(net: &Net, s: usize) -> Result<Distances, Error> {
         back.push(d);
     }
     Ok(Ok(back))
+}
+
+/// The relaxations a graph of `nodes` and `edges` could need, when that is
+/// past [`Exact`]'s headroom: no distance is a sum of more terms than there
+/// are relaxations, and it holds 2^76 of the largest weight.
+fn past_exact(nodes: usize, edges: usize) -> Option<u128> {
+    let relaxations = (nodes as u128).saturating_mul(edges as u128 + 1);
+    (relaxations >= 1 << 76).then_some(relaxations)
 }
 
 /// What [`bellman_ford`] answers: the distances, or why there are none.
@@ -2319,6 +2330,123 @@ mod tests {
         }
         let elsewhere = top("[ [ :A :C -1.0 ] ] [ :C :A :B ] graph! graph.allpath");
         assert!(elsewhere.contains("weight=-1.0"), "{elsewhere}");
+    }
+
+    /// **F225, preserved (D208): `graph.allpath` misses a negative cycle its
+    /// potentials round away** — the seventh RFC-0012 review's finding 2.
+    /// Johnson's potentials come from an `f64` Bellman–Ford, so beside
+    /// `h_B` = −1e20 neither edge of the −2⁻⁵² cycle `B ↔ C` relaxes, and
+    /// both reweigh to 0.0. Both engines answer the eight rows;
+    /// `graph.bellmanford`, exact (D207), reports the cycle.
+    #[test]
+    fn allpath_misses_a_negative_cycle_its_potentials_round_away() {
+        let g = "[ [ :A :B -1.0e20 ] [ :B :C 1.0 ] [ :C :B -1.0000000000000002 ] ] \
+                 [ :A :B :C :Z ] graph!";
+        let rows = top(&format!("{g} graph.allpath"));
+        assert_eq!(rows.matches("from=").count(), 8, "{rows}");
+        for (u, v) in [("B", "C"), ("C", "B")] {
+            let row = format!("from={u} ::  itself=false ::  to={v} ::  weight=0.0 ::");
+            assert!(rows.contains(&row), "{rows}");
+        }
+        let e = err_of(&format!(":A {g} graph.bellmanford"));
+        assert!(e.contains("A reaches a negative cycle through B"), "{e}");
+    }
+
+    /// **A distance can differ from `graph.paths`' by more than the last
+    /// bit** — the seventh review's finding 1. `graph.paths` sums left to
+    /// right in `f64`, as the reference does, rounding once per edge:
+    /// 2^53 + 1 rounds to 2^53 twice, where the sum is 2^53 + 2; and ten
+    /// weights of 1e-16 after 1.0 are each lost, where together they are
+    /// five ulps of 1.0.
+    #[test]
+    fn a_distance_can_differ_from_graph_paths_by_more_than_the_last_bit() {
+        let whole = ":A [ [ :A :B 9007199254740992.0 ] [ :B :C 1.0 ] [ :C :D 1.0 ] ] \
+                     [ :A :B :C :D ] graph!";
+        let b = top(&format!("{whole} graph.bellmanford"));
+        assert!(b.contains("node=D ::  path=9007199254740994.0 ::"), "{b}");
+        let p = top(&format!("{whole} graph.paths"));
+        assert!(p.contains("node=D ::  path=9007199254740992.0 ::"), "{p}");
+
+        let names = "ABCDEFGHIJKL"
+            .chars()
+            .map(|c| format!(":{c}"))
+            .collect::<Vec<_>>();
+        let edges = names
+            .windows(2)
+            .enumerate()
+            .map(|(i, w)| {
+                format!(
+                    "[ {} {} {} ]",
+                    w[0],
+                    w[1],
+                    if i == 0 { "1.0" } else { "1.0e-16" }
+                )
+            })
+            .collect::<Vec<_>>();
+        let chain = format!(":A [ {} ] [ {} ] graph!", edges.join(" "), names.join(" "));
+        let b = top(&format!("{chain} graph.bellmanford"));
+        assert!(b.contains("node=L ::  path=1.000000000000001 ::"), "{b}");
+        let p = top(&format!("{chain} graph.paths"));
+        assert!(p.contains("node=L ::  path=1.0 ::"), "{p}");
+    }
+
+    /// **[`Exact`] rounds as IEEE 754 does at both ends of the range** — the
+    /// seventh review's finding 3; the hand-picked cases are in
+    /// `exact_sums_round_once_to_the_nearest_f64`. Each weight is a whole
+    /// `k` of at most 53 significant bits times a scale, so it is an `f64`
+    /// exactly and the sum of the `k`s is exact in `i128`. Rounding that sum
+    /// to an `f64` and scaling it is IEEE's answer: at the bottom, units of
+    /// 2^-1074, a sum under 2^53 units is subnormal and exact; at the top,
+    /// units of 2^901, a sum that rounds to 2^123 or more is infinite, which
+    /// is IEEE's overflow rule.
+    #[test]
+    fn exact_rounds_as_ieee_at_both_ends_of_the_range() {
+        let (unit, high) = (f64::from_bits(1), 2f64.powi(901));
+        let mut rng = Rng(31);
+        let (mut subnormal, mut rounded, mut infinite) = (0, 0, 0);
+        for _ in 0..4000 {
+            for scale in [unit, high] {
+                let terms: Vec<i128> = (0..1 + rng.below(6))
+                    .map(|_| {
+                        // At the bottom, any size from one unit up; at the
+                        // top, within a few binades of `f64::MAX`.
+                        let (drop, shift) = if scale == unit {
+                            (rng.below(53), rng.below(49))
+                        } else {
+                            (rng.below(4), 66 + rng.below(5))
+                        };
+                        let k = i128::from(rng.next() >> 11) >> drop << shift;
+                        if rng.below(2) == 0 { -k } else { k }
+                    })
+                    .collect();
+                let sum: i128 = terms.iter().sum();
+                let want = sum as f64 * scale;
+                let got = terms
+                    .iter()
+                    .fold(Exact::ZERO, |acc, &k| acc.sum(Exact::of(k as f64 * scale)))
+                    .to_f64();
+                assert_eq!(got.to_bits(), want.to_bits(), "{terms:?} × {scale:e}");
+                if want != 0.0 && want.abs() < f64::MIN_POSITIVE {
+                    subnormal += 1;
+                } else if want.is_infinite() {
+                    infinite += 1;
+                } else if sum as f64 as i128 != sum {
+                    rounded += 1;
+                }
+            }
+        }
+        assert!(
+            subnormal >= 50 && rounded >= 50 && infinite >= 50,
+            "{subnormal} {rounded} {infinite}"
+        );
+    }
+
+    /// [`Exact`]'s headroom is refused at 2^76 relaxations, and not below.
+    #[test]
+    fn exact_refuses_only_past_its_headroom() {
+        assert_eq!(past_exact(1 << 38, (1 << 38) - 1), Some(1 << 76));
+        assert_eq!(past_exact(1 << 38, (1 << 38) - 2), None);
+        assert_eq!(past_exact(200_000, 2_000_000), None);
     }
 
     /// **What a refusal leaves** (§S4, RFC-0004's residual): the values a
