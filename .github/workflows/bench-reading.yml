@@ -33,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel]
+        runner: [ubuntu-26.04, ubuntu-24.04-arm, macos-15-intel]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
@@ -84,7 +84,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel]
+        runner: [ubuntu-26.04, ubuntu-24.04-arm, macos-15-intel]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 150
     steps:
@@ -111,7 +111,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel]
+        runner: [ubuntu-26.04, ubuntu-24.04-arm, macos-15-intel]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
@@ -141,7 +141,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel]
+        runner: [ubuntu-26.04, ubuntu-24.04-arm, macos-15-intel]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:

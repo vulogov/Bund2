@@ -583,34 +583,37 @@ pub(crate) enum NoDistances {
 /// reachable from `s`, named by the smallest-numbered node of the one cycle
 /// the walk back finds, which depends on the order of the edges when two
 /// cycles are reachable (D193); or a distance that cannot be represented
-/// (D199). The outer `Err` is a defect in the walk.
+/// (D199), named by the first such node in node order. The outer `Err` is a
+/// defect in the walk.
 ///
-/// **Only an answer that cannot be represented is refused** (D202). The
-/// graph is first relaxed in `f64`, and that is the answer whenever no sum
-/// it forms overflows, so every graph answered before D202 is answered
-/// alike. A sum that overflows need not be a distance: `A → C` at 1.0 beside
-/// `A → B → C` at 1e308 each overflows on the way to a finite answer. So
-/// then the graph is relaxed again in [`Wide`], whose exponent has no limit a
-/// run can reach and whose sums round as `f64`'s would with unbounded range.
-/// That run makes every comparison an unbounded one would: it finds a cycle
-/// as a cycle, the `-1.0e308` one D199 met included, and each distance is
-/// the answer when it fits an `f64`, or is refused by its node.
+/// **The relaxation is exact** (D207). Every sum and comparison is made in
+/// [`Exact`], which holds any sum of the graph's weights with no rounding, so
+/// a cycle is reported exactly when its weights sum below zero, however far
+/// it lies from `s`. In `f64` a zero-weight cycle 1000.0 away was reported
+/// and a cycle of −2⁻⁵² 1e20 away was missed. Each distance is rounded once,
+/// at the end, to the nearest `f64`, so it is the correctly rounded sum of
+/// its path; over whole weights that is the sum `f64` forms.
+///
+/// **Only an answer that cannot be represented is refused** (D202). A sum
+/// past `f64`'s range on the way to a finite answer is held like any other,
+/// so `A → C` at 1.0 beside `A → B → C` at 1e308 each answers 1.0, and the
+/// `-1.0e308` cycle D199 met is a cycle.
 pub(crate) fn bellman_ford(net: &Net, s: usize) -> Result<Distances, Error> {
-    if let Ok(found) = bellman_ford_in::<f64>(net, s)? {
-        return Ok(found);
+    // [`Exact`]'s headroom: no distance is a sum of more terms than there are
+    // relaxations, and it holds 2^76 of the largest weight.
+    let relaxations = (net.len() as u128).saturating_mul(net.edges.len() as u128 + 1);
+    if relaxations >= 1 << 76 {
+        return Err(Error::internal(format!(
+            "graph.bellmanford was given {relaxations} relaxations, past the 2^76 its exact sums hold"
+        )));
     }
-    let dist = match bellman_ford_in::<Wide>(net, s)? {
-        Ok(Ok(dist)) => dist,
-        Ok(Err(cycle)) => return Ok(Err(cycle)),
-        Err((f, t)) => {
-            return Err(Error::internal(format!(
-                "graph.bellmanford's wide run overflowed at {f} -> {t}, which a wide sum cannot"
-            )));
-        }
+    let dist = match bellman_ford_exact(net, s)? {
+        Ok(dist) => dist,
+        Err(cycle) => return Ok(Err(cycle)),
     };
     let mut back = Vec::with_capacity(dist.len());
     for (u, d) in dist.into_iter().enumerate() {
-        let d = d.map(Wide::to_f64);
+        let d = d.map(Exact::to_f64);
         if d.is_some_and(|d| !d.is_finite()) {
             return Ok(Err(NoDistances::Overflow(u)));
         }
@@ -622,160 +625,176 @@ pub(crate) fn bellman_ford(net: &Net, s: usize) -> Result<Distances, Error> {
 /// What [`bellman_ford`] answers: the distances, or why there are none.
 type Distances = Result<Vec<Option<f64>>, NoDistances>;
 
-/// What [`bellman_ford_in`] answers over `T`, or the first edge, `from` then
-/// `to`, whose sum overflowed `T`.
-type DistancesIn<T> = Result<Result<Vec<Option<T>>, NoDistances>, (usize, usize)>;
+/// [`Exact`]'s width in 64-bit limbs.
+const LIMBS: usize = 34;
 
-/// A distance [`bellman_ford_in`] can run over.
-trait Distance: Copy {
-    fn zero() -> Self;
-    /// `self + w`, or `None` when the sum overflowed.
-    fn plus(self, w: f64) -> Option<Self>;
-    fn below(self, other: Self) -> bool;
-}
-
-impl Distance for f64 {
-    fn zero() -> Self {
-        0.0
-    }
-    fn plus(self, w: f64) -> Option<Self> {
-        // Every weight is finite (the reader refuses one that is not), so a
-        // sum that is not finite overflowed.
-        Some(self + w).filter(|v| v.is_finite())
-    }
-    fn below(self, other: Self) -> bool {
-        self < other
-    }
-}
-
-/// A number with an `f64`'s significand and an exponent of its own:
-/// `m × 2^e`, with `m` zero or of magnitude in `[1, 2)` — D202's distances.
+/// A sum of finite `f64`s, held exactly — D207's distances.
 ///
-/// **A sum rounds as `f64`'s would with unbounded range.** The larger
-/// operand's significand is added to the smaller's scaled to it, so the one
-/// `f64` addition rounds the exact sum to 53 bits, as an addition in range
-/// does. Where scaling the smaller one loses bits, it lies below 2^-1021 of
-/// a significand of at least 1, so far below half the larger's last place
-/// that the nearest `f64` is the larger alone, as it would be unbounded.
-/// `i32` exponents reach far past what a run's `nodes × edges` additions of
-/// finite weights can.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Wide {
-    m: f64,
-    e: i32,
-}
+/// Every finite `f64` is a whole multiple of 2^-1074, the least subnormal,
+/// and is below 2^1024, so it is a whole number of 2^-1074 units under
+/// 2^2098. This is that number, in two's complement over 2,176 bits: the
+/// sign, 2,098 bits of value, and 77 of headroom, so a sum of up to 2^76
+/// weights neither rounds nor wraps. [`bellman_ford`] refuses a graph that
+/// could need more.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Exact([u64; LIMBS]);
 
-/// `2^e` as an `f64`, exact where it is representable and zero below that.
-fn pow2(e: i32) -> f64 {
-    if e > 1023 {
-        f64::INFINITY
-    } else if e >= -1022 {
-        f64::from_bits(((e + 1023) as u64) << 52)
-    } else if e >= -1074 {
-        f64::from_bits(1u64 << (e + 1074))
-    } else {
-        0.0
-    }
-}
+impl Exact {
+    const ZERO: Exact = Exact([0; LIMBS]);
 
-impl Wide {
-    /// `x` exactly, for any finite `x`.
+    /// `x` exactly, for any finite `x`. `-0.0` is zero.
     pub(crate) fn of(x: f64) -> Self {
-        if x == 0.0 {
-            return Wide { m: 0.0, e: 0 };
-        }
         let bits = x.to_bits();
-        let field = ((bits >> 52) & 0x7ff) as i32;
-        if field == 0 {
-            // Subnormal: scaled by 2^64 it is normal, exactly.
-            let w = Wide::of(x * pow2(64));
-            return Wide {
-                m: w.m,
-                e: w.e - 64,
-            };
+        let field = ((bits >> 52) & 0x7ff) as usize;
+        let fraction = bits & ((1 << 52) - 1);
+        // A subnormal is `fraction` units; a normal is `1.fraction` scaled up
+        // by its exponent field, less one.
+        let (significand, shift) = if field == 0 {
+            (fraction, 0)
+        } else {
+            (fraction | (1 << 52), field - 1)
+        };
+        let mut limbs = [0; LIMBS];
+        let (at, offset) = (shift / 64, shift % 64);
+        if let Some(l) = limbs.get_mut(at) {
+            *l = significand << offset;
         }
-        let m = f64::from_bits((bits & !(0x7ff << 52)) | (1023 << 52));
-        Wide { m, e: field - 1023 }
+        if offset > 0
+            && let Some(l) = limbs.get_mut(at + 1)
+        {
+            *l = significand >> (64 - offset);
+        }
+        let magnitude = Exact(limbs);
+        if x.is_sign_negative() {
+            magnitude.negated()
+        } else {
+            magnitude
+        }
+    }
+
+    fn negated(self) -> Self {
+        let mut out = [0; LIMBS];
+        let mut carry = true;
+        for (o, l) in out.iter_mut().zip(self.0) {
+            let (v, c) = (!l).overflowing_add(u64::from(carry));
+            *o = v;
+            carry = c;
+        }
+        Exact(out)
     }
 
     fn sum(self, other: Self) -> Self {
-        if self.m == 0.0 {
-            return other;
+        let mut out = [0; LIMBS];
+        let mut carry = false;
+        for ((o, a), b) in out.iter_mut().zip(self.0).zip(other.0) {
+            let (v, c1) = a.overflowing_add(b);
+            let (v, c2) = v.overflowing_add(u64::from(carry));
+            *o = v;
+            carry = c1 || c2;
         }
-        if other.m == 0.0 {
-            return self;
+        Exact(out)
+    }
+
+    fn is_negative(&self) -> bool {
+        self.0.last().is_some_and(|l| l >> 63 == 1)
+    }
+
+    /// `self < other`, exactly.
+    fn below(&self, other: &Self) -> bool {
+        match (self.is_negative(), other.is_negative()) {
+            (true, false) => true,
+            (false, true) => false,
+            // Same sign: two's complement orders as unsigned.
+            _ => self.0.iter().rev().lt(other.0.iter().rev()),
         }
-        let (big, small) = if self.e >= other.e {
-            (self, other)
-        } else {
-            (other, self)
+    }
+
+    /// Bit `k`, counting from the least significant.
+    fn bit(&self, k: usize) -> bool {
+        self.0.get(k / 64).is_some_and(|l| (l >> (k % 64)) & 1 == 1)
+    }
+
+    /// The 64 bits from bit `k` up.
+    fn window(&self, k: usize) -> u64 {
+        let (at, offset) = (k / 64, k % 64);
+        let low = self.0.get(at).map_or(0, |l| l >> offset);
+        let high = match offset {
+            0 => 0,
+            _ => self.0.get(at + 1).map_or(0, |l| l << (64 - offset)),
         };
-        let r = big.m + small.m * pow2(small.e - big.e);
-        let w = Wide::of(r);
-        Wide {
-            m: w.m,
-            e: if w.m == 0.0 { 0 } else { w.e + big.e },
-        }
+        low | high
     }
 
-    /// The nearest `f64`, rounded once; not finite past `f64`'s range.
+    /// Whether any bit below bit `k` is set.
+    fn any_below(&self, k: usize) -> bool {
+        let (at, offset) = (k / 64, k % 64);
+        self.0.iter().take(at).any(|&l| l != 0)
+            || (offset > 0 && self.0.get(at).is_some_and(|l| l & ((1 << offset) - 1) != 0))
+    }
+
+    /// The nearest `f64`, ties to even, rounded once; infinite past `f64`'s
+    /// range.
     pub(crate) fn to_f64(self) -> f64 {
-        if self.m == 0.0 {
-            0.0
-        } else if self.e >= -1022 {
-            self.m * pow2(self.e)
-        } else if self.e >= -2022 {
-            // The first product is exact and normal; the second rounds once.
-            (self.m * pow2(self.e + 1000)) * pow2(-1000)
+        let negative = self.is_negative();
+        let m = if negative { self.negated() } else { self };
+        let Some((at, top)) = m.0.iter().enumerate().rev().find(|(_, l)| **l != 0) else {
+            return 0.0;
+        };
+        // The highest set bit.
+        let p = at * 64 + 63 - top.leading_zeros() as usize;
+        let v = if p <= 52 {
+            // Under 2^53 units: a subnormal, or the least binade of normals,
+            // and in both the units are the encoding.
+            f64::from_bits(m.window(0))
         } else {
-            0.0 * self.m
-        }
+            // 53 bits from `p` down, the rest rounded off.
+            let mut shift = p - 52;
+            let mut q = m.window(shift) & ((1 << 53) - 1);
+            if m.bit(shift - 1) && (m.any_below(shift - 1) || q & 1 == 1) {
+                q += 1;
+                if q == 1 << 53 {
+                    q >>= 1;
+                    shift += 1;
+                }
+            }
+            // `q` is `1.fraction` and its exponent field is `shift + 1`.
+            if shift + 1 >= 0x7ff {
+                f64::INFINITY
+            } else {
+                f64::from_bits(((shift as u64) << 52) + q)
+            }
+        };
+        if negative { -v } else { v }
     }
 }
 
-impl Distance for Wide {
-    fn zero() -> Self {
-        Wide { m: 0.0, e: 0 }
-    }
-    fn plus(self, w: f64) -> Option<Self> {
-        Some(self.sum(Wide::of(w)))
-    }
-    fn below(self, other: Self) -> bool {
-        // The rounded difference has the exact difference's sign.
-        self.sum(Wide {
-            m: -other.m,
-            e: other.e,
-        })
-        .m < 0.0
-    }
-}
-
-/// [`bellman_ford`] over distances of type `T`. The outermost `Err` is the
-/// first edge, `from` then `to`, whose sum overflowed `T`, where relaxation
-/// would stop at `-inf` and could hide a cycle (D199).
-fn bellman_ford_in<T: Distance>(net: &Net, s: usize) -> Result<DistancesIn<T>, Error> {
+/// [`bellman_ford`]'s relaxation, in [`Exact`]: the distances, or the cycle.
+fn bellman_ford_exact(
+    net: &Net,
+    s: usize,
+) -> Result<Result<Vec<Option<Exact>>, NoDistances>, Error> {
     let n = net.len();
-    let mut dist: Vec<Option<T>> = vec![None; n];
+    let edges: Vec<(usize, usize, Exact)> = net
+        .edges
+        .iter()
+        .map(|&(f, t, w)| (f, t, Exact::of(w)))
+        .collect();
+    let mut dist: Vec<Option<Exact>> = vec![None; n];
     let mut pred: Vec<Option<usize>> = vec![None; n];
     if let Some(d) = dist.get_mut(s) {
-        *d = Some(T::zero());
+        *d = Some(Exact::ZERO);
     }
-    // `Ok(Some(t))`: the last node relaxed; `Err`: an edge whose sum
-    // overflowed.
-    let relax = |dist: &mut Vec<Option<T>>,
-                 pred: &mut Vec<Option<usize>>|
-     -> Result<Option<usize>, (usize, usize)> {
+    // The last node relaxed, if any was.
+    let relax = |dist: &mut Vec<Option<Exact>>, pred: &mut Vec<Option<usize>>| -> Option<usize> {
         let mut last = None;
-        for &(f, t, w) in &net.edges {
+        for &(f, t, w) in &edges {
             let Some(df) = dist.get(f).copied().flatten() else {
                 continue;
             };
-            let Some(via) = df.plus(w) else {
-                return Err((f, t));
-            };
+            let via = df.sum(w);
             let better = match dist.get(t).copied().flatten() {
                 None => true,
-                Some(dt) => via.below(dt),
+                Some(dt) => via.below(&dt),
             };
             if better {
                 if let Some(d) = dist.get_mut(t) {
@@ -787,19 +806,15 @@ fn bellman_ford_in<T: Distance>(net: &Net, s: usize) -> Result<DistancesIn<T>, E
                 last = Some(t);
             }
         }
-        Ok(last)
+        last
     };
     for _ in 1..n.max(1) {
-        match relax(&mut dist, &mut pred) {
-            Err(edge) => return Ok(Err(edge)),
-            Ok(None) => return Ok(Ok(Ok(dist))),
-            Ok(Some(_)) => {}
+        if relax(&mut dist, &mut pred).is_none() {
+            return Ok(Ok(dist));
         }
     }
-    let mut v = match relax(&mut dist, &mut pred) {
-        Err(edge) => return Ok(Err(edge)),
-        Ok(None) => return Ok(Ok(Ok(dist))),
-        Ok(Some(v)) => v,
+    let Some(mut v) = relax(&mut dist, &mut pred) else {
+        return Ok(Ok(dist));
     };
     // Every node the walk visits was relaxed, so it has a predecessor.
     let back = |u: usize| -> Result<usize, Error> {
@@ -828,7 +843,7 @@ fn bellman_ford_in<T: Distance>(net: &Net, s: usize) -> Result<DistancesIn<T>, E
         least = least.min(u);
         u = back(u)?;
     }
-    Ok(Ok(Err(NoDistances::Cycle(least))))
+    Ok(Err(NoDistances::Cycle(least)))
 }
 
 /// The maximum flow from `s` to `t`, each edge's weight its capacity, by
@@ -1969,19 +1984,40 @@ mod tests {
         assert!(m.contains("weight=-0.0"), "{m}");
     }
 
-    /// **D202's wide run is the plain one, scaled** — the fifth review's
-    /// finding 3. Scaling every weight by `2^1020` scales every distance, to
-    /// the bit, since rounding commutes with a power of two while nothing
-    /// leaves the range; so each answer over the scaled graph must be the
-    /// plain answer times `2^1020`, a refusal by the first node whose scaled
-    /// distance is not finite, or the same cycle node. Most of these graphs
-    /// overflow scaled, so this is mostly the wide run, checked against the
-    /// plain one. A subnormal self-loop is added to the scaled graph: it
-    /// changes no distance, and broke the first build of D202.
+    /// **The exact run scales with the weights** — first written for D202's
+    /// wide run (the fifth review's finding 3), kept for D207's. Scaling
+    /// every weight by `2^1020` scales every exact sum, so each answer over
+    /// the scaled graph must be the plain answer times `2^1020`, a refusal
+    /// by the first node whose scaled distance is not finite, or the same
+    /// cycle node. Many of these runs relax an edge whose sum, scaled, is
+    /// past `f64`'s range on the way to the answer — what D202 was raised
+    /// for — and those are counted. A subnormal self-loop is added to the scaled graph: it changes no
+    /// distance, and broke the first build of D202.
+    /// Whether relaxing `net` from `s` in `f64`, as `graph.bellmanford` did
+    /// before D202, forms a sum past the range.
+    fn leaves_f64(net: &Net, s: usize) -> bool {
+        let mut dist: Vec<Option<f64>> = vec![None; net.len()];
+        dist[s] = Some(0.0);
+        for _ in 0..net.len() {
+            for &(f, t, w) in &net.edges {
+                let Some(via) = dist[f].map(|d| d + w) else {
+                    continue;
+                };
+                if !via.is_finite() {
+                    return true;
+                }
+                if dist[t].is_none_or(|d| via < d) {
+                    dist[t] = Some(via);
+                }
+            }
+        }
+        false
+    }
+
     #[test]
-    fn the_wide_run_scales_with_the_weights() {
-        let scale = pow2(1020);
-        let mut wide_runs = 0;
+    fn the_exact_run_scales_with_the_weights() {
+        let scale = 2f64.powi(1020);
+        let mut past_range = 0;
         for g in graphs(11, 1200, -3) {
             let plain = net(&g);
             let mut big = net(&g);
@@ -1994,8 +2030,8 @@ mod tests {
             }
             big.edges.push((0, 0, 5.0e-324));
             for s in 0..plain.len() {
-                if bellman_ford_in::<f64>(&big, s).is_ok_and(|r| r.is_err()) {
-                    wide_runs += 1;
+                if leaves_f64(&big, s) {
+                    past_range += 1;
                 }
                 let got = bellman_ford(&big, s).unwrap_or_else(|e| panic!("{}", e.0));
                 match bf(&plain, s) {
@@ -2013,31 +2049,214 @@ mod tests {
                 }
             }
         }
-        assert!(wide_runs > 100, "only {wide_runs} runs needed the wide run");
+        assert!(past_range > 100, "only {past_range} runs left the range");
     }
 
+    /// **[`Exact`] holds an `f64` exactly and rounds once, ties to even** —
+    /// D207. Each sum is checked against `i128`, which holds these exactly,
+    /// converted by `as`, which rounds to nearest, ties to even.
     #[test]
-    fn wide_sums_round_as_unbounded_f64_would() {
-        let w = |x: f64| Wide::of(x);
-        for x in [0.0, 1.0, -3.5, 5.0e-324, -2.2e-308, 1.7e308, 0.1] {
-            assert_eq!(w(x).to_f64().to_bits(), x.to_bits(), "{x}");
-        }
-        // In range, a wide sum is the `f64` sum.
-        for (a, b) in [
-            (0.1, 0.2),
-            (1.0e308, -1.0e308),
-            (1.0, 1.0e-300),
-            (5.0e-324, 5.0e-324),
+    fn exact_sums_round_once_to_the_nearest_f64() {
+        let x = |v: f64| Exact::of(v);
+        for v in [
+            0.0,
+            -0.0,
+            1.0,
+            -3.5,
+            0.1,
+            5.0e-324,
+            -5.0e-324,
+            2.2250738585072014e-308,
+            2.225073858507201e-308,
+            -2.2e-308,
+            1.7e308,
+            f64::MAX,
+            f64::MIN,
         ] {
-            assert_eq!(w(a).sum(w(b)).to_f64(), a + b, "{a} + {b}");
+            assert_eq!(x(v).to_f64().to_bits(), (v + 0.0).to_bits(), "{v}");
         }
-        // Past it, the sum is kept, and comes back when it fits again.
-        let over = w(1.0e308).sum(w(1.0e308));
-        assert!(over.to_f64().is_infinite());
-        assert_eq!(over.sum(w(-1.5e308)).to_f64(), 0.5e308);
-        assert!(Distance::below(w(-1.0e308).sum(w(-1.0e308)), w(-1.0e308)));
-        // A sum below an `f64`'s reach of the larger operand leaves it.
-        assert_eq!(w(1.0e308).sum(w(5.0e-324)).to_f64(), 1.0e308);
+        // Ties to even, one ulp of 1.0 being 2^-52.
+        let e = |k: i32| 2f64.powi(k);
+        let one = x(1.0);
+        assert_eq!(one.sum(x(e(-53))).to_f64(), 1.0);
+        assert_eq!(one.sum(x(e(-53))).sum(x(e(-105))).to_f64(), 1.0 + e(-52));
+        assert_eq!(x(1.0 + e(-52)).sum(x(e(-53))).to_f64(), 1.0 + e(-51));
+        assert_eq!(one.sum(x(-e(-54))).to_f64(), 1.0);
+        // Against `i128`: sums of whole numbers past 53 bits.
+        let mut rng = Rng(5);
+        for _ in 0..2000 {
+            let terms: Vec<i64> = (0..1 + rng.below(6))
+                .map(|_| {
+                    let t = (rng.next() >> rng.below(64)) as i64 >> 9;
+                    if rng.below(2) == 0 { -t } else { t }
+                })
+                .collect();
+            let exact: i128 = terms.iter().map(|&t| i128::from(t)).sum();
+            let got = terms
+                .iter()
+                .fold(Exact::ZERO, |acc, &t| acc.sum(x(t as f64)))
+                .to_f64();
+            // Each term is under 2^55, so `t as f64` may round; the sum is of
+            // the `f64`s, re-taken exactly.
+            let of_f64s: i128 = terms.iter().map(|&t| t as f64 as i128).sum();
+            assert_eq!(got, of_f64s as f64, "{terms:?} ({exact})");
+        }
+        // Past the range: held, and back when it fits again.
+        let over = x(1.0e308).sum(x(1.0e308));
+        assert!(over.to_f64().is_infinite() && over.to_f64() > 0.0);
+        assert_eq!(over.sum(x(-1.5e308)).to_f64(), 0.5e308);
+        assert!(x(-1.0e308).sum(x(-1.0e308)).below(&x(-1.0e308)));
+        assert!(x(-1.0e308).sum(x(-1.0e308)).to_f64() == f64::NEG_INFINITY);
+        // f64::MAX and half its ulp is a tie, and MAX's significand is odd.
+        let half_ulp = e(970);
+        assert!(x(f64::MAX).sum(x(half_ulp)).to_f64().is_infinite());
+        assert_eq!(x(f64::MAX).sum(x(half_ulp / 2.0)).to_f64(), f64::MAX);
+        // The smallest weight beside the largest is kept, not lost.
+        let tiny = x(1.0e308).sum(x(5.0e-324));
+        assert!(x(1.0e308).below(&tiny));
+        assert_eq!(tiny.to_f64(), 1.0e308);
+    }
+
+    /// **D207: a cycle is negative exactly when its weights sum below zero**,
+    /// however far from the start it lies — RFC-0012's sixth review, finding
+    /// 2. In `f64` the first cycle, of weight exactly 0, was reported 1000.0
+    /// away, and the second, of weight −2⁻⁵², was missed 1e20 away.
+    #[test]
+    fn a_cycle_is_negative_exactly_when_its_weights_sum_below_zero() {
+        let zero =
+            "[ :A :B 3.700101551766398 ] [ :B :C 0.699993338763802 ] [ :C :A -4.4000948905302 ]";
+        for (start, lead) in [(":A", ""), (":S", "[ :S :A 1000.0 ] ")] {
+            let b = top(&format!(
+                "{start} [ {lead}{zero} ] [ :S :A :B :C ] graph! graph.bellmanford"
+            ));
+            assert!(b.contains("node=B"), "{start}: {b}");
+        }
+        let negative = "[ :A :B 1.0 ] [ :B :A -1.0000000000000002 ]";
+        for (start, lead) in [
+            (":A", ""),
+            (":S", "[ :S :A 1.0e20 ] "),
+            (":S", "[ :S :A 1.0e300 ] "),
+        ] {
+            let e = err_of(&format!(
+                "{start} [ {lead}{negative} ] [ :S :A :B ] graph! graph.bellmanford"
+            ));
+            assert!(
+                e.contains("reaches a negative cycle through A"),
+                "{start} {lead}: {e}"
+            );
+        }
+        // The distance is the correctly rounded sum of its path, not the sum
+        // of rounded partial sums: 0.1 + 0.2 + 0.3 is 0.6000000000000001 in
+        // `f64`, left to right, and the exact sum's nearest `f64` is 0.6.
+        let b = top(
+            ":A [ [ :A :B 0.1 ] [ :B :C 0.2 ] [ :C :D 0.3 ] ] [ :A :B :C :D ] graph! graph.bellmanford",
+        );
+        assert!(b.contains("node=D ::  path=0.6 ::"), "{b}");
+    }
+
+    /// **Bellman–Ford over fractional weights, against an exact
+    /// Floyd–Warshall** — D207, and the sixth review's finding 3: the other
+    /// cross-checks draw whole weights, whose sums never round. Each weight
+    /// here is `k × 2^p` units of 2^-60, with `0 < |k| ≤ 2^20` and `p` from 0
+    /// to 90, so every path's sum, and every Floyd–Warshall sum, is exact in
+    /// `i128`. Mixing magnitudes 2^90 apart makes `f64` sums round, and a
+    /// reverse edge that nearly cancels makes cycles within one low bit of
+    /// zero. Distances must be the `i128` sums rounded
+    /// once; a cycle must be reported exactly when one is negative.
+    #[test]
+    fn bellman_ford_agrees_with_an_exact_floyd_warshall_over_fractional_weights() {
+        let mut rng = Rng(23);
+        let (mut cycles, mut rounded) = (0, 0);
+        for _ in 0..600 {
+            let k = 1 + rng.below(6) as usize;
+            let m = rng.below(14) as usize;
+            let mut edges: Vec<(usize, usize, i128)> = Vec::new();
+            for _ in 0..m {
+                let f = rng.below(k as u64) as usize;
+                let t = rng.below(k as u64) as usize;
+                let mag = 1 + rng.below(1 << 20) as i128;
+                let p = rng.below(91) as u32;
+                let units = mag << p;
+                let units = if rng.below(4) == 0 { -units } else { units };
+                edges.retain(|e| (e.0, e.1) != (f, t));
+                edges.push((f, t, units));
+            }
+            // Close a cycle to within `w`'s lowest set bit of zero, or to
+            // exactly zero: the cycles D207 is about. `-w ± low` is still a
+            // significand of 21 bits, so it is exact as an `f64`.
+            if let Some(&(f, t, w)) = edges.first()
+                && f != t
+                && rng.below(2) == 0
+            {
+                let low = w & -w;
+                edges.retain(|e| (e.0, e.1) != (t, f));
+                edges.push((t, f, -w + low * (rng.below(3) as i128 - 1)));
+            }
+            let unit = 2f64.powi(-60);
+            let row = |f: usize, t: usize, w: i128| {
+                BundValue::list(vec![
+                    BundValue::str(LETTERS[f]),
+                    BundValue::str(LETTERS[t]),
+                    BundValue::float(w as f64 * unit),
+                ])
+            };
+            let n = net(&(
+                list_of(&LETTERS[..k]),
+                BundValue::list(edges.iter().map(|&(f, t, w)| row(f, t, w)).collect()),
+            ));
+            // The model is the graph only if every weight is exact as read.
+            assert_eq!(n.edges.len(), edges.len());
+            for (&(_, _, w), e) in edges.iter().zip(&n.edges) {
+                assert_eq!((e.2 / unit) as i128, w, "{edges:?}");
+            }
+            let mut d: Vec<Vec<Option<i128>>> = vec![vec![None; k]; k];
+            for (u, row) in d.iter_mut().enumerate() {
+                row[u] = Some(0);
+            }
+            for &(f, t, w) in &edges {
+                d[f][t] = Some(d[f][t].map_or(w, |x| x.min(w)));
+            }
+            for via in 0..k {
+                for u in 0..k {
+                    for v in 0..k {
+                        if let (Some(a), Some(b)) = (d[u][via], d[via][v])
+                            && d[u][v].is_none_or(|x| a + b < x)
+                        {
+                            d[u][v] = Some(a + b);
+                        }
+                    }
+                }
+            }
+            for s in 0..k {
+                let negative = (0..k).any(|v| d[s][v].is_some() && d[v][v].is_some_and(|x| x < 0));
+                match bf(&n, s) {
+                    Ok(got) => {
+                        assert!(!negative, "{edges:?} from {s}: missed a cycle");
+                        for (t, x) in got.iter().enumerate() {
+                            let want = d[s][t].map(|x| x as f64 * unit);
+                            if let Some(w) = d[s][t]
+                                && (w as f64) as i128 != w
+                            {
+                                rounded += 1;
+                            }
+                            assert_eq!(*x, want, "{edges:?} {s}->{t}");
+                        }
+                    }
+                    Err(u) => {
+                        cycles += 1;
+                        assert!(negative, "{edges:?} from {s}: no cycle");
+                        assert!(
+                            d[u][u].is_some_and(|x| x < 0),
+                            "{u} is not on a negative cycle"
+                        );
+                    }
+                }
+            }
+        }
+        assert!(
+            cycles > 50 && rounded > 50,
+            "{cycles} cycles, {rounded} rounded"
+        );
     }
 
     #[test]

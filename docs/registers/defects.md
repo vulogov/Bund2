@@ -4549,6 +4549,24 @@ always exists. D198, the owner's ruling, answers that path wherever the
 node is listed. Test:
 `graph_path_from_a_node_to_itself_is_found_wherever_it_is_listed`.
 
+*Note, 2026-10-22 — the disposition's reason was wrong, and the answer is
+now the reference's error (D206).* "What `graph.path` already answers for
+a node it cannot reach (`getpath.rs:76`)" is not so. `fast_paths` answers
+`None` when its search meets no node
+(`~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fast_paths-1.0.0/src/path_calculator.rs:198-199`),
+and every `Some` it answers is found (`:201-208`,
+`src/shortest_path.rs:84-86`), so `getpath.rs:76-77` cannot run, and the
+reference's answer to "no path" is `GRAPH.PATH: can not calculate path`
+(`getpath.rs:93`). Found by RFC-0012's sixth review (finding 1), which ran
+`:C :A [ [ :A :B 1.0 ] [ :C :B 1.0 ] ] [ :A :B :C ] graph! graph.path`:
+that error in both engines, where the first graph above answered
+`found=false` in Bund2. On the owner's ruling, D206 A, a node no kept edge
+reaches now answers the same error, so "no path" has one shape and the
+only deviation left is that Bund2 does not panic. The five graphs above
+answer it, and `graph_path_answers_no_path_for_a_node_no_kept_edge_reaches`
+pins them beside the in-size graph. D198's answer for a node to itself is
+unchanged.
+
 ## F218 — `graph.path` Title-cased its node operands, where the reference looks them up as given
 
 **A Bund2 defect; found 2026-10-18 by the RFC-0012 review (finding 1),

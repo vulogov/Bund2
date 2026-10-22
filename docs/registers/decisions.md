@@ -3653,6 +3653,166 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D207 — `graph.bellmanford`'s cycle test depends on rounding
+
+**Raised 2026-10-22** by RFC-0012's sixth review
+(`docs/rfc/reviews/RFC-0012-review-2026-10-22.md`, finding 2). RFC-0012 §S4
+says `graph.bellmanford` "refuses only a negative cycle the start reaches".
+But the test is an `f64` relaxation (`bellman_ford`,
+`crates/bund2-stdlib/src/graph_algorithms.rs`), so rounding at the size of
+the distances decides it, in both directions. Re-run under `bund2` on this
+date. The sums were checked exactly over the `f64`s' own values, with
+Python's `fractions`:
+
+    :S [ [ :S :A 1000.0 ] [ :A :B 3.700101551766398 ] [ :B :C 0.699993338763802 ] [ :C :A -4.4000948905302 ] ] [ :S :A :B :C ] graph! graph.bellmanford
+    :S [ [ :S :A 1.0e20 ] [ :A :B 1.0 ] [ :B :A -1.0000000000000002 ] ] [ :S :A :B ] graph! graph.bellmanford
+
+- The first graph's cycle `A → B → C → A` weighs **exactly 0**, yet the word
+  answers `S reaches a negative cycle through A`. From `:A`, the same cycle
+  answers distances.
+- The second graph's cycle `A ↔ B` weighs **−2⁻⁵²**, a true negative cycle,
+  yet the word answers `S 0.0, A 1e20, B 1e20`: a finite answer where the
+  true one is unbounded. From `:A`, the cycle is reported.
+
+So whether a cycle is found depends on how heavy the edge leading into it
+is. D199 was raised for this kind of problem at the top of the range: a
+negative cycle that went unreported. D193 §1 ruled on rounding for
+`graph.maxflow`, but nothing has ruled on it for Bellman–Ford. `Wide`
+(D202) widens the range of a number, not its precision, so it cannot help.
+With non-negative weights a false cycle cannot happen, because
+`fl(d + w) ≥ d`.
+
+- Blocks: RFC-0012's acceptance
+- Depends on: D192 §3 (`graph.bellmanford` for negative weights), D193 §1
+  and §2, D199, D202 (`Wide`)
+- Options:
+  - **A. State it.** §S4 and the preservation analysis say the cycle test
+    runs in `f64`. A cycle whose weight is below the rounding of the
+    distances around it can be missed, and a zero-weight cycle can be
+    reported. No code change.
+  - **B. Confirm a reported cycle exactly.** Sum the weights of the cycle
+    the walk back finds, with no rounding, and answer the distances when the
+    sum is not below zero. This removes the false report but not the missed
+    cycle. It also answers distances from a pass that had not settled.
+  - **C. Run the relaxation exactly.** Every `f64` is a dyadic rational, so a
+    fixed-point accumulator about 2,100 bits wide holds any sum of them with
+    no rounding, with a few more bits for the number of terms: each
+    distance is a sum of at most n weights.
+    - Every comparison is then exact, so a cycle is reported exactly when
+      one is negative.
+    - Each distance is rounded once, at the end, to the nearest `f64`.
+    - An overflow is refused only when that rounded answer cannot be
+      represented. That also covers what `Wide` does for this word (D202).
+    - Answers over whole weights do not change. Answers over fractional
+      weights can change in the last bit, toward the correctly rounded one.
+    - The cost is new arithmetic code to verify and a slower relaxation, by
+      a constant factor. The factor has not been measured.
+- Recommendation: **C**.
+  - It is the only option that makes §S4's sentence true.
+  - It answers the same question D199 and D202 answered, "refuse only
+    what is so", for precision as they did for range.
+  - The word is Bund2's own, so no golden pins its last bits.
+  - A is the honest fallback if the cost of C is not wanted.
+  - B fixes one direction and leaves the other.
+- Not checked: whether the reference's `graph.allpath` (Johnson's, over
+  `f64` Bellman–Ford) behaves the same way. This entry is about
+  `graph.bellmanford` only.
+- Default for planning: none. Not adopted.
+- Status: **RESOLVED** by the repository owner, 2026-10-22: C ("D207:C").
+
+*C, as built.* `Exact` (`crates/bund2-stdlib/src/graph_algorithms.rs`)
+holds a distance as a whole number of 2^-1074 units in two's complement
+over 34 64-bit limbs: the sign, 2,098 bits of value and 77 of headroom.
+`bellman_ford_exact` relaxes in it, and `Exact::to_f64` rounds each
+distance once, ties to even, infinite past the range. A graph that could
+need 2^76 relaxations is an `Error::internal`, and no graph that fits in
+memory can. `Wide` and the `f64` first run are removed. The review's
+programs now answer: the zero-weight cycle 1000.0 away gives distances,
+and the −2⁻⁵² cycle 1e20 or 1e300 away is reported. Tests:
+`a_cycle_is_negative_exactly_when_its_weights_sum_below_zero`,
+`exact_sums_round_once_to_the_nearest_f64` (ties, the top of the range,
+2,000 sums against `i128`), and
+`bellman_ford_agrees_with_an_exact_floyd_warshall_over_fractional_weights`
+(600 graphs of weights `k × 2^p`, magnitudes up to 2^90 apart, cycles
+closed to within one low bit of zero, against Floyd–Warshall in `i128`;
+it asserts at least 50 cycles and 50 distances that `f64` would round).
+`the_wide_run_scales_with_the_weights` became
+`the_exact_run_scales_with_the_weights` and still asserts that more than
+100 runs leave `f64`'s range.
+
+*What it cost*, measured on macOS arm64 with release builds, as the median
+of seven to ten alternating rounds of `bund2 script`:
+- A 2,000-node chain whose edges are listed backwards needs every pass.
+  It took 117 ms against 23 ms, with 15 ms of that reading the graph, so
+  the relaxation went from about 7 ms to about 100 ms.
+- Random graphs of 400 nodes and 4,000 edges, whole or fractional, read
+  within noise: 40.4 against 39.6 ms, and 59.1 against 59.3 ms.
+
+## D206 — `graph.path`'s F219 case: the reference's own no-path error, or `found=false`?
+
+**Raised 2026-10-22** by RFC-0012's sixth review
+(`docs/rfc/reviews/RFC-0012-review-2026-10-22.md`, finding 1). D193 §5
+replaced F219's panic with `{ found=false }`. F219's disposition gives the
+reason: it is "what `graph.path` already answers for a node it cannot
+reach (`getpath.rs:76`)". **That branch never runs in the reference.**
+- `fast_paths` answers `None` when the search finds no meeting node
+  (`~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fast_paths-1.0.0/src/path_calculator.rs:198-199`).
+- Every `Some` it answers carries a weight below `WEIGHT_MAX`
+  (`:201-208`), and `is_found` is `weight != WEIGHT_MAX`
+  (`src/shortest_path.rs:84-86`).
+- So `reference/Bund/src/stdlib/functions/graph/getpath.rs:76-77` is dead,
+  and "no path" in the reference is `None`. `getpath.rs:93` turns that into
+  `GRAPH.PATH: can not calculate path`.
+
+Run on this date:
+
+    :C :A [ [ :A :B 1.0 ] [ :C :B 1.0 ] ] [ :A :B :C ] graph! graph.path
+    :C :A [ [ :A :B 1.0 ] ]               [ :A :B :C ] graph! graph.path
+
+- The first answers `GRAPH.PATH: can not calculate path` in the oracle and
+  in `bund2`.
+- The second is F219's case. The oracle panics, and `bund2` answers
+  `{ found=false }`.
+
+So Bund2 answers "no path" in two shapes. Which one a program gets depends
+on whether an unrelated edge keeps `C` inside `fast_paths`' graph. A
+program that tests `found` never sees `false` in the first case. A program
+that wraps the call in `?try` sees no error in the second. D193's ruling
+was made believing `found=false` was the reference's no-path answer, and
+it was not.
+
+- Blocks: RFC-0012's acceptance
+- Depends on: D193 §5, F219, D14 (the family is core, so its words are
+  preserved 100%), D37
+- Options:
+  - **A. One shape, the reference's.** F219's case answers
+    `GRAPH.PATH: can not calculate path`. The panic is still replaced, but
+    by an answer the reference already gives for "no path", so the only
+    deviation left is "no panic". `graph_path_answers_no_path_for_a_node_no_kept_edge_reaches`
+    (`crates/bund2-stdlib/src/graph.rs`) changes to pin the error.
+  - **B. Keep `found=false`.** State both shapes in RFC-0012's account of
+    current behaviour, in its preservation analysis and in F219.
+  - **C. `found=false` for every no-path case.** This changes the
+    reference's answer in a case it does not crash on, so it is a
+    deviation in a core word (D14). No golden pins either shape.
+- Recommendation: **A**. It gives "no path" one shape, the reference's,
+  and it is the smallest change from the reference that still removes the
+  panic. B keeps a shape that the presence of an unrelated edge decides. C
+  is a new deviation where none is needed.
+- Whatever the ruling, F219's disposition takes a dated note correcting
+  "what `graph.path` already answers".
+- Default for planning: none. Not adopted.
+- Status: **RESOLVED** by the repository owner, 2026-10-22: A ("D206: A").
+
+*A, as built.* `graph_path` (`crates/bund2-stdlib/src/graph.rs`) answers
+`GRAPH.PATH: can not calculate path` for a node past `fast_paths`' size,
+the error the reference gives for "no path" inside it. D198's path of one
+node, from a node to itself, is unchanged. The `found`-alone branch is kept
+as `getpath.rs:76-77` writes it, and cannot run in either engine.
+`graph_path_answers_no_path_for_a_node_no_kept_edge_reaches` pins the error
+for the five graphs F219 lists and for the in-size graph the review set
+beside the first. F219 has a dated note.
+
 ## D205 — F224: make a compiled entry cheaper, then compile only a body that gains
 
 **Ruled 2026-10-22** by the repository owner on F224's three ways out:
@@ -3882,6 +4042,13 @@ review's finding 5); no edges total 0.0. New tests:
 scaled by `2^1020` and a subnormal self-loop, each answer the plain one
 scaled, to the bit; 228 of the runs need `Wide`) and
 `wide_sums_round_as_unbounded_f64_would`.
+
+*Note, 2026-10-22 — `Wide` is gone (D207).* `graph.bellmanford` now relaxes
+in `Exact`, which holds every sum with no rounding. This ruling still holds:
+only a distance whose rounded value cannot be represented is refused, by
+the first such node in node order, and the `-1.0e308` cycle is a cycle.
+The two tests above became `the_exact_run_scales_with_the_weights` and
+`exact_sums_round_once_to_the_nearest_f64`. `mst_total` is unchanged.
 
 ## D201 — `cargo xtask unblock`: retire it, or rank what is left (Q15)
 

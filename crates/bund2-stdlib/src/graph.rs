@@ -185,11 +185,16 @@ fn build(nodes: &BundValue, edges: &BundValue) -> Result<Built, Error> {
 /// (F218). An unknown end node is reported with the *start* node's name
 /// (`:71`), and a non-STRING end with the start's message (`:67`).
 ///
-/// A node no kept edge reaches answers `found` false here, where the
-/// reference panics inside `fast_paths` (F219, D193).
+/// "No path" is `GRAPH.PATH: can not calculate path` (`:93`): `fast_paths`
+/// answers `None` when its search meets no node
+/// (`fast_paths-1.0.0/src/path_calculator.rs:198-199`), and every `Some` it
+/// answers is found (`:201-208`, `src/shortest_path.rs:84-86`). A node no
+/// kept edge reaches answers the same here, where the reference panics
+/// inside `fast_paths` (F219, D193, D206).
 ///
-/// The answer is a MAP: `found` alone when there is no path (`:76`), or
-/// `path`, `weight` and `found` when there is (`:87-89`). `weight` is pushed
+/// The answer is a MAP of `path`, `weight` and `found` (`:87-89`). The
+/// `found`-alone branch (`:76`) is kept as the reference writes it, and
+/// cannot run there either. `weight` is pushed
 /// as a **FLOAT** even though `fast_paths` computes in `usize` (`:88`), which
 /// is why the golden prints `Weight: 3.0` and not `3`.
 fn graph_path(vm: &mut dyn Vm) -> Result<(), Error> {
@@ -253,7 +258,8 @@ fn graph_path(vm: &mut dyn Vm) -> Result<(), Error> {
     // largest endpoint left (`fast_paths-1.0.0/src/input_graph.rs:190-204`).
     // `calc_path` asserts both nodes are inside that size
     // (`path_calculator.rs:77-82`), so the reference panics on a node past
-    // it. No kept edge reaches such a node, so there is no path (F219, D193).
+    // it. No kept edge reaches such a node, so there is no path, said as the
+    // reference says it for a node inside the size (F219, D193, D206).
     //
     // **Except from a node to itself** (D198): the path of one node always
     // exists, and `fast_paths` answers it, weight 0, for a node inside its
@@ -270,8 +276,7 @@ fn graph_path(vm: &mut dyn Vm) -> Result<(), Error> {
         return Ok(());
     }
     if start_ix >= size || end_ix >= size {
-        vm.push(BundValue::map(Default::default()).set("found", BundValue::boolean(false)));
-        return Ok(());
+        return Err(Error("GRAPH.PATH: can not calculate path".into()));
     }
     let Some(found) = fast_paths::calc_path(&prepared, start_ix, end_ix) else {
         return Err(Error("GRAPH.PATH: can not calculate path".into()));
@@ -669,32 +674,33 @@ mod tests {
         assert!(found.contains("weight=3.0"), "{found}");
     }
 
-    /// **Where the reference panics, `graph.path` answers no path** (F219,
-    /// D193). `fast_paths` numbers only the nodes a kept edge touches, and
-    /// `calc_path` asserts both ends are among them
+    /// **Where the reference panics, `graph.path` answers its own no-path
+    /// error** (F219, D193, D206). `fast_paths` numbers only the nodes a kept
+    /// edge touches, and `calc_path` asserts both ends are among them
     /// (`fast_paths-1.0.0/src/path_calculator.rs:77-82`); a node past them
-    /// is one no kept edge reaches.
+    /// is one no kept edge reaches. The first two graphs are the pair the
+    /// sixth RFC-0012 review set side by side: `C` inside the size, where
+    /// the reference answers this error itself, and `C` past it.
     #[test]
     fn graph_path_answers_no_path_for_a_node_no_kept_edge_reaches() {
         for g in [
+            ":C :A [ [ :A :B 1.0 ] [ :C :B 1.0 ] ] [ :A :B :C ] graph!",
             ":C :A [ [ :A :B 1.0 ] ] [ :A :B :C ] graph!",
             ":A :C [ [ :A :B 1.0 ] ] [ :A :B :C ] graph!",
             ":B :A list [ :A :B ] graph!",
             ":B :A [ [ :A :A 1.0 ] [ :B :B 1.0 ] ] [ :A :B ] graph!",
             ":B :A [ [ :A :B 0.5 ] ] [ :A :B ] graph!",
         ] {
-            let found = top_text(&format!("{g} graph.path"));
-            assert!(
-                found.contains("found=false") && !found.contains("path="),
-                "{g}: {found}"
-            );
+            let e = err_of(&format!("{g} graph.path"));
+            assert!(e.contains("GRAPH.PATH: can not calculate path"), "{g}: {e}");
         }
     }
 
     /// **D198: a node to itself is a path of one node, wherever the node is
     /// listed.** Inside `fast_paths`' size it answers so itself; past it —
     /// an isolated node listed last — Bund2 answers the same, where F219's
-    /// first fix answered `found=false` and the reference panics.
+    /// first fix answered `found=false` and the reference panics. (D206
+    /// leaves this alone: a node to itself has a path.)
     #[test]
     fn graph_path_from_a_node_to_itself_is_found_wherever_it_is_listed() {
         for g in [

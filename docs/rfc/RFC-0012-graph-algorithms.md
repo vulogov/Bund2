@@ -1,10 +1,10 @@
 # RFC-0012: Graph algorithms
 
-- Status: **Draft** (2026-10-18), revised after its second adversarial
-  review (`docs/rfc/reviews/RFC-0012-review-2026-10-18-2.md`, "Not ready
-  for Accepted") and awaiting the next. The first review
+- Status: **Draft** (2026-10-18), revised after each of six adversarial
+  reviews, every one "Not ready for Accepted", and awaiting the next. The
+  first review
   (`RFC-0012-review-2026-10-18.md`) found Bund2's `graph.path`
-  Title-casing its operands (F218, fixed). The second found a wrong
+  Title-casing its operands (F218, fixed). The second (`RFC-0012-review-2026-10-18-2.md`) found a wrong
   `graph.maxflow` answer, a misstated Bellman–Ford rule, weights that are
   not finite, and a `graph.path` crash in the reference; the owner ruled
   on all four in **D193** ("1A 2A 3A 5A"). Every other finding of both is
@@ -28,12 +28,18 @@
   keeping an exception the
   ruling did not grant, and untested by any cross-check (both answered in
   code); and the `.` forms' workbench half undeclared, which D195 bears on.
-  The rest is answered in place, and listed at the end.
+  The rest is answered in place, and listed at the end. The sixth review
+  (`RFC-0012-review-2026-10-22.md`) found F219's `found=false` approved on
+  a premise the reference contradicts, since `fast_paths` never answers
+  `found=false` (**D206**, A: the reference's own no-path error), and
+  `graph.bellmanford`'s cycle test decided by rounding in both directions
+  (**D207**, C: the relaxation runs exactly). The rest is answered in
+  place, and listed at the end.
 - Depends on: RFC-0002 (natives and their declared effects), RFC-0004
   (the effects `bund2 check` reads, and the residual stack), RFC-0005
   (which natives Tier 1 promotes)
 - Decisions consumed: D192 (and its notes of 2026-10-18), D193, D198,
-  D199, D200, D202, D203, D14, D18, D24, D111 (and its note of 2026-10-07), D37, D38,
+  D199, D200, D202, D203, D206, D207, D14, D18, D24, D111 (and its note of 2026-10-07), D37, D38,
   D39, D48, D49, D55, D195; the dispositions of F17, F218, F219 and F220.
 - Registers searched by subject ("graph", the nineteen word names,
   `graph.rs`, `make_graph`, `fast_paths`, `calc_path`, `algos`, "Title",
@@ -42,7 +48,9 @@
   edges), F218, F219, open-questions' subsystem table (`bund/graph`) and
   PROMOTABLE.txt. ERRATA has no graph entry. *Since the third review, by
   "overflow", "allpath", "johnson", "workbench" and "bench" as well:* D195,
-  D198, D199, D200, D202, D203, F220 and its notes.
+  D198, D199, D200, D202, D203, F220 and its notes. *Since the sixth, by
+  "rounding", "tolerance", "found=false", "can not calculate" and "cycle":*
+  D193 again, D206, D207.
 - Reference SHA: `reference/Bund` 21b40b0
 - Supersedes: nothing
 
@@ -154,8 +162,13 @@ reproducibly.
   note of 2026-10-18 had the same misreading.)*
 - Bund2 reproduces all seven words (`crates/bund2-stdlib/src/graph.rs`),
   `graph.path`'s operand lookup since F218, and with F219's crash answered
-  `found=false` — or, from a node to itself, the path of that one node
-  (D198).
+  by the reference's own no-path error, `GRAPH.PATH: can not calculate
+  path` (`getpath.rs:93`; D206) — or, from a node to itself, the path of
+  that one node (D198). *(Until D206 F219's case answered `found=false`,
+  which the reference never answers: `fast_paths` answers `None` for no
+  path (`fast_paths-1.0.0/src/path_calculator.rs:198-199`) and every `Some`
+  it answers is found (`:201-208`, `src/shortest_path.rs:84-86`), so
+  `getpath.rs:76-77` cannot run.)*
 
 ## Design
 
@@ -175,7 +188,7 @@ The graph is on top; a node operand beneath it.
 | `graph.components` | `<graph>` | LIST of LISTs, edges read both ways |
 | `graph.scc` | `<graph>` | LIST of LISTs, each mutually reachable |
 | `graph.mst` | `<graph>` | MAP `edges` (`[ from to weight ]`), `weight`; edges read both ways, self-loops never chosen (`graph_algorithms.rs`, `mst`), negative weights taken; a forest when the graph is not connected; a total that overflows is refused (S4) |
-| `graph.bellmanford` | `<start> <graph>` | `graph.paths`' rows (`dijkstra.rs:69-76`): `node`, `path` or NODATA, never an infinite distance (S4) |
+| `graph.bellmanford` | `<start> <graph>` | `graph.paths`' rows (`dijkstra.rs:69-76`): `node`, `path` or NODATA, never an infinite distance (S4); each distance the nearest `f64` to its path's exact sum (S5, D207) |
 | `graph.maxflow` | `<sink> <source> <graph>` | MAP `flow`, `edges` (`[ from to share ]`, every edge whose share is above 0.0); every capacity above 0.0 counts, however small beside the largest (D193 §1); a sink the source cannot reach answers `flow` 0.0 |
 
 Over the empty graph, `graph.toposort`, `graph.components` and
@@ -250,9 +263,11 @@ An impossible question is an error a program catches with `?try`
   back from the last edge it relaxed. With two reachable negative cycles,
   which one that is depends on the order of the edges, so `B` need not be
   the smallest node of all the reachable cycles; for one program it is the
-  same on every run (D193 §2);
-- `GRAPH.BELLMANFORD: the distance to C overflows`, naming a node whose
-  distance cannot be represented; `GRAPH.MST: the total weight overflows`;
+  same on every run (D193 §2). A cycle is negative exactly when its
+  weights sum below zero, however far from the start it lies: the test is
+  made with no rounding (D207, S5);
+- `GRAPH.BELLMANFORD: the distance to C overflows`, naming the first node
+  in node order whose distance cannot be represented; `GRAPH.MST: the total weight overflows`;
   `GRAPH.MAXFLOW: the flow overflows: S -> T` (D199). Every weight is
   finite, so a sum that is not overflowed, and **only an answer that
   overflows is refused** (D202). A sum that overflows on the way to a
@@ -273,7 +288,14 @@ the `graph_operand` that `graph.paths`, `graph.allpath` and
 be a list`. Of the other four reference words, `graph.path` makes the same
 checks inline (`getpath.rs:14-43`); `graph` and `graph.` do not check
 `type` at all, taking a missing one as `"graph"` (`mod.rs:38-41`); and
-`graph!` checks nothing (`mod.rs:68-93`). Then the reader, naming the word
+`graph!` checks nothing (`mod.rs:68-93`). A graph operand that is not a
+MAP is its own `type`, `nodes` and `edges` (`get_or_self`, in
+`crates/bund2-value`). So `"graph"` passes the type check and answers
+`Nodes list must be a list`, another STRING answers `unknown data type`,
+any other value `type casting returns: …`, and `MISSED TYPE` is a MAP
+without `type`. Run under `bund2` on 2026-10-22; the sixth review ran
+`graph.paths` in both engines and found the same messages. Then the
+reader, naming the word
 and, where there is one, the type by name:
 
 - `a node name must be a STRING, not Integer`;
@@ -321,25 +343,43 @@ reaching a node no edge relaxed, and `graph.maxflow` handed a capacity the
 reader refuses are each `Error::internal`. A sum that overflows is not an
 invariant broken but the program's numbers, so it is an ordinary error
 (S4, D199). In `graph.maxflow` only the total can overflow: each reverse
-arc holds at most its forward edge's capacity, which is finite. And the
-total only grows, by a positive bottleneck each round, so a running total
+arc holds at most its forward edge's capacity, which is finite. That is
+exact arithmetic's invariant, `r + a = w`; in `f64` the subtraction and
+the addition each round, so it rests on that drift never reaching the gap
+between a capacity and `f64::MAX`. It is not proved here. The sixth
+review's model of `max_flow` over 20,000 graphs with fractional capacities
+found no reverse arc above its capacity. And the total only grows, by a positive bottleneck each round, so a running total
 that overflows is an answer that does (D202).
 
-Only the answer's overflow is refused (D202). An answer that does not reach
-the fallback below is unchanged by it. `graph.bellmanford` relaxes in
-`f64`, and only if a sum overflows relaxes again in `Wide`: an `f64`
-significand with an `i32` exponent beside it, whose sums round as `f64`'s
-would with unbounded range. Where the smaller operand loses bits to the
-scaling, they lie below half the larger's last place, so the nearest
-`f64` is unchanged. So that run's comparisons are the unbounded ones, for
-any weight, and a distance that does not fit an `f64` is refused by its
-node. `the_wide_run_scales_with_the_weights` checks this against the plain
-run over seeded graphs scaled by `2^1020`. `graph.mst` sums lightest first
+**`graph.bellmanford` relaxes exactly** (D207). Every finite `f64` is a
+whole number of 2^-1074 units below 2^2098, so `Exact` holds a distance as
+that number in two's complement over 2,176 bits, and no sum of up to 2^76
+weights rounds or wraps; a graph that could need more relaxations is an
+`Error::internal`, and none that fits in memory can. Every comparison is
+then exact, so a cycle is reported exactly when one is negative, and each
+distance is rounded once, at the end, to the nearest `f64`, ties to even.
+Over whole weights that is the sum `f64` forms; over fractional ones it
+can differ in the last bit from a left-to-right `f64` sum, toward the
+correctly rounded one (`0.1`, `0.2`, `0.3` answer `0.6`, not
+`0.6000000000000001`). It also does what D202's `Wide` fallback did: only a
+distance whose rounded value does not fit an `f64` is refused (D202), and
+the `-1.0e308` cycle is a cycle. *(From D202 to D207 the relaxation ran in
+`f64`, falling back to `Wide`, an `f64` significand with its own exponent,
+when a sum overflowed. `Wide` widened the range and not the precision, so a
+zero-weight cycle 1000.0 from the start was reported and a −2⁻⁵² one 1e20
+away was missed: the sixth review's finding 2.)* **What it costs**:
+measured on macOS arm64, release, the relaxation of a 2,000-node chain
+listed backwards, which needs every pass, takes about 100 ms against about
+7 ms in `f64`; on random graphs of 400 nodes and 4,000 edges the
+difference is within noise. `the_exact_run_scales_with_the_weights`,
+`exact_sums_round_once_to_the_nearest_f64` and
+`bellman_ford_agrees_with_an_exact_floyd_warshall_over_fractional_weights`
+check it. `graph.mst` sums lightest first
 from the first weight, so a forest of `-0.0` edges totals `-0.0` and an
 empty one 0.0. Only if that sum overflows does it sum again, in an order
 whose running sum never exceeds the largest weight in magnitude. That
 fallback's total is in a different order, so its last bits are its own
-(`bellman_ford`, `Wide`, `mst_total`).
+(`bellman_ford`, `Exact`, `mst_total`).
 
 `graph.maxflow` is Edmonds–Karp. Its bound, at most nodes × edges
 augmenting rounds (Edmonds and Karp, 1972), rests on two facts about the
@@ -376,16 +416,18 @@ meaning.
 ## Which points are rulings
 
 Accepting this RFC accepts the following. The owner ruled on these
-(D192, D193, D198, D199, D200): the twelve words and nothing more;
+(D192, D193, D198, D199, D200, D202, D203, D206, D207): the twelve words
+and nothing more;
 Bund2's own implementation; the graph read as `graph.paths` reads it,
 directed; node order everywhere, and F17 fixed by it; values for answers
 and errors for impossible questions; no tolerance in `graph.maxflow`; the
-Bellman–Ford rule as built; weights that are not finite refused, and sums
-that overflow refused (D199) where the answer overflows (D202); F218
-fixed; `graph.path` answering
-`found=false` where the reference crashes (F219), and the path of one node
-from a node to itself (D198); and `graph.allpath`'s dependence on the last
-node preserved (F220, D200).
+Bellman–Ford rule as built, its relaxation exact (D207); weights that are
+not finite refused, and sums that overflow refused (D199) where the answer
+overflows (D202); F218 fixed; `graph.path` answering the reference's own
+no-path error where the reference crashes (F219, D206), and the path of
+one node from a node to itself (D198); and `graph.allpath`'s dependence on
+the last node preserved (F220, D200), its refusal of a graph with no cycle
+included (D203).
 
 These are D192's build choices, which D192 says can be overruled, and
 which acceptance would ratify:
@@ -407,9 +449,11 @@ which acceptance would ratify:
   **deliberately changed** from unspecified to node order — an added
   guarantee, D192 §4, which deviates from nothing because the reference's
   order is unspecified. `graph.path`'s crash on a node no kept edge
-  reaches is **deliberately changed** to `found=false` (F219, D193 §5), or
-  to the path of one node when the start is the end (D198), which is what
-  `fast_paths` answers for a node inside its size. `graph.path`'s operands
+  reaches is **deliberately changed** to `GRAPH.PATH: can not calculate
+  path`, the reference's own answer for "no path" inside `fast_paths`' size
+  (F219, D193 §5, D206), so "no path" has one shape; or to the path of one
+  node when the start is the end (D198), which is what `fast_paths` answers
+  for a node inside its size. `graph.path`'s operands
   are looked up as given again (F218, a Bund2 defect fixed, not a
   deviation). No golden moves.
 - **Preserved, and a defect** (F220, D200): `graph.allpath` answers no
@@ -438,8 +482,10 @@ which acceptance would ratify:
   - **negative weights**: `graph.paths` refuses one Dijkstra meets,
     `graph.allpath` drops rows or refuses a graph with no cycle as F220
     says, and `graph.bellmanford` takes it and refuses only a negative
-    cycle the start reaches, so a swap to it works one way: from an error
-    or missing rows to an answer;
+    cycle the start reaches, decided exactly (D207), so a swap to it works
+    one way: from an error or missing rows to an answer. Its distances are
+    correctly rounded sums, so over fractional weights one can differ in
+    the last bit from `graph.paths`' left-to-right sum;
   - **overflow**: `graph.paths` and `graph.allpath`, the two that sum in
     `f64`, answer `inf` where a sum overflows, and the new words refuse it
     (D199), and only there (D202): a graph whose distances are finite is
@@ -469,7 +515,10 @@ given. D193 records the rest: a tolerance in `graph.maxflow` (wrong
 answers when capacities differ in scale), computing the smallest node on
 every reachable negative cycle (one more search per node), specifying
 NaN and ±inf answers instead of refusing them, and an ordinary error for
-F219 instead of `found=false`.
+F219 instead of `found=false`, which D206 later chose, as the reference's
+own error, once it was shown that the reference never answers
+`found=false`. D207 records stating the rounding, and confirming a
+reported cycle exactly, against the exact relaxation.
 
 ## Acceptance criteria
 
@@ -486,7 +535,12 @@ F219 instead of `found=false`.
    and now and then a node, an end or an edge of the wrong type. That it
    refuses a weight that is not finite: criterion 6.
 3. **Each algorithm's answer, as a set or a value**, agrees with an
-   independent one over seeded random graphs:
+   independent one over seeded random graphs. The generator draws **whole
+   weights**, whose sums never round, so these say nothing about rounding;
+   `bellman_ford_agrees_with_an_exact_floyd_warshall_over_fractional_weights`
+   does, for Bellman–Ford (600 graphs of weights `k × 2^p` against
+   Floyd–Warshall in `i128`, distances equal to the bit, a cycle reported
+   exactly when one is negative, near-zero cycles included). The rest:
    `reachable_is_the_transitive_closure_row`,
    `scc_is_mutual_reachability`, `components_join_what_any_edge_joins`,
    `toposort_and_cycle_agree`, `bellman_ford_agrees_with_dijkstra`,
@@ -524,7 +578,8 @@ F219 instead of `found=false`.
    pre-checks.
 8. **F218 and F219**: `graph_path_looks_its_nodes_up_as_given`;
    `graph_path_answers_no_path_for_a_node_no_kept_edge_reaches` (the five
-   graphs that crash the oracle);
+   graphs that crash the oracle, and the in-size graph beside the first,
+   all answering `can not calculate path`, D206);
    `graph_path_from_a_node_to_itself_is_found_wherever_it_is_listed`
    (D198); and
    `graph_path_drops_an_edge_under_one_before_the_lowest_is_kept`.
@@ -541,8 +596,9 @@ F219 instead of `found=false`.
     an unrelated node, reported as a cycle; a distance below the range),
     `only_an_answer_that_cannot_be_represented_is_refused` and
     `mst_total_keeps_its_partial_sums_in_range`,
-    `the_wide_run_scales_with_the_weights` and
-    `wide_sums_round_as_unbounded_f64_would` (D202),
+    `the_exact_run_scales_with_the_weights` and
+    `exact_sums_round_once_to_the_nearest_f64` (D202, D207),
+    `a_cycle_is_negative_exactly_when_its_weights_sum_below_zero` (D207),
     `allpath_with_a_negative_edge_out_of_the_last_node_answers_nothing`,
     `allpath_refuses_an_acyclic_graph_with_a_negative_path_into_the_last_node`
     (F220's third face), and
@@ -592,3 +648,14 @@ F219 instead of `found=false`.
 | 4. The `.` forms' workbench half | Declared `(1, 1)` from how they are built (`BUILT` in `bench.rs`), so `check` finds `:A graph.bfs.`; S1 cites D195; D195 note |
 | 5. A `-0.0` forest totals 0.0 | `mst_total` folds from the first weight, so it totals `-0.0` again and the empty forest 0.0; tested; S5 |
 | 6. Smaller points | The residual cited to RFC-0004 `:544-546`; the palette cited by `KINDS`; why `graph.maxflow`'s overflow is the answer's; the `graph.mst` fallback's last bits; the registers searched brought up to date; the stale doc comment went with the code it described |
+
+## The sixth review, answered (2026-10-22)
+
+| Finding | Answer |
+|---|---|
+| 1. F219's `found=false` rests on a false premise | **D206**, A: F219's case answers `GRAPH.PATH: can not calculate path`, the reference's own answer for "no path", so it has one shape; "Current behaviour", the rulings and the preservation analysis restated; criterion 8's test pairs it with the in-size case; F219 note |
+| 2. `graph.bellmanford`'s cycle test depends on rounding | **D207**, C: the relaxation runs in `Exact`, with no rounding, and each distance is rounded once; it replaces `Wide`; S4, S5, criterion 11; the cost measured in S5 |
+| 3. The cross-checks draw whole weights | Criterion 3 says so; `bellman_ford_agrees_with_an_exact_floyd_warshall_over_fractional_weights` checks fractional weights against `i128`; `exact_sums_round_once_to_the_nearest_f64` checks the rounding |
+| 4. Smaller points | The Status line restated; the rulings list names D202, D203, D206 and D207; S4 names the first overflowing node in node order, and what a graph operand that is not a MAP is refused as |
+| Assumed: reverse arcs within capacity | Stated in S5 as resting on rounding drift, unproved, with the review's model |
+| Assumed: no word named like the 24 | A program's own definition replaces a native, so `:graph.bfs { "mine" } register` makes `graph.bfs` answer `mine`, as it would for any native; run under `bund2` on this date |
