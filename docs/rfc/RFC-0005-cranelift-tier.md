@@ -6309,6 +6309,14 @@ criterion.)*
    predecessors owed, the clock on other hosts for criteria 7, 10 and 17,
    are asked of `bench-reading`.)*
 
+   *(2026-10-22 — **met again on this host**, on the owner's ruling D205: A,
+   then B. D139's frame is pushed when compiled code first calls back, not
+   at entry, and a body compiles only when its sites outnumber its generic
+   values. Same method and nine programs: `1 drop` −0.8%, `1 dup drop`
+   +1.3% (no longer compiled), a user's word +3.1%, `down` +0.6% (no
+   longer compiled), the rest −43.9% to +1.9%. D205 has the coefficients
+   behind the rule.)*
+
 8. **`cite` and `lint` clean**, with `cargo xtask cite` resolving every
    `path:line` in this document. **Note what this now checks and did not
    before:** citations into `crates/` were invisible to the extractor until
@@ -6933,6 +6941,12 @@ criterion.)*
     down: the program without a tier went from 316 ms to 130 ms here. F224
     has the table and the cause, criterion 7's; reopening §S1's gate, as
     this criterion asks, is the owner's.)*
+
+    *(2026-10-22 — after D205, A and B: **1.23×** on macOS arm64 (0.134 s
+    against 0.108 s, ten alternating rounds), above the stop rule. A alone
+    reads 1.24×; the loop's own body, two sites and two generic values, now
+    runs at Tier 0 and `w` alone is compiled. The Linux hosts read 1.14× and
+    1.35× before the change and are `bench-reading`'s to re-take.)*
 
     *(2026-10-15, later: the `*` and `>` arms touch no site of `fib`'s.
     Re-measured after them, Tier 0 0.47 s, Tier 1 0.59 s.)* *(2026-10-16:

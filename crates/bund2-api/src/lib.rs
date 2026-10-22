@@ -798,6 +798,13 @@ pub trait Vm {
         Ok(input::Read::End)
     }
 
+    /// Make the input ready for a read in the named history, without
+    /// reading. See [`input::Input::open`]. **Defaulted to ready**, as a `Vm`
+    /// with no input has nothing to open.
+    fn open_input(&mut self, _history: Option<&str>) -> Result<(), String> {
+        Ok(())
+    }
+
     /// Add a line to a named history. See [`input::Input::remember`].
     fn remember_line(&mut self, _history: &str, _line: &str) {}
 

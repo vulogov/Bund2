@@ -93,6 +93,12 @@ impl Terminal {
 }
 
 impl Input for Terminal {
+    /// The editor a read in `history` would use, opened now. Kept, so the
+    /// read that follows finds it.
+    fn open(&mut self, history: Option<&str>) -> Result<(), String> {
+        self.session(history).map(|_| ())
+    }
+
     fn line(&mut self, ask: &Ask<'_>) -> Result<Read, String> {
         match self.session(ask.history)?.line(ask.prompt) {
             Ok(line) => Ok(Read::Line(line)),
@@ -498,10 +504,19 @@ fn debug_word(vm: &mut dyn Vm) -> Result<(), Error> {
     let snippet = v.as_str().ok_or_else(|| {
         Error("Casting debug snippet returns: This Dynamic type is not string".into())
     })?;
+    const HISTORY: &str = "bund_debug_debugger_history.txt";
+    // The editor first, as `bund_debugger` makes it before anything else
+    // (`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:39-46`):
+    // when it cannot be made, the error is said, nothing runs, and the
+    // program goes on (F223, D204). Not left to the first read, which comes
+    // after the first value has been applied.
+    if let Err(e) = vm.open_input(Some(HISTORY)) {
+        vm.report(Diagnostic::warning(e));
+        return Ok(());
+    }
     // `\n` appended, as `bund_debugger` does before parsing.
     let source = format!("{snippet}\n");
     let words = bund2_syntax::compile(&source).map_err(|e| Error(e.render(&source)))?;
-    const HISTORY: &str = "bund_debug_debugger_history.txt";
     let prompt = debug_prompt();
     for word in words {
         if word.dt() == NONE {
@@ -1438,6 +1453,35 @@ mod tests {
                 "5".to_string()
             )]
         );
+    }
+
+    /// **F223, D204: `debug` makes its editor before anything else.** When
+    /// the input cannot be opened, the reason is reported, nothing in the
+    /// snippet runs, and the program goes on — as `bund_debugger` prints and
+    /// returns `Ok` (`debug_debug.rs:39-46`). The snippet is pulled first, as
+    /// `debug_debug` pulls it before calling (`:127-135`), and is not parsed:
+    /// one that would not parse is not refused either.
+    #[test]
+    fn debug_with_an_input_that_will_not_open_runs_nothing() {
+        #[derive(Debug)]
+        struct Said(std::rc::Rc<std::cell::RefCell<Vec<String>>>);
+        impl bund2_api::diag::Reporter for Said {
+            fn report(&mut self, d: &bund2_api::diag::Diagnostic) {
+                self.0.borrow_mut().push(d.reason.clone());
+            }
+        }
+        for snippet in ["\"1 2\" debug 3", "\"( 1\" debug 3"] {
+            let script = bund2_api::input::Scripted::lines(["5", ""]).refusing_open("no tty");
+            let seen = script.seen();
+            let said = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            let mut i = interp();
+            i.input = Box::new(script);
+            i.reporter = Box::new(Said(said.clone()));
+            run(&mut i, snippet).expect("goes on");
+            assert_eq!(shown(&i), ["3"], "{snippet}");
+            assert_eq!(*said.borrow(), ["no tty"], "{snippet}");
+            assert!(seen.borrow().prompts.is_empty(), "{snippet}: nothing read");
+        }
     }
 
     /// **The default is no input**, which is what closes F158 by construction:

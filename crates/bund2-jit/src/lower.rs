@@ -106,6 +106,23 @@ pub struct Ctx<'a> {
     /// files what it calls rather than draining it — §S5's hand-back. Read
     /// by [`jit_apply`] at the last index alone.
     tail: bool,
+    /// **D139's frame, not yet asked for** — F224, D205. The body a frame
+    /// would name, held until compiled code first hands control back to the
+    /// `Vm`, which is the first moment anything could read the frame list:
+    /// a value applied, a filed body drained, a native called. [`framed`]
+    /// asks for it then and empties this, so it is asked for once. A body
+    /// that never calls back, as `1 drop` does not, never pays for one.
+    frame: Option<&'a BundValue>,
+}
+
+/// **Ask for D139's frame, if it has not been asked for** — F224, D205. Called
+/// by every helper that hands control to the `Vm`, before it does: from there
+/// a backtrace, a nested entry or a native may read the frame list, and the
+/// running body must be on it as it was when the tier pushed it at entry.
+fn framed(c: &mut Ctx<'_>) {
+    if let Some(body) = c.frame.take() {
+        c.vm.tier_frame(body);
+    }
 }
 
 /// A helper's status: `0` success, `1` error parked in [`Ctx::err`].
@@ -613,6 +630,7 @@ extern "C" fn jit_drain(c: *mut Ctx<'_>, _unused: usize) -> i32 {
     let Some(c) = (unsafe { ctx(c) }) else {
         return FAIL;
     };
+    framed(c);
     let r = c.vm.drain_tail_request();
     status_of(c, r)
 }
@@ -883,6 +901,7 @@ extern "C" fn jit_call_native(c: *mut Ctx<'_>, native: usize) -> i32 {
         )));
         return FAIL;
     };
+    framed(c);
     // The catch is here, at the call, which is where Tier 0's is.
     let outcome = bund2_api::catch_panic(|| f(&mut *c.vm));
     let r = match outcome {
@@ -936,6 +955,7 @@ extern "C" fn jit_apply(c: *mut Ctx<'_>, index: usize) -> i32 {
         return FAIL;
     };
     // D139: Tier 0's frame has stepped past a value by the time it runs.
+    framed(c);
     c.vm.tier_at(index.saturating_add(1));
     // **§S5's hand-back.** The last value of a body compiled for tail
     // position is reached by `return_call_indirect`, and nothing of this body
@@ -999,6 +1019,7 @@ extern "C" fn jit_residual(c: *mut Ctx<'_>, index: usize) -> i32 {
     let rest: Vec<BundValue> = c.body[index..].to_vec();
     for (k, v) in rest.into_iter().enumerate() {
         // D139, as `jit_apply`.
+        framed(c);
         c.vm.tier_at(index.saturating_add(k).saturating_add(1));
         let r = c.vm.apply(v);
         // **Every value goes through `status_of`**, not just the last. It is
@@ -1076,6 +1097,7 @@ impl Compiled {
             // site table of its own.
             sites: &[],
             tail: false,
+            frame: None,
         };
         // SAFETY: the entry is the address `finalize_definitions` published for
         // a function this module emitted under the host's own calling
@@ -1371,6 +1393,7 @@ impl CompiledBody {
             body: &[],
             sites: &[],
             tail: false,
+            frame: None,
         };
         // SAFETY: the entry is the trampoline's published address, under the
         // platform's convention, and `&mut c` is live for the whole call. The
@@ -2386,9 +2409,31 @@ impl Compiler {
     /// rule the repository owner chose over a ratio test — which on the corpus
     /// refused the same bodies at every fraction from 1/8 to 1/4 and began
     /// refusing winners at 1/3.
+    ///
+    /// # Sites must outnumber generic values — F224, D205
+    ///
+    /// Tier 0 grew cheaper beneath that rule, and a generic value did not: it
+    /// is Tier 0's own `apply` with the boundary around it, and the first one
+    /// in a body also pays for D139's frame. Re-measured 2026-10-22 on macOS
+    /// arm64 as instructions retired per entry, release builds: a site saves
+    /// about 238, a generic value costs about 141 more than Tier 0's, the
+    /// first one about 56 more again, and an entry about 231. So a body with
+    /// one generic value needs two sites to gain, with two it needs three,
+    /// with four four. `1 dup drop`, one site and one generic (`dup` is an
+    /// alias and publishes no fragment), retired 16% more compiled.
+    ///
+    /// **A count, not those constants**, for F136's reason: they are one
+    /// host's, and they move. Requiring more sites than generic values agrees
+    /// with them up to three generic values and is cautious past that, where
+    /// it turns away a body that would gain a little rather than admit one
+    /// that loses.
     pub fn would_gain(&self, body: &[BundValue], vm: &mut dyn Vm) -> bool {
-        let (_plan, sites) = self.plan_body(body, vm);
-        !sites.is_empty()
+        let (plan, sites) = self.plan_body(body, vm);
+        let generic = plan
+            .iter()
+            .filter(|p| matches!(p, Plan::Call { .. }))
+            .count();
+        sites.len() > generic
     }
 
     /// Apply the body's values in order, through Tier 0's own `apply`.
@@ -2402,6 +2447,23 @@ impl Compiler {
         word: WordHandle,
         vm: &mut dyn Vm,
         body: &[BundValue],
+    ) -> Result<bool, Error> {
+        self.run_framed(word, vm, body, None)
+    }
+
+    /// [`Compiler::run`], with the body D139's frame names — F224, D205.
+    ///
+    /// `Vm::tier_frame` is asked for it the first time compiled code hands
+    /// control back to `vm`, and not at all by a body that never does. Until
+    /// then nothing can read the frame list, so a backtrace, a nested entry
+    /// and a native see what they saw when the tier asked at every entry, and
+    /// an entry that never calls back saves the push and the pop.
+    pub fn run_framed(
+        &self,
+        word: WordHandle,
+        vm: &mut dyn Vm,
+        body: &[BundValue],
+        frame: Option<&BundValue>,
     ) -> Result<bool, Error> {
         let Some(w) = self.words.get(word.0) else {
             return Err(Error::internal(
@@ -2441,6 +2503,7 @@ impl Compiler {
             // guard against the stack as it stands.
             sites: &w.sites,
             tail: w.last == LastCall::Tail,
+            frame,
         };
         // SAFETY: as `CompiledBody::run`'s — the trampoline's published address
         // under the platform's convention, with `&mut c` live for the call. The
@@ -5539,6 +5602,7 @@ mod tests {
             body: &[],
             sites,
             tail: false,
+            frame: None,
         };
         jit_admits(&raw mut c, site)
     }

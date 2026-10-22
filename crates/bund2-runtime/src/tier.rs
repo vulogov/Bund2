@@ -285,10 +285,11 @@ impl Tier for JitTier {
                 {
                     return None;
                 }
-                // D139: the body has a frame while compiled code runs it. Asked
-                // for here, after every way of declining but the floor's, and
-                // the `Vm` removes it when this returns.
-                vm.tier_frame(body);
+                // D139: the body has a frame while compiled code runs it. It is
+                // asked for by the compiled run, the first time that run hands
+                // control back to the `Vm` — before then nothing can read the
+                // frame list — and the `Vm` removes it when this returns. An
+                // entry that never calls back pushes none (F224, D205).
                 // **A declined body is not a failure** — §S8's Tier 1 floor,
                 // F142. `Ok(false)` says the entry refused to start because
                 // the stack pointer was beneath the floor: nothing ran and
@@ -299,7 +300,7 @@ impl Tier for JitTier {
                 // one that starts below the floor is interpreted, on the heap.
                 let turned_away = compiler.floor_declines();
                 self.running.set(self.running.get().saturating_add(1));
-                let ran = compiler.run(code, vm, values);
+                let ran = compiler.run_framed(code, vm, values, Some(body));
                 self.running.set(self.running.get().saturating_sub(1));
                 // D147: the first entry the floor declines, and how many
                 // compiled bodies were running above it when it did.
@@ -1075,10 +1076,16 @@ mod tests {
     /// `a_compiled_word_stops_at_the_first_failure`
     /// (`crates/bund2-jit/src/lower.rs`) covers this bullet's other half, a
     /// failing callee; this is the error-with-promotion case.
+    ///
+    /// **The leading `0 drop` pairs, here and in the bodies below, are
+    /// padding.** A body compiles only when its sites outnumber its generic
+    /// values (F224, D205). Each pair is a promoted literal and a `drop` site
+    /// and leaves the stack as it found it, so the body still exercises what
+    /// it was written for, compiled.
     #[test]
     fn an_error_with_values_promoted_matches_tier_zero() {
         assert_promoted_matches_tier0(
-            ":w { 1 2 + true + clear } register\n",
+            ":w { 0 drop 1 2 + true + clear } register\n",
             3,
             "an error with values promoted",
         );
@@ -1098,7 +1105,7 @@ mod tests {
     fn an_effect_changed_before_the_body_runs_matches_tier_zero() {
         assert_promoted_matches_tier0(
             ":h { drop } register\n\
-             :w { 1 2 + h clear } register\n\
+             :w { 0 drop 0 drop 1 2 + h clear } register\n\
              :h { drop drop } register\n",
             3,
             "an effect changed before the body runs",
@@ -1112,7 +1119,7 @@ mod tests {
     fn an_effect_changed_mid_body_matches_tier_zero() {
         assert_promoted_matches_tier0(
             ":h { drop } register\n\
-             :w { 1 2 + :h { drop drop } register h clear } register\n",
+             :w { 0 drop 0 drop 0 drop 0 drop 0 drop 1 2 + :h { drop drop } register h clear } register\n",
             3,
             "an effect changed mid-body",
         );
@@ -1131,8 +1138,8 @@ mod tests {
     #[test]
     fn an_alias_whose_target_is_rebound_matches_tier_zero() {
         assert_redefinition_changes_the_result(
-            ":w { 1 2 + <- clear } register\n",
-            ":w { 1 2 + <- clear } register\n\
+            ":w { 0 drop 0 drop 1 2 + <- clear } register\n",
+            ":w { 0 drop 0 drop 1 2 + <- clear } register\n\
              :stacks_left { drop drop } register\n",
             3,
             "an alias whose target is rebound",
@@ -1143,8 +1150,8 @@ mod tests {
     #[test]
     fn an_alias_rebound_mid_body_matches_tier_zero() {
         assert_redefinition_changes_the_result(
-            ":w { 1 2 + <- clear } register\n",
-            ":w { 1 2 + :stacks_left { drop drop } register <- clear } register\n",
+            ":w { 0 drop 0 drop 0 drop 0 drop 0 drop 1 2 + <- clear } register\n",
+            ":w { 0 drop 0 drop 0 drop 0 drop 0 drop 1 2 + :stacks_left { drop drop } register <- clear } register\n",
             3,
             "an alias rebound mid-body",
         );
@@ -1164,11 +1171,11 @@ mod tests {
         for (label, body) in [
             (
                 "`$stacks_left`, rebound before the body runs",
-                ":w { 1 2 + $stacks_left } register\n:stacks_left { drop drop } register\n",
+                ":w { 0 drop 1 2 + $stacks_left } register\n:stacks_left { drop drop } register\n",
             ),
             (
                 "`$stacks_left`, rebound mid-body",
-                ":w { 1 2 + :stacks_left { drop drop } register $stacks_left } register\n",
+                ":w { 0 drop 0 drop 0 drop 0 drop 1 2 + :stacks_left { drop drop } register $stacks_left } register\n",
             ),
         ] {
             assert_promoted_matches_tier0(&format!("{STACKS}{body}"), 3, label);
@@ -1183,6 +1190,10 @@ mod tests {
     /// site is called and not inlined. `drop` is saturated here, the body is
     /// compiled and entered, and then `drop` is rebound to a lambda that
     /// pushes. Compiled code that had inlined `drop` would go on dropping.
+    ///
+    /// The `0 +` is a second `+` site: with `drop` called, the body must still
+    /// have more sites than generic values to compile (F224, D205). `drop` is
+    /// the subject here, so it cannot be the padding.
     #[test]
     fn a_callee_with_a_saturated_generation_is_called_and_sees_its_rebinding() {
         let run = |r: &mut crate::Runtime, saturate: bool| {
@@ -1195,7 +1206,7 @@ mod tests {
                     .expect("registered");
                 r.interp.registry.saturate_generation(s);
             }
-            r.eval_str(":w { 1 2 + 7 drop } register")
+            r.eval_str(":w { 1 2 + 0 + 7 drop } register")
                 .expect("setup runs");
             let mut outcomes = Vec::new();
             for _ in 0..3 {
@@ -1218,16 +1229,16 @@ mod tests {
         run(&mut control, false);
         assert_eq!(
             control.inlined_sites(),
-            Some(2),
-            "the premise: `+` and `drop` both inline"
+            Some(3),
+            "the premise: both `+` and `drop` inline"
         );
 
         let mut tiered = inlining_runtime_with(1);
         let got = run(&mut tiered, true);
         assert_eq!(
             tiered.inlined_sites(),
-            Some(1),
-            "`+` inlines and the saturated `drop` does not"
+            Some(2),
+            "both `+` inline and the saturated `drop` does not"
         );
         assert!(
             tiered.compiled_entries().unwrap_or(0) >= 4,
@@ -1261,10 +1272,10 @@ mod tests {
         assert_redefinition_changes_the_result(
             ":g { drop } register\n\
              :f { g } register\n\
-             :w { 1 2 + f clear } register\n",
+             :w { 0 drop 0 drop 1 2 + f clear } register\n",
             ":g { drop } register\n\
              :f { g } register\n\
-             :w { 1 2 + f clear } register\n\
+             :w { 0 drop 0 drop 1 2 + f clear } register\n\
              :g { drop drop } register\n",
             3,
             "a lambda callee rebound before the body runs",
@@ -1277,10 +1288,10 @@ mod tests {
         assert_redefinition_changes_the_result(
             ":g { drop } register\n\
              :f { g } register\n\
-             :w { 1 2 + f clear } register\n",
+             :w { 0 drop 0 drop 1 2 + f clear } register\n",
             ":g { drop } register\n\
              :f { :g { drop drop } register g } register\n\
-             :w { 1 2 + f clear } register\n",
+             :w { 0 drop 0 drop 1 2 + f clear } register\n",
             3,
             "a lambda callee rebound during the call",
         );
@@ -1307,12 +1318,14 @@ mod tests {
     /// fragments, so a tier reading the slot would also *inline* it. Shadowed,
     /// it must do neither. The `+` is what leaves the body a site, since the
     /// shadowed `drop` no longer supplies one — which is also why this body
-    /// survives F136's rule.
+    /// survives F136's rule. The two `0 +` are more `+` sites, so it has more
+    /// sites than generic values as well (F224, D205); `drop` is shadowed, so
+    /// the leading `0 drop` pairs used elsewhere would not be sites here.
     #[test]
     fn a_lambda_shadowing_a_native_matches_tier_zero() {
         assert_promoted_matches_tier0(
             ":drop { 1 } register\n\
-             :w { 1 2 + drop clear } register\n",
+             :w { 1 2 + 0 + 0 + drop clear } register\n",
             3,
             "a lambda that shadows a native",
         );
@@ -1346,7 +1359,8 @@ mod tests {
     /// stack where Tier 0 also has it.
     #[test]
     fn a_mid_body_warning_carries_tier_zeros_snapshot() {
-        let setup = ":w { 1 2 + nl :x :x alias clear } register\n";
+        let setup =
+            ":w { 0 drop 0 drop 0 drop 0 drop 0 drop 1 2 + nl :x :x alias clear } register\n";
 
         let seen = WantingReporter::default();
         let mut tiered = crossing_runtime_with(1);
@@ -1460,8 +1474,10 @@ mod tests {
     fn the_same_body_still_crosses_under_the_cli_reporter() {
         let mut r = crossing_runtime_with(1);
         r.interp.reporter = Box::new(bund2_stdlib::report::TextReporter::new(true));
-        r.eval_str(":w { 1 2 + nl :x :x alias clear } register\n")
-            .expect("setup runs");
+        r.eval_str(
+            ":w { 0 drop 0 drop 0 drop 0 drop 0 drop 1 2 + nl :x :x alias clear } register\n",
+        )
+        .expect("setup runs");
         for _ in 0..3 {
             r.eval_str("w").expect("the body runs");
         }
@@ -1492,9 +1508,18 @@ mod tests {
     #[test]
     fn a_call_and_a_context_after_the_collecting_mode_match_tier_zero() {
         const ROWS: [(&str, &str); 3] = [
-            ("a call", ":w { 1 2 + drop : 7 nl ; } register\n"),
-            ("a context", ":w { 1 2 + drop : 7 @side ; } register\n"),
-            ("both", ":w { 1 2 + drop : nl @side 7 nl ; } register\n"),
+            (
+                "a call",
+                ":w { 0 drop 0 drop 1 2 + drop : 7 nl ; } register\n",
+            ),
+            (
+                "a context",
+                ":w { 0 drop 0 drop 1 2 + drop : 7 @side ; } register\n",
+            ),
+            (
+                "both",
+                ":w { 0 drop 0 drop 0 drop 0 drop 1 2 + drop : nl @side 7 nl ; } register\n",
+            ),
         ];
         for (label, setup) in ROWS {
             let run = |r: &mut crate::Runtime| {
@@ -1543,25 +1568,25 @@ mod tests {
         const ROWS: [(&str, &str, &str, &[&str]); 4] = [
             (
                 "a literal, the mode set through `!`",
-                ":w { 1 2 + drop \":\" ! 7 ; } register\n",
+                ":w { 0 drop 0 drop 1 2 + drop \":\" ! 7 ; } register\n",
                 "[ 0 ]",
                 &["[ 0 ::  7 ::  7 ::  7 :: ]"],
             ),
             (
                 "a call, the mode set through `!`",
-                ":w { 1 2 + drop \":\" ! nl ; } register\n",
+                ":w { 0 drop 0 drop 0 drop 1 2 + drop \":\" ! nl ; } register\n",
                 "[ 0 ]",
                 &["[ 0 ::  F(nl) ::  F(nl) ::  F(nl) :: ]"],
             ),
             (
                 "a literal onto a scalar",
-                ":w { 1 2 + drop : 7 ; } register\n",
+                ":w { 0 drop 1 2 + drop : 7 ; } register\n",
                 "5",
                 &["7"],
             ),
             (
                 "a call onto a scalar",
-                ":w { 1 2 + drop : nl ; } register\n",
+                ":w { 0 drop 0 drop 1 2 + drop : nl ; } register\n",
                 "5",
                 &["F(nl)"],
             ),
@@ -1610,17 +1635,20 @@ mod tests {
     #[test]
     fn a_body_a_call_asks_for_runs_before_the_next_value_in_real_programs() {
         const ROWS: [(&str, &str); 9] = [
-            ("! then a value", "{ 10 } ! 20"),
-            ("! last", "20 { 10 } !"),
-            ("if then a value", "true { 10 } if 20"),
-            ("if last", "20 true { 10 } if"),
+            ("! then a value", "0 drop { 10 } ! 20"),
+            ("! last", "0 drop 20 { 10 } !"),
+            ("if then a value", "0 drop 0 drop true { 10 } if 20"),
+            ("if last", "0 drop 0 drop 20 true { 10 } if"),
             ("a word then a value", "f 20"),
             ("a word last", "20 f"),
-            ("two requests", "{ 1 } ! { 2 } !"),
-            ("a request inside a drained body", "{ { 1 } ! 2 } ! 3"),
+            ("two requests", "0 drop 0 drop 0 drop { 1 } ! { 2 } !"),
+            (
+                "a request inside a drained body",
+                "0 drop { { 1 } ! 2 } ! 3",
+            ),
             (
                 "a failing body under ?try",
-                "?try :try { 5 \"boom\" raise } set :except { drop 99 } set ! 20",
+                "0 drop 0 drop 0 drop 0 drop 0 drop 0 drop 0 drop ?try :try { 5 \"boom\" raise } set :except { drop 99 } set ! 20",
             ),
         ];
         for (label, program) in ROWS {
@@ -1663,9 +1691,9 @@ mod tests {
     /// rotate a stack that does not hold them yet.
     #[test]
     fn a_flagged_observer_is_not_crossed_by_a_tier_that_crosses() {
-        const OBSERVER: &str = ":w { 1 2 + 7 8 rotate_current_left } register\n";
+        const OBSERVER: &str = ":w { 0 drop 1 2 + 7 8 rotate_current_left } register\n";
         // The control: the same promoted values before a certified word.
-        const CERTIFIED: &str = ":w { 1 2 + 7 8 nl } register\n";
+        const CERTIFIED: &str = ":w { 0 drop 1 2 + 7 8 nl } register\n";
 
         let run = |r: &mut crate::Runtime, setup: &str| {
             r.eval_str(setup).expect("setup runs");
@@ -1839,7 +1867,7 @@ mod tests {
                 false,
             ),
             (
-                "\"p> \" { println 1 2 + drop 7 go } input*".to_string(),
+                "\"p> \" { 0 drop println 1 2 + drop 7 go } input*".to_string(),
                 "input*",
                 true,
             ),
@@ -1986,8 +2014,10 @@ mod tests {
     #[test]
     fn a_hot_body_failing_under_a_native_keeps_the_natives_wrapper() {
         let run = |r: &mut crate::Runtime| {
-            r.eval_str(":drop :go alias\n:m { [ 1 ] { 1 2 + drop true go } map } register\n")
-                .expect("setup runs");
+            r.eval_str(
+                ":drop :go alias\n:m { [ 1 ] { 0 drop 1 2 + drop true go } map } register\n",
+            )
+            .expect("setup runs");
             for _ in 0..3 {
                 r.eval_str("m").expect("the warm-up entries run");
             }
@@ -2034,7 +2064,7 @@ mod tests {
     #[test]
     fn a_promoted_value_does_not_ride_across_a_stack_switch() {
         assert_promoted_matches_tier0(
-            ":other ensure_stack\n             :main to_stack\n             :w { 1 2 + stacks_left } register\n",
+            ":other ensure_stack\n             :main to_stack\n             :w { 0 drop 1 2 + stacks_left } register\n",
             3,
             "a promoted value across `stacks_left` (F140)",
         );
@@ -2109,7 +2139,7 @@ mod tests {
     /// a path it never reaches.
     #[test]
     fn a_rebound_crossed_callee_does_not_reverse_the_stack() {
-        let setup = ":w { 1 2 + nl } register\n";
+        let setup = ":w { 0 drop 1 2 + nl } register\n";
         let rebind = ":nl { 99 } register\n";
 
         let run = |tiered: bool| -> Vec<Option<i64>> {
@@ -2604,7 +2634,7 @@ mod tests {
     /// second of two locks, and this is what says the second lock does no harm.
     #[test]
     fn a_crossing_body_under_a_stack_wanting_reporter_matches_tier_zero() {
-        let setup = ":w { 1 2 + nl clear } register\n";
+        let setup = ":w { 0 drop 0 drop 1 2 + nl clear } register\n";
 
         let seen = WantingReporter::default();
         let mut tiered = crossing_runtime_with(1);
@@ -2864,6 +2894,13 @@ mod tests {
     /// plan 1 site / 3 promoted and 1 site / 2 promoted respectively, where
     /// before they planned nothing at all.
     ///
+    /// **Every row gained leading `0 drop` pairs on 2026-10-22**, for the same
+    /// kind of reason: a body now compiles only when its sites outnumber its
+    /// generic values (F224, D205). Each pair is a promoted literal and a
+    /// `drop` site, run on `main` before any switch and leaving the stack as it
+    /// found it. With them the two rows above plan 3 sites / 5 promoted and
+    /// 5 sites / 6 promoted.
+    ///
     /// The two bullets above describe the bodies **as first written**. What the
     /// amended ones leave is not restated here, because the `script` path prints
     /// no stack dump to a pipe and it has not been observed directly — and this
@@ -2874,9 +2911,9 @@ mod tests {
     #[test]
     fn a_current_stack_switch_mid_body_gives_tier_zeros_result() {
         for (body, label) in [
-            ("1 2 :s to_stack +", "to_stack"),
-            ("1 2 :s to_current +", "to_current"),
-            ("1 2 stacks_left +", "stacks_left"),
+            ("0 drop 0 drop 1 2 :s to_stack +", "to_stack"),
+            ("0 drop 0 drop 1 2 :s to_current +", "to_current"),
+            ("0 drop 1 2 stacks_left +", "stacks_left"),
             // **The trailing `drop` is F136's doing, not decoration.** Every
             // other body here ends in `+`, which §S6 publishes, so it plans a
             // site and still compiles. This one's words are all unpublished, so
@@ -2888,17 +2925,17 @@ mod tests {
             // workbench after `endcontext` has already moved it there, which is
             // the switch this row exists to observe.
             (
-                "1 2 @s 9 endcontext drop",
+                "0 drop 0 drop 1 2 @s 9 endcontext drop",
                 "a CONTEXT literal and endcontext",
             ),
-            ("1 2 @s +", "a CONTEXT literal"),
+            ("0 drop 1 2 @s +", "a CONTEXT literal"),
             // The same F136 fix as the row above, for the same reason: `true`
             // and `ifthenelse` are unpublished, so the outer body planned zero
             // sites and stopped being compiled. The lambdas are separate bodies
             // and are unaffected. `drop` runs in both arms, so the differential
             // still compares like with like.
             (
-                "1 2 true { 7 } { @s 9 } ifthenelse drop",
+                "0 drop 0 drop 0 drop 0 drop 1 2 true { 7 } { @s 9 } ifthenelse drop",
                 "a conditional on another stack",
             ),
         ] {
@@ -2946,7 +2983,7 @@ mod tests {
     #[test]
     fn a_word_beneath_a_compiled_body_runs_compiled() {
         let mut r = inlining_runtime_with(1);
-        r.eval_str(":w { 1 2 + drop } register\n:v { w 3 4 + } register\n")
+        r.eval_str(":w { 1 2 + drop } register\n:v { 0 drop w 3 4 + } register\n")
             .expect("setup runs");
         for _ in 0..4 {
             r.eval_str("v").expect("runs");
@@ -3035,7 +3072,7 @@ mod tests {
             Row {
                 label: "an error beneath a compiled body",
                 setup: ":drop :go alias\n\
-                        :w { 1 2 + drop true go } register\n\
+                        :w { 0 drop 1 2 + drop true go } register\n\
                         :v { 3 4 + w 5 6 + } register\n",
                 rebind: ":+ :go alias\n",
                 exits: None,
@@ -3192,8 +3229,8 @@ mod tests {
     /// be missing from it.
     #[test]
     fn a_warning_beneath_a_nested_compiled_body_carries_tier_zeros_snapshot() {
-        let setup = ":w { 1 2 + :x :x alias } register\n\
-                     :v { 3 4 + w 5 6 + clear } register\n";
+        let setup = ":w { 0 drop 0 drop 0 drop 1 2 + :x :x alias } register\n\
+                     :v { 0 drop 3 4 + w 5 6 + clear } register\n";
         type Snap = (Option<Vec<String>>, Option<Vec<String>>);
         let snaps = |w: &WantingReporter| -> Vec<Snap> {
             w.0.borrow()
@@ -3282,7 +3319,7 @@ mod tests {
                 // `1 2 + drop` is the site F136 asks for. The comparison and
                 // the subtraction take the top as their first operand, as the
                 // test below this one explains.
-                r.eval_str(":down { 1 2 + drop dup 0 < { 1 swap - down 0 drop } if } register\n")
+                r.eval_str(":down { 0 drop 1 2 + drop dup 0 < { 0 drop 1 swap - down 0 drop } if } register\n")
                     .expect("defines");
                 r.eval_str("3 down drop")
                     .expect("the entry that compiles it");
@@ -3332,8 +3369,10 @@ mod tests {
         const LEVELS: i64 = 200_000;
         declare_share();
         let mut r = inlining_runtime_with(1);
-        r.eval_str(":down { 1 2 + drop dup 0 < { 1 swap - down } if } register\n")
-            .expect("defines");
+        r.eval_str(
+            ":down { 0 drop 1 2 + drop dup 0 < { 0 drop 0 drop 1 swap - down } if } register\n",
+        )
+        .expect("defines");
         r.eval_str("3 down drop")
             .expect("the entry that compiles it");
         r.eval_str(&format!("{LEVELS} down"))

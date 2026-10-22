@@ -20,10 +20,16 @@ use std::process::Command;
 /// entry compiles it, the second runs it compiled — and the panicking word on
 /// the third. `1 2 + drop` gives the body a site, so it compiles (F136).
 /// `tail` is what follows the call inside the body: something, or nothing.
-fn program(tail: &str) -> String {
+///
+/// `pads` leading `0 drop` pairs are there because a body compiles only when
+/// its sites outnumber its generic values (F224, D205), and a string literal
+/// is a generic value. Each pair is a promoted literal and a `drop` site, and
+/// leaves the stack as it found it.
+fn program(pads: usize, tail: &str) -> String {
+    let pad = "0 drop ".repeat(pads);
     format!(
         ":drop :go alias\n\
-         :w {{ \"tick\" println 1 2 + drop \"zz_nofile\" \"A\" go {tail} }} register\n\
+         :w {{ {pad}\"tick\" println 1 2 + drop \"zz_nofile\" \"A\" go {tail} }} register\n\
          w w\n\
          :string.distance.jarowinkler :go alias\n\
          w \"unreached\" println\n"
@@ -61,9 +67,9 @@ fn a_panicking_native_under_a_compiled_body_matches_without_the_tier() {
     let dir = std::env::temp_dir().join(format!("bund2-panic-tier-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("scratch dir");
 
-    for (label, tail) in [("non-tail", "\"after\" println"), ("tail", "")] {
+    for (label, pads, tail) in [("non-tail", 6, "\"after\" println"), ("tail", 4, "")] {
         let script = dir.join(format!("panic-{label}.bund"));
-        std::fs::write(&script, program(tail)).expect("script");
+        std::fs::write(&script, program(pads, tail)).expect("script");
 
         let (out, err, code, stats) = run_at(&script, "1");
         let (plain_out, plain_err, plain_code, _) = run_at(&script, "1000000");

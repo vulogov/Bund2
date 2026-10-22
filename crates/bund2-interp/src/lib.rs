@@ -2884,6 +2884,10 @@ impl Vm for Interp {
         self.input.line(ask)
     }
 
+    fn open_input(&mut self, history: Option<&str>) -> Result<(), String> {
+        self.input.open(history)
+    }
+
     fn feed_line(&mut self, line: String) -> bool {
         self.fed.push_back(line);
         true

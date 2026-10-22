@@ -26,8 +26,8 @@ use std::process::Command;
 ///
 /// `1 2 + drop` gives the body a site (`+` and `drop` both publish arms) and
 /// changes nothing it observes: the sum is dropped, and the program's output
-/// and exit code are what they were. With it the tier compiles 1 body, inlines
-/// 2 sites and promotes 2 values. *(This said "and crosses 2 calls" until
+/// and exit code are what they were. With it the tier compiled 1 body, inlined
+/// 2 sites and promoted 2 values, until D205's padding below. *(This said "and crosses 2 calls" until
 /// RFC-0005's twenty-third review: the shipped tier crosses none, by D75.)*
 ///
 /// **What this program cannot show**, and the same review's B3: the `times`
@@ -35,7 +35,13 @@ use std::process::Command;
 /// the compiled form is produced and never entered. It is the criterion's
 /// own program and stays for that reason; [`HOT_PROGRAM`] is the one whose
 /// exit is reached from compiled code.
-const PROGRAM: &str = "3 { \"tick\" println 1 2 + drop true { \"bye\" println 7 exit } if \"after if\" println } times\n";
+///
+/// **The leading `0 drop` pairs, here and below, are padding.** A body now
+/// compiles only when its sites outnumber its generic values (F224, D205),
+/// and a string literal is a generic value. Each pair is a promoted literal
+/// and a `drop` site and leaves the stack as it found it; with six, this body
+/// inlines 8 sites and promotes 8 values against 7 generic values.
+const PROGRAM: &str = "3 { 0 drop 0 drop 0 drop 0 drop 0 drop 0 drop \"tick\" println 1 2 + drop true { \"bye\" println 7 exit } if \"after if\" println } times\n";
 
 /// The same branch, reached on an entry the cache answers.
 ///
@@ -46,7 +52,7 @@ const PROGRAM: &str = "3 { \"tick\" println 1 2 + drop true { \"bye\" println 7 
 /// `2 entered`: the exiting entry is counted, because a compiled entry that
 /// ends in an error is one.
 const HOT_PROGRAM: &str = ":c { false } register\n\
-:w { \"tick\" println 1 2 + drop c { \"bye\" println 7 exit } if \"after if\" println } register\n\
+:w { 0 drop 0 drop 0 drop 0 drop 0 drop 0 drop \"tick\" println 1 2 + drop c { \"bye\" println 7 exit } if \"after if\" println } register\n\
 w w :c { true } register w \"unreached\" println\n";
 
 /// Run at a threshold, returning `(stdout, exit code, stats line)`.
@@ -547,7 +553,7 @@ fn a_hot_input_loop_body_exits_with_the_pipe_held_open() {
     std::fs::write(
         &script,
         ":drop :go alias\n\
-         \"p> \" { dup println \"x\" == { :exit :go alias } if 1 2 + drop 7 go } input*\n\
+         \"p> \" { 0 drop 0 drop 0 drop 0 drop dup println \"x\" == { :exit :go alias } if 1 2 + drop 7 go } input*\n\
          \"unreached\" println\n",
     )
     .expect("script");

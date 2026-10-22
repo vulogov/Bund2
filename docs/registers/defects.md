@@ -4304,6 +4304,16 @@ gone from 316 ms to 130 ms. The criterion says a figure below 1.2× means
 "§S1's gate should be reopened rather than the number explained". Its
 cause is this entry's, and so is its disposition: the owner's.
 
+**Note, 2026-10-22 — fixed, on the owner's ruling (D205: A, then B).** D139's
+frame is now asked for when compiled code first calls back into the `Vm`,
+not at entry. That took `1 drop` to −0.6% and a user's word to +3.0%, and
+left `1 dup drop` at +16.2%: one site and one generic value, which the
+re-measured coefficients in D205 say loses. `Compiler::would_gain` now
+asks that a body's sites outnumber its generic values. Criterion 7 re-read
+on macOS arm64 with both: every row inside the band, the highest +3.1%.
+Criterion 10's program reads 1.23× here, above the stop rule. The other
+hosts are `bench-reading`'s to re-take.
+
 ## F223 — `debug` runs its first value before it knows it has a line editor
 
 **A Bund2 divergence; found 2026-10-21** while examining RFC-0008's row "`debug`
@@ -4336,6 +4346,12 @@ stdin modes. INTEGER is refused with the same reason, in D36's layout.
 **Disposition: open — the owner's.** D112 decided the wording of a terminal
 that will not open, not `debug`'s ordering. Making `debug` open its line
 source first would change D112's lazy opening for that word.
+
+**Note, 2026-10-22 — fixed, on the owner's ruling (D204, B).** `debug` asks
+`Vm::open_input` before it parses its snippet. When the input will not
+open, the reason is reported as a warning, nothing runs, and the program
+goes on, as the reference's does. Test:
+`debug_with_an_input_that_will_not_open_runs_nothing`.
 
 ## F222 — a method slot naming no method was refused in Bund2's words, not the reference's
 
@@ -4488,6 +4504,9 @@ its rows, which F17's fix assumed it never does.
   Pinned by
   `allpath_refuses_an_acyclic_graph_with_a_negative_path_into_the_last_node`.
   D200 did not see this face; **D203** asks whether its ruling covers it.
+
+- **Note, 2026-10-21, later.** D203 resolved A: D200's ruling covers the
+  third face, which is preserved.
 
 ## F219 — `graph.path` panics on a node no kept edge reaches
 
@@ -8597,6 +8616,14 @@ nothing.
   refusal costs more than the entire loss it would prevent.
 - Depends on: F133 (the rule this strengthens), §S6 (the fragment table that
   decides what inlines), §S7 (where the policy lives), criterion 10
+
+**Note, 2026-10-22 — the rule is strengthened again (D205).** Tier 0 grew
+cheaper and a generic value now costs about 141 instructions an entry
+over Tier 0's, against 238 saved by a site. So a body compiles only when
+its sites outnumber its generic values. That is a count of sites against
+generic values, not the fraction of all values this entry measured, and
+it was checked against the corpus the same way: the seven bodies it
+refuses each lose on today's coefficients. D205 has the figures.
 
 ## F135 — the whole `value` group's no-tier control exceeds the band it polices — RESOLVED as a measurement protocol
 

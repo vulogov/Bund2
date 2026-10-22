@@ -76,6 +76,15 @@ pub trait Input {
     /// One line.
     fn line(&mut self, ask: &Ask<'_>) -> Result<Read, String>;
 
+    /// Make ready what a read in the named history would read from, without
+    /// reading. For a word that must know it can read before it does anything
+    /// else: `debug` makes its editor first, and when that fails runs nothing
+    /// (F223, D204). **Defaulted to ready**, which is right for an input that
+    /// has nothing to open.
+    fn open(&mut self, _history: Option<&str>) -> Result<(), String> {
+        Ok(())
+    }
+
     /// Add `line` to the named history. Separate from [`Input::line`] because
     /// which lines are worth remembering is the word's business: `debug`
     /// does not remember the empty line that moves it on, and `debug.shell`
@@ -117,6 +126,8 @@ impl Input for NoInput {
 pub struct Scripted {
     lines: VecDeque<String>,
     secrets: VecDeque<String>,
+    /// What [`Input::open`] fails with, when it is told to fail.
+    refused: Option<String>,
     seen: std::rc::Rc<std::cell::RefCell<Seen>>,
 }
 
@@ -153,6 +164,13 @@ impl Scripted {
         self
     }
 
+    /// An input that cannot be opened: [`Input::open`] fails with `reason`,
+    /// as a terminal's editor can (F223). Its lines are still answered.
+    pub fn refusing_open(mut self, reason: impl Into<String>) -> Self {
+        self.refused = Some(reason.into());
+        self
+    }
+
     /// A handle on what this input is asked, which stays readable after the
     /// input itself has been moved into an interpreter.
     pub fn seen(&self) -> std::rc::Rc<std::cell::RefCell<Seen>> {
@@ -161,6 +179,13 @@ impl Scripted {
 }
 
 impl Input for Scripted {
+    fn open(&mut self, _history: Option<&str>) -> Result<(), String> {
+        match &self.refused {
+            Some(reason) => Err(reason.clone()),
+            None => Ok(()),
+        }
+    }
+
     fn line(&mut self, ask: &Ask<'_>) -> Result<Read, String> {
         self.seen.borrow_mut().prompts.push(ask.prompt.to_string());
         Ok(match self.lines.pop_front() {
@@ -211,5 +236,14 @@ mod tests {
         let seen = seen.borrow();
         assert_eq!(seen.prompts, ["1> ", "2> ", "3> ", "pw: ", "pw: "]);
         assert_eq!(seen.remembered, [("h".to_string(), "b".to_string())]);
+    }
+
+    #[test]
+    fn an_input_opens_unless_told_to_refuse() {
+        assert_eq!(NoInput.open(Some("h")), Ok(()));
+        assert_eq!(Scripted::lines(["a"]).open(None), Ok(()));
+        let mut s = Scripted::lines(["a"]).refusing_open("no tty");
+        assert_eq!(s.open(Some("h")), Err("no tty".to_string()));
+        assert_eq!(s.line(&Ask::new("> ")), Ok(Read::Line("a".into())));
     }
 }

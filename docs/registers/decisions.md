@@ -3653,6 +3653,88 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D205 — F224: make a compiled entry cheaper, then compile only a body that gains
+
+**Ruled 2026-10-22** by the repository owner on F224's three ways out:
+"F224: A, then B if it's still needed."
+
+- Blocks: RFC-0005 criteria 7 and 10 on today's tree
+- Depends on: F224, D139 (the frame), D148 (criterion 7's count), F133 and
+  F136 (`Compiler::would_gain`'s rule), D117 (the entry's trace)
+- Options (F224's): **A**, make an entry cheaper; **B**, compile only a
+  body that gains; **C**, re-word criterion 7.
+- Status: **RESOLVED** by the repository owner, 2026-10-22: A, then B.
+
+*A, as built.* D139's frame is asked for when compiled code first hands
+control back to the `Vm` — a value applied, a filed body drained, a native
+called — and not at entry. `JitTier::enter` passes the body to
+`Compiler::run_framed`, and `Ctx`'s `frame` holds it until `framed` asks
+`Vm::tier_frame` for it, once. Before that moment nothing can read the
+frame list, so a backtrace, a nested entry and a native see what they saw
+when the frame was pushed at every entry, and
+`a_backtrace_from_under_a_compiled_body_names_it` passes unchanged. A body
+that never calls back pushes no frame. D139's ruling stands; how it is
+built changed. `1 drop` went from +8.0% to −0.6% and a call to a user's word
+from +9.3% to +3.0%. `1 dup drop` stayed at +16.2%.
+
+*B was still needed.* `dup` is an alias that publishes no fragment, so
+`1 dup drop` has one site and one generic value, and a generic value is
+what Tier 0's cheaper turn left behind. Re-measured 2026-10-22, macOS
+arm64, instructions retired per entry, release builds, median of three
+(bodies `1 drop` + N `clear`, and `1` + N `dup_one` + N+1 `drop`):
+
+| | per entry |
+|---|---|
+| an inlined site saves | ~238 |
+| a generic value costs, over Tier 0's | ~141 |
+| the first generic value, D139's frame | ~56 more |
+| a compiled entry's fixed cost | ~231 |
+
+So one generic value needs two sites, two need three, four need four.
+`Compiler::would_gain` now asks that **a body's sites outnumber its
+generic values**, a count and not those constants, for F136's reason:
+they are one host's. The count agrees with them up to three generic values
+and is cautious past that.
+
+*What it moved.* Criterion 7's nine rows, same method: `1 drop` −0.8%,
+`1 dup drop` +1.3% (not compiled), a user's word +3.1%, `down` +0.6% (not
+compiled; it gained 1.1% compiled, which the rule gives up), the rest
+−43.9% to +1.9%. **No row fails.** Criterion 10's recorded program,
+ten alternating rounds: **1.23×** on macOS arm64, from 1.17×; 1.24× with
+A alone. The other hosts are `bench-reading`'s to re-take. The hermetic
+corpus at threshold 1 compiles 2 bodies where it compiled 9. The seven
+refused, in six programs, each had one or two sites against one to five
+generic values, and today's coefficients put each at a loss. Conformance cannot move: which
+bodies compile changes no meaning (§S2). Thirty-one tests compiled a body
+of one site and some generic values to exercise compiled code's handling of
+them; each is padded with leading `0 drop` pairs, as F136 padded criterion
+21's rows, and checks what it did.
+
+## D204 — F223: `debug` opens its line editor before anything else
+
+**Ruled 2026-10-22** by the repository owner: "F223: B".
+
+- Blocks: nothing
+- Depends on: F223, D112 (the input seam), D36 (delivery)
+- Options: **A**, approve the divergence; **B**, open first; **C**, leave
+  F223 open.
+- Status: **RESOLVED** by the repository owner, 2026-10-22: B. Built the
+  same day.
+
+`bund2_api::input::Input` gains `open`, and `Vm` gains `open_input`, both
+defaulted to ready. `Terminal` opens the editor the named history would use
+and keeps it for the read that follows. `debug` asks after pulling and
+casting its snippet and before parsing it, as `bund_debugger` makes its
+editor first
+(`reference/Bund/src/stdlib/functions/debug_fun/debug_debug.rs:39-46`). On
+a failure it reports the reason as a `Warning`, runs nothing, and returns
+`Ok`. The reference prints the error to standard output (`:43`). Bund2
+delivers it as D36 delivers a warning, one line on standard error. Every
+other reading word keeps D112's lazy opening. `Scripted::refusing_open`
+lets a test reach the arm the CLI cannot:
+`debug_with_an_input_that_will_not_open_runs_nothing`, over a snippet that
+parses and one that does not.
+
 ## D203 — does D200's ruling cover `graph.allpath` refusing a graph with no cycle?
 
 **Raised 2026-10-21** by the fifth RFC-0012 review
@@ -3694,7 +3776,13 @@ is this error, and it names a cycle that is not there.
   coherent alternative if the owner would rather fix F220 than preserve
   it; choosing B for this face alone would leave the other two.
 - Default for planning: A. Not adopted.
-- Status: **OPEN**
+- Status: **RESOLVED** by the repository owner, 2026-10-21: A ("D203: A").
+  D200 covers F220's third face, and `graph.allpath` keeps refusing a graph
+  with no cycle as the reference does. Nothing in the word changes: F220's
+  note and RFC-0012 state it, and
+  `allpath_refuses_an_acyclic_graph_with_a_negative_path_into_the_last_node`
+  pins it in both node orders. `graph.bellmanford` remains the word for
+  negative weights.
 
 ## D202 — refuse a sum that overflows only when the answer does
 
@@ -3866,6 +3954,9 @@ also makes `graph.allpath` refuse a graph that has no cycle, as "negative
 cycle detected", when a negative path runs into the last distinct node.
 That was found by the fifth RFC-0012 review and not shown here. Whether
 this ruling covers it is **D203**, open.
+
+**Note, 2026-10-21, later.** D203 resolved A: this ruling covers that face
+too.
 
 ## D199 — a sum of finite weights that overflows is refused
 
@@ -8466,6 +8557,12 @@ one of them never ran compiled code. The `hot_body` rows did — its
 pre-flight prints `compiled bodies 1` at every length — and the cost stands
 at about 5 ns for each compiled entry. I did not read the pre-flight lines
 when the table was written.
+
+*Note, 2026-10-22 — built lazily (D205).* The frame is asked for when
+compiled code first hands control back to the `Vm`, not at entry. Nothing
+can read the frame list before then, so what a backtrace shows is
+unchanged, and an entry that never calls back pushes none. This ruling
+stands; how it is built changed.
 
 ## D138 — RFC-0006 is Accepted
 

@@ -24,7 +24,8 @@
   is answered in place, and listed at the end. The fifth review
   (`RFC-0012-review-2026-10-21-2.md`, "Not ready for Accepted") found
   `graph.allpath` refusing graphs with no cycle (F220's third face, put to
-  the owner as **D203**, open); D202's build keeping an exception the
+  the owner as **D203**, resolved A: preserved under D200); D202's build
+  keeping an exception the
   ruling did not grant, and untested by any cross-check (both answered in
   code); and the `.` forms' workbench half undeclared, which D195 bears on.
   The rest is answered in place, and listed at the end.
@@ -32,9 +33,8 @@
   (the effects `bund2 check` reads, and the residual stack), RFC-0005
   (which natives Tier 1 promotes)
 - Decisions consumed: D192 (and its notes of 2026-10-18), D193, D198,
-  D199, D200, D202, D14, D18, D24, D111 (and its note of 2026-10-07), D37, D38,
+  D199, D200, D202, D203, D14, D18, D24, D111 (and its note of 2026-10-07), D37, D38,
   D39, D48, D49, D55, D195; the dispositions of F17, F218, F219 and F220.
-  **Open: D203** (whether D200 covers F220's third face)
 - Registers searched by subject ("graph", the nineteen word names,
   `graph.rs`, `make_graph`, `fast_paths`, `calc_path`, `algos`, "Title",
   "NaN"): D14, D18, D24, D37, D38, D39, D48, D49, D55, D111, D192, D193,
@@ -145,7 +145,7 @@ reproducibly.
   graph! graph.allpath` answers `GRAPH.ALLPATH: returned: negative cycle
   detected in graph`, and four rows when listed `[ :C :A :B ]`. On a DAG
   this is the commonest way to meet F220. All of these were run in both
-  engines. Whether D200's ruling covers this face is **D203**, open.
+  engines. D200's ruling covers this face (**D203**, resolved A).
 - The family is **core** under D14's partition: `bund/graph` is listed
   under `## core` (`docs/core-words.md:9`, the line at `:16`), not under
   `## library` (`:43`). So all seven words carry D14's 100% preservation,
@@ -419,8 +419,8 @@ which acceptance would ratify:
   how `nodes` is ordered. A negative cycle is mostly refused; one through
   that node's replaced out-edges goes unseen. And a graph with **no**
   cycle is refused as "negative cycle detected" when a negative path runs
-  into that node (F220's third face; whether D200 covers it is **D203**,
-  open). Bund2 runs the same `algos` revision and keeps all of this;
+  into that node (F220's third face; D200 covers it, **D203** resolved
+  A). Bund2 runs the same `algos` revision and keeps all of this;
   `graph.bellmanford` is the word for negative weights.
 - **The twelve new words**: no reference behaviour exists. `conform`,
   `IMPLEMENTED` and `COVERAGE` move by zero. Nothing in `wb.rs`'s `ADDED`
@@ -586,7 +586,7 @@ F219 instead of `found=false`.
 
 | Finding | Answer |
 |---|---|
-| 1. `graph.allpath` refuses graphs with no cycle | "Current behaviour" and the preservation analysis state it; F220 note; test `allpath_refuses_an_acyclic_graph_with_a_negative_path_into_the_last_node` in both node orders; **D203** asks the owner whether D200 covers it (open) |
+| 1. `graph.allpath` refuses graphs with no cycle | "Current behaviour" and the preservation analysis state it; F220 note; test `allpath_refuses_an_acyclic_graph_with_a_negative_path_into_the_last_node` in both node orders; **D203** resolved A: D200 covers it, preserved |
 | 2. D202's build kept an exception | Removed: the fallback runs in `Wide`, an exponent beside the `f64`, so any weight is taken; the test that pinned the old message now asserts the answer, for a tiny weight on a path, unreachable and on a self-loop, and the `-1.0e308` cycle with one; D202 note |
 | 3. No cross-check of the fallback | `the_wide_run_scales_with_the_weights`: 1,200 seeded graphs scaled by `2^1020` with a subnormal self-loop, each answer the plain one scaled to the bit; and `wide_sums_round_as_unbounded_f64_would`; criterion 11 |
 | 4. The `.` forms' workbench half | Declared `(1, 1)` from how they are built (`BUILT` in `bench.rs`), so `check` finds `:A graph.bfs.`; S1 cites D195; D195 note |
