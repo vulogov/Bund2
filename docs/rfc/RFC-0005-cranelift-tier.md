@@ -2799,6 +2799,9 @@ once.)*
 it. What is not built is stage 2, compiling at once while nested, which the
 owner has not approved.)*
 
+*(2026-10-22: stage 2 is closed, D145 C. Stage 1 is the design: a body that
+gets hot beneath a compiled body waits until the outermost returns.)*
+
 *(As of 2026-09-13; criterion 23 has since been met, and its own entry says
 how.)* **Criterion 23 is still not met**, and the wiring does not change that: it wants
 one cache, one `JITModule` and one set of cells *per `Interp`*, and while the

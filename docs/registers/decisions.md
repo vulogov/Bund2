@@ -7261,6 +7261,8 @@ D145's stage 2.
 - *D145's stage 2.* The reading it waited on is under D145: the memory
   raises no objection, and the compiler's borrow does. Stage 2 stays
   unapproved.
+  *(2026-10-22: closed by the owner, option C. Stage 1 is the design, and
+  D145's note of this date states the limit.)*
 
 
 ## D153 — `bincode` is unmaintained and `bund2-value` depends on it directly
@@ -8061,6 +8063,8 @@ reads 1.40×.
 - Depends on: F142, F194, D139, D44
 - Status: **RESOLVED — option A, stage 1**, by the repository owner,
   2026-10-10: "A and 1: scope the F194 fix", then "approve stage 1".
+  **Stage 2 closed, 2026-10-22**, by the repository owner: "D145: C" —
+  stage 1 is the design. See the note of that date at the foot.
 
 *What stage 1 is.* A body entered beneath a compiled body is offered to the
 tier, counted, and run compiled **if it already has code**. A body that
@@ -8200,6 +8204,23 @@ by `CompiledBody`. And whether a hardened-runtime build forbids turning a
 non-`MAP_JIT` page from writable to executable; if it does, stage 1 is
 already affected. Stage 2 stays unapproved; this is the reading it waited
 on.
+
+*Note, 2026-10-22 — stage 2 closed: C.* The owner was given four options:
+A, a compiler that adds bodies through a shared reference; B, a second
+module for bodies compiled while nested, which criterion 23's one module
+per `Interp` forbids; C, close stage 2 and keep stage 1 as the design; D,
+measure the worst case first. The owner chose C. **The limit, stated.** A
+body that earns compilation while a compiled body is running is
+interpreted until the outermost compiled entry returns, and is compiled
+then (`JitTier::defer`, `JitTier::compile_pending`;
+`a_body_that_gets_hot_beneath_a_compiled_one_is_compiled_afterwards`).
+Only a body that first gets hot beneath one long compiled entry waits for
+long. A loop body is an entry for each pass, so the queue is drained
+between passes. No measurement shows a program losing time to the queue,
+and none was taken. The second question the note above left open, whether
+a hardened-runtime build forbids turning a non-`MAP_JIT` page from writable
+to executable, is not closed by this. It bears on stage 1 as built, not on
+stage 2, and is still unread.
 
 ## D144 — is RFC-0005 §S9, tier pinning, withdrawn?
 

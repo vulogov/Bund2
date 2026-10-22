@@ -33,12 +33,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel]
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
       # The `interpret` bench includes corpus programs from `reference/`.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
@@ -84,11 +84,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel]
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
@@ -111,11 +111,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel]
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: both builds
         run: |
@@ -141,11 +141,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel]
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
